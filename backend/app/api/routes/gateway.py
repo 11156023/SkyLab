@@ -15,6 +15,8 @@ from app.schemas.gateway import (
     GatewayConfigPublic,
     GatewayConfigUpdate,
     GatewayConnectionTestResult,
+    GatewayInstallOptions,
+    GatewayInstallStatus,
     GatewayServiceVersionsResult,
     GatewayWireGuardOverview,
     ServiceActionResult,
@@ -22,7 +24,7 @@ from app.schemas.gateway import (
     ServiceConfigWrite,
     ServiceStatusResult,
 )
-from app.services.network import gateway_service
+from app.services.network import gateway_install_service, gateway_service
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -163,14 +165,8 @@ def reset_host_key(session: SessionDep, current_user: AdminUser) -> Message:
 @router.get("/install-script")
 def download_install_script(_: AdminUser):
     """下載 Gateway VM 安裝腳本"""
-    import os
-
-    script_path = os.path.join(
-        os.path.dirname(__file__),
-        "..", "..", "..", "..", "gateway", "install.sh",
-    )
-    script_path = os.path.abspath(script_path)
-    if not os.path.exists(script_path):
+    script_path = gateway_install_service.install_script_path()
+    if not script_path.is_file():
         raise HTTPException(
             status_code=404, detail=t("gateway.install_script_missing")
         )
@@ -179,6 +175,38 @@ def download_install_script(_: AdminUser):
         media_type="text/x-sh",
         filename="install-gateway.sh",
     )
+
+
+# ─── 一鍵安裝服務 ──────────────────────────────────────────────────────────────
+
+
+@router.get("/install", response_model=GatewayInstallStatus)
+def get_install_status(session: SessionDep, _: AdminUser):
+    """經 SSH 讀取 Gateway 上的安裝狀態、日誌、網卡與已安裝元件"""
+    return gateway_install_service.get_install_status(session=session)
+
+
+@router.post("/install", response_model=GatewayInstallStatus, status_code=202)
+def start_install(
+    options: GatewayInstallOptions,
+    session: SessionDep,
+    current_user: AdminUser,
+):
+    """用已綁定的 SSH 金鑰上傳 install.sh，在 Gateway 背景執行（nginx／certbot／WireGuard）"""
+    result = gateway_install_service.start_install(session=session, options=options)
+    audit_service.log_action(
+        session=session,
+        user_id=current_user.id,
+        action=AuditAction.gateway_service_control,
+        details=(
+            "Started gateway one-click install: "
+            f"ingress={options.ingress_interface} vm={options.vm_interface} "
+            f"snat={options.snat_address} wg_port={options.listen_port} "
+            f"forward={options.forward_port_start}:{options.forward_port_end} "
+            f"monitoring={','.join(options.monitoring_allow_from) or '-'}"
+        ),
+    )
+    return result
 
 
 # ─── 服務設定檔管理 ────────────────────────────────────────────────────────────

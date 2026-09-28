@@ -27,7 +27,7 @@ const ROUTE_GUIDES = [
   { match: /^\/ai-api$/, id: "ai-api", icon: "psychology", profile: "request" },
   { match: /^\/ai-api-review$/, id: "ai-api-review", icon: "rate_review", profile: "review" },
   { match: /^\/ai-api-keys$/, id: "ai-api-keys", icon: "vpn_key", profile: "resource" },
-  { match: /^\/ai-monitoring$/, id: "ai-monitoring", icon: "monitor_heart", profile: "monitor" },
+  { match: /^\/ai-monitoring$/, id: "ai-monitoring", icon: "query_stats", profile: "monitor" },
 
   { match: /^\/course-cms$/, id: "course-cms", icon: "school", profile: "teaching" },
   { match: /^\/course-template-management$/, id: "course-templates", icon: "view_quilt", profile: "teaching" },

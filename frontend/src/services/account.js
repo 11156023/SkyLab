@@ -52,4 +52,12 @@ export const AccountService = {
   completeOnboarding() {
     return apiPost(`${BASE}/onboarding/complete`, {});
   },
+
+  /**
+   * 登入後的服務檢查：{ ok, detailed, checks: [{ key, status, components? }] }。
+   * 非管理員只有 key／status；refresh 只對管理員有效（略過後端快取重新探測）。
+   */
+  preflight({ refresh = false } = {}) {
+    return apiGet(`${BASE}/preflight${refresh ? "?refresh=true" : ""}`);
+  },
 };

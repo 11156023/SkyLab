@@ -343,7 +343,16 @@ function Students({ item, onRefresh }) {
 
     <section className={styles.memberPanel}>
       <div className={styles.memberPanelHead}><strong>{t("ClassWorkspacePage.memberListHeader", { count: item.students.length })}</strong><span>{t("ClassWorkspacePage.machinesReadyShort", { ready: item.readyMachines, total: item.totalMachines || 0 })}</span></div>
-      {item.students.length ? <div className={styles.memberList}>{item.students.map((student) => {
+      {item.students.length ? <div className={styles.memberList}>
+        {/* 欄位標題：和下方每列用同一組欄寬，VMID、日期這些數字才看得出是什麼 */}
+        <div className={styles.memberColumns}>
+          <span>{t("ClassWorkspacePage.memberColStudent")}</span>
+          <span>{t("ClassWorkspacePage.memberColVmid")}</span>
+          <span>{t("ClassWorkspacePage.memberColMachines")}</span>
+          <span>{t("ClassWorkspacePage.memberColJoined")}</span>
+          <span />
+        </div>
+        {item.students.map((student) => {
         const ready = student.machines.filter((machine) => machine.status === "completed").length;
         return <article className={styles.memberRow} key={student.id}>
           <div className={styles.memberIdentity}><strong>{student.full_name || student.email}</strong><span>{student.email}</span></div>
@@ -943,7 +952,7 @@ function StudentMachines({ item }) {
   return <div className={styles.stack}>
     <section className={`${styles.card} ${styles.heatmapCard}`}>
       <div className={styles.heatmapHeader}>
-        <div><span className={styles.heatmapEyebrow}>{t("ClassWorkspacePage.liveResourceOverviewEyebrow")}</span><h2>{t("ClassWorkspacePage.heatmapTitle")}</h2><p>{t("ClassWorkspacePage.heatmapDesc")}</p></div>
+        <div><h2>{t("ClassWorkspacePage.heatmapTitle")}</h2><p>{t("ClassWorkspacePage.heatmapDesc")}</p></div>
         <span className={usageStatus === "error" ? styles.prototypeBadge : styles.liveBadge}><MIcon name={usageStatus === "error" ? "sync_problem" : "sensors"} size={15} />{badgeText}</span>
       </div>
 
@@ -960,9 +969,13 @@ function StudentMachines({ item }) {
             </button>;
           })}
         </div>
-        <div className={styles.metricTabs} role="tablist" aria-label={t("ClassWorkspacePage.selectMetricAria")}>
-          {Object.entries(RESOURCE_METRICS).map(([key, info]) => <button key={key} type="button" role="tab" aria-selected={metric === key} className={metric === key ? styles.metricTabActive : ""} onClick={() => setMetric(key)}><MIcon name={info.icon} size={16} />{info.label}</button>)}
-        </div>
+        <SegmentedControl
+          className={styles.metricSwitch}
+          ariaLabel={t("ClassWorkspacePage.selectMetricAria")}
+          value={metric}
+          onChange={setMetric}
+          options={Object.entries(RESOURCE_METRICS).map(([key, info]) => ({ value: key, label: info.label, icon: info.icon }))}
+        />
       </div>
 
       {selectedNode && item.students.length ? <>

@@ -1,4 +1,6 @@
+/* 以頁面內容寬度（扣掉側欄）當容器，編輯區依實際可用寬度切換排版 */
 .page {
+  container-type: inline-size;
   @include flex-column;
   gap: $spacing-24;
   padding: $spacing-8 $spacing-16;
@@ -17,385 +19,543 @@
   font-size: $font-size-14;
 }
 
-.emptyHint {
-  padding: $spacing-8;
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-}
-
-/* ── Tabs ── */
-.tabs {
-  display: flex;
-  gap: $spacing-4;
-  padding: $spacing-4;
-  background: var(--color-surface-glass);
-  border: 1px solid var(--color-surface-glass-border);
-  border-radius: $radius-12;
-}
-
-.tabBtn {
-  display: flex;
-  align-items: center;
-  gap: $spacing-4;
-  padding: $spacing-8 $spacing-16;
-  border: none;
-  border-radius: $radius-8;
-  background: none;
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--color-hover);
-  }
-}
-
-.tabActive {
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover {
-    background: var(--color-primary-dark);
-  }
-}
-
-/* ── 編輯器欄位佈局 ── */
+/* ── 內容編輯：左樹狀導覽＋右工作區 ── */
+/* 依頁面內容寬度（.page 是容器）排版：窄時樹在上、工作區在下；夠寬左右並排 */
 .editorLayout {
-  display: flex;
-  gap: $spacing-8;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-16;
   flex: 1;
   min-height: 0;
-  align-items: stretch;
+}
 
-  @media (max-width: 1100px) {
-    flex-direction: column;
-    overflow: auto;
+@container (min-width: 760px) {
+  .editorLayout {
+    grid-template-columns: 300px minmax(0, 1fr);
   }
 }
 
-.column {
+/* 兩塊都比照全站玻璃卡：毛玻璃＋shadow-sm＋radius-16 */
+.navPanel,
+.workspace {
   @include flex-column;
-  width: 280px;
-  flex-shrink: 0;
-  background: var(--color-surface-glass);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-sm));
+  min-width: 0;
+  min-height: 0;
   border-radius: $radius-16;
   overflow: hidden;
+}
 
-  @media (max-width: 1100px) {
-    width: 100%;
+.navPanel {
+  max-height: 360px;
+}
+
+@container (min-width: 760px) {
+  .navPanel {
+    max-height: none;
   }
 }
 
-.columnWide {
-  flex: 1;
-  width: auto;
-  min-width: 0;
+.navHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  min-height: 52px;
+  padding: $spacing-8 $spacing-8 $spacing-8 $spacing-16;
+  border-bottom: 1px solid var(--color-divider);
+
+  h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+    font-weight: $font-weight-700;
+  }
 }
 
-.columnHeader {
-  padding: $spacing-8 $spacing-16;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  border-bottom: 1px solid var(--color-border);
+.navAddBtn {
+  @include btn-icon;
 }
 
-.columnBody {
+.navBody {
   @include flex-column;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: $spacing-8;
-  gap: $spacing-4;
 }
 
-/* ── 列表項 ── */
-.item {
+/* ── 樹狀列 ── */
+.tree,
+.tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 每層縮排 20px；層級用 --level 帶進來 */
+.treeRow {
   display: flex;
   align-items: center;
-  gap: $spacing-8;
-  padding: $spacing-8 $spacing-8;
+  gap: 2px;
+  padding-left: calc(var(--level, 0) * 20px);
   border-radius: $radius-8;
-  font-size: $font-size-12;
-  color: var(--color-text-primary);
-  cursor: pointer;
+  transition: background $transition-base;
 
   &:hover {
     background: var(--color-hover);
-
-    .iconBtn {
-      opacity: 1;
-    }
   }
 }
 
-.itemActive {
+.treeRowActive,
+.treeRowActive:hover {
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary);
 }
 
-.itemLabel {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.itemMeta {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
+.treeToggle {
+  @include btn-icon;
   flex-shrink: 0;
-}
-
-.iconBtn {
-  display: flex;
-  align-items: center;
-  padding: 2px;
-  border: none;
-  background: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0;
-  flex-shrink: 0;
-
-  &:hover {
-    color: var(--color-danger);
-  }
-}
-
-.pubDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-status-neutral);
-  flex-shrink: 0;
-}
-
-.pub_on {
-  background: var(--color-success);
-}
-
-/* ── 表單 ── */
-.addForm {
-  display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-4;
-  padding: $spacing-8;
-  border-top: 1px solid var(--color-border);
-
-  select {
-    width: 100%;
-    padding: $spacing-8;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    font-size: $font-size-12;
-  }
-}
-
-.pathClassLink {
-  display: grid;
-  gap: $spacing-4;
-  padding: $spacing-8;
-  border-top: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-
-  select {
-    min-width: 0;
-    padding: $spacing-8;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-  }
-
-  small {
-    color: var(--color-text-muted);
-    line-height: 1.45;
-  }
-}
-
-.input {
-  flex: 1;
-  min-width: 100px;
-  padding: $spacing-8 $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-12;
-
-  &:focus {
-    outline: none;
-    border-color: var(--color-primary);
-  }
-}
-
-.inputNarrow {
-  flex: 0 0 64px;
-  min-width: 64px;
-}
-
-.select {
-  padding: $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-12;
-  max-width: 100%;
-}
-
-.addBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: $spacing-8;
-  border: none;
-  border-radius: $radius-8;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  background: transparent;
 
   &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
+    background: var(--color-row-hover);
   }
 
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-on-surface);
+    outline-offset: -2px;
   }
 }
 
-/* ── 任務欄雙欄 ── */
-.taskLayout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+.treeToggleSpacer {
+  flex-shrink: 0;
+  width: 28px;
+}
+
+.treeLabel {
+  display: flex;
   flex: 1;
-  min-height: 0;
-
-  @media (max-width: 1100px) {
-    grid-template-columns: 1fr;
-  }
-}
-
-.taskList {
-  @include flex-column;
-  gap: $spacing-4;
-  padding: $spacing-8;
-  border-right: 1px solid var(--color-border);
-  overflow-y: auto;
-}
-
-.taskEditor {
-  @include flex-column;
+  align-items: center;
   gap: $spacing-8;
-  padding: $spacing-8;
-  overflow-y: auto;
-  min-height: 0;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px $spacing-8 6px $spacing-4;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: $font-size-14;
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-on-surface);
+    outline-offset: -2px;
+  }
 }
 
-.textarea {
-  padding: $spacing-8 $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-12;
-  font-family: monospace;
-  line-height: 1.6;
+.treeText {
+  min-width: 0;
+  @include text-truncate;
+}
 
-  &:focus {
-    outline: none;
-    border-color: var(--color-primary);
+.treeRowActive .treeText {
+  color: var(--color-primary-on-surface);
+  font-weight: $font-weight-700;
+}
+
+.itemIndex {
+  @include flex-center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--color-text-secondary);
+  background: var(--color-hover);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+}
+
+.treeRowActive .itemIndex {
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+}
+
+/* 「＋ 新增房間／任務」：平常是一行淡字，點了變輸入列；左側對齊同層文字 */
+.treeAdd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: $spacing-4 $spacing-8 $spacing-4 calc(var(--level, 0) * 20px + 30px);
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: $font-size-12;
+  text-align: left;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    color: var(--color-primary-on-surface);
+    background: var(--color-hover);
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-on-surface);
+    outline-offset: -2px;
+  }
+}
+
+.treeAddForm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 2px calc(var(--level, 0) * 20px + 30px);
+
+  input {
+    @include form-control;
+    flex: 1;
+    min-width: 0;
+    min-height: 32px;
+    padding-block: 4px;
+  }
+}
+
+.treeAddSubmit {
+  @include btn-icon;
+  flex-shrink: 0;
+}
+
+.treeLoading {
+  padding: 6px 0 6px calc(var(--level, 0) * 20px + 30px);
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
+
+/* ── 工作區 ── */
+.workspace {
+  overflow-y: auto;
+}
+
+.wsHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+  padding: 20px $spacing-24 $spacing-16;
+  border-bottom: 1px solid var(--color-divider);
+
+  h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: $font-size-18;
+    font-weight: $font-weight-700;
+    overflow-wrap: anywhere;
+  }
+}
+
+.wsHeading {
+  min-width: 0;
+}
+
+.wsKind {
+  margin: 0 0 $spacing-4;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  overflow-wrap: anywhere;
+}
+
+.wsDeleteBtn {
+  @include btn-danger-outline;
+  flex-shrink: 0;
+}
+
+.wsBody {
+  @include flex-column;
+  gap: 20px;
+  padding: 20px $spacing-24 $spacing-24;
+}
+
+.wsSection {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wsSection + .wsSection {
+  padding-top: 20px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.wsSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+.countBadge {
+  @include flex-center;
+  min-width: 24px;
+  padding: 0 6px;
+  border-radius: $radius-pill;
+  color: var(--color-text-secondary);
+  background: var(--color-hover);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 表單欄位（工作區與對話框共用） ── */
+.formLabel {
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.field {
+  @include form-field;
+
+  input,
+  select,
+  textarea {
+    @include form-control;
+  }
+}
+
+/* 欄位裡的切換鈕依內容寬度，不被直欄撐滿 */
+.segmentFit {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.fieldHint {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: $font-weight-400;
+  line-height: 1.5;
+}
+
+/* Markdown 內容：固定高度、不能拖拉縮放，內容多了在框內捲動；用等寬字方便對齊程式碼區塊 */
+.contentInput {
+  height: 240px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.6;
+  resize: none;
 }
 
 .editorActions {
   display: flex;
-  justify-content: flex-end;
-}
-
-.saveBtn {
-  display: flex;
   align-items: center;
-  gap: $spacing-4;
-  padding: $spacing-8 $spacing-16;
-  border: none;
-  border-radius: $radius-8;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  font-size: $font-size-12;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--color-primary-dark);
-  }
+  justify-content: flex-end;
+  gap: 12px;
 }
 
-/* ── 題目區 ── */
-.questionBlock {
-  @include flex-column;
-  gap: $spacing-4;
-  margin-top: $spacing-8;
-  padding-top: $spacing-8;
-  border-top: 1px solid var(--color-border);
-}
-
-.questionHeader {
+.unsavedHint {
+  color: var(--color-pending);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  padding: $spacing-4 0;
 }
 
+.btnPrimary,
+.saveBtn {
+  @include btn-primary;
+}
+
+.btnSecondary {
+  @include btn-secondary;
+}
+
+/* ── 發布狀態：左邊寫目前狀態（學生看不看得到），右邊是對應動作 ── */
+.publishRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.publishInfo {
+  display: grid;
+  gap: $spacing-4;
+  min-width: 0;
+}
+
+.publishState {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+}
+
+/* 已發布＝綠點、草稿＝灰點，旁邊一定寫字，不只靠顏色 */
+.statusDot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-status-neutral);
+}
+
+.statusDotOn {
+  background: var(--color-success);
+}
+
+/* ── 題目 ── */
+.questionsHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.noQuestions {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+.questionList {
+  @include flex-column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 玻璃卡裡的清單列一律白底＋細框；整列點下去開編輯對話框 */
 .questionRow {
   display: flex;
   align-items: center;
-  gap: $spacing-8;
-  padding: $spacing-8;
+  gap: $spacing-4;
+  padding-right: 6px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  font-size: $font-size-12;
-  color: var(--color-text-primary);
+  background: var(--color-surface);
+  transition: background $transition-base;
 
-  &:hover .iconBtn {
-    opacity: 1;
+  &:hover {
+    background: var(--color-hover);
   }
 }
 
-.questionForm {
+.questionMain {
   display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-4;
+  flex: 1;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 6px 6px 12px;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: $font-size-14;
+  text-align: left;
+  cursor: pointer;
+
+  > :global(.material-icons-outlined) {
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-on-surface);
+    outline-offset: -2px;
+  }
+}
+
+.questionPrompt {
+  flex: 1;
+  min-width: 0;
+  @include text-truncate;
+}
+
+.questionMeta {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-variant-numeric: tabular-nums;
+}
+
+.questionDelete {
+  @include btn-icon($danger: true);
+  flex-shrink: 0;
+}
+
+/* 分數：窄輸入框＋「分」字尾（選擇器要壓過 .field input 的 width: 100%） */
+.pointsField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-400;
+
+  input {
+    width: 96px;
+  }
+}
+
+.field .pointsField input {
+  width: 96px;
 }
 
 /* ── 進度面板 ── */
+/* 玻璃卡比照全站卡片；空狀態／載入／錯誤元件在 flex 欄裡吃滿剩餘高度置中 */
 .progressPanel {
   @include flex-column;
-  gap: $spacing-8;
-  background: var(--color-surface-glass);
-  border: 1px solid var(--color-surface-glass-border);
-  border-radius: $radius-16;
-  padding: $spacing-16;
+  @include glass-surface($shadow: var(--shadow-sm));
+  gap: $spacing-16;
   flex: 1;
   min-height: 0;
+  padding: $spacing-16;
+  border-radius: $radius-16;
 }
 
 .progressToolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: $spacing-8;
+  gap: $spacing-8 $spacing-16;
+}
+
+/* 路徑選單用標準表單控制項，寬度依內容、上限避免長標題撐滿整列 */
+.pathSelect {
+  @include form-control;
+  width: auto;
+  min-width: 200px;
+  max-width: 100%;
+
+  @include respond-to(md) {
+    max-width: 360px;
+  }
 }
 
 .liveBadge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: $spacing-4;
+  gap: 6px;
   font-size: $font-size-12;
   color: var(--color-text-muted);
 }
@@ -406,6 +566,10 @@
   .liveDot {
     background: var(--color-success);
     animation: pulse 1.6s infinite;
+
+    @media (prefers-reduced-motion: reduce) {
+      animation: none;
+    }
   }
 }
 
@@ -421,33 +585,31 @@
   50% { opacity: 0.4; }
 }
 
+/* 卡片內的表格：外框已是玻璃卡，這裡只負責橫向捲動（同 .tableScroll 慣例），表頭／列／儲存格用全站表格 mixin */
 .progressTableWrap {
-  overflow: auto;
   min-height: 0;
+  overflow: auto;
 }
 
 .progressTable {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: $font-size-12;
+  @include table-base;
 
   th {
-    padding: $spacing-8 $spacing-8;
-    font-size: $font-size-12;
-    font-weight: $font-weight-500;
-    color: var(--color-text-muted);
-    text-align: left;
-    background: var(--color-hover);
-    border-bottom: 1px solid var(--color-border);
-    white-space: nowrap;
+    @include table-th;
+  }
+
+  tbody tr {
+    @include table-tr;
   }
 
   td {
-    padding: $spacing-8 $spacing-8;
-    border-bottom: 1px solid var(--color-border);
-    color: var(--color-text-primary);
+    @include table-td;
     white-space: nowrap;
   }
+}
+
+.numCell {
+  font-variant-numeric: tabular-nums;
 }
 
 .studentCell {
@@ -464,18 +626,20 @@
   display: flex;
   align-items: center;
   gap: $spacing-8;
+  font-variant-numeric: tabular-nums;
 }
 
 .progressBarSm {
   width: 90px;
   height: 6px;
-  border-radius: 3px;
-  background: var(--color-border);
+  border-radius: $radius-pill;
+  background: var(--color-hover);
   overflow: hidden;
 }
 
 .progressFillSm {
   height: 100%;
+  border-radius: inherit;
   background: var(--color-primary);
   transition: width 0.4s ease;
 }

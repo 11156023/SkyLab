@@ -1,4 +1,4 @@
-"""平台本身的健康狀態：DB、Redis、arq worker、PVE API 連線、Gateway、排程心跳。
+"""平台本身的健康狀態：DB、Redis、arq worker、PVE API 連線、Gateway、AI、排程心跳。
 
 - ``readiness()``：給 ``/utils/health-check/ready``（免登入、只回布林）
 - ``collect_system_health()``：給管理員的 ``/monitoring/system-health``
@@ -15,6 +15,9 @@ PVE 這裡只檢查「後端連不連得到 PVE API」——這是 SkyLab 自己
 Gateway 用一條 SSH 指令看 nginx／WireGuard 是否在跑、nginx -t 與憑證效期；
 主機資源與 nginx 流量由 Gateway 上的 exporter 交給 Prometheus（見
 prometheus_sd_service），這裡只管「服務還在不在、要不要人處理」。
+
+AI 以 runtime key 問 LiteLLM：gateway 活著、DB 連上、各模型背景健康檢查的
+結果。推論引擎的佇列／KV cache 等指標由 Prometheus 直接抓 vLLM 的 /metrics。
 """
 
 from __future__ import annotations
@@ -51,6 +54,10 @@ PVE_CACHE_SECONDS = 20.0
 # Gateway 探測要開 SSH 連線（含金鑰交換），比 PVE API 貴，快取久一點
 GATEWAY_PROBE_TIMEOUT_SECONDS = 15.0
 GATEWAY_CACHE_SECONDS = 60.0
+# LiteLLM 探測：四個 HTTP 請求，/health 讀的是 LiteLLM 背景健康檢查的快取
+AI_REQUEST_TIMEOUT_SECONDS = 5.0
+AI_PROBE_TIMEOUT_SECONDS = 15.0
+AI_CACHE_SECONDS = 60.0
 # 同一個問題要連續出現幾輪評估才開告警：吸收部署時 worker 晚幾秒起來、
 # PVE 瞬斷這類抖動
 FINDING_CONFIRMATIONS = 2
@@ -323,6 +330,138 @@ def reset_gateway_cache() -> None:
         _GatewayCache.expires_at = 0.0
 
 
+class _AiCache:
+    lock: ClassVar[threading.Lock] = threading.Lock()
+    expires_at: ClassVar[float] = 0.0
+    components: ClassVar[list[dict[str, Any]]] = []
+
+
+def _probe_ai(base_url: str, api_key: str, *, transport: Any = None) -> dict[str, Any]:
+    """問 LiteLLM：活著嗎、DB 連上沒、有哪些模型、背景健康檢查的結果。
+
+    ``/health`` 讀的是 LiteLLM 背景健康檢查的快取（config 開了
+    background_health_checks），不會為了這次探測去打推論服務。它只回
+    ``hosted_vllm/<served>`` 與 ``model_id``，所以用 ``/model/info`` 把 id 對回
+    公開 alias。全程用受限的 runtime key，不需要 master key。
+    """
+    import httpx
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    probe: dict[str, Any] = {"reachable": False, "db": None, "models": None, "deployments": None}
+    with httpx.Client(
+        base_url=base_url, timeout=AI_REQUEST_TIMEOUT_SECONDS, transport=transport
+    ) as client:
+        try:
+            client.get("/health/liveliness").raise_for_status()
+        except httpx.HTTPError as exc:
+            probe["error"] = _short_error(exc)
+            return probe
+        probe["reachable"] = True
+        try:
+            readiness = client.get("/health/readiness").json()
+            probe["db"] = readiness.get("db") if isinstance(readiness, dict) else None
+        except (httpx.HTTPError, ValueError):
+            probe["db"] = None
+
+        alias_by_id: dict[str, str] = {}
+        try:
+            info = client.get("/model/info", headers=headers)
+            info.raise_for_status()
+            for entry in info.json().get("data", []):
+                alias = entry.get("model_name")
+                model_id = (entry.get("model_info") or {}).get("id")
+                if isinstance(alias, str) and alias:
+                    if isinstance(model_id, str) and model_id:
+                        alias_by_id[model_id] = alias
+                    probe["models"] = [*(probe["models"] or []), alias]
+        except (httpx.HTTPError, ValueError, AttributeError):
+            logger.debug("LiteLLM /model/info probe failed", exc_info=True)
+
+        try:
+            health = client.get("/health", headers=headers)
+            health.raise_for_status()
+            payload = health.json()
+        except (httpx.HTTPError, ValueError):
+            logger.debug("LiteLLM /health probe failed", exc_info=True)
+        else:
+            deployments: dict[str, dict[str, int]] = {}
+            for group, key in (("healthy_endpoints", "healthy"), ("unhealthy_endpoints", "unhealthy")):
+                entries = payload.get(group) if isinstance(payload, dict) else None
+                for entry in entries if isinstance(entries, list) else []:
+                    alias = alias_by_id.get(str((entry or {}).get("model_id")))
+                    if alias is None:
+                        continue  # 對不回公開 alias 的部署不顯示（避免露出上游名稱）
+                    counts = deployments.setdefault(alias, {"healthy": 0, "unhealthy": 0})
+                    counts[key] += 1
+            probe["deployments"] = deployments
+    return probe
+
+
+def check_ai(*, use_cache: bool = True) -> list[dict[str, Any]]:
+    """AI Gateway（LiteLLM）與各模型（name = ``ai_gateway``／``ai_model:<alias>``）。
+
+    沒設定 LITELLM_RUNTIME_API_KEY 時視為未啟用（與 AI 監控頁的 runtime 快照一致）。
+    """
+    now = time.monotonic()
+    with _AiCache.lock:
+        if use_cache and now < _AiCache.expires_at:
+            return [dict(c) for c in _AiCache.components]
+
+    from app.features.ai.config import settings as ai_settings
+    from app.services.monitoring import ai_metrics
+
+    api_key = (ai_settings.litellm_runtime_api_key or "").strip()
+    base_url = ai_settings.litellm_runtime_base_url.strip().rstrip("/")
+    if not api_key or not base_url:
+        components = [
+            _component(
+                health_policy.AI_GATEWAY_COMPONENT,
+                health_policy.AI_GATEWAY_LABEL,
+                "disabled",
+                detail="not configured",
+            )
+        ]
+    else:
+        started = time.perf_counter()
+        try:
+            probe = _run_with_timeout(partial(_probe_ai, base_url, api_key), AI_PROBE_TIMEOUT_SECONDS)
+        except Exception as exc:
+            probe = {"reachable": False, "error": _short_error(exc)}
+        latency_ms = (time.perf_counter() - started) * 1000
+        ai_metrics.remember_models(probe.get("models") or [])
+        components = []
+        for item in health_policy.ai_components(probe):
+            component = _component(
+                item["name"],
+                item["label"],
+                item["status"],
+                latency_ms=latency_ms
+                if item["name"] == health_policy.AI_GATEWAY_COMPONENT and probe.get("reachable")
+                else None,
+                detail=item.get("detail"),
+            )
+            if item.get("alert_message"):
+                component["alert_message"] = item["alert_message"]
+            components.append(component)
+
+    with _AiCache.lock:
+        _AiCache.components = [dict(c) for c in components]
+        _AiCache.expires_at = time.monotonic() + AI_CACHE_SECONDS
+    return components
+
+
+def cached_ai_components() -> list[dict[str, Any]]:
+    with _AiCache.lock:
+        return [dict(c) for c in _AiCache.components]
+
+
+def reset_ai_cache() -> None:
+    """測試用。"""
+    with _AiCache.lock:
+        _AiCache.components = []
+        _AiCache.expires_at = 0.0
+
+
 # ─── 彙總 ─────────────────────────────────────────────────────────────────
 
 
@@ -371,6 +510,7 @@ def collect_components(*, use_pve_cache: bool = True) -> list[dict[str, Any]]:
         worker,
         *check_pve(use_cache=use_pve_cache),
         *check_gateway(use_cache=use_pve_cache),
+        *check_ai(use_cache=use_pve_cache),
     ]
 
 
@@ -544,8 +684,9 @@ def collect_metrics() -> None:
         worker,
         *cached_pve_components(),
         *cached_gateway_components(),
+        *cached_ai_components(),
     ):
-        if component["status"] in ("disabled", "unknown"):
+        if component["status"] in ("disabled", "unknown", "pending"):
             continue
         # attention（例如憑證快到期）服務仍然可用，不算 down
         metrics.DEPENDENCY_UP.labels(component=component["name"]).set(
@@ -581,7 +722,9 @@ async def collect_metrics_hook() -> None:
 
 
 __all__ = [
+    "cached_ai_components",
     "cached_gateway_components",
+    "check_ai",
     "check_database",
     "check_gateway",
     "check_pve",
@@ -593,6 +736,7 @@ __all__ = [
     "collect_system_health",
     "process_system_health_alerts",
     "readiness",
+    "reset_ai_cache",
     "reset_alert_state",
     "reset_gateway_cache",
 ]

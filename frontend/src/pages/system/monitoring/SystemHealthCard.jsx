@@ -44,15 +44,17 @@ const COMPONENT_ICONS = {
   redis: "memory",
   worker: "engineering",
   gateway: "router",
+  ai_gateway: "smart_toy",
 };
 
-/* 這些元件的名稱帶有部署資訊（PVE 連線名稱、Gateway 位址），直接用後端給的 label */
+/* 這些元件的名稱帶有部署資訊（PVE 連線名稱、Gateway 位址、AI 模型名稱），直接用後端給的 label */
 function usesBackendLabel(name) {
   return name.includes(":") || name === "gateway";
 }
 
 function componentIcon(name) {
   if (name.startsWith("pve")) return "dns";
+  if (name.startsWith("ai_model:")) return "model_training";
   return COMPONENT_ICONS[name] ?? "hub";
 }
 

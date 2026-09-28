@@ -1,0 +1,238 @@
+/* 登入後的服務檢查：外框（暈染背景、毛玻璃卡、標題、提示框、按鈕）沿用 SetupPage.module.scss，
+   這裡只放本頁獨有的區塊：頂部圖示、檢查清單的圈圈與管理員的細節列 */
+
+.card {
+  max-width: 520px;
+}
+
+/* 管理員多了狀態字、細節列與三顆按鈕 */
+.card_admin {
+  max-width: 640px;
+}
+
+.hero {
+  @include flex-center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto $spacing-16;
+  border-radius: 50%;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  animation: hero-float 2.4s ease-in-out infinite;
+  transition: color $transition-base, background $transition-base;
+}
+
+.hero_ok {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  animation: none;
+}
+
+.hero_fail {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  animation: none;
+}
+
+@keyframes hero-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.subtitle {
+  margin: 0;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+/* ── 檢查清單 ── */
+.checklist {
+  @include flex-column;
+  gap: $spacing-8;
+  list-style: none;
+  margin: 0 0 $spacing-16;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  transition: border-color $transition-base;
+}
+
+.row_fail {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
+}
+
+.rowBody {
+  flex: 1;
+  min-width: 0;
+  padding-top: 3px;
+}
+
+.rowHead {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.rowLabel {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  transition: color $transition-base;
+}
+
+.row_checking .rowLabel {
+  color: var(--color-text-secondary);
+}
+
+.row_skipped .rowLabel {
+  color: var(--color-text-muted);
+}
+
+/* ── 圈圈：檢查中是轉動的圓環，結果出來後變成實心勾／叉 ── */
+.ring {
+  @include flex-center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid var(--color-border);
+}
+
+.ring_checking {
+  border-top-color: var(--color-primary);
+  animation: ring-spin 0.8s linear infinite;
+}
+
+.ring_ok {
+  border-color: var(--color-success);
+  background: var(--color-success);
+  color: var(--color-text-on-primary);
+  animation: ring-pop 0.28s ease-out;
+}
+
+.ring_fail {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-text-on-primary);
+  animation: ring-pop 0.28s ease-out;
+}
+
+.ring_skipped {
+  border-color: var(--color-status-neutral);
+  color: var(--color-status-neutral);
+}
+
+@keyframes ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ring-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  70% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ── 管理員：狀態字與元件細節 ── */
+.rowStatus {
+  flex: 0 0 auto;
+  padding: 2px $spacing-8;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.rowStatus_checking {
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+}
+
+.rowStatus_ok {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
+
+.rowStatus_fail {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+.rowStatus_skipped {
+  color: var(--color-status-neutral);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
+}
+
+.components {
+  @include flex-column;
+  gap: 2px;
+  list-style: none;
+  margin: $spacing-4 0 0;
+  padding: 0;
+  font-size: $font-size-12;
+
+  &:empty {
+    display: none;
+  }
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 $spacing-8;
+    min-width: 0;
+  }
+}
+
+.componentLabel {
+  color: var(--color-text-secondary);
+}
+
+.componentDetail {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.componentDetail_fail {
+  color: var(--color-danger);
+}
+
+/* 失敗提示：紅色系（SetupPage 的 notice 只有 info／success） */
+.notice_fail {
+  margin-bottom: $spacing-16;
+  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+
+  > span:first-child {
+    color: var(--color-danger);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero,
+  .ring_ok,
+  .ring_fail {
+    animation: none;
+  }
+
+  .ring_checking {
+    animation-duration: 2.4s;
+  }
+}

@@ -51,6 +51,9 @@ COPY --chown=app:app ./backend/config /app/backend/config
 
 COPY --chown=app:app ./backend/app /app/backend/app
 
+# Gateway 安裝腳本：/gateway/install-script 下載與一鍵安裝都從 /app/gateway 讀
+COPY --chown=app:app ./gateway /app/gateway
+
 # Sync the project
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#intermediate-layers
 RUN --mount=type=cache,target=/cache/uv,uid=1000,gid=1000 \

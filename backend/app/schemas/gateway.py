@@ -1,12 +1,18 @@
 """Gateway VM 管理相關 schemas"""
 
+import ipaddress
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 GatewayService = Literal["nginx", "wireguard"]
 ServiceAction = Literal["start", "stop", "restart", "reload"]
+GatewayInstallState = Literal["idle", "running", "succeeded", "failed", "interrupted"]
+
+# Linux 網卡名稱最長 15 字元；這些值會當成環境變數交給 install.sh，
+# 只收字母數字與 _ . - 避免帶進 shell 特殊字元
+_INTERFACE_NAME_PATTERN = r"^[A-Za-z0-9_.-]{1,15}$"
 
 
 class GatewayConfigPublic(BaseModel):
@@ -84,9 +90,77 @@ class GatewayWireGuardOverview(BaseModel):
     inspected_at: datetime
 
 
+class GatewayInstallOptions(BaseModel):
+    """一鍵安裝時交給 install.sh 的參數（對應腳本裡同名的環境變數）。
+
+    WireGuard 的介面名稱與兩個子網要和後端的 WIREGUARD_* 設定一致，
+    所以不開放在這裡改，直接取自 settings。
+    """
+
+    ingress_interface: str = Field(default="eth0", pattern=_INTERFACE_NAME_PATTERN)
+    vm_interface: str = Field(default="eth1", pattern=_INTERFACE_NAME_PATTERN)
+    snat_address: str = Field(default="10.10.0.2", max_length=45)
+    listen_port: int = Field(default=51821, ge=1, le=65535)
+    forward_port_start: int = Field(default=30000, ge=1, le=65535)
+    forward_port_end: int = Field(default=39999, ge=1, le=65535)
+    monitoring_allow_from: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("snat_address")
+    @classmethod
+    def _validate_snat_address(cls, value: str) -> str:
+        return str(ipaddress.IPv4Address(value.strip()))
+
+    @field_validator("monitoring_allow_from")
+    @classmethod
+    def _validate_monitoring_sources(cls, value: list[str]) -> list[str]:
+        sources: list[str] = []
+        for raw in value:
+            item = raw.strip()
+            if not item:
+                continue
+            # 單一 IP 或 CIDR 都收；strict=False 讓 192.168.1.5/24 這種寫法也過
+            sources.append(str(ipaddress.ip_network(item, strict=False)))
+        return list(dict.fromkeys(sources))
+
+    @model_validator(mode="after")
+    def _validate_port_range(self) -> "GatewayInstallOptions":
+        if self.forward_port_start > self.forward_port_end:
+            raise ValueError("forward_port_start must not exceed forward_port_end")
+        if self.forward_port_start <= self.listen_port <= self.forward_port_end:
+            raise ValueError("listen_port must not fall inside the forwarding port range")
+        return self
+
+
+class GatewayInstallInterface(BaseModel):
+    name: str
+    addresses: list[str]
+
+
+class GatewayInstallStatus(BaseModel):
+    state: GatewayInstallState
+    # 連線帳號是 root，或能免密碼 sudo；兩者都不是就無法安裝
+    root_access: bool
+    exit_code: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    os_name: str | None = None
+    interfaces: list[GatewayInstallInterface] = Field(default_factory=list)
+    # nginx / wireguard / certbot / ufw 是否已安裝
+    components: dict[str, bool] = Field(default_factory=dict)
+    log: str = ""
+    defaults: GatewayInstallOptions
+    wireguard_interface: str
+    wireguard_client_subnet: str
+    wireguard_vm_subnet: str
+
+
 __all__ = [
     "GatewayService",
     "ServiceAction",
+    "GatewayInstallState",
+    "GatewayInstallOptions",
+    "GatewayInstallInterface",
+    "GatewayInstallStatus",
     "GatewayConfigPublic",
     "GatewayConfigUpdate",
     "GatewayConnectionTestResult",

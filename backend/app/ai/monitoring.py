@@ -11,6 +11,7 @@ from typing import Any
 from sqlmodel import Session
 
 from app.services.llm_gateway import ai_gateway_service
+from app.services.monitoring import ai_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,17 @@ def record_ai_template_call(
     error_message: str | None = None,
 ) -> None:
     """Best-effort usage logging for platform-owned LLM calls."""
+    ai_metrics.observe_call(
+        source="platform",
+        model=model_name,
+        request_type=call_type,
+        record_status=status,
+        error_message=error_message,
+        duration_ms=_duration_ms(metrics),
+        input_tokens=_token_count(metrics or {}, "prompt_tokens"),
+        output_tokens=_token_count(metrics or {}, "completion_tokens"),
+        stream=bool((metrics or {}).get("stream", False)),
+    )
     if session is None or user_id is None:
         return
     try:

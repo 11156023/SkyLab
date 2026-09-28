@@ -17,3 +17,10 @@ litellm_settings:
   request_timeout: 300
   json_logs: true
   set_verbose: false
+  # /metrics for the monitoring stack's Prometheus.  Without the flag below
+  # only the master key may read it; it is left open because LiteLLM is
+  # reachable only on the Compose network and 127.0.0.1 (nginx never routes
+  # to it), and Prometheus must not hold the master key.
+  callbacks:
+    - prometheus
+  require_auth_for_metrics_endpoint: false

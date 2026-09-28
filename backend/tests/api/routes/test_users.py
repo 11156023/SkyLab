@@ -631,3 +631,87 @@ def test_onboarding_defaults_and_complete(client: TestClient, db: Session) -> No
 def test_onboarding_complete_requires_login(client: TestClient) -> None:
     r = client.post(f"{settings.API_V1_STR}/users/me/onboarding/complete")
     assert r.status_code == 401
+
+
+_PREFLIGHT_CHECKS = [
+    {
+        "key": "database",
+        "status": "ok",
+        "components": [{"label": "PostgreSQL", "status": "ok", "latency_ms": 1.0, "detail": None}],
+    },
+    {
+        "key": "pve",
+        "status": "fail",
+        "components": [
+            {"label": "Proxmox VE · lab", "status": "down", "latency_ms": None, "detail": "timeout"}
+        ],
+    },
+    {"key": "gateway", "status": "skipped", "components": []},
+]
+
+
+def test_login_preflight_requires_login(client: TestClient) -> None:
+    r = client.get(f"{settings.API_V1_STR}/users/me/preflight")
+    assert r.status_code == 401
+
+
+def test_login_preflight_hides_details_from_non_admin(
+    client: TestClient, normal_user_token_headers: dict[str, str]
+) -> None:
+    with patch(
+        "app.services.monitoring.preflight_service.run_checks",
+        return_value=[dict(c) for c in _PREFLIGHT_CHECKS],
+    ) as run_checks:
+        r = client.get(
+            f"{settings.API_V1_STR}/users/me/preflight?refresh=true",
+            headers=normal_user_token_headers,
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert body["detailed"] is False
+    assert all(check["components"] is None for check in body["checks"])
+    assert "timeout" not in r.text
+    # 非管理員不能略過快取
+    run_checks.assert_called_once_with(use_cache=True)
+
+
+def test_login_preflight_admin_gets_details(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    with patch(
+        "app.services.monitoring.preflight_service.run_checks",
+        return_value=[dict(c) for c in _PREFLIGHT_CHECKS],
+    ) as run_checks:
+        r = client.get(
+            f"{settings.API_V1_STR}/users/me/preflight?refresh=true",
+            headers=superuser_token_headers,
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["detailed"] is True
+    pve = next(check for check in body["checks"] if check["key"] == "pve")
+    assert pve["components"][0]["detail"] == "timeout"
+    run_checks.assert_called_once_with(use_cache=False)
+
+
+def test_login_preflight_allowed_before_forced_totp_enrollment(
+    client: TestClient, db: Session
+) -> None:
+    """強制兩步驟驗證但尚未綁定的帳號也要能先跑登入檢查（其他端點會 403）。"""
+    email = random_email()
+    password = random_lower_string()
+    user = user_repo.create_user(
+        session=db, user_create=UserCreate(email=email, password=password)
+    )
+    user.totp_required = True
+    db.add(user)
+    db.commit()
+    headers = user_authentication_headers(client=client, email=email, password=password)
+
+    with patch(
+        "app.services.monitoring.preflight_service.run_checks",
+        return_value=[dict(c) for c in _PREFLIGHT_CHECKS],
+    ):
+        r = client.get(f"{settings.API_V1_STR}/users/me/preflight", headers=headers)
+    assert r.status_code == 200

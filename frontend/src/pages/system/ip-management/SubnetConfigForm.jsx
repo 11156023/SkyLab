@@ -18,6 +18,7 @@ function buildInitialForm(config) {
     cidr:          config?.cidr ?? "",
     gateway:       config?.gateway ?? "",
     bridge_name:   config?.bridge_name ?? "vmbr1",
+    vlan_tag:      config?.vlan_tag != null ? String(config.vlan_tag) : "",
     gateway_vm_ip: config?.gateway_vm_ip ?? "",
     dns_servers:   config?.dns_servers ?? "",
     extra_blocked_subnets: (config?.extra_blocked_subnets ?? []).join("\n"),
@@ -53,6 +54,7 @@ export default function SubnetConfigForm({
       cidr:          form.cidr.trim(),
       gateway:       form.gateway.trim(),
       bridge_name:   form.bridge_name.trim(),
+      vlan_tag:      form.vlan_tag.trim() ? Number(form.vlan_tag) : null,
       gateway_vm_ip: form.gateway_vm_ip.trim(),
       dns_servers:   form.dns_servers.trim() || null,
       extra_blocked_subnets: parseBlockedList(form.extra_blocked_subnets),
@@ -131,6 +133,18 @@ export default function SubnetConfigForm({
             onChange={(e) => set("bridge_name", e.target.value)}
             placeholder={t("SubnetConfigForm.bridgeNamePlaceholder")}
             required
+          />
+        </label>
+
+        {/* 選填：有值時 VM/LXC 網卡帶 tag=N；只影響之後建立的機器 */}
+        <label className={styles.field}>
+          <span>{t("SubnetConfigForm.vlanTag")}</span>
+          <input
+            type="number" min="1" max="4094" step="1"
+            value={form.vlan_tag}
+            onChange={(e) => set("vlan_tag", e.target.value)}
+            placeholder={t("SubnetConfigForm.vlanTagPlaceholder")}
+            title={cidrLocked ? t("SubnetConfigForm.vlanTagExistingHint") : undefined}
           />
         </label>
 

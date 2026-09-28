@@ -26,26 +26,37 @@ keys; never inject the Campus service key into the LiteLLM container.
 
 ## Normal integrated deployment
 
-From the repository root, with local vLLM engines already running:
+From the repository root, with local vLLM engines (if any) already running:
 
 ```bash
-bash scripts/prepare-ai-stack.sh --check-upstreams
+bash scripts/prepare-ai-stack.sh --init-env   # fill missing secrets; never overwrites
 bash scripts/prepare-ai-stack.sh --start
 docker compose ps litellm
 docker compose logs -f litellm
 ```
 
-The prepare script checks both `.env` files and Compose secret isolation and
-generates production config without showing secrets. `--check-only` validates
-the current generated file without rewriting it. Remote keys named by
+`--init-env` generates the master key, salt, `DATABASE_URL` (role `litellm` on
+`db:5432`) and the Campus service key when they are missing or still template
+values; upstream vLLM keys must be supplied. `--start` checks both `.env` files
+and Compose secret isolation, generates the production config, creates the
+dedicated role/database on the Compose PostgreSQL, recreates the gateway, waits
+for its database, registers the Campus service key (or syncs its model
+allowlist) and finally starts the whole stack. `--check-only` validates the
+current generated file without rewriting it. Remote keys named by
 `api_key_env` are injected only into LiteLLM through this directory's `.env`.
 
-After changing model routes, regenerate and recreate the gateway:
+After changing model routes, rerun `bash scripts/prepare-ai-stack.sh --start`
+so the gateway reloads and the service key allowlist follows the new aliases.
 
-```bash
-bash scripts/prepare-ai-stack.sh --check-upstreams
-docker compose up -d --force-recreate litellm
-```
+## Networking
+
+The gateway joins the root `skylab` network: backend/worker call
+`http://litellm:4000`, and LiteLLM connects to PostgreSQL directly as `db:5432`
+(not through PgBouncer). Port 4000 is published on `127.0.0.1` only, for health
+checks, key provisioning and admin tools (SSH tunnel for the UI). It is not
+routed through nginx; users reach models only via the Campus `/api/v1/ai-proxy`.
+Local engines (`deployment: local`) are reached as `host.docker.internal:<port>`,
+so `.env.API` must set `API_HOST=0.0.0.0` with a firewall limiting the engine ports.
 
 ## Standalone deployment
 
@@ -60,11 +71,8 @@ docker compose stop litellm
 For handover, stop the old project's gateway first, then start the other
 project's gateway. Neither stopping the container nor changing its Compose
 project migrates or deletes the external database. Preserve the original
-`DATABASE_URL` and `LITELLM_SALT_KEY`.
-
-Host networking reaches local engines on loopback; backend and worker use
-`http://host.docker.internal:4000`. Keep port 4000 accessible only to permitted
-backend, monitoring and admin sources. Do not expose local engine ports 8103/8104.
+`DATABASE_URL` and `LITELLM_SALT_KEY`. Standalone mode has no `db` service, so its
+`DATABASE_URL` must name an externally reachable PostgreSQL host.
 
 Use `/health/liveliness` for container health. `/health/readiness` checks gateway
 readiness; authenticated `/health` deliberately exercises upstream models.

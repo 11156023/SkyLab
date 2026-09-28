@@ -2,14 +2,17 @@
  * OnboardingPage — 首次登入引導精靈。
  *
  * 登入後 `user.onboarding_completed` 為 false 時，App 只渲染這一頁（不進 DashboardLayout）：
- *   語言 → 外觀 → 兩步驟驗證 → 完成。
+ *   語言 → 個人資料 → 外觀 → 兩步驟驗證 → 完成。
  * 語言與外觀選了就立即套用並存在瀏覽器（i18n localStorage／themePreferenceStore），
+ * 個人資料的頭像選好就上傳、姓名在按「下一步」時才存（都走帳號設定同一組 API），
  * 兩步驟驗證沿用帳號設定的 TotpEnrollment；「開始使用」與右上「略過」都會呼叫
  * /users/me/onboarding/complete，之後登入不再出現。
  */
 
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import Avatar from "../../components/Avatar/Avatar";
+import FileDropzone from "../../components/FileDropzone/FileDropzone";
 import MIcon from "../../components/MIcon";
 import TotpEnrollment from "../../components/TotpEnrollment/TotpEnrollment";
 import { useAuth } from "../../contexts/AuthContext";
@@ -17,12 +20,17 @@ import { THEME_DEFAULTS, useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../hooks/useToast";
 import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import { AccountService } from "../../services/account";
+import { downscaleImage } from "../../utils/image/downscaleImage";
 import shell from "../setup/SetupPage.module.scss";
 import styles from "./OnboardingPage.module.scss";
 
-const STEP_APPEARANCE = 0;
-const STEP_TOTP = 1;
-const STEP_FINISH = 2;
+const STEP_PROFILE = 0;
+const STEP_APPEARANCE = 1;
+const STEP_TOTP = 2;
+const STEP_FINISH = 3;
+
+/* 與帳號設定的姓名欄同一個上限 */
+const NAME_MAX_LENGTH = 30;
 
 /* 語言用原生名稱顯示，不翻譯 */
 const LANG_OPTIONS = [
@@ -107,7 +115,103 @@ function LanguageWelcome({ onContinue }) {
   );
 }
 
-/* ─── 步驟 1：外觀 ───────────────────────────────────────── */
+/* ─── 步驟 1：個人資料 ───────────────────────────────────── */
+
+function ProfileStep({ onBack, onNext }) {
+  const { t } = useTranslation("login");
+  const { user, updateUser } = useAuth();
+  const toast = useToast();
+  const [name, setName] = useState(user?.full_name ?? "");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleAvatarFile(file) {
+    if (!file) return;
+    // 拖放不受 accept 限制，非圖片先擋下，免得縮圖時才冒出看不懂的錯誤
+    if (!file.type.startsWith("image/")) {
+      toast.error(t("common:FileDropzone.notAnImage"));
+      return;
+    }
+    setUploading(true);
+    try {
+      // 頭像顯示尺寸小，縮到 256px 再上傳（與帳號設定相同）
+      const { blob } = await downscaleImage(file, { maxSize: 256, quality: 0.85 });
+      const updated = await AccountService.uploadAvatar(blob);
+      updateUser(updated);
+      toast.success(t("OnboardingPage.avatarUpdated"));
+    } catch (err) {
+      toast.error(err?.message ?? t("OnboardingPage.avatarFailed"));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (trimmed === (user?.full_name ?? "")) {
+      onNext();
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await AccountService.update({ full_name: trimmed || null });
+      updateUser(updated);
+      onNext();
+    } catch (err) {
+      toast.error(err?.message ?? t("OnboardingPage.profileSaveFailed"));
+      setSaving(false);
+    }
+  }
+
+  /* 預覽用輸入中的姓名，沒有頭像時縮寫字母會跟著變 */
+  const previewUser = { ...user, full_name: name.trim() || null };
+
+  return (
+    <form className={shell.section} onSubmit={handleSubmit}>
+      <h2 className={shell.sectionTitle}>{t("OnboardingPage.profileTitle")}</h2>
+
+      <div className={styles.fieldBlock}>
+        <span>{t("OnboardingPage.avatarLabel")}</span>
+        <div className={styles.avatarRow}>
+          <Avatar user={previewUser} size={72} />
+          <FileDropzone
+            compact
+            accept="image/*"
+            uploading={uploading}
+            title={t("common:FileDropzone.titleImage")}
+            className={styles.avatarDrop}
+            onFiles={([file]) => handleAvatarFile(file)}
+          />
+        </div>
+      </div>
+
+      <label className={shell.field}>
+        <span>{t("OnboardingPage.nameLabel")}</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={NAME_MAX_LENGTH}
+          placeholder={t("OnboardingPage.namePlaceholder")}
+          autoComplete="name"
+        />
+      </label>
+
+      <div className={shell.actions}>
+        <button type="button" className={shell.btnSecondary} onClick={onBack} disabled={saving}>
+          <MIcon name="arrow_back" size={18} />
+          {t("OnboardingPage.back")}
+        </button>
+        <button type="submit" className={shell.btnPrimary} disabled={saving || uploading}>
+          {saving ? t("OnboardingPage.finishing") : t("OnboardingPage.next")}
+          {!saving && <MIcon name="arrow_forward" size={18} />}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/* ─── 步驟 2：外觀 ───────────────────────────────────────── */
 
 function AppearanceStep({ onBack, onNext }) {
   const { t } = useTranslation("login");
@@ -175,7 +279,7 @@ function AppearanceStep({ onBack, onNext }) {
   );
 }
 
-/* ─── 步驟 2：兩步驟驗證 ─────────────────────────────────── */
+/* ─── 步驟 3：兩步驟驗證 ─────────────────────────────────── */
 
 function TotpStep({ onBack, onNext }) {
   const { t } = useTranslation("login");
@@ -239,7 +343,7 @@ function TotpStep({ onBack, onNext }) {
   );
 }
 
-/* ─── 步驟 3：完成 ───────────────────────────────────────── */
+/* ─── 步驟 4：完成 ───────────────────────────────────────── */
 
 function FinishStep({ onBack, onComplete, completing }) {
   const { t } = useTranslation("login");
@@ -259,6 +363,13 @@ function FinishStep({ onBack, onComplete, completing }) {
       <p className={shell.sectionDesc}>{t("OnboardingPage.finishDesc")}</p>
 
       <dl className={shell.summary}>
+        <div>
+          <dt><MIcon name="badge" size={18} />{t("OnboardingPage.summaryProfile")}</dt>
+          <dd className={`${styles.summaryProfile} ${user?.full_name ? "" : shell.muted}`}>
+            <Avatar user={user} size={24} />
+            {user?.full_name || t("OnboardingPage.nameNotSet")}
+          </dd>
+        </div>
         <div>
           <dt><MIcon name="language" size={18} />{t("OnboardingPage.summaryLanguage")}</dt>
           <dd>{languageLabel}</dd>
@@ -298,10 +409,11 @@ export default function OnboardingPage() {
   const { updateUser } = useAuth();
   const toast = useToast();
   const [started, setStarted] = useState(false);
-  const [step, setStep] = useState(STEP_APPEARANCE);
+  const [step, setStep] = useState(STEP_PROFILE);
   const [completing, setCompleting] = useState(false);
 
   const stepLabels = useMemo(() => [
+    t("OnboardingPage.stepProfile"),
     t("OnboardingPage.stepAppearance"),
     t("OnboardingPage.stepTotp"),
     t("OnboardingPage.stepFinish"),
@@ -344,9 +456,15 @@ export default function OnboardingPage() {
               <h1 className={shell.title}>{t("OnboardingPage.title")}</h1>
             </header>
             <Stepper current={step} steps={stepLabels} />
+            {step === STEP_PROFILE && (
+              <ProfileStep
+                onBack={() => setStarted(false)}
+                onNext={() => setStep(STEP_APPEARANCE)}
+              />
+            )}
             {step === STEP_APPEARANCE && (
               <AppearanceStep
-                onBack={() => setStarted(false)}
+                onBack={() => setStep(STEP_PROFILE)}
                 onNext={() => setStep(STEP_TOTP)}
               />
             )}

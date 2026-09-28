@@ -273,6 +273,9 @@ export default function IpManagementPage() {
         {subnet && (
           <span className={styles.muted}>
             {t("IpManagementPage.subnetLabel")} <code className={styles.code}>{subnet.cidr}</code> · Bridge: <code className={styles.code}>{subnet.bridge_name}</code>
+            {subnet.vlan_tag != null && (
+              <> · VLAN: <code className={styles.code}>{subnet.vlan_tag}</code></>
+            )}
           </span>
         )}
       </div>

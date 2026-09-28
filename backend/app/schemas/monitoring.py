@@ -98,20 +98,52 @@ class MonitoringOverview(BaseModel):
     issues: list[MonitoringIssue] = Field(default_factory=list)
 
 
-# ─── 平台健康（DB／Redis／worker／PVE 連線／Gateway／排程心跳） ──────────────
+# ─── 平台健康（DB／Redis／worker／PVE 連線／Gateway／AI／排程心跳） ──────────
 
 # attention：服務還在但需要人處理（例如 Gateway 憑證快到期）
-ComponentStatus = Literal["ok", "down", "disabled", "unknown", "attention"]
+# pending：還沒有結果（例如 LiteLLM 背景健康檢查尚未跑完），不影響整體
+ComponentStatus = Literal["ok", "down", "disabled", "unknown", "attention", "pending"]
 
 
 class SystemComponentHealth(BaseModel):
-    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>／gateway。"""
+    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>／gateway
+    ／ai_gateway／ai_model:<alias>。"""
 
     name: str
     label: str
     status: ComponentStatus
     latency_ms: float | None = None
     detail: str | None = None
+
+
+# ─── 登入檢查（每次登入後的服務檢查畫面） ─────────────────────────────────
+
+
+class LoginPreflightComponent(BaseModel):
+    """管理員才看得到：這一項底下的實際元件（例如每個 PVE 連線一筆）。"""
+
+    label: str
+    status: ComponentStatus
+    latency_ms: float | None = None
+    detail: str | None = None
+
+
+class LoginPreflightCheck(BaseModel):
+    key: Literal["database", "redis", "worker", "pve", "gateway", "ai"]
+    # skipped：沒設定（Gateway／AI 未啟用），不擋登入
+    status: Literal["ok", "fail", "skipped"]
+    components: list[LoginPreflightComponent] | None = None
+
+
+class LoginPreflight(BaseModel):
+    """ok 為 False 時學生／老師停在「請通知管理員」，管理員可以略過繼續。
+
+    detailed 為 False（非管理員）時 checks 只有 key／status，不含元件名稱與錯誤細節。
+    """
+
+    ok: bool
+    detailed: bool
+    checks: list[LoginPreflightCheck]
 
 
 class SchedulerLoopHealth(BaseModel):
