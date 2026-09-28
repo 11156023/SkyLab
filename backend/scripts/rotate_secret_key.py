@@ -77,7 +77,7 @@ class EncryptedColumn:
 
 
 # Every column written through app.core.security.encrypt_value.
-# tests/scripts/test_b16_rotate_secret_key.py guards that new encrypted model
+# tests/scripts/test_rotate_secret_key.py guards that new encrypted model
 # columns get added here.
 ENCRYPTED_COLUMNS: tuple[EncryptedColumn, ...] = (
     # dbw02 起已刪除；保留給尚未升級的環境（腳本會跳過不存在的欄位）
