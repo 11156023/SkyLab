@@ -56,8 +56,8 @@ PVE_CACHE_SECONDS = 20.0
 # Gateway 探測要開 SSH 連線（含金鑰交換），比 PVE API 貴，快取久一點
 GATEWAY_PROBE_TIMEOUT_SECONDS = 15.0
 GATEWAY_CACHE_SECONDS = 60.0
-# LiteLLM 探測：四個 HTTP 請求，/health 讀的是 LiteLLM 背景健康檢查的快取
-AI_REQUEST_TIMEOUT_SECONDS = 5.0
+# LiteLLM 探測：四個 HTTP 請求，/health 讀的是 LiteLLM 背景健康檢查的快取；
+# 單一請求的逾時在 litellm_runtime.REQUEST_TIMEOUT_SECONDS
 AI_PROBE_TIMEOUT_SECONDS = 15.0
 AI_CACHE_SECONDS = 60.0
 # 同一個問題要連續出現幾輪評估才開告警：吸收部署時 worker 晚幾秒起來、
@@ -379,14 +379,8 @@ class _AiCache:
     components: ClassVar[list[dict[str, Any]]] = []
 
 
-def _probe_ai(base_url: str, api_key: str, *, transport: Any = None) -> dict[str, Any]:
-    """問 LiteLLM 的健康狀態；HTTP 細節在 ``infrastructure/ai/litellm_runtime``。
-
-    保留這個名稱當測試接縫（check_ai 與測試都經由它呼叫）。
-    """
-    return litellm_runtime.probe(
-        base_url, api_key, transport=transport, timeout=AI_REQUEST_TIMEOUT_SECONDS
-    )
+# HTTP 探測在 infrastructure；留成模組全域名稱，check_ai 經由它呼叫、測試也靠它 monkeypatch
+_probe_ai = litellm_runtime.probe
 
 
 def check_ai(*, use_cache: bool = True) -> list[dict[str, Any]]:

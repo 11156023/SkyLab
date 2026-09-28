@@ -28,37 +28,6 @@ const STUDENT_HOME_GUIDE = {
       titleKey: "UserGuide.studentHome.step3.title",
       textKey: "UserGuide.studentHome.step3.text",
     },
-    {
-      selector: '[data-guide="home-current-course"]',
-      titleKey: "UserGuide.studentHome.step4.title",
-      textKey: "UserGuide.studentHome.step4.text",
-    },
-    {
-      selector: '[data-guide="home-progress"]',
-      titleKey: "UserGuide.studentHome.step5.title",
-      textKey: "UserGuide.studentHome.step5.text",
-    },
-    {
-      selector: '[data-guide="home-start"]',
-      titleKey: "UserGuide.studentHome.step6.title",
-      textKey: "UserGuide.studentHome.step6.text",
-    },
-    {
-      selector: '[data-guide="home-environment"]',
-      titleKey: "UserGuide.studentHome.step7.title",
-      textKey: "UserGuide.studentHome.step7.text",
-    },
-    {
-      selector: '[data-guide="home-tasks"]',
-      titleKey: "UserGuide.studentHome.step8.title",
-      textKey: "UserGuide.studentHome.step8.text",
-    },
-    {
-      selector: '[data-guide="course-ai-assignments"]',
-      titleKey: "UserGuide.studentHome.step9.title",
-      textKey: "UserGuide.studentHome.step9.text",
-      optional: true,
-    },
   ],
 };
 

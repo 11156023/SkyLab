@@ -88,6 +88,9 @@ export const CourseAdminService = {
   createRoom(body) {
     return apiPost("/api/v1/admin/courses/rooms", body);
   },
+  updateRoom(roomId, body) {
+    return apiPut(`/api/v1/admin/courses/rooms/${roomId}`, body);
+  },
   deleteRoom(roomId) {
     return apiDelete(`/api/v1/admin/courses/rooms/${roomId}`);
   },
@@ -112,6 +115,9 @@ export const CourseAdminService = {
   },
   createQuestion(body) {
     return apiPost("/api/v1/admin/courses/questions", body);
+  },
+  updateQuestion(questionId, body) {
+    return apiPut(`/api/v1/admin/courses/questions/${questionId}`, body);
   },
   deleteQuestion(questionId) {
     return apiDelete(`/api/v1/admin/courses/questions/${questionId}`);

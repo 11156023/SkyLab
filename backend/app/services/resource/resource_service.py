@@ -668,11 +668,6 @@ def list_all(
         raise ProxmoxError(f"Failed to get resources: {e}")
 
 
-# 舊名稱，模組內已改用 app.domain.resource_markers.RESOURCE_DELETED_MARKERS；
-# 只剩 tests/services/test_template_request_consumed.py 還在引用，該測試改掉後即可刪除。
-_RESOURCE_DELETED_MARKERS = RESOURCE_DELETED_MARKERS
-
-
 def mark_linked_request_consumed(
     *, session: Session, vmid: int, marker: str, commit: bool = False
 ) -> dict[str, Any] | None:

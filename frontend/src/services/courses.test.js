@@ -118,6 +118,24 @@ describe("CourseAdminService", () => {
     expect(JSON.parse(init.body).flag).toBe("FLAG{root}");
   });
 
+  test("updateRoom 以 PUT 打 /rooms/{id} 並帶 body", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { id: "r-1" }));
+    await CourseAdminService.updateRoom("r-1", { title: "新標題", difficulty: "hard" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/admin/courses/rooms/r-1");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ title: "新標題", difficulty: "hard" });
+  });
+
+  test("updateQuestion 以 PUT 打 /questions/{id} 並帶 body", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { id: "q-1" }));
+    await CourseAdminService.updateQuestion("q-1", { prompt: "改過的題目", points: 20 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/admin/courses/questions/q-1");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ prompt: "改過的題目", points: 20 });
+  });
+
   test("publishPath 以 PUT 送 published 布林", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { status: "published" }));
     await CourseAdminService.publishPath("p-1", true);

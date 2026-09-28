@@ -109,7 +109,7 @@ def check_endpoint(endpoint: str) -> EndpointVerdict:
     檢查）擋不住 DNS rebinding（名稱之後改指向內網），也沒檢查過修正前就存好的
     訂閱，所以每次送出前都要在這裡再判一次。任一解析結果不是公網位址就封鎖；
     解析失敗一律不送（不能在看不到位址時放行）。URL 本身不合法（無法解析、
-    非 https、非 443 埠）直接封鎖，絕不丟例外。
+    非 https、非 443 埠）或主機不在推播服務白名單內，不解析直接封鎖，絕不丟例外。
     """
     try:
         parts = urlsplit(endpoint)
@@ -119,6 +119,9 @@ def check_endpoint(endpoint: str) -> EndpointVerdict:
         # 例如 "https://[::1/x" 這種殘缺的 IPv6 字面值、或超出範圍的埠號
         return EndpointVerdict.BLOCKED
     if parts.scheme != "https" or not host or port not in (None, 443):
+        return EndpointVerdict.BLOCKED
+    # 白名單建立前就存好的訂閱可能指向任意主機；不是推播服務就不送、也不解析
+    if not is_allowed_push_endpoint(endpoint):
         return EndpointVerdict.BLOCKED
     try:
         infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)

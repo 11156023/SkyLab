@@ -10,6 +10,8 @@ import enum
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from app.infrastructure.proxmox.rrd import window_cpu_percentages
+
 
 class TtlAction(str, enum.Enum):
     warn = "warn"      # 到期前通知擁有者
@@ -120,25 +122,6 @@ def idle_stop_email_due(
     return _as_utc(idle_notified_at) < _as_utc(idle_since) + timedelta(
         hours=grace_hours
     )
-
-
-def window_cpu_percentages(
-    rrd: list[dict[str, Any]], *, window_hours: int, now: datetime
-) -> list[float]:
-    """RRD（PVE rrddata 格式）在 ``now`` 往回 ``window_hours`` 視窗內的 CPU（percent）。
-
-    缺 ``time`` 或 ``cpu`` 的點略過。閒置偵測與反挖礦共用這份取樣。
-    """
-    window_start = (now - timedelta(hours=window_hours)).timestamp()
-    values: list[float] = []
-    for point in rrd:
-        ts = point.get("time")
-        cpu = point.get("cpu")
-        if ts is None or cpu is None:
-            continue
-        if float(ts) >= window_start:
-            values.append(float(cpu) * 100.0)
-    return values
 
 
 def average_cpu_percent(

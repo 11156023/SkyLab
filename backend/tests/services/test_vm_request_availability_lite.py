@@ -104,12 +104,12 @@ def test_capacity_state_key_tracks_allocatable_changes() -> None:
 
 def test_lite_calendar_reuses_fit_results_across_slots(monkeypatch) -> None:
     """3 天、沒有預約：真正跑 fit 的次數最多等於不同的小時需求係數數量（24）。"""
-    monkeypatch.setattr(svc.placement_advisor, "_load_cluster_state", lambda: ([], []))
+    monkeypatch.setattr(svc.placement_support, "load_cluster_state", lambda: ([], []))
     monkeypatch.setattr(
-        svc.placement_advisor, "_build_node_capacities", lambda **kwargs: [_capacity()]
+        svc.placement_support, "build_live_node_capacities", lambda **kwargs: [_capacity()]
     )
     monkeypatch.setattr(
-        svc.placement_advisor, "_decide_resource_type", lambda request: ("lxc", "Prefer LXC.")
+        svc.placement_advisor, "decide_resource_type", lambda request: ("lxc", "Prefer LXC.")
     )
     monkeypatch.setattr(
         svc.vm_request_placement_service, "get_overcommit_ratios", lambda session: (1.0, 1.0)

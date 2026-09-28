@@ -9,6 +9,7 @@ from app.models import MiningIncidentStatus
 from app.repositories import mining as mining_repo
 from app.schemas.mining import (
     MiningDismissRequest,
+    MiningDismissResult,
     MiningExemptRequest,
     MiningExemptResponse,
     MiningIncidentPublic,
@@ -48,22 +49,26 @@ def ban_incident(
     return MiningIncidentPublic.model_validate(incident, from_attributes=True)
 
 
-@router.post("/{incident_id}/dismiss", response_model=MiningIncidentPublic)
+@router.post("/{incident_id}/dismiss", response_model=MiningDismissResult)
 def dismiss_incident(
     incident_id: uuid.UUID,
     body: MiningDismissRequest,
     session: SessionDep,
     current_user: AdminUser,
-) -> MiningIncidentPublic:
-    """管理員判定誤判 → 恢復 VM，可一併加入豁免。"""
-    incident = mining_service.dismiss_incident(
+) -> MiningDismissResult:
+    """管理員判定誤判 → 恢復 VM，可一併加入豁免。
+
+    恢復 VM／刪除存證快照失敗不擋結案，逐條放在 ``warnings`` 回給前端。
+    """
+    incident, failures = mining_service.dismiss_incident(
         session=session,
         incident_id=incident_id,
         admin=current_user,
         exempt=body.exempt,
         note=body.note,
     )
-    return MiningIncidentPublic.model_validate(incident, from_attributes=True)
+    public = MiningIncidentPublic.model_validate(incident, from_attributes=True)
+    return MiningDismissResult(**public.model_dump(), warnings=failures)
 
 
 @router.put("/exemptions/{vmid}", response_model=MiningExemptResponse)

@@ -62,10 +62,6 @@ def test_internet_node_is_gateway_node_at_given_position() -> None:
     assert (node.position_x, node.position_y) == (12.5, 34.0)
 
 
-def test_old_sync_name_still_points_at_extra_block_sync() -> None:
-    assert fw.sync_block_local_subnet_rules is fw.sync_extra_block_rules
-
-
 # ─── gateway / wireguard endpoint ─────────────────────────────────────────────
 
 

@@ -244,8 +244,10 @@ def _patch_connections(
     monkeypatch.setattr(
         scheduling_support.proxmox_service, "_raw_vms_by_connection", lambda: listed
     )
+    # find_resource_strict 委派給 operations.find_resource(strict=True)，
+    # pool 比對讀的是 operations 自己的 get_proxmox_settings
     monkeypatch.setattr(
-        scheduling_support,
+        scheduling_support.proxmox_service,
         "get_proxmox_settings",
         lambda key: SimpleNamespace(pool_name=f"pool{key}"),
     )

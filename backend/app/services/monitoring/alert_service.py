@@ -228,7 +228,7 @@ _tick_state = _AlertTickState()
 
 
 def list_active_admin_emails(session: Session) -> list[str]:
-    """所有啟用中管理員（含超級使用者）的 email，供各模組寄管理員通知。"""
+    """所有啟用中管理員的 email，供各模組寄管理員通知。"""
     stmt = select(User).where(User.is_active == True)  # noqa: E712
     return [str(u.email) for u in session.exec(stmt).all() if is_admin(u)]
 

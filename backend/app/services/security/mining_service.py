@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from sqlmodel import Session, col, select
+from sqlmodel import Session, select
 
 from app.core.db import engine
 from app.core.i18n import t
@@ -57,7 +57,7 @@ SNAPSHOT_WAIT_TIMEOUT_SECONDS = 60.0
 
 # 未結案（待管理員審核）的事件狀態；TTL、閒置偵測與資源告警都以此判斷。
 # 唯一定義在 repository（has_open_incident 同用），這裡只是轉出，不另存一份。
-OPEN_INCIDENT_STATUSES = mining_repo._OPEN_STATUSES
+OPEN_INCIDENT_STATUSES = mining_repo.OPEN_STATUSES
 
 
 def _utc_now() -> datetime:
@@ -66,12 +66,7 @@ def _utc_now() -> datetime:
 
 def open_incident_vmids(session: Session) -> set[int]:
     """有未結案挖礦事件（detected／suspended）的 vmid（單次查詢）。"""
-    rows = session.exec(
-        select(MiningIncident.vmid).where(
-            col(MiningIncident.status).in_(OPEN_INCIDENT_STATUSES)
-        )
-    ).all()
-    return {int(vmid) for vmid in rows if vmid is not None}
+    return mining_repo.list_open_incident_vmids(session=session)
 
 
 def _resource_type(pve_type: str) -> Literal["qemu", "lxc"]:
@@ -477,11 +472,13 @@ def dismiss_incident(
     admin: User,
     exempt: bool,
     note: str | None,
-) -> MiningIncident:
+) -> tuple[MiningIncident, list[str]]:
     """管理員判定誤判 → 恢復 VM（best-effort），可一併加入豁免。
 
     恢復失敗不擋結案，但失敗原因會寫進 ``review_note`` —— 否則管理員只會
     看到「已解除」，不知道機器其實還停著。
+    回傳 tuple 的第二項逐條列出非致命失敗（恢復失敗、存證快照刪除失敗），
+    供 API 回應的 ``warnings`` 欄位使用。
     """
     incident = _get_open_incident_for_review(session, incident_id)
     failures: list[str] = []
@@ -536,7 +533,7 @@ def dismiss_incident(
         "Mining incident dismissed: vmid=%s incident=%s exempt=%s",
         incident.vmid, incident.id, exempt,
     )
-    return incident
+    return incident, failures
 
 
 def set_exemption(

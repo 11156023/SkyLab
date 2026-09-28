@@ -25,7 +25,6 @@ from app.exceptions import (
     PermissionDeniedError,
     ProxmoxError,
 )
-from app.infrastructure.proxmox import get_proxmox_api
 from app.infrastructure.queue import enqueue_task_sync
 from app.models import (
     DeletionRequest,
@@ -127,30 +126,19 @@ def _ensure_vm_absent_everywhere(session: Session, vmid: int) -> None:
         for conn in proxmox_connection_repo.get_all_connections(session)
         if conn.id is not None
     ] or [None]
-    for connection_id in connection_ids:
-        try:
-            vms = list(
-                get_proxmox_api(connection_id).cluster.resources.get(type="vm")
-            )
-        except Exception as exc:
-            logger.warning(
-                "Cannot confirm resource %s is gone: Proxmox connection %s "
-                "could not be listed: %s",
-                vmid, connection_id, exc,
-            )
-            raise ProxmoxError(t("resource.delete_presence_unverified")) from exc
-        for vm in vms:
-            try:
-                found = int(vm.get("vmid")) == vmid
-            except (TypeError, ValueError):
-                continue
-            if found:
-                logger.warning(
-                    "Resource %s is outside its pool or on a disabled "
-                    "connection (%s); refusing orphan cleanup",
-                    vmid, connection_id,
-                )
-                raise ConflictError(t("resource.delete_outside_pool"))
+    try:
+        hit = proxmox_service.find_vmid_on_connections(vmid, connection_ids)
+    except ProxmoxError as exc:
+        # find_vmid_on_connections 的訊息已含連線 id
+        logger.warning("Cannot confirm resource %s is gone: %s", vmid, exc)
+        raise ProxmoxError(t("resource.delete_presence_unverified")) from exc
+    if hit is not None:
+        logger.warning(
+            "Resource %s is outside its pool or on a disabled "
+            "connection (%s); refusing orphan cleanup",
+            vmid, hit[0],
+        )
+        raise ConflictError(t("resource.delete_outside_pool"))
 
 
 def _ensure_not_template_update_temp_vm(session: Session, resource: Resource) -> None:

@@ -81,7 +81,7 @@ WebSocket 端點（`app/main.py`）：
 
 `app/core/`：
 
-- `config.py`：Pydantic Settings，從 `.env` 載入 Proxmox / SMTP / CORS / DB / SECRET_KEY 等
+- `config.py`：Pydantic Settings，從 `.env` 載入 SMTP / CORS / DB / SECRET_KEY 等（PVE 連線存在資料庫，不讀 .env）
 - `db.py`：SQLAlchemy engine、連線池、首位 superuser 建立
 - `security.py`：密碼雜湊（Argon2 + Bcrypt）、JWT 簽發/驗證、Fernet 加密
 - `proxmox.py`：ProxmoxAPI client factory，HA failover（TCP ping）、SSL/CA 處理
@@ -121,12 +121,6 @@ POSTGRES_DB=app
 FIRST_SUPERUSER=admin@example.com
 FIRST_SUPERUSER_PASSWORD=...
 
-# Proxmox
-PROXMOX_HOST=192.168.x.x
-PROXMOX_USER=ccapiuser@pve
-PROXMOX_PASSWORD=...
-PROXMOX_VERIFY_SSL=false
-
 # SMTP（可選）
 SMTP_HOST=...
 SMTP_USER=...
@@ -136,6 +130,8 @@ EMAILS_FROM_EMAIL=...
 # Sentry（可選）
 SENTRY_DSN=...
 ```
+
+PVE 連線不在 `.env` 設定：首次安裝時在初始化精靈（`/setup`）填入並測試連線，之後由管理員在「PVE 連線」頁新增、編輯或同步。舊版的 `PROXMOX_HOST`、`PROXMOX_USER`、`PROXMOX_PASSWORD`、`PROXMOX_VERIFY_SSL` 等環境變數後端已不再讀取，即使寫在 `.env` 也不會生效。
 
 ## 開發環境
 

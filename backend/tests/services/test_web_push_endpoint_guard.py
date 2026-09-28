@@ -141,9 +141,10 @@ def _must_not_resolve(*args: Any, **kwargs: Any) -> Any:
 def test_internal_resolution_is_blocked(
     monkeypatch: pytest.MonkeyPatch, addresses: tuple[str, ...]
 ) -> None:
+    # 白名單內的推播服務網域被改指向內網（DNS rebinding）
     monkeypatch.setattr(socket, "getaddrinfo", _resolver(*addresses))
     assert (
-        web_push_service.check_endpoint("https://rebind.example.com/x")
+        web_push_service.check_endpoint("https://fcm.googleapis.com/fcm/send/abc")
         is EndpointVerdict.BLOCKED
     )
 
@@ -161,8 +162,21 @@ def test_public_resolution_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_resolution_failure_is_not_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", _failing_resolver)
     assert (
-        web_push_service.check_endpoint("https://fcm.example/x")
+        web_push_service.check_endpoint(
+            "https://updates.push.services.mozilla.com/wpush/v2/x"
+        )
         is EndpointVerdict.UNRESOLVED
+    )
+
+
+def test_non_allowlisted_host_is_blocked_without_resolving(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """白名單建立前存好的訂閱：主機不是推播服務，連解析都不做就封鎖。"""
+    monkeypatch.setattr(socket, "getaddrinfo", _must_not_resolve)
+    assert (
+        web_push_service.check_endpoint("https://rebind.example.com/x")
+        is EndpointVerdict.BLOCKED
     )
 
 

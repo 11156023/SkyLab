@@ -746,7 +746,7 @@ function UsageBreakdown({ icon, title, entries, formatter }) {
   );
 }
 
-/* call_type 來自 AI 代理記錄的 request_type（backend ai_proxy._GENERATION_ENDPOINTS）；
+/* call_type 來自 AI 代理記錄的 request_type（backend services/llm_gateway/relay_service.GENERATION_ENDPOINTS）；
    沒列到的型別（completion、response…）直接顯示原字串。只放 locale 裡
    確實存在的 key，否則畫面會露出 key 字串本身。 */
 const CALL_TYPE_LABELS = {

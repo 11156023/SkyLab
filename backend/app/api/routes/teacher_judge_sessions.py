@@ -1027,7 +1027,7 @@ async def _generate_script_set(
 ) -> TeacherJudgeScriptSetPublic:
     """產生（或重新產生）script set；失敗一律回滾並在 session 上留下失敗紀錄。"""
     try:
-        script_set = await create_artifact_set(
+        script_set = create_artifact_set(
             session=session,
             teaching_class_id=teaching_class_id,
             session_id=session_id,

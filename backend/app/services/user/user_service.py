@@ -127,9 +127,9 @@ def _prepare_user_delete(*, session: Session, user: User) -> None:
         select(DeletionRequest).where(DeletionRequest.user_id == user.id)
     ).all():
         session.delete(deletion_request)
-    # 防火牆拓樸的節點位置是個人版面設定；Internet（gateway）節點與
-    # 當時找不到 Resource 的節點 resource_vmid 為 NULL，不會被資源的
-    # CASCADE 帶走，要在這裡整批清掉。
+    # 防火牆拓樸的節點位置是每位使用者的個人版面設定，在這裡明確整批清掉；
+    # 其中 Internet（gateway）節點的 vmid 為 NULL，不會被 resources 的
+    # CASCADE 帶走。
     for layout in session.exec(
         select(FirewallLayout).where(FirewallLayout.user_id == user.id)
     ).all():

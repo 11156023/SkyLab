@@ -401,11 +401,6 @@ def sync_extra_block_rules() -> dict:
     }
 
 
-# 舊名（這支早就不再處理 block-local-subnet，只同步額外封鎖網段）；
-# 呼叫端改用 sync_extra_block_rules 之後即可刪除
-sync_block_local_subnet_rules = sync_extra_block_rules
-
-
 def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> None:
     """VM 建立後設定預設防火牆規則：
     - 啟用防火牆

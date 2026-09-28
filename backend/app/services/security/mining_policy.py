@@ -11,8 +11,7 @@ import enum
 from datetime import datetime
 from typing import Any
 
-from app.infrastructure.proxmox.rrd import sampling_step_seconds
-from app.services.governance.lifecycle_policy import window_cpu_percentages
+from app.infrastructure.proxmox.rrd import sampling_step_seconds, window_cpu_percentages
 
 # 視窗內有效樣本覆蓋率下限 — 低於此值視為資料不足，不判定
 MIN_SAMPLE_COVERAGE = 2.0 / 3.0

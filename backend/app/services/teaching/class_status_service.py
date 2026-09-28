@@ -6,11 +6,15 @@ a fully provisioned class could sit at ``provisioning`` in the class list
 forever and the "需處理" filter never lit up. This module is the single place
 that derives the status, and it is called both from that endpoint and from the
 provisioning worker as each node job finishes.
+
+It also derives the per-machine runtime usage shown on the class page
+(``class_resource_usage_items``) from the PVE cluster resource list.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from collections.abc import Sequence
 
@@ -24,6 +28,7 @@ from app.models import (
     TeachingClassStatus,
 )
 from app.models.base import get_datetime_utc
+from app.schemas.teaching_class import ClassResourceUsageItem
 from app.services.course import course_service
 from app.services.teaching import class_network_service
 
@@ -183,4 +188,67 @@ def recompute(*, session: Session, class_id: uuid.UUID) -> TeachingClass | None:
     return item
 
 
-__all__ = ["activate_class", "jobs_all_ready", "mark_class_active", "recompute"]
+def _finite_float(value: object) -> float | None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _usage_percent(used: object, total: object) -> float | None:
+    used_number = _finite_float(used)
+    total_number = _finite_float(total)
+    if used_number is None or total_number is None or total_number <= 0:
+        return None
+    return round(max(0.0, min(100.0, used_number / total_number * 100)), 2)
+
+
+def class_resource_usage_items(
+    vmids: list[int], cluster_resources: list[dict]
+) -> list[ClassResourceUsageItem]:
+    """把班級機器的 vmid 對到 PVE 叢集資源，算出 CPU／記憶體使用率。
+
+    查不到的 vmid 仍回一列（status=unknown），重複的 vmid 只算一次；
+    PVE 回傳的數值可能是字串、None 或 NaN，無法轉成有限數字的一律視為未知。
+    """
+    resources_by_vmid = {
+        int(resource["vmid"]): resource
+        for resource in cluster_resources
+        if resource.get("vmid") is not None
+    }
+    items: list[ClassResourceUsageItem] = []
+    for vmid in sorted(set(vmids)):
+        resource = resources_by_vmid.get(vmid)
+        if resource is None:
+            items.append(ClassResourceUsageItem(vmid=vmid, status="unknown"))
+            continue
+
+        cpu_ratio = _finite_float(resource.get("cpu"))
+        cpu_usage_pct = (
+            round(max(0.0, min(100.0, cpu_ratio * 100)), 2)
+            if cpu_ratio is not None
+            else None
+        )
+        mem_used = _finite_float(resource.get("mem"))
+        mem_total = _finite_float(resource.get("maxmem"))
+        items.append(
+            ClassResourceUsageItem(
+                vmid=vmid,
+                status=str(resource.get("status") or "unknown").lower(),
+                cpu_usage_pct=cpu_usage_pct,
+                ram_usage_pct=_usage_percent(mem_used, mem_total),
+                mem_used_bytes=int(mem_used) if mem_used is not None else None,
+                mem_total_bytes=int(mem_total) if mem_total is not None else None,
+            )
+        )
+    return items
+
+
+__all__ = [
+    "activate_class",
+    "class_resource_usage_items",
+    "jobs_all_ready",
+    "mark_class_active",
+    "recompute",
+]

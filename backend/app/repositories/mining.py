@@ -12,8 +12,6 @@ from app.models import MiningIncident, MiningIncidentStatus
 
 # 未結案（待管理員審核）的事件狀態；TTL、閒置偵測、資源告警與重複偵測共用這一份。
 OPEN_STATUSES = (MiningIncidentStatus.detected, MiningIncidentStatus.suspended)
-# 相容別名：mining_service 改用 OPEN_STATUSES 之前暫留，之後可刪。
-_OPEN_STATUSES = OPEN_STATUSES
 
 
 def create_incident(

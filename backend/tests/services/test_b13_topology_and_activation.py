@@ -33,7 +33,7 @@ class _FakePveFirewall:
     def _listing(self) -> list[dict[str, Any]]:
         return [{**rule, "pos": index} for index, rule in enumerate(self.rules)]
 
-    def get_vm_firewall_rules(self, _node: str, _vmid: int, _type: str) -> list[dict]:
+    def list_vm_firewall_rules_strict(self, _node: str, _vmid: int, _type: str) -> list[dict]:
         return self._listing()
 
     def create_rule(self, _node: str, _vmid: int, _type: str, rule: dict) -> None:
@@ -56,7 +56,7 @@ def fake_pve(monkeypatch: pytest.MonkeyPatch):
             "find_resource",
             lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
         )
-        for name in ("get_vm_firewall_rules", "create_rule", "delete_rule_by_pos"):
+        for name in ("list_vm_firewall_rules_strict", "create_rule", "delete_rule_by_pos"):
             monkeypatch.setattr(
                 class_network_service.firewall_service, name, getattr(fake, name)
             )

@@ -24,7 +24,7 @@ import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
-import { isRowBackgroundClick, resourceRowKey } from "./resourceRows";
+import { BOOTING_POLL_INTERVAL, LIVE_STATUSES, isRowBackgroundClick, machineSpecLabel, resourceRowKey, statusAfterAction } from "./resourceRows";
 import QuotaUsageBar from "../../../components/QuotaUsageBar/QuotaUsageBar";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -70,13 +70,6 @@ function formatDatetime(isoStr) {
 }
 
 /* ── Primitive sub-components ── */
-/* reboot / reset 之後機器仍是開著的；原本一律當成 stopped 會讓列上的狀態說謊。
-   start / reboot 會重新跑開機 task，先標 starting（主控台停用），由後端輪詢確認開完機。 */
-function statusAfterAction(action) {
-  if (action === "stop" || action === "shutdown") return "stopped";
-  return action === "start" || action === "reboot" ? "starting" : "running";
-}
-
 function StatusBadge({ status }) {
   const { t } = useTranslation("personal");
   const s = STATUS_MAP[status] ?? { label: status, color: "muted", icon: "help_outline" };
@@ -179,10 +172,6 @@ function CreatingRow({ request, onCancelled }) {
     </tr>
   </>;
 }
-
-const LIVE_STATUSES = new Set(["running", "starting", "stopped", "paused"]);
-/* 有機器開機中時縮短輪詢，開完機後主控台按鈕能盡快亮起 */
-const BOOTING_POLL_INTERVAL = 5_000;
 
 /* ── Resource row ── */
 function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
@@ -391,13 +380,6 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
     {consoleOpen && !isLxc && createPortal(<VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
     {convertDialog.open && createPortal(<TemplateConvertDialog resource={resource} closing={convertDialog.closing} onClose={() => setConvertOpen(false)} onDone={() => onDeleted(resource.vmid)} />, document.body)}
   </>;
-}
-
-function machineSpecLabel(machine) {
-  const parts = [];
-  if (machine.cpu) parts.push(`${machine.cpu} CPU`);
-  if (machine.memoryBytes) parts.push(`${Math.round(machine.memoryBytes / 1024 ** 3)} GB`);
-  return parts.join(" · ");
 }
 
 function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {

@@ -80,6 +80,7 @@ from .ldap import (
 )
 from .mining import (
     MiningDismissRequest,
+    MiningDismissResult,
     MiningIncidentPublic,
 )
 from .monitoring import (
@@ -309,6 +310,7 @@ __all__ = [
     "VMTopEntry",
     # Mining (module D)
     "MiningDismissRequest",
+    "MiningDismissResult",
     "MiningIncidentPublic",
     # Proxmox Config
     "ProxmoxConfigPublic",

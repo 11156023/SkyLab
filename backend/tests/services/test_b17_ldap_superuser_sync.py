@@ -1,7 +1,7 @@
-"""B17 回歸：LDAP 登入重算角色時，手動指定的超級使用者不被目錄群組降級。
+"""B17 回歸：LDAP 登入重算角色。
 
-user_repo.update_user 在只給 role 時會讓 is_superuser 跟著新角色走（管理頁
-降級管理員需要這樣），所以 LDAP 同步必須自己擋下超級使用者的降級。
+沒設定 admin 群組時，目錄無法表達管理員，手動指定的管理員不被降級；有設定
+admin 群組時角色完全以目錄為準。
 """
 
 from __future__ import annotations
@@ -51,28 +51,24 @@ def _info(groups: list[str]) -> LdapUserInfo:
     )
 
 
-def _ldap_user(role: UserRole, *, is_superuser: bool) -> User:
+def _ldap_user(role: UserRole) -> User:
     return User(
         email="boss@campus.edu",
         hashed_password="x",
         role=role,
-        is_superuser=is_superuser,
         auth_source="ldap",
         token_version=5,
     )
 
 
-@pytest.mark.parametrize("admin_group_dn", [ADMIN_DN, None])
 @pytest.mark.parametrize("groups", [[], [TEACHER_DN]])
-def test_manual_superuser_not_demoted_by_directory(
-    admin_group_dn: str | None, groups: list[str]
-) -> None:
-    user = _ldap_user(UserRole.admin, is_superuser=True)
+def test_manual_admin_kept_without_admin_group(groups: list[str]) -> None:
+    user = _ldap_user(UserRole.admin)
 
     ldap_auth_service._sync_role_from_directory(
         session=_FakeSession(),  # type: ignore[arg-type]
         user=user,
-        config=_config(admin_group_dn),
+        config=_config(None),
         info=_info(groups),
     )
 
@@ -81,8 +77,28 @@ def test_manual_superuser_not_demoted_by_directory(
     assert user.token_version == 5
 
 
+@pytest.mark.parametrize(
+    ("groups", "expected"),
+    [([], UserRole.student), ([TEACHER_DN], UserRole.teacher)],
+)
+def test_admin_group_configured_directory_decides(
+    groups: list[str], expected: UserRole
+) -> None:
+    user = _ldap_user(UserRole.admin)
+
+    ldap_auth_service._sync_role_from_directory(
+        session=_FakeSession(),  # type: ignore[arg-type]
+        user=user,
+        config=_config(ADMIN_DN),
+        info=_info(groups),
+    )
+
+    assert user.role == expected
+    assert user.is_superuser is False
+
+
 def test_non_superuser_still_follows_directory() -> None:
-    user = _ldap_user(UserRole.teacher, is_superuser=False)
+    user = _ldap_user(UserRole.teacher)
 
     ldap_auth_service._sync_role_from_directory(
         session=_FakeSession(),  # type: ignore[arg-type]
@@ -96,7 +112,7 @@ def test_non_superuser_still_follows_directory() -> None:
 
 
 def test_directory_admin_group_promotes() -> None:
-    user = _ldap_user(UserRole.student, is_superuser=False)
+    user = _ldap_user(UserRole.student)
 
     ldap_auth_service._sync_role_from_directory(
         session=_FakeSession(),  # type: ignore[arg-type]

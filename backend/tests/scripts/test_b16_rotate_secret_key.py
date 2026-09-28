@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlmodel import Session, SQLModel
@@ -79,6 +80,49 @@ def test_rotate_value_encrypts_legacy_plaintext_pem() -> None:
     assert vapid.legacy_plaintext_pem
 
 
+def test_load_json_payload_accepts_json_and_legacy_text_columns() -> None:
+    payload = {"login_password_enc": "x"}
+    assert rsk._load_json_payload(payload) == payload
+    assert rsk._load_json_payload(json.dumps(payload)) == payload
+    assert rsk._load_json_payload("not json") is None
+    assert rsk._load_json_payload("[1]") is None
+    assert rsk._load_json_payload(None) is None
+
+
+def test_json_assignment_casts_to_the_column_type() -> None:
+    assert rsk._json_assignment("JSON") == "CAST(:value AS json)"
+    assert rsk._json_assignment("JSONB") == "CAST(:value AS jsonb)"
+    assert rsk._json_assignment("TEXT") == ":value"
+
+
+def test_find_env_file_rejects_missing_file_or_key_line(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        rsk.find_env_file(str(tmp_path / "missing.env"))
+
+    no_key = tmp_path / "no_key.env"
+    no_key.write_text("DOMAIN=example.com\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        rsk.find_env_file(str(no_key))
+
+    ok = tmp_path / "ok.env"
+    ok.write_text("SECRET_KEY=old\n", encoding="utf-8")
+    assert rsk.find_env_file(str(ok)) == ok
+
+
+def test_write_secret_key_keeps_other_lines_and_literal_backslashes(
+    tmp_path: Path,
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text("DOMAIN=x\nSECRET_KEY=old\nOTHER=y\n", encoding="utf-8")
+
+    rsk.write_secret_key(env, r"new\1key\g<0>")
+
+    assert env.read_text(encoding="utf-8") == (
+        "DOMAIN=x\nSECRET_KEY=new\\1key\\g<0>\nOTHER=y\n"
+    )
+    assert (tmp_path / ".env.bak").read_text(encoding="utf-8").count("old") == 1
+
+
 def test_rotate_round_trip_on_user_table_and_task_payload(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,9 +134,7 @@ def test_rotate_round_trip_on_user_table_and_task_payload(
         id=uuid.uuid4(),
         task_type="b16_rotate_test",
         user_id=user.id,
-        payload=json.dumps(
-            {"hostname": "h", "login_password_enc": security.encrypt_value("pw")}
-        ),
+        payload={"hostname": "h", "login_password_enc": security.encrypt_value("pw")},
     )
     db.add(record)
     db.commit()
@@ -118,7 +160,9 @@ def test_rotate_round_trip_on_user_table_and_task_payload(
         )
         task_row = db.get(TaskRecord, record.id)
         assert task_row is not None
-        payload = json.loads(task_row.payload)
+        # task_records.payload is a json column (dbm06): it must stay an object.
+        payload = task_row.payload
+        assert isinstance(payload, dict)
         assert payload["hostname"] == "h"
         assert new_fernet.decrypt(payload["login_password_enc"].encode()) == b"pw"
     finally:

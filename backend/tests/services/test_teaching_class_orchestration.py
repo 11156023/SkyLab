@@ -463,7 +463,7 @@ def test_sync_scope_rules_removes_stale_rules_from_a_previous_vmid(monkeypatch):
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
-        "get_vm_firewall_rules",
+        "list_vm_firewall_rules_strict",
         lambda _node, vmid, _type: existing.get(vmid, []),
     )
     monkeypatch.setattr(
@@ -504,7 +504,7 @@ def test_sync_scope_rules_cleans_machines_that_lost_every_edge(monkeypatch):
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
-        "get_vm_firewall_rules",
+        "list_vm_firewall_rules_strict",
         lambda _node, _vmid, _type: [{"pos": 3, "comment": f"{prefix}abc12345:101>102:any"}],
     )
     monkeypatch.setattr(

@@ -135,7 +135,10 @@ def sync_scope_rules(
         node = info["node"]
         resource_type = cast(ResourceType, info["type"])
         try:
-            existing = firewall_service.get_vm_firewall_rules(node, vmid, resource_type)
+            # 讀不到就不能當成「沒有規則」：那樣會重複建立、孤兒也不會被刪掉。
+            existing = firewall_service.list_vm_firewall_rules_strict(
+                node, vmid, resource_type
+            )
         except Exception:
             logger.exception("Failed to list firewall rules vmid=%s", vmid)
             errors.append(f"{vmid}: firewall rules unreadable")

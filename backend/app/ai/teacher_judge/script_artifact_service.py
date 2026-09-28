@@ -366,7 +366,7 @@ def list_artifact_sets(
     ]
 
 
-async def create_artifact_set(
+def create_artifact_set(
     *,
     session: Session,
     teaching_class_id: uuid.UUID,

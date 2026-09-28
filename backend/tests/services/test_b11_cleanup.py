@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
+from app.infrastructure.proxmox.rrd import window_cpu_percentages
 from app.models import UserRole
 from app.services.governance import snapshot_cleanup_policy
-from app.services.governance.lifecycle_policy import window_cpu_percentages
 from app.services.monitoring import alert_service, system_health_service
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)

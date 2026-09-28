@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import { useAuth } from "../../contexts/AuthContext";
 import { AccountService } from "../../services/account";
+import { isAdminUser } from "../../utils/roles";
 import shell from "../setup/SetupPage.module.scss";
 import styles from "./LoginPreflightPage.module.scss";
 
@@ -38,10 +39,6 @@ const REVEAL_STEP_MS = 260;
 const DONE_PAUSE_MS = 700;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function isAdminUser(user) {
-  return Boolean(user?.is_superuser || user?.role === "admin");
-}
 
 /** 單項的狀態：checking（圈圈轉）／ok／fail／skipped */
 function rowStatus(key, index, state) {

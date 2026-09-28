@@ -15,6 +15,7 @@ from app.infrastructure.proxmox import (
     invalidate_proxmox_client,
     resolve_verify,
 )
+from app.infrastructure.proxmox.operations import list_connection_vms
 from app.models import AuditAction, Resource
 from app.models.proxmox_storage import ProxmoxStorage
 from app.repositories import proxmox_config as proxmox_config_repo
@@ -133,12 +134,8 @@ def _resource_vmids_on_pve(
     if not node_names:
         return []
 
-    from app.infrastructure.proxmox import get_proxmox_api
-
     try:
-        cluster_resources = list(
-            get_proxmox_api(connection_id).cluster.resources.get(type="vm")
-        )
+        cluster_resources = list_connection_vms(connection_id)
     except Exception as e:
         logger.warning(f"刪除連線前無法列出 PVE 機器: {e}")
         raise _ResourceCheckUnavailable(

@@ -75,6 +75,7 @@ describe("ProxmoxConfigService 多連線", () => {
 
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toContain("/api/v1/proxmox-config/connections/3");
+    expect(url).not.toContain("force");
     expect(options.method).toBe("DELETE");
   });
 

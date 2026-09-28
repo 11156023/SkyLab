@@ -399,7 +399,7 @@ def visible_template(monkeypatch: pytest.MonkeyPatch) -> VMTemplate:
         template_service, "get_or_404", lambda session, template_id: template
     )
     monkeypatch.setattr(
-        template_service, "require_view", lambda session, user, template: None
+        template_service, "require_view", lambda *args, **kwargs: None
     )
     # 配額執法另有專屬測試；其餘案例預設放行，避免碰到真的 DB。
     monkeypatch.setattr(
@@ -502,7 +502,7 @@ async def test_request_clone_rejects_not_ready_template(
         template_service, "get_or_404", lambda session, template_id: template
     )
     monkeypatch.setattr(
-        template_service, "require_view", lambda session, user, template: None
+        template_service, "require_view", lambda *args, **kwargs: None
     )
 
     with pytest.raises(ConflictError, match="尚未就緒"):

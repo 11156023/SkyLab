@@ -4,9 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# 相容匯出：ReverseProxyRulePublic 已搬到 app.schemas.reverse_proxy
-from app.schemas.reverse_proxy import ReverseProxyRulePublic
-
 # ─── 基礎型別 ──────────────────────────────────────────────────────────────────
 
 # 協定名稱會被寫進 PVE 防火牆規則與 nginx 設定檔（server 區塊註解與 listen），
@@ -314,7 +311,6 @@ __all__ = [
     "TopologyNode",
     "TopologyEdge",
     "TopologyResponse",
-    "ReverseProxyRulePublic",  # 相容匯出，新程式請從 reverse_proxy 匯入
     "PublishMode",
     "PublishedService",
     "PublishedServiceCreate",

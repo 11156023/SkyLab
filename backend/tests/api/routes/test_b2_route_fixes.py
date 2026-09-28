@@ -27,8 +27,9 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
+from app.infrastructure.proxmox import operations as proxmox_operations
 from app.main import app
-from app.models import ResourceQuota, TemplateAttachment, User
+from app.models import ResourceQuota, TemplateAttachment, User, UserRole
 from app.schemas import SpecChangeRequestsPublic
 from app.services.resource import deletion_service
 from app.services.user import audit_service
@@ -68,7 +69,7 @@ def _user(*, superuser: bool = False) -> User:
         id=uuid.uuid4(),
         email=f"b2-{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="x",
-        is_superuser=superuser,
+        role=UserRole.admin if superuser else UserRole.student,
     )
 
 
@@ -160,11 +161,12 @@ def orphan_delete_setup(
             SimpleNamespace(id=2, enabled=False),
         ],
     )
-    monkeypatch.setattr(
-        deletion_service,
-        "get_proxmox_api",
-        lambda cid: _FakePve(state["clients"][cid]),
-    )
+    # 逐連線查詢走 operations.find_vmid_on_connections → list_connection_vms
+    # → operations.get_proxmox_api，換成假 client。
+    def _api(cid: int | None) -> _FakePve:
+        return _FakePve(state["clients"][cid])
+
+    monkeypatch.setattr(deletion_service.proxmox_service, "get_proxmox_api", _api)
     monkeypatch.setattr(
         deletion_service.resource_service,
         "delete_orphan_db_record",
@@ -262,6 +264,10 @@ def connection_delete_setup(
         state["queried"].append(cid)
         return _FakePve(state["client"])
 
+    # 路由經 operations.list_connection_vms 查詢，operations 自己匯入的
+    # get_proxmox_api 才是實際呼叫點；套件層級的名稱一併換掉，涵蓋路由內
+    # 直接 import 的寫法。
+    monkeypatch.setattr(proxmox_operations, "get_proxmox_api", _api)
     monkeypatch.setattr(proxmox_infra, "get_proxmox_api", _api)
     return state
 

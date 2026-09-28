@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.exceptions import BadRequestError, ConflictError, PermissionDeniedError
@@ -36,7 +37,11 @@ TEMP_VMID = 120
 
 @pytest.fixture()
 def engine(monkeypatch: pytest.MonkeyPatch) -> Engine:
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    # 服務層把同步檢查丟到 run_in_threadpool；StaticPool 讓各執行緒共用同一個
+    # in-memory 連線，否則 worker thread 會拿到一個空資料庫
+    eng = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(eng)
     # worker 端以 Session(engine) 開自己的 session
     monkeypatch.setattr(template_service, "engine", eng)
