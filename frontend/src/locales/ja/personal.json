@@ -291,6 +291,7 @@
   "EnvironmentGroupRows.shutdownAll": "一括シャットダウン",
   "EnvironmentGroupRows.groupCommandSent": "コマンドを送信しました",
   "EnvironmentGroupRows.groupCommandFailed": "一括操作に失敗しました",
+  "EnvironmentGroupRows.groupCommandPartial": "{{succeeded}} 台成功、{{failed}} 台失敗しました",
   "EnvironmentGroupRows.courseEnv": "コース受講環境",
   "EnvironmentGroupRows.quickPracticeEnv": "クイック演習環境",
   "EnvironmentGroupRows.groupOverview": "グループ全体表示",

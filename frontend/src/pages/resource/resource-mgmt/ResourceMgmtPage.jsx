@@ -238,8 +238,12 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
     if (!controllableVmids.length || groupAction) return;
     setGroupAction(action);
     try {
-      await ResourcesService.batchAction(controllableVmids, action);
-      toast.success(t("ResourceMgmtPage.groupCommandSent"));
+      const result = await ResourcesService.batchActionInChunks(controllableVmids, action);
+      if (result.failed) {
+        toast.error(t("ResourceMgmtPage.groupCommandPartial", { succeeded: result.succeeded, failed: result.failed }));
+      } else {
+        toast.success(t("ResourceMgmtPage.groupCommandSent"));
+      }
       onRefresh?.();
     } catch (error) {
       toast.error(error?.message ?? t("ResourceMgmtPage.groupCommandFailed"));
@@ -330,7 +334,7 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
   async function run(action) {
     setPending(action);
     try {
-      const res = await ResourcesService.batchAction(selectedVmids, action);
+      const res = await ResourcesService.batchActionInChunks(selectedVmids, action);
       const label = action === "delete" ? t("ResourceMgmtPage.delete") : actionLabel[action];
       if ((res?.failed ?? 0) === 0) {
         toast.success(t("ResourceMgmtPage.batchSuccessToast", { count: res?.succeeded ?? count, label }));

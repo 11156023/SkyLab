@@ -98,6 +98,7 @@ from .teacher_judge_session import (
 from .teacher_judge_student_submission import TeacherJudgeStudentSubmission
 from .teacher_judge_template_command import TeacherJudgeTemplateCommand
 from .teaching_class import (
+    INSTRUCTOR_ENROLLMENT_STATUS,
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStatus,
@@ -228,6 +229,7 @@ __all__ = [
     # Task Record (背景任務)
     "TaskRecord",
     "TaskRecordStatus",
+    "INSTRUCTOR_ENROLLMENT_STATUS",
     "TeachingClass",
     "TeachingClassStatus",
     "TeachingClassMachineNode",

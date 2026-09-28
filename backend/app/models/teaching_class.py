@@ -170,6 +170,11 @@ class TeachingClassTaskFile(SQLModel, table=True):
     target_path: str | None = Field(default=None, max_length=500)
 
 
+# 班級擁有者自己的那一列：跟學生一樣佔容量、拿一整套機器、套同一份拓樸，
+# 但學生端的課程、提醒、評分都只看 status == "active"，不會把老師算進去。
+INSTRUCTOR_ENROLLMENT_STATUS = "instructor"
+
+
 class TeachingClassStudent(SQLModel, table=True):
     __tablename__ = "teaching_class_students"
     __table_args__ = (
@@ -239,6 +244,7 @@ class TeachingClassStudentMachine(SQLModel, table=True):
 
 
 __all__ = [
+    "INSTRUCTOR_ENROLLMENT_STATUS",
     "TeachingClass",
     "TeachingClassStatus",
     "TeachingClassMachineNode",

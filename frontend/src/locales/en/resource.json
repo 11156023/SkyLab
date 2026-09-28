@@ -204,6 +204,7 @@
   "ResourceMgmtPage.shutdownAll": "Shut down all",
   "ResourceMgmtPage.groupCommandSent": "Command sent",
   "ResourceMgmtPage.groupCommandFailed": "Group action failed",
+  "ResourceMgmtPage.groupCommandPartial": "{{succeeded}} succeeded, {{failed}} failed",
   "ResourceMgmtPage.selectedCount": "{{count}} selected",
   "ResourceMgmtPage.batchSuccessToast": "Sent \"{{label}}\" to {{count}} machine(s)",
   "ResourceMgmtPage.batchPartialFailToast": "\"{{label}}\" succeeded on {{succeeded}}, failed on {{failed}}",

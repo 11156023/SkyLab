@@ -14,6 +14,7 @@ from sqlmodel import Session, SQLModel, col, create_engine, select
 
 from app.api.routes.teaching_classes import _serialize_list
 from app.models import (
+    INSTRUCTOR_ENROLLMENT_STATUS,
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStatus,
@@ -154,6 +155,23 @@ def test_counts_stay_scoped_to_each_class(session):
     assert rows["B 班"]["ready_machines"] == 1
     assert rows["B 班"]["total_machines"] == 2
     assert len(rows["B 班"]["weeks"]) == 5
+
+
+def test_instructor_machine_counts_as_machines_but_not_as_a_member(session):
+    item = _make_class(session, name="含老師", weeks=1, nodes=2, students=3, ready=0)
+    session.add(
+        TeachingClassStudent(
+            class_id=item.id,
+            user_id=item.owner_id,
+            status=INSTRUCTOR_ENROLLMENT_STATUS,
+        )
+    )
+    session.flush()
+
+    (row,) = _serialize_list(session, [item])
+
+    assert row["member_count"] == 3
+    assert row["total_machines"] == 8
 
 
 def test_query_count_does_not_grow_with_classes_or_weeks(session, engine):
