@@ -104,7 +104,7 @@ afterEach(() => {
   host.remove();
 });
 
-describe("RequestReviewPage (F5)", () => {
+describe("RequestReviewPage", () => {
   test("pending tab asks the server for pending requests instead of filtering the newest 100", async () => {
     const newest = Array.from({ length: 100 }, (_, i) => vmRequest(`a${i}`, "approved", "2026-09-20T00:00:00Z"));
     const oldPending = vmRequest("old", "pending", "2026-01-01T00:00:00Z");

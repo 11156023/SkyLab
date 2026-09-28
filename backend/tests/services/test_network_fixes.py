@@ -1,4 +1,4 @@
-"""B9 services/network 的回歸測試：Gateway 自用 port、nginx 同步序列化、
+"""services/network 的回歸測試：Gateway 自用 port、nginx 同步序列化、
 服務編輯失敗還原、網域發布失敗回滾、UDP 撤下不誤刪網站、拓撲 port 去重、訊息 i18n。"""
 
 from __future__ import annotations

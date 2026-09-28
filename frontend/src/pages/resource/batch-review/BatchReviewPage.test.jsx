@@ -66,7 +66,7 @@ afterEach(() => {
   host.remove();
 });
 
-describe("BatchReviewPage (F5)", () => {
+describe("BatchReviewPage", () => {
   test("pending batches older than the newest list window still show up", async () => {
     const recent = Array.from({ length: 200 }, (_, i) => job(`c${i}`, "completed", "2026-09-20T00:00:00Z"));
     const oldPending = job("old", "pending_review", "2026-01-01T00:00:00Z");

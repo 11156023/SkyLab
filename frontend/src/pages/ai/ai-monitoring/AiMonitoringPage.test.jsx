@@ -96,7 +96,7 @@ afterEach(() => {
   host.remove();
 });
 
-describe("AiMonitoringPage (F5)", () => {
+describe("AiMonitoringPage", () => {
   test("a slow response for the previous range does not overwrite the new range", async () => {
     const first = deferred();
     const second = deferred();

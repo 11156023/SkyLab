@@ -44,7 +44,7 @@ def _request(db: Session, user: User, *, duration: str = "never") -> uuid.UUID:
     created = ai_gateway_service.create_request(
         session=db,
         request_in=AIAPIRequestCreate(
-            purpose="B15 regression test request purpose",
+            purpose="Gateway regression test request purpose",
             api_key_name="b15",
             duration=duration,
         ),
@@ -71,7 +71,7 @@ def test_unknown_duration_is_rejected_on_submit(db: Session) -> None:
         ai_gateway_service.create_request(
             session=db,
             request_in=AIAPIRequestCreate.model_construct(
-                purpose="B15 regression test request purpose",
+                purpose="Gateway regression test request purpose",
                 api_key_name="b15",
                 duration="2h",
             ),

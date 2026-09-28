@@ -93,7 +93,7 @@ def test_init_db_respects_finished_setup(
     completed: bool | None,
     expect_created: bool,
 ) -> None:
-    email = f"b16-first-{uuid.uuid4().hex[:8]}@example.com"
+    email = f"setup-first-{uuid.uuid4().hex[:8]}@example.com"
     monkeypatch.setattr(settings, "FIRST_SUPERUSER", email)
     original = db.get(SystemSetup, SYSTEM_SETUP_ID)
     snapshot = None if original is None else original.model_dump()
@@ -129,7 +129,7 @@ def test_ensure_first_superuser_ignores_finished_setup(
 ) -> None:
     # Test fixtures rely on this to seed the superuser even on a DB whose
     # setup wizard is already marked completed.
-    email = f"b16-ensure-{uuid.uuid4().hex[:8]}@example.com"
+    email = f"setup-ensure-{uuid.uuid4().hex[:8]}@example.com"
     monkeypatch.setattr(settings, "FIRST_SUPERUSER", email)
     original = db.get(SystemSetup, SYSTEM_SETUP_ID)
     snapshot = None if original is None else original.model_dump()

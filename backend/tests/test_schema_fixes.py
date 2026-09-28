@@ -1,4 +1,4 @@
-"""B18 schema 修正的回歸測試（純 schema，不需要 DB）。"""
+"""schema 修正的回歸測試（純 schema，不需要 DB）。"""
 
 import uuid
 

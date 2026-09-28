@@ -1,4 +1,4 @@
-"""B18 schemas 整理的回歸測試：搬移／合併後行為不變。"""
+"""schemas 整理的回歸測試：搬移／合併後行為不變。"""
 
 import pytest
 from pydantic import ValidationError

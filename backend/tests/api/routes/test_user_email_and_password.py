@@ -1,4 +1,4 @@
-"""B18 回歸：LDAP 帶進來的非 RFC 信箱不讓使用者 API 500，短的現有密碼可以改。"""
+"""回歸：LDAP 帶進來的非 RFC 信箱不讓使用者 API 500，短的現有密碼可以改。"""
 
 import uuid
 from datetime import timedelta

@@ -1,4 +1,4 @@
-"""B1 整理：從 create_message 路由抽出來的 Teacher Judge 對話步驟。"""
+"""整理：從 create_message 路由抽出來的 Teacher Judge 對話步驟。"""
 
 import uuid
 from types import SimpleNamespace

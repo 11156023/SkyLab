@@ -145,7 +145,7 @@ def test_rotate_round_trip_on_user_table_and_task_payload(
         (rsk.EncryptedColumn("user", "id", "totp_secret_encrypted"),),
     )
     original_key = settings.SECRET_KEY
-    new_key = "b16-rotated-secret-key"
+    new_key = "test-rotated-secret-key"
     new_fernet = security.derive_fernet(new_key)
 
     try:

@@ -1,4 +1,4 @@
-"""B4 regressions: reply-payload parsing, focus coercion, recovered-title check."""
+"""Teacher Judge regressions: reply-payload parsing, focus coercion, recovered-title check."""
 
 from __future__ import annotations
 

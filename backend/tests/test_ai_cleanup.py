@@ -1,4 +1,4 @@
-"""B7 整理後的行為鎖定：角色判斷改走 core.permissions、共用關鍵字比對。"""
+"""AI 模組整理後的行為鎖定：角色判斷改走 core.permissions、共用關鍵字比對。"""
 
 from __future__ import annotations
 

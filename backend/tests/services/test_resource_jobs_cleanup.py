@@ -1,4 +1,4 @@
-"""B10 整理（services/resource、services/jobs）的行為保持測試。
+"""整理（services/resource、services/jobs）的行為保持測試。
 
 - 刪除與孤兒清理共用同一份收尾流程
 - jobs 的管理員判斷改用 core.permissions.is_admin

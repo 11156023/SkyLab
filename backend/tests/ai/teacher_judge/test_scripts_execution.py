@@ -1,4 +1,4 @@
-"""Regression tests for the B5 audit fixes (command allowlist, compiler policy
+"""Regression tests for the Teacher Judge script fixes (command allowlist, compiler policy
 view, remote executor limits, executor session scope, display names)."""
 
 from __future__ import annotations

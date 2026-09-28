@@ -70,7 +70,7 @@ afterEach(() => {
   host.remove();
 });
 
-describe("AiApiReviewPage (F5)", () => {
+describe("AiApiReviewPage", () => {
   test("pending tab loads pending requests with a server-side status filter", async () => {
     const newest = Array.from({ length: 100 }, (_, i) => request(`a${i}`, "approved", "2026-09-20T00:00:00Z"));
     const oldPending = request("old", "pending", "2026-01-01T00:00:00Z");

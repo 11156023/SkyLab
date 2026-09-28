@@ -61,8 +61,9 @@ def orphan_state(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             SimpleNamespace(id=2, enabled=False),
         ],
     )
+    # find_vmid_on_connections → list_connection_vms → get_proxmox_api
     monkeypatch.setattr(
-        deletion_service,
+        deletion_service.proxmox_service,
         "get_proxmox_api",
         lambda cid: _FakePve(state["clients"][cid]),
     )

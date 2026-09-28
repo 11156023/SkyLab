@@ -1,4 +1,4 @@
-"""B9 services/network 整理後的共用 helper 測試（行為不變的重構）。"""
+"""services/network 整理後的共用 helper 測試（行為不變的重構）。"""
 
 from __future__ import annotations
 

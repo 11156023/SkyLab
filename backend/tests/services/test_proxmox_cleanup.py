@@ -1,4 +1,4 @@
-"""B12 整理後的行為回歸：共用 helper 取代重複實作後，結果必須與原本一致。"""
+"""Proxmox service 整理後的行為回歸：共用 helper 取代重複實作後，結果必須與原本一致。"""
 
 from __future__ import annotations
 

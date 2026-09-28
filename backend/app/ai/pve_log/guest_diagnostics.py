@@ -150,16 +150,19 @@ class ProbeResult:
 # 敏感資訊遮蔽
 # ---------------------------------------------------------------------------
 
+# 旗標名稱與 URI scheme 的前綴長度必須有上限：不設上限時，每個起點都會把
+# 一整串英數字吃到底再回溯，256 KB 的連續字元要跑十幾分鐘（O(n²)），
+# 卡死 SSH worker thread。超過上限的旗標名稱仍由 _ENV_SECRET 兜底遮蔽。
 _CLI_SECRET_ASSIGN = re.compile(
-    r"(?i)(--?[a-z0-9_-]*(?:password|passwd|secret|api[_-]?key|apikey|token))"
+    r"(?i)(--?[a-z0-9_-]{0,64}(?:password|passwd|secret|api[_-]?key|apikey|token))"
     r"\s*[=:]\s*(\S+)"
 )
 _CLI_SECRET_SPACE = re.compile(
-    r"(?i)(--?[a-z0-9_-]*(?:password|passwd|secret|api[_-]?key|apikey|token))"
+    r"(?i)(--?[a-z0-9_-]{0,64}(?:password|passwd|secret|api[_-]?key|apikey|token))"
     r"\s+(\S+)"
 )
 _URI_CREDENTIALS = re.compile(
-    r"(?i)([a-z][a-z0-9+.-]*://)[^\s/@:]+:[^\s/@]+@"
+    r"(?i)([a-z][a-z0-9+.-]{0,31}://)[^\s/@:]+:[^\s/@]+@"
 )
 _ENV_SECRET = re.compile(
     r"(?i)((?:password|passwd|secret|api[_-]?key|apikey|token)\s*[:=]\s*)"

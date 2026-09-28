@@ -1,4 +1,4 @@
-"""B17 回歸：使用者降級、LDAP 群組 DN 清空、殭屍任務訊息。"""
+"""回歸：使用者降級、LDAP 群組 DN 清空、殭屍任務訊息。"""
 
 from __future__ import annotations
 

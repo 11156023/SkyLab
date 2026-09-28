@@ -1,4 +1,4 @@
-"""V1 稽核修正的回歸測試：launcher 信號清理、IPv6 探測、媒體路徑、legacy alias。"""
+"""稽核修正的回歸測試：launcher 信號清理、IPv6 探測、媒體路徑、legacy alias。"""
 
 from __future__ import annotations
 

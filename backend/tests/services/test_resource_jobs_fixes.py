@@ -1,4 +1,4 @@
-"""B10 稽核修正的回歸測試（services/resource、services/jobs）。
+"""稽核修正的回歸測試（services/resource、services/jobs）。
 
 - 已開通／克隆中的排程申請不得被標成「排程超時、仍未開始建立」
 - 尚未佈建的申請單也要佔 max_instances

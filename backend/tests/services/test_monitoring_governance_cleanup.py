@@ -1,4 +1,4 @@
-"""B11 整理後的共用 helper：視窗 CPU 取樣、管理員 email 清單、快照前綴、arq key。"""
+"""監控／治理整理後的共用 helper：視窗 CPU 取樣、管理員 email 清單、快照前綴、arq key。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""B1 回歸測試：Teacher Judge session 路由。
+"""回歸測試：Teacher Judge session 路由。
 
 - 等待 LLM 期間不能握著 DB 交易（PgBouncer transaction pooling 下會佔住連線）。
 - 錯誤訊息走 i18n，不再寫死中文。

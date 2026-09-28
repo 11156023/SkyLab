@@ -86,7 +86,7 @@ afterEach(async () => {
   host.remove();
 });
 
-describe("AiApiPage my usage (F5)", () => {
+describe("AiApiPage my usage", () => {
   test("a slow response for the previous range does not overwrite the new range", async () => {
     const first = deferred();
     const second = deferred();

@@ -1,4 +1,4 @@
-"""B4 cleanup: shared helpers that replaced duplicated inline logic."""
+"""Teacher Judge service cleanup: shared helpers that replaced duplicated inline logic."""
 
 from __future__ import annotations
 

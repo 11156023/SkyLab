@@ -1,4 +1,4 @@
-"""Behaviour pins for the B5 cleanup (shared helpers, removed dead code)."""
+"""Behaviour pins for the Teacher Judge scripts cleanup (shared helpers, removed dead code)."""
 
 from __future__ import annotations
 

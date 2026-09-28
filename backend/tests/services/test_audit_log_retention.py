@@ -1,4 +1,4 @@
-"""B17 回歸：刪除資源不能連帶清掉該 VMID 的操作紀錄。
+"""回歸：刪除資源不能連帶清掉該 VMID 的操作紀錄。
 
 audit_logs.resource_vmid 的外鍵是 ON DELETE SET NULL，資源刪掉後紀錄只會
 解除連結、保留下來；VMID 被回收前前任擁有者的紀錄更不能被一起刪掉。

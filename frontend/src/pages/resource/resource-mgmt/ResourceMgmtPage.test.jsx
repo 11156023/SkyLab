@@ -80,7 +80,7 @@ afterEach(() => {
   host.remove();
 });
 
-describe("ResourceMgmtPage (F5)", () => {
+describe("ResourceMgmtPage", () => {
   test("Retry after a failed first load clears the error state", async () => {
     mocks.listAll
       .mockRejectedValueOnce(new Error("boom"))

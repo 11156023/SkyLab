@@ -1,4 +1,4 @@
-"""B12 回歸測試：Proxmox service／infrastructure 的 bug 與安全修正。"""
+"""回歸測試：Proxmox service／infrastructure 的 bug 與安全修正。"""
 
 from __future__ import annotations
 

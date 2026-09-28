@@ -1,7 +1,8 @@
-"""Regression tests for unit B6 (ai/pve_log) bug fixes.
+"""Regression tests for ai/pve_log bug fixes.
 
 - deferred ssh_exec results resume from a normal history continuation
 - _ssh_exec_sync drains output before waiting for the exit status
+- output redaction stays linear on long unbroken runs of characters
 - the tool-round limit never leaves an unanswered tool_call in history
 - model tool calls are canonicalized with the history validator's rules
 - PveToolContext aggregates every enabled PVE connection
@@ -210,6 +211,34 @@ def test_ssh_exec_sync_drains_large_output_before_exit_status(
     assert closed == [True]
     _text, truncated = ssh_exec_module._redact_and_truncate(out_text)
     assert truncated is True
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "x" * ssh_exec_module._MAX_EXEC_OUTPUT_BYTES,
+        "a-" * (ssh_exec_module._MAX_EXEC_OUTPUT_BYTES // 2),
+    ],
+    ids=["alnum-run", "dash-run"],
+)
+def test_redaction_stays_linear_on_long_unbroken_output(payload: str) -> None:
+    # Unbounded scheme/flag prefixes backtracked over the whole run from every
+    # start position: 256 KB took minutes and pinned the SSH worker thread.
+    started = time.monotonic()
+    redacted, truncated = ssh_exec_module._redact_and_truncate(payload)
+    assert time.monotonic() - started < 10
+    assert truncated is True
+    assert redacted.startswith(payload[:100])
+
+
+def test_redaction_still_masks_flags_and_uri_credentials() -> None:
+    text = (
+        "--db-password=hunter2 --api-key s3cr3t "
+        "postgresql://admin:pw123@db:5432/app TOKEN=abc"
+    )
+    redacted, _ = ssh_exec_module._redact_and_truncate(text)
+    for secret in ("hunter2", "s3cr3t", "pw123", "abc"):
+        assert secret not in redacted
 
 
 # ---------------------------------------------------------------------------
