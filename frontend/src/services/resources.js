@@ -1,5 +1,8 @@
 import { apiDelete, apiDeleteJson, apiGet, apiGetBlob, apiPost, apiPut } from "./api";
 
+/** 每批台數：10 台 LXC 開機（含補金鑰／密碼／防火牆）遠低於代理逾時 */
+export const BATCH_CHUNK_SIZE = 10;
+
 export const ResourcesService = {
   /** 克隆機來源範本的使用手冊（資源擁有者即可，不受範本可見範圍影響） */
   getTemplateManual(vmid) {
@@ -66,6 +69,30 @@ export const ResourcesService = {
   /** 批次操作（action: start|stop|shutdown|reboot|reset|delete）→ { succeeded, failed } */
   batchAction(vmids, action) {
     return apiPost("/api/v1/resources/batch", { vmids, action });
+  },
+
+  /**
+   * 分批送出的批次操作，回傳合併後的 { total, succeeded, failed, results }。
+   *
+   * 後端一次最多收 100 台，而且在同一個請求裡逐台開機（LXC 還要補金鑰、
+   * 密碼與防火牆），整班一起送會撞到代理的 130 秒逾時。拆小批依序送，
+   * 某一批請求失敗只記成那批失敗，其餘照送。
+   */
+  async batchActionInChunks(vmids, action, { chunkSize = BATCH_CHUNK_SIZE, onProgress } = {}) {
+    const results = [];
+    for (let index = 0; index < vmids.length; index += chunkSize) {
+      const chunk = vmids.slice(index, index + chunkSize);
+      try {
+        const response = await ResourcesService.batchAction(chunk, action);
+        results.push(...(response?.results ?? []));
+      } catch (error) {
+        const message = error?.message ?? "Request failed";
+        results.push(...chunk.map((vmid) => ({ vmid, success: false, message })));
+      }
+      onProgress?.({ done: Math.min(index + chunkSize, vmids.length), total: vmids.length });
+    }
+    const succeeded = results.filter((item) => item.success).length;
+    return { total: results.length, succeeded, failed: results.length - succeeded, results };
   },
 
   /** 練習階段狀態（自動關機／到期警告用）→ { should_warn, warn_reason, ... } */

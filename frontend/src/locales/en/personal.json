@@ -291,6 +291,7 @@
   "EnvironmentGroupRows.shutdownAll": "Shut down all",
   "EnvironmentGroupRows.groupCommandSent": "Command sent",
   "EnvironmentGroupRows.groupCommandFailed": "Group action failed",
+  "EnvironmentGroupRows.groupCommandPartial": "{{succeeded}} succeeded, {{failed}} failed",
   "EnvironmentGroupRows.courseEnv": "Course Teaching Environment",
   "EnvironmentGroupRows.quickPracticeEnv": "Quick Practice Environment",
   "EnvironmentGroupRows.groupOverview": "Group view",
