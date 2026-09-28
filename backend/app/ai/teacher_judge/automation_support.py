@@ -47,7 +47,7 @@ def _execution_missing_information(item: TeacherJudgeRubricItem) -> list[str]:
     ]
 
 
-def _non_empty_argv(value: Any) -> bool:
+def non_empty_argv(value: Any) -> bool:
     return (
         isinstance(value, list)
         and bool(value)
@@ -74,7 +74,7 @@ def missing_step_information(
         collector_type = str(collector.get("type") or "")
         typed_missing: list[str] = []
         if collector_type == "command":
-            if not _non_empty_argv(collector.get("argv")):
+            if not non_empty_argv(collector.get("argv")):
                 typed_missing.append("collector.argv 必須是非空的字串陣列")
             timeout = collector.get("timeout_seconds")
             if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 300:
@@ -104,7 +104,7 @@ def missing_step_information(
                     "main.py 所在的工作目錄（cwd 必須是非空字串）",
                 )
             )
-        if not _non_empty_argv(parameters.get("argv")):
+        if not non_empty_argv(parameters.get("argv")):
             missing.append(
                 _gap_text(
                     parameters,
@@ -114,7 +114,7 @@ def missing_step_information(
                 )
             )
     elif step.command_key == "system.run_command":
-        if not _non_empty_argv(parameters.get("argv")):
+        if not non_empty_argv(parameters.get("argv")):
             missing.append(
                 _gap_text(
                     parameters,
@@ -125,7 +125,7 @@ def missing_step_information(
             )
 
     if not step.command_key:
-        if not _non_empty_argv(parameters.get("argv")):
+        if not non_empty_argv(parameters.get("argv")):
             missing.append(
                 _gap_text(
                     parameters,

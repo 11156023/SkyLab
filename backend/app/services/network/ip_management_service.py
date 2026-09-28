@@ -8,6 +8,7 @@
 """
 
 import ipaddress
+import itertools
 import logging
 import uuid
 
@@ -280,14 +281,23 @@ def reserve_ips(
 
     network = ipaddress.IPv4Network(config.cidr, strict=False)
     allocated = set(session.exec(select(IpAllocation.ip_address)).all())
-    available = [str(ip) for ip in network.hosts() if str(ip) not in allocated]
+    # 惰性走訪：找到足夠的空位就停，不在 /8 之類的大網段展開整張清單。
+    # 只有空位不夠時才會走完整個網段，這時 len(available) 就是真實剩餘數。
+    available = list(
+        itertools.islice(
+            (s for s in map(str, network.hosts()) if s not in allocated),
+            len(missing),
+        )
+    )
     if len(available) < len(missing):
         raise ConflictError(
-            t("ipManagement.insufficientIpsForReservation", needed=len(missing), available=len(available))
+            t(
+                "ipManagement.insufficientIpsForReservation",
+                needed=len(missing),
+                available=len(available),
+            )
         )
-    for key, ip_address in zip(
-        missing, available[: len(missing)], strict=True
-    ):
+    for key, ip_address in zip(missing, available, strict=True):
         session.add(
             IpAllocation(
                 ip_address=ip_address,

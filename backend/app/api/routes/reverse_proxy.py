@@ -19,11 +19,11 @@ from app.schemas import Message
 from app.schemas.firewall import (
     PublishedServiceCreate,
     PublishedServiceRef,
-    ReverseProxyRulePublic,
 )
 from app.schemas.reverse_proxy import (
     DomainAvailability,
     ReverseProxyRuleCreate,
+    ReverseProxyRulePublic,
     ReverseProxyRuleUpdate,
     ReverseProxyRuntimeSnapshot,
     ReverseProxySetupContext,

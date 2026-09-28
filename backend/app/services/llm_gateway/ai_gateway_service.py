@@ -54,6 +54,17 @@ KEY_DURATIONS: dict[str, timedelta | None] = {
 }
 _REVIEW_DECISIONS = (AIAPIRequestStatus.approved, AIAPIRequestStatus.rejected)
 MONITORING_SUCCESS_STATUSES = ("success", "ok", "200")
+#: 使用統計端點沒帶區間時的預設回看天數
+DEFAULT_USAGE_WINDOW_DAYS = 30
+
+
+def default_usage_window(
+    start_date: datetime | None, end_date: datetime | None
+) -> tuple[datetime, datetime]:
+    """補齊使用統計的查詢區間：沒給結束就用現在，沒給開始就往前推 30 天。"""
+    end = end_date or datetime.now(timezone.utc)
+    start = start_date or end - timedelta(days=DEFAULT_USAGE_WINDOW_DAYS)
+    return start, end
 
 
 def _e2e_output_tokens_per_second(
@@ -808,7 +819,9 @@ def _usage_day_expr(
     literal 內嵌，SELECT 與 GROUP BY 才會是同一個運算式。
     """
     if session.get_bind().dialect.name == "sqlite":
-        aware = reference if reference.tzinfo else reference.replace(tzinfo=timezone.utc)
+        aware = (
+            reference if reference.tzinfo else reference.replace(tzinfo=timezone.utc)
+        )
         offset = aware.astimezone(zone).utcoffset() or timedelta(0)
         minutes = int(offset.total_seconds() // 60)
         return func.strftime(
@@ -940,9 +953,7 @@ def get_user_usage_stats(
     return {
         "total_requests": sum(item["requests"] for item in by_model.values()),
         "total_input_tokens": sum(item["input_tokens"] for item in by_model.values()),
-        "total_output_tokens": sum(
-            item["output_tokens"] for item in by_model.values()
-        ),
+        "total_output_tokens": sum(item["output_tokens"] for item in by_model.values()),
         "by_model": by_model,
         "daily": _daily_usage_buckets(
             daily, start_date=start_date, end_date=end_date, zone=zone
@@ -1423,9 +1434,7 @@ def get_monitoring_stats(
 
     # 活躍使用者（proxy + template 的 distinct user_id 合集）
     proxy_user_ids = set(
-        session.exec(
-            select(distinct(AIAPIUsage.user_id)).where(*proxy_filters)
-        ).all()
+        session.exec(select(distinct(AIAPIUsage.user_id)).where(*proxy_filters)).all()
     )
     template_user_ids = (
         set(
@@ -1543,9 +1552,7 @@ def list_template_calls(
 ) -> dict:
     """Admin: 列出 Template 呼叫紀錄"""
     count_query = select(func.count()).select_from(AIAPIUsage)
-    data_query = select(AIAPIUsage, User).join(
-        User, User.id == AIAPIUsage.user_id
-    )
+    data_query = select(AIAPIUsage, User).join(User, User.id == AIAPIUsage.user_id)
 
     filters = [AIAPIUsage.source == USAGE_SOURCE_PLATFORM]
     if user_id:
@@ -1566,9 +1573,7 @@ def list_template_calls(
         data_query = data_query.where(f)
 
     data_query = (
-        data_query.order_by(AIAPIUsage.created_at.desc())
-        .offset(skip)
-        .limit(limit)
+        data_query.order_by(AIAPIUsage.created_at.desc()).offset(skip).limit(limit)
     )
 
     total = int(session.exec(count_query).one() or 0)

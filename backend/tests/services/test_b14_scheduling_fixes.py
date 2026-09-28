@@ -530,7 +530,7 @@ def test_batch_boot_skips_only_vm_on_unreachable_connection(
         teaching_class_id=uuid.uuid4(),
         next_window_end=now + timedelta(hours=1),
     )
-    tasks = [SimpleNamespace(resource_vmid=701), SimpleNamespace(resource_vmid=702)]
+    tasks = [SimpleNamespace(vmid=701), SimpleNamespace(vmid=702)]
     session = _FakeBatchSession([job], tasks)
 
     monkeypatch.setattr(

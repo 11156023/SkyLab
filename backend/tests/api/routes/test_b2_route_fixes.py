@@ -19,7 +19,6 @@ from app.api.deps.auth import get_current_active_superuser, get_current_user
 from app.api.deps.database import get_db
 from app.api.routes import batch_provision as batch_provision_route
 from app.api.routes import proxmox_config as proxmox_config_route
-from app.api.routes import resources as resources_route
 from app.api.routes import reverse_proxy as reverse_proxy_route
 from app.api.routes import templates as templates_route
 from app.core.config import settings
@@ -31,6 +30,7 @@ from app.exceptions import (
 from app.main import app
 from app.models import ResourceQuota, TemplateAttachment, User
 from app.schemas import SpecChangeRequestsPublic
+from app.services.resource import deletion_service
 from app.services.user import audit_service
 
 API = settings.API_V1_STR
@@ -137,23 +137,23 @@ def orphan_delete_setup(
 ) -> dict[str, Any]:
     state: dict[str, Any] = {"orphan_calls": [], "clients": {}}
     monkeypatch.setattr(
-        resources_route.resource_repo,
+        deletion_service.resource_repo,
         "get_resource_by_vmid",
         lambda **_kw: SimpleNamespace(vmid=205, user_id=as_user.id),
     )
     monkeypatch.setattr(
-        resources_route, "can_bypass_resource_ownership", lambda _u: False
+        deletion_service, "can_bypass_resource_ownership", lambda _u: False
     )
     monkeypatch.setattr(
-        resources_route, "require_resource_management", lambda **_kw: None
+        deletion_service, "require_resource_management", lambda **_kw: None
     )
 
     def _not_found(vmid: int) -> dict:
         raise NotFoundError(f"Resource {vmid} not found")
 
-    monkeypatch.setattr(resources_route.proxmox_service, "find_resource", _not_found)
+    monkeypatch.setattr(deletion_service.proxmox_service, "find_resource", _not_found)
     monkeypatch.setattr(
-        resources_route.proxmox_connection_repo,
+        deletion_service.proxmox_connection_repo,
         "get_all_connections",
         lambda _session: [
             SimpleNamespace(id=1, enabled=True),
@@ -161,12 +161,12 @@ def orphan_delete_setup(
         ],
     )
     monkeypatch.setattr(
-        resources_route,
+        deletion_service,
         "get_proxmox_api",
         lambda cid: _FakePve(state["clients"][cid]),
     )
     monkeypatch.setattr(
-        resources_route.resource_service,
+        deletion_service.resource_service,
         "delete_orphan_db_record",
         lambda **kw: state["orphan_calls"].append(kw),
     )

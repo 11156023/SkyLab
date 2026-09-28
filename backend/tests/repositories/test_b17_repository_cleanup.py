@@ -1,4 +1,4 @@
-"""B17 整理回歸：防火牆版面 resource_vmid、套件匯出面。"""
+"""B17 整理回歸：防火牆版面只存現存資源的節點、套件匯出面。"""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class _LayoutSession:
         self.committed = True
 
 
-def test_upsert_layout_batch_links_resource_only_when_it_exists(
+def test_upsert_layout_batch_skips_vm_nodes_without_resource(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = uuid.uuid4()
@@ -61,11 +61,12 @@ def test_upsert_layout_batch_links_resource_only_when_it_exists(
     )
 
     assert session.committed
-    assert existing.resource_vmid == 101
+    assert existing.vmid == 101
     assert (existing.position_x, existing.position_y) == (1.5, 2.5)
     inserted = [obj for obj in session.added if obj is not existing]
-    assert [(n.vmid, n.resource_vmid) for n in inserted] == [(202, None), (None, None)]
-    # 每個有 vmid 的節點只查一次 Resource
+    # vmid 是 resources 的外鍵：找不到 Resource 的 202 直接略過，只新增 gateway
+    assert [(n.vmid, n.node_type) for n in inserted] == [(None, "gateway")]
+    # 每個 VM 節點只查一次 Resource，gateway 不查
     assert session.get_calls == [101, 202]
 
 

@@ -37,6 +37,14 @@ logger = logging.getLogger(__name__)
 
 ResourceType = Literal["qemu", "lxc"]
 
+
+class ProxmoxConnectionUnavailableError(ProxmoxError):
+    """找不到機器，但有 PVE 連線列不出資源：無法判定機器是否還在。
+
+    ``find_resource(strict=True)`` 專用。呼叫端（排程器）把它當成「略過這一輪、
+    等連線恢復再判斷」，與 VMID 重複等其他 ``ProxmoxError`` 區分開來。
+    """
+
 # ``cluster.nextid`` is a hint, not a reservation.  Every backend worker can
 # observe the same hint before the first worker's clone is visible in PVE, so
 # the lock must live outside the Python process.  PostgreSQL advisory locks
@@ -164,9 +172,50 @@ def _raw_vms_by_connection() -> list[tuple[int | None, list[dict]]]:
     )
 
 
+def list_connection_vms(connection_id: int | None) -> list[dict]:
+    """單一連線的 ``/cluster/resources?type=vm``（不論啟用與否、不套 pool 篩選）。
+
+    錯誤直接往上拋，由呼叫端決定如何處理。
+    """
+    return list(get_proxmox_api(connection_id).cluster.resources.get(type="vm"))
+
+
+def find_vmid_on_connections(
+    vmid: int, connection_ids: Iterable[int | None]
+) -> tuple[int | None, dict] | None:
+    """逐一詢問給定的連線（不套 pool 篩選），回傳第一個 vmid 相符的 (連線, 條目)。
+
+    用於「確認機器真的不在任何 PVE 上」：呼叫端應傳入所有連線（含停用中的）。
+    本模組沒有 DB session，因此連線清單由呼叫端提供。任何一個連線列不出清單
+    都丟 ``ProxmoxError``（訊息含連線 id），因為那條連線上可能還有這台機器；
+    vmid 不是整數的條目略過。
+    """
+    for connection_id in connection_ids:
+        try:
+            vms = list_connection_vms(connection_id)
+        except Exception as exc:
+            raise ProxmoxError(
+                f"Proxmox connection {connection_id} could not be listed: {exc}"
+            ) from exc
+        for vm in vms:
+            try:
+                matched = int(vm.get("vmid")) == vmid
+            except (TypeError, ValueError):
+                continue
+            if matched:
+                return connection_id, vm
+    return None
+
+
 def _raw_vms() -> list[dict]:
     """Return all resources of type vm across all connections, without pool filtering."""
     return [vm for _key, vms in _raw_vms_by_connection() for vm in vms]
+
+
+def _in_own_pool(connection_key: int | None, vms: Iterable[dict]) -> list[dict]:
+    """只留下該連線自己 pool 內的條目（pool 名稱是每個連線各自的設定）。"""
+    pool = get_proxmox_settings(connection_key).pool_name
+    return [vm for vm in vms if vm.get("pool") == pool]
 
 
 def _pool_vms() -> list[dict]:
@@ -177,8 +226,7 @@ def _pool_vms() -> list[dict]:
     """
     matched: list[dict] = []
     for key, vms in _raw_vms_by_connection():
-        pool = get_proxmox_settings(key).pool_name
-        matched.extend(vm for vm in vms if vm.get("pool") == pool)
+        matched.extend(_in_own_pool(key, vms))
     return matched
 
 
@@ -193,12 +241,48 @@ def _single_match(matches: list[dict], vmid: int) -> dict | None:
     return matches[0] if matches else None
 
 
-def find_resource(vmid: int) -> dict:
-    """Find any resource (qemu or lxc) by VMID in its connection's pool."""
-    found = _single_match([r for r in _pool_vms() if r["vmid"] == vmid], vmid)
-    if found is None:
-        raise NotFoundError(f"Resource {vmid} not found")
-    return found
+def find_resource(vmid: int, *, strict: bool = False) -> dict:
+    """Find any resource (qemu or lxc) by VMID in its connection's pool.
+
+    預設（``strict=False``）會略過連不上的連線，只要還有一個連線答得出來，
+    那些連線上的機器就會被當成 ``NotFoundError``。
+
+    ``strict=True`` 給「NotFound 代表機器被刪了」的呼叫端（例如排程器）：
+    找不到且有連線列不出清單（含全部連線都失敗）時改丟
+    ``ProxmoxConnectionUnavailableError``，只有每個連線都列得到才回
+    ``NotFoundError``。同一 VMID 出現在多個連線時兩種模式都丟一般的
+    ``ProxmoxError``（不是連線問題，重試也不會好）。
+    """
+    if not strict:
+        found = _single_match([r for r in _pool_vms() if r["vmid"] == vmid], vmid)
+        if found is None:
+            raise NotFoundError(f"Resource {vmid} not found")
+        return found
+
+    connection_keys = _connection_keys()
+    try:
+        listed = _raw_vms_by_connection()
+    except ProxmoxError as exc:  # 全部連線都失敗
+        raise ProxmoxConnectionUnavailableError(str(exc)) from exc
+    found = _single_match(
+        [
+            vm
+            for key, vms in listed
+            for vm in _in_own_pool(key, vms)
+            if vm.get("vmid") == vmid
+        ],
+        vmid,
+    )
+    if found is not None:
+        return found
+    listed_keys = {key for key, _vms in listed}
+    unreachable = [key for key in connection_keys if key not in listed_keys]
+    if unreachable:
+        raise ProxmoxConnectionUnavailableError(
+            f"Resource {vmid} not found while Proxmox connection(s) "
+            f"{unreachable} are unavailable"
+        )
+    raise NotFoundError(f"Resource {vmid} not found")
 
 
 def find_lxc(vmid: int) -> dict:

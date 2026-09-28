@@ -354,11 +354,11 @@ def _select_request_placement(
         if template_nodes is not None and str(pinned_node) not in template_nodes:
             raise _template_node_error(str(pinned_node))
 
-        nodes, resources = placement_advisor._load_cluster_state()
+        nodes, resources = placement_support.load_cluster_state()
         cpu_overcommit_ratio, disk_overcommit_ratio = (
             vm_request_placement_service.get_overcommit_ratios(session)
         )
-        node_capacities = placement_advisor._build_node_capacities(
+        node_capacities = placement_support.build_live_node_capacities(
             nodes=nodes,
             resources=resources,
             cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -368,7 +368,7 @@ def _select_request_placement(
             item for item in node_capacities if item.node == str(pinned_node)
         ]
         effective_resource_type, resource_type_reason = (
-            placement_advisor._decide_resource_type(placement_request)
+            placement_advisor.decide_resource_type(placement_request)
         )
         placement = vm_request_placement_service.CurrentPlacementSelection(
             node=str(pinned_node),
@@ -977,7 +977,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             if plan.get("lxc_clone"):
                 # LXC 範本克隆（linked 優先退 full），克隆後重配置。
                 # LXC 無 cloud-init：登入密碼須待啟動後以 pct exec 設定
-                # （_set_lxc_root_password）；plan["password"] 為 None
+                # （set_lxc_root_password）；plan["password"] 為 None
                 # （Course Lab）時沿用範本內烘焙的憑證。
                 from app.services.template import clone_service
 
@@ -1014,7 +1014,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                     proxmox_service.control(actual_node, new_vmid, "lxc", "start")
                     if apply_password:
                         plan["login_password_applied"] = bool(
-                            clone_service._set_lxc_root_password(
+                            clone_service.set_lxc_root_password(
                                 actual_node, new_vmid, plan["password"]
                             )
                         )

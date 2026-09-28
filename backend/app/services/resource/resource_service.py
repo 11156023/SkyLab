@@ -31,7 +31,6 @@ from app.models import (
 )
 from app.models.quick_practice import QuickPracticeSessionMachine
 from app.models.vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
-from app.repositories import audit_log as audit_log_repo
 from app.repositories import batch_provision as batch_provision_repo
 from app.repositories import resource as resource_repo
 from app.repositories import resource_share as share_repo
@@ -60,6 +59,7 @@ from app.services.scheduling.recurrence import (
     is_in_window,
 )
 from app.services.user import audit_service
+from app.utils.hostname import from_punycode_hostname
 
 logger = logging.getLogger(__name__)
 
@@ -209,21 +209,6 @@ def ensure_lxc_login_password(
             "Login password sync failed for LXC %s", vmid, exc_info=True
         )
         return False
-
-
-def _from_punycode_hostname(hostname: str) -> str:
-    """將 Punycode hostname 解碼回 Unicode 顯示給使用者。"""
-    result_labels = []
-    for label in hostname.split("."):
-        if label.lower().startswith("xn--"):
-            try:
-                decoded = label[4:].encode("ascii").decode("punycode")
-                result_labels.append(decoded)
-            except Exception:
-                result_labels.append(label)
-        else:
-            result_labels.append(label)
-    return ".".join(result_labels)
 
 
 def _ensure_utc(value: datetime | None) -> datetime | None:
@@ -508,7 +493,7 @@ def _build_resource_public(
         control_policy=_control_policy(
             db_resource.control_policy if db_resource else None
         ),
-        name=_from_punycode_hostname(resource.get("name", "")),
+        name=from_punycode_hostname(resource.get("name", "")),
         status=_normalize_live_resource_status(resource.get("status")),
         node=node,
         type=vm_type,
@@ -877,7 +862,7 @@ def list_by_user(
                                 ),
                                 control_policy=_control_policy(db_r.control_policy),
                                 name=(
-                                    _from_punycode_hostname(request.hostname)
+                                    from_punycode_hostname(request.hostname)
                                     if request
                                     else f"vm-{db_r.vmid}"
                                 ),
@@ -941,7 +926,7 @@ def list_by_user(
                 ResourcePublic(
                     vmid=req.vmid,
                     request_id=req.id,
-                    name=_from_punycode_hostname(req.hostname),
+                    name=from_punycode_hostname(req.hostname),
                     status=_placeholder_resource_status(req),
                     node=req.actual_node or req.assigned_node or req.desired_node or "",
                     type=_resource_type_for_request(req.resource_type),
@@ -1396,8 +1381,8 @@ def _cleanup_after_resource_removed(
     if teaching_class_id is not None:
         _mark_class_machine_reclaimed(session=session, vmid=vmid)
 
-    # Remove from database (this resource's audit logs, then the record)
-    audit_log_repo.delete_audit_logs_by_vmid(session=session, vmid=vmid)
+    # Remove the resource record; audit_logs.resource_vmid is ON DELETE SET NULL,
+    # so audit history is kept (just unlinked)
     resource_repo.delete_resource(session=session, vmid=vmid)
     _mark_class_reclaimed_if_empty(
         session=session, teaching_class_id=teaching_class_id

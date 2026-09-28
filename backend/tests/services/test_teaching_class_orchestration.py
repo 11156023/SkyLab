@@ -4,14 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.routes.course_environments import (
+from app.api.routes.teaching_classes import _generate_weeks
+from app.exceptions import BadRequestError
+from app.models import BatchProvisionJobStatus, TeachingClassWeek
+from app.schemas.course_environment import (
     EnvironmentCreate,
     EnvironmentEdgeIn,
     EnvironmentNodeIn,
 )
-from app.api.routes.teaching_classes import _generate_weeks
-from app.exceptions import BadRequestError
-from app.models import BatchProvisionJobStatus, TeachingClassWeek
 from app.services.teaching import class_capacity_service, class_network_service
 from app.services.teaching.class_provision_service import (
     recurrence_rule as _recurrence,

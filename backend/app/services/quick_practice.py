@@ -156,7 +156,6 @@ def _apply_session_topology(
         and request.provisioning_status == VMProvisioningStatus.completed
     }
     nodes = nodes_for_version(session, version_id=practice.environment_version_id)
-    nodes_by_key = {node.node_key: node for node in nodes}
     edges = list(
         session.exec(
             select(CourseEnvironmentEdge).where(
@@ -164,52 +163,37 @@ def _apply_session_topology(
             )
         ).all()
     )
-    directions: list[tuple[VMRequest, VMRequest, str, int | None]] = []
     peer_policy = class_network_service.peer_policy_for_version(
         session, practice.environment_version_id
     )
-    if peer_policy != class_network_service.PEER_POLICY_SEGMENT:
-        for edge in edges:
-            source = machines_by_key.get(edge.source_node_key)
-            target = machines_by_key.get(edge.target_node_key)
-            if source is None or target is None:
-                continue
-            directions.append((source, target, edge.protocol, edge.port))
-            if edge.direction == "bidirectional":
-                directions.append((target, source, edge.protocol, edge.port))
-    else:
-        # segment：共用邏輯網段的機器全協定全埠互通（舊行為，與正式班級一致）
-        for source_key, source in machines_by_key.items():
-            source_node = nodes_by_key.get(source_key)
-            if source_node is None:
-                continue
-            for target_key, target in machines_by_key.items():
-                if source_key == target_key:
-                    continue
-                target_node = nodes_by_key.get(target_key)
-                if target_node is None or not (
-                    class_network_service.network_segments(source_node.network)
-                    & class_network_service.network_segments(target_node.network)
-                ):
-                    continue
-                directions.append((source, target, "any", None))
+    vmid_by_key = {
+        key: request.vmid
+        for key, request in machines_by_key.items()
+        if request.vmid is not None
+    }
+    network_by_key = {node.node_key: node.network for node in nodes}
+    # 與正式班級共用同一套展開規則（explicit 連線／segment 同網段互通）
+    directions = class_network_service.topology_directions(
+        peer_policy=peer_policy,
+        edges=edges,
+        vmid_by_key=vmid_by_key,
+        network_by_key=network_by_key,
+    )
 
     errors: list[str] = []
     planned = []
     scope_vmids = {
         request.vmid for request in machines_by_key.values() if request.vmid is not None
     }
-    for source, target, protocol, port in directions:
-        if source.vmid is None or target.vmid is None:
-            continue
+    for source_vmid, target_vmid, protocol, port in directions:
         try:
             planned.extend(
                 class_network_service.plan_one_way(
                     session,
                     scope_id=practice.id,
                     comment_prefix=QUICK_NETWORK_COMMENT_PREFIX,
-                    source_vmid=source.vmid,
-                    target_vmid=target.vmid,
+                    source_vmid=source_vmid,
+                    target_vmid=target_vmid,
                     protocol=protocol,
                     port=port,
                 )
@@ -218,10 +202,10 @@ def _apply_session_topology(
             logger.exception(
                 "Failed to apply quick-practice topology session=%s source=%s target=%s",
                 practice.id,
-                source.vmid,
-                target.vmid,
+                source_vmid,
+                target_vmid,
             )
-            errors.append(f"{source.vmid} → {target.vmid}: topology failed")
+            errors.append(f"{source_vmid} → {target_vmid}: topology failed")
     # 同步而非只建立：重試換過 vmid 的機器會留下指向舊 IP 的白名單
     errors.extend(
         class_network_service.sync_scope_rules(
@@ -240,11 +224,7 @@ def _apply_session_topology(
             course_publication_service.apply_for_machines(
                 session,
                 version_id=practice.environment_version_id,
-                vmid_by_key={
-                    key: request.vmid
-                    for key, request in machines_by_key.items()
-                    if request.vmid is not None
-                },
+                vmid_by_key=vmid_by_key,
                 owner=owner,
                 scope=f"practice-{practice.id.hex[:8]}",
             )

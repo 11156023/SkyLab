@@ -1,4 +1,4 @@
-"""B15-20：存過防火牆拓樸版面的使用者要刪得掉（firewall_layout.user_id 沒有 ON DELETE）。"""
+"""B15-20：存過防火牆拓樸版面的使用者要刪得掉，版面列一併清除。"""
 
 import uuid
 from datetime import UTC, datetime
@@ -23,25 +23,16 @@ def _student_with_layout(db: Session) -> User:
     )
     db.commit()
     now = datetime.now(UTC)
-    # Internet（gateway）節點與找不到 Resource 的 VM 節點 resource_vmid 都是 NULL，
-    # 不會被 resources 的 CASCADE 帶走
-    db.add_all(
-        [
-            FirewallLayout(
-                user_id=user.id,
-                vmid=None,
-                node_type="gateway",
-                created_at=now,
-                updated_at=now,
-            ),
-            FirewallLayout(
-                user_id=user.id,
-                vmid=987654,
-                node_type="vm",
-                created_at=now,
-                updated_at=now,
-            ),
-        ]
+    # Internet（gateway）節點沒有 vmid，不會被 resources 的 CASCADE 帶走；
+    # VM 節點的 vmid 是 resources 的外鍵，不能再塞找不到 Resource 的節點
+    db.add(
+        FirewallLayout(
+            user_id=user.id,
+            vmid=None,
+            node_type="gateway",
+            created_at=now,
+            updated_at=now,
+        )
     )
     db.commit()
     db.refresh(user)

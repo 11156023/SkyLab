@@ -104,12 +104,21 @@ def process_recurrence_windows() -> None:
         for req in requests:
             if req.next_window_end and req.next_window_end > now:
                 continue  # current window still valid
-            window = compute_next_window(
-                rule=req.recurrence_rule or "",
-                duration_minutes=req.recurrence_duration_minutes or 0,
-                timezone=req.schedule_timezone,
-                after=now,
-            )
+            try:
+                window = compute_next_window(
+                    rule=req.recurrence_rule or "",
+                    duration_minutes=req.recurrence_duration_minutes or 0,
+                    timezone=req.schedule_timezone,
+                    after=now,
+                )
+            except Exception:
+                # 單筆規則或時區壞掉只跳過它，其他申請照常更新
+                logger.warning(
+                    "Skipping recurrence window for vm_request %s",
+                    req.id,
+                    exc_info=True,
+                )
+                continue
             if window is None:
                 req.next_window_start = None
                 req.next_window_end = None
@@ -137,12 +146,20 @@ def process_recurrence_windows() -> None:
                 continue
             if job.next_window_end and job.next_window_end > now:
                 continue
-            window = compute_active_or_next_window(
-                rule=job.recurrence_rule or "",
-                duration_minutes=job.recurrence_duration_minutes or 0,
-                timezone=job.schedule_timezone,
-                now=_class_schedule_reference(class_item, job, now),
-            )
+            try:
+                window = compute_active_or_next_window(
+                    rule=job.recurrence_rule or "",
+                    duration_minutes=job.recurrence_duration_minutes or 0,
+                    timezone=job.schedule_timezone,
+                    now=_class_schedule_reference(class_item, job, now),
+                )
+            except Exception:
+                logger.warning(
+                    "Skipping recurrence window for batch job %s",
+                    job.id,
+                    exc_info=True,
+                )
+                continue
             job.next_window_start, job.next_window_end = window or (None, None)
             session.add(job)
             updated += 1
@@ -243,8 +260,20 @@ def process_auto_stops() -> None:
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 
+def _safe_zone(name: str | None) -> ZoneInfo:
+    """解析時區名稱；舊資料裡的無效時區退回預設值，不讓整輪排程中斷。"""
+    try:
+        return ZoneInfo(name or DEFAULT_TIMEZONE)
+    except (KeyError, ValueError, OSError):
+        logger.warning(
+            "Invalid timezone %r in schedule data; falling back to %s",
+            name, DEFAULT_TIMEZONE,
+        )
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
 def _class_expired(teaching_class: TeachingClass, now: datetime) -> bool:
-    tz = ZoneInfo(teaching_class.timezone or DEFAULT_TIMEZONE)
+    tz = _safe_zone(teaching_class.timezone)
     cutoff = datetime.combine(
         teaching_class.end_date,
         teaching_class.end_time,
@@ -280,17 +309,24 @@ def _process_expired_class_lifecycle(*, now: datetime) -> None:
                 )
             ).all()
         )
-        expired_ids = [
-            item.id
-            for item in candidates
-            if item.status != TeachingClassStatus.archived
-            and _class_expired(item, now)
-        ]
-        retry_ids = [
-            item.id
-            for item in candidates
-            if _class_reclaim_retry_due(item, now)
-        ]
+        expired_ids: list[uuid.UUID] = []
+        retry_ids: list[uuid.UUID] = []
+        for item in candidates:
+            # 單一班級資料有問題只跳過它，不能讓後面所有租戶的視窗更新中斷
+            try:
+                if (
+                    item.status != TeachingClassStatus.archived
+                    and _class_expired(item, now)
+                ):
+                    expired_ids.append(item.id)
+                if _class_reclaim_retry_due(item, now):
+                    retry_ids.append(item.id)
+            except Exception:
+                logger.warning(
+                    "Skipping lifecycle check for teaching class %s",
+                    item.id,
+                    exc_info=True,
+                )
 
     for class_id in expired_ids:
         try:
@@ -350,7 +386,7 @@ def _class_schedule_reference(
 ) -> datetime:
     if teaching_class is None:
         return now
-    tz = ZoneInfo(job.schedule_timezone or teaching_class.timezone or DEFAULT_TIMEZONE)
+    tz = _safe_zone(job.schedule_timezone or teaching_class.timezone)
     class_start = datetime.combine(
         teaching_class.start_date,
         teaching_class.start_time,
@@ -366,7 +402,7 @@ def _class_schedule_enabled(
 ) -> bool:
     if teaching_class is None or teaching_class.status == TeachingClassStatus.archived:
         return False
-    tz = ZoneInfo(job.schedule_timezone or teaching_class.timezone or DEFAULT_TIMEZONE)
+    tz = _safe_zone(job.schedule_timezone or teaching_class.timezone)
     local_date = now.astimezone(tz).date()
     return local_date <= teaching_class.end_date
 

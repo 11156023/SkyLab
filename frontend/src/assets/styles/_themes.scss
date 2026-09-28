@@ -55,7 +55,7 @@
 
   /* ----- Machine kind（機器來源徽章，MachineKindBadge）-----
      顏色只編碼「跟我的關係」：我的機器走 --color-info，
-     別人的機器（共享／學生機器／老師開放）用這個紫，類別辨識交給 icon＋文字 */
+     別人的機器（共享／學生機器）用這個紫，類別辨識交給 icon＋文字 */
   --color-kind-shared:   #7c5cbf;
   --color-status-neutral: #6b7280;
 

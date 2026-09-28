@@ -100,7 +100,7 @@ def upsert_subnet_config(
     try:
         from app.services.network import firewall_service
         block_sync = _block_sync_summary(
-            firewall_service.sync_block_local_subnet_rules()
+            firewall_service.sync_extra_block_rules()
         )
     except Exception as e:
         logger.exception("同步額外封鎖網段規則失敗")

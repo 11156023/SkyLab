@@ -475,7 +475,7 @@ def test_update_template_rejects_null_for_required_fields(
             session=db,
             user=teacher,
             template_id=template.id,
-            data=VMTemplateUpdate.model_validate({field: None}),
+            data=VMTemplateUpdate.model_construct(**{field: None}),
         )
     db.expire_all()
     assert db.get(VMTemplate, template.id).name == "ubuntu-lab"

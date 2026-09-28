@@ -1,4 +1,4 @@
-"""PVE ``rrddata`` 的純函式輔助：時間框選擇與取樣間隔推估，不做任何 I/O。
+"""PVE ``rrddata`` 的純函式輔助：時間框選擇、取樣間隔推估與 CPU 視窗取樣，不做任何 I/O。
 
 PVE 各 timeframe 的涵蓋範圍（傳統 70 點 RRA）：hour ≈ 70 分鐘、day ≈ 35 小時、
 week ≈ 8.75 天、month ≈ 35 天。取樣密度隨 timeframe 與 PVE 版本不同，
@@ -7,6 +7,7 @@ week ≈ 8.75 天、month ≈ 35 天。取樣密度隨 timeframe 與 PVE 版本�
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from itertools import pairwise
 from statistics import median
 from typing import Any
@@ -40,3 +41,22 @@ def sampling_step_seconds(rrd: list[dict[str, Any]]) -> float | None:
     if len(times) < 2:
         return None
     return float(median(later - earlier for earlier, later in pairwise(times)))
+
+
+def window_cpu_percentages(
+    rrd: list[dict[str, Any]], *, window_hours: int, now: datetime
+) -> list[float]:
+    """RRD（PVE rrddata 格式）在 ``now`` 往回 ``window_hours`` 視窗內的 CPU（percent）。
+
+    缺 ``time`` 或 ``cpu`` 的點略過。閒置偵測與反挖礦共用這份取樣。
+    """
+    window_start = (now - timedelta(hours=window_hours)).timestamp()
+    values: list[float] = []
+    for point in rrd:
+        ts = point.get("time")
+        cpu = point.get("cpu")
+        if ts is None or cpu is None:
+            continue
+        if float(ts) >= window_start:
+            values.append(float(cpu) * 100.0)
+    return values

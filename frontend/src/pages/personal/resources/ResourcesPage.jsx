@@ -25,7 +25,7 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
 import { isRowBackgroundClick, resourceRowKey } from "./resourceRows";
-import QuotaUsageBar from "../../../components/Teaching/QuotaUsageBar";
+import QuotaUsageBar from "../../../components/QuotaUsageBar/QuotaUsageBar";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";

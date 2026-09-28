@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from app.ai.template_recommendation import options_service
 from app.ai.template_recommendation.schemas import ChatMessage, ChatRequest
 from app.api.routes import ai_template_recommendation as route
 
@@ -46,10 +47,10 @@ def thread_log(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
     async def fake_completion(*args: Any, **kwargs: Any) -> Any:
         raise _Stop()
 
-    monkeypatch.setattr(route, "_resolve_recommend_gpu_options", fake_gpu)
-    monkeypatch.setattr(route, "_resolve_chat_gpu_options", fake_chat_gpu)
-    monkeypatch.setattr(route, "_resolve_resource_options", fake_resources)
-    monkeypatch.setattr(route, "_get_live_device_nodes_cached", lambda: [])
+    monkeypatch.setattr(options_service, "resolve_recommend_gpu_options", fake_gpu)
+    monkeypatch.setattr(options_service, "resolve_chat_gpu_options", fake_chat_gpu)
+    monkeypatch.setattr(options_service, "resolve_resource_options", fake_resources)
+    monkeypatch.setattr(options_service, "get_live_device_nodes_cached", lambda: [])
     monkeypatch.setattr(route, "generate_ai_plan", fake_plan)
     monkeypatch.setattr(route.client, "create_chat_completion", fake_completion)
     monkeypatch.setattr(
@@ -113,16 +114,16 @@ def test_application_template_failure_is_cached_briefly(
         raise RuntimeError("PVE down")
 
     monkeypatch.setattr(
-        route.template_service, "list_student_catalog", failing_catalog
+        options_service.template_service, "list_student_catalog", failing_catalog
     )
     monkeypatch.setattr(
-        route, "_application_templates_cache", {"at": 0.0, "items": None}
+        options_service, "_application_templates_cache", {"at": 0.0, "items": None}
     )
 
-    assert route._get_application_templates_cached(object()) == []
-    assert route._get_application_templates_cached(object()) == []
+    assert options_service.get_application_templates_cached(object()) == []
+    assert options_service.get_application_templates_cached(object()) == []
     assert calls == 1
     assert (
-        route._application_templates_cache["ttl"]
-        == route._APPLICATION_TEMPLATES_FAILURE_TTL_SECONDS
+        options_service._application_templates_cache["ttl"]
+        == options_service.APPLICATION_TEMPLATES_FAILURE_TTL_SECONDS
     )

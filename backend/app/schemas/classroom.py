@@ -59,6 +59,10 @@ class ClassroomSessionPublic(BaseModel):
 
 
 class ClassroomLivePublic(BaseModel):
-    """學生查詢自己班級進行中的直播（無直播時 session 為 null）。"""
+    """學生查詢自己班級進行中的直播（無直播時 session 為 null）。
+
+    taken_over_vmids：自己的機器中目前正被老師接管的 vmid，供重連後重建覆蓋。
+    """
 
     session: ClassroomSessionPublic | None = None
+    taken_over_vmids: list[int] = Field(default_factory=list)

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from app.api.deps import (
     CurrentUser,
@@ -35,6 +35,7 @@ from app.schemas import (
     TotpChallenge,
     TotpLoginRequest,
 )
+from app.schemas.auth import GoogleLoginRequest, RefreshTokenRequest
 from app.schemas.ldap import LdapLoginRequest, LoginMethodsPublic
 from app.services.monitoring import grafana_service
 from app.services.user import auth_service, ldap_auth_service, totp_service
@@ -67,10 +68,6 @@ def login_access_token(
     return auth_service.login(
         session=session, email=form_data.username, password=form_data.password
     )
-
-
-class GoogleLoginRequest(BaseModel):
-    id_token: str
 
 
 @router.post("/login/google", dependencies=[_LOGIN_RATE_LIMIT])
@@ -196,10 +193,6 @@ def login_methods(session: SessionDep) -> LoginMethodsPublic:
     return LoginMethodsPublic(**ldap_auth_service.get_login_methods(session=session))
 
 
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-
-
 @router.post("/login/refresh-token")
 async def refresh_token(session: SessionDep, body: RefreshTokenRequest) -> Token:
     """Use a refresh token to get a new access + refresh token pair."""
@@ -225,32 +218,7 @@ async def logout(
     response.delete_cookie(
         grafana_service.SESSION_COOKIE, path=grafana_service.SESSION_COOKIE_PATH
     )
-    redis = await get_redis()
-
-    def _decode(raw: str) -> TokenPayload | None:
-        try:
-            payload = jwt.decode(
-                raw,
-                settings.SECRET_KEY,
-                algorithms=[security.ALGORITHM],
-                # Allow logging out an already-expired token (no-op effect,
-                # but avoids confusing 401s during clock skew).
-                options={"verify_exp": False},
-            )
-            return TokenPayload(**payload)
-        except Exception:
-            return None
-
-    targets: list[TokenPayload] = []
-    if (access := _decode(token)) is not None:
-        targets.append(access)
-    if body and body.refresh_token and (refresh := _decode(body.refresh_token)):
-        targets.append(refresh)
-
-    for data in targets:
-        if data.jti and data.exp:
-            await revoke_jti(redis, data.jti, data.exp)
-
+    await auth_service.logout(token, body.refresh_token if body else None)
     return Message(message="Logged out")
 
 

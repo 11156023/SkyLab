@@ -9,7 +9,9 @@ import logging
 import re
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import Any, NamedTuple
 
 from sqlmodel import Session, select
@@ -32,6 +34,7 @@ from app.infrastructure.proxmox.operations import (
     list_pci_mdev_types,
 )
 from app.models import Resource
+from app.repositories import vm_request as vm_request_repo
 from app.schemas.gpu import (
     GPUDeviceMap,
     GPUMappingDetail,
@@ -814,6 +817,51 @@ def list_gpu_options(node: str | None = None) -> list[GPUSummary]:
         )
 
     return options
+
+
+def apply_reservation_window(
+    session: Session,
+    options: list[GPUSummary],
+    *,
+    start_at: datetime,
+    end_at: datetime,
+) -> list[GPUSummary]:
+    """把時段內「已核准但尚未開機」的申請預留扣進 GPU 可用量。
+
+    已 provision（有 vmid）的申請已經反映在 PVE 的實際使用量裡，不再重複扣。
+    used_count 上限用 capacity_count（SR-IOV vGPU 一張卡可切多份），沒有才退回
+    device_count；時段無效（結束早於開始）時原樣回傳。
+    """
+    if end_at <= start_at:
+        return options
+
+    overlapping = vm_request_repo.get_approved_vm_requests_overlapping_window(
+        session=session,
+        window_start=start_at,
+        window_end=end_at,
+    )
+    reserved_counts = Counter(
+        str(item.gpu_mapping_id)
+        for item in overlapping
+        if item.gpu_mapping_id and item.vmid is None
+    )
+
+    adjusted: list[GPUSummary] = []
+    for option in options:
+        reserved = int(reserved_counts.get(option.mapping_id, 0))
+        if reserved <= 0:
+            adjusted.append(option)
+            continue
+        capacity = option.capacity_count or option.device_count
+        adjusted.append(
+            option.model_copy(
+                update={
+                    "used_count": min(capacity, option.used_count + reserved),
+                    "available_count": max(0, option.available_count - reserved),
+                }
+            )
+        )
+    return adjusted
 
 
 def _scan_usage_map() -> dict[str, list[GPUUsageInfo]]:

@@ -21,14 +21,12 @@ from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
     BatchProvisionJob,
-    BatchProvisionTask,
     ClassCapacityReservation,
     CourseEnvironment,
     CourseEnvironmentEdge,
     CourseEnvironmentNode,
     CourseEnvironmentPublication,
     CourseEnvironmentVersion,
-    CourseEnvironmentVersionStatus,
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStatus,
@@ -39,19 +37,17 @@ from app.models import (
     User,
     UserRole,
     VMTemplate,
-    VMTemplateStatus,
 )
 from app.models.base import get_datetime_utc
 from app.repositories import resource as resource_repo
 from app.repositories.user import get_user_by_email
 from app.services.course import course_service, weekly_task_service
 from app.services.course_environment import upload_store
-from app.services.proxmox import provisioning_service, proxmox_service
+from app.services.proxmox import proxmox_service
 from app.services.teaching import (
     class_capacity_service,
     class_lifecycle_service,
     class_provision_service,
-    class_status_service,
 )
 
 router = APIRouter(prefix="/teaching-classes", tags=["teaching-classes"])
@@ -907,70 +903,12 @@ def select_course(
     current_user: InstructorUser,
 ):
     item = _get_class(session, current_user, class_id)
-    if item.status != TeachingClassStatus.planning or item.locked_at is not None:
-        raise BadRequestError(t("teachingClasses.courseLockedCannotChange"))
-    version = session.get(CourseEnvironmentVersion, body.course_version_id)
-    if version is None or version.status != CourseEnvironmentVersionStatus.published:
-        raise BadRequestError(t("teachingClasses.onlyPublishedCourseVersion"))
-    environment = session.get(CourseEnvironment, version.environment_id)
-    if environment is None:
-        raise NotFoundError(t("teachingClasses.courseEnvironmentNotFound"))
-    if environment.usage_scope not in {"course", "both"}:
-        raise BadRequestError(t("teachingClasses.environmentNotForFormalCourse"))
-    require_teaching_access(current_user, environment.owner_id)
-    source_nodes = list(
-        session.exec(
-            select(CourseEnvironmentNode)
-            .where(CourseEnvironmentNode.version_id == version.id)
-            .order_by(CourseEnvironmentNode.sort_order)
-        ).all()
+    class_provision_service.select_course(
+        session,
+        item=item,
+        course_version_id=body.course_version_id,
+        current_user=current_user,
     )
-    if not source_nodes:
-        raise BadRequestError(t("teachingClasses.courseVersionNoMachines"))
-    session.exec(
-        delete(TeachingClassMachineNode).where(
-            TeachingClassMachineNode.class_id == class_id
-        )
-    )
-    for node in source_nodes:
-        session.add(
-            TeachingClassMachineNode(
-                class_id=class_id,
-                node_key=node.node_key,
-                source_type=node.source_type,
-                source_template_id=node.source_template_id,
-                custom_image_ref=node.custom_image_ref,
-                custom_storage=None,
-                custom_username=node.custom_username,
-                custom_unprivileged=node.custom_unprivileged,
-                name=node.name,
-                role=node.role,
-                resource_type=node.resource_type,
-                cpu=node.cpu,
-                memory_mb=node.memory_mb,
-                # 克隆機不可能小於來源範本；把下限寫進班級節點，之後的容量
-                # 預檢、IP/資源保留與開機才會用同一個數字。
-                disk_gb=provisioning_service.clone_source_disk_gb(session, node),
-                network=node.network,
-                sort_order=node.sort_order,
-            )
-        )
-    # 換課程版本後機器節點整批重建：新版本沒有的節點，週次指向它就會讓
-    # 學生端看不到任何機器，改回「全部機器」
-    new_keys = {node.node_key for node in source_nodes}
-    for week in session.exec(
-        select(TeachingClassWeek).where(
-            TeachingClassWeek.class_id == class_id,
-            col(TeachingClassWeek.target_node_key).is_not(None),
-        )
-    ).all():
-        if week.target_node_key not in new_keys:
-            week.target_node_key = None
-            session.add(week)
-    item.course_version_id = version.id
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
     return _serialize(session, item)
 
 
@@ -1169,84 +1107,17 @@ def capacity_preview(
     )
 
 
-def _require_node_templates_ready(
-    session: SessionDep, nodes: list[TeachingClassMachineNode]
-) -> None:
-    for node in nodes:
-        if node.source_type != "template" or not node.source_template_id:
-            continue
-        template = session.get(VMTemplate, node.source_template_id)
-        if template is None or template.status != VMTemplateStatus.ready:
-            raise BadRequestError(t("course_env.template_not_ready", name=node.name))
-
-
-def _recover_failed_provision_submit(session: SessionDep, item: TeachingClass) -> None:
-    """送出批次 job 中途失敗時，讓班級回到還能處理的狀態。
-
-    鎖與容量保留在送 job 前就 commit 了；若就此放著，班級會卡在
-    「planning + locked_at」：/provision 因鎖拒絕、reset/retry 要求
-    partial_failed、審核又找不到 pending job，只剩封存一途。
-    - 一個 job 都沒建成：放掉容量與 IP、解鎖，回到可以重送的 planning。
-    - 已經建了部分 job：轉成 pending_review，交給既有的審核／退回流程
-      （退回會放掉容量並解鎖）收尾。
-    """
-    session.rollback()
-    if any(node.batch_job_id for node in _class_nodes(session, item.id)):
-        item.status = TeachingClassStatus.pending_review
-    else:
-        class_capacity_service.release(session, class_id=item.id)
-        item.locked_at = None
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
-
-
 @router.post("/{class_id}/provision")
 def provision_class(
     class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
 ):
     item = _get_class(session, current_user, class_id)
-    nodes = _class_nodes(session, class_id)
-    students = _students(session, class_id)
-    if not nodes or not students:
-        raise BadRequestError(t("teachingClasses.studentsAndMachinesRequired"))
-    if item.status != TeachingClassStatus.planning or item.locked_at is not None:
-        raise BadRequestError(t("teachingClasses.classLockedOrSubmitted"))
-    if item.course_version_id is None:
-        raise BadRequestError(t("teachingClasses.selectPublishedCourseFirst"))
-    # 送 job 時才會發現範本不是 ready（例如範本正在更新），那時容量與鎖
-    # 都已經 commit 了；先在沒有任何副作用前擋下來。
-    _require_node_templates_ready(session, nodes)
-    class_capacity_service.reserve(
+    class_provision_service.provision_class(
         session,
-        class_id=item.id,
-        course_version_id=item.course_version_id,
-        nodes=nodes,
-        students=students,
+        item=item,
+        nodes=_class_nodes(session, class_id),
+        students=_students(session, class_id),
     )
-    item.locked_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
-    member_user_ids = [row.user_id for row in students]
-    try:
-        for node in nodes:
-            if node.batch_job_id:
-                continue
-            node.batch_job_id = class_provision_service.submit_node_job(
-                session=session,
-                item=item,
-                node=node,
-                member_user_ids=member_user_ids,
-            )
-            session.add(node)
-            session.commit()
-    except Exception:
-        _recover_failed_provision_submit(session, item)
-        raise
-    item.status = TeachingClassStatus.pending_review
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
     return _serialize(session, item)
 
 
@@ -1268,23 +1139,7 @@ def reset_failed_class(
     current_user: InstructorUser,
 ):
     item = _get_class(session, current_user, class_id)
-    if item.status != TeachingClassStatus.partial_failed:
-        raise BadRequestError(t("teachingClasses.onlyFailedCanResetToEdit"))
-    enrollment_ids = [row.id for row in _students(session, class_id)]
-    machine_rows = _class_machine_rows(session, enrollment_ids)
-    if any(row.vmid is not None for row in machine_rows):
-        raise BadRequestError(t("teachingClasses.partialMachinesUseRetry"))
-    for row in machine_rows:
-        session.delete(row)
-    for node in _class_nodes(session, class_id):
-        node.batch_job_id = None
-        session.add(node)
-    class_capacity_service.release(session, class_id=class_id)
-    item.status = TeachingClassStatus.planning
-    item.locked_at = None
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
+    class_provision_service.reset_failed_class(session, item=item)
     return _serialize(session, item)
 
 
@@ -1311,44 +1166,5 @@ def reconcile_class(
     時補齊「哪位學生拿到哪台機器」用的，前端不需要每次輪詢都呼叫。
     """
     item = _get_class(session, current_user, class_id)
-    if item.status == TeachingClassStatus.archived:
-        return _serialize(session, item)
-    nodes = _class_nodes(session, class_id)
-    students = _students(session, class_id)
-    enrollment_by_user = {row.user_id: row for row in students}
-    for node in nodes:
-        job = (
-            session.get(BatchProvisionJob, node.batch_job_id)
-            if node.batch_job_id
-            else None
-        )
-        if not job:
-            continue
-        tasks = session.exec(
-            select(BatchProvisionTask).where(BatchProvisionTask.job_id == job.id)
-        ).all()
-        for task in tasks:
-            enrollment = enrollment_by_user.get(task.user_id)
-            if not enrollment:
-                continue
-            mapping = session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id == enrollment.id,
-                    TeachingClassStudentMachine.machine_node_id == node.id,
-                )
-            ).first()
-            if not mapping:
-                mapping = TeachingClassStudentMachine(
-                    class_student_id=enrollment.id, machine_node_id=node.id
-                )
-            mapping.batch_task_id = task.id
-            mapping.vmid = task.vmid
-            mapping.status = (
-                task.status.value if hasattr(task.status, "value") else str(task.status)
-            )
-            mapping.error = task.error
-            session.add(mapping)
-    class_status_service.recompute(session=session, class_id=class_id)
-    session.commit()
-    session.refresh(item)
+    class_provision_service.reconcile_class(session, item=item)
     return _serialize(session, item)

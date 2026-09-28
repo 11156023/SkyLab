@@ -16,20 +16,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
-from urllib.parse import quote
-
-import websockets
-from websockets.typing import Subprotocol
 
 from app.core.config import settings
 from app.core.i18n import t
 from app.exceptions import AppError, ConflictError, NotFoundError
-from app.infrastructure.proxmox import (
-    build_ws_ssl_context,
-    get_connection_id_for_node,
-    get_host_for_node,
-    get_proxmox_settings,
-)
+from app.infrastructure.proxmox import open_vncwebsocket
 from app.infrastructure.vnc.handshake import (
     DownstreamSocket,
     ServerInitInfo,
@@ -560,19 +551,13 @@ class VncSessionManager:
         vnc_ticket = str(console["ticket"])
         vnc_port = console["port"]
 
-        cfg = get_proxmox_settings(get_connection_id_for_node(node))
-        url = (
-            f"wss://{get_host_for_node(node)}:{cfg.port}"
-            f"/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket"
-            f"?port={vnc_port}&vncticket={quote(vnc_ticket, safe='')}"
-        )
-        ws = await websockets.connect(
-            url,
-            ssl=build_ws_ssl_context(cfg),
-            additional_headers={"Cookie": f"PVEAuthCookie={pve_auth_cookie}"},
-            subprotocols=[Subprotocol("binary")],
-            max_size=2**20,
-            proxy=None,
+        ws = await open_vncwebsocket(
+            node,
+            "qemu",
+            vmid,
+            vnc_port,
+            vnc_ticket,
+            pve_auth_cookie,
             # 節點沒回應時不要無限等：start_session 的呼叫端是 HTTP 請求
             open_timeout=settings.CLASSROOM_UPSTREAM_TIMEOUT_SECONDS,
         )

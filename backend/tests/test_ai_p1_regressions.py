@@ -121,9 +121,9 @@ def test_retired_success_criteria_is_not_in_new_step_contract() -> None:
 
 
 def test_structured_proposal_status_overrides_reply_wording() -> None:
-    assert service._proposal_status_claims_ready("ready", "尚未準備就緒") is True
-    assert service._proposal_status_claims_ready("needs_information", "Ready") is False
-    assert service._proposal_status_claims_ready(None, "Ready") is False
+    assert service._proposal_status_claims_ready("ready") is True
+    assert service._proposal_status_claims_ready("needs_information") is False
+    assert service._proposal_status_claims_ready(None) is False
 
 
 def test_create_tool_rejection_explains_invalid_step_to_model_only() -> None:

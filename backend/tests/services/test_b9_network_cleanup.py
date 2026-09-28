@@ -19,7 +19,6 @@ from app.services.network import (
     wireguard_service,
 )
 from app.services.network import firewall_service as fw
-from app.services.network.publish_target_policy import resolve_resource_vmid
 
 # ─── firewall_service ─────────────────────────────────────────────────────────
 
@@ -116,14 +115,6 @@ def test_session_ttl_is_clamped(monkeypatch: pytest.MonkeyPatch) -> None:
 )
 def test_is_valid_hostname(value: str, valid: bool) -> None:
     assert cloudflare_service.is_valid_hostname(value) is valid
-
-
-def test_resolve_resource_vmid() -> None:
-    assert resolve_resource_vmid(object(), 101) is None
-    present = SimpleNamespace(get=lambda _model, _vmid: object())
-    missing = SimpleNamespace(get=lambda _model, _vmid: None)
-    assert resolve_resource_vmid(present, 101) == 101
-    assert resolve_resource_vmid(missing, 101) is None
 
 
 # ─── ip_management_service ────────────────────────────────────────────────────

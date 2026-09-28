@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import quote
 
 from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.authorizers import require_template_manage
 from app.core.db import engine
@@ -58,15 +59,44 @@ _LXC_PASSWORD_RETRY_SECONDS = 5.0
 # 請求端：校驗 + 入列
 # ---------------------------------------------------------------------------
 
+# DNS label 上限 63；批次時要留 "-NN" 四個字元給序號
+_LABEL_MAX = 63
+_BATCH_LABEL_MAX = 59
+
+
+def _slugify_template_name(name: str, max_ace_len: int) -> str:
+    """把範本名稱（自由文字）轉成單一合法 hostname label。
+
+    保留 Unicode 字母與數字（之後轉 Punycode），其餘字元一律換成 ``-``；
+    從尾端逐字截短，直到 ACE 形式不超過 ``max_ace_len``。
+    """
+    slug = re.sub(r"[^\w-]+", "-", name.lower()).replace("_", "-")
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    while slug:
+        try:
+            if len(to_punycode_hostname(slug)) <= max_ace_len:
+                return slug
+        except ValueError:
+            pass  # 單一 label 轉完超過 63 字元時 to_punycode_hostname 會丟錯
+        slug = slug[:-1].rstrip("-")
+    return "vm"
+
+
 def _build_hostnames(
     base: str | None, template_name: str, count: int
 ) -> list[str]:
-    raw = base or template_name
-    hostname = to_punycode_hostname(raw)
+    if not base:
+        max_len = _LABEL_MAX if count == 1 else _BATCH_LABEL_MAX
+        base = _slugify_template_name(template_name, max_len)
+    try:
+        hostname = to_punycode_hostname(base)
+    except ValueError as exc:
+        raise BadRequestError(t("clone.invalidHostname")) from exc
     if count == 1:
         return [hostname]
-    # 批量時加序號，並保留 63 字元上限
-    return [f"{hostname[:59]}-{i + 1:02d}" for i in range(count)]
+    # 批量時加序號，並保留 63 字元上限；截斷後不可留下結尾的 - 或 .
+    prefix = hostname[:_BATCH_LABEL_MAX].rstrip("-.")
+    return [f"{prefix}-{i + 1:02d}" for i in range(count)]
 
 
 async def request_clone(
@@ -76,6 +106,31 @@ async def request_clone(
     template_id: uuid.UUID,
     data: TemplateCloneRequest,
 ) -> list[TaskRecord]:
+    # 校驗（DB、GPU mapping、配額）都是同步查詢，丟到 threadpool；
+    # event loop 上只留入列
+    template, payloads = await run_in_threadpool(
+        _prepare_clone, session, user, template_id, data
+    )
+    records: list[TaskRecord] = []
+    for payload in payloads:
+        record = await enqueue_task(
+            session=session,
+            task_type=TASK_CLONE,
+            user_id=user.id,
+            template_id=template.id,
+            payload=payload,
+        )
+        records.append(record)
+    return records
+
+
+def _prepare_clone(
+    session: Session,
+    user: User,
+    template_id: uuid.UUID,
+    data: TemplateCloneRequest,
+) -> tuple[VMTemplate, list[dict[str, Any]]]:
+    """request_clone 的同步部分：權限、GPU、配額校驗與每台機器的任務 payload。"""
     template = template_service.get_or_404(session, template_id)
     template_service.require_view(session, user, template)
     # 克隆開通僅限教師與管理員；學生要機器一律走申請審核流程。
@@ -117,34 +172,26 @@ async def request_clone(
     )
 
     hostnames = _build_hostnames(data.hostname, template.name, data.count)
-    records: list[TaskRecord] = []
-    for hostname in hostnames:
-        record = await enqueue_task(
-            session=session,
-            task_type=TASK_CLONE,
-            user_id=user.id,
-            template_id=template.id,
-            payload={
-                "template_id": str(template.id),
-                "user_id": str(user.id),
-                "hostname": hostname,
-                "cores": data.cores,
-                "memory": data.memory,
-                # 磁碟不開放調整：固定沿用範本磁碟（batch 路徑仍可帶 disk）
-                "start": data.start,
-                "allow_password_reset": template.allow_password_change,
-                # payload 會落 DB（TaskRecord.payload），密碼必須加密存放
-                "login_password_enc": (
-                    encrypt_value(data.login_password)
-                    if data.login_password
-                    else None
-                ),
-                "gpu_mapping_id": data.gpu_mapping_id,
-                "gpu_mdev_profile": data.gpu_mdev_profile,
-            },
-        )
-        records.append(record)
-    return records
+    payloads = [
+        {
+            "template_id": str(template.id),
+            "user_id": str(user.id),
+            "hostname": hostname,
+            "cores": data.cores,
+            "memory": data.memory,
+            # 磁碟不開放調整：固定沿用範本磁碟（batch 路徑仍可帶 disk）
+            "start": data.start,
+            "allow_password_reset": template.allow_password_change,
+            # payload 會落 DB（TaskRecord.payload），密碼必須加密存放
+            "login_password_enc": (
+                encrypt_value(data.login_password) if data.login_password else None
+            ),
+            "gpu_mapping_id": data.gpu_mapping_id,
+            "gpu_mdev_profile": data.gpu_mdev_profile,
+        }
+        for hostname in hostnames
+    ]
+    return template, payloads
 
 
 # ---------------------------------------------------------------------------
@@ -440,13 +487,18 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
     allocated_ip: str | None = None
     created = False
     try:
-        # ``next_vmid`` 只是讀取 PVE 的 nextid；把鎖一路持有到 clone
-        # 完成，才能避免不同 backend worker 在 PVE 尚未反映新 CT 前拿到
-        # 同一個 VMID。IP 預留也放在同一個臨界區，失敗時再用 reservation
-        # key 精準回滾。
+        # ``next_vmid`` 只讀 PVE 的 nextid，``allocate_free_vmid`` 另外跳過 DB
+        # 已預留（IP 配發紀錄／資源列）的 VMID：排程在鎖內只把 VMID 寫進 DB
+        # 就放鎖，clone 稍後才送出，這段時間 nextid 仍會回同一個號碼。
+        # 把鎖一路持有到 clone 完成，才能避免不同 backend worker 在 PVE 尚未
+        # 反映新 CT 前拿到同一個 VMID。IP 預留也放在同一個臨界區，失敗時再用
+        # reservation key 精準回滾。
+        # provisioning_service 會延遲 import 本模組，這裡也延遲 import 避免循環
+        from app.services.proxmox.provisioning_service import allocate_free_vmid
+
         with proxmox_ops.vmid_allocation_lock():
             with Session(engine) as session:
-                new_vmid = proxmox_ops.next_vmid()
+                new_vmid = allocate_free_vmid(session)
                 net_cfg = ip_management_service.get_network_config_for_vm(session)
                 purpose = "lxc" if resource_type == "lxc" else "vm"
                 allocated_ip = ip_management_service.allocate_ip(

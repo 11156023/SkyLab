@@ -49,7 +49,6 @@ def create_snapshot(
     description: str | None,
     vmstate: bool,
     resource_info: dict,
-    user_id: uuid.UUID,
     user: Any,
 ) -> dict:
     node = resource_info["node"]
@@ -80,7 +79,7 @@ def create_snapshot(
 
     audit_service.log_action(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         vmid=vmid,
         action="snapshot_create",
         details=f"Created snapshot '{snapname}': {description or 'No description'}",
@@ -99,7 +98,6 @@ def delete_snapshot(
     vmid: int,
     snapname: str,
     resource_info: dict,
-    user_id: uuid.UUID,
     user: Any,
 ) -> dict:
     node = resource_info["node"]
@@ -112,7 +110,7 @@ def delete_snapshot(
 
     audit_service.log_action(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         vmid=vmid,
         action="snapshot_delete",
         details=f"Deleted snapshot '{snapname}'",

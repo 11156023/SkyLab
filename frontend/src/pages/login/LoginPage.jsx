@@ -4,7 +4,7 @@ import MIcon from "../../components/MIcon";
 import PasswordInput from "../../components/PasswordInput/PasswordInput";
 import SegmentedControl from "../../components/SegmentedControl/SegmentedControl";
 import { useAuth } from "../../contexts/AuthContext";
-import { apiPost } from "../../services/api";
+import { AccountService } from "../../services/account";
 import { getLoginMethods } from "../../services/auth";
 import PageShell from "./PageShell";
 import styles from "./LoginPage.module.scss";
@@ -562,10 +562,7 @@ function ForgotView({ onBack }) {
     setError("");
     setLoading(true);
     try {
-      await apiPost(
-        `/api/v1/password-recovery/${encodeURIComponent(email)}`,
-        null,
-      );
+      await AccountService.requestPasswordRecovery(email);
       setSuccess(true);
     } catch (err) {
       setError(err?.message ?? t("LoginPage.forgotPasswordErrorDefault"));
@@ -639,10 +636,7 @@ function ResetView({ token, onDone }) {
 
     setLoading(true);
     try {
-      await apiPost("/api/v1/reset-password/", {
-        new_password: password,
-        token,
-      });
+      await AccountService.resetPassword(token, password);
       setSuccess(true);
     } catch (err) {
       setError(err?.message ?? t("LoginPage.resetPasswordErrorDefault"));
@@ -723,11 +717,7 @@ function RegisterView({ onBack }) {
 
     setLoading(true);
     try {
-      await apiPost("/api/v1/users/signup", {
-        email,
-        full_name: fullName,
-        password,
-      });
+      await AccountService.signup({ email, full_name: fullName, password });
       setSuccess(true);
     } catch (err) {
       setError(err?.message ?? t("LoginPage.registerErrorDefault"));
@@ -854,9 +844,7 @@ export default function LoginPage() {
 
     setDeviceApproval({ status: "approving", error: "" });
     try {
-      await apiPost("/api/v1/desktop-client/auth/approve", {
-        device_code: deviceCode,
-      });
+      await AccountService.approveDesktopDevice(deviceCode);
       setDeviceApproval({ status: "approved", error: "" });
     } catch (err) {
       approvalKeyRef.current = "";

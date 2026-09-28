@@ -117,12 +117,34 @@ describe("RequestReviewPage (F5)", () => {
     await act(async () => { root.render(<RequestReviewPage />); });
     await flush();
 
-    expect(mocks.vmListAll).toHaveBeenCalledWith("pending", { limit: 100 });
+    /* 待審是審核工作佇列，用較大的上限；其他分頁只取筆數給角標 */
+    expect(mocks.vmListAll).toHaveBeenCalledWith("pending", { limit: 1000 });
+    expect(mocks.specListAll).toHaveBeenCalledWith({ status: "pending", limit: 1000 });
+    expect(mocks.vmListAll).toHaveBeenCalledWith("approved", { limit: 1 });
+    expect(mocks.vmListAll).toHaveBeenCalledWith(undefined, { limit: 1 });
+    expect(mocks.specListAll).toHaveBeenCalledWith({ status: "approved", limit: 1 });
     /* spec-change 沒有 expired 狀態，不能把 expired 傳給後端 */
     expect(mocks.specListAll.mock.calls.some(([params]) => params?.status === "expired")).toBe(false);
     expect(rowButtons().map((b) => b.textContent)).toEqual([expect.stringContaining("host-old")]);
     expect(host.querySelector('[data-tab="pending"]').dataset.badge).toBe("1");
     expect(host.querySelector('[data-tab="all"]').dataset.badge).toBe("101");
+  });
+
+  test("history tabs keep the smaller list limit when active", async () => {
+    mocks.vmListAll.mockResolvedValue({ data: [], count: 0 });
+
+    await act(async () => { root.render(<RequestReviewPage />); });
+    await flush();
+    mocks.vmListAll.mockClear();
+    mocks.specListAll.mockClear();
+
+    await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
+    await flush();
+
+    expect(mocks.vmListAll).toHaveBeenCalledWith("approved", { limit: 100 });
+    expect(mocks.specListAll).toHaveBeenCalledWith({ status: "approved", limit: 100 });
+    expect(mocks.vmListAll).toHaveBeenCalledWith("pending", { limit: 1 });
+    expect(mocks.vmListAll).not.toHaveBeenCalledWith("pending", { limit: 1000 });
   });
 
   test("background refresh does not silently switch the detail pane to another request", async () => {

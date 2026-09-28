@@ -6,9 +6,6 @@ import { useToast } from "../../hooks/useToast";
 import { ResourcesService } from "../../services/resources";
 import { COMMON_PORTS, extractHostnamePrefix, findZoneByDomain } from "./domainHelpers";
 
-/* 相容轉出：ConnectionDialog／PortInput 仍從這裡 import，改為直接引用 ./domainHelpers 後即可刪除 */
-export { COMMON_PORTS, extractHostnamePrefix, findZoneByDomain };
-
 /**
  * 反向代理規則建立／編輯 Modal（網域管理頁的反向代理分頁使用）。
  * 開啟時載入使用者可見的機器清單（管理員為全部機器）供下拉選擇綁定的 VM。

@@ -2,7 +2,8 @@
 
 分兩端：
 - 請求端（route 呼叫）：權限／狀態校驗、DB 讀寫，耗時的 PVE 操作一律經由
-  arq 隊列（enqueue_task）入列。
+  arq 隊列（enqueue_task）入列。async 入口的同步校驗（DB、PVE 查詢）一律用
+  ``run_in_threadpool`` 丟到 worker thread，event loop 上只留入列。
 - 執行端（``run_*_task``）：實際的 PVE 操作（停機、重設 cloud-init、轉範本、
   更新循環的 clone／convert／cancel、刪除）。由 tasks.py 的 handler 解包參數後
   以 to_thread 委派到這裡執行。
@@ -20,6 +21,7 @@ from typing import Any
 
 from sqlalchemy import func as sa_func
 from sqlmodel import Session, col, select
+from starlette.concurrency import run_in_threadpool
 
 from app.core.db import engine
 from app.core.i18n import t
@@ -313,7 +315,7 @@ def _can_manage(user: User) -> bool:
 
 
 def require_view(session: Session, user: User, template: VMTemplate) -> None:
-    _ = session  # 保留服務層既有呼叫介面；私人/公開判斷已不需查詢群組。
+    _ = session  # 保留既有三參數呼叫介面（測試以三參數替身 monkeypatch）
     if is_admin(user):
         return
     if not template_repo.is_template_visible_to_user(
@@ -335,7 +337,19 @@ def _require_owner(user: User, template: VMTemplate) -> None:
 async def create_template(
     *, session: Session, user: User, data: VMTemplateCreate
 ) -> tuple[VMTemplatePublic, TaskRecord]:
-    """校驗來源 VM 後建立範本紀錄並入列 convert 任務。"""
+    """校驗來源 VM 後建立範本紀錄並入列 convert 任務。
+
+    校驗會同步查 DB 與 PVE，丟到 threadpool 執行；event loop 上只留入列。
+    """
+    template = await run_in_threadpool(_prepare_create, session, user, data)
+    record = await _enqueue_convert(session=session, user=user, template=template)
+    return _to_public(template), record
+
+
+def _prepare_create(
+    session: Session, user: User, data: VMTemplateCreate
+) -> VMTemplate:
+    """create_template 的同步部分：權限、來源 VM 校驗與建立範本紀錄。"""
     from app.core.authorizers import require_template_manage
 
     require_template_manage(user)
@@ -379,7 +393,7 @@ async def create_template(
             t("template.sourceVmBelongsToOther", vmid=data.source_vmid)
         )
 
-    template = template_repo.create_template(
+    return template_repo.create_template(
         session=session,
         pve_vmid=data.source_vmid,
         name=data.name,
@@ -394,8 +408,6 @@ async def create_template(
         requires_gpu=data.requires_gpu,
         source_vmid=data.source_vmid,
     )
-    record = await _enqueue_convert(session=session, user=user, template=template)
-    return _to_public(template), record
 
 
 def _convert_payload(template: VMTemplate) -> dict[str, Any]:
@@ -433,6 +445,23 @@ async def retry_template_conversion(
     user: User,
     template_id: uuid.UUID,
 ) -> tuple[VMTemplatePublic, TaskRecord]:
+    template, finished = await run_in_threadpool(
+        _prepare_retry, session, user, template_id
+    )
+    if finished is not None:
+        return _to_public(template), finished
+    record = await _enqueue_convert(session=session, user=user, template=template)
+    return _to_public(template), record
+
+
+def _prepare_retry(
+    session: Session, user: User, template_id: uuid.UUID
+) -> tuple[VMTemplate, TaskRecord | None]:
+    """retry_template_conversion 的同步部分（DB 與 PVE 查詢）。
+
+    回傳 ``(template, record)``：PVE 上已是範本時直接補一筆成功的任務紀錄
+    （record 不為 None，不必入列）；否則 record 為 None，由呼叫端入列轉換。
+    """
     template = get_or_404(session, template_id)
     _require_owner(user, template)
     _reconcile_failed_template_tasks(session, [template])
@@ -474,7 +503,7 @@ async def retry_template_conversion(
             result={"vmid": template.pve_vmid, "already_converted": True},
             resource_vmid=template.pve_vmid,
         )
-        return _to_public(template), session.get(TaskRecord, record.id) or record
+        return template, session.get(TaskRecord, record.id) or record
 
     # 還沒轉成範本：與 create_template 相同，未登記在平台的 VM 只有 admin 能轉
     if owned is None and not is_admin(user):
@@ -489,8 +518,7 @@ async def retry_template_conversion(
     template.status = VMTemplateStatus.creating
     template.error_message = None
     template_repo.touch(session=session, template=template)
-    record = await _enqueue_convert(session=session, user=user, template=template)
-    return _to_public(template), record
+    return template, None
 
 
 # ---------------------------------------------------------------------------
@@ -763,6 +791,25 @@ def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[
 async def delete_template(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
+    template = await run_in_threadpool(_prepare_delete, session, user, template_id)
+    return await enqueue_task(
+        session=session,
+        task_type=TASK_DELETE,
+        user_id=user.id,
+        template_id=template.id,
+        payload={
+            "template_id": str(template.id),
+            "pve_vmid": template.pve_vmid,
+            "resource_type": template.resource_type,
+            "node": template.node,
+        },
+    )
+
+
+def _prepare_delete(
+    session: Session, user: User, template_id: uuid.UUID
+) -> VMTemplate:
+    """delete_template 的同步校驗：擁有者、更新中、仍被子機／申請／批量／環境引用。"""
     template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status == VMTemplateStatus.updating:
@@ -800,19 +847,7 @@ async def delete_template(
         raise ConflictError(
             t("template.referencedByEnvironments", shown=shown, more=more)
         )
-
-    return await enqueue_task(
-        session=session,
-        task_type=TASK_DELETE,
-        user_id=user.id,
-        template_id=template.id,
-        payload={
-            "template_id": str(template.id),
-            "pve_vmid": template.pve_vmid,
-            "resource_type": template.resource_type,
-            "node": template.node,
-        },
-    )
+    return template
 
 
 # ---------------------------------------------------------------------------
@@ -877,16 +912,9 @@ async def start_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
     """克隆出暫存母機供修改；成功後 template.source_vmid 指向暫存機。"""
-    template = get_or_404(session, template_id)
-    _require_owner(user, template)
-    if template.status != VMTemplateStatus.ready:
-        raise ConflictError(
-            t("template.mustBeReadyForUpdate", status=template.status.value)
-        )
-
-    template.status = VMTemplateStatus.updating
-    template_repo.touch(session=session, template=template)
-
+    template = await run_in_threadpool(
+        _prepare_update_start, session, user, template_id
+    )
     return await enqueue_task(
         session=session,
         task_type=TASK_UPDATE_CLONE,
@@ -902,25 +930,29 @@ async def start_update_cycle(
     )
 
 
+def _prepare_update_start(
+    session: Session, user: User, template_id: uuid.UUID
+) -> VMTemplate:
+    """start_update_cycle 的同步部分：校驗後把範本標成 updating。"""
+    template = get_or_404(session, template_id)
+    _require_owner(user, template)
+    if template.status != VMTemplateStatus.ready:
+        raise ConflictError(
+            t("template.mustBeReadyForUpdate", status=template.status.value)
+        )
+
+    template.status = VMTemplateStatus.updating
+    template_repo.touch(session=session, template=template)
+    return template
+
+
 async def finish_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
     """把修改完的暫存機轉為新版範本並汰換舊版。"""
-    template = get_or_404(session, template_id)
-    _require_owner(user, template)
-    if template.status != VMTemplateStatus.updating:
-        raise ConflictError(t("template.notInUpdateCycle"))
-    temp_vmid = template.source_vmid
-    if temp_vmid is None or temp_vmid == template.pve_vmid:
-        raise ConflictError(t("template.updateCloneNotReady"))
-    if not _is_update_temp_vm(
-        session,
-        owner_id=template.owner_id,
-        pve_vmid=template.pve_vmid,
-        temp_vmid=temp_vmid,
-    ):
-        raise ConflictError(t("template.updateCloneMismatch", vmid=temp_vmid))
-
+    template, temp_vmid = await run_in_threadpool(
+        _prepare_update_finish, session, user, template_id
+    )
     return await enqueue_task(
         session=session,
         task_type=TASK_UPDATE_CONVERT,
@@ -936,14 +968,33 @@ async def finish_update_cycle(
     )
 
 
-async def cancel_update_cycle(
-    *, session: Session, user: User, template_id: uuid.UUID
-) -> TaskRecord:
+def _prepare_update_finish(
+    session: Session, user: User, template_id: uuid.UUID
+) -> tuple[VMTemplate, int]:
+    """finish_update_cycle 的同步校驗（含向 PVE 確認暫存母機仍是這次克隆的）。"""
     template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status != VMTemplateStatus.updating:
         raise ConflictError(t("template.notInUpdateCycle"))
+    temp_vmid = template.source_vmid
+    if temp_vmid is None or temp_vmid == template.pve_vmid:
+        raise ConflictError(t("template.updateCloneNotReady"))
+    if not _is_update_temp_vm(
+        session,
+        owner_id=template.owner_id,
+        pve_vmid=template.pve_vmid,
+        temp_vmid=temp_vmid,
+    ):
+        raise ConflictError(t("template.updateCloneMismatch", vmid=temp_vmid))
+    return template, temp_vmid
 
+
+async def cancel_update_cycle(
+    *, session: Session, user: User, template_id: uuid.UUID
+) -> TaskRecord:
+    template = await run_in_threadpool(
+        _prepare_update_cancel, session, user, template_id
+    )
     return await enqueue_task(
         session=session,
         task_type=TASK_UPDATE_CANCEL,
@@ -957,6 +1008,16 @@ async def cancel_update_cycle(
             "node": template.node,
         },
     )
+
+
+def _prepare_update_cancel(
+    session: Session, user: User, template_id: uuid.UUID
+) -> VMTemplate:
+    template = get_or_404(session, template_id)
+    _require_owner(user, template)
+    if template.status != VMTemplateStatus.updating:
+        raise ConflictError(t("template.notInUpdateCycle"))
+    return template
 
 
 # ---------------------------------------------------------------------------
@@ -975,11 +1036,24 @@ def _as_resource_type(raw: Any) -> proxmox_ops.ResourceType:
 def _wait_until_stopped(
     node: str, vmid: int, resource_type: proxmox_ops.ResourceType, timeout: float
 ) -> bool:
+    """輪詢到 stopped 或逾時。
+
+    單次狀態查詢失敗（PVE API 短暫不通）只記錄並繼續輪詢，不中斷整個
+    convert／update 任務，也不可當成已停止（與 resource_service 的刪除前
+    關機、spec_change_service 的套用前關機一致）。
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        status = proxmox_ops.get_status(node, vmid, resource_type)
-        if status.get("status") == "stopped":
-            return True
+        try:
+            status = proxmox_ops.get_status(node, vmid, resource_type)
+        except Exception as exc:
+            logger.warning(
+                "Status poll failed for %s %s while waiting for stop: %s",
+                resource_type, vmid, exc,
+            )
+        else:
+            if status.get("status") == "stopped":
+                return True
         time.sleep(_POLL_INTERVAL_SECONDS)
     return False
 
@@ -1323,9 +1397,14 @@ def run_update_clone_task(
     pve_vmid = int(payload["pve_vmid"])
     resource_type = _as_resource_type(payload["resource_type"])
     node = str(payload["node"])
+    from app.services.proxmox.provisioning_service import allocate_free_vmid
+
     try:
         with proxmox_ops.vmid_allocation_lock():
-            new_vmid = proxmox_ops.next_vmid()
+            # next_vmid 只讀 PVE 的 nextid；排程已在 DB 預留、尚未 clone 的 VMID
+            # 也要跳過，否則會和那台機器撞號
+            with Session(engine) as vmid_session:
+                new_vmid = allocate_free_vmid(vmid_session)
             report_progress(task_id, 10)
             clone_name = _update_temp_vm_name(pve_vmid)
             pool = get_proxmox_settings_for_node(node).pool_name

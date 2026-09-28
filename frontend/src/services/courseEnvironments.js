@@ -163,13 +163,6 @@ export const CourseEnvironmentsService = {
   downloadFile(environmentId, fileId) {
     return apiGetBlob(`/api/v1/course-environments/${environmentId}/files/${fileId}`);
   },
-  /**
-   * @deprecated 裸網址不會帶 Bearer token，直接當 <a href> 開會 401；請改用 downloadFile。
-   * 保留到頁面改完為止。
-   */
-  fileUrl(environmentId, fileId) {
-    return `/api/v1/course-environments/${environmentId}/files/${fileId}`;
-  },
   async remove(environmentId) {
     return apiDelete(`/api/v1/course-environments/${environmentId}`);
   },

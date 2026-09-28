@@ -121,6 +121,8 @@ def submit_answer(
     - flag 題型：正規化 + SHA-256 常數時間比對
     - 已完成的題目重複提交：冪等，直接回 correct=True
     - 答錯僅回 correct=False，不記錄進度；提交行為一律寫 audit log
+      （提交次數由路由層 ``routes/courses.py`` 依使用者×題目節流，避免暴力猜
+      flag 或灌爆 audit log；這裡是同步函式，不處理節流）
     - 推播事件僅在「新完成一題」時產生（答錯/重複完成為 None）
     """
     question = session.get(CourseQuestion, question_id)

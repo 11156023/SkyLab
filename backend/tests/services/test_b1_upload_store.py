@@ -10,7 +10,7 @@ from fastapi import UploadFile
 
 from app.api.routes import course_environments
 from app.exceptions import BadRequestError
-from app.services.course_environment import upload_store
+from app.services.course_environment import environment_service, upload_store
 
 
 def _upload(data: bytes, filename: str | None = "notes.pdf") -> UploadFile:
@@ -124,13 +124,13 @@ async def test_environment_file_upload_and_delete_use_shared_store(
     environment = SimpleNamespace(id=uuid.uuid4(), updated_at=None)
     user = SimpleNamespace(id=uuid.uuid4())
     session = _FakeSession()
-    monkeypatch.setattr(course_environments, "ENVIRONMENT_FILE_ROOT", tmp_path)
+    monkeypatch.setattr(environment_service, "ENVIRONMENT_FILE_ROOT", tmp_path)
     monkeypatch.setattr(
-        course_environments, "_get_environment", lambda *_args: environment
+        environment_service, "get_environment", lambda *_args: environment
     )
-    monkeypatch.setattr(course_environments, "_latest", lambda *_args: None)
+    monkeypatch.setattr(environment_service, "latest_version", lambda *_args: None)
     monkeypatch.setattr(
-        course_environments, "_serialize_version", lambda *_args: {"ok": True}
+        environment_service, "serialize_version", lambda *_args: {"ok": True}
     )
 
     result = await course_environments.upload_environment_file(
@@ -143,8 +143,8 @@ async def test_environment_file_upload_and_delete_use_shared_store(
     assert (tmp_path / stored.storage_key).read_bytes() == b"slides"
 
     monkeypatch.setattr(
-        course_environments,
-        "_environment_file",
+        environment_service,
+        "get_environment_file",
         lambda *_args: (environment, stored),
     )
     course_environments.delete_environment_file(

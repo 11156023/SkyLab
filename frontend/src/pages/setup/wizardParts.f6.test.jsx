@@ -11,6 +11,7 @@ const { setLanguage, i18nState } = vi.hoisted(() => ({
 vi.mock("../../i18n", () => ({
   DEFAULT_LANGUAGE: "zh-TW",
   SUPPORTED_LANGUAGES: ["zh-TW", "en", "ja"],
+  currentLanguage: (lang) => (["zh-TW", "en", "ja"].includes(lang) ? lang : "zh-TW"),
   setLanguage,
 }));
 

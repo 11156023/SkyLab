@@ -20,6 +20,7 @@ from app.ai.teacher_judge._types import VLLMMetrics
 from app.ai.teacher_judge.automation_support import (
     get_script_generation_blockers,
     missing_step_information,
+    non_empty_argv,
 )
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.machine_context import (
@@ -713,12 +714,7 @@ def _normalize_check_steps(
                 dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
             )
             argv = recovered_parameters.get("argv")
-            has_valid_argv = (
-                isinstance(argv, list)
-                and bool(argv)
-                and all(isinstance(part, str) and part.strip() for part in argv)
-            )
-            if not has_valid_argv:
+            if not non_empty_argv(argv):
                 continue
             for key in ("path", "file_path", "target"):
                 recovered_parameters.pop(key, None)
@@ -778,11 +774,7 @@ def _normalize_check_steps(
 
         if not command_key and "argv" in parameters:
             argv = parameters.get("argv")
-            if not (
-                isinstance(argv, list)
-                and bool(argv)
-                and all(isinstance(part, str) and part.strip() for part in argv)
-            ):
+            if not non_empty_argv(argv):
                 continue
             timeout = coerce_timeout_seconds(parameters.get("timeout_seconds"))
             normalized.append(

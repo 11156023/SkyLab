@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import { COMMON_PORTS, extractHostnamePrefix, findZoneByDomain } from "./domainHelpers";
-import * as modalModule from "./ReverseProxyRuleModal";
 
 describe("findZoneByDomain", () => {
   const zones = [
@@ -48,10 +47,4 @@ describe("extractHostnamePrefix", () => {
 test("COMMON_PORTS starts with 80 and every entry carries a label key", () => {
   expect(COMMON_PORTS[0].value).toBe("80");
   for (const port of COMMON_PORTS) expect(port.labelKey).toMatch(/^ReverseProxyRuleModal\.port\d+$/);
-});
-
-test("the modal module keeps re-exporting the helpers for existing importers", () => {
-  expect(modalModule.COMMON_PORTS).toBe(COMMON_PORTS);
-  expect(modalModule.findZoneByDomain).toBe(findZoneByDomain);
-  expect(modalModule.extractHostnamePrefix).toBe(extractHostnamePrefix);
 });

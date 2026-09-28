@@ -14,7 +14,8 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
-import { apiGet } from "../../../services/api";
+import { downloadBlob } from "../../../services/api";
+import { ResourcesService } from "../../../services/resources";
 import { ReverseProxyService } from "../../../services/reverseProxy";
 import { focusInvalidField } from "../../../utils/focusField";
 import { joinList } from "../../../utils/joinList";
@@ -737,7 +738,7 @@ export default function CourseTemplateEditorPage() {
   // 兩份清單分開載：VM 與 LXC 各自可能失敗，別讓其中一支把另一支也拖成空的
   useEffect(() => {
     let active = true;
-    apiGet("/api/v1/vm/templates")
+    ResourcesService.listVmOsTemplates()
       .then((vms) => {
         if (!active) return;
         setVmImages((vms ?? []).map((item) => ({ value: String(item.vmid), label: t("CourseTemplateEditorPage.vmImageLabel", { name: item.name, vmid: item.vmid, node: item.node }), cores: item.cores, memoryMb: item.memory_mb, diskGb: item.disk_gb })));
@@ -745,7 +746,7 @@ export default function CourseTemplateEditorPage() {
       .catch((reason) => {
         if (active) setSourceNotice(reason?.message ?? t("CourseTemplateEditorPage.loadImagesFailed"));
       });
-    apiGet("/api/v1/lxc/templates")
+    ResourcesService.listLxcOsImages()
       .then((lxcs) => {
         if (!active) return;
         setLxcImages((lxcs ?? []).map((item) => ({ value: item.volid, label: item.volid.split("/").pop() ?? item.volid })));
@@ -820,6 +821,16 @@ export default function CourseTemplateEditorPage() {
       toast.error(lastError?.message ?? t("Error.generic", { ns: "common" }));
     } else {
       toast.error(t("CourseTemplateEditorPage.filesUploadPartialFail", { files: joinList(failed) }));
+    }
+  }
+
+  /* 檔案端點要帶 Bearer token，不能直接當 <a href> 開（會 401）：抓成 Blob 再存檔 */
+  async function openFile(file) {
+    try {
+      const blob = await CourseEnvironmentsService.downloadFile(template.id, file.id);
+      downloadBlob(blob, file.filename);
+    } catch (reason) {
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.fileDownloadFailed"));
     }
   }
 
@@ -914,7 +925,7 @@ export default function CourseTemplateEditorPage() {
         {(template.files ?? []).length > 0 && <ul className={styles.fileList}>
           {(template.files ?? []).map((file) => <li key={file.id}>
             <MIcon name="description" size={16} />
-            <a href={CourseEnvironmentsService.fileUrl(template.id, file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
+            <button type="button" className={styles.fileLink} title={file.filename} onClick={() => openFile(file)}>{file.filename}</button>
             <small>{formatFileSize(file.sizeBytes)}</small>
             <button type="button" className={styles.fileRemove} disabled={saving} aria-label={t("CourseTemplateEditorPage.removeFileAria", { name: file.filename })} onClick={() => removeFile(file)}><MIcon name="close" size={15} /></button>
           </li>)}

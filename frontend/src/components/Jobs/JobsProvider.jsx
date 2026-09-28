@@ -27,6 +27,7 @@ import {
 import JobDetailDialog from "./JobDetailDialog";
 import { JOB_KIND_LABEL_KEYS } from "./JobRow";
 import { diffJobSnapshot } from "./jobSnapshotDiff";
+import { isAdminUser } from "../../utils/roles";
 
 const NOTIFY_ONLY_MINE_KEY = "jobs:notifyOnlyMine";
 const DESKTOP_PROMPT_TOAST_ID = "desktop-notifications-prompt";
@@ -158,7 +159,7 @@ export default function JobsProvider({ children }) {
   const [reminders, setReminders] = useState(null); // 提醒；null = 尚未載入
   const [readReminderIds, setReadReminderIds] = useState(() => loadReadReminderIds(user));
 
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
+  const isAdmin = isAdminUser(user);
   const myUserId = user?.id ?? null;
   // 使用 ref 送進 WS callback，避免 closure 抓舊設定導致 effect 重連
   const filterRef = useRef({ enabled: false, myUserId: null });

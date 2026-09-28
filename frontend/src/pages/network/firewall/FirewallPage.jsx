@@ -474,6 +474,7 @@ export default function FirewallPage() {
 
             {rulesPanel.open && (
               <RulesPanel
+                key={rulesPanel.item.id}
                 node={{ vmid: Number(rulesPanel.item.id), name: rulesPanel.item.data.name }}
                 canManage={canManageNode(rulesPanel.item.data)}
                 closing={rulesPanel.closing}

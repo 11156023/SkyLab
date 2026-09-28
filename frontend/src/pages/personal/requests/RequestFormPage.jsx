@@ -16,7 +16,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatShortDateTime } from "../../../utils/formatDate";
-import { isStaffUser } from "./requestRoles";
+import { canTeachUser } from "../../../utils/roles";
 
 /* Hostname normalization — preserves alphanumeric, replaces others with hyphen */
 function normalizeHostname(value) {
@@ -219,7 +219,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   const { t } = useTranslation("personal");
   const { user }  = useAuth();
   const toast     = useToast();
-  const isPrivileged = isStaffUser(user);
+  const isPrivileged = canTeachUser(user);
   const { setCompactFooter, registerRequestForm, registerSurface, reportRequestSubmission } =
     useContext(LayoutContext);
   useEffect(() => { setCompactFooter(true); return () => setCompactFooter(false); }, [setCompactFooter]);

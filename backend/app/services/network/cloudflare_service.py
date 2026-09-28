@@ -204,7 +204,7 @@ def update_dns_record(
     record = client.update_dns_record(
         zone_id=clean_zone_id,
         record_id=clean_record_id,
-        record=_build_record_payload(data),
+        record=_build_record_payload(data, is_update=True),
     )
     return _to_dns_record_public(clean_zone_id, record)
 
@@ -416,6 +416,8 @@ def _to_dns_record_public(
 
 def _build_record_payload(
     data: CloudflareDNSRecordCreate | CloudflareDNSRecordUpdate,
+    *,
+    is_update: bool = False,
 ) -> dict[str, object]:
     record_type = _normalize_record_type(data.type)
     if not record_type:
@@ -438,6 +440,9 @@ def _build_record_payload(
     comment = _normalize_optional_text(data.comment)
     if comment:
         payload["comment"] = comment
+    elif is_update and "comment" in data.model_fields_set:
+        # PATCH 省略欄位＝保留舊值；明確送空字串才會清掉 Cloudflare 上的註解
+        payload["comment"] = ""
 
     if record_type in _PROXIABLE_RECORD_TYPES and data.proxied is not None:
         payload["proxied"] = data.proxied

@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 
 from app.core import metrics
 from app.core.db import engine
+from app.infrastructure.ai import litellm_runtime
 from app.infrastructure.queue.arq_client import QUEUE_NAME
 from app.infrastructure.redis.sync_client import get_sync_redis
 from app.models import AlertEvent, AlertMetric, AlertScope, TaskRecord, TaskRecordStatus
@@ -379,64 +380,13 @@ class _AiCache:
 
 
 def _probe_ai(base_url: str, api_key: str, *, transport: Any = None) -> dict[str, Any]:
-    """問 LiteLLM：活著嗎、DB 連上沒、有哪些模型、背景健康檢查的結果。
+    """問 LiteLLM 的健康狀態；HTTP 細節在 ``infrastructure/ai/litellm_runtime``。
 
-    ``/health`` 讀的是 LiteLLM 背景健康檢查的快取（config 開了
-    background_health_checks），不會為了這次探測去打推論服務。它只回
-    ``hosted_vllm/<served>`` 與 ``model_id``，所以用 ``/model/info`` 把 id 對回
-    公開 alias。全程用受限的 runtime key，不需要 master key。
+    保留這個名稱當測試接縫（check_ai 與測試都經由它呼叫）。
     """
-    import httpx
-
-    headers = {"Authorization": f"Bearer {api_key}"}
-    probe: dict[str, Any] = {"reachable": False, "db": None, "models": None, "deployments": None}
-    with httpx.Client(
-        base_url=base_url, timeout=AI_REQUEST_TIMEOUT_SECONDS, transport=transport
-    ) as client:
-        try:
-            client.get("/health/liveliness").raise_for_status()
-        except httpx.HTTPError as exc:
-            probe["error"] = _short_error(exc)
-            return probe
-        probe["reachable"] = True
-        try:
-            readiness = client.get("/health/readiness").json()
-            probe["db"] = readiness.get("db") if isinstance(readiness, dict) else None
-        except (httpx.HTTPError, ValueError):
-            probe["db"] = None
-
-        alias_by_id: dict[str, str] = {}
-        try:
-            info = client.get("/model/info", headers=headers)
-            info.raise_for_status()
-            for entry in info.json().get("data", []):
-                alias = entry.get("model_name")
-                model_id = (entry.get("model_info") or {}).get("id")
-                if isinstance(alias, str) and alias:
-                    if isinstance(model_id, str) and model_id:
-                        alias_by_id[model_id] = alias
-                    probe["models"] = [*(probe["models"] or []), alias]
-        except (httpx.HTTPError, ValueError, AttributeError):
-            logger.debug("LiteLLM /model/info probe failed", exc_info=True)
-
-        try:
-            health = client.get("/health", headers=headers)
-            health.raise_for_status()
-            payload = health.json()
-        except (httpx.HTTPError, ValueError):
-            logger.debug("LiteLLM /health probe failed", exc_info=True)
-        else:
-            deployments: dict[str, dict[str, int]] = {}
-            for group, key in (("healthy_endpoints", "healthy"), ("unhealthy_endpoints", "unhealthy")):
-                entries = payload.get(group) if isinstance(payload, dict) else None
-                for entry in entries if isinstance(entries, list) else []:
-                    alias = alias_by_id.get(str((entry or {}).get("model_id")))
-                    if alias is None:
-                        continue  # 對不回公開 alias 的部署不顯示（避免露出上游名稱）
-                    counts = deployments.setdefault(alias, {"healthy": 0, "unhealthy": 0})
-                    counts[key] += 1
-            probe["deployments"] = deployments
-    return probe
+    return litellm_runtime.probe(
+        base_url, api_key, transport=transport, timeout=AI_REQUEST_TIMEOUT_SECONDS
+    )
 
 
 def check_ai(*, use_cache: bool = True) -> list[dict[str, Any]]:

@@ -14,7 +14,9 @@ import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKin
 import KpiCard from "./KpiCard";
 import { coreSegments, gbSegments } from "./kpiBar";
 /* 自動關機原因與日期格式和進階設定的 LifecycleCard 共用 */
-import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime, parseDateOnly } from "./lifecycleFormat";
+import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime } from "./lifecycleFormat";
+/* 到期天數與首頁終端機卡片共用同一份計算 */
+import { daysUntil } from "../../dashboard/terminalLines";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
@@ -74,13 +76,6 @@ function formatUptime(seconds, t) {
   if (days > 0) return t("OverviewTab.uptimeDays", { days, hours });
   if (hours > 0) return t("OverviewTab.uptimeHours", { hours, minutes });
   return t("OverviewTab.uptimeMinutes", { minutes });
-}
-
-function daysUntil(dateStr) {
-  const target = parseDateOnly(dateStr);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
 /* ── sub-components ── */

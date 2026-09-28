@@ -36,7 +36,7 @@ print_help() {
     echo ""
     echo -e "${YELLOW}無參數模式:${NC}"
     echo "  進入詢問式流程，只詢問："
-    echo "    1. 壓測 API Gateway 或主服務"
+    echo "    1. 壓測 LiteLLM Gateway 或主服務（直連單模型 vLLM）"
     echo "    2. 模型 alias / 模型名稱"
     echo "    3. 測試筆數"
     echo "    4. 併發數"
@@ -45,7 +45,11 @@ print_help() {
     echo ""
     echo -e "${YELLOW}選項:${NC}"
     echo "  --interactive           強制進入詢問式流程"
-    echo "  --target TARGET         非互動：gateway 或 single (預設: gateway)"
+    echo "  --target TARGET         非互動：litellm 或 single (預設: litellm；舊名 gateway 等同 litellm)"
+    echo "                          litellm 讀 LITELLM_BASE_URL (預設 http://127.0.0.1:4000/v1)，"
+    echo "                          金鑰讀 LITELLM_API_KEY 或 AI_API_API_KEY（也會讀 repo 根目錄 .env）"
+    echo "  --model NAME            非互動：模型 alias（litellm 預設取 /models 第一個）"
+    echo "  --base-url URL          非互動：覆寫 OpenAI 相容 Base URL"
     echo "  --download              下載 ShareGPT_V3 數據集"
     echo "  -d, --dataset PATH      進階：ShareGPT 數據集路徑 (默認: ${DEFAULT_DATASET})"
     echo "  -n, --num-samples N     進階：採樣數量 (不指定則使用全部)"
@@ -64,8 +68,11 @@ print_help() {
     echo "  # 下載 ShareGPT 數據集"
     echo "  $0 --download"
     echo ""
-    echo "  # 進階：快速測試 (100 個樣本)"
-    echo "  $0 -n 100 -c 20"
+    echo "  # 進階：快速測試 (100 個樣本，經 LiteLLM)"
+    echo "  LITELLM_API_KEY=sk-... $0 -n 100 -c 20 --model qwen3-14b"
+    echo ""
+    echo "  # 直連單模型 vLLM 主服務 (.env.interface)"
+    echo "  $0 --target single -n 100 -c 20"
     echo ""
     echo "  # 完整測試 (預設採樣 1000 個)"
     echo "  $0 -n 1000 -c 50"
@@ -94,7 +101,9 @@ TEMPERATURE="0.7"
 SEED="42"
 NO_SAVE=""
 DOWNLOAD_ONLY=false
-TARGET="gateway"
+TARGET="litellm"
+MODEL=""
+BASE_URL=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -137,6 +146,14 @@ while [[ $# -gt 0 ]]; do
             TARGET="$2"
             shift 2
             ;;
+        --model)
+            MODEL="$2"
+            shift 2
+            ;;
+        --base-url)
+            BASE_URL="$2"
+            shift 2
+            ;;
         -h|--help)
             print_help
             exit 0
@@ -161,15 +178,21 @@ if [[ "$DOWNLOAD_ONLY" = true ]]; then
         echo "  URL: $DATASET_URL"
         echo "  輸出: $DEFAULT_DATASET"
         echo ""
-        
-        if command -v wget &> /dev/null; then
-            wget -O "$DEFAULT_DATASET" "$DATASET_URL"
-        elif command -v curl &> /dev/null; then
-            curl -L -o "$DEFAULT_DATASET" "$DATASET_URL"
+
+        # test_datasets/ 不在版控內；先下載到 .part，成功才改名，
+        # 中斷的下載不會留下半個檔案被上面的「已存在」檢查誤用。
+        mkdir -p "$(dirname "$DEFAULT_DATASET")"
+        PARTIAL="${DEFAULT_DATASET}.part"
+        trap 'rm -f "$PARTIAL"' EXIT
+        if command -v curl &> /dev/null; then
+            curl --fail -L -o "$PARTIAL" "$DATASET_URL"
+        elif command -v wget &> /dev/null; then
+            wget -O "$PARTIAL" "$DATASET_URL"
         else
             echo -e "${YELLOW}⚠${NC} 需要 wget 或 curl 來下載數據集"
             exit 1
         fi
+        mv "$PARTIAL" "$DEFAULT_DATASET"
         
         echo ""
         echo -e "${GREEN}✓${NC} 下載完成"
@@ -208,21 +231,24 @@ echo "  數據集:         $DATASET"
 echo "  溫度:           $TEMPERATURE"
 echo "  隨機種子:       $SEED"
 echo "  服務目標:       $TARGET"
+[[ -n "$MODEL" ]] && echo "  模型:           $MODEL"
 echo ""
 
-# 構建命令
-CMD="python3 run_sharegpt_benchmark.py \"$DATASET\""
-CMD="$CMD --target $TARGET"
-[[ -n "$NUM_SAMPLES" ]] && CMD="$CMD -n $NUM_SAMPLES"
-[[ -n "$CONCURRENCY" ]] && CMD="$CMD -c $CONCURRENCY"
-[[ -n "$MAX_TOKENS" ]] && CMD="$CMD -m $MAX_TOKENS"
-CMD="$CMD -t $TEMPERATURE --seed $SEED $NO_SAVE"
+# 構建命令（用陣列傳參，路徑含空白也不會被拆開）
+CMD=(python3 run_sharegpt_benchmark.py "$DATASET" --target "$TARGET")
+[[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
+[[ -n "$BASE_URL" ]] && CMD+=(--base-url "$BASE_URL")
+[[ -n "$NUM_SAMPLES" ]] && CMD+=(-n "$NUM_SAMPLES")
+[[ -n "$CONCURRENCY" ]] && CMD+=(-c "$CONCURRENCY")
+[[ -n "$MAX_TOKENS" ]] && CMD+=(-m "$MAX_TOKENS")
+CMD+=(-t "$TEMPERATURE" --seed "$SEED")
+[[ -n "$NO_SAVE" ]] && CMD+=("$NO_SAVE")
 
 # 執行
 echo -e "${CYAN}▶${NC} 啟動 Benchmark..."
 echo ""
 
-eval $CMD
+"${CMD[@]}"
 
 echo ""
 echo -e "${GREEN}✓${NC} Benchmark 完成"

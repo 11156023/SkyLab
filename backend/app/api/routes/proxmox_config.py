@@ -1,12 +1,10 @@
 """Proxmox 連線、節點、Storage 與放置／排程策略管理 API（僅管理員）"""
 
-import hashlib
 import logging
 from typing import Any
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.serialization import Encoding
 from fastapi import APIRouter, Body, HTTPException
 from sqlmodel import col, select
 
@@ -39,6 +37,7 @@ from app.schemas.proxmox_config import (
     SyncNowResult,
 )
 from app.services.proxmox import connection_sync_service
+from app.services.proxmox.tls_helpers import fingerprint_of, validate_ca_cert_pem
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -47,56 +46,6 @@ router = APIRouter(prefix="/proxmox-config", tags=["proxmox-config"])
 
 
 # ── 內部工具 ────────────────────────────────────────────────────────────────
-
-
-def _fingerprint_of(cert: x509.Certificate) -> str:
-    """計算已載入憑證的 SHA-256 指紋（格式：AA:BB:CC:...）"""
-    digest = hashlib.sha256(cert.public_bytes(encoding=Encoding.DER)).digest()
-    return ":".join(f"{b:02X}" for b in digest)
-
-
-def _cert_fingerprint(pem: str) -> str:
-    """計算 PEM 憑證的 SHA-256 指紋（格式：AA:BB:CC:...）"""
-    return _fingerprint_of(
-        x509.load_pem_x509_certificate(pem.encode(), default_backend())
-    )
-
-
-def _validate_ca_cert_pem(pem: str | None) -> None:
-    """有帶 CA 憑證時必須是可解析的 PEM，否則回 400（None／空字串不檢查）"""
-    if not pem:
-        return
-    try:
-        x509.load_pem_x509_certificate(pem.encode(), default_backend())
-    except Exception:
-        raise BadRequestError(t("proxmoxConfig.invalidCaCert"))
-
-
-def _probe_node_names(
-    host: str,
-    *,
-    user: str,
-    password: str,
-    verify_ssl: bool | str,
-    timeout: int,
-    port: int | None = None,
-) -> list[str]:
-    """臨時連一次 PVE 並回傳節點名稱清單（連線失敗時直接往外丟）。
-
-    ``port`` 為 None 時沿用 proxmoxer 預設（8006），相容舊版單連線設定。
-    """
-    from proxmoxer import ProxmoxAPI
-
-    kwargs: dict[str, Any] = {
-        "user": user,
-        "password": password,
-        "verify_ssl": verify_ssl,
-        "timeout": timeout,
-    }
-    if port is not None:
-        kwargs["port"] = port
-    nodes = ProxmoxAPI(host, **kwargs).nodes.get()
-    return [n.get("node", "") for n in nodes]
 
 
 def _to_public(config, *, is_configured: bool) -> ProxmoxConfigPublic:
@@ -486,7 +435,7 @@ def create_connection(
     session: SessionDep, current_user: AdminUser, conn_in: ProxmoxConnectionCreate
 ) -> ProxmoxConnectionPublic:
     """新增一組 PVE 連線（單台主機或叢集入口）。"""
-    _validate_ca_cert_pem(conn_in.ca_cert)
+    validate_ca_cert_pem(conn_in.ca_cert)
 
     # 第一筆連線自動成為預設
     is_default = conn_in.is_default or not proxmox_connection_repo.get_all_connections(
@@ -530,7 +479,7 @@ def update_connection(
     conn_in: ProxmoxConnectionUpdateIn,
 ) -> ProxmoxConnectionPublic:
     """更新一組 PVE 連線設定（**部分更新**，payload 沒帶的欄位維持現值）。"""
-    _validate_ca_cert_pem(conn_in.ca_cert)
+    validate_ca_cert_pem(conn_in.ca_cert)
 
     updates = conn_in.model_dump(exclude_unset=True)
     conn = proxmox_connection_repo.update_connection(
@@ -643,8 +592,10 @@ def test_connection_by_id(
         raise HTTPException(status_code=404, detail="Connection not found")
     try:
         password = proxmox_connection_repo.get_decrypted_password(conn)
-        verify_ssl = resolve_verify(conn.host, conn.verify_ssl, conn.ca_cert)
-        node_names = _probe_node_names(
+        verify_ssl = resolve_verify(
+            conn.host, conn.verify_ssl, conn.ca_cert, port=conn.port
+        )
+        node_names = connection_sync_service.probe_node_names(
             conn.host,
             port=conn.port,
             user=conn.user,
@@ -773,7 +724,7 @@ def parse_cert(
         cert = x509.load_pem_x509_certificate(pem.encode(), default_backend())
         return CertParseResult(
             valid=True,
-            fingerprint=_fingerprint_of(cert),
+            fingerprint=fingerprint_of(cert),
             subject=cert.subject.rfc4514_string(),
             issuer=cert.issuer.rfc4514_string(),
             not_before=cert.not_valid_before_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),

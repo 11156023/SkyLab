@@ -56,7 +56,6 @@ def validate_publish_target_ip(
     *,
     allowed_cidrs: Iterable[str] = (),
     blocked_ips: Iterable[str] = (),
-    blocked_cidrs: Iterable[str] = (),
 ) -> ipaddress.IPv4Address:
     """純函式：目標 IP 不可對外發布時 raise BadRequestError，否則回傳位址。"""
     addr = _parse_ipv4(ip)
@@ -78,12 +77,6 @@ def validate_publish_target_ip(
         if blocked_addr is not None and addr == blocked_addr:
             raise BadRequestError(
                 t("publish.targetIpInfrastructure", ip=str(addr))
-            )
-
-    for network in _parse_networks(blocked_cidrs):
-        if addr in network:
-            raise BadRequestError(
-                t("publish.targetIpBlocked", ip=str(addr), network=str(network))
             )
 
     allowed_networks = _parse_networks(allowed_cidrs)
@@ -168,22 +161,7 @@ def assert_publishable_vm_ip(
     )
 
 
-def resolve_resource_vmid(session: object, vmid: int) -> int | None:
-    """發布規則的 ``resource_vmid``：``vmid`` 在 resources 表裡才回傳它，否則 None。
-
-    ``session`` 可能是測試用的簡化物件（沒有 ``get``），此時一律回 None。
-    """
-    get = getattr(session, "get", None)
-    if get is None:
-        return None
-
-    from app.models import Resource
-
-    return vmid if get(Resource, vmid) is not None else None
-
-
 __all__ = [
     "assert_publishable_vm_ip",
-    "resolve_resource_vmid",
     "validate_publish_target_ip",
 ]

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AiApiChatService } from "./aiApiChat";
+import aiApiChatSource from "./aiApiChat.js?raw";
 
 const fetchMock = vi.fn();
 function sseResponse(chunks) {
@@ -96,6 +97,13 @@ test("不再讀建置時的 VITE_AI_CHAT_API_KEY（會被打包進公開 bundle�
   await expect(AiApiChatService.listModels()).rejects.toEqual({ status: 0, code: "missing_api_key" });
   expect(fetchMock).not.toHaveBeenCalled();
   expect(AiApiChatService.isConfigured).toBeUndefined();
+  expect(aiApiChatSource).not.toContain("VITE_AI_CHAT_API_KEY");
+});
+
+test("Authorization 標頭使用呼叫端傳入的金鑰", async () => {
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "model-a" }] })));
+  await AiApiChatService.listModels({ apiKey: "ccai_other_key" });
+  expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer ccai_other_key");
 });
 
 test.each([{}, { choices: [{ message: { content: null, reasoning_content: "reasoning only" } }] }])("空回覆不視為聊天成功", async (body) => {

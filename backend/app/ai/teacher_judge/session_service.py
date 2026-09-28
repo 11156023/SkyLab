@@ -26,9 +26,8 @@ from app.ai.teacher_judge.automation_support import (
 )
 from app.ai.teacher_judge.file_service import (
     FileDeleteStage,
-    _stored_path,
-    _unlink_if_exists,
     clone_file_asset,
+    discard_file_asset,
     finalize_file_delete,
     restore_file_delete,
     stage_file_delete,
@@ -1099,8 +1098,8 @@ def fork_session_data(
         return clone
     except Exception:
         db.rollback()
-        if cloned_file and cloned_file.original_filename:
-            _unlink_if_exists(_stored_path(cloned_file.id, cloned_file.original_filename))
+        if cloned_file:
+            discard_file_asset(cloned_file)
         raise
 
 

@@ -263,9 +263,35 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
       toast.success(t("SettingsPage.toastConnectionDeleted"));
       onRefresh();
     } catch (err) {
-      toast.error(err?.message ?? t("SettingsPage.toastDeleteConnectionFailed"));
+      // 503＝後端連不上該 PVE、無從確認底下是否還有機器：才提供二次確認的強制刪除。
+      // 400（確認到仍有機器）不走這條，照舊顯示錯誤。
+      if (err?.status === 503) {
+        await confirmForceDelete(conn, err);
+      } else {
+        toast.error(err?.message ?? t("SettingsPage.toastDeleteConnectionFailed"));
+      }
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function confirmForceDelete(conn, cause) {
+    const forceOk = await confirm({
+      title: t("SettingsPage.forceDeleteConnectionTitle"),
+      message: t("SettingsPage.forceDeleteConnectionMessage", {
+        name: conn.name,
+        reason: cause.message,
+      }),
+      confirmText: t("SettingsPage.forceDeleteConnectionConfirm"),
+      danger: true,
+    });
+    if (!forceOk) return;
+    try {
+      await ProxmoxConfigService.deleteConnection(conn.id, { force: true });
+      toast.success(t("SettingsPage.toastConnectionDeleted"));
+      onRefresh();
+    } catch (err) {
+      toast.error(err?.message ?? t("SettingsPage.toastDeleteConnectionFailed"));
     }
   }
 

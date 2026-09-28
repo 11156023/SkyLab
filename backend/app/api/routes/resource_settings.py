@@ -227,4 +227,5 @@ def transfer_ownership(
         actor=current_user,
         email=body.email,
         keep_access=body.keep_access,
+        resource_info=_resource_info,
     )

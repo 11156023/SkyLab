@@ -226,6 +226,8 @@ function InfoRow({ label, value }) {
 
 const TAB_KEYS = ["pending", "approved", "rejected", "expired", "all"];
 const LIST_LIMIT = 100;
+/* 待審分頁是審核工作佇列，不能被截斷：service 超過後端單頁上限時會自動以 skip 分頁補齊 */
+const PENDING_LIST_LIMIT = 1000;
 const EMPTY_PAGE = { data: [], count: 0 };
 
 function pageCount(res) {
@@ -281,7 +283,7 @@ export default function RequestReviewPage() {
     }
     try {
       const pages = await Promise.all(
-        TAB_KEYS.map((key) => fetchTabPage(key, key === tab ? LIST_LIMIT : 1)),
+        TAB_KEYS.map((key) => fetchTabPage(key, key === tab ? (key === "pending" ? PENDING_LIST_LIMIT : LIST_LIMIT) : 1)),
       );
       const active = pages[TAB_KEYS.indexOf(tab)] ?? { vm: EMPTY_PAGE, spec: EMPTY_PAGE };
       const items = [

@@ -5,6 +5,7 @@ import re
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -13,6 +14,7 @@ from sqlmodel import Session, select
 from app.domain.placement import advisor as placement_advisor
 from app.domain.placement import policy as placement_policy
 from app.domain.placement import scorer as placement_scorer
+from app.domain.placement.config import settings as placement_settings
 from app.domain.placement.models import (
     PlacementTuning,
     StorageSelection,
@@ -20,9 +22,11 @@ from app.domain.placement.models import (
 )
 from app.domain.placement.schemas import (
     NodeCapacity,
+    NodeSnapshot,
     PlacementDecision,
     PlacementPlan,
     PlacementRequest,
+    ResourceSnapshot,
     ResourceType,
 )
 from app.domain.placement.storage import (
@@ -43,6 +47,88 @@ from app.utils.timeutil import normalize_datetime
 GIB = 1024**3
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _ClusterCacheEntry:
+    cached_at: float
+    nodes: list[NodeSnapshot]
+    resources: list[ResourceSnapshot]
+
+
+_cluster_cache: _ClusterCacheEntry | None = None
+_cluster_cache_lock = threading.Lock()
+
+
+def gpu_used_slots() -> dict[str, int]:
+    """各節點已被 VM 佔用的 GPU 插槽數；查詢失敗回空 dict（fail-open）。"""
+    try:
+        return gpu_service.get_gpu_used_slots_by_node()
+    except Exception:
+        return {}
+
+
+def load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
+    """PVE 節點與 guest 現況快照（行程內快取 source_cache_ttl_seconds 秒）。"""
+    cached = _get_cached_cluster_state()
+    if cached is not None:
+        return cached.nodes, cached.resources
+
+    nodes = placement_advisor.parse_node_snapshots(
+        proxmox_service.list_nodes(),
+        gpu_counts=gpu_service.get_gpu_node_counts(),
+        disabled_nodes=proxmox_service.admin_disabled_node_names(),
+    )
+    resources = placement_advisor.parse_resource_snapshots(
+        proxmox_service.list_all_resources()
+    )
+
+    _set_cached_cluster_state(nodes=nodes, resources=resources)
+    return nodes, resources
+
+
+def build_live_node_capacities(
+    *,
+    nodes: list[NodeSnapshot],
+    resources: list[ResourceSnapshot],
+    cpu_overcommit_ratio: float = 1.0,
+    disk_overcommit_ratio: float = 1.0,
+) -> list[NodeCapacity]:
+    """以當下 PVE 的 GPU 佔用計算節點容量（純計算交給 domain advisor）。"""
+    return placement_advisor.build_node_capacities(
+        nodes=nodes,
+        resources=resources,
+        gpu_used=gpu_used_slots(),
+        cpu_overcommit_ratio=cpu_overcommit_ratio,
+        disk_overcommit_ratio=disk_overcommit_ratio,
+    )
+
+
+def _get_cached_cluster_state() -> _ClusterCacheEntry | None:
+    with _cluster_cache_lock:
+        if _cluster_cache is None:
+            return None
+        age = time.monotonic() - _cluster_cache.cached_at
+        if age > placement_settings.source_cache_ttl_seconds:
+            return None
+        return _cluster_cache
+
+
+def _set_cached_cluster_state(
+    *,
+    nodes: list[NodeSnapshot],
+    resources: list[ResourceSnapshot],
+) -> None:
+    if placement_settings.source_cache_ttl_seconds <= 0:
+        return
+
+    with _cluster_cache_lock:
+        global _cluster_cache
+        _cluster_cache = _ClusterCacheEntry(
+            cached_at=time.monotonic(),
+            nodes=nodes,
+            resources=resources,
+        )
 
 
 def utc_now() -> datetime:
@@ -181,12 +267,12 @@ def build_preview_vm_request(
 
 
 def refresh_node_candidate(node: NodeCapacity) -> None:
-    node.guest_pressure_ratio = placement_advisor._guest_pressure_ratio(
+    node.guest_pressure_ratio = placement_advisor.guest_pressure_ratio(
         int(node.running_resources),
         int(node.total_cpu_cores),
     )
     node.guest_overloaded = (
-        node.guest_pressure_ratio >= placement_advisor.settings.guest_pressure_threshold
+        node.guest_pressure_ratio >= placement_settings.guest_pressure_threshold
     )
     node.candidate = (
         node.status == "online"
@@ -585,8 +671,8 @@ def build_plan(
         node_names=[item.node for item in working_nodes],
     )
     _, disk_overcommit_ratio = get_overcommit_ratios_fn(session)
-    required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
-    required_memory = placement_advisor._effective_memory_bytes(request, effective_resource_type)
+    required_cpu = placement_advisor.effective_cpu_cores(request, effective_resource_type)
+    required_memory = placement_advisor.effective_memory_bytes(request, effective_resource_type)
     required_disk = request.disk_gb * GIB
     node_disk_bytes = node_disk_bytes_for_capacity(
         disk_bytes=required_disk,
@@ -679,7 +765,7 @@ def build_plan(
     ]
     placement_decisions.sort(key=lambda item: (-item.instance_count, item.node))
 
-    warnings = placement_advisor._build_warnings(
+    warnings = placement_advisor.build_warnings(
         node_capacities=node_capacities,
         request=request,
         effective_resource_type=effective_resource_type,
@@ -699,14 +785,14 @@ def build_plan(
         assigned_instances=assigned,
         unassigned_instances=remaining,
         recommended_node=placement_decisions[0].node if placement_decisions else None,
-        summary=placement_advisor._build_summary_text(
+        summary=placement_advisor.build_summary_text(
             request=request,
             placement_decisions=placement_decisions,
             effective_resource_type=effective_resource_type,
             assigned=assigned,
             remaining=remaining,
         ),
-        rationale=placement_advisor._build_rationale(
+        rationale=placement_advisor.build_rationale(
             request=request,
             placement_decisions=placement_decisions,
             effective_resource_type=effective_resource_type,

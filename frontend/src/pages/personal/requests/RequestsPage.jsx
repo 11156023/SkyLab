@@ -24,7 +24,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { formatDate, formatDateTime } from "../../../utils/formatDate";
-import { isAdminUser, isStaffUser } from "./requestRoles";
+import { canTeachUser, isAdminUser } from "../../../utils/roles";
 
 /* ── Constants ── */
 const STATUS_MAP = {
@@ -200,7 +200,7 @@ function RequestRow({ req, onUpdated }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   /* VMID 是系統內部編號，僅管理員／老師看得到 */
-  const showVmid = isStaffUser(user);
+  const showVmid = canTeachUser(user);
   /* 原始開通錯誤 log 是給管理員除錯用的，學生／老師只看狀態與操作 */
   const isAdmin = isAdminUser(user);
   const confirm = useConfirm();
@@ -361,7 +361,7 @@ function SpecRequestRow({ req, onUpdated }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const { user } = useAuth();
-  const showVmid = isStaffUser(user);
+  const showVmid = canTeachUser(user);
   const confirm = useConfirm();
   const [busy, setBusy]                   = useState(false);
 

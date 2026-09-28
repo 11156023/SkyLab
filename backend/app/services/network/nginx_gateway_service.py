@@ -176,10 +176,12 @@ def _assert_safe_cert_name(value: str) -> None:
 # ─── 遠端寫入 ────────────────────────────────────────────────────────────────
 
 
-def _exec(client: Any, command: str) -> tuple[int, str, str]:
+def _exec(
+    client: Any, command: str, *, timeout: int | None = None
+) -> tuple[int, str, str]:
     from app.infrastructure.ssh import exec_command
 
-    return exec_command(client, command)
+    return exec_command(client, command, timeout=timeout)
 
 
 def _sftp_write(client: Any, path: str, content: str) -> None:
@@ -501,8 +503,11 @@ def parse_health_output(output: str) -> dict[str, Any]:
     return result
 
 
-def probe_health(client: Any, *, wireguard_unit: str) -> dict[str, Any]:
-    _, out, _ = _exec(client, build_health_command(wireguard_unit))
+def probe_health(
+    client: Any, *, wireguard_unit: str, timeout: int | None = 10
+) -> dict[str, Any]:
+    """探測 Gateway 健康；``timeout`` 限制 SSH 讀取秒數，避免卡住的主機拖住排程輪次。"""
+    _, out, _ = _exec(client, build_health_command(wireguard_unit), timeout=timeout)
     return parse_health_output(out)
 
 

@@ -12,7 +12,11 @@ vi.mock("../../contexts/AuthContext", () => ({
   useAuth: () => ({ user: { id: "u1", email: "a@example.com", full_name: "A", role: "student" }, logout }),
 }));
 vi.mock("../../contexts/UnsavedChangesContext", () => ({ useUnsavedChanges: () => ({ confirmLeave }) }));
-vi.mock("../../i18n", () => ({ SUPPORTED_LANGUAGES: ["zh-TW", "en", "ja"], setLanguage: vi.fn() }));
+vi.mock("../../i18n", () => ({
+  SUPPORTED_LANGUAGES: ["zh-TW", "en", "ja"],
+  currentLanguage: (lang) => (["zh-TW", "en", "ja"].includes(lang) ? lang : "zh-TW"),
+  setLanguage: vi.fn(),
+}));
 vi.mock("../Jobs/JobsButton", () => ({ default: () => null }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),

@@ -63,11 +63,16 @@ from app.ai.teacher_judge.script_executor_service import (
     execute_script_run_batch,
 )
 from app.ai.teacher_judge.script_run_service import (
-    _run_to_public,
     create_script_run,
     create_script_run_batch,
     get_script_run_batch_public,
     get_script_run_public,
+    get_session_run_for_review,
+    get_session_run_record,
+    list_session_run_summaries,
+)
+from app.ai.teacher_judge.script_run_service import (
+    update_target_review as save_target_review,
 )
 from app.ai.teacher_judge.service import (
     analyze_attachments_itemwise,
@@ -111,10 +116,7 @@ from app.models import TeachingClass, TeachingClassWeek
 from app.models.base import get_datetime_utc
 from app.models.teacher_judge_attachment import TeacherJudgeSessionAttachment
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
-from app.models.teacher_judge_script_run import (
-    TeacherJudgeScriptRun,
-    TeacherJudgeScriptRunTargetScope,
-)
+from app.models.teacher_judge_script_run import TeacherJudgeScriptRunTargetScope
 from app.models.teacher_judge_session import (
     TeacherJudgeMessageRole,
     TeacherJudgeMessageType,
@@ -504,13 +506,16 @@ def delete_session(
     "/{session_id}/attachments",
     response_model=TeacherJudgeSessionAttachmentUploadResponse,
 )
-async def upload_session_attachment(
+def upload_session_attachment(
     teaching_class_id: uuid.UUID,
     session_id: uuid.UUID,
     session: SessionDep,
     current_user: InstructorUser,
     file: UploadFile = File(...),
 ) -> TeacherJudgeSessionAttachmentUploadResponse:
+    # 刻意寫成同步 route：附件解析（pdfplumber 最多 200 頁、.doc 走 LibreOffice
+    # 最長 30 秒）、寫檔與 DB commit 都是阻塞工作，交給 FastAPI 的 threadpool
+    # 跑整個 handler，才不會卡住 event loop 上的其他請求與 VNC／教室 WebSocket。
     _access(session, teaching_class_id, current_user)
     item = get_session(session, teaching_class_id, session_id)
     ensure_active(item)
@@ -532,7 +537,7 @@ async def upload_session_attachment(
     # 有上限地讀取：多讀 1 byte 即可讓 create_attachment 判定超限，
     # 不必先把整個（可能超大的）上傳檔載入記憶體
     max_upload_bytes = teacher_judge_settings.VLLM_MAX_UPLOAD_SIZE_MB * 1024 * 1024
-    file_bytes = await file.read(max_upload_bytes + 1)
+    file_bytes = file.file.read(max_upload_bytes + 1)
     try:
         attachment = create_attachment(
             session,
@@ -1248,71 +1253,9 @@ def list_session_runs(
 ) -> list[TeacherJudgeScriptRunSummary]:
     _access(session, teaching_class_id, current_user)
     get_session(session, teaching_class_id, session_id)
-    rows = session.exec(
-        select(TeacherJudgeScriptRun)
-        .join(TeacherJudgeScriptArtifact)
-        .where(
-            TeacherJudgeScriptArtifact.session_id == session_id,
-            TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
-        )
-        .order_by(desc(TeacherJudgeScriptRun.created_at))
-        .offset(skip)
-        .limit(limit)
-    ).all()
-    return [
-        TeacherJudgeScriptRunSummary(
-            id=str(row.id),
-            run_batch_id=str(row.run_batch_id) if row.run_batch_id else None,
-            teaching_class_id=str(row.teaching_class_id),
-            artifact_id=str(row.artifact_id),
-            status=row.status.value,
-            progress_json=row.progress_json,
-            result_summary_json=row.result_summary_json,
-            started_at=row.started_at.isoformat() if row.started_at else None,
-            finished_at=row.finished_at.isoformat() if row.finished_at else None,
-            created_at=row.created_at.isoformat(),
-            updated_at=row.updated_at.isoformat(),
-        )
-        for row in rows
-    ]
-
-
-def _run_to_teacher_review_public(
-    run: TeacherJudgeScriptRun,
-) -> TeacherJudgeScriptRunPublic:
-    """Expose only the VM identity needed by the authorized teacher review UI."""
-
-    public = _run_to_public(run)
-    public_targets = public.target_results_json.get("targets")
-    raw_targets = (run.target_results_json or {}).get("targets")
-    if isinstance(public_targets, list) and isinstance(raw_targets, list):
-        for public_target, raw_target in zip(public_targets, raw_targets, strict=False):
-            if isinstance(public_target, dict) and isinstance(raw_target, dict):
-                public_target["vmid"] = raw_target.get("vmid")
-    return public
-
-
-def _get_session_run(
-    session: SessionDep,
-    teaching_class_id: uuid.UUID,
-    session_id: uuid.UUID,
-    run_id: uuid.UUID,
-) -> TeacherJudgeScriptRun:
-    """取得屬於這個 session（經由 script artifact）的執行紀錄，找不到就 404。"""
-    run = session.exec(
-        select(TeacherJudgeScriptRun)
-        .join(TeacherJudgeScriptArtifact)
-        .where(
-            TeacherJudgeScriptRun.id == run_id,
-            TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
-            TeacherJudgeScriptArtifact.session_id == session_id,
-        )
-    ).first()
-    if run is None:
-        raise HTTPException(
-            status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
-        )
-    return run
+    return list_session_run_summaries(
+        session, teaching_class_id, session_id, skip, limit
+    )
 
 
 @router.get("/{session_id}/runs/{run_id}", response_model=TeacherJudgeScriptRunPublic)
@@ -1325,8 +1268,7 @@ def get_session_run(
 ) -> TeacherJudgeScriptRunPublic:
     _access(session, teaching_class_id, current_user)
     get_session(session, teaching_class_id, session_id)
-    run = _get_session_run(session, teaching_class_id, session_id, run_id)
-    return _run_to_teacher_review_public(run)
+    return get_session_run_for_review(session, teaching_class_id, session_id, run_id)
 
 
 def _update_target_review(
@@ -1342,76 +1284,16 @@ def _update_target_review(
 ) -> TeacherJudgeScriptRunPublic:
     _access(session, teaching_class_id, current_user)
     get_session(session, teaching_class_id, session_id)
-    run = _get_session_run(session, teaching_class_id, session_id, run_id)
-    if run.status.value != "completed":
-        raise HTTPException(
-            status_code=409, detail=t("teacherJudgeSessions.reviewCompletedRunsOnly")
-        )
-
-    result_document = dict(run.target_results_json or {})
-    raw_targets = result_document.get("targets")
-    targets = (
-        [dict(target) for target in raw_targets]
-        if isinstance(raw_targets, list)
-        else []
+    run = get_session_run_record(session, teaching_class_id, session_id, run_id)
+    return save_target_review(
+        session,
+        run,
+        vmid=vmid,
+        student_id=student_id,
+        feedback=payload.feedback,
+        decisions=dict(payload.decisions),
+        reviewer_id=current_user.id,
     )
-    target_index = next(
-        (
-            index
-            for index, target in enumerate(targets)
-            if isinstance(target, dict)
-            and (
-                (vmid is not None and str(target.get("vmid")) == str(vmid))
-                or (
-                    student_id is not None
-                    and str(target.get("student_id")) == student_id
-                )
-            )
-        ),
-        None,
-    )
-    if target_index is None:
-        raise HTTPException(
-            status_code=404, detail=t("teacherJudgeSessions.studentRunResultNotFound")
-        )
-
-    target = targets[target_index]
-    parsed_result = target.get("parsed_result")
-    raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else []
-    reviewable_ids = {
-        str(check.get("id") or "")
-        for check in raw_checks
-        if isinstance(check, dict)
-        and str(check.get("status") or "") in {"warning", "unknown", "collected"}
-    }
-    invalid_ids = sorted(set(payload.decisions) - reviewable_ids)
-    if invalid_ids:
-        raise HTTPException(
-            status_code=400,
-            detail=t(
-                "teacherJudgeSessions.invalidReviewItems",
-                items="、".join(invalid_ids),
-            ),
-        )
-
-    now = get_datetime_utc()
-    if payload.feedback or payload.decisions:
-        target["teacher_review"] = {
-            "feedback": payload.feedback,
-            "decisions": dict(payload.decisions),
-            "reviewed_by": str(current_user.id),
-            "updated_at": now.isoformat(),
-        }
-    else:
-        target.pop("teacher_review", None)
-    targets[target_index] = target
-    result_document["targets"] = targets
-    run.target_results_json = result_document
-    run.updated_at = now
-    session.add(run)
-    session.commit()
-    session.refresh(run)
-    return _run_to_teacher_review_public(run)
 
 
 @router.patch(

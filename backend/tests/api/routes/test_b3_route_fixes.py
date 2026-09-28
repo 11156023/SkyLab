@@ -16,17 +16,18 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.api.routes import ldap_config as ldap_routes
 from app.api.routes import push as push_routes
-from app.api.routes import users as users_routes
 from app.core.config import settings
 from app.core.security import encrypt_value
 from app.exceptions import BadRequestError
 from app.models import LdapConfig
 from app.schemas.ldap import LdapConfigUpdate
 from app.schemas.push import PushSubscriptionCreate
+from app.services.user import avatar_service, ldap_auth_service
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
@@ -100,19 +101,21 @@ def ldap_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     stored = _stored_ldap_config()
 
     monkeypatch.setattr(
-        ldap_routes.ldap_config_repo, "get_ldap_config", lambda session: stored
+        ldap_auth_service, "get_ldap_config", lambda session: stored
     )
 
     def fake_update(*, session: Any, data: dict[str, Any]) -> LdapConfig:
         calls["update"].append(data)
         return stored
 
-    monkeypatch.setattr(ldap_routes.ldap_config_repo, "update_ldap_config", fake_update)
+    monkeypatch.setattr(ldap_auth_service, "update_ldap_config", fake_update)
     monkeypatch.setattr(
-        ldap_routes.audit_service, "log_action", lambda **kwargs: None
+        ldap_auth_service.audit_service, "log_action", lambda **kwargs: None
     )
     monkeypatch.setattr(
-        ldap_routes.ldap_client, "test_bind", lambda config: calls["bind"].append(config)
+        ldap_auth_service.ldap_client,
+        "test_bind",
+        lambda config: calls["bind"].append(config),
     )
     return calls
 
@@ -236,7 +239,8 @@ def test_push_subscribe_rejects_internal_host(monkeypatch: pytest.MonkeyPatch) -
         push_routes.push_repo, "upsert_subscription", lambda **kw: saved.append(kw)
     )
     body = PushSubscriptionCreate(
-        endpoint="https://intranet-host.lab/x",
+        # 用白名單內的網域才能走到路由層的 DNS 解析檢查（getaddrinfo 已換成回內網位址）
+        endpoint="https://fcm.googleapis.com/fcm/send/abc",
         keys={"p256dh": "k", "auth": "a"},
     )
 
@@ -245,6 +249,14 @@ def test_push_subscribe_rejects_internal_host(monkeypatch: pytest.MonkeyPatch) -
             session=object(), current_user=SimpleNamespace(id=uuid.uuid4()), body=body
         )
     assert saved == []
+
+
+def test_push_subscribe_rejects_non_push_service_host_at_schema() -> None:
+    with pytest.raises(ValidationError):
+        PushSubscriptionCreate(
+            endpoint="https://intranet-host.lab/x",
+            keys={"p256dh": "k", "auth": "a"},
+        )
 
 
 # ── B3-32 刪除帳號後頭像一併移除 ─────────────────────────────────────────────
@@ -281,7 +293,7 @@ def test_admin_delete_removes_avatar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(users_routes, "AVATAR_DIR", tmp_path)
+    monkeypatch.setattr(avatar_service, "AVATAR_DIR", tmp_path)
     user_id, headers = _new_user_headers(client, superuser_token_headers)
     _upload_avatar(client, headers)
     assert client.get(f"{API}/users/{user_id}/avatar").status_code == 200
@@ -300,7 +312,7 @@ def test_self_delete_removes_avatar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(users_routes, "AVATAR_DIR", tmp_path)
+    monkeypatch.setattr(avatar_service, "AVATAR_DIR", tmp_path)
     user_id, headers = _new_user_headers(client, superuser_token_headers)
     _upload_avatar(client, headers)
 
@@ -314,7 +326,7 @@ def test_self_delete_removes_avatar(
 def test_orphaned_avatar_of_missing_user_is_not_served(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(users_routes, "AVATAR_DIR", tmp_path)
+    monkeypatch.setattr(avatar_service, "AVATAR_DIR", tmp_path)
     orphan_id = uuid.uuid4()
     (tmp_path / f"{orphan_id}.png").write_bytes(_PNG)
 

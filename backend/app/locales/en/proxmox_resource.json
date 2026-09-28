@@ -47,5 +47,6 @@
   "resource.start_window_not_started": "This machine’s approved time window has not started yet. Start it once the window begins.",
   "resource.start_window_ended": "This machine’s approved time window has ended, so it can no longer be started. Submit a new request to keep using it.",
   "resource.delete_presence_unverified": "One of the Proxmox connections could not be queried, so it cannot be confirmed that this machine is really gone. Its record is left untouched to avoid deleting it by mistake; please try again later.",
-  "resource.delete_outside_pool": "This machine still exists in Proxmox (outside its resource pool or on a disabled connection). Please have an administrator check it before deleting."
+  "resource.delete_outside_pool": "This machine still exists in Proxmox (outside its resource pool or on a disabled connection). Please have an administrator check it before deleting.",
+  "resource.delete_template_update_temp": "This is the temporary VM for the ongoing update of template \"{name}\". Cancel the update from the Templates page instead."
 }

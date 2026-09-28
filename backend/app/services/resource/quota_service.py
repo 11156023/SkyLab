@@ -16,15 +16,18 @@ from typing import Any
 from sqlmodel import Session, col, select
 
 from app.core.i18n import t
-from app.exceptions import ConflictError
+from app.exceptions import ConflictError, NotFoundError
 from app.models import (
+    AuditAction,
     QuotaConfig,
     Resource,
     ResourceQuota,
+    User,
     VMRequest,
     VMRequestStatus,
 )
 from app.models.base import get_datetime_utc
+from app.schemas import ResourceQuotaCreate, ResourceQuotaUpdate
 from app.services.proxmox import proxmox_service
 from app.services.resource.quota_policy import (
     EffectiveQuota,
@@ -32,6 +35,7 @@ from app.services.resource.quota_policy import (
     check_quota_delta,
     resolve_effective_quota,
 )
+from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,91 @@ def _quota_for_user(session: Session, user_id: uuid.UUID) -> ResourceQuota | Non
     return session.exec(
         select(ResourceQuota).where(ResourceQuota.user_id == user_id)
     ).first()
+
+
+def list_user_quotas(session: Session) -> list[ResourceQuota]:
+    """管理 API：列出所有個人配額。"""
+    return list(session.exec(select(ResourceQuota)).all())
+
+
+def create_user_quota(
+    session: Session, body: ResourceQuotaCreate, *, actor_id: uuid.UUID
+) -> ResourceQuota:
+    """建立個人配額；使用者不存在 404，已有配額 409。配額與稽核同一筆交易。"""
+    if session.get(User, body.user_id) is None:
+        raise NotFoundError("User not found")
+    if _quota_for_user(session, body.user_id) is not None:
+        raise ConflictError(t("quotas.alreadyExists"))
+
+    quota = ResourceQuota(
+        user_id=body.user_id,
+        max_cpu_cores=body.max_cpu_cores,
+        max_memory_mb=body.max_memory_mb,
+        max_disk_gb=body.max_disk_gb,
+        max_instances=body.max_instances,
+    )
+    session.add(quota)
+    audit_service.log_action(
+        session=session,
+        user_id=actor_id,
+        action=AuditAction.config_update,
+        details=f"Created user quota for {body.user_id}",
+        commit=False,
+    )
+    session.commit()
+    session.refresh(quota)
+    return quota
+
+
+def _get_user_quota_or_404(session: Session, quota_id: uuid.UUID) -> ResourceQuota:
+    quota = session.get(ResourceQuota, quota_id)
+    if quota is None:
+        raise NotFoundError("Quota not found")
+    return quota
+
+
+def update_user_quota(
+    session: Session,
+    quota_id: uuid.UUID,
+    body: ResourceQuotaUpdate,
+    *,
+    actor_id: uuid.UUID,
+) -> ResourceQuota:
+    """partial 更新個人配額。
+
+    exclude_none 必須保留：欄位送 null 時不可把 NOT NULL 欄位寫成 None
+    （否則 commit 時 IntegrityError → 500）。
+    """
+    quota = _get_user_quota_or_404(session, quota_id)
+    for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
+        setattr(quota, field, value)
+    session.add(quota)
+    audit_service.log_action(
+        session=session,
+        user_id=actor_id,
+        action=AuditAction.config_update,
+        details=f"Updated quota {quota_id}",
+        commit=False,
+    )
+    session.commit()
+    session.refresh(quota)
+    return quota
+
+
+def delete_user_quota(
+    session: Session, quota_id: uuid.UUID, *, actor_id: uuid.UUID
+) -> None:
+    """刪除個人配額（之後回退全域預設）。"""
+    quota = _get_user_quota_or_404(session, quota_id)
+    session.delete(quota)
+    audit_service.log_action(
+        session=session,
+        user_id=actor_id,
+        action=AuditAction.config_update,
+        details=f"Deleted quota {quota_id}",
+        commit=False,
+    )
+    session.commit()
 
 
 def _owned_vmids(session: Session, user_id: uuid.UUID) -> list[int]:
@@ -272,9 +361,13 @@ __all__ = [
     "check_quota",
     "check_quota_for_existing_resource",
     "check_quota_for_provision",
+    "create_user_quota",
+    "delete_user_quota",
     "get_effective_quota",
     "get_global_quota",
     "get_usage",
+    "list_user_quotas",
     "request_specs",
     "update_global_quota",
+    "update_user_quota",
 ]

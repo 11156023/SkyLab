@@ -12,8 +12,6 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from utils.model_utils import is_vision_model
-
 # 專案根目錄
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
@@ -153,67 +151,13 @@ class Settings(BaseSettings):
         description="Benchmark 使用的 prompt",
     )
 
-    # ---- Webapp 推論參數 (統一管理，避免散落硬編碼) ----
-    default_max_tokens: int = Field(default=2048, description="預設最大生成 token 數", ge=128)
-    default_temperature: float = Field(default=0.8, description="預設溫度參數", ge=0.0, le=2.0)
-    document_max_tokens: int = Field(default=16384, description="文件模式最大 token 數", ge=512)
-    vision_temperature: float = Field(default=1.0, description="視覺模式溫度", ge=0.0, le=2.0)
-    default_top_p: float = Field(default=0.95, description="Top-P 取樣（0.0-1.0）", ge=0.0, le=1.0)
-    default_top_k: int = Field(default=20, description="Top-K 取樣（vLLM 擴展參數，-1 表示停用）", ge=-1)
-    default_min_p: float = Field(default=0.0, description="Min-P 取樣（vLLM 擴展參數，0.0 表示停用）", ge=0.0, le=1.0)
-    default_presence_penalty: float = Field(default=1.5, description="存在懲罰，鼓勵新主題（0.0-2.0）", ge=0.0, le=2.0)
-    default_repetition_penalty: float = Field(default=1.1, description="重複懲罰（vLLM 擴展參數，1.0=無懲罰）", ge=0.0)
-
-    # ---- 視覺模型設定 ----
-    max_image_size: int = Field(default=2048, description="最大圖片尺寸 (px)", ge=256)
-    enable_image_resize: bool = Field(default=True, description="自動調整圖片大小")
+    # ---- 多模態 ----
     allowed_local_media_path: str = Field(
         default="",
         description=(
             "允許 vLLM 以 file:// 讀取本機媒體檔的目錄（對應 --allowed-local-media-path）。"
             "預設留空＝不開放；只能指定專用媒體目錄，不可設為根目錄 '/'"
         ),
-    )
-
-    # ---- 影片模型設定 ----
-    video_fps: float = Field(
-        default=1.0,
-        description="影片抽幀速率（幀/秒）。降低可節省 Token；0 表示取全部原始幀",
-        ge=0.0,
-    )
-    max_video_frames_per_chunk: int = Field(
-        default=64,
-        description="每段最大幀數上限。超過此數自動切分多段推論（搭配 131K context）",
-        ge=1,
-    )
-    max_video_frame_size: int = Field(
-        default=768,
-        description="影片幀縮放尺寸（長邊 px）。比圖片稍小以容納更多幀",
-        ge=128,
-    )
-    video_frame_quality: int = Field(
-        default=80,
-        description="影片幀 JPEG 壓縮品質（1-100）",
-        ge=1,
-        le=100,
-    )
-    video_chunk_prompt: str = Field(
-        default=(
-            "這是影片的第 {chunk_index}/{total_chunks} 段（"
-            "{start_sec:.1f}s ~ {end_sec:.1f}s，"
-            "共 {num_frames} 幀）。"
-            "請詳細描述這段影片的畫面內容、動作、場景變化。"
-        ),
-        description="分段推論時每段使用的 prompt 模板，支援格式化欄位",
-    )
-    video_merge_prompt: str = Field(
-        default=(
-            "以下是同一段影片分 {total_chunks} 段分析的結果：\n\n"
-            "{summaries}\n\n"
-            "請根據以上各段描述，整合成完整連貫的影片內容分析，然後回答用戶的問題：\n"
-            "{user_question}"
-        ),
-        description="多段推論彙整時的 prompt 模板",
     )
 
     # ---- HuggingFace 設定 ----
@@ -339,9 +283,14 @@ class Settings(BaseSettings):
         self._cached_model_path = self.model_name
         return self._cached_model_path
 
-    def _is_vision_model(self) -> bool:
-        """檢測當前模型是否為視覺模型"""
-        return is_vision_model(self.model_name)
+    @property
+    def api_model_name(self) -> str:
+        """呼叫 OpenAI 相容 API 時要帶的 model 名稱。
+
+        vLLM 帶了 --served-model-name 就只接受該名稱；沒設時接受的是 --model
+        （resolved_model_path），直接送 MODEL_NAME 在相對路徑時會對不上而 404。
+        """
+        return self.served_model_name.strip() or self.resolved_model_path
 
     def _requires_tiktoken_encodings(self) -> bool:
         """判斷是否需要注入 TIKTOKEN_ENCODINGS_BASE（僅 gpt-oss）。"""

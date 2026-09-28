@@ -16,7 +16,6 @@ from .email import (
 from .token import (
     decode_password_reset_token,
     generate_password_reset_token,
-    verify_password_reset_token,
 )
 
 __all__ = [
@@ -29,5 +28,4 @@ __all__ = [
     # Token utilities
     "decode_password_reset_token",
     "generate_password_reset_token",
-    "verify_password_reset_token",
 ]

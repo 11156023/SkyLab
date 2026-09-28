@@ -73,6 +73,16 @@ export const ResourcesService = {
     return apiPost(`/api/v1/resources/${vmid}/extend-session`, {});
   },
 
+  /** 平台提供的 LXC 作業系統映像清單 */
+  listLxcOsImages() {
+    return apiGet("/api/v1/lxc/templates");
+  },
+
+  /** 平台提供的 VM 作業系統範本清單 */
+  listVmOsTemplates() {
+    return apiGet("/api/v1/vm/templates");
+  },
+
   /** 取得 VNC 控制台資訊（QEMU VM） */
   getConsole(vmid) {
     return apiGet(`/api/v1/vm/${vmid}/console`);

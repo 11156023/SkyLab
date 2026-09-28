@@ -8,8 +8,8 @@ import httpx
 import pytest
 
 from app.ai import monitoring as ai_feature_monitoring
-from app.api.routes import ai_proxy
 from app.core import metrics as metrics_module
+from app.services.llm_gateway import relay_service
 from app.services.monitoring import ai_metrics, health_policy, system_health_service
 
 
@@ -324,13 +324,13 @@ def test_proxy_usage_recording_updates_metrics_even_if_accounting_fails(monkeypa
     def fail(**_: Any) -> None:
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(ai_proxy.ai_gateway_service, "record_usage", fail)
+    monkeypatch.setattr(relay_service.ai_gateway_service, "record_usage", fail)
     before = _sample(
         "skylab_ai_requests_total", source="api_key", model="other", request_type="chat_completion", outcome="unavailable"
     )
     user = type("U", (), {"id": "u"})()
     credential = type("C", (), {"id": "c"})()
-    ai_proxy._record_usage_safely(
+    relay_service.record_usage_safely(
         session=None,
         user=user,
         credential=credential,

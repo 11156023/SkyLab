@@ -61,7 +61,7 @@ function requestMessages(messages) {
   ];
 }
 
-// 此路線使用 Campus API Key；不可經過會覆寫 Authorization 的登入 API wrapper。
+// 此路線使用登入使用者自己的 AI API 金鑰（由呼叫端傳入）；不可經過會覆寫 Authorization 的登入 API wrapper。
 async function request(endpoint, { signal, body, apiKey } = {}) {
   const { url, headers } = requestDetails(endpoint, apiKey);
   const response = await fetchWithTimeout(url, {

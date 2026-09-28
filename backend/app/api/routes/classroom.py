@@ -142,4 +142,9 @@ async def get_live_broadcast(
     current_user: CurrentUser,
 ) -> ClassroomLivePublic:
     live = classroom_service.get_live_for_user(session, current_user)
-    return ClassroomLivePublic(session=_to_public(live) if live else None)
+    return ClassroomLivePublic(
+        session=_to_public(live) if live else None,
+        taken_over_vmids=classroom_service.list_taken_over_vmids_for_user(
+            session, current_user
+        ),
+    )

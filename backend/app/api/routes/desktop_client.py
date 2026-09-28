@@ -15,13 +15,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
-from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_ip
 from app.core.config import settings
 from app.core.i18n import t
 from app.infrastructure.redis.sync_kv import ExpiringKV
+from app.schemas.desktop_client import (
+    DeviceApproveRequest,
+    DeviceCodeResponse,
+    DevicePollResponse,
+)
 from app.schemas.wireguard import (
     WireGuardConnectRequest,
     WireGuardConnectResponse,
@@ -59,21 +63,6 @@ _device_codes = ExpiringKV("device_code", ttl_seconds=_DEVICE_CODE_TTL)
 _DEVICE_CODE_RATE_LIMIT = Depends(
     rate_limit_by_ip(scope="device-code", limit=10, window_seconds=60)
 )
-
-
-class DeviceCodeResponse(BaseModel):
-    device_code: str
-    login_url: str
-    expires_in: int
-
-
-class DeviceApproveRequest(BaseModel):
-    device_code: str
-
-
-class DevicePollResponse(BaseModel):
-    status: str  # "pending" | "approved"
-    access_token: str | None = None
 
 
 # ─── Device auth endpoints ───────────────────────────────────────────────────

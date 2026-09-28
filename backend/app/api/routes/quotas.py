@@ -3,11 +3,8 @@
 import uuid
 
 from fastapi import APIRouter
-from sqlmodel import select
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep
-from app.core.i18n import t
-from app.exceptions import ConflictError, NotFoundError
 from app.models import AuditAction, ResourceQuota, User
 from app.schemas import (
     EffectiveQuotaPublic,
@@ -84,7 +81,7 @@ def update_global_quota(
 
 @router.get("", response_model=list[ResourceQuotaPublic])
 def list_quotas(session: SessionDep, _: AdminUser) -> list[ResourceQuotaPublic]:
-    quotas = session.exec(select(ResourceQuota)).all()
+    quotas = quota_service.list_user_quotas(session)
     return [_to_public(session, q) for q in quotas]
 
 
@@ -92,31 +89,7 @@ def list_quotas(session: SessionDep, _: AdminUser) -> list[ResourceQuotaPublic]:
 def create_quota(
     body: ResourceQuotaCreate, session: SessionDep, current_user: AdminUser
 ) -> ResourceQuotaPublic:
-    if session.get(User, body.user_id) is None:
-        raise NotFoundError("User not found")
-    existing = session.exec(
-        select(ResourceQuota).where(ResourceQuota.user_id == body.user_id)
-    ).first()
-    if existing is not None:
-        raise ConflictError(t("quotas.alreadyExists"))
-
-    quota = ResourceQuota(
-        user_id=body.user_id,
-        max_cpu_cores=body.max_cpu_cores,
-        max_memory_mb=body.max_memory_mb,
-        max_disk_gb=body.max_disk_gb,
-        max_instances=body.max_instances,
-    )
-    session.add(quota)
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        action=AuditAction.config_update,
-        details=f"Created user quota for {body.user_id}",
-        commit=False,
-    )
-    session.commit()
-    session.refresh(quota)
+    quota = quota_service.create_user_quota(session, body, actor_id=current_user.id)
     return _to_public(session, quota)
 
 
@@ -127,21 +100,9 @@ def update_quota(
     session: SessionDep,
     current_user: AdminUser,
 ) -> ResourceQuotaPublic:
-    quota = session.get(ResourceQuota, quota_id)
-    if quota is None:
-        raise NotFoundError("Quota not found")
-    for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
-        setattr(quota, field, value)
-    session.add(quota)
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        action=AuditAction.config_update,
-        details=f"Updated quota {quota_id}",
-        commit=False,
+    quota = quota_service.update_user_quota(
+        session, quota_id, body, actor_id=current_user.id
     )
-    session.commit()
-    session.refresh(quota)
     return _to_public(session, quota)
 
 
@@ -149,16 +110,5 @@ def update_quota(
 def delete_quota(
     quota_id: uuid.UUID, session: SessionDep, current_user: AdminUser
 ) -> Message:
-    quota = session.get(ResourceQuota, quota_id)
-    if quota is None:
-        raise NotFoundError("Quota not found")
-    session.delete(quota)
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        action=AuditAction.config_update,
-        details=f"Deleted quota {quota_id}",
-        commit=False,
-    )
-    session.commit()
+    quota_service.delete_user_quota(session, quota_id, actor_id=current_user.id)
     return Message(message="Quota deleted")

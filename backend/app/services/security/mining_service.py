@@ -25,6 +25,7 @@ from app.models import (
     AlertEvent,
     AlertMetric,
     AlertScope,
+    AuditAction,
     MiningIncident,
     MiningIncidentStatus,
     Resource,
@@ -536,3 +537,27 @@ def dismiss_incident(
         incident.vmid, incident.id, exempt,
     )
     return incident
+
+
+def set_exemption(
+    *, session: Session, vmid: int, exempt: bool, admin: User
+) -> Resource:
+    """設定/解除資源的挖礦偵測豁免（合法長時間高負載的 VM）。"""
+    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    if resource is None:
+        raise NotFoundError(f"Resource {vmid} not found")
+    resource.mining_exempt = exempt
+    session.add(resource)
+    audit_service.log_action(
+        session=session,
+        user_id=admin.id,
+        vmid=vmid,
+        action=AuditAction.mining_exempt_change,
+        details=(
+            f"Mining exemption {'granted' if exempt else 'revoked'} "
+            f"for vmid={vmid}"
+        ),
+        commit=False,
+    )
+    session.commit()
+    return resource

@@ -1,13 +1,24 @@
-import httpx
+import uuid
+from typing import Any
+
+import jwt
+from fastapi.concurrency import run_in_threadpool
+from jwt.exceptions import InvalidTokenError
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.core import security
 from app.core.config import settings
 from app.core.i18n import t
 from app.exceptions import AuthenticationError, BadRequestError
-from app.models import AuditAction
+from app.infrastructure.google.tokeninfo import (
+    GoogleTokenInfoNetworkError,
+    GoogleTokenInfoRejected,
+    fetch_id_token_info,
+)
+from app.models import AuditAction, User
 from app.repositories import user as user_repo
-from app.schemas import Token, TotpChallenge, UserUpdate
+from app.schemas import Token, TokenPayload, TotpChallenge, UserUpdate
 from app.services.user import audit_service, totp_service
 from app.services.user.tokens import create_token_pair
 from app.utils import (
@@ -50,60 +61,37 @@ def login(
     return create_token_pair(user)
 
 
-async def google_login(
-    *, session: Session, id_token: str
-) -> Token | TotpChallenge:
-    def _fail(reason: str, email: str | None = None, user_id=None) -> None:
-        audit_service.log_action(
-            session=session,
-            user_id=user_id,
-            action=AuditAction.login_google_failed,
-            details=f"Google login failed ({reason})"
-            + (f" for {email}" if email else ""),
-        )
+def _log_google_login_failure(
+    session: Session,
+    reason: str,
+    email: str | None = None,
+    user_id: uuid.UUID | None = None,
+) -> None:
+    audit_service.log_action(
+        session=session,
+        user_id=user_id,
+        action=AuditAction.login_google_failed,
+        details=f"Google login failed ({reason})" + (f" for {email}" if email else ""),
+    )
 
-    # aud 必須永遠驗證：未設定 GOOGLE_CLIENT_ID 時不得接受任何 Google ID token，
-    # 否則使用者交給其他 OAuth 應用的 ID token 也能登入本系統。
-    if not settings.GOOGLE_CLIENT_ID:
-        _fail("google login not configured")
-        raise BadRequestError(t("auth.googleNotConfigured"))
 
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(
-                "https://oauth2.googleapis.com/tokeninfo",
-                params={"id_token": id_token},
-            )
-    except httpx.RequestError as exc:
-        _fail("network error")
-        raise BadRequestError(t("auth.googleTokenVerifyFailed")) from exc
-    if r.status_code != 200:
-        _fail("invalid token")
-        raise BadRequestError(t("auth.googleTokenInvalid"))
-    data = r.json()
-    if data.get("aud") != settings.GOOGLE_CLIENT_ID:
-        _fail("invalid audience")
-        raise BadRequestError(t("auth.googleTokenAudienceInvalid"))
-    email_verified_raw = data.get("email_verified")
-    if isinstance(email_verified_raw, bool):
-        email_verified = email_verified_raw
-    elif isinstance(email_verified_raw, str):
-        email_verified = email_verified_raw.lower() == "true"
-    else:
-        email_verified = False
-    if not email_verified:
-        _fail("email not verified", data.get("email"))
-        raise BadRequestError(t("auth.googleEmailNotVerified"))
-    email = data.get("email")
-    if not email:
-        _fail("missing email")
-        raise BadRequestError(t("auth.googleEmailMissing"))
+def _is_email_verified(data: dict[str, Any]) -> bool:
+    raw = data.get("email_verified")
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.lower() == "true"
+    return False
+
+
+def _complete_google_login(session: Session, email: str) -> Token | TotpChallenge:
+    """Google ID token 已驗過之後的同步 DB 流程（查帳號、稽核、發 token）。"""
     user = user_repo.get_user_by_email(session=session, email=email)
     if not user:
-        _fail("user not found", email)
+        _log_google_login_failure(session, "user not found", email)
         raise BadRequestError(t("auth.googleAccountNotRegistered"))
     if not user.is_active:
-        _fail("inactive user", email, user.id)
+        _log_google_login_failure(session, "inactive user", email, user.id)
         raise BadRequestError(t("auth.inactiveUser"))
     if user.totp_enabled:
         return totp_service.issue_challenge(user, method="google")
@@ -116,19 +104,89 @@ async def google_login(
     return create_token_pair(user)
 
 
+async def google_login(
+    *, session: Session, id_token: str
+) -> Token | TotpChallenge:
+    # 稽核寫入與帳號查詢都是同步 DB 操作（會 commit），一律丟到 worker thread，
+    # 不佔住 event loop；event loop 上只留 Google tokeninfo 呼叫與純資料檢查。
+    async def _fail(
+        reason: str, email: str | None = None, user_id: uuid.UUID | None = None
+    ) -> None:
+        await run_in_threadpool(
+            _log_google_login_failure, session, reason, email, user_id
+        )
+
+    # aud 必須永遠驗證：未設定 GOOGLE_CLIENT_ID 時不得接受任何 Google ID token，
+    # 否則使用者交給其他 OAuth 應用的 ID token 也能登入本系統。
+    if not settings.GOOGLE_CLIENT_ID:
+        await _fail("google login not configured")
+        raise BadRequestError(t("auth.googleNotConfigured"))
+
+    try:
+        data = await fetch_id_token_info(id_token)
+    except GoogleTokenInfoNetworkError as exc:
+        await _fail("network error")
+        raise BadRequestError(t("auth.googleTokenVerifyFailed")) from exc
+    except GoogleTokenInfoRejected:
+        await _fail("invalid token")
+        raise BadRequestError(t("auth.googleTokenInvalid"))
+    if data.get("aud") != settings.GOOGLE_CLIENT_ID:
+        await _fail("invalid audience")
+        raise BadRequestError(t("auth.googleTokenAudienceInvalid"))
+    if not _is_email_verified(data):
+        await _fail("email not verified", data.get("email"))
+        raise BadRequestError(t("auth.googleEmailNotVerified"))
+    email = data.get("email")
+    if not email:
+        await _fail("missing email")
+        raise BadRequestError(t("auth.googleEmailMissing"))
+    return await run_in_threadpool(_complete_google_login, session, email)
+
+
+def _decode_token_ignoring_expiry(raw: str) -> TokenPayload | None:
+    """驗簽但不驗效期地解出 token；不合法回 None。"""
+    try:
+        payload = jwt.decode(
+            raw,
+            settings.SECRET_KEY,
+            algorithms=[security.ALGORITHM],
+            # Allow logging out an already-expired token (no-op effect,
+            # but avoids confusing 401s during clock skew).
+            options={"verify_exp": False},
+        )
+        return TokenPayload(**payload)
+    except (InvalidTokenError, ValidationError):
+        return None
+
+
+async def logout(access_token: str, refresh_token: str | None) -> None:
+    """依 JTI 撤銷目前的 access token（以及選填的 refresh token）。
+
+    黑名單項目會在 token 原本的到期時間自動過期，不佔長期儲存。
+    """
+    # 在呼叫時才從 app.infrastructure.redis 取（測試會 monkeypatch 該模組）
+    from app.infrastructure.redis import get_redis, revoke_jti
+
+    targets: list[TokenPayload] = []
+    if (access := _decode_token_ignoring_expiry(access_token)) is not None:
+        targets.append(access)
+    if refresh_token and (refresh := _decode_token_ignoring_expiry(refresh_token)):
+        targets.append(refresh)
+
+    redis = await get_redis()
+    for data in targets:
+        if data.jti and data.exp:
+            await revoke_jti(redis, data.jti, data.exp)
+
+
 async def refresh_access_token(*, session: Session, refresh_token: str) -> Token:
     """Validate a refresh token and return a new access + refresh token pair."""
-    import jwt
-    from jwt.exceptions import InvalidTokenError
-    from pydantic import ValidationError
-
+    # 在呼叫時才從 app.infrastructure.redis 取（測試會 monkeypatch 該模組）
     from app.infrastructure.redis import (
         get_redis,
         is_jti_revoked,
         mark_refresh_token_used,
     )
-    from app.models import User
-    from app.schemas import TokenPayload
 
     # Refresh token failures must return 401 (not 400) so clients can treat
     # them uniformly as "session expired, please log in again".
@@ -150,7 +208,8 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
         if await is_jti_revoked(redis, token_data.jti):
             raise AuthenticationError(t("auth.tokenRevoked"))
 
-    user = session.get(User, token_data.sub)
+    # 同步 DB 查詢丟到 worker thread，不佔住 event loop（同 deps.get_current_user）
+    user = await run_in_threadpool(session.get, User, token_data.sub)
     if not user:
         raise AuthenticationError(t("auth.refreshTokenInvalid"))
     if not user.is_active:

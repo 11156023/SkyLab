@@ -1,8 +1,7 @@
-"""V1 稽核修正的回歸測試：launcher 信號清理、Gateway 逾時、IPv6 探測、媒體路徑、legacy alias。"""
+"""V1 稽核修正的回歸測試：launcher 信號清理、IPv6 探測、媒體路徑、legacy alias。"""
 
 from __future__ import annotations
 
-import io
 import json
 import signal
 import socket
@@ -220,57 +219,6 @@ def test_second_signal_during_cleanup_is_ignored(monkeypatch) -> None:
         launcher_main._request_shutdown(signal.SIGTERM, None)
     # 清理中再收到信號不可再丟例外，否則會打斷 engine.stop()。
     launcher_main._request_shutdown(signal.SIGTERM, None)
-
-
-# ---------------------------------------------------------------------------
-# V1-16：Gateway 未在期限內就緒時要把子程序停掉
-# ---------------------------------------------------------------------------
-
-
-class _FakeGatewayProcess:
-    def __init__(self, *args, **kwargs) -> None:
-        self.returncode = None
-        self.terminated = False
-
-    def poll(self):
-        return self.returncode
-
-    def terminate(self) -> None:
-        self.terminated = True
-        self.returncode = -15
-
-    def wait(self, timeout=None):
-        return self.returncode
-
-    def kill(self) -> None:
-        self.returncode = -9
-
-
-def test_gateway_readiness_timeout_terminates_process(monkeypatch) -> None:
-    processes: list[_FakeGatewayProcess] = []
-
-    def fake_popen(*args, **kwargs):
-        process = _FakeGatewayProcess()
-        processes.append(process)
-        return process
-
-    def unreachable(*args, **kwargs):
-        raise OSError("connection refused")
-
-    monkeypatch.setattr(launcher_main.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(launcher_main, "urlopen", unreachable)
-    monkeypatch.setattr(launcher_main, "open", lambda *a, **k: io.StringIO(), raising=False)
-
-    with pytest.raises(TimeoutError):
-        launcher_main._start_gateway_process(
-            gateway_host="127.0.0.1",
-            gateway_port=8199,
-            ready_timeout=0,
-            logger=get_logger("TestGateway"),
-        )
-
-    assert len(processes) == 1
-    assert processes[0].terminated is True
 
 
 # ---------------------------------------------------------------------------

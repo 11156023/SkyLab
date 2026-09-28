@@ -47,5 +47,6 @@
   "resource.start_window_not_started": "このマシンの利用期間はまだ始まっていません。承認された期間が始まってから起動してください。",
   "resource.start_window_ended": "このマシンの利用期間は終了したため起動できません。引き続き使う場合は再申請してください。",
   "resource.delete_presence_unverified": "一部の Proxmox 接続に問い合わせできなかったため、このマシンが本当に存在しないかを確認できません。記録の誤削除を防ぐため今回は処理しませんでした。しばらくしてからもう一度お試しください。",
-  "resource.delete_outside_pool": "このマシンは Proxmox 上にまだ存在します（リソースプール外、または無効化された接続上）。管理者が確認してから削除してください。"
+  "resource.delete_outside_pool": "このマシンは Proxmox 上にまだ存在します（リソースプール外、または無効化された接続上）。管理者が確認してから削除してください。",
+  "resource.delete_template_update_temp": "これはテンプレート「{name}」の更新用一時マシンです。テンプレートページから更新をキャンセルしてください"
 }

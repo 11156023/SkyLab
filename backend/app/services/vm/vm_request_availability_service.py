@@ -277,11 +277,11 @@ def _build_availability_response(
     days = max(1, min(int(source_request.days), 90))
 
     placement_request = _to_placement_request(source_request)
-    baseline_nodes, baseline_resources = placement_advisor._load_cluster_state()
+    baseline_nodes, baseline_resources = placement_support.load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = (
         vm_request_placement_service.get_overcommit_ratios(session)
     )
-    baseline_capacities = placement_advisor._build_node_capacities(
+    baseline_capacities = placement_support.build_live_node_capacities(
         nodes=baseline_nodes,
         resources=baseline_resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -293,7 +293,7 @@ def _build_availability_response(
         session=session,
         baseline_capacities=baseline_capacities,
     )
-    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         placement_request
     )
     placement_strategy = vm_request_placement_service.get_placement_strategy(session)
@@ -694,8 +694,8 @@ def _lightweight_fit_nodes(
     allowed_gpu_nodes: set[str] | None = None,
     allowed_affinity_nodes: set[str] | None = None,
 ) -> list[str]:
-    required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
-    required_memory = placement_advisor._effective_memory_bytes(
+    required_cpu = placement_advisor.effective_cpu_cores(request, effective_resource_type)
+    required_memory = placement_advisor.effective_memory_bytes(
         request,
         effective_resource_type,
     )

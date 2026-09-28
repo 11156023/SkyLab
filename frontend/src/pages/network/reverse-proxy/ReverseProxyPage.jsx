@@ -6,15 +6,12 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useAuth } from "../../../contexts/AuthContext";
+import { isAdminUser } from "../../../utils/roles";
 import { useToast } from "../../../hooks/useToast";
 import { ReverseProxyService } from "../../../services/reverseProxy";
 import ReverseProxyRuleModal from "../../../components/ReverseProxyRuleModal/ReverseProxyRuleModal";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { snapshotToKeepOnClose } from "./nginxSnapshot";
-
-function isAdminUser(user) {
-  return user?.role === "admin" || user?.is_superuser === true;
-}
 
 /* 憑證到期日：只顯示日期，過期／30 天內到期各給不同顏色 */
 function certificateTone(expiresAt) {

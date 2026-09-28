@@ -45,7 +45,7 @@ afterEach(async () => {
 });
 
 const buttonByText = (scope, text) => [...scope.querySelectorAll("button")].find((b) => b.textContent.includes(text));
-const dialog = () => document.body.querySelector("[role='dialog']");
+const dialog = () => document.body.querySelector("[role='dialog'], [role='alertdialog']");
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function typeInto(input, value) {
@@ -60,6 +60,7 @@ it("opens the delete-account dialog in the shared Modal, gates the button on the
 
   const box = dialog();
   expect(box).toBeTruthy();
+  expect(box.getAttribute("role")).toBe("alertdialog");
   expect(box.getAttribute("aria-modal")).toBe("true");
   expect(document.getElementById(box.getAttribute("aria-labelledby")).textContent).toContain("DangerZoneTab.confirmTitle");
   const confirm = buttonByText(box, "DangerZoneTab.confirmDelete");

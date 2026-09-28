@@ -95,11 +95,6 @@ def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     )
     monkeypatch.setattr(
         resource_service,
-        "audit_log_repo",
-        SimpleNamespace(delete_audit_logs_by_vmid=lambda **kw: None),
-    )
-    monkeypatch.setattr(
-        resource_service,
         "vm_request_repo",
         SimpleNamespace(get_latest_approved_vm_request_by_vmid=lambda **kw: request),
     )

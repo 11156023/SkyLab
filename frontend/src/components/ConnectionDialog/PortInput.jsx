@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
 import useAnchoredMenu from "../../hooks/useAnchoredMenu";
-import { COMMON_PORTS } from "../ReverseProxyRuleModal/ReverseProxyRuleModal";
+import { COMMON_PORTS } from "../ReverseProxyRuleModal/domainHelpers";
 import styles from "./ConnectionDialog.module.scss";
 
 const MENU_MIN_WIDTH = 280;

@@ -8,7 +8,6 @@ from collections import defaultdict
 from sqlmodel import Session, select
 
 from app.core.i18n import t
-from app.domain.placement import advisor as placement_advisor
 from app.domain.placement import storage as placement_storage
 from app.exceptions import BadRequestError
 from app.infrastructure.proxmox import (
@@ -585,11 +584,11 @@ def _evaluate_cluster_capacity(
         return {}, {}, issues
 
     try:
-        cluster_nodes, resources = placement_advisor._load_cluster_state()
+        cluster_nodes, resources = placement_support.load_cluster_state()
         cpu_ratio, disk_ratio = placement_service.get_overcommit_ratios(session)
         capacities = {
             row.node: row
-            for row in placement_advisor._build_node_capacities(
+            for row in placement_support.build_live_node_capacities(
                 nodes=cluster_nodes,
                 resources=resources,
                 cpu_overcommit_ratio=cpu_ratio,

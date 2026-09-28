@@ -20,8 +20,55 @@ from app.models import ProxmoxConnection, ProxmoxNode
 from app.repositories import proxmox_connection as proxmox_connection_repo
 from app.repositories import proxmox_node as proxmox_node_repo
 from app.repositories import proxmox_storage as proxmox_storage_repo
+from app.schemas.proxmox_config import ProxmoxNodePublic
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_PVE_API_PORT = 8006
+
+
+def probe_node_names(
+    host: str,
+    *,
+    user: str,
+    password: str,
+    verify_ssl: bool | str,
+    timeout: int,
+    port: int | None = None,
+) -> list[str]:
+    """臨時連一次 PVE 並回傳節點名稱清單（連線失敗時直接往外丟）。
+
+    ``port`` 為 None 時用 PVE 預設的 8006（與 proxmoxer 預設相同）。
+    ``verify_ssl`` 應是 ``resolve_verify`` 的回傳值。
+    """
+    client = open_client(
+        host,
+        port=port if port is not None else DEFAULT_PVE_API_PORT,
+        user=user,
+        password=password,
+        verify_ssl=verify_ssl,
+        timeout=timeout,
+    )
+    return [n.get("node", "") for n in client.nodes.get()]
+
+
+def to_preview_nodes(
+    raw_nodes: list[dict], *, default_port: int = DEFAULT_PVE_API_PORT
+) -> list[ProxmoxNodePublic]:
+    """把 ``fetch_cluster_nodes`` 的結果轉成尚未入庫的節點預覽（一律視為在線）。
+
+    ``default_port`` 是節點沒帶 port 時的退路，應傳入這次連線用的 API port。
+    """
+    return [
+        ProxmoxNodePublic(
+            name=n["name"],
+            host=n["host"],
+            port=n.get("port", default_port),
+            is_primary=n.get("is_primary", False),
+            is_online=True,
+        )
+        for n in raw_nodes
+    ]
 
 
 def storage_row_from_pve(node_name: str, st: dict) -> dict:

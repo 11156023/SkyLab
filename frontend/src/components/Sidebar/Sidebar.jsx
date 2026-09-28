@@ -4,13 +4,14 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth }  from "../../contexts/AuthContext";
 import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
-import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
+import { currentLanguage, setLanguage } from "../../i18n";
 import useScrollEdges from "../../hooks/useScrollEdges";
 import useOutsideClick from "../../hooks/useOutsideClick";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
 import Avatar from "../Avatar/Avatar";
 import JobsButton from "../Jobs/JobsButton";
+import { canTeachUser, isAdminUser } from "../../utils/roles";
 
 const topItems = [
   { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
@@ -322,15 +323,15 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const location = useLocation();
   const routeKey = location.pathname.split("/")[1] || "dashboard";
   const active   = activeKeyAliases[routeKey] ?? routeKey;
-  const lang = SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : "zh-TW";
+  const lang = currentLanguage(i18n.language);
   const langPopup  = usePopup();
   const userPopup  = usePopup();
   const langBtnRef = useRef(null);
   const userBtnRef = useRef(null);
   const { user, logout } = useAuth();
   const { confirmLeave } = useUnsavedChanges();
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
-  const canTeach = isAdmin || user?.role === "teacher";
+  const isAdmin = isAdminUser(user);
+  const canTeach = canTeachUser(user);
   /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
   const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
   const visibleNavGroups = navGroups

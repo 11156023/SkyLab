@@ -11,13 +11,28 @@ from pydantic import BaseModel, Field, field_validator
 
 _NUMERIC_IPV4_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
 
+# 各瀏覽器實際使用的推播服務：Chrome／Edge(Chromium) 走 FCM、Firefox 走
+# Mozilla autopush、Safari 走 Apple、舊版 Edge 走 WNS。清單外的主機一律拒絕。
+_PUSH_HOSTS_EXACT = frozenset({"fcm.googleapis.com", "web.push.apple.com"})
+_PUSH_HOST_SUFFIXES = (
+    ".push.apple.com",
+    ".push.services.mozilla.com",
+    ".notify.windows.com",
+)
+
+
+def is_allowed_push_host(host: str) -> bool:
+    """主機（已小寫、去掉結尾點）是否為已知的瀏覽器推播服務。"""
+    return host in _PUSH_HOSTS_EXACT or host.endswith(_PUSH_HOST_SUFFIXES)
+
 
 def _validate_push_endpoint(value: str) -> str:
-    """推播 endpoint 必須是 https 且指向公網主機。
+    """推播 endpoint 必須是 https、443 埠，且主機是已知的瀏覽器推播服務。
 
     endpoint 是瀏覽器推播服務給的 URL，後端會對它發 POST；若不限制，
-    任何登入者都能讓後端對內網任意位址發請求（SSRF）。這裡不綁死推播
-    服務網域清單（各瀏覽器廠商會變），只擋 scheme 與私有／保留位址。
+    任何登入者都能讓後端對任意位址發請求（SSRF）。因此只接受白名單內的
+    推播服務網域（``is_allowed_push_host``）；私有／保留位址與非標準 IPv4
+    寫法的檢查仍保留，作為白名單之外的第二道防線。
     """
     value = value.strip()
     parts = urlsplit(value)
@@ -38,6 +53,8 @@ def _validate_push_endpoint(value: str) -> str:
         last_label = host.rsplit(".", 1)[-1]
         if _NUMERIC_IPV4_LABEL.fullmatch(last_label):
             raise ValueError("push endpoint host is not allowed") from None
+        if not is_allowed_push_host(host):
+            raise ValueError("push endpoint host is not a known push service") from None
         return value
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
         addr = addr.ipv4_mapped  # ::ffff:127.0.0.1 依內嵌的 IPv4 判斷
@@ -50,7 +67,17 @@ def _validate_push_endpoint(value: str) -> str:
         or addr.is_unspecified
     ):
         raise ValueError("push endpoint host is not allowed")
-    return value
+    # 推播服務一律用網域名稱，直接寫 IP 的 endpoint（即使是公網）不接受
+    raise ValueError("push endpoint host is not a known push service")
+
+
+def is_allowed_push_endpoint(endpoint: str) -> bool:
+    """給送出端重用的布林版檢查：endpoint 通過 ``_validate_push_endpoint`` 才回 True。"""
+    try:
+        _validate_push_endpoint(endpoint)
+    except ValueError:
+        return False
+    return True
 
 
 class VapidPublicKeyResponse(BaseModel):

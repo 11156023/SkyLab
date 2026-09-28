@@ -184,15 +184,15 @@ def _select_current_for_request(
     request: PlacementRequest,
 ) -> CurrentPlacementSelection:
     """依節點「現在」的容量選點（不看預約時段）。"""
-    nodes, resources = placement_advisor._load_cluster_state()
+    nodes, resources = placement_support.load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    node_capacities = placement_advisor._build_node_capacities(
+    node_capacities = placement_support.build_live_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
-    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
     )
     plan = build_plan(
@@ -238,15 +238,15 @@ def _feasible_nodes_over_window(
     （get_preview_node_scores）共用同一套判斷，兩邊的可行節點才會一致。
     reserved_requests 為 None 時查詢與時段重疊的已核准申請。
     """
-    nodes, resources = placement_advisor._load_cluster_state()
+    nodes, resources = placement_support.load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    baseline_capacities = placement_advisor._build_node_capacities(
+    baseline_capacities = placement_support.build_live_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
-    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
     )
     storage_pools_by_node, has_managed_storage = _build_storage_pool_state(
@@ -268,8 +268,8 @@ def _feasible_nodes_over_window(
         )
     checkpoints = _window_checkpoints(start_at, end_at, reserved_requests)
 
-    cores = placement_advisor._effective_cpu_cores(request, effective_resource_type)
-    memory_bytes = placement_advisor._effective_memory_bytes(
+    cores = placement_advisor.effective_cpu_cores(request, effective_resource_type)
+    memory_bytes = placement_advisor.effective_memory_bytes(
         request, effective_resource_type
     )
     feasible_nodes = {item.node for item in baseline_capacities}

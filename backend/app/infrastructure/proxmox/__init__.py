@@ -21,6 +21,7 @@ from .tls import (
     build_ws_ssl_context,
     resolve_verify,
 )
+from .vnc_websocket import open_vncwebsocket
 
 __all__ = [
     "DEFAULT_PROXMOX_POOL_NAME",
@@ -41,5 +42,6 @@ __all__ = [
     "list_enabled_connection_ids",
     "list_node_storages",
     "open_client",
+    "open_vncwebsocket",
     "resolve_verify",
 ]

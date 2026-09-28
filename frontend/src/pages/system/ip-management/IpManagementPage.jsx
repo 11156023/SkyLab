@@ -14,6 +14,7 @@ import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import Pagination from "../shared/Pagination";
 import { formatDateTime } from "../../../utils/formatDate";
+import { isAdminUser } from "../../../utils/roles";
 
 function EmptyState({ variant, canConfigure, onConfigure }) {
   const { t } = useTranslation("system");
@@ -69,7 +70,7 @@ export default function IpManagementPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
+  const isAdmin = isAdminUser(user);
 
   const [allocations, setAllocations] = useState([]);
   const [subnet, setSubnet] = useState(null);

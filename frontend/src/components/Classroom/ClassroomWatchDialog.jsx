@@ -6,7 +6,7 @@ import MIcon from "../MIcon";
 import Modal from "../Modal/Modal";
 import { AuthStorage } from "../../services/auth";
 import { ClassroomService } from "../../services/classroom";
-import { wsBaseUrl } from "../../hooks/useClassroomSocket";
+import { wsBaseUrl } from "../../utils/wsUrl";
 import { useToast } from "../../hooks/useToast";
 
 /**

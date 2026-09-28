@@ -16,7 +16,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import { ResourcesService } from "../../../services/resources";
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import VncDialog from "../../personal/resources/VncDialog";
-import { resourceRowKey } from "../../personal/resources/resourceRows";
+import { BOOTING_POLL_INTERVAL, LIVE_STATUSES, machineSpecLabel, resourceRowKey, statusAfterAction } from "../../personal/resources/resourceRows";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
@@ -81,25 +81,6 @@ function useBatchActions() {
     { action: "stop",     label: t("ResourceMgmtPage.actionStop"),     icon: "stop" },
     { action: "reset",    label: t("ResourceMgmtPage.actionReset"),    icon: "cancel" },
   ];
-}
-
-const LIVE_STATUSES = new Set(["running", "starting", "stopped", "paused"]);
-/* 有機器開機中時縮短輪詢，開完機後主控台按鈕能盡快亮起 */
-const BOOTING_POLL_INTERVAL = 5_000;
-
-/* ── Helpers ── */
-/** 電源操作後的樂觀狀態：stop/shutdown 後為已關機；start/reboot 會重跑開機 task，
-    先標開機中（主控台停用）待輪詢確認；reset 後仍為執行中 */
-function statusAfterAction(action) {
-  if (action === "stop" || action === "shutdown") return "stopped";
-  return action === "start" || action === "reboot" ? "starting" : "running";
-}
-
-function machineSpecLabel(machine) {
-  const parts = [];
-  if (machine.cpu) parts.push(`${machine.cpu} CPU`);
-  if (machine.memoryBytes) parts.push(`${Math.round(machine.memoryBytes / 1024 ** 3)} GB`);
-  return parts.join(" · ");
 }
 
 /* ── Primitive sub-components ── */

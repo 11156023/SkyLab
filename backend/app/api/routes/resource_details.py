@@ -131,7 +131,6 @@ def create_snapshot(
         description=request.description,
         vmstate=request.vmstate,
         resource_info=resource_info,
-        user_id=current_user.id,
         user=current_user,
     )
 
@@ -150,7 +149,6 @@ def delete_snapshot(
         vmid=vmid,
         snapname=snapname,
         resource_info=resource_info,
-        user_id=current_user.id,
         user=current_user,
     )
 

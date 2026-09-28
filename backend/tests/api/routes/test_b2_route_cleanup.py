@@ -25,7 +25,8 @@ from app.api.routes import proxmox_config as proxmox_config_route
 from app.exceptions import BadRequestError, NotFoundError
 from app.schemas.firewall import FirewallRuleUpdate
 from app.schemas.jobs import JobKind, JobStatus
-from app.schemas.proxmox_config import ProxmoxConfigPublic, ProxmoxConfigUpdate
+from app.schemas.proxmox_config import ProxmoxConfigPublic
+from app.services.proxmox import connection_sync_service, tls_helpers
 from app.services.user import audit_service
 
 
@@ -209,18 +210,18 @@ def test_gateway_to_public_requires_host_and_key() -> None:
 
 
 def test_validate_ca_cert_pem() -> None:
-    proxmox_config_route._validate_ca_cert_pem(None)
-    proxmox_config_route._validate_ca_cert_pem("")
-    proxmox_config_route._validate_ca_cert_pem(_self_signed_pem())
+    tls_helpers.validate_ca_cert_pem(None)
+    tls_helpers.validate_ca_cert_pem("")
+    tls_helpers.validate_ca_cert_pem(_self_signed_pem())
     with pytest.raises(BadRequestError):
-        proxmox_config_route._validate_ca_cert_pem("not a certificate")
+        tls_helpers.validate_ca_cert_pem("not a certificate")
 
 
 def test_parse_cert_fingerprint_matches_cert_fingerprint() -> None:
     pem = _self_signed_pem()
     result = proxmox_config_route.parse_cert(_user(), pem)
     assert result.valid is True
-    assert result.fingerprint == proxmox_config_route._cert_fingerprint(pem)
+    assert result.fingerprint == tls_helpers.cert_fingerprint(pem)
     assert result.subject == "CN=b2-test-ca"
 
 
@@ -240,19 +241,15 @@ def test_get_config_fallback_uses_schema_defaults(
     result = proxmox_config_route.get_proxmox_config(None, _user())
     assert isinstance(result, ProxmoxConfigPublic)
     assert result.is_configured is False
-    assert result.has_ca_cert is False
-    assert result.ca_fingerprint is None
     assert result.updated_at is None
-    assert (result.iso_storage, result.data_storage) == ("local", "local-lvm")
-    assert (result.api_timeout, result.task_check_interval) == (30, 2)
-    # 放置參數與 scheduled_boot_* 一樣來自 schema 預設
+    # 放置參數與 scheduled_boot_* 一樣來自 schema 預設（PVE 連線欄位已移到 /connections）
     assert result.cpu_overcommit_ratio == 2.0
     assert result.placement_loadavg_max_per_core == 1.5
     assert result.placement_memory_peak_high_share == 0.85
-    assert result.gateway_ip is None
+    assert result.scheduled_boot_batch_size == 5
 
 
-class _FakeProxmoxAPI:
+class _FakeClient:
     calls: list[tuple[str, dict[str, Any]]] = []
 
     def __init__(self, host: str, **kwargs: Any) -> None:
@@ -260,30 +257,34 @@ class _FakeProxmoxAPI:
         self.nodes = SimpleNamespace(get=lambda: [{"node": "pve1"}, {"node": "pve2"}])
 
 
-def test_probe_node_names_only_passes_port_when_given(
+def test_probe_node_names_defaults_to_pve_port(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import proxmoxer
-
-    _FakeProxmoxAPI.calls = []
-    monkeypatch.setattr(proxmoxer, "ProxmoxAPI", _FakeProxmoxAPI)
+    _FakeClient.calls = []
+    monkeypatch.setattr(connection_sync_service, "open_client", _FakeClient)
     common = {"user": "root@pam", "password": "pw", "verify_ssl": False, "timeout": 5}
-    assert proxmox_config_route._probe_node_names("h1", **common) == ["pve1", "pve2"]
-    proxmox_config_route._probe_node_names("h2", port=8007, **common)
-    assert "port" not in _FakeProxmoxAPI.calls[0][1]
-    assert _FakeProxmoxAPI.calls[1][1]["port"] == 8007
+    assert connection_sync_service.probe_node_names("h1", **common) == ["pve1", "pve2"]
+    connection_sync_service.probe_node_names("h2", port=8007, **common)
+    assert _FakeClient.calls[0][1]["port"] == 8006
+    assert _FakeClient.calls[1][1]["port"] == 8007
 
 
-def test_connection_test_endpoints_use_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    import proxmoxer
+def test_connection_test_endpoint_uses_connection_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeClient.calls = []
+    verify_ports: list[int] = []
 
-    _FakeProxmoxAPI.calls = []
-    monkeypatch.setattr(proxmoxer, "ProxmoxAPI", _FakeProxmoxAPI)
-    monkeypatch.setattr(
-        proxmox_config_route, "resolve_verify", lambda _h, verify, _ca: verify
-    )
+    def _fake_resolve_verify(
+        _host: str, verify: bool, _ca: str | None, port: int = 8006
+    ) -> bool:
+        verify_ports.append(port)
+        return verify
+
+    monkeypatch.setattr(connection_sync_service, "open_client", _FakeClient)
+    monkeypatch.setattr(proxmox_config_route, "resolve_verify", _fake_resolve_verify)
     conn = SimpleNamespace(
-        host="pve.example", port=8006, user="root@pam", verify_ssl=False,
+        host="pve.example", port=443, user="root@pam", verify_ssl=False,
         ca_cert=None, api_timeout=10,
     )
     monkeypatch.setattr(
@@ -294,60 +295,22 @@ def test_connection_test_endpoints_use_probe(monkeypatch: pytest.MonkeyPatch) ->
         "get_decrypted_password",
         lambda _c: "pw",
     )
-    monkeypatch.setattr(
-        proxmox_config_route.proxmox_config_repo, "get_proxmox_config", lambda _s: conn
-    )
-    monkeypatch.setattr(
-        proxmox_config_route.proxmox_config_repo,
-        "get_decrypted_password",
-        lambda _c: "pw",
-    )
     by_id = proxmox_config_route.test_connection_by_id(1, None, _user())
-    legacy = proxmox_config_route.test_proxmox_connection(None, _user())
-    assert by_id.success is True and legacy.success is True
+    assert by_id.success is True
     assert "pve1, pve2" in by_id.message
-    assert _FakeProxmoxAPI.calls[0][1]["port"] == 8006
-    assert "port" not in _FakeProxmoxAPI.calls[1][1]
+    assert verify_ports == [443]
+    assert _FakeClient.calls[0][1]["port"] == 443
 
 
-def test_preview_rejects_inverted_thresholds_with_400(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fetched: list[Any] = []
-    monkeypatch.setattr(
-        proxmox_config_route, "fetch_cluster_nodes", lambda **kw: fetched.append(kw)
-    )
-    config_in = ProxmoxConfigUpdate(
-        host="pve.example",
-        user="root@pam",
-        password="pw",
-        placement_loadavg_warn_per_core=1.0,
-        placement_loadavg_max_per_core=0.5,
-    )
-    with pytest.raises(BadRequestError):
-        proxmox_config_route.preview_cluster(None, _user(), config_in)
-    assert fetched == []
-
-
-def test_preview_maps_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        proxmox_config_route.proxmox_config_repo, "get_proxmox_config", lambda _s: None
-    )
-    monkeypatch.setattr(
-        proxmox_config_route,
-        "fetch_cluster_nodes",
-        lambda **_kw: [
-            {"name": "pve1", "host": "10.0.0.1", "is_primary": True},
-            {"name": "pve2", "host": "10.0.0.2", "port": 8007},
-        ],
-    )
-    result = proxmox_config_route.preview_cluster(
-        None,
-        _user(),
-        ProxmoxConfigUpdate(host="pve.example", user="root@pam", password="pw"),
-    )
-    assert result.success is True and result.is_cluster is True
-    assert [(n.name, n.port, n.is_primary) for n in result.nodes] == [
-        ("pve1", 8006, True),
-        ("pve2", 8007, False),
+def test_to_preview_nodes_maps_nodes() -> None:
+    raw = [
+        {"name": "pve1", "host": "10.0.0.1", "is_primary": True},
+        {"name": "pve2", "host": "10.0.0.2", "port": 8007},
     ]
+    assert [
+        (n.name, n.port, n.is_primary, n.is_online)
+        for n in connection_sync_service.to_preview_nodes(raw)
+    ] == [("pve1", 8006, True, True), ("pve2", 8007, False, True)]
+    assert [
+        n.port for n in connection_sync_service.to_preview_nodes(raw, default_port=443)
+    ] == [443, 8007]

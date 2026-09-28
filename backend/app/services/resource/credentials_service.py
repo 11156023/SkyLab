@@ -18,11 +18,12 @@ from urllib.parse import quote, unquote
 from sqlmodel import Session
 
 from app.core.i18n import t
-from app.core.security import encrypt_value
+from app.core.security import decrypt_value, encrypt_value
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import guest
 from app.infrastructure.ssh.client import generate_ed25519_keypair
 from app.repositories import resource as resource_repo
+from app.schemas import SSHKeyResponse
 from app.schemas.resource_settings import (
     AuthorizedKeysResponse,
     CredentialsPublic,
@@ -35,6 +36,7 @@ from app.services.resource._guest_helpers import (
     read_config,
     resource_type,
 )
+from app.services.template import password_policy
 from app.services.user import audit_service
 from app.utils.login_password import generate_login_password
 
@@ -223,6 +225,41 @@ def get_credentials(
         requires_running=True,
         platform_public_key=db_resource.ssh_public_key,
         authorized_keys=_lxc_authorized_keys(resource_info, vmid),
+    )
+
+
+def get_ssh_key(*, session: Session, vmid: int) -> SSHKeyResponse:
+    """資源的登入憑證（SSH 私鑰與初始密碼）；權限由呼叫端的 ResourceInfoDep 把關。
+
+    DB 沒有這台機器時沿用既有行為拋 ProxmoxError（不是 404）。
+    """
+    db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    if not db_resource:
+        raise ProxmoxError("Resource not found in database")
+
+    private_key: str | None = None
+    if db_resource.ssh_private_key_encrypted:
+        private_key = decrypt_value(db_resource.ssh_private_key_encrypted)
+    login_password: str | None = None
+    if db_resource.login_password_encrypted:
+        login_password = decrypt_value(db_resource.login_password_encrypted)
+
+    source_template = (
+        password_policy.find_template(session, pve_vmid=db_resource.template_id)
+        if login_password is None
+        else None
+    )
+    return SSHKeyResponse(
+        vmid=vmid,
+        ssh_public_key=db_resource.ssh_public_key,
+        ssh_private_key=private_key,
+        login_password=login_password,
+        login_password_pending=bool(
+            login_password is None and db_resource.login_password_pending_encrypted
+        ),
+        uses_template_credentials=password_policy.keeps_template_credentials(
+            source_template
+        ),
     )
 
 

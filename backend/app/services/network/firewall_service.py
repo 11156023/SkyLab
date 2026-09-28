@@ -35,6 +35,7 @@ from app.services.network.publish_target_policy import assert_publishable_vm_ip
 from app.services.proxmox import proxmox_service
 from app.services.resource import access as resource_access
 from app.services.resource import kind as resource_kind
+from app.utils.hostname import from_punycode_hostname
 
 logger = logging.getLogger(__name__)
 
@@ -50,21 +51,6 @@ _GATEWAY_FULL_ACCESS_COMMENT = f"{_CC_PREFIX}gateway:full-access"
 # 專案改名（campus-cloud → SkyLab）前寫進機器的封鎖規則，只在清理時認得
 _LEGACY_BLOCK_EXTRA_PREFIX = "campus-cloud:block-extra:"
 _LEGACY_BLOCK_LOCAL = "campus-cloud:block-local-subnet"
-
-
-def _from_punycode_hostname(hostname: str) -> str:
-    result_labels = []
-    for label in hostname.split("."):
-        if label.lower().startswith("xn--"):
-            try:
-                decoded = label[4:].encode("ascii").decode("punycode")
-                result_labels.append(decoded)
-            except Exception as e:
-                logger.debug("Punycode decode failed for label %s: %s", label, e)
-                result_labels.append(label)
-        else:
-            result_labels.append(label)
-    return ".".join(result_labels)
 
 
 # ─── Proxmox 防火牆 API 封裝 ─────────────────────────────────────────────────
@@ -252,6 +238,28 @@ def get_vm_firewall_rules(node: str, vmid: int, resource_type: ResourceType) -> 
     except Exception as e:
         logger.warning(f"無法取得 VM {vmid} 防火牆規則: {e}")
         return []
+
+
+def list_vm_firewall_rules_strict(
+    node: str, vmid: int, resource_type: ResourceType
+) -> list[dict]:
+    """同 get_vm_firewall_rules，但讀不到時拋 ProxmoxError 而不是回空清單。
+
+    給要依現有規則做差異同步的呼叫端用：把「讀取失敗」當成「沒有規則」會讓
+    同步誤判而重複建立或漏刪規則。
+    """
+    try:
+        rules = _firewall_api(node, vmid, resource_type).rules.get()
+    except Exception as e:
+        raise ProxmoxError(
+            t(
+                "firewall.getRulesFailed",
+                resourceType=resource_type,
+                vmid=vmid,
+                error=e,
+            )
+        ) from e
+    return rules or []
 
 
 def create_rule(
@@ -1280,7 +1288,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
             )
             continue
 
-        node_name = _from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
+        node_name = from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
         status = resource.get("status", "unknown")
         ip_address = None
         firewall_enabled = False
@@ -1601,7 +1609,7 @@ def _topology_node_for_vm(
             logger.debug("VMID=%s 防火牆狀態查詢失敗: %s", vmid, e)
     return TopologyNode(
         vmid=vmid,
-        name=_from_punycode_hostname(resource.get("name", f"VM-{vmid}")),
+        name=from_punycode_hostname(resource.get("name", f"VM-{vmid}")),
         node_type="vm",
         vm_type=resource.get("type", "qemu"),
         status=resource.get("status", "unknown"),

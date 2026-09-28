@@ -7,20 +7,20 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.api.routes import course_environments as routes
-from app.api.routes.course_environments import (
-    EnvironmentNodeIn,
-    _validate_configuration,
-)
 from app.exceptions import BadRequestError
 from app.models import (
     CourseEnvironment,
-    CourseEnvironmentAudience,
     CourseEnvironmentFile,
     CourseEnvironmentVersion,
     VMTemplate,
     VMTemplateStatus,
 )
 from app.models.vm_template import VMTemplateVisibility
+from app.schemas.course_environment import EnvironmentNodeIn
+from app.services.course_environment import environment_service
+from app.services.course_environment.environment_service import (
+    validate_configuration,
+)
 
 TEACHER_A = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
 TEACHER_B = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
@@ -36,7 +36,6 @@ def db():
             VMTemplate.__table__,  # type: ignore[arg-type]
             CourseEnvironment.__table__,  # type: ignore[arg-type]
             CourseEnvironmentVersion.__table__,  # type: ignore[arg-type]
-            CourseEnvironmentAudience.__table__,  # type: ignore[arg-type]
             CourseEnvironmentFile.__table__,  # type: ignore[arg-type]
         ],
     )
@@ -82,7 +81,7 @@ def test_other_teachers_private_template_is_rejected(db: Session) -> None:
     )
 
     with pytest.raises(BadRequestError):
-        _validate_configuration(db, [_template_node(template)], [], owner=TEACHER_B)
+        validate_configuration(db, [_template_node(template)], [], owner=TEACHER_B)
 
 
 @pytest.mark.parametrize(
@@ -96,7 +95,7 @@ def test_other_teachers_private_template_is_rejected(db: Session) -> None:
 def test_visible_templates_are_accepted(db: Session, owner, visibility) -> None:
     template = _template(db, owner_id=TEACHER_A.id, visibility=visibility)
 
-    _validate_configuration(db, [_template_node(template)], [], owner=owner)
+    validate_configuration(db, [_template_node(template)], [], owner=owner)
 
 
 def test_admin_edits_are_checked_against_the_environment_owner() -> None:
@@ -104,8 +103,9 @@ def test_admin_edits_are_checked_against_the_environment_owner() -> None:
     stored_owner = SimpleNamespace(id=TEACHER_A.id, role="teacher")
     session = SimpleNamespace(get=lambda _model, _id: stored_owner)
 
-    assert routes._environment_owner(session, environment, ADMIN) is stored_owner
-    assert routes._environment_owner(session, environment, TEACHER_A) is TEACHER_A
+    owner_for = environment_service.environment_owner
+    assert owner_for(session, environment, ADMIN) is stored_owner
+    assert owner_for(session, environment, TEACHER_A) is TEACHER_A
 
 
 # --- B1-1：硬刪除環境時一起清掉上傳的文件 -------------------------------------
@@ -114,8 +114,10 @@ def test_admin_edits_are_checked_against_the_environment_owner() -> None:
 def test_deleting_an_environment_removes_its_file_blobs(
     db: Session, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setattr(routes, "ENVIRONMENT_FILE_ROOT", tmp_path)
-    monkeypatch.setattr(routes, "_environment_references", lambda *_args: [])
+    monkeypatch.setattr(environment_service, "ENVIRONMENT_FILE_ROOT", tmp_path)
+    monkeypatch.setattr(
+        environment_service, "environment_references", lambda *_args: []
+    )
     environment = CourseEnvironment(owner_id=TEACHER_A.id, name="Linux Lab")
     db.add(environment)
     db.commit()

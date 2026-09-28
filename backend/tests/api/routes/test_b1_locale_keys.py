@@ -22,11 +22,13 @@ B1_SOURCES = [
     "app/api/routes/rubric.py",
     "app/api/routes/teaching_classes.py",
     "app/api/routes/course_environments.py",
+    "app/schemas/course_environment.py",
     "app/api/routes/courses.py",
     "app/api/routes/course_admin.py",
     "app/api/routes/classroom.py",
     "app/api/routes/quick_practice.py",
     "app/ai/teacher_judge/session_chat_service.py",
+    "app/services/teaching/class_capacity_service.py",
 ]
 
 # t("key") 與跨行的 t(\n    "key", ...)
@@ -51,6 +53,7 @@ def test_scanner_finds_keys() -> None:
     assert "teacherJudgeSessions.attachmentNotFound" in keys
     assert "teachingClasses.csvTooLarge" in keys
     assert "classroom.monitor_forbidden" in keys
+    assert "class_capacity.ip_insufficient" in keys
 
 
 @pytest.mark.parametrize("lang", sorted(SUPPORTED_LANGUAGES))

@@ -1,7 +1,5 @@
-import logging
 import time
 import uuid
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -31,39 +29,9 @@ from app.schemas import (
 )
 from app.schemas.monitoring import LoginPreflight
 from app.services.monitoring import preflight_service
-from app.services.user import totp_service, user_service
-
-logger = logging.getLogger(__name__)
+from app.services.user import avatar_service, totp_service, user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-# 頭像檔案存放目錄（repo 根的 data/avatars，與 teacher-judge 慣例一致），
-# 檔名固定為 {user_id}.{ext}
-AVATAR_DIR = Path(__file__).resolve().parents[4] / "data" / "avatars"
-AVATAR_MAX_BYTES = 2 * 1024 * 1024
-AVATAR_CONTENT_TYPES = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-}
-
-
-def _delete_avatar_files(user_id: uuid.UUID) -> None:
-    """帳號刪除後移除頭像檔：頭像端點不驗證身分，留著就會被任何知道 UUID 的人下載。"""
-    for path in AVATAR_DIR.glob(f"{user_id}.*"):
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            logger.warning("Failed to remove avatar file %s", path, exc_info=True)
-
-
-def _store_avatar(user_id: uuid.UUID, ext: str, data: bytes) -> None:
-    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    for old in AVATAR_DIR.glob(f"{user_id}.*"):
-        old.unlink(missing_ok=True)
-    (AVATAR_DIR / f"{user_id}{ext}").write_bytes(data)
-
 
 @router.get(
     "/",
@@ -169,7 +137,7 @@ async def upload_avatar_me(
     session: SessionDep, current_user: CurrentUser, file: UploadFile = File(...)
 ) -> Any:
     """上傳頭像圖片，存檔後把 avatar_url 指向本服務的頭像端點。"""
-    ext = AVATAR_CONTENT_TYPES.get((file.content_type or "").lower())
+    ext = avatar_service.AVATAR_CONTENT_TYPES.get((file.content_type or "").lower())
     if not ext:
         raise HTTPException(
             status_code=400, detail=t("users.avatarUnsupportedFormat")
@@ -178,14 +146,16 @@ async def upload_avatar_me(
     buffer = bytearray()
     while chunk := await file.read(64 * 1024):
         buffer.extend(chunk)
-        if len(buffer) > AVATAR_MAX_BYTES:
+        if len(buffer) > avatar_service.AVATAR_MAX_BYTES:
             raise HTTPException(
                 status_code=400, detail=t("users.avatarTooLarge")
             )
     data = bytes(buffer)
 
     # 檔案 I/O 與同步 DB commit 都丟到 worker thread，不佔住 event loop
-    await run_in_threadpool(_store_avatar, current_user.id, ext, data)
+    await run_in_threadpool(
+        avatar_service.store_avatar, current_user.id, ext, data
+    )
 
     # v= 時間戳讓 <img> 換圖時不吃瀏覽器快取
     avatar_url = (
@@ -204,17 +174,17 @@ def get_user_avatar(user_id: uuid.UUID, session: SessionDep) -> FileResponse:
     """頭像檔案。<img> 標籤無法帶 Authorization header，因此不做驗證；
     user_id 由路由強制為 UUID，不會有路徑穿越問題。帳號已刪除時一律 404
     （涵蓋刪除前殘留的舊檔）。"""
-    matches = sorted(AVATAR_DIR.glob(f"{user_id}.*"))
-    if not matches or session.get(User, user_id) is None:
+    path = avatar_service.find_avatar(user_id)
+    if path is None or session.get(User, user_id) is None:
         raise HTTPException(status_code=404, detail="Avatar not found")
-    return FileResponse(matches[0])
+    return FileResponse(path)
 
 
 @router.delete("/me", response_model=Message)
 def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     user_id = current_user.id
     user_service.delete_me(session=session, current_user=current_user)
-    _delete_avatar_files(user_id)
+    avatar_service.delete_avatar_files(user_id)
     return Message(message="User deleted successfully")
 
 
@@ -259,7 +229,7 @@ def delete_user(
     user_service.delete_user(
         session=session, user_id=user_id, current_user=current_user
     )
-    _delete_avatar_files(user_id)
+    avatar_service.delete_avatar_files(user_id)
     return Message(message="User deleted successfully")
 
 

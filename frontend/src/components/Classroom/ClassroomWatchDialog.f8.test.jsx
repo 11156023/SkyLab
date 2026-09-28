@@ -8,7 +8,7 @@ const { setControl } = vi.hoisted(() => ({ setControl: vi.fn() }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key) => key }) }));
 vi.mock("../../services/classroom", () => ({ ClassroomService: { setControl } }));
 vi.mock("../../services/auth", () => ({ AuthStorage: { getAccessToken: () => "tok" } }));
-vi.mock("../../hooks/useClassroomSocket", () => ({ wsBaseUrl: () => "ws://test" }));
+vi.mock("../../utils/wsUrl", () => ({ wsBaseUrl: () => "ws://test" }));
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ error: vi.fn(), success: vi.fn() }) }));
 vi.mock("react-vnc", () => ({
   VncScreen: forwardRef(function FakeVnc({ onConnect }, ref) {

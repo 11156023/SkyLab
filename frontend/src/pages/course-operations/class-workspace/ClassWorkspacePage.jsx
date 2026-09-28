@@ -811,14 +811,25 @@ export function StudentMachines({ item }) {
 
   /* 觀看（monitor）session 只屬於這個畫面的對話框：切到別的步驟、瀏覽器上一頁等直接卸載時
      不會經過 closeWatch，這裡補收掉，不要留一個佔住該 VM 的 session 在伺服器上。
-     mountedRef 讓卸載後才建好的 session（createSession 還在路上就切走）也能在 openWatch 裡收掉 */
+     mountedRef 讓卸載後才建好的 session（createSession 還在路上就切走）也能在 openWatch 裡收掉。
+     關閉分頁／重新整理不會觸發 React 卸載，另掛 pagehide 盡力收掉（送不出去時後端 30 秒閒置也會回收） */
   useEffect(() => {
     mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
+    function stopCurrentWatch() {
       const current = watchRef.current;
       watchRef.current = null;
       if (current) ClassroomService.stopSession(current.sessionId).catch(() => {});
+    }
+    /* 頁面進 bfcache 再回來時 session 已結束，順手關掉對話框，不要留一個連不上的畫面 */
+    function handlePageHide() {
+      stopCurrentWatch();
+      setWatch(null);
+    }
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener("pagehide", handlePageHide);
+      stopCurrentWatch();
     };
   }, []);
 

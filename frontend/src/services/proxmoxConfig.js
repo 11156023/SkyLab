@@ -22,9 +22,11 @@ export const ProxmoxConfigService = {
     return apiPut(`/api/v1/proxmox-config/connections/${connectionId}`, body);
   },
 
-  /** 刪除連線（其節點與 Storage 記錄一併移除） */
-  deleteConnection(connectionId) {
-    return apiDelete(`/api/v1/proxmox-config/connections/${connectionId}`);
+  /** 刪除連線（其節點與 Storage 記錄一併移除）；force=true 只在 PVE 永久連不上（後端回 503）時使用 */
+  deleteConnection(connectionId, { force = false } = {}) {
+    return apiDelete(
+      `/api/v1/proxmox-config/connections/${connectionId}${force ? "?force=true" : ""}`,
+    );
   },
 
   /** 測試指定連線 */

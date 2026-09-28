@@ -181,36 +181,13 @@ def test_login_with_argon2_password_keeps_hash(client: TestClient, db: Session) 
     assert user.hashed_password.startswith("$argon2")
 
 
-class _GoogleTokenInfoResponse:
-    def __init__(self, data: dict[str, str], status_code: int = 200) -> None:
-        self._data = data
-        self.status_code = status_code
-
-    def json(self) -> dict[str, str]:
-        return self._data
-
-
-class _GoogleTokenInfoClient:
-    def __init__(self, response: _GoogleTokenInfoResponse) -> None:
-        self._response = response
-
-    async def __aenter__(self) -> "_GoogleTokenInfoClient":
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
-
-    async def get(self, *args: object, **kwargs: object) -> _GoogleTokenInfoResponse:
-        return self._response
-
-
 def _mock_google_tokeninfo(monkeypatch, data: dict[str, str]) -> None:
-    response = _GoogleTokenInfoResponse(data)
+    async def fake_fetch_id_token_info(id_token: str) -> dict[str, str]:
+        return data
 
-    def client_factory(*args: object, **kwargs: object) -> _GoogleTokenInfoClient:
-        return _GoogleTokenInfoClient(response)
-
-    monkeypatch.setattr("app.services.user.auth_service.httpx.AsyncClient", client_factory)
+    monkeypatch.setattr(
+        "app.services.user.auth_service.fetch_id_token_info", fake_fetch_id_token_info
+    )
 
 
 def test_google_login_is_case_insensitive_for_existing_user(

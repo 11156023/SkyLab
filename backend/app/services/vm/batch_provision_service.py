@@ -18,7 +18,7 @@ from app.models import (
     TeachingClassMachineNode,
     TeachingClassStatus,
     TeachingClassStudent,
-    TeachingClassStudentMachine,
+    User,
     VMTemplateStatus,
 )
 from app.models.batch_provision import (
@@ -31,9 +31,15 @@ from app.repositories import batch_provision as bp_repo
 from app.repositories import resource as resource_repo
 from app.repositories import vm_template as vm_template_repo
 from app.schemas import LXCCreateRequest, VMCreateRequest
+from app.schemas.batch_provision import (
+    BatchProvisionJobPublic,
+    BatchProvisionJobSpec,
+    BatchProvisionTaskPublic,
+)
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
 from app.services.resource import quota_service
+from app.services.teaching.student_machine_mapping import upsert_student_machine_mapping
 from app.services.template import clone_service, password_policy
 from app.utils.login_password import generate_login_password
 from app.utils.timeutil import normalize_datetime
@@ -214,6 +220,92 @@ def review_batch_jobs(
         reviewer_id,
     )
     return jobs
+
+
+def to_public(session: Session, job: BatchProvisionJob) -> BatchProvisionJobPublic:
+    """把 job 連同 task、發起人／審核人與班級名稱組成審核頁用的回應。"""
+    tasks = bp_repo.get_job_tasks(session=session, job_id=job.id)
+
+    # Collect every user we want to display: task owners + initiator + reviewer.
+    user_ids: set[uuid.UUID] = {task.user_id for task in tasks}
+    if job.initiated_by:
+        user_ids.add(job.initiated_by)
+    if job.reviewer_id:
+        user_ids.add(job.reviewer_id)
+
+    users: dict[uuid.UUID, User] = {}
+    if user_ids:
+        rows = session.exec(select(User).where(col(User.id).in_(list(user_ids)))).all()
+        users = {user.id: user for user in rows}
+
+    teaching_class = (
+        session.get(TeachingClass, job.teaching_class_id)
+        if job.teaching_class_id
+        else None
+    )
+
+    # Parse the JSON-encoded spec snapshot.
+    params = bp_repo.job_params(job)
+    spec = BatchProvisionJobSpec(
+        cores=params.get("cores"),
+        memory=params.get("memory"),
+        disk_size=params.get("disk_size"),
+        rootfs_size=params.get("rootfs_size"),
+        ostemplate=params.get("ostemplate"),
+        template_id=params.get("template_id"),
+        vm_template_id=params.get("vm_template_id"),
+        username=params.get("username"),
+        environment_type=params.get("environment_type"),
+        os_info=params.get("os_info"),
+        expiry_date=params.get("expiry_date"),
+    )
+
+    task_publics = [
+        BatchProvisionTaskPublic(
+            id=task.id,
+            user_id=task.user_id,
+            user_email=users[task.user_id].email if task.user_id in users else None,
+            user_name=users[task.user_id].full_name if task.user_id in users else None,
+            member_index=task.member_index,
+            vmid=task.vmid,
+            status=task.status,
+            error=task.error,
+            started_at=task.started_at,
+            finished_at=task.finished_at,
+        )
+        for task in tasks
+    ]
+
+    initiator = users.get(job.initiated_by) if job.initiated_by else None
+    reviewer = users.get(job.reviewer_id) if job.reviewer_id else None
+
+    return BatchProvisionJobPublic(
+        id=job.id,
+        teaching_class_id=job.teaching_class_id,
+        teaching_class_name=teaching_class.name if teaching_class else None,
+        resource_type=job.resource_type,
+        hostname_prefix=job.hostname_prefix,
+        status=job.status,
+        total=job.total,
+        done=job.done,
+        failed_count=job.failed_count,
+        created_at=job.created_at,
+        finished_at=job.finished_at,
+        initiated_by=job.initiated_by,
+        initiated_by_email=initiator.email if initiator else None,
+        initiated_by_name=initiator.full_name if initiator else None,
+        reviewer_id=job.reviewer_id,
+        reviewer_email=reviewer.email if reviewer else None,
+        reviewed_at=job.reviewed_at,
+        review_comment=job.review_comment,
+        recurrence_rule=job.recurrence_rule,
+        recurrence_duration_minutes=job.recurrence_duration_minutes,
+        schedule_timezone=job.schedule_timezone,
+        next_window_start=job.next_window_start,
+        next_window_end=job.next_window_end,
+        spec=spec,
+        tasks=task_publics,
+    )
 
 
 # ─── 背景排隊執行 ──────────────────────────────────────────────────────────────
@@ -645,22 +737,15 @@ def _sync_class_machine_mapping(
     ).first()
     if node is None or enrollment is None:
         return
-    mapping = session.exec(
-        select(TeachingClassStudentMachine).where(
-            TeachingClassStudentMachine.class_student_id == enrollment.id,
-            TeachingClassStudentMachine.machine_node_id == node.id,
-        )
-    ).first()
-    if mapping is None:
-        mapping = TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=node.id,
-        )
-    mapping.batch_task_id = task_id
-    mapping.vmid = vmid
-    mapping.status = status
-    mapping.error = error
-    session.add(mapping)
+    upsert_student_machine_mapping(
+        session,
+        enrollment_id=enrollment.id,
+        node_id=node.id,
+        task_id=task_id,
+        vmid=vmid,
+        status=status,
+        error=error,
+    )
     session.commit()
 
 

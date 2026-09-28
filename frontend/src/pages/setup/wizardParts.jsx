@@ -7,7 +7,7 @@
 
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
-import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
+import { currentLanguage, setLanguage } from "../../i18n";
 import styles from "./SetupPage.module.scss";
 
 /* 語言用原生名稱顯示，不翻譯 */
@@ -20,7 +20,7 @@ export const LANG_OPTIONS = [
 /** 目前介面語言；不在支援清單內時退回預設語言 */
 export function useCurrentLanguage() {
   const { i18n } = useTranslation();
-  return SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : DEFAULT_LANGUAGE;
+  return currentLanguage(i18n.language);
 }
 
 export function Stepper({ current, steps }) {

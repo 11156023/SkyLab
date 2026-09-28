@@ -5,10 +5,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
-
-import httpx
 
 
 @dataclass
@@ -73,6 +69,65 @@ class SystemHealth:
         return warnings
 
 
+_GIB = 1024 ** 3
+
+
+def _collect_gpu_stats() -> tuple[int, list[float], list[float], list[float]]:
+    """回傳 (GPU 數, 已用 GB, 總量 GB, 使用率 %)，數字為整張卡的實際用量。
+
+    優先用 NVML：它讀的是驅動層的整卡用量（含其他 vLLM 實例或工作），
+    而且不會在 launcher 建立 CUDA context。torch.cuda.memory_allocated 只算
+    本程序的配置（launcher 永遠是 0），torch.cuda.mem_get_info 則會在每張卡
+    建立 CUDA context、長期佔用數百 MB 顯存，兩者都不適合這裡。
+    NVML 不可用時退回 torch 只取卡數與總量；已用量未知時記為 0。
+    """
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+    except Exception:
+        return _collect_gpu_stats_from_torch()
+
+    used_gb: list[float] = []
+    total_gb: list[float] = []
+    utilization: list[float] = []
+    try:
+        count = pynvml.nvmlDeviceGetCount()
+        for i in range(count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            used_gb.append(memory.used / _GIB)
+            total_gb.append(memory.total / _GIB)
+            try:
+                utilization.append(float(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu))
+            except Exception:
+                utilization.append(0.0)
+    except Exception:
+        return _collect_gpu_stats_from_torch()
+    finally:
+        try:
+            pynvml.nvmlShutdown()
+        except Exception:
+            pass
+    return count, used_gb, total_gb, utilization
+
+
+def _collect_gpu_stats_from_torch() -> tuple[int, list[float], list[float], list[float]]:
+    """NVML 不可用時的退路：只有卡數與總顯存可信，已用量與使用率未知。"""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return 0, [], [], []
+        count = torch.cuda.device_count()
+        total_gb = [
+            torch.cuda.get_device_properties(i).total_memory / _GIB for i in range(count)
+        ]
+    except Exception:
+        return 0, [], [], []
+    return count, [0.0] * count, total_gb, [0.0] * count
+
+
 def check_system_health() -> SystemHealth:
     """檢查系統健康狀態"""
     import psutil
@@ -87,36 +142,8 @@ def check_system_health() -> SystemHealth:
     disk = psutil.disk_usage('/')
     disk_usage_percent = disk.percent
     
-    # GPU
-    gpu_count = 0
-    gpu_memory_used_gb = []
-    gpu_memory_total_gb = []
-    gpu_utilization = []
-    
-    try:
-        import torch
-        if torch.cuda.is_available():
-            gpu_count = torch.cuda.device_count()
-            for i in range(gpu_count):
-                # 記憶體
-                mem_used = torch.cuda.memory_allocated(i) / (1024 ** 3)
-                mem_total = torch.cuda.get_device_properties(i).total_memory / (1024 ** 3)
-                gpu_memory_used_gb.append(mem_used)
-                gpu_memory_total_gb.append(mem_total)
-                
-                # 使用率（需要 nvidia-ml-py 或 pynvml）
-                try:
-                    import pynvml
-                    pynvml.nvmlInit()
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                    util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                    gpu_utilization.append(util.gpu)
-                except (ImportError, Exception):
-                    gpu_utilization.append(0.0)
-    except (ImportError, Exception):
-        # GPU 資訊不可用時使用預設值
-        pass
-    
+    gpu_count, gpu_memory_used_gb, gpu_memory_total_gb, gpu_utilization = _collect_gpu_stats()
+
     return SystemHealth(
         cpu_percent=cpu_percent,
         memory_percent=memory_percent,
@@ -127,75 +154,6 @@ def check_system_health() -> SystemHealth:
         gpu_memory_total_gb=gpu_memory_total_gb,
         gpu_utilization=gpu_utilization,
     )
-
-
-def check_vllm_endpoint(base_url: str, api_key: str, timeout: int = 5) -> dict[str, Any]:
-    """檢查 vLLM 端點狀態"""
-    result = {
-        "health": False,
-        "models": [],
-        "error": None,
-    }
-    
-    try:
-        # 檢查 health 端點
-        health_url = f"{base_url}/health"
-        resp = httpx.get(health_url, timeout=timeout)
-        result["health"] = (resp.status_code == 200)
-        
-        # 檢查 models 端點
-        if result["health"]:
-            models_url = f"{base_url}/v1/models"
-            resp = httpx.get(
-                models_url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=timeout
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                result["models"] = [m["id"] for m in data.get("data", [])]
-    except Exception as e:
-        result["error"] = str(e)
-    
-    return result
-
-
-def suggest_cache_cleanup(cache_dir: str | Path) -> dict[str, Any]:
-    """建議快取清理"""
-    cache_path = Path(cache_dir)
-    
-    if not cache_path.exists():
-        return {
-            "exists": False,
-            "message": f"快取目錄不存在: {cache_dir}",
-        }
-    
-    # 計算快取大小
-    total_size = 0
-    file_count = 0
-    
-    for item in cache_path.rglob("*"):
-        if item.is_file():
-            total_size += item.stat().st_size
-            file_count += 1
-    
-    total_size_gb = total_size / (1024 ** 3)
-    
-    # 判斷是否需要清理
-    needs_cleanup = total_size_gb > 100  # 超過 100GB
-    
-    return {
-        "exists": True,
-        "path": str(cache_path),
-        "total_size_gb": round(total_size_gb, 2),
-        "file_count": file_count,
-        "needs_cleanup": needs_cleanup,
-        "suggestion": (
-            f"快取目錄佔用 {total_size_gb:.1f} GB，建議清理舊模型" 
-            if needs_cleanup 
-            else f"快取目錄佔用 {total_size_gb:.1f} GB，無需清理"
-        ),
-    }
 
 
 # ============================================================
@@ -232,14 +190,4 @@ if __name__ == "__main__":
         logger.warning("系統健康狀態異常")
         for warning in health.get_warnings():
             logger.warning(f"  - {warning}")
-    
-    # 快取檢查示例
-    logger.section("快取狀態")
-    cache_info = suggest_cache_cleanup("/raid/hf-cache/hub")
-    if cache_info["exists"]:
-        logger.info(f"快取目錄: {cache_info['path']}")
-        logger.info(f"總大小: {cache_info['total_size_gb']} GB")
-        logger.info(f"檔案數: {cache_info['file_count']}")
-        logger.info(cache_info['suggestion'])
-    else:
-        logger.warning(cache_info['message'])
+

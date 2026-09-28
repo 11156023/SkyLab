@@ -12,6 +12,7 @@ import { focusInvalidField } from "../../../utils/focusField";
 import { joinList } from "../../../utils/joinList";
 import { uploadSequentially } from "../../../utils/uploadSequentially";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
+import { isAdminUser } from "../../../utils/roles";
 import { formatBytes } from "./templateFormat";
 
 const CORE_MIN = 1;
@@ -44,7 +45,7 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   const confirm = useConfirm();
   const { user } = useAuth();
   const isEdit = Boolean(template);
-  const isAdmin = user?.role === "admin" || user?.is_superuser === true;
+  const isAdmin = isAdminUser(user);
 
   const [sourceVmid, setSourceVmid] = useState("");
   const [invalid, setInvalid] = useState("");

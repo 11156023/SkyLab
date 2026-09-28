@@ -72,19 +72,6 @@ describe("CoursesService", () => {
     });
   });
 
-  test("學生透過受保護端點取得老師上傳的任務 PDF", async () => {
-    const pdf = new Blob(["pdf"], { type: "application/pdf" });
-    fetchMock.mockResolvedValueOnce(blobRes(200, pdf));
-
-    const result = await CoursesService.getAiAssignmentDocument("path-1", "assignment-1");
-
-    expect(result).toBe(pdf);
-    expect(fetchMock.mock.calls[0][0]).toContain(
-      "/api/v1/courses/paths/path-1/ai-assignments/assignment-1/source-document",
-    );
-    expect(fetchMock.mock.calls[0][1].method).toBe("GET");
-  });
-
   test("學生取得已發布的每週任務並透過受保護端點預覽 PDF", async () => {
     const pdf = new Blob(["weekly-pdf"], { type: "application/pdf" });
     fetchMock

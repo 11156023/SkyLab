@@ -160,6 +160,9 @@ function App() {
   const isDeviceApproval = Boolean(
     new URLSearchParams(window.location.search).get("device_code"),
   );
+  const isResetLink =
+    (window.location.pathname === "/login" || window.location.pathname === "/reset-password") &&
+    hasResetToken(window.location.search);
 
   /* 導入頁是純靜態內容，不依賴 session 檢查：
      後端連不上或 session 驗證中時，/ 照樣直接呈現，其餘路徑維持原本的啟動畫面。 */
@@ -197,8 +200,10 @@ function App() {
 
   /* 每次登入後先跑服務檢查（DB／Redis／worker／PVE／Gateway／AI）：學生與老師檢查沒過就停在
      「請通知管理員」，管理員可以略過。放在其他閘門之前，端點在 /users/me 底下，
-     強制綁定 2FA 的帳號也叫得到。裝置授權流程不跑（completeLogin 也不會立旗標）。 */
-  if (user && loginPreflightPending && !isDeviceApproval) {
+     強制綁定 2FA 的帳號也叫得到。裝置授權流程不跑（completeLogin 也不會立旗標）。
+     重設密碼信的連結（/login、/reset-password 帶 token）也先放行，登入中照樣能重設；
+     旗標不清，回到一般頁面時仍會補跑檢查。 */
+  if (user && loginPreflightPending && !isDeviceApproval && !isResetLink) {
     return <LoginPreflightPage />;
   }
 

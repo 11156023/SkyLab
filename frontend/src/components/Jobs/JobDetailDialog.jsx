@@ -8,6 +8,7 @@ import { JobsService } from "../../services/jobs";
 import { JOB_STATUS_META_KEYS, JobLoading } from "./JobRow";
 import styles from "./Jobs.module.scss";
 import { formatDate, formatDateTime } from "../../utils/formatDate";
+import { canTeachUser } from "../../utils/roles";
 
 const fmt = (iso) => formatDateTime(iso);
 
@@ -92,7 +93,7 @@ export default function JobDetailDialog({ jobId, onClose }) {
   // 關閉時先播放離場動畫再卸載；動畫期間保留內容避免閃爍
   const presence = useDialogPresence(jobId);
   const { user } = useAuth();
-  const showVmid = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
+  const showVmid = canTeachUser(user);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);

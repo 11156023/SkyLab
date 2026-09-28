@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -84,9 +84,6 @@ def cleanup_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     )
     monkeypatch.setattr(resource_service.resource_repo, "delete_resource", rec("row"))
     monkeypatch.setattr(
-        resource_service.audit_log_repo, "delete_audit_logs_by_vmid", rec("audit_rows")
-    )
-    monkeypatch.setattr(
         resource_service, "_mark_class_reclaimed_if_empty", rec("class_empty")
     )
     monkeypatch.setattr(
@@ -104,7 +101,6 @@ _CLEANUP_ORDER = [
     "spec",
     "class_machine",
     "row",
-    "audit_rows",
     "class_empty",
 ]
 
@@ -119,7 +115,7 @@ def test_orphan_cleanup_runs_shared_steps_then_consumes_request(
     )
 
     resource_service.delete_orphan_db_record(
-        session=Mock(), vmid=301, user_id=uuid.uuid4()
+        session=MagicMock(), vmid=301, user_id=uuid.uuid4()
     )
 
     assert cleanup_calls == [*_CLEANUP_ORDER, "consume", "log"]
@@ -143,7 +139,7 @@ def test_delete_consumes_request_first_then_runs_shared_steps(
     )
 
     resource_service.delete(
-        session=Mock(),
+        session=MagicMock(),
         vmid=302,
         resource_info={"node": "pve1", "type": "qemu", "name": "vm"},
         user_id=uuid.uuid4(),
@@ -165,7 +161,7 @@ def test_cleanup_step_failure_does_not_stop_the_rest(
     monkeypatch.setattr(nat_service, "remove_nat_rules_for_vmid", boom)
 
     resource_service._cleanup_after_resource_removed(
-        session=Mock(),
+        session=MagicMock(),
         vmid=303,
         teaching_class_id=None,
         marker="m",

@@ -416,6 +416,12 @@ def finalize_file_delete(stage: FileDeleteStage | None) -> None:
         _unlink_if_exists(stage.deleted_path)
 
 
+def discard_file_asset(file: TeacherJudgeFile) -> None:
+    """Remove the stored asset of a file row whose DB insert was rolled back."""
+    if file.original_filename:
+        _unlink_if_exists(_stored_path(file.id, file.original_filename))
+
+
 def restore_file_delete(stage: FileDeleteStage | None) -> None:
     """Restore bytes staged by :func:`stage_file_delete` after rollback."""
     if (

@@ -124,6 +124,8 @@ def _push(endpoint: str) -> PushSubscriptionCreate:
         "https://localhost./x",
         "https://[::ffff:10.0.0.5]/x",
         "https://10.0.0.5/x",
+        # 公網 IP 字面值也不是推播服務網域，一樣拒絕
+        "https://8.8.8.8/x",
     ],
 )
 def test_push_endpoint_rejects_private_numeric_hosts(endpoint: str) -> None:
@@ -136,7 +138,6 @@ def test_push_endpoint_rejects_private_numeric_hosts(endpoint: str) -> None:
     [
         "https://fcm.googleapis.com/fcm/send/abc",
         "https://updates.push.services.mozilla.com/wpush/v2/abc",
-        "https://8.8.8.8/x",
     ],
 )
 def test_push_endpoint_accepts_public_hosts(endpoint: str) -> None:

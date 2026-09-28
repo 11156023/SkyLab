@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models import (
     TaskRecord,
@@ -35,6 +35,14 @@ class VMTemplateCreate(BaseModel):
     )
 
 
+_UPDATE_NON_NULLABLE_FIELDS = (
+    "name",
+    "visibility",
+    "allow_password_change",
+    "requires_gpu",
+)
+
+
 class VMTemplateUpdate(BaseModel):
     """更新範本 metadata / 可見範圍"""
 
@@ -46,6 +54,18 @@ class VMTemplateUpdate(BaseModel):
     # default_disk 不開放更新：跟母機一致
     allow_password_change: bool | None = None
     requires_gpu: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_null_for_required_fields(cls, data: Any) -> Any:
+        # 欄位型別是 Optional 只為了 PATCH 的「沒送就不改」；這幾欄在 DB 是
+        # NOT NULL，明確送 null 直接回 422（service 端另有 400 的同樣檢查）。
+        # description / default_cores / default_memory 可為 null，不在此列。
+        if isinstance(data, dict):
+            for field in _UPDATE_NON_NULLABLE_FIELDS:
+                if field in data and data[field] is None:
+                    raise ValueError(f"{field} cannot be null")
+        return data
 
 
 # ===== Response Schemas =====

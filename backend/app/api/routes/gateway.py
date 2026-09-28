@@ -241,7 +241,11 @@ def write_config(
 
 @router.post("/nginx/certificates/sync", response_model=Message)
 def sync_nginx_certificates(session: SessionDep, current_user: AdminUser):
-    """用 Cloudflare DNS-01 補簽／續期 Let's Encrypt 憑證，再重寫 nginx 設定並 reload"""
+    """用 Cloudflare DNS-01 補簽／續期 Let's Encrypt 憑證，再重寫 nginx 設定並 reload
+
+    前端目前沒有按鈕呼叫此端點；規則異動時的 nginx 同步只會補簽缺的憑證，
+    ``certbot renew`` 只有這裡會觸發，因此保留給管理員以 API／CLI 手動續期使用。
+    """
     from app.services.network import reverse_proxy_service
 
     try:
