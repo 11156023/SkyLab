@@ -21,6 +21,7 @@ from app.core.i18n import t
 from app.core.permissions import is_admin
 from app.exceptions import BadRequestError, NotFoundError, PermissionDeniedError
 from app.models import (
+    INSTRUCTOR_ENROLLMENT_STATUS,
     Resource,
     TeachingClass,
     TeachingClassMachineNode,
@@ -144,7 +145,10 @@ def list_class_students(
     enrollments = list(
         session.exec(
             select(TeachingClassStudent)
-            .where(TeachingClassStudent.class_id == class_id)
+            .where(
+                TeachingClassStudent.class_id == class_id,
+                TeachingClassStudent.status != INSTRUCTOR_ENROLLMENT_STATUS,
+            )
             .order_by(TeachingClassStudent.joined_at)
         ).all()
     )
