@@ -7,7 +7,7 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.models import User
-from app.repositories.user import create_user
+from app.repositories.user import create_user, get_user_by_email
 from app.schemas import UserCreate
 from app.utils import generate_password_reset_token
 from tests.utils.user import user_authentication_headers
@@ -249,7 +249,12 @@ def test_google_login_is_case_insensitive_for_existing_user(
 def test_google_login_unregistered_email_has_clear_error(
     client: TestClient, monkeypatch
 ) -> None:
-    with patch("app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"):
+    with (
+        patch(
+            "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
+        ),
+        patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", True),
+    ):
         _mock_google_tokeninfo(
             monkeypatch,
             {
@@ -265,3 +270,104 @@ def test_google_login_unregistered_email_has_clear_error(
 
     assert r.status_code == 400
     assert r.json()["detail"] == "此 Google 帳號尚未註冊"
+
+
+def test_google_login_auto_registers_edu_tw_student(
+    client: TestClient, db: Session, monkeypatch
+) -> None:
+    email = f"{random_lower_string()}@campus.edu.tw"
+    with (
+        patch(
+            "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
+        ),
+        patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", True),
+    ):
+        _mock_google_tokeninfo(
+            monkeypatch,
+            {
+                "aud": "google-client",
+                "email": email,
+                "email_verified": "true",
+                "name": "First Login Student",
+                "picture": "https://example.com/avatar.png",
+            },
+        )
+        r = client.post(
+            f"{settings.API_V1_STR}/login/google",
+            json={"id_token": "valid-google-token"},
+        )
+
+    assert r.status_code == 200
+    assert r.json()["access_token"]
+    user = get_user_by_email(session=db, email=email)
+    assert user is not None
+    assert user.role.value == "student"
+    assert user.is_active is True
+    assert user.auth_source == "google"
+    assert user.full_name == "First Login Student"
+    assert user.avatar_url == "https://example.com/avatar.png"
+
+
+def test_google_login_does_not_auto_register_edu_when_signup_disabled(
+    client: TestClient, db: Session, monkeypatch
+) -> None:
+    email = f"{random_lower_string()}@university.edu"
+    with (
+        patch(
+            "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
+        ),
+        patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", False),
+    ):
+        _mock_google_tokeninfo(
+            monkeypatch,
+            {
+                "aud": "google-client",
+                "email": email,
+                "email_verified": "true",
+            },
+        )
+        r = client.post(
+            f"{settings.API_V1_STR}/login/google",
+            json={"id_token": "valid-google-token"},
+        )
+
+    assert r.status_code == 400
+    assert get_user_by_email(session=db, email=email) is None
+
+
+def test_google_login_keeps_existing_ldap_account_source(
+    client: TestClient, db: Session, monkeypatch
+) -> None:
+    email = f"{random_lower_string()}@campus.edu.tw"
+    user = create_user(
+        session=db,
+        user_create=UserCreate(
+            email=email,
+            full_name="LDAP Student",
+            password=random_lower_string(),
+            is_active=True,
+        ),
+    )
+    user.auth_source = "ldap"
+    db.add(user)
+    db.commit()
+
+    with patch(
+        "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
+    ):
+        _mock_google_tokeninfo(
+            monkeypatch,
+            {
+                "aud": "google-client",
+                "email": email,
+                "email_verified": "true",
+            },
+        )
+        r = client.post(
+            f"{settings.API_V1_STR}/login/google",
+            json={"id_token": "valid-google-token"},
+        )
+
+    assert r.status_code == 200
+    db.refresh(user)
+    assert user.auth_source == "ldap"
