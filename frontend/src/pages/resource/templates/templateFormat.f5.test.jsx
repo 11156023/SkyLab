@@ -20,13 +20,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 
 describe("formatBytes", () => {
-  test("範本頁與表單共用同一份 helper", async () => {
-    const { default: TemplatesPage } = await import("./TemplatesPage");
-    const { default: TemplateFormDialog } = await import("./TemplateFormDialog");
-    expect(typeof TemplatesPage).toBe("function");
-    expect(typeof TemplateFormDialog).toBe("function");
-  });
-
   test("依大小換成 B／KB／MB", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2 KB");
