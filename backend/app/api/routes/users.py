@@ -1,9 +1,9 @@
 import time
 import uuid
-from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from app.api.deps import (
@@ -11,7 +11,9 @@ from app.api.deps import (
     SessionDep,
     get_current_active_superuser,
 )
+from app.core.config import settings
 from app.core.i18n import t
+from app.models import User
 from app.schemas import (
     Message,
     TotpCodeRequest,
@@ -27,28 +29,21 @@ from app.schemas import (
 )
 from app.schemas.monitoring import LoginPreflight
 from app.services.monitoring import preflight_service
-from app.services.user import totp_service, user_service
+from app.services.user import avatar_service, totp_service, user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-# 頭像檔案存放目錄（repo 根的 data/avatars，與 teacher-judge 慣例一致），
-# 檔名固定為 {user_id}.{ext}
-AVATAR_DIR = Path(__file__).resolve().parents[4] / "data" / "avatars"
-AVATAR_MAX_BYTES = 2 * 1024 * 1024
-AVATAR_CONTENT_TYPES = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-}
-
 
 @router.get(
     "/",
     dependencies=[Depends(get_current_active_superuser)],
     response_model=UsersPublic,
 )
-def read_users(session: SessionDep, skip: int = 0, limit: int = 100) -> Any:
+def read_users(
+    session: SessionDep,
+    # 負值會讓 PostgreSQL OFFSET/LIMIT 報錯（500）；上限須 ≥ 前端分頁的 200
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> Any:
     return user_service.list_users(session=session, skip=skip, limit=limit)
 
 
@@ -86,7 +81,7 @@ def update_password_me(
 
 
 @router.get("/me", response_model=UserPublic)
-def read_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
+def read_user_me(current_user: CurrentUser) -> Any:
     me = UserPublic.model_validate(current_user)
     # 管理員要求此帳號啟用 2FA 但尚未綁定：前端只顯示綁定畫面
     me.totp_setup_required = current_user.totp_required and not current_user.totp_enabled
@@ -142,7 +137,7 @@ async def upload_avatar_me(
     session: SessionDep, current_user: CurrentUser, file: UploadFile = File(...)
 ) -> Any:
     """上傳頭像圖片，存檔後把 avatar_url 指向本服務的頭像端點。"""
-    ext = AVATAR_CONTENT_TYPES.get((file.content_type or "").lower())
+    ext = avatar_service.AVATAR_CONTENT_TYPES.get((file.content_type or "").lower())
     if not ext:
         raise HTTPException(
             status_code=400, detail=t("users.avatarUnsupportedFormat")
@@ -151,20 +146,23 @@ async def upload_avatar_me(
     buffer = bytearray()
     while chunk := await file.read(64 * 1024):
         buffer.extend(chunk)
-        if len(buffer) > AVATAR_MAX_BYTES:
+        if len(buffer) > avatar_service.AVATAR_MAX_BYTES:
             raise HTTPException(
                 status_code=400, detail=t("users.avatarTooLarge")
             )
     data = bytes(buffer)
 
-    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    for old in AVATAR_DIR.glob(f"{current_user.id}.*"):
-        old.unlink(missing_ok=True)
-    (AVATAR_DIR / f"{current_user.id}{ext}").write_bytes(data)
+    # 檔案 I/O 與同步 DB commit 都丟到 worker thread，不佔住 event loop
+    await run_in_threadpool(
+        avatar_service.store_avatar, current_user.id, ext, data
+    )
 
     # v= 時間戳讓 <img> 換圖時不吃瀏覽器快取
-    avatar_url = f"/api/v1/users/{current_user.id}/avatar?v={int(time.time())}"
-    return user_service.update_me(
+    avatar_url = (
+        f"{settings.API_V1_STR}/users/{current_user.id}/avatar?v={int(time.time())}"
+    )
+    return await run_in_threadpool(
+        user_service.update_me,
         session=session,
         user_in=UserUpdateMe(avatar_url=avatar_url),
         current_user=current_user,
@@ -172,18 +170,21 @@ async def upload_avatar_me(
 
 
 @router.get("/{user_id}/avatar")
-def get_user_avatar(user_id: uuid.UUID) -> FileResponse:
+def get_user_avatar(user_id: uuid.UUID, session: SessionDep) -> FileResponse:
     """頭像檔案。<img> 標籤無法帶 Authorization header，因此不做驗證；
-    user_id 由路由強制為 UUID，不會有路徑穿越問題。"""
-    matches = sorted(AVATAR_DIR.glob(f"{user_id}.*"))
-    if not matches:
+    user_id 由路由強制為 UUID，不會有路徑穿越問題。帳號已刪除時一律 404
+    （涵蓋刪除前殘留的舊檔）。"""
+    path = avatar_service.find_avatar(user_id)
+    if path is None or session.get(User, user_id) is None:
         raise HTTPException(status_code=404, detail="Avatar not found")
-    return FileResponse(matches[0])
+    return FileResponse(path)
 
 
 @router.delete("/me", response_model=Message)
 def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
+    user_id = current_user.id
     user_service.delete_me(session=session, current_user=current_user)
+    avatar_service.delete_avatar_files(user_id)
     return Message(message="User deleted successfully")
 
 
@@ -228,6 +229,7 @@ def delete_user(
     user_service.delete_user(
         session=session, user_id=user_id, current_user=current_user
     )
+    avatar_service.delete_avatar_files(user_id)
     return Message(message="User deleted successfully")
 
 

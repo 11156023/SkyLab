@@ -1,13 +1,27 @@
 # ShareGPT Benchmark 快速參考
 
+以下指令都在 `vllm-service/` 目錄執行。
+
+## 🎯 壓測目標
+
+| 目標 | 參數 | 連線位址 | 金鑰 |
+|------|------|----------|------|
+| LiteLLM（預設） | `--target litellm` | `LITELLM_BASE_URL`，預設 `http://127.0.0.1:4000/v1` | `LITELLM_API_KEY` 或 `AI_API_API_KEY` 環境變數，否則讀 repo 根目錄 `.env` 的 `AI_API_API_KEY` |
+| 單模型 vLLM | `--target single` | `.env.interface` 的 `API_HOST`／`API_PORT` | `.env.interface` 的 `API_KEY` |
+
+舊參數 `--target gateway` 仍可用，等同 `litellm`。未指定 `--model` 時，LiteLLM 目標會取
+`/v1/models` 的第一個模型（取不到時改讀 `models.json` 的 alias）；單模型目標送
+`SERVED_MODEL_NAME`（未設定時送模型路徑）。
+
 ## 🚀 快速開始（3 步驟）
 
 ```bash
-# 1. 下載 ShareGPT 數據集
+# 1. 下載 ShareGPT 數據集（存到 test_datasets/，已由 Git 忽略）
 ./run_sharegpt_benchmark.sh --download
 
-# 2. 快速測試（100 個樣本）
-./run_sharegpt_benchmark.sh -n 100 -c 20
+# 2. 快速測試（100 個樣本，經 LiteLLM）
+export LITELLM_API_KEY=<service-key>
+./run_sharegpt_benchmark.sh -n 100 -c 20 --model qwen3-14b
 
 # 3. 查看結果
 ls -lh benchmark_results/sharegpt_bench_*.json
@@ -29,16 +43,21 @@ ls -lh benchmark_results/sharegpt_bench_*.json
 
 # 大規模測試（5000 個樣本）
 ./run_sharegpt_benchmark.sh -n 5000 -c 100
+
+# 直連單模型 vLLM 主服務
+./run_sharegpt_benchmark.sh --target single -n 100 -c 20
 ```
 
 ### Python 直接調用
 
 ```bash
-# 基本用法
-python3 run_sharegpt_benchmark.py ShareGPT_V3_unfiltered_cleaned_split.json -n 100 -c 20
+# 基本用法（預設經 LiteLLM）
+python3 run_sharegpt_benchmark.py test_datasets/ShareGPT_V3_unfiltered_cleaned_split.json -n 100 -c 20
 
 # 完整參數
-python3 run_sharegpt_benchmark.py ShareGPT_V3_unfiltered_cleaned_split.json \
+python3 run_sharegpt_benchmark.py test_datasets/ShareGPT_V3_unfiltered_cleaned_split.json \
+    --target litellm \
+    --model qwen3-14b \
     -n 1000 \
     -c 50 \
     -m 512 \
@@ -83,18 +102,18 @@ python3 run_sharegpt_benchmark.py ShareGPT_V3_unfiltered_cleaned_split.json \
 ## 📁 文件結構
 
 ```
-vllm_single/
+vllm-service/
 ├── benchmark/
-│   ├── sharegpt_dataset.py      # ShareGPT 數據集解析
-│   └── sharegpt_bench.py        # ShareGPT Benchmark 測試
+│   ├── _common.py               # 串流計時、百分位數等共用函式
+│   ├── sharegpt_dataset.py      # ShareGPT 數據集解析與下載
+│   ├── sharegpt_bench.py        # ShareGPT Benchmark（LiteLLM／單模型）
+│   └── async_bench.py           # 單一 prompt 的異步壓測（直連 vLLM）
 ├── run_sharegpt_benchmark.py    # Python 入口
 ├── run_sharegpt_benchmark.sh    # Shell 腳本
-├── test_sharegpt_setup.py       # 測試驗證腳本
-├── ShareGPT_V3_*.json           # 數據集（首次運行後下載）
-├── benchmark_results/
-│   └── sharegpt_bench_*.json    # 測試報告
-└── docs/
-    └── SHAREGPT_BENCHMARK_GUIDE.md  # 完整文檔
+├── test_datasets/
+│   └── ShareGPT_V3_*.json       # 數據集（--download 後產生）
+└── benchmark_results/
+    └── sharegpt_bench_*.json    # 測試報告
 ```
 
 ## 🔍 測試場景建議
@@ -107,18 +126,6 @@ vllm_single/
 | 壓力測試 | 5000 | 100 | 30-60分鐘 | `-n 5000 -c 100` |
 | 穩定性測試 | 10000 | 50 | 1-2小時 | `-n 10000 -c 50` |
 
-## 🆚 與其他測試方法對比
-
-| 特性 | benchmark_current.sh | enhanced_bench.py | **sharegpt_bench.py** |
-|------|---------------------|-------------------|---------------------|
-| 數據集 | ShareGPT (vllm CLI) | 自定義 JSON | **ShareGPT** |
-| 調用方式 | vllm bench 命令 | Python API | **Python API** |
-| 併發控制 | vllm 內建 | asyncio | **asyncio** |
-| TPOT 指標 | ✅ | ❌ | **✅** |
-| 彈性採樣 | ❌ | ❌ | **✅** |
-| 可複現性 | 部分 | ✅ | **✅** |
-| 數據格式 | ShareGPT | 自定義 | **ShareGPT** |
-
 ## 🐛 常見問題
 
 ### 數據集未找到
@@ -126,17 +133,17 @@ vllm_single/
 # 手動下載
 ./run_sharegpt_benchmark.sh --download
 
-# 或使用 Python 自動下載（首次運行時）
-python3 run_sharegpt_benchmark.py ShareGPT_V3_unfiltered_cleaned_split.json -n 10 -c 2
+# 或使用 Python 自動下載（首次運行時，資料集路徑不存在會自動下載）
+python3 run_sharegpt_benchmark.py test_datasets/ShareGPT_V3_unfiltered_cleaned_split.json -n 10 -c 2
 ```
 
-### API 連接錯誤
+### API 連接或認證錯誤
 ```bash
-# 檢查服務是否運行
-curl http://localhost:8000/v1/models
+# LiteLLM：確認服務與金鑰
+curl -H "Authorization: Bearer $LITELLM_API_KEY" http://127.0.0.1:4000/v1/models
 
-# 檢查 .env 配置
-cat .env | grep -E "API_HOST|API_PORT"
+# 單模型：確認 .env.interface 的位址與金鑰
+grep -E "API_HOST|API_PORT|API_KEY" .env.interface
 ```
 
 ### 併發數過高
@@ -147,16 +154,14 @@ cat .env | grep -E "API_HOST|API_PORT"
 
 ### 測試代碼
 ```bash
-# 運行驗證測試
-source .venv/bin/activate
-python3 test_sharegpt_setup.py
+# benchmark 的單元測試（不需要 GPU 或模型服務）
+python -m pytest tests/test_sharegpt_benchmark.py
 ```
 
 ## 📚 相關資源
 
-- **完整文檔**: [docs/SHAREGPT_BENCHMARK_GUIDE.md](docs/SHAREGPT_BENCHMARK_GUIDE.md)
-- **通用 Benchmark**: [docs/BENCHMARK_GUIDE.md](docs/BENCHMARK_GUIDE.md)
-- **主 README**: [README.md](README.md)
+- **vllm-service README**: [README.md](../README.md)
+- **AI API 使用手冊**: [ai-api-user-manual.md](../../docs/ai-api-user-manual.md)
 - **數據集來源**: https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered
 
 ## 💡 最佳實踐
@@ -175,7 +180,7 @@ python3 test_sharegpt_setup.py
   🚀 ShareGPT vLLM Benchmark 報告
 ================================================================================
   時間:          2026-02-15T12:00:00
-  模型:          nvidia/Qwen3-235B-A22B-NVFP4
+  模型:          qwen3-14b
   數據集:        ShareGPT (ShareGPT_V3_unfiltered_cleaned_split.json)
 ────────────────────────────────────────────────────────────────────────────────
   測試配置:
@@ -210,7 +215,3 @@ python3 test_sharegpt_setup.py
     P99:     45.678ms/token
 ================================================================================
 ```
-
----
-
-**需要幫助？** 查看完整文檔：`cat docs/SHAREGPT_BENCHMARK_GUIDE.md`

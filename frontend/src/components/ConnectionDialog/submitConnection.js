@@ -4,18 +4,15 @@
  *
  * 成功與失敗都回傳同一種結構，呼叫端據此決定顯示什麼、要不要通知外部重新載入：
  *   { ok: true,  result: {...} }
- *   { ok: false, error: { key, text?, params? }, partialDone?: number }
+ *   { ok: false, error: { key, text?, params? }, partialDone?: number, published?: string[] }
  *
  * partialDone 是入站多筆發布途中失敗時「已經成功幾筆」，
  * 呼叫端要據此先通知外部刷新，否則畫面會看不到已經生效的那幾條。
+ * published 是已成功的那幾筆（"port/protocol"），呼叫端要把它們從表單拿掉：
+ * 後端不接受重複發布同一個 port，留著的話重送會卡在第一筆。
  */
 
-import {
-  createConnection,
-  createVmRule,
-  publishService,
-  replacePublishedService,
-} from "../../services/firewall";
+import { createConnection, createVmRule, publishService } from "../../services/firewall";
 
 /** API 失敗一律優先顯示後端訊息，沒有才退回通用文案 */
 const apiError = (err) => ({
@@ -32,22 +29,9 @@ export async function submitRule({ vmid, body }) {
   }
 }
 
-export async function submitInbound({ vmid, publish, raw = [], service = null }) {
-  /* 編輯既有發布：換掉那一條，不是新增 */
-  if (service) {
-    try {
-      await replacePublishedService(
-        vmid,
-        { port: service.port, protocol: service.protocol },
-        publish[0],
-      );
-      return { ok: true, result: { kind: "replace", vmid } };
-    } catch (err) {
-      return apiError(err);
-    }
-  }
-
+export async function submitInbound({ vmid, publish, raw = [] }) {
   let done = 0;
+  const published = [];
   for (const payload of publish) {
     try {
       await publishService(vmid, payload);
@@ -55,6 +39,7 @@ export async function submitInbound({ vmid, publish, raw = [], service = null })
       return {
         ok: false,
         partialDone: done,
+        published,
         error: {
           key: "ConnectionDialog.partialFailed",
           params: {
@@ -66,6 +51,7 @@ export async function submitInbound({ vmid, publish, raw = [], service = null })
       };
     }
     done += 1;
+    published.push(`${payload.port}/${payload.protocol}`);
   }
 
   if (raw.length > 0) {
@@ -77,7 +63,7 @@ export async function submitInbound({ vmid, publish, raw = [], service = null })
         direction: "one_way",
       });
     } catch (err) {
-      return { ...apiError(err), partialDone: done };
+      return { ...apiError(err), partialDone: done, published };
     }
   }
 
@@ -97,7 +83,6 @@ export async function submitRequest(request) {
       vmid: request.vmid,
       publish: request.publish,
       raw: request.raw,
-      service: request.service,
     });
   }
   return submitEdge({

@@ -17,6 +17,26 @@ describe("sanitizeAiPveContent", () => {
     expect(sanitizeAiPveContent(null)).toBe("");
   });
 
+  it("strips only the leaked tool-call payload and keeps later content", () => {
+    const out = sanitizeAiPveContent(
+      '<|tool_call>call:get_nodes{"a":1}\n## 診斷結論\n正常\n```json\n{"vmid":100}\n```',
+    );
+    expect(out).toContain("## 診斷結論");
+    expect(out).toContain('{"vmid":100}');
+    expect(out).not.toContain("get_nodes");
+  });
+
+  it("strips pretty-printed nested tool-call args with braces inside strings", () => {
+    const out = sanitizeAiPveContent(
+      '前言\n<|tool_call>call:run{\n  "args": {"cmd": "echo }"},\n  "n": 2\n}\n結論 {x}',
+    );
+    expect(out).toBe("前言\n\n結論 {x}");
+  });
+
+  it("drops a truncated tool call that never closes", () => {
+    expect(sanitizeAiPveContent('節點正常<|tool_call>call:get_nodes{"node":')).toBe("節點正常");
+  });
+
   it("renders assistant Markdown instead of showing formatting markers", () => {
     const html = renderToStaticMarkup(
       React.createElement(AiPveMarkdownContent, { content: "**CPU 使用率**\n\n- 85%" }),

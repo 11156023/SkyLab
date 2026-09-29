@@ -395,7 +395,7 @@ async def test_session_script_set_compile_failure_is_saved_to_chat(
     db.refresh(item)
     user = SimpleNamespace(id=uuid.uuid4())
 
-    async def failed_artifact_set(**kwargs):
+    def failed_artifact_set(**kwargs):
         raise HTTPException(
             status_code=422,
             detail={

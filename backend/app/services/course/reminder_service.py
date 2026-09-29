@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
+from app.core.i18n import t
 from app.models import (
     CoursePath,
     CoursePathStatus,
@@ -29,9 +30,9 @@ def _aware(value: datetime) -> datetime:
 
 def _date_label(value: date, today: date) -> str:
     if value == today:
-        return "今天"
+        return t("course_reminder.today")
     if value == today + timedelta(days=1):
-        return "明天"
+        return t("course_reminder.tomorrow")
     return f"{value.month}/{value.day}"
 
 
@@ -64,18 +65,22 @@ def list_student_reminders(
         if expiry is None:
             continue
         days = (expiry - today).days
-        resource_name = request.hostname if request else f"資源 #{resource.vmid}"
+        resource_name = (
+            request.hostname
+            if request
+            else t("course_reminder.resource_fallback_name", vmid=resource.vmid)
+        )
         if days == 0:
-            description = "今天到期；若仍需使用，請儘快申請延長。"
+            description = t("course_reminder.resource_expires_today")
         else:
-            description = f"將在 {days} 天後到期；需要保留請提前處理。"
+            description = t("course_reminder.resource_expires_in_days", days=days)
         reminders.append(
             CourseReminderStudent(
                 id=f"resource-expiry:{resource.vmid}:{expiry.isoformat()}",
                 kind="resource_expiry",
                 tone="warning" if days > 1 else "danger",
                 icon="schedule",
-                title=f"{resource_name} 即將到期",
+                title=t("course_reminder.resource_expiring_title", name=resource_name),
                 description=description,
                 time_label=_date_label(expiry, today),
                 target="/my-resources",
@@ -105,11 +110,16 @@ def list_student_reminders(
                 kind="request_review",
                 tone="success" if approved else "danger",
                 icon="check_circle" if approved else "cancel",
-                title=f"資源申請已{'通過' if approved else '退回'}",
-                description=(
-                    f"{request.hostname} 已核准，可到我的資源查看。"
+                title=t(
+                    "course_reminder.request_approved_title"
                     if approved
-                    else f"{request.hostname} 未通過審核，請到我的申請查看原因。"
+                    else "course_reminder.request_rejected_title"
+                ),
+                description=t(
+                    "course_reminder.request_approved_description"
+                    if approved
+                    else "course_reminder.request_rejected_description",
+                    hostname=request.hostname,
                 ),
                 time_label=_date_label(
                     reviewed_at.astimezone(_TAIPEI).date(), today
@@ -146,8 +156,15 @@ def list_student_reminders(
                 kind="class_task",
                 tone="info" if week.session_date > today else "warning",
                 icon="assignment",
-                title=f"{teaching_class.name}：{week.title}",
-                description=f"第 {week.week_number} 週課堂任務，點擊查看內容與檢查項目。",
+                title=t(
+                    "course_reminder.class_task_title",
+                    class_name=teaching_class.name,
+                    title=week.title,
+                ),
+                description=t(
+                    "course_reminder.class_task_description",
+                    week=week.week_number,
+                ),
                 time_label=label,
                 target=f"/dashboard/course/{path.id}",
                 occurred_at=datetime.combine(

@@ -5,6 +5,7 @@ import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
 import TotpEnrollPage from "./pages/login/TotpEnrollPage";
+import ResetPasswordRedirect, { hasResetToken } from "./pages/login/ResetPasswordRedirect";
 import LoginPreflightPage from "./pages/login/LoginPreflightPage";
 import OnboardingPage from "./pages/onboarding/OnboardingPage";
 import MIcon from "./components/MIcon";
@@ -12,6 +13,7 @@ import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
 import { useSetupStatus } from "./pages/setup/useSetupStatus";
 import { useModalScrollLock } from "./hooks/useBodyScrollLock";
+import { canTeachUser, isAdminUser } from "./utils/roles";
 import styles from "./App.module.scss";
 
 // 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
@@ -153,11 +155,14 @@ function LegacySettingsRedirect() {
 function App() {
   const { user, loading, authStatus, retrySession, loginPreflightPending } = useAuth();
   useModalScrollLock();
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
-  const canTeach = isAdmin || user?.role === "teacher";
+  const isAdmin = isAdminUser(user);
+  const canTeach = canTeachUser(user);
   const isDeviceApproval = Boolean(
     new URLSearchParams(window.location.search).get("device_code"),
   );
+  const isResetLink =
+    (window.location.pathname === "/login" || window.location.pathname === "/reset-password") &&
+    hasResetToken(window.location.search);
 
   /* 導入頁是純靜態內容，不依賴 session 檢查：
      後端連不上或 session 驗證中時，/ 照樣直接呈現，其餘路徑維持原本的啟動畫面。 */
@@ -195,12 +200,14 @@ function App() {
 
   /* 每次登入後先跑服務檢查（DB／Redis／worker／PVE／Gateway／AI）：學生與老師檢查沒過就停在
      「請通知管理員」，管理員可以略過。放在其他閘門之前，端點在 /users/me 底下，
-     強制綁定 2FA 的帳號也叫得到。裝置授權流程不跑（completeLogin 也不會立旗標）。 */
-  if (user && loginPreflightPending && !isDeviceApproval) {
+     強制綁定 2FA 的帳號也叫得到。裝置授權流程不跑（completeLogin 也不會立旗標）。
+     重設密碼信的連結（/login、/reset-password 帶 token）也先放行，登入中照樣能重設；
+     旗標不清，回到一般頁面時仍會補跑檢查。 */
+  if (user && loginPreflightPending && !isDeviceApproval && !isResetLink) {
     return <LoginPreflightPage />;
   }
 
-  /* 管理員強制全站 2FA 且本人尚未綁定：後端除帳號／登入端點外一律 403，
+  /* 帳號被設定強制兩步驟驗證（user.totp_required）且本人尚未綁定：後端除帳號／登入端點外一律 403，
      所以這裡不進 DashboardLayout（避免側欄／通知等請求一路噴 403），
      只顯示綁定畫面；完成後 updateUser 清掉旗標即自動進入系統。 */
   if (user?.totp_setup_required) {
@@ -219,13 +226,15 @@ function App() {
       <Route
         path="/login"
         element={
-          user && !isDeviceApproval ? (
+          user && !isDeviceApproval && !hasResetToken(window.location.search) ? (
             <Navigate to="/dashboard" replace />
           ) : (
             <LoginRoute />
           )
         }
       />
+      {/* 重設密碼信的連結 /reset-password?token=...：保留查詢字串轉到 /login，登入前後都要能用 */}
+      <Route path="/reset-password" element={<ResetPasswordRedirect />} />
       {/* 初始化精靈：登入前後都可開，完成後頁面自己會提示已初始化 */}
       <Route
         path="/setup"

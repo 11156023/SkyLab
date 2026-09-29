@@ -96,38 +96,6 @@ def get_logger(name: str = "vLLM") -> Logger:
     return Logger(name)
 
 
-def log_system_info() -> None:
-    """輸出系統資訊"""
-    import platform
-    import psutil
-    
-    logger = get_logger("System")
-    logger.section("系統資訊")
-    logger.info(f"作業系統: {platform.system()} {platform.release()}")
-    logger.info(f"Python 版本: {platform.python_version()}")
-    logger.info(f"CPU 核心數: {psutil.cpu_count(logical=False)} 實體 / {psutil.cpu_count(logical=True)} 邏輯")
-    
-    # 記憶體
-    mem = psutil.virtual_memory()
-    logger.info(f"總記憶體: {mem.total / (1024**3):.1f} GB")
-    logger.info(f"可用記憶體: {mem.available / (1024**3):.1f} GB ({mem.percent}% 已使用)")
-    
-    # GPU 資訊（如果可用）
-    try:
-        import torch
-        if torch.cuda.is_available():
-            logger.info(f"CUDA 版本: {torch.version.cuda}")
-            logger.info(f"GPU 數量: {torch.cuda.device_count()}")
-            for i in range(torch.cuda.device_count()):
-                gpu_name = torch.cuda.get_device_name(i)
-                gpu_mem = torch.cuda.get_device_properties(i).total_memory / (1024**3)
-                logger.info(f"  GPU {i}: {gpu_name} ({gpu_mem:.1f} GB)")
-        else:
-            logger.warning("未檢測到 CUDA GPU")
-    except ImportError:
-        logger.warning("PyTorch 未安裝，無法檢測 GPU")
-
-
 # ============================================================
 # 測試
 # ============================================================
@@ -142,5 +110,3 @@ if __name__ == "__main__":
     logger.error("這是錯誤訊息")
     logger.success("這是成功訊息")
     
-    print()
-    log_system_info()

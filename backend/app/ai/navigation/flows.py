@@ -12,7 +12,7 @@ checks both against the real router table.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.ai.navigation.catalog import RouteAccess, can_access, resolve_user_role
@@ -44,7 +44,6 @@ class NavigationFlow:
     keywords: tuple[str, ...]
     steps: tuple[NavigationStep, ...]
     access: RouteAccess = "all"
-    entities: tuple[str, ...] = field(default=())
 
 
 _FLOWS: tuple[NavigationFlow, ...] = (

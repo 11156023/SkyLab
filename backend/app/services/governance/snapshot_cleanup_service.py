@@ -1,4 +1,5 @@
-"""快照自動清理（E8）：掃描受管資源，刪除超過保留天數的一般快照。
+"""快照自動清理（E8）：掃描受管資源，刪除超過保留天數的一般快照，
+以及對應挖礦事件已結案滿 ``MINING_EVIDENCE_RETENTION_DAYS`` 天的 ``mining-*`` 存證快照。
 
 資格判定在 ``snapshot_cleanup_policy`` 純函式。每 tick 至多掃
 ``SNAPSHOT_CLEANUP_BATCH_SIZE`` 台，以 module-level vmid 游標輪替，
@@ -16,7 +17,8 @@ from sqlmodel import Session, select
 
 from app.models import MiningIncident, MiningIncidentStatus, Resource
 from app.services.governance.snapshot_cleanup_policy import (
-    PROTECTED_PREFIXES,
+    MINING_EVIDENCE_RETENTION_DAYS,
+    MINING_SNAPSHOT_PREFIX,
     is_cleanup_eligible,
 )
 from app.services.proxmox import proxmox_service
@@ -27,8 +29,6 @@ logger = logging.getLogger(__name__)
 
 SNAPSHOT_CLEANUP_BATCH_SIZE = 20
 
-# 存證快照前綴（與 mining_service 產生的 ``mining-YYYYmmddHHMM`` 同源）
-MINING_PREFIX = PROTECTED_PREFIXES[0]
 
 class _ScanCursor:
     """跨 tick 的掃描游標（集中在物件上，避免 global 重新指派）。"""
@@ -105,14 +105,35 @@ def _reset_cursor() -> None:
 
 
 def _audit_and_notify(
-    session: Session, resource: Resource, snapname: str, retention_days: int
+    session: Session,
+    resource: Resource,
+    snapname: str,
+    retention_days: int,
+    *,
+    evidence: bool = False,
 ) -> None:
+    """``evidence=True``：挖礦存證快照，``retention_days`` 是「事件結案後」的天數。"""
+    if evidence:
+        details = (
+            f"Auto-cleaned mining evidence snapshot '{snapname}' "
+            f"(incident closed >{retention_days}d)"
+        )
+        body = (
+            f"<p>您的資源（VMID {resource.vmid}）安全事件存證快照 <b>{snapname}</b> "
+            f"對應的事件已結案超過 {retention_days} 天，系統已自動刪除。</p>"
+        )
+    else:
+        details = f"Auto-cleaned snapshot '{snapname}' (>{retention_days}d)"
+        body = (
+            f"<p>您的資源（VMID {resource.vmid}）快照 <b>{snapname}</b> "
+            f"已超過保留天數（{retention_days} 天），系統已自動刪除。</p>"
+        )
     audit_service.log_action(
         session=session,
         user_id=None,
         vmid=resource.vmid,
         action="snapshot_delete",
-        details=f"Auto-cleaned snapshot '{snapname}' (>{retention_days}d)",
+        details=details,
         commit=False,
     )
     user = resource.user
@@ -122,11 +143,7 @@ def _audit_and_notify(
         send_email(
             email_to=str(user.email),
             subject=f"[SkyLab] 資源 VMID {resource.vmid} 的過期快照已自動清理",
-            html_content=(
-                f"<p>您的資源（VMID {resource.vmid}）快照 <b>{snapname}</b> "
-                f"已超過保留天數（{retention_days} 天），系統已自動刪除。</p>"
-                "<p>skylab-init 初始快照不受影響。</p>"
-            ),
+            html_content=body + "<p>skylab-init 初始快照不受影響。</p>",
         )
     except Exception:
         logger.warning(
@@ -169,7 +186,7 @@ def process_snapshot_cleanup() -> int:
                     closed_incidents: dict[str, datetime] | None = None
                     for snap in snapshots:
                         snap_name = str(snap.get("name") or "")
-                        if snap_name.startswith(MINING_PREFIX):
+                        if snap_name.startswith(MINING_SNAPSHOT_PREFIX):
                             if closed_incidents is None:
                                 closed_incidents = _closed_mining_snapshots(
                                     session, resource.vmid
@@ -185,11 +202,17 @@ def process_snapshot_cleanup() -> int:
                         proxmox_service.delete_snapshot(
                             node, resource.vmid, rtype, str(snap.get("name"))
                         )
+                        is_evidence = snap_name.startswith(MINING_SNAPSHOT_PREFIX)
                         _audit_and_notify(
                             session,
                             resource,
-                            str(snap.get("name")),
-                            config.snapshot_retention_days,
+                            snap_name,
+                            (
+                                MINING_EVIDENCE_RETENTION_DAYS
+                                if is_evidence
+                                else config.snapshot_retention_days
+                            ),
+                            evidence=is_evidence,
                         )
                         deleted += 1
                         session.commit()

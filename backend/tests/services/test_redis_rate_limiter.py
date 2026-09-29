@@ -10,10 +10,7 @@ import pytest
 redis_asyncio = pytest.importorskip("redis.asyncio")
 Redis = redis_asyncio.Redis
 
-from app.infrastructure.redis.rate_limiter import (
-    check_rate_limit_sliding_window,
-    clear_user_rate_limit,
-)
+from app.infrastructure.redis.rate_limiter import check_rate_limit_sliding_window
 
 
 @pytest.fixture
@@ -123,35 +120,6 @@ async def test_rate_limit_different_users(redis_client: Redis):
     # 用戶 2 應該仍然可以發送
     allowed, info = await check_rate_limit_sliding_window(
         redis_client, user2, limit=20, window_seconds=60
-    )
-    assert allowed is True
-    assert info["current"] == 1
-
-
-@pytest.mark.asyncio
-async def test_clear_user_rate_limit(redis_client: Redis):
-    """測試：清除用戶速率限制"""
-    user_id = "test-user-6"
-
-    # 發送 20 個請求
-    for _ in range(20):
-        await check_rate_limit_sliding_window(
-            redis_client, user_id, limit=20, window_seconds=60
-        )
-
-    # 應該被拒絕
-    allowed, _ = await check_rate_limit_sliding_window(
-        redis_client, user_id, limit=20, window_seconds=60
-    )
-    assert allowed is False
-
-    # 清除限制
-    cleared = await clear_user_rate_limit(redis_client, user_id)
-    assert cleared is True
-
-    # 現在應該允許
-    allowed, info = await check_rate_limit_sliding_window(
-        redis_client, user_id, limit=20, window_seconds=60
     )
     assert allowed is True
     assert info["current"] == 1

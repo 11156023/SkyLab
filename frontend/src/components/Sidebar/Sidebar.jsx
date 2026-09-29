@@ -4,13 +4,14 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth }  from "../../contexts/AuthContext";
 import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
-import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
+import { currentLanguage, setLanguage } from "../../i18n";
 import useScrollEdges from "../../hooks/useScrollEdges";
 import useOutsideClick from "../../hooks/useOutsideClick";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
 import Avatar from "../Avatar/Avatar";
 import JobsButton from "../Jobs/JobsButton";
+import { canTeachUser, isAdminUser } from "../../utils/roles";
 
 const topItems = [
   { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
@@ -251,7 +252,7 @@ function usePopupPosition(triggerRef, collapsed) {
   return pos;
 }
 
-/** 通用彈出選單，供外觀與語言共用 */
+/** 側欄的語言選單（options 每項 { key, label, flag }）；外觀設定已移到帳號設定頁 */
 function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing, collapsed }) {
   const ref = useRef(null);
   const pos = usePopupPosition(triggerRef, collapsed);
@@ -264,16 +265,11 @@ function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing, c
         <button
           key={opt.key}
           type="button"
-          className={`${styles.appearanceOption} ${value === opt.key ? styles.appearanceOptionActive : ""} ${opt.disabled ? styles.appearanceOptionDisabled : ""}`}
-          disabled={opt.disabled}
+          className={`${styles.appearanceOption} ${value === opt.key ? styles.appearanceOptionActive : ""}`}
           onClick={() => { onSelect(opt.key); onClose(); }}
         >
-          {opt.flag
-            ? <span className={styles.optionFlag}>{opt.flag}</span>
-            : <MIcon name={opt.icon} size={18} />
-          }
+          <span className={styles.optionFlag}>{opt.flag}</span>
           <span>{opt.label}</span>
-          {opt.hint && <span className={styles.optionHint}>{opt.hint}</span>}
         </button>
       ))}
     </div>,
@@ -327,15 +323,15 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const location = useLocation();
   const routeKey = location.pathname.split("/")[1] || "dashboard";
   const active   = activeKeyAliases[routeKey] ?? routeKey;
-  const lang = SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : "zh-TW";
+  const lang = currentLanguage(i18n.language);
   const langPopup  = usePopup();
   const userPopup  = usePopup();
   const langBtnRef = useRef(null);
   const userBtnRef = useRef(null);
   const { user, logout } = useAuth();
   const { confirmLeave } = useUnsavedChanges();
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
-  const canTeach = isAdmin || user?.role === "teacher";
+  const isAdmin = isAdminUser(user);
+  const canTeach = canTeachUser(user);
   /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
   const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
   const visibleNavGroups = navGroups
@@ -558,7 +554,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
           {userPopup.open && (
             <UserPopup
               user={user}
-              onLogout={logout}
+              onLogout={async () => {
+                /* 登出會被路由守衛直接導到登入頁，不觸發 beforeunload，要先確認未儲存的表單 */
+                if (await confirmLeave()) logout();
+              }}
               onSettings={() => handleNav("account")}
               onClose={userPopup.close}
               triggerRef={userBtnRef}

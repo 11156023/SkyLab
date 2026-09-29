@@ -492,6 +492,16 @@
   gap: 4px;
 }
 
+/* 結案備註（含後端附加的處置失敗原因）：狀態 badge 下方一行，過長截斷、滑鼠移上看全文 */
+.reviewNote {
+  max-width: 280px;
+  margin-top: 4px;
+  font-size: $font-size-12;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .badge_muted {
   background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
   color: var(--color-status-neutral);
@@ -499,10 +509,6 @@
 
 .btnPrimary {
   @include btn-primary;
-}
-
-.btnDanger {
-  @include btn-danger;
 }
 
 .btnDangerOutline {

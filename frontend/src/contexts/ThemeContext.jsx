@@ -8,7 +8,7 @@ import {
 
 export const ThemeContext = createContext(null);
 
-/** 明暗模式選項（統一在此 export，供 Sidebar / AppearanceTab 等共用） */
+/** 明暗模式選項（供 AppearanceTab 使用；標籤經 AppearanceTab 的 key 對照翻譯） */
 export const THEME_OPTIONS = [
   { key: "light",  label: "淺色", icon: "light_mode" },
   { key: "dark",   label: "深色", icon: "dark_mode" },

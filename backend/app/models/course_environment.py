@@ -252,7 +252,7 @@ class CourseEnvironmentPublication(SQLModel, table=True):
             "protocol",
             name="uq_course_environment_publication",
         ),
-        # 延遲到 commit 才檢查：_replace_nodes 在同一個 flush 新增節點與發布，
+        # 延遲到 commit 才檢查：environment_service.replace_nodes 在同一個 flush 新增節點與發布，
         # 沒有 relationship() 時 SQLAlchemy 不保證先 INSERT 節點
         sa.ForeignKeyConstraint(
             ["version_id", "node_key"],
@@ -419,6 +419,7 @@ __all__ = [
     "CourseEnvironmentEdge",
     "CourseEnvironmentFile",
     "CourseEnvironmentNode",
+    "CourseEnvironmentPublication",
     "CourseEnvironmentVersion",
     "CourseEnvironmentVersionStatus",
 ]

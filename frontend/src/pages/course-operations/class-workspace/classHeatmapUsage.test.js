@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   machineRuntimeState,
   mergeResourceUsageByVmid,
-  resourceUsageByVmid,
   usageForMetric,
 } from "./classHeatmapUsage";
 
@@ -10,7 +9,7 @@ describe("class heatmap usage", () => {
   const machine = { vmid: 7300, status: "completed" };
 
   it("indexes one batch response by VMID", () => {
-    const indexed = resourceUsageByVmid([{ vmid: 7300, status: "running" }]);
+    const indexed = mergeResourceUsageByVmid({}, [{ vmid: 7300, status: "running" }]);
     expect(indexed["7300"].status).toBe("running");
   });
 
@@ -28,7 +27,7 @@ describe("class heatmap usage", () => {
   });
 
   it("reuses the previous snapshot until a displayed value changes", () => {
-    const current = resourceUsageByVmid([
+    const current = mergeResourceUsageByVmid({}, [
       { vmid: 7300, status: "running", cpu_usage_pct: 20, ram_usage_pct: 40 },
     ]);
     const unchanged = mergeResourceUsageByVmid(current, [

@@ -1,6 +1,6 @@
-import { apiGet, apiPost, apiPut } from "./api";
+import { apiGet, apiPost } from "./api";
 
-/** 反挖礦事件（管理員）：清單、停權、誤判解除、資源豁免。 */
+/** 反挖礦事件（管理員）：清單、停權、誤判解除（可一併加入豁免）。 */
 export const MiningIncidentsService = {
   /** 事件列表（status: detected|suspended|banned|dismissed；不帶 = 全部） */
   list({ status, limit = 200 } = {}) {
@@ -18,10 +18,5 @@ export const MiningIncidentsService = {
   /** 判定誤判 → 恢復 VM；exempt=true 一併加入豁免 */
   dismiss(incidentId, { exempt = false, note = null } = {}) {
     return apiPost(`/api/v1/mining-incidents/${incidentId}/dismiss`, { exempt, note });
-  },
-
-  /** 設定/解除資源的挖礦偵測豁免 */
-  setExemption(vmid, exempt) {
-    return apiPut(`/api/v1/mining-incidents/exemptions/${vmid}`, { exempt });
   },
 };

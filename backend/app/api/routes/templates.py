@@ -12,6 +12,8 @@ from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.deps import CurrentUser, SessionDep
+from app.core.i18n import t
+from app.exceptions import BadRequestError
 from app.schemas.template import (
     TaskRecordPublic,
     TemplateAttachmentPublic,
@@ -25,7 +27,7 @@ from app.schemas.template import (
     VMTemplateTaskResponse,
     VMTemplateUpdate,
 )
-from app.services.template import clone_service, template_service
+from app.services.template import clone_service, template_files, template_service
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -154,14 +156,22 @@ def list_template_attachments(
 @router.post(
     "/{template_id}/attachments", response_model=TemplateAttachmentPublic
 )
-async def upload_template_attachment(
+def upload_template_attachment(
     session: SessionDep,
     current_user: CurrentUser,
     template_id: uuid.UUID,
     file: UploadFile = File(...),
 ) -> TemplateAttachmentPublic:
-    """上傳範本附件（使用手冊等；擁有者或 admin，50MB 內）。"""
-    data = await file.read()
+    """上傳範本附件（使用手冊等；擁有者或 admin，50MB 內）。
+
+    sync 路由（跑在 threadpool，DB 與寫檔不卡 event loop）。先驗權限再讀檔，
+    且最多只讀上限 +1 bytes：不讓任何登入者用超大檔把記憶體吃光。
+    """
+    template = template_service.get_or_404(session, template_id)
+    template_service._require_owner(current_user, template)
+    data = file.file.read(template_files.ATTACHMENT_MAX_BYTES + 1)
+    if len(data) > template_files.ATTACHMENT_MAX_BYTES:
+        raise BadRequestError(t("template.attachmentTooLarge"))
     attachment = template_service.add_attachment(
         session=session,
         user=current_user,

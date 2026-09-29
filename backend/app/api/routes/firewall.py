@@ -1,6 +1,7 @@
 """防火牆管理 API 路由"""
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -36,6 +37,39 @@ from app.services.user import audit_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/firewall", tags=["firewall"])
+
+
+def _check_endpoint_access(
+    session: SessionDep, current_user: CurrentUser, *vmids: int | None
+) -> None:
+    """依序對連線兩端中有指定的 VM 做防火牆權限檢查（None＝Internet／網關，略過）"""
+    for vmid in vmids:
+        if vmid is not None:
+            check_firewall_access(
+                vmid=vmid, current_user=current_user, session=session
+            )
+
+
+def _is_managed_rule(rule: dict[str, Any]) -> bool:
+    """SkyLab 自動管理的規則（comment 以 SkyLab: 開頭），只能透過連線 UI 變更"""
+    return str(rule.get("comment") or "").startswith(firewall_service._CC_PREFIX)
+
+
+def _get_rule_at(
+    resource_info: dict[str, Any], vmid: int, pos: int
+) -> dict[str, Any]:
+    """取得指定位置的規則；對不到就 404。
+
+    規則位置是會變動的（刪一條後面全往前挪），對不到就別讓 Proxmox 去
+    改／刪到剛好遞補到這個位置的別條規則。
+    """
+    rules = firewall_service.get_vm_firewall_rules(
+        resource_info["node"], vmid, resource_info["type"]
+    )
+    target_rule = next((r for r in rules if r.get("pos") == pos), None)
+    if target_rule is None:
+        raise NotFoundError(t("firewall.rule_not_found_at_pos", pos=pos))
+    return target_rule
 
 
 # ─── 拓撲 ─────────────────────────────────────────────────────────────────────
@@ -102,20 +136,9 @@ def create_connection(
     - 目標 VM（如果有）也必須在當前使用者的可見範圍內
     """
     try:
-        # 權限檢查：來源 VM（若有）
-        if conn.source_vmid is not None:
-            check_firewall_access(
-                vmid=conn.source_vmid,
-                current_user=current_user,
-                session=session,
-            )
-        # 權限檢查：目標 VM（若有）
-        if conn.target_vmid is not None:
-            check_firewall_access(
-                vmid=conn.target_vmid,
-                current_user=current_user,
-                session=session,
-            )
+        _check_endpoint_access(
+            session, current_user, conn.source_vmid, conn.target_vmid
+        )
 
         firewall_service.create_connection(
             source_vmid=conn.source_vmid,
@@ -149,29 +172,9 @@ def delete_connection(
 ):
     """刪除 VM 間連線"""
     try:
-        # 權限檢查：
-        # - 若 source_vmid 為 None（例如 Internet -> VM 入站），
-        #   則以 target_vmid 作為被變更規則的 VM 進行檢查
-        # - 否則先檢查 source_vmid，再檢查（若有的）target_vmid
-        if conn.source_vmid is None:
-            if conn.target_vmid is not None:
-                check_firewall_access(
-                    vmid=conn.target_vmid,
-                    current_user=current_user,
-                    session=session,
-                )
-        else:
-            check_firewall_access(
-                vmid=conn.source_vmid,
-                current_user=current_user,
-                session=session,
-            )
-            if conn.target_vmid is not None:
-                check_firewall_access(
-                    vmid=conn.target_vmid,
-                    current_user=current_user,
-                    session=session,
-                )
+        _check_endpoint_access(
+            session, current_user, conn.source_vmid, conn.target_vmid
+        )
 
         firewall_service.delete_connection(
             source_vmid=conn.source_vmid,
@@ -204,33 +207,29 @@ def list_rules(
     vmid: int,
     resource_info: ResourceInfoDep,
 ):
-    """列出 VM 防火牆規則（包含 SkyLab 管理的規則）"""
-    try:
-        rules = firewall_service.get_vm_firewall_rules(
-            resource_info["node"], vmid, resource_info["type"]
+    """列出 VM 防火牆規則（包含 SkyLab 管理的規則）
+
+    取不到規則時 service 會回空清單（不丟錯），所以這裡沒有錯誤分支。
+    """
+    rules = firewall_service.get_vm_firewall_rules(
+        resource_info["node"], vmid, resource_info["type"]
+    )
+    return [
+        FirewallRulePublic(
+            pos=r.get("pos", i),
+            type=r.get("type", "in"),
+            action=r.get("action", "DROP"),
+            source=r.get("source"),
+            dest=r.get("dest"),
+            proto=r.get("proto"),
+            dport=r.get("dport"),
+            sport=r.get("sport"),
+            enable=r.get("enable", 1),
+            comment=r.get("comment"),
+            is_managed=_is_managed_rule(r),
         )
-        return [
-            FirewallRulePublic(
-                pos=r.get("pos", i),
-                type=r.get("type", "in"),
-                action=r.get("action", "DROP"),
-                source=r.get("source"),
-                dest=r.get("dest"),
-                proto=r.get("proto"),
-                dport=r.get("dport"),
-                sport=r.get("sport"),
-                enable=r.get("enable", 1),
-                comment=r.get("comment"),
-                is_managed=bool(
-                    r.get("comment", "").startswith("SkyLab:")
-                    if r.get("comment")
-                    else False
-                ),
-            )
-            for i, r in enumerate(rules)
-        ]
-    except ProxmoxError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        for i, r in enumerate(rules)
+    ]
 
 
 @router.post("/{vmid}/rules", response_model=Message)
@@ -270,15 +269,7 @@ def update_rule(
     """更新 VM 防火牆規則（不可修改 SkyLab 管理的規則）"""
     require_resource_management(session=session, user=current_user, vmid=vmid)
     try:
-        rules = firewall_service.get_vm_firewall_rules(
-            resource_info["node"], vmid, resource_info["type"]
-        )
-        target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule is None:
-            # 規則位置是會變動的（刪一條後面全往前挪），對不到就別讓
-            # Proxmox 去改到別條規則
-            raise NotFoundError(t("firewall.rule_not_found_at_pos", pos=pos))
-        if str(target_rule.get("comment", "")).startswith("SkyLab:"):
+        if _is_managed_rule(_get_rule_at(resource_info, vmid, pos)):
             raise HTTPException(
                 status_code=400,
                 detail=t("firewall.rule_managed_no_modify"),
@@ -310,15 +301,8 @@ def delete_rule(
     """刪除 VM 防火牆規則（不可刪除 SkyLab 管理的規則，請使用連線刪除 API）"""
     require_resource_management(session=session, user=current_user, vmid=vmid)
     try:
-        # 先取得規則確認不是 SkyLab 管理的規則
-        rules = firewall_service.get_vm_firewall_rules(
-            resource_info["node"], vmid, resource_info["type"]
-        )
-        target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule is None:
-            # 對不到就直接回 404，不要往下刪到剛好遞補到這個位置的別條規則
-            raise NotFoundError(t("firewall.rule_not_found_at_pos", pos=pos))
-        if str(target_rule.get("comment", "")).startswith("SkyLab:"):
+        # 先確認不是 SkyLab 管理的規則
+        if _is_managed_rule(_get_rule_at(resource_info, vmid, pos)):
             raise HTTPException(
                 status_code=400,
                 detail=t("firewall.rule_managed_use_connection_ui"),
@@ -332,13 +316,8 @@ def delete_rule(
             details=f"Deleted firewall rule pos={pos} on VM {vmid}",
         )
         return Message(message=t("firewall.rule_deleted"))
-    except HTTPException:
-        raise
     except ProxmoxError as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── NAT 端口轉發管理 ──────────────────────────────────────────────────────────
 
 
 # ─── 單台 VM：迷你拓撲與對外服務 ──────────────────────────────────────────────
@@ -466,15 +445,15 @@ def get_options(
     vmid: int,
     resource_info: ResourceInfoDep,
 ):
-    """取得 VM 防火牆選項（是否啟用、預設策略）"""
-    try:
-        opts = firewall_service.get_firewall_options(
-            resource_info["node"], vmid, resource_info["type"]
-        )
-        return FirewallOptionsPublic(
-            enable=bool(opts.get("enable", False)),
-            policy_in=opts.get("policy_in", "DROP"),
-            policy_out=opts.get("policy_out", "ACCEPT"),
-        )
-    except ProxmoxError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """取得 VM 防火牆選項（是否啟用、預設策略）
+
+    取不到選項時 service 會回空 dict（不丟錯），這裡一律套用預設值。
+    """
+    opts = firewall_service.get_firewall_options(
+        resource_info["node"], vmid, resource_info["type"]
+    )
+    return FirewallOptionsPublic(
+        enable=bool(opts.get("enable", False)),
+        policy_in=opts.get("policy_in", "DROP"),
+        policy_out=opts.get("policy_out", "ACCEPT"),
+    )

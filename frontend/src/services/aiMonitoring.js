@@ -19,14 +19,6 @@ export const AiMonitoringService = {
     return apiGet(`${BASE}/overview${qs ? `?${qs}` : ""}`);
   },
 
-  /** 全域 AI 統計卡片 */
-  stats(params) {
-    const q = new URLSearchParams();
-    buildRange(q, params);
-    const qs = q.toString();
-    return apiGet(`${BASE}/stats${qs ? `?${qs}` : ""}`);
-  },
-
   /** Proxy 呼叫清單 */
   listProxyCalls(params) {
     const q = new URLSearchParams();

@@ -11,6 +11,10 @@ from app.models import LdapConfig
 
 LDAP_CONFIG_ID = 1
 
+# 可以清空的欄位：表單清空時送 null（或空字串），要真的存成 NULL，
+# 否則目錄群組 → 管理員／老師的對應永遠拿不掉。其他欄位維持「None＝不改」。
+_CLEARABLE_FIELDS = frozenset({"teacher_group_dn", "admin_group_dn"})
+
 
 def get_ldap_config(*, session: Session) -> LdapConfig:
     """取得 LDAP 設定 singleton；不存在則以預設值（disabled）建立。"""
@@ -26,7 +30,11 @@ def get_ldap_config(*, session: Session) -> LdapConfig:
 def update_ldap_config(*, session: Session, data: dict[str, Any]) -> LdapConfig:
     config = get_ldap_config(session=session)
     for key, value in data.items():
-        if value is not None and hasattr(config, key):
+        if not hasattr(config, key):
+            continue
+        if key in _CLEARABLE_FIELDS:
+            setattr(config, key, value or None)
+        elif value is not None:
             setattr(config, key, value)
     config.updated_at = datetime.now(timezone.utc)
     session.add(config)

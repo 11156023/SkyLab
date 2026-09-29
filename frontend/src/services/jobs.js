@@ -1,5 +1,5 @@
 import { apiGet } from "./api";
-import { wsBaseUrl } from "../hooks/useClassroomSocket";
+import { wsBaseUrl } from "../utils/wsUrl";
 
 export const JobsService = {
   /** 列出統一背景任務,支援篩選 */
@@ -13,11 +13,6 @@ export const JobsService = {
     if (params?.historyDays)      q.set("history_days", String(params.historyDays));
     const qs = q.toString();
     return apiGet(`/api/v1/jobs/${qs ? `?${qs}` : ""}`);
-  },
-
-  /** 最近 N 筆 (Banner popover 用) */
-  recent(limit = 5) {
-    return apiGet(`/api/v1/jobs/recent?limit=${limit}`);
   },
 
   /** 取得單一 Job 詳情 (id 格式: <kind>:<source_id>) */

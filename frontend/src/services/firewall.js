@@ -1,7 +1,7 @@
 ﻿/**
  * firewall.js
  * 防火牆相關 API 封裝。
- * 端點參考：c:/git/SkyLab/frontend/src/client/compat.ts
+ * 端點參考：backend/app/api/routes/firewall.py
  */
 
 import { apiDelete, apiGet, apiPost, apiPut, apiDeleteJson } from "./api";
@@ -64,11 +64,6 @@ export function getVmTopology(vmid) {
   return apiGet(`/api/v1/firewall/${vmid}/topology`);
 }
 
-/** 這台 VM 的對外服務清單（對外網址 / port 轉發 / 僅開放） */
-export function listPublishedServices(vmid) {
-  return apiGet(`/api/v1/firewall/${vmid}/services`);
-}
-
 /**
  * 發布一條對外服務
  * @param {{ port:number, protocol?:string, mode:"domain"|"port_forward"|"firewall_only", domain?:string, enable_https?:boolean, external_port?:number }} data
@@ -80,9 +75,4 @@ export function publishService(vmid, data) {
 /** 換掉一條服務的發布方式（current: {port, protocol}，replacement 同 publishService） */
 export function replacePublishedService(vmid, current, replacement) {
   return apiPut(`/api/v1/firewall/${vmid}/services`, { current, replacement });
-}
-
-/** 撤下一條對外服務 */
-export function unpublishService(vmid, { port, protocol = "tcp" }) {
-  return apiDeleteJson(`/api/v1/firewall/${vmid}/services`, { port, protocol });
 }

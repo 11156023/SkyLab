@@ -19,11 +19,13 @@ from app.models import (
     AlertEvent,
     AuditLog,
     DeletionRequest,
+    FirewallLayout,
     MiningIncident,
     ResourceQuota,
     SpecChangeRequest,
     TeachingClass,
     User,
+    UserRole,
     VMRequest,
 )
 from app.repositories import resource as resource_repo
@@ -125,6 +127,13 @@ def _prepare_user_delete(*, session: Session, user: User) -> None:
         select(DeletionRequest).where(DeletionRequest.user_id == user.id)
     ).all():
         session.delete(deletion_request)
+    # 防火牆拓樸的節點位置是每位使用者的個人版面設定，在這裡明確整批清掉；
+    # 其中 Internet（gateway）節點的 vmid 為 NULL，不會被 resources 的
+    # CASCADE 帶走。
+    for layout in session.exec(
+        select(FirewallLayout).where(FirewallLayout.user_id == user.id)
+    ).all():
+        session.delete(layout)
 
     # 告警事件本身與帳號無關，只清掉「誰確認的」
     for alert in session.exec(
@@ -204,6 +213,27 @@ def get_user_by_id(
     return user
 
 
+def _ensure_not_removing_last_admin(
+    *, session: Session, db_user: User, deactivating: bool, role_changed: bool
+) -> None:
+    """拒絕拿掉「最後一位啟用中的管理員」的管理權限，避免平台失去管理者。"""
+    if not (db_user.role == UserRole.admin and db_user.is_active):
+        return
+    if not (deactivating or role_changed):
+        return
+    other_active_admins = session.exec(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.role == UserRole.admin,
+            User.is_active == True,  # noqa: E712
+            User.id != db_user.id,
+        )
+    ).one()
+    if not other_active_admins:
+        raise BadRequestError(t("user.lastAdminLocked"))
+
+
 def update_user(
     *,
     session: Session,
@@ -217,12 +247,17 @@ def update_user(
     # LDAP 帳號的密碼歸目錄管：設本地密碼登不進去，只會造成困惑（稽核 #9）
     if user_in.password and db_user.auth_source == "ldap":
         raise BadRequestError(t("user.ldapPasswordLocked"))
-    if (
-        db_user.id == current_user_id
-        and user_in.role is not None
-        and user_in.role != db_user.role
-    ):
-        raise PermissionDeniedError(t("user.selfRoleChangeForbidden"))
+    role_changed = user_in.role is not None and user_in.role != db_user.role
+    # 管理員不可變更自己的角色或停用自己（與 delete_user 的 selfDeleteForbidden 對稱），
+    # 否則一個按鍵就能把自己鎖在管理介面外。
+    if db_user.id == current_user_id and (user_in.is_active is False or role_changed):
+        raise PermissionDeniedError(t("user.selfEditLocked"))
+    _ensure_not_removing_last_admin(
+        session=session,
+        db_user=db_user,
+        deactivating=user_in.is_active is False,
+        role_changed=role_changed,
+    )
     if user_in.email:
         existing = user_repo.get_user_by_email(session=session, email=user_in.email)
         if existing and existing.id != user_id:

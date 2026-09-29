@@ -1,5 +1,4 @@
 import { memo, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Background, BackgroundVariant, Controls, Panel, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -8,6 +7,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import Modal from "../../../components/Modal/Modal";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import Stepper from "../../../components/Stepper/Stepper";
@@ -38,7 +38,10 @@ import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
 import { routeEdges } from "../../network/firewall/utils/buildFlow";
 import { joinList } from "../../../utils/joinList";
+import { uploadSequentially } from "../../../utils/uploadSequentially";
 import { mergeUnsavedWeekEdits } from "./weeklyEdits";
+import { isWeekVisible, parseStudentEmails, visibleWeekCount, weekFilesPayload } from "../classWeeks";
+import { environmentSpecs } from "../nodeSpecs";
 import { INTERNET_KEY } from "../../../components/ConnectionDialog/intents";
 import { ThemeContext } from "../../../contexts/ThemeContext";
 import { frozenTopologyLayout, normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
@@ -97,37 +100,28 @@ function normalizeClass(item) {
 function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
   const { t } = useTranslation("teaching");
   const [endDate, setEndDate] = useState(item.endDate);
-  useEffect(() => {
-    function closeOnEscape(event) {
-      if (event.key === "Escape" && !busy) onClose();
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, busy]);
-  /* 玻璃卡祖先的 backdrop-filter 會困住 fixed 遮罩，portal 到 body 才能全頁覆蓋 */
-  return createPortal(<div className={`${styles.createDialogOverlay} ${closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <section className={`${styles.createDialog} ${styles.extendDialog}`} role="dialog" aria-modal="true" aria-labelledby="extend-class-title">
-      <header className={styles.createDialogHeader}>
-        <h2 id="extend-class-title">{t("ClassWorkspacePage.extendDialogTitle")}</h2>
-        <button type="button" className={styles.dialogClose} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
-      </header>
-      <form onSubmit={(event) => { event.preventDefault(); onExtend(endDate); }}>
-        <div className={styles.createDialogBody}>
-          <div className={styles.compactFormSection}>
-            <p className={styles.dialogNote}>{t("ClassWorkspacePage.extendDialogDesc", { endDate: item.endDate })}</p>
-            <label className={styles.field}>
-              <span>{t("ClassWorkspacePage.extendDateLabel")}</span>
-              <input type="date" min={item.endDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} autoFocus />
-            </label>
-          </div>
+  /* 外框（portal、遮罩、Esc、焦點、捲動鎖）交給共用 Modal；標題列與按鈕列沿用班級對話框的版型（bare） */
+  return <Modal bare size="sm" className={`${styles.createDialog} ${styles.extendDialog}`} closing={closing} onClose={onClose} busy={busy} aria-labelledby="extend-class-title">
+    <header className={styles.createDialogHeader}>
+      <h2 id="extend-class-title">{t("ClassWorkspacePage.extendDialogTitle")}</h2>
+      <button type="button" className={styles.dialogClose} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
+    </header>
+    <form onSubmit={(event) => { event.preventDefault(); onExtend(endDate); }}>
+      <div className={styles.createDialogBody}>
+        <div className={styles.compactFormSection}>
+          <p className={styles.dialogNote}>{t("ClassWorkspacePage.extendDialogDesc", { endDate: item.endDate })}</p>
+          <label className={styles.field}>
+            <span>{t("ClassWorkspacePage.extendDateLabel")}</span>
+            <input type="date" min={item.endDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} autoFocus />
+          </label>
         </div>
-        <footer className={styles.createDialogFooter}>
-          <button type="button" className={styles.btnSecondary} disabled={busy} onClick={onClose}>{t("ClassWorkspacePage.cancelBtn")}</button>
-          <button type="submit" className={styles.btnPrimary} disabled={busy || endDate <= item.endDate}>{busy ? t("ClassWorkspacePage.processingLabel") : t("ClassWorkspacePage.extendBtn")}</button>
-        </footer>
-      </form>
-    </section>
-  </div>, document.body);
+      </div>
+      <footer className={styles.createDialogFooter}>
+        <button type="button" className={styles.btnSecondary} disabled={busy} onClick={onClose}>{t("ClassWorkspacePage.cancelBtn")}</button>
+        <button type="submit" className={styles.btnPrimary} disabled={busy || endDate <= item.endDate}>{busy ? t("ClassWorkspacePage.processingLabel") : t("ClassWorkspacePage.extendBtn")}</button>
+      </footer>
+    </form>
+  </Modal>;
 }
 
 function machineSummary(item, t) {
@@ -280,17 +274,9 @@ function Students({ item, onRefresh }) {
   const [emailsInvalid, setEmailsInvalid] = useState(false);
   const emailsInputRef = useRef(null);
   const locked = item.status !== "planning";
-  useEffect(() => {
-    if (!showAdd) return undefined;
-    function closeOnEscape(event) {
-      if (event.key === "Escape" && !busy) setShowAdd(false);
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [showAdd, busy]);
   async function add(event) {
     event.preventDefault();
-    const values = emails.split(/[\n,;]/).map((value) => value.trim()).filter(Boolean);
+    const values = parseStudentEmails(emails);
     if (!values.length) {
       setEmailsInvalid(true);
       focusInvalidField(emailsInputRef.current);
@@ -367,11 +353,11 @@ function Students({ item, onRefresh }) {
       })}</div> : <EmptyState icon="group_add" title={t("ClassWorkspacePage.emptyStudentsTitle")} />}
     </section>
 
-    {addDialog.open && createPortal(<div className={`${styles.createDialogOverlay} ${addDialog.closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setShowAdd(false); }}><section className={`${styles.createDialog} ${styles.studentDialog}`} role="dialog" aria-modal="true" aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea ref={emailsInputRef} className={emailsInvalid ? styles.fieldInvalid : undefined} rows={6} value={emails} onChange={(event) => { setEmails(event.target.value); setEmailsInvalid(false); }} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></section></div>, document.body)}
+    {addDialog.open && <Modal bare size="md" className={`${styles.createDialog} ${styles.studentDialog}`} closing={addDialog.closing} onClose={() => setShowAdd(false)} busy={busy} aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea ref={emailsInputRef} className={emailsInvalid ? styles.fieldInvalid : undefined} rows={6} value={emails} onChange={(event) => { setEmails(event.target.value); setEmailsInvalid(false); }} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></Modal>}
   </div>;
 }
 
-function WeeklyContent({ item, onRefresh }) {
+export function WeeklyContent({ item, onRefresh }) {
   const { t } = useTranslation("teaching");
   const toast = useToast();
   const [weeks, setWeeks] = useState(item.weeks);
@@ -411,12 +397,16 @@ function WeeklyContent({ item, onRefresh }) {
     if (!files.length) return;
     setUploadingWeek(weekId);
     try {
-      let result;
-      for (const file of files) result = await TeachingClassesService.uploadWeekFile(item.id, weekId, file);
-      if (result) mergeUploadedFiles(result);
-      toast.success(t("ClassWorkspacePage.uploadedFilesCount", { count: files.length }));
-    } catch (error) { toast.error(error?.message ?? t("Error.generic", { ns: "common" })); }
-    finally { setUploadingWeek(""); }
+      /* 每傳完一個就併進畫面：後面的檔案失敗時，前面已存到伺服器的檔案仍要出現在清單上，
+         否則接著按「儲存每週內容」送出的檔案清單會漏掉它，後端就把它刪了 */
+      const { failed, lastError } = await uploadSequentially(files, async (file) => {
+        mergeUploadedFiles(await TeachingClassesService.uploadWeekFile(item.id, weekId, file));
+      });
+      const done = files.length - failed.length;
+      if (!failed.length) toast.success(t("ClassWorkspacePage.uploadedFilesCount", { count: done }));
+      else if (files.length === 1) toast.error(lastError?.message ?? t("Error.generic", { ns: "common" }));
+      else toast.error(t("CourseTemplateEditorPage.filesUploadPartialFail", { files: joinList(failed) }));
+    } finally { setUploadingWeek(""); }
   }
   async function removeFile(weekId, file) {
     if (!file.id) return;
@@ -429,7 +419,7 @@ function WeeklyContent({ item, onRefresh }) {
     setSaving(true);
     try {
       // 教材只送已上傳檔案的 id：storage_key 由後端自己查，不再由前端帶
-      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: week.files.filter((file) => file.id).map((file) => ({ id: String(file.id), target_path: file.target_path ?? null })) })));
+      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: weekFilesPayload(week.files) })));
       unsavedRef.current = false;
       onRefresh(result); toast.success(t("ClassWorkspacePage.weeklySavedMsg"));
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.saveFailed")); }
@@ -437,11 +427,11 @@ function WeeklyContent({ item, onRefresh }) {
   }
   return <div className={styles.stack}>
     <section className={styles.card}>
-      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.weeklyContentHeader", { count: weeks.length })}</h2><p>{t("ClassWorkspacePage.weeklyPublishHint")}</p></div><span className={styles.weekVisibleCount}>{t("ClassWorkspacePage.weeksVisibleCount", { count: weeks.filter((week) => ["published", "completed"].includes(week.status)).length })}</span></div>
+      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.weeklyContentHeader", { count: weeks.length })}</h2><p>{t("ClassWorkspacePage.weeklyPublishHint")}</p></div><span className={styles.weekVisibleCount}>{t("ClassWorkspacePage.weeksVisibleCount", { count: visibleWeekCount(weeks) })}</span></div>
       <div className={styles.weekRows}>
         <div className={styles.weekRowsHead}><span>{t("ClassWorkspacePage.weekColWeek")}</span><span>{t("ClassWorkspacePage.topicTaskLabel")}</span><span>{t("ClassWorkspacePage.weekColMachine")}</span><span>{t("ClassWorkspacePage.taskFilesLabel")}</span><span>{t("ClassWorkspacePage.weekColVisible")}</span></div>
         {weeks.map((week) => {
-          const published = ["published", "completed"].includes(week.status);
+          const published = isWeekVisible(week);
           return <article key={week.id}>
             <div className={styles.weekDate}><strong>{t("ClassWorkspacePage.weekNumberLabel", { week: week.week })}</strong><span>{week.date}</span></div>
             <input
@@ -535,16 +525,6 @@ function PublicationSummary({ item }) {
       </div>
     </div>)}
   </div>;
-}
-
-/** 課程機器的規格合計；students 給幾就乘幾（memory_mb 換算成 GB） */
-function specTotals(nodes, students = 1) {
-  const sum = (pick) => nodes.reduce((acc, node) => acc + (Number(pick(node)) || 0), 0);
-  return {
-    cpu: sum((node) => node.cpu) * students,
-    memory: Math.round(sum((node) => (node.memory_mb ?? 0) / 1024) * students),
-    disk: sum((node) => node.disk_gb) * students,
-  };
 }
 
 function TopologyPreview({ item }) {
@@ -726,8 +706,8 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
   // 鎖定後不該再擺一份選不了的清單：直接呈現已套用的環境與它的拓撲。
   if (locked) {
     /* 每位學生的規格合計 × 人數 = 開課要吃掉的配額 */
-    const perStudentSpec = specTotals(item.nodes);
-    const classSpec = specTotals(item.nodes, Math.max(1, item.students.length));
+    const perStudentSpec = environmentSpecs(item.nodes);
+    const classSpec = environmentSpecs(item.nodes, Math.max(1, item.students.length));
     return <div className={styles.stack}>
       <section className={styles.card}>
         <div className={styles.cardHeader}>
@@ -810,7 +790,7 @@ const StudentHeatCell = memo(function StudentHeatCell({
   </button>;
 });
 
-function StudentMachines({ item }) {
+export function StudentMachines({ item }) {
   const { t } = useTranslation("teaching");
   const [selectedNodeId, setSelectedNodeId] = useState(() => String(item.nodes[0]?.id ?? ""));
   const [metric, setMetric] = useState("cpu");
@@ -832,6 +812,51 @@ function StudentMachines({ item }) {
       .flatMap((member) => member.machines.map((machine) => machine.vmid).filter(Boolean)),
     [item.students, item.instructorMachine],
   );
+
+  const watchRef = useRef(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    watchRef.current = watch;
+  }, [watch]);
+
+  /* 觀看（monitor）session 只屬於這個畫面的對話框：切到別的步驟、瀏覽器上一頁等直接卸載時
+     不會經過 closeWatch，這裡補收掉，不要留一個佔住該 VM 的 session 在伺服器上。
+     mountedRef 讓卸載後才建好的 session（createSession 還在路上就切走）也能在 openWatch 裡收掉。
+     關閉分頁／重新整理不會觸發 React 卸載，另掛 pagehide 盡力收掉（送不出去時後端 30 秒閒置也會回收） */
+  useEffect(() => {
+    mountedRef.current = true;
+    function stopCurrentWatch() {
+      const current = watchRef.current;
+      watchRef.current = null;
+      if (current) ClassroomService.stopSession(current.sessionId).catch(() => {});
+    }
+    /* 頁面進 bfcache 再回來時 session 已結束，順手關掉對話框，不要留一個連不上的畫面 */
+    function handlePageHide() {
+      stopCurrentWatch();
+      setWatch(null);
+    }
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener("pagehide", handlePageHide);
+      stopCurrentWatch();
+    };
+  }, []);
+
+  /* 廣播要跨頁面持續（老師切去別的步驟學生仍看得到），但重新整理或切回來時本地狀態已經沒了；
+     從伺服器找回這個班級進行中的廣播，「停止廣播」按鈕才會再出現 */
+  useEffect(() => {
+    let active = true;
+    ClassroomService.listSessions()
+      .then((sessions) => {
+        if (!active || !Array.isArray(sessions)) return;
+        const live = sessions.find((session) => session.mode === "broadcast" && String(session.class_id) === String(item.id));
+        if (live) setBroadcast((current) => current ?? live);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [item.id]);
 
   useEffect(() => {
     if (!item.nodes.some((node) => String(node.id) === selectedNodeId)) {
@@ -893,6 +918,10 @@ function StudentMachines({ item }) {
     setWatching(true);
     try {
       const session = await ClassroomService.createSession({ vmid: machine.vmid, mode: "monitor", class_id: item.id });
+      if (!mountedRef.current) {
+        ClassroomService.stopSession(session.id).catch(() => {});
+        return;
+      }
       setWatch({
         sessionId: session.id,
         title: `${student.full_name || student.email} · ${machineName}`,
@@ -995,7 +1024,7 @@ function StudentMachines({ item }) {
 
       <div className={styles.broadcastTools}><MIcon name="sensors" size={18} /><strong>{t("ClassWorkspacePage.broadcastDemoLabel")}</strong>{broadcast ? <><span>{t("ClassWorkspacePage.broadcastInProgress")}</span><button type="button" className={styles.btnSecondary} disabled={broadcasting} onClick={stopBroadcast}>{t("ClassWorkspacePage.stopBroadcastBtn")}</button></> : <select disabled={broadcasting || !sources.length} defaultValue="" onChange={(event) => { startBroadcast(event.target.value); event.target.value = ""; }}><option value="">{sources.length ? t("ClassWorkspacePage.selectRunningVmOption") : t("ClassWorkspacePage.noBroadcastVmOption")}</option>{sources.map((source) => <option key={source.vmid} value={source.vmid}>{source.name || t("ClassWorkspacePage.vmFallbackName", { vmid: source.vmid })}</option>)}</select>}</div>
       <div className={styles.broadcastTools}><MIcon name="power_settings_new" size={18} /><strong>{t("ClassWorkspacePage.classPowerLabel", { count: classVmids.length })}</strong><button type="button" className={styles.btnSecondary} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("start")}>{t("ClassWorkspacePage.classPowerStartBtn")}</button><button type="button" className={styles.btnSecondary} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("shutdown")}>{t("ClassWorkspacePage.classPowerShutdownBtn")}</button>{power ? <span>{t("ClassWorkspacePage.classPowerProgress", { done: power.done, total: power.total })}</span> : <span>{t("ClassWorkspacePage.classPowerHint")}</span>}</div>
-      {message && <p className={styles.inlineMessage}>{message}</p>}
+      {message && <p className={styles.persistentFeedback} role="status">{message}</p>}
 
       <div className={styles.heatmapToolbar}>
         <div className={styles.machineTabs} role="tablist" aria-label={t("ClassWorkspacePage.selectMachineAria")}>

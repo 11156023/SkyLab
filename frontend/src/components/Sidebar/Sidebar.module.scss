@@ -86,14 +86,6 @@
   flex: 1;
 }
 
-.statusDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-success);
-  flex-shrink: 0;
-}
-
 /* 品牌列下方、麵包屑下方與底部區塊上方共用同一條分隔線，
    側欄才讀得出上／中／下三段 */
 .divider {
@@ -471,22 +463,6 @@
     background: var(--color-primary);
     color: var(--color-text-on-primary);
   }
-
-  &.appearanceOptionDisabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-
-    &:hover {
-      background: none;
-      color: var(--color-text-secondary);
-    }
-  }
-}
-
-.optionHint {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--color-text-muted);
 }
 
 /* ===== Bottom ===== */

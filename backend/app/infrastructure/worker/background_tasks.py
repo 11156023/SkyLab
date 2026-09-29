@@ -11,33 +11,25 @@ Features:
   block the event loop.
 - A semaphore caps concurrent in-flight tasks so a flood of requests
   cannot overwhelm Proxmox / the DB pool.
-- Tasks can opt into automatic **retry with exponential backoff** on
-  failure (``max_retries`` / ``retry_delay`` / ``retry_backoff``).
-- Tasks are tracked by ``task_id`` (caller-provided or auto-generated)
-  and can be **cancelled** before they start or between retries.
-- Lifespan shutdown awaits in-flight tasks so we don't drop work on
-  graceful stop.
+- ``submit_sync`` tasks can opt into automatic **retry with exponential
+  backoff** on failure (``max_retries`` / ``retry_delay`` /
+  ``retry_backoff``).
+- Tasks are tracked by ``task_id`` (caller-provided or auto-generated):
+  a duplicate id is skipped and ``is_active(task_id)`` reports whether it
+  is still queued or running.
+- Lifespan shutdown awaits in-flight tasks (cancelling them after the
+  timeout) so we don't drop work on graceful stop.
 - Exceptions inside background tasks are logged but never propagate; the
   caller already received an HTTP response.
-
-Cancellation semantics:
-- ``cancel(task_id)`` cancels the underlying ``asyncio.Task``.
-- This is **effective** when the task is queued behind the semaphore
-  or sleeping between retry attempts.
-- It is **best-effort** while a sync handler is actively executing in
-  the worker thread (Python cannot interrupt sync code mid-Proxmox-API
-  call). Domain code should treat cancellation as advisory and prefer
-  idempotent operations.
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -55,14 +47,12 @@ class TaskInfo:
     max_retries: int
     attempt: int = 1
     last_error: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class BackgroundTaskRunner:
     def __init__(self, *, max_concurrency: int = _DEFAULT_MAX_CONCURRENCY) -> None:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._tasks: dict[str, asyncio.Task[Any]] = {}
-        self._info: dict[str, TaskInfo] = {}
         self._shutting_down = False
         # Captured at init() time during app lifespan so submit_sync()
         # can be called from sync routes running in the threadpool.
@@ -169,18 +159,11 @@ class BackgroundTaskRunner:
         max_retries: int = 0,
         retry_delay: float = 5.0,
         retry_backoff: float = 2.0,
-        bypass_semaphore: bool = False,
     ) -> str:
         """Schedule a coroutine factory; supports retries.
 
         ``coro_factory`` must produce a fresh awaitable on each call so
         retries can re-invoke the underlying work.
-
-        ``bypass_semaphore=True`` skips the runner's global concurrency
-        semaphore — for task classes that manage their own dedicated
-        semaphore (e.g. provisioning clones). Without this, tasks queued
-        on a dedicated semaphore would still pin global slots and starve
-        lightweight tasks (emails, state sync).
         """
         if self._shutting_down:
             logger.warning("BackgroundTaskRunner is shutting down; rejecting task %s", name)
@@ -201,10 +184,7 @@ class BackgroundTaskRunner:
         )
 
         async def _runner() -> None:
-            gate: Any = (
-                contextlib.nullcontext() if bypass_semaphore else self._semaphore
-            )
-            async with gate:
+            async with self._semaphore:
                 attempt = 0
                 delay = max(0.0, retry_delay)
                 while True:
@@ -247,11 +227,9 @@ class BackgroundTaskRunner:
         def _create_and_register() -> asyncio.Task[Any]:
             t = asyncio.create_task(coro, name=info.name)
             self._tasks[task_id] = t
-            self._info[task_id] = info
 
             def _cleanup(_: asyncio.Task[Any]) -> None:
                 self._tasks.pop(task_id, None)
-                self._info.pop(task_id, None)
 
             t.add_done_callback(_cleanup)
             return t
@@ -279,28 +257,12 @@ class BackgroundTaskRunner:
         return task_id
 
     # ──────────────────────────────────────────────────────────────────
-    # cancel / inspect
+    # inspect
     # ──────────────────────────────────────────────────────────────────
-
-    def cancel(self, task_id: str) -> bool:
-        """Cancel a tracked task.
-
-        Returns True if the task existed and a cancel was issued.
-        Effective immediately when the task is queued or sleeping;
-        best-effort while sync work is actively running on a worker thread.
-        """
-        task = self._tasks.get(task_id)
-        if task is None or task.done():
-            return False
-        task.cancel()
-        return True
 
     def is_active(self, task_id: str) -> bool:
         task = self._tasks.get(task_id)
         return task is not None and not task.done()
-
-    def list_tasks(self) -> list[TaskInfo]:
-        return list(self._info.values())
 
     # ──────────────────────────────────────────────────────────────────
     # shutdown
@@ -427,49 +389,7 @@ def submit_sync(
     )
 
 
-def submit_factory(
-    coro_factory: Callable[[], Awaitable[Any]],
-    *,
-    name: str,
-    task_id: str | None = None,
-    max_retries: int = 0,
-    retry_delay: float = 5.0,
-    retry_backoff: float = 2.0,
-    bypass_semaphore: bool = False,
-) -> str:
-    """Submit a coroutine factory to the global background runner."""
-    if _runner is None:
-        logger.error(
-            "Background runner not initialized; dropping task %s. "
-            "Did you call init_background_runner() in lifespan?",
-            name,
-        )
-        return ""
-    return _runner.submit_factory(
-        coro_factory,
-        name=name,
-        task_id=task_id,
-        max_retries=max_retries,
-        retry_delay=retry_delay,
-        retry_backoff=retry_backoff,
-        bypass_semaphore=bypass_semaphore,
-    )
-
-
-def cancel(task_id: str) -> bool:
-    """Cancel a tracked background task by id."""
-    if _runner is None:
-        return False
-    return _runner.cancel(task_id)
-
-
 def is_active(task_id: str) -> bool:
     if _runner is None:
         return False
     return _runner.is_active(task_id)
-
-
-def list_tasks() -> list[TaskInfo]:
-    if _runner is None:
-        return []
-    return _runner.list_tasks()

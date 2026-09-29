@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
 import { formatTime } from "../../../utils/formatDate";
+import { taipeiDateKey } from "./taipeiDate";
 import { ticketBarcode } from "./ticketBarcode";
 import styles from "./CourseTicket.module.scss";
 
@@ -10,11 +11,8 @@ const DAY = 86_400_000;
 
 /* 課表的 session_date 是課程時區（預設台北）的日曆日，今天也用同一個時區取 */
 function taipeiToday(now) {
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(now);
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day));
+  const [year, month, day] = taipeiDateKey(now).split("-").map(Number);
+  return Date.UTC(year, month - 1, day);
 }
 
 /* 今天／明天／後天交給 Intl（不必另開翻譯字串），更遠的寫月日與星期 */

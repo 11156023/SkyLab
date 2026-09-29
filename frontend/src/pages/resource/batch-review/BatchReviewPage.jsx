@@ -50,7 +50,7 @@ const REVIEW_STATUS_BY_STATUS = {
   cancelled: "other",
 };
 
-function formatDateTime(value, t) {
+function shortTime(value, t) {
   return formatShortDateTime(value, t("BatchReviewPage.notSet"));
 }
 
@@ -198,6 +198,9 @@ function describeRecurrence(rule, t) {
   return t("BatchReviewPage.recurWeekly", { days, time });
 }
 
+/* 後端 /batch-provision/ 的 limit 上限 */
+const BATCH_LIST_LIMIT = 200;
+
 function filterByTab(rows, tab) {
   if (tab === "all") return rows;
   return rows.filter((row) => row.reviewStatus === tab);
@@ -233,8 +236,20 @@ export default function BatchReviewPage() {
       setError("");
     }
     try {
-      const res = await BatchProvisionService.listAll();
-      setBatches(Array.isArray(res) ? res : []);
+      /* 列表只回最新 N 筆（不分狀態），待審核另外用狀態篩選抓一次再合併，
+         否則比最新 N 筆還舊的待審批次會整個看不到、也審不了 */
+      const [recent, pending] = await Promise.all([
+        BatchProvisionService.listAll({ limit: BATCH_LIST_LIMIT }),
+        BatchProvisionService.listAll({ status: "pending_review", limit: BATCH_LIST_LIMIT }),
+      ]);
+      const byId = new Map();
+      for (const job of [
+        ...(Array.isArray(pending) ? pending : []),
+        ...(Array.isArray(recent) ? recent : []),
+      ]) {
+        byId.set(job.id, job);
+      }
+      setBatches([...byId.values()]);
     } catch (e) {
       if (!silent) {
         setBatches([]);
@@ -351,6 +366,7 @@ export default function BatchReviewPage() {
   const isPending = selected?.reviewStatus === "pending";
   const preview = selected ? previews[selected.previewJobId] : undefined;
   const previewOpen = selected ? Boolean(openPreviews[selected.previewJobId]) : false;
+  const recurrenceText = selected?.recurrenceRule ? describeRecurrence(selected.recurrenceRule, t) : null;
 
   /* 展開後把清單捲進可視範圍（nearest = 只捲必要的最小距離），滑鼠不用再滾 */
   const recurListRef = useRef(null);
@@ -431,7 +447,7 @@ export default function BatchReviewPage() {
                     </div>
                     <div className={styles.rowSide}>
                       <StatusBadge status={row.status} />
-                      <span className={styles.rowTime}>{formatDateTime(row.createdAt, t)}</span>
+                      <span className={styles.rowTime}>{shortTime(row.createdAt, t)}</span>
                     </div>
                   </button>
                 ))}
@@ -472,7 +488,7 @@ export default function BatchReviewPage() {
                     <InfoRow label={t("BatchReviewPage.infoLabelOs")} value={selected.osText} />
                     <InfoRow
                       label={t("BatchReviewPage.infoLabelSubmittedAt")}
-                      value={formatDateTime(selected.createdAt, t)}
+                      value={shortTime(selected.createdAt, t)}
                     />
                     <InfoRow
                       label={t("BatchReviewPage.infoLabelApplicantEmail")}
@@ -497,8 +513,8 @@ export default function BatchReviewPage() {
                   {selected.recurrenceRule && (
                     <div className={styles.reasonBox}>
                       <span>{t("BatchReviewPage.recurChipLabel")}</span>
-                      <p className={styles.ruleHuman}>{describeRecurrence(selected.recurrenceRule, t) ?? selected.recurrenceRule}</p>
-                      {describeRecurrence(selected.recurrenceRule, t) && <p className={styles.ruleText}>{selected.recurrenceRule}</p>}
+                      <p className={styles.ruleHuman}>{recurrenceText ?? selected.recurrenceRule}</p>
+                      {recurrenceText && <p className={styles.ruleText}>{selected.recurrenceRule}</p>}
                       <button
                         type="button"
                         className={styles.recurChip}
@@ -520,7 +536,7 @@ export default function BatchReviewPage() {
                               {preview.length === 0 && <li>{t("BatchReviewPage.noScheduledWindows")}</li>}
                               {preview.map(([start, end]) => (
                                 <li key={start}>
-                                  {formatDateTime(start, t)} ～ {formatDateTime(end, t)}
+                                  {shortTime(start, t)} ～ {shortTime(end, t)}
                                 </li>
                               ))}
                             </ul>
@@ -556,7 +572,7 @@ export default function BatchReviewPage() {
                         {t("BatchReviewPage.commentLabel")}
                         {selected.reviewedAt
                           ? t("BatchReviewPage.reviewedAtSuffix", {
-                              time: formatDateTime(selected.reviewedAt, t),
+                              time: shortTime(selected.reviewedAt, t),
                             })
                           : ""}
                       </span>

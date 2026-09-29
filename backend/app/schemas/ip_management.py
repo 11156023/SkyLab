@@ -7,6 +7,8 @@ from pydantic import BaseModel, field_validator, model_validator
 
 from app.core.i18n import t
 
+_MIN_SUBNET_PREFIXLEN = 8
+
 
 class SubnetConfigCreate(BaseModel):
     """設定/更新子網配置"""
@@ -65,6 +67,12 @@ class SubnetConfigCreate(BaseModel):
             raise ValueError(t("ip.invalid_cidr", error=str(e))) from e
         if net.prefixlen == 32:
             raise ValueError(t("ip.cidr_no_slash32"))
+        # 只擋明顯不合理的超大網段（/0～/7）；/8 在校園網路很常見，不收緊，
+        # 也只在存檔時檢查，既有設定不受影響。
+        if net.prefixlen < _MIN_SUBNET_PREFIXLEN:
+            raise ValueError(
+                t("ip.cidr_prefix_too_short", min_prefix=_MIN_SUBNET_PREFIXLEN)
+            )
         return str(net)
 
     @field_validator("gateway", "gateway_vm_ip")
@@ -129,10 +137,6 @@ class BlockSyncSummary(BaseModel):
     skipped: int = 0
     deleted: int = 0
     errors: list[BlockSyncError] = []
-
-    @property
-    def ok(self) -> bool:
-        return not self.errors
 
 
 class SubnetConfigPublic(BaseModel):

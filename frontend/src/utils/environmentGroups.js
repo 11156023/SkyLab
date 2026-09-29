@@ -1,7 +1,17 @@
+import i18n from "../i18n";
 import { formatShortDateTime } from "./formatDate";
 
-function formatDateTime(value) {
-  return formatShortDateTime(value, "依環境政策");
+/* 顯示字串在每次 build 時依目前語系產生；頁面每次 render 都重算，切換語言會跟著變 */
+const label = (key, options) => i18n.t(`EnvironmentGroups.${key}`, { ns: "common", ...options });
+
+function expiryLabel(value) {
+  const time = formatShortDateTime(value, "");
+  return time ? label("expiresAt", { time }) : label("expiresByPolicy");
+}
+
+function nodeSummary(nodes) {
+  if (nodes.size === 1) return [...nodes][0];
+  return nodes.size > 1 ? label("multiNode") : label("provisioning");
 }
 
 function machineFromResource(resource, fallback = {}) {
@@ -10,7 +20,7 @@ function machineFromResource(resource, fallback = {}) {
     requestId: fallback.requestId ?? resource.request_id,
     vmid: resource.vmid,
     name: fallback.name ?? resource.name,
-    role: fallback.role ?? resource.environment_type ?? "機器",
+    role: fallback.role ?? resource.environment_type ?? label("machine"),
     type: resource.type ?? fallback.type,
     os: resource.os_info ?? fallback.os ?? "—",
     status: resource.status ?? fallback.status ?? "unknown",
@@ -58,8 +68,8 @@ function quickPracticeGroups(resources, sessions) {
       kind: "quick_practice",
       title: session.title,
       status: session.status,
-      timingLabel: `${formatDateTime(session.expiresAt)} 到期`,
-      nodeLabel: nodes.size === 1 ? [...nodes][0] : nodes.size > 1 ? "多節點" : "配置中",
+      timingLabel: expiryLabel(session.expiresAt),
+      nodeLabel: nodeSummary(nodes),
       preview: false,
       machines,
     };
@@ -91,8 +101,8 @@ function courseGroups(resources, excludedRequestIds) {
       classRelation: rows.find((resource) => resource.class_relation)?.class_relation ?? null,
       title,
       status: machines.every((machine) => machine.status === "running") ? "running" : "active",
-      timingLabel: "依課程時段管理",
-      nodeLabel: nodes.size === 1 ? [...nodes][0] : nodes.size > 1 ? "多節點" : "配置中",
+      timingLabel: label("byCourseSchedule"),
+      nodeLabel: nodeSummary(nodes),
       preview: false,
       machines,
     };

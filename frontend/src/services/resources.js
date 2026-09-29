@@ -26,11 +26,6 @@ export const ResourcesService = {
     return apiGet(`/api/v1/resources/${vmid}`);
   },
 
-  /** 取得資源目前配置（cpu_cores / memory_mb） */
-  getConfig(vmid) {
-    return apiGet(`/api/v1/resources/${vmid}/config`);
-  },
-
   /** 取得所有資源列表（管理員） */
   listAll(options) {
     return apiGet("/api/v1/resources/", options);
@@ -103,6 +98,16 @@ export const ResourcesService = {
   /** 延長練習階段 → { vmid, auto_stop_at, extended_minutes } */
   extendSession(vmid) {
     return apiPost(`/api/v1/resources/${vmid}/extend-session`, {});
+  },
+
+  /** 平台提供的 LXC 作業系統映像清單 */
+  listLxcOsImages() {
+    return apiGet("/api/v1/lxc/templates");
+  },
+
+  /** 平台提供的 VM 作業系統範本清單 */
+  listVmOsTemplates() {
+    return apiGet("/api/v1/vm/templates");
   },
 
   /** 取得 VNC 控制台資訊（QEMU VM） */

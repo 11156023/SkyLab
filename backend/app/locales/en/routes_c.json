@@ -73,6 +73,7 @@
   "rate_limit.backend_unavailable": "The rate limiting service is unavailable, so this request was refused as a precaution. Please try again later.",
   "ai_guard.too_many_messages": "Too many messages in this conversation; at most {limit} are allowed per request.",
   "ai_guard.messages_too_long": "This conversation is too long; at most {limit} characters are allowed per request.",
+  "ai_guard.form_context_too_long": "The form data is too large; at most {limit} characters are allowed per request.",
   "ai_api_key.invalid_auth_format": "Invalid authorization header format. Expected: Bearer <api_key>",
   "ai_api_key.api_key_required": "API key is required",
   "ai_api_key.invalid_or_revoked": "Invalid or revoked API key",

@@ -204,7 +204,6 @@
   "ResourceMgmtPage.shutdownAll": "一括シャットダウン",
   "ResourceMgmtPage.groupCommandSent": "コマンドを送信しました",
   "ResourceMgmtPage.groupCommandFailed": "一括操作に失敗しました",
-  "ResourceMgmtPage.groupCommandPartial": "{{succeeded}} 台成功、{{failed}} 台失敗しました",
   "ResourceMgmtPage.selectedCount": "{{count}} 台選択中",
   "ResourceMgmtPage.batchSuccessToast": "{{count}} 台に「{{label}}」を送信しました",
   "ResourceMgmtPage.batchPartialFailToast": "「{{label}}」は {{succeeded}} 台成功、{{failed}} 台失敗しました",

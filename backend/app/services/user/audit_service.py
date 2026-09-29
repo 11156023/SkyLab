@@ -191,6 +191,25 @@ def list_audit_users(*, session: Session) -> list[AuditUserOption]:
     ]
 
 
+#: 試算表會把以這些字元開頭的儲存格當成公式（含 CJK 輸入法常見的全形版本）
+_CSV_FORMULA_PREFIXES = (
+    "=", "+", "-", "@", "\t", "\r", "＝", "＋", "－", "＠",
+)
+
+
+def _csv_safe(value: str | None) -> str:
+    """Neutralise spreadsheet formula injection in a free-text CSV cell.
+
+    A leading formula trigger (after any leading spaces) gets a single-quote
+    prefix so Excel / LibreOffice show the text instead of evaluating it.
+    """
+    if not value:
+        return ""
+    if value.lstrip(" ").startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
 EXPORT_CSV_HEADER = [
     "id",
     "created_at",
@@ -252,23 +271,14 @@ def export_csv_chunks(
             str(log.id),
             log.created_at.isoformat(),
             log.action.value if hasattr(log.action, "value") else str(log.action),
-            log.user.email if log.user else "",
-            log.user.full_name if log.user else "",
+            _csv_safe(log.user.email if log.user else None),
+            _csv_safe(log.user.full_name if log.user else None),
             log.vmid or "",
-            log.ip_address or "",
-            log.user_agent or "",
-            log.details,
+            _csv_safe(log.ip_address),
+            _csv_safe(log.user_agent),
+            _csv_safe(log.details),
         ])
         yield flush()
-
-
-def get_by_vmid(
-    *, session: Session, vmid: int, skip: int = 0, limit: int = 100
-) -> AuditLogsPublic:
-    logs, count = audit_repo.get_audit_logs_by_vmid(
-        session=session, vmid=vmid, skip=skip, limit=limit
-    )
-    return AuditLogsPublic(data=[_to_public(log) for log in logs], count=count)
 
 
 def _to_public(log: AuditLog) -> AuditLogPublic:

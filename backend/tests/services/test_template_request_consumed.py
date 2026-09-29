@@ -19,7 +19,10 @@ from typing import Any
 
 import pytest
 
-from app.domain.resource_markers import RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
+from app.domain.resource_markers import (
+    RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
+    RESOURCE_DELETED_MARKERS,
+)
 from app.models import Resource, VMTemplate, VMTemplateStatus
 from app.models.vm_request import VMProvisioningStatus
 from app.services.resource import resource_service
@@ -83,10 +86,7 @@ def test_mark_linked_request_consumed_without_linked_request_is_noop(
 
 def test_converted_marker_suppresses_placeholder_resurrection() -> None:
     # list_by_user 靠這個集合過濾已消耗的 approved 申請單
-    assert (
-        RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
-        in resource_service._RESOURCE_DELETED_MARKERS
-    )
+    assert RESOURCE_CONVERTED_TO_TEMPLATE_MARKER in RESOURCE_DELETED_MARKERS
 
 
 # ---------------------------------------------------------------------------

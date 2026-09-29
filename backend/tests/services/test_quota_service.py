@@ -219,9 +219,10 @@ def test_get_usage_counts_unprovisioned_requests(
         session, USER_ID, cluster_resources=cluster  # type: ignore[arg-type]
     )
 
-    # 機器 2C/2048MB/20GB + 申請單 (2C/4096MB/40GB) + (1C/1024MB/10GB)
+    # 機器 2C/2048MB/20GB + 申請單 (2C/4096MB/40GB) + (1C/1024MB/10GB)；
+    # 台數也要算進兩張未佈建的申請單
     assert usage == QuotaUsage(
-        cpu_cores=5, memory_mb=7168, disk_gb=70, instances=1
+        cpu_cores=5, memory_mb=7168, disk_gb=70, instances=3
     )
 
 

@@ -11,7 +11,6 @@ server-side.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,8 @@ from sqlmodel import Session, desc, select
 
 from app.ai.teacher_judge import file_service
 from app.core.i18n import t
+from app.exceptions import NotFoundError
+from app.models.base import get_datetime_utc
 from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
@@ -41,10 +42,6 @@ from app.schemas.course import (
 from app.services.course import course_service
 
 _DETECTABLE_VALUES = {"auto", "partial", "manual"}
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _student_submission(
@@ -85,19 +82,11 @@ def _requested_item_id(run: TeacherJudgeScriptRun) -> str | None:
     return str(value) if value else None
 
 
-def _first_target(run: TeacherJudgeScriptRun) -> dict[str, Any]:
-    raw_targets = run.target_results_json.get("targets")
-    target = raw_targets[0] if isinstance(raw_targets, list) and raw_targets else {}
-    return target if isinstance(target, dict) else {}
-
-
 def _target_for_student(
-    run: TeacherJudgeScriptRun, user_id: uuid.UUID | None
+    run: TeacherJudgeScriptRun, user_id: uuid.UUID
 ) -> dict[str, Any]:
     """Return only the result target owned by the requested student."""
 
-    if user_id is None:
-        return _first_target(run)
     raw_targets = (run.target_results_json or {}).get("targets")
     if isinstance(raw_targets, list):
         for raw_target in raw_targets:
@@ -278,9 +267,9 @@ def _legacy_judgement_items(
 def _check_to_student(
     run: TeacherJudgeScriptRun,
     *,
+    user_id: uuid.UUID,
     artifact: TeacherJudgeScriptArtifact | None = None,
     item_id: str | None = None,
-    user_id: uuid.UUID | None = None,
 ) -> CourseAICheckStudent:
     """Project one run down to the feedback that belongs on a student page."""
 
@@ -345,12 +334,13 @@ def _check_to_student(
     )
 
 
-def _latest_student_check(
+def _student_runs(
     session: Session,
     *,
     artifact_id: uuid.UUID,
     user_id: uuid.UUID,
-) -> CourseAICheckStudent | None:
+) -> list[TeacherJudgeScriptRun]:
+    """這份作業裡帶有該學生結果的 run，新的在前。"""
     runs = session.exec(
         select(TeacherJudgeScriptRun)
         .where(
@@ -358,35 +348,32 @@ def _latest_student_check(
         )
         .order_by(desc(TeacherJudgeScriptRun.created_at))
     ).all()
-    artifact = session.get(TeacherJudgeScriptArtifact, artifact_id)
-    run = next((candidate for candidate in runs if _target_for_student(candidate, user_id)), None)
+    return [run for run in runs if _target_for_student(run, user_id)]
+
+
+def _latest_student_check(
+    runs: list[TeacherJudgeScriptRun],
+    *,
+    artifact: TeacherJudgeScriptArtifact | None,
+    user_id: uuid.UUID,
+) -> CourseAICheckStudent | None:
     return (
-        _check_to_student(run, artifact=artifact, user_id=user_id)
-        if run is not None
+        _check_to_student(runs[0], artifact=artifact, user_id=user_id)
+        if runs
         else None
     )
 
 
 def _latest_student_checkpoint_checks(
-    session: Session,
+    runs: list[TeacherJudgeScriptRun],
     *,
-    artifact_id: uuid.UUID,
+    artifact: TeacherJudgeScriptArtifact | None,
     user_id: uuid.UUID,
     item_ids: list[str],
 ) -> dict[str, CourseAICheckStudent]:
     wanted = set(item_ids)
     checks: dict[str, CourseAICheckStudent] = {}
-    artifact = session.get(TeacherJudgeScriptArtifact, artifact_id)
-    runs = session.exec(
-        select(TeacherJudgeScriptRun)
-        .where(
-            TeacherJudgeScriptRun.artifact_id == artifact_id,
-        )
-        .order_by(desc(TeacherJudgeScriptRun.created_at))
-    ).all()
     for run in runs:
-        if not _target_for_student(run, user_id):
-            continue
         requested = _requested_item_id(run)
         candidates = [requested] if requested else item_ids
         for checkpoint_id in candidates:
@@ -402,7 +389,12 @@ def _latest_student_checkpoint_checks(
     return checks
 
 
-def _student_items(snapshot: dict[str, Any]) -> list[CourseAITaskItemStudent]:
+def student_task_items(snapshot: dict[str, Any]) -> list[CourseAITaskItemStudent]:
+    """把 ``{"items": [...]}`` 形式的評分項目整理成學生看得到的檢查項目。
+
+    核准版本的 rubric 快照與尚未核准的 AI 解析結果共用這一份正規化；
+    id 保留原值（已完成項目以它比對），detectable 去空白轉小寫後限定三種。
+    """
     raw_items = snapshot.get("items")
     if not isinstance(raw_items, list):
         return []
@@ -513,12 +505,13 @@ def list_student_ai_assignments(
         seen_sources.add(dedupe_key)
 
         snapshot = artifact.rubric_snapshot_json or {}
-        items = _student_items(snapshot)
+        items = student_task_items(snapshot)
         if not items:
             continue
+        runs = _student_runs(session, artifact_id=artifact.id, user_id=user_id)
         checkpoint_checks = _latest_student_checkpoint_checks(
-            session,
-            artifact_id=artifact.id,
+            runs,
+            artifact=artifact,
             user_id=user_id,
             item_ids=[item.id for item in items],
         )
@@ -551,8 +544,8 @@ def list_student_ai_assignments(
                     item_ids=[item.id for item in items],
                 ),
                 latest_check=_latest_student_check(
-                    session,
-                    artifact_id=artifact.id,
+                    runs,
+                    artifact=artifact,
                     user_id=user_id,
                 ),
                 checkpoint_checks=checkpoint_checks,
@@ -570,8 +563,6 @@ def get_student_ai_assignment(
 ) -> CourseAIAssignmentStudent:
     """Return one visible assignment or hide it behind a 404."""
 
-    from fastapi import HTTPException
-
     assignment = next(
         (
             item
@@ -585,7 +576,7 @@ def get_student_ai_assignment(
         None,
     )
     if assignment is None:
-        raise HTTPException(status_code=404, detail=t("ai_assignment.not_found"))
+        raise NotFoundError(t("ai_assignment.not_found"))
     return assignment
 
 
@@ -597,8 +588,6 @@ def get_student_ai_assignment_source_document(
     assignment_id: uuid.UUID,
 ) -> tuple[Path, str]:
     """Return an enrolled student's PDF path after assignment authorization."""
-
-    from fastapi import HTTPException
 
     assignment = get_student_ai_assignment(
         session,
@@ -620,9 +609,7 @@ def get_student_ai_assignment_source_document(
         is None
         or source_file is None
     ):
-        raise HTTPException(
-            status_code=404, detail=t("ai_assignment.source_pdf_not_found")
-        )
+        raise NotFoundError(t("ai_assignment.source_pdf_not_found"))
     return file_service.get_file_download(
         session=session,
         teaching_class_id=assignment.teaching_class_id,
@@ -640,8 +627,6 @@ def get_student_ai_check(
 ) -> CourseAICheckStudent:
     """Return only the current student's own run for a visible assignment."""
 
-    from fastapi import HTTPException
-
     assignment = get_student_ai_assignment(
         session,
         user_id=user_id,
@@ -655,7 +640,7 @@ def get_student_ai_check(
         or run.teaching_class_id != assignment.teaching_class_id
         or not _target_for_student(run, user_id)
     ):
-        raise HTTPException(status_code=404, detail=t("ai_assignment.check_not_found"))
+        raise NotFoundError(t("ai_assignment.check_not_found"))
     artifact = session.get(TeacherJudgeScriptArtifact, assignment.id)
     return _check_to_student(
         run,
@@ -693,13 +678,9 @@ def update_student_completion(
     )
     valid_item_ids = [item.id for item in assignment.items]
     if item_id is not None and item_id not in valid_item_ids:
-        from fastapi import HTTPException
+        raise NotFoundError(t("ai_assignment.task_item_not_found"))
 
-        raise HTTPException(
-            status_code=404, detail=t("ai_assignment.task_item_not_found")
-        )
-
-    now = _now()
+    now = get_datetime_utc()
     if item_id is None:
         completed_items = set(valid_item_ids if completed else [])
     else:

@@ -43,11 +43,39 @@ def update_node_online(node_id: int, is_online: bool) -> None:
         return
 
 
+def open_client(
+    host: str,
+    *,
+    port: int,
+    user: str,
+    password: str,
+    verify_ssl: bool | str,
+    timeout: int,
+) -> ProxmoxAPI:
+    """建立一個不經連線池的 proxmoxer client（同步、測試連線等一次性用途）。
+
+    ``verify_ssl`` 應是 ``resolve_verify`` 的回傳值（bool 或 CA bundle 路徑）。
+    """
+    return ProxmoxAPI(
+        host,
+        port=port,
+        user=user,
+        password=password,
+        verify_ssl=verify_ssl,
+        timeout=timeout,
+    )
+
+
+def list_node_storages(client: ProxmoxAPI, node: str) -> list[dict]:
+    """GET /nodes/{node}/storage。"""
+    return client.nodes(node).storage.get()
+
+
 def try_connect(host: str, cfg: ProxmoxSettings) -> ProxmoxAPI:
     """Create and validate a proxmoxer client for the selected host."""
-    verify_ssl = resolve_verify(host, cfg.verify_ssl, cfg.ca_cert)
+    verify_ssl = resolve_verify(host, cfg.verify_ssl, cfg.ca_cert, port=cfg.port)
 
-    client = ProxmoxAPI(
+    client = open_client(
         host,
         port=cfg.port,
         user=cfg.user,
@@ -65,10 +93,16 @@ def fetch_cluster_nodes(
     password: str,
     verify_ssl: bool | str,
     timeout: int,
+    port: int = 8006,
 ) -> list[dict]:
-    """Return cluster node metadata from /cluster/status with single-node fallback."""
-    client = ProxmoxAPI(
+    """Return cluster node metadata from /cluster/status with single-node fallback.
+
+    ``port`` 是連線設定的 API port：入口 host 用它連線，回傳的每個節點也記它，
+    因為 ``try_connect`` 對所有節點一律用連線的 port，TCP 探測必須與之一致。
+    """
+    client = open_client(
         host,
+        port=port,
         user=user,
         password=password,
         verify_ssl=verify_ssl,
@@ -78,7 +112,7 @@ def fetch_cluster_nodes(
     try:
         cluster_status = client.cluster.status.get()
     except Exception:
-        return [{"name": host, "host": host, "port": 8006, "is_primary": True}]
+        return [{"name": host, "host": host, "port": port, "is_primary": True}]
 
     nodes = []
     for item in cluster_status:
@@ -89,13 +123,13 @@ def fetch_cluster_nodes(
             {
                 "name": item["name"],
                 "host": node_host,
-                "port": 8006,
+                "port": port,
                 "is_primary": item.get("local") == 1,
             }
         )
 
     if not nodes:
-        return [{"name": host, "host": host, "port": 8006, "is_primary": True}]
+        return [{"name": host, "host": host, "port": port, "is_primary": True}]
 
     if not any(node["is_primary"] for node in nodes):
         nodes[0]["is_primary"] = True

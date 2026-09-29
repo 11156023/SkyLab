@@ -32,6 +32,7 @@
   "clone.gpuNodeMismatch": "The selected GPU is not on the template's node ({node}). Please choose a different GPU.",
   "clone.quotaExceeded": "Resource quota exceeded: you have {owned} of {limit} instances",
   "clone.templateMissingOrNotReady": "Template is missing or not ready",
+  "clone.invalidHostname": "The hostname is not valid. Use letters, digits and hyphens.",
   "user.deleteHasResources": "Cannot delete a user who still owns provisioned resources",
   "user.deleteTeacherHasClasses": "Cannot delete a teacher who owns teaching-class history; disable the account or reassign the class first",
   "user.emailExists": "The user with this email already exists in the system.",
@@ -40,10 +41,11 @@
   "user.notFound": "User not found",
   "user.idNotFound": "The user with this id does not exist in the system",
   "user.ldapPasswordLocked": "This account is managed by LDAP; the local password is not used. Change the password in the LDAP directory instead.",
-  "user.selfRoleChangeForbidden": "Administrators cannot change their own role",
   "user.selfDeleteForbidden": "Super users are not allowed to delete themselves",
   "user.incorrectPassword": "Incorrect password",
   "user.samePassword": "New password cannot be the same as the current one",
+  "user.selfEditLocked": "Administrators cannot change their own role or deactivate their own account",
+  "user.lastAdminLocked": "Cannot remove admin rights from the last active administrator",
   "auth.incorrectCredentials": "Incorrect email or password",
   "auth.inactiveUser": "Inactive user",
   "auth.totpCodeInvalid": "The verification code is invalid or has expired. Enter the code currently shown in your authenticator app",
@@ -66,6 +68,10 @@
   "auth.usernameNotFound": "The user with this username does not exist in the system.",
   "ldapAuth.notEnabled": "LDAP login is not enabled",
   "ldapAuth.accountNotRegistered": "Account is not registered",
+  "ldapAuth.invalidEmailAttribute": "The email returned by LDAP is not valid. Ask an administrator to check the email attribute in the LDAP settings.",
   "auth.googleNotConfigured": "Google login is not configured",
-  "template.sourceVmNotRegistered": "VM {vmid} is not registered on the platform and cannot be converted to a template"
+  "auth.totpTooManyAttempts": "Too many incorrect verification codes. Please try again in {minutes} minutes.",
+  "template.sourceVmNotRegistered": "VM {vmid} is not registered on the platform and cannot be converted to a template",
+  "template.fieldCannotBeNull": "Field {field} cannot be set to null",
+  "template.updateCloneMismatch": "VMID {vmid} is no longer the staging VM for this update cycle; cancel the update and start again"
 }

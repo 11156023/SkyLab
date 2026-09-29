@@ -1,24 +1,42 @@
 """
 ShareGPT Benchmark 模組
-使用 ShareGPT 數據集進行性能測試，保持與 enhanced_bench 相同的架構
+使用 ShareGPT 數據集進行性能測試。
+
+壓測目標：
+- litellm（預設）：正式的 LiteLLM gateway，base URL 取 LITELLM_BASE_URL（預設
+  http://127.0.0.1:4000/v1），金鑰取 LITELLM_API_KEY 或 AI_API_API_KEY。
+- single：直連單模型 vLLM 主服務（.env.interface）。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
-from openai import AsyncOpenAI
+from dotenv import dotenv_values
 
-from config.multi_model import load_gateway_config, load_model_instances
-from config.settings import Settings, get_settings
+from benchmark._common import latency_stats, stream_chat
 from benchmark.sharegpt_dataset import ShareGPTConversation, load_sharegpt_dataset
+from config.multi_model import DEFAULT_BASE_ENV, DEFAULT_MODELS_JSON, probe_host
+from config.settings import PROJECT_ROOT, Settings, resolve_env_file
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
+DEFAULT_LITELLM_BASE_URL = "http://127.0.0.1:4000/v1"
+LITELLM_KEY_ENV_VARS = ("LITELLM_API_KEY", "AI_API_API_KEY")
+SINGLE_ENV_FILE = ".env.interface"
+# 舊版 --target gateway 指向已移除的 FastAPI Gateway，現在視同 litellm。
+TARGET_ALIASES = {"gateway": "litellm"}
+DEFAULT_DATASET = "test_datasets/ShareGPT_V3_unfiltered_cleaned_split.json"
 
 
 @dataclass
@@ -234,24 +252,16 @@ class ShareGPTBenchmarkReport:
         return str(filename)
 
 
-def _percentile(sorted_data: list[float], p: float) -> float:
-    """計算百分位數"""
-    if not sorted_data:
-        return 0.0
-    k = (len(sorted_data) - 1) * p / 100.0
-    f = int(k)
-    c = f + 1 if f + 1 < len(sorted_data) else f
-    d = k - f
-    return sorted_data[f] + d * (sorted_data[c] - sorted_data[f])
-
-
 @dataclass
 class InteractiveBenchmarkConfig:
     """互動式 Benchmark 配置。"""
 
     dataset_path: str
+    target: str
+    settings: Settings
     model: str
     base_url: str
+    api_key: str
     num_samples: int | None
     concurrency: int
     max_tokens: int
@@ -260,89 +270,143 @@ class InteractiveBenchmarkConfig:
     save_report: bool
 
 
-def _normalize_gateway_base_url(raw_url: str) -> str:
-    """標準化 Gateway OpenAI Base URL（確保結尾為 /v1）。"""
+@dataclass(frozen=True)
+class BenchmarkTarget:
+    """一個壓測入口：設定來源、OpenAI 相容 base URL 與金鑰。"""
+
+    settings: Settings
+    base_url: str
+    api_key: str
+
+
+def _normalize_base_url(raw_url: str) -> str:
+    """標準化 OpenAI 相容 Base URL（確保結尾為 /v1）。"""
     url = raw_url.strip().rstrip("/")
     if not url:
-        raise ValueError("Gateway URL 不能為空")
-    if not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError("Base URL 不能為空")
+    if not url.startswith(("http://", "https://")):
         url = f"http://{url}"
     if url.endswith("/v1"):
         return url
     return f"{url}/v1"
 
 
-def _get_default_gateway_base_url(settings: Settings) -> str:
-    """取得預設 Gateway base URL。"""
-    try:
-        gateway_cfg = load_gateway_config()
-        host = gateway_cfg.host
-        if host in {"0.0.0.0", "::"}:
-            host = "127.0.0.1"
-        return _normalize_gateway_base_url(f"http://{host}:{gateway_cfg.port}")
-    except Exception:
-        host = settings.api_host
-        if host in {"0.0.0.0", "::"}:
-            host = "127.0.0.1"
-        return _normalize_gateway_base_url(f"http://{host}:{settings.api_port}")
+def _load_bench_settings(env_file: str) -> Settings:
+    """讀 benchmark 用的設定（併發、max tokens、逾時與單模型連線資訊）。
+
+    直接建立 Settings 而不經 get_settings：後者會注入 HF／CUDA 環境變數並建立
+    模型快取目錄，壓測端用不到。env 檔不存在時沿用預設值。
+    """
+    return Settings(_env_file=str(resolve_env_file(env_file)))
 
 
-def _get_default_service_base_url(settings: Settings) -> str:
-    """取得單模型主服務 OpenAI base URL。"""
-    host = settings.api_host
-    if host in {"0.0.0.0", "::"}:
-        host = "127.0.0.1"
-    return _normalize_gateway_base_url(f"http://{host}:{settings.api_port}")
+def _litellm_api_key() -> str:
+    """LiteLLM 金鑰：環境變數優先，其次是 repo 根目錄 .env 的 AI_API_API_KEY。"""
+    for name in LITELLM_KEY_ENV_VARS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    root_env = PROJECT_ROOT.parent / ".env"
+    if root_env.is_file():
+        values = dotenv_values(root_env)
+        for name in LITELLM_KEY_ENV_VARS:
+            value = (values.get(name) or "").strip()
+            if value:
+                return value
+    return ""
 
 
-def _fetch_gateway_models(base_url: str, timeout: float = 3.0) -> list[str]:
-    """從 Gateway 的 /models 端點取得模型 alias 清單。"""
-    models_url = f"{base_url.rstrip('/')}/models"
-    with urlopen(models_url, timeout=timeout) as response:  # nosec B310 - 內部 Gateway URL
+def _resolve_target(target: str, explicit_base_url: str | None = None) -> BenchmarkTarget:
+    """依壓測目標決定設定來源、base URL 與金鑰。"""
+    target = TARGET_ALIASES.get(target, target)
+    if target == "litellm":
+        api_key = _litellm_api_key()
+        if not api_key:
+            raise ValueError(
+                "找不到 LiteLLM 金鑰：請設定環境變數 LITELLM_API_KEY 或 AI_API_API_KEY"
+                "（或在 repo 根目錄 .env 設定 AI_API_API_KEY）"
+            )
+        raw_base_url = (
+            explicit_base_url
+            or os.environ.get("LITELLM_BASE_URL", "").strip()
+            or DEFAULT_LITELLM_BASE_URL
+        )
+        return BenchmarkTarget(
+            settings=_load_bench_settings(DEFAULT_BASE_ENV),
+            base_url=_normalize_base_url(raw_base_url),
+            api_key=api_key,
+        )
+    if target == "single":
+        settings = _load_bench_settings(SINGLE_ENV_FILE)
+        base_url = explicit_base_url or f"http://{probe_host(settings.api_host)}:{settings.api_port}"
+        return BenchmarkTarget(
+            settings=settings,
+            base_url=_normalize_base_url(base_url),
+            api_key=settings.api_key,
+        )
+    raise ValueError(f"未知的壓測目標: {target}")
+
+
+def _fetch_models(base_url: str, api_key: str, timeout: float = 3.0) -> list[str]:
+    """從 OpenAI 相容 /models 端點取得模型 ID 清單。"""
+    request = Request(
+        f"{base_url.rstrip('/')}/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    with urlopen(request, timeout=timeout) as response:  # nosec B310 - 操作者指定的 gateway URL
         payload = json.loads(response.read().decode("utf-8"))
 
     data = payload.get("data", [])
-    aliases = [str(item.get("id", "")).strip() for item in data if isinstance(item, dict)]
-    return sorted([alias for alias in aliases if alias])
+    model_ids = [str(item.get("id", "")).strip() for item in data if isinstance(item, dict)]
+    return sorted([model_id for model_id in model_ids if model_id])
 
 
-def _load_model_aliases_from_local_config(base_env_file: str | Path | None = None) -> list[str]:
-    """當 Gateway 不可用時，從本地多模型設定推導 alias。"""
-    instances = load_model_instances(base_env_file=base_env_file)
-    aliases = [instance.alias for instance in instances if instance.alias]
+def _load_model_aliases_from_models_json(models_json: str | Path | None = None) -> list[str]:
+    """/models 取不到時，改讀 models.json 的公開 alias（含遠端模型）。"""
+    path = Path(models_json or DEFAULT_MODELS_JSON)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(raw, list):
+        raise ValueError(f"models.json 格式錯誤：應為陣列 ({path})")
+    aliases = {
+        item["alias"].strip()
+        for item in raw
+        if isinstance(item, dict) and isinstance(item.get("alias"), str) and item["alias"].strip()
+    }
     return sorted(aliases)
+
+
+def _list_litellm_models(target: BenchmarkTarget) -> list[str]:
+    """LiteLLM 可用模型：先問 /models，失敗再退回 models.json。"""
+    try:
+        return _fetch_models(target.base_url, target.api_key)
+    except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+        print(f"[LiteLLM] 無法從 {target.base_url}/models 取得模型清單: {exc}")
+    try:
+        aliases = _load_model_aliases_from_models_json()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(
+            "無法取得可用模型，請確認 LiteLLM 已啟動、金鑰正確，或 models.json 設定正確"
+        ) from exc
+    print(f"[Config] 改用 models.json 的模型 alias: {len(aliases)} 個")
+    return aliases
 
 
 def _resolve_noninteractive_target(
     service_target: str,
     explicit_model: str | None,
     explicit_base_url: str | None,
-) -> tuple[Settings, str | None, str | None]:
-    """解析非互動模式的設定來源，避免落回預設 .env/API key。"""
-    if service_target == "gateway":
-        target_settings = get_settings(".env.API")
-        base_url = (
-            _normalize_gateway_base_url(explicit_base_url)
-            if explicit_base_url
-            else _get_default_gateway_base_url(target_settings)
-        )
+) -> tuple[BenchmarkTarget, str | None]:
+    """解析非互動模式的壓測入口與模型，避免落回預設 .env/API key。"""
+    target = _resolve_target(service_target, explicit_base_url)
+    if TARGET_ALIASES.get(service_target, service_target) == "litellm":
         model = explicit_model
         if not model:
-            try:
-                model_aliases = _fetch_gateway_models(base_url)
-            except (URLError, TimeoutError, json.JSONDecodeError, ValueError):
-                model_aliases = _load_model_aliases_from_local_config(".env.API")
-            model = model_aliases[0] if model_aliases else None
-        return target_settings, model, base_url
-
-    target_settings = get_settings(".env.interface")
-    base_url = (
-        _normalize_gateway_base_url(explicit_base_url)
-        if explicit_base_url
-        else _get_default_service_base_url(target_settings)
-    )
-    model = explicit_model or target_settings.model_name
-    return target_settings, model, base_url
+            aliases = _list_litellm_models(target)
+            model = aliases[0] if aliases else None
+        return target, model
+    return target, explicit_model or target.settings.api_model_name
 
 
 def _ask_with_default(prompt: str, default: str) -> str:
@@ -371,44 +435,16 @@ def _ask_int_with_default(prompt: str, default: int, allow_zero: bool = False) -
         return value
 
 
-def _ask_float_with_default(prompt: str, default: float) -> float:
-    """詢問浮點輸入，空白時回傳預設值。"""
-    while True:
-        answer = input(f"{prompt} [預設: {default}]: ").strip()
-        if not answer:
-            return default
-        try:
-            return float(answer)
-        except ValueError:
-            print("[Input] 請輸入數字")
-
-
-def _ask_yes_no(prompt: str, default_yes: bool = True) -> bool:
-    """詢問是/否輸入。"""
-    default_label = "Y/n" if default_yes else "y/N"
-    while True:
-        answer = input(f"{prompt} ({default_label}): ").strip().lower()
-        if not answer:
-            return default_yes
-        if answer in {"y", "yes"}:
-            return True
-        if answer in {"n", "no"}:
-            return False
-        print("[Input] 請輸入 y 或 n")
-
-
 def _choose_service_target() -> str:
     """讓使用者選擇要壓測的服務入口。"""
     print("\n壓測目標:")
-    print("  1. API Gateway（多模型 API 服務）")
-    print("  2. 主服務（單模型 vLLM 服務）")
+    print("  1. LiteLLM Gateway（正式多模型 API 入口）")
+    print("  2. 主服務（直連單模型 vLLM 服務）")
 
     while True:
         answer = input("選擇服務 [預設: 1]: ").strip().lower()
-        if not answer:
-            return "gateway"
-        if answer in {"1", "gateway", "api", "api gateway"}:
-            return "gateway"
+        if not answer or answer in {"1", "litellm", "gateway", "api"}:
+            return "litellm"
         if answer in {"2", "single", "main", "service", "主服務"}:
             return "single"
         print("[Input] 請輸入 1 或 2")
@@ -417,7 +453,7 @@ def _choose_service_target() -> str:
 def _choose_model_alias(candidates: list[str], default_alias: str | None = None) -> str:
     """讓使用者互動選擇模型 alias。"""
     if not candidates:
-        raise ValueError("沒有可選模型，請先確認 Gateway 或 models.json 設定")
+        raise ValueError("沒有可選模型，請先確認 LiteLLM 或 models.json 設定")
 
     print("\n可用模型:")
     for idx, alias in enumerate(candidates, start=1):
@@ -454,52 +490,33 @@ def collect_interactive_config() -> InteractiveBenchmarkConfig:
     print(f"{'='*80}")
 
     service_target = _choose_service_target()
-    if service_target == "gateway":
-        target_settings = get_settings(".env.API")
-        base_url = _get_default_gateway_base_url(target_settings)
-        model_aliases: list[str] = []
-        try:
-            model_aliases = _fetch_gateway_models(base_url)
-            print(f"[Gateway] 已讀取模型清單: {len(model_aliases)} 個")
-        except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
-            print(f"[Gateway] 無法從 {base_url}/models 取得模型清單: {exc}")
-            try:
-                model_aliases = _load_model_aliases_from_local_config()
-                print(f"[Config] 回退使用本地設定模型: {len(model_aliases)} 個")
-            except Exception as fallback_exc:
-                raise RuntimeError(
-                    "無法取得可用模型，請確認 Gateway 已啟動或 models.json 設定正確"
-                ) from fallback_exc
-
+    target = _resolve_target(service_target)
+    if service_target == "litellm":
+        model_aliases = _list_litellm_models(target)
+        print(f"[LiteLLM] 可用模型: {len(model_aliases)} 個")
         selected_model = _choose_model_alias(
             model_aliases,
             default_alias=model_aliases[0] if model_aliases else None,
         )
     else:
-        target_settings = get_settings(".env.interface")
-        base_url = _get_default_service_base_url(target_settings)
-        selected_model = _ask_with_default("主服務模型名稱", target_settings.model_name)
-
-    default_dataset = "test_datasets/ShareGPT_V3_unfiltered_cleaned_split.json"
-    dataset_path = default_dataset
+        selected_model = _ask_with_default("主服務模型名稱", target.settings.api_model_name)
 
     # 0 代表使用全部對話
     sample_input = _ask_int_with_default("測試樣本數 (0=全部)", 100, allow_zero=True)
     num_samples = None if sample_input == 0 else sample_input
 
-    concurrency = _ask_int_with_default("併發數", target_settings.bench_concurrency)
-    max_tokens = target_settings.bench_max_tokens
+    concurrency = _ask_int_with_default("併發數", target.settings.bench_concurrency)
+    max_tokens = target.settings.bench_max_tokens
     temperature = 0.7
     seed = 42
-    save_report = True
 
     print(f"\n{'─'*80}")
     print("  互動設定確認")
     print(f"{'─'*80}")
-    print(f"  服務:            {'API Gateway' if service_target == 'gateway' else '主服務'}")
-    print(f"  API Base URL:    {base_url}")
+    print(f"  服務:            {'LiteLLM Gateway' if service_target == 'litellm' else '主服務'}")
+    print(f"  API Base URL:    {target.base_url}")
     print(f"  模型:            {selected_model}")
-    print(f"  資料集:          {dataset_path}")
+    print(f"  資料集:          {DEFAULT_DATASET}")
     print(f"  測試樣本數:      {'全部' if num_samples is None else num_samples}")
     print(f"  併發數:          {concurrency}")
     print(f"  固定最大 Token:  {max_tokens}")
@@ -509,15 +526,38 @@ def collect_interactive_config() -> InteractiveBenchmarkConfig:
     print(f"{'─'*80}\n")
 
     return InteractiveBenchmarkConfig(
-        dataset_path=dataset_path,
+        dataset_path=DEFAULT_DATASET,
+        target=service_target,
+        settings=target.settings,
         model=selected_model,
-        base_url=base_url,
+        base_url=target.base_url,
+        api_key=target.api_key,
         num_samples=num_samples,
         concurrency=concurrency,
         max_tokens=max_tokens,
         temperature=temperature,
         seed=seed,
-        save_report=save_report,
+        save_report=True,
+    )
+
+
+def _failed_result(
+    conversation: ShareGPTConversation,
+    latency: float,
+    error: str,
+) -> ShareGPTTestResult:
+    return ShareGPTTestResult(
+        conversation_id=conversation.id,
+        prompt=conversation.prompt,
+        success=False,
+        latency=latency,
+        first_token_latency=None,
+        prompt_tokens=0,
+        completion_tokens=0,
+        total_tokens=0,
+        response_text="",
+        error=error,
+        num_turns=conversation.num_turns,
     )
 
 
@@ -530,130 +570,57 @@ async def _send_sharegpt_request(
     semaphore: asyncio.Semaphore,
     max_retries: int = 2,
 ) -> ShareGPTTestResult:
-    """發送單個 ShareGPT 測試請求（改進的重試逻輯）"""
+    """發送單個 ShareGPT 測試請求（逾時與暫時性錯誤會重試）"""
     async with semaphore:
         # 添加小延遲避免瞬間高峰
         await asyncio.sleep(0.05)
-        
+        # 使用對話的第一個 prompt
+        messages = [{"role": "user", "content": conversation.prompt}]
+
         for attempt in range(max_retries + 1):
             start_time = time.perf_counter()
-            first_token_time = None
-            completion_text = ""
-            is_last_attempt = (attempt >= max_retries)
-
+            is_last_attempt = attempt >= max_retries
             try:
-                # 使用對話的第一個 prompt
-                messages = [{"role": "user", "content": conversation.prompt}]
-
-                stream = await client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    stream=True,
-                    stream_options={"include_usage": True},
-                )
-
-                prompt_tokens = 0
-                completion_tokens = 0
-
-                async for chunk in stream:
-                    if first_token_time is None and chunk.choices:
-                        delta = chunk.choices[0].delta.content
-                        if delta:
-                            first_token_time = time.perf_counter()
-                            completion_text += delta
-                    elif chunk.choices:
-                        delta = chunk.choices[0].delta.content
-                        if delta:
-                            completion_text += delta
-
-                    if hasattr(chunk, "usage") and chunk.usage:
-                        prompt_tokens = chunk.usage.prompt_tokens
-                        completion_tokens = chunk.usage.completion_tokens
-
-                end_time = time.perf_counter()
-
-                # 估算 tokens 如果 API 沒提供
-                if completion_tokens == 0:
-                    completion_tokens = max(1, len(completion_text) // 4)
-                if prompt_tokens == 0:
-                    prompt_tokens = len(conversation.prompt) // 4
-
-                return ShareGPTTestResult(
-                    conversation_id=conversation.id,
-                    prompt=conversation.prompt,
-                    success=True,
-                    latency=end_time - start_time,
-                    first_token_latency=(first_token_time - start_time) if first_token_time else None,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=prompt_tokens + completion_tokens,
-                    response_text=completion_text,
-                    num_turns=conversation.num_turns,
-                    input_length=prompt_tokens,
-                    output_length=completion_tokens,
-                )
-
+                outcome = await stream_chat(client, model, messages, max_tokens, temperature)
             except asyncio.TimeoutError as e:
-                error_msg = f"Timeout: {str(e)}"
                 if is_last_attempt:
-                    end_time = time.perf_counter()
-                    return ShareGPTTestResult(
-                        conversation_id=conversation.id,
-                        prompt=conversation.prompt,
-                        success=False,
-                        latency=end_time - start_time,
-                        first_token_latency=None,
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0,
-                        response_text="",
-                        error=f"{error_msg} (attempt {attempt + 1}/{max_retries + 1})",
-                        num_turns=conversation.num_turns,
+                    return _failed_result(
+                        conversation,
+                        time.perf_counter() - start_time,
+                        f"Timeout: {e} (attempt {attempt + 1}/{max_retries + 1})",
                     )
-                # 重試
                 await asyncio.sleep(1.0 * (attempt + 1))
                 continue
-                
             except Exception as e:
                 error_msg = str(e)
-                # 某些錯誤不應重試（例如 EngineCore 錯誤）
+                # 某些錯誤不應重試（例如 EngineCore 錯誤、認證失敗）
                 if "EngineCore" in error_msg or "AuthenticationError" in error_msg or is_last_attempt:
-                    end_time = time.perf_counter()
-                    return ShareGPTTestResult(
-                        conversation_id=conversation.id,
-                        prompt=conversation.prompt,
-                        success=False,
-                        latency=end_time - start_time,
-                        first_token_latency=None,
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0,
-                        response_text="",
-                        error=f"{error_msg} (attempt {attempt + 1}/{max_retries + 1})",
-                        num_turns=conversation.num_turns,
+                    return _failed_result(
+                        conversation,
+                        time.perf_counter() - start_time,
+                        f"{error_msg} (attempt {attempt + 1}/{max_retries + 1})",
                     )
-                # 否則重試（指數退避）
-                backoff_time = min(2.0 ** attempt, 10.0)  # 最多 10 秒
-                await asyncio.sleep(backoff_time)
+                # 否則重試（指數退避，最多 10 秒）
+                await asyncio.sleep(min(2.0 ** attempt, 10.0))
                 continue
-        
-        # 此行正常不應該執行到
-        end_time = time.perf_counter()
-        return ShareGPTTestResult(
-            conversation_id=conversation.id,
-            prompt=conversation.prompt,
-            success=False,
-            latency=end_time - start_time,
-            first_token_latency=None,
-            prompt_tokens=0,
-            completion_tokens=0,
-            total_tokens=0,
-            response_text="",
-            error="All retries exhausted",
-            num_turns=conversation.num_turns,
-        )
+
+            return ShareGPTTestResult(
+                conversation_id=conversation.id,
+                prompt=conversation.prompt,
+                success=True,
+                latency=outcome.latency,
+                first_token_latency=outcome.first_token_latency,
+                prompt_tokens=outcome.prompt_tokens,
+                completion_tokens=outcome.completion_tokens,
+                total_tokens=outcome.prompt_tokens + outcome.completion_tokens,
+                response_text=outcome.text,
+                num_turns=conversation.num_turns,
+                input_length=outcome.prompt_tokens,
+                output_length=outcome.completion_tokens,
+            )
+
+        # 迴圈每一輪都會 return 或 continue，最後一輪必定 return；此行不會執行到
+        return _failed_result(conversation, 0.0, "All retries exhausted")
 
 
 async def run_sharegpt_benchmark(
@@ -688,11 +655,11 @@ async def run_sharegpt_benchmark(
     Returns:
         ShareGPTBenchmarkReport
     """
-    s = settings or get_settings()
+    s = settings or Settings(_env_file=str(resolve_env_file()))
     _conc = concurrency or s.bench_concurrency
     _max_tokens = max_tokens or s.bench_max_tokens
-    _model = model or s.model_name
-    _base_url = base_url or f"http://{s.api_host}:{s.api_port}/v1"
+    _model = model or s.api_model_name
+    _base_url = base_url or f"http://{probe_host(s.api_host)}:{s.api_port}/v1"
     _api_key = api_key or s.api_key
 
     # 載入 ShareGPT 資料集
@@ -721,7 +688,9 @@ async def run_sharegpt_benchmark(
     print(f"  溫度:           {temperature}")
     print(f"{'='*80}\n")
 
-    # 建立 API 客戶端
+    # 建立 API 客戶端（延後匯入，讓 --help 與設定解析不必先裝 openai）
+    from openai import AsyncOpenAI
+
     client = AsyncOpenAI(
         base_url=_base_url,
         api_key=_api_key,
@@ -782,46 +751,44 @@ async def run_sharegpt_benchmark(
     )
 
     if successful:
-        # 延遲統計
-        latencies_ms = sorted(r.latency * 1000 for r in successful)
         report.requests_per_second = len(successful) / total_time
         report.tokens_per_second = report.total_tokens / total_time
         report.input_tokens_per_second = report.total_prompt_tokens / total_time
         report.output_tokens_per_second = report.total_completion_tokens / total_time
-        
-        report.avg_latency_ms = sum(latencies_ms) / len(latencies_ms)
-        report.min_latency_ms = latencies_ms[0]
-        report.max_latency_ms = latencies_ms[-1]
-        report.p50_latency_ms = _percentile(latencies_ms, 50)
-        report.p90_latency_ms = _percentile(latencies_ms, 90)
-        report.p95_latency_ms = _percentile(latencies_ms, 95)
-        report.p99_latency_ms = _percentile(latencies_ms, 99)
+
+        # 延遲統計
+        latency = latency_stats([r.latency * 1000 for r in successful])
+        report.avg_latency_ms = latency["avg"]
+        report.min_latency_ms = latency["min"]
+        report.max_latency_ms = latency["max"]
+        report.p50_latency_ms = latency["p50"]
+        report.p90_latency_ms = latency["p90"]
+        report.p95_latency_ms = latency["p95"]
+        report.p99_latency_ms = latency["p99"]
 
         # TTFT 統計
-        ttfts_ms = sorted(r.first_token_latency * 1000 for r in successful if r.first_token_latency)
+        ttfts_ms = [r.first_token_latency * 1000 for r in successful if r.first_token_latency]
         if ttfts_ms:
-            report.avg_ttft_ms = sum(ttfts_ms) / len(ttfts_ms)
-            report.min_ttft_ms = ttfts_ms[0]
-            report.max_ttft_ms = ttfts_ms[-1]
-            report.p50_ttft_ms = _percentile(ttfts_ms, 50)
-            report.p90_ttft_ms = _percentile(ttfts_ms, 90)
-            report.p99_ttft_ms = _percentile(ttfts_ms, 99)
+            ttft = latency_stats(ttfts_ms)
+            report.avg_ttft_ms = ttft["avg"]
+            report.min_ttft_ms = ttft["min"]
+            report.max_ttft_ms = ttft["max"]
+            report.p50_ttft_ms = ttft["p50"]
+            report.p90_ttft_ms = ttft["p90"]
+            report.p99_ttft_ms = ttft["p99"]
 
-        # TPOT 統計 (Time Per Output Token)
-        tpots_ms = []
-        for r in successful:
-            if r.first_token_latency and r.completion_tokens > 0:
-                # TPOT = (總延遲 - TTFT) / 輸出 tokens
-                decode_time = r.latency - r.first_token_latency
-                tpot = (decode_time * 1000) / r.completion_tokens
-                tpots_ms.append(tpot)
-        
+        # TPOT 統計 (Time Per Output Token) = (總延遲 - TTFT) / 輸出 tokens
+        tpots_ms = [
+            (r.latency - r.first_token_latency) * 1000 / r.completion_tokens
+            for r in successful
+            if r.first_token_latency and r.completion_tokens > 0
+        ]
         if tpots_ms:
-            tpots_ms_sorted = sorted(tpots_ms)
-            report.avg_tpot_ms = sum(tpots_ms) / len(tpots_ms)
-            report.p50_tpot_ms = _percentile(tpots_ms_sorted, 50)
-            report.p90_tpot_ms = _percentile(tpots_ms_sorted, 90)
-            report.p99_tpot_ms = _percentile(tpots_ms_sorted, 99)
+            tpot = latency_stats(tpots_ms)
+            report.avg_tpot_ms = tpot["avg"]
+            report.p50_tpot_ms = tpot["p50"]
+            report.p90_tpot_ms = tpot["p90"]
+            report.p99_tpot_ms = tpot["p99"]
 
         # Token 長度統計
         report.avg_input_length = sum(r.input_length for r in successful) / len(successful)
@@ -871,23 +838,28 @@ def main():
     parser.add_argument(
         "--interactive",
         action="store_true",
-        help="詢問式流程（選 API Gateway/主服務、模型、測試量與併發）",
+        help="詢問式流程（選 LiteLLM/主服務、模型、測試量與併發）",
     )
     parser.add_argument(
         "--model",
         type=str,
-        help="指定模型名稱或 alias（走 Gateway 時填 alias）",
+        help="指定模型名稱或 alias（走 LiteLLM 時填公開 alias）",
     )
     parser.add_argument(
         "--target",
-        choices=("gateway", "single"),
-        default="gateway",
-        help="非互動模式壓測目標：gateway 讀 .env.API，single 讀 .env.interface（預設: gateway）",
+        choices=("litellm", "single", "gateway"),
+        default="litellm",
+        help=(
+            "非互動模式壓測目標：litellm 走 LITELLM_BASE_URL（預設 "
+            f"{DEFAULT_LITELLM_BASE_URL}），金鑰取 LITELLM_API_KEY／AI_API_API_KEY；"
+            "single 直連 .env.interface 的單模型 vLLM；gateway 為舊名稱，等同 litellm"
+            "（預設: litellm）"
+        ),
     )
     parser.add_argument(
         "--base-url",
         type=str,
-        help="OpenAI API Base URL（例如 http://127.0.0.1:3000/v1）",
+        help=f"覆寫 OpenAI API Base URL（例如 {DEFAULT_LITELLM_BASE_URL}）",
     )
     parser.add_argument(
         "-n", "--num-samples",
@@ -923,13 +895,14 @@ def main():
     )
     args = parser.parse_args()
 
-    settings = get_settings(".env.API")
-
     if args.interactive or not args.dataset:
         config = collect_interactive_config()
         dataset_path = Path(config.dataset_path)
+        # 互動模式也要用所選目標自己的設定與金鑰，不能落回 .env.API 的 API_KEY
+        settings = config.settings
         model = config.model
         base_url = config.base_url
+        api_key = config.api_key
         num_samples = config.num_samples
         concurrency = config.concurrency
         max_tokens = config.max_tokens
@@ -938,11 +911,14 @@ def main():
         save_report = config.save_report
     else:
         dataset_path = Path(args.dataset)
-        settings, model, base_url = _resolve_noninteractive_target(
+        target, model = _resolve_noninteractive_target(
             service_target=args.target,
             explicit_model=args.model,
             explicit_base_url=args.base_url,
         )
+        settings = target.settings
+        base_url = target.base_url
+        api_key = target.api_key
         num_samples = args.num_samples
         concurrency = args.concurrency
         max_tokens = args.max_tokens
@@ -963,6 +939,7 @@ def main():
             settings=settings,
             model=model,
             base_url=base_url,
+            api_key=api_key,
             num_samples=num_samples,
             concurrency=concurrency,
             max_tokens=max_tokens,

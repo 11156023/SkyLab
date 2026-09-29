@@ -22,5 +22,18 @@
   "ai_assignment.source_pdf_not_found": "このタスクには学生が閲覧できるPDFがありません。",
   "ai_assignment.check_not_found": "AIチェックが見つかりません",
   "ai_assignment.task_item_not_found": "タスク項目が見つかりません",
-  "course.ai_check_incomplete": "今回のチェックは完了しませんでした。先生が結果を確認します。"
+  "course.ai_check_incomplete": "今回のチェックは完了しませんでした。先生が結果を確認します。",
+  "course.teacher_fallback": "担当教員",
+  "course_reminder.today": "今日",
+  "course_reminder.tomorrow": "明日",
+  "course_reminder.resource_fallback_name": "リソース #{vmid}",
+  "course_reminder.resource_expires_today": "本日で期限切れになります。引き続き使う場合は、早めに延長を申請してください。",
+  "course_reminder.resource_expires_in_days": "あと {days} 日で期限切れになります。残したい場合は早めに対応してください。",
+  "course_reminder.resource_expiring_title": "{name} の期限が近づいています",
+  "course_reminder.request_approved_title": "リソース申請が承認されました",
+  "course_reminder.request_rejected_title": "リソース申請が差し戻されました",
+  "course_reminder.request_approved_description": "{hostname} が承認されました。マイリソースで確認できます。",
+  "course_reminder.request_rejected_description": "{hostname} は審査を通過しませんでした。理由はマイ申請で確認してください。",
+  "course_reminder.class_task_title": "{class_name}：{title}",
+  "course_reminder.class_task_description": "第 {week} 週の授業課題です。クリックすると内容とチェック項目を確認できます。"
 }

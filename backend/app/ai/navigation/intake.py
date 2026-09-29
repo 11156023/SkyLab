@@ -29,6 +29,7 @@ from app.ai.template_recommendation.recommendation_service import (
     GPU_KEYWORDS,
     WINDOWS_KEYWORDS,
 )
+from app.ai.utils import mentions
 
 # 圖形介面與 Windows 一樣會把選擇推向 VM，放在同一題問。
 _DISPLAY_KEYWORDS = (
@@ -101,8 +102,8 @@ def _explicit_answer(slot: IntakeSlot, text: str) -> str | None:
     if slot.key == "purpose":
         if text in _ALL_OPTIONS and text not in slot.options:
             return None
-        return text if _mentions(text, _PURPOSE_KEYWORDS) else None
-    if any(option in text for option in slot.options) or _mentions(text, slot.keywords):
+        return text if mentions(text, _PURPOSE_KEYWORDS) else None
+    if any(option in text for option in slot.options) or mentions(text, slot.keywords):
         return text
     return None
 
@@ -163,18 +164,13 @@ def _collect_facts(
 
     # Ordinary web services have useful defaults; explicit requirements win.
     purpose = result.purpose or ""
-    ordinary_web = _mentions(purpose, ("網站", "網頁", "架站", "node.js", "nodejs", "flask", "django", "website"))
-    if ordinary_web and not _mentions(purpose, GPU_KEYWORDS + WINDOWS_KEYWORDS + _DISPLAY_KEYWORDS):
+    ordinary_web = mentions(purpose, ("網站", "網頁", "架站", "node.js", "nodejs", "flask", "django", "website"))
+    if ordinary_web and not mentions(purpose, GPU_KEYWORDS + WINDOWS_KEYWORDS + _DISPLAY_KEYWORDS):
         for key, value in (("gpu", "不需要 GPU"), ("display", "Linux 指令列就好")):
             if not getattr(result, key):
                 setattr(result, key, value)
                 result.inferred.append(key)
     return result
-
-
-def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
-    lowered = text.casefold()
-    return any(keyword.casefold() in lowered for keyword in keywords)
 
 
 def read_intake(

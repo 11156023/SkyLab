@@ -11,7 +11,7 @@ import logging
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 
-from app.features.ai.config import settings
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,26 +21,26 @@ _pool: ArqRedis | None = None
 
 
 def get_redis_settings() -> RedisSettings:
-    return RedisSettings.from_dsn(settings.redis_url)
+    return RedisSettings.from_dsn(settings.REDIS_URL)
 
 
 async def init_arq_pool() -> None:
     global _pool
     if _pool is not None:
         return
-    if not settings.redis_enabled:
+    if not settings.REDIS_ENABLED:
         logger.info("arq pool is disabled (REDIS_ENABLED=false)")
         return
     try:
         _pool = await create_pool(get_redis_settings())
-        logger.info("arq pool connected: %s", settings.redis_url)
+        logger.info("arq pool connected: %s", settings.REDIS_URL)
     except Exception as exc:
         logger.error("Failed to connect arq pool: %s", exc)
         _pool = None
 
 
 async def get_arq_pool() -> ArqRedis:
-    if not settings.redis_enabled:
+    if not settings.REDIS_ENABLED:
         raise RuntimeError("arq pool is disabled (REDIS_ENABLED=false)")
     if _pool is None:
         await init_arq_pool()

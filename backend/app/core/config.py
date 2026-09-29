@@ -35,9 +35,6 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 1 day
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7 days
     FRONTEND_HOST: str = "http://127.0.0.1:5173"
-    # Public base URL of the backend API as seen by desktop clients.
-    # Defaults to http://localhost:8000 when unset (override in .env for deploys).
-    DESKTOP_CLIENT_BACKEND_URL: str = "http://localhost:8000"
     # External URL for the desktop client zip (e.g. GitHub Releases asset).
     # When set, /desktop-client/download redirects here instead of serving a local file.
     DESKTOP_CLIENT_DOWNLOAD_URL: str = (
@@ -168,32 +165,16 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    # Google 登入只驗證 ID token 的 aud，不需要 client secret。
     GOOGLE_CLIENT_ID: str | None = None
-    GOOGLE_CLIENT_SECRET: str | None = None
 
-    PROXMOX_HOST: str = "localhost"
-    PROXMOX_USER: str = ""
-    PROXMOX_PASSWORD: str = ""
-    PROXMOX_VERIFY_SSL: bool = False
-    PROXMOX_ISO_STORAGE: str = "local"
-    PROXMOX_DATA_STORAGE: str = "local-lvm"
-    PROXMOX_API_TIMEOUT: int = 30  # API request timeout in seconds
-    PROXMOX_TASK_CHECK_INTERVAL: int = 1  # Seconds between task status checks
+    # LDAP over ldaps:// / StartTLS 一律驗證伺服器憑證與主機名稱。網域控制站
+    # 用校內私有 CA 簽發時，把該 CA 的 PEM 檔路徑設在這裡；留空＝系統信任庫。
+    LDAP_CA_CERT_FILE: str | None = None
 
-    # vLLM settings for AI Teacher Judge
-    VLLM_BASE_URL: str = "http://localhost:8000/v1"
-    VLLM_API_KEY: str = "vllm-secret-key-change-me"
-    VLLM_MODEL_NAME: str = ""
-    VLLM_ENABLE_THINKING: bool = False
-    VLLM_TIMEOUT: int = 60
-    VLLM_TEMPERATURE: float = 0.2
-    VLLM_CHAT_TEMPERATURE: float = 0.7
-    VLLM_TOP_P: float = 0.95
-    VLLM_TOP_K: int = 20
-    VLLM_MAX_TOKENS: int = 8192
-    VLLM_CHAT_MAX_TOKENS: int = 4096
-    VLLM_REPETITION_PENALTY: float = 1.0
-    VLLM_MAX_UPLOAD_SIZE_MB: int = 10
+    # PVE 連線（PROXMOX_*）與 vLLM（VLLM_*）都不在這裡：PVE 由初始化精靈／
+    # 「PVE 連線」頁存進 DB，vLLM 由 app.ai 各功能的設定物件讀取。
+    # .env 裡殘留的舊變數因 extra="ignore" 會被忽略。
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
@@ -221,8 +202,32 @@ class Settings(BaseSettings):
                 )
         return self
 
+    def _check_secret_key_is_fixed(self) -> None:
+        # SECRET_KEY 也衍生 Fernet 金鑰加密 DB 裡的憑證。沒設（或 .env 寫
+        # `SECRET_KEY=`，env_ignore_empty 視同沒設）時會退回每個行程各自的
+        # 隨機值：backend 與 worker 金鑰不同、重啟後所有加密值都解不開。
+        if "SECRET_KEY" not in self.model_fields_set:
+            message = (
+                "SECRET_KEY is not set. It must be a fixed value shared by the "
+                "backend and the worker: it signs JWTs and derives the key that "
+                "encrypts stored credentials, so a random per-process key makes "
+                "them unrecoverable after a restart."
+            )
+            if self.ENVIRONMENT == "local":
+                warnings.warn(message, stacklevel=1)
+            else:
+                raise ValueError(message)
+        elif len(self.SECRET_KEY) < 32 and self.ENVIRONMENT != "local":
+            # 不直接拒絕：既有部署換鑰要跑 scripts/rotate_secret_key.py。
+            warnings.warn(
+                "SECRET_KEY is shorter than 32 characters; rotate it with "
+                "scripts/rotate_secret_key.py.",
+                stacklevel=1,
+            )
+
     @model_validator(mode="after")
     def _enforce_non_default_secrets(self) -> Self:
+        self._check_secret_key_is_fixed()
         self._check_default_secret("SECRET_KEY", self.SECRET_KEY)
         self._check_default_secret("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD)
         self._check_default_secret(

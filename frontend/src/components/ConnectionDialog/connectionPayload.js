@@ -134,6 +134,26 @@ export function buildInboundPayload({
   return { publish, raw };
 }
 
+/**
+ * 多筆發布途中失敗後，把已經成功的列（submitInbound 回傳的 "port/protocol"）從表單拿掉，
+ * 表單只留下還沒做完的部分；否則重送會先撞上「此 port 已發布」而永遠到不了修好的那一列。
+ * 每個 key 只拿掉第一個對得上的列（與 buildInboundPayload 的順序一致）。
+ *
+ * @param {Array} rows          fwRows（portField="port"）或 fwdRows（portField="internalPort"）
+ * @param {string[]} published  已成功發布的 "port/protocol"
+ * @param {string} portField    列上代表服務 port 的欄位
+ */
+export function removePublishedRows(rows = [], published = [], portField = "port") {
+  const pending = [...published];
+  return rows.filter((row) => {
+    if (isPortless(row.protocol) || !row[portField]) return true;
+    const idx = pending.indexOf(`${Number(row[portField])}/${row.protocol}`);
+    if (idx < 0) return true;
+    pending.splice(idx, 1);
+    return false;
+  });
+}
+
 /** VM 對 VM：一列一個 port，icmp 類不需要 port */
 export function buildPeerPortsPayload(rows = []) {
   const filled = rows.filter((r) => r.port || isPortless(r.protocol));

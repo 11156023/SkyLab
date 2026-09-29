@@ -41,7 +41,7 @@ def db():
 
 @pytest.fixture(autouse=True)
 def _task_file_root(monkeypatch, tmp_path):
-    monkeypatch.setattr(routes, "TASK_FILE_ROOT", tmp_path)
+    monkeypatch.setattr(routes.weekly_task_service, "TASK_FILE_ROOT", tmp_path)
     monkeypatch.setattr(routes, "_serialize", lambda _session, item: {"id": str(item.id)})
     return tmp_path
 

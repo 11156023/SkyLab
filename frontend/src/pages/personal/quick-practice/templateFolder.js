@@ -27,6 +27,11 @@ export function formatGb(mb) {
   return Math.round((Number(mb) || 0) / 102.4) / 10;
 }
 
+/** 單台機器的記憶體（GB，最多一位小數）；以 API 的 memory_mb 為準，不用服務層四捨五入到整數 GB 的 memory */
+export function nodeMemoryGb(node) {
+  return formatGb(node?.memory_mb ?? 1024);
+}
+
 /** 每位學生會拿到的合計 CPU／記憶體；API 的 per_student 優先，沒有就自己加總 */
 export function folderTotals(template) {
   const nodes = template?.nodes ?? [];

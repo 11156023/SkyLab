@@ -15,18 +15,6 @@ export function resourcePath(row) {
   return "/monitoring";
 }
 
-export function formatCheckedAt(value, locale) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
-}
-
 /* 兩個來源對 guest 的標示法不同：alert 的 scope 是 vm、target 放 vmid；
    issue 的 scope 是 qemu/lxc、target 放機器名稱、vmid 另外給。
    要判斷「是不是同一件事」就得先正規化成同一組 key。 */
@@ -90,6 +78,7 @@ export function mergeInfraProblems(issues = [], alerts = []) {
       metric: alert.metric,
       value: alert.value,
       threshold: alert.threshold,
+      message: alert.message ?? null,
     });
   }
 
@@ -99,6 +88,11 @@ export function mergeInfraProblems(issues = [], alerts = []) {
 
 /** 一列異常要顯示的說明文字。 */
 export function describeInfraProblem(row, t) {
+  /* 平台健康告警（scope=system、metric=health）的 value／threshold 是失敗次數或 0/1，
+     不是百分比，也沒有對應的指標名稱；直接顯示後端寫好的說明（同監控頁的作法）。 */
+  if (row.source === "alert" && row.scope === "system") {
+    return row.message || t("AdminDashboardPage.systemHealthAlert");
+  }
   if (row.source === "alert") {
     const metric = t(`AdminDashboardPage.pveMetric${row.metric}`);
     return t("AdminDashboardPage.infraAlertDetail", {

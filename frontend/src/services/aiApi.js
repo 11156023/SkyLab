@@ -2,6 +2,14 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "./api";
 
 const BASE = "/api/v1/ai-api";
 
+function browserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
 export const AiApiService = {
   /* ── User 端: 申請 ── */
   createRequest(body) {
@@ -18,11 +26,14 @@ export const AiApiService = {
   },
 
   /* ── Admin: 審核申請 ── */
-  listAllRequests() {
-    return apiGet(`${BASE}/requests`);
-  },
-  getRequest(requestId) {
-    return apiGet(`${BASE}/requests/${requestId}`);
+  /** 狀態／分頁篩選交給後端（limit 上限 100，count 為篩選後總數）；不帶參數時維持原本的 URL。 */
+  listAllRequests({ status, skip, limit } = {}) {
+    const params = new URLSearchParams();
+    if (status && status !== "all") params.set("status", status);
+    if (skip != null) params.set("skip", String(skip));
+    if (limit != null) params.set("limit", String(limit));
+    const qs = params.toString();
+    return apiGet(`${BASE}/requests${qs ? `?${qs}` : ""}`);
   },
   reviewRequest(requestId, body) {
     return apiPost(`${BASE}/requests/${requestId}/review`, body);
@@ -55,6 +66,9 @@ export const AiApiService = {
     const q = new URLSearchParams();
     if (start_date) q.set("start_date", start_date);
     if (end_date) q.set("end_date", end_date);
+    /* 讓後端依瀏覽器時區切分每日用量，否則跨午夜的呼叫會被算到 UTC 的日期 */
+    const tz = browserTimeZone();
+    if (tz) q.set("tz", tz);
     const qs = q.toString();
     return apiGet(`${BASE}/usage/my${qs ? `?${qs}` : ""}`);
   },

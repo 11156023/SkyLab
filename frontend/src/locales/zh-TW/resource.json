@@ -204,7 +204,6 @@
   "ResourceMgmtPage.shutdownAll": "整組關機",
   "ResourceMgmtPage.groupCommandSent": "指令已送出",
   "ResourceMgmtPage.groupCommandFailed": "整組操作失敗",
-  "ResourceMgmtPage.groupCommandPartial": "{{succeeded}} 台成功、{{failed}} 台失敗",
   "ResourceMgmtPage.selectedCount": "已選 {{count}} 台",
   "ResourceMgmtPage.batchSuccessToast": "已對 {{count}} 台送出「{{label}}」",
   "ResourceMgmtPage.batchPartialFailToast": "「{{label}}」成功 {{succeeded}} 台、失敗 {{failed}} 台",

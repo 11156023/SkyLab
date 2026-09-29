@@ -53,7 +53,8 @@ def _validate_legacy_aliases(
         raise ValueError(f"模型配置 #{index} 的 legacy_aliases 必須為陣列")
 
     names: list[str] = []
-    minimum_remove_after = date.today() + timedelta(days=30)
+    today = date.today()
+    minimum_remove_after = today + timedelta(days=30)
     for legacy_index, legacy in enumerate(legacy_aliases):
         if not isinstance(legacy, dict):
             raise ValueError(
@@ -75,9 +76,18 @@ def _validate_legacy_aliases(
             raise ValueError(
                 f"模型配置 #{index} 的 legacy alias {name!r} remove_after 必須為 YYYY-MM-DD"
             ) from exc
-        if remove_date < minimum_remove_after:
+        # 30 天保留期只能在新增 alias 時檢查；每次載入都拿今天比對，
+        # 會讓 alias 在移除日前 30 天起卡死所有設定產生與 --check-only。
+        if remove_date < today:
             raise ValueError(
-                f"模型配置 #{index} 的 legacy alias {name!r} 必須至少保留 30 天"
+                f"模型配置 #{index} 的 legacy alias {name!r} 已於 {remove_after} 到期，"
+                "請從 models.json 移除"
+            )
+        if remove_date < minimum_remove_after:
+            print(
+                f"警告: 模型配置 #{index} 的 legacy alias {name!r} 將於 {remove_after} "
+                "到期，請提醒呼叫端改用正式 alias",
+                file=sys.stderr,
             )
         normalized = name.strip()
         if normalized in all_aliases:

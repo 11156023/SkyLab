@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPostMultipart, apiPut } from "./api";
+import { apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPostMultipart, apiPut } from "./api";
 import { formatDate } from "../utils/formatDate";
 
 const EDITOR_FIELDS = ["name", "description", "usageScope", "nodes", "edges", "publications", "peerPolicy"];
@@ -138,12 +138,6 @@ export const CourseEnvironmentsService = {
   async get(environmentId) {
     return normalizeCourseEnvironment(await apiGet(`/api/v1/course-environments/${environmentId}`));
   },
-  async create(item) {
-    return normalizeCourseEnvironment(await apiPost("/api/v1/course-environments", environmentPayload(item)));
-  },
-  async update(environmentId, item) {
-    return normalizeCourseEnvironment(await apiPut(`/api/v1/course-environments/${environmentId}`, environmentPayload(item)));
-  },
   async publish(environmentId) {
     return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/publish`, {}));
   },
@@ -162,8 +156,12 @@ export const CourseEnvironmentsService = {
   async removeFile(environmentId, fileId) {
     return normalizeCourseEnvironment(await apiDelete(`/api/v1/course-environments/${environmentId}/files/${fileId}`));
   },
-  fileUrl(environmentId, fileId) {
-    return `/api/v1/course-environments/${environmentId}/files/${fileId}`;
+  /**
+   * 下載課程環境附件（回傳 Blob，配 downloadBlob 使用）。
+   * 後端只認 Authorization header，必須走 api.js 帶 token（含 401 續期與 VITE_API_URL）。
+   */
+  downloadFile(environmentId, fileId) {
+    return apiGetBlob(`/api/v1/course-environments/${environmentId}/files/${fileId}`);
   },
   async remove(environmentId) {
     return apiDelete(`/api/v1/course-environments/${environmentId}`);

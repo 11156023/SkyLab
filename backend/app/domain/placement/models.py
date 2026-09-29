@@ -22,6 +22,9 @@ class WorkingStoragePool:
     user_priority: int
     placed_count: int = 0
     overcommit_placed_count: int = 0
+    # 已用掉的超賣額度（GB）。實體空間用完後 avail_gb 停在 0，
+    # 必須另外累計，否則每次預留都會把超賣額度重新算成滿的。
+    overcommit_used_gb: float = 0.0
 
 
 @dataclass

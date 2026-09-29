@@ -174,6 +174,20 @@ export SECRET_KEY="changethis"
 
 Note: you can use the Python command above to generate a secure secret key.
 
+`SECRET_KEY` does more than sign tokens: it also derives the key that encrypts credentials stored in the database (Proxmox and LDAP passwords, TOTP secrets, the gateway SSH key and so on). Therefore:
+
+* It must be a fixed value of at least 32 characters, and the backend and the worker must use the same value (both read it from `.env`).
+* When `ENVIRONMENT` is anything other than `local`, the backend refuses to start if `SECRET_KEY` is unset, empty or still `changethis`. A value shorter than 32 characters only logs a warning, but you should rotate it.
+* Never change it by editing `.env` alone: every stored credential would become undecryptable. Rotate it with `backend/scripts/rotate_secret_key.py`, which re-encrypts the stored values with the new key in one transaction and then updates `.env`:
+
+```bash
+cd backend
+python -m scripts.rotate_secret_key            # preview, writes nothing
+python -m scripts.rotate_secret_key --apply    # rotate and update ../.env
+```
+
+Inside the backend container the project `.env` is not mounted, so run it there with `--skip-env-update` (the new key is printed for you to put in `.env`), or pass `--env-file <path>`. Restart the backend and the worker afterwards; all users have to log in again.
+
 Set the `FIRST_SUPER_USER_PASSWORD` to something different than `changethis`:
 
 ```bash
@@ -201,6 +215,34 @@ You can set several other environment variables:
 * `POSTGRES_USER`: The Postgres user, you can leave the default.
 * `POSTGRES_DB`: The database name to use for this application. You can leave the default of `app`.
 * `SENTRY_DSN`: The DSN for Sentry, if you are using it.
+* `LDAP_CA_CERT_FILE`: Path (inside the containers) to the PEM file of the CA that signed your LDAP / Active Directory server certificate. Leave it empty to use the system trust store. See below.
+
+### LDAP / Active Directory over TLS
+
+LDAP connections over `ldaps://` or StartTLS always verify the server certificate and its hostname. The host in the LDAP server URI (a DNS name such as `dc01.campus.example` or an IP address such as `192.168.10.5`) must be listed in the directory server certificate's subjectAltName (a DNS entry for names, an IP Address entry for IPs); otherwise the handshake fails with a hostname / IP address mismatch. Private CAs without a keyUsage extension are accepted.
+
+**Upgrade note (breaking change):** earlier versions did not verify the certificate. If your domain controller uses a self-signed certificate or one issued by a private campus / enterprise CA, LDAP login stops working after the upgrade (the bind fails and the error shows as `ldap.serverUnavailable`) until the CA is configured:
+
+1. Put the CA certificate (PEM) on the host, for example `./certs/campus-ca.pem` next to `docker-compose.yml`.
+2. Mount it into **both** the `backend` and the `worker` containers, for example in a Compose override file:
+
+   ```yaml
+   services:
+     backend:
+       volumes:
+         - ./certs:/app/certs:ro
+     worker:
+       volumes:
+         - ./certs:/app/certs:ro
+   ```
+
+3. Set the path in `.env` and restart the stack:
+
+   ```bash
+   LDAP_CA_CERT_FILE=/app/certs/campus-ca.pem
+   ```
+
+Leaving `LDAP_CA_CERT_FILE` empty uses the system trust store, which is enough when the domain controller has a certificate from a public CA.
 
 ## GitHub Actions Environment Variables
 

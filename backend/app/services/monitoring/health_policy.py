@@ -356,14 +356,21 @@ def evaluate_system_alerts(
     last_created: Mapping[str, float],
     cooldown_seconds: float,
     now: float,
+    current_targets: Iterable[str] | None = None,
 ) -> SystemAlertDecision:
     """比對目前的問題與已開啟的系統告警：新問題開告警、已恢復的收掉。
 
     ``last_created``：target → 最近一次建立告警的 unix 時間，冷卻期內同一
     目標不重複開（避免任務在成功／失敗間跳動時洗信箱）。
+
+    ``current_targets``：這一輪實際看到的問題目標（未經連續出現確認）。
+    ``findings`` 只用來開新告警；收掉告警要以實際看到的為準，否則行程重啟後
+    確認計數歸零的第一輪，會把仍在發生的告警全部誤判為已恢復。
+    未提供時退回用 ``findings`` 的目標。
     """
     open_set = set(open_targets)
     current = {finding.target: finding for finding in findings}
+    still_present = set(current) if current_targets is None else set(current_targets)
     new: list[SystemFinding] = []
     for target, finding in current.items():
         if target in open_set:
@@ -372,7 +379,7 @@ def evaluate_system_alerts(
         if last is not None and now - last < cooldown_seconds:
             continue
         new.append(finding)
-    resolved = sorted(target for target in open_set if target not in current)
+    resolved = sorted(target for target in open_set if target not in still_present)
     return SystemAlertDecision(new_findings=new, resolved_targets=resolved)
 
 

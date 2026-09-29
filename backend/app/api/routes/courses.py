@@ -1,12 +1,16 @@
 """課程學習 API（學生端）。"""
 
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlmodel import select
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import CurrentUser, SessionDep
+from app.core.i18n import t
+from app.infrastructure.redis import check_rate_limit_by_key, get_redis
 from app.models.teaching_class import (
     TeachingClass,
     TeachingClassMachineNode,
@@ -39,6 +43,43 @@ from app.services.course.progress_hub import course_progress_hub
 from app.services.teaching import course_publication_service
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+# 答案提交節流：同一題每分鐘 10 次，擋低熵 flag 的暴力猜測；同一人跨題每分鐘
+# 30 次，擋輪流換題灌 audit log。scope 刻意不放進 FAIL_CLOSED_SCOPES，Redis
+# 停用的部署照樣能交答案。
+_SUBMIT_PER_QUESTION_LIMIT = 10
+_SUBMIT_PER_USER_LIMIT = 30
+_SUBMIT_WINDOW_SECONDS = 60
+
+
+async def _enforce_submit_rate_limit(
+    user_id: uuid.UUID, question_id: uuid.UUID
+) -> None:
+    redis = await get_redis()
+    for key, limit in (
+        (f"user:course_submit:{user_id}", _SUBMIT_PER_USER_LIMIT),
+        (f"course_submit:{user_id}:{question_id}", _SUBMIT_PER_QUESTION_LIMIT),
+    ):
+        allowed, info = await check_rate_limit_by_key(
+            redis,
+            key=key,
+            limit=limit,
+            window_seconds=_SUBMIT_WINDOW_SECONDS,
+            scope="course-submit",
+        )
+        if allowed:
+            continue
+        reset_at = info.get("reset_at")
+        if isinstance(reset_at, datetime):
+            remaining = (reset_at - datetime.now(timezone.utc)).total_seconds()
+            retry_after = max(1, int(remaining + 0.999))
+        else:
+            retry_after = _SUBMIT_WINDOW_SECONDS
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=t("rate_limit.user_too_many_requests", retry_after=retry_after),
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 @router.get("/schedule", response_model=list[CourseScheduleStudent])
@@ -292,7 +333,10 @@ async def submit_answer(
     question_id: uuid.UUID,
     data: CourseAnswerSubmit,
 ) -> CourseAnswerResult:
-    result, path_id, event = progress_service.submit_answer(
+    await _enforce_submit_rate_limit(current_user.id, question_id)
+    # submit_answer 是同步的多次 DB 往返，丟到 threadpool 免得卡住事件迴圈
+    result, path_id, event = await run_in_threadpool(
+        progress_service.submit_answer,
         session,
         user=current_user,
         question_id=question_id,

@@ -10,8 +10,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.api.routes.course_environments import EnvironmentPublicationIn
 from app.models import CourseEnvironmentPublication
+from app.schemas.course_environment import EnvironmentPublicationIn
 from app.schemas.firewall import PublishedServiceCreate
 from app.services.teaching import course_publication_service as cps
 

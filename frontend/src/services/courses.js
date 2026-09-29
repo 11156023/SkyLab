@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiGetBlob, apiPost, apiPut } from "./api";
+import { wsBaseUrl } from "../utils/wsUrl";
 
 /**
  * 課程服務：
@@ -44,13 +45,6 @@ export const CoursesService = {
     );
   },
 
-  /** 取得老師上傳、且與已核准任務相連的 PDF。 */
-  getAiAssignmentDocument(pathId, assignmentId) {
-    return apiGetBlob(
-      `/api/v1/courses/paths/${pathId}/ai-assignments/${assignmentId}/source-document`,
-    );
-  },
-
   /** 取得學生在此課程由班級流程分配的所有練習機器。 */
   getPracticeMachines(pathId) {
     return apiGet(`/api/v1/courses/paths/${pathId}/practice-machines`);
@@ -62,11 +56,6 @@ export const CoursesService = {
       `/api/v1/courses/paths/${pathId}/ai-assignments/${assignmentId}/completion`,
       { completed },
     );
-  },
-
-  /** 房間詳情：任務 + 題目（不含答案）+ 我的部署狀態 */
-  getRoom(roomId) {
-    return apiGet(`/api/v1/courses/rooms/${roomId}`);
   },
 
 };
@@ -137,10 +126,5 @@ export const CourseAdminService = {
 
 /** 老師端進度即時推播 WebSocket URL（token 由呼叫端帶入） */
 export function courseProgressWsUrl(pathId, token) {
-  const apiUrl = new URL(
-    import.meta.env.VITE_API_URL ||
-      `${window.location.protocol}//${window.location.host}`
-  );
-  const proto = apiUrl.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${apiUrl.host}/ws/courses/paths/${pathId}/progress?token=${encodeURIComponent(token)}`;
+  return `${wsBaseUrl()}/ws/courses/paths/${pathId}/progress?token=${encodeURIComponent(token)}`;
 }

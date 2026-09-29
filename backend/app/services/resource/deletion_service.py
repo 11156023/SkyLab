@@ -1,7 +1,9 @@
 """Resource deletion request service.
 
-提供「將刪除請求加入佇列」、「取消佇列中的刪除」、「scheduler 處理 pending」三組能力。
+提供「將刪除請求加入佇列並交給 arq worker」、「worker 端執行（含重試）」、
+「scheduler tick 安全網（撿回 pending 與殭屍 running）」三組能力。
 實際刪除邏輯仍委派給 `resource_service.delete`，本 service 只負責生命週期管理與 audit。
+進度與結果由 Jobs 顯示；``cancelled`` 狀態已無寫入端，只保留讀取端的判斷。
 """
 
 from __future__ import annotations
@@ -15,22 +17,48 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from app.core.authorizers import can_bypass_resource_ownership
+from app.core.i18n import t
+from app.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ProxmoxError,
+)
 from app.infrastructure.queue import enqueue_task_sync
 from app.models import (
     DeletionRequest,
     DeletionRequestStatus,
     Resource,
+    User,
 )
+from app.repositories import proxmox_connection as proxmox_connection_repo
 from app.repositories import resource as resource_repo
+from app.repositories import vm_template as template_repo
+from app.schemas.deletion_request import DeletionRequestCreated
+from app.services.proxmox import proxmox_service
 from app.services.resource import resource_service
+from app.services.resource.access import require_resource_management
 
 logger = logging.getLogger(__name__)
 
 TASK_DELETE = "resource.delete"
 
+# 仍在處理中的刪除單；同一 vmid 同時只能有一張（partial unique index 把關）
+_ACTIVE_STATUSES = (DeletionRequestStatus.pending, DeletionRequestStatus.running)
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _find_active(session: Session, vmid: int) -> DeletionRequest | None:
+    return session.exec(
+        select(DeletionRequest).where(
+            DeletionRequest.vmid == vmid,
+            DeletionRequest.status.in_(_ACTIVE_STATUSES),  # type: ignore[union-attr]
+        )
+    ).first()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -51,14 +79,7 @@ def create_deletion_request(
 
     若該 vmid 已有 pending/running 的請求，直接回傳該請求避免重複佇列。
     """
-    existing = session.exec(
-        select(DeletionRequest).where(
-            DeletionRequest.vmid == vmid,
-            DeletionRequest.status.in_(  # type: ignore[union-attr]
-                [DeletionRequestStatus.pending, DeletionRequestStatus.running]
-            ),
-        )
-    ).first()
+    existing = _find_active(session, vmid)
     if existing is not None:
         return existing
 
@@ -81,14 +102,7 @@ def create_deletion_request(
         # Another scheduler/API replica may have queued the same VM between
         # our read and insert. The partial unique index is the final arbiter.
         session.rollback()
-        existing = session.exec(
-            select(DeletionRequest).where(
-                DeletionRequest.vmid == vmid,
-                DeletionRequest.status.in_(  # type: ignore[union-attr]
-                    [DeletionRequestStatus.pending, DeletionRequestStatus.running]
-                ),
-            )
-        ).first()
+        existing = _find_active(session, vmid)
         if existing is not None:
             return existing
         raise
@@ -97,24 +111,140 @@ def create_deletion_request(
     return req
 
 
-def list_all(
+def _ensure_vm_absent_everywhere(session: Session, vmid: int) -> None:
+    """確認 VM 真的已經不在任何 PVE 上，才允許清掉孤兒 DB 記錄。
+
+    ``find_resource`` 只看啟用中的連線、只看各連線自己的 pool，且只要還有
+    一個連線答得出來就會默默略過連不上的連線；拿它的 NotFound 當「機器已不
+    存在」會在連線停用／斷線時把活著的機器的 DB 記錄、IP 與稽核紀錄一併刪掉。
+    這裡改為逐一詢問所有連線（含停用中的）、不套 pool 篩選：任何一個連線
+    列不出清單就丟 ProxmoxError（502，不動 DB）；在 pool 外找到同一個 vmid
+    就回 409，交給管理員處理。
+    """
+    connection_ids: list[int | None] = [
+        conn.id
+        for conn in proxmox_connection_repo.get_all_connections(session)
+        if conn.id is not None
+    ] or [None]
+    try:
+        hit = proxmox_service.find_vmid_on_connections(vmid, connection_ids)
+    except ProxmoxError as exc:
+        # find_vmid_on_connections 的訊息已含連線 id
+        logger.warning("Cannot confirm resource %s is gone: %s", vmid, exc)
+        raise ProxmoxError(t("resource.delete_presence_unverified")) from exc
+    if hit is not None:
+        logger.warning(
+            "Resource %s is outside its pool or on a disabled "
+            "connection (%s); refusing orphan cleanup",
+            vmid, hit[0],
+        )
+        raise ConflictError(t("resource.delete_outside_pool"))
+
+
+def _ensure_not_template_update_temp_vm(session: Session, resource: Resource) -> None:
+    """範本更新循環進行中的暫存母機不能從資源頁刪，要從範本頁取消更新。
+
+    直接刪掉的話，範本會一直卡在 updating，直到使用者自己去按取消。
+    """
+    from app.services.template.template_service import UPDATE_TEMP_ENVIRONMENT_TYPE
+
+    if getattr(resource, "environment_type", None) != UPDATE_TEMP_ENVIRONMENT_TYPE:
+        return
+    template = template_repo.get_updating_template_by_source_vmid(
+        session=session, source_vmid=resource.vmid
+    )
+    if template is not None:
+        raise ConflictError(
+            t("resource.delete_template_update_temp", name=template.name)
+        )
+
+
+def request_deletion(
     *,
     session: Session,
-    status: DeletionRequestStatus | None = None,
-    skip: int = 0,
-    limit: int = 100,
-) -> tuple[list[DeletionRequest], int]:
-    stmt = select(DeletionRequest)
-    if status is not None:
-        stmt = stmt.where(DeletionRequest.status == status)
-    stmt = stmt.order_by(DeletionRequest.created_at.desc()).offset(skip).limit(limit)  # type: ignore[union-attr]
-    rows = session.exec(stmt).all()
+    user: User,
+    vmid: int,
+    purge: bool = True,
+    force: bool = False,
+) -> DeletionRequestCreated:
+    """``DELETE /resources/{vmid}`` 的本體：權限檢查、孤兒清理或排進刪除佇列。
 
-    count_stmt = select(DeletionRequest.id)
-    if status is not None:
-        count_stmt = count_stmt.where(DeletionRequest.status == status)
-    total = len(session.exec(count_stmt).all())
-    return list(rows), total
+    - 主路徑：寫入 DeletionRequest 後入列 ``resource.delete`` 任務，worker
+      呼叫 ``process_one_request``，無需等 scheduler tick。
+    - 兜底：scheduler 每隔 ``SCHEDULER_POLL_SECONDS`` 仍會掃描 pending request，
+      涵蓋入列失敗 / worker 重啟的情況；pending→running 是條件式認領，不會重複執行。
+    - 孤兒清理：若 VM 在 Proxmox 已不存在但 DB 仍有記錄，直接清理 DB 並回
+      completed 的合成回應。
+    """
+    # Check DB ownership first (without requiring Proxmox to be available)
+    db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    is_admin = can_bypass_resource_ownership(user)
+
+    if db_resource is None:
+        if not is_admin:
+            raise NotFoundError(f"Resource {vmid} not found")
+        # Admin deleting an orphan resource (exists in Proxmox but not in DB).
+        # Fall through to locate it in Proxmox below.
+        logger.info(
+            "Admin %s deleting orphan resource %s (no DB record)",
+            user.email, vmid,
+        )
+    elif not is_admin:
+        try:
+            require_resource_management(session=session, user=user, vmid=vmid)
+        except PermissionDeniedError:
+            logger.warning(
+                "User %s attempted to delete resource %s without management rights",
+                user.email, vmid,
+            )
+            raise
+
+    if db_resource is not None:
+        _ensure_not_template_update_temp_vm(session, db_resource)
+
+    # Try to locate the VM in Proxmox.
+    # - If gone and DB record exists → clean up orphan DB record.
+    # - If gone and no DB record → nothing to do.
+    try:
+        resource_info = proxmox_service.find_resource(vmid)
+    except NotFoundError:
+        if db_resource is not None:
+            # find_resource 的 NotFound 不夠嚴格（見 helper 說明），清 DB 前再確認一次
+            _ensure_vm_absent_everywhere(session, vmid)
+            logger.warning(
+                "Resource %s not found in Proxmox; cleaning up orphan DB record", vmid
+            )
+            resource_service.delete_orphan_db_record(
+                session=session, vmid=vmid, user_id=user.id
+            )
+        else:
+            logger.info(
+                "Resource %s not found in Proxmox and no DB record; nothing to clean up",
+                vmid,
+            )
+        return DeletionRequestCreated(
+            id=uuid.uuid4(),
+            vmid=vmid,
+            status=DeletionRequestStatus.completed,
+            message="Orphan DB record cleaned up (VM already removed from Proxmox)",
+        )
+
+    req = create_deletion_request(
+        session=session,
+        user_id=user.id,
+        vmid=vmid,
+        resource_info=resource_info,
+        purge=purge,
+        force=force,
+    )
+    # 只對剛建立的 pending 單入列；去重回傳的既有 pending/running 單已在處理中
+    enqueue_processing(session=session, req=req)
+    return DeletionRequestCreated(
+        id=req.id,
+        vmid=req.vmid,
+        status=req.status,
+        message="Deletion request queued",
+    )
 
 
 def list_active_for_vmids(
@@ -128,9 +258,7 @@ def list_active_for_vmids(
     rows = session.exec(
         select(DeletionRequest).where(
             DeletionRequest.vmid.in_(vmids),  # type: ignore[union-attr]
-            DeletionRequest.status.in_(  # type: ignore[union-attr]
-                [DeletionRequestStatus.pending, DeletionRequestStatus.running]
-            ),
+            DeletionRequest.status.in_(_ACTIVE_STATUSES),  # type: ignore[union-attr]
         )
     ).all()
     return {r.vmid: r for r in rows}
@@ -446,7 +574,7 @@ def process_pending_deletions(session: Session) -> None:
                 "process_pending_deletions: unhandled error for request %s", req.id
             )
             # 安全網路徑沒有重試 wrapper：若不收尾，請求會永遠卡在 running
-            # （之後的 tick 只撈 pending）。標記 failed，留給使用者手動 retry。
+            # （之後的 tick 只撈 pending）。標記 failed，使用者可再送一次刪除（failed 不算進行中）。
             try:
                 session.rollback()
                 fresh = session.get(DeletionRequest, req.id)
@@ -460,9 +588,4 @@ def process_pending_deletions(session: Session) -> None:
                 logger.exception(
                     "process_pending_deletions: failed to finalize request %s", req.id
                 )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers for jobs/UI
-# ──────────────────────────────────────────────────────────────────────────────
 

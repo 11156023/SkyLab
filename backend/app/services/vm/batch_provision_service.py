@@ -18,7 +18,7 @@ from app.models import (
     TeachingClassMachineNode,
     TeachingClassStatus,
     TeachingClassStudent,
-    TeachingClassStudentMachine,
+    User,
     VMTemplateStatus,
 )
 from app.models.batch_provision import (
@@ -31,11 +31,18 @@ from app.repositories import batch_provision as bp_repo
 from app.repositories import resource as resource_repo
 from app.repositories import vm_template as vm_template_repo
 from app.schemas import LXCCreateRequest, VMCreateRequest
+from app.schemas.batch_provision import (
+    BatchProvisionJobPublic,
+    BatchProvisionJobSpec,
+    BatchProvisionTaskPublic,
+)
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
 from app.services.resource import quota_service
+from app.services.teaching.student_machine_mapping import upsert_student_machine_mapping
 from app.services.template import clone_service, password_policy
 from app.utils.login_password import generate_login_password
+from app.utils.timeutil import normalize_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +222,92 @@ def review_batch_jobs(
     return jobs
 
 
+def to_public(session: Session, job: BatchProvisionJob) -> BatchProvisionJobPublic:
+    """把 job 連同 task、發起人／審核人與班級名稱組成審核頁用的回應。"""
+    tasks = bp_repo.get_job_tasks(session=session, job_id=job.id)
+
+    # Collect every user we want to display: task owners + initiator + reviewer.
+    user_ids: set[uuid.UUID] = {task.user_id for task in tasks}
+    if job.initiated_by:
+        user_ids.add(job.initiated_by)
+    if job.reviewer_id:
+        user_ids.add(job.reviewer_id)
+
+    users: dict[uuid.UUID, User] = {}
+    if user_ids:
+        rows = session.exec(select(User).where(col(User.id).in_(list(user_ids)))).all()
+        users = {user.id: user for user in rows}
+
+    teaching_class = (
+        session.get(TeachingClass, job.teaching_class_id)
+        if job.teaching_class_id
+        else None
+    )
+
+    # Parse the JSON-encoded spec snapshot.
+    params = bp_repo.job_params(job)
+    spec = BatchProvisionJobSpec(
+        cores=params.get("cores"),
+        memory=params.get("memory"),
+        disk_size=params.get("disk_size"),
+        rootfs_size=params.get("rootfs_size"),
+        ostemplate=params.get("ostemplate"),
+        template_id=params.get("template_id"),
+        vm_template_id=params.get("vm_template_id"),
+        username=params.get("username"),
+        environment_type=params.get("environment_type"),
+        os_info=params.get("os_info"),
+        expiry_date=params.get("expiry_date"),
+    )
+
+    task_publics = [
+        BatchProvisionTaskPublic(
+            id=task.id,
+            user_id=task.user_id,
+            user_email=users[task.user_id].email if task.user_id in users else None,
+            user_name=users[task.user_id].full_name if task.user_id in users else None,
+            member_index=task.member_index,
+            vmid=task.vmid,
+            status=task.status,
+            error=task.error,
+            started_at=task.started_at,
+            finished_at=task.finished_at,
+        )
+        for task in tasks
+    ]
+
+    initiator = users.get(job.initiated_by) if job.initiated_by else None
+    reviewer = users.get(job.reviewer_id) if job.reviewer_id else None
+
+    return BatchProvisionJobPublic(
+        id=job.id,
+        teaching_class_id=job.teaching_class_id,
+        teaching_class_name=teaching_class.name if teaching_class else None,
+        resource_type=job.resource_type,
+        hostname_prefix=job.hostname_prefix,
+        status=job.status,
+        total=job.total,
+        done=job.done,
+        failed_count=job.failed_count,
+        created_at=job.created_at,
+        finished_at=job.finished_at,
+        initiated_by=job.initiated_by,
+        initiated_by_email=initiator.email if initiator else None,
+        initiated_by_name=initiator.full_name if initiator else None,
+        reviewer_id=job.reviewer_id,
+        reviewer_email=reviewer.email if reviewer else None,
+        reviewed_at=job.reviewed_at,
+        review_comment=job.review_comment,
+        recurrence_rule=job.recurrence_rule,
+        recurrence_duration_minutes=job.recurrence_duration_minutes,
+        schedule_timezone=job.schedule_timezone,
+        next_window_start=job.next_window_start,
+        next_window_end=job.next_window_end,
+        spec=spec,
+        tasks=task_publics,
+    )
+
+
 # ─── 背景排隊執行 ──────────────────────────────────────────────────────────────
 
 
@@ -390,16 +483,10 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 teaching_class is None
                 or teaching_class.status == TeachingClassStatus.archived
             ):
-                resource_info = proxmox_service.find_resource(vmid)
-                from app.services.resource import resource_service
-
-                resource_service.delete(
-                    session=session,
+                _discard_provisioned_machine(
                     vmid=vmid,
-                    resource_info=resource_info,
-                    user_id=initiated_by_id,
-                    purge=True,
-                    force=True,
+                    initiated_by_id=initiated_by_id,
+                    reason="teaching class archived during provisioning",
                 )
                 raise RuntimeError(
                     "Teaching class was archived while resource was provisioning"
@@ -493,12 +580,6 @@ def _discard_provisioned_machine(
         )
 
 
-def _aware(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 def _last_progress_at(
     job: BatchProvisionJob, tasks: list[BatchProvisionTask]
 ) -> datetime | None:
@@ -506,12 +587,18 @@ def _last_progress_at(
     stamps = [
         stamp
         for task in tasks
-        for stamp in (_aware(task.finished_at), _aware(task.started_at))
+        for stamp in (
+            normalize_datetime(task.finished_at),
+            normalize_datetime(task.started_at),
+        )
         if stamp is not None
     ]
     stamps.extend(
         stamp
-        for stamp in (_aware(job.reviewed_at), _aware(job.created_at))
+        for stamp in (
+            normalize_datetime(job.reviewed_at),
+            normalize_datetime(job.created_at),
+        )
         if stamp is not None
     )
     return max(stamps) if stamps else None
@@ -522,8 +609,8 @@ def reap_stale_batch_jobs(
 ) -> int:
     """回收卡死的 running 批次工作（供排程器每 tick 呼叫）。回傳回收的 job 數。
 
-    批量建立跑在 in-process 背景執行緒上：後端重啟、容器被換掉、執行緒
-    自己炸掉，job 就永遠停在 running —— 班級狀態卡在「建立中」，重試入口
+    批量建立在 arq worker 裡執行：worker 在 job 跑到一半時被砍掉、OOM 或
+    崩潰，job 就會永遠停在 running —— 班級狀態卡在「建立中」，重試入口
     也不會出現。狀態為 ``running``、且超過 ``max_running_hours`` 沒有任何
     task 有進度的 job，連同它尚未結束的 task 一起標成 failed。
     """
@@ -650,22 +737,15 @@ def _sync_class_machine_mapping(
     ).first()
     if node is None or enrollment is None:
         return
-    mapping = session.exec(
-        select(TeachingClassStudentMachine).where(
-            TeachingClassStudentMachine.class_student_id == enrollment.id,
-            TeachingClassStudentMachine.machine_node_id == node.id,
-        )
-    ).first()
-    if mapping is None:
-        mapping = TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=node.id,
-        )
-    mapping.batch_task_id = task_id
-    mapping.vmid = vmid
-    mapping.status = status
-    mapping.error = error
-    session.add(mapping)
+    upsert_student_machine_mapping(
+        session,
+        enrollment_id=enrollment.id,
+        node_id=node.id,
+        task_id=task_id,
+        vmid=vmid,
+        status=status,
+        error=error,
+    )
     session.commit()
 
 
@@ -711,6 +791,12 @@ def _provision_one(
             delta_instances=1,
         )
 
+    reservation_key = (
+        f"{params['ip_reservation_prefix']}:{user_id}"
+        if params.get("ip_reservation_prefix")
+        else None
+    )
+
     if params.get("vm_template_id"):
         # 少了這個 key，clone worker 會當成「允許」而一律發隨機密碼，
         # 範本不勾也被覆寫
@@ -731,23 +817,14 @@ def _provision_one(
             "batch_job_id": str(batch_job_id) if batch_job_id else None,
             "environment_type": params.get("environment_type", "批量建立"),
             "expiry_date": params.get("expiry_date"),
-            "ip_reservation_key": (
-                f"{params['ip_reservation_prefix']}:{user_id}"
-                if params.get("ip_reservation_prefix")
-                else None
-            ),
+            "ip_reservation_key": reservation_key,
         }
-        # 同步執行（batch 已在背景執行緒）；task_id 無對應 TaskRecord，
+        # 同步執行（本身已在 arq worker 的批次 job 裡）；task_id 無對應 TaskRecord，
         # report_progress 會自動 no-op
         clone_result = clone_service.run_clone_task(uuid.uuid4(), payload)
         return int(clone_result["vmid"])
 
     if resource_type == "lxc":
-        reservation_key = (
-            f"{params['ip_reservation_prefix']}:{user_id}"
-            if params.get("ip_reservation_prefix")
-            else None
-        )
         req = LXCCreateRequest(
             hostname=hostname,
             ostemplate=params["ostemplate"],
@@ -771,11 +848,6 @@ def _provision_one(
             target_node=target_node,
         )
     else:
-        reservation_key = (
-            f"{params['ip_reservation_prefix']}:{user_id}"
-            if params.get("ip_reservation_prefix")
-            else None
-        )
         req = VMCreateRequest(
             hostname=hostname,
             template_id=params["template_id"],

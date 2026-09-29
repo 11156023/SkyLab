@@ -1,15 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseStudentEmails, templateBuilderPath, visibleWeekCount, weekPayload } from "./ClassSetupPage";
-
-describe("parseStudentEmails", () => {
-  it("accepts common separators, normalizes case, and removes duplicates", () => {
-    expect(parseStudentEmails("A@EXAMPLE.COM, b@example.com\nA@example.com; c@example.com")).toEqual([
-      "a@example.com",
-      "b@example.com",
-      "c@example.com",
-    ]);
-  });
-});
+import { templateBuilderPath, weekPayload } from "./ClassSetupPage";
 
 describe("weekPayload", () => {
   it("keeps the generated class dates and trims checkpoint titles", () => {
@@ -73,16 +63,6 @@ describe("weekPayload publishing", () => {
     );
 
     expect(rows[0].status).toBe("completed");
-  });
-});
-
-describe("visibleWeekCount", () => {
-  it("只算學生真的看得到的週次", () => {
-    expect(visibleWeekCount([
-      { status: "draft" },
-      { status: "published" },
-      { status: "completed" },
-    ])).toBe(2);
   });
 });
 

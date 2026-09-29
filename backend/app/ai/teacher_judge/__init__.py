@@ -1,13 +1,7 @@
-from app.ai.teacher_judge.config import settings
-from app.ai.teacher_judge.export import export_to_excel
-from app.ai.teacher_judge.service import (
-    chat_with_rubric,
-    summarize_conversation,
-)
+"""AI 評分表（teacher judge）套件。
 
-__all__ = [
-    "chat_with_rubric",
-    "export_to_excel",
-    "settings",
-    "summarize_conversation",
-]
+刻意不在套件層級 re-export 任何名稱：呼叫端一律直接 import 子模組
+（``service``、``session_service``、``config``…），避免 ``import`` 任一子模組
+時連帶載入整個 ``service.py`` 與 vLLM client，也避免與
+``app.infrastructure.ai.teacher_judge`` 形成循環 import。
+"""

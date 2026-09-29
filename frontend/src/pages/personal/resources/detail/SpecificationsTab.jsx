@@ -20,6 +20,7 @@ import {
 } from "../../../../services/specChangeRequests";
 import { useToast } from "../../../../hooks/useToast";
 import { focusInvalidField } from "../../../../utils/focusField";
+import { isAdminUser } from "../../../../utils/roles";
 
 /* 套用中（關機 → 改規格 → 開機）約 1～3 分鐘，期間每 5 秒跟一次進度 */
 const APPLY_POLL_MS = 5000;
@@ -213,11 +214,11 @@ export default function SpecificationsTab({ vmid }) {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.is_superuser || false;
+  const isAdmin = isAdminUser(user);
 
   const [config, setConfig] = useState(null);
   // 課堂與快速練習的機器照課程環境版本建立，規格不接受個別調整；
-  // 後端一直有算 can_request_spec_change，只是沒有人讀。
+  // 資源的 can_request_spec_change 為 false 時鎖住整張調整表單。
   const [specFixed, setSpecFixed] = useState(false);
   const [cores, setCores] = useState(1);
   const [memory, setMemory] = useState(512);

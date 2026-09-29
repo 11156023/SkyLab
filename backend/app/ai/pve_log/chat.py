@@ -4,7 +4,7 @@
   1. 帶著工具定義向 vLLM 發出請求
   2. 若 AI 回傳 tool_calls，逐一執行：
      - PVE 工具：內部呼叫 collector，不走 HTTP
-     - ssh_exec：呼叫 SkyLab API 取得 SSH key，SSH 進入 VM 執行
+     - ssh_exec：由資料庫取得 VM IP 與 SSH key，經人工確認後 SSH 進入 VM 執行
   3. 將工具結果加回 messages，持續進行下一個 agent step
   4. 遇到人工確認時中斷；確認後由呼叫端帶著同一份 messages 恢復
   5. AI 產生最終回答後回傳 ChatResponse
@@ -13,7 +13,8 @@
   - 一次 chat 請求使用 request-local lazy PveToolContext；各工具只取所需資料，
     已取得的 node／storage／resource detail 在同一 request 內重用。
   - 工具可連續呼叫多輪，但有固定上限，避免模型陷入無限工具迴圈。
-  - 一般 ssh_exec 需要確認；template 僅允許伺服器列出的唯讀指令自動執行。
+  - ssh_exec 一律需要人工確認；同一輪多個 ssh_exec 時只有第一個 pending，
+    其餘 deferred，確認後接續時再逐一產生下一個待確認指令。
   - 若呼叫端提供 VMID 範圍，工具輸出與 SSH 執行都只允許該範圍。
   - Gemma-4/Qwen3 的 <think> 與 tool call 標記會在每個 agent step 前清除，
     避免 message history 污染導致 LLM 無法正確總結。
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -41,8 +43,7 @@ from app.ai.pve_log.history import (
     PveHistoryValidationError,
     merge_pve_messages,
 )
-from app.ai.pve_log.schemas import ChatResponse, SystemSnapshot, ToolCallRecord
-from app.ai.pve_template.command_policy import is_known_read_command
+from app.ai.pve_log.schemas import ChatResponse, SSHExecRequest, ToolCallRecord
 from app.core.i18n import t
 from app.infrastructure.ai.pve_log import client as vllm_client
 
@@ -341,85 +342,23 @@ _SCOPE_PROMPT = (
 
 
 def _execute_tool_sync(
-    snapshot: SystemSnapshot | PveToolContext,
+    context: PveToolContext,
     name: str,
     args: dict[str, Any],
     *,
     allowed_vmids: set[int] | None = None,
 ) -> Any:
-    if isinstance(snapshot, PveToolContext):
-        result = snapshot.execute(name, args, allowed_vmids=allowed_vmids)
-    else:
-        result = _snapshot_tool_data(snapshot, name, args, allowed_vmids=allowed_vmids)
-    if snapshot.errors:
-        # Preserve successful fields, but never let an empty/partial snapshot
-        # look like evidence that the cluster is healthy or a resource is absent.
+    """執行 PVE 查詢工具，同步版本（供 asyncio.to_thread 包裝）。"""
+    result = context.execute(name, args, allowed_vmids=allowed_vmids)
+    if context.errors:
+        # Preserve successful fields, but never let empty/partial data look like
+        # evidence that the cluster is healthy or a resource is absent.
         # Raw collection errors may mention resources outside the caller's scope.
         warning = "部分快照資料未能取得；缺少資料不代表資源正常或不存在。"
         if isinstance(result, dict):
             return {**result, "error": result.get("error") or warning}
         return {"data": result, "error": warning}
     return result
-
-
-def _snapshot_tool_data(
-    snapshot: SystemSnapshot,
-    name: str,
-    args: dict[str, Any],
-    *,
-    allowed_vmids: set[int] | None = None,
-) -> Any:
-    """使用已收集好的 snapshot 執行工具，同步版本（供 asyncio.to_thread 包裝）。"""
-    if name == "get_nodes":
-        return [n.model_dump(mode="json") for n in snapshot.nodes]
-
-    elif name == "get_storage":
-        storage_result = snapshot.storages
-        if args.get("node"):
-            storage_result = [s for s in storage_result if s.node == args["node"]]
-        return [s.model_dump(mode="json") for s in storage_result]
-
-    elif name == "get_resources":
-        resource_result = snapshot.resources
-        if args.get("node"):
-            resource_result = [r for r in resource_result if r.node == args["node"]]
-        if args.get("resource_type"):
-            resource_result = [
-                r for r in resource_result if r.resource_type == args["resource_type"]
-            ]
-        if args.get("status"):
-            resource_result = [r for r in resource_result if r.status == args["status"]]
-        if allowed_vmids is not None:
-            resource_result = [r for r in resource_result if r.vmid in allowed_vmids]
-        return [r.model_dump(mode="json") for r in resource_result]
-
-    elif name == "get_resource_detail":
-        vmid = int(args["vmid"])
-        if allowed_vmids is not None and vmid not in allowed_vmids:
-            return {"error": t("pveLog.scopeRestricted")}
-        summary = next((r for r in snapshot.resources if r.vmid == vmid), None)
-        if summary is None:
-            return {"error": t("pveLog.vmidNotFound", vmid=vmid)}
-        status_detail = next(
-            (s for s in snapshot.resource_statuses if s.vmid == vmid), None
-        )
-        config = next((c for c in snapshot.resource_configs if c.vmid == vmid), None)
-        interfaces = [i for i in snapshot.network_interfaces if i.vmid == vmid]
-        return {
-            "summary": summary.model_dump(mode="json"),
-            "status": status_detail.model_dump(mode="json") if status_detail else None,
-            # raw 欄位含完整 Proxmox 原始設定，資訊冗餘且大量消耗 LLM context，予以排除
-            "config": config.model_dump(mode="json", exclude={"raw"})
-            if config
-            else None,
-            "network_interfaces": [i.model_dump(mode="json") for i in interfaces],
-        }
-
-    elif name == "get_cluster":
-        return snapshot.cluster.model_dump(mode="json")
-
-    else:
-        return {"error": t("pveLog.unknownTool", name=name)}
 
 
 async def _execute_ssh_tool(
@@ -430,16 +369,12 @@ async def _execute_ssh_tool(
     requester_id: uuid.UUID | None = None,
     scope_type: str | None = None,
     scope_id: uuid.UUID | None = None,
-    template_key: str | None = None,
-    template_keys_by_vmid: dict[int, str] | None = None,
-    auto_execute_known_ssh: bool = False,
 ) -> dict[str, Any]:
-    """執行 ssh_exec 工具（async，需要等待 SSH 連線）。
+    """執行 ssh_exec 工具（async）。
 
-    一般 PVE Log 呼叫會 pending；template 入口只讓伺服器列出的唯讀
-    smoke command 自動執行，未知或自訂指令仍需人工確認。黑名單永遠先執行。
+    一律以 require_confirm=True 建立請求：結果只會是 pending（等待使用者
+    確認）或被攔截，不會直接執行。黑名單永遠先執行。
     """
-    from app.ai.pve_log.schemas import SSHExecRequest as _SSHExecRequest
     from app.ai.pve_log.ssh_exec import ssh_exec as _ssh_exec
 
     try:
@@ -459,21 +394,12 @@ async def _execute_ssh_tool(
             "pending": False,
         }
 
-    effective_template_key = (
-        template_keys_by_vmid.get(vmid) if template_keys_by_vmid else template_key
-    )
-    effective_ssh_user = (
-        "root" if effective_template_key else str(args.get("ssh_user", "root"))
-    )
-    req = _SSHExecRequest(
+    req = SSHExecRequest(
         vmid=vmid,
         command=command,
-        ssh_user=effective_ssh_user,
+        ssh_user=str(args.get("ssh_user", "root")),
         ssh_port=int(args.get("ssh_port", 22)),
-        require_confirm=not (
-            auto_execute_known_ssh
-            and is_known_read_command(effective_template_key, command)
-        ),
+        require_confirm=True,
     )
     result = await _ssh_exec(
         req,
@@ -621,26 +547,6 @@ async def _execute_guest_diagnostics_tool(
     )
 
 
-def _is_known_read_ssh_call(
-    args: dict[str, Any],
-    *,
-    template_key: str | None,
-    template_keys_by_vmid: dict[int, str] | None,
-    auto_execute_known_ssh: bool,
-) -> bool:
-    if not auto_execute_known_ssh:
-        return False
-    try:
-        vmid = int(args["vmid"])
-        command = str(args["command"])
-    except (KeyError, TypeError, ValueError):
-        return False
-    effective_template_key = (
-        template_keys_by_vmid.get(vmid) if template_keys_by_vmid else template_key
-    )
-    return is_known_read_command(effective_template_key, command)
-
-
 def _deferred_ssh_result(args: dict[str, Any]) -> dict[str, Any]:
     try:
         vmid = int(args["vmid"])
@@ -771,18 +677,37 @@ def _canonicalize_model_tool_calls(
     message: dict[str, Any],
     *,
     reserved_ids: set[str],
+    allowed_names: frozenset[str] | set[str] = _ALLOWED_TOOL_NAMES,
 ) -> dict[str, Any]:
-    """Give every model tool call a unique id before adding it to history."""
+    """Canonicalize model tool calls before adding them to history.
+
+    回傳給前端的 messages 下一輪會原樣送回並經 history._canonical_tool_calls
+    驗證；這裡必須套用同一套規則，否則一次「可執行」的 tool call（未知工具名、
+    寬鬆解析的非 JSON arguments、缺 function object）會讓之後每一輪都 422。
+    - 每個 call 給唯一 id、type 固定為 function
+    - 丟棄缺 function object 或工具名稱不被允許的 call（全部丟棄時移除 tool_calls）
+    - arguments 以 _parse_tool_arguments 解析後重新序列化為嚴格 JSON
+    """
     raw_calls = message.get("tool_calls")
     if not raw_calls:
         return message
     if not isinstance(raw_calls, list):
-        return message
+        logger.warning("模型回傳的 tool_calls 不是陣列，已忽略：%r", raw_calls)
+        return {key: value for key, value in message.items() if key != "tool_calls"}
 
     calls: list[dict[str, Any]] = []
     used_ids = set(reserved_ids)
     for raw_call in raw_calls:
         if not isinstance(raw_call, dict):
+            logger.warning("模型回傳的 tool call 不是 object，已忽略：%r", raw_call)
+            continue
+        function = raw_call.get("function")
+        if not isinstance(function, dict):
+            logger.warning("模型回傳的 tool call 缺少 function object，已忽略：%r", raw_call)
+            continue
+        name = function.get("name")
+        if not isinstance(name, str) or name not in allowed_names:
+            logger.warning("模型呼叫不被允許的工具 %r，已忽略", name)
             continue
         call = dict(raw_call)
         raw_id = call.get("id")
@@ -791,11 +716,21 @@ def _canonicalize_model_tool_calls(
             call_id = f"call_{uuid.uuid4().hex[:8]}"
         call["id"] = call_id
         call["type"] = "function"
-        function = call.get("function")
-        if isinstance(function, dict):
-            call["function"] = dict(function)
+        call["function"] = {
+            **function,
+            "name": name,
+            "arguments": json.dumps(
+                _parse_tool_arguments(function.get("arguments") or "{}"),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                # ast.literal_eval 退路可能產生 set/bytes 等非 JSON 值
+                default=str,
+            ),
+        }
         used_ids.add(call_id)
         calls.append(call)
+    if not calls:
+        return {key: value for key, value in message.items() if key != "tool_calls"}
     return {**message, "tool_calls": calls}
 
 
@@ -876,11 +811,22 @@ def _validate_confirmation_history(
                 "PVE confirmation result 缺少對應的 ssh_exec tool-call"
             )
         call_args = call[1]
+        # 與 _execute_ssh_tool 建立 SSHExecRequest 時的轉型一致，否則模型給
+        # "vmid": "101" 之類字串參數時，已確認的結果會在接續時被誤判不符。
+        try:
+            call_vmid = int(call_args["vmid"])
+            call_command = str(call_args["command"])
+            call_ssh_user = str(call_args.get("ssh_user", "root"))
+            call_ssh_port = int(call_args.get("ssh_port", 22))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PveHistoryValidationError(
+                "PVE confirmation result 與原始 ssh_exec 參數不符"
+            ) from exc
         if (
-            call_args.get("vmid") != request.vmid
-            or call_args.get("command") != request.command
-            or call_args.get("ssh_user", "root") != getattr(request, "ssh_user", "root")
-            or call_args.get("ssh_port", 22) != getattr(request, "ssh_port", 22)
+            call_vmid != request.vmid
+            or call_command != request.command
+            or call_ssh_user != getattr(request, "ssh_user", "root")
+            or call_ssh_port != getattr(request, "ssh_port", 22)
         ):
             raise PveHistoryValidationError(
                 "PVE confirmation result 與原始 ssh_exec 參數不符"
@@ -900,13 +846,9 @@ def _validate_confirmation_history(
                 "PVE confirmation result 與 server result 不符"
             )
 
-        if (
-            not token_present
-            and not record.get("consumed")
-            and record.get("scope_type") not in {"template", "template_batch"}
-        ):
+        if not token_present and not record.get("consumed"):
             raise PveHistoryValidationError(
-                "一般 PVE confirmation result 必須帶 server confirmation token"
+                "PVE confirmation result 必須帶 server confirmation token"
             )
         return candidate
 
@@ -1000,92 +942,37 @@ def _parse_tool_arguments(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-_CONFIRMATION_PROSE_MARKERS = (
-    "請確認是否同意執行",
-    "是否同意執行以下指令",
-    "是否允許執行以下指令",
-    "若您同意，我將立即執行",
-)
-
-
-def _promote_confirmation_prose_to_tool_call(
-    message: dict[str, Any],
-    *,
-    allowed_vmids: set[int] | None,
-    template_key: str | None,
-) -> dict[str, Any]:
-    """Convert a template model's redundant prose confirmation into ssh_exec.
-
-    This compatibility path is intentionally narrow: it only applies to a
-    template-scoped, single-VM request that contains both an explicit approval
-    prompt and one backticked command. The normal path remains native tool
-    calling, and the server-side SSH guard/confirmation policy still decides
-    whether the command may run.
-    """
-    if (
-        message.get("tool_calls")
-        or not template_key
-        or allowed_vmids is None
-        or len(allowed_vmids) != 1
-    ):
-        return message
-
-    content = str(message.get("content") or "")
-    if not any(marker in content for marker in _CONFIRMATION_PROSE_MARKERS):
-        return message
-
-    command_match = re.search(
-        r"(?:\*\*)?\s*指令\s*[：:]\s*(?:\*\*)?\s*`([^`\r\n]+)`",
-        content,
-    )
-    if command_match is None:
-        return message
-
-    command = command_match.group(1).strip()
-    if not command or len(command) > 2000:
-        return message
-
-    reason_match = re.search(
-        r"(?:\*\*)?\s*執行原因\s*[：:]\s*(?:\*\*)?\s*(.+?)(?:\r?\n|$)",
-        content,
-    )
-    reason = (
-        reason_match.group(1).strip().strip("*")
-        if reason_match
-        else t("pveLog.defaultPromotedReason")
-    )
-    vmid = next(iter(allowed_vmids))
-    logger.info(
-        "將 template 文字確認轉為 ssh_exec tool call: template=%s vmid=%d",
-        template_key,
-        vmid,
-    )
-    return {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": f"call_{uuid.uuid4().hex[:8]}",
-                "type": "function",
-                "function": {
-                    "name": "ssh_exec",
-                    "arguments": json.dumps(
-                        {
-                            "vmid": vmid,
-                            "command": command,
-                            "reason": reason,
-                        },
-                        ensure_ascii=False,
-                    ),
-                },
-            }
-        ],
-    }
-
-
 # ---------------------------------------------------------------------------
 # 主對話函式
 # ---------------------------------------------------------------------------
+
+
+def _record_chat_usage(
+    response_data: dict[str, Any],
+    *,
+    session: Session | None,
+    requester_id: uuid.UUID | None,
+    request_id: str,
+    started: float,
+    started_at: datetime,
+    status: str = "success",
+    error_message: str | None = None,
+) -> None:
+    """記錄一次 vLLM agent step 的用量（成功、上游錯誤或空回應都走這裡）。"""
+    record_ai_template_call(
+        session=session,
+        user_id=requester_id,
+        call_type="pve_chat",
+        model_name=settings.VLLM_MODEL_NAME,
+        metrics=usage_metrics(
+            response_data,
+            time.perf_counter() - started,
+            request_id=request_id,
+            started_at=started_at,
+        ),
+        status=status,
+        error_message=error_message,
+    )
 
 
 async def chat(
@@ -1097,18 +984,22 @@ async def chat(
     requester_id: uuid.UUID | None = None,
     scope_type: str | None = None,
     scope_id: uuid.UUID | None = None,
-    system_prompt: str | None = None,
-    template_key: str | None = None,
-    template_keys_by_vmid: dict[int, str] | None = None,
-    auto_execute_known_ssh: bool = False,
-    resume_deferred_ssh: bool = False,
+    resume_deferred_ssh: bool = True,
 ) -> ChatResponse:
-    """執行有限步數的 AI agent 對話，支援 tool calling、確認中斷及接續。"""
-    effective_system_prompt = system_prompt or _SYSTEM_PROMPT
+    """執行有限步數的 AI agent 對話，支援 tool calling、確認中斷及接續。
+
+    同一輪有多個 ssh_exec 時，第一個 pending、其餘寫成 deferred result；
+    前端確認第一個後把整段 history 送回，這裡預設會接續 deferred 的呼叫。
+    接續一律重新走 _execute_ssh_tool（require_confirm 仍生效），所以最多
+    只會產生下一個待確認指令，不會跳過人工確認。
+
+    allowed_vmids／scope_type／scope_id 目前沒有 production 呼叫端傳入
+    （管理員 PVE Log 不限範圍），刻意保留為防禦性的 VM 範圍限制掛點。
+    """
     messages = merge_pve_messages(
         message=message,
         history=history,
-        server_system_prompt=effective_system_prompt,
+        server_system_prompt=_SYSTEM_PROMPT,
         scope_prompt=_SCOPE_PROMPT if allowed_vmids is not None else None,
         allowed_tool_names=_ALLOWED_TOOL_NAMES,
         allow_deferred=resume_deferred_ssh,
@@ -1138,9 +1029,6 @@ async def chat(
                     requester_id=requester_id,
                     scope_type=scope_type,
                     scope_id=scope_id,
-                    template_key=template_key,
-                    template_keys_by_vmid=template_keys_by_vmid,
-                    auto_execute_known_ssh=auto_execute_known_ssh,
                 )
             except Exception as exc:
                 logger.error("延後的 SSH 工具執行失敗：%s", exc)
@@ -1181,12 +1069,20 @@ async def chat(
             "messages": messages,
             "tools": _TOOLS,
             "tool_choice": "auto",
+            # 刻意固定，不讀 settings.VLLM_CHAT_*：system-ai.example.json 沒有
+            # pve_log 區段，改讀設定會讓這類部署退回通用預設（0.6／1600）。
             "temperature": 0.1,
             "max_tokens": 4096,
         }
         request_id = new_ai_request_id()
-        started = time.perf_counter()
-        started_at = datetime.now(timezone.utc)
+        record_usage = functools.partial(
+            _record_chat_usage,
+            session=session,
+            requester_id=requester_id,
+            request_id=request_id,
+            started=time.perf_counter(),
+            started_at=datetime.now(timezone.utc),
+        )
         try:
             data = await vllm_client.create_chat_completion(
                 payload,
@@ -1194,17 +1090,8 @@ async def chat(
                 request_id=request_id,
             )
         except httpx.HTTPStatusError as exc:
-            record_ai_template_call(
-                session=session,
-                user_id=requester_id,
-                call_type="pve_chat",
-                model_name=settings.VLLM_MODEL_NAME,
-                metrics=usage_metrics(
-                    {},
-                    time.perf_counter() - started,
-                    request_id=request_id,
-                    started_at=started_at,
-                ),
+            record_usage(
+                {},
                 status="error",
                 error_message=f"upstream_http_{exc.response.status_code}",
             )
@@ -1218,20 +1105,7 @@ async def chat(
                 error=t("pveLog.llmHttpError", status=exc.response.status_code),
             )
         except Exception as exc:
-            record_ai_template_call(
-                session=session,
-                user_id=requester_id,
-                call_type="pve_chat",
-                model_name=settings.VLLM_MODEL_NAME,
-                metrics=usage_metrics(
-                    {},
-                    time.perf_counter() - started,
-                    request_id=request_id,
-                    started_at=started_at,
-                ),
-                status="error",
-                error_message=str(exc),
-            )
+            record_usage({}, status="error", error_message=str(exc))
             logger.error("vLLM 連線失敗：%s", exc)
             return ChatResponse(
                 reply="",
@@ -1242,20 +1116,7 @@ async def chat(
 
         choices = data.get("choices") or []
         if not choices:
-            record_ai_template_call(
-                session=session,
-                user_id=requester_id,
-                call_type="pve_chat",
-                model_name=settings.VLLM_MODEL_NAME,
-                metrics=usage_metrics(
-                    data,
-                    time.perf_counter() - started,
-                    request_id=request_id,
-                    started_at=started_at,
-                ),
-                status="error",
-                error_message="empty_choices",
-            )
+            record_usage(data, status="error", error_message="empty_choices")
             logger.error("vLLM agent step %d 回應 choices 為空：%s", tool_round, data)
             return ChatResponse(
                 reply="",
@@ -1264,33 +1125,9 @@ async def chat(
                 error=t("pveLog.llmEmptyResponse"),
             )
 
-        record_ai_template_call(
-            session=session,
-            user_id=requester_id,
-            call_type="pve_chat",
-            model_name=settings.VLLM_MODEL_NAME,
-            metrics=usage_metrics(
-                data,
-                time.perf_counter() - started,
-                request_id=request_id,
-                started_at=started_at,
-            ),
-        )
+        record_usage(data)
 
         assistant_msg = _normalize_assistant_message(choices[0].get("message") or {})
-        single_template_key = template_key
-        if (
-            not single_template_key
-            and template_keys_by_vmid
-            and allowed_vmids is not None
-            and len(allowed_vmids) == 1
-        ):
-            single_template_key = template_keys_by_vmid.get(next(iter(allowed_vmids)))
-        assistant_msg = _promote_confirmation_prose_to_tool_call(
-            assistant_msg,
-            allowed_vmids=allowed_vmids,
-            template_key=single_template_key,
-        )
         reserved_tool_call_ids = {
             str(item.get("id"))
             for item in messages
@@ -1302,9 +1139,9 @@ async def chat(
             assistant_msg,
             reserved_ids=reserved_tool_call_ids,
         )
-        messages.append(assistant_msg)
         tool_calls = assistant_msg.get("tool_calls") or []
         if not tool_calls:
+            messages.append(assistant_msg)
             return ChatResponse(
                 reply=assistant_msg.get("content") or "",
                 tools_called=tools_called,
@@ -1312,6 +1149,9 @@ async def chat(
             )
 
         if tool_round >= _MAX_TOOL_ROUNDS:
+            # 不把這輪沒有 result 的 tool_calls 放進 history：回傳的 transcript
+            # 必須停在上一個完整的 tool round，否則下一個 user turn 會被
+            # history 驗證以「assistant tool-call 尚未完成」拒絕（422）。
             logger.error("AI 工具呼叫超過上限（%d 輪）", _MAX_TOOL_ROUNDS)
             return ChatResponse(
                 reply="",
@@ -1319,6 +1159,7 @@ async def chat(
                 messages=messages,
                 error=t("pveLog.tooManyToolRounds"),
             )
+        messages.append(assistant_msg)
 
         needs_pve_tool = any(
             tc.get("function", {}).get("name") != "ssh_exec" for tc in tool_calls
@@ -1338,56 +1179,11 @@ async def chat(
             )
             for tc in tool_calls
         ]
-        pending_barrier_index = next(
-            (
-                index
-                for index, (_tc, func_name, func_args) in enumerate(parsed_calls)
-                if func_name == "ssh_exec"
-                and not _is_known_read_ssh_call(
-                    func_args,
-                    template_key=template_key,
-                    template_keys_by_vmid=template_keys_by_vmid,
-                    auto_execute_known_ssh=auto_execute_known_ssh,
-                )
-            ),
-            len(parsed_calls),
-        )
-        parallel_indices = [
-            index
-            for index, (_tc, func_name, func_args) in enumerate(parsed_calls)
-            if index < pending_barrier_index
-            and func_name == "ssh_exec"
-            and _is_known_read_ssh_call(
-                func_args,
-                template_key=template_key,
-                template_keys_by_vmid=template_keys_by_vmid,
-                auto_execute_known_ssh=auto_execute_known_ssh,
-            )
-        ][:3]
-        parallel_results: dict[int, Any] = {}
-        if len(parallel_indices) > 1:
-            gathered = await asyncio.gather(
-                *[
-                    _execute_ssh_tool(
-                        parsed_calls[index][2],
-                        session=session,
-                        allowed_vmids=allowed_vmids,
-                        requester_id=requester_id,
-                        scope_type=scope_type,
-                        scope_id=scope_id,
-                        template_key=template_key,
-                        template_keys_by_vmid=template_keys_by_vmid,
-                        auto_execute_known_ssh=auto_execute_known_ssh,
-                    )
-                    for index in parallel_indices
-                ],
-                return_exceptions=True,
-            )
-            parallel_results = dict(zip(parallel_indices, gathered, strict=True))
 
+        # 同一輪只讓第一個 ssh_exec 進入 pending，之後的 ssh_exec 寫成
+        # deferred，待使用者確認後由下一次 chat() 接續。
         needs_confirmation = False
-        pending_issued = False
-        for index, (tc, func_name, func_args) in enumerate(parsed_calls):
+        for tc, func_name, func_args in parsed_calls:
             logger.info(
                 "執行工具（agent step %d）%s，參數：%s",
                 tool_round,
@@ -1396,11 +1192,7 @@ async def chat(
             )
 
             try:
-                if index in parallel_results:
-                    result = parallel_results[index]
-                    if isinstance(result, Exception):
-                        raise result
-                elif func_name == "ssh_exec" and pending_issued:
+                if func_name == "ssh_exec" and needs_confirmation:
                     result = _deferred_ssh_result(func_args)
                 elif func_name == "ssh_exec":
                     result = await _execute_ssh_tool(
@@ -1410,9 +1202,6 @@ async def chat(
                         requester_id=requester_id,
                         scope_type=scope_type,
                         scope_id=scope_id,
-                        template_key=template_key,
-                        template_keys_by_vmid=template_keys_by_vmid,
-                        auto_execute_known_ssh=auto_execute_known_ssh,
                     )
                 elif func_name == "get_guest_diagnostic_summary":
                     result = await _execute_guest_diagnostics_tool(
@@ -1435,7 +1224,6 @@ async def chat(
                 needs_confirmation = needs_confirmation or bool(
                     result_dict.get("pending")
                 )
-                pending_issued = pending_issued or bool(result_dict.get("pending"))
                 tool_content = json.dumps(result, ensure_ascii=False, default=str)
                 tool_call_id = str(tc.get("id") or "")
                 if result_dict.get("pending") and result_dict.get("confirm_token"):

@@ -4,26 +4,12 @@ import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { MonitoringService } from "../../../services/monitoring";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { formatDateTime } from "../../../utils/formatDate";
+import usePersistedToggle from "./usePersistedToggle";
 
-/* 任務明細收合偏好記在本機（與節點用量卡同一套作法） */
+/* 任務明細收合偏好記在本機（與節點用量卡共用 usePersistedToggle） */
 const OPEN_STORAGE_KEY = "skylab.monitoringHealthOpen";
-
-function loadOpen() {
-  try {
-    return window.localStorage.getItem(OPEN_STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function saveOpen(open) {
-  try {
-    window.localStorage.setItem(OPEN_STORAGE_KEY, open ? "1" : "0");
-  } catch {
-    // localStorage 不可用時偏好僅本次瀏覽生效
-  }
-}
 
 /* 狀態 → 徽章色。橘色只留給「待審核」語意，異常一律紅色（見前端 style guide） */
 const STATUS_BADGE = {
@@ -85,7 +71,7 @@ export default function SystemHealthCard() {
   const { t } = useTranslation("system");
   const [health, setHealth] = useState(null);
   const [error, setError] = useState(false);
-  const [open, setOpen] = useState(loadOpen);
+  const [open, toggleOpen] = usePersistedToggle(OPEN_STORAGE_KEY);
 
   const load = useCallback(async (signal) => {
     try {
@@ -96,22 +82,13 @@ export default function SystemHealthCard() {
     }
   }, []);
 
+  /* 首次載入可中止（離開頁面時）；之後交給 useAutoRefresh，分頁隱藏時不輪詢 */
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
-    const timer = setInterval(() => load(), 30_000);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
+    return () => controller.abort();
   }, [load]);
-
-  function toggleOpen() {
-    setOpen((value) => {
-      saveOpen(!value);
-      return !value;
-    });
-  }
+  useAutoRefresh(() => load());
 
   if (health === null) {
     return (

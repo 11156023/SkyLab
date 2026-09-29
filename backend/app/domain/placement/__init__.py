@@ -1,29 +1,5 @@
-from .models import (
-    NodeScoreBreakdown,
-    PlacementTuning,
-    StorageSelection,
-    WorkingStoragePool,
-)
-from .schemas import (
-    NodeCapacity,
-    NodeSnapshot,
-    PlacementDecision,
-    PlacementPlan,
-    PlacementRequest,
-    ResourceSnapshot,
-    ResourceType,
-)
+"""VM/LXC placement domain logic.
 
-__all__ = [
-    "NodeCapacity",
-    "NodeSnapshot",
-    "PlacementDecision",
-    "PlacementPlan",
-    "PlacementRequest",
-    "NodeScoreBreakdown",
-    "PlacementTuning",
-    "ResourceSnapshot",
-    "ResourceType",
-    "StorageSelection",
-    "WorkingStoragePool",
-]
+Import the submodules directly (``advisor``, ``policy``, ``scorer``,
+``storage``, ``models``, ``schemas``); the package root re-exports nothing.
+"""

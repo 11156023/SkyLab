@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AiApiChatService } from "./aiApiChat";
+import aiApiChatSource from "./aiApiChat.js?raw";
 
 const fetchMock = vi.fn();
 function sseResponse(chunks) {
@@ -13,8 +14,9 @@ function sseResponse(chunks) {
   }), { headers: { "Content-Type": "text/event-stream" } });
 }
 
+const KEY = "ccai_test_chat";
+
 beforeEach(() => {
-  vi.stubEnv("VITE_AI_CHAT_API_KEY", "ccai_test_chat");
   vi.stubEnv("VITE_API_URL", "https://api.example.edu/");
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
@@ -25,7 +27,7 @@ test("模型與聊天使用同一把 API 金鑰，保留對話上下文且不傳
   fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: [
     { id: "model-a" }, { id: "model-b" }, { id: "model-a" }, { id: "embedding", model_info: { mode: "embedding" } }, { id: "no-chat", capabilities: { chat: false } },
   ] })));
-  expect(await AiApiChatService.listModels()).toEqual(["model-a", "model-b"]);
+  expect(await AiApiChatService.listModels({ apiKey: KEY })).toEqual(["model-a", "model-b"]);
   fetchMock.mockResolvedValueOnce(sseResponse([
     'data: {"choices":[{"delta":{"content":"回"}}]}\n\n',
     'data: {"choices":[{"delta":{"content":"覆"}}]}\n\ndata: [DONE]\n\n',
@@ -36,7 +38,7 @@ test("模型與聊天使用同一把 API 金鑰，保留對話上下文且不傳
     { id: "1", role: "user", content: "第一句", createdAt: "now" },
     { role: "assistant", content: "第一個回覆", model: "model-a" },
     { role: "user", content: "第二句" },
-  ], { signal: controller.signal, onDelta: (content) => streamed.push(content) })).toBe("回覆");
+  ], { signal: controller.signal, onDelta: (content) => streamed.push(content), apiKey: KEY })).toBe("回覆");
   expect(streamed).toEqual(["回", "回覆"]);
   const [modelCall, chatCall] = fetchMock.mock.calls;
   expect(modelCall[0]).toBe("https://api.example.edu/api/v1/ai-proxy/models");
@@ -61,7 +63,7 @@ test("Nemotron 保留思考階段但只串流最終答案，並清除帶入上�
   const reply = await AiApiChatService.chat("NVIDIA-Nemotron-Nano-9B-v2-FP8", [
     { role: "assistant", content: "舊推理內容</think>舊答案" },
     { role: "user", content: "請回答" },
-  ], { onDelta: (content) => streamed.push(content) });
+  ], { onDelta: (content) => streamed.push(content), apiKey: KEY });
 
   expect(reply).toBe("**最終答案**");
   expect(streamed).toEqual(["**最終答案**"]);
@@ -77,22 +79,36 @@ test("API Key 401 不會觸發登入續期，也不會暴露上游錯誤內容",
   window.addEventListener("auth:unauthorized", unauthorized);
   try {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: { message: "private upstream detail" } }), { status: 401 }));
-    await expect(AiApiChatService.listModels()).rejects.toEqual({ status: 401 });
+    await expect(AiApiChatService.listModels({ apiKey: KEY })).rejects.toEqual({ status: 401 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(unauthorized).not.toHaveBeenCalled();
   } finally { window.removeEventListener("auth:unauthorized", unauthorized); }
 });
 
-test("沒有設定金鑰時不發送請求", async () => {
-  vi.stubEnv("VITE_AI_CHAT_API_KEY", "");
-  expect(AiApiChatService.isConfigured()).toBe(false);
+test("沒有傳金鑰時不發送請求", async () => {
+  await expect(AiApiChatService.listModels()).rejects.toEqual({ status: 0, code: "missing_api_key" });
+  await expect(AiApiChatService.listModels({ apiKey: "  " })).rejects.toEqual({ status: 0, code: "missing_api_key" });
+  await expect(AiApiChatService.chat("model-a", [])).rejects.toEqual({ status: 0, code: "missing_api_key" });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("不再讀建置時的 VITE_AI_CHAT_API_KEY（會被打包進公開 bundle）", async () => {
+  vi.stubEnv("VITE_AI_CHAT_API_KEY", "leaked_shared_key");
   await expect(AiApiChatService.listModels()).rejects.toEqual({ status: 0, code: "missing_api_key" });
   expect(fetchMock).not.toHaveBeenCalled();
+  expect(AiApiChatService.isConfigured).toBeUndefined();
+  expect(aiApiChatSource).not.toContain("VITE_AI_CHAT_API_KEY");
+});
+
+test("Authorization 標頭使用呼叫端傳入的金鑰", async () => {
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "model-a" }] })));
+  await AiApiChatService.listModels({ apiKey: "ccai_other_key" });
+  expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer ccai_other_key");
 });
 
 test.each([{}, { choices: [{ message: { content: null, reasoning_content: "reasoning only" } }] }])("空回覆不視為聊天成功", async (body) => {
   fetchMock.mockResolvedValue(new Response(JSON.stringify(body)));
-  await expect(AiApiChatService.chat("model-a", [])).rejects.toEqual({ status: 502, code: "empty_reply" });
+  await expect(AiApiChatService.chat("model-a", [], { apiKey: KEY })).rejects.toEqual({ status: 502, code: "empty_reply" });
 });
 
 test("取消請求可以停止等待", async () => {
@@ -100,7 +116,7 @@ test("取消請求可以停止等待", async () => {
     signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
   }));
   const controller = new AbortController();
-  const pending = AiApiChatService.chat("model-a", [], { signal: controller.signal });
+  const pending = AiApiChatService.chat("model-a", [], { signal: controller.signal, apiKey: KEY });
   controller.abort();
   await expect(pending).rejects.toMatchObject({ cancelled: true });
 });

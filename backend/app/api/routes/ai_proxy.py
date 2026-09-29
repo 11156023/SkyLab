@@ -4,23 +4,21 @@ The relay deliberately exposes a small data-plane allowlist.  It validates a
 Campus ``ccai_*`` credential, applies the Campus rate limit, then replaces the
 client's Authorization header with the restricted LiteLLM service key.  It is
 not a generic proxy to the LiteLLM administration or health APIs.
+
+路由只做驗證、限流與 body 檢查；轉送、串流與用量入帳在
+``app.services.llm_gateway.relay_service``。
 """
 
 from __future__ import annotations
 
-import asyncio
-import codecs
 import json
 import logging
 import time
-import uuid
-from collections.abc import AsyncGenerator
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.api.deps import AIAPIUserDep, SessionDep
 from app.core.i18n import t
@@ -32,211 +30,25 @@ from app.infrastructure.redis import (
     peek_rate_limit_by_key,
 )
 from app.schemas.ai_proxy import RateLimitStatusResponse, UsageStatsResponse
-from app.services.llm_gateway import ai_gateway_service
-from app.services.monitoring import ai_metrics
+from app.services.llm_gateway import ai_gateway_service, relay_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai-proxy", tags=["ai_proxy"])
 
-_GENERATION_ENDPOINTS = {
-    "chat/completions": "chat_completion",
-    "completions": "completion",
-    "responses": "response",
-}
-_REQUEST_HEADER_ALLOWLIST = (
-    "accept",
-    "openai-beta",
-    "openai-organization",
-    "openai-project",
-    "x-request-id",
-)
-_RESPONSE_HEADER_ALLOWLIST = (
-    "content-type",
-    "openai-processing-ms",
-    "retry-after",
-    "x-request-id",
-)
 
-
-def _openai_error(
-    status_code: int,
-    message: str,
-    *,
-    error_type: str,
-    code: str | None = None,
-) -> JSONResponse:
-    """Return a compact OpenAI-compatible error without leaking upstream data."""
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "error": {
-                "message": message,
-                "type": error_type,
-                "param": None,
-                "code": code,
-            }
-        },
-    )
-
-
-def _upstream_failure(
-    *,
-    request: Request,
-    upstream: httpx.Response,
-    body: bytes,
-    context: str,
-) -> JSONResponse:
-    """上游的錯誤 body 一律不轉給呼叫端。
-
-    LiteLLM 的錯誤訊息會夾帶內部模型別名、後端 URL、服務金鑰片段與 traceback；
-    對外只保留 status code 與泛用訊息，原文連同 request id 寫進 log 供追查。
-    """
-    request_id = (
-        upstream.headers.get("x-request-id")
-        or request.headers.get("x-request-id")
-        or "-"
-    )
-    logger.warning(
-        "AI API upstream error: context=%s status=%s request_id=%s body=%s",
-        context,
-        upstream.status_code,
-        request_id,
-        body[:2048].decode("utf-8", "replace"),
-    )
-    return _openai_error(
-        upstream.status_code,
-        "The model service rejected this request.",
-        error_type="api_error",
-        code="upstream_error",
-    )
-
-
-def _service_headers(
-    request: Request, *, request_id: str | None = None
-) -> dict[str, str]:
-    """Build the only headers allowed to cross the Campus → LiteLLM boundary."""
-    headers = {
-        "Authorization": f"Bearer {ai_api_settings.ai_api_upstream_api_key}",
-        "Content-Type": "application/json",
-    }
-    for name in _REQUEST_HEADER_ALLOWLIST:
-        value = request.headers.get(name)
-        if value:
-            headers[name] = value
-    if request_id:
-        headers["x-request-id"] = request_id
-    return headers
-
-
-def _response_headers(upstream_headers: httpx.Headers) -> dict[str, str]:
-    """Pass only response headers useful to OpenAI API clients.
-
-    Host, Content-Length, connection-specific and implementation headers are
-    intentionally never copied into the public response.
-    """
-    return {
-        name: upstream_headers[name]
-        for name in _RESPONSE_HEADER_ALLOWLIST
-        if name in upstream_headers
-    }
-
-
-def _upstream_url(endpoint: str, query: str) -> str:
-    base_url = ai_api_settings.resolved_vllm_base_url.rstrip("/")
-    url = f"{base_url}/v1/{endpoint}"
-    return f"{url}?{query}" if query else url
-
-
-def _usage_details(payload: Any) -> tuple[int, int, bool, str | None]:
-    """Extract token counts from chat/completions/responses response shapes."""
-    if not isinstance(payload, dict):
-        return 0, 0, False, None
-    response = payload.get("response")
-    if isinstance(response, dict):
-        payload = response
-    usage = payload.get("usage")
-    if not isinstance(usage, dict):
-        model = payload.get("model")
-        return 0, 0, False, str(model)[:255] if model else None
-    input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-    output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
-    model = payload.get("model")
-    try:
-        return (
-            int(input_tokens or 0),
-            int(output_tokens or 0),
-            True,
-            str(model)[:255] if model else None,
-        )
-    except (TypeError, ValueError):
-        return 0, 0, True, str(model)[:255] if model else None
-
-
-def _usage_tokens(payload: Any) -> tuple[int, int]:
-    input_tokens, output_tokens, _reported, _model = _usage_details(payload)
-    return input_tokens, output_tokens
-
-
-def _update_stream_usage(
-    line: str, usage: dict[str, Any], *, started_at: float | None = None
-) -> None:
-    """Update usage from one SSE data line, preserving the bytes sent to clients."""
-    if not line.startswith("data:"):
-        return
-    data = line[5:].strip()
-    if not data or data == "[DONE]":
-        return
-    try:
-        payload = json.loads(data)
-        input_tokens, output_tokens, reported, response_model = _usage_details(payload)
-    except json.JSONDecodeError:
-        return
-    if reported:
-        usage["input_tokens"] = input_tokens
-        usage["output_tokens"] = output_tokens
-        usage["usage_reported"] = True
-    if response_model:
-        usage["response_model"] = response_model
-    if usage.get("first_token_ms") is None and _stream_event_has_output(payload):
-        if started_at is not None:
-            usage["first_token_ms"] = int((time.monotonic() - started_at) * 1000)
-
-
-def _stream_event_has_output(payload: Any) -> bool:
-    if not isinstance(payload, dict):
-        return False
-    event_type = str(payload.get("type") or "")
-    if event_type.endswith(".delta") and payload.get("delta") not in (None, "", []):
-        return True
-    choices = payload.get("choices")
-    if not isinstance(choices, list):
-        return False
-    for choice in choices:
-        if not isinstance(choice, dict):
-            continue
-        delta = choice.get("delta")
-        if isinstance(delta, dict) and any(
-            delta.get(key) not in (None, "", [])
-            for key in ("content", "tool_calls", "function_call")
-        ):
-            return True
-        if choice.get("text") not in (None, ""):
-            return True
-    return False
-
-
-def _request_id(request: Request) -> str:
-    supplied = (request.headers.get("x-request-id") or "").strip()
-    return supplied[:255] if supplied else str(uuid.uuid4())
-
-
-async def _enforce_rate_limit(*, user: Any, credential: Any) -> None:
-    limit = (
+def _credential_rate_limit(credential: Any) -> int:
+    """每分鐘上限：金鑰自己的 rate_limit 優先，否則用全站預設（限流與狀態端點共用）。"""
+    limit: int = (
         credential.rate_limit
         if credential.rate_limit is not None
         else ai_api_settings.ai_api_rate_limit_per_minute
     )
+    return limit
+
+
+async def _enforce_rate_limit(*, user: Any, credential: Any) -> None:
+    limit = _credential_rate_limit(credential)
     redis = await get_redis()
     allowed, rate_info = await check_rate_limit_sliding_window(
         redis=redis,
@@ -264,7 +76,7 @@ async def _enforce_rate_limit(*, user: Any, credential: Any) -> None:
 async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
     content_type = request.headers.get("content-type", "").lower()
     if "application/json" not in content_type:
-        return _openai_error(
+        return relay_service.openai_error(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Content-Type must be application/json.",
             error_type="invalid_request_error",
@@ -280,7 +92,7 @@ async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
         except ValueError:
             too_large = False
         if too_large:
-            return _openai_error(
+            return relay_service.openai_error(
                 status.HTTP_413_CONTENT_TOO_LARGE,
                 "Request body exceeds the configured AI API limit.",
                 error_type="invalid_request_error",
@@ -289,7 +101,7 @@ async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
 
     body = await request.body()
     if len(body) > ai_api_settings.ai_api_max_request_body_bytes:
-        return _openai_error(
+        return relay_service.openai_error(
             status.HTTP_413_CONTENT_TOO_LARGE,
             "Request body exceeds the configured AI API limit.",
             error_type="invalid_request_error",
@@ -297,15 +109,17 @@ async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
         )
     try:
         payload = json.loads(body)
-    except json.JSONDecodeError:
-        return _openai_error(
+    # JSONDecodeError 之外，非 UTF-8（UnicodeDecodeError）、超長整數（ValueError）
+    # 與過深巢狀（RecursionError）也都是格式錯誤，一律回 invalid_json 400。
+    except (ValueError, RecursionError):
+        return relay_service.openai_error(
             status.HTTP_400_BAD_REQUEST,
             "Request body must be valid JSON.",
             error_type="invalid_request_error",
             code="invalid_json",
         )
     if not isinstance(payload, dict):
-        return _openai_error(
+        return relay_service.openai_error(
             status.HTTP_400_BAD_REQUEST,
             "Request body must be a JSON object.",
             error_type="invalid_request_error",
@@ -317,165 +131,13 @@ async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
 def _request_model(payload: dict[str, Any]) -> str | JSONResponse:
     model = payload.get("model")
     if not isinstance(model, str) or not model.strip():
-        return _openai_error(
+        return relay_service.openai_error(
             status.HTTP_400_BAD_REQUEST,
             "model is required and must be a non-empty string.",
             error_type="invalid_request_error",
             code="invalid_model",
         )
     return model.strip()
-
-
-def _record_usage_safely(
-    *,
-    session: Any,
-    user: Any,
-    credential: Any,
-    model_name: str,
-    request_type: str,
-    request_id: str | None = None,
-    upstream_request_id: str | None = None,
-    input_tokens: int = 0,
-    output_tokens: int = 0,
-    duration_ms: int | None = None,
-    first_token_ms: int | None = None,
-    stream: bool = False,
-    usage_reported: bool = False,
-    response_model: str | None = None,
-    record_status: str = "success",
-    error_message: str | None = None,
-    started_at: datetime | None = None,
-    completed_at: datetime | None = None,
-) -> None:
-    ai_metrics.observe_call(
-        source="api_key",
-        model=model_name,
-        request_type=request_type,
-        record_status=record_status,
-        error_message=error_message,
-        duration_ms=duration_ms,
-        first_token_ms=first_token_ms,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        stream=stream,
-    )
-    try:
-        ai_gateway_service.record_usage(
-            session=session,
-            user_id=user.id,
-            credential_id=credential.id,
-            model_name=model_name,
-            request_type=request_type,
-            request_id=request_id,
-            upstream_request_id=upstream_request_id,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            request_duration_ms=duration_ms,
-            first_token_ms=first_token_ms,
-            stream=stream,
-            usage_reported=usage_reported,
-            response_model=response_model,
-            status=record_status,
-            error_message=error_message,
-            started_at=started_at,
-            completed_at=completed_at,
-        )
-    except Exception:
-        # Accounting must not turn a completed model response into an error.
-        logger.exception("Failed to record AI API usage")
-
-
-def _stream_payload(payload: dict[str, Any], endpoint: str) -> dict[str, Any]:
-    """Ask chat/completions and completions for their final usage SSE chunk."""
-    if endpoint not in {"chat/completions", "completions"}:
-        return payload
-    stream_options = payload.get("stream_options")
-    updated = dict(payload)
-    if isinstance(stream_options, dict):
-        updated_options = dict(stream_options)
-    else:
-        updated_options = {}
-    updated_options.setdefault("include_usage", True)
-    updated["stream_options"] = updated_options
-    return updated
-
-
-async def _stream_upstream_response(
-    *,
-    client: httpx.AsyncClient,
-    upstream: httpx.Response,
-    user: Any,
-    credential: Any,
-    model_name: str,
-    request_type: str,
-    request_id: str,
-    upstream_request_id: str | None,
-    started_at: float,
-    started_at_utc: datetime,
-) -> AsyncGenerator[bytes, None]:
-    """Pass through SSE bytes while recording final usage after the stream ends."""
-    usage: dict[str, Any] = {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "usage_reported": False,
-        "response_model": None,
-        "first_token_ms": None,
-    }
-    record_status = "success"
-    error_message: str | None = None
-    decoder = codecs.getincrementaldecoder("utf-8")("replace")
-    line_buffer = ""
-    try:
-        async for chunk in upstream.aiter_raw():
-            decoded = decoder.decode(chunk)
-            line_buffer += decoded
-            while "\n" in line_buffer:
-                line, line_buffer = line_buffer.split("\n", 1)
-                _update_stream_usage(line.rstrip("\r"), usage, started_at=started_at)
-            yield chunk
-        line_buffer += decoder.decode(b"", final=True)
-        if line_buffer:
-            _update_stream_usage(line_buffer.rstrip("\r"), usage, started_at=started_at)
-    except asyncio.CancelledError:
-        record_status = "cancelled"
-        error_message = "client_disconnected"
-        raise
-    except Exception:
-        record_status = "error"
-        error_message = "upstream_stream_error"
-        logger.exception("AI API upstream stream failed for model=%s", model_name)
-        raise
-    finally:
-        await upstream.aclose()
-        await client.aclose()
-        from sqlmodel import Session
-
-        from app.core.db import engine
-
-        try:
-            with Session(engine) as record_session:
-                _record_usage_safely(
-                    session=record_session,
-                    user=user,
-                    credential=credential,
-                    model_name=model_name,
-                    request_type=request_type,
-                    request_id=request_id,
-                    upstream_request_id=upstream_request_id,
-                    input_tokens=usage["input_tokens"],
-                    output_tokens=usage["output_tokens"],
-                    duration_ms=int((time.monotonic() - started_at) * 1000),
-                    first_token_ms=usage["first_token_ms"],
-                    stream=True,
-                    usage_reported=usage["usage_reported"],
-                    response_model=usage["response_model"],
-                    record_status=record_status,
-                    error_message=error_message,
-                    started_at=started_at_utc,
-                    completed_at=datetime.now(timezone.utc),
-                )
-        except Exception:
-            logger.exception("Failed to create AI API stream usage session")
 
 
 async def _relay_generation(
@@ -495,111 +157,14 @@ async def _relay_generation(
     if isinstance(model_name, JSONResponse):
         return model_name
 
-    request_type = _GENERATION_ENDPOINTS[endpoint]
-    upstream_url = _upstream_url(endpoint, request.url.query)
-    request_id = _request_id(request)
-    headers = _service_headers(request, request_id=request_id)
-    started_at = time.monotonic()
-    started_at_utc = datetime.now(timezone.utc)
-    is_stream = payload.get("stream") is True
-    if is_stream:
-        payload = _stream_payload(payload, endpoint)
-
-    client = httpx.AsyncClient(timeout=ai_api_settings.ai_api_timeout)
-    try:
-        outbound = client.build_request(
-            "POST", upstream_url, json=payload, headers=headers
-        )
-        upstream = await client.send(outbound, stream=is_stream)
-    except httpx.RequestError:
-        await client.aclose()
-        _record_usage_safely(
-            session=session,
-            user=user,
-            credential=credential,
-            model_name=model_name,
-            request_type=request_type,
-            request_id=request_id,
-            duration_ms=int((time.monotonic() - started_at) * 1000),
-            stream=is_stream,
-            record_status="error",
-            error_message="upstream_unavailable",
-            started_at=started_at_utc,
-            completed_at=datetime.now(timezone.utc),
-        )
-        logger.warning("AI API upstream unavailable for model=%s", model_name)
-        return _openai_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Model service is temporarily unavailable. Please try again later.",
-            error_type="api_connection_error",
-            code="upstream_unavailable",
-        )
-
-    response_headers = _response_headers(upstream.headers)
-    response_headers.setdefault("x-request-id", request_id)
-    upstream_request_id = upstream.headers.get("x-request-id")
-    if is_stream and upstream.is_success:
-        return StreamingResponse(
-            _stream_upstream_response(
-                client=client,
-                upstream=upstream,
-                user=user,
-                credential=credential,
-                model_name=model_name,
-                request_type=request_type,
-                request_id=request_id,
-                upstream_request_id=upstream_request_id,
-                started_at=started_at,
-                started_at_utc=started_at_utc,
-            ),
-            status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type", "text/event-stream"),
-            headers=response_headers,
-        )
-
-    try:
-        content = await upstream.aread()
-        result: Any = json.loads(content) if upstream.is_success else None
-    except json.JSONDecodeError:
-        result = None
-    finally:
-        await upstream.aclose()
-        await client.aclose()
-
-    input_tokens, output_tokens, usage_reported, response_model = _usage_details(result)
-    _record_usage_safely(
-        session=session,
+    return await relay_service.relay_generation(
+        endpoint=endpoint,
+        request=request,
+        payload=payload,
+        model_name=model_name,
         user=user,
         credential=credential,
-        model_name=model_name,
-        request_type=request_type,
-        request_id=request_id,
-        upstream_request_id=upstream_request_id,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        duration_ms=int((time.monotonic() - started_at) * 1000),
-        stream=False,
-        usage_reported=usage_reported,
-        response_model=response_model,
-        record_status="success" if 200 <= upstream.status_code < 300 else "error",
-        error_message=None
-        if upstream.is_success
-        else f"upstream_http_{upstream.status_code}",
-        started_at=started_at_utc,
-        completed_at=datetime.now(timezone.utc),
-    )
-    if not upstream.is_success:
-        return _upstream_failure(
-            request=request,
-            upstream=upstream,
-            body=content,
-            context=f"relay:{endpoint}",
-        )
-    return Response(
-        content=content,
-        status_code=upstream.status_code,
-        headers=response_headers,
-        media_type=upstream.headers.get("content-type"),
+        session=session,
     )
 
 
@@ -664,57 +229,7 @@ async def responses(
 )
 async def list_models(request: Request, user_and_credential: AIAPIUserDep) -> Response:
     user, _credential = user_and_credential
-    upstream_url = _upstream_url("models", request.url.query)
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            upstream = await client.get(upstream_url, headers=_service_headers(request))
-    except httpx.RequestError:
-        logger.warning("AI API model list upstream unavailable")
-        return _openai_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Model service is temporarily unavailable. Please try again later.",
-            error_type="api_connection_error",
-            code="upstream_unavailable",
-        )
-
-    response_headers = _response_headers(upstream.headers)
-    if not upstream.is_success:
-        return _upstream_failure(
-            request=request,
-            upstream=upstream,
-            body=upstream.content,
-            context="models",
-        )
-
-    try:
-        result = upstream.json()
-    except ValueError:
-        return _openai_error(
-            status.HTTP_502_BAD_GATEWAY,
-            "Model service returned an invalid response.",
-            error_type="api_error",
-            code="invalid_upstream_response",
-        )
-
-    if not isinstance(result, dict) or not isinstance(result.get("data"), list):
-        return _openai_error(
-            status.HTTP_502_BAD_GATEWAY,
-            "Model service returned an invalid response.",
-            error_type="api_error",
-            code="invalid_upstream_response",
-        )
-
-    now_ts = int(time.time())
-    data = []
-    for model in result["data"]:
-        if not isinstance(model, dict):
-            continue
-        if model.get("created") is None:
-            model = {**model, "created": now_ts}
-        data.append(model)
-    result["data"] = data
-    logger.info("AI API model list requested by user=%s", user.id)
-    return JSONResponse(content=result, headers=response_headers)
+    return await relay_service.list_models(request, user=user)
 
 
 @router.get(
@@ -729,11 +244,9 @@ async def get_my_usage_stats(
     end_date: datetime | None = None,
 ):
     user, _credential = user_and_credential
-    if not end_date:
-        end_date = datetime.now(timezone.utc)
-    if not start_date:
-        start_date = end_date - timedelta(days=30)
-
+    start_date, end_date = ai_gateway_service.default_usage_window(
+        start_date, end_date
+    )
     stats = ai_gateway_service.get_user_usage_stats(
         session=session, user_id=user.id, start_date=start_date, end_date=end_date
     )
@@ -748,14 +261,9 @@ async def get_my_usage_stats(
 )
 async def get_rate_limit_status(
     user_and_credential: AIAPIUserDep,
-    session: SessionDep,
-):
+) -> RateLimitStatusResponse:
     user, credential = user_and_credential
-    limit = (
-        credential.rate_limit
-        if credential.rate_limit is not None
-        else ai_api_settings.ai_api_rate_limit_per_minute
-    )
+    limit = _credential_rate_limit(credential)
     redis = await get_redis()
     if redis is None:
         return RateLimitStatusResponse(

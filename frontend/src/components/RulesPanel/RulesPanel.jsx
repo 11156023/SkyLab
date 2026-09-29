@@ -6,7 +6,7 @@
  * SkyLab: 受管規則上鎖，只能由連線／拓撲管理（與資源詳情的 FirewallCard 同規則）。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -23,6 +23,7 @@ import useDialogPresence from "../../hooks/useDialogPresence";
 import { useToast } from "../../hooks/useToast";
 import { useConfirm } from "../ConfirmDialog/ConfirmProvider";
 import { useAuth } from "../../contexts/AuthContext";
+import { isAdminUser } from "../../utils/roles";
 
 function Badge({ label, variant }) {
   return <span className={`${styles.badge} ${styles[`badge_${variant}`]}`}>{label}</span>;
@@ -33,7 +34,7 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
+  const isAdmin = isAdminUser(user);
   const [rules,   setRules]   = useState([]);
   const [options, setOptions] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -41,21 +42,31 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
   const [busy,    setBusy]    = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const addPresence = useDialogPresence(showAdd);
+  /* 面板在切換 VM 時不會重掛；前一台 VM 較慢回來的回應不能蓋掉目前這台，
+     否則清單顯示 A 的規則、刪除／停用卻打到 B 的同一個 pos。 */
+  const vmidRef = useRef(node?.vmid);
+  vmidRef.current = node?.vmid;
+  const seqRef = useRef(0);
 
   const load = useCallback(async (silent = false) => {
     if (!node?.vmid) return;
+    const vmid = node.vmid;
+    const seq = ++seqRef.current;
+    const isCurrent = () => seq === seqRef.current && vmid === vmidRef.current;
     if (!silent) {
       setLoading(true);
       setError("");
     }
     try {
-      const [r, o] = await Promise.all([getVmRules(node.vmid), getVmOptions(node.vmid)]);
+      const [r, o] = await Promise.all([getVmRules(vmid), getVmOptions(vmid)]);
+      if (!isCurrent()) return;
       setRules(r ?? []);
       setOptions(o);
     } catch (err) {
-      if (!silent) setError(err?.message ?? t("Error.generic", { ns: "common" }));
+      if (!silent && isCurrent()) setError(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
-      if (!silent) setLoading(false);
+      // 靜默重載若接手了被取代的一般載入，也要負責收掉 loading
+      if (isCurrent()) setLoading(false);
     }
   }, [node?.vmid, t]);
 
@@ -223,7 +234,7 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
             )}
           </div>
 
-          {/* 單機深度資訊（迷你拓撲、對外服務）在資源詳情的進階設定 */}
+          {/* 單機深度資訊（迷你拓撲）在資源詳情的進階設定 */}
           <div className={styles.section}>
             <Link
               to={isAdmin ? `/resource-mgmt/${node.vmid}` : `/my-resources/${node.vmid}`}

@@ -1,6 +1,7 @@
-/* PowerMenu 的定位計算——抽成純函式方便單元測試，不碰 DOM */
+/* 錨點選單的共用定位計算（hooks/useAnchoredMenu 的核心，PowerMenu、PortInput 等選單共用）——
+   抽成純函式方便單元測試，不碰 DOM */
 
-/** 需與 PowerMenu.module.scss 的 .powerMenu width 一致 */
+/** 預設選單寬度（PowerMenu）；需與 PowerMenu.module.scss 的 .powerMenu width 一致 */
 export const MENU_WIDTH = 240;
 /** 選單與錨點按鈕的間距 */
 export const ANCHOR_GAP = 6;

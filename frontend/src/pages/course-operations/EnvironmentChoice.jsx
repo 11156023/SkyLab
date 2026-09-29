@@ -1,17 +1,7 @@
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import styles from "./CourseOperations.module.scss";
-
-export function environmentSpecs(nodes) {
-  return (nodes ?? []).reduce(
-    (sum, node) => ({
-      cpu: sum.cpu + Number(node.cpu ?? 0),
-      memory: sum.memory + Number(node.memory ?? Math.round(Number(node.memory_mb ?? 0) / 1024)),
-      disk: sum.disk + Number(node.disk ?? node.disk_gb ?? 0),
-    }),
-    { cpu: 0, memory: 0, disk: 0 },
-  );
-}
+import { environmentSpecs } from "./nodeSpecs";
 
 /** 課程環境的一個選項。班級頁與一鍵建立精靈共用，避免兩邊各長一套。
  *  disabled：送出中不讓人再改選，避免選到一半的環境被送出去。 */

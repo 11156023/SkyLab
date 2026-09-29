@@ -8,12 +8,15 @@
 from __future__ import annotations
 
 import logging
+import ssl
 from dataclasses import dataclass
+from typing import Any
 
-from ldap3 import Connection, Server
+from ldap3 import Connection, Server, Tls
 from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
 
+from app.core.config import settings
 from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.exceptions import (
@@ -43,13 +46,84 @@ class LdapUserInfo:
     groups: list[str]  # memberOf DN 清單
 
 
+class _VerifiedTls(Tls):
+    """由標準庫在握手時驗證憑證鏈與主機名稱（DNS 或 IP SAN）。
+
+    ldap3 2.9 在 Python 3.12+ 找不到 ``ssl.match_hostname``，會退回自帶的比對
+    函式，只看 DNS SAN 與 CN，用 IP 連線（``ldaps://192.168.x.x``）一律失敗；
+    ``create_default_context`` 在 Python 3.13+ 又預設開 ``VERIFY_X509_STRICT``，
+    沒有 keyUsage 擴充的私有 CA 會被拒絕。這裡改由 OpenSSL 在同一條連線的握手中
+    比對 ``server_hostname``，不再呼叫 ldap3 的 ``check_hostname``，並只拿掉
+    strict（驗鏈與主機名稱照做）。ldaps:// 與 StartTLS 都經過 ``wrap_socket``。
+    """
+
+    def wrap_socket(self, connection: Any, do_handshake: bool = False) -> None:
+        # 沒給 CA 時 create_default_context 會載入系統信任庫；
+        # 預設即 CERT_REQUIRED + check_hostname=True。
+        ctx = ssl.create_default_context(
+            ssl.Purpose.SERVER_AUTH,
+            cafile=self.ca_certs_file,
+            capath=self.ca_certs_path,
+            cadata=self.ca_certs_data,
+        )
+        # 登入密碼會經過這條連線，不接受 TLS 1.0／1.1
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        if hasattr(ssl, "VERIFY_X509_STRICT"):
+            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        connection.socket = ctx.wrap_socket(
+            connection.socket,
+            server_side=False,
+            do_handshake_on_connect=do_handshake,
+            server_hostname=self.sni or connection.server.host,
+        )
+
+
+def _build_tls() -> Tls:
+    """ldaps:// 與 StartTLS 共用的 TLS 設定：一律驗證憑證與主機名稱。
+
+    ldap3 預設的 ``Tls()`` 是 ``CERT_NONE``，中間人可拿到 service bind 密碼與
+    每位使用者登入時送出的密碼。憑證驗證交給 ``_VerifiedTls``（系統信任庫＋
+    可選的私有 CA；URI 的主機名稱或 IP 必須出現在憑證的 SAN）。
+    """
+    try:
+        return _VerifiedTls(
+            validate=ssl.CERT_REQUIRED,
+            ca_certs_file=settings.LDAP_CA_CERT_FILE or None,
+        )
+    except LDAPException as exc:
+        logger.warning(
+            "Invalid LDAP_CA_CERT_FILE %r: %s", settings.LDAP_CA_CERT_FILE, exc
+        )
+        raise UpstreamServiceError(_server_unavailable()) from exc
+
+
+def _tls_hint(exc: BaseException) -> str:
+    """憑證驗證失敗時在日誌補一句怎麼修（使用者端訊息維持通用）。"""
+    text = str(exc).lower()
+    if "mismatch" in text or "doesn't match" in text:
+        return (
+            " (TLS certificate does not match the server address; the host in "
+            "the LDAP server URI must be a DNS name or IP address listed in "
+            "the certificate's subjectAltName)"
+        )
+    if "certificate" in text or "hostname" in text:
+        return (
+            " (TLS certificate verification failed; if the directory server "
+            "uses a private CA, set LDAP_CA_CERT_FILE to its PEM file and "
+            "mount it into the backend and worker containers)"
+        )
+    return ""
+
+
 def _build_server(config: LdapConfig) -> Server:
     if not config.server_uri:
         raise BadRequestError(t("ldap.serverUriNotConfigured"))
+    # start_tls() 沿用 server.tls，所以 StartTLS 也吃得到同一份驗證設定。
     return Server(
         config.server_uri,
         connect_timeout=config.connect_timeout_seconds,
         get_info="NO_INFO",
+        tls=_build_tls(),
     )
 
 
@@ -72,8 +146,9 @@ def _service_connection(config: LdapConfig, server: Server) -> Connection:
         return conn
     except AppError:
         raise
-    except LDAPException as exc:
-        logger.warning("LDAP service bind failed: %s", exc)
+    except (LDAPException, ssl.SSLError) as exc:
+        # 憑證驗證失敗也落在這裡（LDAPSocketOpenError／LDAPStartTLSError）
+        logger.warning("LDAP service bind failed: %s%s", exc, _tls_hint(exc))
         raise UpstreamServiceError(_server_unavailable()) from exc
 
 
@@ -148,8 +223,8 @@ def authenticate_user(
         raise
     except LDAPBindError as exc:
         raise AuthenticationError(_invalid_credentials()) from exc
-    except LDAPException as exc:
-        logger.warning("LDAP user bind failed: %s", exc)
+    except (LDAPException, ssl.SSLError) as exc:
+        logger.warning("LDAP user bind failed: %s%s", exc, _tls_hint(exc))
         raise UpstreamServiceError(_server_unavailable()) from exc
 
     return LdapUserInfo(dn=user_dn, email=email, full_name=full_name, groups=groups)

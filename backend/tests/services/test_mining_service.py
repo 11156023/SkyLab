@@ -300,7 +300,7 @@ def test_dismiss_resumes_and_sets_exempt(
 ) -> None:
     incident = _incident(status=MiningIncidentStatus.suspended)
     calls = _patch_review_deps(monkeypatch, incident)
-    result = mining_service.dismiss_incident(
+    result, warnings = mining_service.dismiss_incident(
         session=_FakeSession(),
         incident_id=incident.id,
         admin=_admin(),
@@ -312,6 +312,7 @@ def test_dismiss_resumes_and_sets_exempt(
     assert calls["resource"].mining_exempt is True
     assert result.review_note == "教授的模型訓練"
     assert "mining_dismiss" in calls["audit"]
+    assert warnings == []
 
 
 def test_dismiss_records_resume_failure_in_note(
@@ -327,7 +328,7 @@ def test_dismiss_records_resume_failure_in_note(
             RuntimeError("PVE down")
         ),
     )
-    result = mining_service.dismiss_incident(
+    result, warnings = mining_service.dismiss_incident(
         session=_FakeSession(),
         incident_id=incident.id,
         admin=_admin(),
@@ -337,6 +338,8 @@ def test_dismiss_records_resume_failure_in_note(
     assert result.status is MiningIncidentStatus.dismissed
     assert "誤判" in (result.review_note or "")
     assert "恢復失敗" in (result.review_note or "")
+    assert len(warnings) == 1
+    assert warnings[0].startswith("恢復失敗")
 
 
 def test_dismiss_deletes_evidence_snapshot(

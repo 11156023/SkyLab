@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -147,25 +146,6 @@ class ClusterInfo(BaseModel):
     node_count: int
     quorate: bool
     cluster_version: int | None = None
-
-
-class SystemSnapshot(BaseModel):
-    collected_at: datetime
-    collection_duration_seconds: float
-    cluster: ClusterInfo
-    nodes: list[NodeInfo]
-    storages: list[StorageInfo]
-    resources: list[ResourceSummary]
-    resource_statuses: list[ResourceStatus]
-    resource_configs: list[ResourceConfig]
-    network_interfaces: list[NetworkInterface]
-    errors: list[str] = Field(default_factory=list)
-    total_nodes: int
-    online_nodes: int
-    total_vms: int
-    total_lxc: int
-    running_vms: int
-    running_lxc: int
 
 
 class SSHExecRequest(BaseModel):

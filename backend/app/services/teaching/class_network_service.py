@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -48,6 +49,45 @@ def peer_policy_for_version(session: Session, version_id: uuid.UUID | None) -> s
     return PEER_POLICY_SEGMENT
 
 
+def topology_directions(
+    *,
+    peer_policy: str,
+    edges: Iterable[CourseEnvironmentEdge],
+    vmid_by_key: dict[str, int],
+    network_by_key: dict[str, str | None],
+) -> list[tuple[int, int, str, int | None]]:
+    """把版本的互通策略展開成一位學生那組機器之間的單向開通清單。
+
+    回傳 ``(來源 vmid, 目標 vmid, protocol, port)``；正式班級與快速練習共用。
+
+    - explicit：只開老師畫的連線，``bidirectional`` 再補反方向；端點機器不在
+      ``vmid_by_key``（還沒建好或建失敗）的連線略過
+    - segment：共用邏輯網段的機器兩兩全協定全埠互通；節點不在 ``network_by_key``
+      的機器略過
+    """
+    directions: list[tuple[int, int, str, int | None]] = []
+    if peer_policy != PEER_POLICY_SEGMENT:
+        for edge in edges:
+            source = vmid_by_key.get(edge.source_node_key)
+            target = vmid_by_key.get(edge.target_node_key)
+            if source is None or target is None:
+                continue
+            directions.append((source, target, edge.protocol, edge.port))
+            if edge.direction == "bidirectional":
+                directions.append((target, source, edge.protocol, edge.port))
+        return directions
+    for source_key, source in vmid_by_key.items():
+        if source_key not in network_by_key:
+            continue
+        source_segments = network_segments(network_by_key[source_key])
+        for target_key, target in vmid_by_key.items():
+            if source_key == target_key or target_key not in network_by_key:
+                continue
+            if source_segments & network_segments(network_by_key[target_key]):
+                directions.append((source, target, "any", None))
+    return directions
+
+
 def _ip_by_vmid(session: Session, vmid: int) -> str | None:
     return session.exec(
         select(IpAllocation.ip_address).where(IpAllocation.vmid == vmid)
@@ -56,11 +96,12 @@ def _ip_by_vmid(session: Session, vmid: int) -> str | None:
 
 @dataclass(frozen=True)
 class PlannedRule:
-    """一條拓樸規則該長什麼樣、該掛在哪一台機器上。"""
+    """一條拓樸規則該長什麼樣、該掛在哪一台機器上。
+
+    節點與類型不存在這裡：``sync_scope_rules`` 寫入前會依 vmid 重新查一次。
+    """
 
     vmid: int
-    node: str
-    resource_type: str
     comment: str
     rule: dict[str, Any]
 
@@ -76,7 +117,7 @@ def sync_scope_rules(
     只做「建立缺的」不夠：重試時機器會換一個新的 vmid 與新的 IP，舊機器上
     指向舊 IP 的白名單會留在原地；那個 IP 回到池子後被分配給別的學生，就變成
     一條意外的跨學生連通。所以要跟 ``firewall_service`` 的 extra-block 規則
-    一樣，upsert 之後把帶自家前綴、卻不在目標清單內的孤兒刪掉。
+    一樣，先把帶自家前綴、卻不在目標清單內的孤兒刪掉，再補建缺的規則。
 
     只碰自己前綴的規則，gateway、extra-block、反向代理等其他來源不受影響。
     """
@@ -94,14 +135,17 @@ def sync_scope_rules(
         node = info["node"]
         resource_type = cast(ResourceType, info["type"])
         try:
-            existing = firewall_service.get_vm_firewall_rules(node, vmid, resource_type)
+            # 讀不到就不能當成「沒有規則」：那樣會重複建立、孤兒也不會被刪掉。
+            existing = firewall_service.list_vm_firewall_rules_strict(
+                node, vmid, resource_type
+            )
         except Exception:
             logger.exception("Failed to list firewall rules vmid=%s", vmid)
             errors.append(f"{vmid}: firewall rules unreadable")
             continue
 
         present = set()
-        stale_positions = []
+        stale: list[tuple[int, str]] = []
         for row in existing:
             comment = row.get("comment") or ""
             if not comment.startswith(comment_prefix):
@@ -109,7 +153,23 @@ def sync_scope_rules(
             if comment in wanted:
                 present.add(comment)
             elif row.get("pos") is not None:
-                stale_positions.append(int(row["pos"]))
+                stale.append((int(row["pos"]), comment))
+
+        # 先刪孤兒、再建新規則：PVE 新規則一律插在最前面（out 規則還明確帶 pos 0），
+        # 先建的話每建一條，剛記下的位置就整批往後位移一格，接著刪到的會是剛建好的
+        # 規則、gateway 規則或管理員的 extra-block DROP，而真正該刪的舊白名單留在原地。
+        # 由後往前刪，前面的位置才不會因為刪除而位移（同 _apply_extra_block_rules）。
+        for pos, comment in sorted(stale, reverse=True):
+            try:
+                firewall_service.delete_rule_by_pos(node, vmid, resource_type, pos)
+            except Exception:
+                logger.exception(
+                    "Failed to remove stale topology rule vmid=%s pos=%s comment=%s",
+                    vmid,
+                    pos,
+                    comment,
+                )
+                errors.append(f"{vmid}: stale firewall rule cleanup failed")
 
         for comment, item in wanted.items():
             if comment in present:
@@ -124,16 +184,6 @@ def sync_scope_rules(
             except Exception:
                 logger.exception("Failed to create firewall rule vmid=%s", vmid)
                 errors.append(f"{vmid}: firewall configuration failed")
-
-        # 由後往前刪，位置才不會在刪除過程中位移
-        for pos in sorted(stale_positions, reverse=True):
-            try:
-                firewall_service.delete_rule_by_pos(node, vmid, resource_type, pos)
-            except Exception:
-                logger.exception(
-                    "Failed to remove stale topology rule vmid=%s pos=%s", vmid, pos
-                )
-                errors.append(f"{vmid}: stale firewall rule cleanup failed")
     return errors
 
 
@@ -152,8 +202,9 @@ def plan_one_way(
     target_ip = _ip_by_vmid(session, target_vmid)
     if not source_ip or not target_ip:
         raise RuntimeError("課程機器缺少已預留 IP，無法套用隔離網路")
-    source = proxmox_service.find_resource(source_vmid)
-    target = proxmox_service.find_resource(target_vmid)
+    # 兩台機器都必須還在：找不到會拋錯，由呼叫端記成防火牆設定失敗
+    proxmox_service.find_resource(source_vmid)
+    proxmox_service.find_resource(target_vmid)
     service = protocol if port is None else f"{protocol}/{port}"
     comment = (
         f"{comment_prefix}{str(scope_id)[:8]}:{source_vmid}>{target_vmid}:{service}"
@@ -166,8 +217,6 @@ def plan_one_way(
     return [
         PlannedRule(
             vmid=source_vmid,
-            node=source["node"],
-            resource_type=source["type"],
             comment=comment,
             # pos 0：管理員設定的額外封鎖網段是 out-DROP，白名單得排在它前面
             rule={
@@ -180,8 +229,6 @@ def plan_one_way(
         ),
         PlannedRule(
             vmid=target_vmid,
-            node=target["node"],
-            resource_type=target["type"],
             comment=comment,
             rule={
                 "type": "in",
@@ -209,6 +256,7 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
             )
         ).all()
     }
+    network_by_key = {node.node_key: node.network for node in nodes.values()}
     teaching_class = session.get(TeachingClass, class_id)
     version_id = teaching_class.course_version_id if teaching_class else None
     edges = (
@@ -264,10 +312,10 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
             ).all()
             if row.vmid is not None and row.status == "completed"
         ]
-        machines_by_key = {
-            nodes[row.machine_node_id].node_key: row
+        vmid_by_key = {
+            nodes[row.machine_node_id].node_key: row.vmid
             for row in machines
-            if row.machine_node_id in nodes
+            if row.machine_node_id in nodes and row.vmid is not None
         }
         scope_vmids.update(row.vmid for row in machines if row.vmid is not None)
         student = session.get(User, enrollment.user_id)
@@ -276,50 +324,18 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
                 course_publication_service.apply_for_machines(
                     session,
                     version_id=teaching_class.course_version_id,
-                    vmid_by_key={
-                        key: row.vmid
-                        for key, row in machines_by_key.items()
-                        if row.vmid is not None
-                    },
+                    vmid_by_key=vmid_by_key,
                     owner=student,
                     scope=f"{teaching_class.code[:12]}-{teaching_class.id.hex[:6]}",
                 )
             )
-        if peer_policy != PEER_POLICY_SEGMENT:
-            for edge in edges:
-                source = machines_by_key.get(edge.source_node_key)
-                target = machines_by_key.get(edge.target_node_key)
-                if source is None or target is None:
-                    continue
-                directions = [(source, target)]
-                if edge.direction == "bidirectional":
-                    directions.append((target, source))
-                for direction_source, direction_target in directions:
-                    if direction_source.vmid is None or direction_target.vmid is None:
-                        continue
-                    plan(
-                        direction_source.vmid,
-                        direction_target.vmid,
-                        edge.protocol,
-                        edge.port,
-                    )
-            continue
-        for source in machines:
-            source_node = nodes.get(source.machine_node_id)
-            if source_node is None:
-                continue
-            for target in machines:
-                if source.id == target.id:
-                    continue
-                target_node = nodes.get(target.machine_node_id)
-                if target_node is None or not (
-                    network_segments(source_node.network)
-                    & network_segments(target_node.network)
-                ):
-                    continue
-                if source.vmid is None or target.vmid is None:
-                    continue
-                plan(source.vmid, target.vmid, "any", None)
+        for source_vmid, target_vmid, protocol, port in topology_directions(
+            peer_policy=peer_policy,
+            edges=edges,
+            vmid_by_key=vmid_by_key,
+            network_by_key=network_by_key,
+        ):
+            plan(source_vmid, target_vmid, protocol, port)
 
     errors.extend(
         sync_scope_rules(

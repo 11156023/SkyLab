@@ -101,10 +101,6 @@ def report_progress(task_id: uuid.UUID, progress: int) -> None:
         )
 
 
-async def report_progress_async(task_id: uuid.UUID, progress: int) -> None:
-    await asyncio.to_thread(report_progress, task_id, progress)
-
-
 def _wrap(name: str, handler: TaskHandler) -> WorkerCoroutine:
     async def runner(
         ctx: dict[str, Any],  # noqa: ARG001 - arq 固定簽名

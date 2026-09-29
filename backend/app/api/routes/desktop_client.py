@@ -15,13 +15,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
-from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_ip
 from app.core.config import settings
 from app.core.i18n import t
 from app.infrastructure.redis.sync_kv import ExpiringKV
+from app.schemas.desktop_client import (
+    DeviceApproveRequest,
+    DeviceCodeResponse,
+    DevicePollResponse,
+)
 from app.schemas.wireguard import (
     WireGuardConnectRequest,
     WireGuardConnectResponse,
@@ -61,21 +65,6 @@ _DEVICE_CODE_RATE_LIMIT = Depends(
 )
 
 
-class DeviceCodeResponse(BaseModel):
-    device_code: str
-    login_url: str
-    expires_in: int
-
-
-class DeviceApproveRequest(BaseModel):
-    device_code: str
-
-
-class DevicePollResponse(BaseModel):
-    status: str  # "pending" | "approved"
-    access_token: str | None = None
-
-
 # ─── Device auth endpoints ───────────────────────────────────────────────────
 
 
@@ -99,7 +88,6 @@ def create_device_code() -> DeviceCodeResponse:
 def approve_device_code(
     body: DeviceApproveRequest,
     current_user: CurrentUser,
-    session: SessionDep,
 ) -> dict:
     """Approve a device code (called by the frontend after the user explicitly
     confirms the "authorize this device" prompt).

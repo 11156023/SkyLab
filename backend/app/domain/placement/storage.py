@@ -11,6 +11,13 @@ from app.domain.placement.scorer import projected_share, storage_contention_pena
 STORAGE_SPEED_RANK = {"nvme": 0, "ssd": 1, "hdd": 2, "unknown": 3}
 
 
+def _used_gb(pool: WorkingStoragePool) -> float:
+    """實體已用量加上已預留的超賣量（實體用完後 avail_gb 停在 0）。"""
+    return max(pool.total_gb - pool.avail_gb, 0.0) + max(
+        float(pool.overcommit_used_gb), 0.0
+    )
+
+
 def select_best_storage_for_request(
     *,
     storage_pools: list[WorkingStoragePool],
@@ -40,7 +47,7 @@ def select_best_storage_for_request(
                 STORAGE_SPEED_RANK.get(pool.speed_tier, 3),
                 storage_contention_penalty(
                     projected_share=projected_share(
-                        used=max(pool.total_gb - pool.avail_gb, 0.0) + float(disk_gb),
+                        used=_used_gb(pool) + float(disk_gb),
                         total=max(pool.total_gb, 1.0),
                     ),
                     placed_count=pool.placed_count,
@@ -55,7 +62,7 @@ def select_best_storage_for_request(
             ),
         )
         selected_projected_share = projected_share(
-            used=max(chosen.total_gb - chosen.avail_gb, 0.0) + float(disk_gb),
+            used=_used_gb(chosen) + float(disk_gb),
             total=max(chosen.total_gb, 1.0),
         )
         return StorageSelection(
@@ -78,7 +85,7 @@ def select_best_storage_for_request(
         if (
             max(
                 float(pool.total_gb) * max(disk_overcommit_ratio, 1.0)
-                - (pool.total_gb - pool.avail_gb),
+                - _used_gb(pool),
                 0.0,
             )
             + 1e-9
@@ -93,7 +100,7 @@ def select_best_storage_for_request(
         key=lambda pool: (
             storage_contention_penalty(
                 projected_share=projected_share(
-                    used=max(pool.total_gb - pool.avail_gb, 0.0) + float(disk_gb),
+                    used=_used_gb(pool) + float(disk_gb),
                     total=max(float(pool.total_gb) * max(disk_overcommit_ratio, 1.0), 1.0),
                 ),
                 placed_count=pool.placed_count,
@@ -106,14 +113,14 @@ def select_best_storage_for_request(
             int(pool.user_priority or 5),
             -max(
                 float(pool.total_gb) * max(disk_overcommit_ratio, 1.0)
-                - (pool.total_gb - pool.avail_gb),
+                - _used_gb(pool),
                 0.0,
             ),
             pool.storage,
         ),
     )
     effective_total = max(float(chosen.total_gb) * max(disk_overcommit_ratio, 1.0), 1.0)
-    current_used = max(chosen.total_gb - chosen.avail_gb, 0.0)
+    current_used = _used_gb(chosen)
     selected_projected_share = projected_share(
         used=current_used + float(disk_gb),
         total=effective_total,
@@ -147,11 +154,12 @@ def reserve_storage_pool(
         pool.placed_count += 1
         return
 
-    current_used = max(pool.total_gb - remaining_physical, 0.0)
+    current_used = _used_gb(pool)
     effective_total = max(float(pool.total_gb) * max(disk_overcommit_ratio, 1.0), float(pool.total_gb))
     remaining_effective = max(effective_total - current_used, 0.0)
     if remaining_effective + 1e-9 >= requested:
         pool.avail_gb = max(remaining_physical - requested, 0.0)
+        pool.overcommit_used_gb += requested - remaining_physical
         pool.overcommit_placed_count += 1
         return
 

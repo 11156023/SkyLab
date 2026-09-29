@@ -14,7 +14,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.services.scheduling.recurrence import (
-    build_daily_rule,
     build_weekly_rule,
     compute_next_window,
     is_in_window,
@@ -150,14 +149,3 @@ def test_build_weekly_rule_rejects_invalid_time() -> None:
         build_weekly_rule(["MO"], 25, 0)
     with pytest.raises(ValueError):
         build_weekly_rule(["MO"], 9, 60)
-
-
-def test_build_daily_rule_format() -> None:
-    assert build_daily_rule(8, 0) == "FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
-
-
-def test_build_daily_rule_rejects_invalid_time() -> None:
-    with pytest.raises(ValueError):
-        build_daily_rule(-1, 0)
-    with pytest.raises(ValueError):
-        build_daily_rule(9, 60)

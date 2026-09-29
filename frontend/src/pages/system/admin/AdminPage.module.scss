@@ -20,10 +20,6 @@
   @include btn-secondary;
 }
 
-.btnDanger {
-  @include btn-danger;
-}
-
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -96,24 +92,6 @@
 
 .list {
   @include flex-column;
-  gap: $spacing-8;
-}
-
-/* 前端分頁列（樣式同 AuditPage） */
-.pagination {
-  @include flex-between;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-  margin-top: $spacing-16;
-}
-
-.paginationInfo {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.paginationBtns {
-  display: flex;
   gap: $spacing-8;
 }
 

@@ -5,6 +5,8 @@
 - spec_change:    規格變更申請 (spec_change_requests)
 - deletion:       VM/LXC 刪除 (deletion_requests)
 - template:       機器範本任務 (task_records：轉換／克隆／刪除／更新循環)
+- resource_reset: 機器重設 (task_records，task_type=resource.reset)
+- batch_provision: 批次建機 (task_records，task_type=batch_provision.run)
 
 所有來源被正規化到統一的 JobItem 結構，以便前端 Job 中心一致顯示。
 """
@@ -27,10 +29,8 @@ class JobKind(str, enum.Enum):
     deletion = "deletion"
     template = "template"
     # 以下兩種同樣來自 TaskRecord（arq 任務），依 task_type 分類
-
     resource_reset = "resource_reset"
     batch_provision = "batch_provision"
-
 
 
 class JobStatus(str, enum.Enum):

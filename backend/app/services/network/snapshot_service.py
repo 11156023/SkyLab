@@ -9,11 +9,12 @@ from app.core.permissions import is_admin as _is_admin
 from app.exceptions import BadRequestError, ConflictError, PermissionDeniedError
 from app.repositories import governance as governance_repo
 from app.services.proxmox import proxmox_service
+
+# 受保護的初始快照名稱由 reset_service（負責建立／還原它）統一定義
+from app.services.resource.reset_service import INIT_SNAPSHOT_NAME
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
-
-INIT_SNAPSHOT_NAME = "skylab-init"
 
 
 def _snapshot_max_count(session: Session) -> int:
@@ -48,7 +49,6 @@ def create_snapshot(
     description: str | None,
     vmstate: bool,
     resource_info: dict,
-    user_id: uuid.UUID,
     user: Any,
 ) -> dict:
     node = resource_info["node"]
@@ -79,7 +79,7 @@ def create_snapshot(
 
     audit_service.log_action(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         vmid=vmid,
         action="snapshot_create",
         details=f"Created snapshot '{snapname}': {description or 'No description'}",
@@ -98,7 +98,6 @@ def delete_snapshot(
     vmid: int,
     snapname: str,
     resource_info: dict,
-    user_id: uuid.UUID,
     user: Any,
 ) -> dict:
     node = resource_info["node"]
@@ -111,7 +110,7 @@ def delete_snapshot(
 
     audit_service.log_action(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         vmid=vmid,
         action="snapshot_delete",
         details=f"Deleted snapshot '{snapname}'",

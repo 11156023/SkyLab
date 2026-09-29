@@ -5,28 +5,28 @@
 - 每次新增 / 刪除後，從 DB 完整重建 ``/etc/nginx/skylab/http.conf``、驗證並 reload
 - HTTPS 憑證由 certbot 以 Cloudflare DNS-01 簽發（同一 zone 共用萬用憑證），
   簽不下來時先掛自簽憑證讓站台可用，下次同步再補簽
-- dns_provider 欄位預留給 Cloudflare 等 DNS API 對接
+- DNS 紀錄由 Cloudflare 管理（dns_provider 固定為 cloudflare）
 """
 
 import logging
-import re
 
 from sqlalchemy.exc import IntegrityError
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ProxmoxError
+from app.schemas.cloudflare import CloudflareZonePublic
 from app.schemas.reverse_proxy import (
     DomainAvailability,
     ReverseProxySetupContext,
     ReverseProxyZoneOption,
 )
+from app.services.network.cloudflare_service import (
+    HOSTNAME_LABEL_PATTERN,
+    is_valid_hostname,
+)
 from app.services.network.publish_target_policy import assert_publishable_vm_ip
 
 logger = logging.getLogger(__name__)
-_HOSTNAME_LABEL_PATTERN = re.compile(
-    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-    re.IGNORECASE,
-)
 
 
 # ─── 名稱與網域 ──────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ def build_runtime_name(vmid: int, domain: str) -> str:
 
 def build_full_domain(*, zone_name: str, hostname_prefix: str) -> str:
     clean_zone_name = zone_name.strip().lower().rstrip(".")
-    if not _is_valid_hostname(clean_zone_name):
+    if not is_valid_hostname(clean_zone_name):
         raise BadRequestError(t("reverseProxy.zoneNameInvalid"))
 
     clean_hostname_prefix = hostname_prefix.strip().lower().strip(".")
@@ -49,7 +49,7 @@ def build_full_domain(*, zone_name: str, hostname_prefix: str) -> str:
         return clean_zone_name
 
     labels = clean_hostname_prefix.split(".")
-    if not all(_HOSTNAME_LABEL_PATTERN.fullmatch(label) for label in labels):
+    if not all(HOSTNAME_LABEL_PATTERN.fullmatch(label) for label in labels):
         raise BadRequestError(t("reverseProxy.subdomainInvalid"))
 
     full_domain = f"{clean_hostname_prefix}.{clean_zone_name}"
@@ -58,11 +58,16 @@ def build_full_domain(*, zone_name: str, hostname_prefix: str) -> str:
     return full_domain
 
 
-def _is_valid_hostname(value: str) -> bool:
-    if not value or len(value) > 255 or "." not in value:
-        return False
-    labels = value.split(".")
-    return all(_HOSTNAME_LABEL_PATTERN.fullmatch(label) for label in labels)
+def _active_zones(session: object) -> list[CloudflareZonePublic]:
+    """Cloudflare 上狀態為 active 的 zone（最多一頁 100 筆）；錯誤交給呼叫端處理。"""
+    from app.services.network import cloudflare_service
+
+    return cloudflare_service.list_zones(  # type: ignore[arg-type]
+        session=session,
+        page=1,
+        per_page=100,
+        status="active",
+    ).items
 
 
 def _get_gateway_ready_state(session: object) -> tuple[bool, str | None]:
@@ -86,12 +91,7 @@ def _get_cloudflare_ready_state(
         return False, t("reverseProxy.cloudflareDefaultDnsTargetNotConfigured"), [], None, None
 
     try:
-        zones = cloudflare_service.list_zones(  # type: ignore[arg-type]
-            session=session,
-            page=1,
-            per_page=100,
-            status="active",
-        ).items
+        zones = _active_zones(session)
     except Exception as exc:
         return False, str(exc), [], config.default_dns_target_type, config.default_dns_target_value
 
@@ -115,19 +115,13 @@ def _get_cloudflare_ready_state(
 
 def get_reverse_proxy_setup_context(session: object) -> ReverseProxySetupContext:
     gateway_ready, gateway_reason = _get_gateway_ready_state(session)
-    cloudflare_state = _get_cloudflare_ready_state(session)
-    if len(cloudflare_state) == 3:
-        cloudflare_ready, cloudflare_reason, zones = cloudflare_state
-        default_dns_target_type = None
-        default_dns_target_value = None
-    else:
-        (
-            cloudflare_ready,
-            cloudflare_reason,
-            zones,
-            default_dns_target_type,
-            default_dns_target_value,
-        ) = cloudflare_state
+    (
+        cloudflare_ready,
+        cloudflare_reason,
+        zones,
+        default_dns_target_type,
+        default_dns_target_value,
+    ) = _get_cloudflare_ready_state(session)
 
     reasons = [reason for reason in [gateway_reason, cloudflare_reason] if reason]
     return ReverseProxySetupContext(
@@ -155,15 +149,8 @@ def _zone_names_by_id(session: object) -> dict[str, str]:
 
     查不到（Cloudflare 暫時連不上）不擋同步，只是退回逐網域簽發。
     """
-    from app.services.network import cloudflare_service
-
     try:
-        zones = cloudflare_service.list_zones(  # type: ignore[arg-type]
-            session=session,
-            page=1,
-            per_page=100,
-            status="active",
-        ).items
+        zones = _active_zones(session)
     except Exception as exc:
         logger.warning("查詢 Cloudflare zone 失敗，憑證改逐網域簽發: %s", exc)
         return {}
@@ -233,6 +220,11 @@ def _sync_nginx(session: object, *, renew: bool = False) -> None:
             domain: (name if name in ready else None)
             for domain, name in cert_name_by_domain.items()
         }
+        # 簽憑證可能要十幾秒，不在鎖內做；拿到鎖之後重讀一次規則清單再寫，
+        # 避免拿舊清單蓋掉別人剛同步上去的網域。期間新增的網域先掛自簽憑證，
+        # 它自己的同步（排在這次之後）會補上正式憑證。
+        nginx.lock_config_writes(session)
+        rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
         nginx.write_validated_config(
             client, nginx.NGINX_HTTP_CONF_PATH, nginx.build_http_config(rules, cert_names)
         )
@@ -329,7 +321,21 @@ def apply_reverse_proxy_rule(
 
     created.cloudflare_record_id = record.id
     rp_repo.update_rule(session, created)  # type: ignore[arg-type]
-    _sync_nginx(session)
+    try:
+        _sync_nginx(session)
+    except Exception:
+        # 同步失敗（Gateway 連不上、nginx -t 不過…）時收回規則與 DNS 紀錄：
+        # 否則下一次任何人同步成功，這個網域就會在使用者以為失敗的情況下
+        # 上線，重試也會被自己的殘留紀錄擋成「已發布」。
+        _cleanup_managed_dns_record(session, created)
+        try:
+            rp_repo.delete_rule(session, created)  # type: ignore[arg-type]
+        except Exception:
+            logger.exception(
+                "反向代理規則 %s 同步失敗後的回滾刪除也失敗，DB 可能殘留無效規則",
+                created.id,
+            )
+        raise
 
 
 def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
@@ -338,18 +344,11 @@ def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
     取 zone name 為網域字尾中最長的那個（例如 a.b.example.com 同時符合
     example.com 與 b.example.com 兩個 zone 時，取 b.example.com）。
     """
-    from app.services.network import cloudflare_service
-
     clean = domain.strip().lower().rstrip(".")
-    if not _is_valid_hostname(clean):
+    if not is_valid_hostname(clean):
         raise BadRequestError(t("reverseProxy.domainInvalid", domain=domain))
 
-    zones = cloudflare_service.list_zones(  # type: ignore[arg-type]
-        session=session,
-        page=1,
-        per_page=100,
-        status="active",
-    ).items
+    zones = _active_zones(session)
 
     best: tuple[str, str] | None = None
     for zone in zones:
@@ -388,7 +387,7 @@ def check_domain_availability(
     from app.services.network import cloudflare_service
 
     clean = (domain or "").strip().lower().rstrip(".")
-    if not clean or not _is_valid_hostname(clean):
+    if not is_valid_hostname(clean):
         return DomainAvailability(
             domain=clean,
             available=False,
@@ -541,54 +540,6 @@ def apply_reverse_proxy_rule_for_domain(
         internal_port=internal_port,
         enable_https=enable_https,
     )
-
-
-def update_reverse_proxy_rule(
-    session: object,
-    rule_id: str,
-    vmid: int,
-    vm_ip: str,
-    zone_id: str,
-    hostname_prefix: str,
-    internal_port: int,
-    enable_https: bool = True,
-) -> None:
-    import uuid as _uuid
-
-    from app.repositories import reverse_proxy as rp_repo
-    from app.services.network import cloudflare_service
-
-    ensure_reverse_proxy_ready(session)
-    assert_publishable_vm_ip(session, vm_ip, vmid=vmid)
-    rule = rp_repo.get_rule(session, _uuid.UUID(rule_id))  # type: ignore[arg-type]
-    if rule is None:
-        raise BadRequestError(t("reverseProxy.ruleIdNotFound", ruleId=rule_id))
-
-    zone = cloudflare_service.get_zone(session=session, zone_id=zone_id)  # type: ignore[arg-type]
-    domain = build_full_domain(zone_name=zone.name, hostname_prefix=hostname_prefix)
-    assert_domain_available(
-        session, domain, zone_id=zone_id, exclude_rule_id=rule.id
-    )
-
-    record = cloudflare_service.upsert_reverse_proxy_dns_record(  # type: ignore[arg-type]
-        session=session,
-        zone_id=zone_id,
-        domain=domain,
-        vmid=vmid,
-        existing_zone_id=rule.zone_id,
-        existing_record_id=rule.cloudflare_record_id,
-    )
-
-    rule.vmid = vmid
-    rule.vm_ip = vm_ip
-    rule.domain = domain
-    rule.zone_id = zone_id
-    rule.cloudflare_record_id = record.id
-    rule.internal_port = internal_port
-    rule.enable_https = enable_https
-    rule.dns_provider = "cloudflare"
-    rp_repo.update_rule(session, rule)  # type: ignore[arg-type]
-    _sync_nginx(session)
 
 
 def _cleanup_managed_dns_record(session: object, rule) -> None:

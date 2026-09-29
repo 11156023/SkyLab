@@ -6,7 +6,9 @@
  *
  * 逾時丟 { status: 408, timeout: true }，呼叫端取消丟 { status: 0, cancelled: true }，
  * 其餘錯誤（例如斷網）原樣往外拋。
+ * 逾時的 message 會直接出現在頁面 toast，因此依目前語系產生。
  */
+import i18n from "../i18n";
 
 /** 一般請求的預設逾時 */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
@@ -14,6 +16,11 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 export const BLOB_REQUEST_TIMEOUT_MS = 120_000;
 /** 登入相關請求：使用者正盯著畫面等，逾時要比一般請求晚一點但仍要有上限 */
 export const LOGIN_REQUEST_TIMEOUT_MS = 20_000;
+
+/** 逾時錯誤；頁面多半直接 toast err.message，所以 message 要跟著介面語系 */
+export function requestTimeoutError() {
+  return { status: 408, message: i18n.t("api.requestTimeout", { ns: "services" }), timeout: true };
+}
 
 export async function fetchWithTimeout(url, init, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -36,7 +43,7 @@ export async function fetchWithTimeout(url, init, timeoutMs = DEFAULT_REQUEST_TI
   } catch (error) {
     if (controller.signal.aborted) {
       if (timedOut) {
-        throw { status: 408, message: "Request timed out", timeout: true };
+        throw requestTimeoutError();
       }
       throw { status: 0, message: "Request cancelled", cancelled: true };
     }

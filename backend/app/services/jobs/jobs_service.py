@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
+from app.core.permissions import is_admin as _is_admin
 from app.domain.resource_markers import (
     RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
     RESOURCE_DELETED_BY_USER_MARKER,
@@ -84,7 +85,7 @@ def _spec_change_job_status(req: SpecChangeRequest) -> tuple[JobStatus, str | No
         return JobStatus.running, "套用中：關機 → 改規格 → 開機"
     return JobStatus.blocked, "已核准，等待申請人按「套用」"
 
-_TEMPLATE_TASK_STATUS_MAP: dict[TaskRecordStatus, JobStatus] = {
+_TASK_RECORD_STATUS_MAP: dict[TaskRecordStatus, JobStatus] = {
     TaskRecordStatus.queued: JobStatus.pending,
     TaskRecordStatus.running: JobStatus.running,
     TaskRecordStatus.succeeded: JobStatus.completed,
@@ -164,12 +165,17 @@ def _vm_request_to_job(req: VMRequest) -> JobItem:
     elif status == JobStatus.pending:
         progress = 0
 
-    # 排程超時判斷：start_at 已過但仍在 pending / approved（尚未進入 provisioning）
+    # 排程超時判斷：start_at 已過但仍在 pending / approved（尚未進入 provisioning）。
+    # 開通後申請單仍停在 approved（coordinator 只寫 vmid），所以要另外排除
+    # 已拿到 vmid、克隆中（running）與已完成的申請單，否則每張成功開通的
+    # 排程申請都會被標成「仍未開始建立」。
     overdue = False
     overdue_minutes: int | None = None
     if (
         consumed_message is None
         and req.status in (VMRequestStatus.pending, VMRequestStatus.approved)
+        and req.vmid is None
+        and status in (JobStatus.pending, JobStatus.failed)
         and req.start_at is not None
     ):
         start_at_aware = _coerce_aware(req.start_at)
@@ -255,11 +261,18 @@ def _spec_change_to_job(req: SpecChangeRequest) -> JobItem:
 # ─── 來源查詢（已根據 user 過濾） ────────────────────────────────────────────
 
 
+def _sees_all_jobs(user: User, *, own_only: bool) -> bool:
+    """管理員預設看全站任務；``own_only`` 強制只看本人（Web Push 用）。"""
+    if own_only:
+        return False
+    return _is_admin(user)
+
+
 def _fetch_vm_requests(
-    session: Session, *, user: User, since: datetime
+    session: Session, *, user: User, since: datetime, own_only: bool = False
 ) -> list[JobItem]:
     """只回傳「進行中」與「最近結束」的 VM Request（避免 my-resources 整個倒灌進來）。"""
-    is_admin = bool(user.is_superuser or getattr(user, "role", None) == "admin")
+    is_admin = _sees_all_jobs(user, own_only=own_only)
     stmt = (
         select(VMRequest)
         .options(selectinload(VMRequest.user))
@@ -273,9 +286,9 @@ def _fetch_vm_requests(
 
 
 def _fetch_spec_changes(
-    session: Session, *, user: User, since: datetime
+    session: Session, *, user: User, since: datetime, own_only: bool = False
 ) -> list[JobItem]:
-    is_admin = bool(user.is_superuser or getattr(user, "role", None) == "admin")
+    is_admin = _sees_all_jobs(user, own_only=own_only)
     stmt = (
         select(SpecChangeRequest)
         .options(selectinload(SpecChangeRequest.user))
@@ -334,9 +347,9 @@ def _deletion_to_job(req: DeletionRequest, *, user_email: str | None = None) -> 
 
 
 def _fetch_deletions(
-    session: Session, *, user: User, since: datetime
+    session: Session, *, user: User, since: datetime, own_only: bool = False
 ) -> list[JobItem]:
-    is_admin = bool(user.is_superuser or getattr(user, "role", None) == "admin")
+    is_admin = _sees_all_jobs(user, own_only=own_only)
     stmt = (
         select(DeletionRequest)
         .options(selectinload(DeletionRequest.user))
@@ -382,7 +395,7 @@ def _queue_task_title(kind: JobKind, payload: dict[str, Any]) -> str:
     return kind.value
 
 
-def _template_task_to_job(
+def _task_record_to_job(
     record: TaskRecord,
     *,
     user_email: str | None = None,
@@ -402,7 +415,7 @@ def _template_task_to_job(
     else:
         title = _queue_task_title(kind, payload)
 
-    status = _TEMPLATE_TASK_STATUS_MAP.get(record.status, JobStatus.pending)
+    status = _TASK_RECORD_STATUS_MAP.get(record.status, JobStatus.pending)
     progress = 100 if status == JobStatus.completed else record.progress
 
     updated = (
@@ -445,10 +458,15 @@ def _template_name_map(
 
 
 def _fetch_task_records(
-    session: Session, *, user: User, since: datetime, kind: JobKind
+    session: Session,
+    *,
+    user: User,
+    since: datetime,
+    kind: JobKind,
+    own_only: bool = False,
 ) -> list[JobItem]:
     """依 Job 種類撈 TaskRecord：template 走 ``template.%``，其餘各對應一個 task_type。"""
-    is_admin = bool(user.is_superuser or getattr(user, "role", None) == "admin")
+    is_admin = _sees_all_jobs(user, own_only=own_only)
     stmt = select(TaskRecord).where(TaskRecord.created_at >= since)
     if kind == JobKind.template:
         stmt = stmt.where(TaskRecord.task_type.like("template.%"))  # type: ignore[union-attr]
@@ -468,7 +486,7 @@ def _fetch_task_records(
     name_map = _template_name_map(session, rows)
 
     return [
-        _template_task_to_job(
+        _task_record_to_job(
             r,
             user_email=email_map.get(r.user_id),
             template_name=name_map.get(r.template_id) if r.template_id else None,
@@ -478,8 +496,12 @@ def _fetch_task_records(
 
 
 def _task_record_fetcher(kind: JobKind):
-    def _fetch(session: Session, *, user: User, since: datetime) -> list[JobItem]:
-        return _fetch_task_records(session, user=user, since=since, kind=kind)
+    def _fetch(
+        session: Session, *, user: User, since: datetime, own_only: bool = False
+    ) -> list[JobItem]:
+        return _fetch_task_records(
+            session, user=user, since=since, kind=kind, own_only=own_only
+        )
 
     return _fetch
 
@@ -503,6 +525,7 @@ def _aggregate_jobs(
     user: User,
     kinds: Iterable[JobKind] | None,
     since: datetime,
+    own_only: bool = False,
 ) -> list[JobItem]:
     selected = list(kinds) if kinds else list(JobKind)
     items: list[JobItem] = []
@@ -511,7 +534,7 @@ def _aggregate_jobs(
         if fetcher is None:
             continue
         try:
-            items.extend(fetcher(session, user=user, since=since))
+            items.extend(fetcher(session, user=user, since=since, own_only=own_only))
         except Exception as exc:
             session.rollback()
             logger.exception("fetch jobs for kind=%s failed: %s", kind.value, exc)
@@ -552,10 +575,18 @@ def list_recent_for_user(
     session: Session,
     user: User,
     limit: int = 5,
+    own_only: bool = False,
 ) -> JobsListResponse:
-    """提供 banner popover 用：active 優先排在最上方，再補最近的歷史任務直到 limit。"""
+    """提供 banner popover 用：active 優先排在最上方，再補最近的歷史任務直到 limit。
+
+    ``own_only=True`` 時連管理員也只取本人的任務（在 SQL 層過濾）。Web Push
+    只推本人任務，若先撈全站再截 limit，全站進行中任務一多，管理員自己剛
+    結束的任務就會被截掉而漏推。
+    """
     since = _now() - timedelta(days=_HISTORY_WINDOW_DAYS)
-    all_items = _aggregate_jobs(session=session, user=user, kinds=None, since=since)
+    all_items = _aggregate_jobs(
+        session=session, user=user, kinds=None, since=since, own_only=own_only
+    )
     active_count = sum(1 for j in all_items if j.status in ACTIVE_JOB_STATUSES)
 
     actives = [j for j in all_items if j.status in ACTIVE_JOB_STATUSES]
@@ -580,10 +611,6 @@ class JobAccessDeniedError(Exception):
 def _isoformat(dt: datetime | None) -> str | None:
     aware = _coerce_aware(dt)
     return aware.isoformat() if aware else None
-
-
-def _is_admin(user: User) -> bool:
-    return bool(user.is_superuser or getattr(user, "role", None) == "admin")
 
 
 def _ensure_owner_or_admin(user: User, owner_id: uuid.UUID | None) -> None:
@@ -697,14 +724,14 @@ def _detail_deletion(session: Session, raw_id: str, user: User) -> JobDetail:
     return JobDetail(item=item, error=req.error_message, extra=extra)
 
 
-def _detail_template_task(session: Session, raw_id: str, user: User) -> JobDetail:
+def _detail_task_record(session: Session, raw_id: str, user: User) -> JobDetail:
     try:
         task_uuid = uuid.UUID(raw_id)
     except ValueError as e:
-        raise JobNotFoundError(f"invalid template task id {raw_id}") from e
+        raise JobNotFoundError(f"invalid task id {raw_id}") from e
     record = session.get(TaskRecord, task_uuid)
     if record is None:
-        raise JobNotFoundError("template task not found")
+        raise JobNotFoundError("task not found")
     _ensure_owner_or_admin(user, record.user_id)
 
     owner = session.get(User, record.user_id)
@@ -714,7 +741,7 @@ def _detail_template_task(session: Session, raw_id: str, user: User) -> JobDetai
         if template is not None:
             template_name = template.name
 
-    item = _template_task_to_job(
+    item = _task_record_to_job(
         record,
         user_email=owner.email if owner else None,
         template_name=template_name,
@@ -737,10 +764,10 @@ _DETAIL_FETCHERS = {
     JobKind.vm_request: _detail_vm_request,
     JobKind.spec_change: _detail_spec_change,
     JobKind.deletion: _detail_deletion,
-    # 四種 TaskRecord 來源共用同一個 detail：item 的 kind 由 task_type 決定
-    JobKind.template: _detail_template_task,
-    JobKind.resource_reset: _detail_template_task,
-    JobKind.batch_provision: _detail_template_task,
+    # 三種 TaskRecord 來源共用同一個 detail：item 的 kind 由 task_type 決定
+    JobKind.template: _detail_task_record,
+    JobKind.resource_reset: _detail_task_record,
+    JobKind.batch_provision: _detail_task_record,
 }
 
 

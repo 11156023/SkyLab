@@ -27,25 +27,6 @@ class ShareGPTConversation:
         return ""
     
     @property
-    def full_conversation(self) -> list[dict[str, str]]:
-        """轉換為 OpenAI 格式的對話"""
-        messages = []
-        for conv in self.conversations:
-            role = "user" if conv.get("from") == "human" else "assistant"
-            content = conv.get("value", "")
-            if content:
-                messages.append({"role": role, "content": content})
-        return messages
-    
-    @property
-    def expected_response(self) -> str | None:
-        """獲取預期回應（第一個 gpt 回應）"""
-        for conv in self.conversations:
-            if conv.get("from") == "gpt":
-                return conv.get("value", "")
-        return None
-    
-    @property
     def num_turns(self) -> int:
         """對話輪數"""
         return len(self.conversations) // 2
@@ -98,25 +79,9 @@ class ShareGPTDataset:
     
     def sample(self, n: int, seed: int | None = None) -> list[ShareGPTConversation]:
         """隨機採樣 n 個對話"""
-        if seed is not None:
-            random.seed(seed)
-        
+        # 用獨立的 Random，避免改動全域亂數狀態
         n = min(n, len(self.conversations))
-        return random.sample(self.conversations, n)
-    
-    def filter_by_turns(self, min_turns: int = 1, max_turns: int | None = None) -> list[ShareGPTConversation]:
-        """根據對話輪數篩選"""
-        filtered = [c for c in self.conversations if c.num_turns >= min_turns]
-        if max_turns is not None:
-            filtered = [c for c in filtered if c.num_turns <= max_turns]
-        return filtered
-    
-    def filter_by_length(self, min_length: int = 0, max_length: int | None = None) -> list[ShareGPTConversation]:
-        """根據 prompt 長度篩選"""
-        filtered = [c for c in self.conversations if len(c.prompt) >= min_length]
-        if max_length is not None:
-            filtered = [c for c in filtered if len(c.prompt) <= max_length]
-        return filtered
+        return random.Random(seed).sample(self.conversations, n)
     
     def __len__(self) -> int:
         return len(self.conversations)
@@ -152,10 +117,18 @@ def download_sharegpt_dataset(output_path: str | Path = "ShareGPT_V3_unfiltered_
     print("[ShareGPT] 下載數據集...")
     print(f"[ShareGPT] URL: {url}")
     print(f"[ShareGPT] 輸出: {output_path}")
-    
-    urllib.request.urlretrieve(url, output_path)
-    
+
+    # 預設路徑 test_datasets/ 不在版控內，先建立目錄；先下載到 .part 再改名，
+    # 中斷的下載不會留下半個檔案被下次的「已存在」檢查誤用。
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = output_path.with_name(output_path.name + ".part")
+    try:
+        urllib.request.urlretrieve(url, partial_path)  # nosec B310 - 固定的 HuggingFace 資料集 URL
+        partial_path.replace(output_path)
+    finally:
+        partial_path.unlink(missing_ok=True)
+
     size_mb = output_path.stat().st_size / (1024 * 1024)
     print(f"[ShareGPT] 下載完成: {size_mb:.1f} MB")
-    
+
     return output_path

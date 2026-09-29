@@ -1,7 +1,10 @@
 {
   "api.authRecoveryMessage": "The login verification service is temporarily unreachable. Please try again later.",
   "api.sessionChangedIgnored": "Your login state has changed, so the response from the old session was ignored.",
+  "api.requestTimeout": "The request timed out. Please try again later.",
   "aiJudge.linuxTemplateLabel": "General Linux/LXC",
   "aiJudge.defaultBlankSessionTitle": "Untitled Check",
-  "aiJudge.defaultBlankRubricName": "Blank Rubric"
+  "aiJudge.defaultBlankRubricName": "Blank Rubric",
+  "image.readFailed": "Couldn't read the image file.",
+  "image.convertFailed": "Couldn't convert the image."
 }

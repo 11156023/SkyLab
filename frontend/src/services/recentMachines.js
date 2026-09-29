@@ -28,9 +28,3 @@ export function recordMachineUse(userId, vmid) {
     // Storage restrictions must never prevent a console connection.
   }
 }
-
-export function selectRecentMachines(resources, history, limit = 4) {
-  const byId = new Map(resources.map((resource) => [Number(resource.vmid), resource]));
-  return history.filter((entry) => byId.has(entry.vmid)).slice(0, limit)
-    .map((entry) => ({ ...byId.get(entry.vmid), usedAt: entry.usedAt }));
-}

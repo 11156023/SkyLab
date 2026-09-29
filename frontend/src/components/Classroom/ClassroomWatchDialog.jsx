@@ -6,7 +6,7 @@ import MIcon from "../MIcon";
 import Modal from "../Modal/Modal";
 import { AuthStorage } from "../../services/auth";
 import { ClassroomService } from "../../services/classroom";
-import { wsBaseUrl } from "../../hooks/useClassroomSocket";
+import { wsBaseUrl } from "../../utils/wsUrl";
 import { useToast } from "../../hooks/useToast";
 
 /**
@@ -29,8 +29,21 @@ export default function ClassroomWatchDialog({
   const [closing, setClosing] = useState(false);
   const titleId = useId();
   const closeTimerRef = useRef(null);
+  /* 卸載清理只在掛載時綁一次，拿不到最新 state；用 ref 記住目前是否握有控制權、
+     以及 handleClose 是否已經釋放過，避免重複送 release。 */
+  const controllingRef = useRef(false);
+  const releasedRef = useRef(false);
+  const releaseArgsRef = useRef({ canControl, sessionId });
+  releaseArgsRef.current = { canControl, sessionId };
 
   useEffect(() => () => {
+    /* 父層直接卸載（瀏覽器上一頁、站內導頁）不會經過 handleClose；
+       仍握有控制權就在這裡釋放，否則學生的主控台會一直被鎖住。 */
+    const { canControl: ctl, sessionId: sid } = releaseArgsRef.current;
+    if (ctl && sid && controllingRef.current && !releasedRef.current) {
+      releasedRef.current = true;
+      ClassroomService.setControl(sid, "release").catch(() => {});
+    }
     // 卸載時保險斷線，並清掉離場動畫的計時器
     vncRef.current?.disconnect?.();
     window.clearTimeout(closeTimerRef.current);
@@ -51,6 +64,7 @@ export default function ClassroomWatchDialog({
     setControlBusy(true);
     try {
       await ClassroomService.setControl(sessionId, action);
+      controllingRef.current = action === "take";
       setControlling(action === "take");
     } catch (e) {
       toast.error(e?.message ?? t("ClassroomWatchDialog.controlToggleFailed"));
@@ -62,7 +76,8 @@ export default function ClassroomWatchDialog({
   const handleClose = () => {
     if (closing) return;
     // 關閉前先釋放控制權，避免學生端持續被鎖定
-    if (canControl && controlling && sessionId) {
+    if (canControl && controlling && sessionId && !releasedRef.current) {
+      releasedRef.current = true;
       ClassroomService.setControl(sessionId, "release").catch(() => {});
     }
     vncRef.current?.disconnect?.();

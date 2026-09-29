@@ -121,7 +121,7 @@ class TestEnsureRequestRunningSkipsConsumed:
         )
 
         started = coordinator._ensure_request_running(
-            session=session, request=consumed, now=coordinator._utc_now()
+            session=session, request=consumed
         )
 
         assert started is False
@@ -164,7 +164,7 @@ class TestEnsureRequestRunningSkipsConsumed:
         )
 
         started = coordinator._ensure_request_running(
-            session=session, request=req, now=coordinator._utc_now()
+            session=session, request=req
         )
 
         assert started is True
@@ -191,7 +191,9 @@ class TestProcessDueRequestStops:
         def _missing(vmid: int) -> dict:
             raise NotFoundError(f"Resource {vmid} not found")
 
-        monkeypatch.setattr(coordinator.proxmox_service, "find_resource", _missing)
+        monkeypatch.setattr(
+            coordinator.scheduling_support, "find_resource_strict", _missing
+        )
 
         stopped = coordinator.process_due_request_stops()
 
@@ -208,8 +210,8 @@ class TestProcessDueRequestStops:
         actions: list[str] = []
         monkeypatch.setattr(coordinator, "Session", lambda engine: fake)
         monkeypatch.setattr(
-            coordinator.proxmox_service,
-            "find_resource",
+            coordinator.scheduling_support,
+            "find_resource_strict",
             lambda vmid: {"node": "pve205", "vmid": vmid},
         )
         monkeypatch.setattr(

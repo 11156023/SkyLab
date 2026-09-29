@@ -3,11 +3,6 @@ import { apiGet, apiPatch, apiDelete, apiPost, apiPostMultipart } from "./api";
 const BASE = "/api/v1/users/me";
 
 export const AccountService = {
-  /** 取得目前登入使用者資料 */
-  get() {
-    return apiGet(BASE);
-  },
-
   /** 更新個人資料（full_name / email / avatar_url，皆選填，只送有變更的欄位） */
   update(payload) {
     return apiPatch(BASE, payload);
@@ -59,5 +54,30 @@ export const AccountService = {
    */
   preflight({ refresh = false } = {}) {
     return apiGet(`${BASE}/preflight${refresh ? "?refresh=true" : ""}`);
+  },
+
+  /*
+   * 以下是登入頁（未登入或剛登入）用到的帳號端點。放在這裡而不是 services/auth.js：
+   * api.js 會 import ./auth 的 AuthStorage，auth.js 若再 import api.js 就成了循環相依。
+   */
+
+  /** 忘記密碼：寄出重設密碼信（email 放在路徑上，需編碼） */
+  requestPasswordRecovery(email) {
+    return apiPost(`/api/v1/password-recovery/${encodeURIComponent(email)}`, null);
+  },
+
+  /** 以重設信中的 token 設定新密碼 */
+  resetPassword(token, newPassword) {
+    return apiPost("/api/v1/reset-password/", { new_password: newPassword, token });
+  },
+
+  /** 自行註冊帳號 */
+  signup({ email, full_name, password }) {
+    return apiPost("/api/v1/users/signup", { email, full_name, password });
+  },
+
+  /** 核准桌面用戶端的裝置授權碼（需已登入） */
+  approveDesktopDevice(deviceCode) {
+    return apiPost("/api/v1/desktop-client/auth/approve", { device_code: deviceCode });
   },
 };

@@ -92,9 +92,9 @@ describe("verified progress", () => {
     { path: "/my-resources", status: "todo" },
   ];
   test("empty resource page cannot mark request, review or provisioning complete", () => {
-    expect(stepStatuses(steps, "/my-resources")).toEqual(["current", "todo", "todo", "todo"]);
-    expect(stepStatuses(markStep(steps, 1), "/my-resources")).toEqual(["done", "current", "todo", "todo"]);
-    expect(stepStatuses(markStep(steps, 2), "/my-requests")).toEqual(["done", "done", "current", "todo"]);
+    expect(stepStatuses(steps)).toEqual(["current", "todo", "todo", "todo"]);
+    expect(stepStatuses(markStep(steps, 1))).toEqual(["done", "current", "todo", "todo"]);
+    expect(stepStatuses(markStep(steps, 2))).toEqual(["done", "done", "current", "todo"]);
   });
   test("approval alone is not a usable machine; match the provisioned VM to the request", () => {
     const request = { status: "approved", provisioning_status: "completed", vmid: 101 };

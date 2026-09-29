@@ -13,6 +13,7 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UsersService } from "../../../services/users";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
+import Pagination from "../shared/Pagination";
 import { formatDate } from "../../../utils/formatDate";
 
 const ROLE_ICONS = {
@@ -48,7 +49,26 @@ function EmptyState({ hasQuery }) {
   );
 }
 
-function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, onResetTotp }) {
+/**
+ * 使用者表單 → API payload。
+ * 編輯自己的帳號時不送 role／is_active：比照不能刪除自己，避免管理員把自己停用或降級而被鎖在外面
+ * （後端 PATCH 是部分更新，沒送的欄位維持原值）。
+ */
+export function buildUserPayload(form, { isLdap = false, isSelf = false } = {}) {
+  const payload = {
+    email: form.email.trim(),
+    full_name: form.full_name.trim() || null,
+    totp_required: form.totp_required,
+  };
+  if (!isSelf) {
+    payload.role = form.role;
+    payload.is_active = form.is_active;
+  }
+  if (!isLdap && form.password.trim()) payload.password = form.password;
+  return payload;
+}
+
+function UserModal({ mode, user, isSelf = false, loading, closing = false, onClose, onSubmit, onResetTotp }) {
   const { t } = useTranslation("system");
   const [form, setForm] = useState(() => initialForm(user));
   const isEdit = mode === "edit";
@@ -77,15 +97,7 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
 
   function submit(e) {
     e.preventDefault();
-    const payload = {
-      email: form.email.trim(),
-      full_name: form.full_name.trim() || null,
-      role: form.role,
-      is_active: form.is_active,
-      totp_required: form.totp_required,
-    };
-    if (!isLdap && form.password.trim()) payload.password = form.password;
-    onSubmit(payload);
+    onSubmit(buildUserPayload(form, { isLdap, isSelf: isEdit && isSelf }));
   }
 
   /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；送出中 Esc／點遮罩／× 都不關 */
@@ -152,7 +164,12 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
 
         <label className={styles.field}>
           <span>{t("AdminPage.fieldRole")}</span>
-          <select value={form.role} onChange={(e) => setField("role", e.target.value)}>
+          <select
+            value={form.role}
+            onChange={(e) => setField("role", e.target.value)}
+            disabled={isEdit && isSelf}
+            title={isEdit && isSelf ? t("AdminPage.selfEditLockedHint") : undefined}
+          >
             {ROLE_OPTIONS.map((role) => (
               <option key={role.value} value={role.value}>{role.label}</option>
             ))}
@@ -161,11 +178,15 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
       </div>
 
       <div className={styles.toggleGrid}>
-        <label className={styles.checkRow}>
+        <label
+          className={styles.checkRow}
+          title={isEdit && isSelf ? t("AdminPage.selfEditLockedHint") : undefined}
+        >
           <input
             type="checkbox"
             checked={form.is_active}
             onChange={(e) => setField("is_active", e.target.checked)}
+            disabled={isEdit && isSelf}
           />
           <span>{t("AdminPage.fieldActive")}</span>
         </label>
@@ -180,6 +201,9 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
       </div>
       {form.totp_required && (
         <em className={styles.fieldHint}>{t("AdminPage.fieldTotpRequiredHint")}</em>
+      )}
+      {isEdit && isSelf && (
+        <em className={styles.fieldHint}>{t("AdminPage.selfEditLockedHint")}</em>
       )}
 
       {isEdit && (
@@ -266,7 +290,6 @@ export default function AdminPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [users, setUsers] = useState([]);
-  const [count, setCount] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -281,7 +304,6 @@ export default function AdminPage() {
     try {
       const data = await UsersService.listAll();
       setUsers(data);
-      setCount(data.length);
     } catch (err) {
       if (!silent) toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
@@ -308,9 +330,11 @@ export default function AdminPage() {
   const [page, setPage] = useState(0);
   useEffect(() => { setPage(0); }, [query]);
   const totalPages = Math.max(1, Math.ceil(visibleUsers.length / PAGE_SIZE));
+  /* 背景刷新後人數變少時 page 可能超出範圍，切片、頁碼與按鈕停用一律用夾過的值 */
+  const safePage = Math.min(page, totalPages - 1);
   const pagedUsers = useMemo(
-    () => visibleUsers.slice(Math.min(page, totalPages - 1) * PAGE_SIZE, (Math.min(page, totalPages - 1) + 1) * PAGE_SIZE),
-    [visibleUsers, page, totalPages],
+    () => visibleUsers.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
+    [visibleUsers, safePage],
   );
 
   const stats = useMemo(() => ({
@@ -323,15 +347,12 @@ export default function AdminPage() {
     setSaving(true);
     try {
       if (modal?.mode === "edit") {
-        const body = { ...payload };
-        if (!body.password) delete body.password;
-        const updated = await UsersService.update(modal.user.id, body);
+        const updated = await UsersService.update(modal.user.id, payload);
         setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
         toast.success(t("AdminPage.toastUpdated"));
       } else {
         const created = await UsersService.create(payload);
         setUsers((prev) => [created, ...prev]);
-        setCount((prev) => prev + 1);
         toast.success(t("AdminPage.toastCreated"));
       }
       setModal(null);
@@ -355,7 +376,6 @@ export default function AdminPage() {
     try {
       await UsersService.delete(user.id);
       setUsers((prev) => prev.filter((item) => item.id !== user.id));
-      setCount((prev) => Math.max(prev - 1, 0));
       toast.success(t("AdminPage.toastDeleted"));
     } catch (err) {
       toast.error(err?.message ?? t("AdminPage.toastDeleteFailed"));
@@ -397,7 +417,7 @@ export default function AdminPage() {
       <div className={styles.summaryGrid}>
         <div className={styles.summaryItem}>
           <span>{t("AdminPage.statTotal")}</span>
-          <strong>{count}</strong>
+          <strong>{users.length}</strong>
         </div>
         <div className={styles.summaryItem}>
           <span>{t("AdminPage.statActive")}</span>
@@ -443,31 +463,14 @@ export default function AdminPage() {
               ))}
             </div>
             {totalPages > 1 && (
-              <div className={styles.pagination}>
-                <span className={styles.paginationInfo}>
-                  {t("AdminPage.paginationInfo", { count: visibleUsers.length, page: Math.min(page, totalPages - 1) + 1, totalPages })}
-                </span>
-                <div className={styles.paginationBtns}>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    disabled={page === 0}
-                    onClick={() => setPage((p) => Math.max(p - 1, 0))}
-                  >
-                    <MIcon name="chevron_left" size={16} />
-                    {t("AdminPage.prevPage")}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    disabled={page + 1 >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    {t("AdminPage.nextPage")}
-                    <MIcon name="chevron_right" size={16} />
-                  </button>
-                </div>
-              </div>
+              <Pagination
+                page={safePage}
+                totalPages={totalPages}
+                info={t("AdminPage.paginationInfo", { count: visibleUsers.length, page: safePage + 1, totalPages })}
+                prevLabel={t("AdminPage.prevPage")}
+                nextLabel={t("AdminPage.nextPage")}
+                onChange={setPage}
+              />
             )}
           </>
         )}
@@ -477,6 +480,7 @@ export default function AdminPage() {
         <UserModal
           mode={modalPresence.item.mode}
           user={modalPresence.item.user}
+          isSelf={Boolean(currentUser?.id) && modalPresence.item.user?.id === currentUser.id}
           loading={saving}
           closing={modalPresence.closing}
           onClose={() => setModal(null)}

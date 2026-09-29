@@ -61,13 +61,8 @@ describe("describePlan", () => {
 });
 
 describe("stepStatuses", () => {
-  test("開啟頁面不代表前面的工作已完成", () => {
-    expect(stepStatuses(STEPS, "/reverse-proxy")).toEqual(["current", "todo", "todo"]);
-    expect(stepStatuses(STEPS, "/firewall")).toEqual(["current", "todo", "todo"]);
-  });
-
-  test("目前頁面不在流程裡時，沿用後端算好的狀態", () => {
-    expect(stepStatuses(STEPS, "/account")).toEqual(["current", "todo", "todo"]);
+  test("只看後端標記的進度，開啟哪一頁都不會推進", () => {
+    expect(stepStatuses(STEPS)).toEqual(["current", "todo", "todo"]);
   });
 
   test("配置產生後不會倒退回規劃那一步", () => {
@@ -77,9 +72,9 @@ describe("stepStatuses", () => {
       { path: "/my-resources", status: "todo" },
     ];
     // 人還停在 /my-requests，但規劃已經做完了：目前進度應該是「填申請單」
-    expect(stepStatuses(flow, "/my-requests", 1)).toEqual(["done", "current", "todo"]);
+    expect(stepStatuses(flow, 1)).toEqual(["done", "current", "todo"]);
     // 還沒規劃時，同一頁的進度就是第一步
-    expect(stepStatuses(flow, "/my-requests")).toEqual(["current", "todo", "todo"]);
+    expect(stepStatuses(flow)).toEqual(["current", "todo", "todo"]);
   });
 
   test("後端也沒標記時，原樣顯示而不是全部歸零", () => {
@@ -87,7 +82,7 @@ describe("stepStatuses", () => {
       { path: "/a", status: "todo" },
       { path: "/b", status: "todo" },
     ];
-    expect(stepStatuses(noCurrent, "/zzz")).toEqual(["todo", "todo"]);
+    expect(stepStatuses(noCurrent)).toEqual(["todo", "todo"]);
   });
 });
 

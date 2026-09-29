@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import HTTPException
@@ -29,6 +28,7 @@ from app.ai.teacher_judge.schemas import (
 from app.ai.teacher_judge.script_policy import check_peer_runtime_policy
 from app.ai.teacher_judge.template_command_service import get_enabled_template_commands
 from app.core.i18n import t
+from app.models.base import get_datetime_utc as _now
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptLanguage,
@@ -38,17 +38,14 @@ from app.models.teacher_judge_script_artifact import (
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+def _machine_display_names(nodes: list[Any]) -> dict[str, str]:
+    return {node.node_key: (node.name or "").strip() or node.node_key for node in nodes}
 
 
 def _class_machine_display_names(
     session: Session, teaching_class_id: uuid.UUID
 ) -> dict[str, str]:
-    return {
-        node.node_key: (node.name or "").strip() or node.node_key
-        for node in load_class_machine_nodes(session, teaching_class_id)
-    }
+    return _machine_display_names(load_class_machine_nodes(session, teaching_class_id))
 
 
 def _artifact_public_name(
@@ -248,12 +245,16 @@ def partition_analysis_by_target_node(
     return partitions
 
 
-def _latest_set_children(
+def latest_set_children(
     rows: list[TeacherJudgeScriptArtifact],
     *,
     node_order: dict[str, int] | None = None,
 ) -> list[TeacherJudgeScriptArtifact]:
-    """Return one current child per node, excluding archived history."""
+    """Return one current child per node, excluding archived history.
+
+    Shared by the script-set views and the batch run so the set a teacher sees
+    is the set that gets executed.
+    """
 
     latest: dict[str, TeacherJudgeScriptArtifact] = {}
     for row in rows:
@@ -282,7 +283,7 @@ def _script_set_to_public(
     node_order: dict[str, int] | None = None,
     node_display_names: dict[str, str] | None = None,
 ) -> TeacherJudgeScriptSetPublic:
-    children = _latest_set_children(rows, node_order=node_order)
+    children = latest_set_children(rows, node_order=node_order)
     if not children or children[0].artifact_set_id is None:
         raise HTTPException(status_code=404, detail="Script set not found")
     statuses = {child.status.value for child in children}
@@ -325,7 +326,7 @@ def get_artifact_set(
     return _script_set_to_public(
         rows,
         node_order={node.node_key: node.sort_order for node in nodes},
-        node_display_names=_class_machine_display_names(session, teaching_class_id),
+        node_display_names=_machine_display_names(nodes),
     )
 
 
@@ -345,6 +346,7 @@ def list_artifact_sets(
     )
     nodes = load_class_machine_nodes(session, teaching_class_id)
     node_order = {node.node_key: node.sort_order for node in nodes}
+    node_display_names = _machine_display_names(nodes)
     grouped: dict[uuid.UUID, list[TeacherJudgeScriptArtifact]] = {}
     order: list[uuid.UUID] = []
     for row in rows:
@@ -355,12 +357,16 @@ def list_artifact_sets(
             order.append(row.artifact_set_id)
         grouped[row.artifact_set_id].append(row)
     return [
-        _script_set_to_public(grouped[set_id], node_order=node_order)
+        _script_set_to_public(
+            grouped[set_id],
+            node_order=node_order,
+            node_display_names=node_display_names,
+        )
         for set_id in order
     ]
 
 
-async def create_artifact_set(
+def create_artifact_set(
     *,
     session: Session,
     teaching_class_id: uuid.UUID,
@@ -379,18 +385,14 @@ async def create_artifact_set(
     commands = get_enabled_template_commands(
         session, template_key, include_cross_template=True
     )
+    nodes = load_class_machine_nodes(session, teaching_class_id)
     ensure_script_generation_supported(
         rubric_analysis,
         commands,
-        require_target_node=bool(
-            load_class_machine_nodes(session, teaching_class_id)
-        ),
+        require_target_node=bool(nodes),
     )
-    nodes = load_class_machine_nodes(session, teaching_class_id)
     valid_node_keys = {node.node_key for node in nodes}
-    node_display_names = {
-        node.node_key: (node.name or "").strip() or node.node_key for node in nodes
-    }
+    node_display_names = _machine_display_names(nodes)
     partitions = partition_analysis_by_target_node(
         rubric_analysis, node_order=[node.node_key for node in nodes]
     )
@@ -437,15 +439,9 @@ async def create_artifact_set(
             },
         ) from exc
 
+    # Every failure path below raises, so each built child is approved.
     build_results: list[
-        tuple[
-            str,
-            dict[str, Any],
-            str,
-            dict[str, Any],
-            dict[str, Any],
-            TeacherJudgeScriptStatus,
-        ]
+        tuple[str, dict[str, Any], str, dict[str, Any], dict[str, Any]]
     ] = []
     for node_key, partition in partitions:
         partition_dump = partition.model_dump(mode="json")
@@ -479,7 +475,6 @@ async def create_artifact_set(
                 "peer_runtime_policy": peer_policy,
                 "approved": True,
             }
-            status = TeacherJudgeScriptStatus.approved
         except CheckPlanContractError as exc:
             raise HTTPException(
                 status_code=422,
@@ -501,7 +496,7 @@ async def create_artifact_set(
                 },
             ) from exc
         build_results.append(
-            (node_key, rubric_snapshot, script_content, policy, review, status)
+            (node_key, rubric_snapshot, script_content, policy, review)
         )
 
     set_id = artifact_set_id or uuid.uuid4()
@@ -548,7 +543,7 @@ async def create_artifact_set(
         source_file.updated_at = _now()
         session.add(source_file)
     artifacts: list[TeacherJudgeScriptArtifact] = []
-    for node_key, snapshot, content, policy, review, status in build_results:
+    for node_key, snapshot, content, policy, review in build_results:
         artifact = TeacherJudgeScriptArtifact(
             artifact_set_id=set_id,
             target_node_key=node_key,
@@ -568,11 +563,11 @@ async def create_artifact_set(
                 else TeacherJudgeScriptSource.ai_generated
             ),
             version=version_by_node.get(node_key, 0) + 1,
-            status=status,
+            status=TeacherJudgeScriptStatus.approved,
             policy_check_result_json=policy,
             ai_review_result_json=review,
             created_by=created_by,
-            approved_at=_now() if status == TeacherJudgeScriptStatus.approved else None,
+            approved_at=_now(),
             updated_at=_now(),
         )
         session.add(artifact)

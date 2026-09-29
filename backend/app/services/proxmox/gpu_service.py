@@ -1,27 +1,40 @@
 """GPU (PCI resource mapping) service.
 
-Wraps Proxmox /cluster/mapping/pci endpoints and provides GPU availability
-and usage tracking by cross-referencing VM configurations.
+Builds GPU availability and usage tracking on top of the /cluster/mapping/pci
+and mdev helpers in ``infrastructure/proxmox/operations`` by cross-referencing
+VM configurations.
 """
 
 import logging
 import re
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import Any, NamedTuple
 
 from sqlmodel import Session, select
 
 from app.core.db import engine
-from app.exceptions import NotFoundError, ProxmoxError
+from app.exceptions import ConflictError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
     get_connection_id_for_node,
     get_nodes_for_connection,
     get_proxmox_api_for_node,
 )
-from app.infrastructure.proxmox.operations import iter_connection_clients
+from app.infrastructure.proxmox.operations import (
+    create_pci_mapping,
+    delete_pci_mapping,
+    get_pci_mapping,
+    get_qemu_config_via,
+    iter_connection_clients,
+    list_cluster_vm_resources,
+    list_pci_mappings,
+    list_pci_mdev_types,
+)
 from app.models import Resource
+from app.repositories import vm_request as vm_request_repo
 from app.schemas.gpu import (
     GPUDeviceMap,
     GPUMappingDetail,
@@ -61,6 +74,15 @@ _mdev_types_cache_lock = threading.Lock()
 # 看過一次就永久記住。
 _mdev_profile_catalog: dict[str, "MdevProfile"] = {}
 
+# PVE PCI mapping id 的格式（pve-configid）。id 會被 proxmoxer 當成 URL 路徑片段
+# （'/' 會被拆開、'..' 會被 urllib3 消去），也會被組進 hostpci 的
+# ``mapping=<id>`` 逗號分隔字串，所以任何來自使用者的 id 都要先過這個白名單。
+_MAPPING_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+
+def is_valid_mapping_id(mapping_id: object) -> bool:
+    return isinstance(mapping_id, str) and bool(_MAPPING_ID_RE.fullmatch(mapping_id))
+
 
 def _get_managed_vmids() -> set[int]:
     """Return the set of VMIDs that are tracked in the SkyLab DB."""
@@ -91,6 +113,20 @@ def _parse_map_entry(entry: str) -> GPUDeviceMap:
         description=parts.get("description"),
         is_mdev=is_mdev,
     )
+
+
+def _parse_mapping_maps(mapping: Any) -> list[GPUDeviceMap]:
+    """把 PVE mapping 的 ``map`` 欄位（字串或字串清單）解析成裝置清單。"""
+    raw_maps = mapping.get("map", []) if isinstance(mapping, dict) else []
+    if isinstance(raw_maps, str):
+        raw_maps = [raw_maps]
+    return [_parse_map_entry(m) for m in raw_maps if isinstance(m, str)]
+
+
+def _bus_key(path: str) -> str:
+    """PCI 路徑 DDDD:BB:DD.F 的 ``domain:bus`` 部分（同 bus = 同一張實體卡）。"""
+    parts = path.split(":")
+    return f"{parts[0]}:{parts[1]}" if len(parts) >= 2 else path
 
 
 def _extract_gpu_info(description: str, mapping_id: str) -> tuple[str, str, int]:
@@ -145,12 +181,7 @@ def _count_physical_gpus(maps: list[GPUDeviceMap]) -> tuple[int, bool]:
         if not path:
             continue
         # Extract domain:bus portion (e.g. "0000:15" from "0000:15:01.3")
-        parts = path.split(":")
-        if len(parts) >= 2:
-            bus_key = f"{parts[0]}:{parts[1]}"
-        else:
-            bus_key = path
-        buses.add(bus_key)
+        buses.add(_bus_key(path))
 
     physical = max(len(buses), 1) if maps else 0
     is_sriov = len(maps) > len(buses) if buses else False
@@ -224,8 +255,7 @@ def _parse_mdev_entry(mdev: dict) -> MdevProfile:
 def _fetch_mdev_types(node: str, pci_path: str) -> dict[str, MdevProfile] | None:
     """Query available mdev types for a PCI device from PVE (uncached)."""
     try:
-        proxmox = get_proxmox_api_for_node(node)
-        mdev_list = proxmox.nodes(node).hardware.pci(pci_path).mdev.get()
+        mdev_list = list_pci_mdev_types(node, pci_path)
     except Exception as e:
         logger.debug("Cannot get mdev types for %s on %s: %s", pci_path, node, e)
         return None
@@ -443,7 +473,7 @@ def list_gpu_mappings() -> list[GPUMappingDetail]:
     reached_any = False
     for _key, proxmox in iter_connection_clients():
         try:
-            raw_mappings.extend(proxmox.cluster.mapping.pci.get())
+            raw_mappings.extend(list_pci_mappings(proxmox))
             reached_any = True
         except Exception as e:
             logger.warning("Failed to list PCI mappings on connection %s: %s", _key, e)
@@ -455,14 +485,7 @@ def list_gpu_mappings() -> list[GPUMappingDetail]:
     usage_map = _build_usage_map()
     managed_vmids = _get_managed_vmids()
 
-    parsed: list[tuple[dict, list[GPUDeviceMap]]] = []
-    for mapping in raw_mappings:
-        raw_maps = mapping.get("map", [])
-        if isinstance(raw_maps, str):
-            raw_maps = [raw_maps]
-        parsed.append(
-            (mapping, [_parse_map_entry(m) for m in raw_maps if isinstance(m, str)])
-        )
+    parsed = [(mapping, _parse_mapping_maps(mapping)) for mapping in raw_mappings]
 
     # 逐 mapping 探測 mdev 會串成一長串 HTTP，先併發預熱共用快取。
     _prefetch_mdev_types([maps for _mapping, maps in parsed])
@@ -545,6 +568,9 @@ def get_gpu_node_counts(mapping_id: str | None = None) -> dict[str, int]:
     so node GPU capacity follows Proxmox PCI resource mappings.
     """
     cache_key = str(mapping_id or "")
+    if mapping_id and not is_valid_mapping_id(cache_key):
+        logger.warning("Rejected malformed GPU mapping id: %r", mapping_id)
+        return {}
     now = time.monotonic()
     with _gpu_node_counts_cache_lock:
         cached = _gpu_node_counts_cache.get(cache_key)
@@ -555,9 +581,9 @@ def get_gpu_node_counts(mapping_id: str | None = None) -> dict[str, int]:
     for _key, proxmox in iter_connection_clients():
         try:
             if mapping_id:
-                raw_mappings.append(proxmox.cluster.mapping.pci(str(mapping_id)).get())
+                raw_mappings.append(get_pci_mapping(proxmox, str(mapping_id)))
             else:
-                raw_mappings.extend(proxmox.cluster.mapping.pci.get())
+                raw_mappings.extend(list_pci_mappings(proxmox))
         except Exception as e:
             logger.debug(
                 "GPU mapping node counts unavailable on connection %s: %s", _key, e
@@ -568,15 +594,7 @@ def get_gpu_node_counts(mapping_id: str | None = None) -> dict[str, int]:
 
     counts: dict[str, int] = {}
     for mapping in raw_mappings:
-        raw_maps = mapping.get("map", []) if isinstance(mapping, dict) else []
-        if isinstance(raw_maps, str):
-            raw_maps = [raw_maps]
-
-        parsed_maps = [
-            _parse_map_entry(raw_map)
-            for raw_map in raw_maps
-            if isinstance(raw_map, str)
-        ]
+        parsed_maps = _parse_mapping_maps(mapping)
 
         # 各節點的 VF/裝置插槽數與實體卡數（同 bus = 同一張卡）
         node_slots: dict[str, int] = {}
@@ -586,13 +604,7 @@ def get_gpu_node_counts(mapping_id: str | None = None) -> dict[str, int]:
             if not node:
                 continue
             node_slots[node] = node_slots.get(node, 0) + 1
-            path_parts = parsed.path.split(":")
-            bus_key = (
-                f"{path_parts[0]}:{path_parts[1]}"
-                if len(path_parts) >= 2
-                else parsed.path
-            )
-            node_buses.setdefault(node, set()).add(bus_key)
+            node_buses.setdefault(node, set()).add(_bus_key(parsed.path))
 
         # SR-IOV vGPU：插槽數再受 profile max-instances × 實體卡數限制。
         # map entry 不帶 mdev 旗標，一律探測 mdev endpoint（非 vGPU 裝置回空清單）
@@ -646,10 +658,12 @@ def get_gpu_used_slots_by_node(mapping_id: str | None = None) -> dict[str, int]:
 
 def get_gpu_mapping(mapping_id: str) -> GPUMappingDetail:
     """Get a single PCI mapping by ID (searched across all connections)."""
+    if not is_valid_mapping_id(mapping_id):
+        raise NotFoundError(f"GPU mapping '{mapping_id}' not found")
     mapping = None
     for _key, proxmox in iter_connection_clients():
         try:
-            mapping = proxmox.cluster.mapping.pci(mapping_id).get()
+            mapping = get_pci_mapping(proxmox, mapping_id)
             break
         except Exception as e:
             logger.debug(
@@ -659,16 +673,10 @@ def get_gpu_mapping(mapping_id: str) -> GPUMappingDetail:
         logger.error("Failed to get PCI mapping '%s'", mapping_id)
         raise NotFoundError(f"GPU mapping '{mapping_id}' not found")
 
-    description = mapping.get("description", "")
-    raw_maps = mapping.get("map", [])
-    if isinstance(raw_maps, str):
-        raw_maps = [raw_maps]
-
-    maps = [_parse_map_entry(m) for m in raw_maps if isinstance(m, str)]
     return _build_mapping_detail(
         mapping_id=mapping_id,
-        description=description,
-        maps=maps,
+        description=mapping.get("description", ""),
+        maps=_parse_mapping_maps(mapping),
         used_by=_build_usage_map().get(mapping_id, []),
         managed_vmids=_get_managed_vmids(),
     )
@@ -676,12 +684,10 @@ def get_gpu_mapping(mapping_id: str) -> GPUMappingDetail:
 
 def _mapping_target_node(map_entries: list[str]) -> str | None:
     """從 map entry（``node=pve1,path=...``）解析出目標節點名稱。"""
-    for entry in map_entries:
-        for part in str(entry).split(","):
-            key, _, value = part.partition("=")
-            if key.strip() == "node" and value.strip():
-                return value.strip()
-    return None
+    return next(
+        (m.node for m in (_parse_map_entry(str(e)) for e in map_entries) if m.node),
+        None,
+    )
 
 
 def create_gpu_mapping(
@@ -695,8 +701,11 @@ def create_gpu_mapping(
                 client for _key, client in iter_connection_clients()
             )
         )
-        proxmox.cluster.mapping.pci.post(
-            id=mapping_id, description=description, **{"map": map_entries}
+        create_pci_mapping(
+            proxmox,
+            mapping_id=mapping_id,
+            description=description,
+            map_entries=map_entries,
         )
     except Exception as e:
         logger.error("Failed to create PCI mapping '%s': %s", mapping_id, e)
@@ -704,22 +713,47 @@ def create_gpu_mapping(
 
 
 def delete_gpu_mapping(mapping_id: str) -> None:
-    """Delete a PCI resource mapping（逐一連線尋找並刪除）。"""
-    deleted = False
+    """Delete a PCI resource mapping（只刪擁有該 id 的那一個連線）。
+
+    mapping id 只在單一叢集內唯一；兩個連線可能都有 ``gpu0``。以前逐一連線
+    全部 delete，會連帶刪掉另一個叢集的 mapping，讓那邊的直通 VM 開不了機。
+    所以先找出哪些連線有這個 id：剛好一個才刪，多個就拒絕。
+    """
+    if not is_valid_mapping_id(mapping_id):
+        raise NotFoundError(f"GPU mapping '{mapping_id}' not found")
+
+    owners: list[tuple[Any, Any]] = []
     last_error: Exception | None = None
     for _key, proxmox in iter_connection_clients():
         try:
-            proxmox.cluster.mapping.pci(mapping_id).delete()
-            deleted = True
+            get_pci_mapping(proxmox, mapping_id)
         except Exception as e:
             last_error = e
             logger.debug(
-                "PCI mapping '%s' delete skipped on connection %s: %s",
+                "PCI mapping '%s' not found on connection %s: %s",
                 mapping_id, _key, e,
             )
-    if not deleted:
+            continue
+        owners.append((_key, proxmox))
+
+    if len(owners) > 1:
+        raise ConflictError(
+            f"GPU mapping '{mapping_id}' exists on {len(owners)} Proxmox "
+            "connections; refusing to delete it on all of them"
+        )
+    if not owners:
         logger.error("Failed to delete PCI mapping '%s': %s", mapping_id, last_error)
         raise ProxmoxError(f"Failed to delete GPU mapping: {last_error}")
+
+    owner_key, proxmox = owners[0]
+    try:
+        delete_pci_mapping(proxmox, mapping_id)
+    except Exception as e:
+        logger.error(
+            "Failed to delete PCI mapping '%s' on connection %s: %s",
+            mapping_id, owner_key, e,
+        )
+        raise ProxmoxError(f"Failed to delete GPU mapping: {e}")
 
 
 def _cluster_nodes_for_node(node: str | None) -> set[str] | None:
@@ -785,6 +819,51 @@ def list_gpu_options(node: str | None = None) -> list[GPUSummary]:
     return options
 
 
+def apply_reservation_window(
+    session: Session,
+    options: list[GPUSummary],
+    *,
+    start_at: datetime,
+    end_at: datetime,
+) -> list[GPUSummary]:
+    """把時段內「已核准但尚未開機」的申請預留扣進 GPU 可用量。
+
+    已 provision（有 vmid）的申請已經反映在 PVE 的實際使用量裡，不再重複扣。
+    used_count 上限用 capacity_count（SR-IOV vGPU 一張卡可切多份），沒有才退回
+    device_count；時段無效（結束早於開始）時原樣回傳。
+    """
+    if end_at <= start_at:
+        return options
+
+    overlapping = vm_request_repo.get_approved_vm_requests_overlapping_window(
+        session=session,
+        window_start=start_at,
+        window_end=end_at,
+    )
+    reserved_counts = Counter(
+        str(item.gpu_mapping_id)
+        for item in overlapping
+        if item.gpu_mapping_id and item.vmid is None
+    )
+
+    adjusted: list[GPUSummary] = []
+    for option in options:
+        reserved = int(reserved_counts.get(option.mapping_id, 0))
+        if reserved <= 0:
+            adjusted.append(option)
+            continue
+        capacity = option.capacity_count or option.device_count
+        adjusted.append(
+            option.model_copy(
+                update={
+                    "used_count": min(capacity, option.used_count + reserved),
+                    "available_count": max(0, option.available_count - reserved),
+                }
+            )
+        )
+    return adjusted
+
+
 def _scan_usage_map() -> dict[str, list[GPUUsageInfo]]:
     """Scan all VMs to find which ones are using PCI resource mappings.
 
@@ -798,7 +877,7 @@ def _scan_usage_map() -> dict[str, list[GPUUsageInfo]]:
     for _key, proxmox in iter_connection_clients():
         try:
             all_resources.extend(
-                (r, proxmox) for r in proxmox.cluster.resources.get(type="vm")
+                (r, proxmox) for r in list_cluster_vm_resources(proxmox)
             )
         except Exception as e:
             logger.warning(
@@ -821,7 +900,7 @@ def _scan_usage_map() -> dict[str, list[GPUUsageInfo]]:
     def fetch(item: tuple[dict[str, Any], Any]) -> tuple[dict[str, Any], dict | None]:
         resource, proxmox = item
         try:
-            config = proxmox.nodes(resource["node"]).qemu(resource["vmid"]).config.get()
+            config = get_qemu_config_via(proxmox, resource["node"], resource["vmid"])
         except Exception:
             return resource, None
         return resource, config

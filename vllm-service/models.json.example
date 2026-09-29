@@ -19,8 +19,6 @@
     "enable_chunked_prefill": true,
     "long_prefill_token_threshold": 4096,
     "enable_request_id_headers": true,
-    "gateway_max_inflight": 6,
-    "gateway_queue_timeout": 30,
     "litellm": {
       "rpm": 10
     },
@@ -53,8 +51,6 @@
     "enable_chunked_prefill": true,
     "long_prefill_token_threshold": 4096,
     "enable_request_id_headers": true,
-    "gateway_max_inflight": 6,
-    "gateway_queue_timeout": 30,
     "litellm": {
       "rpm": 10
     },

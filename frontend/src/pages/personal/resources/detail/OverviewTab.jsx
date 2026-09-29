@@ -1,6 +1,6 @@
 /**
  * OverviewTab — 總覽
- * 身分卡（名稱、狀態、位置、標籤）＋ 四格資源指標（CPU／記憶體／磁碟／運行時間，
+ * 身分卡（名稱、狀態、位置）＋ 四格資源指標（CPU／記憶體／磁碟／運行時間，
  * 執行中每 10 秒更新即時用量）＋ 環境資訊、連線與憑證、來源範本的使用手冊。
  */
 
@@ -13,6 +13,10 @@ import MIcon from "../../../../components/MIcon";
 import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 import KpiCard from "./KpiCard";
 import { coreSegments, gbSegments } from "./kpiBar";
+/* 自動關機原因與日期格式和進階設定的 LifecycleCard 共用 */
+import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime } from "./lifecycleFormat";
+/* 到期天數與首頁終端機卡片共用同一份計算 */
+import { daysUntil } from "../../dashboard/terminalLines";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
@@ -20,6 +24,7 @@ import useAutoRefresh from "../../../../hooks/useAutoRefresh";
 import { ResourcesService } from "../../../../services/resources";
 import { downloadBlob, isNotFound } from "../../../../services/api";
 import { useToast } from "../../../../hooks/useToast";
+import { canTeachUser } from "../../../../utils/roles";
 
 const STATUS_META = {
   running: { labelKey: "OverviewTab.statusRunning", tone: "success" },
@@ -38,14 +43,6 @@ const ROLE_KEYS = {
   class_member: "OverviewTab.roleClassMember",
   class_teacher: "OverviewTab.roleClassTeacher",
   admin: "OverviewTab.roleAdmin",
-};
-
-/* 與進階設定的 LifecycleCard 共用同一組原因文案 */
-const AUTO_STOP_REASON_KEYS = {
-  window_grace: "LifecycleCard.reasonWindowGrace",
-  practice_quota: "LifecycleCard.reasonPracticeQuota",
-  ttl_expired: "LifecycleCard.reasonTtlExpired",
-  idle: "LifecycleCard.reasonIdle",
 };
 
 const LIVE_INTERVAL = 10_000;
@@ -79,31 +76,6 @@ function formatUptime(seconds, t) {
   if (days > 0) return t("OverviewTab.uptimeDays", { days, hours });
   if (hours > 0) return t("OverviewTab.uptimeHours", { hours, minutes });
   return t("OverviewTab.uptimeMinutes", { minutes });
-}
-
-/* expiry_date 是純日期字串（YYYY-MM-DD）；用本地時區拆解，避免 UTC 解析在時區邊界差一天 */
-function parseDateOnly(value) {
-  const [y, m, d] = String(value).slice(0, 10).split("-").map(Number);
-  return y && m && d ? new Date(y, m - 1, d) : new Date(value);
-}
-
-function daysUntil(dateStr) {
-  const target = parseDateOnly(dateStr);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86400000);
-}
-
-function formatDate(value, lang) {
-  if (!value) return null;
-  return parseDateOnly(value).toLocaleDateString(lang, { year: "numeric", month: "2-digit", day: "2-digit" });
-}
-
-function formatDateTime(value, lang) {
-  if (!value) return null;
-  return new Date(value).toLocaleString(lang, {
-    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-  });
 }
 
 /* ── sub-components ── */
@@ -177,7 +149,7 @@ export default function OverviewTab({ vmid, access = null }) {
   const toast = useToast();
   const { user } = useAuth();
   /* VMID 是系統內部編號，僅管理員／老師看得到 */
-  const showVmid = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
+  const showVmid = canTeachUser(user);
 
   const [resource, setResource] = useState(null);
   const [live, setLive] = useState(null);
@@ -204,7 +176,8 @@ export default function OverviewTab({ vmid, access = null }) {
       .then((r) => {
         if (cancelled) return;
         setResource(r);
-        if (r.ssh_public_key || r.has_login_password) {
+        /* 被分享的使用者拿不到擁有者的憑證（端點只給擁有者），不要去抓，免得顯示成載入錯誤 */
+        if (r.access_role !== "shared" && (r.ssh_public_key || r.has_login_password)) {
           ResourcesService.getSshKey(vmid)
             .then((k) => !cancelled && setSshKey(k))
             .catch(() => !cancelled && setSshKeyError(true));
@@ -317,6 +290,8 @@ export default function OverviewTab({ vmid, access = null }) {
   const reasonKey = resource.auto_stop_reason ? AUTO_STOP_REASON_KEYS[resource.auto_stop_reason] : null;
   const roleKey = ROLE_KEYS[resource.access_role] ?? ROLE_KEYS.owner;
   const hasCredentials = Boolean(sshKey?.login_password || resource.ssh_public_key);
+  /* 被分享者只看連線資訊，密碼／金鑰列與「無憑證」提示都不顯示 */
+  const isShared = resource.access_role === "shared";
 
   return (
     <div className={styles.tabStack}>
@@ -630,6 +605,7 @@ export default function OverviewTab({ vmid, access = null }) {
                   ))}
                 </InfoRow>
               )}
+              {!isShared && <>
               {sshKey?.login_password ? (
                 <SecretRow
                   label={t("OverviewTab.passwordLabel")}
@@ -688,6 +664,7 @@ export default function OverviewTab({ vmid, access = null }) {
               {sshKeyError
                 ? <p className={ov.emptyNote}>{t("Error.generic", { ns: "common" })}</p>
                 : !hasCredentials && <p className={ov.emptyNote}>{t("OverviewTab.noCredentials")}</p>}
+              </>}
             </div>
           </div>
         </section>

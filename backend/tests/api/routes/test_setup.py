@@ -220,7 +220,9 @@ def test_proxmox_test_lists_nodes_and_merges_shared_storage(
             "app.services.system.setup_service.fetch_cluster_nodes",
             return_value=fake_nodes,
         ),
-        patch("proxmoxer.ProxmoxAPI", return_value=api),
+        patch(
+            "app.services.system.setup_service.open_client", return_value=api
+        ),
     ):
         r = client.post(
             f"{API}/proxmox/test",

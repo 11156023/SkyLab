@@ -37,7 +37,6 @@ from app.services.vm import spec_change_service
 from app.utils.token import (
     decode_password_reset_token,
     generate_password_reset_token,
-    verify_password_reset_token,
 )
 
 _USER_ID = uuid.uuid4()
@@ -157,7 +156,6 @@ async def test_refresh_access_token_first_exchange_succeeds_and_records_use(
 def test_password_reset_token_carries_token_version() -> None:
     token = generate_password_reset_token(email="user@example.com", token_version=3)
     assert decode_password_reset_token(token) == ("user@example.com", 3)
-    assert verify_password_reset_token(token) == "user@example.com"
 
 
 def test_reset_password_rejects_token_issued_before_version_bump(
@@ -294,11 +292,9 @@ def test_publish_target_rejects_special_addresses(ip: str) -> None:
         validate_publish_target_ip(ip)
 
 
-def test_publish_target_rejects_infrastructure_and_blocked_ranges() -> None:
+def test_publish_target_rejects_infrastructure_ips() -> None:
     with pytest.raises(BadRequestError):
         validate_publish_target_ip("10.10.0.1", blocked_ips=["10.10.0.1"])
-    with pytest.raises(BadRequestError):
-        validate_publish_target_ip("192.168.100.125", blocked_cidrs=["192.168.100.0/24"])
 
 
 def test_publish_target_enforces_vm_subnet_when_configured() -> None:

@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.exceptions import NotFoundError
 from app.models import MiningIncident, MiningIncidentStatus
 
-_OPEN_STATUSES = (MiningIncidentStatus.detected, MiningIncidentStatus.suspended)
+# 未結案（待管理員審核）的事件狀態；TTL、閒置偵測、資源告警與重複偵測共用這一份。
+OPEN_STATUSES = (MiningIncidentStatus.detected, MiningIncidentStatus.suspended)
 
 
 def create_incident(
@@ -53,11 +54,19 @@ def has_open_incident(*, session: Session, vmid: int) -> bool:
         select(MiningIncident.id)
         .where(
             MiningIncident.vmid == vmid,
-            MiningIncident.status.in_(_OPEN_STATUSES),  # type: ignore[attr-defined]
+            col(MiningIncident.status).in_(OPEN_STATUSES),
         )
         .limit(1)
     )
     return session.exec(stmt).first() is not None
+
+
+def list_open_incident_vmids(*, session: Session) -> set[int]:
+    """有未結案挖礦事件（detected／suspended）的 vmid（單次查詢）。"""
+    rows = session.exec(
+        select(MiningIncident.vmid).where(col(MiningIncident.status).in_(OPEN_STATUSES))
+    ).all()
+    return {int(vmid) for vmid in rows if vmid is not None}
 
 
 def list_incidents(

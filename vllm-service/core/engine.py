@@ -15,6 +15,7 @@ from typing import IO
 
 import httpx
 
+from config.multi_model import probe_host
 from config.settings import Settings, get_settings
 
 _VLLM_ENV_VARS_TO_STRIP = {
@@ -47,7 +48,7 @@ class VLLMEngine:
 
     @property
     def base_url(self) -> str:
-        return f"http://{self.settings.api_host}:{self.settings.api_port}"
+        return f"http://{probe_host(self.settings.api_host)}:{self.settings.api_port}"
 
     @property
     def health_url(self) -> str:
@@ -69,7 +70,7 @@ class VLLMEngine:
 
         print(f"[Engine] 啟動指令: {' '.join(cmd)}")
         print(f"[Engine] 模型路徑: {self.settings.resolved_model_path}")
-        print(f"[Engine] 監聽地址: {self.base_url}")
+        print(f"[Engine] 監聽地址: {self.settings.api_host}:{self.settings.api_port}")
 
         # 明確傳遞環境變數到子進程
         env = os.environ.copy()
@@ -183,24 +184,6 @@ class VLLMEngine:
         self.stop()
         raise TimeoutError(error_msg)
 
-    def probe_ready(self, timeout: float = 5.0) -> bool:
-        """非阻塞檢查服務是否已就緒（health + models）。"""
-        if self._process is None or self._process.poll() is not None:
-            return False
-        try:
-            client = self._get_http_client()
-            health_resp = client.get(self.health_url, timeout=timeout)
-            if health_resp.status_code != 200:
-                return False
-            models_resp = client.get(
-                self.models_url,
-                headers={"Authorization": f"Bearer {self.settings.api_key}"},
-                timeout=timeout,
-            )
-            return models_resp.status_code == 200
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPError):
-            return False
-
     def stop(self) -> None:
         """停止 vLLM 伺服器（改進的進程管理）"""
         # 關閉 HTTP 客戶端連線池
@@ -272,17 +255,6 @@ class VLLMEngine:
         except (httpx.ConnectError, httpx.ReadTimeout):
             return False
 
-    def get_models(self) -> dict:
-        """取得已載入的模型列表"""
-        client = self._get_http_client()
-        resp = client.get(
-            self.models_url,
-            headers={"Authorization": f"Bearer {self.settings.api_key}"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json()
-
     def print_status(self) -> None:
         """輸出伺服器狀態"""
         running = self.is_running()
@@ -298,23 +270,3 @@ class VLLMEngine:
         print(f"  併發數:   {self.settings.max_num_seqs}")
         print(f"  GPU利用:  {self.settings.gpu_memory_utilization}")
         print(f"{'='*60}\n")
-
-
-def run_server() -> None:
-    """直接運行 vLLM 伺服器 (阻塞式)"""
-    engine = VLLMEngine()
-    engine.print_status()
-
-    try:
-        engine.start(wait_ready=True)
-        # 保持主程序，直到收到中斷信號
-        if engine._process:
-            engine._process.wait()
-    except KeyboardInterrupt:
-        print("\n[Engine] 收到中斷信號")
-    finally:
-        engine.stop()
-
-
-if __name__ == "__main__":
-    run_server()

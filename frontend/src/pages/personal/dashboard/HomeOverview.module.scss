@@ -77,7 +77,7 @@
   font-size: $font-size-14;
   text-align: left;
   cursor: pointer;
-  /* 可點卡片：hover 只加深陰影並微上浮，不改框色（同 HomeCard .clickable） */
+  /* 可點卡片：hover 只加深陰影並微上浮，不改框色 */
   transition: transform $transition-base, box-shadow $transition-base;
 
   &:hover {

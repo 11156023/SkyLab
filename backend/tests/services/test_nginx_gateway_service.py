@@ -245,19 +245,30 @@ def _patch_exec(monkeypatch: pytest.MonkeyPatch, results: list[tuple[int, str, s
     monkeypatch.setattr(nginx, "_exec", fake_exec)
 
 
+def _fixed_token(monkeypatch: pytest.MonkeyPatch, token: str = "abc123") -> None:
+    class _Uuid:
+        hex = token
+
+    monkeypatch.setattr(nginx.uuid, "uuid4", lambda: _Uuid())
+
+
 def test_write_validated_config_validates_then_reloads(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _FakeClient()
     _patch_exec(monkeypatch, [(0, "syntax is ok", "")], client)
+    _fixed_token(monkeypatch)
 
     nginx.write_validated_config(client, nginx.NGINX_STREAM_CONF_PATH, "server {}\n")
 
-    assert client.files == {f"{nginx.NGINX_STREAM_CONF_PATH}.SkyLab.tmp": b"server {}\n"}
+    assert client.files == {
+        f"{nginx.NGINX_STREAM_CONF_PATH}.SkyLab.abc123.tmp": b"server {}\n"
+    }
     command = client.commands[0]
     assert "nginx -t" in command
     assert "systemctl reload nginx" in command
     # 先備份、驗證失敗才還原：兩條路徑都要在同一條指令裡
-    assert f"cp -a {nginx.NGINX_STREAM_CONF_PATH} {nginx.NGINX_STREAM_CONF_PATH}.SkyLab.prev" in command
-    assert f"mv -f {nginx.NGINX_STREAM_CONF_PATH}.SkyLab.prev {nginx.NGINX_STREAM_CONF_PATH}" in command
+    prev = f"{nginx.NGINX_STREAM_CONF_PATH}.SkyLab.abc123.prev"
+    assert f"cp -a {nginx.NGINX_STREAM_CONF_PATH} {prev}" in command
+    assert f"mv -f {prev} {nginx.NGINX_STREAM_CONF_PATH}" in command
 
 
 def test_write_validated_config_without_reload_skips_reload(monkeypatch: pytest.MonkeyPatch) -> None:

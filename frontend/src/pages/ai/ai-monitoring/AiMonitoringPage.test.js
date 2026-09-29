@@ -1,14 +1,13 @@
 import { describe, expect, test } from "vitest";
+import { buildAttentionItems, mergeModelRows } from "./AiMonitoringPage";
 import {
-  buildAttentionItems,
   formatDuration,
   formatModelDisplay,
   formatTokenRate,
   formatTokens,
   isOkStatus,
-  mergeModelRows,
   presetToBucket,
-} from "./AiMonitoringPage";
+} from "../aiFormat";
 
 const t = (key, values = {}) => `${key}:${JSON.stringify(values)}`;
 

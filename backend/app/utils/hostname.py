@@ -77,3 +77,18 @@ def to_punycode_hostname(hostname: str) -> str:
             "Encoded hostname exceeds 253 characters after Punycode conversion"
         )
     return encoded_hostname
+
+
+def from_punycode_hostname(hostname: str) -> str:
+    """將 Punycode（xn--）hostname 轉回 Unicode 顯示；無法解碼的 label 原樣保留。"""
+    result_labels = []
+    for label in hostname.split("."):
+        if label.lower().startswith("xn--"):
+            try:
+                result_labels.append(label[4:].encode("ascii").decode("punycode"))
+            except Exception as e:
+                logger.debug("Punycode decode failed for label %s: %s", label, e)
+                result_labels.append(label)
+        else:
+            result_labels.append(label)
+    return ".".join(result_labels)

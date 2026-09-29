@@ -158,7 +158,7 @@ JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 `capabilities` 是描述資料，仍需模型及 vLLM parser 實際支援才能啟用工具、推理或多模態功能。
 
 本機 launcher 會略過 `remote`，不消耗本機 GPU。全遠端部署不需跑 cluster launcher。
-舊備援 Gateway 只使用本機 launcher 路由，遠端路由由 LiteLLM 管理。
+本機與遠端模型的路由都由 LiteLLM 管理。
 
 ## 4. 正式啟動與既有獨立 gateway 接管
 
@@ -274,7 +274,7 @@ Campus 請求量／錯誤／延遲、LiteLLM 與 vLLM 引擎指標；vLLM 的抓
 
 退回獨立部署：先在 root `docker compose stop litellm`，再從
 `vllm-service/litellm/` 執行 `docker compose up -d`。使用同一份 DB URL、salt 與 config。
-回退到舊 Gateway 是不同操作，舊 Gateway 不提供同樣的 LiteLLM 管理與遠端路由能力。
+LiteLLM 是唯一的 AI API gateway；早期自寫的 FastAPI Gateway 已移除，沒有其他回退入口。
 
 ## 6. 一般使用者申請與呼叫 API
 

@@ -117,10 +117,6 @@
   @include btn-primary;
 }
 
-.btnDanger {
-  @include btn-danger;
-}
-
 /* ── 分頁列：左分頁、右連線狀態 ── */
 .tabsRow {
   display: flex;

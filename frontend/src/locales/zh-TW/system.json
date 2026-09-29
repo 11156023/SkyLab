@@ -56,6 +56,7 @@
   "AdminPage.toastDeleted": "使用者已刪除",
   "AdminPage.toastSaveFailed": "儲存失敗",
   "AdminPage.toastUpdated": "使用者已更新",
+  "AdminPage.selfEditLockedHint": "不能變更自己的角色或停用自己的帳號",
   "AuditPage.allActions": "全部操作",
   "AuditPage.allUsers": "全部使用者",
   "AuditPage.clear": "清除",
@@ -477,6 +478,7 @@
   "MiningIncidentsPanel.toastDismissed": "已解除事件",
   "MiningIncidentsPanel.toastDismissedAndRecovered": "已解除事件並嘗試恢復 VM",
   "MiningIncidentsPanel.unknownError": "未知錯誤",
+  "MiningIncidentsPanel.toastDismissedWithWarnings": "已解除事件，但部分處置失敗：{{message}}",
   "MonitoringPage.acknowledge": "確認",
   "MonitoringPage.acknowledged": "已確認",
   "MonitoringPage.activeAlertsDesc": "資源用量超過閾值與平台健康異常的警告（每 30 秒更新）",
@@ -727,6 +729,9 @@
   "SettingsPage.userPriorityTitle": "使用者優先度",
   "SettingsPage.verifySslCert": "驗證 SSL 憑證",
   "SettingsPage.windowGracePeriodMinutes": "時段寬限（分）",
+  "SettingsPage.forceDeleteConnectionTitle": "強制刪除 PVE 連線",
+  "SettingsPage.forceDeleteConnectionMessage": "{{reason}}\n\n如果確定「{{name}}」這個 PVE 已經永久停用、底下不會再有機器，可以略過檢查強制刪除。若它其實還有 SkyLab 管理的機器，這些機器之後將無法再從 SkyLab 操作。此動作會記錄在稽核日誌。",
+  "SettingsPage.forceDeleteConnectionConfirm": "強制刪除",
   "SubnetConfigForm.bridgeName": "Bridge 名稱 *",
   "SubnetConfigForm.bridgeNamePlaceholder": "例：vmbr1",
   "SubnetConfigForm.cancel": "取消",
@@ -760,5 +765,6 @@
   "DomainPage.managedBySystem": "本系統 · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "由本系統的對外網址功能建立（VM {{vmid}}）",
   "DomainPage.externalRecord": "外部建立",
-  "DomainPage.externalRecordHint": "不是本系統建立的紀錄（在 Cloudflare 或其他地方手動加的）"
+  "DomainPage.externalRecordHint": "不是本系統建立的紀錄（在 Cloudflare 或其他地方手動加的）",
+  "DomainPage.recordPriority": "優先順序"
 }

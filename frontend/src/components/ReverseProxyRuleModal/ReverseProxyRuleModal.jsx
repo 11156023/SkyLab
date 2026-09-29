@@ -1,44 +1,19 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./ReverseProxyRuleModal.module.scss";
-import MIcon from "../MIcon";
 import Modal from "../Modal/Modal";
 import { useToast } from "../../hooks/useToast";
 import { ResourcesService } from "../../services/resources";
-
-/* label 是模組層級常數，無法呼叫 hook，改存 labelKey，實際 render 處再 t() */
-export const COMMON_PORTS = [
-  { value: "80", labelKey: "ReverseProxyRuleModal.port80" },
-  { value: "443", labelKey: "ReverseProxyRuleModal.port443" },
-  { value: "3000", labelKey: "ReverseProxyRuleModal.port3000" },
-  { value: "5000", labelKey: "ReverseProxyRuleModal.port5000" },
-  { value: "8000", labelKey: "ReverseProxyRuleModal.port8000" },
-  { value: "8080", labelKey: "ReverseProxyRuleModal.port8080" },
-  { value: "8888", labelKey: "ReverseProxyRuleModal.port8888" },
-];
-
-export function findZoneByDomain(domain, zones = []) {
-  return [...zones]
-    .sort((a, b) => b.name.length - a.name.length)
-    .find((zone) => domain === zone.name || domain.endsWith(`.${zone.name}`));
-}
-
-export function extractHostnamePrefix(domain, zoneName) {
-  if (domain === zoneName) return "";
-  const suffix = `.${zoneName}`;
-  return domain.endsWith(suffix) ? domain.slice(0, -suffix.length) : domain;
-}
+import { COMMON_PORTS, extractHostnamePrefix, findZoneByDomain } from "./domainHelpers";
 
 /**
- * 反向代理規則建立／編輯 Modal（共用元件）。
- * - 全域反向代理頁：不帶 fixedResource，顯示 VM 下拉選單。
- * - 資源詳情頁：帶 fixedResource（{ vmid, name }），鎖定綁定的 VM。
+ * 反向代理規則建立／編輯 Modal（網域管理頁的反向代理分頁使用）。
+ * 開啟時載入使用者可見的機器清單（管理員為全部機器）供下拉選擇綁定的 VM。
  */
 export default function ReverseProxyRuleModal({
   rule,
   setupContext,
   isAdmin = false,
-  fixedResource = null,
   loading,
   onClose,
   onSubmit,
@@ -55,13 +30,9 @@ export default function ReverseProxyRuleModal({
     : null;
 
   const [resources, setResources] = useState([]);
-  const [loadingResources, setLoadingResources] = useState(!fixedResource);
+  const [loadingResources, setLoadingResources] = useState(true);
   const [form, setForm] = useState({
-    vmid: rule
-      ? String(rule.vmid)
-      : fixedResource
-        ? String(fixedResource.vmid)
-        : "",
+    vmid: rule ? String(rule.vmid) : "",
     zoneId: matchedZone?.id ?? zones[0]?.id ?? "",
     hostnamePrefix: rule
       ? matchedZone
@@ -75,13 +46,12 @@ export default function ReverseProxyRuleModal({
   });
 
   useEffect(() => {
-    if (fixedResource) return;
     const fetcher = isAdmin ? ResourcesService.listAll() : ResourcesService.list();
     fetcher
       .then((res) => setResources(Array.isArray(res) ? res : res?.data ?? []))
       .catch(() => {})
       .finally(() => setLoadingResources(false));
-  }, [isAdmin, fixedResource]);
+  }, [isAdmin]);
 
   function set(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -159,17 +129,6 @@ export default function ReverseProxyRuleModal({
       )}
 
       <div data-guide="proxy-rule-resource">
-      {fixedResource ? (
-        <div className={styles.field}>
-          <span>{t("ReverseProxyRuleModal.boundVm")}</span>
-          <div className={styles.fixedVm}>
-            <MIcon name="dns" size={16} />
-            {fixedResource.name
-              ? `${fixedResource.name}（VM ${fixedResource.vmid}）`
-              : `VM ${fixedResource.vmid}`}
-          </div>
-        </div>
-      ) : (
         <label className={styles.field}>
           <span>{t("ReverseProxyRuleModal.selectYourVm")}</span>
           <select value={form.vmid} onChange={(e) => set("vmid", e.target.value)}>
@@ -184,7 +143,6 @@ export default function ReverseProxyRuleModal({
             <em className={styles.fieldHint}>{t("ReverseProxyRuleModal.noVmHint")}</em>
           )}
         </label>
-      )}
       </div>
 
       <div className={styles.fieldRow} data-guide="proxy-rule-domain">
@@ -228,7 +186,15 @@ export default function ReverseProxyRuleModal({
         <button
           type="button"
           className={styles.linkBtn}
-          onClick={() => set("useCustomPort", !form.useCustomPort)}
+          onClick={() =>
+            /* 編輯非常用埠的規則時 port 起始為空字串；切回常用埠要補上下拉實際顯示的值，
+               否則畫面顯示 80、送出卻是 0 */
+            setForm((prev) => ({
+              ...prev,
+              useCustomPort: !prev.useCustomPort,
+              port: prev.port || COMMON_PORTS[0].value,
+            }))
+          }
         >
           {form.useCustomPort ? t("ReverseProxyRuleModal.backToCommonPorts") : t("ReverseProxyRuleModal.portNotListed")}
         </button>

@@ -12,6 +12,8 @@ import { focusInvalidField } from "../../../utils/focusField";
 import { joinList } from "../../../utils/joinList";
 import { uploadSequentially } from "../../../utils/uploadSequentially";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
+import { isAdminUser } from "../../../utils/roles";
+import { formatBytes } from "./templateFormat";
 
 const CORE_MIN = 1;
 const CORE_MAX = 8;
@@ -32,12 +34,6 @@ const fileExt = (name) => {
   return idx >= 0 ? String(name).slice(idx).toLowerCase() : "";
 };
 
-const formatBytes = (bytes) => {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-};
-
 /**
  * 建立（從 VM 轉換）或編輯範本的 dialog。
  * template 有值 = 編輯模式。
@@ -49,7 +45,7 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   const confirm = useConfirm();
   const { user } = useAuth();
   const isEdit = Boolean(template);
-  const isAdmin = user?.role === "admin" || user?.is_superuser === true;
+  const isAdmin = isAdminUser(user);
 
   const [sourceVmid, setSourceVmid] = useState("");
   const [invalid, setInvalid] = useState("");

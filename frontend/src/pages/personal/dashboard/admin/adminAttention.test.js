@@ -5,7 +5,6 @@ import {
   buildTodayRows,
   buildUrgentRows,
   describeInfraProblem,
-  formatCheckedAt,
   issueKeys,
   mergeInfraProblems,
   resourcePath,
@@ -19,14 +18,6 @@ describe("resourcePath", () => {
     expect(resourcePath({ scope: "lxc", vmid: 202 })).toBe("/resource-mgmt/202");
     expect(resourcePath({ scope: "node", target: "pve02" })).toBe("/monitoring");
     expect(resourcePath({ scope: "qemu", target: "vm-no-id" })).toBe("/monitoring");
-  });
-});
-
-describe("formatCheckedAt", () => {
-  it("shows a 24-hour clock and refuses unparseable input", () => {
-    expect(formatCheckedAt("2026-09-08T06:32:18.000Z", "en-US")).toMatch(/\d{2}:\d{2}:\d{2}/);
-    expect(formatCheckedAt(null, "en-US")).toBe("—");
-    expect(formatCheckedAt("not-a-date", "en-US")).toBe("—");
   });
 });
 
@@ -118,6 +109,21 @@ describe("describeInfraProblem", () => {
       { source: "issue", kind: "node_overloaded", signals: [{ metric: "cpu", value: 97.2 }] },
       t,
     )).toBe("AdminDashboardPage.pveMetriccpu 97%");
+  });
+
+  it("shows the backend message for a platform-health alert instead of a fake percentage", () => {
+    const [row] = mergeInfraProblems([], [{
+      id: "h1", scope: "system", target: "component:worker", metric: "health",
+      value: 0, threshold: 1, message: "Worker down",
+    }]);
+    const text = describeInfraProblem(row, t);
+    expect(text).toBe("Worker down");
+    expect(text).not.toContain("pveMetric");
+  });
+
+  it("falls back to a generic label when a platform-health alert has no message", () => {
+    expect(describeInfraProblem({ source: "alert", scope: "system", metric: "health", value: 3, threshold: 3 }, t))
+      .toBe("AdminDashboardPage.systemHealthAlert");
   });
 });
 

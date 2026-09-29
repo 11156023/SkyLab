@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import styles from "./TemplatesPage.module.scss";
 
-export function useTemplateStatusLabel() {
+function useTemplateStatusLabel() {
   const { t } = useTranslation("resource");
   return {
     creating: t("TemplateBadges.statusCreating"),

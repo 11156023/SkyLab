@@ -3,8 +3,8 @@
  * Props:
  *   draft         { resource_type, cores, memory, disk_size?, rootfs_size?, gpu_required?, gpu_mapping_id? }
  *   startAt/endAt Current form range; keeps direct input, AI import, and calendar selection in sync
- *   onChange      ({ start_at: string|null, end_at: string|null }) => void
- *   onHintChange  (hint: string|null) => void  — contextual UX hint for the parent to display
+ *   onChange      ({ start_at: string|null, end_at: string|null }) => void  — fired only on calendar clicks
+ *   onDataChange  (data: object|null) => void  — latest availability preview (or null) for the parent
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -67,7 +67,7 @@ function cacheAvailability(key, data) {
   }
 }
 
-export default function AvailabilityPanel({ draft, startAt, endAt, onChange, onHintChange, onDataChange }) {
+export default function AvailabilityPanel({ draft, startAt, endAt, onChange, onDataChange }) {
   const { t } = useTranslation("components");
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
@@ -97,9 +97,6 @@ export default function AvailabilityPanel({ draft, startAt, endAt, onChange, onH
 
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
-
-  const onHintChangeRef = useRef(onHintChange);
-  useEffect(() => { onHintChangeRef.current = onHintChange; }, [onHintChange]);
 
   const onDataChangeRef = useRef(onDataChange);
   useEffect(() => { onDataChangeRef.current = onDataChange; }, [onDataChange]);
@@ -271,15 +268,6 @@ export default function AvailabilityPanel({ draft, startAt, endAt, onChange, onH
     }
   }
 
-  useEffect(() => {
-    let hint = null;
-    if (!startDate) hint = t("AvailabilityPanel.hintPickStart");
-    else if (picking === PICK_EXTEND && startDate === endDate) hint = t("AvailabilityPanel.hintSingleDaySelected", { date: startDate });
-    else if (picking === PICK_IDLE && endDate)
-      hint = t("AvailabilityPanel.hintRangeSelected");
-    onHintChangeRef.current?.(hint);
-  }, [startDate, endDate, picking]); // eslint-disable-line react-hooks/exhaustive-deps
-
   /* ── Early returns ── */
   if (!draftReady) return (
     <div className={styles.root}>
@@ -345,7 +333,6 @@ export default function AvailabilityPanel({ draft, startAt, endAt, onChange, onH
             const level    = getDayLevel(dateStr);
             const isPast   = dateStr < todayStr;
             const unavailable = isPast || dateStr > maxDateStr || !level || level === "none";
-            const disabled = unavailable;
             const isStart   = dateStr === startDate;
             const isEnd     = dateStr === endDate;
             const inRange   = Boolean(startDate) && Boolean(effectiveEnd)
@@ -356,7 +343,6 @@ export default function AvailabilityPanel({ draft, startAt, endAt, onChange, onH
               styles.calendarDay,
               !unavailable && level === "good"    && styles.calendarDayGood,
               !unavailable && level === "limited" && styles.calendarDayLimited,
-              !unavailable && level === "none"    && styles.calendarDayNone,
               isStart                          && styles.calendarDayStart,
               isEnd                            && styles.calendarDayEnd,
               isStart && hasRange              && styles.calendarDayStartBar,
@@ -370,7 +356,7 @@ export default function AvailabilityPanel({ draft, startAt, endAt, onChange, onH
               <button
                 key={dateStr}
                 type="button"
-                disabled={disabled}
+                disabled={unavailable}
                 className={dayClass}
                 onClick={() => handleDayClick(dateStr, level)}
                 onMouseEnter={() => picking === PICK_EXTEND && setHoverDate(dateStr)}

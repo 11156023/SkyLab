@@ -10,15 +10,22 @@
 
 from __future__ import annotations
 
-from typing import Any
-
+from app.core.config import settings
+from app.core.logging import configure_logging
 from app.core.sentry import init_sentry
 from app.infrastructure.queue.arq_client import QUEUE_NAME, get_redis_settings
 from app.infrastructure.queue.modules import import_task_modules
 from app.infrastructure.queue.registry import registered_functions
 
-# worker 是獨立行程，不會經過 main.py：SENTRY_DSN 有設時這裡也要初始化，
-# 背景任務（克隆、轉範本…）的例外才收得到
+# worker 是獨立行程，不會經過 main.py 的 lifespan：日誌格式（JSON、檔案輪替）
+# 要在這裡設定，與 API 一致；SENTRY_DSN 有設時也要初始化，背景任務（克隆、
+# 轉範本…）的例外才收得到
+configure_logging(
+    level=settings.LOG_LEVEL,
+    json_output=settings.LOG_JSON,
+    log_dir=settings.LOG_DIR,
+    file_enabled=settings.LOG_FILE_ENABLED,
+)
 init_sentry("worker")
 import_task_modules()
 
@@ -44,11 +51,3 @@ class WorkerSettings:
     # 併發上限：避免同時打爆 PVE / DB 連線池
     max_jobs = 8
     health_check_interval = 60
-
-    @staticmethod
-    async def on_startup(ctx: dict[str, Any]) -> None:
-        pass
-
-    @staticmethod
-    async def on_shutdown(ctx: dict[str, Any]) -> None:
-        pass

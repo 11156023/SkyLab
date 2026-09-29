@@ -18,11 +18,6 @@ export const TemplatesService = {
     return apiGet("/api/v1/templates/catalog", options);
   },
 
-  /** 單一範本 */
-  get(templateId) {
-    return apiGet(`/api/v1/templates/${templateId}`);
-  },
-
   /** 把現有 VM/LXC 轉為範本（背景任務） */
   create(body) {
     return apiPost("/api/v1/templates/", body);
