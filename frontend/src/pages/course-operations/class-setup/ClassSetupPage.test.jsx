@@ -6,6 +6,15 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+const toast = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() }));
+vi.mock("../../../hooks/useToast", () => ({ useToast: () => toast }));
+vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => async () => true }));
+vi.mock("../../../contexts/UnsavedChangesContext", () => ({
+  useUnsavedChanges: () => ({ confirmLeave: async () => true }),
+  useUnsavedChangesGuard: () => {},
+}));
+
 import ClassSetupPage from "./ClassSetupPage";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
@@ -21,6 +30,7 @@ const tt = (key, options) => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  Object.values(toast).forEach((fn) => fn.mockClear());
 });
 
 function flush() {
@@ -82,6 +92,17 @@ function typeInto(textarea, value) {
 }
 
 describe("ClassSetupPage 學生名單", () => {
+  async function submitEmails(container, value) {
+    typeInto(container.querySelector("textarea"), value);
+    const nextButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes(tt("ClassSetupPage.saveAndNextBtn")));
+    await act(async () => {
+      nextButton.click();
+      await flush();
+      await flush();
+    });
+  }
+
   test("一位都沒加進來（全是非學生帳號）時停在第二步並說明原因", async () => {
     vi.spyOn(CourseEnvironmentsService, "listPublished").mockResolvedValue([]);
     vi.spyOn(TeachingClassesService, "get").mockResolvedValue(baseClass());
@@ -93,25 +114,17 @@ describe("ClassSetupPage 學生名單", () => {
     });
 
     const { container, cleanup } = await mount("/class-setup?classId=c1&step=2");
-    const textarea = container.querySelector("textarea");
-    typeInto(textarea, "teacher@example.edu");
-    const nextButton = [...container.querySelectorAll("button")]
-      .find((button) => button.textContent.includes(tt("ClassSetupPage.saveAndNextBtn")));
-    await act(async () => {
-      nextButton.click();
-      await flush();
-      await flush();
-    });
+    await submitEmails(container, "teacher@example.edu");
 
     expect(addStudents).toHaveBeenCalledWith("c1", ["teacher@example.edu"]);
     expect(currentSearch).toContain("step=2");
-    expect(container.textContent).toContain(tt("ClassWorkspacePage.invalidRoleList", { list: "teacher@example.edu" }));
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining(tt("ClassSetupPage.invalidRoleList", { list: "teacher@example.edu" })));
     expect(container.querySelector("textarea").getAttribute("aria-invalid")).toBe("true");
     expect(container.querySelector("textarea").value).toBe("teacher@example.edu");
     cleanup();
   });
 
-  test("有學生加入時照常前往下一步", async () => {
+  test("有帳號加不進去時也停在第二步：加成功的收進名單，輸入框只留加不進去的帳號", async () => {
     vi.spyOn(CourseEnvironmentsService, "listPublished").mockResolvedValue([]);
     vi.spyOn(TeachingClassesService, "get").mockResolvedValue(baseClass());
     vi.spyOn(TeachingClassesService, "addStudents").mockResolvedValue({
@@ -122,23 +135,36 @@ describe("ClassSetupPage 學生名單", () => {
     });
 
     const { container, cleanup } = await mount("/class-setup?classId=c1&step=2");
-    typeInto(container.querySelector("textarea"), "s1@example.edu teacher@example.edu");
-    const nextButton = [...container.querySelectorAll("button")]
-      .find((button) => button.textContent.includes(tt("ClassSetupPage.saveAndNextBtn")));
-    await act(async () => {
-      nextButton.click();
-      await flush();
-      await flush();
+    await submitEmails(container, "s1@example.edu teacher@example.edu");
+
+    expect(currentSearch).toContain("step=2");
+    expect(container.querySelector("textarea").value).toBe("teacher@example.edu");
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining(tt("ClassSetupPage.invalidRoleList", { list: "teacher@example.edu" })));
+    cleanup();
+  });
+
+  test("全部加入成功時照常前往下一步", async () => {
+    vi.spyOn(CourseEnvironmentsService, "listPublished").mockResolvedValue([]);
+    vi.spyOn(TeachingClassesService, "get").mockResolvedValue(baseClass());
+    vi.spyOn(TeachingClassesService, "addStudents").mockResolvedValue({
+      added: 1,
+      not_found: [],
+      invalid_role: [],
+      class: baseClass({ students: [{ id: "s1", email: "s1@example.edu" }] }),
     });
 
+    const { container, cleanup } = await mount("/class-setup?classId=c1&step=2");
+    await submitEmails(container, "s1@example.edu");
+
     expect(currentSearch).toContain("step=3");
-    expect(container.textContent).toContain(tt("ClassWorkspacePage.invalidRoleList", { list: "teacher@example.edu" }));
+    expect(toast.warning).not.toHaveBeenCalled();
     cleanup();
   });
 });
 
 describe("ClassSetupPage 確認建立", () => {
-  test("班級沒有學生時直接顯示未通過原因，不會一直停在預檢中", async () => {
+  /* 必要步驟沒完成時，網址直接指到第五步也會被拉回能到的最後一步，不會卡在容量預檢 */
+  test("班級沒有學生時拉回第二步，不做容量預檢", async () => {
     vi.spyOn(CourseEnvironmentsService, "listPublished").mockResolvedValue([]);
     vi.spyOn(TeachingClassesService, "get").mockResolvedValue(baseClass({ machine_nodes: [{ id: "n1", name: "Web" }] }));
     const capacityPreview = vi.spyOn(TeachingClassesService, "capacityPreview").mockResolvedValue({ ready: true });
@@ -147,13 +173,12 @@ describe("ClassSetupPage 確認建立", () => {
 
     expect(capacityPreview).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain(tt("ClassSetupPage.capacityChecking"));
-    expect(container.textContent).toContain(tt("ClassSetupPage.capacityNotReady"));
+    expect(container.textContent).toContain(tt("ClassSetupPage.step2Title"));
     expect(container.textContent).toContain(tt("ClassSetupPage.needAtLeastOneStudent"));
-    expect(container.textContent).not.toContain(tt("ClassWorkspacePage.noEnvSelected"));
     cleanup();
   });
 
-  test("班級尚未選環境時也直接列出原因", async () => {
+  test("班級尚未選環境時拉回第三步，不做容量預檢", async () => {
     vi.spyOn(CourseEnvironmentsService, "listPublished").mockResolvedValue([]);
     vi.spyOn(TeachingClassesService, "get").mockResolvedValue(baseClass({ students: [{ id: "s1", email: "s1@example.edu" }] }));
     const capacityPreview = vi.spyOn(TeachingClassesService, "capacityPreview").mockResolvedValue({ ready: true });
@@ -161,8 +186,8 @@ describe("ClassSetupPage 確認建立", () => {
     const { container, cleanup } = await mount("/class-setup?classId=c1&step=5");
 
     expect(capacityPreview).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(tt("ClassWorkspacePage.noEnvSelected"));
-    expect(container.textContent).toContain("尚未選擇課程環境");
+    expect(container.textContent).not.toContain(tt("ClassSetupPage.capacityChecking"));
+    expect(container.textContent).toContain(tt("ClassSetupPage.step3Title"));
     cleanup();
   });
 });

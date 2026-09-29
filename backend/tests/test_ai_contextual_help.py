@@ -370,7 +370,7 @@ _DERIVED_LABELS = frozenset({
     "待確認的問題", "批次刪除", "時數限制", "紀錄內容",
     "課程與練習", "調整原因",
     # Registered application state, not literal form labels (see useAiScreen callers).
-    "可選教學環境數量", "已保存學生人數", "已保存教學環境",
+    "可選教學環境數量", "已保存學生人數", "已保存教學環境", "班級已保存",
     "目前步驟", "目前分頁", "目前環境狀態", "發布後返回班級",
 })
 

@@ -97,12 +97,10 @@ export default function CrashState({ error, componentStack, onRetry, fullPage = 
         <p className={styles.desc}>{t("ErrorBoundary.desc")}</p>
 
         <div className={styles.actions}>
+          {/* 只留一顆：重試先重新掛載畫面，還是不行才整頁重新整理（ErrorBoundary.reset） */}
           <button type="button" className={styles.btnPrimary} onClick={onRetry}>
             <MIcon name="refresh" size={16} />
             {t("Error.retry")}
-          </button>
-          <button type="button" className={styles.btnSecondary} onClick={() => window.location.reload()}>
-            {t("ErrorBoundary.reload")}
           </button>
         </div>
 

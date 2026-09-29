@@ -40,7 +40,7 @@ afterEach(async () => {
 });
 
 function checkedLang() {
-  return host.querySelector('[role="radio"][aria-checked="true"]').getAttribute("lang");
+  return host.querySelector('button[aria-pressed="true"]').getAttribute("lang");
 }
 
 test("精靈語言選擇沿用 i18n 的 currentLanguage：支援的語言原樣勾選", async () => {

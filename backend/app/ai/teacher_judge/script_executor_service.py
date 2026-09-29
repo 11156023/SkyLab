@@ -14,7 +14,10 @@ from typing import Any, TypeVar
 
 from sqlmodel import Session, col, select
 
-from app.ai.teacher_judge.script_policy import validate_managed_script_output
+from app.ai.teacher_judge.script_policy import (
+    normalize_managed_script_checks,
+    validate_managed_script_output,
+)
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
 from app.core.db import engine
@@ -475,7 +478,17 @@ def _target_result(
     validation = dict(validate_managed_script_output(raw_result))
     parsed_result = None
     if validation.get("valid"):
-        parsed_result = json.loads(raw_result)
+        parsed_result = normalize_managed_script_checks(json.loads(raw_result))
+    else:
+        # 完整驗證錯誤只進 log 與老師端 validation.error，學生頁由
+        # ai_assignment_service 換成一句通用說明
+        logger.warning(
+            "Teacher Judge script output invalid run=%s vmid=%s exit_code=%s error=%s",
+            target.get("run_id"),
+            _target_vmid(target),
+            remote_result.exit_code,
+            validation.get("error"),
+        )
 
     status = (
         "completed"

@@ -2,6 +2,7 @@ import enum
 import uuid
 from typing import Any
 
+from app.core.i18n import t
 from app.exceptions import PermissionDeniedError
 from app.models import UserRole
 
@@ -67,10 +68,12 @@ def require_permission(
     user: Any,
     permission: Permission,
     *,
-    detail: str = "The user doesn't have enough privileges",
+    detail: str | None = None,
 ) -> None:
     if not has_permission(user, permission):
-        raise PermissionDeniedError(detail)
+        raise PermissionDeniedError(
+            detail or t("resource_access.insufficient_privileges")
+        )
 
 
 def is_admin(user: Any) -> bool:
@@ -97,11 +100,13 @@ def require_owner_or_permission(
     owner_id: uuid.UUID | None,
     *,
     bypass_permission: Permission = Permission.RESOURCE_OWNERSHIP_BYPASS,
-    detail: str = "Not enough privileges",
+    detail: str | None = None,
 ) -> None:
     if not can_access_owner_resource(
         user,
         owner_id,
         bypass_permission=bypass_permission,
     ):
-        raise PermissionDeniedError(detail)
+        raise PermissionDeniedError(
+            detail or t("resource_access.insufficient_privileges")
+        )

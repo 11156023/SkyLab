@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ChatPanel, ProposalPanel, RubricsTab } from "./AiJudgePanel";
 import { AiJudgeService } from "../../../services/aiJudge";
+import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 
@@ -129,7 +130,9 @@ describe("RubricsTab 檢查表尚未載入時停用聊天", () => {
     const sendMessage = vi.spyOn(AiJudgeService, "sendSessionMessage").mockResolvedValue({});
 
     const { container, cleanup } = mount(
-      <RubricsTab classId="class-1" judgeSession={{ id: "session-1", selected_file_id: "file-1" }} />,
+      <ConfirmProvider>
+        <RubricsTab classId="class-1" judgeSession={{ id: "session-1", selected_file_id: "file-1" }} />
+      </ConfirmProvider>,
     );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));

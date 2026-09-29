@@ -34,6 +34,13 @@ export function loadChatHistory(userId) {
   return { conversations, activeId: conversations.some((item) => item.id === data.activeId) ? data.activeId : conversations[0]?.id ?? null };
 }
 
+/* 本機紀錄格式壞掉讀不出來時，把原文另存一份再重新開始；下一次儲存才不會把它直接蓋掉 */
+export function backupChatHistory(userId) {
+  if (!userId) return;
+  const raw = localStorage.getItem(storageKey(userId));
+  if (raw) localStorage.setItem(`${storageKey(userId)}:backup`, raw);
+}
+
 export function saveChatHistory(userId, history) {
   if (userId) localStorage.setItem(storageKey(userId), JSON.stringify(history));
 }

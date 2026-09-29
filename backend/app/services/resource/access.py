@@ -96,26 +96,19 @@ def require_resource_management(
         return
     resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
     if resource is None:
-        raise PermissionDeniedError(
-            "You don't have permission to manage this resource"
-        )
+        raise PermissionDeniedError(t("resource_access.no_manage_permission"))
     if resource.teaching_class_id:
         teaching_class = session.get(TeachingClass, resource.teaching_class_id)
         if teaching_class is None:
-            raise PermissionDeniedError(
-                "This teaching-class resource is no longer assigned"
-            )
+            raise PermissionDeniedError(t("resource_access.teaching_class_unassigned"))
         require_teaching_access(
             user,
             teaching_class.owner_id,
-            detail="Only the class teacher or an administrator can manage this resource",
+            detail=t("resource_access.teaching_class_manage_forbidden"),
         )
         return
     if resource.allocation_scope == "teaching_class":
-        raise PermissionDeniedError(
-            "This teaching-class resource has lost its class assignment; "
-            "an administrator must reclaim it"
-        )
+        raise PermissionDeniedError(t("resource_access.teaching_class_scope_lost"))
     require_resource_access(user, resource.user_id)
 
 

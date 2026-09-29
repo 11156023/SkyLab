@@ -18,6 +18,7 @@
   "ai_gateway.request_already_reviewed": "This AI API request has already been reviewed",
   "ai_gateway.connection_incomplete": "AI API connection settings are incomplete",
   "ai_gateway.credential_already_revoked": "This AI API credential has already been revoked",
+  "ai_gateway.credential_expired": "This AI API credential has expired and can't be regenerated. Submit a new request instead",
   "ai_gateway.credential_manage_denied": "Only the owner of this AI API credential can rotate, rename or delete it",
   "ai_gateway.invalid_duration": "The key duration must be one of the available options (1 hour, 1 day, 7 days, 30 days or never expires), so no expiry time can be worked out. Reject this request and ask the applicant to submit it again.",
   "ai_gateway.invalid_review_status": "A review can only approve or reject the request",

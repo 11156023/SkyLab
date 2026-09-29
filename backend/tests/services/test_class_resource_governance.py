@@ -141,7 +141,7 @@ def test_class_member_cannot_manage_class_resource(monkeypatch):
         lambda **_kwargs: resource,
     )
 
-    with pytest.raises(PermissionDeniedError):
+    with pytest.raises(PermissionDeniedError, match="只有班級老師或管理員"):
         require_resource_management(
             session=_Session(teaching_class=teaching_class),
             user=student,
@@ -184,7 +184,7 @@ def test_archived_class_member_cannot_use_assigned_resource(monkeypatch):
         lambda **_kwargs: resource,
     )
 
-    with pytest.raises(PermissionDeniedError, match="not available"):
+    with pytest.raises(PermissionDeniedError, match="不開放學生使用"):
         check_resource_ownership(
             vmid=503,
             current_user=student,
@@ -205,12 +205,49 @@ def test_orphaned_class_resource_never_becomes_student_owned(monkeypatch):
         lambda **_kwargs: resource,
     )
 
-    with pytest.raises(PermissionDeniedError, match="administrator must reclaim"):
+    with pytest.raises(PermissionDeniedError, match="需由管理員回收"):
         check_resource_ownership(
             vmid=504,
             current_user=student,
             session=_Session(),
         )
+
+
+@pytest.mark.parametrize(
+    ("resource", "teaching_class", "expected"),
+    [
+        (None, None, "你沒有權限管理這個資源"),
+        (
+            SimpleNamespace(user_id=uuid.uuid4(), teaching_class_id=uuid.uuid4()),
+            None,
+            "這個班級資源已不再指派",
+        ),
+        (
+            SimpleNamespace(
+                user_id=uuid.uuid4(),
+                teaching_class_id=None,
+                allocation_scope="teaching_class",
+            ),
+            None,
+            "這個班級資源已失去班級歸屬，需由管理員回收",
+        ),
+    ],
+)
+def test_resource_management_denials_are_translated(
+    monkeypatch, resource, teaching_class, expected
+):
+    monkeypatch.setattr(
+        "app.services.resource.access.resource_repo.get_resource_by_vmid",
+        lambda **_kwargs: resource,
+    )
+
+    with pytest.raises(PermissionDeniedError) as denied:
+        require_resource_management(
+            session=_Session(teaching_class=teaching_class),
+            user=_user(UserRole.teacher),
+            vmid=505,
+        )
+    assert denied.value.message == expected
 
 
 def test_personal_quota_query_excludes_teaching_class_resources():

@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { templateBuilderPath, weekPayload } from "./ClassSetupPage";
+import { furthestReachableStep, templateBuilderPath, weekPayload } from "./ClassSetupPage";
+
+describe("furthestReachableStep", () => {
+  it("還沒建班只能停在第一步", () => {
+    expect(furthestReachableStep({ saved: false, hasStudents: false, hasEnvironment: false })).toBe(1);
+  });
+
+  it("必要步驟依序解鎖：沒有學生停在第二步、沒有環境停在第三步", () => {
+    expect(furthestReachableStep({ saved: true, hasStudents: false, hasEnvironment: false })).toBe(2);
+    expect(furthestReachableStep({ saved: true, hasStudents: true, hasEnvironment: false })).toBe(3);
+  });
+
+  it("每週任務是選填：必要步驟都完成就能直接到確認建立", () => {
+    expect(furthestReachableStep({ saved: true, hasStudents: true, hasEnvironment: true })).toBe(5);
+  });
+});
 
 describe("weekPayload", () => {
   it("keeps the generated class dates and trims checkpoint titles", () => {

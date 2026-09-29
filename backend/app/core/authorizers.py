@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from app.core.i18n import t
 from app.core.permissions import (
     Permission,
     can_access_owner_resource,
@@ -16,6 +17,9 @@ from app.core.permissions import (
 from app.exceptions import PermissionDeniedError
 from app.models import UserRole
 
+# 各 require_* 的預設訊息一律在呼叫當下才 t()：預設參數在 import 時就定值，
+# 拿不到這次請求的語言，所以 detail 預設 None，呼叫端自訂的訊息優先。
+
 
 def can_manage_users(user: Any) -> bool:
     return has_permission(user, Permission.USER_MANAGE)
@@ -24,9 +28,13 @@ def can_manage_users(user: Any) -> bool:
 def require_user_manage(
     user: Any,
     *,
-    detail: str = "The user doesn't have enough privileges",
+    detail: str | None = None,
 ) -> None:
-    require_permission(user, Permission.USER_MANAGE, detail=detail)
+    require_permission(
+        user,
+        Permission.USER_MANAGE,
+        detail=detail or t("resource_access.insufficient_privileges"),
+    )
 
 
 def can_bypass_resource_ownership(user: Any) -> bool:
@@ -37,13 +45,13 @@ def require_resource_access(
     user: Any,
     owner_id: uuid.UUID | None,
     *,
-    detail: str = "You don't have permission to access this resource",
+    detail: str | None = None,
 ) -> None:
     require_owner_or_permission(
         user,
         owner_id,
         bypass_permission=Permission.RESOURCE_OWNERSHIP_BYPASS,
-        detail=detail,
+        detail=detail or t("resource_access.no_permission"),
     )
 
 
@@ -55,13 +63,13 @@ def require_teaching_access(
     user: Any,
     owner_id: uuid.UUID | None,
     *,
-    detail: str = "Not authorized to access this teaching resource",
+    detail: str | None = None,
 ) -> None:
     require_owner_or_permission(
         user,
         owner_id,
         bypass_permission=Permission.TEACHING_OWNERSHIP_BYPASS,
-        detail=detail,
+        detail=detail or t("resource_access.teaching_no_permission"),
     )
 
 
@@ -69,13 +77,13 @@ def require_ai_api_access(
     user: Any,
     owner_id: uuid.UUID | None,
     *,
-    detail: str = "Not enough privileges",
+    detail: str | None = None,
 ) -> None:
     require_owner_or_permission(
         user,
         owner_id,
         bypass_permission=Permission.AI_API_VIEW_ALL,
-        detail=detail,
+        detail=detail or t("resource_access.insufficient_privileges"),
     )
 
 
@@ -83,7 +91,7 @@ def require_ai_api_manage(
     user: Any,
     owner_id: uuid.UUID | None,
     *,
-    detail: str = "Not enough privileges",
+    detail: str | None = None,
 ) -> None:
     """金鑰的寫入操作（輪替／改名／刪除）。
 
@@ -95,7 +103,7 @@ def require_ai_api_manage(
         user,
         owner_id,
         bypass_permission=Permission.AI_API_MANAGE_ALL,
-        detail=detail,
+        detail=detail or t("resource_access.insufficient_privileges"),
     )
 
 
@@ -103,13 +111,13 @@ def require_vm_request_access(
     user: Any,
     owner_id: uuid.UUID | None,
     *,
-    detail: str = "Not enough privileges",
+    detail: str | None = None,
 ) -> None:
     require_owner_or_permission(
         user,
         owner_id,
         bypass_permission=Permission.VM_REQUEST_READ_ALL,
-        detail=detail,
+        detail=detail or t("resource_access.insufficient_privileges"),
     )
 
 
@@ -129,29 +137,35 @@ def require_vm_request_cancel(
     user: Any,
     owner_id: uuid.UUID | None,
     *,
-    detail: str = "Not enough privileges",
+    detail: str | None = None,
 ) -> None:
     if not can_cancel_vm_request(user, owner_id):
-        raise PermissionDeniedError(detail)
+        raise PermissionDeniedError(
+            detail or t("resource_access.insufficient_privileges")
+        )
 
 
 def require_vm_request_review(
     user: Any,
     *,
-    detail: str = "Not enough privileges",
+    detail: str | None = None,
 ) -> None:
-    require_permission(user, Permission.VM_REQUEST_REVIEW, detail=detail)
+    require_permission(
+        user,
+        Permission.VM_REQUEST_REVIEW,
+        detail=detail or t("resource_access.insufficient_privileges"),
+    )
 
 
 def require_immediate_vm_request_access(
     user: Any,
     *,
-    detail: str = "Only admins and teachers can use immediate mode",
+    detail: str | None = None,
 ) -> None:
     require_permission(
         user,
         Permission.VM_REQUEST_USE_IMMEDIATE_MODE,
-        detail=detail,
+        detail=detail or t("resource_access.immediate_mode_forbidden"),
     )
 
 
@@ -166,44 +180,59 @@ def can_auto_approve_vm_request(user: Any, *, mode: str) -> bool:
 def require_template_manage(
     user: Any,
     *,
-    detail: str = "Only teachers and admins can manage templates",
+    detail: str | None = None,
 ) -> None:
-    require_permission(user, Permission.TEMPLATE_MANAGE, detail=detail)
+    require_permission(
+        user,
+        Permission.TEMPLATE_MANAGE,
+        detail=detail or t("resource_access.template_manage_forbidden"),
+    )
 
 
 def require_template_owner(
     user: Any,
     owner_id: uuid.UUID | None,
     *,
-    detail: str = "Only the template owner or an admin can do this",
+    detail: str | None = None,
 ) -> None:
     require_owner_or_permission(
         user,
         owner_id,
         bypass_permission=Permission.ADMIN_ACCESS,
-        detail=detail,
+        detail=detail or t("resource_access.template_owner_only"),
     )
 
 
 def require_classroom_monitor(
     user: Any,
     *,
-    detail: str = "Only teachers and admins can use classroom monitoring",
+    detail: str | None = None,
 ) -> None:
-    require_permission(user, Permission.CLASSROOM_MONITOR, detail=detail)
+    require_permission(
+        user,
+        Permission.CLASSROOM_MONITOR,
+        detail=detail or t("resource_access.classroom_monitor_forbidden"),
+    )
 
 
 def require_admin_access(
     user: Any,
     *,
-    detail: str = "The user doesn't have enough privileges",
+    detail: str | None = None,
 ) -> None:
-    require_permission(user, Permission.ADMIN_ACCESS, detail=detail)
+    require_permission(
+        user,
+        Permission.ADMIN_ACCESS,
+        detail=detail or t("resource_access.insufficient_privileges"),
+    )
 
 
 def require_instructor_or_admin_access(
     user: Any,
     *,
-    detail: str = "The user doesn't have enough privileges",
+    detail: str | None = None,
 ) -> None:
-    require_immediate_vm_request_access(user, detail=detail)
+    require_immediate_vm_request_access(
+        user,
+        detail=detail or t("resource_access.insufficient_privileges"),
+    )

@@ -23,6 +23,18 @@ ALLOWED_RESULT_STATUSES = {"pass", "fail", "warning", "unknown", "collected", "s
 PEER_IP_TOKEN = "{{peer.ip}}"
 
 
+def coerce_check_text(value: Any) -> Any:
+    """AI 產生的腳本常把 evidence／raw 輸出成物件或陣列；轉成 JSON 字串收下，
+    不讓這種小格式偏差把整次檢查判成失敗（超出上限的部分截斷）。"""
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, default=str)[:4000]
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return value
+
+
 class ManagedScriptCheck(BaseModel):
     id: str = Field(..., min_length=1, max_length=120)
     title: str = Field(..., min_length=1, max_length=240)
@@ -33,15 +45,7 @@ class ManagedScriptCheck(BaseModel):
     @field_validator("evidence", "raw", mode="before")
     @classmethod
     def coerce_text(cls, value: Any) -> Any:
-        """AI 產生的腳本常把 evidence／raw 輸出成物件或陣列；轉成 JSON 字串收下，
-        不讓這種小格式偏差把整次檢查判成失敗（超出上限的部分截斷）。"""
-        if value is None:
-            return ""
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)[:4000]
-        if isinstance(value, (int, float, bool)):
-            return str(value)
-        return value
+        return coerce_check_text(value)
 
 
 class ManagedScriptMetadata(BaseModel):
@@ -353,6 +357,33 @@ def validate_managed_script_output(payload: str | dict[str, Any]) -> ScriptValid
         "error": None,
         "schema_version": result.schema_version,
         "checks_count": len(result.checks),
+    }
+
+
+def normalize_managed_script_checks(data: dict[str, Any]) -> dict[str, Any]:
+    """回傳 evidence／raw 已轉成字串的結果副本，其餘欄位原樣保留。
+
+    驗證時的型別放寬只作用在 pydantic model 上；存進 parsed_result 的是原始 JSON，
+    不先正規化的話，學生頁會拿到 dict 並被 str() 成 Python repr。
+    """
+    checks = data.get("checks")
+    if not isinstance(checks, list):
+        return data
+    return {
+        **data,
+        "checks": [
+            {
+                **check,
+                **{
+                    key: coerce_check_text(check[key])
+                    for key in ("evidence", "raw")
+                    if key in check
+                },
+            }
+            if isinstance(check, dict)
+            else check
+            for check in checks
+        ],
     }
 
 

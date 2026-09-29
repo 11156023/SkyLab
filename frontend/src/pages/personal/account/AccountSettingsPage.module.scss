@@ -14,9 +14,13 @@
 }
 
 /* ── Tabs ── */
-/* 共用 SegmentedControl 是 inline-flex，在直向 flex 裡會被撐滿寬，靠左收回原本寬度 */
-.tabs {
-  align-self: flex-start;
+/* 分頁列：左邊分頁切換、右邊該分頁的頁面層級動作（外觀的重設）；窄到放不下時動作換到下一行 */
+.tabBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8 $spacing-16;
 }
 
 /* ── Content ── */
@@ -26,15 +30,23 @@
   gap: $spacing-24;
 }
 
-/* 個人資料分頁：寬螢幕左右雙欄——個資卡在左、密碼＋危險區域堆右欄，
-   右側才不會整片留白；窄螢幕退回直向堆疊（危險區域維持壓底） */
+/* 個人資料分頁：寬螢幕左右雙欄——左欄個資卡＋危險區域、右欄密碼＋兩步驟驗證，
+   兩欄高度才接近；窄螢幕退回直向堆疊（DOM 順序讓危險區域維持壓底）。
+   右欄明確跨兩列，危險區域自動排進左欄第二列；第二列吃剩餘高度、內容靠上，
+   危險區域才會緊接在個資卡下面，不會被右欄撐出空隙 */
 .profileGrid {
   display: grid;
   gap: $spacing-24;
 
   @include respond-to(lg) {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
     align-items: start;
+
+    .profileSide {
+      grid-column: 2;
+      grid-row: 1 / 3;
+    }
   }
 }
 
@@ -73,8 +85,8 @@
   color: var(--color-text-secondary);
 
   input {
-    min-height: 38px;
-    padding: 8px $spacing-16;
+    min-height: 36px;
+    padding: 6px $spacing-16;
     border: 1px solid var(--color-border);
     border-radius: $radius-8;
     background: var(--color-surface);
@@ -145,39 +157,32 @@
   color: var(--color-text-muted);
 }
 
-/* ── 外觀 ── */
-.colorRow {
+/* ── 外觀（主色／背景色的選擇在共用 ColorPicker） ── */
+
+/* 色階預覽：跟著主色自動推算、只能看不能點——一行淡字＋小色點，
+   不做成大色塊（圓角＋置中字的色塊長得像按鈕，曾被誤認為可以點） */
+.shadePreview {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: $spacing-8;
-
-  input[type="color"] {
-    width: 56px;
-    padding: 4px;
-    cursor: pointer;
-  }
-}
-
-.hexInput {
-  width: 110px;
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  text-transform: lowercase;
-}
-
-.shadeRow {
-  display: flex;
-  gap: $spacing-8;
-}
-
-.shadeLight,
-.shadeBase,
-.shadeDark {
-  flex: 1;
-  min-height: 36px;
-  border-radius: $radius-8;
-  @include flex-center;
+  gap: $spacing-4 12px;
+  margin: 0;
+  color: var(--color-text-muted);
   font-size: $font-size-12;
-  color: var(--color-text-on-primary);
+  font-weight: $font-weight-400;
+}
+
+.shadeSwatch {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+
+  i {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 15%, transparent);
+  }
 }
 
 .shadeLight { background: var(--color-primary-light); }
@@ -221,41 +226,204 @@
   font-weight: $font-weight-500;
 }
 
-/* 背景花色縮圖 gallery */
-.bgGallery {
+/* 外觀表單以自身寬度切版（帳號設定的卡片很寬、首次登入引導的卡片只有 760px），
+   不看視窗寬度 */
+.appearanceForm {
+  container-type: inline-size;
+}
+
+/* 外觀分組：色彩（主色、背景色、背景花色）／介面（風格、明暗模式），分隔線切開；
+   窄時上下堆疊、橫線分隔，夠寬時左右兩欄、直線分隔 */
+.appearanceGroups {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: $spacing-16;
+}
+
+.appearanceGroup {
+  @include flex-column;
+  gap: $spacing-16;
+  min-width: 0;
+}
+
+.appearanceGroup + .appearanceGroup {
+  padding-top: 20px;
+  border-top: 1px solid var(--color-divider);
+}
+
+/* 1200：每欄至少約 570px，主色與背景色（含一整行選色）放得下同一列，
+   切換「跟隨主色／自訂」時背景色不會在同列與下一行之間跳動 */
+@container (min-width: 1200px) {
+  .appearanceGroups {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .appearanceGroup:first-child {
+    padding-right: 32px;
+  }
+
+  .appearanceGroup + .appearanceGroup {
+    padding-top: 0;
+    padding-left: 32px;
+    border-top: 0;
+    border-left: 1px solid var(--color-divider);
+  }
+}
+
+/* ── 配色主題卡片 ── */
+/* 四個系列攤開：一個系列一行，系列名稱在左、該系列的主題鈕一字排開；
+   名稱欄寬對齊（grid 子格），手機寬度改成名稱在上 */
+.presetFamilies {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 12px $spacing-24;
+}
+
+.presetFamily {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-width: 0;
+}
+
+@include respond-below(sm) {
+  .presetFamilies {
+    grid-template-columns: minmax(0, 1fr);
+    gap: $spacing-16;
+  }
+
+  .presetFamily {
+    gap: $spacing-8;
+  }
+}
+
+.presetRow {
+  display: flex;
+  flex-wrap: wrap;
   gap: $spacing-8;
 }
 
-.bgThumb,
-.bgThumbActive {
-  height: 64px;
+/* 主題按鈕＝那組主題的縮影：底色是主題背景花色、字色是主題文字色、圓點是主色
+   （三個色由 ThemePresetsCard 以 --preset-* 行內變數帶入，字色對底色已由測試把關 4.5:1）。
+   hover 只上浮加陰影、不換框色；選中用主色內框＋打勾，內框不佔版面、不會推擠旁邊的鈕 */
+.presetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 0;
   border-radius: $radius-8;
-  border: 2px solid var(--color-border);
+  background: var(--preset-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--preset-primary) 22%, transparent);
+  color: var(--preset-text);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
   cursor: pointer;
-  display: flex;
-  align-items: flex-end;
-  padding: 6px;
-  transition: border-color $transition-base, box-shadow $transition-base;
+  transition: transform $transition-base, box-shadow $transition-base;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--preset-primary) 35%, transparent),
+      0 4px 12px color-mix(in srgb, var(--preset-primary) 22%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--preset-primary);
+    outline-offset: 2px;
+  }
 }
 
-.bgThumb:hover {
-  box-shadow: var(--shadow-sm);
+.presetBtnActive,
+.presetBtnActive:hover {
+  box-shadow: inset 0 0 0 2px var(--preset-primary);
 }
 
-.bgThumbActive {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+.presetDot {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--preset-primary);
 }
 
-.bgThumbLabel {
-  font-size: $font-size-12;
-  padding: 2px 8px;
-  border-radius: $radius-pill;
-  background: var(--color-surface);
+.presetCheck {
+  color: var(--preset-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presetBtn:hover {
+    transform: none;
+  }
+}
+
+.groupTitle {
+  margin: 0;
   color: var(--color-text-primary);
-  box-shadow: var(--shadow-sm);
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+/* 主色、背景色並排：主色依內容寬度，背景色吃剩下的寬度；
+   背景色最窄＝選色一整行的寬度（min-content，選色不折行），
+   放得下就留在主色旁、選色折到切換鈕下方，放不下才整欄換到下一行 */
+.colorRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: $spacing-16 48px;
+
+  > :first-child {
+    flex: none;
+  }
+
+  > :last-child {
+    flex: 1 1 0;
+    min-width: min-content;
+  }
+}
+
+.pickerNoWrap {
+  flex-wrap: nowrap;
+}
+
+/* 背景色的「跟隨主色／自訂」切換與選色排同一行，選色只在自訂時出現 */
+.bgColorControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8 $spacing-16;
+}
+
+/* 背景花色選項鈕前面的小色塊預覽 */
+.patternSwatch {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 15%, transparent);
+}
+
+/* 「上傳圖片」長得跟花色選項鈕一樣，整顆點了開檔案選擇器；鍵盤聚焦畫在外框 */
+.uploadOption {
+  position: relative;
+
+  &:focus-within {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+.fileInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 /* ── 兩步驟驗證 ── */
@@ -316,8 +484,8 @@
 }
 
 .confirmInput {
-  min-height: 38px;
-  padding: 8px $spacing-16;
+  min-height: 36px;
+  padding: 6px $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   background: var(--color-surface);

@@ -6,10 +6,11 @@ import rehypeSanitize from "rehype-sanitize";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import MIcon from "../../../components/MIcon";
+import EmptyState from "../../../components/EmptyState/EmptyState";
 import { AiApiService } from "../../../services/aiApi";
 import { AiApiChatService, stripThinkingContent } from "../../../services/aiApiChat";
 import { formatShortDateTime } from "../../../utils/formatDate";
-import { createConversation, loadChatHistory, saveChatHistory } from "./chatHistory";
+import { backupChatHistory, createConversation, loadChatHistory, saveChatHistory } from "./chatHistory";
 import styles from "./AiApiChatTab.module.scss";
 
 function errorKey(error) {
@@ -99,11 +100,15 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
   const confirm = useConfirm();
   const { selected: selectedCredential, selectCredential, apiKey, loadingKey, keyError } = useChatApiKey(credentials);
   const [initial] = useState(() => {
-    try { return { ...loadChatHistory(userId), warning: false }; }
-    catch { return { conversations: [], activeId: null, warning: true }; }
+    try { return { ...loadChatHistory(userId), warning: null }; }
+    catch {
+      try { backupChatHistory(userId); } catch { /* 連備份都寫不進去，下面的提示照樣會出現 */ }
+      return { conversations: [], activeId: null, warning: "storageLoadWarning" };
+    }
   });
   const [conversations, setConversations] = useState(initial.conversations);
   const [activeId, setActiveId] = useState(initial.activeId);
+  // 讀取失敗（已備份舊紀錄）與儲存失敗是兩件事，說法不同
   const [storageWarning, setStorageWarning] = useState(initial.warning);
   const [models, setModels] = useState([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -130,8 +135,8 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
     lastSavedRef.current = { conversations, activeId };
     try {
       saveChatHistory(userId, { conversations, activeId });
-      setStorageWarning(false);
-    } catch { setStorageWarning(true); }
+      setStorageWarning((current) => (current === "storageWarning" ? null : current));
+    } catch { setStorageWarning("storageWarning"); }
   }, [conversations, activeId, userId]);
 
   const loadModels = useCallback(async () => {
@@ -255,6 +260,18 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
     inputRef.current?.focus();
   }
 
+  // 還沒有可用的金鑰：整塊說明要先申請，不擺出用不了的聊天介面
+  if (noUsableKey) {
+    return <section className={styles.notConfigured} aria-label={t("AiApiPage.tabChat")}>
+      <EmptyState icon="key" title={t("AiApiChat.noUsableKeyTitle")} description={t("AiApiChat.noUsableKey")} />
+    </section>;
+  }
+
+  // 送出按鈕停用時，把原因寫在按鈕旁（取代鍵盤提示）
+  const sendBlockedReason = busy
+    ? t("AiApiChat.loadingModels")
+    : configured && !modelAvailable ? t("AiApiChat.sendNeedsModel") : null;
+
   return <section className={styles.workspace} aria-label={t("AiApiPage.tabChat")}>
     <aside className={styles.history} aria-label={t("AiApiChat.history")}>
       <button type="button" className={styles.newChat} onClick={newChat} disabled={Boolean(pending)}>
@@ -273,7 +290,7 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
           </button>
         </li>)}</ul>}
       <p className={styles.localNotice}>{t("AiApiChat.localNotice")}</p>
-      {storageWarning && <p className={styles.warning} role="status">{t("AiApiChat.storageWarning")}</p>}
+      {storageWarning && <p className={styles.warning} role="status">{t(`AiApiChat.${storageWarning}`)}</p>}
     </aside>
     <div className={styles.chat}>
       <div className={styles.toolbar}>
@@ -300,19 +317,19 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
             </select>
           </div>
         </div>}
-        <button type="button" className={styles.reload} onClick={loadModels} disabled={!configured || busy || Boolean(pending)}>
-          <MIcon name="refresh" size={18} /><span className={styles.reloadLabel}>{t("AiApiChat.reloadModels")}</span>
-        </button>
       </div>
-      {noUsableKey && <p className={styles.error} role="alert">{t("AiApiChat.noUsableKey")}</p>}
-      {!noUsableKey && keyError && <p className={styles.error} role="alert">{t(`AiApiChat.${keyError}`)}</p>}
-      {modelError && <p className={styles.error} role="alert">{t(`AiApiChat.${modelError}`)}</p>}
-      {configured && !busy && !modelError && models.length === 0 && <p className={styles.warning} role="status">{t("AiApiChat.noModels")}</p>}
+      {keyError && <p className={styles.error} role="alert">{t(`AiApiChat.${keyError}`)}</p>}
+      {/* 讀不到模型或沒有模型時，重試放在說明旁邊，不另外常駐一顆重新載入鈕 */}
+      {(modelError || (configured && !busy && models.length === 0)) && <div className={modelError ? styles.error : styles.warning} role={modelError ? "alert" : "status"}>
+        <span>{t(modelError ? `AiApiChat.${modelError}` : "AiApiChat.noModels")}</span>
+        <button type="button" className={styles.retry} onClick={loadModels} disabled={Boolean(pending)}>
+          <MIcon name="refresh" size={16} />{t("AiApiChat.retry")}
+        </button>
+      </div>}
       <div ref={logRef} className={styles.log} role="log" aria-label={t("AiApiChat.messages")} aria-live="polite" aria-busy={Boolean(pending)}>
-        {!conversation?.messages.length && !pending ? <div className={styles.empty}>
-          <div className={styles.emptyIcon} aria-hidden="true"><MIcon name="auto_awesome" size={26} /></div>
-          <h2>{t("AiApiChat.emptyTitle")}</h2><p>{t("AiApiChat.emptyDescription")}</p>
-        </div> : <div className={styles.messages}>
+        {!conversation?.messages.length && !pending
+          ? <EmptyState icon="auto_awesome" title={t("AiApiChat.emptyTitle")} description={t("AiApiChat.emptyDescription")} />
+          : <div className={styles.messages}>
           {conversation?.messages.map((message) => <Message key={message.id} message={message} t={t} />)}
           {pending && <>
             <Message message={pending} t={t} />
@@ -332,9 +349,9 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) send(event);
             }} />
           <div className={styles.composerActions}>
-            <span>{pending ? t("AiApiChat.streamingHint") : t("AiApiChat.keyboardHint")}</span>
-            {pending ? <button type="button" className={`${styles.send} ${styles.stop}`} onClick={stop}><MIcon name="stop" size={17} />{t("AiApiChat.stop")}</button>
-              : <button type="submit" className={styles.send} disabled={!draft.trim() || !modelAvailable || !configured || busy}>
+            <span>{pending ? t("AiApiChat.streamingHint") : sendBlockedReason ?? t("AiApiChat.keyboardHint")}</span>
+            {pending ? <button type="button" className={styles.stop} onClick={stop}><MIcon name="stop" size={17} />{t("AiApiChat.stop")}</button>
+              : <button type="submit" className={styles.send} disabled={!draft.trim() || !configured || Boolean(sendBlockedReason)}>
                 <MIcon name="arrow_upward" size={18} />{t("AiApiChat.send")}
               </button>}
           </div>

@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
+from app.core.i18n import t
 from app.core.permissions import is_admin as _is_admin
 from app.domain.resource_markers import (
     RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
@@ -617,7 +618,7 @@ def _ensure_owner_or_admin(user: User, owner_id: uuid.UUID | None) -> None:
     if _is_admin(user):
         return
     if owner_id is None or owner_id != user.id:
-        raise JobAccessDeniedError("Not allowed to view this job")
+        raise JobAccessDeniedError(t("resource_access.job_view_forbidden"))
 
 
 def _detail_vm_request(session: Session, raw_id: str, user: User) -> JobDetail:

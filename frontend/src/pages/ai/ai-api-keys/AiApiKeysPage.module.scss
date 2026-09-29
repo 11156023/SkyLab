@@ -42,11 +42,9 @@
   flex-shrink: 0;
 }
 
-/* 狀態切換用共用 SegmentedControl；這裡只管窄螢幕橫向捲動，
-   並鎖定高度與旁邊的篩選鈕、搜尋框（38px）對齊 */
+/* 狀態切換用共用 SegmentedControl；這裡只管窄螢幕橫向捲動（高度由元件統一為 36px） */
 .statusTabs {
   min-width: 0;
-  height: 38px;
   overflow-x: auto;
   scrollbar-width: none;
 
@@ -60,7 +58,7 @@
   align-items: center;
   gap: $spacing-8;
   min-width: min(420px, 100%);
-  min-height: 38px;
+  min-height: 36px;
 
   /* 寬版固定寬度，不需要整排這麼長 */
   @include respond-to(lg) {

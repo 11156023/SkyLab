@@ -122,6 +122,8 @@ src/pages/personal/resources/
 
 > **例外**：終端機式的內容面固定深色、不隨主題切換——VNC / xterm 畫面底（ConsoleDialog、Classroom 的 `#1e1e1e`）、任務 log 輸出區（Jobs `dialogOutput`），以及需要白底墊圖的透明 logo（`tplLogo` 的 `#fff`）、PDF 檢視器的 iframe 底（`StudentHomePage` 的 `#fff`——PDF 頁面本身即白底，跟著主題轉深會有黑框）、錯誤頁插圖的白底（`NotFoundPage` 的雲朵、`CrashState` 的應用程式視窗皆為 `#fff`，內部色塊也跟 `#fff` 混色——插圖在亮暗主題是同一張圖，亮色模式靠 drop-shadow 描輪廓）。
 >
+> **例外**：範例程式碼區塊（AI API 快速開始的程式碼範例、API 聊天回覆裡的程式碼區塊）固定深底、不隨主題切換，比照 VS Code 深色編輯器；色票統一用 `_themes.scss` 的 `--color-code-*`（bg／header／border／hover／text／muted），不要在頁面裡另寫一組深色。
+>
 > **例外**：Gateway 頁的類 VSCode 設定檔編輯器（`ConfigCodeEditor.module.scss`）整組寫死 vs-dark 色票（`#1e1e1e`、`#252526`、`#007acc` 等）與 13px/12px 字級，刻意不隨主題切換——外框需與 Monaco `theme="vs-dark"` 一致，模擬 VSCode 視窗本身即為獨立配色的容器。
 
 #### 狀態 Badge 的標準寫法
@@ -135,6 +137,9 @@ src/pages/personal/resources/
 ```
 
 > 一律用 `var(--color-*)`，不要把狀態色寫死成 HEX——深色模式的 info / pending 亮色值才吃得到。
+
+> **徽章一律不加外框**：只用「狀態色 12% 淡底＋狀態色文字」，不要再加 `border`（實線、虛線都不要）。狀態、類型、範圍這類膠囊標籤都算徽章，非狀態的中性標籤用上面的 `badge_muted`。疊在畫布等會透出底圖的地方時，淡底改混 `var(--color-surface)`（`color-mix(in srgb, <色> 12%, var(--color-surface))`）讓它不透明，仍然不加框。
+> 分頁、SegmentedControl、Stepper 的選中框不在此列。
 
 ---
 
@@ -426,6 +431,9 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 > **規則一**：控制項高度固定 36px、字級 14px，刻意與 `.btnPrimary` / `.btnSecondary`
 > 一致——同一列的欄位與按鈕才會對齊。要更矮更小的表單請先問是不是真的需要，
 > 不要在頁面裡改 `min-height` 或 `font-size`。
+> 高度的算法跟按鈕相同：全站行高 1.6（14px 字 → 22.4）＋上下內距 6×2＋框 1×2 ≈ 36px。
+> 內距寫成 8px 就會變 40px；外框在容器上的搜尋框用 `min-height: 36px`，不要寫 38px。
+> 共用的 SegmentedControl 也固定 36px，跟欄位、按鈕放同一列不用另外鎖高度。
 
 > **規則二**：欄位怎麼排（幾欄、哪個跨欄）寫在頁面自己的 grid 上（`.formGrid`、
 > `.createFormGrid`、`.fieldFull`），mixin 只負責欄位本身長什麼樣。
@@ -516,7 +524,9 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 - 狀態只靠圓點表達：未完成＝白底淡藍框編號、已完成＝白底主色框 ✓、目前＝主色實心加光暈；標籤只分目前（粗、深）與其他
 - 連線兩端都「走到了」（已完成或目前）才上主色，其餘用淡主色
 - 步驟列直接壓在漸層背景上，**不要用 `--color-border` 淺灰或淡色實心底**：跟背景糊在一起看不到，一律用白底＋藍色系框線
-- 精靈式流程（只能往回跳）把還沒走到的步驟設 `disabled`：只擋點擊、不淡化，不要做成點了沒反應的按鈕
+- 精靈式流程：已完成的步驟和第一個待辦步驟都能點（退回前面改完可以直接跳回來），再後面的步驟設 `disabled`：只擋點擊、不淡化，不要做成點了沒反應的按鈕。能不能到、打不打勾都看**已存到後端**的實際進度，不看「走過了沒」；網址指到還不能去的步驟時拉回能到的最後一步
+- 精靈換步驟不自動存檔：目前這一步有沒存的修改時先 `confirmLeave()`，確認後捨棄再換（一鍵建立班級 `ClassSetupPage`）
+- 精靈版面（`ClassSetupPage`）：步驟列下方是「目前這一步的卡片｜右側摘要欄」。每一步都是同一張卡片（標題、內容、底部按鈕列），按鈕列用 `position: sticky; bottom: 0`，卡片因此用 `overflow: clip`（`hidden` 會變成捲動容器，按鈕列就貼不住）；卡片高度跟著內容走，不設 `min-height`。分不分兩欄看頁面實際寬度（`container: wizard / inline-size`，≥760px 才分欄），不夠寬時摘要收成卡片上方可展開的一列；總覽步驟本身就是摘要，不放右欄
 - 不算步驟的分頁（班級啟用後的上課進度、AI）放 `extras`：圓點改放圖示、不連線，不要硬塞成第 5、6 步
 - 手機只留目前步驟的標籤，其他步驟剩圓點（標籤仍留給螢幕閱讀器）；還放不下時橫向捲動
 

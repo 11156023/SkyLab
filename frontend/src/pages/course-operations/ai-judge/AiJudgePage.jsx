@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { ClassroomService } from "../../../services/classroom";
 import { TeachingClassesService } from "../../../services/teachingClasses";
-import { useToast } from "../../../hooks/useToast";
+import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
 import AiJudgePanel from "../class-workspace/AiJudgePanel";
+import ClassWorkflowStepper from "../class-workspace/ClassWorkflowStepper";
 import styles from "../CourseOperations.module.scss";
 
 /* 頁首沿用班級工作頁的翻譯（同一個班級，兩頁標頭要一致） */
@@ -26,6 +28,7 @@ export function normalizeAiJudgeClass(item) {
   return {
     ...source,
     id: String(source.id),
+    nodes: source.machine_nodes ?? [],
     startTime: String(source.start_time ?? "").slice(0, 5),
     endTime: String(source.end_time ?? "").slice(0, 5),
     weeks: (source.weeks ?? []).map((week) => ({
@@ -75,22 +78,31 @@ export default function AiJudgePage() {
   const { t } = useTranslation("teaching");
   const { classId } = useParams();
   const navigate = useNavigate();
-  const toast = useToast();
+  const { confirmLeave } = useUnsavedChanges();
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
+  // 讀不到班級：找不到／沒權限直接說原因；網路或伺服器錯誤給重試，不要一律說成「找不到班級」
+  const [loadError, setLoadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [members, setMembers] = useState([]);
   const [membersLoading, setMembersLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
     setItem(null);
+    setLoadError(null);
     setLoading(true);
     TeachingClassesService.get(classId)
       .then((result) => active && setItem(normalizeAiJudgeClass(result)))
-      .catch((reason) => active && toast.error(reason?.message ?? t("ClassWorkspacePage.loadClassFailed")))
+      .catch((reason) => {
+        if (!active) return;
+        if (reason?.status === 404) setLoadError({ kind: "not_found" });
+        else if (reason?.status === 403) setLoadError({ kind: "forbidden", message: reason.message });
+        else setLoadError({ kind: "failed" });
+      })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [classId, toast, t]);
+  }, [classId, reloadKey]);
 
   useEffect(() => {
     let active = true;
@@ -115,12 +127,19 @@ export default function AiJudgePage() {
         <button type="button" className={styles.backLink} onClick={() => navigate("/class-management")}>
           <MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}
         </button>
-        <p className={styles.errorMessage}>{t("ClassWorkspacePage.classNotFoundText")}</p>
+        {loadError?.kind === "failed"
+          ? <ErrorState onRetry={() => setReloadKey((key) => key + 1)} />
+          : <p className={styles.errorMessage}>{loadError?.kind === "forbidden" && loadError.message ? loadError.message : t("ClassWorkspacePage.classNotFoundText")}</p>}
       </div>
     );
   }
 
   const weekdayKey = WEEKDAY_KEYS[item.weekday];
+  // AI 提案、打到一半的訊息、核查草稿都只在畫面上，離開前先確認
+  async function leaveTo(path) {
+    if (await confirmLeave()) navigate(path);
+  }
+
   return (
     <div className={styles.page}>
       <PageHeader
@@ -135,13 +154,18 @@ export default function AiJudgePage() {
         })}
       >
         <div className={styles.pageActions}>
-          <button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => navigate(`/class-management/${classId}`)}>
-            <MIcon name="arrow_back" size={18} />{t("AiJudgePage.backToWorkspaceBtn", { defaultValue: "返回班級工作頁" })}
+          <button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo("/class-management")}>
+            <MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}
           </button>
         </div>
       </PageHeader>
+      <ClassWorkflowStepper
+        item={item}
+        activeKey="ai"
+        onSelect={(key) => { if (key !== "ai") leaveTo(`/class-management/${classId}/${key}`); }}
+      />
       <div className={styles.workspaceContent}>
-        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text={t("AiJudgePage.loadingMachinesText", { defaultValue: "正在讀取班級機器…" })} /> : <AiJudgePanel classId={item.id} members={members} machineNodes={item.machine_nodes ?? []} weeks={item.weeks} />}
+        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text={t("AiJudgePage.loadingMachines")} /> : <AiJudgePanel classId={item.id} members={members} machineNodes={item.machine_nodes ?? []} weeks={item.weeks} />}
       </div>
     </div>
   );

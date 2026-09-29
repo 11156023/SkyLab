@@ -15,9 +15,9 @@ export const THEME_OPTIONS = [
   { key: "system", label: "系統", icon: "monitor" },
 ];
 
-/** 介面風格選項：玻璃質感為預設 */
+/** 介面風格選項：毛玻璃為預設 */
 export const STYLE_OPTIONS = [
-  { key: "glass",  label: "毛玻璃質感", icon: "blur_on" },
+  { key: "glass",  label: "毛玻璃",   icon: "blur_on" },
   { key: "liquid", label: "液態玻璃",   icon: "opacity" },
   { key: "white",  label: "白底",     icon: "panorama_fish_eye" },
   { key: "black",  label: "黑底",     icon: "lens" },
@@ -55,11 +55,30 @@ function getSystemTheme() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+/* deriveDeepPalette 的 key → 資料夾與終端的 CSS 變數 */
+const DEEP_VARS = {
+  folderBackTop: "--color-folder-back-top",
+  folderBackBottom: "--color-folder-back-bottom",
+  folderFrontLight: "--color-folder-front-light",
+  folderFrontDark: "--color-folder-front-dark",
+  folderPaper: "--color-folder-paper",
+  folderInk: "--color-folder-ink",
+  folderShadow: "--color-folder-shadow",
+  terminalBg: "--color-terminal-bg",
+  terminalBgOff: "--color-terminal-bg-off",
+  terminalText: "--color-terminal-text",
+  terminalTextOff: "--color-terminal-text-off",
+  terminalKey: "--color-terminal-key",
+  terminalDim: "--color-terminal-dim",
+  terminalCell: "--color-terminal-cell",
+};
+
 function paletteToCss(p) {
   return [
     `--color-primary: ${p.primary};`,
     `--color-primary-light: ${p.primaryLight};`,
     `--color-primary-dark: ${p.primaryDark};`,
+    `--color-primary-on-surface: ${p.primaryOnSurface};`,
     `--color-text: ${p.text};`,
     `--color-text-primary: ${p.textPrimary};`,
     `--color-text-secondary: ${p.textSecondary};`,
@@ -71,13 +90,18 @@ function paletteToCss(p) {
     `--color-bg-base: ${p.bgBase};`,
     `--color-info: ${p.primary};`,
     `--color-flow-bg: ${p.flowBg};`,
+    // 淺色模式才有陰影色（深色模式陰影是黑色）
+    p.shadow ? `--shadow-color: ${p.shadow};` : "",
+    p.shadowDeep ? `--shadow-color-deep: ${p.shadowDeep};` : "",
+    // 快速練習資料夾、首頁機器卡終端：原本寫死深藍，改跟主色色相
+    ...Object.entries(p.deep ?? {}).map(([key, value]) => `${DEEP_VARS[key]}: ${value};`),
   ].join(" ");
 }
 
 /**
  * 非預設主色時注入 <style>，讓整個介面帶主色色調的用色一起換：
  * primary 色階、文字、hover、邊框、分隔線、頁面底色、info、
- * 流程畫布底（狀態語意色 綠/黃/紅 與白黑基底不動）：
+ * 流程畫布底、淺色模式的陰影色調、快速練習資料夾與機器卡終端（狀態語意色 綠/黃/紅 與白黑基底不動）：
  * - body:      淺色模式配色
  * - body.dark: 深色模式配色（高亮度、帶主色色調的文字）
  * 預設主色則移除 <style>，讓 _themes.scss 的原始配色生效。

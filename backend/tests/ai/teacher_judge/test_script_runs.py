@@ -776,3 +776,74 @@ def test_execute_target_script_uploads_runs_and_collects_result(
     assert validate_managed_script_output(result.result_json_text)["valid"] is True
     assert fake_client.sftp.closed is True
     assert fake_client.closed is True
+
+
+def _unit_target() -> dict[str, object]:
+    return {
+        "vmid": 101,
+        "run_id": "run-1",
+        "proxmox_node": "pve1",
+        "resource_type": "lxc",
+        "user": {"id": "u1", "email": "s@example.com", "full_name": "S"},
+    }
+
+
+def test_target_result_accepts_dict_raw_and_stores_text() -> None:
+    """腳本把 checks[].raw 輸出成 {} 時不應判定失敗，存下來的 raw 也要是字串。"""
+    result_json = json.dumps(
+        {
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": "test"},
+            "checks": [
+                {
+                    "id": "nginx",
+                    "title": "Nginx running",
+                    "status": "pass",
+                    "evidence": {"active": True},
+                    "raw": {},
+                }
+            ],
+            "errors": [],
+        }
+    )
+
+    result = script_executor_service._target_result(
+        _unit_target(),
+        script_executor_service.RemoteScriptResult(
+            exit_code=0, result_json_text=result_json, stderr_text=""
+        ),
+    )
+
+    assert result["status"] == "completed"
+    assert result["validation"]["valid"] is True
+    check = result["parsed_result"]["checks"][0]
+    assert check["raw"] == "{}"
+    assert check["evidence"] == '{"active": true}'
+
+
+def test_target_result_logs_invalid_output_detail(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """輸出不合契約時，完整 pydantic 錯誤進 log 與老師端 validation.error。"""
+    result_json = json.dumps(
+        {
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": "test"},
+            "checks": [{"id": "x", "title": "X", "status": "bogus"}],
+            "errors": [],
+        }
+    )
+
+    with caplog.at_level("WARNING", logger=script_executor_service.logger.name):
+        result = script_executor_service._target_result(
+            _unit_target(),
+            script_executor_service.RemoteScriptResult(
+                exit_code=0, result_json_text=result_json, stderr_text=""
+            ),
+        )
+
+    assert result["status"] == "failed"
+    assert result["reason_code"] == "invalid_json"
+    assert "ManagedScriptResult" in result["validation"]["error"]
+    assert result["parsed_result"] is None
+    assert "ManagedScriptResult" in caplog.text

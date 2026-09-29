@@ -10,6 +10,7 @@ import PageHeader from "../../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import { formatMonthDay } from "../../../../utils/formatDate";
+import { useToast } from "../../../../hooks/useToast";
 import { taipeiDateKey } from "../taipeiDate";
 
 const CLASS_STATUS_KEYS = {
@@ -207,10 +208,12 @@ export default function TeacherDashboardPage() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const { user } = useAuth();
+  const toast = useToast();
   const [classes, setClasses] = useState([]);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // 載入失敗時統計卡一律「—」，不顯示看起來像真資料的 0
+  const [failed, setFailed] = useState(false);
   const demoMode = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("teacherDemo") === "1";
 
@@ -218,7 +221,7 @@ export default function TeacherDashboardPage() {
     let active = true;
     async function load() {
       setLoading(true);
-      setError("");
+      setFailed(false);
       if (demoMode) {
         const demo = buildTeacherDashboardDemo();
         setClasses(demo.classes.map(normalizeClass));
@@ -239,14 +242,16 @@ export default function TeacherDashboardPage() {
         );
         if (active) setReports(settled.filter((result) => result.status === "fulfilled").map((result) => result.value));
       } catch (reason) {
-        if (active) setError(reason?.message ?? t("TeacherDashboardPage.loadError"));
+        if (!active) return;
+        setFailed(true);
+        toast.error(reason?.message ?? t("TeacherDashboardPage.loadError"));
       } finally {
         if (active) setLoading(false);
       }
     }
     load();
     return () => { active = false; };
-  }, [demoMode, user?.id]);
+  }, [demoMode, user?.id, t, toast]);
 
   const checkpointSummary = useMemo(() => summarizeCheckpointReports(reports), [reports]);
   const upcoming = useMemo(() => classes
@@ -265,8 +270,6 @@ export default function TeacherDashboardPage() {
   // 資料是同一次請求抓回來的，整頁一個載入動畫就好
   if (loading) return <LoadingState fullPage />;
 
-  // 載入失敗時統計卡一律「—」，不顯示看起來像真資料的 0
-  const failed = Boolean(error);
   const hasCheckpoints = checkpointSummary.possible > 0;
   const nextClass = upcoming[0];
   const metrics = [
@@ -308,8 +311,6 @@ export default function TeacherDashboardPage() {
     <PageHeader title={firstName ? t("TeacherDashboardPage.greeting", { name: firstName }) : t("TeacherDashboardPage.greetingNoName")}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}><MIcon name="add" size={18} />{t("TeacherDashboardPage.createClass")}</button>
     </PageHeader>
-
-    {error && <div className={styles.error}><MIcon name="error_outline" size={18} />{error}</div>}
 
     <section className={styles.metricGrid} aria-label={t("TeacherDashboardPage.summaryAriaLabel")}>
       {metrics.map((metric) => <button type="button" key={metric.key} className={styles.metricCard} onClick={() => navigate(metric.path)}>
