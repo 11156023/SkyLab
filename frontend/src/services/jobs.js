@@ -21,14 +21,21 @@ export const JobsService = {
   },
 };
 
+export const JOBS_WS_RECONNECT_BASE_MS = 5_000;
+export const JOBS_WS_RECONNECT_MAX_MS = 60_000;
+
 /**
  * 建立 /ws/jobs 即時推送連線，每次收到後端 snapshot 時呼叫 onSnapshot。
- * 斷線後每 5 秒自動重連。回傳中止函式（供 useEffect cleanup 用）。
+ * 斷線後以指數退避自動重連（5 秒起、最長 60 秒，連上後重置），後端重啟時
+ * 不會讓所有分頁每 5 秒一起撞過來。回傳中止函式（供 useEffect cleanup 用）。
  *
  * @param {string | (() => string | null)} token access token，或每次連線時取得
  *   最新 token 的函式（token 會被 refresh 換掉，重連時要用新的才過得了認證）。
+ * @param {(snapshot: object) => void} onSnapshot
+ * @param {{ onStatusChange?: (connected: boolean) => void }} [options]
+ *   連線狀態變化時通知（呼叫端可在 WS 正常時停掉 REST 輪詢）。
  */
-export function connectJobsWebSocket(token, onSnapshot) {
+export function connectJobsWebSocket(token, onSnapshot, { onStatusChange } = {}) {
   const resolveUrl = () => {
     const value = typeof token === "function" ? token() : token;
     if (!value) return null;
@@ -38,13 +45,16 @@ export function connectJobsWebSocket(token, onSnapshot) {
   let ws = null;
   let stopped = false;
   let reconnectTimer = null;
+  let retryDelay = JOBS_WS_RECONNECT_BASE_MS;
 
   const schedule = () => {
     if (stopped || reconnectTimer !== null) return;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, JOBS_WS_RECONNECT_MAX_MS);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       open();
-    }, 5000);
+    }, delay);
   };
 
   const open = () => {
@@ -61,6 +71,10 @@ export function connectJobsWebSocket(token, onSnapshot) {
       schedule();
       return;
     }
+    ws.onopen = () => {
+      retryDelay = JOBS_WS_RECONNECT_BASE_MS;
+      onStatusChange?.(true);
+    };
     ws.onmessage = (evt) => {
       try {
         onSnapshot(JSON.parse(evt.data));
@@ -70,6 +84,7 @@ export function connectJobsWebSocket(token, onSnapshot) {
     };
     ws.onclose = () => {
       ws = null;
+      if (!stopped) onStatusChange?.(false);
       schedule();
     };
   };
