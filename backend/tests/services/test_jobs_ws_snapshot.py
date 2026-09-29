@@ -98,3 +98,32 @@ def test_fetch_snapshot_attaches_reminders_when_requested(
 
     assert result.reminders == ["reminder"]
     assert session.calls == ["expire_all", "query", "reminders", "rollback"]
+
+
+def test_recent_jobs_are_shared_briefly_and_returned_as_copies(monkeypatch) -> None:
+    """同一位使用者的多個分頁／REST／推播在 TTL 內共用一次彙總，且互不汙染。"""
+    from types import SimpleNamespace
+
+    from app.schemas.jobs import JobsListResponse
+    from app.services.jobs import jobs_service
+
+    builds: list[int] = []
+
+    def fake_build(*, session, user, limit, own_only):
+        builds.append(limit)
+        return JobsListResponse(items=[], total=0, active_count=0)
+
+    monkeypatch.setattr(jobs_service, "_build_recent_for_user", fake_build)
+    user = SimpleNamespace(id="u1")
+
+    first = jobs_service.list_recent_for_user(session=None, user=user, limit=20)
+    first.reminders = ["mutated"]
+    second = jobs_service.list_recent_for_user(session=None, user=user, limit=20)
+    jobs_service.list_recent_for_user(session=None, user=user, limit=5)
+
+    assert builds == [20, 5]
+    assert second.reminders != ["mutated"]
+
+    monkeypatch.setattr(jobs_service, "_RECENT_CACHE_TTL_SECONDS", 0.0)
+    jobs_service.list_recent_for_user(session=None, user=user, limit=20)
+    assert builds == [20, 5, 20]

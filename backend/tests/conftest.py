@@ -40,12 +40,14 @@ from tests.utils.utils import get_superuser_token_headers
 
 @pytest.fixture(autouse=True)
 def _clear_proxmox_caches() -> Generator[None, None, None]:
-    """PVE 設定與叢集清單是行程內 TTL 快取：每個測試各自 mock PVE，不能吃到上一個測試的結果。"""
+    """PVE 設定、叢集清單與近期任務是行程內 TTL 快取：每個測試各自 mock，不能吃到上一個測試的結果。"""
     from app.infrastructure.proxmox.operations import invalidate_cluster_resources_cache
     from app.infrastructure.proxmox.settings import invalidate_proxmox_settings_cache
+    from app.services.jobs.jobs_service import clear_recent_jobs_cache
 
     invalidate_proxmox_settings_cache()
     invalidate_cluster_resources_cache()
+    clear_recent_jobs_cache()
     yield
 
 

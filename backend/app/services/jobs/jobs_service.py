@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
@@ -51,6 +53,18 @@ logger = logging.getLogger(__name__)
 
 # 預設只回傳「最近 N 天」的歷史 job，避免 union 後資料量爆炸。
 _HISTORY_WINDOW_DAYS = 30
+
+# list_recent_for_user 的行程內短暫快取：/ws/jobs 每個分頁每 3 秒、REST 補位、
+# Web Push 每 10 秒都會對同一位使用者重算一次（每次約 10 餘次查詢）。
+# 同一位使用者開好幾個分頁時共用同一份結果；TTL 比 WS 間隔短，任務變化最多晚一輪。
+_RECENT_CACHE_TTL_SECONDS = 2.5
+_recent_cache_lock = threading.Lock()
+_recent_cache: dict[tuple[Any, int, bool], tuple[float, JobsListResponse]] = {}
+
+
+def clear_recent_jobs_cache() -> None:
+    with _recent_cache_lock:
+        _recent_cache.clear()
 # 每個來源預先抓取的上限（避免一次拉太多）。
 _PER_SOURCE_FETCH_LIMIT = 200
 
@@ -583,6 +597,29 @@ def list_recent_for_user(
     只推本人任務，若先撈全站再截 limit，全站進行中任務一多，管理員自己剛
     結束的任務就會被截掉而漏推。
     """
+    key = (user.id, limit, own_only)
+    now = time.monotonic()
+    with _recent_cache_lock:
+        cached = _recent_cache.get(key)
+    if cached is not None and now - cached[0] < _RECENT_CACHE_TTL_SECONDS:
+        # 呼叫端（WS）會在回傳值上再掛 reminders，一律給複本
+        return cached[1].model_copy(deep=True)
+    snapshot = _build_recent_for_user(
+        session=session, user=user, limit=limit, own_only=own_only
+    )
+    with _recent_cache_lock:
+        for stale_key in [
+            k for k, (at, _snap) in _recent_cache.items()
+            if now - at >= _RECENT_CACHE_TTL_SECONDS
+        ]:
+            del _recent_cache[stale_key]
+        _recent_cache[key] = (time.monotonic(), snapshot)
+    return snapshot.model_copy(deep=True)
+
+
+def _build_recent_for_user(
+    *, session: Session, user: User, limit: int, own_only: bool
+) -> JobsListResponse:
     since = _now() - timedelta(days=_HISTORY_WINDOW_DAYS)
     all_items = _aggregate_jobs(
         session=session, user=user, kinds=None, since=since, own_only=own_only
