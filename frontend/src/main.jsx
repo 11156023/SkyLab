@@ -11,27 +11,32 @@ import { UnsavedChangesProvider } from "./contexts/UnsavedChangesContext";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import AppToaster from "./components/AppToaster";
 import "./assets/styles/global.scss";
-import "./i18n";
+import { i18nReady } from "./i18n";
 import { initSentry } from "./utils/sentry";
 
 // 建置時有 VITE_SENTRY_DSN 才會載入 SDK（動態 import，不影響首屏）
 initSentry();
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <ThemeProvider>
-    <AuthProvider>
-      <ConfirmProvider>
-        <BrowserRouter>
-          <UnsavedChangesProvider>
-            {/* 根層 boundary：保住 DashboardLayout 以外的頁面（登入、導入、setup），
-                避免整頁白畫面；頁面內容另有 DashboardLayout 的 ErrorBoundary 先攔 */}
-            <ErrorBoundary fullPage>
-              <App />
-            </ErrorBoundary>
-          </UnsavedChangesProvider>
-          <AppToaster />
-        </BrowserRouter>
-      </ConfirmProvider>
-    </AuthProvider>
-  </ThemeProvider>,
-);
+function renderApp() {
+  ReactDOM.createRoot(document.getElementById("root")).render(
+    <ThemeProvider>
+      <AuthProvider>
+        <ConfirmProvider>
+          <BrowserRouter>
+            <UnsavedChangesProvider>
+              {/* 根層 boundary：保住 DashboardLayout 以外的頁面（登入、導入、setup），
+                  避免整頁白畫面；頁面內容另有 DashboardLayout 的 ErrorBoundary 先攔 */}
+              <ErrorBoundary fullPage>
+                <App />
+              </ErrorBoundary>
+            </UnsavedChangesProvider>
+            <AppToaster />
+          </BrowserRouter>
+        </ConfirmProvider>
+      </AuthProvider>
+    </ThemeProvider>,
+  );
+}
+
+// 使用者選的是英文／日文時要先載入語系檔再渲染；載入失敗也照常渲染（退回中文）
+i18nReady.then(renderApp, renderApp);

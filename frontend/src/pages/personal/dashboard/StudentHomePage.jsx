@@ -1,10 +1,8 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
-import TerminalDialog from "../resources/TerminalDialog";
-import VncDialog from "../resources/VncDialog";
 import { CoursesService } from "../../../services/courses";
 import { ResourcesService } from "../../../services/resources";
 import { QuickPracticeService } from "../../../services/quickPractice";
@@ -14,6 +12,10 @@ import HomeOverview from "./HomeOverview";
 import { waitForPracticeMachine } from "./student/studentDashboard";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import i18n from "../../../i18n";
+
+// 終端機（xterm）與 VNC（noVNC）對話框都很大，學生首頁載入時多半用不到
+const TerminalDialog = lazy(() => import("../resources/TerminalDialog"));
+const VncDialog = lazy(() => import("../resources/VncDialog"));
 
 /* 課表 API 的扁平欄位收進 schedule 物件；尚未開課（available）的課程在時間前加上「下次上課」日期。 */
 function normalizeSchedule(row, t) {
@@ -183,12 +185,14 @@ export default function StudentHomePage() {
         shuttingDownId={shuttingDownId} onShutdownMachine={shutdownPracticeMachine}
         userId={user?.id} />
 
-      {activePracticeResource?.type === "lxc" && (
-        <TerminalDialog resource={activePracticeResource} onClose={() => setActivePracticeResource(null)} />
-      )}
-      {activePracticeResource && activePracticeResource.type !== "lxc" && (
-        <VncDialog resource={activePracticeResource} onClose={() => setActivePracticeResource(null)} />
-      )}
+      <Suspense fallback={null}>
+        {activePracticeResource?.type === "lxc" && (
+          <TerminalDialog resource={activePracticeResource} onClose={() => setActivePracticeResource(null)} />
+        )}
+        {activePracticeResource && activePracticeResource.type !== "lxc" && (
+          <VncDialog resource={activePracticeResource} onClose={() => setActivePracticeResource(null)} />
+        )}
+      </Suspense>
     </div>
   );
 }

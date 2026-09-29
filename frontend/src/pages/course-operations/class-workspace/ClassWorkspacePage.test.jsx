@@ -4,12 +4,15 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { toast } from "sonner";
 import { StudentMachines, WeeklyContent } from "./ClassWorkspacePage";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { ClassroomService } from "../../../services/classroom";
 import i18n from "../../../i18n";
+
+// en／ja 語系檔改為用到才載入；這裡要檢查三語都有 key，先全部載入
+beforeAll(() => i18n.loadLanguages(["en", "ja"]));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 vi.mock("../../../components/Classroom/ClassroomWatchDialog", () => ({ default: () => null }));
