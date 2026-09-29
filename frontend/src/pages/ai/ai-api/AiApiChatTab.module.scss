@@ -200,8 +200,8 @@
   display: flex;
   flex-direction: column;
   gap: $spacing-32;
-  width: min(100%, 860px);
-  margin: 0 auto;
+  /* 對話跟輸入框都撐滿聊天區，不另外收成置中窄欄 */
+  width: 100%;
 }
 
 .message {
@@ -216,7 +216,6 @@
 
 .messageBody {
   min-width: 0;
-  max-width: 75ch;
 }
 
 .avatar {
@@ -494,8 +493,7 @@
 }
 
 .composerSurface {
-  width: min(100%, 860px);
-  margin: 0 auto;
+  width: 100%;
   padding: 5px;
   border: 1px solid var(--color-border);
   border-radius: $radius-16;
