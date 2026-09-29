@@ -71,6 +71,9 @@
   "ldapAuth.invalidEmailAttribute": "The email returned by LDAP is not valid. Ask an administrator to check the email attribute in the LDAP settings.",
   "auth.googleNotConfigured": "Google login is not configured",
   "auth.totpTooManyAttempts": "Too many incorrect verification codes. Please try again in {minutes} minutes.",
+  "auth.turnstileRequired": "Please complete the \"I am human\" check first",
+  "auth.turnstileFailed": "The human verification failed or has expired. Please verify again and retry",
+  "auth.turnstileUnavailable": "The human verification service is temporarily unreachable. Please try again later",
   "template.sourceVmNotRegistered": "VM {vmid} is not registered on the platform and cannot be converted to a template",
   "template.fieldCannotBeNull": "Field {field} cannot be set to null",
   "template.updateCloneMismatch": "VMID {vmid} is no longer the staging VM for this update cycle; cancel the update and start again"

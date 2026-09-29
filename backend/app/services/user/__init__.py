@@ -8,6 +8,7 @@ __all__ = [
     "avatar_service",
     "ldap_auth_service",
     "totp_service",
+    "turnstile_service",
     "user_service",
 ]
 
@@ -17,6 +18,7 @@ _MODULES = {
     "avatar_service": "app.services.user.avatar_service",
     "ldap_auth_service": "app.services.user.ldap_auth_service",
     "totp_service": "app.services.user.totp_service",
+    "turnstile_service": "app.services.user.turnstile_service",
     "user_service": "app.services.user.user_service",
 }
 

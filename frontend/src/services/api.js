@@ -293,11 +293,12 @@ export function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-/** POST（JSON body） */
+/** POST（JSON body）；options.headers 可加額外標頭（例如註冊的機器人驗證 token） */
 export function apiPost(path, body, options = {}) {
   return request(path, {
     method: "POST",
     body: JSON.stringify(body),
+    headers: options.headers,
     signal: options.signal,
     timeoutMs: options.timeoutMs,
   });
@@ -313,6 +314,7 @@ export async function apiPostForm(path, params, options = {}) {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept-Language": i18n.language ?? "zh-TW",
+        ...options.headers,
       },
       body: new URLSearchParams(params).toString(),
       signal: options.signal,

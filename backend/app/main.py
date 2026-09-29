@@ -24,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.api.deps.turnstile import TURNSTILE_HEADER
 from app.api.main import api_router
 from app.api.prometheus_sd import gateway_targets_endpoint
 from app.api.websocket import vnc_proxy
@@ -196,7 +197,8 @@ if settings.all_cors_origins:
         allow_origins=settings.all_cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization"],
+        # X-Turnstile-Token：登入／註冊的 Cloudflare 機器人驗證 token
+        allow_headers=["Content-Type", "Authorization", TURNSTILE_HEADER],
         expose_headers=["Content-Disposition"],
     )
 

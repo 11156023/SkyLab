@@ -1,0 +1,14 @@
+// Turnstile 小工具 flexible 尺寸固定高 65px；先保留高度，載入時表單不會跳動
+.widget {
+  min-height: 65px;
+  width: 100%;
+}
+
+.loadFailed {
+  font-size: $font-size-14;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  border-radius: $radius-8;
+  padding: $spacing-8 $spacing-16;
+  margin: 0;
+}

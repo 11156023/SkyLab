@@ -15,6 +15,7 @@ from app.api.deps import (
     TokenDep,
     enforce_account_rate_limit,
     rate_limit_by_ip,
+    require_turnstile,
 )
 from app.core import security
 from app.core.config import settings
@@ -58,6 +59,9 @@ _PASSWORD_RECOVERY_RATE_LIMIT = Depends(
     rate_limit_by_ip(scope="pwd-recovery", limit=30, window_seconds=60)
 )
 _PASSWORD_RECOVERY_PER_EMAIL_LIMIT = 3
+# Cloudflare Turnstile：密碼與 LDAP 登入共用登入頁同一個驗證框（action=login）；
+# 未設定金鑰時放行。Google 登入走 Google 自己的彈窗，不另外驗證。
+_LOGIN_TURNSTILE = Depends(require_turnstile("login"))
 
 
 async def _enforce_login_account_limit(account: str) -> None:
@@ -75,7 +79,7 @@ _TOTP_USER_FAIL_WINDOW_SECONDS = 15 * 60
 _TOTP_CHALLENGE_FAIL_LIMIT = 3
 
 
-@router.post("/login/access-token", dependencies=[_LOGIN_RATE_LIMIT])
+@router.post("/login/access-token", dependencies=[_LOGIN_RATE_LIMIT, _LOGIN_TURNSTILE])
 async def login_access_token(
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token | TotpChallenge:
@@ -97,7 +101,7 @@ async def login_google(
     return await auth_service.google_login(session=session, id_token=body.id_token)
 
 
-@router.post("/login/ldap", dependencies=[_LOGIN_RATE_LIMIT])
+@router.post("/login/ldap", dependencies=[_LOGIN_RATE_LIMIT, _LOGIN_TURNSTILE])
 async def login_ldap(
     session: SessionDep, body: LdapLoginRequest
 ) -> Token | TotpChallenge:

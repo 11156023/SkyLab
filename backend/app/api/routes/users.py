@@ -10,6 +10,7 @@ from app.api.deps import (
     CurrentUser,
     SessionDep,
     get_current_active_superuser,
+    require_turnstile,
 )
 from app.core.config import settings
 from app.core.i18n import t
@@ -188,7 +189,11 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     return Message(message="User deleted successfully")
 
 
-@router.post("/signup", response_model=UserPublic)
+@router.post(
+    "/signup",
+    response_model=UserPublic,
+    dependencies=[Depends(require_turnstile("signup"))],
+)
 def register_user(session: SessionDep, user_in: UserRegister) -> Any:
     return user_service.register_user(session=session, user_in=user_in)
 

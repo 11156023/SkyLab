@@ -23,6 +23,8 @@
   "LoginPage.totpVerifying": "Verifying…",
   "LoginPage.totpErrorDefault": "Incorrect verification code, please try again",
   "LoginPage.totpHelp": "Open Google Authenticator (or another authenticator app) and find the SkyLab entry. If you have lost your phone, ask an administrator to reset two-factor authentication.",
+  "LoginPage.turnstileRequired": "Please complete the \"I am human\" check below first",
+  "LoginPage.turnstileLoadFailed": "The human verification box failed to load. Make sure your network can reach Cloudflare, then refresh the page",
   "TotpEnrollPage.title": "Set up two-factor authentication",
   "TotpEnrollPage.subtitle": "Two-factor authentication is required for this account ({{email}})",
   "TotpEnrollPage.notice": "You can continue to SkyLab once setup is complete. From then on, every login requires the 6-digit code from your authenticator app.",

@@ -173,6 +173,16 @@ class Settings(BaseSettings):
     # Google 登入只驗證 ID token 的 aud，不需要 client secret。
     GOOGLE_CLIENT_ID: str | None = None
 
+    # Cloudflare Turnstile 機器人驗證（密碼／LDAP 登入與註冊）。兩把都填才啟用；
+    # site key 經公開的 /login/methods 交給前端，secret key 只留在後端。
+    TURNSTILE_SITE_KEY: str | None = None
+    TURNSTILE_SECRET_KEY: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def turnstile_enabled(self) -> bool:
+        return bool(self.TURNSTILE_SITE_KEY and self.TURNSTILE_SECRET_KEY)
+
     # LDAP over ldaps:// / StartTLS 一律驗證伺服器憑證與主機名稱。網域控制站
     # 用校內私有 CA 簽發時，把該 CA 的 PEM 檔路徑設在這裡；留空＝系統信任庫。
     LDAP_CA_CERT_FILE: str | None = None

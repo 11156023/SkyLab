@@ -31,6 +31,7 @@ from app.api.deps.rate_limit import (
     rate_limit_by_ip,
     rate_limit_by_user,
 )
+from app.api.deps.turnstile import TURNSTILE_HEADER, require_turnstile
 
 __all__ = [
     # Database
@@ -67,4 +68,7 @@ __all__ = [
     "enforce_account_rate_limit",
     "rate_limit_by_ip",
     "rate_limit_by_user",
+    # Bot protection
+    "TURNSTILE_HEADER",
+    "require_turnstile",
 ]
