@@ -16,7 +16,8 @@
 
   button,
   select,
-  textarea {
+  textarea,
+  input {
     font: inherit;
 
     &:focus-visible {
@@ -29,7 +30,8 @@
 
   button:disabled,
   select:disabled,
-  textarea:disabled {
+  textarea:disabled,
+  input:disabled {
     opacity: 0.52;
     cursor: not-allowed;
   }
@@ -51,15 +53,6 @@
     font-weight: $font-weight-500;
     letter-spacing: 0.02em;
   }
-}
-
-/* 沒有設定聊天金鑰：整塊只放一個空狀態 */
-.notConfigured {
-  display: flex;
-  min-height: 420px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-16;
-  background: var(--color-surface);
 }
 
 /* 按鈕一律用共用 mixin */
@@ -173,6 +166,14 @@
   min-width: 220px;
 }
 
+.manualKeyControl {
+  display: flex;
+  align-items: end;
+  flex: 1 1 320px;
+  gap: 10px;
+  min-width: 0;
+}
+
 .modelIcon {
   display: grid;
   place-items: center;
@@ -197,7 +198,8 @@
     line-height: 1.2;
   }
 
-  select {
+  select,
+  input {
     @include form-control;
     text-overflow: ellipsis;
   }
