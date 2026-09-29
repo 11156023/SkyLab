@@ -49,7 +49,8 @@ test("the banner re-checks the subnet status when the subnet is saved or deleted
   expect(host.textContent).toContain("SubnetBanner.adminMessage");
 });
 
-test("the banner re-checks the subnet status on every page change", async () => {
+test("the banner re-checks the subnet status on page change once the last check is a minute old", async () => {
+  const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
   let navigate;
   function Nav() {
     navigate = useNavigate();
@@ -67,10 +68,16 @@ test("the banner re-checks the subnet status on every page change", async () => 
   expect(host.textContent).toContain("SubnetBanner.adminMessage");
   expect(getStatus).toHaveBeenCalledTimes(1);
 
-  getStatus.mockResolvedValueOnce({ configured: true });
+  // 一分鐘內換頁不重查（每個使用者每次換頁都打一次太多）
   await act(async () => navigate("/resources"));
+  expect(getStatus).toHaveBeenCalledTimes(1);
+
+  nowSpy.mockReturnValue(1_000_000 + 60_000);
+  getStatus.mockResolvedValueOnce({ configured: true });
+  await act(async () => navigate("/firewall"));
   expect(getStatus).toHaveBeenCalledTimes(2);
   expect(host.textContent).toBe("");
+  nowSpy.mockRestore();
 });
 
 test("the listener is removed on unmount", async () => {

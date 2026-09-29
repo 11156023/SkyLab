@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./GatewayPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
-import ConfigCodeEditor from "./ConfigCodeEditor";
 import GatewayInstallTab from "./GatewayInstallTab";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import EmptyState from "../../../components/EmptyState/EmptyState";
@@ -16,6 +15,9 @@ import SegmentedControl from "../../../components/SegmentedControl/SegmentedCont
 
 /* 日誌變化快，比站上預設的 30 秒更新得勤；每次重抓只是一次短暫的 SSH journalctl */
 const LOG_REFRESH_MS = 10_000;
+
+// Monaco 很大：只有打開設定檔分頁時才載入（WireGuard／安裝分頁用不到）
+const ConfigCodeEditor = lazy(() => import("./ConfigCodeEditor"));
 
 /* 服務日誌自動更新：分頁隱藏時暫停，前一次還沒回來就跳過這輪（Gateway 連不上時 SSH 不會越堆越多），
    抓失敗就保留畫面上的內容。回傳的 refresh 供服務操作後立即重抓。 */
@@ -428,20 +430,22 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
       </div>
 
       <div className={styles.areaEditor}>
-        <ConfigCodeEditor
-          fileName={file.path.split("/").pop()}
-          filePath={file.path}
-          language={file.language}
-          value={configText}
-          onChange={setConfigText}
-          dirty={dirty}
-          saving={saving}
-          busy={acting !== null}
-          loadFailed={configLoadFailed}
-          host={host}
-          onSave={handleSaveConfig}
-          onReload={fetchAll}
-        />
+        <Suspense fallback={<LoadingState />}>
+          <ConfigCodeEditor
+            fileName={file.path.split("/").pop()}
+            filePath={file.path}
+            language={file.language}
+            value={configText}
+            onChange={setConfigText}
+            dirty={dirty}
+            saving={saving}
+            busy={acting !== null}
+            loadFailed={configLoadFailed}
+            host={host}
+            onSave={handleSaveConfig}
+            onReload={fetchAll}
+          />
+        </Suspense>
       </div>
 
       <ServiceLogsCard logs={logs} className={styles.areaLogs} />

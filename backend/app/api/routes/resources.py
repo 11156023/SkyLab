@@ -42,6 +42,14 @@ def list_my_resources(session: SessionDep, current_user: CurrentUser):
     )
 
 
+@router.get("/my/session-status", response_model=list[SessionStatusResponse])
+def list_my_session_statuses(session: SessionDep, current_user: CurrentUser):
+    """本人所有執行中機器的關機／到期警告狀態（取代逐台輪詢 /{vmid}/session-status）。"""
+    return resource_service.list_my_session_statuses(
+        session=session, user_id=current_user.id
+    )
+
+
 @router.post("/batch", response_model=BatchActionResponse)
 def batch_action(
     body: BatchActionRequest,

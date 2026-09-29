@@ -1,7 +1,9 @@
 /**
  * i18n/index.js
- * i18next 初始化。語系資源以靜態 import 打包（無執行期抓取），
- * 命名空間對應 src/locales/<lang>/<namespace>.json。
+ * i18next 初始化。命名空間對應 src/locales/<lang>/<namespace>.json。
+ * 預設語言（zh-TW，也是 fallback）靜態打包；en／ja 由 lazyLocaleBackend 在
+ * 切換到該語言時才以 dynamic import 載入（三語全部打包會讓每個人首次載入
+ * 多下載約 700 KB）。changeLanguage() 會等資源載完才切換，呼叫端不必改。
  *
  * 使用方式：
  *   import { useTranslation } from "react-i18next";
@@ -26,30 +28,6 @@ import aiZhTW from "../locales/zh-TW/ai.json";
 import teachingZhTW from "../locales/zh-TW/teaching.json";
 import systemZhTW from "../locales/zh-TW/system.json";
 import networkZhTW from "../locales/zh-TW/network.json";
-
-import commonEn from "../locales/en/common.json";
-import landingEn from "../locales/en/landing.json";
-import componentsEn from "../locales/en/components.json";
-import servicesEn from "../locales/en/services.json";
-import loginEn from "../locales/en/login.json";
-import personalEn from "../locales/en/personal.json";
-import resourceEn from "../locales/en/resource.json";
-import aiEn from "../locales/en/ai.json";
-import teachingEn from "../locales/en/teaching.json";
-import systemEn from "../locales/en/system.json";
-import networkEn from "../locales/en/network.json";
-
-import commonJa from "../locales/ja/common.json";
-import landingJa from "../locales/ja/landing.json";
-import componentsJa from "../locales/ja/components.json";
-import servicesJa from "../locales/ja/services.json";
-import loginJa from "../locales/ja/login.json";
-import personalJa from "../locales/ja/personal.json";
-import resourceJa from "../locales/ja/resource.json";
-import aiJa from "../locales/ja/ai.json";
-import teachingJa from "../locales/ja/teaching.json";
-import systemJa from "../locales/ja/system.json";
-import networkJa from "../locales/ja/network.json";
 
 export const SUPPORTED_LANGUAGES = ["zh-TW", "en", "ja"];
 export const DEFAULT_LANGUAGE = "zh-TW";
@@ -79,7 +57,28 @@ function loadStoredLanguage() {
   }
 }
 
-i18n.use(initReactI18next).init({
+// 非預設語言的語系檔：vite 會把每個 JSON 拆成獨立 chunk，用到才下載
+const lazyLocales = import.meta.glob(["../locales/en/*.json", "../locales/ja/*.json"]);
+
+const lazyLocaleBackend = {
+  type: "backend",
+  init() {},
+  read(language, namespace, callback) {
+    const load = lazyLocales[`../locales/${language}/${namespace}.json`];
+    if (!load) {
+      // zh-TW 已靜態打包，其他沒有對應檔案的組合當成空資源（t() 會退回 fallback）
+      callback(null, {});
+      return;
+    }
+    load().then(
+      (mod) => callback(null, mod.default ?? mod),
+      (error) => callback(error, null),
+    );
+  },
+};
+
+/** 初始化（含使用者上次選的語言的資源）完成；main.jsx 等它再渲染，避免先閃一下中文 */
+export const i18nReady = i18n.use(lazyLocaleBackend).use(initReactI18next).init({
   resources: {
     "zh-TW": {
       common: commonZhTW,
@@ -94,33 +93,8 @@ i18n.use(initReactI18next).init({
       system: systemZhTW,
       network: networkZhTW,
     },
-    en: {
-      common: commonEn,
-      landing: landingEn,
-      components: componentsEn,
-      services: servicesEn,
-      login: loginEn,
-      personal: personalEn,
-      resource: resourceEn,
-      ai: aiEn,
-      teaching: teachingEn,
-      system: systemEn,
-      network: networkEn,
-    },
-    ja: {
-      common: commonJa,
-      landing: landingJa,
-      components: componentsJa,
-      services: servicesJa,
-      login: loginJa,
-      personal: personalJa,
-      resource: resourceJa,
-      ai: aiJa,
-      teaching: teachingJa,
-      system: systemJa,
-      network: networkJa,
-    },
   },
+  partialBundledLanguages: true,
   lng: loadStoredLanguage(),
   fallbackLng: DEFAULT_LANGUAGE,
   supportedLngs: SUPPORTED_LANGUAGES,
@@ -138,15 +112,16 @@ export function currentLanguage(lang = i18n.language) {
   return SUPPORTED_LANGUAGES.includes(lang) ? lang : DEFAULT_LANGUAGE;
 }
 
-/** 切換語系並持久化到 localStorage（各處語言選單使用） */
+/** 切換語系並持久化到 localStorage（各處語言選單使用）；非預設語言會先載入語系檔 */
 export function setLanguage(lang) {
-  if (!SUPPORTED_LANGUAGES.includes(lang)) return;
-  i18n.changeLanguage(lang);
+  if (!SUPPORTED_LANGUAGES.includes(lang)) return undefined;
+  const switched = i18n.changeLanguage(lang);
   try {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
   } catch {
     // localStorage 不可用時（無痕模式等）僅本次 session 生效
   }
+  return switched;
 }
 
 export default i18n;

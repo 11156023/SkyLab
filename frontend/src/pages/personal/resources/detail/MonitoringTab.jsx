@@ -86,7 +86,8 @@ export default function MonitoringTab({ vmid, toolbar }) {
       }
     };
     load();
-    const timer = setInterval(load, 5_000);
+    // 分頁隱藏時不輪詢（切回來後下一個 tick 就會更新）
+    const timer = setInterval(() => { if (!document.hidden) load(); }, 5_000);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -105,7 +106,7 @@ export default function MonitoringTab({ vmid, toolbar }) {
       }
     };
     load();
-    const timer = setInterval(load, 30_000);
+    const timer = setInterval(() => { if (!document.hidden) load(); }, 30_000);
     return () => {
       cancelled = true;
       clearInterval(timer);

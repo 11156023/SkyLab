@@ -56,6 +56,8 @@ class VMRequest(SQLModel, table=True):
         sa.Index("ix_vm_requests_vmid", "vmid"),
         sa.Index("ix_vm_requests_user_status_created", "user_id", "status", "created_at"),
         sa.Index("ix_vm_requests_status_created", "status", "created_at"),
+        # 管理員任務清單／申請清單不分狀態、依 created_at 倒序
+        sa.Index("ix_vm_requests_created_at", "created_at"),
         sa.Index("ix_vm_requests_schedule", "status", "start_at", "end_at"),
         sa.Index("ix_vm_requests_gpu_window", "gpu_mapping_id", "start_at", "end_at"),
         sa.Index(

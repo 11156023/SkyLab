@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -35,6 +35,14 @@ const DESKTOP_PROMPT_TOAST_ID = "desktop-notifications-prompt";
 const DESKTOP_PROMPT_DELAY_MS = 2500;
 
 /* 沿用學生首頁提醒中心時代的 key，保留使用者既有的已讀紀錄 */
+/** 新清單內容與舊的相同時沿用舊陣列（讓 React 跳過重繪） */
+function keepIfUnchanged(prev, next) {
+  if (prev && prev.length === next.length && JSON.stringify(prev) === JSON.stringify(next)) {
+    return prev;
+  }
+  return next;
+}
+
 function reminderStorageKey(user) {
   return `skylab:student-reminders:v1:${user?.id ?? user?.email ?? "student"}`;
 }
@@ -184,11 +192,14 @@ export default function JobsProvider({ children }) {
   pushSubscribedRef.current = pushState === "subscribed";
   const [searchParams, setSearchParams] = useSearchParams();
 
-  /* REST fallback：每 15 秒抓一次執行中任務（WS 為主） */
+  // WS 連著時 snapshot 每幾秒就來一次，REST 輪詢只在斷線時補位
+  const wsConnectedRef = useRef(false);
+
+  /* REST fallback：WS 斷線期間每 15 秒抓一次執行中任務 */
   const load = useCallback(async () => {
     try {
       const res = await JobsService.list({ statuses: ["running"], limit: 200, historyDays: 30 });
-      setItems(res?.items ?? []);
+      setItems((prev) => keepIfUnchanged(prev, res?.items ?? []));
     } catch {
       // 靜默失敗，維持現有畫面；WS 重連後會補上
     }
@@ -197,7 +208,7 @@ export default function JobsProvider({ children }) {
   useEffect(() => {
     load();
     const timer = setInterval(() => {
-      if (!document.hidden) load();
+      if (!document.hidden && !wsConnectedRef.current) load();
     }, 15000);
     return () => clearInterval(timer);
   }, [load]);
@@ -208,12 +219,13 @@ export default function JobsProvider({ children }) {
     if (!AuthStorage.getAccessToken()) return;
     return connectJobsWebSocket(() => AuthStorage.getAccessToken(), (snapshot) => {
       const all = snapshot?.items ?? [];
-      setItems(all.filter((j) => j.status === "running"));
+      // 內容沒變就保留原陣列：snapshot 每幾秒一次，換新陣列會讓所有消費者重繪
+      setItems((prev) => keepIfUnchanged(prev, all.filter((j) => j.status === "running")));
 
       // /ws/jobs 的 snapshot 會附帶個人提醒（約每 30 秒重算一次）；
       // 缺欄位（舊後端）時維持 REST 載入的結果
       if (Array.isArray(snapshot?.reminders)) {
-        setReminders(snapshot.reminders);
+        setReminders((prev) => keepIfUnchanged(prev, snapshot.reminders));
 
         // ── 新出現且未讀的提醒 → 桌面通知（首次 snapshot 只建 baseline）──
         const prevIds = prevReminderIdsRef.current;
@@ -243,6 +255,12 @@ export default function JobsProvider({ children }) {
         if (enabled && j.user_id !== myUserId) continue;
         notifyJobTransition(j, setFocusJobId, t, { desktopFallback: !pushSubscribedRef.current });
       }
+    }, {
+      onStatusChange: (connected) => {
+        wsConnectedRef.current = connected;
+        // 剛斷線：立刻用 REST 補一次，不必等下一個 15 秒
+        if (!connected) load();
+      },
     });
   }, []);
 
@@ -431,7 +449,7 @@ export default function JobsProvider({ children }) {
     return () => clearTimeout(timer);
   }, [enableDesktopNotifications, t]);
 
-  const desktopNotifications = {
+  const desktopNotifications = useMemo(() => ({
     supported: isDesktopSupported(),
     permission: desktopPermission,
     enabled: desktopPermission === "granted" && desktopPrefEnabled,
@@ -440,24 +458,42 @@ export default function JobsProvider({ children }) {
     sync: syncDesktopPermission,
     // Web Push 狀態：subscribed 代表分頁關掉也收得到
     push: pushState,
-  };
+  }), [
+    desktopPermission,
+    desktopPrefEnabled,
+    enableDesktopNotifications,
+    disableDesktopNotifications,
+    syncDesktopPermission,
+    pushState,
+  ]);
+
+  const value = useMemo(() => ({
+    items,
+    isAdmin,
+    notifyOnlyMine,
+    setNotifyOnlyMine,
+    openJob: setFocusJobId,
+    reminders,
+    readReminderIds,
+    refreshReminders,
+    markReminderRead,
+    markAllRemindersRead,
+    desktopNotifications,
+  }), [
+    items,
+    isAdmin,
+    notifyOnlyMine,
+    setNotifyOnlyMine,
+    reminders,
+    readReminderIds,
+    refreshReminders,
+    markReminderRead,
+    markAllRemindersRead,
+    desktopNotifications,
+  ]);
 
   return (
-    <JobsContext.Provider
-      value={{
-        items,
-        isAdmin,
-        notifyOnlyMine,
-        setNotifyOnlyMine,
-        openJob: setFocusJobId,
-        reminders,
-        readReminderIds,
-        refreshReminders,
-        markReminderRead,
-        markAllRemindersRead,
-        desktopNotifications,
-      }}
-    >
+    <JobsContext.Provider value={value}>
       {children}
       <JobDetailDialog jobId={focusJobId} onClose={() => setFocusJobId(null)} />
     </JobsContext.Provider>

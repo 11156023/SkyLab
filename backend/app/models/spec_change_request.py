@@ -44,6 +44,7 @@ class SpecChangeRequest(SQLModel, table=True):
             "created_at",
         ),
         sa.Index("ix_spec_change_requests_status_created", "status", "created_at"),
+        sa.Index("ix_spec_change_requests_created_at", "created_at"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

@@ -4,10 +4,8 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
-import TotpEnrollPage from "./pages/login/TotpEnrollPage";
 import ResetPasswordRedirect, { hasResetToken } from "./pages/login/ResetPasswordRedirect";
 import LoginPreflightPage from "./pages/login/LoginPreflightPage";
-import OnboardingPage from "./pages/onboarding/OnboardingPage";
 import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
@@ -18,6 +16,9 @@ import styles from "./App.module.scss";
 
 // 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
 const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
+// 兩步驟驗證綁定與首次引導只有少數人會看到，而且都帶著 qrcode：不放進入口 chunk
+const TotpEnrollPage = lazy(() => import("./pages/login/TotpEnrollPage"));
+const OnboardingPage = lazy(() => import("./pages/onboarding/OnboardingPage"));
 // 首次安裝初始化精靈（免登入；後端 system_setup.completed 之前登入頁會導過來）
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 // 404：登入後開到不存在的路徑
@@ -211,14 +212,22 @@ function App() {
      所以這裡不進 DashboardLayout（避免側欄／通知等請求一路噴 403），
      只顯示綁定畫面；完成後 updateUser 清掉旗標即自動進入系統。 */
   if (user?.totp_setup_required) {
-    return <TotpEnrollPage />;
+    return (
+      <Suspense fallback={<AuthBootstrapState />}>
+        <TotpEnrollPage />
+      </Suspense>
+    );
   }
 
   /* 首次登入引導（語言／外觀／兩步驟驗證）：走完或略過前只顯示精靈，同樣不進
      DashboardLayout；裝置授權流程（device_code）例外，不打斷授權。
      只認後端明確回 false：舊版後端沒有這個欄位時（undefined）不能對所有人跳精靈。 */
   if (user?.onboarding_completed === false && !isDeviceApproval) {
-    return <OnboardingPage />;
+    return (
+      <Suspense fallback={<AuthBootstrapState />}>
+        <OnboardingPage />
+      </Suspense>
+    );
   }
 
   return (

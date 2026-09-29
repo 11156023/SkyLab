@@ -15,6 +15,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import { ResourcesService } from "../../../services/resources";
 import { VmRequestsService } from "../../../services/vmRequests";
 import {
+  PENDING_IDLE_POLL_INTERVAL,
   PENDING_POLL_INTERVAL,
   cancelVmRequest,
   fetchPendingResources,
@@ -669,7 +670,8 @@ export default function ResourcesPage() {
   const refreshPending = useCallback(async () => {
     try {
       const items = await fetchPendingResources();
-      setPending(items);
+      // 內容沒變就不換陣列，免得整張表每 5 秒重繪
+      setPending((prev) => (JSON.stringify(prev) === JSON.stringify(items) ? prev : items));
       const sig = pendingSignature(items);
       if (pendingSigRef.current !== null && sig !== pendingSigRef.current) {
         fetchResources(true);
@@ -688,9 +690,16 @@ export default function ResourcesPage() {
 
   useEffect(() => {
     refreshPending();
-    const timer = setInterval(refreshPending, PENDING_POLL_INTERVAL);
-    return () => clearInterval(timer);
   }, [refreshPending]);
+
+  // 有建立中的申請才每 5 秒追進度，否則放慢；分頁隱藏時不輪詢
+  const hasPending = pending.length > 0;
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!document.hidden) refreshPending();
+    }, hasPending ? PENDING_POLL_INTERVAL : PENDING_IDLE_POLL_INTERVAL);
+    return () => clearInterval(timer);
+  }, [refreshPending, hasPending]);
 
   const anyBooting = resources.some((r) => r.status === "starting");
   useAutoRefresh(() => fetchResources(true), anyBooting ? BOOTING_POLL_INTERVAL : undefined);

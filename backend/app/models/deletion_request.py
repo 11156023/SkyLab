@@ -34,6 +34,9 @@ class DeletionRequest(SQLModel, table=True):
             postgresql_where=sa.text("status IN ('pending', 'running')"),
             sqlite_where=sa.text("status IN ('pending', 'running')"),
         ),
+        # 任務清單：管理員依 created_at 倒序、一般使用者只看自己的
+        sa.Index("ix_deletion_requests_created_at", "created_at"),
+        sa.Index("ix_deletion_requests_user_created", "user_id", "created_at"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

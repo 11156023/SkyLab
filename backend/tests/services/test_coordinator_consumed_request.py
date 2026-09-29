@@ -130,7 +130,8 @@ class TestEnsureRequestRunningSkipsConsumed:
         assert consumed.provisioning_error == DELETED_MARKER
 
     def test_active_request_still_gets_started(self, monkeypatch) -> None:
-        req = _request(provisioning_status=VMProvisioningStatus.completed)
+        # 使用者按了重試：provisioning_status 被重設為 pending，代表還欠一次開機
+        req = _request(provisioning_status=VMProvisioningStatus.pending)
         session = _FakeSession()
         calls: list[str] = []
 
@@ -169,6 +170,107 @@ class TestEnsureRequestRunningSkipsConsumed:
 
         assert started is True
         assert calls == ["start", "update"]
+
+    def test_provisioned_request_is_not_restarted_after_shutdown(
+        self, monkeypatch
+    ) -> None:
+        """已開過機的單（completed）機器被關掉後，排程不能再把它開回來。
+
+        回歸背景：沒有結束時間的立即模式與週期性時段的申請單會一直留在使用中
+        集合，排程每分鐘都把沒在跑的機器開回來，蓋掉使用者手動關機、時段外
+        自動關機與閒置／到期關機。
+        """
+        req = _request(provisioning_status=VMProvisioningStatus.completed)
+
+        monkeypatch.setattr(
+            coordinator,
+            "_refresh_actual_node",
+            lambda *, session, request: ("pve205", {"status": "stopped"}),
+        )
+        monkeypatch.setattr(
+            coordinator.vm_request_repo,
+            "get_vm_request_by_id",
+            lambda **kwargs: req,
+        )
+
+        def _no_pve_call(*_a, **_k):
+            raise AssertionError("已開過機的單不該再查狀態或送 start")
+
+        monkeypatch.setattr(coordinator.proxmox_service, "get_status", _no_pve_call)
+        monkeypatch.setattr(coordinator.proxmox_service, "control", _no_pve_call)
+
+        started = coordinator._ensure_request_running(
+            session=_FakeSession(), request=req
+        )
+
+        assert started is False
+        assert req.provisioning_status == VMProvisioningStatus.completed
+
+    def test_gpu_waiting_request_keeps_retrying_the_start(self, monkeypatch) -> None:
+        req = _request(
+            provisioning_status=VMProvisioningStatus.completed,
+            resource_warning=coordinator.GPU_WAIT_WARNING,
+        )
+        calls: list[str] = []
+        monkeypatch.setattr(
+            coordinator,
+            "_refresh_actual_node",
+            lambda *, session, request: ("pve205", {"status": "stopped"}),
+        )
+        monkeypatch.setattr(
+            coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kwargs: req
+        )
+        monkeypatch.setattr(
+            coordinator.vm_request_repo,
+            "update_vm_request_provisioning",
+            lambda **kwargs: None,
+        )
+        monkeypatch.setattr(
+            coordinator.proxmox_service,
+            "get_status",
+            lambda node, vmid, rtype: {"status": "stopped"},
+        )
+        monkeypatch.setattr(
+            coordinator.proxmox_service,
+            "control",
+            lambda *a, **k: calls.append("start"),
+        )
+        monkeypatch.setattr(
+            coordinator.audit_service, "log_action", lambda **kwargs: None
+        )
+
+        assert coordinator._ensure_request_running(
+            session=_FakeSession(), request=req
+        ) is True
+        assert calls == ["start"]
+        assert req.resource_warning is None
+
+
+class TestRefreshActualNodeKeepsOwedStart:
+    def test_pending_status_survives_node_refresh(self, monkeypatch) -> None:
+        """重試留下的 pending 不能在節點同步時被改成 completed（否則就不會開機）。"""
+        req = _request(provisioning_status=VMProvisioningStatus.pending)
+        req.hostname = "vm-test"
+        writes: list[dict] = []
+
+        monkeypatch.setattr(
+            coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kwargs: req
+        )
+        monkeypatch.setattr(
+            coordinator.scheduling_support,
+            "find_resource_strict",
+            lambda vmid: {"node": "pve9", "name": "vm-test", "status": "stopped"},
+        )
+        monkeypatch.setattr(
+            coordinator.vm_request_repo,
+            "update_vm_request_provisioning",
+            lambda **kwargs: writes.append(kwargs),
+        )
+
+        coordinator._refresh_actual_node(session=_FakeSession(), request=req)
+
+        assert writes and writes[0]["provisioning_status"] is None
+        assert req.provisioning_status == VMProvisioningStatus.pending
 
 
 class TestProcessDueRequestStops:

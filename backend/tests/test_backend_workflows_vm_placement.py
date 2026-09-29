@@ -755,7 +755,7 @@ def test_vm_templates_are_filtered_by_pool(monkeypatch: pytest.MonkeyPatch) -> N
     )
     monkeypatch.setattr(
         "app.infrastructure.proxmox.operations._raw_vms_by_connection",
-        lambda: [
+        lambda **_: [
             (
                 1,
                 [
