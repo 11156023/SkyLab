@@ -3,7 +3,9 @@ import math
 import time
 import uuid
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -92,22 +94,34 @@ def _enforce_start_window(*, session: Session, vmid: int) -> None:
 StartBlockReason = Literal["window_not_started", "window_ended"]
 
 
+_UNSET: Any = object()
+
+
 def start_window_state(
-    *, session: Session, vmid: int, db_resource: Any | None = None,
+    *,
+    session: Session,
+    vmid: int,
+    db_resource: Any | None = None,
+    latest_request: Any = _UNSET,
 ) -> tuple[StartBlockReason | None, datetime | None, datetime | None]:
     """個人申請機器的核准使用時段：回傳（不能開機的原因, 時段起, 時段迄）。
 
     開機檢查（_enforce_start_window）與機器資料（ResourcePublic.start_blocked_reason）
     共用這一份判斷，卡片上「能不能開」才會跟實際按下去的結果一致。
     課堂機器不受申請時段限制（上課時段只管自動開關機），一律回 (None, None, None)。
+    ``latest_request`` 給清單頁傳入批次查好的結果（None 表示查過、沒有）。
     """
     if db_resource is None:
         db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
     if db_resource is not None and getattr(db_resource, "teaching_class_id", None):
         return None, None, None
-    request = vm_request_repo.get_latest_approved_vm_request_by_vmid(
-        session=session,
-        vmid=vmid,
+    request = (
+        vm_request_repo.get_latest_approved_vm_request_by_vmid(
+            session=session,
+            vmid=vmid,
+        )
+        if latest_request is _UNSET
+        else latest_request
     )
     if not request or not request.start_at or not request.end_at:
         return None, None, None
@@ -438,6 +452,86 @@ def _teaching_display_names(
     return display
 
 
+# 清單頁同時查即時 IP 的數量（guest agent 一台可能卡好幾秒，串行時幾十台就逾時）
+_LIST_IP_WORKERS = 8
+
+
+@dataclass
+class _ListPrefetch:
+    """清單頁一次批次查好的資料，_build_resource_public 逐台組裝時直接取用。"""
+
+    ips: dict[int, str | None] = field(default_factory=dict)
+    teaching_classes: dict[uuid.UUID, TeachingClass] = field(default_factory=dict)
+    source_requests: dict[uuid.UUID, VMRequest] = field(default_factory=dict)
+    window_requests: dict[int, VMRequest] = field(default_factory=dict)
+
+
+def _live_ip(entry: dict) -> str | None:
+    # 關機的機器 guest agent／interfaces 一定查不到，省一次 PVE 呼叫
+    if entry.get("status") != "running":
+        return None
+    try:
+        return proxmox_service.get_ip_address(
+            entry.get("node", ""), entry.get("vmid"), entry.get("type", "")
+        )
+    except Exception as exc:
+        logger.debug("VMID=%s 即時 IP 查詢失敗（改用快取）: %s", entry.get("vmid"), exc)
+        return None
+
+
+def _prefetch_list(
+    session: Session, pairs: list[tuple[dict, Any]]
+) -> _ListPrefetch:
+    entries = [entry for entry, _db in pairs if entry.get("vmid") is not None]
+    live: dict[int, str | None] = {}
+    if entries:
+        workers = min(_LIST_IP_WORKERS, len(entries))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="res-ip") as pool:
+            live = dict(
+                zip(
+                    (entry["vmid"] for entry in entries),
+                    pool.map(_live_ip, entries),
+                    strict=True,
+                )
+            )
+    db_rows = [db for _entry, db in pairs if db is not None]
+    class_ids = {
+        db.teaching_class_id
+        for db in db_rows
+        if db.allocation_scope == "teaching_class" and db.teaching_class_id
+    }
+    request_ids = {db.request_id for db in db_rows if db.request_id}
+    window_vmids = [
+        db.vmid for db in db_rows if not getattr(db, "teaching_class_id", None)
+    ]
+    return _ListPrefetch(
+        ips=resource_repo.sync_ip_cache_many(session=session, live_ips=live),
+        teaching_classes=(
+            {
+                tc.id: tc
+                for tc in session.exec(
+                    select(TeachingClass).where(col(TeachingClass.id).in_(class_ids))
+                ).all()
+            }
+            if class_ids
+            else {}
+        ),
+        source_requests=(
+            {
+                req.id: req
+                for req in session.exec(
+                    select(VMRequest).where(col(VMRequest.id).in_(request_ids))
+                ).all()
+            }
+            if request_ids
+            else {}
+        ),
+        window_requests=vm_request_repo.get_latest_approved_vm_requests_by_vmids(
+            session=session, vmids=window_vmids
+        ),
+    )
+
+
 def _build_resource_public(
     resource: dict,
     db_resource,
@@ -447,11 +541,15 @@ def _build_resource_public(
     known_practice_ids: set[uuid.UUID] | None = None,
     public_urls: dict[int, list[str]] | None = None,
     display_names: dict[int, str] | None = None,
+    prefetch: _ListPrefetch | None = None,
 ) -> ResourcePublic:
     vmid = resource.get("vmid")
     # 清單頁會先把所有機器的對外網址批次查好傳進來；單筆查詢就現查這一台。
     if public_urls is None and vmid is not None:
         public_urls = public_urls_by_vmid(session, [vmid])
+    # 清單頁批次查好 IP／班級／申請單；單筆查詢就只查這一台
+    if prefetch is None:
+        prefetch = _prefetch_list(session, [(resource, db_resource)])
     class_governed = bool(
         db_resource and db_resource.allocation_scope == "teaching_class"
     )
@@ -461,26 +559,28 @@ def _build_resource_public(
     class_available = not class_governed
     teaching_class_name: str | None = None
     if class_governed and db_resource.teaching_class_id:
-        teaching_class = session.get(TeachingClass, db_resource.teaching_class_id)
+        teaching_class = prefetch.teaching_classes.get(db_resource.teaching_class_id)
         class_available = bool(
             teaching_class
             and teaching_class.status == TeachingClassStatus.active
         )
         teaching_class_name = teaching_class.name if teaching_class else None
-    ip_address = proxmox_service.get_ip_address(node, vmid, vm_type)
-    # 線上：寫回快取；離線：回退 DB 快取。DB 出錯時 sync_ip_cache 會 rollback。
-    ip_address = resource_repo.sync_ip_cache(
-        session=session, vmid=vmid, live_ip=ip_address
-    )
+    # 線上：即時 IP（已寫回快取）；離線：DB 快取或佈建時分配的 IP
+    ip_address = prefetch.ips.get(vmid) if vmid is not None else None
     start_blocked_reason, window_start_at, window_end_at = (None, None, None)
     if vmid is not None:
         start_blocked_reason, window_start_at, window_end_at = start_window_state(
-            session=session, vmid=vmid, db_resource=db_resource,
+            session=session,
+            vmid=vmid,
+            db_resource=db_resource,
+            latest_request=(
+                prefetch.window_requests.get(vmid) if db_resource is not None else _UNSET
+            ),
         )
     quick_practice_limited = False
     source_kind: str | None = None
     if db_resource and db_resource.request_id:
-        source_request = session.get(VMRequest, db_resource.request_id)
+        source_request = prefetch.source_requests.get(db_resource.request_id)
         source_kind = source_request.request_kind if source_request else None
         quick_practice_limited = source_kind == "quick_template"
     return ResourcePublic(
@@ -632,20 +732,24 @@ def list_all(
         )
         result = []
         owner_ids: dict[int, uuid.UUID] = {}
+        entries = [
+            r for r in resources
+            if not ((node and r.get("node") != node) or r.get("template") == 1)
+        ]
+        db_by_vmid = resource_repo.get_resources_by_vmids(
+            session=session, vmids=[r.get("vmid") for r in entries]
+        )
         pairs: list[tuple[dict, Any]] = []
-        for r in resources:
-            if (node and r.get("node") != node) or r.get("template") == 1:
-                continue
+        for r in entries:
             vmid = r.get("vmid")
-            db_resource = resource_repo.get_resource_by_vmid(
-                session=session, vmid=vmid
-            )
+            db_resource = db_by_vmid.get(vmid)
             pairs.append((r, db_resource))
             if db_resource is not None:
                 owner_ids[vmid] = db_resource.user_id
         display_names = _teaching_display_names(
             session=session, db_resources=[db for _, db in pairs]
         )
+        prefetch = _prefetch_list(session, pairs)
         for r, db_resource in pairs:
             result.append(
                 _build_resource_public(
@@ -653,6 +757,7 @@ def list_all(
                     session, known_practice_ids,
                     public_urls=public_urls,
                     display_names=display_names,
+                    prefetch=prefetch,
                 )
             )
         # 管理員視角：別人的機器都標擁有者；自己的跳過，
@@ -771,15 +876,16 @@ def list_by_user(
             session=session, user_id=user_id
         )
         owned_vmids = {r.vmid: r for r in user_resources}
-        shared_rows: dict[int, Any] = {}
-        for share in share_repo.list_shares_for_user(session=session, user_id=user_id):
-            if share.resource_vmid in owned_vmids:
-                continue
-            shared_db = resource_repo.get_resource_by_vmid(
-                session=session, vmid=share.resource_vmid
-            )
-            if shared_db is not None:
-                shared_rows[share.resource_vmid] = shared_db
+        shared_rows: dict[int, Any] = resource_repo.get_resources_by_vmids(
+            session=session,
+            vmids=[
+                share.resource_vmid
+                for share in share_repo.list_shares_for_user(
+                    session=session, user_id=user_id
+                )
+                if share.resource_vmid not in owned_vmids
+            ],
+        )
         # 老師：所帶班級底下學生的機器也列進來（有管理權，標示為「學生機器」）
         taught_rows: dict[int, Any] = {}
         owned_class_ids = list_teaching_class_ids_owned_by(
@@ -804,6 +910,7 @@ def list_by_user(
                 db_resources=[*owned_vmids.values(), *shared_rows.values(), *taught_rows.values()],
             )
             try:
+                pairs: list[tuple[dict, Any]] = []
                 for r in proxmox_service.list_all_resources():
                     if r.get("template") == 1:
                         continue
@@ -813,8 +920,11 @@ def list_by_user(
                         or shared_rows.get(vmid)
                         or taught_rows.get(vmid)
                     )
-                    if db_row is None:
-                        continue
+                    if db_row is not None:
+                        pairs.append((r, db_row))
+                prefetch = _prefetch_list(session, pairs)
+                for r, db_row in pairs:
+                    vmid = r.get("vmid")
                     public = _build_resource_public(
                         r,
                         db_row,
@@ -824,6 +934,7 @@ def list_by_user(
                         known_practice_ids,
                         public_urls=public_urls,
                         display_names=display_names,
+                        prefetch=prefetch,
                     )
                     if vmid in shared_rows:
                         _mark_shared(public, db_row, session)

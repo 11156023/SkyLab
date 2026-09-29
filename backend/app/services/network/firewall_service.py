@@ -1174,8 +1174,8 @@ def _enrich_edges_from_db(
 
     # 一次載入所有相關 VM 的 NAT / Reverse Proxy 規則
     vmids = {e.target_vmid for e in inbound_edges}
-    nat_rules = nat_repo.list_rules(session)
-    rp_rules = rp_repo.list_rules(session)
+    nat_rules = nat_repo.list_rules_by_vmids(session, list(vmids))
+    rp_rules = rp_repo.list_rules_by_vmids(session, list(vmids))
 
     # 建立快查 dict：(vmid, internal_port, protocol) → NatRule
     nat_lookup: dict[tuple[int, int, str], object] = {}
@@ -1359,21 +1359,21 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     pve_resources = _pve_resources_for(target_vmids)
     present = [vmid for vmid in target_vmids if vmid in pve_resources]
     probes = _probe_topology_vms([pve_resources[vmid] for vmid in present])
+    # 有即時 IP 就寫回快取（獨立短交易），否則回退 DB 快取或分配紀錄
+    ips = resource_repo.sync_ip_cache_many(
+        session=session, live_ips={vmid: probes[vmid][0] for vmid in present}
+    )
     rules_by_vmid: dict[int, list[dict]] = {}
 
     for i, vmid in enumerate(target_vmids):
         resource = pve_resources.get(vmid)
         if resource is None:
             continue
-        live_ip, firewall_enabled, rules_by_vmid[vmid] = probes[vmid]
+        _live_ip, firewall_enabled, rules_by_vmid[vmid] = probes[vmid]
 
         node_name = from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
         status = resource.get("status", "unknown")
-        # 有即時 IP 就寫回快取，否則回退 DB 快取。DB 出錯時 sync_ip_cache 會
-        # rollback，避免 session 帶著無效交易撐到後面的 _enrich_edges_from_db。
-        ip_address = resource_repo.sync_ip_cache(
-            session=session, vmid=vmid, live_ip=live_ip
-        )
+        ip_address = ips.get(vmid)
 
         layout_key = f"{vmid}:vm"
         if layout_key in layout_map:

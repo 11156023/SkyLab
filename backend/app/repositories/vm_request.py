@@ -1,9 +1,10 @@
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, func, select
 
 from app.models import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.repositories import resource as resource_repo
@@ -303,6 +304,28 @@ def get_latest_approved_vm_request_by_vmid(
         .order_by(VMRequest.reviewed_at.desc(), VMRequest.created_at.desc())  # type: ignore[union-attr]
     )
     return session.exec(statement).first()
+
+
+def get_latest_approved_vm_requests_by_vmids(
+    *, session: Session, vmids: Iterable[int]
+) -> dict[int, VMRequest]:
+    """get_latest_approved_vm_request_by_vmid 的批次版（不預載 user）。"""
+    wanted = {vmid for vmid in vmids if vmid is not None}
+    if not wanted:
+        return {}
+    statement = (
+        select(VMRequest)
+        .where(
+            col(VMRequest.vmid).in_(wanted),
+            VMRequest.status.in_(_ACTIVE_STATUSES),
+        )
+        .order_by(VMRequest.reviewed_at.desc(), VMRequest.created_at.desc())  # type: ignore[union-attr]
+    )
+    latest: dict[int, VMRequest] = {}
+    for request in session.exec(statement).all():
+        if request.vmid is not None:
+            latest.setdefault(request.vmid, request)
+    return latest
 
 
 def list_active_approved_vm_requests(

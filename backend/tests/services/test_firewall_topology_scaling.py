@@ -73,11 +73,13 @@ def topology_env(monkeypatch: pytest.MonkeyPatch):
             ),
         )
 
-        def sync_ip_cache(*, session: Any, vmid: int, live_ip: str | None) -> str | None:
-            calls["cache"].append((vmid, live_ip))
-            return live_ip or f"cached-{vmid}"
+        def sync_ip_cache_many(
+            *, session: Any, live_ips: dict[int, str | None]
+        ) -> dict[int, str | None]:
+            calls["cache"].extend(live_ips.items())
+            return {vmid: ip or f"cached-{vmid}" for vmid, ip in live_ips.items()}
 
-        monkeypatch.setattr(fw.resource_repo, "sync_ip_cache", sync_ip_cache)
+        monkeypatch.setattr(fw.resource_repo, "sync_ip_cache_many", sync_ip_cache_many)
         monkeypatch.setattr(fw, "get_firewall_options", lambda node, vmid, rtype: {"enable": 1})
         monkeypatch.setattr(fw, "get_vm_firewall_rules", lambda node, vmid, rtype: [])
         monkeypatch.setattr(fw, "_enrich_edges_from_db", lambda edges, session: None)
@@ -98,7 +100,7 @@ def test_cluster_listing_is_fetched_once_for_many_vms(topology_env) -> None:
 
     assert len(calls["list_all"]) == 1
     assert [n.vmid for n in resp.nodes if n.node_type == "vm"] == vmids
-    # DB 快取寫回仍在主執行緒依原順序進行
+    # IP 快取一次批次處理，涵蓋每一台
     assert [vmid for vmid, _ip in calls["cache"]] == vmids
 
 
