@@ -96,6 +96,17 @@ it("shows only the first four machines in resource order", async () => {
     .toEqual(["Machine 1", "Machine 2", "Machine 3", "Machine 4"]);
 });
 
+it("titles class machines with the course environment name, keeping the hostname on hover", async () => {
+  await render({ resources: [
+    { vmid: 201, name: "cls-59cd29db-1-1", course_environment_name: "Linux 系統管理", type: "lxc", status: "stopped" },
+    { vmid: 202, name: "jerry", type: "lxc", status: "running" },
+  ] });
+  const headings = [...host.querySelectorAll("article h3")];
+  expect(headings.map((heading) => heading.textContent)).toEqual(["Linux 系統管理", "jerry"]);
+  expect(headings[0].getAttribute("title")).toBe("cls-59cd29db-1-1");
+  expect(headings[1].hasAttribute("title")).toBe(false);
+});
+
 it("offers creation only when no machines exist, opening the request form", async () => {
   await render({ resourcesError: true });
   expect(host.textContent).toContain("HomeOverview.resourcesFailed");

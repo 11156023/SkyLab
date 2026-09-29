@@ -22,6 +22,8 @@ from app.domain.resource_markers import (
 from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
 from app.models import (
     BatchProvisionJob,
+    CourseEnvironment,
+    CourseEnvironmentVersion,
     Resource,
     TeachingClass,
     TeachingClassMachineNode,
@@ -31,7 +33,7 @@ from app.models import (
     VMTemplate,
     VMTemplateStatus,
 )
-from app.models.quick_practice import QuickPracticeSessionMachine
+from app.models.quick_practice import QuickPracticeSession, QuickPracticeSessionMachine
 from app.models.vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.repositories import batch_provision as batch_provision_repo
 from app.repositories import resource as resource_repo
@@ -464,6 +466,7 @@ class _ListPrefetch:
     teaching_classes: dict[uuid.UUID, TeachingClass] = field(default_factory=dict)
     source_requests: dict[uuid.UUID, VMRequest] = field(default_factory=dict)
     window_requests: dict[int, VMRequest] = field(default_factory=dict)
+    environment_names: dict[int, str] = field(default_factory=dict)
 
 
 def _live_ip(entry: dict) -> str | None:
@@ -504,18 +507,19 @@ def _prefetch_list(
     window_vmids = [
         db.vmid for db in db_rows if not getattr(db, "teaching_class_id", None)
     ]
+    teaching_classes = (
+        {
+            tc.id: tc
+            for tc in session.exec(
+                select(TeachingClass).where(col(TeachingClass.id).in_(class_ids))
+            ).all()
+        }
+        if class_ids
+        else {}
+    )
     return _ListPrefetch(
         ips=resource_repo.sync_ip_cache_many(session=session, live_ips=live),
-        teaching_classes=(
-            {
-                tc.id: tc
-                for tc in session.exec(
-                    select(TeachingClass).where(col(TeachingClass.id).in_(class_ids))
-                ).all()
-            }
-            if class_ids
-            else {}
-        ),
+        teaching_classes=teaching_classes,
         source_requests=(
             {
                 req.id: req
@@ -529,7 +533,72 @@ def _prefetch_list(
         window_requests=vm_request_repo.get_latest_approved_vm_requests_by_vmids(
             session=session, vmids=window_vmids
         ),
+        environment_names=_course_environment_names(session, db_rows, teaching_classes),
     )
+
+
+def _course_environment_names(
+    session: Session,
+    db_rows: list,
+    teaching_classes: dict[uuid.UUID, TeachingClass],
+) -> dict[int, str]:
+    """機器依據的課程環境名稱（vmid → 名稱），清單頁整批查，最多兩次查詢。
+
+    班級機看班級釘選的版本，快速練習機看練習場次的版本；個人申請、共享機器沒有課程環境。
+    環境沒取名的不放進結果，呼叫端維持主機名。
+    """
+    version_by_vmid: dict[int, uuid.UUID] = {}
+    practice_vmid_by_request: dict[uuid.UUID, int] = {}
+    for db in db_rows:
+        if db.vmid is None:
+            continue
+        teaching_class = (
+            teaching_classes.get(db.teaching_class_id)
+            if db.allocation_scope == "teaching_class" and db.teaching_class_id
+            else None
+        )
+        if teaching_class is not None:
+            if teaching_class.course_version_id:
+                version_by_vmid[db.vmid] = teaching_class.course_version_id
+        elif db.request_id:
+            # 只有快速練習的申請單在練習場次裡有對應，其他申請單查不到就沒有環境名稱
+            practice_vmid_by_request[db.request_id] = db.vmid
+    if practice_vmid_by_request:
+        for request_id, version_id in session.exec(
+            select(
+                QuickPracticeSessionMachine.vm_request_id,
+                QuickPracticeSession.environment_version_id,
+            )
+            .join(
+                QuickPracticeSession,
+                QuickPracticeSessionMachine.session_id == QuickPracticeSession.id,
+            )
+            .where(
+                col(QuickPracticeSessionMachine.vm_request_id).in_(
+                    list(practice_vmid_by_request)
+                )
+            )
+        ).all():
+            if version_id is not None:
+                version_by_vmid[practice_vmid_by_request[request_id]] = version_id
+    if not version_by_vmid:
+        return {}
+    names = dict(
+        session.exec(
+            select(CourseEnvironmentVersion.id, CourseEnvironment.name)
+            .join(
+                CourseEnvironment,
+                CourseEnvironment.id == CourseEnvironmentVersion.environment_id,
+            )
+            .where(col(CourseEnvironmentVersion.id).in_(set(version_by_vmid.values())))
+        ).all()
+    )
+    result: dict[int, str] = {}
+    for vmid, version_id in version_by_vmid.items():
+        name = (names.get(version_id) or "").strip()
+        if name:
+            result[vmid] = name
+    return result
 
 
 def _build_resource_public(
@@ -558,6 +627,7 @@ def _build_resource_public(
     spec_fixed = class_governed or is_practice
     class_available = not class_governed
     teaching_class_name: str | None = None
+    teaching_class: TeachingClass | None = None
     if class_governed and db_resource.teaching_class_id:
         teaching_class = prefetch.teaching_classes.get(db_resource.teaching_class_id)
         class_available = bool(
@@ -567,6 +637,11 @@ def _build_resource_public(
         teaching_class_name = teaching_class.name if teaching_class else None
     # 線上：即時 IP（已寫回快取）；離線：DB 快取或佈建時分配的 IP
     ip_address = prefetch.ips.get(vmid) if vmid is not None else None
+    course_environment_name = (
+        prefetch.environment_names.get(vmid)
+        if db_resource is not None and vmid is not None
+        else None
+    )
     start_blocked_reason, window_start_at, window_end_at = (None, None, None)
     if vmid is not None:
         start_blocked_reason, window_start_at, window_end_at = start_window_state(
@@ -636,6 +711,7 @@ def _build_resource_public(
             db_resource, is_practice=is_practice, request_kind=source_kind
         ),
         teaching_class_name=teaching_class_name,
+        course_environment_name=course_environment_name,
         public_urls=list((public_urls or {}).get(vmid, [])) if vmid is not None else [],
         start_blocked_reason=start_blocked_reason,
         window_start_at=window_start_at,
