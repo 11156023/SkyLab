@@ -10,6 +10,7 @@
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from sqlmodel import Session, col, select
@@ -42,6 +43,9 @@ logger = logging.getLogger(__name__)
 # 預設佈局位置（首次開啟時自動排列）
 _DEFAULT_GATEWAY_X = 800.0
 _DEFAULT_GATEWAY_Y = 300.0
+
+# 拓撲圖同時對 PVE 發出的查詢數（proxmoxer 的 requests 連線池預設 10 條）
+_TOPOLOGY_PVE_WORKERS = 8
 
 # SkyLab 管理規則的 comment 前綴
 _CC_PREFIX = "SkyLab:"
@@ -1072,21 +1076,26 @@ def _add_edge_port(edge: TopologyEdge, port: int, protocol: str) -> None:
 
 def get_connections_from_rules(vmids: list[int]) -> list[TopologyEdge]:
     """從 VM 的防火牆規則中解析出 SkyLab 管理的連線（edges）"""
-    edges: dict[str, TopologyEdge] = {}
-
+    rules_by_vmid: dict[int, list[dict]] = {}
     for vmid in vmids:
         try:
             resource = proxmox_service.find_resource(vmid)
-            node = resource["node"]
-            resource_type = resource["type"]
-            rules = get_vm_firewall_rules(node, vmid, resource_type)
+            rules_by_vmid[vmid] = get_vm_firewall_rules(
+                resource["node"], vmid, resource["type"]
+            )
         except Exception as e:
             logger.warning(
                 "讀取 VMID=%s 防火牆規則失敗，拓撲圖將略過該節點連線: %s",
                 vmid, e,
             )
-            continue
+    return _edges_from_rules(rules_by_vmid)
 
+
+def _edges_from_rules(rules_by_vmid: dict[int, list[dict]]) -> list[TopologyEdge]:
+    """把各 VM 已讀到的防火牆規則解析成 SkyLab 管理的連線（edges）。"""
+    edges: dict[str, TopologyEdge] = {}
+
+    for vmid, rules in rules_by_vmid.items():
         for rule in rules:
             comment = rule.get("comment", "") or ""
             parsed = _parse_connection_comment(comment)
@@ -1240,6 +1249,78 @@ def _internet_node(x: float, y: float) -> TopologyNode:
     )
 
 
+def _pve_resources_for(vmids: list[int]) -> dict[int, dict]:
+    """一次列出所有連線的 pool 資源，回傳 vmid → cluster/resources 條目。
+
+    跨連線撞號的 VMID 與 find_resource 一樣不猜，直接略過。
+    """
+    matches: dict[int, list[dict]] = {}
+    for entry in proxmox_service.list_all_resources():
+        if entry.get("vmid") is not None:
+            matches.setdefault(int(entry["vmid"]), []).append(entry)
+
+    found: dict[int, dict] = {}
+    for vmid in vmids:
+        entries = matches.get(vmid, [])
+        if len(entries) == 1:
+            found[vmid] = entries[0]
+        elif not entries:
+            logger.warning("拓撲圖跳過 VMID=%s（無法在 Proxmox 找到資源）", vmid)
+        else:
+            logger.warning(
+                "拓撲圖跳過 VMID=%s（同時出現在多個 Proxmox 連線: %s）",
+                vmid,
+                ", ".join(str(e.get("node")) for e in entries),
+            )
+    return found
+
+
+def _probe_topology_vm(resource: dict) -> tuple[str | None, bool, list[dict]]:
+    """查一台 VM 的即時 IP、防火牆是否啟用與規則；失敗一律降級不拋。
+
+    只碰 PVE、不碰 DB session，才能丟到執行緒池平行跑。
+    """
+    vmid = int(resource["vmid"])
+    node = resource["node"]
+    resource_type = resource["type"]
+
+    live_ip = None
+    # 關機的機器 guest agent／interfaces 一定查不到，省一次 PVE 呼叫
+    if resource.get("status") == "running":
+        try:
+            live_ip = proxmox_service.get_ip_address(node, vmid, resource_type)
+        except Exception as e:
+            logger.debug(
+                "拓撲圖 VMID=%s 即時 IP 查詢失敗（改查 DB 快取）: %s", vmid, e
+            )
+
+    firewall_enabled = False
+    try:
+        opts = get_firewall_options(node, vmid, resource_type)
+        firewall_enabled = bool(opts.get("enable", False))
+    except Exception as e:
+        logger.debug(
+            "拓撲圖 VMID=%s 防火牆狀態查詢失敗（將顯示為 disabled）: %s", vmid, e
+        )
+
+    return live_ip, firewall_enabled, get_vm_firewall_rules(node, vmid, resource_type)
+
+
+def _probe_topology_vms(
+    resources: list[dict],
+) -> dict[int, tuple[str | None, bool, list[dict]]]:
+    """平行查多台 VM 的即時狀態（每台 3 次 PVE 呼叫，串行時幾十台就會逾時）。"""
+    if not resources:
+        return {}
+    workers = min(_TOPOLOGY_PVE_WORKERS, len(resources))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fw-topology") as pool:
+        results = pool.map(_probe_topology_vm, resources)
+        return {
+            int(resource["vmid"]): result
+            for resource, result in zip(resources, results, strict=True)
+        }
+
+
 def get_topology(user: User, session: Session) -> TopologyResponse:
     """取得使用者的防火牆拓撲（節點 + 連線）
 
@@ -1268,48 +1349,31 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
 
     # 建立節點清單
     nodes: list[TopologyNode] = []
-    valid_vmids: list[int] = []
 
     # 自動排列起始位置
     col_x = 100.0
     row_y_step = 120.0
 
+    # 整份叢集清單只抓一次；逐台 find_resource 每次都會重抓整個
+    # /cluster/resources，機器一多光這步就要上百次 PVE 呼叫
+    pve_resources = _pve_resources_for(target_vmids)
+    present = [vmid for vmid in target_vmids if vmid in pve_resources]
+    probes = _probe_topology_vms([pve_resources[vmid] for vmid in present])
+    rules_by_vmid: dict[int, list[dict]] = {}
+
     for i, vmid in enumerate(target_vmids):
-        try:
-            resource = proxmox_service.find_resource(vmid)
-        except Exception as e:
-            logger.warning(
-                "拓撲圖跳過 VMID=%s（無法在 Proxmox 找到資源）: %s", vmid, e
-            )
+        resource = pve_resources.get(vmid)
+        if resource is None:
             continue
+        live_ip, firewall_enabled, rules_by_vmid[vmid] = probes[vmid]
 
         node_name = from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
         status = resource.get("status", "unknown")
-        ip_address = None
-        firewall_enabled = False
-
-        try:
-            ip_address = proxmox_service.get_ip_address(
-                resource["node"], vmid, resource["type"]
-            )
-        except Exception as e:
-            logger.debug(
-                "拓撲圖 VMID=%s 即時 IP 查詢失敗（改查 DB 快取）: %s", vmid, e
-            )
         # 有即時 IP 就寫回快取，否則回退 DB 快取。DB 出錯時 sync_ip_cache 會
         # rollback，避免 session 帶著無效交易撐到後面的 _enrich_edges_from_db。
         ip_address = resource_repo.sync_ip_cache(
-            session=session, vmid=vmid, live_ip=ip_address
+            session=session, vmid=vmid, live_ip=live_ip
         )
-
-        try:
-            opts = get_firewall_options(resource["node"], vmid, resource["type"])
-            firewall_enabled = bool(opts.get("enable", False))
-        except Exception as e:
-            logger.debug(
-                "拓撲圖 VMID=%s 防火牆狀態查詢失敗（將顯示為 disabled）: %s",
-                vmid, e,
-            )
 
         layout_key = f"{vmid}:vm"
         if layout_key in layout_map:
@@ -1341,7 +1405,6 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 ),
             )
         )
-        valid_vmids.append(vmid)
 
     # 新增網關節點
     gw_key = "None:gateway"
@@ -1349,7 +1412,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     nodes.append(_internet_node(gw_x, gw_y))
 
     # 解析連線並充實 DB 資訊（external_port / domain）
-    edges = get_connections_from_rules(valid_vmids)
+    edges = _edges_from_rules(rules_by_vmid)
     _enrich_edges_from_db(edges, session)
 
     return TopologyResponse(nodes=nodes, edges=edges)

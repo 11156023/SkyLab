@@ -166,18 +166,21 @@ def test_get_topology_survives_poisoned_ip_cache_write(
         fw,
         "proxmox_service",
         SimpleNamespace(
-            find_resource=lambda vmid: {
-                "node": "pve1",
-                "type": "qemu",
-                "vmid": vmid,
-                "name": f"vm{vmid}",
-                "status": "running",
-            },
+            list_all_resources=lambda: [
+                {
+                    "node": "pve1",
+                    "type": "qemu",
+                    "vmid": vmid,
+                    "name": f"vm{vmid}",
+                    "status": "running",
+                }
+                for vmid in (150, 151)
+            ],
             get_ip_address=lambda node, vmid, rtype: f"10.0.0.{vmid - 100}",
         ),
     )
     monkeypatch.setattr(fw, "get_firewall_options", lambda node, vmid, rtype: {"enable": 1})
-    monkeypatch.setattr(fw, "get_connections_from_rules", lambda vmids: [])
+    monkeypatch.setattr(fw, "get_vm_firewall_rules", lambda node, vmid, rtype: [])
     # 每台 VM 的快取寫入都因 DB 斷線失敗
     monkeypatch.setattr(fw.resource_repo, "update_ip_address", _db_down)
 
