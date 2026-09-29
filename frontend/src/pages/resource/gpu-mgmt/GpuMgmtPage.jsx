@@ -127,9 +127,10 @@ function formatVram(mb) {
   return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
 }
 
-function EmptyState() {
+function EmptyState({ onClearSearch }) {
   const { t } = useTranslation("resource");
-  return <SharedEmptyState icon="memory" title={t("GpuMgmtPage.emptyTitle")} />;
+  return <SharedEmptyState icon="memory" title={t("GpuMgmtPage.emptyTitle")}
+    action={onClearSearch && <button type="button" className={styles.btnSecondary} onClick={onClearSearch}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} />;
 }
 
 function StatusBadge({ used, total }) {
@@ -267,7 +268,7 @@ export default function GpuMgmtPage() {
         {loading ? (
           <LoadingState fullPage />
         ) : visible.length === 0 ? (
-          <EmptyState />
+          <EmptyState onClearSearch={filter.trim() ? () => setFilter("") : undefined} />
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>

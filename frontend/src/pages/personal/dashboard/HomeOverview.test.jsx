@@ -96,13 +96,31 @@ it("shows only the first four machines in resource order", async () => {
     .toEqual(["Machine 1", "Machine 2", "Machine 3", "Machine 4"]);
 });
 
-it("offers creation only when no machines exist, opening the request form", async () => {
+it("titles class machines with the course environment name, keeping the hostname on hover", async () => {
+  await render({ resources: [
+    { vmid: 201, name: "cls-59cd29db-1-1", course_environment_name: "Linux 系統管理", type: "lxc", status: "stopped" },
+    { vmid: 202, name: "jerry", type: "lxc", status: "running" },
+  ] });
+  const headings = [...host.querySelectorAll("article h3")];
+  expect(headings.map((heading) => heading.textContent)).toEqual(["Linux 系統管理", "jerry"]);
+  expect(headings[0].getAttribute("title")).toBe("cls-59cd29db-1-1");
+  expect(headings[1].hasAttribute("title")).toBe(false);
+});
+
+it("shows a plain empty state without its own create button when no machines exist", async () => {
   await render({ resourcesError: true });
   expect(host.textContent).toContain("HomeOverview.resourcesFailed");
-  expect(host.textContent).not.toContain("HomeOverview.createMachine");
   await render();
-  const create = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.createMachine"));
-  await act(async () => create.click());
+  const section = host.querySelector('[aria-labelledby="recent-machines-title"]');
+  expect(section.querySelector("[data-empty-state]").textContent).toContain("HomeOverview.noMachines");
+  // 建機器的入口只留頁底「建立自己的研究環境」
+  expect(section.querySelector("button")).toBeNull();
+});
+
+it("sends independent research straight to the request form, not the request list", async () => {
+  await render();
+  const research = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("StudentHomePage.buildResearchEnv"));
+  await act(async () => research.click());
   expect(host.querySelector("output").textContent).toBe("/my-requests");
   expect(host.querySelector("output").getAttribute("data-create")).toBe("true");
 });

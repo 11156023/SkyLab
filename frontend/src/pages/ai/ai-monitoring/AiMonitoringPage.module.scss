@@ -22,6 +22,9 @@
   flex-shrink: 0;
 }
 
+/* 空狀態的「清除搜尋／清除篩選」 */
+.btnSecondary { @include btn-secondary; }
+
 /* 管理員且監控 stack 啟用時，開 Grafana「SkyLab AI」儀表板 */
 .linkBtn {
   @include btn-secondary;

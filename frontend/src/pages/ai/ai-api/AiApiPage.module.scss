@@ -26,11 +26,13 @@
   @include flex-column;
   gap: $spacing-16;
 
+  /* 桌機並排；內容欄不夠寬（側欄展開＋小筆電）時按鈕換到下一行靠右，不凸出內容右緣 */
   @include respond-to(lg) {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: $spacing-32;
+    gap: $spacing-16 $spacing-32;
   }
 }
 
@@ -48,6 +50,9 @@
   align-items: center;
   gap: $spacing-8;
   flex-shrink: 0;
+
+  /* 換行後仍靠右；手機直排維持靠左 */
+  @include respond-to(lg) { margin-left: auto; }
 }
 
 /* ── 表單：共用 form-field／form-control（控制項 36px） ── */

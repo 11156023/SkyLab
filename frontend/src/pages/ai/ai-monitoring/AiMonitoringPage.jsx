@@ -302,8 +302,16 @@ function DetailSummary({ summary, t }) {
   );
 }
 
-function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onModelSelect, t }) {
+function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onModelSelect, onClearFilters, t }) {
   const q = query.trim().toLowerCase();
+  /* 搜尋或狀態篩選把資料濾光時，空狀態給一顆清除鈕；本來就沒資料則只說明 */
+  const statusFiltered = tab !== "models" && tab !== "users" && statusFilter !== "all";
+  const clearAction = q || statusFiltered ? (
+    <button type="button" className={styles.btnSecondary} onClick={onClearFilters}>
+      <MIcon name={statusFiltered ? "filter_alt_off" : "search_off"} size={16} />
+      {t(statusFiltered ? "EmptyState.clearFilters" : "EmptyState.clearSearch", { ns: "common" })}
+    </button>
+  ) : undefined;
 
   if (tab === "models") {
     const visibleModels = modelRows.filter((model) => (
@@ -312,7 +320,7 @@ function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onMode
       || (model.runtime_name ?? "").toLowerCase().includes(q)
       || (model.runtime_status ?? "").toLowerCase().includes(q)
     ));
-    if (!visibleModels.length) return <EmptyState icon="model_training" title={t("AiMonitoringPage.emptyModelBreakdown")} />;
+    if (!visibleModels.length) return <EmptyState icon="model_training" title={t("AiMonitoringPage.emptyModelBreakdown")} action={clearAction} />;
     return <div className={styles.tableWrap}><table className={styles.table}>
       <thead><tr><th className={styles.th}>{t("AiMonitoringPage.colModel")}</th><th className={styles.th}>{t("AiMonitoringPage.colRuntimeStatus")}</th><th className={styles.th}>{t("AiMonitoringPage.colDeployments")}</th><th className={styles.th}>{t("AiMonitoringPage.colCallCount")}</th><th className={styles.th}>{t("AiMonitoringPage.colTokensTotal")}</th><th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th><th className={styles.th}>{t("AiMonitoringPage.colAvgLatency")}</th></tr></thead>
       <tbody>{visibleModels.map((model) => <tr key={`${model.model_name}:${model.runtime_name ?? "usage"}`} className={styles.tr}><td className={`${styles.td} ${styles.monoCell}`}>{model.total_calls > 0 ? <button type="button" className={styles.modelDrilldown} onClick={() => onModelSelect(model.model_name)} title={t("AiMonitoringPage.viewModelCalls", { model: formatModelDisplay(model.model_name) })}><span>{formatModelDisplay(model.model_name)}</span><MIcon name="arrow_forward" size={15} /></button> : <span>{formatModelDisplay(model.model_name)}</span>}</td><td className={styles.td}><ModelRuntimeBadge status={model.runtime_status} t={t} /></td><td className={styles.td}>{model.runtime_status ? t("AiMonitoringPage.deploymentCount", { healthy: model.healthy_deployments, unhealthy: model.unhealthy_deployments }) : "—"}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(model.total_calls)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(model.total_tokens)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatPercent(model.error_rate)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(model.avg_latency_ms)}</td></tr>)}</tbody>
@@ -325,7 +333,7 @@ function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onMode
       return (user.user_email ?? "").toLowerCase().includes(q)
         || (user.user_full_name ?? "").toLowerCase().includes(q);
     });
-    if (!visibleUsers.length) return <EmptyState icon="groups" title={t("AiMonitoringPage.emptyUsersTitle")} />;
+    if (!visibleUsers.length) return <EmptyState icon="groups" title={t("AiMonitoringPage.emptyUsersTitle")} action={clearAction} />;
     return (
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -364,7 +372,7 @@ function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onMode
       || (call.request_id ?? "").toLowerCase().includes(q);
   });
 
-  if (!visibleCalls.length) return <EmptyState icon="analytics" title={t("AiMonitoringPage.emptyCallsTitle")} />;
+  if (!visibleCalls.length) return <EmptyState icon="analytics" title={t("AiMonitoringPage.emptyCallsTitle")} action={clearAction} />;
   return (
     <div className={styles.tableWrap}>
       <table className={styles.table}>
@@ -687,7 +695,7 @@ export default function AiMonitoringPage() {
           ))}
         </div>
         <div className={styles.detailContent}>
-          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={detailTab === "template" ? templateCalls : proxyCalls} users={users} modelRows={modelRows} query={query} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
+          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={detailTab === "template" ? templateCalls : proxyCalls} users={users} modelRows={modelRows} query={query} statusFilter={statusFilter} onModelSelect={selectModel} onClearFilters={() => { setQuery(""); setStatusFilter("all"); }} t={t} />}
         </div>
       </section>
     </div>

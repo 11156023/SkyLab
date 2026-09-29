@@ -16,7 +16,7 @@ import Pagination from "../shared/Pagination";
 import { formatDateTime } from "../../../utils/formatDate";
 import { isAdminUser } from "../../../utils/roles";
 
-function EmptyState({ variant, canConfigure, onConfigure }) {
+function EmptyState({ variant, canConfigure, onConfigure, onClearFilter }) {
   const { t } = useTranslation("system");
   if (variant === "unconfigured") {
     return (
@@ -40,6 +40,7 @@ function EmptyState({ variant, canConfigure, onConfigure }) {
     <SharedEmptyState
       icon={isNoMatch ? "search_off" : "inbox"}
       title={isNoMatch ? t("IpManagementPage.emptyNoMatch") : t("IpManagementPage.emptyNoData")}
+      action={isNoMatch ? <button type="button" className={styles.btnSecondary} onClick={onClearFilter}><MIcon name="filter_alt_off" size={16} />{t("EmptyState.clearFilters", { ns: "common" })}</button> : undefined}
     />
   );
 }
@@ -290,6 +291,7 @@ export default function IpManagementPage() {
             variant={emptyVariant}
             canConfigure={isAdmin && !editing}
             onConfigure={() => setEditing({ config: subnet })}
+            onClearFilter={() => setFilter("")}
           />
         ) : (
           <div className={styles.tableWrap}>

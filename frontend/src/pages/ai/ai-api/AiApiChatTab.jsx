@@ -29,7 +29,7 @@ function Message({ message, t, streaming = false }) {
   const visibleContent = user ? message.content : stripThinkingContent(message.content);
   return <article className={`${styles.message} ${user ? styles.userMessage : ""}`}>
     <div className={`${styles.avatar} ${user ? styles.userAvatar : styles.assistantAvatar}`} aria-hidden="true">
-      <MIcon name={user ? "person" : "auto_awesome"} size={17} />
+      <MIcon name={user ? "person" : "support_agent"} size={17} />
     </div>
     <div className={styles.messageBody}>
       <div className={styles.messageMeta}>
@@ -306,9 +306,9 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
           </button>
         </form>}
         <div className={styles.modelControl}>
-          <div className={styles.modelIcon} aria-hidden="true"><MIcon name="smart_toy" size={19} /></div>
+          <div className={styles.modelIcon} aria-hidden="true"><MIcon name="support_agent" size={19} /></div>
           <div className={styles.modelField}>
-            <label htmlFor="api-chat-model">{t("AiApiChat.model")}</label>
+            <label className={styles.srOnly} htmlFor="api-chat-model">{t("AiApiChat.model")}</label>
             <select id="api-chat-model" value={model} onChange={(event) => chooseModel(event.target.value)}
               disabled={busy || Boolean(pending) || models.length === 0}>
               {!model && <option value="">{t(busy ? "AiApiChat.loadingModels" : "AiApiChat.chooseModel")}</option>}
@@ -320,7 +320,7 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
         {credentials.length > 1 && <div className={styles.modelControl}>
           <div className={styles.modelIcon} aria-hidden="true"><MIcon name="key" size={19} /></div>
           <div className={styles.modelField}>
-            <label htmlFor="api-chat-credential">{t("AiApiChat.credential")}</label>
+            <label className={styles.srOnly} htmlFor="api-chat-credential">{t("AiApiChat.credential")}</label>
             <select id="api-chat-credential" value={selectedCredential?.id ?? ""}
               onChange={(event) => { setReplyError(null); selectCredential(event.target.value); }}
               disabled={busy || Boolean(pending)}>
@@ -352,7 +352,7 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
       </div>
       {replyError && <p className={styles.error} role="alert">{t(`AiApiChat.${replyError}`)}</p>}
       <form className={styles.composer} onSubmit={send}>
-        <label className={styles.inputLabel} htmlFor="api-chat-input">{t("AiApiChat.inputLabel")}</label>
+        <label className={styles.srOnly} htmlFor="api-chat-input">{t("AiApiChat.inputLabel")}</label>
         <div className={styles.composerSurface}>
           <textarea id="api-chat-input" ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)}
             rows={1} disabled={Boolean(pending)} placeholder={t("AiApiChat.placeholder")}

@@ -160,6 +160,7 @@
   "GatewayPage.actionStop": "停止",
   "GatewayPage.copy": "複製",
   "GatewayPage.emptyNotConfigured": "尚未設定 Gateway 連線",
+  "GatewayPage.goToConnection": "前往連線設定",
   "GatewayPage.generating": "產生中...",
   "GatewayPage.hostPlaceholder": "例：192.168.100.143",
   "GatewayPage.installComponentMissing": "未安裝",

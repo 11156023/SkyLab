@@ -11,9 +11,12 @@ export default function QuickCreatePage() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
+    setLoading(true);
+    setError(false);
     QuickPracticeService.listTemplates({ signal: controller.signal })
       .then((available) => setTemplates(available))
       .catch((err) => {
@@ -23,12 +26,13 @@ export default function QuickCreatePage() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, []);
+  }, [reloadKey]);
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("QuickCreatePage.title")} subtitle={t("QuickCreatePage.subtitle")} />
-      <QuickTemplateCards templates={templates} loading={loading} error={error} from="/quick-create" />
+      <PageHeader title={t("QuickCreatePage.title")} />
+      <QuickTemplateCards templates={templates} loading={loading} error={error} from="/quick-create"
+        onRetry={() => setReloadKey((key) => key + 1)} />
     </div>
   );
 }

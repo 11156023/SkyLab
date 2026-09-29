@@ -1030,14 +1030,17 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
               <div className={styles.emptyState}>
                 <h2>{displayName(user, t)}{t("AiFloatingChat.greetingSuffix")}</h2>
                 <p>{t("AiFloatingChat.emptyStatePrompt")}</p>
-                {/* 能力要講出來，不然沒有人知道可以叫它推薦規格、幫忙填表 */}
+                {/* 能力要講出來，不然沒有人知道可以叫它推薦規格、幫忙填表。
+                    但它只是說明、不能點：做成一般的圓點清單，可點的只有下方建議問題
+                    （原本白底細框的樣子像按鈕，常被誤點） */}
                 <ul className={styles.capabilities}>
                   {CAPABILITIES.map((item) => (
-                    <li key={item.titleKey}>
-                      <strong>{t(item.titleKey)}</strong>
-                    </li>
+                    <li key={item.titleKey}>{t(item.titleKey)}</li>
                   ))}
                 </ul>
+                {pageContext.suggestionKeys.length > 0 && (
+                  <p className={styles.suggestionsLead}>{t("AiFloatingChat.suggestionsLead")}</p>
+                )}
                 <div className={styles.suggestions}>
                   {pageContext.suggestionKeys.map((key) => (
                     <button key={key} type="button" onClick={() => send(t(key))}>

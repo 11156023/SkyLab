@@ -26,6 +26,11 @@
   @include btn-secondary;
 }
 
+/* 危險但可復原的動作（全班關機）：紅字紅框，與一般次要鈕區隔 */
+.btnDangerOutline {
+  @include btn-danger-outline;
+}
+
 /* 頁首返回鍵：與「申請虛擬機 / 容器」頁的 .backBtn 一致 */
 .backBtn {
   box-shadow: var(--shadow-sm);
@@ -393,11 +398,13 @@
   padding: 20px 22px;
 }
 
+/* 課堂監看的工具列（直播示範、全班電源）：圖示＋標籤欄固定同寬，兩列的選單與按鈕從同一條線開始；
+   選單／按鈕與說明文字包成 .broadcastControls，放不下換行時也從按鈕的起點對齊 */
 .broadcastTools {
   display: flex;
   min-height: 52px;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   padding: 8px 20px;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-primary);
@@ -405,19 +412,34 @@
 }
 
 .broadcastTools strong {
+  min-width: 120px;
   color: var(--color-text-primary);
   font-size: $font-size-12;
 }
 
-.broadcastTools>span {
+.broadcastControls {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.broadcastControls>span {
   color: var(--color-text-secondary);
   font-size: $font-size-12;
+}
+
+/* 按鈕後面的說明／進度字跟按鈕多留一點距離 */
+.broadcastControls button+span {
+  margin-left: 8px;
+  color: var(--color-text-muted);
 }
 
 .broadcastTools select {
   width: min(360px, 100%);
   min-height: 36px;
-  margin-left: 8px;
   padding: 5px 9px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
@@ -425,10 +447,6 @@
   background: var(--color-surface);
   font: inherit;
   font-size: $font-size-12;
-}
-
-.broadcastTools .btnSecondary {
-  margin-left: auto;
 }
 
 @media (min-width: $breakpoint-sidebar) {
@@ -2432,9 +2450,12 @@
     flex-wrap: wrap;
   }
 
+  .broadcastControls {
+    flex-basis: 100%;
+  }
+
   .broadcastTools select {
     width: 100%;
-    margin-left: 0;
   }
 
   .memberList {

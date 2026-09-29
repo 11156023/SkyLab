@@ -39,12 +39,15 @@ function userDisplayName(user) {
   return user.full_name || user.email;
 }
 
-function EmptyState({ hasQuery }) {
+function EmptyState({ hasQuery, onClearSearch, onCreate }) {
   const { t } = useTranslation("system");
   return (
     <SharedEmptyState
       icon={hasQuery ? "search_off" : "manage_accounts"}
       title={hasQuery ? t("AdminPage.emptyNoResult") : t("AdminPage.emptyNone")}
+      action={hasQuery
+        ? <button type="button" className={styles.btnSecondary} onClick={onClearSearch}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>
+        : <button type="button" className={styles.btnPrimary} onClick={onCreate}><MIcon name="person_add" size={16} />{t("AdminPage.addUser")}</button>}
     />
   );
 }
@@ -448,7 +451,7 @@ export default function AdminPage() {
         {loading ? (
           <LoadingState fullPage text={t("AdminPage.loading")} />
         ) : visibleUsers.length === 0 ? (
-          <EmptyState hasQuery={Boolean(query.trim())} />
+          <EmptyState hasQuery={Boolean(query.trim())} onClearSearch={() => setQuery("")} onCreate={() => setModal({ mode: "create" })} />
         ) : (
           <>
             <div className={styles.list}>
