@@ -12,6 +12,7 @@ from typing import Any, Literal
 from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
+from app.core.db import end_read_transaction
 from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.domain.resource_markers import (
@@ -909,6 +910,9 @@ def list_by_user(
                 session=session,
                 db_resources=[*owned_vmids.values(), *shared_rows.values(), *taught_rows.values()],
             )
+            # 叢集清單走全域 single-flight 鎖，整班同時開頁面時會排隊；排隊期間
+            # 別抱著 DB 連線（持鎖那一方重連 PVE 時還要再取連線）
+            end_read_transaction(session)
             try:
                 pairs: list[tuple[dict, Any]] = []
                 for r in proxmox_service.list_all_resources():
@@ -1765,6 +1769,7 @@ def list_my_session_statuses(
     resources = resource_repo.get_resources_by_user(session=session, user_id=user_id)
     if not resources:
         return []
+    end_read_transaction(session)
     pve_by_vmid = proxmox_service.list_all_resources_by_vmid()
     policy = get_schedule_policy(session=session)
     statuses: list[SessionStatusResponse] = []

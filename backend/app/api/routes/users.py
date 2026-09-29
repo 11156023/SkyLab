@@ -96,14 +96,16 @@ def complete_onboarding_me(*, session: SessionDep, current_user: CurrentUser) ->
 
 
 @router.get("/me/preflight", response_model=LoginPreflight)
-def read_login_preflight_me(current_user: CurrentUser, refresh: bool = False) -> Any:
+async def read_login_preflight_me(
+    current_user: CurrentUser, refresh: bool = False
+) -> Any:
     """登入後的服務檢查：DB、Redis、worker、PVE、Gateway、AI 是否正常。
 
     學生／老師只拿到每項成敗（前端顯示包裝過的文案），管理員才有元件名稱與錯誤
     細節；``refresh`` 只對管理員有效。結果全站共用快取數秒，避免一整班同時登入時
     每人各打一次 PVE／Gateway。
     """
-    return preflight_service.preflight_for(current_user, refresh=refresh)
+    return await preflight_service.preflight_for_async(current_user, refresh=refresh)
 
 
 # ── 兩步驟驗證（TOTP，可綁定 Google Authenticator） ──
