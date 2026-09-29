@@ -27,6 +27,8 @@ COMMENT_PREFIX = "SkyLab:class-net:"
 # 版本上的機器互通策略（見 CourseEnvironmentVersion.peer_policy）
 PEER_POLICY_EXPLICIT = "explicit"
 PEER_POLICY_SEGMENT = "segment"
+# PVE 只接受這些協定帶 dport；any 沒有 proto、icmp 類用 icmp-type，帶 dport 會被 400 拒絕
+PORT_PROTOCOLS = frozenset({"tcp", "udp", "sctp"})
 logger = logging.getLogger(__name__)
 
 
@@ -205,6 +207,10 @@ def plan_one_way(
     # 兩台機器都必須還在：找不到會拋錯，由呼叫端記成防火牆設定失敗
     proxmox_service.find_resource(source_vmid)
     proxmox_service.find_resource(target_vmid)
+    # API 已會把 any／icmp 的 port 清掉，但舊版本存下的連線仍可能帶 port：
+    # 照「該協定全開」處理，comment 也跟著用無 port 的寫法，才會跟實際規則一致。
+    if protocol not in PORT_PROTOCOLS:
+        port = None
     service = protocol if port is None else f"{protocol}/{port}"
     comment = (
         f"{comment_prefix}{str(scope_id)[:8]}:{source_vmid}>{target_vmid}:{service}"

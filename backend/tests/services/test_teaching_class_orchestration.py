@@ -533,6 +533,53 @@ def test_sync_scope_rules_skips_machines_that_no_longer_exist(monkeypatch):
     ) == []
 
 
+def _plan(monkeypatch, protocol, port):
+    monkeypatch.setattr(
+        class_network_service, "_ip_by_vmid", lambda _session, vmid: f"10.0.0.{vmid}"
+    )
+    monkeypatch.setattr(
+        class_network_service.proxmox_service,
+        "find_resource",
+        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+    )
+    return class_network_service.plan_one_way(
+        SimpleNamespace(),
+        scope_id=uuid.UUID(int=0),
+        comment_prefix="p:",
+        source_vmid=201,
+        target_vmid=202,
+        protocol=protocol,
+        port=port,
+    )
+
+
+@pytest.mark.parametrize("protocol", ["any", "icmp", "icmpv6"])
+def test_plan_one_way_drops_port_for_portless_protocols(monkeypatch, protocol):
+    """舊版本存下的 any／icmp 連線可能還帶 port；PVE 對沒有 proto 或 icmp 的 dport 會回 400。"""
+    rules = _plan(monkeypatch, protocol, 22)
+
+    for item in rules:
+        assert "dport" not in item.rule
+        assert item.comment.endswith(f":{protocol}")
+    assert ("proto" in rules[0].rule) == (protocol != "any")
+
+
+def test_plan_one_way_keeps_port_for_tcp(monkeypatch):
+    out_rule, in_rule = _plan(monkeypatch, "tcp", 22)
+
+    assert out_rule.rule["proto"] == in_rule.rule["proto"] == "tcp"
+    assert out_rule.rule["dport"] == in_rule.rule["dport"] == "22"
+    assert out_rule.comment.endswith(":tcp/22")
+
+
+@pytest.mark.parametrize("protocol", ["any", "icmp", "icmpv6"])
+def test_edge_input_clears_port_for_portless_protocols(protocol):
+    edge = EnvironmentEdgeIn(
+        source_node_key="a", target_node_key="b", protocol=protocol, port=22
+    )
+    assert edge.port is None
+
+
 def test_ensure_firewall_enabled_restores_a_weakened_inbound_policy(monkeypatch):
     """防火牆開著但 policy_in 被改成 ACCEPT，隔離就整個失效。"""
     from app.services.network import firewall_service

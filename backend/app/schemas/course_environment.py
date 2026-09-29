@@ -66,7 +66,8 @@ class EnvironmentEdgeIn(BaseModel):
     def validate_edge(self) -> "EnvironmentEdgeIn":
         if self.source_node_key == self.target_node_key:
             raise ValueError(t("course_env.edge_same_node"))
-        if self.protocol == "any":
+        if self.protocol in {"any", "icmp", "icmpv6"}:
+            # PVE 只有 tcp/udp/sctp 能帶 dport，其餘協定一律視為全開
             self.port = None
         elif self.port is None:
             raise ValueError(t("course_env.edge_port_required"))
