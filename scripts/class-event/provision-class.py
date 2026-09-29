@@ -18,7 +18,8 @@ runner 上執行。每一步都先看現況再決定要不要做，失敗後直�
 - STUDENT_COUNT / STUDENT_EMAIL_PATTERN
 - CLASS_NAME / CLASS_TERM
 - START_DATE（預設今天，Asia/Taipei）/ END_DATE（預設開始日加兩個月）
-- LXC_TEMPLATE（範本名稱、範本 UUID 或 PVE 的 local:vztmpl/...；空白自動挑）
+- LXC_IMAGE（PVE 上的 LXC 映像：完整 volid 如 local:vztmpl/debian-12-...，或檔名關鍵字
+  如 ubuntu-24.04；空白自動挑，優先 Ubuntu、其次 Debian 的最新版）
 - LXC_CPU / LXC_MEMORY_MB / LXC_DISK_GB
 - PROVISION_TIMEOUT_MINUTES（預設 90）/ BOOT_TIMEOUT_MINUTES（預設 10）
 - DRY_RUN                     ``true`` 時只登入管理員、挑範本、印出計畫
@@ -44,6 +45,8 @@ from zoneinfo import ZoneInfo
 
 TIMEZONE = "Asia/Taipei"
 NODE_KEYS = ("lxc1", "lxc2")
+# LXC_IMAGE 空白時依序找這些系列，同系列取檔名排序最後（版本最新）的一份
+PREFERRED_IMAGE_PREFIXES = ("ubuntu-", "debian-")
 # 後端批次 API 在同一個請求裡逐台開機，小批送才不會撞到代理逾時
 POWER_CHUNK_SIZE = 10
 POLL_SECONDS = 30
@@ -92,7 +95,7 @@ class Config:
     class_term: str
     start_date: date
     end_date: date
-    lxc_template: str | None
+    lxc_image: str | None
     lxc_cpu: int
     lxc_memory_mb: int
     lxc_disk_gb: int
@@ -131,7 +134,7 @@ def load_config() -> Config:
         class_term=_env("CLASS_TERM", "課程活動"),
         start_date=start_date,
         end_date=end_date,
-        lxc_template=os.environ.get("LXC_TEMPLATE", "").strip() or None,
+        lxc_image=os.environ.get("LXC_IMAGE", "").strip() or None,
         lxc_cpu=int(_env("LXC_CPU", "1")),
         lxc_memory_mb=int(_env("LXC_MEMORY_MB", "512")),
         lxc_disk_gb=int(_env("LXC_DISK_GB", "8")),
@@ -219,53 +222,53 @@ def login(api: Api, email: str, password: str, totp_secret: str | None = None) -
 # ─── 課程環境 ─────────────────────────────────────────────────────────────────
 
 
-def resolve_lxc_source(api: Api, admin_token: str, wanted: str | None) -> tuple[dict, str, int]:
-    """回傳（節點來源欄位, 顯示名稱, 最小磁碟 GB）。"""
-    if wanted and ":vztmpl/" in wanted:
-        return {"source_type": "custom", "custom_image_ref": wanted}, wanted, 0
-    templates = api.call("GET", "/templates/", token=admin_token)["data"]
-    ready = sorted(
-        (
-            item
-            for item in templates
-            if str(item.get("resource_type", "")).lower() == "lxc"
-            and item.get("status") == "ready"
-        ),
-        key=lambda item: item["name"],
+def _image_file(volid: str) -> str:
+    return volid.rsplit("/", 1)[-1]
+
+
+def resolve_lxc_image(api: Api, admin_token: str, wanted: str | None) -> str:
+    """挑課程環境要用的 LXC 映像，回傳 PVE volid（local:vztmpl/...）。
+
+    和網頁上課程環境編輯器「來源方式：VM／LXC → LXC → 選映像」同一份清單
+    （GET /lxc/templates，跨連線彙總 PVE 上的 vztmpl）。
+    """
+    images = sorted(
+        {item["volid"] for item in api.call("GET", "/lxc/templates", token=admin_token)},
+        key=lambda volid: (_image_file(volid), volid),
     )
-    listing = "、".join(item["name"] for item in ready) or "（沒有）"
+    listing = "、".join(_image_file(volid) for volid in images) or "（沒有）"
+    print(f"可用的 LXC 映像：{listing}")
+    if not images:
+        raise ScriptError("PVE 上沒有任何 LXC 映像（vztmpl），請先在 PVE storage 下載 CT 範本")
     if wanted:
         matches = [
-            item
-            for item in ready
-            if wanted in (item["id"], item["name"]) or item["name"].lower() == wanted.lower()
+            volid
+            for volid in images
+            if volid == wanted or wanted.lower() in _image_file(volid).lower()
         ]
         if not matches:
-            raise ScriptError(f"找不到可用的 LXC 範本「{wanted}」；可用範本：{listing}")
-        chosen = matches[0]
-    else:
-        if not ready:
-            raise ScriptError("平台上沒有 ready 的 LXC 範本，請用 LXC_TEMPLATE 指定 local:vztmpl/...")
-        chosen = ready[0]
-    print(f"可用的 LXC 範本：{listing}")
-    return (
-        {"source_type": "template", "source_template_id": chosen["id"]},
-        chosen["name"],
-        int(chosen.get("default_disk") or 0),
-    )
+            raise ScriptError(f"找不到 LXC 映像「{wanted}」；可用映像：{listing}")
+        return matches[-1]
+    for prefix in PREFERRED_IMAGE_PREFIXES:
+        family = [volid for volid in images if _image_file(volid).lower().startswith(prefix)]
+        if family:
+            return family[-1]
+    return images[-1]
 
 
-def environment_body(cfg: Config, source: dict, disk_gb: int) -> dict:
+def environment_body(cfg: Config, image: str) -> dict:
     nodes = [
         {
             "node_key": key,
-            **source,
+            "source_type": "custom",
+            "custom_image_ref": image,
+            "custom_unprivileged": True,
             "name": f"LXC {index + 1}",
             "role": "lab",
             "resource_type": "lxc",
             "cpu": cfg.lxc_cpu,
             "memory_mb": cfg.lxc_memory_mb,
-            "disk_gb": disk_gb,
+            "disk_gb": cfg.lxc_disk_gb,
             "network": "lab-net",
             "position_x": 80.0 + index * 280,
             "position_y": 120.0,
@@ -468,7 +471,8 @@ def verify_power(api: Api, token: str, cfg: Config, item: dict) -> bool:
 # ─── 主流程 ───────────────────────────────────────────────────────────────────
 
 
-def print_plan(cfg: Config, template_name: str, disk_gb: int) -> None:
+def print_plan(cfg: Config, image: str) -> None:
+    disk_gb = cfg.lxc_disk_gb
     sessions = []
     current = cfg.start_date
     while current <= cfg.end_date:
@@ -482,7 +486,7 @@ def print_plan(cfg: Config, template_name: str, disk_gb: int) -> None:
     print(f"到期：{cfg.end_date} 23:59 自動封存並刪除機器")
     print(f"導師：{cfg.teacher_email}")
     print(f"學生：{cfg.student_emails[0]} ～ {cfg.student_emails[-1]}（{len(cfg.student_emails)} 位）")
-    print(f"機器：每人 2 台互通 LXC（範本 {template_name}，{cfg.lxc_cpu} 核 / {cfg.lxc_memory_mb} MB / {disk_gb} GB）")
+    print(f"機器：每人 2 台互通 LXC（映像 {image}，{cfg.lxc_cpu} 核 / {cfg.lxc_memory_mb} MB / {disk_gb} GB）")
     print(f"合計：{machines} 台、{machines * cfg.lxc_cpu} 核、{machines * cfg.lxc_memory_mb} MB、{machines * disk_gb} GB")
     print("─" * 60)
 
@@ -490,15 +494,14 @@ def print_plan(cfg: Config, template_name: str, disk_gb: int) -> None:
 def run(cfg: Config) -> int:
     api = Api(cfg.api_url)
     admin_token = login(api, cfg.admin_email, cfg.admin_password, cfg.admin_totp_secret)
-    source, template_name, template_disk = resolve_lxc_source(api, admin_token, cfg.lxc_template)
-    disk_gb = max(cfg.lxc_disk_gb, template_disk)
-    print_plan(cfg, template_name, disk_gb)
+    image = resolve_lxc_image(api, admin_token, cfg.lxc_image)
+    print_plan(cfg, image)
     if cfg.dry_run:
         print("dry-run：不建立任何東西")
         return 0
 
     teacher_token = login(api, cfg.teacher_email, cfg.teacher_password or "")
-    version_id = ensure_environment(api, teacher_token, cfg, environment_body(cfg, source, disk_gb))
+    version_id = ensure_environment(api, teacher_token, cfg, environment_body(cfg, image))
     item = ensure_class(api, teacher_token, cfg)
 
     if item["status"] == "planning":
