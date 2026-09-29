@@ -38,6 +38,17 @@ from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import get_superuser_token_headers
 
 
+@pytest.fixture(autouse=True)
+def _clear_proxmox_caches() -> Generator[None, None, None]:
+    """PVE 設定與叢集清單是行程內 TTL 快取：每個測試各自 mock PVE，不能吃到上一個測試的結果。"""
+    from app.infrastructure.proxmox.operations import invalidate_cluster_resources_cache
+    from app.infrastructure.proxmox.settings import invalidate_proxmox_settings_cache
+
+    invalidate_proxmox_settings_cache()
+    invalidate_cluster_resources_cache()
+    yield
+
+
 def _is_truthy_env(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 

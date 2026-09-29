@@ -165,11 +165,44 @@ def _gather_per_connection(
     return results
 
 
-def _raw_vms_by_connection() -> list[tuple[int | None, list[dict]]]:
-    """Return (connection_key, resources) for every connection, without pool filtering."""
-    return _gather_per_connection(
-        lambda proxmox: proxmox.cluster.resources.get(type="vm"), what="resources"
-    )
+# /cluster/resources 短暫快取：逐台迴圈（排程 tick、清單頁、拓撲）原本每台都重抓
+# 整份清單，N 台就是 N×C 次。PVE 自己的 status 也是 pvestatd 約 10 秒更新一次，
+# 幾秒的快取不會讓狀態明顯變舊。剛建立的機器由 find_resource 找不到時強制重抓，
+# next_vmid 一律重抓，不會因快取漏看。
+_CLUSTER_RESOURCES_TTL_SECONDS = 3.0
+# 抓取期間一直持有：同時進來的呼叫排隊等同一份結果（single-flight）
+_cluster_resources_lock = threading.Lock()
+
+
+class _ClusterResourcesCache:
+    refreshed_at: float = 0.0
+    listed: list[tuple[int | None, list[dict]]] = []
+
+
+def invalidate_cluster_resources_cache() -> None:
+    with _cluster_resources_lock:
+        _ClusterResourcesCache.refreshed_at = 0.0
+        _ClusterResourcesCache.listed = []
+
+
+def _raw_vms_by_connection(
+    *, fresh: bool = False
+) -> list[tuple[int | None, list[dict]]]:
+    """Return (connection_key, resources) for every connection, without pool filtering.
+
+    ``fresh=True`` 略過快取（需要確定看到最新機器清單的呼叫端用）。回傳的條目
+    都是複本，呼叫端可以自由修改。
+    """
+    with _cluster_resources_lock:
+        age = time.monotonic() - _ClusterResourcesCache.refreshed_at
+        if fresh or age >= _CLUSTER_RESOURCES_TTL_SECONDS:
+            _ClusterResourcesCache.listed = _gather_per_connection(
+                lambda proxmox: proxmox.cluster.resources.get(type="vm"),
+                what="resources",
+            )
+            _ClusterResourcesCache.refreshed_at = time.monotonic()
+        listed = _ClusterResourcesCache.listed
+    return [(key, [dict(vm) for vm in vms]) for key, vms in listed]
 
 
 def list_connection_vms(connection_id: int | None) -> list[dict]:
@@ -207,9 +240,9 @@ def find_vmid_on_connections(
     return None
 
 
-def _raw_vms() -> list[dict]:
+def _raw_vms(*, fresh: bool = False) -> list[dict]:
     """Return all resources of type vm across all connections, without pool filtering."""
-    return [vm for _key, vms in _raw_vms_by_connection() for vm in vms]
+    return [vm for _key, vms in _raw_vms_by_connection(fresh=fresh) for vm in vms]
 
 
 def _in_own_pool(connection_key: int | None, vms: Iterable[dict]) -> list[dict]:
@@ -218,14 +251,14 @@ def _in_own_pool(connection_key: int | None, vms: Iterable[dict]) -> list[dict]:
     return [vm for vm in vms if vm.get("pool") == pool]
 
 
-def _pool_vms() -> list[dict]:
+def _pool_vms(*, fresh: bool = False) -> list[dict]:
     """Return vm resources inside each connection's own pool.
 
     pool 名稱是每個連線（叢集）自己的設定，因此比對必須逐連線進行，
     不能用單一 pool 名稱去篩全部連線的資源。
     """
     matched: list[dict] = []
-    for key, vms in _raw_vms_by_connection():
+    for key, vms in _raw_vms_by_connection(fresh=fresh):
         matched.extend(_in_own_pool(key, vms))
     return matched
 
@@ -256,23 +289,39 @@ def find_resource(vmid: int, *, strict: bool = False) -> dict:
     if not strict:
         found = _single_match([r for r in _pool_vms() if r["vmid"] == vmid], vmid)
         if found is None:
+            # 快取裡沒有可能只是剛建立：重抓一次再下結論
+            found = _single_match(
+                [r for r in _pool_vms(fresh=True) if r["vmid"] == vmid], vmid
+            )
+        if found is None:
             raise NotFoundError(f"Resource {vmid} not found")
         return found
 
     connection_keys = _connection_keys()
-    try:
-        listed = _raw_vms_by_connection()
-    except ProxmoxError as exc:  # 全部連線都失敗
-        raise ProxmoxConnectionUnavailableError(str(exc)) from exc
-    found = _single_match(
-        [
-            vm
-            for key, vms in listed
-            for vm in _in_own_pool(key, vms)
-            if vm.get("vmid") == vmid
-        ],
-        vmid,
-    )
+
+    def _match(listed: list[tuple[int | None, list[dict]]]) -> dict | None:
+        return _single_match(
+            [
+                vm
+                for key, vms in listed
+                for vm in _in_own_pool(key, vms)
+                if vm.get("vmid") == vmid
+            ],
+            vmid,
+        )
+
+    def _list(*, fresh: bool) -> list[tuple[int | None, list[dict]]]:
+        try:
+            return _raw_vms_by_connection(fresh=fresh)
+        except ProxmoxError as exc:  # 全部連線都失敗
+            raise ProxmoxConnectionUnavailableError(str(exc)) from exc
+
+    listed = _list(fresh=False)
+    found = _match(listed)
+    if found is None:
+        # 「找不到」會被當成機器已刪除，一定要以最新清單判斷
+        listed = _list(fresh=True)
+        found = _match(listed)
     if found is not None:
         return found
     listed_keys = {key for key, _vms in listed}
@@ -287,9 +336,14 @@ def find_resource(vmid: int, *, strict: bool = False) -> dict:
 
 def find_lxc(vmid: int) -> dict:
     """Find an LXC container by VMID in its connection's pool."""
-    found = _single_match(
-        [r for r in _pool_vms() if r["vmid"] == vmid and r["type"] == "lxc"], vmid
-    )
+    def _match(vms: list[dict]) -> dict | None:
+        return _single_match(
+            [r for r in vms if r["vmid"] == vmid and r["type"] == "lxc"], vmid
+        )
+
+    found = _match(_pool_vms())
+    if found is None:
+        found = _match(_pool_vms(fresh=True))
     if found is None:
         raise NotFoundError(f"LXC container {vmid} not found")
     return found
@@ -769,7 +823,10 @@ def delete_resource(
     node: str, vmid: int, resource_type: ResourceType, **params
 ) -> str:
     task = _resource_api(node, vmid, resource_type).delete(**params)
-    basic_blocking_task_status(node, task)
+    try:
+        basic_blocking_task_status(node, task)
+    finally:
+        invalidate_cluster_resources_cache()
     return task
 
 
@@ -873,7 +930,10 @@ def create_lxc(node: str, **config) -> str:
     """Create an LXC container and wait for the task to finish. Returns UPID."""
     proxmox = get_proxmox_api_for_node(node)
     task = proxmox.nodes(node).lxc.create(**config)
-    basic_blocking_task_status(node, task)
+    try:
+        basic_blocking_task_status(node, task)
+    finally:
+        invalidate_cluster_resources_cache()
     return task
 
 
@@ -885,7 +945,10 @@ def clone_vm(node: str, template_id: int, **clone_config) -> str:
     """Clone a VM template and wait. Returns UPID."""
     proxmox = get_proxmox_api_for_node(node)
     task = proxmox.nodes(node).qemu(template_id).clone.post(**clone_config)
-    basic_blocking_task_status(node, task)
+    try:
+        basic_blocking_task_status(node, task)
+    finally:
+        invalidate_cluster_resources_cache()
     return task
 
 
@@ -893,7 +956,10 @@ def clone_lxc(node: str, template_id: int, **clone_config) -> str:
     """Clone an LXC template and wait. Returns UPID."""
     proxmox = get_proxmox_api_for_node(node)
     task = proxmox.nodes(node).lxc(template_id).clone.post(**clone_config)
-    basic_blocking_task_status(node, task)
+    try:
+        basic_blocking_task_status(node, task)
+    finally:
+        invalidate_cluster_resources_cache()
     return task
 
 
@@ -905,6 +971,7 @@ def convert_to_template(
     VM 必須處於 stopped 狀態，呼叫端負責先關機。
     """
     _resource_api(node, vmid, resource_type).template.post()
+    invalidate_cluster_resources_cache()
 
 
 def _db_claimed_vmids() -> set[int]:
@@ -950,7 +1017,7 @@ def next_vmid() -> int:
 
     # nextid 回的是最小空號；被 DB 擋下往上遞增時可能踩到 PVE 已用的 VMID，
     # 所以單連線也要一併避開 PVE 現有機器
-    used = {int(r["vmid"]) for r in _raw_vms()} | _db_claimed_vmids()
+    used = {int(r["vmid"]) for r in _raw_vms(fresh=True)} | _db_claimed_vmids()
     candidate = max(candidates)
     while candidate in used:
         candidate += 1
