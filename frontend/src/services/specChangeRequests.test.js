@@ -83,6 +83,19 @@ describe("SpecChangeRequestsService", () => {
     expect(url).toContain("status=pending");
     expect(url).not.toContain("vmid=");
   });
+
+  test("listAll 的 limit 超過後端上限 200 時用 skip 分頁補齊", async () => {
+    const rows = (from, n) => Array.from({ length: n }, (_, i) => ({ id: `s${from + i}` }));
+    fetchMock
+      .mockResolvedValueOnce(jsonRes(200, { data: rows(0, 200), count: 230 }))
+      .mockResolvedValueOnce(jsonRes(200, { data: rows(200, 30), count: 230 }));
+
+    const res = await SpecChangeRequestsService.listAll({ status: "pending", limit: 1000 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toContain("skip=200");
+    expect(res.data).toHaveLength(230);
+  });
 });
 
 describe("spec request display helpers", () => {

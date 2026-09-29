@@ -1,12 +1,12 @@
 """跨行程的短期 key-value 暫存（sync 路由用）。
 
-device code、AI 確認 token 這類「A 副本發、B 副本核」的狀態原本放在模組層
+桌面端登入的 device code 是「A 副本發、B 副本核」的狀態，原本放在模組層
 dict，多開 backend 就對不上。這裡以 Redis 為主、行程內 dict 為備援：
 - REDIS_ENABLED=false：純記憶體（單行程開發），行為與原本的 dict 相同。
 - Redis 啟用但當下連不上：該次操作退回記憶體並留 warning，不讓登入流程 500。
 
-用 sync 的 redis client：呼叫端是跑在 threadpool 的 sync 路由，沒有 event loop。
-值一律是 JSON 物件（dict）。
+用共用的 sync redis client（``sync_client.get_sync_redis``）：呼叫端是跑在
+threadpool 的 sync 路由，沒有 event loop。值一律是 JSON 物件（dict）。
 """
 
 from __future__ import annotations
@@ -17,16 +17,9 @@ import threading
 import time
 from typing import Any
 
-try:
-    import redis as redis_sync
-except ModuleNotFoundError:  # pragma: no cover - depends on local env
-    redis_sync = None  # type: ignore[assignment]
-
-from app.features.ai.config import settings
+from app.infrastructure.redis.sync_client import get_sync_redis
 
 logger = logging.getLogger(__name__)
-
-_SOCKET_TIMEOUT_SECONDS = 2.0
 
 
 class ExpiringKV:
@@ -35,21 +28,11 @@ class ExpiringKV:
         self._ttl = ttl_seconds
         self._memory: dict[str, tuple[float, dict[str, Any]]] = {}
         self._lock = threading.Lock()
-        self._client: Any | None = None
 
     # ─── Redis 端 ─────────────────────────────────────────────────────────
 
     def _redis(self) -> Any | None:
-        if redis_sync is None or not settings.redis_enabled:
-            return None
-        if self._client is None:
-            self._client = redis_sync.Redis.from_url(
-                settings.redis_url,
-                decode_responses=True,
-                socket_connect_timeout=_SOCKET_TIMEOUT_SECONDS,
-                socket_timeout=_SOCKET_TIMEOUT_SECONDS,
-            )
-        return self._client
+        return get_sync_redis()
 
     def _key(self, key: str) -> str:
         return f"kv:{self._namespace}:{key}"

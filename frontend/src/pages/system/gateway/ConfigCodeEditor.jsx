@@ -10,38 +10,6 @@ import MIcon from "../../../components/MIcon";
    交給 vite 打包，毋須手動設定 MonacoEnvironment */
 loader.config({ monaco });
 
-/* Monaco 沒有內建 TOML；用 ini 高亮會把行首「;」誤標成合法註解
-   （TOML 只接受「#」），因此註冊一個極簡 TOML Monarch tokenizer */
-if (!monaco.languages.getLanguages().some((lang) => lang.id === "toml")) {
-  monaco.languages.register({ id: "toml" });
-  monaco.languages.setLanguageConfiguration("toml", {
-    comments: { lineComment: "#" },
-    brackets: [["[", "]"], ["{", "}"]],
-  });
-  monaco.languages.setMonarchTokensProvider("toml", {
-    defaultToken: "",
-    tokenizer: {
-      root: [
-        [/^\s*#.*$/, "comment"],
-        [/^\s*\[\[?[^\]]*\]?\]?/, "type"],
-        [/^(\s*)([\w.-]+)(\s*=)/, ["white", "key", "delimiter"]],
-        [/"""/, { token: "string", next: "@mstring" }],
-        [/"(?:[^"\\]|\\.)*"/, "string"],
-        [/'[^']*'/, "string"],
-        [/\b(?:true|false)\b/, "keyword"],
-        [/\d{4}-\d{2}-\d{2}[Tt ]?[\d:.Zz+-]*/, "number"],
-        [/[+-]?\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?/, "number"],
-        [/#.*$/, "comment"],
-      ],
-      mstring: [
-        [/"""/, { token: "string", next: "@pop" }],
-        [/[^"]+/, "string"],
-        [/"/, "string"],
-      ],
-    },
-  });
-}
-
 /* nginx 沒有內建語言，註冊一個極簡 Monarch tokenizer：
    區塊名（http/server/location…）標成 type、行首指令標成 keyword、$變數獨立上色 */
 if (!monaco.languages.getLanguages().some((lang) => lang.id === "nginx")) {
@@ -72,16 +40,13 @@ if (!monaco.languages.getLanguages().some((lang) => lang.id === "nginx")) {
   });
 }
 
+/* Gateway 只編輯 nginx.conf；其他語言沿用原名、不加分頁圖示色 */
 const LANG_LABEL = {
   nginx: "nginx",
-  yaml: "YAML",
-  toml: "TOML",
 };
 
 const TAB_ICON_CLASS = {
   nginx: "tabIcon_nginx",
-  yaml: "tabIcon_yaml",
-  toml: "tabIcon_toml",
 };
 
 const EDITOR_OPTIONS = {

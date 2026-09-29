@@ -12,7 +12,9 @@ import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import Pagination from "../shared/Pagination";
 import { formatDateTime } from "../../../utils/formatDate";
+import { isAdminUser } from "../../../utils/roles";
 
 function EmptyState({ variant, canConfigure, onConfigure }) {
   const { t } = useTranslation("system");
@@ -68,7 +70,7 @@ export default function IpManagementPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
+  const isAdmin = isAdminUser(user);
 
   const [allocations, setAllocations] = useState([]);
   const [subnet, setSubnet] = useState(null);
@@ -333,31 +335,14 @@ export default function IpManagementPage() {
           </div>
         )}
         {!loading && totalPages > 1 && (
-          <div className={styles.pagination}>
-            <span className={styles.paginationInfo}>
-              {t("IpManagementPage.paginationInfo", { count: visible.length, page: safePage + 1, totalPages })}
-            </span>
-            <div className={styles.paginationBtns}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                disabled={safePage === 0}
-                onClick={() => setPage((p) => Math.max(p - 1, 0))}
-              >
-                <MIcon name="chevron_left" size={16} />
-                {t("IpManagementPage.prevPage")}
-              </button>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                disabled={safePage + 1 >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                {t("IpManagementPage.nextPage")}
-                <MIcon name="chevron_right" size={16} />
-              </button>
-            </div>
-          </div>
+          <Pagination
+            page={safePage}
+            totalPages={totalPages}
+            info={t("IpManagementPage.paginationInfo", { count: visible.length, page: safePage + 1, totalPages })}
+            prevLabel={t("IpManagementPage.prevPage")}
+            nextLabel={t("IpManagementPage.nextPage")}
+            onChange={setPage}
+          />
         )}
       </div>
     </div>

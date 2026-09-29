@@ -118,7 +118,11 @@ async def test_ws_accepts_valid_access_token(
 ) -> None:
     _patch_redis(monkeypatch, revoked=False)
     fake_user = SimpleNamespace(
-        email="user@example.com", is_active=True, token_version=0
+        email="user@example.com",
+        is_active=True,
+        token_version=0,
+        totp_required=False,
+        totp_enabled=False,
     )
     fake_session = _FakeSession(fake_user)
     _patch_session(monkeypatch, fake_session)

@@ -9,13 +9,12 @@
  * 推播 payload（JSON，由後端 web_push_service 產生）：
  *   { title, body, tag, url, kind: "job" | "reminder" | "test", id }
  *
- * 分頁在前景且聚焦時不顯示系統通知（頁面自己會出 toast），改用 postMessage
- * 通知頁面刷新；其餘情況顯示通知。
+ * 分頁在前景且聚焦時不顯示系統通知（頁面自己會出 toast），只補一則立刻關掉的
+ * 佔位通知滿足瀏覽器規定；其餘情況顯示通知。
  */
 
 const OPEN_JOB_MESSAGE = "skylab:open-job";
 const NAVIGATE_MESSAGE = "skylab:navigate";
-const PUSH_RECEIVED_MESSAGE = "skylab:push-received";
 /** 佔位通知用的固定 tag：同一則會一直被取代，不會在通知中心堆積 */
 const PLACEHOLDER_TAG = "skylab-placeholder";
 
@@ -41,11 +40,6 @@ function parsePayload(event) {
 async function hasFocusedClient() {
   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   return clients.some((c) => c.visibilityState === "visible" && c.focused);
-}
-
-async function broadcast(message) {
-  const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  for (const client of clients) client.postMessage(message);
 }
 
 /**
@@ -81,7 +75,6 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(
     (async () => {
-      await broadcast({ type: PUSH_RECEIVED_MESSAGE, payload });
       // 使用者正看著頁面：頁面的 toast 已經足夠，不重複跳系統通知
       if (payload.kind !== "test" && (await hasFocusedClient())) {
         await showPlaceholderNotification();

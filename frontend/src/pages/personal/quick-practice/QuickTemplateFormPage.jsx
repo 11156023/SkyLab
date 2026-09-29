@@ -7,6 +7,7 @@ import { useToast } from "../../../hooks/useToast";
 import { LayoutContext } from "../../../layout/layoutContext";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { folderTotals, nodeMemoryGb } from "./templateFolder";
 import styles from "./QuickTemplateFormPage.module.scss";
 
 export default function QuickTemplateFormPage() {
@@ -67,7 +68,8 @@ export default function QuickTemplateFormPage() {
   }
 
   const totalCpu = template.nodes.reduce((sum, node) => sum + Number(node.cpu || 0), 0);
-  const totalMemory = template.nodes.reduce((sum, node) => sum + Number(node.memory || 0), 0);
+  /* 記憶體照實際 MB 換算（512 MB 顯示 0.5），合計與資料夾卡片同一套算法，兩個畫面才不會對不上 */
+  const totalMemory = folderTotals(template).memoryGb;
   const totalDisk = template.nodes.reduce((sum, node) => sum + Number(node.disk || 0), 0);
 
   return <div className={styles.page}>
@@ -96,7 +98,7 @@ export default function QuickTemplateFormPage() {
             <span className={styles.machineIndex}>{index + 1}</span>
             <span className={styles.machineIcon}><MIcon name={node.type === "lxc" ? "terminal" : "desktop_windows"} size={18} /></span>
             <div><strong>{node.name}</strong><small>{node.role} · {String(node.type).toUpperCase()}</small></div>
-            <span className={styles.machineSpec}>{t("QuickTemplateFormPage.machineSpec", { cpu: node.cpu, memory: node.memory, disk: node.disk })}</span>
+            <span className={styles.machineSpec}>{t("QuickTemplateFormPage.machineSpec", { cpu: node.cpu, memory: nodeMemoryGb(node), disk: node.disk })}</span>
           </article>)}
         </div>
         <div className={styles.environmentTotal}><span>{t("QuickTemplateFormPage.environmentTotal")}</span><strong>{t("QuickTemplateFormPage.environmentTotalSpec", { cpu: totalCpu, memory: totalMemory, disk: totalDisk })}</strong></div>

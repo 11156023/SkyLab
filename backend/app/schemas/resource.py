@@ -26,28 +26,6 @@ ResourceStatus = Literal[
 # ===== Proxmox Info Schemas =====
 
 
-class VMSchema(BaseModel):
-    """虛擬機資訊"""
-
-    vmid: int
-    name: str
-    status: str
-    node: str
-    type: str
-    cpu: float | None = None
-    maxcpu: int | None = None
-    mem: int | None = None
-    maxmem: int | None = None
-    uptime: int | None = None
-    netin: int | None = None
-    diskread: int | None = None
-    diskwrite: int | None = None
-    disk: int | None = None
-    template: int | None = None
-    memhost: int | None = None
-    maxdisk: int | None = None
-
-
 class TerminalInfoSchema(BaseModel):
     """LXC Terminal 連線資訊"""
 
@@ -92,13 +70,17 @@ class VMTemplateSchema(BaseModel):
     disk_gb: int | None = None
 
 
-class NextVMIDSchema(BaseModel):
-    """下一個可用 VMID"""
-
-    next_vmid: int
-
-
 # ===== Resource Request Schemas =====
+
+# 規格上下界的唯一來源：課程環境節點（EnvironmentNodeIn）、VMRequestCreate
+# 與背景建機用的 LXC/VMCreateRequest 都要收得一樣寬，否則已核准的班級機器
+# 會在背景任務裡才被內部 schema 擋下（ValidationError）。
+SPEC_CORES_MIN = 1
+SPEC_CORES_MAX = 64
+SPEC_MEMORY_MIN_MB = 128
+SPEC_MEMORY_MAX_MB = 131072
+SPEC_DISK_MIN_GB = 1
+SPEC_DISK_MAX_GB = 2000
 
 
 class LXCCreateRequest(BaseModel):
@@ -106,9 +88,9 @@ class LXCCreateRequest(BaseModel):
 
     hostname: UnicodeHostname = Field(..., min_length=1, max_length=63)
     ostemplate: str
-    cores: int = Field(1, ge=1, le=32)
-    memory: int = Field(512, ge=128, le=65536)
-    rootfs_size: int = Field(8, ge=1, le=1000)
+    cores: int = Field(1, ge=SPEC_CORES_MIN, le=SPEC_CORES_MAX)
+    memory: int = Field(512, ge=SPEC_MEMORY_MIN_MB, le=SPEC_MEMORY_MAX_MB)
+    rootfs_size: int = Field(8, ge=SPEC_DISK_MIN_GB, le=SPEC_DISK_MAX_GB)
     password: str = Field(..., min_length=6)
     storage: str = "local-lvm"
     environment_type: str
@@ -125,9 +107,10 @@ class VMCreateRequest(BaseModel):
     template_id: int
     username: str = Field(..., min_length=1, max_length=32)
     password: str = Field(..., min_length=6)
-    cores: int = Field(2, ge=1, le=32)
-    memory: int = Field(2048, ge=512, le=65536)
-    disk_size: int = Field(20, ge=10, le=1000)
+    cores: int = Field(2, ge=SPEC_CORES_MIN, le=SPEC_CORES_MAX)
+    memory: int = Field(2048, ge=SPEC_MEMORY_MIN_MB, le=SPEC_MEMORY_MAX_MB)
+    # 小於範本磁碟時 provisioning 不會縮小（_resize_clone_disk_if_needed 會略過）
+    disk_size: int = Field(20, ge=SPEC_DISK_MIN_GB, le=SPEC_DISK_MAX_GB)
     storage: str = "local-lvm"
     environment_type: str
     os_info: str | None = None
@@ -139,21 +122,18 @@ class VMCreateRequest(BaseModel):
 
 
 class LXCCreateResponse(BaseModel):
-    """建立 LXC 回應（202：clone 於背景執行，vmid/upid 為 null）"""
+    """provisioning_service.create_lxc 的同步內部結果（非 API 回應）。
+
+    建立完成才回傳，vmid 與 upid 都已填入。
+    """
 
     vmid: int | None = None
     upid: str | None = None
-    task_id: str | None = None
     message: str
 
 
-class VMCreateResponse(BaseModel):
-    """建立 VM 回應（202：clone 於背景執行，vmid/upid 為 null）"""
-
-    vmid: int | None = None
-    upid: str | None = None
-    task_id: str | None = None
-    message: str
+class VMCreateResponse(LXCCreateResponse):
+    """provisioning_service.create_vm 的同步內部結果（欄位同 LXCCreateResponse）。"""
 
 
 class ResourcePublic(BaseModel):

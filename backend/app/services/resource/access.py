@@ -5,6 +5,7 @@
 課堂機只有使用權（開關機、主控台），防火牆、快照、規格這類設定不開放。
 """
 
+import logging
 import uuid
 from typing import Any
 
@@ -15,9 +16,76 @@ from app.core.authorizers import (
     require_resource_access,
     require_teaching_access,
 )
+from app.core.i18n import t
 from app.exceptions import PermissionDeniedError
-from app.models import Resource, TeachingClass
+from app.models import Resource, TeachingClass, TeachingClassStatus
 from app.repositories import resource as resource_repo
+
+logger = logging.getLogger(__name__)
+
+
+def require_resource_ownership(*, session: Session, user: Any, vmid: int) -> None:
+    """擁有者層級的存取（``api.deps.proxmox.check_resource_ownership`` 的本體）。
+
+    管理員一律通過；課堂機的學生擁有者在班級仍 active 時可用，班級老師可用；
+    個人機只看 ``user_id``。不符合時拋 PermissionDeniedError。
+    """
+    if can_bypass_resource_ownership(user):
+        return
+
+    # Check if the resource exists in the database
+    db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+
+    if not db_resource:
+        # Resource not in database - deny access for non-superusers
+        logger.warning(
+            f"User {user.email} attempted to access unregistered resource {vmid}"
+        )
+        raise PermissionDeniedError(t("resource_access.no_permission"))
+
+    if db_resource.teaching_class_id:
+        teaching_class = session.get(TeachingClass, db_resource.teaching_class_id)
+        if teaching_class is None:
+            raise PermissionDeniedError(
+                t("resource_access.teaching_class_unassigned")
+            )
+        if db_resource.user_id == user.id:
+            if teaching_class.status != TeachingClassStatus.active:
+                raise PermissionDeniedError(
+                    t("resource_access.teaching_class_inactive")
+                )
+            return
+        require_teaching_access(user, teaching_class.owner_id)
+        return
+
+    if db_resource.allocation_scope == "teaching_class":
+        raise PermissionDeniedError(t("resource_access.teaching_class_scope_lost"))
+
+    try:
+        require_resource_access(user, db_resource.user_id)
+    except PermissionDeniedError:
+        logger.warning(
+            f"User {user.email} attempted to access resource {vmid} "
+            f"owned by user {db_resource.user_id}"
+        )
+        raise
+
+
+def require_resource_use(*, session: Session, user: Any, vmid: int) -> None:
+    """使用層級的存取：擁有者／管理員之外，被分享的使用者也能開關機與開主控台。
+
+    ``api.deps.proxmox.check_resource_control_access`` 與批次電源操作共用這一份。
+    憑證、快照、規格、對外服務等擁有者層級的操作仍走 ``require_resource_ownership``。
+    """
+    try:
+        require_resource_ownership(session=session, user=user, vmid=vmid)
+        return
+    except PermissionDeniedError:
+        from app.services.resource import sharing_service
+
+        if sharing_service.user_has_share(session=session, vmid=vmid, user_id=user.id):
+            return
+        raise
 
 
 def require_resource_management(
@@ -51,10 +119,17 @@ def require_resource_management(
     require_resource_access(user, resource.user_id)
 
 
+def list_teaching_class_ids_owned_by(
+    *, session: Session, user_id: uuid.UUID
+) -> set[uuid.UUID]:
+    """``user_id`` 擔任老師（owner）的班級 id 集合。"""
+    stmt = select(TeachingClass.id).where(TeachingClass.owner_id == user_id)
+    return set(session.exec(stmt).all())
+
+
 def list_owned_teaching_class_ids(*, session: Session, user: Any) -> set[uuid.UUID]:
     """使用者擔任老師（owner）的班級 id 集合。"""
-    stmt = select(TeachingClass.id).where(TeachingClass.owner_id == user.id)
-    return set(session.exec(stmt).all())
+    return list_teaching_class_ids_owned_by(session=session, user_id=user.id)
 
 
 def can_manage_resource(
@@ -106,5 +181,8 @@ __all__ = [
     "list_owned_teaching_class_ids",
     "list_reachable_resources",
     "list_reachable_vmids",
+    "list_teaching_class_ids_owned_by",
     "require_resource_management",
+    "require_resource_ownership",
+    "require_resource_use",
 ]

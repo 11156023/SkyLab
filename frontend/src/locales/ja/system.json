@@ -56,6 +56,7 @@
   "AdminPage.toastDeleted": "ユーザーを削除しました",
   "AdminPage.toastSaveFailed": "保存に失敗しました",
   "AdminPage.toastUpdated": "ユーザーを更新しました",
+  "AdminPage.selfEditLockedHint": "自分のロールの変更やアカウントの無効化はできません",
   "AuditPage.allActions": "すべての操作",
   "AuditPage.allUsers": "すべてのユーザー",
   "AuditPage.clear": "クリア",
@@ -477,6 +478,7 @@
   "MiningIncidentsPanel.toastDismissed": "事件を解除しました",
   "MiningIncidentsPanel.toastDismissedAndRecovered": "事件を解除し、VM の復旧を試みました",
   "MiningIncidentsPanel.unknownError": "不明なエラー",
+  "MiningIncidentsPanel.toastDismissedWithWarnings": "事件を解除しましたが、一部の処置に失敗しました：{{message}}",
   "MonitoringPage.acknowledge": "確認",
   "MonitoringPage.acknowledged": "確認済み",
   "MonitoringPage.activeAlertsDesc": "しきい値を超えたリソース使用量とプラットフォームの異常に関するアラート（30 秒ごとに更新）",
@@ -727,6 +729,9 @@
   "SettingsPage.userPriorityTitle": "ユーザー優先度",
   "SettingsPage.verifySslCert": "SSL 証明書を検証",
   "SettingsPage.windowGracePeriodMinutes": "時間帯の猶予（分）",
+  "SettingsPage.forceDeleteConnectionTitle": "PVE 接続を強制削除",
+  "SettingsPage.forceDeleteConnectionMessage": "{{reason}}\n\n「{{name}}」の Proxmox が恒久的に停止しており、マシンが残っていないことが確実であれば、確認を省略して強制削除できます。SkyLab 管理下のマシンが残っていた場合、それらは SkyLab から操作できなくなります。この操作は監査ログに記録されます。",
+  "SettingsPage.forceDeleteConnectionConfirm": "強制削除",
   "SubnetConfigForm.bridgeName": "Bridge 名 *",
   "SubnetConfigForm.bridgeNamePlaceholder": "例：vmbr1",
   "SubnetConfigForm.cancel": "キャンセル",
@@ -760,5 +765,6 @@
   "DomainPage.managedBySystem": "本システム · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "本システムの公開 URL 機能が作成（VM {{vmid}}）",
   "DomainPage.externalRecord": "外部で作成",
-  "DomainPage.externalRecordHint": "本システム以外で作成されたレコード（Cloudflare などで手動追加）"
+  "DomainPage.externalRecordHint": "本システム以外で作成されたレコード（Cloudflare などで手動追加）",
+  "DomainPage.recordPriority": "優先度"
 }

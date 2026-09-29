@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.ai.utils import safe_int
+from app.ai.utils import ensure_form_context_within_limits, safe_int
 
 
 def build_chat_runtime_context(
@@ -39,6 +39,7 @@ def build_chat_runtime_context(
     gpu_section = "\n".join(gpu_lines) if gpu_lines else "(none)"
     current_resource_type = str(resource_type or "unspecified").strip() or "unspecified"
     current_form = json.dumps(form_context or {}, ensure_ascii=False, default=str)
+    ensure_form_context_within_limits(current_form)
 
     return f"""# Runtime Resource Context
 - If workload planning clearly needs GPU acceleration, prefer VM in recommendation.

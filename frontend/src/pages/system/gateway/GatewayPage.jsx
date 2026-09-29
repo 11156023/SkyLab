@@ -247,6 +247,31 @@ function ConnectionTab({ config, onConfigChange }) {
   );
 }
 
+/* 服務動作清單：nginx 多一個 reload，WireGuard 只有啟動／停止／重新啟動 */
+function serviceActions(t, { reload = false } = {}) {
+  const actions = [
+    { action: "start",   label: t("GatewayPage.actionStart"),   icon: "play_arrow" },
+    { action: "stop",    label: t("GatewayPage.actionStop"),    icon: "stop" },
+    { action: "restart", label: t("GatewayPage.actionRestart"), icon: "restart_alt" },
+  ];
+  if (reload) actions.push({ action: "reload", label: "Reload", icon: "refresh" });
+  return actions;
+}
+
+/* 服務狀態徽章：status 為 null 代表查不到狀態 */
+function ServiceStatusBadge({ status }) {
+  const { t } = useTranslation("system");
+  if (!status) {
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>{t("GatewayPage.statusUnavailable")}</span>;
+  }
+  return (
+    <span className={`${styles.badge} ${status.active ? styles.badge_success : styles.badge_muted}`}>
+      <MIcon name={status.active ? "check_circle" : "cancel"} size={13} />
+      {status.active ? t("GatewayPage.statusRunning") : t("GatewayPage.statusStopped")}
+    </span>
+  );
+}
+
 /* 服務卡片右上的動作按鈕列：執行中的動作顯示「...」，同時只允許一個動作 */
 function ServiceActionButtons({ actions, acting, onAction }) {
   return (
@@ -286,12 +311,6 @@ function ServiceLogsCard({ logs, className }) {
 function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
-  const SERVICE_ACTIONS = [
-    { action: "start",   label: t("GatewayPage.actionStart"),   icon: "play_arrow" },
-    { action: "stop",    label: t("GatewayPage.actionStop"),    icon: "stop" },
-    { action: "restart", label: t("GatewayPage.actionRestart"), icon: "restart_alt" },
-    { action: "reload",  label: "Reload", icon: "refresh" },
-  ];
   const [status, setStatus] = useState(null);
   const [configText, setConfigText] = useState("");
   const [savedText, setSavedText] = useState("");
@@ -399,16 +418,9 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
         <div className={styles.cardHead}>
           <div className={styles.statusRow}>
             <h2 className={styles.cardTitle}>{service}</h2>
-            {status ? (
-              <span className={`${styles.badge} ${status.active ? styles.badge_success : styles.badge_muted}`}>
-                <MIcon name={status.active ? "check_circle" : "cancel"} size={13} />
-                {status.active ? t("GatewayPage.statusRunning") : t("GatewayPage.statusStopped")}
-              </span>
-            ) : (
-              <span className={`${styles.badge} ${styles.badge_danger}`}>{t("GatewayPage.statusUnavailable")}</span>
-            )}
+            <ServiceStatusBadge status={status} />
           </div>
-          <ServiceActionButtons actions={SERVICE_ACTIONS} acting={acting} onAction={handleAction} />
+          <ServiceActionButtons actions={serviceActions(t, { reload: true })} acting={acting} onAction={handleAction} />
         </div>
         {status?.status_text && (
           <pre className={styles.statusBlock}>{status.status_text}</pre>
@@ -523,28 +535,11 @@ function WireGuardTab({ gatewayReady }) {
           <div>
             <div className={styles.statusRow}>
               <h2 className={styles.cardTitle}>WireGuard VPN</h2>
-              {status ? (
-                <span className={`${styles.badge} ${status.active ? styles.badge_success : styles.badge_muted}`}>
-                  <MIcon name={status.active ? "check_circle" : "cancel"} size={13} />
-                  {status.active ? t("GatewayPage.statusRunning") : t("GatewayPage.statusStopped")}
-                </span>
-              ) : (
-                <span className={`${styles.badge} ${styles.badge_danger}`}>
-                  {t("GatewayPage.statusUnavailable")}
-                </span>
-              )}
+              <ServiceStatusBadge status={status} />
             </div>
             <p className={styles.cardHint}>{t("GatewayPage.wireGuardDescription")}</p>
           </div>
-          <ServiceActionButtons
-            actions={[
-              { action: "start", label: t("GatewayPage.actionStart"), icon: "play_arrow" },
-              { action: "stop", label: t("GatewayPage.actionStop"), icon: "stop" },
-              { action: "restart", label: t("GatewayPage.actionRestart"), icon: "restart_alt" },
-            ]}
-            acting={acting}
-            onAction={handleAction}
-          />
+          <ServiceActionButtons actions={serviceActions(t)} acting={acting} onAction={handleAction} />
         </div>
         {status?.status_text && <pre className={styles.statusBlock}>{status.status_text}</pre>}
       </div>

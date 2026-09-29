@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import importlib
 from importlib.metadata import PackageNotFoundError, version
 import os
@@ -17,15 +16,13 @@ import sys
 import sysconfig
 import time
 from pathlib import Path
-from urllib.request import urlopen
 
 # 確保專案根目錄在 sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config.multi_model import (
-    GATEWAY_ENV_FILE_VAR,
-    build_gateway_routes,
-    load_gateway_config,
+    DEFAULT_BASE_ENV,
+    DEFAULT_MODELS_JSON,
     load_model_instances,
     validate_cluster_resources,
 )
@@ -36,136 +33,31 @@ from utils.health_utils import check_system_health
 from utils.logging_utils import get_logger
 
 
-@dataclass
-class GatewayRuntime:
-    """Gateway 子程序執行資訊。"""
-
-    process: subprocess.Popen[bytes]
-    host: str
-    port: int
-    log_path: Path
-
-
-@dataclass
-class ClusterRuntime:
-    """集群與 Gateway 的整體執行資訊。"""
-
-    manager: MultiModelEngineManager
-    gateway: GatewayRuntime | None = None
-
-
 # 全局 shutdown 標記
 _shutdown_requested = False
 
 
-def _resolve_python_bin(project_root: Path) -> str:
-    """解析啟動子程序用的 Python 執行檔。"""
-    venv_python = project_root / ".venv" / "bin" / "python"
-    if venv_python.exists():
-        return str(venv_python)
-    return sys.executable
+def _request_shutdown(signum, frame) -> None:
+    """把 SIGTERM／SIGINT 轉成 KeyboardInterrupt，讓既有 except/finally 停掉 vLLM。
 
-
-def _normalize_probe_host(host: str) -> str:
-    """將 0.0.0.0/:: 轉為可探測地址。"""
-    return "127.0.0.1" if host in {"0.0.0.0", "::"} else host
-
-
-def _wait_gateway_ready(
-    runtime: GatewayRuntime,
-    timeout: int,
-    logger,
-) -> None:
-    """等待 Gateway /health 就緒。"""
-    probe_host = _normalize_probe_host(runtime.host)
-    health_url = f"http://{probe_host}:{runtime.port}/health"
-    start = time.time()
-
-    while (time.time() - start) < timeout:
-        process = runtime.process
-        if process.poll() is not None:
-            raise RuntimeError(
-                f"Gateway 進程異常退出 (exit code: {process.returncode})，"
-                f"請查看日誌: {runtime.log_path}"
-            )
-
-        try:
-            with urlopen(health_url, timeout=2.0) as response:  # nosec B310 - 內部服務健康檢查
-                if response.status == 200:
-                    logger.success(f"Gateway 已就緒: {health_url}")
-                    return
-        except Exception:
-            # Ignore health check failures during probe
-            pass
-
-        time.sleep(1)
-
-    raise TimeoutError(
-        f"等待 Gateway 就緒逾時 ({timeout}s): {health_url}，"
-        f"請查看日誌: {runtime.log_path}"
-    )
-
-
-def _start_gateway_process(
-    gateway_host: str,
-    gateway_port: int,
-    ready_timeout: int,
-    logger,
-) -> GatewayRuntime:
-    """啟動 Gateway (uvicorn gateway.main:app)。"""
-    project_root = Path(__file__).resolve().parent
-    logs_dir = project_root / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    log_path = logs_dir / "gateway.log"
-
-    python_bin = _resolve_python_bin(project_root)
-    command = [
-        python_bin,
-        "-m",
-        "uvicorn",
-        "gateway.main:app",
-        "--host",
-        gateway_host,
-        "--port",
-        str(gateway_port),
-    ]
-
-    with open(log_path, "w", encoding="utf-8") as log_file:
-        process = subprocess.Popen(
-            command,
-            cwd=str(project_root),
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            env=os.environ.copy(),
-        )
-
-    runtime = GatewayRuntime(
-        process=process,
-        host=gateway_host,
-        port=gateway_port,
-        log_path=log_path,
-    )
-    _wait_gateway_ready(runtime, timeout=ready_timeout, logger=logger)
-    return runtime
-
-
-def _stop_gateway_process(runtime: GatewayRuntime | None, logger) -> None:
-    """停止 Gateway 子程序。"""
-    if runtime is None:
+    vLLM 以 start_new_session 啟動，launcher 若被 SIGTERM 以預設動作結束，
+    子程序不會跟著停（nohup 背景執行時 SIGINT 也被忽略）。只在第一次收到時
+    丟出例外；清理期間再收到信號就忽略，避免打斷 engine.stop()／stop_all()。
+    """
+    global _shutdown_requested
+    if _shutdown_requested:
         return
+    _shutdown_requested = True
+    raise KeyboardInterrupt(signal.Signals(signum).name)
 
-    process = runtime.process
-    if process.poll() is not None:
-        return
 
-    logger.info("停止 Gateway 進程...")
-    process.terminate()
-    try:
-        process.wait(timeout=20)
-    except subprocess.TimeoutExpired:
-        logger.warning("Gateway 未在期限內關閉，改用 SIGKILL")
-        process.kill()
-        process.wait(timeout=5)
+def _install_shutdown_handlers() -> None:
+    """在任何模型啟動前安裝停止信號處理。
+
+    SIGHUP 刻意不處理：start_*.sh 以 nohup 忽略 SIGHUP，讓服務撐過 SSH 登出。
+    """
+    signal.signal(signal.SIGTERM, _request_shutdown)
+    signal.signal(signal.SIGINT, _request_shutdown)
 
 
 def pre_launch_check(settings=None, logger_name: str = "PreCheck") -> bool:
@@ -360,17 +252,17 @@ def check_port_available(host: str, port: int, logger) -> bool:
     """檢查端口是否可用。"""
     import socket
     
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1)
-    
+    # IPv6 位址（含 ::）要用 AF_INET6，否則 bind 會丟 gaierror 而誤判為佔用。
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+
     try:
         # 嘗試綁定端口
-        sock.bind((host, port))
-        sock.close()
+        with socket.socket(family, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            sock.bind((host.strip("[]"), port))
         logger.success(f"✓ 端口 {host}:{port} 可用")
         return True
     except OSError as e:
-        sock.close()
         logger.error(f"端口 {host}:{port} 不可用: {e}")
         
         # 嘗試找出佔用進程（Linux）
@@ -448,28 +340,24 @@ def check_native_build_toolchain(logger) -> bool:
 def quick_start_cluster(
     wait_ready: bool = True,
     timeout: int = 1800,
-    base_env: str = ".env",
-    models_json: str = "models.json",
+    base_env: str = DEFAULT_BASE_ENV,
+    models_json: str = DEFAULT_MODELS_JSON,
     skip_check: bool = False,
     startup_delay: float = 5.0,
-    start_gateway: bool = True,
-    gateway_ready_timeout: int = 60,
     quantization: str = "",
     tool_call_parser: str = "",
     reasoning_parser: str = "",
     kv_cache_dtype: str = "",
-) -> ClusterRuntime | None:
-    """一次啟動所有本機模型；遠端路由交由 LiteLLM。
+) -> MultiModelEngineManager | None:
+    """一次啟動所有本機模型；對外路由（含遠端模型）交由 LiteLLM。
     
     Args:
         wait_ready: 是否等待所有模型就緒
         timeout: 單個模型等待就緒的超時秒數
-        base_env: 基礎設定檔路徑（包含共用配置與 Gateway 配置）
+        base_env: 基礎設定檔路徑（各模型共用的配置）
         models_json: 模型配置 JSON 檔案路徑
         skip_check: 跳過預啟動檢查
         startup_delay: 串行模式下每個模型完成後的額外等待秒數
-        start_gateway: 是否啟動 Gateway
-        gateway_ready_timeout: Gateway 健康檢查超時秒數
         quantization: vLLM --quantization 覆寫值（空字串表示不啟用）
         tool_call_parser: vLLM --tool-call-parser 覆寫值（空字串表示不啟用）
         reasoning_parser: vLLM --reasoning-parser 覆寫值（空字串表示不啟用）
@@ -478,8 +366,6 @@ def quick_start_cluster(
     logger = get_logger("ClusterLauncher")
     base_env_path = resolve_env_file(base_env)
     os.environ[SERVICE_ENV_FILE_VAR] = str(base_env_path)
-    if start_gateway:
-        os.environ[GATEWAY_ENV_FILE_VAR] = str(base_env_path)
 
     try:
         cli_overrides = {
@@ -497,13 +383,6 @@ def quick_start_cluster(
             logger.error("沒有本機模型可啟動；全遠端部署請直接啟動 LiteLLM Compose")
             return None
         validate_cluster_resources(instances)
-        gateway_config = None
-        routes = {}
-        # --no-gateway 是 LiteLLM 遷移期的正式 cluster 路徑；它不得因
-        # 舊 Gateway 的 env 或 route metadata 缺失而無法啟動模型。
-        if start_gateway:
-            gateway_config = load_gateway_config(base_env_file=base_env)
-            routes = build_gateway_routes(instances)
     except Exception as exc:
         logger.error(f"載入集群設定失敗: {exc}")
         return None
@@ -524,7 +403,6 @@ def quick_start_cluster(
                 return None
 
     manager = MultiModelEngineManager(instances)
-    gateway_runtime: GatewayRuntime | None = None
     try:
         logger.section("Cluster 啟動")
         manager.start_all(
@@ -533,36 +411,14 @@ def quick_start_cluster(
             startup_delay=startup_delay,
         )
         manager.print_status()
-
-        if start_gateway:
-            assert gateway_config is not None
-            logger.section("Gateway 路由")
-            logger.info(f"Gateway: http://{gateway_config.host}:{gateway_config.port}")
-            for alias, route in routes.items():
-                logger.info(f"{alias} -> {route.base_url} (model={route.model_name})")
-            logger.section("Gateway 啟動")
-            gateway_runtime = _start_gateway_process(
-                gateway_host=gateway_config.host,
-                gateway_port=gateway_config.port,
-                ready_timeout=gateway_ready_timeout,
-                logger=logger,
-            )
-            logger.info(
-                f"Gateway 日誌: {gateway_runtime.log_path}"
-            )
-        else:
-            logger.info("已跳過 Gateway 啟動 (--no-gateway)")
-
-        logger.info("集群啟動完成，按 Ctrl+C 停止所有模型與 Gateway")
-        return ClusterRuntime(manager=manager, gateway=gateway_runtime)
+        logger.info("集群啟動完成，對外 API 由 LiteLLM 提供；按 Ctrl+C 停止所有模型")
+        return manager
     except KeyboardInterrupt:
         logger.warning("集群啟動期間收到中斷信號，正在停止所有模型...")
-        _stop_gateway_process(gateway_runtime, logger)
         manager.stop_all()
         raise
     except Exception as exc:
         logger.error(f"集群啟動失敗: {exc}")
-        _stop_gateway_process(gateway_runtime, logger)
         manager.stop_all()
         return None
 
@@ -614,6 +470,11 @@ def quick_start_single(
         logger.info("請檢查模型路徑、GPU/CUDA 環境、port 佔用與 logs/ 內的服務日誌")
         engine.stop()
         return None
+    except BaseException:
+        # 等待就緒期間被中斷（SIGTERM／Ctrl+C）：呼叫端拿不到 engine，這裡就要停掉子程序。
+        logger.warning("單模型啟動期間收到中斷信號，正在停止 vLLM...")
+        engine.stop()
+        raise
 
 
 def _run_single_mode(args) -> None:
@@ -622,12 +483,16 @@ def _run_single_mode(args) -> None:
     logger.info("啟動模式: single（單一模型主服務）")
     logger.info(f"單模型設定檔: {args.env_file}")
 
-    engine = quick_start_single(
-        wait_ready=not args.no_wait,
-        timeout=args.timeout,
-        skip_check=args.skip_check,
-        env_file=args.env_file,
-    )
+    try:
+        engine = quick_start_single(
+            wait_ready=not args.no_wait,
+            timeout=args.timeout,
+            skip_check=args.skip_check,
+            env_file=args.env_file,
+        )
+    except KeyboardInterrupt:
+        logger.info("收到中斷信號，啟動已取消")
+        return
     if engine is None:
         sys.exit(1)
 
@@ -641,13 +506,12 @@ def _run_single_mode(args) -> None:
 
 
 def _run_cluster_mode(args) -> None:
-    """執行多模型 cluster 模式，必要時啟動舊 Gateway。"""
+    """執行多模型 cluster 模式並阻塞到服務結束。"""
     logger = get_logger("Main")
 
     logger.info("啟動模式: 多模型 vLLM cluster")
     logger.info(f"共用設定檔: {args.base_env}")
     logger.info(f"模型配置檔: {args.models_json}")
-    logger.info(f"啟動 Gateway: {'否' if args.no_gateway else '是'}")
     logger.info("模型啟動策略: 串行模式")
     logger.info(
         "CLI 啟動覆寫: "
@@ -658,15 +522,13 @@ def _run_cluster_mode(args) -> None:
     )
 
     try:
-        runtime = quick_start_cluster(
+        manager = quick_start_cluster(
             wait_ready=not args.no_wait,
             timeout=args.timeout,
             base_env=args.base_env,
             models_json=args.models_json,
             skip_check=args.skip_check,
             startup_delay=args.startup_delay,
-            start_gateway=not args.no_gateway,
-            gateway_ready_timeout=args.gateway_ready_timeout,
             quantization=args.quantization,
             tool_call_parser=args.tool_call_parser,
             reasoning_parser=args.reasoning_parser,
@@ -676,28 +538,18 @@ def _run_cluster_mode(args) -> None:
         logger.info("收到中斷信號，啟動已取消")
         return
 
-    if runtime is None:
+    if manager is None:
         sys.exit(1)
 
-    # 設定信號處理器以支援優雅關閉
-    def signal_handler(signum, frame):
-        global _shutdown_requested
-        sig_name = signal.Signals(signum).name
-        logger.info(f"收到 {sig_name} 信號，正在優雅關閉...")
-        _shutdown_requested = True
-
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-
+    # SIGTERM／SIGINT 由 main() 開頭安裝的 _request_shutdown 轉成 KeyboardInterrupt。
     try:
         while not _shutdown_requested:
             time.sleep(2)
     except KeyboardInterrupt:
-        logger.info("收到中斷信號，正在停止集群與 Gateway...")
+        logger.info("收到中斷信號，正在停止集群...")
     finally:
         logger.info("清理資源中...")
-        _stop_gateway_process(runtime.gateway, logger)
-        runtime.manager.stop_all()
+        manager.stop_all()
         logger.info("所有服務已停止")
 
 
@@ -706,22 +558,25 @@ def main() -> None:
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="vLLM 啟動腳本：支援單模型與多模型 cluster（可選舊 Gateway）"
+        description=(
+            "vLLM 啟動腳本：支援單模型與多模型 cluster；"
+            "多模型的對外 API 由 LiteLLM 提供（見 litellm/）"
+        )
     )
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("single", "gateway", "cluster"),
+        choices=("single", "cluster", "gateway"),
         default=None,
         help=(
-            "啟動模式：single=單模型主服務，"
-            "cluster=多模型 vLLM，gateway=多模型加舊 Gateway（預設 cluster）"
+            "啟動模式：single=單模型主服務，cluster=多模型 vLLM（預設）；"
+            "gateway 是已移除的舊 FastAPI Gateway 模式，指定時會直接報錯"
         ),
     )
     parser.add_argument(
         "--cluster",
         action="store_true",
-        help="相容舊版旗標（等同 mode=cluster，可省略）",
+        help="舊版相容旗標，不影響行為（多模型本來就是預設模式，可省略）",
     )
     parser.add_argument(
         "--no-wait",
@@ -748,14 +603,14 @@ def main() -> None:
     parser.add_argument(
         "--base-env",
         type=str,
-        default=".env.API",
-        help="cluster 共用設定檔路徑（預設 .env.API）"
+        default=DEFAULT_BASE_ENV,
+        help=f"cluster 共用設定檔路徑（預設 {DEFAULT_BASE_ENV}）"
     )
     parser.add_argument(
         "--models-json",
         type=str,
-        default="models.json",
-        help="模型配置 JSON 檔案路徑（預設 models.json）"
+        default=DEFAULT_MODELS_JSON,
+        help=f"模型配置 JSON 檔案路徑（預設 {DEFAULT_MODELS_JSON}）"
     )
     parser.add_argument(
         "--startup-delay",
@@ -763,17 +618,10 @@ def main() -> None:
         default=5.0,
         help="串行模式下每個模型完成後的額外等待秒數（預設 5.0）"
     )
-    parser.add_argument(
-        "--no-gateway",
-        action="store_true",
-        help="只啟動模型，不啟動 Gateway"
-    )
-    parser.add_argument(
-        "--gateway-ready-timeout",
-        type=int,
-        default=60,
-        help="Gateway 健康檢查超時秒數（預設 60）"
-    )
+    # 舊 Gateway 已移除；這兩個旗標只為既有指令（如舊版 start_multi_model_cluster.sh
+    # 或部署主機上的自訂腳本帶的 --no-gateway）相容而接受，不影響行為，也不列在說明中。
+    parser.add_argument("--no-gateway", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--gateway-ready-timeout", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--quantization",
         type=str,
@@ -802,10 +650,16 @@ def main() -> None:
 
     if args.cluster and args.mode == "single":
         parser.error("--cluster 不能與 mode=single 同時使用")
+    if args.mode == "gateway":
+        parser.error(
+            "舊 FastAPI Gateway 已移除：多模型請用 cluster 模式（start_multi_model_cluster.sh），"
+            "對外 API 改由 LiteLLM 提供（見 litellm/README.md）"
+        )
 
+    # --cluster 只是舊版旗標，不影響結果。
     mode = args.mode or "cluster"
-    if args.cluster:
-        mode = "cluster"
+
+    _install_shutdown_handlers()
 
     if mode == "single":
         _run_single_mode(args)

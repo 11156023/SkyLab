@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
@@ -600,23 +601,13 @@ async def resolve_navigation(
         "top_p": 0.9,
     }
 
-    def _log(
-        metrics: dict[str, Any] | None = None,
-        *,
-        status: str = "success",
-        error_message: str | None = None,
-    ) -> None:
-        if session is None:
-            return
-        record_ai_template_call(
-            session=session,
-            user_id=current_user.id,
-            call_type=CALL_AI_NAVIGATION,
-            model_name=model_name,
-            metrics=metrics,
-            status=status,
-            error_message=error_message,
-        )
+    _log = functools.partial(
+        record_ai_template_call,
+        session=session,
+        user_id=current_user.id,
+        call_type=CALL_AI_NAVIGATION,
+        model_name=model_name,
+    )
 
     request_id = new_ai_request_id()
     started = perf_counter()
@@ -643,7 +634,7 @@ async def resolve_navigation(
                 "Navigation model returned non-JSON text, using keyword fallback"
             )
             _log(
-                metrics,
+                metrics=metrics,
                 status="error",
                 error_message="Navigation model returned non-JSON text.",
             )
@@ -655,7 +646,7 @@ async def resolve_navigation(
                 "Navigation model returned non-object JSON, using keyword fallback"
             )
             _log(
-                metrics,
+                metrics=metrics,
                 status="error",
                 error_message="Navigation model returned non-object JSON.",
             )
@@ -667,14 +658,14 @@ async def resolve_navigation(
             allowed_routes=allowed_routes,
             allowed_flows=allowed_flows,
         )
-        _log(metrics)
+        _log(metrics=metrics)
         return result
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.exception(
             "Navigation resolve failed, fallback to keyword strategy: %s", exc
         )
         _log(
-            usage_metrics(
+            metrics=usage_metrics(
                 {},
                 perf_counter() - started,
                 request_id=request_id,

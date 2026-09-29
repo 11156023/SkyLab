@@ -32,6 +32,7 @@
   "clone.gpuNodeMismatch": "所選 GPU 不在範本所在節點 {node} 上，請改選其他 GPU",
   "clone.quotaExceeded": "已超過資源配額：您目前擁有 {owned} 台，上限為 {limit} 台",
   "clone.templateMissingOrNotReady": "範本不存在或尚未就緒",
+  "clone.invalidHostname": "主機名稱不合法，請改用英文字母、數字與連字號",
   "user.deleteHasResources": "無法刪除仍擁有已配置資源的使用者",
   "user.deleteTeacherHasClasses": "無法刪除擁有教學課程歷史紀錄的教師，請先停用帳號或轉移課程",
   "user.emailExists": "此電子郵件已經有使用者存在於系統中。",
@@ -40,10 +41,11 @@
   "user.notFound": "找不到使用者",
   "user.idNotFound": "系統中不存在此 ID 的使用者",
   "user.ldapPasswordLocked": "此帳號由 LDAP 管理，本地密碼無法使用；請在 LDAP 目錄變更密碼",
-  "user.selfRoleChangeForbidden": "管理員不可變更自己的角色",
   "user.selfDeleteForbidden": "管理員不可刪除自己的帳號",
   "user.incorrectPassword": "密碼錯誤",
   "user.samePassword": "新密碼不可與目前密碼相同",
+  "user.selfEditLocked": "管理員不可變更自己的角色或停用自己的帳號",
+  "user.lastAdminLocked": "無法移除最後一位啟用中管理員的管理權限",
   "auth.incorrectCredentials": "電子郵件或密碼錯誤",
   "auth.inactiveUser": "帳號已停用",
   "auth.totpCodeInvalid": "驗證碼錯誤或已過期，請輸入 Authenticator 目前顯示的驗證碼",
@@ -66,6 +68,10 @@
   "auth.usernameNotFound": "系統中不存在此使用者名稱的帳號。",
   "ldapAuth.notEnabled": "尚未啟用 LDAP 登入",
   "ldapAuth.accountNotRegistered": "此帳號尚未註冊",
+  "ldapAuth.invalidEmailAttribute": "LDAP 回傳的電子郵件格式不正確，請管理員檢查 LDAP 設定中的信箱屬性",
   "auth.googleNotConfigured": "尚未設定 Google 登入",
-  "template.sourceVmNotRegistered": "VM {vmid} 未登記在平台，無法轉換為範本"
+  "auth.totpTooManyAttempts": "驗證碼錯誤次數過多，請 {minutes} 分鐘後再試",
+  "template.sourceVmNotRegistered": "VM {vmid} 未登記在平台，無法轉換為範本",
+  "template.fieldCannotBeNull": "欄位 {field} 不可設為空值",
+  "template.updateCloneMismatch": "VMID {vmid} 已不是這次更新循環的暫存母機，請取消更新後重新開始"
 }

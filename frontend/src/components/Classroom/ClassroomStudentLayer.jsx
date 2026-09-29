@@ -31,14 +31,26 @@ export default function ClassroomStudentLayer({ children }) {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [watchOpen, setWatchOpen] = useState(false);
   const [takenOverVmids, setTakenOverVmids] = useState(() => new Set());
+  // 事件回呼只綁一次，用 ref 讀目前的直播 id
+  const liveSessionIdRef = useRef(null);
+  liveSessionIdRef.current = liveSessionId;
 
-  const refreshLive = useCallback(async () => {
+  /* resyncTakeover：斷線重連時一併校正「老師接管中」狀態。
+     後端若在 /classroom/live 回傳 taken_over_vmids 就以它為準；
+     沒有這個欄位或查詢失敗時退回清空，避免覆蓋層卡住到重新整理。 */
+  const refreshLive = useCallback(async ({ resyncTakeover = false } = {}) => {
     try {
       const res = await ClassroomService.getLive();
       setLiveSessionId(res.session?.id ?? null);
       if (!res.session) setBannerDismissed(false);
+      if (Array.isArray(res.taken_over_vmids)) {
+        setTakenOverVmids(new Set(res.taken_over_vmids));
+      } else if (resyncTakeover) {
+        setTakenOverVmids(new Set());
+      }
     } catch {
       setLiveSessionId(null);
+      if (resyncTakeover) setTakenOverVmids(new Set());
     }
   }, []);
 
@@ -49,8 +61,18 @@ export default function ClassroomStudentLayer({ children }) {
         setBannerDismissed(false);
         break;
       case "live_stopped":
+        /* 同時在兩個班級時可能有兩場直播；別場結束不影響目前這場。
+           目前這場結束則重查，讓仍在進行的另一場接上。 */
+        if (
+          event.session_id != null &&
+          liveSessionIdRef.current != null &&
+          event.session_id !== liveSessionIdRef.current
+        ) {
+          break;
+        }
         setLiveSessionId(null);
         setWatchOpen(false);
+        refreshLive();
         break;
       case "takeover_started":
         if (event.vmid != null) {
@@ -72,7 +94,7 @@ export default function ClassroomStudentLayer({ children }) {
       default:
         break;
     }
-  }, []);
+  }, [refreshLive]);
 
   const { connected } = useClassroomSocket(handleEvent);
 
@@ -82,10 +104,11 @@ export default function ClassroomStudentLayer({ children }) {
   }, [refreshLive]);
 
   /* 斷線期間推播全部漏掉，畫面會停在斷線那一刻的狀態。
-     重新連上（false → true）時重查一次，把直播狀態補回正確值。 */
+     重新連上（false → true）時重查一次，把直播與接管狀態補回正確值
+     （後端重啟會直接結束所有 session，不會補送 takeover_stopped）。 */
   const wasConnectedRef = useRef(false);
   useEffect(() => {
-    if (connected && !wasConnectedRef.current) refreshLive();
+    if (connected && !wasConnectedRef.current) refreshLive({ resyncTakeover: true });
     wasConnectedRef.current = connected;
   }, [connected, refreshLive]);
 
@@ -103,6 +126,7 @@ export default function ClassroomStudentLayer({ children }) {
       {children}
       {watchOpen && liveSessionId !== null && (
         <ClassroomWatchDialog
+          key={liveSessionId}
           sessionId={liveSessionId}
           title={t("ClassroomStudentLayer.watchDialogTitle")}
           onClose={() => setWatchOpen(false)}

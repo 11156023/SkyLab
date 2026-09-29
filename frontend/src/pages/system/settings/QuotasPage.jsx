@@ -12,6 +12,7 @@ import { UsersService } from "../../../services/users";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import useOutsideClick from "../../../hooks/useOutsideClick";
 import { formatDateTime } from "../../../utils/formatDate";
 
 /**
@@ -110,13 +111,8 @@ function UserPicker({ users, loading, value, onChange }) {
 
   const selected = users.find((u) => u.id === value) ?? null;
 
-  useEffect(() => {
-    const onClickOutside = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
+  useOutsideClick(wrapRef, null, close);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();

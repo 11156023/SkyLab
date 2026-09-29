@@ -167,7 +167,7 @@ def test_upstream_error_body_is_replaced_with_a_generic_message() -> None:
     import httpx
     from fastapi import Request
 
-    from app.api.routes import ai_proxy
+    from app.services.llm_gateway import relay_service
 
     request = Request(
         {
@@ -179,7 +179,7 @@ def test_upstream_error_body_is_replaced_with_a_generic_message() -> None:
         }
     )
     upstream = httpx.Response(400, text="internal alias qwen-prod @ http://10.0.0.5:4000")
-    response = ai_proxy._upstream_failure(
+    response = relay_service.upstream_failure(
         request=request,
         upstream=upstream,
         body=upstream.content,

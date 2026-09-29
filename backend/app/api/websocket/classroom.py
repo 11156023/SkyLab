@@ -6,6 +6,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from app.api.deps.auth import get_ws_current_user
 from app.api.websocket.utils import safe_close_websocket
+from app.core.authorizers import require_classroom_monitor
+from app.core.i18n import t
 from app.core.permissions import is_admin
 from app.exceptions import AppError
 from app.services.classroom import classroom_service
@@ -47,7 +49,12 @@ async def classroom_watch_proxy(
             await safe_close_websocket(websocket, code=1008, reason="Session not found")
             return
         if session.mode is SessionMode.monitor:
-            # monitor：發起者已通過班級觀看權限；其他觀看者同樣檢查
+            # monitor：非 admin 一律要有「上課監看」權限（含發起者，
+            # 避免發起後被降為學生仍能繼續觀看）；非發起者另檢查班級觀看權限
+            if not is_admin(user):
+                require_classroom_monitor(
+                    user, detail=t("classroom.monitor_forbidden")
+                )
             if session.started_by != user.id and not is_admin(user):
                 classroom_service.require_can_watch_class(
                     db, user, session.class_id, session.vmid

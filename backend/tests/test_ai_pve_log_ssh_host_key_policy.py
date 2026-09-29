@@ -25,9 +25,13 @@ class _FakeChannel:
 class _FakeStream:
     def __init__(self, data: str = "") -> None:
         self._data = data
+        self._consumed = False
         self.channel = _FakeChannel()
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
+        if self._consumed:
+            return b""
+        self._consumed = True
         return self._data.encode()
 
 

@@ -5,7 +5,7 @@ export const PENDING_POLL_INTERVAL = 5000;
 
 /**
  * 後端在使用者刪機／孤兒清理／轉範本時寫進 review_comment、resource_warning、
- * provisioning_error 的系統標記（對應 backend resource_service._RESOURCE_DELETED_MARKERS）。
+ * provisioning_error 的系統標記（對應 backend app/domain/resource_markers.py RESOURCE_DELETED_MARKERS）。
  * 帶標記的 approved 申請單只保留做稽核，任何列表都不該再把它當成活單。
  */
 export const CONSUMED_REQUEST_MARKERS = Object.freeze([

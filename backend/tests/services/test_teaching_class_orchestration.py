@@ -4,14 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.routes.course_environments import (
+from app.api.routes.teaching_classes import _generate_weeks
+from app.exceptions import BadRequestError
+from app.models import BatchProvisionJobStatus, TeachingClassWeek
+from app.schemas.course_environment import (
     EnvironmentCreate,
     EnvironmentEdgeIn,
     EnvironmentNodeIn,
 )
-from app.api.routes.teaching_classes import _generate_weeks
-from app.exceptions import BadRequestError
-from app.models import BatchProvisionJobStatus, TeachingClassWeek
 from app.services.teaching import class_capacity_service, class_network_service
 from app.services.teaching.class_provision_service import (
     recurrence_rule as _recurrence,
@@ -463,7 +463,7 @@ def test_sync_scope_rules_removes_stale_rules_from_a_previous_vmid(monkeypatch):
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
-        "get_vm_firewall_rules",
+        "list_vm_firewall_rules_strict",
         lambda _node, vmid, _type: existing.get(vmid, []),
     )
     monkeypatch.setattr(
@@ -483,8 +483,6 @@ def test_sync_scope_rules_removes_stale_rules_from_a_previous_vmid(monkeypatch):
         planned=[
             class_network_service.PlannedRule(
                 vmid=101,
-                node="pve1",
-                resource_type="qemu",
                 comment=f"{prefix}abc12345:101>102:any",
                 rule={"type": "out", "action": "ACCEPT"},
             )
@@ -506,7 +504,7 @@ def test_sync_scope_rules_cleans_machines_that_lost_every_edge(monkeypatch):
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
-        "get_vm_firewall_rules",
+        "list_vm_firewall_rules_strict",
         lambda _node, _vmid, _type: [{"pos": 3, "comment": f"{prefix}abc12345:101>102:any"}],
     )
     monkeypatch.setattr(

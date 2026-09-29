@@ -7,7 +7,7 @@
  * 完成後呼叫 markSetupCompleted()，登入頁就不會再把人導回來。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
@@ -16,22 +16,16 @@ import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../hooks/useToast";
-import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import { SetupService } from "../../services/setup";
 import { markSetupCompleted, useSetupStatus } from "./useSetupStatus";
+import { pickDefaultNode } from "./setupDefaults";
+import { LanguagePicker, Notice, Stepper } from "./wizardParts";
 import styles from "./SetupPage.module.scss";
 
 const STEP_ADMIN = 0;
 const STEP_PROXMOX = 1;
 const STEP_SUBNET = 2;
 const STEP_FINISH = 3;
-
-/* 語言用原生名稱顯示，不翻譯 */
-const LANG_OPTIONS = [
-  { key: "zh-TW", label: "繁體中文" },
-  { key: "en", label: "English" },
-  { key: "ja", label: "日本語" },
-];
 
 const IPV4_PATTERN = "^(\\d{1,3}\\.){3}\\d{1,3}$";
 const MIN_PASSWORD_LENGTH = 8;
@@ -134,33 +128,6 @@ function PageShell({ children }) {
   );
 }
 
-function Stepper({ current, steps }) {
-  return (
-    <ol className={styles.stepper} aria-label="steps">
-      {steps.map((label, index) => {
-        const state = index < current ? "done" : index === current ? "active" : "todo";
-        return (
-          <li key={label} className={`${styles.step} ${styles[`step_${state}`]}`} aria-current={state === "active" ? "step" : undefined}>
-            <span className={styles.stepIndex}>
-              {state === "done" ? <MIcon name="check" size={16} /> : index + 1}
-            </span>
-            <span className={styles.stepLabel}>{label}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function Notice({ icon = "info", tone = "info", children }) {
-  return (
-    <div className={`${styles.notice} ${styles[`notice_${tone}`]}`}>
-      <MIcon name={icon} size={20} />
-      <div>{children}</div>
-    </div>
-  );
-}
-
 /* 該步驟已在別處完成時的替代畫面：只有說明與上一步／下一步 */
 function DoneStep({ title, notice, onBack, onNext }) {
   const { t } = useTranslation("login");
@@ -185,26 +152,11 @@ function DoneStep({ title, notice, onBack, onNext }) {
 /* ─── 歡迎：選語言 ───────────────────────────────────────── */
 
 function LanguageWelcome({ onContinue }) {
-  const { t, i18n } = useTranslation("login");
-  const current = SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : DEFAULT_LANGUAGE;
+  const { t } = useTranslation("login");
   return (
     <div className={styles.welcome}>
       <h1 className={styles.welcomeTitle}>{t("SetupPage.welcomeTitle")}</h1>
-      <div className={styles.langList} role="radiogroup" aria-label={t("SetupPage.languageLabel")}>
-        {LANG_OPTIONS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            role="radio"
-            aria-checked={current === option.key}
-            lang={option.key}
-            className={`${styles.langBtn} ${current === option.key ? styles.langBtnActive : ""}`}
-            onClick={() => setLanguage(option.key)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <LanguagePicker ariaLabel={t("SetupPage.languageLabel")} />
       <button type="button" className={styles.btnPrimary} onClick={onContinue}>
         {t("SetupPage.continue")}
         <MIcon name="arrow_forward" size={18} />
@@ -244,7 +196,7 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
         disable_default_admin: Boolean(form.disable_default_admin),
       });
       toast.success(result.created ? t("SetupPage.adminSaved") : t("SetupPage.adminTakenOver"));
-      onSaved({ email: result.email, password: form.password, result });
+      onSaved({ email: result.email, password: form.password });
     } catch (err) {
       setError(err?.message ?? t("SetupPage.adminSaveFailed"));
     } finally {
@@ -403,7 +355,7 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
           ?? result.storages.find((s) => s.can_vm);
         setForm((prev) => ({
           ...prev,
-          default_node: prev.default_node || primary?.name || "",
+          default_node: pickDefaultNode(prev.default_node, result.nodes),
           iso_storage: iso?.storage ?? prev.iso_storage,
           data_storage: data?.storage ?? prev.data_storage,
           name: prev.name || (result.is_cluster ? "cluster" : primary?.name || prev.host),
@@ -967,8 +919,6 @@ export default function SetupPage() {
     t("SetupPage.stepFinish"),
   ], [t]);
 
-  const goTo = useCallback((next) => setStep(next), []);
-
   let body;
   if (loading && !status) {
     body = (
@@ -1013,10 +963,10 @@ export default function SetupPage() {
             onSaved={(saved) => {
               setAdminCreds({ email: saved.email, password: saved.password });
               setAdminDone(true);
-              goTo(STEP_PROXMOX);
+              setStep(STEP_PROXMOX);
             }}
             onBack={() => setStarted(false)}
-            onNext={() => goTo(STEP_PROXMOX)}
+            onNext={() => setStep(STEP_PROXMOX)}
           />
         )}
         {step === STEP_PROXMOX && (
@@ -1024,11 +974,11 @@ export default function SetupPage() {
             alreadyDone={steps.proxmox}
             onSaved={(result) => {
               setProxmoxResult(result);
-              goTo(STEP_SUBNET);
+              setStep(STEP_SUBNET);
             }}
-            onSkip={() => goTo(STEP_SUBNET)}
-            onBack={() => goTo(STEP_ADMIN)}
-            onNext={() => goTo(STEP_SUBNET)}
+            onSkip={() => setStep(STEP_SUBNET)}
+            onBack={() => setStep(STEP_ADMIN)}
+            onNext={() => setStep(STEP_SUBNET)}
           />
         )}
         {step === STEP_SUBNET && (
@@ -1036,11 +986,11 @@ export default function SetupPage() {
             alreadyDone={steps.subnet}
             onSaved={(result) => {
               setSubnetResult(result);
-              goTo(STEP_FINISH);
+              setStep(STEP_FINISH);
             }}
-            onSkip={() => goTo(STEP_FINISH)}
-            onBack={() => goTo(STEP_PROXMOX)}
-            onNext={() => goTo(STEP_FINISH)}
+            onSkip={() => setStep(STEP_FINISH)}
+            onBack={() => setStep(STEP_PROXMOX)}
+            onNext={() => setStep(STEP_FINISH)}
           />
         )}
         {step === STEP_FINISH && (
@@ -1049,7 +999,7 @@ export default function SetupPage() {
             adminCreds={adminCreds}
             proxmoxResult={proxmoxResult}
             subnetResult={subnetResult}
-            onBack={() => goTo(STEP_SUBNET)}
+            onBack={() => setStep(STEP_SUBNET)}
           />
         )}
       </>

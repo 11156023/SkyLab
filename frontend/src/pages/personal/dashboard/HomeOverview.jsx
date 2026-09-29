@@ -36,7 +36,7 @@ function useRecentUse(userId) {
 }
 
 /**
- * 學生首頁：機器用「玻璃外框＋白底內頁」卡（HomeCard，構圖取自複刻的 pin-card），
+ * 學生首頁：機器用單層玻璃卡（MachineCard：狀態、名稱、終端與動作列），
  * 快速練習用資料夾（QuickTemplateFolder：一台機器一張紙，構圖取自複刻的 folder-card），
  * 課堂用票券（CourseTicket）：票面寫上課時間地點，票根的條碼是練習進度。
  */
@@ -84,7 +84,7 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
       <QuickTemplateCards templates={templates} loading={templatesLoading} error={templatesError} from="/dashboard" />
     </section>
 
-    <aside data-guide="home-other-needs" data-student-tour="research">
+    <aside data-guide="home-other-needs">
       <button type="button" className={styles.researchLink} onClick={() => navigate("/my-requests")}>
         <span className={styles.researchLabel}><MIcon name="science" size={22} />{t("StudentHomePage.buildResearchEnv")}</span>
         <span className={styles.researchGo}>{t("StudentHomePage.goToMyRequests")}<MIcon name="arrow_forward" size={16} /></span>

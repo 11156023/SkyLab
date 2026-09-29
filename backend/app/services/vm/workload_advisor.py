@@ -88,8 +88,7 @@ def advise(
             ],
         )
 
-
-    # 5) 輕量 Linux 負載：容器密度高（需有實際規格才判斷）
+    # 4) 輕量 Linux 負載：容器密度高（需有實際規格才判斷）
     has_spec = cores is not None or memory is not None
     if (
         has_spec
@@ -102,7 +101,7 @@ def advise(
             reasons=["輕量工作負載，容器密度高、秒級啟動"],
         )
 
-    # 6) 預設：一般 Linux 負載建議容器
+    # 5) 預設：一般 Linux 負載建議容器
     return WorkloadAdvice(
         resource_type="lxc",
         confidence="low",

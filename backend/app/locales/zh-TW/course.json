@@ -22,5 +22,18 @@
   "ai_assignment.source_pdf_not_found": "這個任務沒有可供學生查看的 PDF。",
   "ai_assignment.check_not_found": "AI check not found",
   "ai_assignment.task_item_not_found": "找不到這個任務項目",
-  "course.ai_check_incomplete": "這次檢查沒有完成，老師會再確認結果。"
+  "course.ai_check_incomplete": "這次檢查沒有完成，老師會再確認結果。",
+  "course.teacher_fallback": "授課老師",
+  "course_reminder.today": "今天",
+  "course_reminder.tomorrow": "明天",
+  "course_reminder.resource_fallback_name": "資源 #{vmid}",
+  "course_reminder.resource_expires_today": "今天到期；若仍需使用，請儘快申請延長。",
+  "course_reminder.resource_expires_in_days": "將在 {days} 天後到期；需要保留請提前處理。",
+  "course_reminder.resource_expiring_title": "{name} 即將到期",
+  "course_reminder.request_approved_title": "資源申請已通過",
+  "course_reminder.request_rejected_title": "資源申請已退回",
+  "course_reminder.request_approved_description": "{hostname} 已核准，可到我的資源查看。",
+  "course_reminder.request_rejected_description": "{hostname} 未通過審核，請到我的申請查看原因。",
+  "course_reminder.class_task_title": "{class_name}：{title}",
+  "course_reminder.class_task_description": "第 {week} 週課堂任務，點擊查看內容與檢查項目。"
 }

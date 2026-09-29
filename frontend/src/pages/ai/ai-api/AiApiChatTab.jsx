@@ -6,13 +6,14 @@ import rehypeSanitize from "rehype-sanitize";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import MIcon from "../../../components/MIcon";
+import { AiApiService } from "../../../services/aiApi";
 import { AiApiChatService, stripThinkingContent } from "../../../services/aiApiChat";
 import { formatShortDateTime } from "../../../utils/formatDate";
 import { createConversation, loadChatHistory, saveChatHistory } from "./chatHistory";
 import styles from "./AiApiChatTab.module.scss";
 
 function errorKey(error) {
-  if (error?.code === "missing_api_key") return "notConfigured";
+  if (error?.code === "missing_api_key") return "noUsableKey";
   if (error?.code === "empty_reply" || error?.code === "invalid_response") return "invalidReply";
   if (error?.status === 401 || error?.status === 403) return "keyInvalid";
   if (error?.status === 429) return "rateLimited";
@@ -47,9 +48,56 @@ function Message({ message, t, streaming = false }) {
   </article>;
 }
 
-function ChatWorkspace({ userId }) {
+function credentialOptionLabel(credential) {
+  const prefix = credential.api_key_prefix ? ` (${credential.api_key_prefix}…)` : "";
+  return `${credential.api_key_name ?? credential.id}${prefix}`;
+}
+
+/* 聊天一律用登入者自己核准的金鑰：完整金鑰只在需要時經擁有者專用的
+   憑證詳細端點取得、只留在記憶體。不可再用建置時寫進 bundle 的共用金鑰
+   （VITE_* 會公開在靜態 JS 裡，任何人都能拿去繞過審核與用量歸屬）。 */
+function useChatApiKey(credentials) {
+  const [selectedId, setSelectedId] = useState(null);
+  const [apiKey, setApiKey] = useState(null);
+  const [loadingKey, setLoadingKey] = useState(false);
+  const [keyError, setKeyError] = useState(null);
+  const selected = credentials.find((item) => item.id === selectedId) ?? credentials[0] ?? null;
+  const selectedKey = selected ? `${selected.id}:${selected.api_key_prefix ?? ""}` : null;
+  const selectedCredentialId = selected?.id ?? null;
+
+  useEffect(() => {
+    setApiKey(null);
+    setKeyError(null);
+    if (!selectedCredentialId) {
+      setLoadingKey(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    setLoadingKey(true);
+    AiApiService.getCredential(selectedCredentialId, { signal: controller.signal })
+      .then((detail) => {
+        if (controller.signal.aborted) return;
+        const key = String(detail?.api_key ?? "").trim();
+        if (key) setApiKey(key);
+        else setKeyError("noUsableKey");
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setKeyError(errorKey(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingKey(false);
+      });
+    return () => controller.abort();
+    /* selectedKey 同時涵蓋 id 與前綴：重新產生金鑰後要重新取得完整金鑰 */
+  }, [selectedKey]);
+
+  return { selected, selectCredential: setSelectedId, apiKey, loadingKey, keyError };
+}
+
+function ChatWorkspace({ userId, credentials, credentialsLoading }) {
   const { t } = useTranslation("ai");
   const confirm = useConfirm();
+  const { selected: selectedCredential, selectCredential, apiKey, loadingKey, keyError } = useChatApiKey(credentials);
   const [initial] = useState(() => {
     try { return { ...loadChatHistory(userId), warning: false }; }
     catch { return { conversations: [], activeId: null, warning: true }; }
@@ -70,7 +118,9 @@ function ChatWorkspace({ userId }) {
   const inputRef = useRef(null);
   const logRef = useRef(null);
   const lastSavedRef = useRef({ conversations, activeId });
-  const configured = AiApiChatService.isConfigured();
+  const configured = Boolean(apiKey);
+  const noUsableKey = !credentialsLoading && credentials.length === 0;
+  const busy = loadingKey || loadingModels;
   const conversation = conversations.find((item) => item.id === activeId);
   const model = conversation?.model || selectedModel;
   const modelAvailable = models.includes(model);
@@ -86,12 +136,13 @@ function ChatWorkspace({ userId }) {
 
   const loadModels = useCallback(async () => {
     modelRequestRef.current?.abort();
+    if (!apiKey) return;
     const controller = new AbortController();
     modelRequestRef.current = controller;
     setLoadingModels(true);
     setModelError(null);
     try {
-      const nextModels = await AiApiChatService.listModels({ signal: controller.signal });
+      const nextModels = await AiApiChatService.listModels({ signal: controller.signal, apiKey });
       if (controller.signal.aborted) return;
       setModels(nextModels);
       setSelectedModel((current) => nextModels.includes(current) ? current : nextModels[0] ?? "");
@@ -100,15 +151,15 @@ function ChatWorkspace({ userId }) {
     } finally {
       if (!controller.signal.aborted) setLoadingModels(false);
     }
-  }, []);
+  }, [apiKey]);
 
   useEffect(() => {
-    if (configured) loadModels();
-    return () => {
-      modelRequestRef.current?.abort();
-      chatRequestRef.current?.abort();
-    };
-  }, [configured, loadModels]);
+    if (apiKey) loadModels();
+    else { setModels([]); setModelError(null); setLoadingModels(false); }
+    return () => { modelRequestRef.current?.abort(); };
+  }, [apiKey, loadModels]);
+
+  useEffect(() => () => { chatRequestRef.current?.abort(); }, []);
 
   useEffect(() => {
     const log = logRef.current;
@@ -158,7 +209,7 @@ function ChatWorkspace({ userId }) {
   async function send(event) {
     event.preventDefault();
     const content = draft.trim();
-    if (!content || !modelAvailable || chatRequestRef.current || !configured || loadingModels) return;
+    if (!content || !modelAvailable || chatRequestRef.current || !configured || busy) return;
     const target = conversation ?? createConversation(model);
     const userMessage = { id: crypto.randomUUID(), role: "user", content, createdAt: new Date().toISOString() };
     const controller = new AbortController();
@@ -171,6 +222,7 @@ function ChatWorkspace({ userId }) {
       const reply = await AiApiChatService.chat(model, [...target.messages, userMessage], {
         signal: controller.signal,
         onDelta: setStreamedReply,
+        apiKey,
       });
       if (controller.signal.aborted) return;
       const updated = {
@@ -230,20 +282,32 @@ function ChatWorkspace({ userId }) {
           <div className={styles.modelField}>
             <label htmlFor="api-chat-model">{t("AiApiChat.model")}</label>
             <select id="api-chat-model" value={model} onChange={(event) => chooseModel(event.target.value)}
-              disabled={loadingModels || Boolean(pending) || models.length === 0}>
-              {!model && <option value="">{t(loadingModels ? "AiApiChat.loadingModels" : "AiApiChat.chooseModel")}</option>}
+              disabled={busy || Boolean(pending) || models.length === 0}>
+              {!model && <option value="">{t(busy ? "AiApiChat.loadingModels" : "AiApiChat.chooseModel")}</option>}
               {model && !modelAvailable && <option value={model}>{model} — {t("AiApiChat.modelMissing")}</option>}
               {models.map((id) => <option key={id} value={id}>{id}</option>)}
             </select>
           </div>
         </div>
-        <button type="button" className={styles.reload} onClick={loadModels} disabled={!configured || loadingModels || Boolean(pending)}>
+        {credentials.length > 1 && <div className={styles.modelControl}>
+          <div className={styles.modelIcon} aria-hidden="true"><MIcon name="key" size={19} /></div>
+          <div className={styles.modelField}>
+            <label htmlFor="api-chat-credential">{t("AiApiChat.credential")}</label>
+            <select id="api-chat-credential" value={selectedCredential?.id ?? ""}
+              onChange={(event) => { setReplyError(null); selectCredential(event.target.value); }}
+              disabled={busy || Boolean(pending)}>
+              {credentials.map((item) => <option key={item.id} value={item.id}>{credentialOptionLabel(item)}</option>)}
+            </select>
+          </div>
+        </div>}
+        <button type="button" className={styles.reload} onClick={loadModels} disabled={!configured || busy || Boolean(pending)}>
           <MIcon name="refresh" size={18} /><span className={styles.reloadLabel}>{t("AiApiChat.reloadModels")}</span>
         </button>
       </div>
-      {!configured && <p className={styles.error} role="alert">{t("AiApiChat.notConfigured")}</p>}
+      {noUsableKey && <p className={styles.error} role="alert">{t("AiApiChat.noUsableKey")}</p>}
+      {!noUsableKey && keyError && <p className={styles.error} role="alert">{t(`AiApiChat.${keyError}`)}</p>}
       {modelError && <p className={styles.error} role="alert">{t(`AiApiChat.${modelError}`)}</p>}
-      {configured && !loadingModels && !modelError && models.length === 0 && <p className={styles.warning} role="status">{t("AiApiChat.noModels")}</p>}
+      {configured && !busy && !modelError && models.length === 0 && <p className={styles.warning} role="status">{t("AiApiChat.noModels")}</p>}
       <div ref={logRef} className={styles.log} role="log" aria-label={t("AiApiChat.messages")} aria-live="polite" aria-busy={Boolean(pending)}>
         {!conversation?.messages.length && !pending ? <div className={styles.empty}>
           <div className={styles.emptyIcon} aria-hidden="true"><MIcon name="auto_awesome" size={26} /></div>
@@ -270,7 +334,7 @@ function ChatWorkspace({ userId }) {
           <div className={styles.composerActions}>
             <span>{pending ? t("AiApiChat.streamingHint") : t("AiApiChat.keyboardHint")}</span>
             {pending ? <button type="button" className={`${styles.send} ${styles.stop}`} onClick={stop}><MIcon name="stop" size={17} />{t("AiApiChat.stop")}</button>
-              : <button type="submit" className={styles.send} disabled={!draft.trim() || !modelAvailable || !configured || loadingModels}>
+              : <button type="submit" className={styles.send} disabled={!draft.trim() || !modelAvailable || !configured || busy}>
                 <MIcon name="arrow_upward" size={18} />{t("AiApiChat.send")}
               </button>}
           </div>
@@ -280,7 +344,12 @@ function ChatWorkspace({ userId }) {
   </section>;
 }
 
-export default function AiApiChatTab() {
+/**
+ * @param {object[]} credentials        登入者目前可用（未撤銷、未過期）的金鑰清單
+ * @param {boolean}  credentialsLoading 清單是否仍在載入
+ */
+export default function AiApiChatTab({ credentials = [], credentialsLoading = false }) {
   const { user } = useAuth();
-  return <ChatWorkspace key={user?.id ?? "anonymous"} userId={user?.id} />;
+  return <ChatWorkspace key={user?.id ?? "anonymous"} userId={user?.id}
+    credentials={credentials} credentialsLoading={credentialsLoading} />;
 }

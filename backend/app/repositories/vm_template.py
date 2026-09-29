@@ -69,6 +69,18 @@ def get_template_by_pve_vmid(
     return session.exec(stmt).first()
 
 
+def get_updating_template_by_source_vmid(
+    *, session: Session, source_vmid: int
+) -> VMTemplate | None:
+    """找出目前以 source_vmid 當更新循環暫存母機的範本（status == updating）。"""
+    return session.exec(
+        select(VMTemplate).where(
+            VMTemplate.status == VMTemplateStatus.updating,
+            VMTemplate.source_vmid == source_vmid,
+        )
+    ).first()
+
+
 def list_all_templates(
     *, session: Session, include_deleted: bool = False
 ) -> list[VMTemplate]:

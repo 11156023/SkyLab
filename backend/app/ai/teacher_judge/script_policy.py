@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint, ScriptValidationResult
 
 ALLOWED_RESULT_STATUSES = {"pass", "fail", "warning", "unknown", "collected", "skipped"}
+# Reserved argv element for a declared peer's runtime IP. Defined in this
+# dependency-free policy module so the compiler and machine_context share it.
+PEER_IP_TOKEN = "{{peer.ip}}"
 
 
 class ManagedScriptCheck(BaseModel):
@@ -40,14 +43,6 @@ class ManagedScriptCheck(BaseModel):
             return str(value)
         return value
 
-    @field_validator("status")
-    @classmethod
-    def validate_status(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized not in ALLOWED_RESULT_STATUSES:
-            raise ValueError(f"unsupported status: {value}")
-        return normalized
-
 
 class ManagedScriptMetadata(BaseModel):
     timestamp: str = Field(..., min_length=1, max_length=120)
@@ -61,13 +56,6 @@ class ManagedScriptResult(BaseModel):
     checks: list[ManagedScriptCheck] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
 
-    @field_validator("schema_version")
-    @classmethod
-    def validate_schema_version(cls, value: str) -> str:
-        if value != "teacher_judge_result.v1":
-            raise ValueError("schema_version must be teacher_judge_result.v1")
-        return value
-
 
 DENY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\brm\s+-rf\b", "禁止使用 rm -rf 刪除檔案"),
@@ -80,7 +68,7 @@ DENY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bshutdown\b", "禁止關機"),
     (r"\breboot\b", "禁止重啟"),
     (r"\bapt(?:-get)?\s+install\b", "禁止安裝系統套件"),
-    (r"\bpip\s+install\b", "禁止安裝 Python 套件"),
+    (r"\bpip3?\s+install\b", "禁止安裝 Python 套件"),
     (r"\bnpm\s+install\b", "禁止安裝 npm 套件"),
     (r"\bchmod\b|\bchown\b|\bsystemctl\s+(?:enable|disable|restart|stop|start)\b", "禁止修改系統設定或服務狀態"),
     (r"\breset\b|\bcleanup\b|\bclean\s+up\b|\bfix\b|\brepair\b", "禁止產生修復、清理或重設類反向操作"),
@@ -309,7 +297,17 @@ def _network_issues(call_name: str, node: ast.Call) -> list[str]:
     return issues
 
 
-def _dangerous_command_issue(command_text: str) -> str | None:
+def dangerous_command_issue(
+    command_text: str, *, git_args_checked: bool = False
+) -> str | None:
+    """Coarse deny check for a command line.
+
+    ``git_args_checked`` skips the blanket Git-subcommand rule; the command
+    collector passes it after validating branch/tag/remote/config argv as
+    listing-only (those subcommands can also write, so free text keeps the
+    blanket rule).
+    """
+
     normalized = command_text.lower()
     for compiled, _pattern, message in _COMPILED_DENY_PATTERNS:
         if compiled.search(normalized):
@@ -320,7 +318,12 @@ def _dangerous_command_issue(command_text: str) -> str | None:
     command = tokens[0]
     if command in SHELL_LAUNCHERS:
         return "禁止透過 shell launcher 間接執行指令"
-    if command == "git" and len(tokens) > 1 and tokens[1] in GIT_WRITE_SUBCOMMANDS:
+    if (
+        not git_args_checked
+        and command == "git"
+        and len(tokens) > 1
+        and tokens[1] in GIT_WRITE_SUBCOMMANDS
+    ):
         return "通用受控指令只允許唯讀 Git 子命令"
     if command == "rm" and any(token in {"-r", "-rf", "-fr"} for token in tokens[1:]):
         return "禁止使用 rm 遞迴刪除檔案"
@@ -328,7 +331,7 @@ def _dangerous_command_issue(command_text: str) -> str | None:
         return "禁止使用 find -delete"
     if command in {"shutdown", "reboot"}:
         return "禁止關機或重啟"
-    if command in {"apt", "apt-get", "pip", "npm"} and "install" in tokens:
+    if command in {"apt", "apt-get", "pip", "pip3", "npm"} and "install" in tokens:
         return "禁止安裝套件"
     return None
 
@@ -417,7 +420,7 @@ def check_script_policy(script_content: str) -> CheckResult:
             if call_name == "subprocess.run" and node.args:
                 command_text = _literal_command_text(node.args[0])
                 if command_text:
-                    dangerous_issue = _dangerous_command_issue(command_text)
+                    dangerous_issue = dangerous_command_issue(command_text)
                     if dangerous_issue:
                         issues.append(dangerous_issue)
                         fix_hints.append({"type": "remove_dangerous_command", "command": command_text, "description": dangerous_issue})
@@ -429,11 +432,13 @@ def check_script_policy(script_content: str) -> CheckResult:
             if call_name == "subprocess.run" and not _has_timeout_keyword(node):
                 issues.append("subprocess.run 必須設定 timeout")
                 fix_hints.append({"type": "add_keyword_param", "function": "subprocess.run", "param": "timeout", "value": 30, "description": "subprocess.run 必須設定 timeout"})
-        elif isinstance(node, (ast.While, ast.For)):
-            if isinstance(node, ast.While) and isinstance(node.test, ast.Constant):
-                if node.test.value is True:
-                    issues.append("禁止無限制 while True 迴圈")
-                    fix_hints.append({"type": "remove_infinite_loop", "description": "禁止無限制 while True 迴圈"})
+        elif (
+            isinstance(node, ast.While)
+            and isinstance(node.test, ast.Constant)
+            and node.test.value is True
+        ):
+            issues.append("禁止無限制 while True 迴圈")
+            fix_hints.append({"type": "remove_infinite_loop", "description": "禁止無限制 while True 迴圈"})
 
     deduped = list(dict.fromkeys(issues))
     approved = not deduped
@@ -479,7 +484,7 @@ def check_peer_runtime_policy(
     expected_peers = {
         str(item.get("peer_node_key") or "").strip() for item in peer_items
     }
-    peer_token = "{{peer.ip}}"
+    peer_token = PEER_IP_TOKEN
     for item in peer_items:
         steps = item.get("check_steps") or []
         argv_with_token: list[list[str]] = []
@@ -492,7 +497,7 @@ def check_peer_runtime_policy(
                 argv = collector.get("argv")
             if not isinstance(argv, list) and isinstance(collector, dict):
                 if collector.get("type") == "peer_ping":
-                    argv = ["ping", "{{peer.ip}}"]
+                    argv = ["ping", PEER_IP_TOKEN]
             if not isinstance(argv, list):
                 parameters = step.get("parameters")
                 argv = parameters.get("argv") if isinstance(parameters, dict) else None
@@ -748,11 +753,8 @@ def check_peer_runtime_policy(
                 continue
             peer_command_calls += 1
             first_argument = node.args[0] if node.args else None
-            valid_ping_argv = False
             if isinstance(first_argument, ast.Name):
-                if argv_command_by_name.get(first_argument.id) == "ping":
-                    valid_ping_argv = True
-                else:
+                if argv_command_by_name.get(first_argument.id) != "ping":
                     issues.append("peer IP 只能流入 ping argv，不得流向其他命令")
             elif not isinstance(first_argument, (ast.List, ast.Tuple)):
                 issues.append("peer IP 必須流入可靜態確認的 ping argv list")
@@ -776,8 +778,6 @@ def check_peer_runtime_policy(
                         issues.append("peer ping 不得寫死其他 IP 或 CIDR")
             if any(contains_peer_name(keyword.value) for keyword in node.keywords):
                 issues.append("peer IP 只能出現在 ping 的第一個 argv 參數")
-            if not valid_ping_argv:
-                continue
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not contains_peer_name(node):

@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import enum
+from typing import TypeVar
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import CurrentUser, SessionDep
@@ -19,6 +22,8 @@ from app.services.jobs.jobs_service import (
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
+_E = TypeVar("_E", bound=enum.Enum)
+
 
 def _parse_csv(value: str | None) -> list[str] | None:
     if value is None:
@@ -27,46 +32,50 @@ def _parse_csv(value: str | None) -> list[str] | None:
     return items or None
 
 
+def _parse_enum_csv(value: str | None, enum_cls: type[_E]) -> list[_E] | None:
+    """逗號分隔字串 → 枚舉清單。
+
+    未帶參數（或只有空白）回 None＝不篩選；有帶但全都不認得時回空清單，
+    不認得的值直接略過。
+    """
+    csv = _parse_csv(value)
+    if csv is None:
+        return None
+    parsed: list[_E] = []
+    for token in csv:
+        try:
+            parsed.append(enum_cls(token))
+        except ValueError:
+            continue
+    return parsed
+
+
+def _enum_values(enum_cls: type[enum.Enum]) -> str:
+    return ", ".join(str(member.value) for member in enum_cls)
+
+
 @router.get("/", response_model=JobsListResponse)
 def list_unified_jobs(
     session: SessionDep,
     current_user: CurrentUser,
     kinds: str | None = Query(
         default=None,
-        description="逗號分隔，可選: vm_request, spec_change, deletion, template",
+        description=f"逗號分隔，可選: {_enum_values(JobKind)}",
     ),
     statuses: str | None = Query(
         default=None,
-        description="逗號分隔: pending, running, completed, failed, blocked, cancelled",
+        description=f"逗號分隔: {_enum_values(JobStatus)}",
     ),
     active_only: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     history_days: int = Query(default=30, ge=1, le=365),
 ) -> JobsListResponse:
-    parsed_kinds: list[JobKind] | None = None
-    if csv := _parse_csv(kinds):
-        parsed_kinds = []
-        for token in csv:
-            try:
-                parsed_kinds.append(JobKind(token))
-            except ValueError:
-                continue
-
-    parsed_statuses: list[JobStatus] | None = None
-    if csv := _parse_csv(statuses):
-        parsed_statuses = []
-        for token in csv:
-            try:
-                parsed_statuses.append(JobStatus(token))
-            except ValueError:
-                continue
-
     return jobs_service.list_jobs(
         session=session,
         user=current_user,
-        kinds=parsed_kinds,
-        statuses=parsed_statuses,
+        kinds=_parse_enum_csv(kinds, JobKind),
+        statuses=_parse_enum_csv(statuses, JobStatus),
         active_only=active_only,
         limit=limit,
         offset=offset,

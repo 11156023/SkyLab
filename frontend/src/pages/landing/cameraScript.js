@@ -1,6 +1,6 @@
 /**
  * landing/cameraScript.js
- * 八段滾動的分段腳本：每段的滾動長度、相機焦點與倍率、HUD 對齊側。
+ * 滾動分段腳本（段落清單見 SECTIONS）：每段的滾動長度、相機焦點與倍率、HUD 對齊側。
  * 之後換正式美術只需要調這裡的 focus / zoom，不動 LandingPage 的運鏡邏輯。
  */
 import { worldPixel } from "./iso";

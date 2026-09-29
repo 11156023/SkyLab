@@ -17,18 +17,14 @@ from app.api.deps.proxmox import (
     ControlLxcInfoDep,
     ControlResourceInfoDep,
     ControlVmInfoDep,
-    LxcInfoDep,
     ResourceInfoDep,
     TeachingResourceInfoDep,
-    VmInfoDep,
     check_firewall_access,
     check_resource_control_access,
     check_resource_ownership,
-    get_lxc_info,
     get_resource_info,
     get_resource_info_controllable,
     get_resource_info_teaching,
-    get_vm_info,
 )
 from app.api.deps.rate_limit import rate_limit_by_ip, rate_limit_by_user
 
@@ -54,10 +50,6 @@ __all__ = [
     # Proxmox (with permission checks built-in)
     "check_resource_ownership",
     "check_firewall_access",
-    "get_vm_info",
-    "VmInfoDep",
-    "get_lxc_info",
-    "LxcInfoDep",
     "get_resource_info",
     "ResourceInfoDep",
     "check_resource_control_access",

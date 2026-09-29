@@ -1,22 +1,21 @@
 // @vitest-environment happy-dom
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import CourseTemplateEditorPage from "./CourseTemplateEditorPage";
 
 const mocks = vi.hoisted(() => ({
-  saveDraft: vi.fn(), publish: vi.fn(), get: vi.fn(), saveBasics: vi.fn(), uploadFile: vi.fn(), removeFile: vi.fn(), confirm: vi.fn(),
+  saveDraft: vi.fn(), publish: vi.fn(), get: vi.fn(), saveBasics: vi.fn(), uploadFile: vi.fn(), removeFile: vi.fn(), confirm: vi.fn(), downloadFile: vi.fn(), downloadBlob: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
   t: (key) => key,
 }));
 vi.mock("../../../services/courseEnvironments", () => ({
   courseNodeHasUsableSource: () => true,
-  CourseEnvironmentsService: { saveDraft: mocks.saveDraft, publish: mocks.publish, get: mocks.get, saveBasics: mocks.saveBasics, uploadFile: mocks.uploadFile, removeFile: mocks.removeFile, fileUrl: () => "#" },
+  CourseEnvironmentsService: { saveDraft: mocks.saveDraft, publish: mocks.publish, get: mocks.get, saveBasics: mocks.saveBasics, uploadFile: mocks.uploadFile, removeFile: mocks.removeFile, downloadFile: mocks.downloadFile },
 }));
-vi.mock("../../../services/teachingClasses", () => ({ TeachingClassesService: { list: async () => [] } }));
 vi.mock("../../../services/templates", () => ({ TemplatesService: { list: async () => [] } }));
-vi.mock("../../../services/api", () => ({ apiGet: async () => [] }));
+vi.mock("../../../services/api", () => ({ apiGet: async () => [], downloadBlob: mocks.downloadBlob }));
 vi.mock("../../../services/reverseProxy", () => ({ ReverseProxyService: { setupContext: async () => ({ enabled: false, zones: [] }), checkDomainAvailability: async () => ({ available: true }) } }));
 vi.mock("../../../services/firewall", () => ({ getTopology: async () => ({ nodes: [] }), createConnection: vi.fn(), createVmRule: vi.fn(), publishService: vi.fn(), replacePublishedService: vi.fn() }));
 vi.mock("../../../services/auth", () => ({ AuthStorage: { getSnapshot: () => ({ sessionId: "test" }) } }));
@@ -217,4 +216,15 @@ it("keeps the document dropzone disabled until the environment exists", async ()
   await dropDocs([new File(["a"], "guide.pdf")]);
 
   expect(mocks.uploadFile).not.toHaveBeenCalled();
+});
+
+/* 附件要帶 Bearer token：點檔名走 downloadFile 抓 Blob 再交給 downloadBlob 存檔，不能是裸 <a href>（會 401） */
+it("downloads an attachment through the authenticated service when its name is clicked", async () => {
+  mocks.downloadFile.mockResolvedValue(new Blob(["x"]));
+  await renderPublished({ files: [doc("f1", "guide.pdf")] });
+  expect(host.querySelector("a[href*='/files/']")).toBeNull();
+  const link = [...host.querySelectorAll("button")].find((button) => button.textContent === "guide.pdf");
+  await act(async () => link.click());
+  expect(mocks.downloadFile).toHaveBeenCalledWith("env-1", "f1");
+  expect(mocks.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "guide.pdf");
 });

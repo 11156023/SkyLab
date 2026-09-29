@@ -10,12 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from proxmoxer.core import ResourceException
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.ai.navigation.service import _extract_first_json_object
 from app.ai.pve_log import collector
-from app.ai.pve_log.chat import _execute_tool_sync
 from app.ai.system_config import system_ai_env
 from app.ai.teacher_judge import script_executor_service as executor
 from app.ai.teacher_judge import service
@@ -123,9 +121,9 @@ def test_retired_success_criteria_is_not_in_new_step_contract() -> None:
 
 
 def test_structured_proposal_status_overrides_reply_wording() -> None:
-    assert service._proposal_status_claims_ready("ready", "尚未準備就緒") is True
-    assert service._proposal_status_claims_ready("needs_information", "Ready") is False
-    assert service._proposal_status_claims_ready(None, "Ready") is False
+    assert service._proposal_status_claims_ready("ready") is True
+    assert service._proposal_status_claims_ready("needs_information") is False
+    assert service._proposal_status_claims_ready(None) is False
 
 
 def test_create_tool_rejection_explains_invalid_step_to_model_only() -> None:
@@ -867,53 +865,6 @@ async def test_truncated_model_output_is_not_accepted_as_complete_json(monkeypat
     assert error.value.status_code == 502
 
 
-def _fake_pve(monkeypatch, cluster_get):
-    proxmox = SimpleNamespace(
-        cluster=SimpleNamespace(
-            status=SimpleNamespace(get=cluster_get),
-            resources=SimpleNamespace(get=lambda **kwargs: []),
-        ),
-        nodes=SimpleNamespace(get=lambda: []),
-    )
-    monkeypatch.setattr(collector, "get_proxmox_api", lambda: proxmox)
-    monkeypatch.setattr(collector.settings, "collector_retry_attempts", 3)
-    monkeypatch.setattr(collector.settings, "collector_retry_backoff", 0)
-    return proxmox
-
-
-def test_collector_retries_before_returning_partial_snapshot(monkeypatch):
-    calls = []
-
-    def unavailable():
-        calls.append(1)
-        raise OSError("synthetic unavailable")
-
-    _fake_pve(monkeypatch, unavailable)
-    snapshot = collector.collect_snapshot()
-    assert len(calls) == 3
-    assert snapshot.cluster.quorate is False
-    assert snapshot.errors
-    tool = _execute_tool_sync(snapshot, "get_cluster", {})
-    assert tool.get("error")
-    assert tool["quorate"] is False
-
-
-def test_collector_transient_cluster_failure_recovers(monkeypatch):
-    calls = []
-
-    def recover():
-        calls.append(1)
-        if len(calls) == 1:
-            raise OSError("temporary")
-        return [{"type": "cluster", "name": "test", "nodes": 2, "quorate": 1}]
-
-    _fake_pve(monkeypatch, recover)
-    snapshot = collector.collect_snapshot()
-    assert len(calls) == 2
-    assert snapshot.cluster.quorate is True
-    assert snapshot.errors == []
-
-
 @pytest.mark.parametrize(
     "fetch,args",
     [
@@ -929,24 +880,6 @@ def test_collector_fetch_errors_reach_retry_layer(fetch, args):
 
     with pytest.raises(OSError):
         getattr(collector, fetch)(SimpleNamespace(nodes=unavailable), *args)
-
-
-@pytest.mark.parametrize(
-    "status,expected_calls", [(401, 1), (403, 1), (404, 1), (429, 3), (503, 3)]
-)
-def test_collector_retries_only_transient_http_failures(
-    monkeypatch, status, expected_calls
-):
-    calls = []
-
-    def unavailable():
-        calls.append(1)
-        raise ResourceException(status, "synthetic", "unavailable")
-
-    _fake_pve(monkeypatch, unavailable)
-    snapshot = collector.collect_snapshot()
-    assert len(calls) == expected_calls
-    assert snapshot.errors
 
 
 async def test_executor_sync_stage_does_not_block_loop(monkeypatch):

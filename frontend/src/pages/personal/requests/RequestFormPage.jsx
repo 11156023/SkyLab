@@ -9,13 +9,14 @@ import { VmRequestsService } from "../../../services/vmRequests";
 import { VmRequestAvailabilityService } from "../../../services/vmRequestAvailability";
 import { GpuService } from "../../../services/gpu";
 import { TemplatesService } from "../../../services/templates";
-import { apiGet } from "../../../services/api";
+import { ResourcesService } from "../../../services/resources";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatShortDateTime } from "../../../utils/formatDate";
+import { canTeachUser } from "../../../utils/roles";
 
 /* Hostname normalization — preserves alphanumeric, replaces others with hyphen */
 function normalizeHostname(value) {
@@ -70,7 +71,6 @@ function SelectField({ value, onChange, disabled, children, placeholder, loading
 }
 
 /* ── Helpers ── */
-const formatDT = (iso) => formatShortDateTime(iso);
 const OS_DISPLAY_NAMES = {
   ubuntu: "Ubuntu",
   debian: "Debian",
@@ -197,7 +197,7 @@ function focusFirstError(formEl, errs) {
   focusInvalidField(group?.querySelector("input, select, textarea"));
 }
 
-/* ── Validation messages（對齊舊版 zh-TW locales）── */
+/* ── Validation messages ── */
 const MSG = {
   hostnameRequired: "RequestFormPage.msgHostnameRequired",
   hostnameInvalid:  "RequestFormPage.msgHostnameInvalid",
@@ -219,7 +219,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   const { t } = useTranslation("personal");
   const { user }  = useAuth();
   const toast     = useToast();
-  const isPrivileged = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
+  const isPrivileged = canTeachUser(user);
   const { setCompactFooter, registerRequestForm, registerSurface, reportRequestSubmission } =
     useContext(LayoutContext);
   useEffect(() => { setCompactFooter(true); return () => setCompactFooter(false); }, [setCompactFooter]);
@@ -294,7 +294,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   useEffect(() => {
     if (lxcTemplates.length > 0) return;
     setLxcLoading(true);
-    apiGet("/api/v1/lxc/templates")
+    ResourcesService.listLxcOsImages()
       .then(setLxcTemplates)
       .catch(() => setOsSourceFailed(true))
       .finally(() => setLxcLoading(false));
@@ -303,7 +303,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   useEffect(() => {
     if (vmTemplates.length > 0) return;
     setVmLoading(true);
-    apiGet("/api/v1/vm/templates")
+    ResourcesService.listVmOsTemplates()
       .then(setVmTemplates)
       .catch(() => setOsSourceFailed(true))
       .finally(() => setVmLoading(false));
@@ -821,7 +821,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
 
     setSubmitting(true);
     try {
-      /* GPU re-availability check before submitting (mirrors old frontend logic) */
+      /* 送出前再確認一次選定的 GPU 在申請時段內仍可用 */
       const selectedGpuId = form.gpu_mapping_id?.trim();
       if (resourceType === "vm" && selectedGpuId) {
         const params = {
@@ -989,7 +989,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
         </button>
       </PageHeader>
 
-      {/* ── 主體：表單 + AI 側欄 ── */}
+      {/* ── 主體：表單 + 右側摘要 ── */}
       <div className={styles.formPageBody}>
         <div className={styles.formScroll}>
           <div className={styles.formInner}>
@@ -1438,7 +1438,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
           </div>
         </div>
 
-        {/* Desktop 右側面板（摘要 + AI）*/}
+        {/* Desktop 右側面板（申請摘要）*/}
         <div className={styles.rightPanel} data-guide="request-summary">
           <div className={styles.summaryBody}>
               {/* Type / mode chips */}
@@ -1534,18 +1534,18 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                   <span className={styles.summaryValue}>
                     {form.immediate_no_end
                       ? t("RequestFormPage.immediateUnlimited")
-                      : form.end_at ? t("RequestFormPage.untilDate", { date: formatDT(form.end_at) }) : t("RequestFormPage.startsImmediately")}
+                      : form.end_at ? t("RequestFormPage.untilDate", { date: formatShortDateTime(form.end_at) }) : t("RequestFormPage.startsImmediately")}
                   </span>
                 </div>
               ) : form.start_at && form.end_at ? (
                 <>
                   <div className={styles.summaryRow}>
                     <span className={styles.summaryLabel}>{t("RequestFormPage.summaryStart")}</span>
-                    <span className={styles.summaryTimeValue}>{formatDT(form.start_at)}</span>
+                    <span className={styles.summaryTimeValue}>{formatShortDateTime(form.start_at)}</span>
                   </div>
                   <div className={styles.summaryRow}>
                     <span className={styles.summaryLabel}>{t("RequestFormPage.summaryEnd")}</span>
-                    <span className={styles.summaryTimeValue}>{formatDT(form.end_at)}</span>
+                    <span className={styles.summaryTimeValue}>{formatShortDateTime(form.end_at)}</span>
                   </div>
                 </>
               ) : (

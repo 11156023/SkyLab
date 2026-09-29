@@ -1,32 +1,26 @@
 import asyncio
 import logging
 from time import monotonic
-from urllib.parse import quote  # used for vncticket query param only
 
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.api.deps.auth import get_ws_current_user
-from app.api.deps.proxmox import check_resource_control_access
 from app.api.websocket.utils import (
     pump_upstream_to_client,
     run_until_first_done,
 )
 from app.api.websocket.utils import safe_close_websocket as _safe_close_websocket
 from app.exceptions import NotFoundError, ProxmoxError
-from app.infrastructure.proxmox import (
-    build_ws_ssl_context,
-    get_connection_id_for_node,
-    get_host_for_node,
-    get_proxmox_settings,
-)
+from app.infrastructure.proxmox import open_vncwebsocket
 from app.infrastructure.vnc.messages import (
     ClientMessageSplitter,
     RfbStreamError,
     filter_client_bytes,
 )
-from app.services.classroom import vnc_session_manager
+from app.services.classroom.vnc_session_manager import vnc_session_manager
 from app.services.proxmox import proxmox_service
+from app.services.resource.access import require_resource_use
 
 logger = logging.getLogger(__name__)
 _VNC_SESSION_CACHE_TTL_SECONDS = 90.0
@@ -71,7 +65,10 @@ async def vnc_proxy(
     # Authenticate user and check ownership before accepting
     user, session = await get_ws_current_user(websocket, token=token)
     try:
-        check_resource_control_access(vmid, user, session)
+        # 同步 DB 查詢丟到 worker thread，連線池耗盡時才不會凍住 event loop
+        await asyncio.to_thread(
+            require_resource_use, session=session, user=user, vmid=vmid
+        )
     except Exception:
         await _safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
@@ -97,19 +94,19 @@ async def vnc_proxy(
 
         node = vm_info["node"]
 
-        pve_auth_cookie = _get_cached_vnc_session_cookie(vmid, vnc_ticket) if vnc_ticket else None
-        if pve_auth_cookie is None:
-            try:
-                pve_auth_cookie, _ = await proxmox_service.get_session_ticket(node)
-            except ProxmoxError:
-                logger.error("Proxmox session authentication failed")
-                await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
-                return
-
         # Re-use the ticket/port from the REST endpoint when available,
-        # so the noVNC client authenticates with the same ticket.
-        if not (vnc_ticket and vnc_port):
-            csrf_token = ""
+        # so the noVNC client authenticates with the same ticket. Either path
+        # authenticates to PVE at most once.
+        if vnc_ticket and vnc_port:
+            pve_auth_cookie = _get_cached_vnc_session_cookie(vmid, vnc_ticket)
+            if pve_auth_cookie is None:
+                try:
+                    pve_auth_cookie, _ = await proxmox_service.get_session_ticket(node)
+                except ProxmoxError:
+                    logger.error("Proxmox session authentication failed")
+                    await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
+                    return
+        else:
             try:
                 pve_auth_cookie, csrf_token = await proxmox_service.get_session_ticket(node)
             except ProxmoxError:
@@ -125,32 +122,9 @@ async def vnc_proxy(
             vnc_port = console_data["port"]
             vnc_ticket = console_data["ticket"]
 
-        encoded_vnc_ticket = quote(vnc_ticket, safe="")
-
-        # WebSocket URL for VNC — 使用節點所屬連線的 active host，
-        # 確保多連線與 HA 切換後都連到正確的入口
-        _cfg = get_proxmox_settings(get_connection_id_for_node(node))
-        active_host = get_host_for_node(node)
-        pve_ws_url = (
-            f"wss://{active_host}:{_cfg.port}"
-            f"/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket"
-            f"?port={vnc_port}&vncticket={encoded_vnc_ticket}"
-        )
-
-        ssl_context = build_ws_ssl_context(_cfg)
-
         try:
-            # Cookie header must NOT be URL-encoded; Proxmox rejects percent-encoded cookies.
-            # Proxmox vncwebsocket requires Sec-WebSocket-Protocol: binary.
-            # proxy=None: disable system proxy — Proxmox is on a private network and
-            # going through a proxy (websockets 16 default: proxy=True) breaks the connection.
-            pve_websocket = await websockets.connect(
-                pve_ws_url,
-                ssl=ssl_context,
-                additional_headers={"Cookie": f"PVEAuthCookie={pve_auth_cookie}"},
-                subprotocols=["binary"],
-                max_size=2**20,
-                proxy=None,
+            pve_websocket = await open_vncwebsocket(
+                node, "qemu", vmid, vnc_port, vnc_ticket, pve_auth_cookie
             )
         except websockets.exceptions.InvalidStatus as e:
             logger.error(

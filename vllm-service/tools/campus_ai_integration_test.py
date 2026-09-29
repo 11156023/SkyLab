@@ -1,4 +1,13 @@
-﻿from __future__ import annotations
+﻿"""SkyLab 主 backend 的 AI 整合測試（範本推薦聊天、AI-PVE 聊天）。
+
+以一般帳號登入 backend 後呼叫 /ai/template-recommendation/chat 與
+/ai/pve-log/chat，確認 backend → LiteLLM → vLLM 整條路徑可用。帳號已綁定
+兩步驟驗證時，以 --totp-code（或 CAMPUS_BACKEND_TOTP_CODE）提供當下的驗證碼。
+
+    python tools/campus_ai_integration_test.py --username user@example.com --password ... --strict
+"""
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -31,6 +40,7 @@ class CampusAIIntegrationTester:
         password: str,
         timeout: float,
         verify_ssl: bool,
+        totp_code: str = "",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_v1_str = api_v1_str
@@ -38,6 +48,7 @@ class CampusAIIntegrationTester:
         self.password = password
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        self.totp_code = totp_code
         self._access_token = ""
 
     @property
@@ -80,10 +91,29 @@ class CampusAIIntegrationTester:
                 f"Login failed with status {response.status_code}: {response.text}"
             )
         payload = response.json()
+        if payload.get("totp_required"):
+            payload = await self._complete_totp(str(payload.get("totp_token") or ""))
         token = str(payload.get("access_token") or "").strip()
         if not token:
             raise RuntimeError("Login succeeded but access_token is missing")
         self._access_token = token
+
+    async def _complete_totp(self, totp_token: str) -> dict[str, Any]:
+        """帳號已綁定兩步驟驗證：用挑戰 token 與驗證碼換正式 token。"""
+        if not self.totp_code:
+            raise RuntimeError(
+                "此帳號已啟用兩步驟驗證，請以 --totp-code 或 CAMPUS_BACKEND_TOTP_CODE 提供驗證碼"
+            )
+        response = await self._request(
+            "POST",
+            "/login/totp",
+            json_body={"totp_token": totp_token, "code": self.totp_code},
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"TOTP login failed with status {response.status_code}: {response.text}"
+            )
+        return response.json()
 
     def _auth_headers(self) -> dict[str, str]:
         if not self._access_token:
@@ -190,6 +220,11 @@ def parse_args() -> argparse.Namespace:
         help="Backend login password",
     )
     parser.add_argument(
+        "--totp-code",
+        default=os.getenv("CAMPUS_BACKEND_TOTP_CODE", ""),
+        help="兩步驟驗證碼（帳號已綁定 TOTP 時必填）",
+    )
+    parser.add_argument(
         "--template-prompt",
         default=os.getenv("CAMPUS_TEMPLATE_PROMPT", "我想建立python環境"),
         help="Prompt for template recommendation chat",
@@ -250,6 +285,7 @@ async def _run(args: argparse.Namespace) -> tuple[list[CaseResult], dict[str, An
         password=args.password,
         timeout=args.timeout,
         verify_ssl=not args.insecure,
+        totp_code=args.totp_code.strip(),
     )
 
     await tester.login()

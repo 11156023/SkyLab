@@ -7,6 +7,7 @@
 import uuid
 
 from sqlmodel import Session, func, select
+from sqlmodel.sql.expression import SelectOfScalar
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
@@ -32,7 +33,7 @@ from app.services.user import audit_service
 # ── 計數查詢 ────────────────────────────────────────────────────────────────
 
 
-def _questions_in_room_query(room_id: uuid.UUID):
+def _questions_in_room_query(room_id: uuid.UUID) -> SelectOfScalar[uuid.UUID]:
     return (
         select(CourseQuestion.id)
         .join(CourseTask, CourseQuestion.task_id == CourseTask.id)
@@ -40,7 +41,7 @@ def _questions_in_room_query(room_id: uuid.UUID):
     )
 
 
-def _questions_in_path_query(path_id: uuid.UUID):
+def _questions_in_path_query(path_id: uuid.UUID) -> SelectOfScalar[uuid.UUID]:
     return (
         select(CourseQuestion.id)
         .join(CourseTask, CourseQuestion.task_id == CourseTask.id)
@@ -49,11 +50,14 @@ def _questions_in_path_query(path_id: uuid.UUID):
     )
 
 
-def room_question_counts(
-    session: Session, *, room_id: uuid.UUID, user_id: uuid.UUID
+def _question_counts(
+    session: Session,
+    question_query: SelectOfScalar[uuid.UUID],
+    *,
+    user_id: uuid.UUID,
 ) -> tuple[int, int]:
-    """(房間題目總數, 該學生已完成數)"""
-    question_ids = session.exec(_questions_in_room_query(room_id)).all()
+    """(題目總數, 該學生已完成數)；``question_query`` 選出範圍內的題目 id。"""
+    question_ids = session.exec(question_query).all()
     if not question_ids:
         return 0, 0
     completed = int(
@@ -67,26 +71,20 @@ def room_question_counts(
         ).one()
     )
     return len(question_ids), completed
+
+
+def room_question_counts(
+    session: Session, *, room_id: uuid.UUID, user_id: uuid.UUID
+) -> tuple[int, int]:
+    """(房間題目總數, 該學生已完成數)"""
+    return _question_counts(session, _questions_in_room_query(room_id), user_id=user_id)
 
 
 def path_question_counts(
     session: Session, *, path_id: uuid.UUID, user_id: uuid.UUID
 ) -> tuple[int, int]:
     """(路徑題目總數, 該學生已完成數)"""
-    question_ids = session.exec(_questions_in_path_query(path_id)).all()
-    if not question_ids:
-        return 0, 0
-    completed = int(
-        session.exec(
-            select(func.count())
-            .select_from(UserCourseProgress)
-            .where(
-                UserCourseProgress.user_id == user_id,
-                UserCourseProgress.question_id.in_(question_ids),
-            )
-        ).one()
-    )
-    return len(question_ids), completed
+    return _question_counts(session, _questions_in_path_query(path_id), user_id=user_id)
 
 
 def completed_question_ids_in_room(
@@ -123,6 +121,8 @@ def submit_answer(
     - flag 題型：正規化 + SHA-256 常數時間比對
     - 已完成的題目重複提交：冪等，直接回 correct=True
     - 答錯僅回 correct=False，不記錄進度；提交行為一律寫 audit log
+      （提交次數由路由層 ``routes/courses.py`` 依使用者×題目節流，避免暴力猜
+      flag 或灌爆 audit log；這裡是同步函式，不處理節流）
     - 推播事件僅在「新完成一題」時產生（答錯/重複完成為 None）
     """
     question = session.get(CourseQuestion, question_id)

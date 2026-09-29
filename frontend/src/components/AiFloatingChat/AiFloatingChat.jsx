@@ -20,7 +20,20 @@ import { formatDate } from "../../utils/formatDate";
 import { joinList } from "../../utils/joinList";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import useBodyScrollLock from "../../hooks/useBodyScrollLock";
+import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
 import styles from "./AiFloatingChat.module.scss";
+
+const allowLeave = async () => true;
+
+/** 取得跳離確認；沒有掛 UnsavedChangesProvider（單獨渲染助手的測試）時一律放行。
+ *  useUnsavedChanges 內部固定先呼叫 useContext 才丟錯，hook 順序不受 try 影響。 */
+function useConfirmLeave() {
+  try {
+    return useUnsavedChanges().confirmLeave;
+  } catch {
+    return allowLeave;
+  }
+}
 
 /* title/suggestions 是模組層級常數，無法呼叫 hook，改存 key，實際 render 處再 t() */
 const PAGE_CONTEXTS = [
@@ -30,14 +43,12 @@ const PAGE_CONTEXTS = [
   { match: /^\/resource-mgmt/, titleKey: "AiFloatingChat.pageResourceMgmtTitle", suggestionKeys: ["AiFloatingChat.pageResourceMgmtSuggestion1", "AiFloatingChat.pageResourceMgmtSuggestion2", "AiFloatingChat.pageResourceMgmtSuggestion3"] },
   { match: /^\/request-review/, titleKey: "AiFloatingChat.pageRequestReviewTitle", suggestionKeys: ["AiFloatingChat.pageRequestReviewSuggestion1", "AiFloatingChat.pageRequestReviewSuggestion2", "AiFloatingChat.pageRequestReviewSuggestion3"] },
   { match: /^\/ip-management/, titleKey: "AiFloatingChat.pageIpManagementTitle", suggestionKeys: ["AiFloatingChat.pageIpManagementSuggestion1", "AiFloatingChat.pageIpManagementSuggestion2", "AiFloatingChat.pageIpManagementSuggestion3"] },
-  { match: /^\/reverse-proxy/, titleKey: "AiFloatingChat.pageReverseProxyTitle", suggestionKeys: ["AiFloatingChat.pageReverseProxySuggestion1", "AiFloatingChat.pageReverseProxySuggestion2", "AiFloatingChat.pageReverseProxySuggestion3"] },
   { match: /^\/firewall/, titleKey: "AiFloatingChat.pageFirewallTitle", suggestionKeys: ["AiFloatingChat.pageFirewallSuggestion1", "AiFloatingChat.pageFirewallSuggestion2", "AiFloatingChat.pageFirewallSuggestion3"] },
   { match: /^\/domain/, titleKey: "AiFloatingChat.pageDomainTitle", suggestionKeys: ["AiFloatingChat.pageDomainSuggestion1", "AiFloatingChat.pageDomainSuggestion2", "AiFloatingChat.pageDomainSuggestion3"] },
   { match: /^\/gateway/, titleKey: "AiFloatingChat.pageGatewayTitle", suggestionKeys: ["AiFloatingChat.pageGatewaySuggestion1", "AiFloatingChat.pageGatewaySuggestion2", "AiFloatingChat.pageGatewaySuggestion3"] },
   { match: /^\/ai-api-review/, titleKey: "AiFloatingChat.pageAiApiReviewTitle", suggestionKeys: ["AiFloatingChat.pageAiApiReviewSuggestion1", "AiFloatingChat.pageAiApiReviewSuggestion2", "AiFloatingChat.pageAiApiReviewSuggestion3"] },
   { match: /^\/ai-api-keys/, titleKey: "AiFloatingChat.pageAiApiKeysTitle", suggestionKeys: ["AiFloatingChat.pageAiApiKeysSuggestion1", "AiFloatingChat.pageAiApiKeysSuggestion2", "AiFloatingChat.pageAiApiKeysSuggestion3"] },
   { match: /^\/ai-monitoring/, titleKey: "AiFloatingChat.pageAiMonitoringTitle", suggestionKeys: ["AiFloatingChat.pageAiMonitoringSuggestion1", "AiFloatingChat.pageAiMonitoringSuggestion2", "AiFloatingChat.pageAiMonitoringSuggestion3"] },
-  { match: /^\/ai-pve/, titleKey: "AiFloatingChat.pageAiPveTitle", suggestionKeys: ["AiFloatingChat.pageAiPveSuggestion1", "AiFloatingChat.pageAiPveSuggestion2", "AiFloatingChat.pageAiPveSuggestion3"] },
   { match: /^\/ai-api/, titleKey: "AiFloatingChat.pageAiApiTitle", suggestionKeys: ["AiFloatingChat.pageAiApiSuggestion1", "AiFloatingChat.pageAiApiSuggestion2", "AiFloatingChat.pageAiApiSuggestion3"] },
   { match: /^\/templates/, titleKey: "AiFloatingChat.pageTemplatesTitle", suggestionKeys: ["AiFloatingChat.pageTemplatesSuggestion1", "AiFloatingChat.pageTemplatesSuggestion2", "AiFloatingChat.pageTemplatesSuggestion3"] },
   { match: /^\/gpu-mgmt/, titleKey: "AiFloatingChat.pageGpuMgmtTitle", suggestionKeys: ["AiFloatingChat.pageGpuMgmtSuggestion1", "AiFloatingChat.pageGpuMgmtSuggestion2", "AiFloatingChat.pageGpuMgmtSuggestion3"] },
@@ -81,10 +92,6 @@ const HELP_PATTERN = new RegExp(
   "i",
 );
 
-/**
- * 一句話該交給哪個能力：推薦配置、導覽（含流程）、或一般問答。
- * 三者共用同一個對話框，使用者不需要知道背後是不同的服務。
- */
 /* 問的是整個平台還是眼前這一頁。兩者的答案完全不同：
    「平台怎麼用」要的是功能清單，「這頁怎麼用」要的是這一頁的說明。 */
 const GLOBAL_SCOPE_PATTERN = /(平台|系統|全站|整個網站|這個網站|skylab)/i;
@@ -112,6 +119,12 @@ export function isScreenHelp(text) {
   return !GLOBAL_SCOPE_PATTERN.test(text) || SCREEN_SCOPE_PATTERN.test(text);
 }
 
+/**
+ * 一句話該交給哪個能力。各種能力共用同一個對話框，使用者不需要知道背後是不同的服務。
+ * 進行中的任務先由 taskRoute 判斷（cancel／planNow／continueTask／recommend），
+ * 否則回傳 index（功能清單）、navigate（導覽含流程）、help（說明眼前畫面）、
+ * recommend（推薦配置）或 chat（一般問答）。
+ */
 export function routeQuestion(text, task = newTask(), flowId = null, hasForm = false) {
   const contextual = taskRoute(text, task, flowId, hasForm);
   if (contextual) return contextual;
@@ -201,10 +214,13 @@ function TypingIndicator() {
   );
 }
 
+/* 低於這個寬度時面板是覆蓋層（蓋住頁面），導覽換頁後要順手收起來 */
+const OVERLAY_QUERY = "(max-width: 1439px)";
+
 const STEP_ICON = { done: "check_circle", current: "play_circle", todo: "radio_button_unchecked" };
 
 /* Only confirmed actions advance progress. Opening a page never completes work. */
-export function stepStatuses(steps, currentPath, floor = 0) {
+export function stepStatuses(steps, floor = 0) {
   const marked = steps.findIndex((step) => step.status === "current");
   const active = marked >= 0 ? Math.max(floor, marked) : (floor > 0 ? floor : -1);
   if (active < 0) return steps.map((step) => step.status);
@@ -212,7 +228,7 @@ export function stepStatuses(steps, currentPath, floor = 0) {
 }
 
 function StepList({ steps, currentPath, floor = 0, onNavigate, onRecommend }) {
-  const statuses = stepStatuses(steps, currentPath, floor);
+  const statuses = stepStatuses(steps, floor);
   return (
     <ol className={styles.stepList}>
       {steps.map((step, index) => (
@@ -358,10 +374,10 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   /* <1440px 時面板是覆蓋層（fixed + backdrop），開啟期間鎖住底下頁面捲動；
      寬螢幕的並排停靠模式不鎖 */
   const [overlayMode, setOverlayMode] = useState(
-    () => window.matchMedia("(max-width: 1439px)").matches,
+    () => window.matchMedia(OVERLAY_QUERY).matches,
   );
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1439px)");
+    const mq = window.matchMedia(OVERLAY_QUERY);
     const onChange = (event) => setOverlayMode(event.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
@@ -396,6 +412,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   }, [panelOpen]);
   const location = useLocation();
   const navigate = useNavigate();
+  const confirmLeave = useConfirmLeave();
   const { user } = useAuth();
   const { t } = useTranslation("components");
   /* 申請表單開著時會把自己註冊進來：規劃就地填進欄位，而且拿得到
@@ -529,10 +546,14 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     inputRef.current?.focus();
   }
 
-  function handleNavigate(path, state) {
+  /* 使用者點的導覽（步驟、目標、計畫卡）要先確認未儲存的表單；助手自動導覽的流程不在此列。
+     覆蓋層模式先收起面板再問：面板的 backdrop 與 z-index 會蓋住確認框，也會吃掉 Esc/Enter。
+     並排停靠模式的確認框會避開面板（--ai-panel-inset），可以開著問。 */
+  async function handleNavigate(path, state) {
     if (!path) return;
+    if (overlayMode) close();
+    if (!(await confirmLeave())) return;
     navigate(path, state ? { state } : undefined);
-    if (window.matchMedia("(max-width: 1439px)").matches) close();
   }
 
   function appendAssistant(content, extra = {}) {
@@ -682,7 +703,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
 
   /* 推薦配置：規劃出一份可以直接送出的申請內容。資源候選（作業系統、GPU、時段）
      由後端自己補，所以助手不在申請頁也能規劃。 */
-  async function sendRecommendation(text, nextHistory) {
+  async function sendRecommendation(nextHistory) {
     let data;
     try {
       data = await AiTemplateRecommendationApi.recommend({
@@ -756,7 +777,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     }
 
     if (state.ready || !state.question) {
-      return await sendRecommendation("", nextHistory);
+      return await sendRecommendation(nextHistory);
     }
 
     taskRef.current.pendingKey = state.question.key;
@@ -808,7 +829,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     if (loading) return;
     setLoading(true);
     try {
-      await sendRecommendation("", history);
+      await sendRecommendation(history);
     } catch (error) {
       appendAssistant(error?.message || t("AiFloatingChat.planFailed"));
     } finally {
@@ -916,7 +937,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
         handled = true;
       }
       else if (stayInIntake || route === "recommend") handled = await startIntake(nextHistory);
-      else if (route === "planNow") handled = await sendRecommendation("", nextHistory);
+      else if (route === "planNow") handled = await sendRecommendation(nextHistory);
       else if (route === "continueTask") handled = await continueTask();
       else if (route === "index") handled = sendFeatureIndex();
       else if (route === "help") handled = await sendContextualHelp(text);

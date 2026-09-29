@@ -7,6 +7,7 @@ import SegmentedControl from "../SegmentedControl/SegmentedControl";
 import { useJobs } from "./JobsProvider";
 import { JobEmpty, JobLoading, JobRow, ReminderRow } from "./JobRow";
 import useDialogPresence from "../../hooks/useDialogPresence";
+import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
 import styles from "./Jobs.module.scss";
 
 const POPOVER_WIDTH = 360;
@@ -37,6 +38,7 @@ export default function JobsButton({ collapsed = false }) {
     desktopNotifications,
   } = useJobs();
   const navigate = useNavigate();
+  const { confirmLeave } = useUnsavedChanges();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("jobs");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -91,10 +93,10 @@ export default function JobsButton({ collapsed = false }) {
   const unreadReminders = (reminders ?? []).filter((item) => !readReminderIds.includes(item.id));
   const attention = running + unreadReminders.length;
 
-  const openReminder = (reminder) => {
+  const openReminder = async (reminder) => {
     markReminderRead(reminder.id);
     setOpen(false);
-    if (reminder.target) navigate(reminder.target);
+    if (reminder.target && (await confirmLeave())) navigate(reminder.target);
   };
 
   const toggleOpen = () => {

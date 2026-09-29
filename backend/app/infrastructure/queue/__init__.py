@@ -9,12 +9,7 @@ from .arq_client import (
 )
 from .dispatch import enqueue_task, enqueue_task_sync
 from .modules import TASK_MODULES, import_task_modules
-from .registry import (
-    queue_task,
-    registered_functions,
-    report_progress,
-    report_progress_async,
-)
+from .registry import queue_task, registered_functions, report_progress
 
 __all__ = [
     "QUEUE_NAME",
@@ -29,5 +24,4 @@ __all__ = [
     "queue_task",
     "registered_functions",
     "report_progress",
-    "report_progress_async",
 ]

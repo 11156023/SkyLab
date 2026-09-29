@@ -11,14 +11,13 @@ except ModuleNotFoundError:  # pragma: no cover - depends on local env
     Redis = Any  # type: ignore[assignment]
 
 from app.core.config import settings as core_settings
-from app.features.ai.config import settings
 
 logger = logging.getLogger(__name__)
 
 _redis_pool: ConnectionPool | None = None
 _redis_client: Redis | None = None
 _redis_backend_available = ConnectionPool is not Any
-_redis_enabled: bool = settings.redis_enabled and _redis_backend_available
+_redis_enabled: bool = core_settings.REDIS_ENABLED and _redis_backend_available
 
 # 請求路徑上的重連冷卻：Redis 掛掉時，若每個請求都重建連線池並 ping，
 # 每個請求先吃滿 socket_connect_timeout（5 秒）才拿到 None。冷卻期內直接
@@ -51,7 +50,7 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
             "Redis Python package is not installed. "
             "Rate limiting and token revocation cannot work."
         )
-        if settings.redis_enabled and fatal:
+        if core_settings.REDIS_ENABLED and fatal:
             raise RuntimeError(message)
         logger.warning("%s Functionality will be skipped.", message)
         return
@@ -65,7 +64,7 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
 
     try:
         _redis_pool = ConnectionPool.from_url(
-            settings.redis_url,
+            core_settings.REDIS_URL,
             decode_responses=True,
             max_connections=50,
             socket_connect_timeout=5,
@@ -74,7 +73,7 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
         _redis_client = Redis(connection_pool=_redis_pool)
         await _redis_client.ping()
         _last_init_failure_at = None
-        logger.info("Redis connected successfully: %s", settings.redis_url)
+        logger.info("Redis connected successfully: %s", core_settings.REDIS_URL)
     except Exception as exc:
         _redis_client = None
         if _redis_pool:
@@ -83,7 +82,7 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
         _last_init_failure_at = time.monotonic()
         if fatal:
             raise RuntimeError(
-                f"Failed to connect to Redis ({settings.redis_url}): {exc}. "
+                f"Failed to connect to Redis ({core_settings.REDIS_URL}): {exc}. "
                 f"ENVIRONMENT={core_settings.ENVIRONMENT} requires a working Redis; "
                 "fix REDIS_URL or set REDIS_ENABLED=false to run without it."
             ) from exc
@@ -130,11 +129,3 @@ async def close_redis() -> None:
         await _redis_pool.aclose()
         _redis_pool = None
         logger.info("Redis connection pool closed")
-
-
-def is_redis_enabled() -> bool:
-    return _redis_enabled
-
-
-def is_redis_available() -> bool:
-    return _redis_enabled and _redis_client is not None

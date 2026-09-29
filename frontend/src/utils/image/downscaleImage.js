@@ -2,7 +2,9 @@
  * downscaleImage.js
  * 用 canvas 把圖片等比縮小到 maxSize（最長邊）內並轉成 JPEG。
  * 頭像上傳（縮小後傳後端）與自訂背景（轉 data URL 存本地）共用。
+ * 錯誤訊息會被頁面直接 toast，所以依目前語系產生。
  */
+import i18n from "../../i18n";
 
 function loadImage(file) {
   return new Promise((resolve, reject) => {
@@ -14,7 +16,7 @@ function loadImage(file) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("無法讀取圖片檔"));
+      reject(new Error(i18n.t("image.readFailed", { ns: "services" })));
     };
     img.src = url;
   });
@@ -43,7 +45,7 @@ export async function downscaleImage(file, { maxSize = 1920, quality = 0.85 } = 
   const dataUrl = canvas.toDataURL("image/jpeg", quality);
   const blob = await new Promise((resolve, reject) =>
     canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("圖片轉檔失敗"))),
+      (b) => (b ? resolve(b) : reject(new Error(i18n.t("image.convertFailed", { ns: "services" })))),
       "image/jpeg",
       quality
     )

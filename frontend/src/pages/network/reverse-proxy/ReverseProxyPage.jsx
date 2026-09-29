@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import styles from "./ReverseProxyPage.module.scss";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -7,14 +6,12 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useAuth } from "../../../contexts/AuthContext";
+import { isAdminUser } from "../../../utils/roles";
 import { useToast } from "../../../hooks/useToast";
 import { ReverseProxyService } from "../../../services/reverseProxy";
 import ReverseProxyRuleModal from "../../../components/ReverseProxyRuleModal/ReverseProxyRuleModal";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
-
-function isAdminUser(user) {
-  return user?.role === "admin" || user?.is_superuser === true;
-}
+import { snapshotToKeepOnClose } from "./nginxSnapshot";
 
 /* 憑證到期日：只顯示日期，過期／30 天內到期各給不同顏色 */
 function certificateTone(expiresAt) {
@@ -31,14 +28,25 @@ function NginxPanel() {
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(false);
+  const inFlightRef = useRef(false);
 
   useEffect(() => {
-    if (!open || snapshot) return;
+    if (!open) {
+      // 收合時丟掉失敗的快照，下次展開會重試（請求在收合後才失敗也一樣）
+      const kept = snapshotToKeepOnClose(snapshot);
+      if (kept !== snapshot) setSnapshot(kept);
+      return;
+    }
+    if (snapshot || inFlightRef.current) return;
+    inFlightRef.current = true;
     setLoading(true);
     ReverseProxyService.runtime()
       .then(setSnapshot)
       .catch(() => setSnapshot({ runtime_error: t("ReverseProxyPage.nginx.connectFailed") }))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        inFlightRef.current = false;
+        setLoading(false);
+      });
   }, [open, snapshot, t]);
 
   const httpServers = snapshot?.http_servers ?? [];
@@ -366,9 +374,4 @@ export function ReverseProxyPanel() {
       )}
     </div>
   );
-}
-
-/* ── 舊網址：獨立頁已併入網域管理（管理員），直接導過去 ── */
-export default function ReverseProxyPage() {
-  return <Navigate to="/domain?tab=reverse-proxy" replace />;
 }

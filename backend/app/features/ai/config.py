@@ -48,11 +48,9 @@ class AIAPIEnvSettings(BaseSettings):
         return self.ai_api_public_base_url.strip()
 
     @property
-    def resolved_vllm_base_url(self) -> str:
+    def resolved_upstream_base_url(self) -> str:
+        """AI proxy 的上游位址（預設是 LiteLLM gateway，不是直連 vLLM）。"""
         return self.ai_api_base_url.strip()
 
-    @property
-    def ai_api_upstream_api_key(self) -> str:
-        return self.ai_api_api_key
 
 settings = AIAPIEnvSettings()

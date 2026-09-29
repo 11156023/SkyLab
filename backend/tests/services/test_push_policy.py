@@ -214,7 +214,7 @@ def _subscription(**overrides: Any) -> PushSubscription:
     base: dict[str, Any] = {
         "id": uuid.uuid4(),
         "user_id": uuid.uuid4(),
-        "endpoint": "https://push.example/x",
+        "endpoint": "https://fcm.googleapis.com/fcm/send/x",
         "p256dh": "p",
         "auth": "a",
         "language": "zh-TW",

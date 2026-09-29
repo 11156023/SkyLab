@@ -251,15 +251,15 @@ def test_select_request_placement_falls_back_when_reserved_node_is_unavailable(
         lambda request: None,
     )
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.placement_advisor._load_cluster_state",
+        "app.services.proxmox.provisioning_service.placement_support.load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.placement_advisor._build_node_capacities",
+        "app.services.proxmox.provisioning_service.placement_support.build_live_node_capacities",
         lambda **kwargs: [SimpleNamespace(node="pve-a")],
     )
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.placement_advisor._decide_resource_type",
+        "app.services.proxmox.provisioning_service.placement_advisor.decide_resource_type",
         lambda request: ("lxc", "Prefer LXC for this request."),
     )
     monkeypatch.setattr(
@@ -359,11 +359,11 @@ def test_reserved_target_node_prefers_admin_storage_profile(
     )
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
+        "app.services.vm.placement_service.placement_support.load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
+        "app.services.vm.placement_service.placement_support.build_live_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",
@@ -441,11 +441,11 @@ def test_reserved_target_node_uses_managed_storage_instead_of_node_root_disk(
     db.commit()
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
+        "app.services.vm.placement_service.placement_support.load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
+        "app.services.vm.placement_service.placement_support.build_live_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",
@@ -476,7 +476,6 @@ def test_reserved_target_node_uses_managed_storage_instead_of_node_root_disk(
         start_at=now + timedelta(hours=1),
         end_at=now + timedelta(hours=2),
         reserved_requests=[],
-        allow_cohort_optimization=False,
     )
 
     assert selection.node == "pve-a"

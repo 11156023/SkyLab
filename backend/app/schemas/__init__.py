@@ -1,13 +1,12 @@
 """
 Schemas 模組
 
-API 請求/回應 schemas，按領域分檔：
-- common: 通用 schemas（Message, Token, NewPassword 等）
-- user: 使用者相關 schemas
-- resource: 資源與 Proxmox 相關 schemas
-- vm_request: 虛擬機申請 schemas
-- spec_change_request: 規格調整 schemas
-- audit_log: 審計日誌 schemas
+API 請求/回應 schemas，按領域分檔（ai_api、firewall、gpu、monitoring、
+resource、user、vm_request……每個領域一個子模組）。
+
+本檔只把最常用的 schemas 重新匯出成 `from app.schemas import X`；
+多數呼叫端直接從子模組匯入（例如 `from app.schemas.gpu import ...`），
+新增的領域 schemas 不必一定加進這裡。
 """
 
 from .ai_api import (
@@ -23,15 +22,7 @@ from .ai_api import (
     AIAPIRequestsPublic,
 )
 from .ai_proxy import (
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatMessage,
-    ModelsResponse,
     RateLimitStatusResponse,
-    TemplateUsageStatsResponse,
-    UnifiedRouteUsage,
-    UnifiedUsageByModel,
-    UnifiedUsageStatsResponse,
     UsageRecordPublic,
     UsageRecordsPublic,
     UsageStatsResponse,
@@ -80,15 +71,6 @@ from .firewall import (
     TopologyNode,
     TopologyResponse,
 )
-from .gpu import (
-    GPUMappingCreate,
-    GPUMappingDetail,
-    GPUMappingPublic,
-    GPUMappingsPublic,
-    GPUMappingUpdate,
-    GPUSummary,
-    GPUUsageInfo,
-)
 from .ldap import (
     LdapConfigPublic,
     LdapConfigUpdate,
@@ -98,6 +80,7 @@ from .ldap import (
 )
 from .mining import (
     MiningDismissRequest,
+    MiningDismissResult,
     MiningIncidentPublic,
 )
 from .monitoring import (
@@ -133,7 +116,6 @@ from .resource import (
     DirectSpecUpdateRequest,
     LXCCreateRequest,
     LXCCreateResponse,
-    NextVMIDSchema,
     ResetAcceptedResponse,
     ResourcePublic,
     ResourceStatus,
@@ -147,7 +129,6 @@ from .resource import (
     TerminalInfoSchema,
     VMCreateRequest,
     VMCreateResponse,
-    VMSchema,
     VMTemplateSchema,
     VNCInfoSchema,
 )
@@ -179,7 +160,6 @@ from .vm_request import (
     VMRequestAvailabilityStackItem,
     VMRequestAvailabilitySummary,
     VMRequestCreate,
-    VMRequestPlacementPreview,
     VMRequestPublic,
     VMRequestReview,
     VMRequestReviewContext,
@@ -216,15 +196,7 @@ __all__ = [
     "AIAPICredentialUpdate",
     "AIAPICredentialWithSecret",
     # AI Proxy
-    "ChatMessage",
-    "ChatCompletionRequest",
-    "ChatCompletionResponse",
-    "ModelsResponse",
     "UsageStatsResponse",
-    "TemplateUsageStatsResponse",
-    "UnifiedRouteUsage",
-    "UnifiedUsageByModel",
-    "UnifiedUsageStatsResponse",
     "UsageRecordPublic",
     "UsageRecordsPublic",
     "RateLimitStatusResponse",
@@ -244,12 +216,10 @@ __all__ = [
     "BatchActionResponse",
     "BatchActionResultItem",
     # Resource / Proxmox
-    "VMSchema",
     "VNCInfoSchema",
     "TerminalInfoSchema",
     "TemplateSchema",
     "VMTemplateSchema",
-    "NextVMIDSchema",
     "LXCCreateRequest",
     "LXCCreateResponse",
     "ResourcePublic",
@@ -276,7 +246,6 @@ __all__ = [
     "VMRequestWindowAvailabilityRequest",
     "VMRequestWindowAvailabilityResponse",
     "VMRequestCreate",
-    "VMRequestPlacementPreview",
     "VMRequestReview",
     "VMRequestPublic",
     "VMRequestReviewContext",
@@ -341,6 +310,7 @@ __all__ = [
     "VMTopEntry",
     # Mining (module D)
     "MiningDismissRequest",
+    "MiningDismissResult",
     "MiningIncidentPublic",
     # Proxmox Config
     "ProxmoxConfigPublic",

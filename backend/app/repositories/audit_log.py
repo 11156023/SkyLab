@@ -242,31 +242,3 @@ def get_audit_stats(
         "login_failed": session.exec(login_failed_stmt).one(),
         "active_users": session.exec(active_users_stmt).one(),
     }
-
-
-def get_audit_logs_by_user(
-    *, session: Session, user_id: uuid.UUID, skip: int = 0, limit: int = 100
-) -> tuple[list[AuditLog], int]:
-    return get_audit_logs(session=session, user_id=user_id, skip=skip, limit=limit)
-
-
-def get_audit_logs_by_vmid(
-    *, session: Session, vmid: int, skip: int = 0, limit: int = 100
-) -> tuple[list[AuditLog], int]:
-    return get_audit_logs(session=session, vmid=vmid, skip=skip, limit=limit)
-
-
-def delete_audit_logs_by_vmid(*, session: Session, vmid: int) -> int:
-    """刪除「目前這台」vmid 資源的操作紀錄，返回刪除筆數。
-
-    以 resource_vmid 篩選，必須在刪除 resources 列之前呼叫（刪除後 SET NULL
-    就對不上了）。只看 vmid 會連同先前用過同一個 VMID 的舊機器紀錄
-    （含它們的 resource_delete 紀錄）一起刪掉。
-    """
-    logs = list(
-        session.exec(select(AuditLog).where(AuditLog.resource_vmid == vmid)).all()
-    )
-    for log in logs:
-        session.delete(log)
-    session.commit()
-    return len(logs)

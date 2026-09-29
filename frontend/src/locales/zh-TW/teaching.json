@@ -148,6 +148,9 @@
   "ClassSetupPage.selectTemplateHint": "選擇一個上課模板後即可繼續",
   "ClassSetupPage.savingBtn": "儲存中…",
   "ClassSetupPage.saveAndNextBtn": "儲存並下一步",
+  "ClassSetupPage.invalidRoleMsg": "以下帳號不是學生，未加入班級：{{list}}",
+  "ClassSetupPage.capacityNeedsStudents": "班級還沒有學生，請回到「學生名單」至少加入一位。",
+  "ClassSetupPage.capacityNeedsEnvironment": "尚未選擇教學環境，請回到「教學環境」選擇一個。",
   "ClassCreateDialog.weekdayMon": "星期一",
   "ClassCreateDialog.weekdayTue": "星期二",
   "ClassCreateDialog.weekdayWed": "星期三",
@@ -385,7 +388,6 @@
   "CourseCmsPage.thStudent": "學生",
   "CourseCmsPage.thTotalProgress": "總進度",
   "CourseCmsPage.noStudentRecordsText": "尚無作答紀錄",
-  "CourseCmsPage.teacherOnlyText": "僅老師與管理員可使用課程管理",
   "CourseCmsPage.pageTitle": "課程管理",
   "CourseCmsPage.tabContentEditor": "內容編輯",
   "CourseCmsPage.tabStudentProgress": "學生進度",
@@ -666,6 +668,8 @@
   "ClassWorkspacePage.subtitleTemplate": "{{students}} 位學生 · {{weeks}} 個課次 · 每週{{weekday}} {{start}}–{{end}}",
   "ClassWorkspacePage.workflowAriaLabel": "班級管理流程",
   "ClassWorkspacePage.scheduleUpdatedMsg": "班級與固定課表已更新。",
+  "ClassWorkspacePage.filesUploadFailed": "以下任務檔案上傳失敗：{{files}}",
+  "ClassWorkspacePage.filesUploadPartialFail": "已上傳 {{done}} 個任務檔案；以下檔案上傳失敗：{{files}}",
   "AiJudgePanel.aboutToUseLabel": "即將使用：{{name}} v{{version}}（{{template}}）",
   "AiJudgePanel.addCheckTitle": "新增檢查",
   "AiJudgePanel.addItemBtn": "新增項目",
@@ -996,5 +1000,8 @@
   "CourseTemplateEditorPage.fileDeleteFailed": "刪除文件失敗",
   "CourseTemplateEditorPage.fileDeleteConfirmTitle": "移除這份文件？",
   "CourseTemplateEditorPage.fileDeleteConfirmMessage": "「{{name}}」會從這個課程環境移除，且無法復原。",
-  "CourseTemplateEditorPage.fileDeleteConfirmAction": "移除"
+  "CourseTemplateEditorPage.fileDeleteConfirmAction": "移除",
+  "CourseTemplateEditorPage.fileDownloadFailed": "下載文件失敗",
+  "AiJudgePage.backToWorkspaceBtn": "返回班級工作頁",
+  "AiJudgePage.loadingMachinesText": "正在讀取班級機器…"
 }

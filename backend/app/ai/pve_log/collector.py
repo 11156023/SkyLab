@@ -5,7 +5,6 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, ParamSpec, TypeVar
 
 from proxmoxer import ProxmoxAPI
@@ -20,11 +19,14 @@ from app.ai.pve_log.schemas import (
     ResourceStatus,
     ResourceSummary,
     StorageInfo,
-    SystemSnapshot,
 )
 from app.ai.utils import safe_bool, safe_float, safe_int
 from app.core.i18n import t
-from app.infrastructure.proxmox import get_proxmox_api
+from app.infrastructure.proxmox import (
+    get_proxmox_api,
+    get_proxmox_api_for_node,
+    list_enabled_connection_ids,
+)
 
 logger = logging.getLogger(__name__)
 _Args = ParamSpec("_Args")
@@ -256,17 +258,50 @@ def _fetch_resource_summaries(proxmox: ProxmoxAPI) -> list[ResourceSummary]:
     ]
 
 
+def _empty_cluster_info() -> ClusterInfo:
+    return ClusterInfo(
+        cluster_name=None,
+        is_cluster=False,
+        node_count=0,
+        quorate=False,
+        cluster_version=None,
+    )
+
+
+def _merge_cluster_infos(infos: list[ClusterInfo]) -> ClusterInfo:
+    """把多個 PVE 連線的叢集概覽合併成一份（單一連線時原樣回傳）。"""
+    if not infos:
+        return _empty_cluster_info()
+    if len(infos) == 1:
+        return infos[0]
+    names = [info.cluster_name for info in infos if info.cluster_name]
+    return ClusterInfo(
+        cluster_name=", ".join(names) or None,
+        is_cluster=any(info.is_cluster for info in infos),
+        node_count=sum(info.node_count for info in infos),
+        quorate=all(info.quorate for info in infos),
+        cluster_version=None,
+    )
+
+
 @dataclass
 class PveToolContext:
     """一次 chat request 內的 PVE 工具資料快取。
 
     每個工具只載入自己需要的資料；同一 request 後續 tool call 會重用已
-    取得的結果。這個 context 不跨 request 保存，也不取代完整 snapshot。
+    取得的結果。這個 context 不跨 request 保存。
     所有會觸發 PVE I/O 的操作都由 chat 呼叫端放到 worker thread 執行。
+
+    未注入 ``proxmox`` 時會彙總所有啟用中的 PVE 連線；任一連線連不上會
+    記進 ``errors``，讓工具結果帶上「部分資料缺漏」警示，而不是把其他
+    連線上的節點／VM 當成不存在。節點層級的呼叫一律走該節點所屬連線。
     """
 
     proxmox: ProxmoxAPI | None = None
     errors: list[str] = field(default_factory=list)
+    _clients: list[tuple[int | None, ProxmoxAPI]] | None = None
+    _connection_failed: bool = False
+    _node_clients: dict[str, ProxmoxAPI] = field(default_factory=dict)
     _cluster: ClusterInfo | None = None
     _cluster_loaded: bool = False
     _nodes: list[NodeInfo] = field(default_factory=list)
@@ -275,14 +310,45 @@ class PveToolContext:
     _resources: list[ResourceSummary] = field(default_factory=list)
     _resources_loaded: bool = False
     _resource_load_failed: bool = False
+    _resource_load_partial: bool = False
     _statuses: dict[int, ResourceStatus | None] = field(default_factory=dict)
     _configs: dict[int, ResourceConfig | None] = field(default_factory=dict)
     _interfaces: dict[int, list[NetworkInterface]] = field(default_factory=dict)
 
-    def _api(self) -> ProxmoxAPI:
-        if self.proxmox is None:
-            self.proxmox = get_proxmox_api()
-        return self.proxmox
+    def _connection_clients(self) -> list[tuple[int | None, ProxmoxAPI]]:
+        """回傳本 request 要查詢的 (connection_id, client) 清單（request 內快取）。"""
+        if self.proxmox is not None:
+            return [(None, self.proxmox)]
+        if self._clients is None:
+            clients: list[tuple[int | None, ProxmoxAPI]] = []
+            connection_ids: list[int | None] = list(list_enabled_connection_ids())
+            if not connection_ids:
+                # 尚未建立任何連線資料：退回單一預設連線（相容舊部署）。
+                connection_ids = [None]
+            for connection_id in connection_ids:
+                try:
+                    client = (
+                        get_proxmox_api()
+                        if connection_id is None
+                        else get_proxmox_api(connection_id)
+                    )
+                except Exception as exc:
+                    self._connection_failed = True
+                    self._record_error(f"PVE 連線 {connection_id or '預設'}", exc)
+                    continue
+                clients.append((connection_id, client))
+            self._clients = clients
+        return self._clients
+
+    def _client_for_node(self, node: str) -> ProxmoxAPI:
+        """取得可操作指定節點的 client（優先用本 request 已知的歸屬）。"""
+        if self.proxmox is not None:
+            return self.proxmox
+        client = self._node_clients.get(node)
+        if client is None:
+            client = get_proxmox_api_for_node(node)
+            self._node_clients[node] = client
+        return client
 
     def _record_error(self, label: str, exc: Exception) -> None:
         logger.error("PVE 工具資料收集失敗（%s）：%s", label, exc)
@@ -291,28 +357,40 @@ class PveToolContext:
     def _load_cluster(self) -> ClusterInfo:
         if not self._cluster_loaded:
             self._cluster_loaded = True
-            try:
-                self._cluster = _retry(_collect_cluster_info, self._api())
-            except Exception as exc:
-                self._record_error("叢集資訊", exc)
-                self._cluster = ClusterInfo(
-                    cluster_name=None,
-                    is_cluster=False,
-                    node_count=0,
-                    quorate=False,
-                    cluster_version=None,
-                )
+            infos: list[ClusterInfo] = []
+            for connection_id, client in self._connection_clients():
+                try:
+                    infos.append(_retry(_collect_cluster_info, client))
+                except Exception as exc:
+                    label = (
+                        "叢集資訊"
+                        if connection_id is None
+                        else f"連線 {connection_id} 叢集資訊"
+                    )
+                    self._record_error(label, exc)
+            self._cluster = _merge_cluster_infos(infos)
         assert self._cluster is not None
         return self._cluster
 
     def _load_nodes(self) -> list[NodeInfo]:
         if not self._nodes_loaded:
             self._nodes_loaded = True
-            try:
-                self._nodes = _retry(_collect_nodes, self._api())
-            except Exception as exc:
-                self._record_error("節點清單", exc)
-                self._nodes = []
+            nodes: list[NodeInfo] = []
+            for connection_id, client in self._connection_clients():
+                try:
+                    connection_nodes = _retry(_collect_nodes, client)
+                except Exception as exc:
+                    label = (
+                        "節點清單"
+                        if connection_id is None
+                        else f"連線 {connection_id} 節點清單"
+                    )
+                    self._record_error(label, exc)
+                    continue
+                for item in connection_nodes:
+                    self._node_clients.setdefault(item.node, client)
+                nodes.extend(connection_nodes)
+            self._nodes = nodes
         return self._nodes
 
     def _load_storages(self, node: str | None) -> list[StorageInfo]:
@@ -328,13 +406,12 @@ class PveToolContext:
             if node_name not in self._storages_by_node
         ]
         if missing_nodes:
-            proxmox = self._api()
             with ThreadPoolExecutor(max_workers=settings.collector_max_workers) as pool:
                 futures: dict[Future[list[StorageInfo]], str] = {
                     pool.submit(
                         _retry,
                         _collect_storages_for_node,
-                        proxmox,
+                        self._client_for_node(node_name),
                         node_name,
                     ): node_name
                     for node_name in missing_nodes
@@ -355,12 +432,30 @@ class PveToolContext:
     def _load_resources(self) -> list[ResourceSummary]:
         if not self._resources_loaded:
             self._resources_loaded = True
-            try:
-                self._resources = _fetch_resource_summaries(self._api())
-            except Exception as exc:
+            clients = self._connection_clients()
+            # 有連線連不上時，找不到 VMID 不能斷言「不存在」。
+            self._resource_load_partial = self._connection_failed
+            resources: list[ResourceSummary] = []
+            loaded_any = False
+            for connection_id, client in clients:
+                try:
+                    connection_resources = _fetch_resource_summaries(client)
+                except Exception as exc:
+                    self._resource_load_partial = True
+                    label = (
+                        "cluster.resources"
+                        if connection_id is None
+                        else f"連線 {connection_id} cluster.resources"
+                    )
+                    self._record_error(label, exc)
+                    continue
+                loaded_any = True
+                for item in connection_resources:
+                    self._node_clients.setdefault(item.node, client)
+                resources.extend(connection_resources)
+            if not loaded_any:
                 self._resource_load_failed = True
-                self._record_error("cluster.resources", exc)
-                self._resources = []
+            self._resources = resources
         return self._resources
 
     def _load_resource_detail_fields(self, summary: ResourceSummary) -> None:
@@ -382,7 +477,7 @@ class PveToolContext:
         ):
             self._interfaces[vmid] = []
 
-        proxmox = self._api()
+        proxmox = self._client_for_node(summary.node)
         pending: dict[str, Future[Any]] = {}
         with ThreadPoolExecutor(max_workers=3) as pool:
             if vmid not in self._statuses:
@@ -470,6 +565,10 @@ class PveToolContext:
                     "error": "PVE 資源摘要無法取得；缺少資料不代表資源不存在。"
                 }
             summary = next((item for item in resources if item.vmid == vmid), None)
+            if summary is None and self._resource_load_partial:
+                return {
+                    "error": "部分 PVE 連線的資源摘要無法取得；找不到不代表資源不存在。"
+                }
             if summary is None:
                 return {"error": t("pveLog.vmidNotFound", vmid=vmid)}
             self._load_resource_detail_fields(summary)
@@ -489,152 +588,3 @@ class PveToolContext:
                 ],
             }
         return {"error": t("pveLog.unknownTool", name=name)}
-
-
-def collect_snapshot() -> SystemSnapshot:
-    started = time.monotonic()
-    errors: list[str] = []
-    proxmox = get_proxmox_api()
-
-    logger.info("收集叢集資訊...")
-    try:
-        cluster = _retry(_collect_cluster_info, proxmox)
-    except Exception as exc:
-        logger.error("收集叢集資訊失敗：%s", exc)
-        errors.append(f"叢集資訊：{exc}")
-        cluster = ClusterInfo(
-            cluster_name=None,
-            is_cluster=False,
-            node_count=0,
-            quorate=False,
-            cluster_version=None,
-        )
-
-    logger.info("收集節點資料...")
-    try:
-        nodes = _retry(_collect_nodes, proxmox)
-    except Exception as exc:
-        logger.error("收集節點失敗：%s", exc)
-        errors.append(f"節點清單：{exc}")
-        nodes = []
-
-    node_names = [n.node for n in nodes]
-
-    logger.info("收集儲存空間資料（%d 個節點）...", len(node_names))
-    storages: list[StorageInfo] = []
-    with ThreadPoolExecutor(max_workers=settings.collector_max_workers) as pool:
-        futures: dict[Future[list[StorageInfo]], str] = {
-            pool.submit(_retry, _collect_storages_for_node, proxmox, node): node
-            for node in node_names
-        }
-        for storage_future in as_completed(futures):
-            try:
-                storages.extend(storage_future.result())
-            except Exception as exc:
-                node = futures[storage_future]
-                errors.append(f"節點 {node} 儲存空間：{exc}")
-
-    logger.info("收集 VM/LXC 摘要...")
-    try:
-        all_resources = _fetch_resource_summaries(proxmox)
-    except Exception as exc:
-        logger.error("收集 cluster.resources 失敗：%s", exc)
-        errors.append(f"cluster.resources：{exc}")
-        all_resources = []
-
-    running_resources: list[tuple[str, int, str]] = []
-
-    for summary in all_resources:
-        if summary.status == "running":
-            running_resources.append((summary.node, summary.vmid, summary.resource_type))
-
-    logger.info("共 %d 個資源（VM/LXC），%d 個運行中", len(all_resources), len(running_resources))
-
-    logger.info("收集即時狀態（%d 個 running 資源）...", len(running_resources))
-    resource_statuses: list[ResourceStatus] = []
-    with ThreadPoolExecutor(max_workers=settings.collector_max_workers) as pool:
-        futures_status: dict[Future[ResourceStatus | None], tuple[str, int, str]] = {
-            pool.submit(_retry, _collect_resource_status, proxmox, node, vmid, rtype): (node, vmid, rtype)
-            for node, vmid, rtype in running_resources
-        }
-        for status_future in as_completed(futures_status):
-            try:
-                status_result = status_future.result()
-                if status_result is not None:
-                    resource_statuses.append(status_result)
-            except Exception as exc:
-                node, vmid, rtype = futures_status[status_future]
-                errors.append(f"{rtype} {vmid} 狀態：{exc}")
-
-    resource_configs: list[ResourceConfig] = []
-    if settings.collector_fetch_config:
-        all_vmid_list = [(r.node, r.vmid, r.resource_type) for r in all_resources]
-        logger.info("收集設定檔（%d 個資源）...", len(all_vmid_list))
-        with ThreadPoolExecutor(max_workers=settings.collector_max_workers) as pool:
-            futures_cfg: dict[Future[ResourceConfig | None], tuple[str, int, str]] = {
-                pool.submit(_retry, _collect_resource_config, proxmox, node, vmid, rtype): (node, vmid, rtype)
-                for node, vmid, rtype in all_vmid_list
-            }
-            for config_future in as_completed(futures_cfg):
-                try:
-                    config_result = config_future.result()
-                    if config_result is not None:
-                        resource_configs.append(config_result)
-                except Exception as exc:
-                    node, vmid, rtype = futures_cfg[config_future]
-                    errors.append(f"{rtype} {vmid} 設定：{exc}")
-
-    network_interfaces: list[NetworkInterface] = []
-    if settings.collector_fetch_lxc_interfaces:
-        lxc_list = [
-            (r.node, r.vmid)
-            for r in all_resources
-            if r.resource_type == "lxc" and r.status == "running"
-        ]
-        logger.info("收集 LXC 網路介面（%d 個容器）...", len(lxc_list))
-        with ThreadPoolExecutor(max_workers=settings.collector_max_workers) as pool:
-            futures_iface: dict[Future[list[NetworkInterface]], tuple[str, int]] = {
-                pool.submit(_retry, _collect_lxc_interfaces, proxmox, node, vmid): (node, vmid)
-                for node, vmid in lxc_list
-            }
-            for interface_future in as_completed(futures_iface):
-                try:
-                    network_interfaces.extend(interface_future.result())
-                except Exception as exc:
-                    node, vmid = futures_iface[interface_future]
-                    errors.append(f"LXC {vmid} 網路介面：{exc}")
-
-    total_vms = sum(1 for r in all_resources if r.resource_type == "qemu")
-    total_lxc = sum(1 for r in all_resources if r.resource_type == "lxc")
-    running_vms = sum(1 for r in all_resources if r.resource_type == "qemu" and r.status == "running")
-    running_lxc = sum(1 for r in all_resources if r.resource_type == "lxc" and r.status == "running")
-    online_nodes = sum(1 for n in nodes if n.status == "online")
-
-    duration = round(time.monotonic() - started, 3)
-    logger.info(
-        "收集完成：耗時 %.2f 秒，節點 %d，VM %d，LXC %d，錯誤 %d 筆",
-        duration,
-        len(nodes),
-        total_vms,
-        total_lxc,
-        len(errors),
-    )
-
-    return SystemSnapshot(
-        collected_at=datetime.now(timezone.utc),
-        collection_duration_seconds=duration,
-        cluster=cluster,
-        nodes=nodes,
-        storages=storages,
-        resources=all_resources,
-        resource_statuses=resource_statuses,
-        resource_configs=resource_configs,
-        network_interfaces=network_interfaces,
-        errors=errors,
-        total_nodes=len(nodes),
-        online_nodes=online_nodes,
-        total_vms=total_vms,
-        total_lxc=total_lxc,
-        running_vms=running_vms,
-        running_lxc=running_lxc,
-    )

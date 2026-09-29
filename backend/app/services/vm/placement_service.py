@@ -49,10 +49,6 @@ _projected_share = placement_scorer.projected_share
 _node_balance_score = placement_scorer.node_balance_score
 
 
-def _utc_now() -> datetime:
-    return placement_support.utc_now()
-
-
 def _normalize_datetime(value: datetime | None) -> datetime | None:
     return placement_support.normalize_datetime(value)
 
@@ -116,8 +112,17 @@ def _reserve_request_on_capacities(
     )
 
 
-def _hour_window_iter(start_at: datetime, end_at: datetime) -> list[datetime]:
-    return placement_support.hour_window_iter(start_at, end_at)
+def _window_checkpoints(
+    start_at: datetime,
+    end_at: datetime,
+    reserved_requests: list[VMRequest],
+) -> list[datetime]:
+    return placement_support.window_checkpoints(
+        start_at=start_at,
+        end_at=end_at,
+        reserved_requests=reserved_requests,
+        normalize_datetime_fn=_normalize_datetime,
+    )
 
 
 def _apply_reserved_requests_to_capacities(
@@ -168,16 +173,26 @@ def select_current_target_node(
     session: Session,
     db_request: VMRequest,
 ) -> CurrentPlacementSelection:
-    request = _to_placement_request(db_request)
-    nodes, resources = placement_advisor._load_cluster_state()
+    return _select_current_for_request(
+        session=session, request=_to_placement_request(db_request)
+    )
+
+
+def _select_current_for_request(
+    *,
+    session: Session,
+    request: PlacementRequest,
+) -> CurrentPlacementSelection:
+    """依節點「現在」的容量選點（不看預約時段）。"""
+    nodes, resources = placement_support.load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    node_capacities = placement_advisor._build_node_capacities(
+    node_capacities = placement_support.build_live_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
-    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
     )
     plan = build_plan(
@@ -194,66 +209,44 @@ def select_current_target_node(
     )
 
 
-def select_reserved_target_node(
-    *,
-    session: Session,
-    db_request: VMRequest,
-    reserved_requests: list[VMRequest] | None = None,
-) -> CurrentPlacementSelection:
-    start_at, end_at = _request_window(db_request)
-    return select_reserved_target_node_for_request(
-        session=session,
-        request=_to_placement_request(db_request),
-        start_at=start_at,
-        end_at=end_at,
-        reserved_requests=reserved_requests,
-        allow_cohort_optimization=False,
-    )
+@dataclass
+class _WindowFeasibility:
+    """整個時段內每個檢查點都放得下本申請的節點，以及選點需要的中間結果。"""
+
+    feasible_nodes: set[str]
+    # 開始時間點（第一個檢查點）扣掉已核准預約後的投影容量
+    start_capacities: list[NodeCapacity]
+    storage_pools_by_node: dict[str, list[_WorkingStoragePool]]
+    has_managed_storage: bool
+    disk_overcommit_ratio: float
+    reserved_requests: list[VMRequest]
+    effective_resource_type: ResourceType
+    resource_type_reason: str
 
 
-def select_reserved_target_node_for_request(
+def _feasible_nodes_over_window(
     *,
     session: Session,
     request: PlacementRequest,
-    start_at: datetime | None,
-    end_at: datetime | None,
-    reserved_requests: list[VMRequest] | None = None,
-    allow_cohort_optimization: bool = True,
-) -> CurrentPlacementSelection:
-    if not start_at or not end_at:
-        nodes, resources = placement_advisor._load_cluster_state()
-        cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-        node_capacities = placement_advisor._build_node_capacities(
-            nodes=nodes,
-            resources=resources,
-            cpu_overcommit_ratio=cpu_overcommit_ratio,
-            disk_overcommit_ratio=disk_overcommit_ratio,
-        )
-        effective_resource_type, resource_type_reason = (
-            placement_advisor._decide_resource_type(request)
-        )
-        plan = build_plan(
-            session=session,
-            request=request,
-            node_capacities=node_capacities,
-            effective_resource_type=effective_resource_type,
-            resource_type_reason=resource_type_reason,
-        )
-        return CurrentPlacementSelection(
-            node=plan.recommended_node,
-            strategy=get_placement_strategy(session),
-            plan=plan,
-        )
+    start_at: datetime,
+    end_at: datetime,
+    reserved_requests: list[VMRequest] | None,
+) -> _WindowFeasibility:
+    """逐一檢查時段內的容量檢查點，取出每個時間點都放得下本申請的節點交集。
 
-    nodes, resources = placement_advisor._load_cluster_state()
+    核准選點（select_reserved_target_node_for_request）與審核預覽
+    （get_preview_node_scores）共用同一套判斷，兩邊的可行節點才會一致。
+    reserved_requests 為 None 時查詢與時段重疊的已核准申請。
+    """
+    nodes, resources = placement_support.load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    baseline_capacities = placement_advisor._build_node_capacities(
+    baseline_capacities = placement_support.build_live_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
-    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
     )
     storage_pools_by_node, has_managed_storage = _build_storage_pool_state(
@@ -273,12 +266,12 @@ def select_reserved_target_node_for_request(
             window_start=start_at,
             window_end=end_at,
         )
-    checkpoints = [start_at] + [
-        checkpoint
-        for checkpoint in _hour_window_iter(start_at, end_at)
-        if checkpoint != start_at
-    ]
+    checkpoints = _window_checkpoints(start_at, end_at, reserved_requests)
 
+    cores = placement_advisor.effective_cpu_cores(request, effective_resource_type)
+    memory_bytes = placement_advisor.effective_memory_bytes(
+        request, effective_resource_type
+    )
     feasible_nodes = {item.node for item in baseline_capacities}
     start_capacities = baseline_capacities
 
@@ -296,12 +289,8 @@ def select_reserved_target_node_for_request(
             for item in adjusted_capacities
             if placement_support.node_can_host_request(
                 item,
-                cores=placement_advisor._effective_cpu_cores(
-                    request, effective_resource_type
-                ),
-                memory_bytes=placement_advisor._effective_memory_bytes(
-                    request, effective_resource_type
-                ),
+                cores=cores,
+                memory_bytes=memory_bytes,
                 disk_bytes=request.disk_gb * GIB,
                 gpu_required=request.gpu_required,
                 has_managed_storage=has_managed_storage,
@@ -317,6 +306,61 @@ def select_reserved_target_node_for_request(
         feasible_nodes &= hour_feasible_nodes
         if not feasible_nodes:
             break
+
+    return _WindowFeasibility(
+        feasible_nodes=feasible_nodes,
+        start_capacities=start_capacities,
+        storage_pools_by_node=storage_pools_by_node,
+        has_managed_storage=has_managed_storage,
+        disk_overcommit_ratio=disk_overcommit_ratio,
+        reserved_requests=reserved_requests,
+        effective_resource_type=effective_resource_type,
+        resource_type_reason=resource_type_reason,
+    )
+
+
+def select_reserved_target_node(
+    *,
+    session: Session,
+    db_request: VMRequest,
+    reserved_requests: list[VMRequest] | None = None,
+) -> CurrentPlacementSelection:
+    start_at, end_at = _request_window(db_request)
+    return select_reserved_target_node_for_request(
+        session=session,
+        request=_to_placement_request(db_request),
+        start_at=start_at,
+        end_at=end_at,
+        reserved_requests=reserved_requests,
+    )
+
+
+def select_reserved_target_node_for_request(
+    *,
+    session: Session,
+    request: PlacementRequest,
+    start_at: datetime | None,
+    end_at: datetime | None,
+    reserved_requests: list[VMRequest] | None = None,
+    allow_cohort_optimization: bool = True,
+) -> CurrentPlacementSelection:
+    # allow_cohort_optimization 已無作用（不再重解整個 cohort），僅為相容既有
+    # 呼叫端保留；新程式碼不要再傳。
+    del allow_cohort_optimization
+    if not start_at or not end_at:
+        return _select_current_for_request(session=session, request=request)
+
+    window = _feasible_nodes_over_window(
+        session=session,
+        request=request,
+        start_at=start_at,
+        end_at=end_at,
+        reserved_requests=reserved_requests,
+    )
+    feasible_nodes = window.feasible_nodes
+    start_capacities = window.start_capacities
+    effective_resource_type = window.effective_resource_type
+    resource_type_reason = window.resource_type_reason
 
     strategy = get_placement_strategy(session)
     if not feasible_nodes:
@@ -512,69 +556,15 @@ def get_preview_node_scores(
         return []
 
     request = _to_placement_request(db_request)
-    effective_resource_type, _ = placement_advisor._decide_resource_type(request)
-
-    nodes, resources = placement_advisor._load_cluster_state()
-    cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    baseline_capacities = placement_advisor._build_node_capacities(
-        nodes=nodes,
-        resources=resources,
-        cpu_overcommit_ratio=cpu_overcommit_ratio,
-        disk_overcommit_ratio=disk_overcommit_ratio,
-    )
-
-    if reserved_requests is None:
-        reserved_requests = vm_request_repo.get_approved_vm_requests_overlapping_window(
-            session=session,
-            window_start=start_at,
-            window_end=end_at,
-        )
-
-    checkpoints = [start_at] + [
-        checkpoint
-        for checkpoint in _hour_window_iter(start_at, end_at)
-        if checkpoint != start_at
-    ]
-
-    feasible_nodes = {item.node for item in baseline_capacities}
-    storage_pools_by_node, has_managed_storage = _build_storage_pool_state(
+    window = _feasible_nodes_over_window(
         session=session,
-        node_names=[item.node for item in baseline_capacities],
+        request=request,
+        start_at=start_at,
+        end_at=end_at,
+        reserved_requests=reserved_requests,
     )
-    allowed_gpu_nodes = placement_support.allowed_gpu_nodes_for_request(request)
-    allowed_template_nodes = placement_support.allowed_template_nodes_for_request(
-        request
-    )
-    allowed_affinity_nodes = placement_support.allowed_affinity_nodes_for_request(
-        session=session, request=request
-    )
-    for checkpoint in checkpoints:
-        adjusted = _apply_reserved_requests_to_capacities(
-            baseline_capacities=baseline_capacities,
-            reserved_requests=reserved_requests,
-            at_time=checkpoint,
-        )
-        hour_feasible = {
-            item.node for item in adjusted
-            if placement_support.node_can_host_request(
-                item,
-                cores=placement_advisor._effective_cpu_cores(request, effective_resource_type),
-                memory_bytes=placement_advisor._effective_memory_bytes(request, effective_resource_type),
-                disk_bytes=request.disk_gb * GIB,
-                gpu_required=request.gpu_required,
-                has_managed_storage=has_managed_storage,
-                allowed_gpu_nodes=allowed_gpu_nodes,
-                allowed_nodes=allowed_template_nodes,
-                allowed_affinity_nodes=allowed_affinity_nodes,
-            )
-            and (
-                not has_managed_storage
-                or storage_pools_by_node.get(item.node)
-            )
-        }
-        feasible_nodes &= hour_feasible
-        if not feasible_nodes:
-            break
+    feasible_nodes = window.feasible_nodes
+    reserved_requests = window.reserved_requests
 
     if not feasible_nodes:
         return []
@@ -586,20 +576,16 @@ def get_preview_node_scores(
             start_at=start_at,
             end_at=end_at,
             reserved_requests=reserved_requests,
-            allow_cohort_optimization=False,
         ).node
 
     preview_request = _build_preview_vm_request(
         request=request, start_at=start_at, end_at=end_at,
     )
-    # 其他 approved 申請的落點已經固定，baseline 扣掉它們的占用後，預覽只需
-    # 回答「把這一台放到各候選節點，該節點會變成什麼樣子」—— 不必也不該重解
-    # 整個 cohort（重解會得出與核准不同的答案，且成本是 O(節點²×申請²)）。
-    projected_baseline = _apply_reserved_requests_to_capacities(
-        baseline_capacities=baseline_capacities,
-        reserved_requests=reserved_requests,
-        at_time=start_at,
-    )
+    # 其他 approved 申請的落點已經固定，baseline 扣掉它們的占用後（即開始時間點
+    # 的投影容量），預覽只需回答「把這一台放到各候選節點，該節點會變成什麼樣子」
+    # —— 不必也不該重解整個 cohort（重解會得出與核准不同的答案，且成本是
+    # O(節點²×申請²)）。
+    projected_baseline = window.start_capacities
     priorities = get_node_priorities(session)
     tuning = get_placement_tuning(session=session)
     current_node = _provisioned_current_node(db_request)
@@ -611,9 +597,9 @@ def get_preview_node_scores(
             projected_baseline=projected_baseline,
             preview_request=preview_request,
             request=request,
-            storage_pools_by_node=storage_pools_by_node,
-            has_managed_storage=has_managed_storage,
-            disk_overcommit_ratio=disk_overcommit_ratio,
+            storage_pools_by_node=window.storage_pools_by_node,
+            has_managed_storage=window.has_managed_storage,
+            disk_overcommit_ratio=window.disk_overcommit_ratio,
             tuning=tuning,
             priorities=priorities,
             current_node=current_node,

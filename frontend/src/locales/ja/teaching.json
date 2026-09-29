@@ -148,6 +148,9 @@
   "ClassSetupPage.selectTemplateHint": "受講テンプレートを選択すると続行できます",
   "ClassSetupPage.savingBtn": "保存中…",
   "ClassSetupPage.saveAndNextBtn": "保存して次へ",
+  "ClassSetupPage.invalidRoleMsg": "学生アカウントではないため追加されませんでした：{{list}}",
+  "ClassSetupPage.capacityNeedsStudents": "クラスにまだ学生がいません。「学生名簿」に戻って 1 名以上追加してください。",
+  "ClassSetupPage.capacityNeedsEnvironment": "受講環境がまだ選択されていません。「受講環境」に戻って選択してください。",
   "ClassCreateDialog.weekdayMon": "月曜日",
   "ClassCreateDialog.weekdayTue": "火曜日",
   "ClassCreateDialog.weekdayWed": "水曜日",
@@ -385,7 +388,6 @@
   "CourseCmsPage.thStudent": "学生",
   "CourseCmsPage.thTotalProgress": "総合進捗",
   "CourseCmsPage.noStudentRecordsText": "まだ回答記録がありません",
-  "CourseCmsPage.teacherOnlyText": "教師と管理者のみコース管理を使用できます",
   "CourseCmsPage.pageTitle": "コース管理",
   "CourseCmsPage.tabContentEditor": "コンテンツ編集",
   "CourseCmsPage.tabStudentProgress": "学生の進捗",
@@ -666,6 +668,8 @@
   "ClassWorkspacePage.subtitleTemplate": "学生 {{students}} 名 ・{{weeks}} 回の授業 ・毎週{{weekday}} {{start}}–{{end}}",
   "ClassWorkspacePage.workflowAriaLabel": "クラス管理の流れ",
   "ClassWorkspacePage.scheduleUpdatedMsg": "クラスと固定時間割を更新しました。",
+  "ClassWorkspacePage.filesUploadFailed": "次のタスクファイルのアップロードに失敗しました：{{files}}",
+  "ClassWorkspacePage.filesUploadPartialFail": "タスクファイルを {{done}} 件アップロードしましたが、次のファイルは失敗しました：{{files}}",
   "AiJudgePanel.aboutToUseLabel": "使用予定：{{name}} v{{version}}（{{template}}）",
   "AiJudgePanel.addCheckTitle": "新しいチェック",
   "AiJudgePanel.addItemBtn": "項目を追加",
@@ -996,5 +1000,8 @@
   "CourseTemplateEditorPage.fileDeleteFailed": "ドキュメントを削除できませんでした",
   "CourseTemplateEditorPage.fileDeleteConfirmTitle": "このドキュメントを削除しますか？",
   "CourseTemplateEditorPage.fileDeleteConfirmMessage": "「{{name}}」はこのコース環境から削除され、元に戻せません。",
-  "CourseTemplateEditorPage.fileDeleteConfirmAction": "削除"
+  "CourseTemplateEditorPage.fileDeleteConfirmAction": "削除",
+  "CourseTemplateEditorPage.fileDownloadFailed": "ファイルをダウンロードできませんでした",
+  "AiJudgePage.backToWorkspaceBtn": "クラスのワークスペースに戻る",
+  "AiJudgePage.loadingMachinesText": "クラスのマシンを読み込んでいます…"
 }

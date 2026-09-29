@@ -12,8 +12,10 @@
   "provisioning.vm_network_incomplete": "網路設定不完整，無法建立 VM VMID={vmid}。請確認 IP 管理子網設定。",
   "reset.init_snapshot_exists": "初始快照 skylab-init 已存在",
   "reset.no_init_snapshot": "此資源沒有 skylab-init 初始快照，無法重置；請老師或管理員先補建",
+  "reset.already_running": "這台機器已有重置任務在排隊或執行中，請等它完成後再試",
   "quota.exceeded": "配額不足：{violations}",
   "provisioning.gpu_mdev_profile_invalid": "vGPU 規格名稱格式不合法: '{profile}'",
+  "provisioning.gpu_mapping_id_invalid": "GPU 對應 ID 格式不合法: '{mapping_id}'",
   "resource_settings.readConfigFailed": "無法讀取資源 {vmid} 的設定",
   "resource_settings.updateConfigFailed": "更新資源 {vmid} 的設定失敗：{error}",
   "resource_settings.listIsoFailed": "無法列出 ISO 映像",
@@ -43,5 +45,8 @@
   "resource_settings.alreadyOwner": "{email} 已經是這台機器的擁有者",
   "resource_settings.transferred": "機器已轉移給 {email}",
   "resource.start_window_not_started": "這台機器的使用時段還沒開始，請等核准的時段開始後再開機。",
-  "resource.start_window_ended": "這台機器的使用時段已結束，無法再開機；如需繼續使用，請重新申請。"
+  "resource.start_window_ended": "這台機器的使用時段已結束，無法再開機；如需繼續使用，請重新申請。",
+  "resource.delete_presence_unverified": "目前有 PVE 連線查詢失敗，無法確認這台機器是否已不存在；為避免誤刪記錄，暫不處理，請稍後再試",
+  "resource.delete_outside_pool": "這台機器仍存在於 PVE（不在資源池內，或位於停用中的連線），請由管理員確認後再刪除",
+  "resource.delete_template_update_temp": "這台是範本「{name}」更新中的暫存母機，請到範本頁取消更新"
 }

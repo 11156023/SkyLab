@@ -13,21 +13,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AuthStorage } from "../services/auth";
+import { wsBaseUrl } from "../utils/wsUrl";
+
+/* 相容舊的匯入路徑；新程式請直接從 utils/wsUrl 匯入 */
+export { wsBaseUrl };
 
 /** 重連退避：起始 5 秒、上限 60 秒 */
 const RECONNECT_BASE_MS = 5_000;
 const RECONNECT_MAX_MS = 60_000;
 /** WebSocket close code 1008：後端以政策理由拒絕（token 無效／過期） */
 const WS_POLICY_VIOLATION = 1008;
-
-/** 依 VITE_API_URL（或當前位置）組出 WS base，與 VncDialog 同邏輯 */
-export function wsBaseUrl() {
-  const apiUrl = new URL(
-    import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.host}`,
-  );
-  const proto = apiUrl.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${apiUrl.host}`;
-}
 
 export function useClassroomSocket(onEvent, { enabled = true } = {}) {
   const handlerRef = useRef(onEvent);

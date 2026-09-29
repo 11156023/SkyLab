@@ -11,7 +11,8 @@ from app.models.user import UserRole
 
 
 def _user(role: UserRole, *, is_superuser: bool = False) -> SimpleNamespace:
-    return SimpleNamespace(role=role, is_superuser=is_superuser)
+    # 真實 User 一定有 id；service 會把它交給用量紀錄（沒有 session 時只記指標）
+    return SimpleNamespace(id=None, role=role, is_superuser=is_superuser)
 
 
 def _model_reply(payload_json: str):

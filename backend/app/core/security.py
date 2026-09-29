@@ -22,17 +22,29 @@ password_hash = PasswordHash(
 )
 
 
-@lru_cache(maxsize=1)
-def _get_fernet() -> Fernet:
-    """Derive a Fernet key from SECRET_KEY using PBKDF2."""
+_FERNET_SALT = b"SkyLab-fernet-v1"
+_FERNET_ITERATIONS = 480_000
+
+
+def derive_fernet(secret_key: str) -> Fernet:
+    """Derive the at-rest Fernet key from a SECRET_KEY using PBKDF2.
+
+    scripts/rotate_secret_key.py derives its old and new keys through this
+    too, so the salt and iteration count live only here.
+    """
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"SkyLab-fernet-v1",
-        iterations=480_000,
+        salt=_FERNET_SALT,
+        iterations=_FERNET_ITERATIONS,
     )
-    key = base64.urlsafe_b64encode(kdf.derive(settings.SECRET_KEY.encode()))
-    return Fernet(key)
+    return Fernet(base64.urlsafe_b64encode(kdf.derive(secret_key.encode())))
+
+
+@lru_cache(maxsize=1)
+def _get_fernet() -> Fernet:
+    """The Fernet derived from the configured SECRET_KEY (cached)."""
+    return derive_fernet(settings.SECRET_KEY)
 
 
 def encrypt_value(plain_text: str) -> str:
@@ -48,20 +60,29 @@ def decrypt_value(encrypted_text: str) -> str:
 ALGORITHM = "HS256"
 
 
-def create_access_token(
+def _create_token(
     subject: str | Any,
     expires_delta: timedelta,
-    token_version: int = 0,
+    token_version: int,
+    token_type: str,
 ) -> str:
     expire = datetime.now(timezone.utc) + expires_delta
     to_encode = {
         "exp": expire,
         "sub": str(subject),
-        "type": "access",
+        "type": token_type,
         "ver": token_version,
         "jti": uuid4().hex,
     }
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_access_token(
+    subject: str | Any,
+    expires_delta: timedelta,
+    token_version: int = 0,
+) -> str:
+    return _create_token(subject, expires_delta, token_version, "access")
 
 
 def create_refresh_token(
@@ -69,15 +90,7 @@ def create_refresh_token(
     expires_delta: timedelta,
     token_version: int = 0,
 ) -> str:
-    expire = datetime.now(timezone.utc) + expires_delta
-    to_encode = {
-        "exp": expire,
-        "sub": str(subject),
-        "type": "refresh",
-        "ver": token_version,
-        "jti": uuid4().hex,
-    }
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    return _create_token(subject, expires_delta, token_version, "refresh")
 
 
 def verify_password(

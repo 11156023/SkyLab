@@ -8,10 +8,10 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-from app.infrastructure.proxmox.rrd import sampling_step_seconds
+from app.infrastructure.proxmox.rrd import sampling_step_seconds, window_cpu_percentages
 
 # 視窗內有效樣本覆蓋率下限 — 低於此值視為資料不足，不判定
 MIN_SAMPLE_COVERAGE = 2.0 / 3.0
@@ -32,15 +32,7 @@ def cpu_stats(
     所以換 timeframe 或 PVE 版本都不必改這裡；推不出間隔（不足兩點）
     時覆蓋率為 0。視窗內無任何有效點回傳 None。
     """
-    window_start = (now - timedelta(hours=window_hours)).timestamp()
-    values: list[float] = []
-    for point in rrd:
-        ts = point.get("time")
-        cpu = point.get("cpu")
-        if ts is None or cpu is None:
-            continue
-        if float(ts) >= window_start:
-            values.append(float(cpu) * 100.0)
+    values = window_cpu_percentages(rrd, window_hours=window_hours, now=now)
     if not values:
         return None
     avg = sum(values) / len(values)

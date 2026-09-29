@@ -1,4 +1,8 @@
 import { apiGet, apiPost } from "./api";
+import { fetchAllPages } from "./pagedList";
+
+/** GET /spec-change-requests/ 的 limit 上限（後端 le=200） */
+const SPEC_REQUEST_PAGE_SIZE = 200;
 
 /**
  * 規格調整申請流程：
@@ -22,14 +26,19 @@ export const SpecChangeRequestsService = {
     return apiGet(`/api/v1/spec-change-requests/my?${query.toString()}`);
   },
 
+  /** 管理員看全部申請（新到舊）；limit 超過後端上限 200 時自動用 skip 分頁補齊。 */
   listAll(params = {}) {
-    const query = new URLSearchParams();
-    if (params.status) query.set("status", params.status);
-    if (params.vmid) query.set("vmid", String(params.vmid));
-    query.set("limit", String(params.limit ?? 100));
-    if (params.skip) query.set("skip", String(params.skip));
-    const qs = query.toString();
-    return apiGet(`/api/v1/spec-change-requests/${qs ? `?${qs}` : ""}`);
+    return fetchAllPages(
+      (page) => {
+        const query = new URLSearchParams();
+        if (params.status) query.set("status", params.status);
+        if (params.vmid) query.set("vmid", String(params.vmid));
+        query.set("limit", String(page.limit));
+        if (page.skip) query.set("skip", String(page.skip));
+        return apiGet(`/api/v1/spec-change-requests/?${query.toString()}`);
+      },
+      { limit: params.limit ?? 100, skip: params.skip ?? 0, pageSize: SPEC_REQUEST_PAGE_SIZE },
+    );
   },
 
   review(requestId, body) {

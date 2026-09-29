@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models import (
     TaskRecord,
@@ -12,6 +12,7 @@ from app.models import (
     VMTemplateStatus,
     VMTemplateVisibility,
 )
+from app.utils.hostname import validate_unicode_hostname
 
 # ===== Request Schemas =====
 
@@ -34,6 +35,14 @@ class VMTemplateCreate(BaseModel):
     )
 
 
+_UPDATE_NON_NULLABLE_FIELDS = (
+    "name",
+    "visibility",
+    "allow_password_change",
+    "requires_gpu",
+)
+
+
 class VMTemplateUpdate(BaseModel):
     """更新範本 metadata / 可見範圍"""
 
@@ -45,6 +54,18 @@ class VMTemplateUpdate(BaseModel):
     # default_disk 不開放更新：跟母機一致
     allow_password_change: bool | None = None
     requires_gpu: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_null_for_required_fields(cls, data: Any) -> Any:
+        # 欄位型別是 Optional 只為了 PATCH 的「沒送就不改」；這幾欄在 DB 是
+        # NOT NULL，明確送 null 直接回 422（service 端另有 400 的同樣檢查）。
+        # description / default_cores / default_memory 可為 null，不在此列。
+        if isinstance(data, dict):
+            for field in _UPDATE_NON_NULLABLE_FIELDS:
+                if field in data and data[field] is None:
+                    raise ValueError(f"{field} cannot be null")
+        return data
 
 
 # ===== Response Schemas =====
@@ -172,6 +193,18 @@ class TemplateCloneRequest(BaseModel):
         default=None, description="vGPU 規格；未填時自動配最小可用規格"
     )
     start: bool = True
+
+    @field_validator("hostname")
+    @classmethod
+    def _check_hostname(cls, value: str | None) -> str | None:
+        # 與其他開通 schema 一樣走 UnicodeHostname 的規則，但逐段檢查以保留
+        # 「web.lab」這種帶點的名稱；空段（a..b、結尾的點）、空白與符號在這裡就
+        # 回 422，不要等到 to_punycode_hostname 丟 ValueError 變成 500。
+        if value is None:
+            return None
+        for label in value.split("."):
+            validate_unicode_hostname(label)
+        return value
 
 
 class TemplateCloneResponse(BaseModel):

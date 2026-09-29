@@ -14,6 +14,8 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 
+from benchmark._common import latency_stats, stream_chat
+from config.multi_model import probe_host
 from config.settings import Settings, get_settings
 
 
@@ -179,17 +181,6 @@ class BenchmarkReport:
         return str(filename)
 
 
-def _percentile(sorted_data: list[float], p: float) -> float:
-    """計算百分位數"""
-    if not sorted_data:
-        return 0.0
-    k = (len(sorted_data) - 1) * p / 100.0
-    f = int(k)
-    c = f + 1 if f + 1 < len(sorted_data) else f
-    d = k - f
-    return sorted_data[f] + d * (sorted_data[c] - sorted_data[f])
-
-
 async def _send_request(
     client: AsyncOpenAI,
     model: str,
@@ -201,68 +192,27 @@ async def _send_request(
     """發送單個異步請求 (使用流式回應以取得 TTFT)"""
     async with semaphore:
         start_time = time.perf_counter()
-        first_token_time = None
-        completion_text = ""
-
         try:
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.7,
-                stream=True,
-                stream_options={"include_usage": True},
-            )
-
-            prompt_tokens = 0
-            completion_tokens = 0
-
-            async for chunk in stream:
-                if first_token_time is None and chunk.choices:
-                    delta = chunk.choices[0].delta.content
-                    if delta:
-                        first_token_time = time.perf_counter()
-                        completion_text += delta
-
-                elif chunk.choices:
-                    delta = chunk.choices[0].delta.content
-                    if delta:
-                        completion_text += delta
-
-                # 從最後的 chunk 取得 usage
-                if hasattr(chunk, "usage") and chunk.usage:
-                    prompt_tokens = chunk.usage.prompt_tokens
-                    completion_tokens = chunk.usage.completion_tokens
-
-            end_time = time.perf_counter()
-
-            # 若未從 usage 取得，用粗估
-            if completion_tokens == 0:
-                completion_tokens = max(1, len(completion_text) // 4)
-            if prompt_tokens == 0:
-                prompt_tokens = sum(len(m.get("content", "")) // 4 for m in messages)
-
-            return RequestResult(
-                request_id=request_id,
-                success=True,
-                latency=end_time - start_time,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=prompt_tokens + completion_tokens,
-                first_token_latency=(first_token_time - start_time) if first_token_time else None,
-            )
-
+            outcome = await stream_chat(client, model, messages, max_tokens, temperature=0.7)
         except Exception as e:
-            end_time = time.perf_counter()
             return RequestResult(
                 request_id=request_id,
                 success=False,
-                latency=end_time - start_time,
+                latency=time.perf_counter() - start_time,
                 prompt_tokens=0,
                 completion_tokens=0,
                 total_tokens=0,
                 error=str(e),
             )
+        return RequestResult(
+            request_id=request_id,
+            success=True,
+            latency=outcome.latency,
+            prompt_tokens=outcome.prompt_tokens,
+            completion_tokens=outcome.completion_tokens,
+            total_tokens=outcome.prompt_tokens + outcome.completion_tokens,
+            first_token_latency=outcome.first_token_latency,
+        )
 
 
 async def run_benchmark(
@@ -292,12 +242,13 @@ async def run_benchmark(
     _conc = concurrency or s.bench_concurrency
     _max_tok = max_tokens or s.bench_max_tokens
     _prompt = prompt or s.bench_prompt
-    _model = s.resolved_model_path
+    # vLLM 帶 --served-model-name 時只接受該名稱（見 Settings.api_model_name）
+    _model = s.api_model_name
 
     print(f"\n{'='*70}")
     print("  vLLM 異步 Benchmark")
     print(f"{'='*70}")
-    print(f"  模型:       {s.model_name}")
+    print(f"  模型:       {_model}")
     print(f"  總請求數:   {_total}")
     print(f"  併發數:     {_conc}")
     print(f"  最大 Token: {_max_tok}")
@@ -305,7 +256,7 @@ async def run_benchmark(
     print(f"{'='*70}\n")
 
     client = AsyncOpenAI(
-        base_url=f"http://{s.api_host}:{s.api_port}/v1",
+        base_url=f"http://{probe_host(s.api_host)}:{s.api_port}/v1",
         api_key=s.api_key,
         timeout=s.request_timeout,
     )
@@ -333,7 +284,7 @@ async def run_benchmark(
     failed = [r for r in results if not r.success]
 
     report = BenchmarkReport(
-        model_name=s.model_name,
+        model_name=_model,
         timestamp=datetime.now().isoformat(),
         total_requests=_total,
         concurrency=_conc,
@@ -349,25 +300,26 @@ async def run_benchmark(
     )
 
     if successful:
-        latencies = sorted(r.latency for r in successful)
         report.requests_per_second = len(successful) / total_time
         report.tokens_per_second = report.total_tokens / total_time
         report.output_tokens_per_second = report.total_completion_tokens / total_time
-        report.avg_latency = sum(latencies) / len(latencies)
-        report.min_latency = latencies[0]
-        report.max_latency = latencies[-1]
-        report.p50_latency = _percentile(latencies, 50)
-        report.p90_latency = _percentile(latencies, 90)
-        report.p95_latency = _percentile(latencies, 95)
-        report.p99_latency = _percentile(latencies, 99)
+        latency = latency_stats([r.latency for r in successful])
+        report.avg_latency = latency["avg"]
+        report.min_latency = latency["min"]
+        report.max_latency = latency["max"]
+        report.p50_latency = latency["p50"]
+        report.p90_latency = latency["p90"]
+        report.p95_latency = latency["p95"]
+        report.p99_latency = latency["p99"]
 
         # TTFT
-        ttfts = sorted(r.first_token_latency for r in successful if r.first_token_latency)
+        ttfts = [r.first_token_latency for r in successful if r.first_token_latency]
         if ttfts:
-            report.avg_ttft = sum(ttfts) / len(ttfts)
-            report.p50_ttft = _percentile(ttfts, 50)
-            report.p90_ttft = _percentile(ttfts, 90)
-            report.p99_ttft = _percentile(ttfts, 99)
+            ttft = latency_stats(ttfts)
+            report.avg_ttft = ttft["avg"]
+            report.p50_ttft = ttft["p50"]
+            report.p90_ttft = ttft["p90"]
+            report.p99_ttft = ttft["p99"]
 
     # 輸出報告
     report.print_report()

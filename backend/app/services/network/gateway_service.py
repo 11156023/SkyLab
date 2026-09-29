@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 import shlex
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Any
 
 from app.core.config import settings
 from app.core.i18n import t
@@ -24,13 +28,14 @@ from app.schemas.gateway import (
     GatewayServiceVersionsResult,
     GatewayWireGuardOverview,
 )
+from app.services.network.nginx_gateway_service import NGINX_CONF_PATH
 
 logger = logging.getLogger(__name__)
 
 # nginx.conf 是 install.sh 寫好的主設定；SkyLab 自動產生的 http.conf／stream.conf
 # 由它 include 進來，不開放在這裡手動編輯（見 nginx_gateway_service）
 SERVICE_CONFIG_PATHS: dict[str, str] = {
-    "nginx": "/etc/nginx/nginx.conf",
+    "nginx": NGINX_CONF_PATH,
 }
 SERVICE_SYSTEMD_UNITS: dict[str, str] = {
     "nginx": "nginx",
@@ -96,13 +101,39 @@ def exec_checked(client, command: str, error_message: str) -> str:
     return out
 
 
-def _get_config(session: object) -> object:
+def _get_config(session: object) -> Any:
     from app.repositories import gateway_config as gw_repo
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
         raise BadRequestError(t("gateway.gatewayNotConfigured"))
     return config
+
+
+def _get_credentials(session: object) -> tuple[Any, str]:
+    """回傳 (Gateway 設定, 解密後的 SSH 私鑰)；未設定時 raise BadRequestError。"""
+    from app.repositories.gateway_config import get_decrypted_private_key
+
+    config = _get_config(session)
+    return config, get_decrypted_private_key(config)
+
+
+@contextmanager
+def _ssh_client(config: Any, private_key_pem: str) -> Iterator[Any]:
+    """用已驗證的設定開 SSH 連線，離開時一定關閉（連線失敗的例外原樣拋出）。"""
+    client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+@contextmanager
+def gateway_client(session: object) -> Iterator[Any]:
+    """讀 Gateway 設定、解密金鑰並開 SSH 連線；未設定時 raise BadRequestError。"""
+    config, private_key_pem = _get_credentials(session)
+    with _ssh_client(config, private_key_pem) as client:
+        yield client
 
 
 def test_connection(
@@ -116,53 +147,43 @@ def test_connection(
         client = make_client(host, ssh_port, ssh_user, private_key_pem)
         _, out, _ = _exec(client, "echo ok")
         if out.strip() == "ok":
-            return True, "連線成功"
-        return False, f"指令回應異常：{out}"
+            return True, t("gateway.connectionOk")
+        return False, t("gateway.unexpectedEchoResponse", output=out)
     except SSHAuthenticationError:
-        return False, "SSH 認證失敗，請確認公鑰已加入 Gateway VM 的 authorized_keys"
+        return False, t("gateway.sshAuthFailed")
     except Exception as exc:
-        return False, f"連線失敗：{exc}"
+        return False, t("gateway.connectionFailed", error=exc)
     finally:
         if client is not None:
             client.close()
 
 
 def read_service_config(session: object, service: str) -> str:
-    from app.repositories.gateway_config import (
-        get_decrypted_private_key,
-    )
-
-    config = _get_config(session)
-    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
+    config, private_key_pem = _get_credentials(session)
 
     path = SERVICE_CONFIG_PATHS.get(service)
     if path is None:
         raise BadRequestError(t("gateway.unknownService", service=service))
 
-    client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
-    try:
-        sftp = client.open_sftp()
+    with _ssh_client(config, private_key_pem) as client:
         try:
+            sftp = client.open_sftp()
             try:
-                with sftp.open(path, "r") as handle:
-                    return handle.read().decode()
-            except FileNotFoundError:
-                return ""
-        finally:
-            sftp.close()
-    except Exception as exc:
-        raise ProxmoxError(t("gateway.readServiceConfigFailed", service=service, error=exc))
-    finally:
-        client.close()
+                try:
+                    with sftp.open(path, "r") as handle:
+                        return handle.read().decode()
+                except FileNotFoundError:
+                    return ""
+            finally:
+                sftp.close()
+        except Exception as exc:
+            raise ProxmoxError(
+                t("gateway.readServiceConfigFailed", service=service, error=exc)
+            )
 
 
 def write_service_config(session: object, service: str, content: str) -> None:
-    from app.repositories.gateway_config import (
-        get_decrypted_private_key,
-    )
-
-    config = _get_config(session)
-    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
+    config, private_key_pem = _get_credentials(session)
 
     path = SERVICE_CONFIG_PATHS.get(service)
     if path is None:
@@ -170,26 +191,21 @@ def write_service_config(session: object, service: str, content: str) -> None:
 
     from app.services.network import nginx_gateway_service as nginx
 
-    client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
-    try:
-        # 管理員手動改 nginx.conf 也要先過 nginx -t，壞設定會被還原；
-        # 不自動 reload，讓管理員決定何時套用
-        nginx.write_validated_config(client, path, content, reload=False)
-    except ProxmoxError:
-        raise
-    except Exception as exc:
-        raise ProxmoxError(t("gateway.writeServiceConfigFailed", service=service, error=exc))
-    finally:
-        client.close()
+    with _ssh_client(config, private_key_pem) as client:
+        try:
+            # 管理員手動改 nginx.conf 也要先過 nginx -t，壞設定會被還原；
+            # 不自動 reload，讓管理員決定何時套用
+            nginx.write_validated_config(client, path, content, reload=False)
+        except ProxmoxError:
+            raise
+        except Exception as exc:
+            raise ProxmoxError(
+                t("gateway.writeServiceConfigFailed", service=service, error=exc)
+            )
 
 
 def control_service(session: object, service: str, action: str) -> tuple[bool, str]:
-    from app.repositories.gateway_config import (
-        get_decrypted_private_key,
-    )
-
-    config = _get_config(session)
-    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
+    config, private_key_pem = _get_credentials(session)
 
     valid_actions = {"start", "stop", "restart", "reload"}
     if action not in valid_actions:
@@ -197,75 +213,57 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
 
     unit = _systemd_unit(service)
 
-    client = None
+    # 連不上 Gateway 或指令出錯都回 (False, 訊息)，不往外拋
     try:
-        client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
-        if action == "restart":
-            # Some services hang on restart; do stop+start with a kill fallback
-            _exec(client, f"systemctl stop {unit} 2>&1; sleep 1; "
-                          f"systemctl kill -s SIGKILL {unit} 2>/dev/null; "
-                          f"systemctl start {unit} 2>&1")
-            code, out, err = _exec(client, f"systemctl is-active {unit} 2>&1")
-            if out.strip() == "active":
-                return True, f"{service} restart 完成"
-            return False, f"{service} restart 後狀態: {out.strip()}"
-        else:
+        with _ssh_client(config, private_key_pem) as client:
+            if action == "restart":
+                # Some services hang on restart; do stop+start with a kill fallback
+                _exec(client, f"systemctl stop {unit} 2>&1; sleep 1; "
+                              f"systemctl kill -s SIGKILL {unit} 2>/dev/null; "
+                              f"systemctl start {unit} 2>&1")
+                code, out, err = _exec(client, f"systemctl is-active {unit} 2>&1")
+                if out.strip() == "active":
+                    return True, t("gateway.serviceRestartDone", service=service)
+                return False, t(
+                    "gateway.serviceRestartState", service=service, state=out.strip()
+                )
             code, out, err = _exec(client, f"systemctl {action} {unit} 2>&1")
             output = (out + err).strip()
-            return code == 0, output or f"{service} {action} 完成"
+            return code == 0, output or t(
+                "gateway.serviceActionDone", service=service, action=action
+            )
     except Exception as exc:
         return False, str(exc)
-    finally:
-        if client is not None:
-            client.close()
 
 
 def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bool, str]:
     """Read recent journalctl logs for a service on the Gateway VM."""
-    from app.repositories.gateway_config import (
-        get_decrypted_private_key,
-    )
-
-    config = _get_config(session)
-    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
+    config, private_key_pem = _get_credentials(session)
 
     unit = _systemd_unit(service)
 
-    client = None
-    try:
-        client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+    with _ssh_client(config, private_key_pem) as client:
         _, out, err = _exec(client, f"journalctl -u {unit} --no-pager -n {lines} 2>&1")
         return True, (out + err).strip()
-    finally:
-        if client is not None:
-            client.close()
 
 
 def get_service_status(session: object, service: str) -> tuple[bool, str]:
-    from app.repositories.gateway_config import (
-        get_decrypted_private_key,
-    )
-
-    config = _get_config(session)
-    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
+    config, private_key_pem = _get_credentials(session)
 
     unit = _systemd_unit(service)
 
-    client = None
+    # 連不上 Gateway 時回 (False, 訊息)，不往外拋
     try:
-        client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
-        code, _, _ = _exec(client, f"systemctl is-active {unit}")
-        _, status_out, _ = _exec(
-            client,
-            f"systemctl show {unit} --no-page "
-            f"-p ActiveState,SubState,MainPID 2>&1 | head -5",
-        )
-        return code == 0, status_out.strip()
+        with _ssh_client(config, private_key_pem) as client:
+            code, _, _ = _exec(client, f"systemctl is-active {unit}")
+            _, status_out, _ = _exec(
+                client,
+                f"systemctl show {unit} --no-page "
+                f"-p ActiveState,SubState,MainPID 2>&1 | head -5",
+            )
+            return code == 0, status_out.strip()
     except Exception as exc:
         return False, str(exc)
-    finally:
-        if client is not None:
-            client.close()
 
 
 def _parse_wireguard_dump(
@@ -318,16 +316,31 @@ def _parse_wireguard_dump(
     }
 
 
+def wireguard_endpoint_host(config: object | None) -> str:
+    """WireGuard 用戶端要連的主機：``WIREGUARD_ENDPOINT_HOST`` 優先，否則用 Gateway 位址。
+
+    兩者都沒有時回空字串，由呼叫端決定要不要報錯。
+    """
+    return settings.WIREGUARD_ENDPOINT_HOST.strip() or (
+        getattr(config, "host", None) or ""
+    )
+
+
+def format_endpoint(host: str, port: int) -> str:
+    """``host:port``；IPv6 位址加中括號（WireGuard Endpoint 的寫法）。"""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return f"{host}:{port}"
+    return f"[{address}]:{port}" if address.version == 6 else f"{address}:{port}"
+
+
 def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     """Return a secret-free WireGuard control-plane and runtime summary."""
     from app.repositories import wireguard_peer as peer_repo
-    from app.repositories.gateway_config import (
-        get_decrypted_private_key,
-    )
 
     now = datetime.now(timezone.utc)
-    config = _get_config(session)
-    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
+    config, private_key_pem = _get_credentials(session)
     interface = settings.WIREGUARD_INTERFACE
     unit = _systemd_unit("wireguard")
     active_sessions = peer_repo.list_active_unexpired(  # type: ignore[arg-type]
@@ -338,30 +351,23 @@ def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     )
 
     metrics = _parse_wireguard_dump("")
-    client = None
     try:
-        client = make_client(
-            config.host, config.ssh_port, config.ssh_user, private_key_pem
-        )
-        code, out, _err = _exec(
-            client, f"wg show {shlex.quote(interface)} dump 2>/dev/null"
-        )
-        if code == 0:
-            metrics = _parse_wireguard_dump(out)
+        with _ssh_client(config, private_key_pem) as client:
+            code, out, _err = _exec(
+                client, f"wg show {shlex.quote(interface)} dump 2>/dev/null"
+            )
+            if code == 0:
+                metrics = _parse_wireguard_dump(out)
     except Exception as exc:
         logger.warning("Unable to inspect WireGuard runtime on Gateway VM: %s", exc)
-    finally:
-        if client is not None:
-            client.close()
 
-    endpoint_host = settings.WIREGUARD_ENDPOINT_HOST.strip() or config.host
-    if ":" in endpoint_host and not endpoint_host.startswith("["):
-        endpoint_host = f"[{endpoint_host}]"
     return GatewayWireGuardOverview(
         mode="wireguard",
         interface=interface,
         systemd_unit=unit,
-        endpoint=f"{endpoint_host}:{settings.WIREGUARD_ENDPOINT_PORT}",
+        endpoint=format_endpoint(
+            wireguard_endpoint_host(config), settings.WIREGUARD_ENDPOINT_PORT
+        ),
         client_subnet=settings.WIREGUARD_CLIENT_SUBNET,
         vm_subnet=settings.WIREGUARD_VM_SUBNET,
         session_ttl_seconds=settings.WIREGUARD_SESSION_TTL_SECONDS,
@@ -382,7 +388,7 @@ def _normalize_version(value: str | None) -> str | None:
     return normalized or None
 
 
-def _extract_current_version(service: str, version_output: str) -> str | None:
+def _extract_current_version(version_output: str) -> str | None:
     # nginx -v 印「nginx version: nginx/1.26.3」、wg 印「wireguard-tools v1.0.20210914 ...」，
     # 都抓第一組點分版本號就夠
     output = version_output.strip()
@@ -399,7 +405,8 @@ def _build_service_version_info(
     version_output: str,
     candidate_version: str | None,
 ) -> GatewayServiceVersionInfo:
-    current_version = _extract_current_version(service, version_output)
+    # 兩者都已經過 _normalize_version，不必再正規化一次
+    current_version = _extract_current_version(version_output)
 
     if service in _APT_PACKAGES:
         target_version = _normalize_version(candidate_version)
@@ -408,16 +415,14 @@ def _build_service_version_info(
         target_version = None
         source = "detected only"
 
-    normalized_current = _normalize_version(current_version)
-    normalized_target = _normalize_version(target_version)
     update_available = None
-    if normalized_current and normalized_target:
-        update_available = normalized_current != normalized_target
+    if current_version and target_version:
+        update_available = current_version != target_version
 
     return GatewayServiceVersionInfo(
         service=service,
-        current_version=normalized_current,
-        target_version=normalized_target,
+        current_version=current_version,
+        target_version=target_version,
         update_available=update_available,
         source=source,
     )
@@ -438,15 +443,7 @@ def _get_apt_candidate_version(client, package: str) -> str | None:
 
 
 def get_service_versions(session: object) -> GatewayServiceVersionsResult:
-    from app.repositories.gateway_config import (
-        get_decrypted_private_key,
-    )
-
-    config = _get_config(session)
-    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
-
-    client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
-    try:
+    with gateway_client(session) as client:
         items: list[GatewayServiceVersionInfo] = []
         for service, command in _SERVICE_VERSION_COMMANDS.items():
             code, out, err = _exec(client, command)
@@ -460,12 +457,12 @@ def get_service_versions(session: object) -> GatewayServiceVersionsResult:
                 ),
             )
             if code != 0 and info.current_version is None:
-                info.detection_error = version_output or f"無法取得 {service} 版本"
+                info.detection_error = version_output or t(
+                    "gateway.versionUnavailable", service=service
+                )
             items.append(info)
 
         return GatewayServiceVersionsResult(
             items=items,
             checked_at=datetime.now(timezone.utc),
         )
-    finally:
-        client.close()

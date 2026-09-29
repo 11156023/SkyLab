@@ -25,6 +25,12 @@ class _Session:
     def commit(self) -> None:
         """測試替身。"""
 
+    def exec(self, stmt: Any) -> Any:
+        return SimpleNamespace(all=lambda: [])
+
+    def rollback(self) -> None:
+        """測試替身。"""
+
 
 def _capture_enqueue(monkeypatch: pytest.MonkeyPatch, module: Any) -> list[dict]:
     calls: list[dict] = []
@@ -60,6 +66,26 @@ def test_start_reset_enqueues_reset_task(monkeypatch: pytest.MonkeyPatch) -> Non
         "rtype": "lxc",
         "user_id": str(user.id),
     }
+
+
+def test_start_reset_rejects_when_reset_already_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.exceptions import ConflictError
+
+    monkeypatch.setattr(reset_service, "_has_init_snapshot", lambda *_: True)
+    monkeypatch.setattr(reset_service, "_has_active_reset", lambda *_: True)
+    calls = _capture_enqueue(monkeypatch, reset_service)
+
+    with pytest.raises(ConflictError):
+        reset_service.start_reset(
+            _Session(),
+            vmid=101,
+            resource_info={"node": "pve1", "type": "lxc"},
+            user=SimpleNamespace(id=uuid.uuid4()),
+        )
+
+    assert calls == []
 
 
 def test_run_reset_task_unpacks_payload(monkeypatch: pytest.MonkeyPatch) -> None:

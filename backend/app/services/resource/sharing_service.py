@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlmodel import Session
 
+from app.core.authorizers import can_bypass_resource_ownership
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import User
@@ -25,6 +26,8 @@ from app.schemas.resource_settings import (
     ResourceSharePublic,
     ResourceTransferResponse,
 )
+from app.services.proxmox import proxmox_service
+from app.services.resource import quota_service
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -123,6 +126,34 @@ def remove_share(
     session.commit()
 
 
+def _check_target_quota(
+    session: Session,
+    *,
+    vmid: int,
+    actor: Any,
+    target_id: uuid.UUID,
+    resource_info: dict[str, Any] | None,
+) -> None:
+    """轉入的機器要算進新擁有者的配額，超限就擋下（409）。
+
+    否則擁有者可以把機器轉給任意同學（keep_access 保留操作權）來釋放自己
+    的配額再開新機，同時把對方的配額塞滿。管理員代為轉移時不檢查。
+    """
+    if can_bypass_resource_ownership(actor):
+        return
+    info = resource_info
+    if info is None:
+        try:
+            info = proxmox_service.find_resource(vmid)
+        except Exception:
+            # 查不到規格時仍檢查台數，與 check_quota 的 fail-open 精神一致
+            logger.warning(
+                "Live specs lookup failed for vmid=%s on transfer", vmid, exc_info=True
+            )
+            info = {}
+    quota_service.check_quota_for_existing_resource(session, target_id, info)
+
+
 def transfer_ownership(
     *,
     session: Session,
@@ -130,11 +161,19 @@ def transfer_ownership(
     actor: Any,
     email: str,
     keep_access: bool,
+    resource_info: dict[str, Any] | None = None,
 ) -> ResourceTransferResponse:
     resource = _get_personal_resource(session, vmid)
     target = _find_target_user(session, email)
     if target.id == resource.user_id:
         raise BadRequestError(t("resource_settings.alreadyOwner", email=target.email))
+    _check_target_quota(
+        session,
+        vmid=vmid,
+        actor=actor,
+        target_id=target.id,
+        resource_info=resource_info,
+    )
 
     previous_owner_id = resource.user_id
     previous_owner = session.get(User, previous_owner_id)

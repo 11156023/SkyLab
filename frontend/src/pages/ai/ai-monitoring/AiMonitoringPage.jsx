@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import {
   CartesianGrid,
   ComposedChart,
@@ -15,62 +14,22 @@ import MIcon from "../../../components/MIcon";
 import { formatDateTime, formatTime } from "../../../utils/formatDate";
 import i18n from "../../../i18n";
 import LoadingState from "../../../components/LoadingState/LoadingState";
-import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import EmptyState from "../../../components/EmptyState/EmptyState";
 import { AiMonitoringService } from "../../../services/aiMonitoring";
 import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
-
-export function presetToRange(preset) {
-  const end = new Date();
-  const start = new Date();
-  const days = preset === "7d" ? 7 : preset === "30d" ? 30 : 90;
-  start.setDate(start.getDate() - days);
-  return { startDate: start.toISOString(), endDate: end.toISOString() };
-}
-
-export function presetToBucket(preset) {
-  return preset === "7d" ? "hour" : "day";
-}
-
-export function formatTokens(n) {
-  if (n == null) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-export function formatDuration(ms) {
-  if (ms == null) return "—";
-  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${ms}ms`;
-}
-
-export function formatTokenRate(value) {
-  if (value == null) return "—";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "—";
-  return `${numeric.toLocaleString(undefined, { maximumFractionDigits: 2 })} tok/s`;
-}
-
-export function formatModelDisplay(modelName) {
-  if (!modelName) return "—";
-  const trimmed = modelName.trim();
-  if (!trimmed) return "—";
-
-  const match = trimmed.match(/models--([^/]+)--([^/]+)/);
-  if (match) return `${match[1]}/${match[2]}`;
-
-  if (/^(?:[A-Za-z]:[\\/]|[\\/])/.test(trimmed)) {
-    const separator = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-    const basename = separator >= 0 ? trimmed.slice(separator + 1) : trimmed;
-    return basename || trimmed;
-  }
-
-  return trimmed;
-}
+import {
+  formatDuration,
+  formatModelDisplay,
+  formatTokenRate,
+  formatTokens,
+  isOkStatus,
+  presetToBucket,
+  presetToRange,
+} from "../aiFormat";
 
 function modelKey(modelName) {
   return formatModelDisplay(modelName).toLocaleLowerCase();
@@ -109,15 +68,6 @@ export function mergeModelRows(usageModels = [], runtimeModels = []) {
   return Array.from(rows.values()).sort((a, b) => b.total_calls - a.total_calls);
 }
 
-export function isOkStatus(status) {
-  return (
-    status === "success" ||
-    status === 200 ||
-    status === "200" ||
-    status === "ok"
-  );
-}
-
 function formatNumber(n) {
   if (n == null) return "—";
   return new Intl.NumberFormat(i18n.language).format(n);
@@ -144,10 +94,6 @@ function formatChartTime(value, bucket) {
       ? { month: "numeric", day: "numeric", hour: "2-digit" }
       : { month: "numeric", day: "numeric" },
   );
-}
-
-function EmptyState({ icon, title }) {
-  return <SharedEmptyState icon={icon} title={title} />;
 }
 
 function StatusBadge({ status }) {
@@ -356,11 +302,11 @@ function DetailSummary({ summary, t }) {
   );
 }
 
-function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFilter, onModelSelect, t }) {
+function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onModelSelect, t }) {
   const q = query.trim().toLowerCase();
 
   if (tab === "models") {
-    const visibleModels = mergeModelRows(models, runtimeModels).filter((model) => (
+    const visibleModels = modelRows.filter((model) => (
       !q
       || model.model_name.toLowerCase().includes(q)
       || (model.runtime_name ?? "").toLowerCase().includes(q)
@@ -456,7 +402,6 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
 export default function AiMonitoringPage() {
   const { t } = useTranslation("ai");
   const toast = useToast();
-  const navigate = useNavigate();
   const [preset, setPreset] = useState("7d");
   const [trendMetric, setTrendMetric] = useState("calls");
   const [detailTab, setDetailTab] = useState("models");
@@ -479,6 +424,7 @@ export default function AiMonitoringPage() {
      同一支 API 會設定 Grafana 免密碼登入的 cookie，頁面開著時定期續期 */
   const [grafanaUrl, setGrafanaUrl] = useState(null);
   const detailSectionRef = useRef(null);
+  const loadSeqRef = useRef(0);
   const modelRows = useMemo(
     () => mergeModelRows(overview?.model_breakdown, runtime?.models),
     [overview?.model_breakdown, runtime?.models],
@@ -514,6 +460,10 @@ export default function AiMonitoringPage() {
       setRuntimeLoading(true);
       setDetailLoading(true);
     }
+    /* 快速切換時間範圍時，較慢的舊範圍回應不可蓋掉新範圍的資料：
+       只有最後一次 load 的結果寫入 state */
+    const seq = ++loadSeqRef.current;
+    const isCurrent = () => seq === loadSeqRef.current;
     const range = presetToRange(preset);
     const shared = { ...range, limit: 100 };
 
@@ -527,30 +477,34 @@ export default function AiMonitoringPage() {
       source: "all",
     })
       .then((value) => {
+        if (!isCurrent()) return;
         setOverview(value);
         setOverviewError(false);
       })
       .catch(() => {
+        if (!isCurrent()) return;
         setOverviewError(true);
         if (!silent) toast.error(t("AiMonitoringPage.loadError"));
       })
-      .finally(() => setOverviewLoading(false));
+      .finally(() => { if (isCurrent()) setOverviewLoading(false); });
 
     const runtimeRequest = AiMonitoringService.runtime()
       .then((value) => {
+        if (!isCurrent()) return;
         setRuntime(value);
         setRuntimeError(false);
       })
       .catch(() => {
-        setRuntimeError(true);
+        if (isCurrent()) setRuntimeError(true);
       })
-      .finally(() => setRuntimeLoading(false));
+      .finally(() => { if (isCurrent()) setRuntimeLoading(false); });
 
     const detailRequest = Promise.allSettled([
       AiMonitoringService.listProxyCalls(shared),
       AiMonitoringService.listTemplateCalls(shared),
       AiMonitoringService.listUsersUsage({ ...shared, source: "all" }),
     ]).then(([proxyResult, templateResult, usersResult]) => {
+      if (!isCurrent()) return;
       if (proxyResult.status === "fulfilled") {
         setProxyCalls(proxyResult.value?.data ?? []);
         setCounts((current) => ({ ...current, proxy: proxyResult.value?.count ?? proxyResult.value?.data?.length ?? 0 }));
@@ -564,11 +518,11 @@ export default function AiMonitoringPage() {
         setCounts((current) => ({ ...current, users: usersResult.value?.count ?? usersResult.value?.data?.length ?? 0 }));
       }
     }).finally(() => {
-      setDetailLoading(false);
+      if (isCurrent()) setDetailLoading(false);
     });
 
     await Promise.allSettled([overviewRequest, runtimeRequest, detailRequest]);
-    setLastUpdated(new Date());
+    if (isCurrent()) setLastUpdated(new Date());
   }, [preset, t, toast]);
 
   useEffect(() => { load(); }, [load]);
@@ -604,7 +558,6 @@ export default function AiMonitoringPage() {
     () => buildAttentionItems({ overview, runtime, overviewError, runtimeError }, t),
     [overview, runtime, overviewError, runtimeError, t],
   );
-  const detailQuery = query;
   const detailPlaceholder = detailTab === "users"
     ? t("AiMonitoringPage.searchPlaceholderUsers")
     : detailTab === "models" ? t("AiMonitoringPage.searchPlaceholderModels") : t("AiMonitoringPage.searchPlaceholderCalls");
@@ -616,11 +569,9 @@ export default function AiMonitoringPage() {
   };
 
   const openAttention = (target) => {
-    if (target === "runtime") {
-      navigate("/gateway");
-      return;
-    }
-    if (target === "models") {
+    /* AI Gateway（LiteLLM／vLLM）就緒狀態看的是本頁模型分頁的執行狀態；
+       /gateway 是網路 Gateway VM（nginx），跟這個告警無關 */
+    if (target === "models" || target === "runtime") {
       setDetailTab("models");
       setStatusFilter("all");
     } else {
@@ -736,7 +687,7 @@ export default function AiMonitoringPage() {
           ))}
         </div>
         <div className={styles.detailContent}>
-          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={detailTab === "template" ? templateCalls : proxyCalls} users={users} models={overview?.model_breakdown} runtimeModels={runtime?.models} query={detailQuery} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
+          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={detailTab === "template" ? templateCalls : proxyCalls} users={users} modelRows={modelRows} query={query} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
         </div>
       </section>
     </div>

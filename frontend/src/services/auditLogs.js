@@ -21,12 +21,6 @@ export const AuditLogsService = {
     return apiGet(`/api/v1/audit-logs/${qs ? `?${qs}` : ""}`);
   },
 
-  /** 一般使用者: 自己的操作紀錄 */
-  listMy(params) {
-    const qs = buildQuery({ skip: 0, limit: 50, ...params });
-    return apiGet(`/api/v1/audit-logs/my${qs ? `?${qs}` : ""}`);
-  },
-
   /** 單一資源的操作紀錄（擁有者或管理員） */
   listForResource(vmid, params) {
     const qs = buildQuery({ skip: 0, limit: 100, ...params });

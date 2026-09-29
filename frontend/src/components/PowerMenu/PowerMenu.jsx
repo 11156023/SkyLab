@@ -5,7 +5,7 @@ import useAnchoredMenu from "../../hooks/useAnchoredMenu";
 import styles from "./PowerMenu.module.scss";
 
 /* 選單 portal 到 body 並用 position: fixed 定位——列表容器（表格的
-   .tableWrap、卡片的 .card）同時有 overflow 與 backdrop-filter，
+   .tableWrap 等）有 overflow，外層也可能有 backdrop-filter，
    absolute 選單會被裁掉、z-index 也出不了那層 stacking context。 */
 
 const ITEMS = [
@@ -58,6 +58,9 @@ export default function PowerMenu({
       className={className}
       data-guide="resource-power-menu"
       style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
+      /* portal 的 React 事件仍沿元件樹冒泡：點到標題、提示或空白處不能觸發外層 <tr onClick>。
+         按鈕自己的 onClick 先跑完才冒泡到這裡；外點關閉走 document mousedown，不受影響 */
+      onClick={(e) => e.stopPropagation()}
     >
       <div className={styles.powerMenuTitle}>{title ?? t("PowerMenu.title")}</div>
       {!items && windowBlocked && (
@@ -81,12 +84,13 @@ export default function PowerMenu({
             {label ?? t(labelKey)}
           </button>
         ))}
-        {/* 老師／管理員把調好的機器轉成範本；沒有 onConvertTemplate 就不顯示 */}
+        {/* 老師／管理員把調好的機器轉成範本；沒有 onConvertTemplate 就不顯示。
+            轉範本與刪除這兩個額外動作由呼叫端自己關選單（callback 內先 closeMenu），這裡不再呼叫 onClose */}
         {onConvertTemplate && <button
           type="button"
           className={styles.powerMenuItem}
           disabled={!!actionLoading}
-          onClick={() => { onClose(); onConvertTemplate(); }}
+          onClick={() => onConvertTemplate()}
         >
           <span className={styles.powerMenuIcon}><MIcon name="library_add" size={15} /></span>
           {t("PowerMenu.convertTemplate")}

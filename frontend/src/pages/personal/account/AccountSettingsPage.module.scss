@@ -288,7 +288,6 @@
   color: var(--color-text-secondary);
 }
 
-
 /* 停用對話框的驗證碼欄：數字置中拉字距（沿用 .confirmInput 的框線／聚焦色） */
 .otpInput.otpInput {
   text-align: center;
@@ -309,79 +308,8 @@
   max-width: 480px;
 }
 
-/* ── Modal ── */
-@keyframes confirmIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.modalOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  /* 遮罩同共用確認框（ConfirmDialog）與樣式規範 */
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.modalOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-/* 確認框比照共用 ConfirmDialog：寬 400、毛玻璃預設陰影、圓角 16、標題 16/700、內文 14 */
-.confirm {
-  width: min(400px, 100%);
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  @include glass-surface;
-  border-radius: $radius-16;
-  animation: confirmIn 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-
-  h2 {
-    margin: 0;
-    font-size: $font-size-16;
-    font-weight: $font-weight-700;
-    color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 0;
-    font-size: $font-size-14;
-    color: var(--color-text-secondary);
-    line-height: $line-height-base;
-    /* 內文可能插入 email 等連續長字串，強制可斷行 */
-    overflow-wrap: anywhere;
-
-    /* 要輸入的確認字：紅字粗體就夠醒目，不鋪底色 */
-    code {
-      color: var(--color-danger);
-      font-family: inherit;
-      font-weight: $font-weight-700;
-    }
-  }
-}
-
-/* 危險確認的標題：前面帶紅色 warning 圖示（同共用確認框） */
-.confirmTitle {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-}
-
+/* ── 對話框內容（外框由共用 Modal 提供）── */
+/* 危險確認的標題圖示：紅色 warning（同共用確認框） */
 .confirmTitleIcon {
   @include flex-center;
   color: var(--color-danger);
@@ -403,8 +331,9 @@
   }
 }
 
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
+/* 刪除帳號時要輸入的確認字：紅字粗體就夠醒目，不鋪底色 */
+.confirmWord {
+  color: var(--color-danger);
+  font-family: inherit;
+  font-weight: $font-weight-700;
 }

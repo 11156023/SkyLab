@@ -60,6 +60,11 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _session_ttl() -> int:
+    """一次連線授權的有效秒數（設定值夾在 1 分鐘到 1 天之間）。"""
+    return max(60, min(settings.WIREGUARD_SESSION_TTL_SECONDS, 86400))
+
+
 def _validate_public_key(value: str) -> str:
     value = value.strip()
     try:
@@ -285,7 +290,7 @@ def _sync_gateway_peer(
         )
         for value in sorted(delete_tuples)
     ]
-    ttl = max(60, min(settings.WIREGUARD_SESSION_TTL_SECONDS, 86400))
+    ttl = _session_ttl()
     add_lines = [
         (
             f"nft add element {_NFT_FAMILY} {_NFT_TABLE} {_NFT_SET} "
@@ -374,17 +379,9 @@ def _remove_gateway_peer(*, session: Session, peer: WireGuardPeer) -> None:
     )
 
 
-def _format_endpoint(host: str, port: int) -> str:
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return f"{host}:{port}"
-    return f"[{address}]:{port}" if address.version == 6 else f"{address}:{port}"
-
-
 def _endpoint_host(session: Session) -> str:
     config = gateway_config_repo.get_gateway_config(session)
-    host = settings.WIREGUARD_ENDPOINT_HOST.strip() or (config.host if config else "")
+    host = gateway_service.wireguard_endpoint_host(config)
     if not host:
         raise BadRequestError(t("wireguard.endpointHostNotConfigured"))
     return host
@@ -402,7 +399,9 @@ def _connect_response(
         interface_name="SkyLab",
         interface_address=f"{peer.tunnel_ip}/32",
         gateway_public_key=gateway_public_key,
-        endpoint=_format_endpoint(endpoint_host, settings.WIREGUARD_ENDPOINT_PORT),
+        endpoint=gateway_service.format_endpoint(
+            endpoint_host, settings.WIREGUARD_ENDPOINT_PORT
+        ),
         allowed_ips=[str(_vm_network())],
         persistent_keepalive=settings.WIREGUARD_KEEPALIVE_SECONDS,
         expires_in=ttl,
@@ -432,7 +431,7 @@ def _activate_peer(
     )
 
     now = _now()
-    ttl = max(60, min(settings.WIREGUARD_SESSION_TTL_SECONDS, 86400))
+    ttl = _session_ttl()
     peer.public_key = public_key
     peer.allowed_endpoints = new_endpoints
     peer.active = True
@@ -521,13 +520,7 @@ def disconnect(*, session: Session, user_id: uuid.UUID, device_id: str) -> bool:
     if peer is None or not peer.active:
         return True
     _remove_gateway_peer(session=session, peer=peer)
-    now = _now()
-    peer.active = False
-    peer.allowed_endpoints = []
-    peer.updated_at = now
-    peer.expires_at = now
-    peer.revoked_at = now
-    peer_repo.save(session=session, peer=peer)
+    _mark_peer_inactive(session, peer, _now())
     return True
 
 

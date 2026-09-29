@@ -13,13 +13,17 @@
 from __future__ import annotations
 
 import asyncio
+import enum
+import ipaddress
 import json
 import logging
+import socket
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlmodel import Session
 
@@ -27,6 +31,7 @@ from app.core.db import engine
 from app.core.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from app.models import PushSubscription, User
 from app.repositories import push as push_repo
+from app.schemas.push import is_allowed_push_endpoint
 from app.services.notification import push_policy
 from app.services.notification.push_policy import (
     JobBaseline,
@@ -71,7 +76,62 @@ def normalize_language(value: str | None) -> str:
 class SendReport:
     sent: int = 0
     removed: int = 0
-    failed_ids: list[uuid.UUID] = field(default_factory=list)
+
+
+class EndpointVerdict(enum.Enum):
+    """送出前對訂閱 endpoint 的判定。"""
+
+    ALLOWED = "allowed"
+    # 指向非公網位址（或 scheme／主機本身就不合法）：永遠不送，訂閱直接刪除
+    BLOCKED = "blocked"
+    # 此刻解析不到：這輪不送，算一次送達失敗（連續失敗才會刪訂閱）
+    UNRESOLVED = "unresolved"
+
+
+# 被封鎖的 endpoint 在 _send_one 回報成這個狀態碼，沿用「訂閱已不存在」的刪除路徑
+_BLOCKED_ENDPOINT_STATUS = 410
+
+
+def _is_public_address(raw: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(raw.split("%", 1)[0])
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped  # ::ffff:10.0.0.5 依內嵌的 IPv4 判斷
+    return addr.is_global and not addr.is_multicast
+
+
+def check_endpoint(endpoint: str) -> EndpointVerdict:
+    """在「實際送出前」重新解析 endpoint 主機，擋掉指向內網的推播（SSRF）。
+
+    訂閱當下的檢查（``app.schemas.push`` 的格式驗證、``routes/push.py`` 的解析
+    檢查）擋不住 DNS rebinding（名稱之後改指向內網），也沒檢查過修正前就存好的
+    訂閱，所以每次送出前都要在這裡再判一次。任一解析結果不是公網位址就封鎖；
+    解析失敗一律不送（不能在看不到位址時放行）。URL 本身不合法（無法解析、
+    非 https、非 443 埠）或主機不在推播服務白名單內，不解析直接封鎖，絕不丟例外。
+    """
+    try:
+        parts = urlsplit(endpoint)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        # 例如 "https://[::1/x" 這種殘缺的 IPv6 字面值、或超出範圍的埠號
+        return EndpointVerdict.BLOCKED
+    if parts.scheme != "https" or not host or port not in (None, 443):
+        return EndpointVerdict.BLOCKED
+    # 白名單建立前就存好的訂閱可能指向任意主機；不是推播服務就不送、也不解析
+    if not is_allowed_push_endpoint(endpoint):
+        return EndpointVerdict.BLOCKED
+    try:
+        infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError):
+        return EndpointVerdict.UNRESOLVED
+    if not infos:
+        return EndpointVerdict.UNRESOLVED
+    if all(_is_public_address(str(info[4][0])) for info in infos):
+        return EndpointVerdict.ALLOWED
+    return EndpointVerdict.BLOCKED
 
 
 def _send_one(
@@ -81,7 +141,26 @@ def _send_one(
     private_key_pem: str,
     subject: str,
 ) -> tuple[bool, int | None]:
-    """回傳 (成功?, 推播服務的 HTTP 狀態碼或 None)。不丟例外。"""
+    """回傳 (成功?, 推播服務的 HTTP 狀態碼或 None)。不丟例外。
+
+    送出前先過 ``check_endpoint``：指向非公網位址的訂閱回報成 410（與推播服務
+    說訂閱已不存在同樣處理，由 ``send_messages`` 刪除）；解析不到則這輪不送、
+    回 (False, None)，照一般送達失敗累計，連續失敗才刪。
+    """
+    verdict = check_endpoint(subscription.endpoint)
+    if verdict is EndpointVerdict.BLOCKED:
+        logger.warning(
+            "Dropping push subscription %s: endpoint host is not a public address",
+            subscription.id,
+        )
+        return False, _BLOCKED_ENDPOINT_STATUS
+    if verdict is EndpointVerdict.UNRESOLVED:
+        logger.warning(
+            "Skipping push to subscription %s: endpoint host did not resolve",
+            subscription.id,
+        )
+        return False, None
+
     from py_vapid import Vapid
     from pywebpush import WebPushException, webpush
 
@@ -131,6 +210,14 @@ def send_messages(
     dead: list[uuid.UUID] = []
 
     for subscription in subscriptions:
+        # 訂閱當下已檢查過白名單，但修正前就存好的訂閱沒有；送出前一律重判，
+        # 不在白名單內（任意公網主機、非 443 埠、格式殘缺）直接刪除不送。
+        if not is_allowed_push_endpoint(subscription.endpoint):
+            logger.warning(
+                "Dropping push subscription %s: endpoint not allowed", subscription.id
+            )
+            dead.append(subscription.id)
+            continue
         if isinstance(message_for_language, PushMessage):
             message = message_for_language
         else:
@@ -150,7 +237,6 @@ def send_messages(
                 subscription.failure_count = 0
                 session.add(subscription)
             continue
-        report.failed_ids.append(subscription.id)
         # 404／410：推播服務說這個訂閱已經不存在（使用者退訂、清了瀏覽器資料）
         if status in (404, 410):
             dead.append(subscription.id)
@@ -238,8 +324,10 @@ def _process_user(
     from app.services.jobs import jobs_service
 
     sent = 0
+    # own_only：管理員也只在 SQL 層取本人任務，否則全站任務先截到 SNAPSHOT_LIMIT，
+    # 管理員自己剛結束的任務會被擠掉而漏推
     snapshot = jobs_service.list_recent_for_user(
-        session=session, user=user, limit=SNAPSHOT_LIMIT
+        session=session, user=user, limit=SNAPSHOT_LIMIT, own_only=True
     )
     own_jobs = [job for job in snapshot.items if job.user_id == user.id]
     transitions, state.jobs = push_policy.diff_job_snapshot(own_jobs, state.jobs)
@@ -350,7 +438,9 @@ async def run_push_notifier(stop_event: asyncio.Event) -> None:
 __all__ = [
     "MAX_FAILURES",
     "PUSH_POLL_SECONDS",
+    "EndpointVerdict",
     "SendReport",
+    "check_endpoint",
     "is_available",
     "normalize_language",
     "process_push_notifications",

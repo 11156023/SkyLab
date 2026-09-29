@@ -7,7 +7,6 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 GatewayService = Literal["nginx", "wireguard"]
-ServiceAction = Literal["start", "stop", "restart", "reload"]
 GatewayInstallState = Literal["idle", "running", "succeeded", "failed", "interrupted"]
 
 # Linux 網卡名稱最長 15 字元；這些值會當成環境變數交給 install.sh，
@@ -156,7 +155,6 @@ class GatewayInstallStatus(BaseModel):
 
 __all__ = [
     "GatewayService",
-    "ServiceAction",
     "GatewayInstallState",
     "GatewayInstallOptions",
     "GatewayInstallInterface",

@@ -1,10 +1,16 @@
 """Web Push 訂閱 API：任何登入使用者管理自己的瀏覽器推播訂閱。"""
 
+import ipaddress
+import logging
+import socket
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter, Depends, Response, status
 
 from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_user
-from app.core.i18n import get_current_language
+from app.core.i18n import get_current_language, t
+from app.exceptions import BadRequestError
 from app.repositories import push as push_repo
 from app.schemas.push import (
     PushSendResult,
@@ -15,7 +21,39 @@ from app.schemas.push import (
 )
 from app.services.notification import web_push_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/push", tags=["push"])
+
+
+def _resolves_to_internal_address(endpoint: str) -> bool:
+    """endpoint 的主機名稱「此刻」解析後是否落在非公網位址。
+
+    這只是訂閱當下的提早拒絕：``10.0.0.5.nip.io``、內網 DNS 名稱這類主機名稱
+    要實際解析才看得出指向內網，這裡先擋掉明顯的情況，讓使用者立刻看到錯誤。
+    它不是 SSRF 的防線——DNS 之後可以改指向內網（DNS rebinding），解析失敗的
+    名稱也可能之後才生效，而且舊的訂閱從沒經過這個檢查。真正的防線必須在
+    推播實際送出前執行（``app.schemas.push`` 的推播服務網域白名單，由
+    ``web_push_service`` 在每次送出前重新套用）。因此解析失敗在這裡放行，
+    交給送出前的檢查處理，免得一次 DNS 暫時失敗就讓正常的訂閱失敗。
+    """
+    host = urlsplit(endpoint).hostname
+    if not host:
+        return True
+    try:
+        infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError):
+        logger.info("Push endpoint host %s did not resolve at subscribe time", host)
+        return False
+    for info in infos:
+        raw = str(info[4][0]).split("%", 1)[0]
+        try:
+            addr = ipaddress.ip_address(raw)
+        except ValueError:
+            return True
+        if not addr.is_global or addr.is_multicast:
+            return True
+    return False
 
 
 @router.get("/vapid-public-key", response_model=VapidPublicKeyResponse)
@@ -32,6 +70,8 @@ def save_subscription(
     session: SessionDep, current_user: CurrentUser, body: PushSubscriptionCreate
 ) -> PushSubscriptionPublic:
     """儲存（或更新）這個瀏覽器的推播訂閱；同一 endpoint 換帳號登入會改歸屬。"""
+    if _resolves_to_internal_address(body.endpoint):
+        raise BadRequestError(t("push.endpoint_not_allowed"))
     language = web_push_service.normalize_language(
         body.language or get_current_language()
     )

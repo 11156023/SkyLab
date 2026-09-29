@@ -50,7 +50,6 @@ function createGuideDemoCourse(t) {
         progress_percent: 50,
       }],
     },
-    roomDetail: { title: t("StudentCoursePage.guideDemoWeekTitle") },
     aiAssignments: [{
       id: "demo-assignment",
       teaching_class_week_id: weekId,
@@ -109,7 +108,6 @@ export default function StudentCoursePage() {
     resources: [],
     activePath: null,
     pathDetail: null,
-    roomDetail: null,
     aiAssignments: [],
     weeklyTasks: [],
     practiceMachines: [],
@@ -145,6 +143,7 @@ export default function StudentCoursePage() {
         : [];
 
       // 網址指定的課程優先；找不到時退回目前進行中的課程。
+      // 退回時畫面顯示的是另一門課，後續導覽與寫入一律用 activePath.id，不要用網址的 pathId。
       let activePath = (pathId
         && catalogPaths.find((path) => String(path.id) === String(pathId)))
         || pickInProgress(catalogPaths);
@@ -156,7 +155,6 @@ export default function StudentCoursePage() {
       }
 
       let pathDetail = null;
-      let roomDetail = null;
       let aiAssignments = [];
       let weeklyTasks = [];
       let practiceMachines = [];
@@ -170,14 +168,6 @@ export default function StudentCoursePage() {
         ]);
         if (pathDetailResult.status === "fulfilled") {
           pathDetail = pathDetailResult.value;
-          const nextRoom = pickInProgress(pathDetail?.rooms);
-          if (nextRoom) {
-            try {
-              roomDetail = await CoursesService.getRoom(nextRoom.id);
-            } catch {
-              roomDetail = null;
-            }
-          }
         }
         aiAssignments = aiAssignmentsResult.status === "fulfilled"
           && Array.isArray(aiAssignmentsResult.value)
@@ -196,11 +186,11 @@ export default function StudentCoursePage() {
       if (cancelled) return;
       setView({
         loading: false,
-        hasError: pathsResult.status === "rejected" && resourcesResult.status === "rejected",
+        // 任一來源失敗都要提示；只有課程清單失敗時若不提示，會被誤認成「目前沒有課程」
+        hasError: pathsResult.status === "rejected" || resourcesResult.status === "rejected",
         resources,
         activePath,
         pathDetail,
-        roomDetail,
         aiAssignments,
         weeklyTasks,
         practiceMachines,
@@ -422,7 +412,7 @@ export default function StudentCoursePage() {
                         type="button"
                         className={styles.assignmentToggle}
                         onClick={() => group.week
-                          ? navigate(`/courses/${pathId}/weeks/${group.week.id}`)
+                          ? navigate(`/courses/${view.activePath?.id ?? pathId}/weeks/${group.week.id}`)
                           : toggleAssignment(group.id)}
                         aria-expanded={expanded}
                         aria-controls={`assignment-detail-${group.id}`}

@@ -12,7 +12,7 @@ x-backend-env: &backend-env
   ENVIRONMENT: ${ENVIRONMENT}
   ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
   BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
-  SECRET_KEY: ${SECRET_KEY?Variable not set}
+  SECRET_KEY: ${SECRET_KEY:?Variable not set}
   FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
   FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
   SMTP_HOST: ${SMTP_HOST:-mailcatcher}
@@ -267,6 +267,10 @@ services:
       - .env
     environment:
       <<: *backend-env
+    # LDAP／AD 使用私有 CA 時才需要：掛入 CA 憑證並在 .env 設
+    # LDAP_CA_CERT_FILE=/app/certs/campus-ca.pem（worker 也要掛，見 docs/deployment.md）
+    # volumes:
+    #   - ./certs:/app/certs:ro
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -300,6 +304,10 @@ services:
       - .env
     environment:
       <<: *backend-env
+    # LDAP／AD 使用私有 CA 時才需要：與 backend 掛同一份 CA 憑證
+    # （.env 的 LDAP_CA_CERT_FILE=/app/certs/campus-ca.pem 兩邊共用）
+    # volumes:
+    #   - ./certs:/app/certs:ro
     depends_on:
       pgbouncer:
         condition: service_healthy

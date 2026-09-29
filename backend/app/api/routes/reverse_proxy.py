@@ -19,11 +19,11 @@ from app.schemas import Message
 from app.schemas.firewall import (
     PublishedServiceCreate,
     PublishedServiceRef,
-    ReverseProxyRulePublic,
 )
 from app.schemas.reverse_proxy import (
     DomainAvailability,
     ReverseProxyRuleCreate,
+    ReverseProxyRulePublic,
     ReverseProxyRuleUpdate,
     ReverseProxyRuntimeSnapshot,
     ReverseProxySetupContext,
@@ -259,21 +259,61 @@ def update_reverse_proxy_rule(
         check_firewall_access(vmid=body.vmid, current_user=current_user, session=session)
 
     try:
-        # 先撤下舊的（連同它的入站規則）再重新發布，換機器時也不會留下孤兒規則。
-        firewall_service.unpublish_vm_service(
-            existing_rule.vmid,
-            PublishedServiceRef(port=existing_rule.internal_port, protocol="tcp"),
-            session,
+        # 所有會失敗的檢查都要在撤下舊規則「之前」做完：撤下之後才發現新網域
+        # 被占用、zone 不存在或新機器沒 IP，原本正常的網站就已經下線了。
+        domain = _full_domain(
+            session, zone_id=body.zone_id, hostname_prefix=body.hostname_prefix
         )
-        _publish_domain_service(
-            session,
-            vmid=body.vmid,
-            domain=_full_domain(
-                session, zone_id=body.zone_id, hostname_prefix=body.hostname_prefix
-            ),
-            internal_port=body.internal_port,
-            enable_https=body.enable_https,
+        reverse_proxy_service.assert_domain_available(
+            session, domain, zone_id=body.zone_id, exclude_rule_id=existing_rule.id
         )
+        current = PublishedServiceRef(
+            port=existing_rule.internal_port, protocol="tcp"
+        )
+        if body.vmid == existing_rule.vmid:
+            # 同一台機器：replace_vm_service 會先驗證埠號衝突再撤下、重新發布
+            firewall_service.replace_vm_service(
+                existing_rule.vmid,
+                current,
+                PublishedServiceCreate(
+                    port=body.internal_port,
+                    protocol="tcp",
+                    mode="domain",
+                    domain=domain,
+                    enable_https=body.enable_https,
+                ),
+                session,
+            )
+        else:
+            published = {
+                (s.port, s.protocol)
+                for s in firewall_service.list_vm_published_services(
+                    body.vmid, session
+                )
+            }
+            if (body.internal_port, "tcp") in published:
+                raise BadRequestError(
+                    t(
+                        "firewall.servicePortAlreadyPublished",
+                        port=body.internal_port,
+                        protocol="tcp",
+                    )
+                )
+            if firewall_service._get_publishable_vm_ip(body.vmid, session) is None:
+                raise BadRequestError(
+                    t("firewall.targetVmNoIpForExternalAccess", vmid=body.vmid)
+                )
+            # 換機器：先撤下舊的（連同它的入站規則）再發布到新機器，不留孤兒規則
+            firewall_service.unpublish_vm_service(
+                existing_rule.vmid, current, session
+            )
+            _publish_domain_service(
+                session,
+                vmid=body.vmid,
+                domain=domain,
+                internal_port=body.internal_port,
+                enable_https=body.enable_https,
+            )
         return Message(message=t("reverseProxy.ruleUpdated"))
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

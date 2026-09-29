@@ -23,7 +23,7 @@ from app.core.config import settings
 # init_sentry）之前關掉；env_ignore_empty=True 讓空字串環境變數蓋不掉 .env。
 settings.SENTRY_DSN = None
 
-from app.core.db import engine, init_db
+from app.core.db import engine, ensure_first_superuser, init_db
 from app.main import app
 from app.models import (
     AIAPICredential,
@@ -102,6 +102,7 @@ def db() -> Generator[Session, None, None]:
     with Session(engine) as session:
         _assert_safe_pytest_database_target()
         init_db(session)
+        ensure_first_superuser(session)
         yield session
         session.rollback()
         if _is_truthy_env(os.getenv("PYTEST_ENABLE_DB_CLEANUP")):
@@ -175,6 +176,7 @@ def _seed_first_superuser() -> None:
 
     with Session(engine) as session:
         init_db(session)
+        ensure_first_superuser(session)
         user = session.exec(
             select(User).where(User.email == settings.FIRST_SUPERUSER)
         ).first()

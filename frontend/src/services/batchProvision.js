@@ -14,12 +14,6 @@ export const BatchProvisionService = {
     return apiGet(`/api/v1/batch-provision/?${query.toString()}`);
   },
 
-  /** 取得單一批次任務狀態 */
-  getStatus(jobId) {
-    return apiGet(`/api/v1/batch-provision/${jobId}/status`);
-  },
-
-  /** 列出某 Group 的所有批次 */
   /** Admin: 核准 / 駁回 */
   review(jobId, body) {
     return apiPost(`/api/v1/batch-provision/${jobId}/review`, body);
@@ -34,6 +28,4 @@ export const BatchProvisionService = {
   getRecurrencePreview(jobId, count = 5) {
     return apiGet(`/api/v1/batch-provision/${jobId}/recurrence-preview?count=${count}`);
   },
-
-  /** 教師: 送出批次申請 */
 };

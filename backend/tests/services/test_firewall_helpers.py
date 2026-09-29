@@ -8,6 +8,7 @@ the comment-format contract used by every SkyLab firewall rule.
 from __future__ import annotations
 
 from app.services.network import firewall_service as fw
+from app.utils.hostname import from_punycode_hostname
 
 # ─── _make_connection_comment / _parse_connection_comment round-trip ────────
 
@@ -94,16 +95,16 @@ def test_make_rule_fields_portless_omits_dport() -> None:
     assert "dport" not in fields
 
 
-# ─── _from_punycode_hostname ────────────────────────────────────────────────
+# ─── from_punycode_hostname（app.utils.hostname）────────────────────────────
 
 
 def test_punycode_decoding_passthrough_for_ascii() -> None:
-    assert fw._from_punycode_hostname("example.com") == "example.com"
+    assert from_punycode_hostname("example.com") == "example.com"
 
 
 def test_punycode_decoding_translates_xn_label() -> None:
     # xn--fsq.com is the punycode for 中.com (single CJK char .com)
-    decoded = fw._from_punycode_hostname("xn--fsq.com")
+    decoded = from_punycode_hostname("xn--fsq.com")
     assert decoded.endswith(".com")
     # First label should be a non-ASCII single char (the actual decoded form).
     first = decoded.split(".")[0]
@@ -112,9 +113,7 @@ def test_punycode_decoding_translates_xn_label() -> None:
 
 def test_punycode_decoding_handles_invalid_label_gracefully() -> None:
     # Bogus xn-- label that isn't valid punycode → keep original
-    assert (
-        fw._from_punycode_hostname("xn--!!invalid.com") == "xn--!!invalid.com"
-    )
+    assert from_punycode_hostname("xn--!!invalid.com") == "xn--!!invalid.com"
 
 
 # ─── _extra_block_comment ────────────────────────────────────────────────────

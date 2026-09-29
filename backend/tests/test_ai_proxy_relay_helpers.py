@@ -10,11 +10,11 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-import sqlmodel
 from starlette.requests import Request
 
 from app.api.routes import ai_proxy
 from app.features.ai.config import settings as ai_api_settings
+from app.services.llm_gateway import relay_service
 
 
 def _request(
@@ -58,7 +58,7 @@ def test_service_headers_replace_the_client_authorization(monkeypatch) -> None:
         ]
     )
 
-    headers = ai_proxy._service_headers(request)
+    headers = relay_service.service_headers(request)
 
     assert headers["Authorization"] == "Bearer restricted-service-key"
     assert headers["x-request-id"] == "request-123"
@@ -81,18 +81,18 @@ def test_json_payload_rejects_non_json_and_large_bodies(monkeypatch) -> None:
 def test_model_is_forwarded_without_a_campus_allowlist() -> None:
     assert ai_proxy._request_model({"model": "gpt-oss-20B"}) == "gpt-oss-20B"
     assert ai_proxy._request_model({"model": "not-public"}) == "not-public"
-    assert ai_proxy._usage_tokens(
+    assert relay_service.usage_details(
         {"usage": {"input_tokens": 11, "output_tokens": 7}}
-    ) == (11, 7)
+    )[:2] == (11, 7)
 
 
 def test_usage_recording_failure_does_not_replace_model_response(monkeypatch) -> None:
     def fail_record(**_kwargs) -> None:
         raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(ai_proxy.ai_gateway_service, "record_usage", fail_record)
+    monkeypatch.setattr(relay_service.ai_gateway_service, "record_usage", fail_record)
 
-    ai_proxy._record_usage_safely(
+    relay_service.record_usage_safely(
         session=object(),
         user=SimpleNamespace(id="user-1"),
         credential=SimpleNamespace(id="credential-1"),
@@ -103,13 +103,13 @@ def test_usage_recording_failure_does_not_replace_model_response(monkeypatch) ->
 
 def test_stream_usage_is_injected_without_mutating_the_original_payload() -> None:
     payload = {"model": "gpt-oss-20B", "stream": True, "stream_options": {}}
-    updated = ai_proxy._stream_payload(payload, "chat/completions")
+    updated = relay_service.stream_payload(payload, "chat/completions")
 
     assert updated["stream_options"] == {"include_usage": True}
     assert payload["stream_options"] == {}
 
     usage = {"input_tokens": 0, "output_tokens": 0, "usage_reported": False}
-    ai_proxy._update_stream_usage(
+    relay_service.update_stream_usage(
         'data: {"usage":{"prompt_tokens":3,"completion_tokens":2}}', usage
     )
     assert usage == {
@@ -128,7 +128,7 @@ def test_responses_stream_completed_event_records_nested_usage() -> None:
         "first_token_ms": None,
     }
 
-    ai_proxy._update_stream_usage(
+    relay_service.update_stream_usage(
         'data:{"type":"response.completed","response":{"model":"gpt-oss-20B",'
         '"usage":{"input_tokens":11,"output_tokens":7}}}',
         observation,
@@ -163,10 +163,10 @@ async def test_stream_completion_records_usage_and_first_token(monkeypatch) -> N
             return None
 
     recorded: dict[str, object] = {}
-    monkeypatch.setattr(sqlmodel, "Session", FakeSession)
+    monkeypatch.setattr(relay_service, "Session", FakeSession)
     monkeypatch.setattr(
-        ai_proxy,
-        "_record_usage_safely",
+        relay_service,
+        "record_usage_safely",
         lambda **kwargs: recorded.update(kwargs),
     )
     upstream = httpx.Response(
@@ -179,7 +179,7 @@ async def test_stream_completion_records_usage_and_first_token(monkeypatch) -> N
 
     chunks = [
         chunk
-        async for chunk in ai_proxy._stream_upstream_response(
+        async for chunk in relay_service.stream_upstream_response(
             client=FakeClient(),
             upstream=upstream,
             user=SimpleNamespace(id="user-1"),
@@ -224,10 +224,10 @@ async def test_cancelled_stream_still_records_partial_observation(monkeypatch) -
             return None
 
     recorded: dict[str, object] = {}
-    monkeypatch.setattr(sqlmodel, "Session", FakeSession)
+    monkeypatch.setattr(relay_service, "Session", FakeSession)
     monkeypatch.setattr(
-        ai_proxy,
-        "_record_usage_safely",
+        relay_service,
+        "record_usage_safely",
         lambda **kwargs: recorded.update(kwargs),
     )
     upstream = httpx.Response(
@@ -236,7 +236,7 @@ async def test_cancelled_stream_still_records_partial_observation(monkeypatch) -
         request=httpx.Request("POST", "http://upstream/v1/chat/completions"),
         stream=Stream(),
     )
-    stream = ai_proxy._stream_upstream_response(
+    stream = relay_service.stream_upstream_response(
         client=FakeClient(),
         upstream=upstream,
         user=SimpleNamespace(id="user-1"),
@@ -300,9 +300,9 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
 
     recorded: dict[str, object] = {}
     monkeypatch.setattr(ai_proxy, "get_redis", no_redis)
-    monkeypatch.setattr(ai_proxy.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(relay_service.httpx, "AsyncClient", FakeClient)
     monkeypatch.setattr(
-        ai_proxy.ai_gateway_service,
+        relay_service.ai_gateway_service,
         "record_usage",
         lambda **kwargs: recorded.update(kwargs),
     )

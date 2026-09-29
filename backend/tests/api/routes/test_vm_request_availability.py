@@ -35,18 +35,18 @@ def _fake_capacities() -> list[NodeCapacity]:
 
 def _patch_availability(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(
-        vm_request_availability_service.placement_advisor,
-        "_load_cluster_state",
+        vm_request_availability_service.placement_support,
+        "load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        vm_request_availability_service.placement_advisor,
-        "_build_node_capacities",
+        vm_request_availability_service.placement_support,
+        "build_live_node_capacities",
         lambda **kwargs: _fake_capacities(),
     )
     monkeypatch.setattr(
         vm_request_availability_service.placement_advisor,
-        "_decide_resource_type",
+        "decide_resource_type",
         lambda request: ("lxc", "Prefer LXC for this request."),
     )
 

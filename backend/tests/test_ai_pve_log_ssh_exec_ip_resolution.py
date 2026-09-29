@@ -7,7 +7,8 @@ import pytest
 from app.ai.pve_log import ssh_exec as ssh_exec_module
 
 
-def test_resolve_vm_info_uses_cached_ip_when_present(
+@pytest.mark.asyncio
+async def test_resolve_vm_info_uses_cached_ip_when_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resource = SimpleNamespace(ssh_private_key_encrypted="encrypted-key")
@@ -24,12 +25,13 @@ def test_resolve_vm_info_uses_cached_ip_when_present(
     )
     monkeypatch.setattr(ssh_exec_module, "decrypt_value", lambda _v: "PRIVATE_KEY")
 
-    host, private_key = ssh_exec_module._resolve_vm_info_from_db(object(), 157)
+    host, private_key = await ssh_exec_module._resolve_vm_info_from_db(object(), 157)
     assert host == "10.10.0.6"
     assert private_key == "PRIVATE_KEY"
 
 
-def test_resolve_vm_info_falls_back_to_proxmox_ip_and_updates_cache(
+@pytest.mark.asyncio
+async def test_resolve_vm_info_falls_back_to_proxmox_ip_and_updates_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resource = SimpleNamespace(ssh_private_key_encrypted="encrypted-key")
@@ -62,14 +64,15 @@ def test_resolve_vm_info_falls_back_to_proxmox_ip_and_updates_cache(
     )
     monkeypatch.setattr(ssh_exec_module, "decrypt_value", lambda _v: "PRIVATE_KEY")
 
-    host, private_key = ssh_exec_module._resolve_vm_info_from_db(object(), 157)
+    host, private_key = await ssh_exec_module._resolve_vm_info_from_db(object(), 157)
     assert host == "10.10.0.6"
     assert private_key == "PRIVATE_KEY"
     assert cache_updates["vmid"] == 157
     assert cache_updates["ip_address"] == "10.10.0.6"
 
 
-def test_resolve_vm_info_raises_when_no_cached_or_live_ip(
+@pytest.mark.asyncio
+async def test_resolve_vm_info_raises_when_no_cached_or_live_ip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resource = SimpleNamespace(ssh_private_key_encrypted="encrypted-key")
@@ -97,4 +100,4 @@ def test_resolve_vm_info_raises_when_no_cached_or_live_ip(
     monkeypatch.setattr(ssh_exec_module, "decrypt_value", lambda _v: "PRIVATE_KEY")
 
     with pytest.raises(RuntimeError, match="沒有可用的 IP 位址"):
-        ssh_exec_module._resolve_vm_info_from_db(object(), 157)
+        await ssh_exec_module._resolve_vm_info_from_db(object(), 157)

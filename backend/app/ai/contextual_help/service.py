@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from datetime import datetime, timezone
 from time import perf_counter
@@ -96,18 +97,15 @@ def _deterministic_answer(
 def _fallback_answer(
     surface: SurfaceSpec,
     intent: HelpIntent,
-    context: dict[str, Any],
     *,
     active_target: str | None,
     blocked: list[str],
 ) -> str:
-    """模型不可用時的答案。講得硬，但不會錯。"""
-    direct = _deterministic_answer(
-        surface, intent, context, active_target=active_target, blocked=blocked
-    )
-    if direct:
-        return direct
+    """模型不可用時的答案。講得硬，但不會錯。
 
+    只在 ``_deterministic_answer`` 已經答不出來之後才會被呼叫（見 :func:`explain`），
+    所以這裡不再重試確定性答案。
+    """
     if intent == "field_help" and active_target:
         element = find_element(surface, active_target)
         if element:
@@ -193,7 +191,7 @@ async def explain(
         return ExplainResponse(
             intent=intent,
             answer=_fallback_answer(
-                surface, intent, context, active_target=active_target, blocked=blocked
+                surface, intent, active_target=active_target, blocked=blocked
             ),
             target=target,
             grounded_in=grounded,
@@ -202,23 +200,13 @@ async def explain(
             used_model=False,
         )
 
-    def _log(
-        metrics: dict[str, Any] | None = None,
-        *,
-        status: str = "success",
-        error_message: str | None = None,
-    ) -> None:
-        if session is None:
-            return
-        record_ai_template_call(
-            session=session,
-            user_id=current_user.id,
-            call_type=CALL_AI_CONTEXTUAL_HELP,
-            model_name=model_name,
-            metrics=metrics,
-            status=status,
-            error_message=error_message,
-        )
+    _log = functools.partial(
+        record_ai_template_call,
+        session=session,
+        user_id=current_user.id,
+        call_type=CALL_AI_CONTEXTUAL_HELP,
+        model_name=model_name,
+    )
 
     payload = {
         "model": model_name,
@@ -244,13 +232,13 @@ async def explain(
         content = str(response_data["choices"][0]["message"]["content"] or "")
         answer = strip_think_tags(content).strip()
         if not answer:
-            _log(metrics, status="error", error_message="Empty answer from model.")
+            _log(metrics=metrics, status="error", error_message="Empty answer from model.")
             answer = _fallback_answer(
-                surface, intent, context, active_target=active_target, blocked=blocked
+                surface, intent, active_target=active_target, blocked=blocked
             )
             used_model = False
         else:
-            _log(metrics)
+            _log(metrics=metrics)
             used_model = True
         return ExplainResponse(
             intent=intent,
@@ -264,7 +252,7 @@ async def explain(
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.exception("Contextual help failed, using deterministic answer: %s", exc)
         _log(
-            usage_metrics(
+            metrics=usage_metrics(
                 {},
                 perf_counter() - started,
                 request_id=request_id,
@@ -276,7 +264,7 @@ async def explain(
         return ExplainResponse(
             intent=intent,
             answer=_fallback_answer(
-                surface, intent, context, active_target=active_target, blocked=blocked
+                surface, intent, active_target=active_target, blocked=blocked
             ),
             target=target,
             grounded_in=grounded,

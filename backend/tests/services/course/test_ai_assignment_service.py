@@ -4,10 +4,10 @@ import uuid
 from datetime import date, time
 
 import pytest
-from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.i18n import t
+from app.exceptions import NotFoundError
 from app.models.course import CoursePath, CoursePathStatus
 from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_script_artifact import (
@@ -402,7 +402,7 @@ def test_student_can_view_one_uploaded_pdf_for_multiple_checkpoints(
     assert document_path == expected_path
     assert filename == "linux-homework.pdf"
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         ai_assignment_service.get_student_ai_assignment_source_document(
             session,
             user_id=uuid.uuid4(),
@@ -506,6 +506,7 @@ def test_student_assignment_includes_only_safe_latest_ai_feedback() -> None:
 
 def test_student_script_result_projection_uses_checks_and_coverage() -> None:
     teaching_class_id = uuid.uuid4()
+    student_id = uuid.uuid4()
     artifact = _artifact(
         teaching_class_id=teaching_class_id,
         status=TeacherJudgeScriptStatus.approved,
@@ -529,6 +530,7 @@ def test_student_script_result_projection_uses_checks_and_coverage() -> None:
             "schema_version": "teacher_judge_run_results.v2",
             "targets": [
                 {
+                    "user": {"id": str(student_id)},
                     "stdout_excerpt": "must not be returned",
                     "parsed_result": {
                         "summary": "腳本完成收集。",
@@ -552,6 +554,7 @@ def test_student_script_result_projection_uses_checks_and_coverage() -> None:
         run,
         artifact=artifact,
         item_id="permissions",
+        user_id=student_id,
     )
 
     assert check.score is None
@@ -566,14 +569,17 @@ def test_student_script_result_projection_uses_checks_and_coverage() -> None:
 def test_student_projection_hides_technical_validation_error() -> None:
     """輸出驗證失敗的原始錯誤（pydantic validation errors）只給老師看，學生看到一句說明。"""
     teaching_class_id = uuid.uuid4()
+    student_id = uuid.uuid4()
     raw_error = (
         "4 validation errors for ManagedScriptResult\n"
         "checks.0.raw\n"
         "  Input should be a valid string"
     )
+    # 舊資料相容路徑：學生自己發起、只有一個沒帶 user 快照的 target
     run = TeacherJudgeScriptRun(
         teaching_class_id=teaching_class_id,
         status=TeacherJudgeScriptRunStatus.completed,
+        started_by=student_id,
         target_results_json={
             "schema_version": "teacher_judge_run_results.v2",
             "targets": [
@@ -587,7 +593,7 @@ def test_student_projection_hides_technical_validation_error() -> None:
         },
     )
 
-    check = ai_assignment_service._check_to_student(run)
+    check = ai_assignment_service._check_to_student(run, user_id=student_id)
 
     assert "validation error" not in check.error
     assert "ManagedScriptResult" not in check.error

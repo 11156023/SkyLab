@@ -6,7 +6,6 @@ from app.infrastructure.proxmox.os_detection import (
     format_os_token,
     is_windows_guest_identity,
     normalize_lxc_ostype,
-    normalize_os_release_text,
     normalize_qemu_ostype,
     normalize_qga_osinfo,
     unknown_guest_os,
@@ -78,24 +77,6 @@ def test_qemu_ostype_windows_is_family_only() -> None:
 
 def test_qemu_ostype_other_is_unknown() -> None:
     assert normalize_qemu_ostype("other") == unknown_guest_os()
-
-
-def test_os_release_text_parses_ubuntu() -> None:
-    guest_os = normalize_os_release_text(
-        'NAME="Ubuntu Linux"\nID=ubuntu\nVERSION_ID="24.04"\nPRETTY_NAME="Ubuntu 24.04 LTS"\n'
-    )
-    assert guest_os is not None
-    assert guest_os["family"] == "linux"
-    assert guest_os["id"] == "ubuntu"
-    assert guest_os["version"] == "24.04"
-    assert guest_os["pretty_name"] == "Ubuntu 24.04 LTS"
-    assert guest_os["source"] == "os_release"
-    assert guest_os["confidence"] == "high"
-
-
-def test_os_release_text_garbage_returns_none() -> None:
-    assert normalize_os_release_text("") is None
-    assert normalize_os_release_text("not an os-release file") is None
 
 
 def test_format_os_token_defaults_to_unknown() -> None:

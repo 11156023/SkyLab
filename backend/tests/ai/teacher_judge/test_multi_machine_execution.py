@@ -102,8 +102,7 @@ def test_partition_keeps_peer_item_with_executor_and_respects_node_order() -> No
     assert partitions[0][1].pending_review_item_ids == ["db-to-web"]
 
 
-@pytest.mark.asyncio
-async def test_create_artifact_set_writes_one_child_per_executor_node(
+def test_create_artifact_set_writes_one_child_per_executor_node(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = make_session()
@@ -152,7 +151,7 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
         lambda **_kwargs: (None, {}),
     )
 
-    result = await script_artifact_service.create_artifact_set(
+    result = script_artifact_service.create_artifact_set(
         session=session,
         teaching_class_id=class_id,
         session_id=uuid.uuid4(),
@@ -196,8 +195,7 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
     assert len(rows) == 2
 
 
-@pytest.mark.asyncio
-async def test_create_artifact_set_child_name_falls_back_and_truncates(
+def test_create_artifact_set_child_name_falls_back_and_truncates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = make_session()
@@ -246,7 +244,7 @@ async def test_create_artifact_set_child_name_falls_back_and_truncates(
         lambda **_kwargs: (None, {}),
     )
 
-    result = await script_artifact_service.create_artifact_set(
+    result = script_artifact_service.create_artifact_set(
         session=session,
         teaching_class_id=class_id,
         session_id=uuid.uuid4(),

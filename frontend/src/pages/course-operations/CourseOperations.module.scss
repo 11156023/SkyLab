@@ -931,36 +931,6 @@
   grid-column: span 2;
 }
 
-.createDialogOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  z-index: 300;
-  inset: 0;
-  display: grid;
-  padding: 24px;
-  place-items: center;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.createDialogOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -1972,19 +1942,12 @@
   overflow-wrap: break-word;
 }
 
-/* 標題列右側的文字刪除鈕（如移除節點）：無框危險色文字，hover 淡紅底 */
 /* 標題列右側的文字刪除鈕（如移除節點）：標準 ghost 危險款，縮小配窄側欄 */
 .inspectorTitleAction {
   @include btn-ghost($danger: true);
   min-height: 28px;
   padding: 4px 8px;
   font-size: $font-size-12;
-}
-
-.inspectorSplit {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
 }
 
 .inspectorSliders {
@@ -2034,133 +1997,6 @@
   line-height: 1.5;
 }
 
-.publicationSection {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border);
-}
-
-.publicationHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.publicationHead>span {
-  color: var(--color-text);
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-}
-
-.publicationAddBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 9px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-pill;
-  color: var(--color-primary);
-  background: var(--color-surface);
-  font-size: $font-size-12;
-  cursor: pointer;
-}
-
-.publicationAddBtn:hover {
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
-}
-
-.publicationList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.publicationList li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
-  align-items: center;
-  gap: 4px;
-}
-
-.publicationItem {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: inherit;
-  background: color-mix(in srgb, var(--color-hover) 26%, var(--color-surface));
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.publicationItem:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
-}
-
-.publicationItem:disabled {
-  cursor: default;
-}
-
-.publicationItem strong {
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-}
-
-.publicationItem small {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: $font-size-10;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 對外服務彈窗：規範的簡易卡款——padding 24 + 間距交給 gap、
-   小型單欄表單寬 640，去掉 header/footer 分隔帶（玻璃底繼承 .createDialog） */
-.publicationDialog {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-16;
-  width: 100%;
-  max-width: 640px;
-  padding: $spacing-24;
-}
-
-.publicationDialog .createDialogHeader {
-  min-height: 0;
-  padding: 0;
-  border-bottom: 0;
-}
-
-.publicationDialog .createDialogHeader h2 {
-  font-size: $font-size-16;
-}
-
-.publicationDialog .createDialogFooter {
-  min-height: 0;
-  padding: 0;
-  border-top: 0;
-  background: none;
-}
-
-/* 內文含主機名等連續長字串，規範要求 overflow-wrap: anywhere */
-.publicationDialogBody {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 0;
-  overflow-wrap: anywhere;
-}
-
 .rowActions {
   display: flex;
   align-items: center;
@@ -2173,47 +2009,6 @@
 
 .rowActions button {
   white-space: nowrap;
-}
-
-.audienceClassList {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.audienceClassItem {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 11px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  font-weight: $font-weight-400;
-  cursor: pointer;
-}
-
-.audienceClassItem input {
-  width: auto;
-  margin-top: 2px;
-}
-
-.audienceClassItem span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-  font-size: $font-size-14;
-}
-
-.audienceClassItem small {
-  color: var(--color-text-muted);
-  font-size: $font-size-10;
-}
-
-.inspectorDanger {
-  @include btn-danger-outline;
-  margin-top: auto;
 }
 
 /* ── 每週內容列表 ── */
@@ -2610,11 +2405,6 @@
     padding: 18px;
   }
 
-  .createDialogOverlay {
-    align-items: end;
-    padding: 0;
-  }
-
   .createDialog {
     width: 100%;
     max-height: calc(100vh - 24px);
@@ -2951,11 +2741,28 @@
     border: 1px solid var(--color-border);
     background: var(--color-surface);
 
+    > .fileLink,
     > a {
       @include text-truncate;
       flex: 1;
-      color: var(--color-primary);
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      font: inherit;
       font-size: $font-size-14;
+      color: var(--color-primary);
+      cursor: pointer;
+
+      &:hover {
+        text-decoration: underline;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: 2px;
+      }
     }
 
     > small {
@@ -2979,17 +2786,4 @@
 
   &:hover:not(:disabled) { color: var(--color-danger); background: var(--color-surface); }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
-/* 學生看到的對外入口（host:port） */
-.forwardEndpoint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: $font-size-12;
-  font-family: var(--font-mono, monospace);
 }

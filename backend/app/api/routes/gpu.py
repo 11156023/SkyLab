@@ -1,13 +1,10 @@
 """GPU (PCI resource mapping) management routes."""
 
-import logging
-from collections import Counter
 from datetime import datetime
 
 from fastapi import APIRouter
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep
-from app.repositories import vm_request as vm_request_repo
 from app.schemas.gpu import (
     GPUMappingCreate,
     GPUMappingDetail,
@@ -15,8 +12,6 @@ from app.schemas.gpu import (
     GPUSummary,
 )
 from app.services.proxmox import gpu_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/gpu", tags=["gpu"])
 
@@ -68,37 +63,6 @@ def list_gpu_options(
     options = gpu_service.list_gpu_options(node=node)
     if not start_at or not end_at:
         return options
-
-    # Keep response stable for invalid or reversed windows.
-    if end_at <= start_at:
-        return options
-
-    overlapping = vm_request_repo.get_approved_vm_requests_overlapping_window(
-        session=session,
-        window_start=start_at,
-        window_end=end_at,
+    return gpu_service.apply_reservation_window(
+        session, options, start_at=start_at, end_at=end_at
     )
-    reserved_counts = Counter(
-        str(item.gpu_mapping_id)
-        for item in overlapping
-        # Running/provisioned VMs are already reflected by Proxmox runtime usage.
-        if item.gpu_mapping_id and item.vmid is None
-    )
-
-    adjusted: list[GPUSummary] = []
-    for option in options:
-        reserved = int(reserved_counts.get(option.mapping_id, 0))
-        if reserved <= 0:
-            adjusted.append(option)
-            continue
-
-        adjusted.append(
-            option.model_copy(
-                update={
-                    "used_count": min(option.device_count, option.used_count + reserved),
-                    "available_count": max(0, option.available_count - reserved),
-                }
-            )
-        )
-
-    return adjusted
