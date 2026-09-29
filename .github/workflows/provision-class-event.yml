@@ -42,8 +42,8 @@ on:
         description: "導師帳號"
         required: true
         default: "teacher001@gmail.com"
-      lxc_template:
-        description: "LXC 範本名稱／UUID 或 local:vztmpl/...（空白 = 第一個可用的 LXC 範本）"
+      lxc_image:
+        description: "LXC 映像：local:vztmpl/... 或檔名關鍵字如 ubuntu-24.04（空白 = 最新 Ubuntu，沒有則 Debian）"
         required: false
         default: ""
       lxc_cpu:
@@ -55,7 +55,7 @@ on:
         required: true
         default: "512"
       lxc_disk_gb:
-        description: "每台磁碟 GB（不會小於範本本身）"
+        description: "每台磁碟 GB"
         required: true
         default: "8"
       dry_run:
@@ -91,7 +91,7 @@ jobs:
       STUDENT_COUNT: ${{ inputs.student_count }}
       STUDENT_EMAIL_PATTERN: ${{ inputs.student_email_pattern }}
       TEACHER_EMAIL: ${{ inputs.teacher_email }}
-      LXC_TEMPLATE: ${{ inputs.lxc_template }}
+      LXC_IMAGE: ${{ inputs.lxc_image }}
       LXC_CPU: ${{ inputs.lxc_cpu }}
       LXC_MEMORY_MB: ${{ inputs.lxc_memory_mb }}
       LXC_DISK_GB: ${{ inputs.lxc_disk_gb }}
