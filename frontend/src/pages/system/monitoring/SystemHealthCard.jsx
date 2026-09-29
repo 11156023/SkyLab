@@ -143,14 +143,14 @@ export default function SystemHealthCard() {
           <div key={component.name} className={styles.healthComponent}>
             <MIcon name={componentIcon(component.name)} size={18} />
             <div className={styles.healthComponentText}>
-              <span className={styles.healthComponentName}>
-                {/* pve:<id>／gateway 直接用後端給的名稱；「:」在 i18next 是命名空間分隔符 */}
-                {usesBackendLabel(component.name)
+              {/* pve:<id>／gateway 直接用後端給的名稱；「:」在 i18next 是命名空間分隔符。
+                  名稱太長會被截斷（例如 LLM 模型名），滑過顯示全名 */}
+              {(() => {
+                const name = usesBackendLabel(component.name)
                   ? component.label
-                  : t(`SystemHealth.component.${component.name}`, {
-                      defaultValue: component.label,
-                    })}
-              </span>
+                  : t(`SystemHealth.component.${component.name}`, { defaultValue: component.label });
+                return <span className={styles.healthComponentName} title={name}>{name}</span>;
+              })()}
               <span className={styles.healthComponentMeta} title={component.detail ?? ""}>
                 {component.status === "ok" && component.latency_ms != null
                   ? `${component.latency_ms} ms`
@@ -215,7 +215,7 @@ export default function SystemHealthCard() {
                   <tr key={`${task.loop}/${task.task}`} className={styles.tr}>
                     <td className={styles.td}>
                       <span className={styles.healthTaskName}>{task.task}</span>
-                      <span className={styles.mutedText}>
+                      <span className={styles.healthTaskLoop}>
                         {t(`SystemHealth.loop.${task.loop}`, { defaultValue: task.loop })}
                       </span>
                     </td>
