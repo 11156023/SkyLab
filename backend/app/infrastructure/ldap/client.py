@@ -66,6 +66,8 @@ class _VerifiedTls(Tls):
             capath=self.ca_certs_path,
             cadata=self.ca_certs_data,
         )
+        # 登入密碼會經過這條連線，不接受 TLS 1.0／1.1
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         if hasattr(ssl, "VERIFY_X509_STRICT"):
             ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
         connection.socket = ctx.wrap_socket(

@@ -254,14 +254,16 @@ def test_check_port_available_accepts_ipv4_host() -> None:
 
 
 @pytest.mark.skipif(not socket.has_ipv6, reason="此環境不支援 IPv6")
-def test_check_port_available_accepts_ipv6_wildcard() -> None:
+@pytest.mark.parametrize("host", ["::1", "[::1]"])
+def test_check_port_available_accepts_ipv6_host(host: str) -> None:
+    # 含 ":" 的主機（包括 "::" 萬用位址）都走 AF_INET6；測試只綁 loopback，不開放到所有介面
     try:
         with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as probe:
-            probe.bind(("::", 0))
+            probe.bind(("::1", 0))
     except OSError:
         pytest.skip("此環境無法綁定 IPv6 位址")
 
-    assert launcher_main.check_port_available("::", 0, get_logger("TestPort")) is True
+    assert launcher_main.check_port_available(host, 0, get_logger("TestPort")) is True
 
 
 # ---------------------------------------------------------------------------
