@@ -13,6 +13,7 @@ from app.api.deps import (
     CurrentUser,
     SessionDep,
     TokenDep,
+    enforce_account_rate_limit,
     rate_limit_by_ip,
 )
 from app.core import security
@@ -44,14 +45,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["login"])
 
-# Brute-force protection: 10 attempts/minute per IP for credential endpoints,
-# 3/minute for password recovery to limit email-bombing.
+# 暴力破解防護分兩層：依帳號計次（密碼／LDAP，見 _enforce_login_account_limit；
+# TOTP 另有依帳號的失敗鎖定）才是主要防線；依 IP 的上限放寬到整班共用 NAT
+# 出口也夠用，只擋單一來源大量撞不同帳號。上限見 settings.LOGIN_RATE_LIMIT_*。
 _LOGIN_RATE_LIMIT = Depends(
-    rate_limit_by_ip(scope="login", limit=10, window_seconds=60)
+    rate_limit_by_ip(
+        scope="login", limit=settings.LOGIN_RATE_LIMIT_PER_IP, window_seconds=60
+    )
 )
+# 忘記密碼：同一信箱每分鐘 3 封（防灌爆信箱），IP 上限同理放寬
 _PASSWORD_RECOVERY_RATE_LIMIT = Depends(
-    rate_limit_by_ip(scope="pwd-recovery", limit=3, window_seconds=60)
+    rate_limit_by_ip(scope="pwd-recovery", limit=30, window_seconds=60)
 )
+_PASSWORD_RECOVERY_PER_EMAIL_LIMIT = 3
+
+
+async def _enforce_login_account_limit(account: str) -> None:
+    await enforce_account_rate_limit(
+        scope="login",
+        account=account,
+        limit=settings.LOGIN_RATE_LIMIT_PER_ACCOUNT,
+        window_seconds=60,
+    )
+
 
 # 兩步驟驗證碼的暴力破解防護（依 IP 的節流之外）：換來源 IP 也繞不過
 _TOTP_USER_FAIL_LIMIT = 5
@@ -60,13 +76,17 @@ _TOTP_CHALLENGE_FAIL_LIMIT = 3
 
 
 @router.post("/login/access-token", dependencies=[_LOGIN_RATE_LIMIT])
-def login_access_token(
+async def login_access_token(
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token | TotpChallenge:
     """密碼登入。帳號已綁定兩步驟驗證時回 ``TotpChallenge``（不含 token），
     前端須再呼叫 ``/login/totp``。"""
-    return auth_service.login(
-        session=session, email=form_data.username, password=form_data.password
+    await _enforce_login_account_limit(form_data.username)
+    return await run_in_threadpool(
+        auth_service.login,
+        session=session,
+        email=form_data.username,
+        password=form_data.password,
     )
 
 
@@ -78,10 +98,16 @@ async def login_google(
 
 
 @router.post("/login/ldap", dependencies=[_LOGIN_RATE_LIMIT])
-def login_ldap(session: SessionDep, body: LdapLoginRequest) -> Token | TotpChallenge:
+async def login_ldap(
+    session: SessionDep, body: LdapLoginRequest
+) -> Token | TotpChallenge:
     """以校園 LDAP/AD 帳號登入。"""
-    return ldap_auth_service.login_ldap(
-        session=session, username=body.username, password=body.password
+    await _enforce_login_account_limit(f"ldap:{body.username}")
+    return await run_in_threadpool(
+        ldap_auth_service.login_ldap,
+        session=session,
+        username=body.username,
+        password=body.password,
     )
 
 
@@ -234,8 +260,14 @@ async def logout(
 
 
 @router.post("/password-recovery/{email}", dependencies=[_PASSWORD_RECOVERY_RATE_LIMIT])
-def recover_password(email: str, session: SessionDep) -> Message:
-    auth_service.recover_password(session=session, email=email)
+async def recover_password(email: str, session: SessionDep) -> Message:
+    await enforce_account_rate_limit(
+        scope="pwd-recovery",
+        account=email,
+        limit=_PASSWORD_RECOVERY_PER_EMAIL_LIMIT,
+        window_seconds=60,
+    )
+    await run_in_threadpool(auth_service.recover_password, session=session, email=email)
     return Message(
         message="If that email is registered, we sent a password recovery link"
     )

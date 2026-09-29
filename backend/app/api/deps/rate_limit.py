@@ -9,6 +9,7 @@ local 一律放行；非 local 的認證類 scope 會回 503，其餘照舊放�
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request, status
@@ -121,4 +122,36 @@ def rate_limit_by_user(
     return _dep
 
 
-__all__ = ["rate_limit_by_ip", "rate_limit_by_user"]
+async def enforce_account_rate_limit(
+    *,
+    scope: str,
+    account: str,
+    limit: int,
+    window_seconds: int,
+) -> None:
+    """依「嘗試登入的帳號」計次，超過就回 429（登入前還沒有 user id 可用）。
+
+    暴力破解針對的是單一帳號，這條才是主要防線：共用 NAT 出口的整班學生
+    各用各的帳號，不會互相吃掉額度。帳號名稱正規化（去空白、小寫）後雜湊，
+    Redis key 與超限時的 log 都不會留下明文帳號。
+    """
+    normalized = account.strip().lower()
+    digest = hashlib.sha256(normalized.encode()).hexdigest()[:32]
+    redis = await get_redis()
+    allowed, info = await check_rate_limit_by_key(
+        redis,
+        key=f"account:{scope}:{digest}",
+        limit=limit,
+        window_seconds=window_seconds,
+        scope=scope,
+    )
+    if not allowed:
+        retry_after = info.get("window_seconds", window_seconds)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=t("rate_limit.account_too_many_attempts", retry_after=retry_after),
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+__all__ = ["enforce_account_rate_limit", "rate_limit_by_ip", "rate_limit_by_user"]
