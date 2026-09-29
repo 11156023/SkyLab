@@ -62,8 +62,8 @@ export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDe
           <span className={styles.badge}>
             {t(bidirectional ? "ConnectionPanel.bidirectional" : "ConnectionPanel.oneWay")}
           </span>
-          {edge.course_managed && (
-            <span className={styles.badge}>{t("ConnectionPanel.courseManaged")}</span>
+          {edge.topology_managed && (
+            <span className={styles.badge}>{t("ConnectionPanel.topologyManaged")}</span>
           )}
         </div>
       </div>
@@ -108,7 +108,7 @@ export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDe
         )}
       </div>
 
-      {onDelete && !edge.course_managed && <div className={styles.footer}>
+      {onDelete && !edge.topology_managed && <div className={styles.footer}>
         <button type="button" className={styles.deleteBtn} onClick={() => onDelete(edge)}>
           <MIcon name="delete" size={15} />
           {t("ConnectionPanel.delete")}

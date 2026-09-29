@@ -163,3 +163,20 @@ def test_edges_come_from_the_rules_read_in_parallel(
     edge = resp.edges[0]
     assert (edge.source_vmid, edge.target_vmid) == (100, 101)
     assert [(p.port, p.protocol) for p in edge.ports] == [(22, "tcp")]
+
+
+def test_quick_practice_nodes_are_read_only_in_firewall_topology(
+    topology_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology_env(reachable=[100], pve=[_vm(100)])
+    monkeypatch.setattr(
+        fw.resource_kind,
+        "classify_many",
+        lambda session, resources: {100: "quick_practice"},
+    )
+
+    resp = _topology()
+
+    node = next(n for n in resp.nodes if n.vmid == 100)
+    assert node.machine_kind == "quick_practice"
+    assert node.can_manage is False

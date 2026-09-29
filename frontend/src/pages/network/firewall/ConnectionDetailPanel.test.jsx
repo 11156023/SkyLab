@@ -25,18 +25,18 @@ function render(edge) {
   );
 }
 
-describe("ConnectionDetailPanel course topology", () => {
-  it("marks course-managed edges and hides the delete action", () => {
-    const html = render({ ...baseEdge, course_managed: true });
+describe("ConnectionDetailPanel managed topology", () => {
+  it("marks template-managed edges and hides the delete action", () => {
+    const html = render({ ...baseEdge, topology_managed: true });
 
-    expect(html).toContain("ConnectionPanel.courseManaged");
+    expect(html).toContain("ConnectionPanel.topologyManaged");
     expect(html).not.toContain("ConnectionPanel.delete");
   });
 
   it("keeps the delete action for regular firewall edges", () => {
     const html = render(baseEdge);
 
-    expect(html).not.toContain("ConnectionPanel.courseManaged");
+    expect(html).not.toContain("ConnectionPanel.topologyManaged");
     expect(html).toContain("ConnectionPanel.delete");
   });
 });
