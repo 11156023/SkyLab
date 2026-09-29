@@ -25,6 +25,7 @@
   "AiFloatingChat.capabilityGuideTitle": "Guide you through a flow",
   "AiFloatingChat.capabilityRecommendTitle": "Recommend a spec and fill out the request form",
   "AiFloatingChat.capabilityExplainTitle": "Explain this screen",
+  "AiFloatingChat.suggestionsLead": "Try asking:",
   "AiFloatingChat.choiceSkipButton": "Generate the config now",
   "AiFloatingChat.closeAssistantAriaLabel": "Close AI assistant",
   "AiFloatingChat.closeLabel": "Close",
