@@ -30,7 +30,7 @@ export default function QuickCreatePage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("QuickCreatePage.title")} subtitle={t("QuickCreatePage.subtitle")} />
+      <PageHeader title={t("QuickCreatePage.title")} />
       <QuickTemplateCards templates={templates} loading={loading} error={error} from="/quick-create"
         onRetry={() => setReloadKey((key) => key + 1)} />
     </div>
