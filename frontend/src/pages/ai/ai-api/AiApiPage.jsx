@@ -1411,6 +1411,11 @@ export default function AiApiPage() {
                 icon="vpn_key"
                 title={t("AiApiPage.keysEmptyTitle")}
                 description={t("AiApiPage.keysEmptyDesc")}
+                action={(
+                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)}>
+                    <MIcon name="add" size={16} />{t("AiApiPage.addKeyButton")}
+                  </button>
+                )}
                 guideId="ai-keys-content"
               />
             )
@@ -1421,6 +1426,11 @@ export default function AiApiPage() {
                   icon="key_off"
                   title={t("AiApiPage.keysNoActiveTitle")}
                   description={t("AiApiPage.keysNoActiveDesc")}
+                  action={(
+                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)}>
+                    <MIcon name="add" size={16} />{t("AiApiPage.addKeyButton")}
+                  </button>
+                )}
                 />
               ) : (
                 <div className={styles.tableWrap}>
@@ -1477,6 +1487,11 @@ export default function AiApiPage() {
               icon="history"
               title={t("AiApiPage.recordsEmptyTitle")}
               description={t("AiApiPage.recordsEmptyDesc")}
+              action={(
+                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)}>
+                    <MIcon name="add" size={16} />{t("AiApiPage.addKeyButton")}
+                  </button>
+                )}
               guideId="ai-records-content"
             />
           ) : (

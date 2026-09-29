@@ -904,6 +904,7 @@
   "AiJudgePanel.noChecksTitle": "還沒有檢查",
   "AiJudgePanel.noCommandOutput": "（指令沒有 stdout/stderr 輸出）",
   "AiJudgePanel.noItemsDesc": "在右側告訴檢查表助理想檢查什麼（也可以附上評分表），它會提出項目；你同意套用後就會出現在這裡。",
+  "AiJudgePanel.askAssistantBtn": "詢問檢查表助理",
   "AiJudgePanel.noItemsTitle": "還沒有檢查項目",
   "AiJudgePanel.noMethod": "尚未提供檢測方式",
   "AiJudgePanel.noOutput": "（無輸出）",

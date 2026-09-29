@@ -39,10 +39,11 @@ function useStatusLabels() {
   };
 }
 
-function EmptyState() {
+function EmptyState({ onClear }) {
   const { t } = useTranslation("system");
   return (
-    <SharedEmptyState icon="hourglass_empty" title={t("JobsPage.emptyNoResult")} />
+    <SharedEmptyState icon="hourglass_empty" title={t("JobsPage.emptyNoResult")}
+      action={onClear && <button type="button" className={styles.btnSecondary} onClick={onClear}><MIcon name="filter_alt_off" size={16} />{t("EmptyState.clearFilters", { ns: "common" })}</button>} />
   );
 }
 
@@ -181,7 +182,7 @@ export default function JobsPage() {
         {loading ? (
           <LoadingState fullPage text={t("JobsPage.loading")} />
         ) : jobs.length === 0 ? (
-          <EmptyState />
+          <EmptyState onClear={kind !== "all" || status !== "all" ? () => { setKind("all"); setStatus("all"); } : undefined} />
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>

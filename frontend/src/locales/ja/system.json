@@ -160,6 +160,7 @@
   "GatewayPage.actionStop": "停止",
   "GatewayPage.copy": "コピー",
   "GatewayPage.emptyNotConfigured": "Gateway 接続がまだ設定されていません",
+  "GatewayPage.goToConnection": "接続設定へ",
   "GatewayPage.generating": "生成中...",
   "GatewayPage.hostPlaceholder": "例：192.168.100.143",
   "GatewayPage.installComponentMissing": "未インストール",

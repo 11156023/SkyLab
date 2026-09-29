@@ -904,6 +904,7 @@
   "AiJudgePanel.noChecksTitle": "No checks yet",
   "AiJudgePanel.noCommandOutput": "(the command printed nothing)",
   "AiJudgePanel.noItemsDesc": "Tell the checklist assistant on the right what to check (you can attach a rubric too). It proposes items, and they appear here once you apply them.",
+  "AiJudgePanel.askAssistantBtn": "Ask the checklist assistant",
   "AiJudgePanel.noItemsTitle": "No items yet",
   "AiJudgePanel.noMethod": "No check method yet",
   "AiJudgePanel.noOutput": "(no output)",

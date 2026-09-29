@@ -142,7 +142,8 @@ function StorageList() {
           <LoadingState text={t("SettingsPage.loadingStorage")} />
         ) : visibleStorages.length === 0 ? (
           hasFilter ? (
-            <EmptyState icon="search_off" title={t("SettingsPage.storageNoResult")} />
+            <EmptyState icon="search_off" title={t("SettingsPage.storageNoResult")}
+              action={<button type="button" className={styles.btnSecondary} onClick={() => { setQuery(""); setStatus("all"); }}><MIcon name="filter_alt_off" size={16} />{t("EmptyState.clearFilters", { ns: "common" })}</button>} />
           ) : (
             <EmptyState icon="storage" title={t("SettingsPage.emptyNoStorageConfig")} />
           )

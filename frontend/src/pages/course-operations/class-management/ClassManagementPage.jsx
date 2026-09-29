@@ -193,6 +193,9 @@ export default function ClassManagementPage() {
       icon="school"
       title={classes.length ? t("ClassManagementPage.emptyFilteredTitle") : t("ClassManagementPage.emptyTitle")}
       description={classes.length ? undefined : t("ClassManagementPage.emptyDescription")}
+      action={classes.length
+        ? <button type="button" className={styles.btnSecondary} onClick={() => { setQuery(""); setStatus("all"); }}><MIcon name="filter_alt_off" size={16} />{t("EmptyState.clearFilters", { ns: "common" })}</button>
+        : <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}><MIcon name="add" size={17} />{t("ClassManagementPage.createClass")}</button>}
     />}
   </div>;
 }

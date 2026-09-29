@@ -829,7 +829,8 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
         </div>
         <div className={styles.navBody}>
           {paths.length === 0 ? (
-            <EmptyState icon="topic" iconSize={24} title={t("CourseCmsPage.noPathsTitle")} />
+            <EmptyState icon="topic" iconSize={24} title={t("CourseCmsPage.noPathsTitle")}
+              action={<button type="button" className={styles.btnPrimary} onClick={() => setNewPathOpen(true)}><MIcon name="add" size={16} />{t("CourseCmsPage.addPathLabel")}</button>} />
           ) : (
             <ul className={styles.tree}>
               {paths.map((path) => {

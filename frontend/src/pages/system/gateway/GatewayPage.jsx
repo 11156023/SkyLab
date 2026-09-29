@@ -310,7 +310,7 @@ function ServiceLogsCard({ logs, className }) {
 }
 
 /* ── 服務管理 Tab ───────────────────────────────────── */
-function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
+function ServiceTab({ service, gatewayReady, host, onDirtyChange, onGoToConnection }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const [status, setStatus] = useState(null);
@@ -406,6 +406,7 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
       <EmptyState
         icon="dns"
         title={t("GatewayPage.emptyNotConfigured")}
+        action={<button type="button" className={styles.btnPrimary} onClick={onGoToConnection}><MIcon name="settings_ethernet" size={16} />{t("GatewayPage.goToConnection")}</button>}
       />
     );
   }
@@ -453,7 +454,7 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
   );
 }
 
-function WireGuardTab({ gatewayReady }) {
+function WireGuardTab({ gatewayReady, onGoToConnection }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const [overview, setOverview] = useState(null);
@@ -507,7 +508,7 @@ function WireGuardTab({ gatewayReady }) {
   }
 
   if (!gatewayReady) {
-    return <EmptyState icon="vpn_key" title={t("GatewayPage.emptyNotConfigured")} />;
+    return <EmptyState icon="vpn_key" title={t("GatewayPage.emptyNotConfigured")} action={<button type="button" className={styles.btnPrimary} onClick={onGoToConnection}><MIcon name="settings_ethernet" size={16} />{t("GatewayPage.goToConnection")}</button>} />;
   }
 
   if (loading) {
@@ -676,9 +677,9 @@ export default function GatewayPage() {
         ) : activeTab === "connection" ? (
           <ConnectionTab config={config} onConfigChange={setConfig} />
         ) : activeTab === "install" ? (
-          <GatewayInstallTab gatewayReady={Boolean(config?.is_configured)} />
+          <GatewayInstallTab gatewayReady={Boolean(config?.is_configured)} onGoToConnection={() => handleTabSelect("connection")} />
         ) : activeTab === "wireguard" ? (
-          <WireGuardTab gatewayReady={Boolean(config?.is_configured)} />
+          <WireGuardTab gatewayReady={Boolean(config?.is_configured)} onGoToConnection={() => handleTabSelect("connection")} />
         ) : (
           <ServiceTab
             key={activeTab}
@@ -686,6 +687,7 @@ export default function GatewayPage() {
             gatewayReady={Boolean(config?.is_configured)}
             host={config?.host}
             onDirtyChange={handleDirtyChange}
+            onGoToConnection={() => handleTabSelect("connection")}
           />
         )}
       </div>

@@ -536,7 +536,8 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
             </> : null}
           </aside>
         </div>
-      </> : <EmptyState icon="dns" title={t("CourseTemplateEditorPage.emptyNodesTitle")} />}
+      </> : <EmptyState icon="dns" title={t("CourseTemplateEditorPage.emptyNodesTitle")}
+        action={<button type="button" className={styles.btnPrimary} disabled={locked || atLimit || !sourceId} onClick={addMachine}><MIcon name="add" size={16} />{t("CourseTemplateEditorPage.addMachineBtn")}</button>} />}
       {dialogPresence.open && <ConnectionDialog
         key={dialogPresence.item?.publicationId ?? `${dialogPresence.item?.initialSource ?? ""}-${dialogPresence.item?.initialTarget ?? ""}`}
         templateMode

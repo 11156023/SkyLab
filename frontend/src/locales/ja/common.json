@@ -14,6 +14,8 @@
   "Error.desc": "もう一度お試しください。このエラーが続く場合は管理者にお問い合わせください。",
   "Error.generic": "エラーが発生しました。もう一度お試しください。このエラーが続く場合は管理者にお問い合わせください",
   "Error.retry": "再試行",
+  "EmptyState.clearFilters": "フィルターをクリア",
+  "EmptyState.clearSearch": "検索をクリア",
   "Error.notFoundTitle": "リソースが見つかりません",
   "Error.notFoundDesc": "削除されたか、URL が間違っている可能性があります。",
   "Error.backToList": "一覧に戻る",

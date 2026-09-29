@@ -904,6 +904,7 @@
   "AiJudgePanel.noChecksTitle": "チェックはまだありません",
   "AiJudgePanel.noCommandOutput": "（コマンドの出力はありません）",
   "AiJudgePanel.noItemsDesc": "右側のチェック表アシスタントにチェックしたい内容を伝えてください（評価表の添付も可）。提案された項目を適用するとここに表示されます。",
+  "AiJudgePanel.askAssistantBtn": "チェックリストアシスタントに相談",
   "AiJudgePanel.noItemsTitle": "チェック項目はまだありません",
   "AiJudgePanel.noMethod": "チェック方法はまだありません",
   "AiJudgePanel.noOutput": "（出力なし）",

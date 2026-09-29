@@ -160,6 +160,7 @@
   "GatewayPage.actionStop": "Stop",
   "GatewayPage.copy": "Copy",
   "GatewayPage.emptyNotConfigured": "Gateway connection not configured yet",
+  "GatewayPage.goToConnection": "Go to connection settings",
   "GatewayPage.generating": "Generating...",
   "GatewayPage.hostPlaceholder": "e.g. 192.168.100.143",
   "GatewayPage.installComponentMissing": "Not installed",
