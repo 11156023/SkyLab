@@ -31,6 +31,8 @@ class AlertEvent(SQLModel, table=True):
     __table_args__ = (
         sa.Index("ix_alert_events_target_metric", "target", "metric"),
         sa.Index("ix_alert_events_resolved_at", "resolved_at"),
+        # 告警清單依時間倒序、閾值檢查查近 N 分鐘；這張表不會清理
+        sa.Index("ix_alert_events_created_at", "created_at"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
