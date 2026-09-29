@@ -1634,8 +1634,53 @@ def get_session_status(
     auto_stop wins when both apply, since it's typically minutes away while
     expiry is at least hours.
     """
-    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-    running = resource_info.get("status") == "running"
+    return _session_status(
+        session=session,
+        vmid=vmid,
+        resource=resource_repo.get_resource_by_vmid(session=session, vmid=vmid),
+        running=resource_info.get("status") == "running",
+        policy=get_schedule_policy(session=session),
+    )
+
+
+def list_my_session_statuses(
+    *, session: Session, user_id: uuid.UUID
+) -> list[SessionStatusResponse]:
+    """本人所有執行中機器的 session 狀態（學生 UI 的關機警告一次輪詢完）。
+
+    原本前端每 30 秒對每台執行中的機器各打一次 ``/{vmid}/session-status``，
+    每次都要 find_resource；這裡一份叢集清單、一份排程政策就算完。
+    """
+    resources = resource_repo.get_resources_by_user(session=session, user_id=user_id)
+    if not resources:
+        return []
+    pve_by_vmid = proxmox_service.list_all_resources_by_vmid()
+    policy = get_schedule_policy(session=session)
+    statuses: list[SessionStatusResponse] = []
+    for resource in resources:
+        entry = pve_by_vmid.get(resource.vmid)
+        if entry is None or entry.get("status") != "running":
+            continue
+        statuses.append(
+            _session_status(
+                session=session,
+                vmid=resource.vmid,
+                resource=resource,
+                running=True,
+                policy=policy,
+            )
+        )
+    return statuses
+
+
+def _session_status(
+    *,
+    session: Session,
+    vmid: int,
+    resource: Resource | None,
+    running: bool,
+    policy: Any,
+) -> SessionStatusResponse:
     auto_stop_at = resource.auto_stop_at if resource else None
     auto_stop_reason = resource.auto_stop_reason if resource else None
     request_id = getattr(resource, "request_id", None) if resource else None
@@ -1643,8 +1688,6 @@ def get_session_status(
     quick_practice_limited = bool(
         request and request.request_kind == "quick_template"
     )
-
-    policy = get_schedule_policy(session=session)
 
     minutes_until_stop: int | None = None
     auto_stop_warn = False

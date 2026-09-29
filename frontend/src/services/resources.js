@@ -95,6 +95,11 @@ export const ResourcesService = {
     return apiGet(`/api/v1/resources/${vmid}/session-status`);
   },
 
+  /** 本人所有執行中機器的練習階段狀態（一次取回，取代逐台 sessionStatus） */
+  mySessionStatuses() {
+    return apiGet("/api/v1/resources/my/session-status");
+  },
+
   /** 延長練習階段 → { vmid, auto_stop_at, extended_minutes } */
   extendSession(vmid) {
     return apiPost(`/api/v1/resources/${vmid}/extend-session`, {});

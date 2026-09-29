@@ -3,7 +3,7 @@
  * 輪詢使用者自己「執行中」的 VM 的練習階段狀態，回傳第一個
  * 後端回報 should_warn=true 的 SessionStatus，供 layout 顯示共用警告對話框。
  *
- * - 每 30 秒輪詢一次（資源列表較貴，每 4 輪抓一次）
+ * - 每 30 秒輪詢一次 /resources/my/session-status（一次取回全部，不再逐台打）
  * - dismiss（稍後再說）只記在記憶體，重新整理會再提醒；
  *   should_warn 變回 false 時自動清除，讓下一次警告能再出現
  * - dismissPermanent（不再顯示）以 auto_stop_at / expiry_at 為 key 存 localStorage，
@@ -31,17 +31,6 @@ function saveDismissed(store) {
   }
 }
 
-/**
- * /resources/my 也會列出老師所帶班級的學生機器（class_teacher）與別人分享的機器
- * （shared）；那些不是使用者自己在跑的，不該輪詢也不該跳「你的機器快關了」。
- * 後端對自己的機器 access_role 預設為 owner。
- */
-const OWN_ACCESS_ROLES = new Set(["owner", "class_member"]);
-
-function isOwnMachine(resource) {
-  return OWN_ACCESS_ROLES.has(resource.access_role ?? "owner");
-}
-
 function warningKey(status) {
   return status.auto_stop_at ?? status.expiry_at ?? "";
 }
@@ -52,28 +41,21 @@ export default function useSessionWarning() {
   const [dismissed, setDismissed] = useState(() => new Set());
   // localStorage 的「不再顯示」：vmid → warning key
   const [permanent, setPermanent] = useState(loadDismissed);
-  const vmidsRef = useRef([]);
+  const signatureRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
-    let round = 0;
 
     const tick = async () => {
       try {
-        // 資源列表每 4 輪刷新一次，其餘輪次沿用上次的 running vmid
-        if (round % 4 === 0) {
-          const resources = await ResourcesService.list();
-          vmidsRef.current = (resources ?? [])
-            .filter((r) => r.status === "running" && r.vmid != null && isOwnMachine(r))
-            .map((r) => r.vmid);
-        }
-        round += 1;
-        const results = await Promise.all(
-          vmidsRef.current.map((vmid) =>
-            ResourcesService.sessionStatus(vmid).catch(() => null),
-          ),
-        );
-        if (!cancelled) setStatuses(results.filter(Boolean));
+        // 後端一次回本人所有執行中機器（只含自己擁有的，不含班級學生機與分享機）
+        const results = (await ResourcesService.mySessionStatuses()) ?? [];
+        if (cancelled) return;
+        // 內容沒變就不更新：這個 hook 掛在 layout，換新陣列會讓整個版面重繪
+        const signature = JSON.stringify(results);
+        if (signature === signatureRef.current) return;
+        signatureRef.current = signature;
+        setStatuses(results);
       } catch {
         // 靜默失敗，下一輪再試
       }
