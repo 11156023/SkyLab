@@ -14,9 +14,8 @@ import { ResourcesService } from "../../services/resources";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import styles from "./SessionWarningDialog.module.scss";
 
-export default function SessionWarningDialog({ status, onClose, onDismissPermanent }) {
+export default function SessionWarningDialog({ status, onClose }) {
   const { t } = useTranslation("common");
-  const [doNotShow, setDoNotShow] = useState(false);
   const [extending, setExtending] = useState(false);
   // 關閉時保留最後一筆狀態，先播放離場動畫再卸載
   const presence = useDialogPresence(status);
@@ -25,12 +24,6 @@ export default function SessionWarningDialog({ status, onClose, onDismissPermane
   if (!presence.open) return null;
 
   const isExpiry = shown.warn_reason === "expiry";
-
-  const handleClose = () => {
-    if (doNotShow) onDismissPermanent();
-    else onClose();
-    setDoNotShow(false);
-  };
 
   const handleExtend = async () => {
     setExtending(true);
@@ -50,7 +43,8 @@ export default function SessionWarningDialog({ status, onClose, onDismissPermane
     <Modal
       role="alertdialog"
       closing={presence.closing}
-      onClose={handleClose}
+      onClose={onClose}
+      closeButton
       icon={
         <span className={isExpiry ? styles.iconExpiry : styles.iconAutoStop}>
           <MIcon name={isExpiry ? "event_busy" : "schedule"} size={20} />
@@ -72,34 +66,17 @@ export default function SessionWarningDialog({ status, onClose, onDismissPermane
           </>
         )
       }
-      actions={
-        <>
-          <button type="button" className={styles.btnSecondary} onClick={handleClose}>
-            {isExpiry ? t("SessionWarningDialog.gotIt") : t("SessionWarningDialog.later")}
-          </button>
-          {!isExpiry && (
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              disabled={!shown.can_extend || extending}
-              onClick={handleExtend}
-            >
-              <MIcon name="autorenew" size={16} spin={extending} />
-              {t("SessionWarningDialog.extendUsageTime")}
-            </button>
-          )}
-        </>
-      }
-    >
-      <label className={styles.doNotShow}>
-        <input
-          type="checkbox"
-          checked={doNotShow}
-          onChange={(e) => setDoNotShow(e.target.checked)}
-        />
-        {/* 「不再顯示」只記住這一次的關機／到期時間（見 useSessionWarning），文案要講清楚範圍 */}
-        <span>{t(isExpiry ? "SessionWarningDialog.doNotShowUntilExpiry" : "SessionWarningDialog.doNotShowUntilStop")}</span>
-      </label>
-    </Modal>
+      actions={shown.can_extend ? (
+        <button
+          type="button"
+          className={styles.btnPrimary}
+          disabled={extending}
+          onClick={handleExtend}
+        >
+          <MIcon name="autorenew" size={16} spin={extending} />
+          {t("SessionWarningDialog.extendUsageTime")}
+        </button>
+      ) : null}
+    />
   );
 }

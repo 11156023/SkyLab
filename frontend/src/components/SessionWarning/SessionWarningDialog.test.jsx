@@ -29,22 +29,34 @@ function pressEscape() {
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
 }
 
-test("renders as a labelled alert dialog with the remaining time in the description", async () => {
-  await act(async () => root.render(<SessionWarningDialog status={autoStop} onClose={() => {}} onDismissPermanent={() => {}} />));
+test("renders as a labelled alert dialog with only the available extension action", async () => {
+  await act(async () => root.render(<SessionWarningDialog status={autoStop} onClose={() => {}} />));
   const dialog = document.querySelector("[aria-modal='true']");
   expect(dialog.getAttribute("role")).toBe("alertdialog");
   expect(document.getElementById(dialog.getAttribute("aria-labelledby")).textContent).toBe("SessionWarningDialog.autoStopTitle");
   expect(document.getElementById(dialog.getAttribute("aria-describedby")).textContent).toContain("SessionWarningDialog.autoStopMinutes");
+  expect(dialog.textContent).toContain("SessionWarningDialog.extendUsageTime");
+  expect(dialog.textContent).not.toContain("SessionWarningDialog.later");
+  expect(dialog.querySelector("input[type='checkbox']")).toBeNull();
 });
 
-test("Escape counts as 'later', and remembers the choice when the checkbox is ticked", async () => {
+test("Escape closes the already-recorded warning", async () => {
   const onClose = vi.fn();
-  const onDismissPermanent = vi.fn();
-  await act(async () => root.render(<SessionWarningDialog status={autoStop} onClose={onClose} onDismissPermanent={onDismissPermanent} />));
+  await act(async () => root.render(<SessionWarningDialog status={autoStop} onClose={onClose} />));
   await act(async () => pressEscape());
   expect(onClose).toHaveBeenCalledOnce();
+});
 
-  await act(async () => document.querySelector("input[type='checkbox']").click());
-  await act(async () => pressEscape());
-  expect(onDismissPermanent).toHaveBeenCalledOnce();
+test("a warning without extension support has no footer action", async () => {
+  const expiry = {
+    vmid: 102,
+    warn_reason: "expiry",
+    hours_until_expiry: 12,
+    can_extend: false,
+  };
+  await act(async () => root.render(<SessionWarningDialog status={expiry} onClose={() => {}} />));
+  const dialog = document.querySelector("[aria-modal='true']");
+  expect(dialog.textContent).not.toContain("SessionWarningDialog.gotIt");
+  expect(dialog.textContent).not.toContain("SessionWarningDialog.extendUsageTime");
+  expect(dialog.querySelectorAll("button")).toHaveLength(1);
 });

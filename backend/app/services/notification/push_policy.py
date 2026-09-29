@@ -108,11 +108,13 @@ def diff_reminders(
     reminders: list[CourseReminderStudent], baseline: ReminderBaseline | None
 ) -> tuple[list[CourseReminderStudent], ReminderBaseline]:
     """新出現的提醒；第一輪只建基準。"""
-    next_baseline = ReminderBaseline(seen_ids={r.id for r in reminders})
+    current_ids = {r.id for r in reminders}
     if baseline is None:
-        return [], next_baseline
+        return [], ReminderBaseline(seen_ids=current_ids)
     fresh = [r for r in reminders if r.id not in baseline.seen_ids]
-    return fresh, next_baseline
+    # Keep a delivered ledger instead of only the previous snapshot. If a
+    # reminder temporarily disappears and returns, it must not notify again.
+    return fresh, ReminderBaseline(seen_ids=baseline.seen_ids | current_ids)
 
 
 # ─── 文案 ────────────────────────────────────────────────────────────────────
