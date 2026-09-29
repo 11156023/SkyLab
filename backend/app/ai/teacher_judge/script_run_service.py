@@ -42,6 +42,7 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunTargetScope,
 )
 from app.models.teaching_class import (
+    INSTRUCTOR_ENROLLMENT_STATUS,
     TeachingClassMachineNode,
     TeachingClassStudent,
     TeachingClassStudentMachine,
@@ -432,7 +433,8 @@ def _class_member_by_vmid(
     enrollments = list(
         session.exec(
             select(TeachingClassStudent).where(
-                TeachingClassStudent.class_id == teaching_class_id
+                TeachingClassStudent.class_id == teaching_class_id,
+                TeachingClassStudent.status != INSTRUCTOR_ENROLLMENT_STATUS,
             )
         ).all()
     )
@@ -536,7 +538,8 @@ def _class_member_by_node_key(
     enrollments = list(
         session.exec(
             select(TeachingClassStudent).where(
-                TeachingClassStudent.class_id == teaching_class_id
+                TeachingClassStudent.class_id == teaching_class_id,
+                TeachingClassStudent.status != INSTRUCTOR_ENROLLMENT_STATUS,
             )
         ).all()
     )

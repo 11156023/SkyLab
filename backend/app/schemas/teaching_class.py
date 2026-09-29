@@ -73,6 +73,10 @@ class StudentAdd(BaseModel):
     emails: list[str]
 
 
+class InstructorMachineIn(BaseModel):
+    enabled: bool
+
+
 class MachineNodeIn(BaseModel):
     node_key: str
     source_type: str = "template"

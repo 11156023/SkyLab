@@ -7,7 +7,7 @@ import ResourceMgmtPage from "./ResourceMgmtPage";
 
 const mocks = vi.hoisted(() => ({
   listAll: vi.fn(),
-  batchAction: vi.fn(),
+  batchActionInChunks: vi.fn(),
   listAllSessions: vi.fn(),
   buildEnvironmentGroups: vi.fn(),
   navigate: vi.fn(),
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../services/resources", () => ({
-  ResourcesService: { listAll: mocks.listAll, batchAction: mocks.batchAction },
+  ResourcesService: { listAll: mocks.listAll, batchActionInChunks: mocks.batchActionInChunks },
 }));
 vi.mock("../../../services/quickPractice", () => ({
   QuickPracticeService: { listAllSessions: mocks.listAllSessions },
@@ -111,7 +111,7 @@ describe("ResourceMgmtPage", () => {
         { id: "m2", vmid: 102, requestId: 2, status: "stopped", resource: { vmid: 102, status: "stopped" } },
       ],
     }]);
-    mocks.batchAction.mockResolvedValue({ succeeded: 1, failed: 1 });
+    mocks.batchActionInChunks.mockResolvedValue({ total: 2, succeeded: 1, failed: 1, results: [] });
 
     await act(async () => { root.render(<ResourceMgmtPage />); });
     await flush();
@@ -122,7 +122,7 @@ describe("ResourceMgmtPage", () => {
     await act(async () => { startAll.click(); });
     await flush();
 
-    expect(mocks.batchAction).toHaveBeenCalledWith([101, 102], "start");
+    expect(mocks.batchActionInChunks).toHaveBeenCalledWith([101, 102], "start");
     expect(mocks.toast.success).not.toHaveBeenCalled();
     expect(mocks.toast.error).toHaveBeenCalledWith("ResourceMgmtPage.batchPartialFailToast");
   });

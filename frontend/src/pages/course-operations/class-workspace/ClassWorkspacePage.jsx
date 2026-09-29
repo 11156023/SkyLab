@@ -17,6 +17,7 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
 import { ClassroomService } from "../../../services/classroom";
 import { courseNodeHasUsableSource, CourseEnvironmentsService } from "../../../services/courseEnvironments";
+import { ResourcesService } from "../../../services/resources";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { formatDate, formatTime } from "../../../utils/formatDate";
 import ClassCreateDialog from "./ClassCreateDialog";
@@ -82,6 +83,8 @@ function normalizeClass(item) {
       files: (week.files ?? []).map((file) => typeof file === "string" ? { filename: file } : file),
     })),
     students: (item.students ?? []).map((student) => ({ ...student, id: String(student.id), machines: student.machines ?? [] })),
+    /* 老師自己那套機器（不在學生名單裡，但一樣算機器數、一樣能整班開關機） */
+    instructorMachine: item.instructor_machine ? { ...item.instructor_machine, machines: item.instructor_machine.machines ?? [] } : null,
     jobs: item.provision_jobs ?? [],
     topologyEdges: item.topology_edges ?? [],
     nodePositions: item.node_positions ?? {},
@@ -124,7 +127,7 @@ function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
 function machineSummary(item, t) {
   if (item.status === "planning") {
     if (!item.course_environment || !item.nodes.length) return t("ClassWorkspacePage.machineSummaryNoEnv");
-    return t("ClassWorkspacePage.machineSummaryPlanned", { total: item.students.length * item.nodes.length });
+    return t("ClassWorkspacePage.machineSummaryPlanned", { total: (item.students.length + (item.instructorMachine ? 1 : 0)) * item.nodes.length });
   }
   return t("ClassWorkspacePage.machineSummaryReady", { ready: item.readyMachines, total: item.totalMachines });
 }
@@ -801,7 +804,15 @@ export function StudentMachines({ item }) {
   const [watching, setWatching] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcast, setBroadcast] = useState(null);
+  const [power, setPower] = useState(null);
   const usageByVmidRef = useRef(null);
+  const confirm = useConfirm();
+  const classVmids = useMemo(
+    () => [...item.students, ...(item.instructorMachine ? [item.instructorMachine] : [])]
+      .flatMap((member) => member.machines.map((machine) => machine.vmid).filter(Boolean)),
+    [item.students, item.instructorMachine],
+  );
+
   const watchRef = useRef(null);
   const mountedRef = useRef(false);
 
@@ -956,6 +967,33 @@ export function StudentMachines({ item }) {
     }
   }
 
+  /* 整班開關機：和排程器一樣分小批送，整班一次送會超過後端上限與代理逾時 */
+  async function runClassPower(action) {
+    if (!classVmids.length || power) return;
+    const label = action === "start" ? t("ClassWorkspacePage.classPowerStartBtn") : t("ClassWorkspacePage.classPowerShutdownBtn");
+    if (action === "shutdown") {
+      const ok = await confirm({
+        title: t("ClassWorkspacePage.classPowerShutdownConfirmTitle"),
+        message: t("ClassWorkspacePage.classPowerShutdownConfirmMessage", { count: classVmids.length }),
+        confirmText: label,
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setMessage("");
+    setPower({ action, done: 0, total: classVmids.length });
+    try {
+      const result = await ResourcesService.batchActionInChunks(classVmids, action, {
+        onProgress: ({ done, total }) => setPower({ action, done, total }),
+      });
+      setMessage(result.failed
+        ? t("ClassWorkspacePage.classPowerPartialMsg", { label, succeeded: result.succeeded, failed: result.failed })
+        : t("ClassWorkspacePage.classPowerDoneMsg", { label, count: result.succeeded }));
+    } finally {
+      setPower(null);
+    }
+  }
+
   const selectedNode = item.nodes.find((node) => String(node.id) === selectedNodeId) ?? item.nodes[0];
   const cells = useMemo(() => item.students.map((student, index) => {
     const machine = student.machines.find((candidate) => String(candidate.machine_node_id) === String(selectedNode?.id));
@@ -985,6 +1023,7 @@ export function StudentMachines({ item }) {
       </div>
 
       <div className={styles.broadcastTools}><MIcon name="sensors" size={18} /><strong>{t("ClassWorkspacePage.broadcastDemoLabel")}</strong>{broadcast ? <><span>{t("ClassWorkspacePage.broadcastInProgress")}</span><button type="button" className={styles.btnSecondary} disabled={broadcasting} onClick={stopBroadcast}>{t("ClassWorkspacePage.stopBroadcastBtn")}</button></> : <select disabled={broadcasting || !sources.length} defaultValue="" onChange={(event) => { startBroadcast(event.target.value); event.target.value = ""; }}><option value="">{sources.length ? t("ClassWorkspacePage.selectRunningVmOption") : t("ClassWorkspacePage.noBroadcastVmOption")}</option>{sources.map((source) => <option key={source.vmid} value={source.vmid}>{source.name || t("ClassWorkspacePage.vmFallbackName", { vmid: source.vmid })}</option>)}</select>}</div>
+      <div className={styles.broadcastTools}><MIcon name="power_settings_new" size={18} /><strong>{t("ClassWorkspacePage.classPowerLabel", { count: classVmids.length })}</strong><button type="button" className={styles.btnSecondary} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("start")}>{t("ClassWorkspacePage.classPowerStartBtn")}</button><button type="button" className={styles.btnSecondary} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("shutdown")}>{t("ClassWorkspacePage.classPowerShutdownBtn")}</button>{power ? <span>{t("ClassWorkspacePage.classPowerProgress", { done: power.done, total: power.total })}</span> : <span>{t("ClassWorkspacePage.classPowerHint")}</span>}</div>
       {message && <p className={styles.persistentFeedback} role="status">{message}</p>}
 
       <div className={styles.heatmapToolbar}>

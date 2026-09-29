@@ -202,8 +202,8 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
     if (!controllableVmids.length || groupAction) return;
     setGroupAction(action);
     try {
-      const res = await ResourcesService.batchAction(controllableVmids, action);
-      /* /resources/batch 部分失敗也回 200，要看 failed 才知道有沒有機器沒動 */
+      const res = await ResourcesService.batchActionInChunks(controllableVmids, action);
+      /* 分批送出；部分失敗也不會丟例外，要看 failed 才知道有沒有機器沒動 */
       if ((res?.failed ?? 0) > 0) {
         toast.error(t("ResourceMgmtPage.batchPartialFailToast", {
           label: actionLabel[action] ?? action,
@@ -303,7 +303,7 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
   async function run(action) {
     setPending(action);
     try {
-      const res = await ResourcesService.batchAction(selectedVmids, action);
+      const res = await ResourcesService.batchActionInChunks(selectedVmids, action);
       const label = action === "delete" ? t("ResourceMgmtPage.delete") : actionLabel[action];
       if ((res?.failed ?? 0) === 0) {
         toast.success(t("ResourceMgmtPage.batchSuccessToast", { count: res?.succeeded ?? count, label }));

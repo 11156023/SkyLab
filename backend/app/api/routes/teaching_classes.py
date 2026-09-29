@@ -15,6 +15,7 @@ from app.core.authorizers import (
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
+    INSTRUCTOR_ENROLLMENT_STATUS,
     BatchProvisionJob,
     ClassCapacityReservation,
     CourseEnvironment,
@@ -43,6 +44,7 @@ from app.schemas.teaching_class import (
     ClassPatch,
     ClassResourceUsageResponse,
     CourseSelect,
+    InstructorMachineIn,
     MachineNodeIn,
     StudentAdd,
     WeekIn,
@@ -206,16 +208,19 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
             _public_machine_dump(row)
         )
     student_rows = []
+    instructor_row = None
     for enrollment in enrollments:
         user = users.get(enrollment.user_id)
-        student_rows.append(
-            {
-                **enrollment.model_dump(),
-                "email": user.email if user else None,
-                "full_name": user.full_name if user else None,
-                "machines": machines_by_student.get(enrollment.id, []),
-            }
-        )
+        row = {
+            **enrollment.model_dump(),
+            "email": user.email if user else None,
+            "full_name": user.full_name if user else None,
+            "machines": machines_by_student.get(enrollment.id, []),
+        }
+        if enrollment.status == INSTRUCTOR_ENROLLMENT_STATUS:
+            instructor_row = row
+        else:
+            student_rows.append(row)
 
     jobs = [
         session.get(BatchProvisionJob, node.batch_job_id)
@@ -273,10 +278,12 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
     template_names = _template_names_for_nodes(session, nodes)
     return {
         **item.model_dump(),
-        "member_count": len(enrollments),
+        "member_count": len(student_rows),
         "machine_nodes": [_machine_node_dump(row, template_names) for row in nodes],
         "weeks": week_rows,
         "students": student_rows,
+        # 老師自己那套機器不列進學生名單，但仍算進 total_machines 與容量
+        "instructor_machine": instructor_row,
         "ready_machines": ready,
         "total_machines": len(enrollments) * len(nodes),
         "provision_jobs": [
@@ -326,13 +333,20 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
     ).all():
         weeks_by_class.setdefault(row.class_id, []).append(row.model_dump())
 
-    member_counts = dict(
-        session.exec(
-            select(col(TeachingClassStudent.class_id), func.count())
-            .where(col(TeachingClassStudent.class_id).in_(class_ids))
-            .group_by(col(TeachingClassStudent.class_id))
-        ).all()
-    )
+    member_counts: dict[uuid.UUID, int] = {}
+    enrollment_counts: dict[uuid.UUID, int] = {}
+    for class_id, status, count in session.exec(
+        select(
+            col(TeachingClassStudent.class_id),
+            col(TeachingClassStudent.status),
+            func.count(),
+        )
+        .where(col(TeachingClassStudent.class_id).in_(class_ids))
+        .group_by(col(TeachingClassStudent.class_id), col(TeachingClassStudent.status))
+    ).all():
+        enrollment_counts[class_id] = enrollment_counts.get(class_id, 0) + count
+        if status != INSTRUCTOR_ENROLLMENT_STATUS:
+            member_counts[class_id] = member_counts.get(class_id, 0) + count
 
     ready_counts = dict(
         session.exec(
@@ -378,7 +392,7 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
                 ],
                 "weeks": weeks_by_class.get(item.id, []),
                 "ready_machines": ready_counts.get(item.id, 0),
-                "total_machines": members * len(nodes),
+                "total_machines": enrollment_counts.get(item.id, 0) * len(nodes),
                 "course_environment": environment_by_version.get(
                     item.course_version_id
                 ),
@@ -574,6 +588,42 @@ def remove_student(
     if not row or row.class_id != class_id:
         raise NotFoundError(t("teachingClasses.studentNotFound"))
     session.delete(row)
+    session.commit()
+    return _serialize(session, item)
+
+
+@router.put("/{class_id}/instructor-machine")
+def set_instructor_machine(
+    class_id: uuid.UUID,
+    body: InstructorMachineIn,
+    session: SessionDep,
+    current_user: InstructorUser,
+):
+    """讓班級擁有者也拿一套和學生相同的機器。
+
+    做法是替擁有者加一列 status=instructor 的成員：容量預留、建機、機器
+    對應、拓樸與到期回收都照學生的流程走，不必另開一條路。和名單一樣，
+    送出建機後就鎖定。
+    """
+    item = _get_class(session, current_user, class_id)
+    if item.status != TeachingClassStatus.planning:
+        raise BadRequestError(t("teachingClasses.studentsLocked"))
+    row = session.exec(
+        select(TeachingClassStudent).where(
+            TeachingClassStudent.class_id == class_id,
+            TeachingClassStudent.user_id == item.owner_id,
+        )
+    ).first()
+    if body.enabled and row is None:
+        session.add(
+            TeachingClassStudent(
+                class_id=class_id,
+                user_id=item.owner_id,
+                status=INSTRUCTOR_ENROLLMENT_STATUS,
+            )
+        )
+    elif not body.enabled and row is not None:
+        session.delete(row)
     session.commit()
     return _serialize(session, item)
 

@@ -292,6 +292,7 @@
   "EnvironmentGroupRows.shutdownAll": "整組關機",
   "EnvironmentGroupRows.groupCommandSent": "指令已送出",
   "EnvironmentGroupRows.groupCommandFailed": "整組操作失敗",
+  "EnvironmentGroupRows.groupCommandPartial": "{{succeeded}} 台成功、{{failed}} 台失敗",
   "EnvironmentGroupRows.courseEnv": "課程教學環境",
   "EnvironmentGroupRows.quickPracticeEnv": "快速練習環境",
   "EnvironmentGroupRows.groupOverview": "整組檢視",

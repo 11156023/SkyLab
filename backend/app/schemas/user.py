@@ -81,7 +81,7 @@ class UserPublic(BaseModel):
     is_superuser: bool  # 由 role 推導，保留給前端相容
     full_name: str | None = None
     avatar_url: str | None = None
-    auth_source: str = "local"  # "local" | "ldap"（LDAP 帳號的本地密碼欄位應鎖住）
+    auth_source: str = "local"  # "local" | "google" | "ldap"
     totp_enabled: bool = False  # 已綁定兩步驟驗證（登入需輸入驗證碼）
     totp_required: bool = False  # 管理員要求此帳號啟用兩步驟驗證（已綁定者不可自行停用）
     # 只有 GET /users/me 會算：要求中且本人尚未綁定，前端只能顯示綁定畫面

@@ -474,8 +474,12 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
     if (!controllableVmids.length || groupAction) return;
     setGroupAction(action);
     try {
-      await ResourcesService.batchAction(controllableVmids, action);
-      toast.success(t("EnvironmentGroupRows.groupCommandSent"));
+      const result = await ResourcesService.batchActionInChunks(controllableVmids, action);
+      if (result.failed) {
+        toast.error(t("EnvironmentGroupRows.groupCommandPartial", { succeeded: result.succeeded, failed: result.failed }));
+      } else {
+        toast.success(t("EnvironmentGroupRows.groupCommandSent"));
+      }
       onEnded?.();
     } catch (error) {
       toast.error(error?.message ?? t("EnvironmentGroupRows.groupCommandFailed"));

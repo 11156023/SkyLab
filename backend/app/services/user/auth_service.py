@@ -1,10 +1,13 @@
+import secrets
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 import jwt
 from fastapi.concurrency import run_in_threadpool
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
 from app.core import security
@@ -16,7 +19,7 @@ from app.infrastructure.google.tokeninfo import (
     GoogleTokenInfoRejected,
     fetch_id_token_info,
 )
-from app.models import AuditAction, User
+from app.models import AuditAction, User, UserRole
 from app.repositories import user as user_repo
 from app.schemas import Token, TokenPayload, TotpChallenge, UserUpdate
 from app.services.user import audit_service, totp_service
@@ -27,6 +30,58 @@ from app.utils import (
     generate_reset_password_email,
     send_email,
 )
+
+
+def _is_education_email(email: str) -> bool:
+    """Return whether the email domain contains an exact ``edu`` label.
+
+    This accepts both US-style ``school.edu`` and country domains such as
+    ``school.edu.tw`` without accepting lookalikes such as ``school-edu.com``.
+    """
+    _, separator, domain = email.strip().casefold().rpartition("@")
+    if not separator:
+        return False
+    return "edu" in domain.strip(".").split(".")
+
+
+def _google_profile_text(
+    data: Mapping[str, object], key: str, max_length: int
+) -> str | None:
+    value = data.get(key)
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value[:max_length] or None
+
+
+def _create_google_user(
+    *, session: Session, email: str, data: Mapping[str, object]
+) -> User:
+    """Create a passwordless-by-default student for an eligible Google login.
+
+    A random local password hash keeps password login unusable until the user
+    explicitly completes the password-reset flow. The unique-email fallback
+    handles two first-login requests racing to create the same account.
+    """
+    user = User(
+        email=email,
+        full_name=_google_profile_text(data, "name", 255),
+        avatar_url=_google_profile_text(data, "picture", 2048),
+        role=UserRole.student,
+        is_active=True,
+        auth_source="google",
+        hashed_password=security.get_password_hash(secrets.token_urlsafe(32)),
+    )
+    session.add(user)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        existing = user_repo.get_user_by_email(session=session, email=email)
+        if existing is None:
+            raise
+        return existing
+    return user
 
 
 def login(
@@ -84,12 +139,22 @@ def _is_email_verified(data: dict[str, Any]) -> bool:
     return False
 
 
-def _complete_google_login(session: Session, email: str) -> Token | TotpChallenge:
-    """Google ID token 已驗過之後的同步 DB 流程（查帳號、稽核、發 token）。"""
+def _complete_google_login(
+    session: Session, email: str, data: Mapping[str, object]
+) -> Token | TotpChallenge:
+    """Google ID token 已驗過之後的同步 DB 流程（查帳號或自動註冊、稽核、發 token）。"""
     user = user_repo.get_user_by_email(session=session, email=email)
     if not user:
-        _log_google_login_failure(session, "user not found", email)
-        raise BadRequestError(t("auth.googleAccountNotRegistered"))
+        # Public signup also governs Google self-registration. Only verified
+        # educational domains may create an account; all other Google accounts
+        # must already have a local user record.
+        if not settings.ENABLE_SIGNUP or not _is_education_email(email):
+            _log_google_login_failure(session, "user not found", email)
+            raise BadRequestError(t("auth.googleAccountNotRegistered"))
+        user = _create_google_user(session=session, email=email, data=data)
+    # Keep the source of an existing account unchanged. In particular, LDAP
+    # remains authoritative for password management even when the same email
+    # also uses Google login.
     if not user.is_active:
         _log_google_login_failure(session, "inactive user", email, user.id)
         raise BadRequestError(t("auth.inactiveUser"))
@@ -140,7 +205,7 @@ async def google_login(
     if not email:
         await _fail("missing email")
         raise BadRequestError(t("auth.googleEmailMissing"))
-    return await run_in_threadpool(_complete_google_login, session, email)
+    return await run_in_threadpool(_complete_google_login, session, email, data)
 
 
 def _decode_token_ignoring_expiry(raw: str) -> TokenPayload | None:
