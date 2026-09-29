@@ -11,11 +11,29 @@ storage、gateway、預設節點）都存在該筆連線上；跨叢集共用的
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import threading
+import time
+from dataclasses import dataclass, replace
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROXMOX_POOL_NAME = "SkyLab"
+
+# 每次 PVE 查詢都要讀設定（pool 名稱、task 間隔…），原本每次都開一個 DB session
+# 再解一次 Fernet 密碼；逐台迴圈裡會變成數百次。本行程內的設定變更由
+# invalidate_proxmox_client() 立即清除，其他行程（其他 worker）最多延遲一個 TTL。
+SETTINGS_CACHE_TTL = 30.0
+
+_cache_lock = threading.Lock()
+_settings_cache: dict[int | None, tuple[float, ProxmoxSettings]] = {}
+_enabled_ids_cache: tuple[float, list[int]] | None = None
+
+
+def invalidate_proxmox_settings_cache() -> None:
+    global _enabled_ids_cache
+    with _cache_lock:
+        _settings_cache.clear()
+        _enabled_ids_cache = None
 
 
 @dataclass
@@ -43,6 +61,18 @@ def get_proxmox_settings(connection_id: int | None = None) -> ProxmoxSettings:
 
     ``connection_id`` 為 None 時使用預設連線。
     """
+    with _cache_lock:
+        cached = _settings_cache.get(connection_id)
+    if cached is not None and time.monotonic() - cached[0] < SETTINGS_CACHE_TTL:
+        # 給複本：呼叫端改欄位不能汙染快取
+        return replace(cached[1])
+    settings = _load_proxmox_settings(connection_id)
+    with _cache_lock:
+        _settings_cache[connection_id] = (time.monotonic(), settings)
+    return replace(settings)
+
+
+def _load_proxmox_settings(connection_id: int | None) -> ProxmoxSettings:
     from sqlmodel import Session
 
     from app.core.db import engine
@@ -108,17 +138,27 @@ def list_enabled_connection_ids() -> list[int]:
 
     尚未建立連線資料時回傳空清單。
     """
+    global _enabled_ids_cache
     from sqlmodel import Session
 
     from app.core.db import engine
     from app.repositories import proxmox_connection as connection_repo
+
+    with _cache_lock:
+        cached = _enabled_ids_cache
+    if cached is not None and time.monotonic() - cached[0] < SETTINGS_CACHE_TTL:
+        return list(cached[1])
 
     try:
         with Session(engine) as session:
             connections = connection_repo.get_all_connections(
                 session, enabled_only=True
             )
-            return [conn.id for conn in connections if conn.id is not None]
+            ids = [conn.id for conn in connections if conn.id is not None]
     except Exception as exc:
+        # 讀取失敗不快取，下一次呼叫再試
         logger.warning("Unable to list Proxmox connections: %s", exc)
         return []
+    with _cache_lock:
+        _enabled_ids_cache = (time.monotonic(), ids)
+    return list(ids)

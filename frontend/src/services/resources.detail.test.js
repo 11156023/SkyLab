@@ -69,4 +69,15 @@ describe("ResourcesService 詳情端點", () => {
     expect(url).toContain("/api/v1/resources/105/spec/direct");
     expect(init.method).toBe("PUT");
   });
+
+  test("mySessionStatuses 一次取回本人所有機器的 session 狀態", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, [{ vmid: 105, should_warn: true }]));
+
+    const result = await ResourcesService.mySessionStatuses();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/resources/my/session-status");
+    expect(init?.method ?? "GET").toBe("GET");
+    expect(result).toEqual([{ vmid: 105, should_warn: true }]);
+  });
 });

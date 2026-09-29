@@ -239,7 +239,7 @@ def _patch_connections(
         scheduling_support.proxmox_service, "_connection_keys", lambda: keys
     )
     monkeypatch.setattr(
-        scheduling_support.proxmox_service, "_raw_vms_by_connection", lambda: listed
+        scheduling_support.proxmox_service, "_raw_vms_by_connection", lambda **_: listed
     )
     # find_resource_strict 委派給 operations.find_resource(strict=True)，
     # pool 比對讀的是 operations 自己的 get_proxmox_settings
@@ -280,7 +280,7 @@ def test_strict_lookup_finds_vm_on_reachable_connection(
 def test_strict_lookup_all_connections_down_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def all_down() -> list:
+    def all_down(**_: object) -> list:
         raise ProxmoxError("All Proxmox connections are unavailable.")
 
     monkeypatch.setattr(scheduling_support.proxmox_service, "_connection_keys", lambda: [1])

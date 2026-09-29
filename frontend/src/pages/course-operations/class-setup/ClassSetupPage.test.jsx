@@ -5,7 +5,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => toast }));
@@ -19,6 +19,9 @@ import ClassSetupPage from "./ClassSetupPage";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import i18n from "../../../i18n";
+
+// en／ja 語系檔改為用到才載入；這裡要檢查三語都有 key，先全部載入
+beforeAll(() => i18n.loadLanguages(["en", "ja"]));
 
 /* i18n.t 找不到 key 時會回傳 key 本身，單純比對 t(key) 抓不到漏翻；先確認三個語系都有這個 key */
 const tt = (key, options) => {

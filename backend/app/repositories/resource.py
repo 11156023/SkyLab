@@ -235,6 +235,101 @@ def sync_ip_cache(*, session: Session, vmid: int, live_ip: str | None) -> str | 
         return None
 
 
+def get_resources_by_vmids(
+    *, session: Session, vmids: Iterable[int]
+) -> dict[int, Resource]:
+    wanted = {vmid for vmid in vmids if vmid is not None}
+    if not wanted:
+        return {}
+    rows = session.exec(select(Resource).where(col(Resource.vmid).in_(wanted))).all()
+    return {row.vmid: row for row in rows}
+
+
+def sync_ip_cache_many(
+    *, session: Session, live_ips: dict[int, str | None]
+) -> dict[int, str | None]:
+    """sync_ip_cache 的批次版（清單頁、拓撲用）：一次查快取與分配紀錄，
+    有即時 IP 且與快取不同的才寫回。
+
+    寫回走獨立的短交易並立即 commit：API 請求的 session 不會 commit，
+    寫在裡面不但會被丟掉，UPDATE 的列鎖還會一路持有到請求結束，
+    兩個分頁同時輪詢清單就會互相卡住。
+    """
+    vmids = [vmid for vmid in live_ips if vmid is not None]
+    if not vmids:
+        return {}
+    cached: dict[int, str] = {}
+    allocated: dict[int, str] = {}
+    try:
+        for vmid, ip in session.exec(
+            select(ResourceNetwork.resource_vmid, ResourceNetwork.ip_address).where(
+                col(ResourceNetwork.resource_vmid).in_(vmids)
+            )
+        ).all():
+            if ip:
+                cached[vmid] = ip
+        for vmid, ip in session.exec(
+            select(IpAllocation.vmid, IpAllocation.ip_address).where(
+                col(IpAllocation.vmid).in_(vmids)
+            )
+        ).all():
+            if vmid is not None and ip:
+                allocated.setdefault(vmid, ip)
+    except Exception:
+        _rollback_quietly(session)
+        logger.warning("IP 快取批次讀取失敗，已 rollback", exc_info=True)
+
+    changes = {
+        vmid: ip for vmid, ip in live_ips.items() if ip and cached.get(vmid) != ip
+    }
+    if changes:
+        _persist_ip_cache(session, changes)
+    return {
+        vmid: live_ips.get(vmid) or cached.get(vmid) or allocated.get(vmid)
+        for vmid in vmids
+    }
+
+
+def _persist_ip_cache(session: Session, changes: dict[int, str]) -> None:
+    try:
+        bind = session.get_bind()
+    except Exception:
+        return  # 測試用的假 session
+    try:
+        with Session(bind) as write_session:
+            existing = set(
+                write_session.exec(
+                    select(Resource.vmid).where(col(Resource.vmid).in_(changes))
+                ).all()
+            )
+            rows = {
+                row.resource_vmid: row
+                for row in write_session.exec(
+                    select(ResourceNetwork).where(
+                        col(ResourceNetwork.resource_vmid).in_(changes)
+                    )
+                ).all()
+            }
+            now = datetime.now(timezone.utc)
+            for vmid, ip in changes.items():
+                if vmid not in existing:
+                    continue
+                network = rows.get(vmid)
+                if network is None:
+                    network = ResourceNetwork(
+                        resource_vmid=vmid, created_at=now, ip_address=ip
+                    )
+                network.ip_address = ip
+                network.source = "proxmox"
+                network.cached_at = now
+                network.updated_at = now
+                write_session.add(network)
+            write_session.commit()
+    except Exception:
+        # 例如兩台機器互換 IP 撞到 unique：下次清單刷新再寫，顯示照樣用即時 IP
+        logger.warning("IP 快取寫回失敗（%s 筆）", len(changes), exc_info=True)
+
+
 def delete_resource(*, session: Session, vmid: int, commit: bool = True) -> None:
     resource = get_resource_by_vmid(session=session, vmid=vmid)
     if resource:

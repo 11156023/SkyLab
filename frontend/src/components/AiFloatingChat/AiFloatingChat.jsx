@@ -1,8 +1,5 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../contexts/AuthContext";
 import { LayoutContext } from "../../layout/layoutContext";
@@ -300,6 +297,9 @@ function ChoiceRow({ choices, progress, onAnswer, onPlanNow, allowPlan = true })
   );
 }
 
+// markdown 解析器很大，等真的有 AI 回覆要顯示時才載入
+const MarkdownContent = lazy(() => import("./MarkdownContent"));
+
 function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPlanNow, onFlowStep }) {
   const isUser = message.role === "user";
   return (
@@ -315,7 +315,9 @@ function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPl
           <div className={styles.messageText}>{message.content}</div>
         ) : (
           <div className={`${styles.messageText} ${styles.markdown}`}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>{message.content}</ReactMarkdown>
+            <Suspense fallback={message.content}>
+              <MarkdownContent>{message.content}</MarkdownContent>
+            </Suspense>
           </div>
         )}
         {/* 先給結果（配置），再給接下來要做的事（流程），最後才是選項 */}

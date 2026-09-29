@@ -7,14 +7,12 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from sqlalchemy.exc import OperationalError
 
 from app.repositories import resource as resource_repo
-from app.services.network import firewall_service as fw
 
 
 class _Session:
@@ -128,69 +126,92 @@ def test_get_allocated_ip_address_ignores_sessions_without_exec() -> None:
     assert resource_repo.get_allocated_ip_address(session=_Session(), vmid=150) is None  # type: ignore[arg-type]
 
 
-# ─── get_topology ────────────────────────────────────────────────────────────
+# ─── sync_ip_cache_many（清單頁、拓撲）─────────────────────────────────────
 
 
-def test_get_topology_survives_poisoned_ip_cache_write(
+class _Rows:
+    def __init__(self, rows: list[Any]) -> None:
+        self._rows = rows
+
+    def all(self) -> list[Any]:
+        return self._rows
+
+
+class _BatchSession(_Session):
+    """依序回傳：快取 IP 查詢、分配紀錄查詢的結果。"""
+
+    def __init__(self, cached: list[Any], allocated: list[Any]) -> None:
+        super().__init__()
+        self._results = [cached, allocated]
+
+    def exec(self, _statement: Any) -> _Rows:
+        return _Rows(self._results.pop(0))
+
+    def get_bind(self) -> object:
+        return object()
+
+
+def test_batch_prefers_live_then_cache_then_allocation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = _Session()
-    user = SimpleNamespace(id="u1")
-    enrich_calls: list[int] = []
-
-    # 拓撲的可見範圍由 resource_access 決定（師生關係），這裡固定給兩台自己的機器
+    persisted: list[dict[int, str]] = []
     monkeypatch.setattr(
-        fw.resource_access,
-        "list_reachable_resources",
-        lambda *, session, user: [
-            SimpleNamespace(vmid=150, user_id="u1", teaching_class_id=None),
-            SimpleNamespace(vmid=151, user_id="u1", teaching_class_id=None),
-        ],
+        resource_repo, "_persist_ip_cache", lambda session, changes: persisted.append(changes)
     )
-    def _no_owned_class_ids(*, session, user):
-        return set()
-
-    monkeypatch.setattr(
-        fw.resource_access, "list_owned_teaching_class_ids", _no_owned_class_ids
+    session = _BatchSession(
+        cached=[(150, "10.0.0.50"), (151, "10.0.0.51")],
+        allocated=[(152, "10.0.0.52")],
     )
-    monkeypatch.setattr(
-        fw.resource_access,
-        "can_manage_resource",
-        lambda *, resource, user, owned_class_ids: True,
+
+    ips = resource_repo.sync_ip_cache_many(
+        session=session,  # type: ignore[arg-type]
+        live_ips={150: "10.0.0.50", 151: None, 152: None, 153: "10.0.0.53"},
     )
-    monkeypatch.setattr(
-        fw.resource_kind, "classify_many", lambda session, resources: {}
+
+    assert ips == {150: "10.0.0.50", 151: "10.0.0.51", 152: "10.0.0.52", 153: "10.0.0.53"}
+    # 只有跟快取不同的即時 IP 才寫回
+    assert persisted == [{153: "10.0.0.53"}]
+
+
+def test_batch_write_failure_never_touches_the_request_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """寫回走獨立交易：失敗只記 log，請求本身的 session 不會進入無效交易。
+
+    回歸背景：以前在請求 session 裡 flush，一台失敗就讓後面查 NAT 規則時
+    PendingRollbackError，整張拓撲 500；而且請求 session 從不 commit，
+    寫進去的快取本來就會被丟掉，UPDATE 的列鎖還會持有到請求結束。
+    """
+
+    class _BrokenWriteSession:
+        def __init__(self, _bind: Any) -> None:
+            pass
+
+        def __enter__(self) -> Any:
+            raise OperationalError("SELECT 1", {}, Exception("server closed the connection"))
+
+        def __exit__(self, *_: Any) -> None:
+            return None
+
+    monkeypatch.setattr(resource_repo, "Session", _BrokenWriteSession)
+    session = _BatchSession(cached=[], allocated=[])
+
+    ips = resource_repo.sync_ip_cache_many(
+        session=session,  # type: ignore[arg-type]
+        live_ips={150: "10.0.0.50"},
     )
-    monkeypatch.setattr(fw.layout_repo, "get_layout", lambda *, session, user_id: [])
-    monkeypatch.setattr(
-        fw,
-        "proxmox_service",
-        SimpleNamespace(
-            find_resource=lambda vmid: {
-                "node": "pve1",
-                "type": "qemu",
-                "vmid": vmid,
-                "name": f"vm{vmid}",
-                "status": "running",
-            },
-            get_ip_address=lambda node, vmid, rtype: f"10.0.0.{vmid - 100}",
-        ),
+
+    assert ips == {150: "10.0.0.50"}
+    assert session.rollbacks == 0
+
+
+def test_batch_read_failure_rolls_back_and_still_returns_live_ips() -> None:
+    session = _Session()  # 沒有 exec：模擬讀取失敗
+
+    ips = resource_repo.sync_ip_cache_many(
+        session=session,  # type: ignore[arg-type]
+        live_ips={150: "10.0.0.50", 151: None},
     )
-    monkeypatch.setattr(fw, "get_firewall_options", lambda node, vmid, rtype: {"enable": 1})
-    monkeypatch.setattr(fw, "get_connections_from_rules", lambda vmids: [])
-    # 每台 VM 的快取寫入都因 DB 斷線失敗
-    monkeypatch.setattr(fw.resource_repo, "update_ip_address", _db_down)
 
-    def fake_enrich(edges: list[Any], sess: Any) -> None:
-        # 走到這裡時 session 必須已經 rollback 過，否則真 DB 會 PendingRollbackError
-        enrich_calls.append(sess.rollbacks)
-
-    monkeypatch.setattr(fw, "_enrich_edges_from_db", fake_enrich)
-
-    resp = fw.get_topology(user=user, session=session)  # type: ignore[arg-type]
-
-    vm_nodes = [n for n in resp.nodes if n.node_type == "vm"]
-    assert [n.ip_address for n in vm_nodes] == ["10.0.0.50", "10.0.0.51"]
-    assert all(n.firewall_enabled for n in vm_nodes)
-    assert session.rollbacks == 2  # 兩台各 rollback 一次
-    assert enrich_calls == [2]
+    assert ips == {150: "10.0.0.50", 151: None}
+    assert session.rollbacks == 1

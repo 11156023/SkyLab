@@ -392,7 +392,11 @@ def _refresh_actual_node(
     session: Session,
     request: VMRequest,
 ) -> tuple[str, dict] | None:
-    """鎖定申請單、確認 PVE 上的機器仍是它的，並把節點寫回（completed）。
+    """鎖定申請單、確認 PVE 上的機器仍是它的，並把節點寫回。
+
+    provisioning_status 不在這裡改：已有機器的申請單「不是 completed」代表
+    還欠一次開機（例如使用者按了重試），由 _ensure_request_running 開機成功後
+    才寫成 completed。
 
     回傳 None 代表鎖定重讀後發現申請單已被消耗或停用：本 tick 撈單之後，
     使用者刪機流程可能已把它標成 failed。這個判斷必須在寫回 completed
@@ -418,18 +422,27 @@ def _refresh_actual_node(
             f"does not match request hostname '{expected_hostname}'"
         )
     actual_node = str(resource["node"])
-    vm_request_repo.update_vm_request_provisioning(
-        session=session,
-        db_request=db_request,
-        vmid=request.vmid,
-        assigned_node=actual_node,
-        desired_node=actual_node,
-        actual_node=actual_node,
-        placement_strategy_used=db_request.placement_strategy_used,
-        provisioning_status=VMProvisioningStatus.completed,
-        provisioning_error=None,
-        commit=False,
+    # 每個 tick 每張活單都會走到這裡；節點沒變時不寫（省一次 UPDATE＋refresh）
+    already_recorded = (
+        db_request.vmid == request.vmid
+        and db_request.assigned_node == actual_node
+        and db_request.desired_node == actual_node
+        and db_request.actual_node == actual_node
+        and db_request.provisioning_error is None
     )
+    if not already_recorded:
+        vm_request_repo.update_vm_request_provisioning(
+            session=session,
+            db_request=db_request,
+            vmid=request.vmid,
+            assigned_node=actual_node,
+            desired_node=actual_node,
+            actual_node=actual_node,
+            placement_strategy_used=db_request.placement_strategy_used,
+            provisioning_status=None,
+            provisioning_error=None,
+            commit=False,
+        )
     return actual_node, resource
 
 
@@ -503,7 +516,14 @@ def _ensure_request_running(
     """Make sure an approved request has a live VM.
 
     For requests without a vmid: lock, mark provisioning running, clone, record VMID.
-    For requests with a vmid: ensure the VM is started.
+    For requests with a vmid: start the VM only when a start is still owed.
+
+    供應時 clone 完就會開機，之後機器的開關由使用者、時段自動關機、閒置／
+    到期回收決定。排程每分鐘都會掃到使用中的申請單（沒有結束時間的立即模式、
+    週期性時段的整個學期都在這個集合裡），若每輪都把沒在跑的機器開回來，
+    就會蓋掉這些關機。所以只在「還欠一次開機」時才開：
+    - provisioning_status 不是 completed（使用者按了重試、先前開機沒成功）
+    - 正在等 GPU 釋出（GPU_WAIT_WARNING，之後每輪重試）
     """
     resource_type = scheduling_policy.resource_type_for_request(request)
 
@@ -533,10 +553,23 @@ def _ensure_request_running(
             request.id,
         )
         return False
-    actual_node, _ = refreshed
+    actual_node, cluster_entry = refreshed
 
-    pve_status = proxmox_service.get_status(actual_node, request.vmid, resource_type)
-    is_running = str(pve_status.get("status") or "").lower() == "running"
+    start_owed = (
+        request.provisioning_status != VMProvisioningStatus.completed
+        or request.resource_warning == GPU_WAIT_WARNING
+    )
+    if not start_owed:
+        return False
+
+    # 叢集清單（/cluster/resources）已說在跑就不再逐台問 status/current；
+    # 說沒在跑才即時確認，避免依稍舊的清單對已開機的機器送 start
+    is_running = str(cluster_entry.get("status") or "").lower() == "running"
+    if not is_running:
+        pve_status = proxmox_service.get_status(
+            actual_node, request.vmid, resource_type
+        )
+        is_running = str(pve_status.get("status") or "").lower() == "running"
     if not is_running:
         try:
             proxmox_service.control(
@@ -838,6 +871,10 @@ def process_due_request_stops() -> int:
                 # 錯誤分支（只記 log），不會把申請單誤標 failed
                 resource = scheduling_support.find_resource_strict(vmid)
                 node = str(resource["node"])
+                # 過了時段的單會一直留在這個清單直到機器刪除；叢集清單已顯示
+                # 關機的就不再逐台問 status/current（清單稍舊頂多晚一輪關機）
+                if str(resource.get("status") or "").lower() in {"stopped", "paused"}:
+                    continue
                 status = proxmox_service.get_status(node, vmid, resource_type)
                 current_status = str(status.get("status") or "").lower()
                 if current_status in {"stopped", "paused"}:

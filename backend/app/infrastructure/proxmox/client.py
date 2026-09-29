@@ -13,7 +13,10 @@ from app.infrastructure.proxmox.router import (
     try_connect,
     update_node_online,
 )
-from app.infrastructure.proxmox.settings import get_proxmox_settings
+from app.infrastructure.proxmox.settings import (
+    get_proxmox_settings,
+    invalidate_proxmox_settings_cache,
+)
 from app.infrastructure.proxmox.tls import _tcp_ping
 
 logger = logging.getLogger(__name__)
@@ -60,6 +63,7 @@ def _get_state(key: _ClientKey) -> _ProxmoxClientState:
 def invalidate_proxmox_client() -> None:
     """清除所有連線的 client 快取與節點映射（設定變更後所有連線都可能失效）。"""
     global _node_connection_map_at
+    invalidate_proxmox_settings_cache()
     with _states_lock:
         _states.clear()
     with _node_connection_map_lock:

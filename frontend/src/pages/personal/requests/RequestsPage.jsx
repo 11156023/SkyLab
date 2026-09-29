@@ -565,7 +565,9 @@ export default function RequestsPage() {
   const specApplying = specRequests.some((r) => r.apply_status === "applying");
   useEffect(() => {
     if (view !== VIEW_LIST || !specApplying) return undefined;
-    const timer = setInterval(() => fetchRequests(true), SPEC_APPLY_POLL_MS);
+    const timer = setInterval(() => {
+      if (!document.hidden) fetchRequests(true);
+    }, SPEC_APPLY_POLL_MS);
     return () => clearInterval(timer);
   }, [view, specApplying, fetchRequests]);
 

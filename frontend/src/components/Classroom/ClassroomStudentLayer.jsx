@@ -1,5 +1,7 @@
 import {
+  Suspense,
   createContext,
+  lazy,
   useCallback,
   useContext,
   useEffect,
@@ -10,8 +12,10 @@ import {
 import { useTranslation } from "react-i18next";
 import { ClassroomService } from "../../services/classroom";
 import { useClassroomSocket } from "../../hooks/useClassroomSocket";
-import ClassroomWatchDialog from "./ClassroomWatchDialog";
 import LiveBanner from "./LiveBanner";
+
+// 觀看對話框帶著 noVNC：掛在每一頁的 layout 上，只有老師開直播、學生點觀看時才載入
+const ClassroomWatchDialog = lazy(() => import("./ClassroomWatchDialog"));
 
 const TakeoverContext = createContext({ takenOverVmids: new Set() });
 
@@ -125,12 +129,14 @@ export default function ClassroomStudentLayer({ children }) {
       )}
       {children}
       {watchOpen && liveSessionId !== null && (
-        <ClassroomWatchDialog
-          key={liveSessionId}
-          sessionId={liveSessionId}
-          title={t("ClassroomStudentLayer.watchDialogTitle")}
-          onClose={() => setWatchOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <ClassroomWatchDialog
+            key={liveSessionId}
+            sessionId={liveSessionId}
+            title={t("ClassroomStudentLayer.watchDialogTitle")}
+            onClose={() => setWatchOpen(false)}
+          />
+        </Suspense>
       )}
     </TakeoverContext.Provider>
   );

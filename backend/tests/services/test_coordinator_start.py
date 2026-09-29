@@ -205,3 +205,44 @@ class TestEnsureRequestRunningStart:
         )
 
         assert started is True
+
+
+class TestClusterStatusShortcut:
+    """活單每分鐘都會檢查一次：叢集清單已說在跑的就不再逐台問 status/current。"""
+
+    def test_running_in_cluster_listing_skips_status_query(self, monkeypatch) -> None:
+        req = _request()
+        _patch_provisioned_vm(monkeypatch, req, status="stopped")
+        monkeypatch.setattr(
+            coordinator,
+            "_refresh_actual_node",
+            lambda *, session, request: ("pve205", {"status": "running"}),
+        )
+
+        def _no_status(*_args):
+            raise AssertionError("叢集清單已顯示 running，不該再查 status/current")
+
+        def _no_start(*_args, **_kwargs):
+            raise AssertionError("已在跑的機器不該送 start")
+
+        monkeypatch.setattr(coordinator.proxmox_service, "get_status", _no_status)
+        monkeypatch.setattr(coordinator.proxmox_service, "control", _no_start)
+
+        assert coordinator._ensure_request_running(session=_FakeSession(), request=req) is False
+
+    def test_stale_stopped_listing_is_confirmed_before_starting(self, monkeypatch) -> None:
+        """清單說停了、實際已在跑（清單稍舊）：以即時狀態為準，不送 start。"""
+        req = _request()
+        _patch_provisioned_vm(monkeypatch, req, status="running")
+        monkeypatch.setattr(
+            coordinator,
+            "_refresh_actual_node",
+            lambda *, session, request: ("pve205", {"status": "stopped"}),
+        )
+
+        def _no_start(*_args, **_kwargs):
+            raise AssertionError("已在跑的機器不該送 start")
+
+        monkeypatch.setattr(coordinator.proxmox_service, "control", _no_start)
+
+        assert coordinator._ensure_request_running(session=_FakeSession(), request=req) is False

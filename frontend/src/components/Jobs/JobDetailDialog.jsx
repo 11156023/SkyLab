@@ -122,7 +122,11 @@ export default function JobDetailDialog({ jobId, onClose }) {
         setData(res);
         setError(null);
         if (ACTIVE_STATUSES.has(res?.item?.status)) {
-          timer = setTimeout(() => load(true), 3000);
+          timer = setTimeout(function poll() {
+            // 分頁隱藏時先不打 API，切回來後下一輪再刷新
+            if (document.hidden) timer = setTimeout(poll, 3000);
+            else load(true);
+          }, 3000);
         }
       } catch (e) {
         if (cancelled) return;
