@@ -75,9 +75,11 @@ export const AiJudgeService = {
     title = i18n.t("aiJudge.defaultBlankSessionTitle", { ns: "services" }),
     rubricName = i18n.t("aiJudge.defaultBlankRubricName", { ns: "services" }),
     environmentKeys = ["n8n"],
+    teachingClassWeekId = null,
   } = {}) {
     return this.createSession(classId, {
       title,
+      teachingClassWeekId,
       selectedFileId: null,
       creationMode: "blank",
       rubricName,

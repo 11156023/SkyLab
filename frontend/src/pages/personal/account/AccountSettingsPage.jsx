@@ -14,6 +14,7 @@ import { AccountService } from "../../../services/account";
 import { focusInvalidField } from "../../../utils/focusField";
 import { downscaleImage } from "../../../utils/image/downscaleImage";
 import AppearanceTab from "./AppearanceTab";
+import { AppearanceResetButton } from "./AppearanceSettings";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
@@ -541,13 +542,17 @@ export default function AccountSettingsPage() {
     <div className={styles.page}>
       <PageHeader title={t("AccountSettingsPage.title")} />
 
-      <SegmentedControl
-        className={styles.tabs}
-        options={TABS.map((tab) => ({ value: tab.key, label: t(tab.labelKey) }))}
-        value={activeTab}
-        onChange={setActiveTab}
-        ariaLabel={t("AccountSettingsPage.title")}
-      />
+      {/* 分頁列：外觀分頁的「重設為系統預設值」放右側，一進頁面就看得到
+          （原本壓在表單最底，使用者反映會直接忽略） */}
+      <div className={styles.tabBar}>
+        <SegmentedControl
+          options={TABS.map((tab) => ({ value: tab.key, label: t(tab.labelKey) }))}
+          value={activeTab}
+          onChange={setActiveTab}
+          ariaLabel={t("AccountSettingsPage.title")}
+        />
+        {activeTab === "appearance" && <AppearanceResetButton />}
+      </div>
 
       <div className={styles.content}>
         {activeTab === "profile" && (
@@ -556,8 +561,9 @@ export default function AccountSettingsPage() {
             <div className={styles.profileSide}>
               <PasswordSection />
               <TwoFactorSection />
-              <DangerZoneSection />
             </div>
+            {/* 寬螢幕排在左欄個資卡下方，窄螢幕照 DOM 順序壓在最底 */}
+            <DangerZoneSection />
           </div>
         )}
         {activeTab === "appearance" && <AppearanceTab />}

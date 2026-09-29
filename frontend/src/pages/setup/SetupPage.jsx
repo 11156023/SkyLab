@@ -7,11 +7,13 @@
  * 完成後呼叫 markSetupCompleted()，登入頁就不會再把人導回來。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import PasswordInput from "../../components/PasswordInput/PasswordInput";
+import RotatingWelcome from "../../components/RotatingWelcome/RotatingWelcome";
+import Stepper from "../../components/Stepper/Stepper";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -19,13 +21,14 @@ import { useToast } from "../../hooks/useToast";
 import { SetupService } from "../../services/setup";
 import { markSetupCompleted, useSetupStatus } from "./useSetupStatus";
 import { pickDefaultNode } from "./setupDefaults";
-import { LanguagePicker, Notice, Stepper } from "./wizardParts";
+import { LanguagePicker, Notice } from "./wizardParts";
 import styles from "./SetupPage.module.scss";
 
 const STEP_ADMIN = 0;
 const STEP_PROXMOX = 1;
 const STEP_SUBNET = 2;
 const STEP_FINISH = 3;
+const STEP_KEYS = ["admin", "proxmox", "subnet", "finish"];
 
 const IPV4_PATTERN = "^(\\d{1,3}\\.){3}\\d{1,3}$";
 const MIN_PASSWORD_LENGTH = 8;
@@ -112,15 +115,12 @@ function ThemeToggle() {
   );
 }
 
-function PageShell({ children }) {
+/* 卡片寬度跟著內容走：精靈表單用寬卡；歡迎、已完成、載入、錯誤這類內容少的畫面用窄卡。
+   背景不疊光暈色球，直接露出全站主題背景（同登入頁、系統內頁） */
+function PageShell({ wide = false, children }) {
   return (
     <div className={styles.page}>
-      <div className={styles.glow} aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className={styles.card}>
+      <div className={`${styles.card} ${wide ? styles.cardWide : ""}`}>
         <ThemeToggle />
         {children}
       </div>
@@ -155,8 +155,8 @@ function LanguageWelcome({ onContinue }) {
   const { t } = useTranslation("login");
   return (
     <div className={styles.welcome}>
-      <h1 className={styles.welcomeTitle}>{t("SetupPage.welcomeTitle")}</h1>
-      <LanguagePicker ariaLabel={t("SetupPage.languageLabel")} />
+      <RotatingWelcome className={styles.welcomeTitle} i18nKey="SetupPage.welcomeTitle" />
+      <LanguagePicker className={styles.langSwitch} ariaLabel={t("SetupPage.languageLabel")} />
       <button type="button" className={styles.btnPrimary} onClick={onContinue}>
         {t("SetupPage.continue")}
         <MIcon name="arrow_forward" size={18} />
@@ -218,7 +218,7 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
             {t("SetupPage.back")}
           </button>
           <div className={styles.actionGroup}>
-            <button type="button" className={styles.btnGhost} onClick={() => setEditing(true)}>
+            <button type="button" className={styles.btnSecondary} onClick={() => setEditing(true)}>
               {t("SetupPage.adminReconfigure")}
             </button>
             <button type="button" className={styles.btnPrimary} onClick={onNext}>
@@ -423,7 +423,7 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
       <p className={styles.sectionDesc}>{t("SetupPage.proxmoxDesc")}</p>
 
       <div className={styles.formGrid}>
-        <label className={styles.field}>
+        <label className={`${styles.field} ${styles.fieldWide}`}>
           <span>{t("SetupPage.hostLabel")} *</span>
           <input
             value={form.host}
@@ -441,6 +441,17 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
             max={65535}
             value={form.port}
             onChange={(e) => set("port", e.target.value)}
+            disabled={busy}
+          />
+        </label>
+        <label className={styles.field}>
+          <span>{t("SetupPage.apiTimeoutLabel")}</span>
+          <input
+            type="number"
+            min={1}
+            max={300}
+            value={form.api_timeout}
+            onChange={(e) => set("api_timeout", e.target.value)}
             disabled={busy}
           />
         </label>
@@ -463,17 +474,6 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
             placeholder={t("SetupPage.pvePasswordPlaceholder")}
             disabled={busy}
             required
-          />
-        </label>
-        <label className={styles.field}>
-          <span>{t("SetupPage.apiTimeoutLabel")}</span>
-          <input
-            type="number"
-            min={1}
-            max={300}
-            value={form.api_timeout}
-            onChange={(e) => set("api_timeout", e.target.value)}
-            disabled={busy}
           />
         </label>
       </div>
@@ -615,7 +615,7 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
           {t("SetupPage.back")}
         </button>
         <div className={styles.actionGroup}>
-          <button type="button" className={styles.btnGhost} onClick={onSkip} disabled={busy}>
+          <button type="button" className={styles.btnSecondary} onClick={onSkip} disabled={busy}>
             {t("SetupPage.skip")}
           </button>
           <button type="submit" className={styles.btnPrimary} disabled={busy || !tested}>
@@ -744,8 +744,14 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
         </label>
       </div>
 
+      {/* 進階設定：整行可點的收合列（白底細框、與輸入框同寬），右邊標「選填」與箭頭；展開後兩個欄位並排與上方對齊 */}
       <details className={styles.details}>
-        <summary>{t("SetupPage.advancedToggle")}</summary>
+        <summary>
+          <MIcon name="tune" size={18} />
+          <span className={styles.detailsLabel}>{t("SetupPage.advancedToggle")}</span>
+          <span className={styles.detailsOptional}>{t("SetupPage.advancedOptional")}</span>
+          <MIcon name="expand_more" size={20} className={styles.detailsChevron} />
+        </summary>
         <div className={styles.formGrid}>
           {/* 起—迄是同一個欄位：一個標籤、一組成對控制項 */}
           <div className={styles.field}>
@@ -772,7 +778,7 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
               />
             </div>
           </div>
-          <label className={`${styles.field} ${styles.fieldWide}`}>
+          <label className={styles.field}>
             <span>{t("SetupPage.forwardPublicHost")}</span>
             <input
               value={form.forward_public_host}
@@ -792,7 +798,7 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
           {t("SetupPage.back")}
         </button>
         <div className={styles.actionGroup}>
-          <button type="button" className={styles.btnGhost} onClick={onSkip} disabled={saving}>
+          <button type="button" className={styles.btnSecondary} onClick={onSkip} disabled={saving}>
             {t("SetupPage.skip")}
           </button>
           <button type="submit" className={styles.btnPrimary} disabled={saving}>
@@ -919,6 +925,11 @@ export default function SetupPage() {
     t("SetupPage.stepFinish"),
   ], [t]);
 
+  const goTo = useCallback((next) => setStep(next), []);
+
+  /* 真正進入精靈步驟（不是載入、錯誤、已完成或歡迎畫面）時用寬卡 */
+  const wizard = Boolean(status) && !status.completed && started;
+
   let body;
   if (loading && !status) {
     body = (
@@ -955,7 +966,20 @@ export default function SetupPage() {
   } else {
     body = (
       <>
-        <Stepper current={step} steps={stepLabels} />
+        {/* 共用步驟列：打勾＝那一步真的設定好了（略過的不打勾）；只能點回走過的步驟 */}
+        <div className={styles.wizardTop}>
+          <Stepper
+            ariaLabel={t("SetupPage.stepsAriaLabel")}
+            steps={STEP_KEYS.map((key, index) => ({
+              key,
+              label: stepLabels[index],
+              done: key !== "finish" && steps[key],
+              disabled: index > step,
+            }))}
+            activeKey={STEP_KEYS[step]}
+            onSelect={(key) => goTo(STEP_KEYS.indexOf(key))}
+          />
+        </div>
         {step === STEP_ADMIN && (
           <AdminStep
             alreadyDone={steps.admin}
@@ -1007,9 +1031,12 @@ export default function SetupPage() {
   }
 
   return (
-    <PageShell>
-      {/* 歡迎畫面自己有大標題，其餘畫面才掛「初始設定」頁首 */}
-      {(started || !status || status.completed) && (
+    <PageShell wide={wizard}>
+      {/* 精靈步驟、載入中、讀取失敗顯示「初始設定」大標；
+         已完成頁的內容本身就說明了狀態，大標只留給螢幕閱讀器；歡迎畫面的歡迎語本身就是 h1 */}
+      {status?.completed ? (
+        <h1 className={styles.srOnly}>{t("SetupPage.title")}</h1>
+      ) : (started || !status) && (
         <header className={styles.header}>
           <h1 className={styles.title}>{t("SetupPage.title")}</h1>
         </header>

@@ -423,6 +423,7 @@ def list_credentials_by_user(
     return AIAPICredentialsPublic(
         data=[_to_credential_public(item) for item in session.exec(data_query).all()],
         count=int(session.exec(count_query).one()),
+        public_base_url=ai_api_settings.resolved_public_base_url or None,
     )
 
 
@@ -552,6 +553,9 @@ def rotate_credential(
 
     if credential.revoked_at is not None:
         raise BadRequestError(t("ai_gateway.credential_already_revoked"))
+    # 新金鑰會沿用舊的到期日；已過期的金鑰輪替出來也是過期的，要重新申請
+    if credential.expires_at is not None and credential.expires_at <= get_datetime_utc():
+        raise BadRequestError(t("ai_gateway.credential_expired"))
 
     credential.revoked_at = get_datetime_utc()
     session.add(credential)

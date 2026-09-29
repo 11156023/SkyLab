@@ -84,6 +84,9 @@ class AIAPICredentialWithSecret(AIAPICredentialPublic):
 class AIAPICredentialsPublic(BaseModel):
     data: list[AIAPICredentialPublic]
     count: int
+    # Base URL 不是機密：還沒有核發金鑰的人也要能在 Quick Start 看到要連哪裡。
+    # 設定留空時為 None，前端改用金鑰上的快照或顯示尚未設定。
+    public_base_url: str | None = None
 
 
 AIAPICredentialStatus = Literal["active", "inactive"]

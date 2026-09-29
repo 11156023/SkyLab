@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import AiApiPage from "./AiApiPage";
+import AiApiPage, { getCredentialState } from "./AiApiPage";
 
 const mocks = vi.hoisted(() => ({
   listMyCredentials: vi.fn(),
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getMyUsage: vi.fn(),
   getMyUsageRecords: vi.fn(),
   rotateCredential: vi.fn(),
+  createRequest: vi.fn(),
   confirm: vi.fn(),
   copy: vi.fn(),
   t: (key) => key,
@@ -26,6 +27,7 @@ vi.mock("../../../services/aiApi", () => ({
     getMyUsage: mocks.getMyUsage,
     getMyUsageRecords: mocks.getMyUsageRecords,
     rotateCredential: mocks.rotateCredential,
+    createRequest: mocks.createRequest,
   },
 }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
@@ -110,6 +112,11 @@ async function renderPage() {
   await act(async () => root.render(<AiApiPage />));
 }
 
+/* 對話框關閉有離場動畫（useDialogPresence 150ms），等它卸載 */
+async function waitForExit() {
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+}
+
 describe("AI API 金鑰詳細資料", () => {
   test("點擊名稱直接顯示完整金鑰並可複製，清單仍只有前綴", async () => {
     await renderPage();
@@ -145,8 +152,11 @@ describe("AI API 金鑰詳細資料", () => {
     expect(dialog.querySelector('[aria-label="AiApiPage.actionCopyKey"]').disabled).toBe(true);
     const { signal } = mocks.getCredential.mock.calls[0][1];
     await act(async () => dialog.querySelector('[aria-label="Modal.close"]').click());
+    // 一按關閉就取消，不等離場動畫結束
     expect(signal.aborted).toBe(true);
     await act(async () => resolveKey({ api_key: "ccai_old_example_secret" }));
+    expect(document.body.textContent).not.toContain("ccai_old_example_secret");
+    await waitForExit();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.body.textContent).not.toContain("ccai_old_example_secret");
   });
@@ -173,6 +183,7 @@ describe("AI API 金鑰詳細資料", () => {
     expect(document.activeElement).toBe(buttons[0]);
 
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await waitForExit();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(entry);
   });
@@ -191,7 +202,8 @@ describe("AI API 金鑰詳細資料", () => {
 
     let dialog = document.querySelector('[role="dialog"]');
     expect(dialog.textContent).toContain("ccai_new_example_secret");
-    expect(host.querySelector("table")).toBeNull();
+    // 背景重新載入：表格留在畫面上（不閃成載入動畫），也不會出現明文金鑰
+    expect(host.querySelector("table").textContent).not.toContain("ccai_new_example_secret");
 
     await act(async () => resolveRefresh({ data: [{ ...newCredential, api_key: undefined }, { ...oldCredential, revoked_at: "2026-09-26T00:00:00Z" }] }));
     dialog = document.querySelector('[role="dialog"]');
@@ -205,11 +217,66 @@ describe("AI API 金鑰詳細資料", () => {
     );
 
     await act(async () => dialog.querySelector('[aria-label="Modal.close"]').click());
+    await waitForExit();
     await act(async () => [...host.querySelectorAll('[aria-label="AiApiPage.openKeyDetails"]')]
       .find((button) => button.textContent === "專案金鑰").click());
     dialog = document.querySelector('[role="dialog"]');
     expect(dialog.textContent).toContain("ccai_new_example_secret");
     expect(mocks.getCredential).toHaveBeenCalledWith("new-id", { signal: expect.any(AbortSignal) });
+  });
+});
+
+describe("AI API 金鑰狀態", () => {
+  const base = { request_id: "req-1", expires_at: null, revoked_at: null };
+
+  test("重新產生的舊金鑰算已替換，刪除（有用量只停用）的算已停用", () => {
+    const old = { ...base, id: "old", created_at: "2026-09-01T00:00:00Z", revoked_at: "2026-09-20T00:00:00Z" };
+    const rotated = { ...base, id: "new", created_at: "2026-09-20T00:00:00Z" };
+    const deleted = { ...base, id: "gone", request_id: "req-2", created_at: "2026-09-01T00:00:00Z", revoked_at: "2026-09-21T00:00:00Z" };
+    const all = [rotated, old, deleted];
+    expect(getCredentialState(old, all)).toBe("replaced");
+    expect(getCredentialState(deleted, all)).toBe("revoked");
+    expect(getCredentialState(rotated, all)).toBe("active");
+    expect(getCredentialState({ ...base, id: "exp", created_at: "2026-09-01T00:00:00Z", expires_at: "2026-09-02T00:00:00Z" }, all)).toBe("expired");
+  });
+
+  test("失效的金鑰預設收起來，按了才顯示", async () => {
+    mocks.listMyCredentials.mockResolvedValue({ data: [
+      oldCredential,
+      { ...oldCredential, id: "revoked-id", request_id: "other", api_key_name: "舊金鑰", revoked_at: "2026-09-20T00:00:00Z" },
+    ] });
+    await renderPage();
+    expect(host.querySelector("table").textContent).not.toContain("舊金鑰");
+    const toggle = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("AiApiPage.showInactive"));
+    await act(async () => toggle.click());
+    expect(host.querySelector("table").textContent).toContain("舊金鑰");
+    expect(host.querySelector("table").textContent).toContain("AiApiPage.credStatusRevoked");
+  });
+});
+
+describe("AI API 申請金鑰", () => {
+  test("名稱與用途不足時標出欄位；送出後帶到申請紀錄", async () => {
+    mocks.createRequest.mockResolvedValue({ id: "req-new" });
+    await renderPage();
+    await act(async () => host.querySelector('[data-guide="ai-add-key"]').click());
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog.querySelector("#ai-key-name").value).toBe("");
+    await act(async () => dialog.querySelector('[data-guide="ai-submit"]').click());
+    expect(dialog.querySelector("#ai-key-name").getAttribute("aria-invalid")).toBe("true");
+    expect(dialog.querySelector("#ai-purpose").getAttribute("aria-invalid")).toBe("true");
+    expect(mocks.createRequest).not.toHaveBeenCalled();
+
+    const setValue = async (element, value) => act(async () => {
+      const proto = element.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(element, value);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await setValue(dialog.querySelector("#ai-key-name"), "專題");
+    await setValue(dialog.querySelector("#ai-purpose"), "畢業專題串接聊天模型做問答");
+    await act(async () => dialog.querySelector('[data-guide="ai-submit"]').click());
+    expect(mocks.createRequest).toHaveBeenCalledWith({ purpose: "畢業專題串接聊天模型做問答", api_key_name: "專題", duration: "never" });
+    const recordsTab = [...host.querySelectorAll("button")].find((button) => button.textContent === "AiApiPage.tabRecords");
+    expect(recordsTab.getAttribute("aria-pressed")).toBe("true");
   });
 });
 

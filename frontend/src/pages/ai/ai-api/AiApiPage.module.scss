@@ -34,15 +34,12 @@
   }
 }
 
-/* 分頁切換鎖定 38px，與右側按鈕等高；窄螢幕橫向捲動 */
+/* 分頁切換：窄螢幕放不下時橫向捲動，留細捲軸當提示（藏起來會看不出還有分頁） */
 .pageTabs {
   min-width: 0;
   max-width: 100%;
-  height: 38px;
   overflow-x: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar { display: none; }
+  scrollbar-width: thin;
 }
 
 .headerActions {
@@ -53,146 +50,87 @@
   flex-shrink: 0;
 }
 
-/* ── Form ── */
-.formGroup {
-  @include flex-column;
-  gap: 6px;
-}
+/* ── 表單：共用 form-field／form-control（控制項 36px） ── */
+.field {
+  @include form-field;
 
-.formLabel {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-}
-
-.formInput,
-.formTextarea,
-.formSelect {
-  padding: $spacing-8 12px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  transition: border-color $transition-base, box-shadow $transition-base;
-
-  &:focus {
-    outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+  > label {
+    margin-bottom: 3px;
   }
 
-  &::placeholder { color: var(--color-text-muted); }
+  input,
+  select,
+  textarea {
+    @include form-control;
+  }
 }
 
-.formTextarea {
-  min-height: 100px;
-  font-family: inherit;
+.durationSelect.durationSelect {
+  width: auto;
+  min-width: 200px;
 }
 
-.formSelect {
-  appearance: auto;
-  max-width: 200px;
-}
-
-/* 送出時未填的欄位：紅框標示並被聚焦 */
+/* 送出時未填的欄位：紅框標示並被聚焦（雙類名壓過 .field input 這類巢狀選擇器） */
 .fieldInvalid.fieldInvalid {
-  border-color: var(--color-danger);
-
-  &:focus {
-    border-color: var(--color-danger);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15%, transparent);
-  }
+  @include form-control-invalid;
 }
 
-.formFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
-.formHint {
+.fieldHint,
+.fieldError {
   font-size: $font-size-12;
+  font-weight: $font-weight-400;
+  line-height: 1.5;
+}
+
+.fieldHint {
   color: var(--color-text-muted);
 }
 
-/* 申請金鑰對話框：按鈕列左側的提示，把按鈕推到右邊 */
-.footerHint {
-  margin-right: auto;
+.fieldError {
+  color: var(--color-danger);
 }
 
-/* ── Buttons ── */
-%btn-base {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base, box-shadow $transition-base, opacity $transition-base;
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
+/* ── Buttons：一律用共用 mixin ── */
 .btnPrimary {
-  @extend %btn-base;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-    box-shadow: var(--shadow-sm);
-  }
+  @include btn-primary;
 }
 
-/* 「＋ 新增金鑰」按鈕（API Keys 標題右側） */
-.btnAddKey {
-  @extend %btn-base;
-  flex-shrink: 0;
-  min-height: 38px;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-    box-shadow: var(--shadow-sm);
-  }
+.btnSecondary {
+  @include btn-secondary;
 }
 
-/* 「新增金鑰」旁的次要動作：白底描邊，讓主按鈕維持唯一的實心色 */
-.btnQuickStart {
-  @extend %btn-base;
-  flex-shrink: 0;
-  min-height: 38px;
-  background: var(--color-surface);
+/* 顯示／收起已失效金鑰：低強調的文字鈕，靠左放在表格下方 */
+.btnGhost {
+  @include btn-ghost;
+  align-self: flex-start;
+}
+
+.iconBtn {
+  @include btn-icon;
+}
+
+/* 值旁邊的複製鈕：白底描邊圖示鈕 */
+.copyBtn {
+  @include btn-icon-secondary;
+  flex: 0 0 auto;
+}
+
+/* ⋮ 更多操作：全站表格列一律白底描邊款 */
+.menuBtn {
+  @include btn-icon-secondary;
+}
+
+.menuBtnActive {
+  background: var(--color-hover);
   color: var(--color-text);
-  border: 1px solid var(--color-border);
-
-  &:hover:not(:disabled) { background: var(--color-hover); }
 }
 
-.btnOutline {
-  @extend %btn-base;
-  padding: 6px 12px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  font-size: $font-size-12;
-  box-shadow: var(--shadow-sm);
-
-  &:hover:not(:disabled) { background: var(--color-hover); }
+/* ── 表格（金鑰、申請紀錄共用）：table-wrap 玻璃卡、標準 th/td；列本身不能點，所以沒有 hover ── */
+.keysSection {
+  @include flex-column;
+  gap: $spacing-8;
 }
 
-/* ── 表格（金鑰、申請紀錄共用）：欄位比例與風格比照 AI 金鑰管理——
-   table-wrap 玻璃卡、標準 th/td、12px 列高、圖示方塊＋主副標的名稱欄 ── */
 .tableWrap {
   @include table-wrap;
 }
@@ -219,36 +157,9 @@
   padding-block: 12px;
 }
 
-/* 已汰換／已過期的金鑰：整列變淡，名稱與金鑰加刪除線 */
+/* 已替換／已停用／已過期的金鑰：整列變淡，名稱與金鑰加刪除線 */
 .trDeprecated {
   opacity: 0.72;
-}
-
-.nameCell {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-}
-
-.rowIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-primary);
-  @include flex-center;
-  flex-shrink: 0;
-}
-
-/* 申請紀錄的圖示方塊跟著審核狀態變色，掃一眼就分得出來 */
-.rowIcon_pending {
-  color: var(--color-pending);
-  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
-}
-
-.rowIcon_rejected {
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
 
 .rowMain {
@@ -291,7 +202,7 @@
   text-decoration: underline line-through;
 }
 
-/* 名稱下方的金鑰值；顯示完整金鑰時允許換行，不把表格撐爆 */
+/* 名稱下方的金鑰前綴（完整金鑰只在詳細視窗） */
 .rowKey {
   max-width: 360px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -304,17 +215,25 @@
   text-decoration: line-through;
 }
 
-/* 申請用途／審核意見：截斷保欄寬，全文靠 title */
-.cellText {
-  display: inline-block;
-  max-width: 200px;
-  vertical-align: middle;
+/* 申請用途：最多兩行，全文在 title */
+.cellClamp {
+  display: -webkit-box;
+  max-width: 320px;
+  overflow: hidden;
   font-size: $font-size-14;
-  @include text-truncate;
+  line-height: 1.5;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.cellTextWide {
-  max-width: 320px;
+/* 審核意見整段換行顯示：被拒絕的原因是下一步的依據，觸控裝置看不到 title */
+.cellWrap {
+  display: block;
+  max-width: 280px;
+  font-size: $font-size-14;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .cellMuted {
@@ -338,20 +257,6 @@
   gap: $spacing-8;
 
   > * { flex-shrink: 0; }
-}
-
-.iconBtn {
-  @include btn-icon;
-}
-
-/* ⋮ 更多操作：全站表格列一律白底描邊款 */
-.menuBtn {
-  @include btn-icon-secondary;
-}
-
-.menuBtnActive {
-  background: var(--color-hover);
-  color: var(--color-text);
 }
 
 .renameRow {
@@ -385,7 +290,7 @@
   /* portal 到 body，座標由 JSX 以 fixed 指定；z-index 照規範「Portal 浮層選單」層級 */
   position: fixed;
   z-index: 150;
-  width: 200px;
+  width: 220px;
   @include flex-column;
   padding: $spacing-4;
   background: var(--color-surface);
@@ -396,7 +301,7 @@
 
 .keyMenuItem {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: $spacing-8;
   padding: 6px $spacing-8;
   border-radius: $radius-8;
@@ -409,8 +314,22 @@
   &:hover:not(:disabled) { background: var(--color-hover); }
 
   &:disabled {
-    opacity: 0.4;
+    opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  > :first-child { margin-top: 2px; }
+}
+
+/* 停用選項下方的原因：用一般灰字，不跟著選項變淡到看不清 */
+.keyMenuLabel {
+  @include flex-column;
+  gap: 2px;
+
+  small {
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+    line-height: 1.45;
   }
 }
 
@@ -424,7 +343,7 @@
   background: var(--color-divider);
 }
 
-/* ── API 快速開始的內容：單欄長條，四個編號步驟由上往下讀，整個彈窗往下滑；
+/* ── API 快速開始的內容：單欄長條，三個編號步驟由上往下讀，整個彈窗往下滑；
    彈窗本身就是面板，內層不再包卡片 ── */
 .docsLayout {
   @include flex-column;
@@ -458,23 +377,13 @@
   min-width: 0;
 }
 
-/* 步驟標題跟編號圓點同一條基線；後面的小字是一句話補充 */
+/* 步驟標題跟編號圓點同一條基線 */
 .docsStepTitle {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px $spacing-8;
   margin: 0 0 2px;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   font-weight: $font-weight-700;
   line-height: 22px;
-
-  small {
-    color: var(--color-text-muted);
-    font-size: $font-size-12;
-    font-weight: $font-weight-400;
-  }
 }
 
 /* Base URL 與 API Key 是一組：寬螢幕並排，窄螢幕上下 */
@@ -497,35 +406,32 @@
 .docsFieldLabel {
   color: var(--color-text-muted);
   font-size: $font-size-12;
-  font-weight: 600;
+  font-weight: $font-weight-500;
 }
 
-/* 沒有可用金鑰時的提示：比一般說明醒目，但不到錯誤的程度 */
+/* 沒有可用金鑰時的說明：一般說明用 info 藍（橘色只給待審核） */
 .docsNotice {
   display: flex;
   align-items: flex-start;
   gap: $spacing-8;
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--color-pending) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-info) 30%, transparent);
   border-radius: $radius-8;
   color: var(--color-text-secondary);
-  background: color-mix(in srgb, var(--color-pending) 10%, transparent);
+  background: color-mix(in srgb, var(--color-info) 8%, transparent);
   font-size: $font-size-12;
   line-height: 1.6;
 
+  > :first-child {
+    flex: none;
+    margin-top: 2px;
+    color: var(--color-info);
+  }
 }
 
 .docsKeySelect {
-  flex: 0 1 45%;
-  min-width: 0;
-  height: 32px;
-  padding: 0 $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-12;
+  @include form-control;
 }
 
 .docsErrorList {
@@ -533,6 +439,7 @@
   margin-top: $spacing-8;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
+  background: var(--color-surface);
 
   > div {
     display: grid;
@@ -564,7 +471,7 @@
     gap: $spacing-8;
     color: var(--color-text-secondary);
     font-size: $font-size-14;
-    font-weight: 600;
+    font-weight: $font-weight-500;
     cursor: pointer;
     list-style: none;
 
@@ -581,14 +488,15 @@
   transition: transform $transition-base;
 }
 
+/* HTTP 狀態碼：錯誤徽章（12% 淡底、不加框） */
 .statusCode {
   min-width: 40px;
   padding: 2px 7px;
-  border-radius: 6px;
+  border-radius: $radius-8;
   text-align: center;
   color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  font: 700 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  font: 700 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .docsEndpointRow {
@@ -596,7 +504,7 @@
   align-items: center;
   gap: $spacing-8;
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
   padding: 4px 4px 4px 12px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
@@ -613,46 +521,6 @@
   }
 }
 
-.docsCopyButton,
-.codeCopyButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  font-weight: 600;
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    color: var(--color-primary);
-    background: var(--color-hover);
-  }
-
-  &:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
-}
-
-/* 值旁邊的複製鈕只留圖示，欄位才放得下完整的值 */
-.docsCopyButton,
-.codeCopyButton {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-}
-
 .codeToolbar {
   display: flex;
   align-items: center;
@@ -663,50 +531,18 @@
 }
 
 .codeTabs {
-  display: flex;
-  padding: 2px;
-  width: fit-content;
   max-width: 100%;
-  border-radius: 6px;
-  background: var(--color-hover);
   overflow-x: auto;
+  scrollbar-width: thin;
 }
 
-.codeTab,
-.codeTabActive {
-  flex: 0 0 auto;
-  padding: 5px 8px;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  white-space: nowrap;
-  cursor: pointer;
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: -2px;
-  }
-}
-
-.codeTab:hover {
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-}
-
-.codeTabActive {
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-  box-shadow: var(--shadow-sm);
-}
-
+/* 程式碼區比照 VS Code 深色編輯器，亮暗主題都一樣（色票在 _themes.scss 的 --color-code-*） */
 .codeCard {
   min-width: 0;
-  border: 1px solid #353c46;
+  border: 1px solid var(--color-code-border);
   border-radius: $radius-8;
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--color-code-bg);
 }
 
 .codePanelHeader {
@@ -715,22 +551,20 @@
   justify-content: space-between;
   gap: $spacing-8;
   padding: 3px 6px 3px 12px;
-  background: #252526;
-  color: #bfc7d5;
-  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--color-code-header);
+  color: var(--color-code-muted);
+  font-size: $font-size-12;
+}
 
-  .codeCopyButton {
-    width: 28px;
-    height: 28px;
-    border: 0;
-    border-radius: 4px;
-    color: #bfc7d5;
-    background: transparent;
+.codeCopyButton {
+  @include btn-icon;
+  /* 深色標題列上不要淺色方塊：平常透明，滑過才用深色 hover 底 */
+  background: transparent;
+  color: var(--color-code-muted);
 
-    &:hover {
-      color: #fff;
-      background: #353c46;
-    }
+  &:hover:not(:disabled) {
+    color: var(--color-code-text);
+    background: var(--color-code-hover);
   }
 }
 
@@ -748,15 +582,15 @@
   margin: 0;
   padding: $spacing-16;
   overflow: auto;
-  color: #d4d4d4;
-  background: #1e1e1e;
+  color: var(--color-code-text);
+  background: var(--color-code-bg);
   font: 12px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   tab-size: 2;
 
   code { font: inherit; white-space: pre; }
 }
 
-/* ── Badge ── */
+/* ── Badge：12% 淡底＋狀態色字，不加框 ── */
 .badge {
   @include badge-base;
   gap: 6px;
@@ -770,12 +604,13 @@
   background: currentColor;
 }
 
-.badge_active   { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.badge_inactive { background: var(--color-hover); color: var(--color-text-muted); }
-.badge_expired  { background: var(--color-hover); color: var(--color-text-muted); }
-.badge_pending  { background: color-mix(in srgb, var(--color-pending) 14%, transparent); color: var(--color-pending); }
-.badge_approved { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.badge_rejected { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.badge_active,
+.badge_approved,
+.badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_muted    { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
+.badge_pending  { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
+.badge_rejected,
+.badge_danger   { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 
 /* ── Usage tab ── */
 .usageTab {
@@ -810,13 +645,14 @@
 
 .usagePanelTitle {
   font-size: $font-size-16;
-  font-weight: 600;
+  font-weight: $font-weight-700;
   color: var(--color-text-primary);
 }
 
 .usagePanelDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
 }
 
 .usageStatsGrid {
@@ -837,9 +673,7 @@
 }
 
 .usageStatLabel {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+  font-size: $font-size-12;
   color: var(--color-text-muted);
 }
 
@@ -849,12 +683,16 @@
   color: var(--color-text-primary);
 }
 
-/* ── 細項呼叫紀錄 ── */
-.usageRecordList {
-  overflow: hidden;
+/* ── 細項呼叫紀錄：窄螢幕維持表格欄位，容器橫向捲動（表格規範不轉卡片） ── */
+.usageRecordScroll {
+  overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: $radius-12;
   background: var(--color-surface);
+}
+
+.usageRecordList {
+  min-width: 880px;
 }
 
 .usageRecordHeader,
@@ -878,7 +716,7 @@
   background: var(--color-hover);
   border-bottom: 1px solid var(--color-divider);
   font-size: $font-size-12;
-  font-weight: 600;
+  font-weight: $font-weight-500;
 }
 
 .usageRecordRow {
@@ -887,6 +725,7 @@
   &:last-child { border-bottom: 0; }
 }
 
+/* 整列是展開鈕，可以點，所以有 hover */
 .usageRecordSummary {
   width: 100%;
   padding: 13px $spacing-16;
@@ -898,7 +737,7 @@
   cursor: pointer;
   transition: background 140ms ease;
 
-  &:hover { background: var(--color-hover); }
+  &:hover { background: var(--color-row-hover); }
 
   &:focus-visible {
     position: relative;
@@ -918,18 +757,12 @@
   min-width: 0;
 }
 
-.usageRecordCellLabel {
-  display: none;
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-
 .usageRecordPrimary,
 .usageRecordToken {
   min-width: 0;
   overflow: hidden;
   font-size: $font-size-14;
-  font-weight: 600;
+  font-weight: $font-weight-500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -938,7 +771,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--color-text-muted);
-  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -962,10 +795,11 @@
   transform: rotate(180deg);
 }
 
+/* 展開的明細：白底（卡片內的內容區塊不鋪混色底） */
 .usageRecordExpanded {
   padding: $spacing-16;
   border-top: 1px solid var(--color-divider);
-  background: color-mix(in srgb, var(--color-hover) 52%, var(--color-surface));
+  background: var(--color-surface);
 }
 
 .usageRecordDetails {
@@ -973,9 +807,6 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: $spacing-16 $spacing-24;
-
-  @media (max-width: $breakpoint-lg) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  @media (max-width: $breakpoint-sm) { grid-template-columns: 1fr; }
 
   > div {
     @include flex-column;
@@ -985,7 +816,7 @@
 
   dt {
     color: var(--color-text-muted);
-    font-size: 11px;
+    font-size: $font-size-12;
   }
 
   dd {
@@ -993,7 +824,7 @@
     min-width: 0;
     color: var(--color-text-primary);
     font-size: $font-size-14;
-    font-weight: 600;
+    font-weight: $font-weight-500;
     overflow-wrap: anywhere;
   }
 }
@@ -1018,44 +849,6 @@
   margin-top: $spacing-16;
 }
 
-@media (max-width: $breakpoint-lg) {
-  .usageRecordHeader { display: none; }
-
-  .usageRecordSummary {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) 24px;
-    align-items: start;
-    row-gap: 12px;
-  }
-
-  .usageRecordCellLabel { display: block; }
-  .usageRecordDateCell { grid-column: 1; grid-row: 1; }
-  .usageRecordModelCell { grid-column: 2; grid-row: 1; }
-  .usageRecordKeyCell { grid-column: 1; grid-row: 2; }
-  .usageRecordStatusCell { grid-column: 2; grid-row: 2; }
-  .usageRecordInputCell { grid-column: 1; grid-row: 3; }
-  .usageRecordOutputCell { grid-column: 2; grid-row: 3; }
-  .usageRecordChevron { grid-column: 3; grid-row: 1 / span 3; align-self: center; }
-}
-
-@media (max-width: $breakpoint-sm) {
-  .usageRecordSummary {
-    grid-template-columns: minmax(0, 1fr) 24px;
-    gap: 12px;
-  }
-
-  .usageRecordDateCell,
-  .usageRecordModelCell,
-  .usageRecordKeyCell,
-  .usageRecordStatusCell,
-  .usageRecordInputCell,
-  .usageRecordOutputCell {
-    grid-column: 1;
-    grid-row: auto;
-  }
-
-  .usageRecordChevron { grid-column: 2; grid-row: 1 / span 6; }
-}
-
 .usageRecordsMoreRow {
   display: flex;
   align-items: center;
@@ -1064,51 +857,42 @@
   gap: $spacing-8;
 }
 
-/* ── 用量徽章（狀態） ── */
-.badge_success {
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
-}
-
-.badge_danger {
-  background: color-mix(in srgb, var(--color-danger)  12%, transparent);
-  color: var(--color-danger);
-}
-
-.usageBreakdown {
-  @include flex-column;
-  gap: $spacing-8;
-}
-
-.usageBreakdownTitle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--color-text-muted);
-}
-
+/* 按模型統計：白底細框的小表，第一列是欄位標題 */
 .usageBreakdownList {
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   overflow: hidden;
+  background: var(--color-surface);
 }
 
 .usageBreakdownRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 80px 80px 80px;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 110px);
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-8 $spacing-16;
   font-size: $font-size-14;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   border-bottom: 1px solid var(--color-divider);
 
   &:last-child { border-bottom: none; }
 
-  span:not(:first-child) { text-align: right; }
+  span:not(:first-child) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: $breakpoint-sm) {
+    grid-template-columns: minmax(0, 1fr) repeat(3, 72px);
+    gap: $spacing-8;
+  }
+}
+
+.usageBreakdownHead {
+  color: var(--color-text-muted);
+  background: var(--color-hover);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
 }
 
 .usageBreakdownKey {
@@ -1125,16 +909,27 @@
   font-size: $font-size-14;
 }
 
-.noData {
+/* ── 金鑰詳細視窗（外框是共用 Modal，這裡只排內容） ── */
+.keyDetailNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  margin: 0 0 $spacing-16;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
   font-size: $font-size-14;
-  color: var(--color-text-muted);
-  padding: $spacing-24;
-  border: 1px dashed var(--color-border);
-  border-radius: $radius-12;
-  text-align: center;
+  line-height: 1.5;
+
+  > :first-child {
+    flex: none;
+    margin-top: 2px;
+    color: var(--color-status-neutral);
+  }
 }
 
-/* ── 金鑰詳細視窗（外框是共用 Modal，這裡只排內容） ── */
 .keyDetailList {
   display: flex;
   flex-direction: column;
@@ -1172,8 +967,8 @@
   code { font-size: $font-size-14; overflow-wrap: anywhere; }
 }
 
-.keyDetailHint.keyDetailHint {
-  color: var(--color-text-muted);
+.keyDetailError.keyDetailError {
+  color: var(--color-danger);
   font-size: $font-size-12;
 }
 

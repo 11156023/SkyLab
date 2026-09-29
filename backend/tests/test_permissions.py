@@ -10,21 +10,32 @@ from app.api.deps.auth import (
 from app.core.authorizers import (
     can_auto_approve_vm_request,
     can_manage_users,
+    require_admin_access,
     require_ai_api_access,
+    require_ai_api_manage,
+    require_classroom_monitor,
     require_immediate_vm_request_access,
+    require_instructor_or_admin_access,
     require_resource_access,
     require_teaching_access,
+    require_template_manage,
+    require_template_owner,
     require_user_manage,
     require_vm_request_access,
+    require_vm_request_cancel,
     require_vm_request_review,
 )
+from app.core.i18n import SUPPORTED_LANGUAGES, _catalog, translate
 from app.core.permissions import (
     Permission,
     has_permission,
     require_owner_or_permission,
+    require_permission,
 )
+from app.core.request_context import RequestContext, _request_context
 from app.exceptions import PermissionDeniedError
 from app.models import UserRole
+from app.services.jobs import jobs_service
 
 
 def _user(
@@ -132,6 +143,109 @@ def test_resource_teaching_vm_and_ai_access_authorizers() -> None:
         require_vm_request_access(stranger, owner_id)
     with pytest.raises(PermissionDeniedError):
         require_ai_api_access(stranger, owner_id)
+
+
+def test_teaching_access_denial_uses_request_language() -> None:
+    stranger = _user(role=UserRole.student)
+
+    # 沒帶 detail 時用這次請求的語言（預設 zh-TW），不是寫死的英文
+    with pytest.raises(PermissionDeniedError) as denied:
+        require_teaching_access(stranger, uuid.uuid4())
+    assert denied.value.message == "你沒有權限存取這個教學資源"
+
+    token = _request_context.set(RequestContext(language="en"))
+    try:
+        with pytest.raises(PermissionDeniedError) as denied_en:
+            require_teaching_access(stranger, uuid.uuid4())
+    finally:
+        _request_context.reset(token)
+    assert denied_en.value.message == "Not authorized to access this teaching resource"
+
+    # 呼叫端自己給的訊息照用
+    with pytest.raises(PermissionDeniedError) as custom:
+        require_teaching_access(stranger, uuid.uuid4(), detail="custom")
+    assert custom.value.message == "custom"
+
+
+@pytest.mark.parametrize(
+    ("deny", "key"),
+    [
+        (
+            lambda u: require_permission(u, Permission.ADMIN_ACCESS),
+            "resource_access.insufficient_privileges",
+        ),
+        (
+            lambda u: require_owner_or_permission(u, uuid.uuid4()),
+            "resource_access.insufficient_privileges",
+        ),
+        (require_user_manage, "resource_access.insufficient_privileges"),
+        (
+            lambda u: require_resource_access(u, uuid.uuid4()),
+            "resource_access.no_permission",
+        ),
+        (
+            lambda u: require_ai_api_access(u, uuid.uuid4()),
+            "resource_access.insufficient_privileges",
+        ),
+        (
+            lambda u: require_ai_api_manage(u, uuid.uuid4()),
+            "resource_access.insufficient_privileges",
+        ),
+        (
+            lambda u: require_vm_request_access(u, uuid.uuid4()),
+            "resource_access.insufficient_privileges",
+        ),
+        (
+            lambda u: require_vm_request_cancel(u, uuid.uuid4()),
+            "resource_access.insufficient_privileges",
+        ),
+        (require_vm_request_review, "resource_access.insufficient_privileges"),
+        (
+            require_immediate_vm_request_access,
+            "resource_access.immediate_mode_forbidden",
+        ),
+        (require_template_manage, "resource_access.template_manage_forbidden"),
+        (
+            lambda u: require_template_owner(u, uuid.uuid4()),
+            "resource_access.template_owner_only",
+        ),
+        (require_classroom_monitor, "resource_access.classroom_monitor_forbidden"),
+        (require_admin_access, "resource_access.insufficient_privileges"),
+        (
+            require_instructor_or_admin_access,
+            "resource_access.insufficient_privileges",
+        ),
+        (
+            lambda u: jobs_service._ensure_owner_or_admin(u, uuid.uuid4()),
+            "resource_access.job_view_forbidden",
+        ),
+    ],
+)
+def test_default_denials_follow_request_language(deny, key) -> None:
+    student = _user(role=UserRole.student)
+
+    for lang in SUPPORTED_LANGUAGES:
+        token = _request_context.set(RequestContext(language=lang))
+        try:
+            with pytest.raises(
+                (PermissionDeniedError, jobs_service.JobAccessDeniedError)
+            ) as denied:
+                deny(student)
+        finally:
+            _request_context.reset(token)
+        assert str(denied.value) == translate(key, lang)
+
+    # zh-TW／ja 真的有翻，不是留著英文原句
+    assert translate(key, "zh-TW") != translate(key, "en")
+    assert translate(key, "ja") != translate(key, "en")
+
+
+def test_resource_access_messages_exist_in_every_language() -> None:
+    def keys(lang: str) -> set[str]:
+        return {k for k in _catalog(lang) if k.startswith("resource_access.")}
+
+    for lang in SUPPORTED_LANGUAGES:
+        assert keys(lang) == keys("zh-TW"), lang
 
 
 def test_user_manage_authorizers() -> None:

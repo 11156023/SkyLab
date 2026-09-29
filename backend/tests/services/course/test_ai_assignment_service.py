@@ -600,6 +600,47 @@ def test_student_projection_hides_technical_validation_error() -> None:
     assert check.error == t("course.ai_check_incomplete")
 
 
+def test_student_projection_hides_validation_error_in_legacy_judgement_summary() -> None:
+    """舊資料（results v1）的 skipped AI 判讀把驗證錯誤寫進 summary；前端優先顯示 summary，
+    不可原樣回給學生。"""
+    raw_error = (
+        "4 validation errors for ManagedScriptResult\n"
+        "checks.0.raw\n"
+        "  Input should be a valid string [type=string_type, input_value={}, input_type=dict]"
+    )
+    student_id = uuid.uuid4()
+    # 舊資料相容路徑：學生自己發起、只有一個沒帶 user 快照的 target
+    run = TeacherJudgeScriptRun(
+        teaching_class_id=uuid.uuid4(),
+        status=TeacherJudgeScriptRunStatus.completed,
+        started_by=student_id,
+        target_results_json={
+            "schema_version": "teacher_judge_run_results.v1",
+            "targets": [
+                {
+                    "status": "failed",
+                    "reason_code": "invalid_json",
+                    "validation": {"valid": False, "error": raw_error},
+                    "parsed_result": None,
+                    "ai_judgement": {
+                        "status": "skipped",
+                        "summary": raw_error,
+                        "score": None,
+                        "max_score": None,
+                        "item_judgements": [],
+                    },
+                }
+            ],
+        },
+    )
+
+    check = ai_assignment_service._check_to_student(run, user_id=student_id)
+
+    assert check.summary == ""
+    assert check.error == t("course.ai_check_incomplete")
+    assert all("ManagedScriptResult" not in item.comment for item in check.items)
+
+
 def test_student_projection_uses_own_batch_target_and_teacher_review() -> None:
     teaching_class_id = uuid.uuid4()
     student_id = uuid.uuid4()

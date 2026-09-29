@@ -7,64 +7,6 @@
   gap: $spacing-24;
 }
 
-.panelHeading {
-  @include flex-column;
-  gap: $spacing-4;
-}
-
-.panelTitle {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  font-size: $font-size-18;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-
-  span {
-    color: var(--color-primary);
-  }
-}
-
-/* ── 子分頁 ── */
-.subTabs {
-  display: grid;
-  // TEACHER_JUDGE_TABS 只剩 3 個頁籤（檢查設定／導師核查／腳本總覽），
-  // 執行結果頁移除後 4 欄會在右側多出一格空藍底，改回 3 欄。
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: $spacing-4;
-  padding: $spacing-4;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  max-width: 700px;
-}
-
-.subTab,
-.subTabActive {
-  @include flex-center;
-  gap: 6px;
-  min-height: 34px;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-}
-
-.subTab {
-  background: transparent;
-  color: var(--color-text-secondary);
-
-  &:hover:not(:disabled) {
-    color: var(--color-text-primary);
-  }
-}
-
-.subTabActive {
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-sm);
-}
-
 .tabBody {
   @include flex-column;
   gap: $spacing-16;
@@ -91,8 +33,9 @@
   display: grid;
   gap: $spacing-8;
   padding: $spacing-8 $spacing-16;
-  border: 1px dashed var(--color-divider);
+  border: 1px solid var(--color-divider);
   border-radius: $radius-8;
+  background: var(--color-surface);
 }
 
 .runOnceProgressLine {
@@ -101,7 +44,7 @@
   gap: $spacing-8;
 
   > span { min-width: 0; color: var(--color-text-primary); font-size: $font-size-12; font-weight: $font-weight-700; }
-  > small { color: var(--color-text-muted); font-size: $font-size-10; }
+  > small { color: var(--color-text-muted); font-size: $font-size-12; }
 }
 
 .reviewCheckGroup {
@@ -124,7 +67,7 @@
   gap: 2px;
 
   strong { color: var(--color-text-primary); font-size: $font-size-12; }
-  > span { color: var(--color-text-muted); font-size: $font-size-10; }
+  > span { color: var(--color-text-muted); font-size: $font-size-12; }
 }
 
 .reviewSort {
@@ -135,20 +78,9 @@
   font-size: $font-size-12;
 
   select {
-    min-height: 32px;
-    padding: 4px 30px 4px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    color: var(--color-text-primary);
-    background: var(--color-surface);
-    font: inherit;
+    @include form-control;
+    width: auto;
     cursor: pointer;
-  }
-
-  select:focus {
-    border-color: var(--color-primary);
-    outline: none;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 }
 
@@ -159,7 +91,7 @@
 
 .reviewListToolbar {
   display: flex;
-  min-height: 34px;
+  min-height: 36px;
   align-items: center;
   justify-content: flex-end;
   padding: 0 2px;
@@ -168,7 +100,7 @@
 .reviewMetrics {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: repeat(4, minmax(76px, 1fr));
+  grid-template-columns: repeat(5, minmax(76px, 1fr));
   gap: $spacing-8;
   align-self: center;
 
@@ -184,7 +116,7 @@
   }
 
   strong { color: var(--color-text-primary); font-size: $font-size-18; }
-  small { color: var(--color-text-muted); font-size: $font-size-10; white-space: nowrap; }
+  small { color: var(--color-text-muted); font-size: $font-size-12; white-space: nowrap; }
 }
 
 .reviewStudentList {
@@ -255,16 +187,16 @@
   em {
     padding: 2px 7px;
     border-radius: $radius-pill;
-    font-size: $font-size-10;
+    font-size: $font-size-12;
     font-style: normal;
     font-weight: $font-weight-700;
     white-space: nowrap;
   }
 }
 
-.reviewCountPass { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 9%, transparent); }
-.reviewCountFail { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, transparent); }
-.reviewCountPending { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 9%, transparent); }
+.reviewCountPass { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
+.reviewCountFail { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
+.reviewCountPending { color: var(--color-pending); background: color-mix(in srgb, var(--color-pending) 12%, transparent); }
 
 .reviewStudentBody {
   display: grid;
@@ -294,7 +226,7 @@
   gap: 5px;
 
   > div { display: flex; flex-wrap: wrap; align-items: center; gap: $spacing-8; }
-  > div span { color: var(--color-text-muted); font-size: $font-size-10; }
+  > div span { color: var(--color-text-muted); font-size: $font-size-12; }
   p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.5; }
   details { font-size: $font-size-12; }
   summary { color: var(--color-primary); cursor: pointer; }
@@ -306,7 +238,7 @@
 
   button {
     display: inline-flex;
-    min-height: 34px;
+    min-height: 36px;
     align-items: center;
     gap: 4px;
     padding: 5px 10px;
@@ -342,18 +274,10 @@
   > span small { margin-left: 4px; color: var(--color-text-muted); font-weight: $font-weight-500; }
   > small { justify-self: end; color: var(--color-text-muted); font-weight: $font-weight-500; }
   textarea {
-    width: 100%;
-    min-height: 86px;
-    resize: vertical;
-    padding: 10px 12px;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    color: var(--color-text-primary);
-    background: var(--color-surface);
-    font: inherit;
+    @include form-control;
+    height: 86px;
     line-height: 1.5;
   }
-  textarea:focus { border-color: var(--color-primary); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent); }
 }
 
 .reviewSaveRow {
@@ -365,27 +289,14 @@
   > span { color: var(--color-text-muted); font-size: $font-size-12; }
 }
 
-.reviewNoResult,
-.reviewEmpty {
+.reviewNoResult {
+  padding: $spacing-24 0 $spacing-8;
   color: var(--color-text-muted);
   text-align: center;
 }
 
-.reviewNoResult { padding: $spacing-24 0 $spacing-8; }
-.reviewEmpty { align-items: center; padding: $spacing-24; }
-.reviewEmpty h4,
-.reviewEmpty p { margin: 0; }
-
-.noticeDanger {
-  padding: $spacing-16;
-  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
-  border-radius: $radius-8;
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-}
-
 @media (max-width: 900px) {
-  .reviewMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reviewMetrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .reviewStudentToggle { grid-template-columns: minmax(0, 1fr) auto auto; }
   .reviewAiCounts { display: none; }
   .reviewCheck { grid-template-columns: 24px minmax(0, 1fr); }
@@ -393,7 +304,6 @@
 }
 
 @media (max-width: 620px) {
-  .subTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; }
   .reviewStudentToggle { grid-template-columns: minmax(0, 1fr) auto; }
   .reviewStudentToggle > .badge { display: none; }
   .reviewDecision { flex-wrap: wrap; }
@@ -428,8 +338,8 @@
   @include btn-secondary;
 }
 
-.btnDanger {
-  @include btn-danger;
+.btnDangerOutline {
+  @include btn-danger-outline;
 }
 
 .iconBtn {
@@ -446,7 +356,6 @@
   @include btn-icon-secondary;
 }
 
-/* ── Spinner ── */
 /* ── 卡片 ── */
 .card {
   @include glass-surface;
@@ -501,19 +410,29 @@
   strong { color: var(--color-info); }
 }
 
+/* 提示＋一顆動作鈕排成一列，窄螢幕換行 */
+.noticeWithAction {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8 $spacing-16;
+}
+
+/* 製作中＝進行中，用 info 藍（橘色只留給待審核） */
 .noticeProgress {
-  border-color: color-mix(in srgb, var(--color-pending) 34%, transparent);
+  border-color: color-mix(in srgb, var(--color-info) 30%, transparent);
   background: linear-gradient(
     110deg,
-    color-mix(in srgb, var(--color-pending) 9%, var(--color-surface)) 0%,
-    color-mix(in srgb, var(--color-pending) 18%, var(--color-surface)) 42%,
-    color-mix(in srgb, var(--color-pending) 9%, var(--color-surface)) 70%
+    color-mix(in srgb, var(--color-info) 8%, var(--color-surface)) 0%,
+    color-mix(in srgb, var(--color-info) 16%, var(--color-surface)) 42%,
+    color-mix(in srgb, var(--color-info) 8%, var(--color-surface)) 70%
   );
   background-size: 220% 100%;
   animation: scriptButtonProgress 1.8s ease-in-out infinite;
   overflow: hidden;
 
-  strong { color: var(--color-pending); }
+  strong { color: var(--color-info); }
 }
 
 .noticeProgressTitle {
@@ -550,33 +469,6 @@
   color: var(--color-text-secondary);
 }
 
-/* ── 分析結果版面 ── */
-.analysisGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: $spacing-24;
-  align-items: start;
-
-  @include respond-to(xl) {
-    grid-template-columns: minmax(0, 1fr) 440px;
-    align-items: stretch;
-  }
-}
-
-.analysisMain {
-  @include flex-column;
-  gap: $spacing-16;
-  min-width: 0;
-}
-
-.analysisAside {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: $spacing-16;
-  align-self: stretch;
-}
-
 /* ── 檢查項目表格 ── */
 .rubricTableCard {
   overflow: hidden;
@@ -593,32 +485,22 @@
 }
 
 .rubricTable {
-  width: 100%;
+  @include table-base;
   min-width: 780px;
-  border-collapse: collapse;
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
 }
 
 .rubricTable th {
-  padding: 0 $spacing-16 $spacing-8;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  text-align: left;
-  white-space: nowrap;
+  @include table-th;
 }
 
 .rubricTable th:first-child,
 .rubricDetailToggleCell {
-  width: 44px;
+  width: 48px;
   padding-right: $spacing-8;
   padding-left: $spacing-8;
 }
 
-.rubricTable th:nth-child(2),
-.rubricNumberCell {
+.rubricTable th:nth-child(2) {
   width: 52px;
 }
 
@@ -627,18 +509,24 @@
 .rubricTable th:nth-child(5) { width: 150px; }
 .rubricTable th:last-child { width: 72px; }
 
+.rubricTableRow {
+  @include table-tr;
+}
+
+/* 展開詳情時，詳情列接在後面，分隔線留到詳情列底下 */
+.rubricTableRow.rubricTableRowExpanded {
+  border-bottom: 0;
+}
+
 .rubricTableRow > td {
-  padding: $spacing-16;
-  border-bottom: 1px solid var(--color-divider);
+  @include table-td;
+  padding-top: $spacing-16;
+  padding-bottom: $spacing-16;
   vertical-align: top;
 }
 
-.rubricTableRow:hover > td,
-.rubricTableRowExpanded > td {
-  background: color-mix(in srgb, var(--color-primary) 3%, var(--color-surface));
-}
-
 .rubricNumberCell {
+  width: 52px;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   font-weight: $font-weight-700;
@@ -724,13 +612,12 @@
   gap: 4px;
   min-width: 0;
   max-width: 100%;
-  padding: 2px 7px;
-  border: 1px solid var(--color-divider);
+  padding: 2px 8px;
   border-radius: $radius-8;
-  background: var(--color-hover);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
   color: var(--color-text-secondary);
 
-  > span:not(.material-icons):not(.material-icons-outlined) {
+  > span:not(:first-child) {
     color: var(--color-text-muted);
     white-space: nowrap;
   }
@@ -740,14 +627,17 @@
     overflow: hidden;
     color: var(--color-text-primary);
     font-family: monospace;
-    font-size: $font-size-10;
+    font-size: $font-size-12;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 }
-.rubricDetailToggleCell { vertical-align: middle !important; }
-.rubricDetectabilityCell { vertical-align: middle !important; }
-.rubricActionsCell { vertical-align: middle !important; }
+/* 兩個 class 的權重壓過 .rubricTableRow > td 的 top 對齊，不用 !important */
+.rubricTableRow > .rubricDetailToggleCell,
+.rubricTableRow > .rubricDetectabilityCell,
+.rubricTableRow > .rubricActionsCell {
+  vertical-align: middle;
+}
 
 .tableActions {
   display: inline-flex;
@@ -756,36 +646,19 @@
 }
 
 .detailToggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: $radius-8;
-  color: var(--color-text-secondary);
-  background: transparent;
-  cursor: pointer;
-}
-
-.detailToggle:hover {
-  color: var(--color-primary);
-  background: var(--color-hover);
+  @include btn-icon;
 }
 
 .rubricDetailRow > td {
   padding: 0 $spacing-16 $spacing-16;
   border-bottom: 1px solid var(--color-divider);
-  background: color-mix(in srgb, var(--color-primary) 3%, var(--color-surface));
 }
 
 .rubricDetail {
   display: grid;
   gap: $spacing-16;
   padding: $spacing-16;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  border: 1px solid var(--color-border);
   border-radius: $radius-8;
   background: var(--color-surface);
 }
@@ -827,11 +700,12 @@
   white-space: nowrap;
 }
 
+/* 可以＝綠；缺少資訊、無法執行會擋下製作＝紅（警示一律紅，橘色只給待審核）；導師檢查是正常模式＝藍 */
 .detBadge_auto { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.detBadge_partial { background: color-mix(in srgb, var(--color-pending) 14%, transparent); color: var(--color-pending); }
+.detBadge_partial { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 .detBadge_manual { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
-.detBadge_stale { outline: 1px dashed currentColor; outline-offset: 2px; }
-.detBadge em { font-size: $font-size-10; font-style: normal; font-weight: $font-weight-700; }
+.detBadge_teacher { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
+.detBadge em { font-size: $font-size-12; font-style: normal; font-weight: $font-weight-700; }
 
 .detectGrid {
   display: grid;
@@ -876,11 +750,10 @@
   padding: 7px 9px;
   border: 1px solid var(--color-divider);
   border-radius: $radius-8;
-  background: var(--color-hover);
+  background: var(--color-surface);
 }
 
-.executionContractTitle,
-.executionContractItem {
+.executionContractTitle {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -893,12 +766,16 @@
 }
 
 .executionContractItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: $font-size-12;
   padding-left: 8px;
   border-left: 1px solid var(--color-divider);
 
   > span { color: var(--color-text-muted); }
   strong { color: var(--color-text-primary); font-weight: $font-weight-500; }
-  small { color: var(--color-text-muted); font-size: $font-size-10; }
+  small { color: var(--color-text-muted); font-size: $font-size-12; }
 }
 
 .chipRow {
@@ -919,7 +796,7 @@
 
   code {
     font-family: monospace;
-    font-size: $font-size-10;
+    font-size: $font-size-12;
     color: var(--color-text-muted);
   }
 }
@@ -939,7 +816,7 @@
 
 .chipLabel,
 .chipText {
-  font-size: $font-size-10;
+  font-size: $font-size-12;
   color: var(--color-text-muted);
 }
 
@@ -948,20 +825,6 @@
 }
 
 /* ── AI 對話 ── */
-.chatCard {
-  padding: $spacing-16 $spacing-24;
-  min-width: 0;
-
-  @include respond-to(xl) {
-    position: sticky;
-    top: $spacing-24;
-    height: 100%;
-    min-height: min(640px, calc(100vh - 48px));
-    max-height: none;
-    box-sizing: border-box;
-  }
-}
-
 .srOnly {
   position: absolute;
   width: 1px;
@@ -983,31 +846,6 @@
   min-height: 0;
 }
 
-/* AI 區域極淡 radial gradient：常駐於訊息區與空狀態之後，不搶字色 */
-.chatPanel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(480px 300px at 50% 14%, color-mix(in srgb, var(--color-primary) 7%, transparent), transparent 70%),
-    radial-gradient(360px 240px at 20% 30%, color-mix(in srgb, #a78bfa 6%, transparent), transparent 70%),
-    radial-gradient(360px 240px at 80% 30%, color-mix(in srgb, #7dd3fc 6%, transparent), transparent 70%);
-}
-
-:global(body.dark) .chatPanel::before {
-  background:
-    radial-gradient(480px 300px at 50% 14%, color-mix(in srgb, var(--color-primary) 10%, transparent), transparent 70%),
-    radial-gradient(360px 240px at 20% 30%, color-mix(in srgb, #a78bfa 8%, transparent), transparent 70%),
-    radial-gradient(360px 240px at 80% 30%, color-mix(in srgb, #7dd3fc 8%, transparent), transparent 70%);
-}
-
-.chatPanel > * {
-  position: relative;
-  z-index: 1;
-}
-
 /* 空狀態置中：訊息串容器改為承載 Hero，不再捲動 */
 .chatPanelEmpty {
   justify-content: center;
@@ -1025,7 +863,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: $spacing-16;
+  gap: $spacing-8;
   width: 100%;
   max-width: 620px;
   margin: 0 auto;
@@ -1033,23 +871,15 @@
   text-align: center;
 }
 
-.chatHeroBadge {
-  @include flex-center;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
-  color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
+.chatHeroIcon {
+  color: var(--color-text-muted);
 }
 
 .chatHeroTitle {
   margin: 0;
-  font-size: $font-size-28;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-  line-height: 1.3;
+  font-size: $font-size-16;
+  font-weight: $font-weight-400;
+  color: var(--color-text-muted);
 }
 
 .chatHeroDesc {
@@ -1070,6 +900,7 @@
   flex-direction: column;
   gap: $spacing-8;
   width: min(560px, 100%);
+  margin-top: $spacing-8;
   padding: $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-16;
@@ -1085,8 +916,7 @@
 
   textarea {
     width: 100%;
-    min-height: 72px;
-    resize: vertical;
+    height: 72px;
     border: 0;
     padding: 0;
     background: transparent;
@@ -1113,18 +943,10 @@
   gap: $spacing-8;
 }
 
-.chatHeroAttach {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  font-size: $font-size-12;
-}
-
 .chatHeroSend {
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
   padding: 0;
   border-radius: 50%;
   @include flex-center;
@@ -1135,17 +957,9 @@
   text-align: left;
 }
 
-.chatHero .chatHint {
-  max-width: 480px;
-}
-
 @media (max-width: 640px) {
   .chatHero {
     padding: $spacing-24 $spacing-8;
-  }
-
-  .chatHeroTitle {
-    font-size: $font-size-18;
   }
 }
 
@@ -1241,12 +1055,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: $spacing-8;
-
-  button {
-    min-height: 30px;
-    padding: 4px 10px;
-    font-size: $font-size-12;
-  }
 }
 
 .chatSourcesPanel {
@@ -1264,8 +1072,7 @@
   scrollbar-width: thin;
 }
 
-.chatAttachmentChip,
-.chatMessageAttachment {
+.chatAttachmentChip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1316,7 +1123,15 @@
 }
 
 .chatMessageAttachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   padding: 4px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
   font-size: $font-size-12;
 }
 
@@ -1344,30 +1159,14 @@
   gap: $spacing-8;
 
   textarea {
+    @include form-control;
     flex: 1;
-    min-height: 38px;
-    padding: 8px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
-    font-size: $font-size-14;
-
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    height: 36px;
   }
 
   button {
-    padding: 8px;
-    min-width: 38px;
+    min-width: 36px;
+    padding: 6px;
   }
 }
 
@@ -1479,7 +1278,7 @@
   background: linear-gradient(
     110deg,
     var(--color-primary) 0%,
-    color-mix(in srgb, var(--color-primary) 76%, white) 42%,
+    var(--color-primary-light) 42%,
     var(--color-primary) 70%
   );
   background-size: 220% 100%;
@@ -1625,6 +1424,7 @@
 .checkIconPass { color: var(--color-success); }
 .checkIconFail { color: var(--color-danger); }
 .checkIconWarn { color: var(--color-pending); }
+.checkIconAttention { color: var(--color-danger); }
 .checkIconSkip { color: var(--color-text-muted); }
 
 .checkTitle {
@@ -1651,7 +1451,7 @@
 .checkDetail {
   padding: $spacing-8 $spacing-8 $spacing-16
     calc(#{$spacing-8} + 20px + #{$spacing-8} + 24px + #{$spacing-8});
-  background: var(--color-hover);
+  background: var(--color-surface);
 
   p {
     margin: 0 0 $spacing-8;
@@ -1755,34 +1555,11 @@
 
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_info { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
+.badge_pending { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
 .badge_danger { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 .badge_muted { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
-/* 確認框（共用 Modal）標題前的警示圖示：比照 useConfirm 的危險款 */
-.confirmIcon {
-  display: inline-flex;
-  color: var(--color-danger);
-}
-
 /* ── Teacher workspace ── */
-.sessionWorkspace {
-  display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
-  gap: $spacing-16;
-  align-items: start;
-}
-
-.sessionSidebar {
-  position: sticky;
-  top: $spacing-16;
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  /* 陰影、圓角跟 .card 一致：選了檢查後清單改放在 .card 裡，兩種狀態看起來同一張卡 */
-  @include glass-surface;
-  border-radius: $radius-16;
-}
-
 .newCheckButton {
   width: 100%;
 }
@@ -1920,21 +1697,28 @@
 .sessionRenameForm {
   display: flex;
   min-width: 0;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   padding: 5px 8px;
+}
+
+.sessionRenameError {
+  color: var(--color-danger);
+  font-size: $font-size-12;
 }
 
 .sessionRenameInput {
   width: 100%;
   min-width: 0;
-  min-height: 32px;
+  min-height: 36px;
   padding: 6px 8px;
   border: 1px solid var(--color-primary);
   border-radius: $radius-8;
   background: var(--color-surface);
   color: var(--color-text-primary);
   font: inherit;
-  font-size: $font-size-12;
+  font-size: $font-size-14;
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
@@ -1957,30 +1741,21 @@
 }
 
 .sessionMenu {
-  animation: menuIn 0.13s ease;
-  transition: opacity 0.13s ease, transform 0.13s ease;
-  position: absolute;
-  z-index: 20;
-  display: flex;
-  min-width: 156px;
-  flex-direction: column;
-  gap: 2px;
-  padding: 5px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  box-shadow: var(--shadow-md, 0 8px 20px rgb(0 0 0 / 12%));
-}
-
-.sessionMenu {
   position: fixed;
   z-index: 1200;
+  display: flex;
   width: min(220px, calc(100vw - 24px));
   max-height: min(420px, calc(100vh - 24px));
+  flex-direction: column;
+  gap: 2px;
   overflow-y: auto;
   padding: 8px;
+  border: 1px solid var(--color-border);
   border-radius: $radius-12;
+  background: var(--color-surface);
   box-shadow: var(--shadow-lg);
+  animation: menuIn 0.13s ease;
+  transition: opacity 0.13s ease, transform 0.13s ease;
 }
 
 .sessionMenu button {
@@ -2004,59 +1779,11 @@
 .sessionMenu button:disabled { opacity: .5; cursor: not-allowed; }
 .menuDanger { color: var(--color-danger) !important; }
 .menuSeparator { display: block; height: 1px; margin: 4px 2px; background: var(--color-divider); }
-/* 側欄清單窄，共用 EmptyState 的上下留白收小一階（重複 class 提高權重蓋過元件預設） */
-.sidebarEmpty.sidebarEmpty {
-  padding: $spacing-24 $spacing-8;
-}
 
 .sidebarLoading {
   @include flex-center;
   padding: $spacing-24 0;
 }
-
-/* ── 初始空狀態中央 Hero ── */
-.heroCard { overflow: hidden; }
-.heroEmpty {
-  position: relative;
-  isolation: isolate;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-16;
-  min-height: 380px;
-  padding: $spacing-48 $spacing-24;
-  text-align: center;
-  overflow: hidden;
-}
-.heroGlow {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(42% 46% at 50% 30%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 70%),
-    radial-gradient(34% 38% at 36% 42%, color-mix(in srgb, #a78bfa 10%, transparent), transparent 70%),
-    radial-gradient(34% 38% at 64% 42%, color-mix(in srgb, #7dd3fc 10%, transparent), transparent 70%);
-}
-:global(body.dark) .heroGlow {
-  background:
-    radial-gradient(42% 46% at 50% 30%, color-mix(in srgb, var(--color-primary) 20%, transparent), transparent 70%),
-    radial-gradient(34% 38% at 36% 42%, color-mix(in srgb, #a78bfa 16%, transparent), transparent 70%),
-    radial-gradient(34% 38% at 64% 42%, color-mix(in srgb, #7dd3fc 16%, transparent), transparent 70%);
-}
-.heroBadge {
-  @include flex-center;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
-  color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
-}
-.heroTitle { margin: 0; font-size: $font-size-28; font-weight: $font-weight-700; color: var(--color-text-primary); line-height: 1.3; }
-.heroDesc { margin: 0; max-width: 420px; font-size: $font-size-14; color: var(--color-text-secondary); line-height: $line-height-base; }
 
 .sourceRail {
   display: flex;
@@ -2101,29 +1828,12 @@
 .sourceText small { color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.35; }
 
 .dialogField {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
+  @include form-field;
 }
 
-.createCheckNameInput {
-  min-height: 42px;
-  padding: 9px 11px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-  font: inherit;
-  font-size: $font-size-14;
-  outline: none;
-}
-
-.createCheckNameInput:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+.createCheckNameInput,
+.dialogSelect {
+  @include form-control;
 }
 
 .dialogError {
@@ -2132,54 +1842,52 @@
   font-size: $font-size-12;
 }
 
+.dialogField small {
+  margin-left: 2px;
+  color: var(--color-text-muted);
+  font-weight: $font-weight-400;
+}
+
+.dialogHint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  line-height: $line-height-base;
+
+  > :first-child {
+    flex: none;
+    margin-top: 1px;
+    color: var(--color-info);
+  }
+}
+
+/* 按鈕為什麼按不下去：放在按鈕旁的一行小字 */
+.actionHint {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.5;
+}
+
 .sessionItem:hover {
   background: var(--color-hover);
 }
 
-.sessionItemActive {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-}
-
-.sessionMain {
-  min-width: 0;
-}
-
-.sessionMainFull {
-  @include flex-column;
-  gap: $spacing-16;
-  min-width: 0;
-}
-
-/* ── 檢查設定三欄同高（session／檢查表／AI 聊天室） ── */
-.checkWorkspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: $spacing-16;
-  align-items: start;
-
-  @include respond-to(xl) {
-    grid-template-columns: 230px minmax(0, 1.6fr) minmax(300px, 1fr);
-    align-items: stretch;
-  }
-}
-
+/* ── AI 檢查工作區：左側檢查清單，右側分頁列＋分頁內容 ──
+   分頁列固定在同一個位置、同一個寬度，三個分頁只換下方內容 */
 .checkSessionCol,
-.checkRubricCard,
-.checkChatCol {
+.checkRubricCard {
   min-width: 0;
-
-  @include respond-to(xl) {
-    // 三欄直接向下延伸到頁面底部：扣掉上方頁首＋面板標題＋間距；
-    // 超長內容仍以 max-height 截斷，改走欄內捲動
-    min-height: calc(100vh - 240px);
-    max-height: calc(100vh - 120px);
-  }
 }
 
 .checkSessionCol {
-  // 與右方兩卡共用 .card 的 24px 內距，讓三欄頂部對齊同一高度
+  // 直接向下延伸到頁面底部：扣掉上方頁首、班級步驟列與間距；
+  // 檢查很多時以 max-height 截斷，改走清單內捲動
   @include respond-to(xl) {
+    min-height: calc(100vh - 240px);
+    max-height: calc(100vh - 120px);
     overflow: hidden;
   }
 
@@ -2197,20 +1905,52 @@
   }
 }
 
-.checkRubricCol {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
 .checkRubricCard {
   display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
   flex-direction: column;
 
   @include respond-to(xl) {
     overflow: hidden;
+  }
+}
+
+/* 檢查表、檢查表助理在分頁列（約 38px＋間距 16px）下方，高度扣掉這段，底部才跟清單對齊 */
+.checkRubricCard,
+.checkChatCol {
+  @include respond-to(xl) {
+    min-height: calc(100vh - 294px);
+    max-height: calc(100vh - 174px);
+  }
+}
+
+.checkChatCol {
+  min-width: 0;
+
+  @include respond-to(xl) {
+    overflow: hidden;
+  }
+}
+
+.rubricsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-16;
+  align-items: start;
+
+  @include respond-to(xl) {
+    grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+    align-items: stretch;
+  }
+}
+
+/* 看過的分頁保持掛著、只是隱藏（草稿才不會消失）；.card 等 display 會蓋掉 hidden，這裡補回 */
+.checkTabPanel {
+  @include flex-column;
+  gap: $spacing-16;
+  min-width: 0;
+
+  &[hidden] {
+    display: none;
   }
 }
 
@@ -2247,6 +1987,19 @@
     line-height: 1.5;
   }
 
+  .rubricActionHintBlocked {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    color: var(--color-text-primary);
+
+    > :first-child {
+      flex: none;
+      margin-top: 1px;
+      color: var(--color-info);
+    }
+  }
+
   button {
     flex: 0 0 auto;
   }
@@ -2259,12 +2012,6 @@
       justify-content: center;
       width: 100%;
     }
-  }
-}
-
-.checkChatCol {
-  @include respond-to(xl) {
-    overflow: hidden;
   }
 }
 
@@ -2289,7 +2036,6 @@
 
 }
 
-/* ── 執行結果／腳本總覽雙欄同高（沿用三欄設計語言） ── */
 .checkWorkspaceTwo {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2309,18 +2055,14 @@
   gap: $spacing-16;
 }
 
-.checkTabsCard {
-  flex: 0 0 auto;
-  padding: $spacing-8 $spacing-16;
+/* 子分頁：維持自身寬度靠左，不被欄位撐滿；窄螢幕可橫向捲動 */
+.checkTabs {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
-/* 檢查項目卡片頂部的頁籤條：維持與其他頁籤相同的固定大小 */
-.checkTabsWrap {
-  flex: 0 0 auto;
-  margin-bottom: $spacing-8;
-}
-
-/* 三欄頂部標頭統一高度：新增檢查／檢查項目／AI 聊天室對齊 */
+/* 欄位頂部標頭統一高度：檢查項目／AI 聊天室對齊 */
 .checkHead {
   display: flex;
   flex: 0 0 auto;
@@ -2381,8 +2123,8 @@
     padding: 2px 7px;
     border-radius: $radius-pill;
     color: var(--color-primary-on-surface);
-    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-    font-size: $font-size-10;
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    font-size: $font-size-12;
     font-weight: $font-weight-700;
   }
 }
@@ -2457,19 +2199,23 @@
   justify-self: start;
   max-width: 100%;
   padding: 2px 8px;
-  border: 1px solid var(--color-divider);
   border-radius: $radius-8;
-  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
   font-family: monospace;
-  font-size: $font-size-10;
+  font-size: $font-size-12;
   color: var(--color-text-primary);
   overflow-wrap: anywhere;
 }
 
 .proposalActions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: $spacing-8;
+
+  .actionHint {
+    margin: 0 auto 0 0;
+  }
 
   @media (max-width: 640px) {
     align-items: stretch;
@@ -2483,21 +2229,12 @@
 }
 
 @include respond-below(lg) {
-  .sessionWorkspace {
-    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
-  }
-  .sessionSidebar {
-    position: static;
-  }
   .sessionList {
     max-height: 240px;
   }
 }
 
 @include respond-below(md) {
-  .sessionWorkspace { grid-template-columns: 1fr; }
-  .sessionSidebar { position: static; }
-  .sessionMain { min-width: 0; }
   .rubricTableWrap { margin-right: -$spacing-16; margin-left: -$spacing-16; }
   .rubricTable { min-width: 780px; }
   .rubricTable th,
@@ -2529,46 +2266,25 @@
 }
 
 .chatAttachButton {
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
 }
 
 /* ── 表單欄位 ── */
 .field {
-  @include flex-column;
-  gap: 6px;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
+  @include form-field;
 
   select {
-    min-height: 38px;
-    padding: 8px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
-    font-size: $font-size-14;
-
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-    }
+    @include form-control;
   }
 }
 
 /* 送出時未填的欄位：紅框標示並被聚焦（雙類名壓過 .dialogField input 這類巢狀選擇器） */
 .fieldInvalid.fieldInvalid {
-  border-color: var(--color-danger);
-
-  &:focus {
-    border-color: var(--color-danger);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 12%, transparent);
-  }
+  @include form-control-invalid;
 }
 
 /* ── 學生總覽展開後的單台機器卡 ── */

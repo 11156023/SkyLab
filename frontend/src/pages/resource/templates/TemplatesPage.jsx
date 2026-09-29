@@ -408,12 +408,11 @@ export default function TemplatesPage() {
       {templates === null ? (
         <LoadingState fullPage text={t("TemplatesPage.loadingTemplates")} />
       ) : list.length === 0 ? (
-        <div className={styles.card}>
-          <EmptyState
-            icon="widgets"
-            title={t("TemplatesPage.emptyTitle")}
-          />
-        </div>
+        /* 同資源管理、GPU 管理：頁面層級空狀態不包卡片，直接在剩餘高度垂直置中 */
+        <EmptyState
+          icon="widgets"
+          title={t("TemplatesPage.emptyTitle")}
+        />
       ) : (
         <div className={styles.card}>
           <div className={styles.tableScroll}>

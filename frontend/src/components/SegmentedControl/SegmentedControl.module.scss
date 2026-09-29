@@ -1,8 +1,12 @@
 @use "../../assets/styles/variables" as *;
 
-/* 分段切換器：外框膠囊 + 選中段以主色填滿 */
+/* 分段切換器：外框膠囊 + 選中段以主色填滿。
+   高度固定 36px，跟按鈕（btn-*）、輸入框（form-control）同高，同一列才對得齊；
+   各段撐滿內框（36 − 內距 3×2 − 框 1×2 = 28px），文字垂直置中，有沒有徽章都一樣高 */
 .segment {
+  box-sizing: border-box;
   display: inline-flex;
+  height: 36px;
   padding: 3px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
@@ -14,7 +18,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px $spacing-16;
+  padding: 0 $spacing-16;
   border-radius: $radius-8;
   color: var(--color-text-secondary);
   font-size: $font-size-12;
@@ -54,8 +58,9 @@
 /* 可選的數量徽章 */
 .segmentBadge {
   min-width: 20px;
-  padding: 1px 6px;
+  padding: 0 6px;
   border-radius: $radius-pill;
+  line-height: 18px;
   background: var(--color-hover);
   color: var(--color-text-muted);
   font-size: $font-size-12;

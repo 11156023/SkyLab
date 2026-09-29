@@ -48,7 +48,8 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   const isAdmin = isAdminUser(user);
 
   const [sourceVmid, setSourceVmid] = useState("");
-  const [invalid, setInvalid] = useState("");
+  // 必填欄位未填：送出時一次標出全部（紅框），游標跳到第一個
+  const [invalid, setInvalid] = useState({});
   const sourceRef = useRef(null);
   const nameRef = useRef(null);
   const [name, setName] = useState(template?.name ?? "");
@@ -191,14 +192,10 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   };
 
   const handleSubmit = async () => {
-    if (!isEdit && !sourceVmid) {
-      setInvalid("source");
-      focusInvalidField(sourceRef.current);
-      return;
-    }
-    if (!name.trim()) {
-      setInvalid("name");
-      focusInvalidField(nameRef.current);
+    const missing = { source: !isEdit && !sourceVmid, name: !name.trim() };
+    if (missing.source || missing.name) {
+      setInvalid(missing);
+      focusInvalidField((missing.source ? sourceRef : nameRef).current);
       return;
     }
 
@@ -284,14 +281,14 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
       }
     >
       {!isEdit && (
-        <div className={`${styles.field} ${invalid === "source" ? styles.fieldInvalid : ""}`}>
+        <div className={`${styles.field} ${invalid.source ? styles.fieldInvalid : ""}`}>
           <label htmlFor="tpl-source">{t("TemplateFormDialog.sourceLabel")}</label>
           <select
             id="tpl-source"
             ref={sourceRef}
             value={sourceVmid}
-            aria-invalid={invalid === "source"}
-            onChange={(e) => { setSourceVmid(e.target.value); setInvalid(""); }}
+            aria-invalid={Boolean(invalid.source)}
+            onChange={(e) => { setSourceVmid(e.target.value); setInvalid((prev) => ({ ...prev, source: false })); }}
           >
             <option value="">{t("TemplateFormDialog.sourceDefaultOption")}</option>
             {resources
@@ -308,7 +305,7 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
         </div>
       )}
 
-      <div className={`${styles.field} ${invalid === "name" ? styles.fieldInvalid : ""}`}>
+      <div className={`${styles.field} ${invalid.name ? styles.fieldInvalid : ""}`}>
         <label htmlFor="tpl-name">{t("TemplateFormDialog.nameLabel")}</label>
         <input
           id="tpl-name"
@@ -316,9 +313,9 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
           type="text"
           maxLength={255}
           placeholder={t("TemplateFormDialog.namePlaceholder")}
-          aria-invalid={invalid === "name"}
+          aria-invalid={Boolean(invalid.name)}
           value={name}
-          onChange={(e) => { setName(e.target.value); setInvalid(""); }}
+          onChange={(e) => { setName(e.target.value); setInvalid((prev) => ({ ...prev, name: false })); }}
         />
       </div>
 
@@ -336,31 +333,25 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
 
       <div className={styles.field}>
         <label>{t("TemplateFormDialog.visibilityLabel")}</label>
-        <div className={styles.visibilityOptions}>
-          <label className={`${styles.visibilityOption} ${visibility !== "global" ? styles.visibilityOptionActive : ""}`}>
-            <input
-              type="radio"
-              name="template-visibility"
-              value="private"
-              checked={visibility !== "global"}
-              onChange={() => setVisibility("private")}
-            />
-            <span>
-              <strong>{t("TemplateFormDialog.visibilityPrivateTitle")}</strong>
-            </span>
-          </label>
-          <label className={`${styles.visibilityOption} ${visibility === "global" ? styles.visibilityOptionActive : ""}`}>
-            <input
-              type="radio"
-              name="template-visibility"
-              value="global"
-              checked={visibility === "global"}
-              onChange={() => setVisibility("global")}
-            />
-            <span>
-              <strong>{t("TemplateFormDialog.visibilityGlobalTitle")}</strong>
-            </span>
-          </label>
+        {/* 二選一的純按鈕（不放圓鈕），選中以主色框＋淡底標示 */}
+        <div className={styles.visibilityOptions} role="group" aria-label={t("TemplateFormDialog.visibilityLabel")}>
+          {[
+            { value: "private", label: t("TemplateFormDialog.visibilityPrivateTitle") },
+            { value: "global", label: t("TemplateFormDialog.visibilityGlobalTitle") },
+          ].map((option) => {
+            const selected = option.value === "global" ? visibility === "global" : visibility !== "global";
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`${styles.visibilityOption} ${selected ? styles.visibilityOptionActive : ""}`}
+                aria-pressed={selected}
+                onClick={() => setVisibility(option.value)}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 

@@ -9,58 +9,6 @@
   }
 }
 
-/* 暈染加強層：沿用主題色票畫出較飽和的光暈，讓玻璃卡片有內容可透
-   （全站 body::before 的淡色暈染仍在，同色系疊加）。
-   fixed + overflow hidden 讓超出視窗的光暈不產生卷軸。 */
-.glow {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-
-  span {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(72px);
-  }
-
-  span:nth-child(1) {
-    top: -18%;
-    right: -10%;
-    width: 560px;
-    height: 560px;
-    background: color-mix(in srgb, var(--color-primary) 32%, transparent);
-    animation: orb-drift 26s ease-in-out infinite alternate;
-  }
-
-  span:nth-child(2) {
-    bottom: -22%;
-    left: -12%;
-    width: 480px;
-    height: 480px;
-    background: color-mix(in srgb, var(--color-primary-light) 26%, transparent);
-    animation: orb-drift 32s ease-in-out infinite alternate-reverse;
-  }
-
-  span:nth-child(3) {
-    right: 8%;
-    bottom: -6%;
-    width: 360px;
-    height: 360px;
-    background: color-mix(in srgb, var(--color-bg-gradient-green) 85%, transparent);
-    animation: orb-drift 22s ease-in-out infinite alternate;
-  }
-}
-
-@keyframes orb-drift {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  to {
-    transform: translate3d(-48px, 32px, 0) scale(1.06);
-  }
-}
-
 .card {
   width: 100%;
   max-width: 420px;
@@ -372,8 +320,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card,
-  .glow span {
+  .card {
     animation: none;
   }
 }

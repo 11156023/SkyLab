@@ -213,7 +213,7 @@
 .field {
   @include form-field;
 
-  /* radio（可見範圍卡）與 range（規格滑桿）不是文字控制項，不吃 form-control */
+  /* radio、checkbox 與 range（規格滑桿）不是文字控制項，不吃 form-control */
   input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
   textarea,
   select {
@@ -269,39 +269,37 @@
   gap: $spacing-8;
 }
 
+/* 可見範圍：二選一的純按鈕，文字置中；hover 只換淡底，選中才用主色框＋淡底 */
 .visibilityOption {
-  display: flex;
+  @include flex-center;
   min-width: 0;
-  align-items: flex-start;
-  gap: $spacing-8;
+  min-height: 40px;
   padding: $spacing-8 $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
+  background: transparent;
   color: var(--color-text);
+  font: inherit;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
   cursor: pointer;
-  transition: border-color $transition-base, background-color $transition-base;
+  transition: border-color $transition-base, background-color $transition-base, color $transition-base;
 
-  input {
-    width: auto;
-    margin-top: 2px;
-    accent-color: var(--color-primary);
+  &:hover {
+    background: var(--color-hover);
   }
 
-  span {
-    @include flex-column;
-    min-width: 0;
-    gap: 3px;
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
-
-  strong {
-    font-size: $font-size-14;
-  }
-
 }
 
-.visibilityOptionActive {
+.visibilityOptionActive,
+.visibilityOptionActive:hover {
   border-color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+  color: var(--color-primary);
 }
 
 .tripleGrid {
@@ -433,9 +431,11 @@
   line-height: 1.5;
 }
 
-/* ── 未填欄位：紅框 ── */
-.fieldInvalid {
-  input,
+/* ── 未填欄位：紅框 ──
+   選擇器要跟 .field 的一般樣式同一組（含三個 :not()），權重才蓋得過；
+   原本只寫 `.fieldInvalid input`，文字輸入框被一般樣式蓋掉、永遠不會變紅 */
+.field.fieldInvalid {
+  input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
   textarea,
   select {
     @include form-control-invalid;

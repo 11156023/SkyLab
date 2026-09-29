@@ -6,7 +6,12 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.features.ai.config import settings as ai_api_settings
-from app.models import USAGE_SOURCE_PLATFORM, AIAPIUsage, get_datetime_utc
+from app.models import (
+    USAGE_SOURCE_PLATFORM,
+    AIAPICredential,
+    AIAPIUsage,
+    get_datetime_utc,
+)
 from app.models.ai_api_credential import API_KEY_PREFIX_LENGTH
 from app.repositories import user as user_repo
 from app.schemas import UserCreate
@@ -104,12 +109,45 @@ def test_ai_api_request_review_flow(
     latest = payload["data"][0]
     assert latest["request_id"] == created["id"]
     assert latest["base_url"] == ai_api_settings.resolved_public_base_url
+    assert payload["public_base_url"] == (ai_api_settings.resolved_public_base_url or None)
     # Per-user API keys are generated on approval (prefix "ccai_") rather than
     # echoing the upstream shared key. The list endpoint only ever exposes the
     # prefix; the plaintext is returned once, on owner-initiated rotation.
     assert "api_key" not in latest
     assert latest["api_key_prefix"].startswith("ccai_")
     assert len(latest["api_key_prefix"]) == API_KEY_PREFIX_LENGTH
+
+
+def test_ai_api_rotate_rejects_expired_credential(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """輪替沿用舊到期日，過期金鑰輪替出來也不能用，要擋下並請使用者重新申請。"""
+    user_headers = _create_test_user_headers(client, db, "ai-api-expired@example.com")
+    _create_and_approve_ai_api_request(
+        client=client,
+        user_headers=user_headers,
+        superuser_token_headers=superuser_token_headers,
+        purpose="Expired credentials must not be rotated.",
+        api_key_name="expired",
+    )
+    credentials = client.get(
+        f"{settings.API_V1_STR}/ai-api/credentials/my",
+        headers=user_headers,
+    ).json()["data"]
+    credential = db.get(AIAPICredential, uuid.UUID(credentials[0]["id"]))
+    credential.expires_at = get_datetime_utc() - timedelta(minutes=1)
+    db.add(credential)
+    db.commit()
+
+    response = client.post(
+        f"{settings.API_V1_STR}/ai-api/credentials/{credential.id}/rotate",
+        headers=user_headers,
+    )
+    assert response.status_code == 400
+    db.refresh(credential)
+    assert credential.revoked_at is None
 
 
 def test_ai_api_my_usage_and_records_only_include_key_calls(

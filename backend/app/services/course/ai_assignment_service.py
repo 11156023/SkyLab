@@ -327,7 +327,11 @@ def _check_to_student(
             if not has_script_result and isinstance(judgement.get("max_score"), int)
             else None
         ),
-        summary=parsed_summary or str(judgement.get("summary") or ""),
+        # 舊版 AI 判讀在輸出驗證失敗時會把原始錯誤寫進 ai_judgement.summary（status=skipped），
+        # 出現內部錯誤時只採用腳本自己的 summary，避免技術訊息從這裡漏給學生
+        summary=parsed_summary or (
+            "" if has_internal_error else str(judgement.get("summary") or "")
+        ),
         teacher_feedback=teacher_feedback,
         error=student_error,
         items=items,

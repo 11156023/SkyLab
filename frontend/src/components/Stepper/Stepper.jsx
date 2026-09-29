@@ -64,7 +64,7 @@ export default function Stepper({ steps, extras = [], activeKey, onSelect, ariaL
                 aria-current={active ? "page" : undefined}
                 onClick={() => onSelect(extra.key)}
               >
-                <span className={`${styles.dot} ${styles.dotIcon}`} aria-hidden="true">
+                <span className={styles.dot} aria-hidden="true">
                   <MIcon name={extra.icon} size={15} />
                 </span>
                 <span className={styles.label}>{extra.label}</span>

@@ -30,6 +30,8 @@
 .backBtn {
   box-shadow: var(--shadow-sm);
   white-space: nowrap;
+  /* 帶框的按鈕用預設 1.6 行高會撐到 38.4px；收成 20px 剛好 36px，跟旁邊 36px 的「⋯」選單鈕同高 */
+  line-height: 20px;
 }
 
 /* 低強調返回連結：標準 ghost 款 */
@@ -106,9 +108,10 @@
   border-color: var(--color-primary);
 }
 
+/* 外框在 .searchInput（上下 1px），輸入框 34px，整體跟按鈕同為 36px */
 .searchInput input {
   width: 100%;
-  height: 38px;
+  height: 34px;
   border: 0;
   outline: 0;
   color: var(--color-text);
@@ -413,7 +416,7 @@
 
 .broadcastTools select {
   width: min(360px, 100%);
-  min-height: 34px;
+  min-height: 36px;
   margin-left: 8px;
   padding: 5px 9px;
   border: 1px solid var(--color-border);
@@ -520,11 +523,10 @@
   align-items: center;
   gap: 5px;
   flex: 0 0 auto;
-  padding: 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--color-pending) 24%, var(--color-border));
+  padding: 5px 10px;
   border-radius: $radius-pill;
   color: var(--color-pending);
-  background: color-mix(in srgb, var(--color-pending) 7%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
 }
@@ -534,22 +536,22 @@
   align-items: center;
   gap: 5px;
   flex: 0 0 auto;
-  padding: 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--color-success) 28%, var(--color-border));
+  padding: 5px 10px;
   border-radius: $radius-pill;
   color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 7%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
 }
 
+/* 上下內距對稱：原本上緣 0，機器分頁直接貼在直播列的分隔線上 */
 .heatmapToolbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 12px 16px;
   flex-wrap: wrap;
-  padding: 0 20px 16px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -623,7 +625,6 @@
   border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
-  box-shadow: inset 0 -2px 0 var(--color-primary);
 }
 
 .machineTabs>button.machineTabActive>span:first-child {
@@ -645,48 +646,12 @@
   padding: 16px 20px;
 }
 
-.heatmapSummary>div:first-child {
-  display: flex;
-  flex: 1 1 260px;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.heatmapSummary>div:first-child>div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.heatmapSummary strong {
-  overflow: hidden;
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .heatmapSummary small {
   overflow: hidden;
   color: var(--color-text-muted);
   font-size: $font-size-12;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.selectedMachineIcon {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  place-items: center;
-  overflow: hidden;
-  border-radius: $radius-8;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
 }
 
 .heatmapSummary dl {
@@ -699,6 +664,12 @@
   min-width: 78px;
   padding: 0 14px;
   border-left: 1px solid var(--color-divider);
+}
+
+/* 摘要列只剩統計數字：第一格貼齊卡片左緣，不要多一條左框線 */
+.heatmapSummary dl>div:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
 
 .heatmapSummary dt {
@@ -718,166 +689,250 @@
   font-weight: $font-weight-500;
 }
 
-.heatGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
-  gap: 7px;
+/* 熱力圖：精簡卡片（座號 姓名＋數值＋細進度條）＋「需要注意」清單。
+   使用中的依使用率上三階主題色（越忙越深），高負載改淡紅；關機虛線框、暫無資料點線框，都不上色。 */
+.heatBoard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 24px;
   padding: 0 20px 18px;
 }
 
-.heatCell {
-  position: relative;
+.heatTiles {
   display: grid;
-  width: 100%;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  gap: 12px 9px;
-  min-height: 92px;
-  padding: 12px;
-  overflow: hidden;
-  contain: layout paint;
-  border: 1px solid transparent;
+  flex: 1 1 360px;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.heatTile {
+  display: flex;
+  min-width: 0;
+  min-height: 46px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  color: inherit;
-  text-align: left;
+  color: var(--color-text-primary);
+  background: var(--color-surface);
   font: inherit;
-  appearance: none;
-  transition: transform $transition-base, box-shadow $transition-base, border-color $transition-base;
-}
-
-.heatCell:disabled {
-  opacity: 1;
+  text-align: left;
   cursor: default;
+  transition: transform $transition-base, box-shadow $transition-base;
 }
 
-.heatCellClickable {
+.heatTileClickable {
   cursor: pointer;
 }
 
-.heatCellClickable:hover:not(:disabled) {
-  z-index: 1;
-  border-color: color-mix(in srgb, currentColor 50%, transparent);
+.heatTileClickable:hover {
   transform: translateY(-2px);
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--color-text-primary) 16%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-text-primary) 14%, transparent);
 }
 
-.heatCellClickable:focus-visible {
-  z-index: 1;
+.heatTile:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
   outline-offset: 2px;
 }
 
-.studentNumber {
-  display: grid;
-  grid-row: 1;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, currentColor 9%, transparent);
-  font-size: $font-size-10;
-  font-weight: $font-weight-700;
-}
-
-.heatCell>div {
+.heatTileHead {
   display: flex;
-  flex-direction: column;
   min-width: 0;
-}
-
-.heatCell>div strong {
-  overflow: hidden;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
   font-size: $font-size-12;
+}
+
+.heatTileHead>span {
+  @include text-truncate;
   font-weight: $font-weight-500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.heatCell>div small {
-  margin-top: 2px;
-  font-size: $font-size-10;
-  opacity: .72;
-}
-
-.heatCell>b {
-  grid-column: 1 / -1;
-  font-size: $font-size-18;
-  line-height: 1;
-}
-
-.heatCellClickable>b {
-  padding-right: 58px;
-}
-
-.heatWatchCue {
-  position: absolute;
-  right: 11px;
-  bottom: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  border-radius: $radius-pill;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-  font-size: $font-size-10;
+.heatTileHead>b {
+  flex: 0 0 auto;
   font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
 }
 
-.heatOff {
-  border-color: var(--color-border);
+.heatBar {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  /* 跟著格子文字色的淡軌道，格子底色變深時仍看得出來 */
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.heatBar>i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+
+/* 使用中三階：主題色由淺到深（格子與圖例色塊共用） */
+.heatTile_low {
+  border-color: color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+}
+
+.heatTile_mid {
+  border-color: color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface));
+}
+
+.heatTile_busy {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 24%, var(--color-surface));
+}
+
+/* 高負載：淡紅底、紅框、紅字，進度條也換紅 */
+.heatTile_high {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+}
+
+.heatTile_high .heatBar>i {
+  background: var(--color-danger);
+}
+
+.heatTile_off,
+.heatTile_unknown {
   color: var(--color-text-muted);
   background: transparent;
 }
 
-.heatOff.heatCell {
-  border-style: dashed;
+.heatTile_off {
+  border: 1px dashed var(--color-border);
 }
 
-.heatUnavailable {
-  border-color: var(--color-border);
+.heatTile_unknown {
+  border: 1px dotted var(--color-border);
+}
+
+/* 玻璃卡裡的內容區塊：白底細框 */
+.heatAttention {
+  flex: 0 1 260px;
+  min-width: 220px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}
+
+.heatAttentionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 0 6px;
+}
+
+.heatAttentionHead strong {
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+}
+
+.heatAttentionHead span {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: $radius-pill;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  text-align: center;
+}
+
+.heatAttention p {
+  margin: 0;
+  padding: 0 6px;
   color: var(--color-text-muted);
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-hover) 70%, var(--color-surface)) 0 7px, var(--color-surface) 7px 14px);
+  font-size: $font-size-12;
+  line-height: 1.5;
 }
 
-.heat_1 {
-  border-color: color-mix(in srgb, #2f9e44 22%, var(--color-border));
+.heatAttention ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.heatAttention li+li {
+  border-top: 1px solid var(--color-divider);
+}
+
+.heatAttention li>button,
+.heatAttention li>div {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: $radius-8;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.heatAttention li>button {
+  cursor: pointer;
+  transition: background $transition-base;
+}
+
+.heatAttention li>button:hover {
+  background: var(--color-hover);
+}
+
+.heatAttention li span {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+}
+
+.heatAttention li strong {
+  @include text-truncate;
   color: var(--color-text-primary);
-  background: color-mix(in srgb, #2f9e44 18%, var(--color-surface));
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
 }
 
-.heat_2 {
-  border-color: color-mix(in srgb, #82c91e 36%, var(--color-border));
-  color: var(--color-text-primary);
-  background: color-mix(in srgb, #82c91e 34%, var(--color-surface));
+.heatAttention li b {
+  color: var(--color-danger);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
 }
 
-.heat_3 {
-  border-color: color-mix(in srgb, #f5b301 58%, var(--color-border));
-  color: var(--color-text-primary);
-  background: color-mix(in srgb, #f5b301 52%, var(--color-surface));
-}
-
-.heat_4 {
-  border-color: #d9480f;
-  color: var(--color-text-on-primary);
-  background: #e8590c;
-}
-
-.heat_5 {
-  border-color: #8f1d1d;
-  color: var(--color-text-on-primary);
-  background: #c92a2a;
+.heatAttention li em {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-style: normal;
 }
 
 .heatLegend {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 13px;
+  gap: 8px 14px;
   padding: 12px 20px 16px;
   border-top: 1px solid var(--color-divider);
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
 }
 
 .heatLegend span {
@@ -886,16 +941,37 @@
   gap: 5px;
 }
 
+/* 色塊沿用格子的底色與框色（框色由各階 class 決定），淺色階才看得出來 */
 .heatLegend i {
   display: inline-block;
-  width: 15px;
-  height: 15px;
-  border: 1px solid var(--color-border);
+  width: 14px;
+  height: 14px;
+  border-width: 1px;
+  border-style: solid;
   border-radius: 4px;
 }
 
-.legendScale {
-  gap: 3px !important;
+.heatLegend .heatLegendScale {
+  gap: 3px;
+}
+
+.heatLegendScale>i:first-of-type {
+  margin-left: 3px;
+}
+
+/* 圖例色塊只有 14px，淺灰虛線／點線框幾乎看不見，框色加深一階；
+   .heatLegend i 的權重比單一 class 高，虛線、點線要在這裡再寫一次 */
+.heatLegend .heatTile_off,
+.heatLegend .heatTile_unknown {
+  border-color: var(--color-text-muted);
+}
+
+.heatLegend .heatTile_off {
+  border-style: dashed;
+}
+
+.heatLegend .heatTile_unknown {
+  border-style: dotted;
 }
 
 /* ── 建立／編輯彈窗（ClassCreateDialog、延長課堂、加入學生、對外服務共用基底） ── */
@@ -1011,17 +1087,16 @@
   grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 22px 24px;
+  padding: 20px;
 }
 
+/* 狀態圖示不鋪底色，跟一鍵建立班級第五步的就緒圖示一致 */
 .setupSummaryIcon {
   display: grid;
   width: 42px;
   height: 42px;
   place-items: center;
-  border-radius: $radius-12;
   color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
 }
 
 .setupSummary>div {
@@ -1139,7 +1214,7 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 52px;
-  padding: 12px 18px;
+  padding: 12px 20px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -1187,7 +1262,7 @@
   align-items: center;
   gap: 12px;
   min-height: 52px;
-  padding: 12px 18px;
+  padding: 12px 20px;
   list-style: none;
   cursor: pointer;
 }
@@ -1319,7 +1394,7 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 52px;
-  padding: 12px 18px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -1343,29 +1418,28 @@
   cursor: pointer;
 }
 
+/* 只剩頁首沒有的三項（課程期間、提前開機、下課後關機）：一項一列，標籤左、值右 */
 .classFacts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
 }
 
 .classFacts>div {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  padding: 12px 18px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--color-divider);
 }
 
-.classFacts>div:nth-child(odd) {
-  border-right: 1px solid var(--color-divider);
-}
-
-.classFacts>div:nth-last-child(-n + 2) {
+.classFacts>div:last-child {
   border-bottom: 0;
 }
 
 .classFacts span {
+  flex: 0 0 auto;
   color: var(--color-text-muted);
   font-size: $font-size-12;
 }
@@ -1384,7 +1458,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 18px;
+  padding: 18px 20px;
 }
 
 .currentWeekSummary>div {
@@ -1544,7 +1618,8 @@
 
 .envChoices strong {
   display: flex;
-  align-items: baseline;
+  /* 名稱跟版本標籤垂直置中；baseline 會讓帶內距的標籤比文字低一截 */
+  align-items: center;
   gap: 7px;
   min-width: 0;
   color: var(--color-text-primary);
@@ -1621,6 +1696,36 @@
   border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+}
+
+/* 手機：四欄放不下（名稱會被擠到 0 寬、規格被切掉），改成
+   第一行「圖示／名稱／選擇」、第二行規格標籤可換行 */
+@include respond-below(md) {
+  .envChoices>button {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon info action"
+      "specs specs specs";
+    gap: 10px 12px;
+    padding: 12px 16px;
+  }
+
+  .envChoices>button>.envChoiceIcon {
+    grid-area: icon;
+  }
+
+  .envChoices>button>div:nth-child(2) {
+    grid-area: info;
+  }
+
+  .envChoices>button>.envChoiceSpecs {
+    grid-area: specs;
+    flex-wrap: wrap;
+  }
+
+  .envChoices>button>em {
+    grid-area: action;
+  }
 }
 
 .templateMachineWorkspace {
@@ -1946,7 +2051,7 @@
 .inspectorTitleAction {
   @include btn-ghost($danger: true);
   min-height: 28px;
-  padding: 4px 8px;
+  padding: 3px 8px;
   font-size: $font-size-12;
 }
 
@@ -2322,10 +2427,6 @@
     padding-left: 10px;
   }
 
-  .heatGrid {
-    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  }
-
   .broadcastTools {
     align-items: stretch;
     flex-wrap: wrap;
@@ -2486,15 +2587,14 @@
     grid-template-columns: 1fr;
   }
 
-  .heatGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .heatBoard {
     padding-right: 16px;
     padding-left: 16px;
   }
 
-  .heatCell {
-    min-height: 86px;
-    padding: 10px;
+  /* 手機時清單換到座位格下方，撐滿整行 */
+  .heatAttention {
+    flex-basis: 100%;
   }
 
   .heatLegend {
@@ -2533,7 +2633,6 @@
 }
 
 .envTabs {
-  height: 38px;
   max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
@@ -2547,7 +2646,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 38px;
+  min-height: 36px;
   padding: 0 $spacing-8 0 10px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;

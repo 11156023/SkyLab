@@ -14,6 +14,9 @@ import { useTranslation } from "react-i18next";
 import Avatar from "../../components/Avatar/Avatar";
 import FileDropzone from "../../components/FileDropzone/FileDropzone";
 import MIcon from "../../components/MIcon";
+import RotatingWelcome from "../../components/RotatingWelcome/RotatingWelcome";
+import { AppearanceQuickSettings } from "../personal/account/AppearanceSettings";
+import Stepper from "../../components/Stepper/Stepper";
 import TotpEnrollment from "../../components/TotpEnrollment/TotpEnrollment";
 import { useAuth } from "../../contexts/AuthContext";
 import { THEME_DEFAULTS, useTheme } from "../../contexts/ThemeContext";
@@ -21,13 +24,14 @@ import { useToast } from "../../hooks/useToast";
 import { AccountService } from "../../services/account";
 import { downscaleImage } from "../../utils/image/downscaleImage";
 import shell from "../setup/SetupPage.module.scss";
-import { LANG_OPTIONS, LanguagePicker, Notice, Stepper, useCurrentLanguage } from "../setup/wizardParts";
+import { LANG_OPTIONS, LanguagePicker, Notice, useCurrentLanguage } from "../setup/wizardParts";
 import styles from "./OnboardingPage.module.scss";
 
 const STEP_PROFILE = 0;
 const STEP_APPEARANCE = 1;
 const STEP_TOTP = 2;
 const STEP_FINISH = 3;
+const STEP_KEYS = ["profile", "appearance", "totp", "finish"];
 
 /* 與帳號設定的姓名欄同一個上限 */
 const NAME_MAX_LENGTH = 30;
@@ -44,9 +48,9 @@ function LanguageWelcome({ onContinue }) {
   const { t } = useTranslation("login");
   return (
     <div className={shell.welcome}>
-      <h1 className={shell.welcomeTitle}>{t("OnboardingPage.welcomeTitle")}</h1>
+      <RotatingWelcome className={shell.welcomeTitle} i18nKey="OnboardingPage.welcomeTitle" />
       <p className={styles.welcomeHint}>{t("OnboardingPage.welcomeHint")}</p>
-      <LanguagePicker ariaLabel={t("OnboardingPage.languageLabel")} />
+      <LanguagePicker className={shell.langSwitch} ariaLabel={t("OnboardingPage.languageLabel")} />
       <button type="button" className={shell.btnPrimary} onClick={onContinue}>
         {t("OnboardingPage.continue")}
         <MIcon name="arrow_forward" size={18} />
@@ -155,55 +159,14 @@ function ProfileStep({ onBack, onNext }) {
 
 function AppearanceStep({ onBack, onNext }) {
   const { t } = useTranslation("login");
-  const { mode, setMode, primaryColor, setPrimaryColor } = useTheme();
-  const isDefaultColor = primaryColor.toLowerCase() === THEME_DEFAULTS.primaryColor;
 
   return (
     <section className={shell.section}>
       <h2 className={shell.sectionTitle}>{t("OnboardingPage.appearanceTitle")}</h2>
 
-      <div className={styles.fieldBlock}>
-        <span>{t("OnboardingPage.modeLabel")}</span>
-        <div className={styles.modeGrid} role="radiogroup" aria-label={t("OnboardingPage.modeLabel")}>
-          {MODE_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              role="radio"
-              aria-checked={mode === option.key}
-              className={`${styles.modeCard} ${mode === option.key ? styles.modeCardActive : ""}`}
-              onClick={() => setMode(option.key)}
-            >
-              <MIcon name={option.icon} size={28} />
-              <span>{t(option.labelKey)}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className={styles.fieldBlock}>
-        <span>{t("OnboardingPage.primaryColorLabel")}</span>
-        <div className={styles.colorRow}>
-          <input
-            type="color"
-            className={styles.colorInput}
-            value={primaryColor}
-            onChange={(e) => setPrimaryColor(e.target.value)}
-            aria-label={t("OnboardingPage.primaryColorPick")}
-          />
-          <code className={shell.code}>{primaryColor}</code>
-          {!isDefaultColor && (
-            <button
-              type="button"
-              className={shell.btnGhost}
-              onClick={() => setPrimaryColor(THEME_DEFAULTS.primaryColor)}
-            >
-              <MIcon name="restart_alt" size={16} />
-              {t("OnboardingPage.resetPrimary")}
-            </button>
-          )}
-        </div>
-      </div>
+      {/* 選法以系統內為主：沿用帳號設定的配色主題與介面（風格、明暗模式）元件；
+         主色、背景色、背景花色、上傳圖片等細調先不放，留到帳號設定再調 */}
+      <AppearanceQuickSettings />
 
       <div className={shell.actions}>
         <button type="button" className={shell.btnSecondary} onClick={onBack}>
@@ -267,7 +230,7 @@ function TotpStep({ onBack, onNext }) {
               </button>
             ) : (
               <>
-                <button type="button" className={shell.btnGhost} onClick={onNext}>
+                <button type="button" className={shell.btnSecondary} onClick={onNext}>
                   {t("OnboardingPage.skipStep")}
                 </button>
                 <button type="button" className={shell.btnPrimary} onClick={() => setEnrolling(true)}>
@@ -346,7 +309,7 @@ function FinishStep({ onBack, onComplete, completing }) {
 
 export default function OnboardingPage() {
   const { t } = useTranslation("login");
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const toast = useToast();
   const [started, setStarted] = useState(false);
   const [step, setStep] = useState(STEP_PROFILE);
@@ -374,12 +337,9 @@ export default function OnboardingPage() {
 
   return (
     <div className={shell.page}>
-      <div className={shell.glow} aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className={shell.card}>
+      {/* 背景不疊光暈色球，直接露出全站主題背景（同登入頁、服務檢查、系統內頁） */}
+      {/* 歡迎畫面用窄卡，進入步驟後用寬卡（同初始化精靈） */}
+      <div className={`${shell.card} ${styles.cardWithSkip} ${started ? shell.cardWide : ""}`}>
         <button
           type="button"
           className={styles.skipBtn}
@@ -387,7 +347,6 @@ export default function OnboardingPage() {
           disabled={completing}
         >
           {t("OnboardingPage.skip")}
-          <MIcon name="close" size={16} />
         </button>
 
         {started ? (
@@ -395,7 +354,20 @@ export default function OnboardingPage() {
             <header className={shell.header}>
               <h1 className={shell.title}>{t("OnboardingPage.title")}</h1>
             </header>
-            <Stepper current={step} steps={stepLabels} />
+            {/* 共用步驟列：個人資料、外觀走過就算設好；兩步驟驗證要真的綁定才打勾；只能點回走過的步驟 */}
+            <div className={shell.wizardTop}>
+              <Stepper
+                ariaLabel={t("OnboardingPage.stepsAriaLabel")}
+                steps={STEP_KEYS.map((key, index) => ({
+                  key,
+                  label: stepLabels[index],
+                  done: key === "totp" ? Boolean(user?.totp_enabled) : key === "finish" ? false : step > index,
+                  disabled: index > step,
+                }))}
+                activeKey={STEP_KEYS[step]}
+                onSelect={(key) => setStep(STEP_KEYS.indexOf(key))}
+              />
+            </div>
             {step === STEP_PROFILE && (
               <ProfileStep
                 onBack={() => setStarted(false)}

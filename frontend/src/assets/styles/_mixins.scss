@@ -81,8 +81,9 @@
    .fieldInvalid.fieldInvalid { @include form-control-invalid; }
                                                  送出時未填的欄位，雙類名壓過巢狀選擇器
    控制項高度刻意與 .btnPrimary / .btnSecondary 一致（36px），
-   同一列的欄位與按鈕才會對齊。欄位的排列方式（幾欄、跨欄）寫在頁面自己的
-   grid 上，不要改這裡的字級或內距。 */
+   同一列的欄位與按鈕才會對齊：算法跟 btn-base 相同——行高沿用全站 1.6（14px 字 → 22.4）
+   ＋上下內距 6×2＋框 1×2 ≈ 36px。內距若寫 8px 會變 40px，跟按鈕並排差一截。
+   欄位的排列方式（幾欄、跨欄）寫在頁面自己的 grid 上，不要改這裡的字級或內距。 */
 @mixin form-field {
   display: flex;
   min-width: 0;
@@ -102,7 +103,7 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 36px;
-  padding: 8px $form-control-padding-x;
+  padding: 6px $form-control-padding-x;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   outline: 0;
@@ -126,6 +127,15 @@
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* 日期／時間欄的瀏覽器內建編輯區比一般文字高，照內距算會多 2px；直接鎖 36px */
+  &[type="date"],
+  &[type="time"],
+  &[type="datetime-local"],
+  &[type="month"],
+  &[type="week"] {
+    height: 36px;
   }
 }
 
@@ -210,15 +220,18 @@
                        同 btn-icon($danger: true)，僅未 hover 時無底色
    共用基底：高 36px、圓角 8、字級 14/500、hover 一律 :not(:disabled)、
    disabled 一律 opacity .5 + not-allowed。頁面差異（寬度、margin、grid 位置）
-   寫在 @include 之後；要改高度字級請先問是不是真的需要。 */
+   寫在 @include 之後；要改高度字級請先問是不是真的需要。
+   基底自帶 1px 透明框（行高 22.4 + 內距 6×2 + 框 1×2 ≈ 36px），有框的款式
+   只換 border-color，每款高度才會一致；頁面別再寫 border: 0／none，
+   覆寫 padding 時也要把這 1px 框算進去，否則跟其他按鈕並排會差 2px。 */
 @mixin btn-base {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   min-height: 36px;
-  padding: 7px 16px;
-  border: 0;
+  padding: 6px 16px;
+  border: 1px solid transparent;
   border-radius: $radius-8;
   font: inherit;
   font-size: $font-size-14;
@@ -245,7 +258,7 @@
 
 @mixin btn-secondary {
   @include btn-base;
-  border: 1px solid var(--color-border);
+  border-color: var(--color-border);
   color: var(--color-text);
   background: var(--color-surface);
 
@@ -256,7 +269,7 @@
 
 @mixin btn-danger {
   @include btn-base;
-  border: 1px solid var(--color-danger);
+  border-color: var(--color-danger);
   color: var(--color-text-on-primary);
   background: var(--color-danger);
 
@@ -268,7 +281,7 @@
 
 @mixin btn-danger-outline {
   @include btn-base;
-  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
   color: var(--color-danger);
   background: var(--color-surface);
 
@@ -282,7 +295,7 @@
    hover 再深一階（一般款吃 --color-row-hover 並加深文字） */
 @mixin btn-ghost($danger: false) {
   @include btn-base;
-  padding: 7px 12px;
+  padding: 6px 12px;
 
   @if $danger {
     color: var(--color-danger);
@@ -310,7 +323,7 @@
   height: 32px;
   min-height: 32px;
   padding: 0;
-  border: 1px solid var(--color-border);
+  border-color: var(--color-border);
   color: var(--color-text-secondary);
   background: var(--color-surface);
 

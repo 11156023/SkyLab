@@ -18,6 +18,7 @@
   "ai_gateway.request_already_reviewed": "この AI API 申請はすでに審査済みです",
   "ai_gateway.connection_incomplete": "AI API 接続設定が不完全です",
   "ai_gateway.credential_already_revoked": "この AI API 認証情報はすでに失効しています",
+  "ai_gateway.credential_expired": "この AI API 認証情報は期限切れのため再発行できません。改めて申請してください",
   "ai_gateway.credential_manage_denied": "この AI API キーの更新・名称変更・削除は、所有者本人のみが行えます",
   "ai_gateway.invalid_duration": "キーの有効期間が選択肢（1 時間・1 日・7 日・30 日・無期限）のいずれでもないため、有効期限を算出できません。この申請を却下し、申請者に再申請を依頼してください。",
   "ai_gateway.invalid_review_status": "審査結果は「承認」または「却下」のいずれかを指定してください",
