@@ -5,6 +5,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
+from app.core.i18n import t
 from app.exceptions import BadRequestError
 from app.models.ai_api_request import AIAPIRequestStatus
 from app.schemas.ai_api import AIAPIRequestCreate, AIAPIRequestReview
@@ -157,11 +158,16 @@ def _subnet(cidr: str) -> SubnetConfigCreate:
 def test_subnet_rejects_unreasonable_prefix(cidr: str) -> None:
     with pytest.raises(ValidationError) as exc_info:
         _subnet(cidr)
-    message = str(exc_info.value)
-    # 錯誤訊息必須是翻譯後的文字，不能漏出 locale key 本身
-    assert "cidr_prefix_too_short" not in message
-    if not cidr.endswith("/32"):
-        assert "prefix must be /8 or longer" in message
+    message = exc_info.value.errors()[0]["msg"]
+    # locale key 必須解析成文字；缺翻譯時 translate() 會原樣回傳 key
+    for key in ("cidr_no_slash32", "cidr_prefix_too_short", "invalid_cidr"):
+        assert key not in message
+    if cidr.endswith("/32"):
+        assert t("ip.cidr_no_slash32") in message
+    else:
+        # 過大的網段要用專屬、已翻譯的訊息，不能夾帶英文片段
+        assert t("ip.cidr_prefix_too_short", min_prefix=8) in message
+        assert "prefix must be" not in message
 
 
 @pytest.mark.parametrize("cidr", ["10.0.0.0/8", "172.16.0.0/16", "192.168.1.0/24"])

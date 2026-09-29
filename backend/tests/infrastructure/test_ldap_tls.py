@@ -13,6 +13,13 @@ from app.infrastructure.ldap import client as ldap_client
 from app.models import LdapConfig
 
 
+@pytest.fixture(autouse=True)
+def _no_ca_file_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The deployer's .env may set LDAP_CA_CERT_FILE for a private CA; these tests
+    # assume the system trust store unless a test overrides it explicitly.
+    monkeypatch.setattr(settings, "LDAP_CA_CERT_FILE", None)
+
+
 def _config(uri: str, *, starttls: bool = False) -> LdapConfig:
     return LdapConfig(
         server_uri=uri,

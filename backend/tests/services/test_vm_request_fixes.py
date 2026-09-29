@@ -553,7 +553,7 @@ def test_window_assessment_does_not_forward_advisor_summary(
 
 
 
-_B8_AVAILABILITY_KEYS = (
+_VM_AVAILABILITY_MESSAGE_KEYS = (
     "availability.window_too_long",
     "availability.start_too_far_in_past",
     "availability.window_quick_available",
@@ -565,7 +565,7 @@ _B8_AVAILABILITY_KEYS = (
 
 
 @pytest.mark.parametrize("lang", ["zh-TW", "en", "ja"])
-@pytest.mark.parametrize("key", _B8_AVAILABILITY_KEYS)
+@pytest.mark.parametrize("key", _VM_AVAILABILITY_MESSAGE_KEYS)
 def test_availability_keys_are_translated_in_every_language(
     key: str, lang: str
 ) -> None:

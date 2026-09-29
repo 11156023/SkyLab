@@ -112,7 +112,7 @@ def _user(role: str = "teacher") -> SimpleNamespace:
 def _template(
     session: Session,
     *,
-    owner_id: uuid.UUID,
+    owner_id: uuid.UUID | None,
     status: VMTemplateStatus,
     source_vmid: int | None,
     pve_vmid: int = OLD_VMID,
@@ -320,6 +320,166 @@ def test_convert_task_refuses_reused_vmid(
     assert refreshed.status == VMTemplateStatus.updating
     assert refreshed.error_message
     assert db.get(Resource, TEMP_VMID) is not None
+
+
+# 上面幾個「VMID 被接走」的案例連 PVE 名稱也對不上，光名稱檢查就會擋下；
+# 以下讓名稱符合 tpl-<vmid>-edit，只留 Resource 不符，單獨驗證平台紀錄的檢查
+# （例如學生把新機器取名成 tpl-105-edit）。
+_MISMATCHED_TEMP_RESOURCE = [
+    pytest.param(
+        False, template_service.UPDATE_TEMP_ENVIRONMENT_TYPE, id="other-user"
+    ),
+    pytest.param(True, "Custom", id="owner-but-not-update-temp"),
+    pytest.param(False, "Custom", id="other-user-custom-vm"),
+]
+
+
+@pytest.mark.parametrize(
+    ("owned_by_owner", "environment_type"), _MISMATCHED_TEMP_RESOURCE
+)
+async def test_finish_refuses_mismatched_resource_even_when_name_matches(
+    db: Session,
+    enqueued: list,
+    monkeypatch: pytest.MonkeyPatch,
+    owned_by_owner: bool,
+    environment_type: str,
+) -> None:
+    teacher = _user()
+    template = _template(
+        db, owner_id=teacher.id, status=VMTemplateStatus.updating, source_vmid=TEMP_VMID
+    )
+    user_id = teacher.id if owned_by_owner else uuid.uuid4()
+    _resource(db, vmid=TEMP_VMID, user_id=user_id, environment_type=environment_type)
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    with pytest.raises(ConflictError):
+        await template_service.finish_update_cycle(
+            session=db, user=teacher, template_id=template.id
+        )
+    assert enqueued == []
+
+
+@pytest.mark.parametrize(
+    ("owned_by_owner", "environment_type"), _MISMATCHED_TEMP_RESOURCE
+)
+def test_cancel_task_leaves_mismatched_resource_alone_even_when_name_matches(
+    db: Session,
+    pve_ops: list,
+    monkeypatch: pytest.MonkeyPatch,
+    owned_by_owner: bool,
+    environment_type: str,
+) -> None:
+    teacher_id = uuid.uuid4()
+    template = _template(
+        db, owner_id=teacher_id, status=VMTemplateStatus.updating, source_vmid=TEMP_VMID
+    )
+    user_id = teacher_id if owned_by_owner else uuid.uuid4()
+    _resource(db, vmid=TEMP_VMID, user_id=user_id, environment_type=environment_type)
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    result = template_service.run_update_cancel_task(
+        uuid.uuid4(), _cancel_payload(template)
+    )
+
+    assert pve_ops == []
+    assert result["temp_removed"] is False
+    db.expire_all()
+    remaining = db.get(Resource, TEMP_VMID)
+    assert remaining is not None
+    assert remaining.user_id == user_id
+    assert remaining.environment_type == environment_type
+
+
+@pytest.mark.parametrize(
+    ("owned_by_owner", "environment_type"), _MISMATCHED_TEMP_RESOURCE
+)
+def test_convert_task_refuses_mismatched_resource_even_when_name_matches(
+    db: Session,
+    pve_ops: list,
+    monkeypatch: pytest.MonkeyPatch,
+    owned_by_owner: bool,
+    environment_type: str,
+) -> None:
+    teacher_id = uuid.uuid4()
+    template = _template(
+        db, owner_id=teacher_id, status=VMTemplateStatus.updating, source_vmid=TEMP_VMID
+    )
+    user_id = teacher_id if owned_by_owner else uuid.uuid4()
+    _resource(db, vmid=TEMP_VMID, user_id=user_id, environment_type=environment_type)
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    with pytest.raises(RuntimeError):
+        template_service.run_update_convert_task(
+            uuid.uuid4(), _convert_payload(template)
+        )
+
+    assert pve_ops == []
+    db.expire_all()
+    refreshed = db.get(VMTemplate, template.id)
+    assert refreshed is not None
+    assert refreshed.pve_vmid == OLD_VMID
+    remaining = db.get(Resource, TEMP_VMID)
+    assert remaining is not None
+    assert remaining.user_id == user_id
+
+
+# 範本沒有擁有者時 clone 不會登記 Resource，所以這個 VMID 一有 Resource 就代表被接走
+def test_cancel_task_without_owner_leaves_registered_vmid_alone(
+    db: Session, pve_ops: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    student_id = uuid.uuid4()
+    template = _template(
+        db, owner_id=None, status=VMTemplateStatus.updating, source_vmid=TEMP_VMID
+    )
+    _resource(db, vmid=TEMP_VMID, user_id=student_id, environment_type="Custom")
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    result = template_service.run_update_cancel_task(
+        uuid.uuid4(), _cancel_payload(template)
+    )
+
+    assert pve_ops == []
+    assert result["temp_removed"] is False
+    db.expire_all()
+    remaining = db.get(Resource, TEMP_VMID)
+    assert remaining is not None
+    assert remaining.user_id == student_id
+
+
+def test_convert_task_without_owner_refuses_registered_vmid(
+    db: Session, pve_ops: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    template = _template(
+        db, owner_id=None, status=VMTemplateStatus.updating, source_vmid=TEMP_VMID
+    )
+    _resource(db, vmid=TEMP_VMID, user_id=uuid.uuid4(), environment_type="Custom")
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    with pytest.raises(RuntimeError):
+        template_service.run_update_convert_task(
+            uuid.uuid4(), _convert_payload(template)
+        )
+
+    assert pve_ops == []
+    db.expire_all()
+    assert db.get(VMTemplate, template.id).pve_vmid == OLD_VMID
+    assert db.get(Resource, TEMP_VMID) is not None
+
+
+def test_cancel_task_without_owner_removes_unregistered_update_clone(
+    db: Session, pve_ops: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    template = _template(
+        db, owner_id=None, status=VMTemplateStatus.updating, source_vmid=TEMP_VMID
+    )
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    result = template_service.run_update_cancel_task(
+        uuid.uuid4(), _cancel_payload(template)
+    )
+
+    assert result["temp_removed"] is True
+    assert [call[0] for call in pve_ops] == ["stop", "delete"]
 
 
 # ---------------------------------------------------------------------------

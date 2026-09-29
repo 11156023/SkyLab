@@ -32,6 +32,7 @@
   "pveLog.guestDiagWarnGuestCollectFailed": "Guest 內部資料收集失敗；缺少資料不代表服務正常",
   "pveLog.guestDiagWarnProbeFailed": "部分資料收集失敗；缺少的資料不代表正常",
   "pveLog.guestDiagSystemdUnavailable": "此系統沒有可用的 systemd/journal，無法收集此資料",
+  "pveLog.sshExecTimeout": "指令在 {seconds} 秒內沒有任何輸出，已停止等待；實際執行結果不明，遠端可能仍在執行。",
   "templateRec.modelBindingMissing": "AI 模型綁定未設定於 config/system-ai.json。",
   "templateRec.extractionFailed": "AI 意圖擷取失敗：{error}",
   "ldap.invalidCredentials": "帳號或密碼錯誤",

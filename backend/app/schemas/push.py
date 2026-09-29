@@ -8,6 +8,8 @@ import uuid
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
+from urllib3.exceptions import LocationParseError
+from urllib3.util import parse_url
 
 _NUMERIC_IPV4_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
 
@@ -26,6 +28,20 @@ def is_allowed_push_host(host: str) -> bool:
     return host in _PUSH_HOSTS_EXACT or host.endswith(_PUSH_HOST_SUFFIXES)
 
 
+def _sender_sees_same_host(value: str, host: str) -> bool:
+    """用送出端（pywebpush → requests）實際使用的 urllib3 再解析一次，確認它連線的
+    也是 ``host`` 的 443 埠且沒有 userinfo；兩種解析器結果不一致就不能放行。"""
+    try:
+        parsed = parse_url(value)
+    except LocationParseError:
+        return False
+    return (
+        parsed.auth is None
+        and (parsed.host or "").lower().rstrip(".") == host
+        and parsed.port in (None, 443)
+    )
+
+
 def _validate_push_endpoint(value: str) -> str:
     """推播 endpoint 必須是 https、443 埠，且主機是已知的瀏覽器推播服務。
 
@@ -35,9 +51,17 @@ def _validate_push_endpoint(value: str) -> str:
     寫法的檢查仍保留，作為白名單之外的第二道防線。
     """
     value = value.strip()
+    # urlsplit 與送出端的 urllib3 對反斜線、空白、控制字元與 userinfo 的解析不同：
+    # ``https://127.0.0.1\@fcm.googleapis.com/x`` 在 urlsplit 看來主機是
+    # fcm.googleapis.com，urllib3 卻會連到 127.0.0.1。真正的推播 endpoint 不會
+    # 有這些內容，一律拒絕，讓下面的主機判斷與實際連線對象一致。
+    if any(c == "\\" or c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+        raise ValueError("push endpoint contains invalid characters")
     parts = urlsplit(value)
     if parts.scheme != "https":
         raise ValueError("push endpoint must use https")
+    if "@" in parts.netloc:
+        raise ValueError("push endpoint must not contain credentials")
     # 結尾的點（FQDN 寫法）不影響解析，先拿掉再判斷，免得 "localhost." 繞過
     host = (parts.hostname or "").lower().rstrip(".")
     if not host or host == "localhost" or host.endswith((".localhost", ".local")):
@@ -55,6 +79,8 @@ def _validate_push_endpoint(value: str) -> str:
             raise ValueError("push endpoint host is not allowed") from None
         if not is_allowed_push_host(host):
             raise ValueError("push endpoint host is not a known push service") from None
+        if not _sender_sees_same_host(value, host):
+            raise ValueError("push endpoint host is ambiguous") from None
         return value
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
         addr = addr.ipv4_mapped  # ::ffff:127.0.0.1 依內嵌的 IPv4 判斷

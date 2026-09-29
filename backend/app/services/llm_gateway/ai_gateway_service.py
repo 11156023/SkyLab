@@ -799,7 +799,9 @@ def _usage_timezone(tz: str | None) -> tzinfo:
         return timezone.utc
     try:
         return ZoneInfo(tz)
-    except (ZoneInfoNotFoundError, ValueError):
+    # 某些平台對 "Asia" 這類目錄名稱丟 PermissionError／IsADirectoryError 等
+    # OSError；一律當成無效時區
+    except (ZoneInfoNotFoundError, ValueError, OSError):
         return timezone.utc
 
 

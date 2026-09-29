@@ -32,6 +32,7 @@
   "pveLog.guestDiagWarnGuestCollectFailed": "Guest data collection failed; missing data does not imply the service is healthy",
   "pveLog.guestDiagWarnProbeFailed": "Some data collection failed; missing data does not imply healthy",
   "pveLog.guestDiagSystemdUnavailable": "No usable systemd/journal on this system; this section cannot be collected",
+  "pveLog.sshExecTimeout": "The command produced no output for {seconds} seconds, so waiting was stopped. Its actual result is unknown, and it may still be running on the remote host.",
   "templateRec.modelBindingMissing": "AI model binding is missing in config/system-ai.json.",
   "templateRec.extractionFailed": "AI extraction failed: {error}",
   "ldap.invalidCredentials": "Incorrect username or password",

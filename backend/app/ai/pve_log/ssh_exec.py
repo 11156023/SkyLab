@@ -208,6 +208,10 @@ def _cleanup_expired() -> None:
 # ---------------------------------------------------------------------------
 
 
+class _SSHCommandTimeoutError(Exception):
+    """指令已送出，但輸出在 channel timeout 內沒有任何資料；實際結果不明。"""
+
+
 def _ssh_exec_sync(
     host: str,
     port: int,
@@ -226,8 +230,10 @@ def _ssh_exec_sync(
     recv_exit_status()，遠端會卡在寫入、exit status 永遠不會到，worker
     thread 與 SSH 連線就此洩漏。讀取時只保留前 _MAX_EXEC_OUTPUT_BYTES，
     其餘持續 drain 掉；卡住的讀取由 exec_command 的 channel timeout 轉成
-    socket.timeout 例外（呼叫端會回報錯誤）。保留的位元組遠多於最終回傳的
-    _MAX_OUTPUT_CHARS，被截斷時 _redact_and_truncate 一定也會標記 truncated。
+    socket.timeout，這裡改拋 _SSHCommandTimeoutError，呼叫端回傳明確的逾時
+    錯誤與 exit_code=-1（連線階段的逾時不算在內，照一般連線失敗處理）。
+    保留的位元組遠多於最終回傳的 _MAX_OUTPUT_CHARS，被截斷時
+    _redact_and_truncate 一定也會標記 truncated。
     """
     client = create_key_client(
         host,
@@ -238,8 +244,11 @@ def _ssh_exec_sync(
     )
     try:
         _, stdout, stderr = client.exec_command(command, timeout=timeout)
-        out_text, _ = _read_limited(stdout, _MAX_EXEC_OUTPUT_BYTES)
-        err_text, _ = _read_limited(stderr, _MAX_EXEC_OUTPUT_BYTES)
+        try:
+            out_text, _ = _read_limited(stdout, _MAX_EXEC_OUTPUT_BYTES)
+            err_text, _ = _read_limited(stderr, _MAX_EXEC_OUTPUT_BYTES)
+        except TimeoutError as exc:
+            raise _SSHCommandTimeoutError from exc
         exit_code = stdout.channel.recv_exit_status()
         return exit_code, out_text, err_text
     finally:
@@ -735,13 +744,31 @@ async def _do_exec(
             stderr_truncated=stderr_truncated,
         )
 
-    except Exception as exc:
-        logger.error("SSH 執行失敗 vmid=%d host=%s: %s", req.vmid, host, exc)
-        _audit(blocked=False, outcome=f"host={host} error")
+    except _SSHCommandTimeoutError:
+        logger.warning(
+            "SSH 指令逾時 vmid=%d host=%s：%d 秒內沒有輸出",
+            req.vmid, host, timeout,
+        )
+        _audit(blocked=False, outcome=f"host={host} timeout")
         return SSHExecResult(
             vmid=req.vmid,
             host=host,
             ssh_user=req.ssh_user,
             command=req.command,
-            error=str(exc),
+            exit_code=-1,
+            error=t("pveLog.sshExecTimeout", seconds=timeout),
+        )
+
+    except Exception as exc:
+        logger.error("SSH 執行失敗 vmid=%d host=%s: %s", req.vmid, host, exc)
+        _audit(blocked=False, outcome=f"host={host} error:{type(exc).__name__}")
+        # 失敗一律帶 exit_code=-1，不能沿用預設的 0 讓模型當成成功；
+        # socket.timeout 之類的例外 str() 是空字串，改用例外類別名稱。
+        return SSHExecResult(
+            vmid=req.vmid,
+            host=host,
+            ssh_user=req.ssh_user,
+            command=req.command,
+            exit_code=-1,
+            error=str(exc) or type(exc).__name__,
         )

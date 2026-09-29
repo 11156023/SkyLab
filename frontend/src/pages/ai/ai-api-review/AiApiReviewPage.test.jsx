@@ -92,4 +92,67 @@ describe("AiApiReviewPage", () => {
     expect(host.querySelector('[data-tab="approved"]').dataset.badge).toBe("100");
     expect(host.querySelector('[data-tab="all"]').dataset.badge).toBe("101");
   });
+
+  test("a late response from the previous tab does not overwrite the current tab", async () => {
+    const pendingRow = request("p1", "pending", "2026-09-01T00:00:00Z");
+    const approvedRow = request("ok1", "approved", "2026-09-02T00:00:00Z");
+    const calls = [];
+    mocks.listAllRequests.mockImplementation((params) => new Promise((resolve) => {
+      calls.push({ params, resolve });
+    }));
+    const respond = (batch) => batch.forEach(({ params, resolve }) => {
+      if (params?.status === "pending") resolve({ data: [pendingRow], count: 1 });
+      else if (params?.status === "approved") resolve({ data: [approvedRow], count: 1 });
+      else if (params?.status === "rejected") resolve({ data: [], count: 0 });
+      else resolve({ data: [approvedRow, pendingRow], count: 2 });
+    });
+    const flush = async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    };
+
+    await act(async () => { root.render(<AiApiReviewPage />); });
+    const pendingBatch = calls.splice(0);
+    expect(pendingBatch).toHaveLength(4);
+
+    await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
+    const approvedBatch = calls.splice(0);
+    expect(approvedBatch.find(({ params }) => params?.status === "approved").params.limit).toBe(100);
+
+    await act(async () => { respond(approvedBatch); await flush(); });
+    expect(host.textContent).toContain("key-ok1");
+
+    await act(async () => { respond(pendingBatch); await flush(); });
+
+    expect(host.textContent).toContain("key-ok1");
+    expect(host.textContent).not.toContain("key-p1");
+    expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+  });
+
+  test("a stale response from the previous tab does not clear the loading state of the current tab", async () => {
+    const approvedRow = request("ok1", "approved", "2026-09-02T00:00:00Z");
+    const calls = [];
+    mocks.listAllRequests.mockImplementation((params) => new Promise((resolve) => {
+      calls.push({ params, resolve });
+    }));
+    const respond = (batch) => batch.forEach(({ params, resolve }) => {
+      if (params?.status === "approved") resolve({ data: [approvedRow], count: 1 });
+      else resolve({ data: [], count: 0 });
+    });
+    const flush = async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    };
+
+    await act(async () => { root.render(<AiApiReviewPage />); });
+    const pendingBatch = calls.splice(0);
+
+    await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
+    const approvedBatch = calls.splice(0);
+
+    await act(async () => { respond(pendingBatch); await flush(); });
+    expect(host.querySelector('[data-testid="loading"]')).not.toBeNull();
+
+    await act(async () => { respond(approvedBatch); await flush(); });
+    expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+    expect(host.textContent).toContain("key-ok1");
+  });
 });

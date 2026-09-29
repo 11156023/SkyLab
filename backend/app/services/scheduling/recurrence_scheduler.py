@@ -588,9 +588,27 @@ FORCE_STOP_AFTER_SECONDS = 300
 # 只存在排程器行程記憶體：行程重啟頂多讓寬限期重算一次。
 _shutdown_requested_at: dict[tuple[int, datetime | None], float] = {}
 
+# cluster/resources 由 pvestatd 約每 10 秒更新一次，回報的 uptime 可能比實際
+# 少幾秒；判斷「關機後又被開回來」時預留這段誤差，避免把送出關機前幾秒才
+# 開機、正好不理 ACPI 的機器誤判成已重開
+_UPTIME_STALENESS_SECONDS = 15
+
 
 def _stop_key(resource: Resource) -> tuple[int, datetime | None]:
     return resource.vmid, resource.auto_stop_at
+
+
+def _restarted_since_shutdown(info: dict, *, elapsed: float) -> bool:
+    """送出關機後，機器是否已停下又被其他流程開回來。
+
+    本次開機秒數（uptime）比送出關機至今還短，代表是關機之後才開的機。
+    uptime 缺欄位或不是數字時無法判斷，回 False 照原本流程等待／升級。
+    """
+    try:
+        uptime = int(info["uptime"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return uptime + _UPTIME_STALENESS_SECONDS < elapsed
 
 
 def _clear_auto_stop(resource: Resource) -> None:
@@ -608,6 +626,10 @@ def _stop_one(*, resource: Resource) -> None:
     proxmox_service.control 不等 PVE 任務結果，送出 shutdown 不代表機器
     會關（guest 可忽略 ACPI，例如停在開機選單或設了 HandlePowerKey=ignore）。
     所以排程要留到確認機器已停止才清掉，由之後的 tick 追蹤並升級成 stop。
+
+    同一個 tick 裡 process_due_request_starts 比這裡先跑，申請時段內的機器
+    被關掉後會先被開回來；看到它是關機之後才開的機（uptime 比送出關機至今
+    還短）就當作這次自動關機已完成、清掉排程，不能再強制斷電。
     """
     info = _resource_info(vmid=resource.vmid)
     if info is None:
@@ -625,7 +647,15 @@ def _stop_one(*, resource: Resource) -> None:
     requested_at = _shutdown_requested_at.get(key)
     now = time.monotonic()
     if requested_at is not None:
-        if now - requested_at < FORCE_STOP_AFTER_SECONDS:
+        elapsed = now - requested_at
+        if _restarted_since_shutdown(info, elapsed=elapsed):
+            logger.info(
+                "Auto-stop: vmid=%s restarted after shutdown; clearing schedule",
+                resource.vmid,
+            )
+            _clear_auto_stop(resource)
+            return
+        if elapsed < FORCE_STOP_AFTER_SECONDS:
             return  # 已送出關機，等 guest 自己關
         logger.warning(
             "Auto-stop: vmid=%s ignored shutdown for %ss; forcing stop",

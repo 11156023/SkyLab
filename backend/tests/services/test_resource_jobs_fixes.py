@@ -451,13 +451,20 @@ def test_cloning_request_without_resource_row_keeps_placeholder(
 
 
 
-def _reset_record(vmid: int, status: TaskRecordStatus) -> TaskRecord:
+def _raw_reset_record(
+    payload: Any, status: TaskRecordStatus = TaskRecordStatus.queued
+) -> TaskRecord:
     return TaskRecord(
         task_type=reset_service.TASK_RESET,
         user_id=uuid.uuid4(),
-        payload=json.dumps({"vmid": vmid, "node": "pve1", "rtype": "qemu"}),
+        payload=payload,
         status=status,
     )
+
+
+def _reset_record(vmid: int, status: TaskRecordStatus) -> TaskRecord:
+    # payload 是 JSON 欄位，ORM 從資料庫讀回來就是 dict
+    return _raw_reset_record({"vmid": vmid, "node": "pve1", "rtype": "qemu"}, status)
 
 
 class _ResetSession:
@@ -527,13 +534,21 @@ def test_start_reset_allowed_for_other_vmid(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_has_active_reset_ignores_malformed_payload() -> None:
-    bad = TaskRecord(
-        task_type=reset_service.TASK_RESET,
-        user_id=uuid.uuid4(),
-        payload="not json",
-        status=TaskRecordStatus.queued,
-    )
-    session = _ResetSession([bad, _reset_record(7, TaskRecordStatus.queued)])
+    malformed = [
+        _raw_reset_record("not json"),
+        _raw_reset_record(json.dumps([8])),
+        _raw_reset_record({"vmid": "x"}),
+        _raw_reset_record({}),
+    ]
+    session = _ResetSession([*malformed, _reset_record(7, TaskRecordStatus.queued)])
+
+    assert reset_service._has_active_reset(session, 7) is True  # type: ignore[arg-type]
+    assert reset_service._has_active_reset(session, 8) is False  # type: ignore[arg-type]
+
+
+def test_has_active_reset_reads_legacy_string_payload() -> None:
+    legacy = _raw_reset_record(json.dumps({"vmid": 7, "node": "pve1"}))
+    session = _ResetSession([legacy])
 
     assert reset_service._has_active_reset(session, 7) is True  # type: ignore[arg-type]
     assert reset_service._has_active_reset(session, 8) is False  # type: ignore[arg-type]

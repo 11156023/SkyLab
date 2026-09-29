@@ -12,7 +12,7 @@ import pytest
 
 import app.infrastructure.ssh as ssh_module
 from app.core.config import settings
-from app.core.i18n import translate
+from app.core.i18n import _catalog
 from app.exceptions import BadRequestError, ProxmoxError
 from app.repositories import gateway_config as gw_repo
 from app.repositories import nat_rule as nat_repo
@@ -524,14 +524,15 @@ def test_gateway_test_connection_messages_are_translated(
 
 
 # ─── 追補：network 服務用到的每個 i18n key 三語都要有翻譯 ─────────────
-# 上面那個測試把 t() 換掉了，抓不到 locale 缺 key；translate() 找不到 key 會
-# 直接回傳 key 本身，前端 toast 就會顯示 "gateway.connectionOk" 這種字樣。
+# 上面那個測試把 t() 換掉了，抓不到 locale 缺 key。translate() 在某語言缺 key
+# 時會退回 zh-TW，zh-TW 也沒有才回傳 key 本身；經過它只能驗到 zh-TW 有 key，
+# en／ja 漏譯時使用者會看到中文。所以直接查各語言的 catalog。
 
 _NETWORK_SERVICE_DIR = Path(__file__).resolve().parents[2] / "app" / "services" / "network"
 _T_CALL_KEY = re.compile(r"\bt\(\s*[\"']([A-Za-z0-9_.]+)[\"']")
 
 # 改成 t() 的訊息與呼叫端實際帶的參數
-_B9_32_KEYS: dict[str, dict[str, object]] = {
+_NETWORK_MESSAGE_PARAMS: dict[str, dict[str, object]] = {
     "gateway.connectionOk": {},
     "gateway.unexpectedEchoResponse": {"output": "xyz"},
     "gateway.sshAuthFailed": {},
@@ -554,17 +555,20 @@ def _network_service_translation_keys() -> set[str]:
 @pytest.mark.parametrize("lang", ["zh-TW", "en", "ja"])
 def test_network_service_translation_keys_exist_in_every_language(lang: str) -> None:
     keys = _network_service_translation_keys()
-    assert set(_B9_32_KEYS) <= keys
-    missing = sorted(k for k in keys if translate(k, lang) == k)
-    assert missing == []
+    assert set(_NETWORK_MESSAGE_PARAMS) <= keys
+    catalog = _catalog(lang)
+    missing = sorted(k for k in keys if not catalog.get(k))
+    assert missing == [], f"missing in {lang}: {missing}"
 
 
 @pytest.mark.parametrize("lang", ["zh-TW", "en", "ja"])
-@pytest.mark.parametrize("key", sorted(_B9_32_KEYS))
+@pytest.mark.parametrize("key", sorted(_NETWORK_MESSAGE_PARAMS))
 def test_messages_fill_their_placeholders(key: str, lang: str) -> None:
-    params = _B9_32_KEYS[key]
-    message = translate(key, lang, **params)
-    assert message != key
+    params = _NETWORK_MESSAGE_PARAMS[key]
+    template = _catalog(lang).get(key)
+    assert template, f"{key} missing in {lang}"
+    # 直接 format：佔位符名稱對不上時 KeyError 會浮出來，不像 translate() 會吞掉
+    message = template.format(**params)
     assert "{" not in message
     for value in params.values():
         assert str(value) in message

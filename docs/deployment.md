@@ -219,7 +219,7 @@ You can set several other environment variables:
 
 ### LDAP / Active Directory over TLS
 
-LDAP connections over `ldaps://` or StartTLS always verify the server certificate and its hostname.
+LDAP connections over `ldaps://` or StartTLS always verify the server certificate and its hostname. The host in the LDAP server URI (a DNS name such as `dc01.campus.example` or an IP address such as `192.168.10.5`) must be listed in the directory server certificate's subjectAltName (a DNS entry for names, an IP Address entry for IPs); otherwise the handshake fails with a hostname / IP address mismatch. Private CAs without a keyUsage extension are accepted.
 
 **Upgrade note (breaking change):** earlier versions did not verify the certificate. If your domain controller uses a self-signed certificate or one issued by a private campus / enterprise CA, LDAP login stops working after the upgrade (the bind fails and the error shows as `ldap.serverUnavailable`) until the CA is configured:
 

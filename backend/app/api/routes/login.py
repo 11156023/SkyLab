@@ -114,24 +114,15 @@ def _totp_challenge_fail_key(jti: str) -> str:
     return f"totp-fail:jti:{jti}"
 
 
-async def _record_totp_failure(redis: Any, claims: _TotpChallengeClaims) -> None:
-    """記一次驗證碼錯誤：累計到帳號層級，同一張挑戰 token 錯滿次數即作廢。"""
-    await check_rate_limit_by_key(
-        redis,
-        key=_totp_user_fail_key(claims.user_id),
-        limit=_TOTP_USER_FAIL_LIMIT,
-        window_seconds=_TOTP_USER_FAIL_WINDOW_SECONDS,
-        scope="login",
+def _totp_too_many_attempts() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=t(
+            "auth.totpTooManyAttempts",
+            minutes=_TOTP_USER_FAIL_WINDOW_SECONDS // 60,
+        ),
+        headers={"Retry-After": str(_TOTP_USER_FAIL_WINDOW_SECONDS)},
     )
-    allowed, info = await check_rate_limit_by_key(
-        redis,
-        key=_totp_challenge_fail_key(claims.jti),
-        limit=_TOTP_CHALLENGE_FAIL_LIMIT,
-        window_seconds=_TOTP_USER_FAIL_WINDOW_SECONDS,
-        scope="login",
-    )
-    if not allowed or int(info.get("current") or 0) >= _TOTP_CHALLENGE_FAIL_LIMIT:
-        await revoke_jti(redis, claims.jti, claims.exp)
 
 
 async def _clear_totp_failures(redis: Any, user_id: str) -> None:
@@ -158,20 +149,36 @@ async def login_totp(session: SessionDep, body: TotpLoginRequest) -> Token:
     redis = await get_redis()
     if await is_jti_revoked(redis, claims.jti):
         raise AuthenticationError(t("auth.totpChallengeInvalid"))
+    # 帳號已鎖住就直接擋下（唯讀），不再佔用這張挑戰 token 的名額
     failures = await peek_rate_limit_by_key(
         redis,
         key=_totp_user_fail_key(claims.user_id),
         window_seconds=_TOTP_USER_FAIL_WINDOW_SECONDS,
     )
     if failures is not None and failures >= _TOTP_USER_FAIL_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=t(
-                "auth.totpTooManyAttempts",
-                minutes=_TOTP_USER_FAIL_WINDOW_SECONDS // 60,
-            ),
-            headers={"Retry-After": str(_TOTP_USER_FAIL_WINDOW_SECONDS)},
-        )
+        raise _totp_too_many_attempts()
+    # 驗證前先原子地佔一次名額（計數與寫入在同一段 Lua 內），而不是驗證失敗後
+    # 才記錄：否則同時送出的請求都會讀到「還沒錯過」而全部拿去驗證，次數上限
+    # 形同虛設。先佔挑戰 token 的名額，用完的 token 就不會再吃掉帳號額度。
+    jti_allowed, jti_info = await check_rate_limit_by_key(
+        redis,
+        key=_totp_challenge_fail_key(claims.jti),
+        limit=_TOTP_CHALLENGE_FAIL_LIMIT,
+        window_seconds=_TOTP_USER_FAIL_WINDOW_SECONDS,
+        scope="login",
+    )
+    if not jti_allowed:
+        await revoke_jti(redis, claims.jti, claims.exp)
+        raise AuthenticationError(t("auth.totpChallengeInvalid"))
+    user_allowed, _ = await check_rate_limit_by_key(
+        redis,
+        key=_totp_user_fail_key(claims.user_id),
+        limit=_TOTP_USER_FAIL_LIMIT,
+        window_seconds=_TOTP_USER_FAIL_WINDOW_SECONDS,
+        scope="login",
+    )
+    if not user_allowed:
+        raise _totp_too_many_attempts()
     try:
         # 同步 DB 查詢丟到 worker thread，不佔住 event loop
         token = await run_in_threadpool(
@@ -181,9 +188,13 @@ async def login_totp(session: SessionDep, body: TotpLoginRequest) -> Token:
             code=body.code,
         )
     except BadRequestError:
-        await _record_totp_failure(redis, claims)
+        # 這次錯誤已在上面佔名額時記過；挑戰 token 的次數用完即作廢
+        if int(jti_info.get("current") or 0) >= _TOTP_CHALLENGE_FAIL_LIMIT:
+            await revoke_jti(redis, claims.jti, claims.exp)
         raise
+    # 成功：帳號計數歸零（連同這次佔用的名額），挑戰 token 只能用一次
     await _clear_totp_failures(redis, claims.user_id)
+    await revoke_jti(redis, claims.jti, claims.exp)
     return token
 
 

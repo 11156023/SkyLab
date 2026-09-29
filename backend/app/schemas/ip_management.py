@@ -71,10 +71,7 @@ class SubnetConfigCreate(BaseModel):
         # 也只在存檔時檢查，既有設定不受影響。
         if net.prefixlen < _MIN_SUBNET_PREFIXLEN:
             raise ValueError(
-                t(
-                    "ip.invalid_cidr",
-                    error=f"prefix must be /{_MIN_SUBNET_PREFIXLEN} or longer",
-                )
+                t("ip.cidr_prefix_too_short", min_prefix=_MIN_SUBNET_PREFIXLEN)
             )
         return str(net)
 

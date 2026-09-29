@@ -93,8 +93,9 @@ def _apply_ttl_stop(session: Session, resource: Resource, now: datetime) -> None
         auto_stop_reason="ttl_expired",
         commit=False,
     )
-    # process_auto_stops 送出關機後就清掉排程；guest 不理 ACPI 仍在跑時每個
-    # tick 都會再走到這裡重排關機，但同一次到期只寄一封信
+    # process_auto_stops 會把排程留到確認機器已停止（或關機後又被開回來）才清掉，
+    # guest 不理 ACPI 時會在寬限期後強制斷電；之後機器若又被開起來且仍過期，
+    # 會再走到這裡重排關機，但同一次到期只寄一封信
     if ttl_stop_email_due(
         expiry_date=resource.expiry_date,
         expiry_notified_at=resource.expiry_notified_at,

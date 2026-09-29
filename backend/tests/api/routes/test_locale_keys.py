@@ -1,7 +1,8 @@
 """回歸測試：教學／課程／AI 評分路由用到的每個 t() key 都要在三個語系都有翻譯。
 
-``app.core.i18n.translate`` 找不到 key 時直接回傳 key 本身，所以漏加的訊息
-不會報錯，只會讓使用者看到 ``teacherJudgeSessions.xxx`` 這種原始字串。
+``app.core.i18n.translate`` 在某個語系找不到 key 時會退回 zh-TW，zh-TW 也沒有
+才回傳 key 本身，所以漏加的訊息不會報錯，只會讓使用者看到別的語言或
+``teacherJudgeSessions.xxx`` 這種原始字串；因此這裡直接檢查各語系自己的目錄。
 """
 
 from __future__ import annotations

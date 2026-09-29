@@ -240,9 +240,11 @@ def _has_active_reset(session: Session, vmid: int) -> bool:
         )
     ).all()
     for row in rows:
+        # payload 是 JSON 欄位，ORM 讀回來就是 dict；字串形式只為相容舊資料
+        raw = row.payload
         try:
-            payload = json.loads(row.payload or "{}")
-            if int(payload.get("vmid")) == vmid:
+            payload = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+            if isinstance(payload, dict) and int(payload.get("vmid")) == vmid:
                 return True
         except (TypeError, ValueError):
             continue

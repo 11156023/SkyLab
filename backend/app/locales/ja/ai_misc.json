@@ -32,6 +32,7 @@
   "pveLog.guestDiagWarnGuestCollectFailed": "Guest 内部データの収集に失敗しました。欠落は正常を意味しません",
   "pveLog.guestDiagWarnProbeFailed": "一部のデータ収集に失敗しました。欠落は正常を意味しません",
   "pveLog.guestDiagSystemdUnavailable": "このシステムには利用可能な systemd/journal がなく、この情報は収集できません",
+  "pveLog.sshExecTimeout": "コマンドが {seconds} 秒間何も出力しなかったため、待機を打ち切りました。実際の実行結果は不明で、リモート側ではまだ実行中の可能性があります。",
   "templateRec.modelBindingMissing": "AI モデルのバインディングが config/system-ai.json に設定されていません。",
   "templateRec.extractionFailed": "AI の意図抽出に失敗しました：{error}",
   "ldap.invalidCredentials": "アカウントまたはパスワードが正しくありません",

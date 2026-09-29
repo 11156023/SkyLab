@@ -126,8 +126,11 @@ async def test_failed_poll_still_notices_client_disconnect(
 ) -> None:
     session = _Session(_user())
     _patch_auth(monkeypatch, session)
+    attempts = 0
 
     def failing_poll(*args: Any, **kwargs: Any) -> Any:
+        nonlocal attempts
+        attempts += 1
         raise RuntimeError("db hiccup")
 
     monkeypatch.setattr(jobs_ws, "_poll", failing_poll)
@@ -135,6 +138,9 @@ async def test_failed_poll_still_notices_client_disconnect(
 
     await asyncio.wait_for(jobs_ws.jobs_ws_proxy(websocket, token="t"), timeout=2)
 
+    # 第一次失敗後就看到斷線；若錯誤分支只 sleep，會重試到上限後走 close(1011)
+    assert attempts == 1
+    assert websocket.closed_with is None
     assert session.closed
 
 

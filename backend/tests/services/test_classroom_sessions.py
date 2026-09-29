@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.core.i18n import translate
+from app.core.i18n import _catalog, translate
 from app.core.request_context import RequestContext, set_request_context
 from app.exceptions import ConflictError
 from app.infrastructure.vnc.handshake import (
@@ -400,8 +400,10 @@ def test_student_reminders_follow_request_language(english: None) -> None:
 def test_new_message_keys_exist_in_every_language(
     key: str, params: dict[str, object], lang: str
 ) -> None:
-    text = translate(key, lang, **params)
-    assert text != key
+    # translate() 缺 key 時會退回 zh-TW，驗不出 en／ja 漏譯，所以直接查各語言 catalog
+    template = _catalog(lang).get(key)
+    assert template, f"{key} missing in {lang}"
+    text = template.format(**params)
     assert "{" not in text
     for value in params.values():
         assert str(value) in text

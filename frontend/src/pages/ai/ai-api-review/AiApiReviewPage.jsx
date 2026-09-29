@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -158,6 +158,8 @@ export default function AiApiReviewPage() {
   const [requests, setRequests] = useState([]);
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
+  /* 切換分頁時舊請求可能較晚回來，只讓最新一次載入寫入畫面 */
+  const loadSeqRef = useRef(0);
 
   const TABS = [
     { key: "pending",  label: t("AiApiReviewPage.tabPending") },
@@ -174,6 +176,8 @@ export default function AiApiReviewPage() {
 
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
   const load = useCallback(async (silent = false) => {
+    const seq = ++loadSeqRef.current;
+    const isCurrent = () => seq === loadSeqRef.current;
     if (!silent) setLoading(true);
     try {
       /* 狀態篩選交給後端：清單上限 100 筆且新到舊，前端自己篩會讓
@@ -184,6 +188,7 @@ export default function AiApiReviewPage() {
           limit: key === activeTab ? REQUEST_LIST_LIMIT : 1,
         })),
       );
+      if (!isCurrent()) return;
       const activePage = pages[REQUEST_TAB_KEYS.indexOf(activeTab)];
       setRequests(activePage?.data ?? []);
       setCounts(Object.fromEntries(REQUEST_TAB_KEYS.map((key, i) => [
@@ -191,9 +196,10 @@ export default function AiApiReviewPage() {
         pages[i]?.count ?? pages[i]?.data?.length ?? 0,
       ])));
     } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("AiApiReviewPage.loadError"));
+      if (!silent && isCurrent()) toast.error(e?.message ?? t("AiApiReviewPage.loadError"));
     } finally {
-      if (!silent) setLoading(false);
+      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
+      if (isCurrent()) setLoading(false);
     }
   }, [activeTab, toast, t]);
 
