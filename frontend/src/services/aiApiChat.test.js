@@ -74,6 +74,52 @@ test("Nemotron 保留思考階段但只串流最終答案，並清除帶入上�
   ]);
 });
 
+test("gpt-oss 的 Harmony analysis 不進入串流、回覆或下次對話上下文", async () => {
+  fetchMock.mockResolvedValueOnce(sseResponse([
+    'data: {"choices":[{"delta":{"content":"<|start|>assistant<|channel|>analysis<|message|>內部推理"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"<|end|><|start|>assistant<|channel|>fi"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"nal<|message|>最終答案"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"完成<|return|>"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]));
+  const streamed = [];
+  const reply = await AiApiChatService.chat("gpt-oss-20B", [
+    { role: "assistant", content: "<|start|>assistant<|channel|>analysis<|message|>舊推理<|end|><|start|>assistant<|channel|>final<|message|>舊答案<|return|>" },
+    { role: "user", content: "請回答" },
+  ], { onDelta: (content) => streamed.push(content), apiKey: KEY });
+  expect(reply).toBe("最終答案完成");
+  expect(streamed).toEqual(["最終答案", "最終答案完成"]);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).messages[1].content).toBe("舊答案");
+});
+
+test("gpt-oss 無 final channel 時不可把 analysis 當作答案", async () => {
+  fetchMock.mockResolvedValueOnce(sseResponse([
+    'data: {"choices":[{"delta":{"content":"<|start|>assistant<|channel|>analysis<|message|>只有推理"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]));
+  await expect(AiApiChatService.chat("gpt-oss-20B", [], { apiKey: KEY })).rejects.toEqual({ status: 502, code: "empty_reply" });
+});
+
+test("gpt-oss 結構化 reasoning 與 content 同 chunk 時只保留答案", async () => {
+  fetchMock.mockResolvedValueOnce(sseResponse([
+    'data: {"choices":[{"delta":{"reasoning_content":"推理","content":"答案"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"完成"}}]}\n\n',
+  ]));
+  const streamed = [];
+  expect(await AiApiChatService.chat("gpt-oss-20B", [], { apiKey: KEY, onDelta: (content) => streamed.push(content) })).toBe("答案完成");
+  expect(streamed).toEqual(["答案", "答案完成"]);
+});
+
+test("gpt-oss 沒有 Harmony 標記時仍保留完整答案", async () => {
+  fetchMock.mockResolvedValueOnce(sseResponse([
+    'data: {"choices":[{"delta":{"content":"一般"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"答案"}}]}\n\n',
+  ]));
+  const streamed = [];
+  expect(await AiApiChatService.chat("gpt-oss-20B", [], { apiKey: KEY, onDelta: (content) => streamed.push(content) })).toBe("一般答案");
+  expect(streamed).toEqual(["一般答案"]);
+});
+
 test("API Key 401 不會觸發登入續期，也不會暴露上游錯誤內容", async () => {
   const unauthorized = vi.fn();
   window.addEventListener("auth:unauthorized", unauthorized);

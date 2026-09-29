@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate a secret-free LiteLLM Proxy config from ``models.json``.
+"""Generate a LiteLLM Proxy config from ``models.json``.
 
 The generated config is intentionally a runtime artifact.  It must not be
-committed because the deployment mode may contain infrastructure details.
+committed because the deployment mode may contain infrastructure details and
+literal upstream keys supplied through ``apikeys``.
 """
 
 from __future__ import annotations
@@ -18,10 +19,13 @@ from urllib.parse import urlsplit
 
 import yaml
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-from model_deployment import ENV_REFERENCE, deployment_kind, upstream_connection  # noqa: E402
+from model_deployment import (  # noqa: E402
+    ENV_REFERENCE,
+    deployment_kind,
+    upstream_connection,
+)
 
 DEFAULT_MODELS = PROJECT_ROOT / "models.json"
 DEFAULT_TEMPLATE = PROJECT_ROOT / "litellm" / "config.template.yaml"
@@ -146,6 +150,8 @@ def load_models(path: Path) -> list[dict[str, Any]]:
         model["deployment"] = kind
         model["api_base"] = api_base
         model["api_key_env"] = key_name
+        if "apikeys" in model:
+            model["apikeys"] = model["apikeys"].strip()
         model["litellm"] = {"rpm": rpm}
         model["capabilities"] = capabilities
         model["_legacy_alias_names"] = _validate_legacy_aliases(
@@ -214,7 +220,7 @@ def _deployment(model: dict[str, Any], public_name: str, mode: str) -> dict[str,
             # path directly to api_base. vLLM itself serves those routes below
             # /v1, so the version prefix must be part of the generated base.
             "api_base": gateway_api_base(model, mode),
-            "api_key": f"os.environ/{model['api_key_env']}",
+            "api_key": model.get("apikeys", f"os.environ/{model['api_key_env']}"),
             "timeout": 300,
             "rpm": model["litellm"]["rpm"],
         },
@@ -242,16 +248,18 @@ def render_config(
     return config
 
 
-def assert_secret_free(config: dict[str, Any]) -> None:
+def validate_generated_config(config: dict[str, Any]) -> None:
     if not config.get("model_list") or not config.get("general_settings", {}).get("master_key"):
         raise ValueError("產生設定缺少必要的環境變數 reference")
 
     def check(value: Any) -> None:
         if isinstance(value, dict):
             for key, child in value.items():
-                if key in {"api_key", "master_key", "database_url", "salt_key"}:
+                if key in {"master_key", "database_url", "salt_key"}:
                     if not isinstance(child, str) or not ENV_REFERENCE.fullmatch(child):
-                        raise ValueError("產生設定不得包含明文 secret")
+                        raise ValueError("管理與資料庫 secret 必須使用環境變數 reference")
+                elif key == "api_key" and (not isinstance(child, str) or not child.strip()):
+                    raise ValueError("模型 api_key 必須為非空字串")
                 check(child)
         elif isinstance(value, list):
             for child in value:
@@ -278,7 +286,7 @@ def main() -> int:
         models = load_models(_path(args.models))
         template = load_template(_path(args.template))
         config = render_config(models, template, args.mode)
-        assert_secret_free(config)
+        validate_generated_config(config)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
 

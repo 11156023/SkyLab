@@ -45,7 +45,7 @@ async function draft(text) {
 }
 async function send(text) {
   await draft(text);
-  await act(async () => host.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  await act(async () => host.querySelector("textarea").closest("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
 }
 
 test("切換模型保留上下文；重新掛載恢復對話並依使用者隔離", async () => {
@@ -172,15 +172,30 @@ test("儲存空間已滿時顯示警告，對話仍可繼續；刪除需確認",
   expect(loadChatHistory("user-a").conversations).toEqual([]);
 });
 
-test("沒有可用金鑰時不查模型，只顯示申請說明，不出現模型選單與輸入框", async () => {
+test("沒有已核准金鑰時顯示聊天與空白金鑰欄位，套用後用該金鑰查模型和聊天", async () => {
   mocks.credentials = [];
   await render();
   expect(mocks.getCredential).not.toHaveBeenCalled();
   expect(mocks.listModels).not.toHaveBeenCalled();
-  expect(host.textContent).toContain("AiApiChat.noUsableKeyTitle");
-  expect(host.textContent).toContain("AiApiChat.noUsableKey");
-  expect(host.querySelector("select")).toBeNull();
-  expect(host.querySelector("textarea")).toBeNull();
+  const keyInput = host.querySelector("#api-chat-manual-key");
+  expect(keyInput.value).toBe("");
+  expect(host.querySelector("#api-chat-input")).not.toBeNull();
+  expect(host.querySelector("textarea").closest("form").querySelector('[type="submit"]').disabled).toBe(true);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(keyInput, "ccai_manual_key");
+    keyInput.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(mocks.listModels).not.toHaveBeenCalled();
+  await act(async () => keyInput.closest("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(mocks.listModels).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "ccai_manual_key" }));
+  await send("手動金鑰聊天");
+  expect(mocks.chat.mock.calls[0][2]).toEqual(expect.objectContaining({ apiKey: "ccai_manual_key" }));
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(keyInput, "ccai_next_key");
+    keyInput.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(host.querySelector("textarea").closest("form").querySelector('[type="submit"]').disabled).toBe(true);
+  expect(mocks.listModels).toHaveBeenCalledTimes(1);
 });
 
 test("本機紀錄格式壞掉時另存備份，開始新紀錄也不會蓋掉它", async () => {
