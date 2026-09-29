@@ -1,22 +1,21 @@
 """Proxmox 連線、節點、Storage 與放置／排程策略管理 API（僅管理員）"""
 
-import hashlib
 import logging
 from typing import Any
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.serialization import Encoding
 from fastapi import APIRouter, Body, HTTPException
 from sqlmodel import col, select
 
 from app.api.deps import AdminUser, SessionDep
 from app.core.i18n import t
-from app.exceptions import BadRequestError
+from app.exceptions import AppError, BadRequestError
 from app.infrastructure.proxmox import (
     invalidate_proxmox_client,
     resolve_verify,
 )
+from app.infrastructure.proxmox.operations import list_connection_vms
 from app.models import AuditAction, Resource
 from app.models.proxmox_storage import ProxmoxStorage
 from app.repositories import proxmox_config as proxmox_config_repo
@@ -39,6 +38,7 @@ from app.schemas.proxmox_config import (
     SyncNowResult,
 )
 from app.services.proxmox import connection_sync_service
+from app.services.proxmox.tls_helpers import fingerprint_of, validate_ca_cert_pem
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -85,46 +85,69 @@ def _connection_to_public(session, conn) -> ProxmoxConnectionPublic:
     )
 
 
+class _ResourceCheckUnavailable(AppError):
+    """刪除連線前問不到該 PVE 底下有哪些機器（503）。
+
+    與「確認仍有機器」的 400 分開，前端才能只在這種情況提供「強制刪除」
+    （``DELETE /connections/{id}?force=true``）。
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, 503)
+
+
 def _resource_vmids_on_connection(
     session, connection_id: int, node_names: set[str]
 ) -> list[int]:
     """回傳仍屬於這個連線的 SkyLab Resource vmid。
 
     新資源建立時會記下 connection_id，直接查 DB；舊資料沒有這個欄位，
-    仍要問 PVE「現在哪些機器在這些節點上」再與 resources 表取交集。
-    問不到就視為不安全（回 400），以免把底下還有機器的連線刪掉、
-    讓那些機器再也路由不到。
+    仍要問這組連線的 PVE「現在叢集上有哪些機器」再與 resources 表取交集。
+    PVE 問不到時：DB 已確認有機器就直接回傳（照樣 400 擋下），否則視為
+    不安全（丟 ``_ResourceCheckUnavailable``，回 503），以免把底下還有機器
+    的連線刪掉、讓那些機器再也路由不到。
     """
-    recorded = set(
-        session.exec(
+    recorded = {
+        int(v)
+        for v in session.exec(
             select(Resource.vmid).where(Resource.connection_id == connection_id)
         ).all()
-    )
-    return sorted(
-        {int(v) for v in recorded} | set(_resource_vmids_on_nodes(session, node_names))
-    )
+    }
+    try:
+        on_pve = _resource_vmids_on_pve(session, connection_id, node_names)
+    except _ResourceCheckUnavailable:
+        if recorded:
+            return sorted(recorded)
+        raise
+    return sorted(recorded | set(on_pve))
 
 
-def _resource_vmids_on_nodes(session, node_names: set[str]) -> list[int]:
-    """回傳仍掛在這些節點上、又有 SkyLab Resource 記錄的 vmid（問 PVE）。"""
+def _resource_vmids_on_pve(
+    session, connection_id: int, node_names: set[str]
+) -> list[int]:
+    """問這組連線的 PVE 現在有哪些機器，回傳其中有 SkyLab Resource 記錄的 vmid。
+
+    直接詢問要刪除的這組連線本身（不論是否停用、不套 pool 篩選——手動搬出
+    pool 的機器仍是這個連線的）；跨連線彙總的 list_all_resources() 不能用：
+    它略過停用與連不上的連線。問不到時丟 ``_ResourceCheckUnavailable``。
+    """
     if not node_names:
         return []
 
-    from app.infrastructure.proxmox.operations import (
-        list_all_resources,
-    )
-
     try:
-        cluster_resources = list_all_resources()
+        cluster_resources = list_connection_vms(connection_id)
     except Exception as e:
         logger.warning(f"刪除連線前無法列出 PVE 機器: {e}")
-        raise BadRequestError(t("proxmoxConfig.connectionResourceCheckFailed"))
+        raise _ResourceCheckUnavailable(
+            t("proxmoxConfig.connectionResourceCheckFailed")
+        ) from e
 
-    candidate_vmids = {
-        int(r["vmid"])
-        for r in cluster_resources
-        if r.get("vmid") is not None and r.get("node") in node_names
-    }
+    candidate_vmids: set[int] = set()
+    for r in cluster_resources:
+        try:
+            candidate_vmids.add(int(r["vmid"]))
+        except (KeyError, TypeError, ValueError):
+            continue
     if not candidate_vmids:
         return []
 
@@ -409,13 +432,7 @@ def create_connection(
     session: SessionDep, current_user: AdminUser, conn_in: ProxmoxConnectionCreate
 ) -> ProxmoxConnectionPublic:
     """新增一組 PVE 連線（單台主機或叢集入口）。"""
-    if conn_in.ca_cert:
-        try:
-            x509.load_pem_x509_certificate(
-                conn_in.ca_cert.encode(), default_backend()
-            )
-        except Exception:
-            raise BadRequestError(t("proxmoxConfig.invalidCaCert"))
+    validate_ca_cert_pem(conn_in.ca_cert)
 
     # 第一筆連線自動成為預設
     is_default = conn_in.is_default or not proxmox_connection_repo.get_all_connections(
@@ -459,13 +476,7 @@ def update_connection(
     conn_in: ProxmoxConnectionUpdateIn,
 ) -> ProxmoxConnectionPublic:
     """更新一組 PVE 連線設定（**部分更新**，payload 沒帶的欄位維持現值）。"""
-    if conn_in.ca_cert:
-        try:
-            x509.load_pem_x509_certificate(
-                conn_in.ca_cert.encode(), default_backend()
-            )
-        except Exception:
-            raise BadRequestError(t("proxmoxConfig.invalidCaCert"))
+    validate_ca_cert_pem(conn_in.ca_cert)
 
     updates = conn_in.model_dump(exclude_unset=True)
     conn = proxmox_connection_repo.update_connection(
@@ -490,9 +501,17 @@ def update_connection(
 
 @router.delete("/connections/{connection_id}")
 def delete_connection(
-    connection_id: int, session: SessionDep, current_user: AdminUser
+    connection_id: int,
+    session: SessionDep,
+    current_user: AdminUser,
+    force: bool = False,
 ) -> dict:
-    """刪除一組 PVE 連線（其節點與 Storage 記錄一併移除）。"""
+    """刪除一組 PVE 連線（其節點與 Storage 記錄一併移除）。
+
+    ``force=true`` 只用在 PVE 已永久無法連線、無從確認底下機器的情況：
+    略過「連不上」這一關（503，會寫入稽核），確認到仍有機器時（400）一樣
+    會擋下。前端在收到 503 時才提供二次確認的強制刪除。
+    """
     conn = proxmox_connection_repo.get_connection(session, connection_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
@@ -511,7 +530,20 @@ def delete_connection(
     # 連線一刪，節點記錄跟著 CASCADE 消失，還掛在上面的機器就再也路由不到
     # （get_proxmox_api_for_node 找不到節點）。先擋下來，要管理員自己決定
     # 是先搬機器還是先刪機器。
-    in_use_vmids = _resource_vmids_on_connection(session, connection_id, node_names)
+    check_skipped = False
+    try:
+        in_use_vmids = _resource_vmids_on_connection(
+            session, connection_id, node_names
+        )
+    except _ResourceCheckUnavailable:
+        if not force:
+            raise
+        logger.warning(
+            "Force-deleting Proxmox connection %s without resource check",
+            connection_id,
+        )
+        in_use_vmids = []
+        check_skipped = True
     if in_use_vmids:
         raise BadRequestError(
             t(
@@ -533,7 +565,14 @@ def delete_connection(
         session=session,
         user_id=current_user.id,
         action=AuditAction.proxmox_config_update,
-        details=f"Deleted Proxmox connection: {conn.name} ({conn.host})",
+        details=(
+            f"Deleted Proxmox connection: {conn.name} ({conn.host})"
+            + (
+                " [forced: PVE unreachable, resource check skipped]"
+                if check_skipped
+                else ""
+            )
+        ),
     )
     return {"success": True}
 
@@ -549,12 +588,11 @@ def test_connection_by_id(
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     try:
-        from proxmoxer import ProxmoxAPI
-
         password = proxmox_connection_repo.get_decrypted_password(conn)
-        verify_ssl = resolve_verify(conn.host, conn.verify_ssl, conn.ca_cert)
-
-        client = ProxmoxAPI(
+        verify_ssl = resolve_verify(
+            conn.host, conn.verify_ssl, conn.ca_cert, port=conn.port
+        )
+        node_names = connection_sync_service.probe_node_names(
             conn.host,
             port=conn.port,
             user=conn.user,
@@ -562,8 +600,6 @@ def test_connection_by_id(
             verify_ssl=verify_ssl,
             timeout=conn.api_timeout,
         )
-        nodes = client.nodes.get()
-        node_names = [n.get("node", "") for n in nodes]
         return ProxmoxConnectionTestResult(
             success=True,
             message=t("proxmoxConfig.connectionSuccess", nodes=", ".join(node_names)),
@@ -683,11 +719,9 @@ def parse_cert(
     """解析貼上的 PEM 憑證，回傳指紋與基本資訊供管理員確認"""
     try:
         cert = x509.load_pem_x509_certificate(pem.encode(), default_backend())
-        digest = hashlib.sha256(cert.public_bytes(encoding=Encoding.DER)).digest()
-        fingerprint = ":".join(f"{b:02X}" for b in digest)
         return CertParseResult(
             valid=True,
-            fingerprint=fingerprint,
+            fingerprint=fingerprint_of(cert),
             subject=cert.subject.rfc4514_string(),
             issuer=cert.issuer.rfc4514_string(),
             not_before=cert.not_valid_before_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),

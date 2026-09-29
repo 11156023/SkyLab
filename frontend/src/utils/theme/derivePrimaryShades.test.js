@@ -8,7 +8,9 @@
 
 import { describe, expect, test } from "vitest";
 import {
+  contrastRatio,
   deriveBackgroundPalettes,
+  deriveDeepPalette,
   derivePrimaryShades,
   derivePrimaryTheme,
   hexToHsl,
@@ -183,4 +185,52 @@ describe("色碼正規化", () => {
       expect(() => derivePrimaryShades(bad)).toThrow(TypeError);
     }
   });
+});
+
+describe("deriveDeepPalette（快速練習資料夾、機器卡終端）", () => {
+  // 預設藍、偏亮的綠／黃／橘、灰調、極暗極亮都要過
+  const samples = ["#5471bf", "#268264", "#ae6032", "#c84376", "#4b5563", "#e6c229", "#111111", "#f0f0f0"];
+
+  test.each(samples.flatMap((hex) => ["light", "dark"].map((mode) => [hex, mode])))(
+    "%s（%s）文字對底色都達標、資料夾前蓋比後片亮",
+    (hex, mode) => {
+      const d = deriveDeepPalette(hex, mode);
+      expect(contrastRatio("#ffffff", d.folderFrontLight)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(d.folderInk, d.folderPaper)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(d.terminalText, d.terminalBg)).toBeGreaterThanOrEqual(7);
+      expect(contrastRatio(d.terminalKey, d.terminalBg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(d.terminalDim, d.terminalBg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(d.terminalTextOff, d.terminalBgOff)).toBeGreaterThanOrEqual(4.5);
+      // 前蓋比後片亮，層次才不會顛倒（照 HSL 亮度算時，綠、橘會讓後片比前蓋亮）
+      expect(contrastRatio(d.folderFrontLight, "#000000")).toBeGreaterThan(contrastRatio(d.folderBackTop, "#000000"));
+    }
+  );
+
+  test("預設主色推出來與原本寫死的深藍幾乎相同", () => {
+    const d = deriveDeepPalette("#5471bf", "light");
+    expect(contrastRatio(d.terminalBg, "#1a2a48")).toBeLessThan(1.1);
+    expect(contrastRatio(d.folderBackTop, "#34549f")).toBeLessThan(1.1);
+  });
+
+  test("陰影只在淺色模式帶色調，深色模式沿用黑色陰影", () => {
+    expect(deriveDeepPalette("#ae6032", "light").folderShadow).toContain("color-mix");
+    expect(deriveDeepPalette("#ae6032", "dark").folderShadow).toBeUndefined();
+  });
+
+  test("主題配色帶著這組色票，明暗各一套", () => {
+    const theme = derivePrimaryTheme("#ae6032");
+    expect(theme.light.deep.folderBackTop).not.toBe(theme.dark.deep.folderBackTop);
+    expect(theme.light.deep.terminalBg).toBe(theme.dark.deep.terminalBg);
+  });
+});
+
+describe("primaryOnSurface（卡片上的主色文字／邊框）", () => {
+  test.each(["#5471bf", "#ae6032", "#268264", "#e6c229", "#4b5563", "#f0f0f0", "#111111"])(
+    "%s 淺色對白底、深色對深色卡片底都達 4.5:1",
+    (hex) => {
+      const theme = derivePrimaryTheme(hex);
+      expect(contrastRatio(theme.light.primaryOnSurface, "#ffffff")).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(theme.dark.primaryOnSurface, "#161b26")).toBeGreaterThanOrEqual(4.5);
+    }
+  );
 });

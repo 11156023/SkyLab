@@ -47,15 +47,15 @@ class User(UserBase, table=True):
 
     __table_args__ = (
         sa.CheckConstraint(
-            "auth_source IN ('local', 'ldap')",
+            "auth_source IN ('local', 'google', 'ldap')",
             name="ck_user_auth_source",
         ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
-    # 帳號來源："local"（本地密碼）| "ldap"（由 LDAP 目錄管理，本地密碼不可用）。
-    # 舊帳號一律 local，LDAP 登入成功時自癒標記為 ldap（見 ldap_auth_service）。
+    # 帳號來源："local"（本地密碼）| "google" | "ldap"（LDAP 管理密碼）。
+    # 舊帳號一律 local；LDAP 登入成功時會將 LDAP 設為權威來源。
     auth_source: str = Field(default="local", max_length=20)
     token_version: int = Field(default=0, description="令牌版本，修改密碼時遞增以失效舊令牌")
     # 兩步驟驗證（TOTP，可綁定 Google Authenticator）：

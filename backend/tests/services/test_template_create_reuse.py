@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.exceptions import ConflictError, PermissionDeniedError
@@ -24,9 +25,12 @@ from app.services.template import template_service
 
 @pytest.fixture()
 def db() -> Session:
+    # 校驗在 threadpool 執行：in-memory SQLite 必須所有 thread 共用同一條連線，
+    # 否則 worker thread 會拿到一個沒有任何資料表的新資料庫
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:

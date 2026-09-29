@@ -117,10 +117,6 @@
   @include btn-primary;
 }
 
-.btnDanger {
-  @include btn-danger;
-}
-
 /* ── 分頁列：左分頁、右連線狀態 ── */
 .tabsRow {
   display: flex;
@@ -263,7 +259,7 @@
   display: flex;
   align-items: center;
   gap: $spacing-8;
-  min-height: 38px;
+  min-height: 36px;
   padding: 0 $spacing-16;
   background: var(--color-surface);
   border: 1px solid var(--color-border);

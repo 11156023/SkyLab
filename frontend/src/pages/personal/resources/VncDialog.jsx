@@ -10,6 +10,7 @@ import Modal from "../../../components/Modal/Modal";
 import { useClassroomTakeover } from "../../../components/Classroom/ClassroomStudentLayer";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import TakeoverOverlay from "../../../components/Classroom/TakeoverOverlay";
+import { wsBaseUrl } from "../../../utils/wsUrl";
 import styles from "./ConsoleDialog.module.scss";
 
 const CONSOLE_INFO_TIMEOUT_MS = 15000;
@@ -19,7 +20,6 @@ export default function VncDialog({ resource, onClose }) {
   const { t } = useTranslation("personal");
   const vncRef      = useRef(null);
   const dialogRef   = useRef(null);
-  const requestSeq  = useRef(0);
   const mountedRef  = useRef(true);
   const titleId     = useId();
   const [connected, setConnected]       = useState(false);
@@ -46,8 +46,7 @@ export default function VncDialog({ resource, onClose }) {
 
   useEffect(() => {
     if (!resource?.vmid) return;
-    const seq = requestSeq.current + 1;
-    requestSeq.current = seq;
+    /* vmid 換掉或卸載都會先跑 cleanup 把 cancelled 設為 true，舊請求的回呼就此作廢 */
     let cancelled = false;
 
     setConnected(false);
@@ -56,16 +55,14 @@ export default function VncDialog({ resource, onClose }) {
     setError("");
 
     const timeoutId = window.setTimeout(() => {
-      if (cancelled || requestSeq.current !== seq || !mountedRef.current) return;
+      if (cancelled) return;
       setError(t("VncDialog.timeoutError"));
     }, CONSOLE_INFO_TIMEOUT_MS);
 
     ResourcesService.getConsole(resource.vmid)
       .then((data) => {
-        if (cancelled || requestSeq.current !== seq || !mountedRef.current) return;
+        if (cancelled) return;
         window.clearTimeout(timeoutId);
-        const apiUrl = new URL(import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.host}`);
-        const proto  = apiUrl.protocol === "https:" ? "wss:" : "ws:";
         const token  = AuthStorage.getAccessToken() ?? "";
         const ticket = data.ticket ?? "";
         const port   = data.port   ?? "";
@@ -73,13 +70,15 @@ export default function VncDialog({ resource, onClose }) {
           setError(t("VncDialog.connectFailed"));
           return;
         }
-        let url = `${proto}//${apiUrl.host}/ws/vnc/${resource.vmid}?token=${encodeURIComponent(token)}&vnc_ticket=${encodeURIComponent(ticket)}`;
+        let url = `${wsBaseUrl()}/ws/vnc/${resource.vmid}?token=${encodeURIComponent(token)}&vnc_ticket=${encodeURIComponent(ticket)}`;
         if (port) url += `&vnc_port=${encodeURIComponent(port)}`;
+        /* 慢的請求可能在逾時提示出現後才成功：拿到連線資訊就清掉提示，不讓紅字壓在可用的畫面上 */
+        setError("");
         setVncTicket(ticket);
         setWsUrl(url);
       })
       .catch((e) => {
-        if (cancelled || requestSeq.current !== seq || !mountedRef.current) return;
+        if (cancelled) return;
         window.clearTimeout(timeoutId);
         setError(e.message ?? t("VncDialog.fetchInfoFailed"));
       });

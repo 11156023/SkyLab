@@ -12,7 +12,7 @@ describe("route guide catalog", () => {
       "/course-template-management/template-1", "/class-management", "/class-setup",
       "/class-management/class-1", "/class-management/class-1/machines", "/class-management/class-1/ai",
       "/admin", "/pve-connections", "/scheduler", "/governance", "/quotas", "/ldap", "/nodes", "/storage",
-      "/monitoring", "/ip-management", "/audit", "/jobs", "/firewall", "/domain", "/gateway", "/reverse-proxy",
+      "/monitoring", "/ip-management", "/audit", "/jobs", "/firewall", "/domain", "/gateway",
     ];
 
     expect(paths.filter((path) => !getRouteGuide(path))).toEqual([]);

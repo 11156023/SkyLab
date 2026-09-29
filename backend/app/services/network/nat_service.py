@@ -33,15 +33,45 @@ RESERVED_PORTS: frozenset[int] = frozenset(
     ]
 )
 
+# Gateway 上 nginx stub_status 的 port（與 gateway/install.sh 的 NGINX_STATUS_PORT 一致）
+GATEWAY_NGINX_STATUS_PORT = 9180
+
+
+def _gateway_host_ports(session: object) -> frozenset[tuple[int, str]]:
+    """Gateway 主機本身已佔用的 (port, protocol)。
+
+    轉發規則會寫成 stream.conf 的 ``listen <port>``：若撞到 Gateway 自己的
+    listener，``nginx -t`` 在測試模式會忽略 EADDRINUSE、``systemctl reload``
+    也只是送訊號，結果 reload 靜默失敗、之後所有人的轉發／網域異動都不會生效。
+    """
+    from app.core.config import settings
+
+    ports: set[tuple[int, str]] = {
+        (settings.WIREGUARD_ENDPOINT_PORT, "udp"),
+        (settings.GATEWAY_NODE_EXPORTER_PORT, "tcp"),
+        (settings.GATEWAY_NGINX_EXPORTER_PORT, "tcp"),
+        (GATEWAY_NGINX_STATUS_PORT, "tcp"),
+    }
+    if getattr(session, "get", None) is not None:
+        from app.repositories import gateway_config as gw_repo
+
+        config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
+        ssh_port = getattr(config, "ssh_port", None)
+        if isinstance(ssh_port, int) and ssh_port > 0:
+            ports.add((ssh_port, "tcp"))
+    return frozenset(ports)
+
+
 # ─── 檢查 port 可用性 ──────────────────────────────────────────────────────────
 
 
 def check_port_available(external_port: int, protocol: str, session: object) -> None:
-    """檢查外網 port 是否可用（保留 port 檢查 + DB 衝突檢查）"""
-    if external_port in RESERVED_PORTS:
-        raise BadRequestError(
-            t("nat.reservedPort", port=external_port)
-        )
+    """檢查外網 port 是否可用（保留 port、Gateway 自用 port + DB 衝突檢查）"""
+    if (
+        external_port in RESERVED_PORTS
+        or (external_port, protocol) in _gateway_host_ports(session)
+    ):
+        raise BadRequestError(t("nat.reservedPort", port=external_port))
     from app.repositories import nat_rule as nat_repo
 
     if nat_repo.is_external_port_taken(session, external_port, protocol):  # type: ignore[arg-type]
@@ -70,8 +100,16 @@ def allocate_external_port(
         raise BadRequestError(t("nat.poolNotConfigured"))
     start, end = pool
     taken = nat_repo.taken_external_ports(session, protocol, start, end)  # type: ignore[arg-type]
+    gateway_ports = {
+        port for port, proto in _gateway_host_ports(session) if proto == protocol
+    }
     for candidate in range(start, end + 1):
-        if candidate in RESERVED_PORTS or candidate in taken or candidate in exclude:
+        if (
+            candidate in RESERVED_PORTS
+            or candidate in gateway_ports
+            or candidate in taken
+            or candidate in exclude
+        ):
             continue
         return candidate
     raise BadRequestError(t("nat.poolExhausted", start=start, end=end))
@@ -99,6 +137,8 @@ def _sync_nginx_stream(session: object, rules: list | None = None) -> None:
     if config is None or not config.host or not config.encrypted_private_key:
         raise ProxmoxError(t("nat.gatewayNotConfiguredSyncFailed"))
 
+    # 先拿鎖再讀清單：避免較慢的同步拿舊清單蓋掉別人剛同步上去的規則
+    nginx.lock_config_writes(session)
     if rules is None:
         rules = nat_repo.list_rules(session)  # type: ignore[arg-type]
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
@@ -141,6 +181,7 @@ def apply_nat_rule(
     # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：不可讓外網 port 轉到
     # Gateway / PVE 節點等內部主機
     assert_publishable_vm_ip(session, vm_ip, vmid=vmid)
+
     rule = NatRule(
         ssh_host="",  # 已改為 Gateway VM 架構，此欄位保留但不再使用
         vmid=vmid,
@@ -172,9 +213,12 @@ def _sync_then_delete(session: object, doomed: list) -> None:
     轉發」的孤兒 port：既撤不掉，那個對外 port 也會被重新配給別人。
     """
     from app.repositories import nat_rule as nat_repo
+    from app.services.network import nginx_gateway_service as nginx
 
     if not doomed:
         return
+    # 「剩下的清單」也要在鎖內讀，否則會漏掉同時新增、已同步上去的規則
+    nginx.lock_config_writes(session)
     doomed_ids = {r.id for r in doomed}
     remaining = [
         r

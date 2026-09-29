@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import html as html_lib
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,7 @@ from app.models import (
     AlertEvent,
     AlertMetric,
     AlertScope,
+    AuditAction,
     MiningIncident,
     MiningIncidentStatus,
     Resource,
@@ -34,6 +36,7 @@ from app.models import (
 from app.repositories import governance as governance_repo
 from app.repositories import mining as mining_repo
 from app.repositories import resource as resource_repo
+from app.services.governance.snapshot_cleanup_policy import MINING_SNAPSHOT_PREFIX
 from app.services.proxmox import proxmox_service
 from app.services.security.mining_policy import (
     MiningAction,
@@ -52,11 +55,18 @@ MINING_RESCAN_MINUTES = 30
 # 存證快照最長等待；逾時視同失敗，不阻塞暫停。
 SNAPSHOT_WAIT_TIMEOUT_SECONDS = 60.0
 
-_OPEN_STATUSES = (MiningIncidentStatus.detected, MiningIncidentStatus.suspended)
+# 未結案（待管理員審核）的事件狀態；TTL、閒置偵測與資源告警都以此判斷。
+# 唯一定義在 repository（has_open_incident 同用），這裡只是轉出，不另存一份。
+OPEN_INCIDENT_STATUSES = mining_repo.OPEN_STATUSES
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def open_incident_vmids(session: Session) -> set[int]:
+    """有未結案挖礦事件（detected／suspended）的 vmid（單次查詢）。"""
+    return mining_repo.list_open_incident_vmids(session=session)
 
 
 def _resource_type(pve_type: str) -> Literal["qemu", "lxc"]:
@@ -209,7 +219,7 @@ def process_mining_detection() -> int:
 
 def _snapshot_evidence(incident: MiningIncident, *, now: datetime) -> str | None:
     """存證快照 — best-effort：逾時/失敗回 None，絕不拋出。"""
-    snapname = f"mining-{now:%Y%m%d%H%M}"
+    snapname = f"{MINING_SNAPSHOT_PREFIX}{now:%Y%m%d%H%M}"
     try:
         proxmox_service.create_snapshot(
             incident.node,
@@ -332,22 +342,23 @@ def _teacher_emails(session: Session, user_id: uuid.UUID) -> list[str]:
 def _notify_incident(
     session: Session, incident: MiningIncident, resource: Resource
 ) -> None:
-    from app.services.monitoring.alert_service import (
-        _list_admin_emails,
-    )
+    from app.services.monitoring.alert_service import list_active_admin_emails
 
-    recipients = set(_list_admin_emails(session))
+    recipients = set(list_active_admin_emails(session))
     recipients.update(_teacher_emails(session, incident.user_id))
     owner = resource.user
-    owner_label = (
+    # full_name 由使用者自行填寫，放進 HTML 前一律跳脫，避免在官方安全通知裡
+    # 夾帶連結或標記
+    owner_label = html_lib.escape(
         f"{owner.full_name or owner.email}" if owner is not None else "未知使用者"
     )
+    snapshot_label = html_lib.escape(incident.snapshot_name or "失敗")
     subject = f"[SkyLab 安全] VMID {incident.vmid} 疑似挖礦，已自動處置"
     html = (
         f"<p>系統偵測到 VMID {incident.vmid}（擁有者：{owner_label}）"
         f"過去 {incident.window_hours} 小時平均 CPU "
         f"{incident.avg_cpu:.1f}%，疑似挖礦行為。</p>"
-        f"<p>已執行：存證快照（{incident.snapshot_name or '失敗'}）、"
+        f"<p>已執行：存證快照（{snapshot_label}）、"
         f"{'暫停 VM' if incident.status is MiningIncidentStatus.suspended else '（未暫停）'}。</p>"
         "<p>請管理員至「資源監控 → 挖礦事件」確認後決定停權或解除。</p>"
     )
@@ -419,7 +430,7 @@ def _get_open_incident_for_review(
     session: Session, incident_id: uuid.UUID
 ) -> MiningIncident:
     incident = mining_repo.get_incident(session=session, incident_id=incident_id)
-    if incident.status not in _OPEN_STATUSES:
+    if incident.status not in OPEN_INCIDENT_STATUSES:
         raise BadRequestError(t("mining.incident_already_closed"))
     return incident
 
@@ -461,11 +472,13 @@ def dismiss_incident(
     admin: User,
     exempt: bool,
     note: str | None,
-) -> MiningIncident:
+) -> tuple[MiningIncident, list[str]]:
     """管理員判定誤判 → 恢復 VM（best-effort），可一併加入豁免。
 
     恢復失敗不擋結案，但失敗原因會寫進 ``review_note`` —— 否則管理員只會
     看到「已解除」，不知道機器其實還停著。
+    回傳 tuple 的第二項逐條列出非致命失敗（恢復失敗、存證快照刪除失敗），
+    供 API 回應的 ``warnings`` 欄位使用。
     """
     incident = _get_open_incident_for_review(session, incident_id)
     failures: list[str] = []
@@ -520,4 +533,28 @@ def dismiss_incident(
         "Mining incident dismissed: vmid=%s incident=%s exempt=%s",
         incident.vmid, incident.id, exempt,
     )
-    return incident
+    return incident, failures
+
+
+def set_exemption(
+    *, session: Session, vmid: int, exempt: bool, admin: User
+) -> Resource:
+    """設定/解除資源的挖礦偵測豁免（合法長時間高負載的 VM）。"""
+    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    if resource is None:
+        raise NotFoundError(f"Resource {vmid} not found")
+    resource.mining_exempt = exempt
+    session.add(resource)
+    audit_service.log_action(
+        session=session,
+        user_id=admin.id,
+        vmid=vmid,
+        action=AuditAction.mining_exempt_change,
+        details=(
+            f"Mining exemption {'granted' if exempt else 'revoked'} "
+            f"for vmid={vmid}"
+        ),
+        commit=False,
+    )
+    session.commit()
+    return resource

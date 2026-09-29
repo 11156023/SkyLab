@@ -27,6 +27,7 @@ import {
 import JobDetailDialog from "./JobDetailDialog";
 import { JOB_KIND_LABEL_KEYS } from "./JobRow";
 import { diffJobSnapshot } from "./jobSnapshotDiff";
+import { isAdminUser } from "../../utils/roles";
 
 const NOTIFY_ONLY_MINE_KEY = "jobs:notifyOnlyMine";
 const DESKTOP_PROMPT_TOAST_ID = "desktop-notifications-prompt";
@@ -44,6 +45,14 @@ function loadReadReminderIds(user) {
     return Array.isArray(stored) ? stored : [];
   } catch {
     return [];
+  }
+}
+
+function saveReadReminderIds(user, ids) {
+  try {
+    window.localStorage.setItem(reminderStorageKey(user), JSON.stringify(ids));
+  } catch {
+    // localStorage 不可用時，已讀狀態僅本次瀏覽生效
   }
 }
 
@@ -74,7 +83,8 @@ function describeJobTransition(job, t) {
 const SW_OPEN_JOB_MESSAGE = "skylab:open-job";
 const SW_NAVIGATE_MESSAGE = "skylab:navigate";
 
-/** 推播訂閱狀態：unknown（尚未查）| subscribed | unsubscribed | unsupported | disabled | error */
+/** 把 subscribePush 的結果對應成 pushState（subscribed | unsubscribed | unsupported | disabled）；
+ *  "error" 等其他結果一律當成未訂閱 */
 function describePushResult(result) {
   switch (result) {
     case "subscribed":
@@ -149,7 +159,7 @@ export default function JobsProvider({ children }) {
   const [reminders, setReminders] = useState(null); // 提醒；null = 尚未載入
   const [readReminderIds, setReadReminderIds] = useState(() => loadReadReminderIds(user));
 
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
+  const isAdmin = isAdminUser(user);
   const myUserId = user?.id ?? null;
   // 使用 ref 送進 WS callback，避免 closure 抓舊設定導致 effect 重連
   const filterRef = useRef({ enabled: false, myUserId: null });
@@ -167,7 +177,8 @@ export default function JobsProvider({ children }) {
   const readReminderIdsRef = useRef(readReminderIds);
   readReminderIdsRef.current = readReminderIds;
 
-  /* Web Push（分頁關掉也能收到）：訂閱狀態；WS callback 用 ref 讀，決定要不要自己發背景通知 */
+  /* Web Push（分頁關掉也能收到）：訂閱狀態 unknown（尚未查）| subscribed | unsubscribed | unsupported | disabled；
+     WS callback 用 ref 讀，決定要不要自己發背景通知 */
   const [pushState, setPushState] = useState(() => (isPushSupported() ? "unknown" : "unsupported"));
   const pushSubscribedRef = useRef(false);
   pushSubscribedRef.current = pushState === "subscribed";
@@ -307,22 +318,15 @@ export default function JobsProvider({ children }) {
 
   const persistReadReminderIds = useCallback((ids) => {
     setReadReminderIds(ids);
-    try {
-      window.localStorage.setItem(reminderStorageKey(user), JSON.stringify(ids));
-    } catch {
-      // localStorage 不可用時，已讀狀態僅本次瀏覽生效
-    }
+    saveReadReminderIds(user, ids);
   }, [user]);
 
+  /* 用函式型 updater：連點好幾則提醒時，每次都接在最新的已讀清單後面，不會互相蓋掉 */
   const markReminderRead = useCallback((id) => {
     setReadReminderIds((current) => {
       if (current.includes(id)) return current;
       const next = [...current, id];
-      try {
-        window.localStorage.setItem(reminderStorageKey(user), JSON.stringify(next));
-      } catch {
-        // 同上，靜默降級
-      }
+      saveReadReminderIds(user, next);
       return next;
     });
   }, [user]);

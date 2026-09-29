@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./RequestsPage.module.scss";
-import i18n from "../../../i18n";
 import { VmRequestsService } from "../../../services/vmRequests";
 import { CONSUMED_REQUEST_MARKERS, isConsumedRequest } from "../../../services/pendingResources";
 import {
@@ -24,11 +23,10 @@ import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
-import * as fmt from "../../../utils/formatDate";
+import { formatDate, formatDateTime } from "../../../utils/formatDate";
+import { canTeachUser, isAdminUser } from "../../../utils/roles";
 
 /* ── Constants ── */
-const defaultT = (key) => i18n.t(key, { ns: "personal" });
-
 const STATUS_MAP = {
   pending:   { labelKey: "RequestsPage.statusPending",   color: "info"    },
   approved:  { labelKey: "RequestsPage.statusApproved",  color: "success" },
@@ -80,7 +78,7 @@ function isWaitingForResources(req) {
 }
 
 /* approved 在 UI 上再依開通進度細分（vmid 為空時 provisioning_status 反映開通流程） */
-function getDisplayStatus(req, t = defaultT) {
+function getDisplayStatus(req, t) {
   if (req.status === "approved") {
     if (req.vmid != null) {
       if (req.provisioning_status === "failed") return { label: t("RequestsPage.statusMachineError"), color: "danger" };
@@ -126,14 +124,6 @@ const SPEC_APPLY_POLL_MS = 5000;
 const SPEC_CANCEL_MARKERS = ["Cancelled by requester", "Cancelled by admin"];
 
 /* ── Helpers ── */
-function formatDatetime(isoStr) {
-  return fmt.formatDateTime(isoStr, null);
-}
-
-function formatDate(isoStr) {
-  return fmt.formatDate(isoStr);
-}
-
 function getOsDisplay(req) {
   if (req.os_info) return req.os_info;
   if (req.ostemplate) {
@@ -159,7 +149,7 @@ function StatusBadge({ req }) {
   );
 }
 
-function getSpecDisplay(req, t = defaultT) {
+function getSpecDisplay(req, t) {
   return t("RequestsPage.specDisplay", { cores: req.cores, mem: getMemDisplay(req.memory), storage: req.storage });
 }
 
@@ -210,9 +200,9 @@ function RequestRow({ req, onUpdated }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   /* VMID 是系統內部編號，僅管理員／老師看得到 */
-  const showVmid = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
+  const showVmid = canTeachUser(user);
   /* 原始開通錯誤 log 是給管理員除錯用的，學生／老師只看狀態與操作 */
-  const isAdmin = user?.is_superuser || user?.role === "admin";
+  const isAdmin = isAdminUser(user);
   const confirm = useConfirm();
   const [cancelling, setCancelling]       = useState(false);
   const [retrying, setRetrying]           = useState(false);
@@ -221,8 +211,9 @@ function RequestRow({ req, onUpdated }) {
 
   const type      = RESOURCE_TYPE_MAP[req.resource_type] ?? { label: req.resource_type, icon: "computer" };
   const osDisplay = getOsDisplay(req);
-  const startFmt  = formatDatetime(req.start_at);
-  const endFmt    = formatDatetime(req.end_at);
+  /* 無值時回 null（不是「—」），下方依此決定要不要顯示時段 */
+  const startFmt  = formatDateTime(req.start_at, null);
+  const endFmt    = formatDateTime(req.end_at, null);
 
   const showRejection = req.status === "rejected" && req.review_comment;
   const showFailureLog =
@@ -370,7 +361,7 @@ function SpecRequestRow({ req, onUpdated }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const { user } = useAuth();
-  const showVmid = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
+  const showVmid = canTeachUser(user);
   const confirm = useConfirm();
   const [busy, setBusy]                   = useState(false);
 
@@ -454,7 +445,7 @@ function SpecRequestRow({ req, onUpdated }) {
       </td>
       <td className={styles.td}>{formatDate(req.created_at)}</td>
       <td className={styles.td}>
-        <span className={styles.dateTimeCell}>{formatDatetime(req.applied_at) ?? "—"}</span>
+        <span className={styles.dateTimeCell}>{formatDateTime(req.applied_at)}</span>
       </td>
       <td className={styles.td}>
         <div className={styles.statusCell}>
@@ -529,9 +520,12 @@ export default function RequestsPage() {
   /* AI 助手談完需求後會把推薦配置一起帶過來 */
   const [pendingPrefill, setPendingPrefill] = useState(location.state?.prefill ?? null);
 
-  /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
+  /** silent === true 時不觸發 loading / error state，供背景自動刷新使用。
+   *  必須嚴格比對 true：直接當 onClick 傳入時第一個參數是 click event（truthy）。
+   *  任何一次成功載入都清掉錯誤狀態，背景刷新成功也能讓頁面離開錯誤畫面。 */
   const fetchRequests = useCallback(async (silent = false) => {
-    if (!silent) {
+    const isSilent = silent === true;
+    if (!isSilent) {
       setLoading(true);
       setError(false);
     }
@@ -544,10 +538,11 @@ export default function RequestsPage() {
       // 機器已被刪除／轉範本的申請單只留做稽核，不顯示
       setRequests((res.data ?? []).filter((r) => !isConsumedRequest(r)));
       if (specRes) setSpecRequests(specRes.data ?? []);
+      setError(false);
     } catch {
-      if (!silent) setError(true);
+      if (!isSilent) setError(true);
     } finally {
-      if (!silent) setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   }, []);
 
@@ -607,7 +602,7 @@ export default function RequestsPage() {
 
       <div className={styles.content} data-guide="request-list">
         {error ? (
-          <ErrorState onRetry={fetchRequests} />
+          <ErrorState onRetry={() => fetchRequests()} />
         ) : loading ? (
           <LoadingState fullPage />
         ) : requests.length === 0 && specRequests.length === 0 ? (
@@ -619,7 +614,7 @@ export default function RequestsPage() {
                 <table className={styles.table}>
                   <thead>
                     <tr>
-                      {LIST_COLUMN_KEYS.map((columnKey, idx) => (
+                      {LIST_COLUMN_KEYS.map((columnKey) => (
                         <th key={columnKey} className={styles.th}>{t(columnKey)}</th>
                       ))}
                     </tr>

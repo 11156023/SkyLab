@@ -4,13 +4,7 @@
  */
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import {
-  getVmTopology,
-  listPublishedServices,
-  publishService,
-  replacePublishedService,
-  unpublishService,
-} from "./firewall";
+import { getVmTopology, publishService, replacePublishedService } from "./firewall";
 import { ReverseProxyService } from "./reverseProxy";
 
 function fakeStorage() {
@@ -42,12 +36,10 @@ function lastCall() {
 }
 
 describe("firewall 單台 VM 端點", () => {
-  test("getVmTopology 與 listPublishedServices 的路徑", async () => {
+  test("getVmTopology 的路徑", async () => {
     fetchMock.mockResolvedValue(jsonRes(200, { nodes: [], edges: [] }));
     await getVmTopology(105);
     expect(lastCall().url).toContain("/api/v1/firewall/105/topology");
-    await listPublishedServices(105);
-    expect(lastCall().url).toContain("/api/v1/firewall/105/services");
   });
 
   test("publishService 送出 mode 與網域", async () => {
@@ -68,14 +60,6 @@ describe("firewall 單台 VM 端點", () => {
       current: { port: 80, protocol: "tcp" },
       replacement: { port: 80, mode: "port_forward", external_port: 8080 },
     });
-  });
-
-  test("unpublishService 用 DELETE 帶 port/protocol，protocol 預設 tcp", async () => {
-    fetchMock.mockResolvedValueOnce(jsonRes(200, {}));
-    await unpublishService(105, { port: 22 });
-    const { init, body } = lastCall();
-    expect(init.method).toBe("DELETE");
-    expect(body).toEqual({ port: 22, protocol: "tcp" });
   });
 });
 

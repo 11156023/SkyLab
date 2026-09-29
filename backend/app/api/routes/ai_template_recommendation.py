@@ -1,28 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
-from collections import Counter
-from copy import deepcopy
-from datetime import datetime, timedelta, timezone
-from time import monotonic, perf_counter
+from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlmodel import Session
 
-from app.ai.monitoring import new_ai_request_id
-from app.ai.template_recommendation.config import settings
-from app.ai.template_recommendation.node_service import (
-    build_resource_option_bundle,
-    load_live_device_nodes,
+from app.ai.monitoring import (
+    new_ai_request_id,
+    record_ai_template_call,
+    usage_metrics,
 )
+from app.ai.template_recommendation import options_service
+from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.prompt import (
     build_chat_runtime_context,
     build_chat_system_prompt,
     build_intake_focus_block,
 )
 from app.ai.template_recommendation.recommendation_service import (
+    ensure_recommendation_form_context_within_limits,
     generate_ai_plan,
     infer_intent_from_chat,
     normalize_ai_result,
@@ -40,23 +42,10 @@ from app.ai.utils import (
 from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_user
 from app.core.i18n import t
-from app.core.permissions import Permission, has_permission
 from app.infrastructure.ai.template_recommendation import client
-from app.repositories import vm_request as vm_request_repo
-from app.repositories import vm_template as vm_template_repo
 from app.services.llm_gateway import ai_gateway_service
-from app.services.proxmox import gpu_service
-from app.services.template import template_service
 
 logger = logging.getLogger(__name__)
-
-_GPU_OPTIONS_CACHE_TTL_SECONDS = 20.0
-_LIVE_NODES_CACHE_TTL_SECONDS = 15.0
-_RESOURCE_OPTIONS_CACHE_TTL_SECONDS = 300.0
-_gpu_options_cache: dict[str, Any] = {"at": 0.0, "items": []}
-_live_nodes_cache: dict[str, Any] = {"at": 0.0, "items": []}
-_base_resource_options_cache: dict[str, Any] = {"at": 0.0, "items": None}
-_application_templates_cache: dict[str, Any] = {"at": 0.0, "items": None}
 
 router = APIRouter(
     prefix="/ai/template-recommendation",
@@ -69,263 +58,51 @@ _MODEL_CALL_RATE_LIMIT = Depends(
 )
 
 
-def _latest_user_text(request: ChatRequest) -> str:
-    for message in reversed(request.messages):
-        if str(message.role).strip().lower() == "user":
-            return str(message.content or "")
-    return ""
+async def _record_template_call(**kwargs: Any) -> None:
+    """在 worker thread 記錄 template 呼叫（DB 寫入不可卡住 event loop）。
 
-
-def _should_include_gpu_runtime_context(request: ChatRequest) -> bool:
-    form_context = request.form_context
-    if form_context and (
-        (form_context.resource_type and str(form_context.resource_type).lower() == "vm")
-        or form_context.selected_gpu_mapping_id
-    ):
-        return True
-
-    text = _latest_user_text(request).lower()
-    keywords = (
-        "gpu",
-        "vram",
-        "cuda",
-        "nvidia",
-        "pytorch",
-        "tensorflow",
-        "llm",
-        "yolo",
-        "訓練",
-        "推理",
-        "顯卡",
-    )
-    return any(keyword in text for keyword in keywords)
-
-
-def _get_base_gpu_options_cached() -> list[dict[str, Any]]:
-    now = monotonic()
-    cached_at = float(_gpu_options_cache.get("at") or 0.0)
-    cached_items = list(_gpu_options_cache.get("items") or [])
-    if cached_items and (now - cached_at) <= _GPU_OPTIONS_CACHE_TTL_SECONDS:
-        return [dict(item) for item in cached_items]
-
-    fresh_items = [
-        item.model_dump(mode="json") for item in gpu_service.list_gpu_options()
-    ]
-    _gpu_options_cache["at"] = now
-    _gpu_options_cache["items"] = fresh_items
-    return [dict(item) for item in fresh_items]
-
-
-def _get_live_device_nodes_cached() -> list[Any]:
-    now = monotonic()
-    cached_at = float(_live_nodes_cache.get("at") or 0.0)
-    cached_items = list(_live_nodes_cache.get("items") or [])
-    if cached_at > 0 and (now - cached_at) <= _LIVE_NODES_CACHE_TTL_SECONDS:
-        return [item.model_copy() for item in cached_items]
-
-    fresh_items = load_live_device_nodes()
-    _live_nodes_cache["at"] = now
-    _live_nodes_cache["items"] = fresh_items
-    return [item.model_copy() for item in fresh_items]
-
-
-async def _get_live_device_nodes_safely() -> list[Any]:
-    try:
-        return await asyncio.to_thread(_get_live_device_nodes_cached)
-    except Exception as exc:
-        logger.warning("Unable to refresh live nodes for AI recommendation: %s", exc)
-        return []
-
-
-def _get_base_resource_options_cached() -> dict[str, Any]:
-    now = monotonic()
-    cached_at = float(_base_resource_options_cache.get("at") or 0.0)
-    cached_items = _base_resource_options_cache.get("items")
-    if (
-        cached_items is not None
-        and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS
-    ):
-        return deepcopy(cached_items)
-
-    fresh_items = build_resource_option_bundle(gpu_options=[])
-    fresh_items["gpu_options"] = []
-    _base_resource_options_cache["at"] = now
-    _base_resource_options_cache["items"] = fresh_items
-    return deepcopy(fresh_items)
-
-
-def _build_resource_options_with_gpu(
-    gpu_options: list[dict[str, Any]],
-) -> dict[str, Any]:
-    resource_options = _get_base_resource_options_cached()
-    resource_options["gpu_options"] = [dict(item) for item in gpu_options]
-    return resource_options
-
-
-def _get_application_templates_cached(session: SessionDep) -> list[dict[str, Any]]:
-    """已開放的應用範本目錄。
-
-    目錄與使用者無關（開放與否是範本自己的旗標），所以整個程序共用一份快取；
-    來源一律由伺服器決定，不採用客戶端送來的清單，否則模型的候選會變成前端
-    可以偽造的東西。
+    走 record_ai_template_call 才會同時更新 Prometheus 指標；它本身會吞掉記錄
+    錯誤，記錄失敗不會掩蓋原始結果或錯誤。
     """
-    now = monotonic()
-    cached_at = float(_application_templates_cache.get("at") or 0.0)
-    cached_items = _application_templates_cache.get("items")
-    if (
-        cached_items is not None
-        and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS
-    ):
-        return deepcopy(cached_items)
-    try:
-        catalog = template_service.list_student_catalog(session=session)
-    except Exception as exc:  # pragma: no cover - PVE 失敗不該擋住建議
-        logger.warning("Unable to load the application template catalog: %s", exc)
-        return []
-    items = [
-        {
-            "template_id": item.pve_vmid,
-            "name": item.name,
-            "description": item.description or "",
-            "resource_type": item.resource_type,
-            "cores": item.cores,
-            "memory_mb": item.memory_mb,
-            "disk_gb": item.disk_gb,
-        }
-        for item in catalog
-    ]
-    _application_templates_cache["at"] = now
-    _application_templates_cache["items"] = items
-    return deepcopy(items)
+    await asyncio.to_thread(functools.partial(record_ai_template_call, **kwargs))
 
 
-def _allowed_vm_template_ids(
-    session: SessionDep,
-    user: CurrentUser,
-    application_templates: list[dict[str, Any]],
-) -> set[int]:
-    """使用者實際可以拿來申請的 VM 來源 id（PVE 讀不到時回空集合）。"""
-    base = _get_base_resource_options_cached().get("vm_operating_systems") or []
-    if not base:
-        return set()
-    allowed = {int(item.get("template_id") or 0) for item in base}
-    if not has_permission(user, Permission.TEMPLATE_MANAGE):
-        allowed -= vm_template_repo.registered_pve_vmids(session=session)
-    allowed |= {
-        int(item.get("template_id") or 0)
-        for item in application_templates
-        if str(item.get("resource_type")) != "lxc"
-    }
-    return allowed
-
-
-def _resolve_resource_options(
-    request: ChatRequest,
-    gpu_options: list[dict[str, Any]],
-    session: SessionDep,
-    user: CurrentUser,
-) -> dict[str, Any]:
-    """候選清單必須跟使用者實際能選的一致。
-
-    母範本同時也是 PVE template，所以伺服器端組清單時要濾掉已註冊的範本，
-    再把開放申請的應用範本以獨立清單交給模型；否則模型會推薦到使用者根本
-    申請不到（甚至看不到）的來源。
-    """
-    form_context = request.form_context
-    application_templates = _get_application_templates_cached(session)
-    if form_context and form_context.resource_options_from_client:
-        client_vm_options = [
-            item.model_dump(mode="json") for item in form_context.vm_os_options
-        ]
-        allowed_vm_ids = _allowed_vm_template_ids(session, user, application_templates)
-        if allowed_vm_ids:
-            client_vm_options = [
-                item
-                for item in client_vm_options
-                if int(item.get("template_id") or 0) in allowed_vm_ids
-            ]
-        return {
-            "lxc_os_images": [
-                item.model_dump(mode="json") for item in form_context.lxc_os_options
-            ],
-            "vm_operating_systems": client_vm_options,
-            "application_templates": application_templates,
-            "gpu_options": [dict(item) for item in gpu_options],
-        }
-    resource_options = _build_resource_options_with_gpu(gpu_options)
-    if not has_permission(user, Permission.TEMPLATE_MANAGE):
-        registered = vm_template_repo.registered_pve_vmids(session=session)
-        resource_options["vm_operating_systems"] = [
-            item
-            for item in resource_options.get("vm_operating_systems") or []
-            if int(item.get("template_id") or 0) not in registered
-        ]
-    resource_options["application_templates"] = application_templates
-    return resource_options
-
-
-def _resolve_recommend_gpu_options(
-    request: ChatRequest, *, requires_gpu: bool
-) -> list[dict[str, Any]]:
-    form_context = request.form_context
-    if form_context and form_context.gpu_options:
-        return [item.model_dump(mode="json") for item in form_context.gpu_options]
-
-    selected_gpu_mapping_id = (
-        form_context.selected_gpu_mapping_id if form_context else None
-    )
-    if not requires_gpu and not selected_gpu_mapping_id:
-        return []
-
-    return _get_base_gpu_options_cached()
-
-
-def _resolve_chat_gpu_options(
-    request: ChatRequest, session: SessionDep
-) -> list[dict[str, Any]]:
-    if not _should_include_gpu_runtime_context(request):
-        return []
-
-    options = _get_base_gpu_options_cached()
-    form_context = request.form_context
-    if not form_context or not form_context.start_at or not form_context.end_at:
-        return options
-
-    start_at = form_context.start_at
-    end_at = form_context.end_at
-    if end_at <= start_at:
-        return options
-
-    overlapping = vm_request_repo.get_approved_vm_requests_overlapping_window(
+async def _record_failed_template_call(
+    session: Session,
+    *,
+    user_id: Any,
+    call_type: str,
+    model_name: str,
+    request_id: str,
+    started_at: float,
+    started_at_utc: datetime,
+    exc: Exception,
+) -> None:
+    """記錄失敗的 template 呼叫（chat／recommend 共用）。"""
+    await _record_template_call(
         session=session,
-        window_start=start_at,
-        window_end=end_at,
+        user_id=user_id,
+        call_type=call_type,
+        model_name=model_name,
+        metrics=usage_metrics(
+            {},
+            perf_counter() - started_at,
+            request_id=request_id,
+            started_at=started_at_utc,
+        ),
+        status="error",
+        error_message=str(exc),
     )
-    reserved_counts = Counter(
-        str(item.gpu_mapping_id)
-        for item in overlapping
-        if item.gpu_mapping_id and item.vmid is None
-    )
 
-    adjusted: list[dict[str, Any]] = []
-    for option in options:
-        mapping_id = str(option.get("mapping_id") or "")
-        reserved = int(reserved_counts.get(mapping_id, 0))
-        capacity_count = int(
-            option.get("capacity_count") or option.get("device_count") or 0
-        )
-        used_count = int(option.get("used_count") or 0)
-        available_count = int(option.get("available_count") or 0)
-        if reserved <= 0:
-            adjusted.append(dict(option))
-            continue
 
-        updated = dict(option)
-        updated["used_count"] = min(capacity_count, used_count + reserved)
-        updated["available_count"] = max(0, available_count - reserved)
-        adjusted.append(updated)
-
-    return adjusted
+def _raise_if_upstream_error(exc: Exception) -> None:
+    """模型上游（vLLM）的 HTTP 錯誤一律轉成 502；其他例外交回呼叫端原樣拋出。"""
+    if isinstance(exc, httpx.HTTPError):
+        logger.error("vLLM upstream error: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=t("aiTemplateRecommendation.upstreamError"),
+        ) from exc
 
 
 @router.post(
@@ -346,7 +123,12 @@ async def chat(
 
     is_first_turn = len(request.messages) <= 1
     form_context = request.form_context
-    gpu_options = _resolve_chat_gpu_options(request, session)
+    # 同步的 PVE／DB 呼叫一律丟到 worker thread：async 路由直接呼叫會在 PVE 慢或
+    # 連線池耗盡時凍住整個 event loop（VNC／終端機／教室 WS 一起卡住）。
+    # session 同一時間只交給一個 thread 依序使用，是安全的。
+    gpu_options = await asyncio.to_thread(
+        options_service.resolve_chat_gpu_options, request, session
+    )
     runtime_context = (
         build_chat_runtime_context(
             resource_type=(form_context.resource_type if form_context else None),
@@ -401,75 +183,51 @@ async def chat(
     started_at_utc = datetime.now(timezone.utc)
     try:
         data = await client.create_chat_completion(payload, request_id=request_id)
-        elapsed_seconds = max(perf_counter() - started_at, 0.0)
-        completed_at = datetime.now(timezone.utc)
-        raw_usage = data.get("usage")
-        usage_reported = isinstance(raw_usage, dict)
-        usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
-        input_tokens = int(usage.get("prompt_tokens") or 0)
-        output_tokens = int(usage.get("completion_tokens") or 0)
-        total_tokens = int(usage.get("total_tokens") or (input_tokens + output_tokens))
-        tokens_per_second = (
-            output_tokens / elapsed_seconds if elapsed_seconds > 0 else 0.0
+        metrics = usage_metrics(
+            data,
+            perf_counter() - started_at,
+            request_id=request_id,
+            started_at=started_at_utc,
         )
-        duration_ms = int(elapsed_seconds * 1000)
-
         content = strip_think_tags(data["choices"][0]["message"]["content"] or "")
 
-        # 記錄 template chat 呼叫
-        try:
-            ai_gateway_service.record_template_call(
-                session=session,
-                user_id=current_user.id,
-                call_type="chat",
-                model_name=model_name,
-                request_id=request_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                request_duration_ms=duration_ms,
-                usage_reported=usage_reported,
-                response_model=str(data.get("model") or "")[:255] or None,
-                status="success",
-                started_at=started_at_utc,
-                completed_at=completed_at,
-            )
-        except Exception as rec_err:
-            logger.error("Failed to record template chat usage: %s", rec_err)
+        await _record_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="chat",
+            model_name=model_name,
+            metrics=metrics,
+            status="success",
+        )
 
+        elapsed_seconds = float(metrics["elapsed_seconds"])
+        completion_tokens = int(metrics["completion_tokens"])
         return ChatResponse(
             reply=content,
-            prompt_tokens=input_tokens,
-            completion_tokens=output_tokens,
-            total_tokens=total_tokens,
-            elapsed_seconds=round(elapsed_seconds, 3),
-            tokens_per_second=round(tokens_per_second, 2),
+            prompt_tokens=int(metrics["prompt_tokens"]),
+            completion_tokens=completion_tokens,
+            total_tokens=int(metrics["total_tokens"]),
+            elapsed_seconds=elapsed_seconds,
+            tokens_per_second=(
+                round(completion_tokens / elapsed_seconds, 2)
+                if elapsed_seconds > 0
+                else 0.0
+            ),
         )
     except HTTPException:
         raise
     except Exception as exc:
-        # 記錄失敗
-        try:
-            ai_gateway_service.record_template_call(
-                session=session,
-                user_id=current_user.id,
-                call_type="chat",
-                model_name=model_name,
-                request_id=request_id,
-                request_duration_ms=int((perf_counter() - started_at) * 1000),
-                status="error",
-                error_message=str(exc)[:500],
-                started_at=started_at_utc,
-                completed_at=datetime.now(timezone.utc),
-            )
-        except Exception:
-            # 記錄失敗 log 時出錯不得掩蓋原始錯誤
-            pass
-        if isinstance(exc, httpx.HTTPError):
-            logger.error("vLLM upstream error: %s", exc)
-            raise HTTPException(
-                status_code=502,
-                detail=t("aiTemplateRecommendation.upstreamError"),
-            ) from exc
+        await _record_failed_template_call(
+            session,
+            user_id=current_user.id,
+            call_type="chat",
+            model_name=model_name,
+            request_id=request_id,
+            started_at=started_at,
+            started_at_utc=started_at_utc,
+            exc=exc,
+        )
+        _raise_if_upstream_error(exc)
         raise
 
 
@@ -490,9 +248,13 @@ async def recommend(
     # Keep recommendation to one model round-trip. The planner receives recent
     # conversation verbatim and resolves final intent there.
     extracted_intent = infer_intent_from_chat(request)
-    live_nodes_task = asyncio.create_task(_get_live_device_nodes_safely())
+    live_nodes_task = asyncio.create_task(
+        options_service.get_live_device_nodes_safely()
+    )
     form_context = request.form_context
-    gpu_options = _resolve_recommend_gpu_options(
+    # 同步 PVE／DB 呼叫丟到 worker thread，理由同 chat
+    gpu_options = await asyncio.to_thread(
+        options_service.resolve_recommend_gpu_options,
         request,
         requires_gpu=extracted_intent.requires_gpu,
     )
@@ -507,11 +269,16 @@ async def recommend(
         needs_windows=extracted_intent.needs_windows,
         device_nodes=request.device_nodes,
         form_context=form_context,
-        top_k=request.top_k,
     )
+    # 表單快照過大屬於客戶端錯誤：在記錄用量的 try 之前就擋掉（與 /chat 一致）
+    ensure_recommendation_form_context_within_limits(merged_request)
 
-    resource_options = _resolve_resource_options(
-        request, gpu_options, session, current_user
+    resource_options = await asyncio.to_thread(
+        options_service.resolve_resource_options,
+        request,
+        gpu_options,
+        session,
+        current_user,
     )
 
     try:
@@ -542,53 +309,30 @@ async def recommend(
         result["ai_metrics"] = ai_metrics
         result["resource_options"] = resource_options
 
-        # 記錄 template recommend 呼叫
-        try:
-            ai_gateway_service.record_template_call(
-                session=session,
-                user_id=current_user.id,
-                call_type="recommend",
-                model_name=model_name,
-                preset=merged_request.preset,
-                request_id=request_id,
-                input_tokens=int(ai_metrics.get("prompt_tokens") or 0),
-                output_tokens=int(ai_metrics.get("completion_tokens") or 0),
-                request_duration_ms=int((perf_counter() - started_at) * 1000),
-                usage_reported=bool(ai_metrics.get("usage_reported", False)),
-                response_model=str(ai_metrics.get("response_model") or "")[:255]
-                or None,
-                status="success",
-                started_at=started_at_utc,
-                completed_at=datetime.now(timezone.utc),
-            )
-        except Exception as rec_err:
-            logger.error("Failed to record template recommend usage: %s", rec_err)
+        # 記錄 template recommend 呼叫（耗時為模型呼叫本身，由 generate_ai_plan 量測）
+        await _record_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="recommend",
+            model_name=model_name,
+            preset=merged_request.preset,
+            metrics=ai_metrics,
+            status="success",
+        )
 
         return result
     except Exception as exc:
-        elapsed_seconds = max(perf_counter() - started_at, 0.0)
-        try:
-            ai_gateway_service.record_template_call(
-                session=session,
-                user_id=current_user.id,
-                call_type="recommend",
-                model_name=model_name,
-                request_id=request_id,
-                request_duration_ms=int(elapsed_seconds * 1000),
-                status="error",
-                error_message=str(exc)[:500],
-                started_at=started_at_utc,
-                completed_at=datetime.now(timezone.utc),
-            )
-        except Exception:
-            # 記錄失敗 log 時出錯不得掩蓋原始錯誤
-            pass
-        if isinstance(exc, httpx.HTTPError):
-            logger.error("vLLM upstream error: %s", exc)
-            raise HTTPException(
-                status_code=502,
-                detail=t("aiTemplateRecommendation.upstreamError"),
-            ) from exc
+        await _record_failed_template_call(
+            session,
+            user_id=current_user.id,
+            call_type="recommend",
+            model_name=model_name,
+            request_id=request_id,
+            started_at=started_at,
+            started_at_utc=started_at_utc,
+            exc=exc,
+        )
+        _raise_if_upstream_error(exc)
         raise
 
 
@@ -598,16 +342,16 @@ def get_my_template_usage(
     session: SessionDep,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    tz: str | None = Query(default=None, max_length=64),
 ):
     """查看當前使用者的 Template 呼叫統計（最近 30 天）"""
-    if not end_date:
-        end_date = datetime.now(timezone.utc)
-    if not start_date:
-        start_date = end_date - timedelta(days=30)
-
+    start_date, end_date = ai_gateway_service.default_usage_window(
+        start_date, end_date
+    )
     return ai_gateway_service.get_user_template_usage_stats(
         session=session,
         user_id=current_user.id,
         start_date=start_date,
         end_date=end_date,
+        tz=tz,
     )

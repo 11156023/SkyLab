@@ -12,14 +12,15 @@ from typing import Any
 
 from sqlmodel import Session, col, select
 
+# Single definition lives in the dependency-free script_policy module (shared
+# with the deterministic compiler); re-exported here for existing callers.
+from app.ai.teacher_judge.script_policy import PEER_IP_TOKEN
 from app.infrastructure.proxmox.os_detection import format_os_token
 from app.models.resource import Resource
 from app.models.teaching_class import (
     TeachingClassMachineNode,
     TeachingClassStudentMachine,
 )
-
-PEER_IP_TOKEN = "{{peer.ip}}"
 
 
 def load_class_machine_nodes(

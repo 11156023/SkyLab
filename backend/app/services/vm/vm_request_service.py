@@ -55,6 +55,7 @@ from app.services.vm import (
     workload_advisor,
 )
 from app.services.vm.placement_service import CurrentPlacementSelection
+from app.utils.timeutil import normalize_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -123,12 +124,8 @@ def _approve_and_place(
     Shared helper used by both ``create()`` (auto-approve) and ``review()``.
     The caller is responsible for committing the session.
     """
-    start_at = db_request.start_at
-    end_at = db_request.end_at
-    if start_at and start_at.tzinfo is None:
-        start_at = start_at.replace(tzinfo=UTC)
-    if end_at and end_at.tzinfo is None:
-        end_at = end_at.replace(tzinfo=UTC)
+    start_at = normalize_datetime(db_request.start_at)
+    end_at = normalize_datetime(db_request.end_at)
 
     # For requests with a finite end_at, lock overlapping requests for the window.
     if start_at and end_at:
@@ -206,10 +203,16 @@ def _approve_and_place(
     ]
     approved_requests.append(db_request)
 
-    selections = vm_request_placement_service.rebuild_reserved_assignments(
-        session=session,
-        requests=approved_requests,
-    )
+    try:
+        selections = vm_request_placement_service.rebuild_reserved_assignments(
+            session=session,
+            requests=approved_requests,
+        )
+    except ValueError as exc:
+        # 重排保留時任何一張已核准申請（含本張）放不下都會丟 ValueError；
+        # 轉成在地化的 400，避免自動核准路徑回 500、審核路徑外洩內部 UUID
+        logger.info("Reservation rebuild failed for %s: %s", db_request.id, exc)
+        raise BadRequestError(t("vm_request.no_node_after_reservations")) from exc
     for request in approved_requests:
         if request.vmid is not None:
             current_node = request.actual_node or request.assigned_node
@@ -343,12 +346,15 @@ def create(
             _require_template_gpu(request_in, source_template)
 
     # ---------- 配額執法（E7）：寫入前先擋 ----------
+    # 與 _reserved_by_requests／provision 同一套規格換算（LXC 看 rootfs_size、
+    # VM 看 disk_size，未填時用預設值），否則可以用另一個欄位騙過送單時的配額
+    req_cores, req_memory_mb, req_disk_gb = quota_service.request_specs(request_in)
     quota_service.check_quota(
         session,
         user.id,
-        delta_cores=int(request_in.cores or 0),
-        delta_memory_mb=int(request_in.memory or 0),
-        delta_disk_gb=int(request_in.disk_size or request_in.rootfs_size or 0),
+        delta_cores=req_cores,
+        delta_memory_mb=req_memory_mb,
+        delta_disk_gb=req_disk_gb,
         delta_instances=1,
     )
 
@@ -416,26 +422,26 @@ def create(
         require_immediate_vm_request_access(user)
         # Set start_at to now; end_at can be None (infinite) or user-specified.
         request_in.start_at = _utc_now()
-        if request_in.end_at is not None:
-            end_at = request_in.end_at
-            if end_at.tzinfo is None:
-                end_at = end_at.replace(tzinfo=UTC)
-            if end_at <= request_in.start_at:
+        immediate_end_at = normalize_datetime(request_in.end_at)
+        if immediate_end_at is not None:
+            if immediate_end_at <= request_in.start_at:
                 raise BadRequestError(t("vm_request.end_before_start"))
+            vm_request_availability_service.ensure_window_bounds(
+                start_at=request_in.start_at, end_at=immediate_end_at
+            )
     else:
         # scheduled mode -- both start_at and end_at are required
-        if request_in.start_at is None or request_in.end_at is None:
+        start_at = normalize_datetime(request_in.start_at)
+        end_at = normalize_datetime(request_in.end_at)
+        if start_at is None or end_at is None:
             raise BadRequestError(
                 t("vm_request.scheduled_requires_window")
             )
-        start_at = request_in.start_at
-        end_at = request_in.end_at
-        if start_at.tzinfo is None:
-            start_at = start_at.replace(tzinfo=UTC)
-        if end_at.tzinfo is None:
-            end_at = end_at.replace(tzinfo=UTC)
         if end_at <= start_at:
             raise BadRequestError(t("vm_request.end_before_start"))
+        vm_request_availability_service.ensure_window_bounds(
+            start_at=start_at, end_at=end_at
+        )
 
     # Only validate window when both start_at and end_at are present.
     # Immediate mode with end_at=None (infinite) skips window validation
@@ -467,11 +473,16 @@ def create(
     # ---------- role branching ----------
     auto_approved = False
     if can_auto_approve_vm_request(user, mode=mode):
-        _approve_and_place(
-            session=session,
-            db_request=db_request,
-            reviewer_id=user.id,
-        )
+        try:
+            _approve_and_place(
+                session=session,
+                db_request=db_request,
+                reviewer_id=user.id,
+            )
+        except BadRequestError:
+            # 放不下就整張不建立，不留下未核准也未排程的半成品
+            session.rollback()
+            raise
         auto_approved = True
     # Otherwise (student, or teacher+scheduled): stays pending
 
@@ -491,11 +502,12 @@ def create(
     )
     session.commit()
 
-    # For immediate or quick-template auto-approved requests, trigger
-    # provisioning right away in the background so the HTTP request returns
-    # immediately (a VM clone can take 30+ seconds and must not block the
-    # request handler).
-    if auto_approved and mode in {"immediate", "quick_template"}:
+    # For auto-approved immediate requests, trigger provisioning right away in
+    # the background so the HTTP request returns immediately (a VM clone can
+    # take 30+ seconds and must not block the request handler).
+    # (quick_template mode is rejected above; quick practice provisions via
+    # its own orchestrator.)
+    if auto_approved and mode == "immediate":
         _submit_provision(session, db_request)
 
     logger.info(f"User {user.email} submitted VM request {db_request.id}")
@@ -547,20 +559,21 @@ def create_quick_practice_request(
 
 
 def _submit_provision(session: Session, db_request: VMRequest) -> None:
-    """把已核准、可立即開始的申請單入列給 arq worker clone。"""
-    governance = governance_repo.get_governance_config(session=session)
-    provision_pool.submit_provision(
-        session,
-        request_id=db_request.id,
-        user_id=db_request.user_id,
-        concurrency=governance.provision_max_concurrency,
+    """把已核准、可立即開始的申請單入列給 arq worker clone（commit 後呼叫）。"""
+    submit_course_provision(
+        session, request_id=db_request.id, user_id=db_request.user_id
     )
 
 
 def submit_course_provision(
     session: Session, *, request_id: uuid.UUID, user_id: uuid.UUID
 ) -> None:
-    """課程實驗機 provision 入列（commit 後呼叫）。"""
+    """把已核准的申請單入列給 arq worker clone（commit 後呼叫）。
+
+    名稱沿用舊稱，實際是所有申請單共用的 provision 入口：本模組的
+    _submit_provision 與快速練習（quick_practice）都走這裡。
+    併發上限取自 GovernanceConfig.provision_max_concurrency。
+    """
     governance = governance_repo.get_governance_config(session=session)
     provision_pool.submit_provision(
         session,
@@ -570,11 +583,6 @@ def submit_course_provision(
     )
 
 
-def _public_for_personal_view(req: VMRequest) -> VMRequestPublic:
-    """Return the personal-view request payload with the real backend status."""
-    return _to_public(req)
-
-
 def list_by_user(
     *, session: Session, user_id: uuid.UUID, skip: int = 0, limit: int = 100
 ) -> VMRequestsPublic:
@@ -582,7 +590,7 @@ def list_by_user(
         session=session, user_id=user_id, skip=skip, limit=limit
     )
     return VMRequestsPublic(
-        data=[_public_for_personal_view(r) for r in requests], count=count
+        data=[_to_public(r) for r in requests], count=count
     )
 
 
@@ -628,18 +636,13 @@ def get_review_context(
 
     require_vm_request_review(current_user)
 
-    start_at = db_request.start_at
-    end_at = db_request.end_at
+    start_at = normalize_datetime(db_request.start_at)
     if not start_at:
         raise BadRequestError(t("vm_request.window_required_for_review"))
-    if start_at.tzinfo is None:
-        start_at = start_at.replace(tzinfo=UTC)
     # Use a far-future sentinel when end_at is None (infinite request).
-    effective_end_at = end_at
+    effective_end_at = normalize_datetime(db_request.end_at)
     if effective_end_at is None:
         effective_end_at = _utc_now() + timedelta(days=3650)
-    elif effective_end_at.tzinfo is None:
-        effective_end_at = effective_end_at.replace(tzinfo=UTC)
 
     overlapping_requests = [
         item
@@ -846,14 +849,9 @@ def review(
                 raise BadRequestError(
                     t("vm_request.window_required_before_approval")
                 )
-            end_at = db_request.end_at
-            if end_at is not None:
-                if end_at.tzinfo is None:
-                    end_at = end_at.replace(tzinfo=UTC)
-                if end_at <= _utc_now():
-                    raise BadRequestError(
-                        t("vm_request.window_already_ended")
-                    )
+            end_at = normalize_datetime(db_request.end_at)
+            if end_at is not None and end_at <= _utc_now():
+                raise BadRequestError(t("vm_request.window_already_ended"))
 
             reservation = _approve_and_place(
                 session=session,
@@ -935,10 +933,8 @@ def review(
         and refreshed.status == VMRequestStatus.approved
         and refreshed.start_at is not None
     ):
-        start_at = refreshed.start_at
-        if start_at.tzinfo is None:
-            start_at = start_at.replace(tzinfo=UTC)
-        if start_at <= _utc_now():
+        start_at = normalize_datetime(refreshed.start_at)
+        if start_at is not None and start_at <= _utc_now():
             _submit_provision(session, refreshed)
     return _to_public(refreshed)
 

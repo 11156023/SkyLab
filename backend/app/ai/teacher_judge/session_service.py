@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, TypedDict
+from typing import Any, TypedDict, TypeGuard
 
 import sqlalchemy as sa
 from fastapi import HTTPException
@@ -26,9 +26,8 @@ from app.ai.teacher_judge.automation_support import (
 )
 from app.ai.teacher_judge.file_service import (
     FileDeleteStage,
-    _stored_path,
-    _unlink_if_exists,
     clone_file_asset,
+    discard_file_asset,
     finalize_file_delete,
     restore_file_delete,
     stage_file_delete,
@@ -388,6 +387,20 @@ def _workflow_metadata(
     return metadata
 
 
+def _proposal_candidate(raw: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Unwrap one proposal row into (item copy, lower-cased operation).
+
+    Rows may nest the item under ``item`` or be the item itself; the operation
+    is accepted under the ``operation`` / ``action`` / ``op`` aliases.
+    """
+    nested = raw.get("item")
+    candidate = dict(nested) if isinstance(nested, dict) else dict(raw)
+    operation = str(
+        raw.get("operation") or raw.get("action") or raw.get("op") or ""
+    ).lower()
+    return candidate, operation
+
+
 def reanalysis_workflow_message(
     blockers: list[AutomationSupportBlocker] | None,
     *,
@@ -404,11 +417,7 @@ def reanalysis_workflow_message(
     for raw in (proposal or [])[:WORKFLOW_ITEM_LIMIT]:
         if not isinstance(raw, dict):
             continue
-        candidate = raw.get("item")
-        candidate = dict(candidate) if isinstance(candidate, dict) else dict(raw)
-        operation = str(
-            raw.get("operation") or raw.get("action") or raw.get("op") or ""
-        ).lower()
+        candidate, operation = _proposal_candidate(raw)
         item_id = _workflow_item_id(candidate)
         if not item_id:
             continue
@@ -442,10 +451,9 @@ def reanalysis_workflow_message(
     for blocker in blocker_rows:
         item_id = blocker.get("item_id")
         if item_id and item_id in rows_by_item_id:
-            proposal_row = rows_by_item_id[item_id]
-            proposal_row.update(blocker)
-            if "operation" in rows_by_item_id[item_id]:
-                proposal_row["operation"] = rows_by_item_id[item_id]["operation"]
+            # Blocker rows never carry an "operation" key, so the proposal's
+            # operation survives the merge.
+            rows_by_item_id[item_id].update(blocker)
         else:
             proposal_rows.append(blocker)
     workflow_rows = proposal_rows
@@ -633,11 +641,7 @@ def apply_proposal_operations_to_analysis(
     for raw in proposal or []:
         if not isinstance(raw, dict):
             continue
-        nested = raw.get("item")
-        candidate = dict(nested) if isinstance(nested, dict) else dict(raw)
-        operation = str(
-            raw.get("operation") or raw.get("action") or raw.get("op") or ""
-        ).lower()
+        candidate, operation = _proposal_candidate(raw)
         item_id = str(candidate.get("id") or "").strip()
         if operation in {"delete", "remove"}:
             if item_id:
@@ -678,15 +682,22 @@ def normalize_message_text(value: str) -> str:
     return _WHITESPACE_ENTITIES.sub(" ", value)
 
 
+def _is_active_class_file(
+    file: TeacherJudgeFile | None, class_id: uuid.UUID
+) -> TypeGuard[TeacherJudgeFile]:
+    """True when the rubric file exists, belongs to the class and is active."""
+    return (
+        file is not None
+        and file.teaching_class_id == class_id
+        and file.status == TeacherJudgeFileStatus.active
+    )
+
+
 def require_selected_file(db: Session, item: TeacherJudgeSession) -> TeacherJudgeFile:
     if not item.selected_file_id:
         raise HTTPException(status_code=409, detail=t("session.no_rubric_selected"))
     file = db.get(TeacherJudgeFile, item.selected_file_id)
-    if (
-        not file
-        or file.teaching_class_id != item.teaching_class_id
-        or file.status != TeacherJudgeFileStatus.active
-    ):
+    if not _is_active_class_file(file, item.teaching_class_id):
         raise HTTPException(
             status_code=409, detail=t("session.selected_file_unavailable")
         )
@@ -782,12 +793,7 @@ def delete_session_data(db: Session, item: TeacherJudgeSession) -> None:
         raise
     else:
         finalize_file_delete(source_file_stage)
-        for attachment in attachment_rows:
-            try:
-                storage_path(attachment).unlink(missing_ok=True)
-            except OSError:
-                # 附件實體檔刪不掉不影響 DB 刪除，留給清理排程處理
-                pass
+        finalize_cleared_attachments(attachment_rows)
 
 
 def _reset_summary_state(item: TeacherJudgeSession) -> None:
@@ -892,11 +898,7 @@ def validate_selected_file(
     if file_id is None:
         return
     file = db.get(TeacherJudgeFile, file_id)
-    if (
-        not file
-        or file.teaching_class_id != class_id
-        or file.status != TeacherJudgeFileStatus.active
-    ):
+    if not _is_active_class_file(file, class_id):
         raise HTTPException(
             status_code=400,
             detail=t("session.file_not_in_class"),
@@ -1071,11 +1073,7 @@ def fork_session_data(
     try:
         if source.selected_file_id:
             source_file = db.get(TeacherJudgeFile, source.selected_file_id)
-            if (
-                source_file is None
-                or source_file.teaching_class_id != source.teaching_class_id
-                or source_file.status != TeacherJudgeFileStatus.active
-            ):
+            if not _is_active_class_file(source_file, source.teaching_class_id):
                 raise HTTPException(
                     status_code=409, detail=t("session.fork_file_unavailable")
                 )
@@ -1100,24 +1098,9 @@ def fork_session_data(
         return clone
     except Exception:
         db.rollback()
-        if cloned_file and cloned_file.original_filename:
-            _unlink_if_exists(_stored_path(cloned_file.id, cloned_file.original_filename))
+        if cloned_file:
+            discard_file_asset(cloned_file)
         raise
-
-
-def message_attachments(
-    db: Session, message_id: uuid.UUID
-) -> list[TeacherJudgeSessionAttachment]:
-    return list(
-        db.exec(
-            select(TeacherJudgeSessionAttachment)
-            .where(TeacherJudgeSessionAttachment.message_id == message_id)
-            .order_by(
-                col(TeacherJudgeSessionAttachment.created_at),
-                col(TeacherJudgeSessionAttachment.id),
-            )
-        )
-    )
 
 
 def message_attachments_by_message_ids(
@@ -1162,23 +1145,34 @@ def message_public(
 
 
 def _message_context(
-    db: Session,
     row: TeacherJudgeSessionMessage,
     *,
+    attachments: list[TeacherJudgeSessionAttachment],
     include_attachments: bool = True,
-    attachments: list[TeacherJudgeSessionAttachment] | None = None,
     compact_attachments: bool = False,
 ) -> str:
-    if not include_attachments:
-        return row.content
-    attachment_rows = (
-        attachments if attachments is not None else message_attachments(db, row.id)
-    )
-    if not attachment_rows:
+    if not include_attachments or not attachments:
         return row.content
     if compact_attachments:
-        return f"{row.content}\n\n{attachment_compact_context(attachment_rows)}"
-    return f"{row.content}\n\n{attachment_context(attachment_rows)}"
+        return f"{row.content}\n\n{attachment_compact_context(attachments)}"
+    return f"{row.content}\n\n{attachment_context(attachments)}"
+
+
+def _is_assistant_boundary(
+    message: TeacherJudgeSessionMessage | None, session_id: uuid.UUID
+) -> TypeGuard[TeacherJudgeSessionMessage]:
+    """True when ``message`` can bound history/summary for ``session_id``.
+
+    A boundary must be a real assistant reply of the same session; system
+    notices never count.  ``_persist_summary_if_current`` states the same rule
+    in SQL.
+    """
+    return (
+        message is not None
+        and message.session_id == session_id
+        and message.role == TeacherJudgeMessageRole.assistant
+        and message.message_type != TeacherJudgeMessageType.system_notice
+    )
 
 
 def bounded_history(
@@ -1200,12 +1194,7 @@ def bounded_history(
     )
     if through_message_id is not None:
         boundary = db.get(TeacherJudgeSessionMessage, through_message_id)
-        if (
-            boundary is None
-            or boundary.session_id != session_id
-            or boundary.role != TeacherJudgeMessageRole.assistant
-            or boundary.message_type == TeacherJudgeMessageType.system_notice
-        ):
+        if not _is_assistant_boundary(boundary, session_id):
             return []
         statement = statement.where(
             (TeacherJudgeSessionMessage.created_at < boundary.created_at)
@@ -1221,12 +1210,7 @@ def bounded_history(
         summary_boundary = db.get(
             TeacherJudgeSessionMessage, summary_through_message_id
         )
-        if (
-            summary_boundary is not None
-            and summary_boundary.session_id == session_id
-            and summary_boundary.role == TeacherJudgeMessageRole.assistant
-            and summary_boundary.message_type != TeacherJudgeMessageType.system_notice
-        ):
+        if _is_assistant_boundary(summary_boundary, session_id):
             statement = statement.where(
                 (TeacherJudgeSessionMessage.created_at > summary_boundary.created_at)
                 | (
@@ -1271,7 +1255,6 @@ def bounded_history(
                 compact_history_attachments and row.id != latest_row_id
             )
             content_by_id[row.id] = _message_context(
-                db,
                 row,
                 include_attachments=row.id != exclude_attachments_for_message_id,
                 attachments=attachments_by_message_id.get(row.id, []),
@@ -1404,9 +1387,7 @@ def _prepare_summary_job(
     if selected_file_id is not None:
         file = db.get(TeacherJudgeFile, selected_file_id)
         if (
-            file is None
-            or file.teaching_class_id != item.teaching_class_id
-            or file.status != TeacherJudgeFileStatus.active
+            not _is_active_class_file(file, item.teaching_class_id)
             or file.analysis_revision != analysis_revision
         ):
             return None
@@ -1414,12 +1395,7 @@ def _prepare_summary_job(
     if _assistant_message_count(db, session_id) < assistant_count:
         return None
     boundary = db.get(TeacherJudgeSessionMessage, boundary_message_id)
-    if (
-        boundary is None
-        or boundary.session_id != session_id
-        or boundary.role != TeacherJudgeMessageRole.assistant
-        or boundary.message_type == TeacherJudgeMessageType.system_notice
-    ):
+    if not _is_assistant_boundary(boundary, session_id):
         return None
     messages = tuple(
         bounded_history(
@@ -1568,22 +1544,13 @@ def schedule_summary(
         if boundary_message_id is not None
         else _latest_assistant_message(db, current.id)
     )
-    if (
-        boundary is None
-        or boundary.session_id != current.id
-        or boundary.role != TeacherJudgeMessageRole.assistant
-        or boundary.message_type == TeacherJudgeMessageType.system_notice
-    ):
+    if not _is_assistant_boundary(boundary, current.id):
         return ""
     selected_file_id = current.selected_file_id
     analysis_revision: int | None = None
     if selected_file_id is not None:
         file = db.get(TeacherJudgeFile, selected_file_id)
-        if (
-            file is None
-            or file.teaching_class_id != current.teaching_class_id
-            or file.status != TeacherJudgeFileStatus.active
-        ):
+        if not _is_active_class_file(file, current.teaching_class_id):
             return ""
         analysis_revision = file.analysis_revision
     task_id = f"teacher-judge-summary:{current.id}:{boundary.id}"

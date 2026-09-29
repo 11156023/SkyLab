@@ -1,31 +1,4 @@
-from __future__ import annotations
+"""網路相關服務：防火牆、NAT、反向代理、Gateway（nginx／WireGuard）、Cloudflare、IP 管理（另有 VM 快照 snapshot_service）。
 
-from importlib import import_module
-
-__all__ = [
-    "cloudflare_service",
-    "firewall_service",
-    "gateway_service",
-    "nat_service",
-    "nginx_gateway_service",
-    "nginx_runtime_service",
-    "reverse_proxy_service",
-    "snapshot_service",
-]
-
-_MODULES = {
-    "cloudflare_service": "app.services.network.cloudflare_service",
-    "firewall_service": "app.services.network.firewall_service",
-    "gateway_service": "app.services.network.gateway_service",
-    "nat_service": "app.services.network.nat_service",
-    "nginx_gateway_service": "app.services.network.nginx_gateway_service",
-    "nginx_runtime_service": "app.services.network.nginx_runtime_service",
-    "reverse_proxy_service": "app.services.network.reverse_proxy_service",
-    "snapshot_service": "app.services.network.snapshot_service",
-}
-
-
-def __getattr__(name: str):
-    if name in _MODULES:
-        return import_module(_MODULES[name])
-    raise AttributeError(name)
+各模組直接以 ``from app.services.network import firewall_service`` 這類子模組匯入使用。
+"""

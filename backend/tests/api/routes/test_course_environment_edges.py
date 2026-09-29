@@ -10,14 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.routes import course_environments as routes
-from app.api.routes.course_environments import (
+from app.exceptions import BadRequestError
+from app.schemas.course_environment import (
     EnvironmentEdgeIn,
     EnvironmentNodeIn,
     EnvironmentPublicationIn,
-    _validate_configuration,
 )
-from app.exceptions import BadRequestError
+from app.services.course_environment import environment_service
 
 LXC_IMAGE = "local:vztmpl/debian.tar.zst"
 OWNER = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
@@ -27,7 +26,7 @@ OWNER = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
 def _lxc_templates(monkeypatch):
     """自訂 LXC 來源現在會驗映像是否存在，這裡給一份固定的節點對照表。"""
     monkeypatch.setattr(
-        routes.proxmox_service,
+        environment_service.proxmox_service,
         "get_lxc_template_node_map",
         lambda: {LXC_IMAGE: {"pve"}},
     )
@@ -61,7 +60,9 @@ NODES = [_node("web"), _node("db")]
 
 
 def _validate(edges, publications=None):
-    _validate_configuration(None, NODES, edges, publications, owner=OWNER)
+    environment_service.validate_configuration(
+        None, NODES, edges, publications, owner=OWNER
+    )
 
 
 def _publication(node="web", *, port=80, hostname="{student}-web"):

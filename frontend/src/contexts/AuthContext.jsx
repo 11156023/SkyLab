@@ -13,6 +13,7 @@ import {
   restoreStoredSession,
 } from "../services/authSession";
 import { unsubscribePush } from "../services/webPush";
+import { AiContextualHelpService } from "../services/aiContextualHelp";
 
 const AuthContext = createContext(null);
 
@@ -59,6 +60,15 @@ export function AuthProvider({ children }) {
   const expiryTimerRef = useRef(null);
   const refreshGenerationRef = useRef(0);
   const sessionAbortRef = useRef(null);
+  /** 依身分快取的資料（AI 畫面清單等）目前屬於哪個 session。 */
+  const cachedSessionRef = useRef(null);
+
+  /** 登出或換 session 時清掉依身分快取的資料，免得下一個帳號沿用上一個的內容。 */
+  const syncIdentityCaches = useCallback((sessionId) => {
+    if (cachedSessionRef.current === sessionId) return;
+    cachedSessionRef.current = sessionId;
+    AiContextualHelpService.resetSurfaces();
+  }, []);
 
   const clearExpiryTimer = useCallback(() => {
     refreshGenerationRef.current += 1;
@@ -105,6 +115,7 @@ export function AuthProvider({ children }) {
     unsubscribePush().catch(() => {});
 
     AuthStorage.clearTokens();
+    syncIdentityCaches(null);
     setLoginPreflight(false);
     setSession({
       status: AuthSessionStatus.ANONYMOUS,
@@ -112,13 +123,14 @@ export function AuthProvider({ children }) {
       user: null,
       error: null,
     });
-  }, [cancelSessionCheck, clearExpiryTimer, setLoginPreflight]);
+  }, [cancelSessionCheck, clearExpiryTimer, setLoginPreflight, syncIdentityCaches]);
 
   /** API 已確認 token 失效；token 已由發出事件的請求條件式清除。 */
   const finishExpiredSession = useCallback(() => {
     cancelSessionCheck();
     clearExpiryTimer();
     toast.dismiss(REFRESH_WARNING_ID);
+    syncIdentityCaches(null);
     setLoginPreflight(false);
     setSession({
       status: AuthSessionStatus.ANONYMOUS,
@@ -127,7 +139,7 @@ export function AuthProvider({ children }) {
       error: null,
     });
     toast.error(t("AuthContext.sessionExpired"));
-  }, [cancelSessionCheck, clearExpiryTimer, setLoginPreflight, t]);
+  }, [cancelSessionCheck, clearExpiryTimer, setLoginPreflight, syncIdentityCaches, t]);
 
   /**
    * 依 access token 的 exp 排程 refresh。
@@ -209,6 +221,8 @@ export function AuthProvider({ children }) {
     sessionAbortRef.current = null;
 
     if (result.status === AuthSessionStatus.AUTHENTICATED) {
+      // 每次登入都會產生新的 sessionId；跟快取所屬的不同就代表換了身分。
+      syncIdentityCaches(checkSessionId);
       setSession({
         status: result.status,
         sessionId: checkSessionId,
@@ -218,6 +232,7 @@ export function AuthProvider({ children }) {
       scheduleTokenRefresh();
     } else if (result.status === AuthSessionStatus.ANONYMOUS) {
       clearExpiryTimer();
+      syncIdentityCaches(null);
       setSession({
         status: result.status,
         sessionId: null,
@@ -239,7 +254,7 @@ export function AuthProvider({ children }) {
     }
 
     return result;
-  }, [cancelSessionCheck, clearExpiryTimer, scheduleTokenRefresh]);
+  }, [cancelSessionCheck, clearExpiryTimer, scheduleTokenRefresh, syncIdentityCaches]);
 
   useEffect(() => {
     void verifyStoredSession();
@@ -358,7 +373,6 @@ export function AuthProvider({ children }) {
       value={{
         user: session.user,
         loading: session.status === AuthSessionStatus.CHECKING,
-        authError: session.error,
         authStatus: session.status,
         login,
         googleLogin,

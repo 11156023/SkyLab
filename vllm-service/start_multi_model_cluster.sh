@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Start only the vLLM instances.  LiteLLM Proxy is started separately during
-# the migration, so this script deliberately never starts gateway.main.
+# Start only the local vLLM instances listed in models.json.  The public
+# multi-model API is LiteLLM, which is started separately (scripts/prepare-ai-stack.sh).
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,7 +34,7 @@ fi
 cd "$PROJECT_ROOT"
 # flashinfer JIT compile 需要 ninja 等工具，必須讓 venv/bin 在 PATH 中
 export PATH="$PROJECT_ROOT/.venv/bin:$PATH"
-nohup "$PYTHON_BIN" main.py cluster --no-gateway --base-env .env.API "$@" >> "$MAIN_LOG" 2>&1 &
+nohup "$PYTHON_BIN" main.py cluster --base-env .env.API "$@" >> "$MAIN_LOG" 2>&1 &
 PID="$!"
 echo "$PID" > "$PID_FILE"
 

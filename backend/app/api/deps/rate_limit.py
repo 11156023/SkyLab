@@ -87,19 +87,18 @@ def rate_limit_by_user(
 ) -> Callable:
     """Build a FastAPI dependency that throttles requests per authenticated user.
 
-    This dependency assumes ``get_current_user`` has already populated the
-    request — it reads ``request.state.user`` if set, otherwise falls back
-    to the bearer-token JWT subject claim by re-running the auth lookup is
-    intentionally avoided here to keep this dependency cheap. Routes that
-    need user-scoped rate limiting should also depend on the auth
-    dependency to ensure the user is loaded.
+    The user is resolved through ``Depends(get_current_user)``. FastAPI caches
+    a dependency within one request, so a route that also takes
+    ``CurrentUser`` does not run the auth lookup twice.
+
+    Args:
+        scope: namespace used in the Redis key (e.g. ``"ai-help"``); keep short.
+        limit: maximum requests allowed within the window.
+        window_seconds: rolling window length in seconds.
     """
     from app.api.deps.auth import get_current_user  # local import to avoid cycle
 
-    async def _dep(
-        request: Request,
-        current_user: User = Depends(get_current_user),
-    ) -> None:
+    async def _dep(current_user: User = Depends(get_current_user)) -> None:
         redis = await get_redis()
         allowed, info = await check_rate_limit_by_key(
             redis,

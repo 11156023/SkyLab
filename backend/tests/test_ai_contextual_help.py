@@ -25,7 +25,8 @@ from app.models.user import UserRole
 
 
 def _user(role: UserRole, *, is_superuser: bool = False) -> SimpleNamespace:
-    return SimpleNamespace(role=role, is_superuser=is_superuser)
+    # 真實 User 一定有 id；service 會把它交給用量紀錄（沒有 session 時只記指標）
+    return SimpleNamespace(id=None, role=role, is_superuser=is_superuser)
 
 
 def _request(**overrides: Any) -> ExplainRequest:
@@ -369,7 +370,7 @@ _DERIVED_LABELS = frozenset({
     "待確認的問題", "批次刪除", "時數限制", "紀錄內容",
     "課程與練習", "調整原因",
     # Registered application state, not literal form labels (see useAiScreen callers).
-    "可選教學環境數量", "已保存學生人數", "已保存教學環境",
+    "可選教學環境數量", "已保存學生人數", "已保存教學環境", "班級已保存",
     "目前步驟", "目前分頁", "目前環境狀態", "發布後返回班級",
 })
 

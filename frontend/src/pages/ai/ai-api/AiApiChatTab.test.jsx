@@ -6,16 +6,16 @@ import AiApiChatTab from "./AiApiChatTab";
 import { loadChatHistory, saveChatHistory } from "./chatHistory";
 
 const mocks = vi.hoisted(() => ({
-  userId: "user-a", listModels: vi.fn(), chat: vi.fn(), confirm: vi.fn(), configured: true,
+  userId: "user-a", listModels: vi.fn(), chat: vi.fn(), confirm: vi.fn(), getCredential: vi.fn(),
+  credentials: [{ id: "cred-a", api_key_name: "專案金鑰", api_key_prefix: "ccai_a" }],
 }));
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: mocks.userId } }) }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../services/aiApiChat", async (importOriginal) => ({
   ...await importOriginal(),
-  AiApiChatService: {
-    isConfigured: () => mocks.configured, listModels: mocks.listModels, chat: mocks.chat,
-  },
+  AiApiChatService: { listModels: mocks.listModels, chat: mocks.chat },
 }));
+vi.mock("../../../services/aiApi", () => ({ AiApiService: { getCredential: mocks.getCredential } }));
 vi.mock("react-i18next", async (importOriginal) => ({ ...await importOriginal(), useTranslation: () => ({ t: (key) => key }) }));
 
 let host, root;
@@ -24,7 +24,8 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
   mocks.userId = "user-a";
-  mocks.configured = true;
+  mocks.credentials = [{ id: "cred-a", api_key_name: "專案金鑰", api_key_prefix: "ccai_a" }];
+  mocks.getCredential.mockImplementation(async (id) => ({ id, api_key: `secret-${id}` }));
   mocks.listModels.mockResolvedValue(["model-a", "model-b"]);
   mocks.chat.mockResolvedValue("模型回覆");
   mocks.confirm.mockResolvedValue(true);
@@ -34,7 +35,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-async function render() { await act(async () => root.render(<AiApiChatTab />)); }
+async function render() { await act(async () => root.render(<AiApiChatTab credentials={mocks.credentials} />)); }
 async function draft(text) {
   const input = host.querySelector("textarea");
   await act(async () => {
@@ -69,17 +70,19 @@ test("切換模型保留上下文；重新掛載恢復對話並依使用者隔�
   expect(host.querySelector('[role="log"]').textContent).not.toContain("第一句");
 });
 
-test("服務未啟動時保留本機紀錄，重新載入模型後可送出", async () => {
+test("服務未啟動時保留本機紀錄，按重試載入模型後可送出", async () => {
   saveChatHistory("user-a", { activeId: "existing", conversations: [{ id: "existing", title: "舊對話", model: "model-a", messages: [
     { id: "1", role: "user", content: "保留我的紀錄", createdAt: "2026-09-26T00:00:00Z" },
   ] }] });
   mocks.listModels.mockRejectedValueOnce({ status: 503 });
   await render();
-  expect(host.querySelector('[role="alert"]').textContent).toBe("AiApiChat.unavailable");
+  expect(host.querySelector('[role="alert"] span').textContent).toBe("AiApiChat.unavailable");
   expect(host.querySelector('[role="log"]').textContent).toContain("保留我的紀錄");
   await draft("新訊息");
   expect(host.querySelector('[type="submit"]').disabled).toBe(true);
-  await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent.includes("AiApiChat.reloadModels")).click());
+  // 沒有常駐的「重新載入模型」，錯誤訊息旁才有重試
+  expect(host.textContent).not.toContain("AiApiChat.reloadModels");
+  await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent.includes("AiApiChat.retry")).click());
   expect(host.querySelector('[type="submit"]').disabled).toBe(false);
 });
 
@@ -169,11 +172,55 @@ test("儲存空間已滿時顯示警告，對話仍可繼續；刪除需確認",
   expect(loadChatHistory("user-a").conversations).toEqual([]);
 });
 
-test("沒有設定金鑰時不查模型，不能送出", async () => {
-  mocks.configured = false;
+test("沒有可用金鑰時不查模型，只顯示申請說明，不出現模型選單與輸入框", async () => {
+  mocks.credentials = [];
+  await render();
+  expect(mocks.getCredential).not.toHaveBeenCalled();
+  expect(mocks.listModels).not.toHaveBeenCalled();
+  expect(host.textContent).toContain("AiApiChat.noUsableKeyTitle");
+  expect(host.textContent).toContain("AiApiChat.noUsableKey");
+  expect(host.querySelector("select")).toBeNull();
+  expect(host.querySelector("textarea")).toBeNull();
+});
+
+test("本機紀錄格式壞掉時另存備份，開始新紀錄也不會蓋掉它", async () => {
+  localStorage.setItem("campus:api-chat:v1:user-a", "{不是 JSON");
+  await render();
+  expect(host.textContent).toContain("AiApiChat.storageLoadWarning");
+  expect(localStorage.getItem("campus:api-chat:v1:user-a:backup")).toBe("{不是 JSON");
+  await send("新的開始");
+  expect(localStorage.getItem("campus:api-chat:v1:user-a:backup")).toBe("{不是 JSON");
+  expect(loadChatHistory("user-a").conversations[0].messages).toHaveLength(2);
+});
+
+test("聊天使用登入者自己的金鑰，不讀建置時的共用金鑰", async () => {
+  await render();
+  expect(mocks.getCredential).toHaveBeenCalledWith("cred-a", { signal: expect.any(AbortSignal) });
+  expect(mocks.listModels).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "secret-cred-a" }));
+  await send("哈囉");
+  expect(mocks.chat.mock.calls[0][2]).toEqual(expect.objectContaining({ apiKey: "secret-cred-a" }));
+});
+
+test("有多把金鑰時可切換，切換後改用新金鑰", async () => {
+  mocks.credentials = [
+    { id: "cred-a", api_key_name: "A", api_key_prefix: "ccai_a" },
+    { id: "cred-b", api_key_name: "B", api_key_prefix: "ccai_b" },
+  ];
+  await render();
+  const credentialSelect = host.querySelector("#api-chat-credential");
+  expect(credentialSelect.value).toBe("cred-a");
+  await act(async () => { credentialSelect.value = "cred-b"; credentialSelect.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(mocks.getCredential).toHaveBeenLastCalledWith("cred-b", { signal: expect.any(AbortSignal) });
+  expect(mocks.listModels).toHaveBeenLastCalledWith(expect.objectContaining({ apiKey: "secret-cred-b" }));
+  await send("用 B 金鑰");
+  expect(mocks.chat.mock.calls[0][2]).toEqual(expect.objectContaining({ apiKey: "secret-cred-b" }));
+});
+
+test("取得完整金鑰失敗時顯示錯誤且不能送出", async () => {
+  mocks.getCredential.mockRejectedValueOnce({ status: 403 });
   await render();
   expect(mocks.listModels).not.toHaveBeenCalled();
-  expect(host.textContent).toContain("AiApiChat.notConfigured");
+  expect(host.querySelector('[role="alert"]').textContent).toBe("AiApiChat.keyInvalid");
   await draft("測試");
   expect(host.querySelector('[type="submit"]').disabled).toBe(true);
 });

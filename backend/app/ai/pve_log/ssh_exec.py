@@ -1,21 +1,14 @@
 ﻿"""SSH 遠端執行服務
 
-流程（兩條路徑）：
-  內部路徑（主後端內嵌模組，傳入 session）：
-      a. _resolve_vm_info_from_db → 直接查 DB 取 IP / SSH key
-      b. paramiko SSH 連線並執行指令
-  HTTP 回呼路徑（獨立 ai-pve-log 子服務，不傳 session）：
-      a. POST /api/v1/login/access-token → 取得 SkyLab JWT
-      b. GET  /api/v1/resources/{vmid}   → 取得 VM IP
-      c. GET  /api/v1/resources/{vmid}/ssh-key → 取得 SSH private key
-      d. paramiko SSH 連線並執行指令
-  共用流程：
-      1. 黑名單過濾（ssh_guard）
-      2. 若 require_confirm=True → 產生 pending token，等待使用者確認
-      3. 回傳 SSHExecResult
+流程：
+  1. 黑名單過濾（ssh_guard）
+  2. 若 require_confirm=True → 產生 pending token，等待使用者確認
+  3. 執行時由 _resolve_vm_info_from_db 直接查 DB 取 IP / SSH key
+     （DB 無 IP 快取時才向 Proxmox 查即時 IP）
+  4. paramiko SSH 連線並執行指令，回傳 SSHExecResult
 
 設計重點：
-  - 內部路徑不依賴 AI_API_PUBLIC_BASE_URL，避免變數名稱衝突
+  - 呼叫端（routes/ai_pve_log、pve_log.chat）一律傳入 DB session
   - pending token 存於內存 dict，TTL 5 分鐘（適合 dev 環境）
   - 使用 asyncio.to_thread 包裝同步 paramiko，不阻塞 event loop
 """
@@ -24,13 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 import uuid
 from collections.abc import Sequence
 from typing import Any
 
-import httpx
 from sqlmodel import Session
 
 from app.ai.pve_log.config import settings
@@ -41,6 +32,7 @@ from app.ai.pve_log.guest_diagnostics import (
     ERROR_CODE_RESOLVE_FAILED,
     GuestProbe,
     ProbeResult,
+    redact_sensitive_text,
 )
 from app.ai.pve_log.schemas import SSHConfirmRequest, SSHExecRequest, SSHExecResult
 from app.ai.pve_log.ssh_guard import check_command
@@ -75,7 +67,7 @@ def _log_ssh_audit(
     """把 AI 代打的 SSH 指令寫進稽核。
 
     模型可以在別人的機器上跑指令，事後一定要查得到「誰、在哪台、跑了什麼、
-    有沒有經過人工確認」。HTTP 回呼路徑沒有 session（獨立子服務），只留 log。
+    有沒有經過人工確認」。沒有 session 時（僅單元測試）不寫稽核。
     稽核寫失敗不影響執行結果，但要留下痕跡。
     """
     if session is None:
@@ -103,15 +95,8 @@ def _log_ssh_audit(
 
 _PENDING_TTL = 300  # 秒
 _MAX_OUTPUT_CHARS = 16 * 1024
-_SENSITIVE_OUTPUT_PATTERNS = (
-    re.compile(
-        r"(?i)(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*([^\s,;]+)"
-    ),
-    re.compile(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.+?-----END [A-Z ]*PRIVATE KEY-----",
-        re.DOTALL,
-    ),
-)
+# ssh_exec 讀取時保留的原始位元組上限（超過部分只 drain 不保留）。
+_MAX_EXEC_OUTPUT_BYTES = 256 * 1024
 _pending_store: dict[str, dict[str, Any]] = {}  # token → {request, created_at}
 _completed_store: dict[str, dict[str, Any]] = {}
 
@@ -219,90 +204,12 @@ def _cleanup_expired() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SkyLab API 呼叫
-# ---------------------------------------------------------------------------
-
-
-async def _get_campus_token(client: httpx.AsyncClient) -> str:
-    """取得 SkyLab JWT access token。"""
-    url = f"{settings.skylab_api_base}/login/access-token"
-    resp = await client.post(
-        url,
-        data={
-            "username": settings.skylab_api_user,
-            "password": settings.skylab_api_password,
-        },
-    )
-    if not resp.is_success:
-        raise RuntimeError(
-            t("pveLog.skylabLoginFailed", status=resp.status_code, detail=resp.text[:200])
-        )
-    data = resp.json()
-    token = data.get("access_token")
-    if not isinstance(token, str) or not token:
-        raise RuntimeError(t("pveLog.skylabTokenMissing"))
-    return token
-
-
-async def _get_vm_ip(client: httpx.AsyncClient, token: str, vmid: int) -> str:
-    """取得 VM/LXC 的 IP 位址。"""
-    url = f"{settings.skylab_api_base}/resources/{vmid}"
-    resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-    if not resp.is_success:
-        raise RuntimeError(
-            t(
-                "pveLog.resourceFetchFailed",
-                vmid=vmid,
-                status=resp.status_code,
-                detail=resp.text[:200],
-            )
-        )
-    data = resp.json()
-    # /resources/{vmid} 回傳 {summary, status, config, network_interfaces}
-    # ip_address 在 summary 層
-    summary = data.get("summary") or data
-    ip = summary.get("ip_address") if isinstance(summary, dict) else None
-    if not ip:
-        # 嘗試從 network_interfaces 取第一個非 lo 的 inet
-        for iface in data.get("network_interfaces") or []:
-            inet = iface.get("inet", "")
-            if inet and not inet.startswith("127."):
-                ip = inet.split("/")[0]
-                break
-    if not ip:
-        raise RuntimeError(t("pveLog.noIpAddress", vmid=vmid))
-    return ip
-
-
-async def _get_ssh_private_key(client: httpx.AsyncClient, token: str, vmid: int) -> str:
-    """取得 VM/LXC 的 SSH private key（PEM 格式）。"""
-    url = f"{settings.skylab_api_base}/resources/{vmid}/ssh-key"
-    resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-    if not resp.is_success:
-        detail = ""
-        try:
-            detail = resp.json().get("detail", "")
-        except Exception:
-            detail = resp.text[:200]
-        if resp.status_code in {404, 502} and "not found" in detail.lower():
-            raise RuntimeError(t("pveLog.sshKeyNotRegistered", vmid=vmid))
-        raise RuntimeError(
-            t(
-                "pveLog.sshKeyFetchFailed",
-                status=resp.status_code,
-                detail=detail or resp.text[:200],
-            )
-        )
-    data = resp.json()
-    key = data.get("ssh_private_key") if isinstance(data, dict) else None
-    if not isinstance(key, str) or not key.strip():
-        raise RuntimeError(t("pveLog.sshKeyEmpty", vmid=vmid))
-    return key
-
-
-# ---------------------------------------------------------------------------
 # SSH 執行（同步，供 asyncio.to_thread 包裝）
 # ---------------------------------------------------------------------------
+
+
+class _SSHCommandTimeoutError(Exception):
+    """指令已送出，但輸出在 channel timeout 內沒有任何資料；實際結果不明。"""
 
 
 def _ssh_exec_sync(
@@ -317,6 +224,16 @@ def _ssh_exec_sync(
 
     使用 infrastructure 共用的 create_key_client：
     首次連線記錄 host key（trust-on-first-use），之後 key 變更會拒絕連線。
+
+    必須先把 stdout/stderr 讀到 EOF 再等 exit status：paramiko 只在應用端
+    讀取時才放大 channel window，輸出超過 window（約 2 MB）時若先呼叫
+    recv_exit_status()，遠端會卡在寫入、exit status 永遠不會到，worker
+    thread 與 SSH 連線就此洩漏。讀取時只保留前 _MAX_EXEC_OUTPUT_BYTES，
+    其餘持續 drain 掉；卡住的讀取由 exec_command 的 channel timeout 轉成
+    socket.timeout，這裡改拋 _SSHCommandTimeoutError，呼叫端回傳明確的逾時
+    錯誤與 exit_code=-1（連線階段的逾時不算在內，照一般連線失敗處理）。
+    保留的位元組遠多於最終回傳的 _MAX_OUTPUT_CHARS，被截斷時
+    _redact_and_truncate 一定也會標記 truncated。
     """
     client = create_key_client(
         host,
@@ -327,24 +244,20 @@ def _ssh_exec_sync(
     )
     try:
         _, stdout, stderr = client.exec_command(command, timeout=timeout)
+        try:
+            out_text, _ = _read_limited(stdout, _MAX_EXEC_OUTPUT_BYTES)
+            err_text, _ = _read_limited(stderr, _MAX_EXEC_OUTPUT_BYTES)
+        except TimeoutError as exc:
+            raise _SSHCommandTimeoutError from exc
         exit_code = stdout.channel.recv_exit_status()
-        out_text = stdout.read().decode(errors="replace")
-        err_text = stderr.read().decode(errors="replace")
         return exit_code, out_text, err_text
     finally:
         client.close()
 
 
 def _redact_and_truncate(value: str) -> tuple[str, bool]:
-    redacted = value
-    for pattern in _SENSITIVE_OUTPUT_PATTERNS:
-        if pattern.pattern.startswith("(?i)(password"):
-            redacted = pattern.sub(
-                lambda match: f"{match.group(1)}=[REDACTED]",
-                redacted,
-            )
-        else:
-            redacted = pattern.sub("[REDACTED PRIVATE KEY]", redacted)
+    """遮蔽敏感資訊（與 guest 診斷共用同一套規則）後截斷到 _MAX_OUTPUT_CHARS。"""
+    redacted = redact_sensitive_text(value)
     if len(redacted) <= _MAX_OUTPUT_CHARS:
         return redacted, False
     return redacted[:_MAX_OUTPUT_CHARS] + "\n...[truncated]", True
@@ -478,14 +391,46 @@ async def run_guest_probe_batch(
 
 
 # ---------------------------------------------------------------------------
-# 內部 VM 資訊解析（主後端內嵌模組用，不經 HTTP 回呼）
+# VM 連線資訊解析（DB 查詢）
 # ---------------------------------------------------------------------------
 
-def _resolve_vm_info_from_db(session: Session, vmid: int) -> tuple[str, str]:
+def _lookup_live_ip(vmid: int) -> str | None:
+    """向 Proxmox 查 VM 即時 IP（阻塞 HTTP／guest agent，須在 worker thread 執行）。"""
+    try:
+        vm_info = proxmox_service.find_resource(vmid)
+        vm_node = str(vm_info.get("node") or "")
+        vm_type = str(vm_info.get("type") or "")
+        if vm_node and vm_type in {"qemu", "lxc"}:
+            live_ip = proxmox_service.get_ip_address(vm_node, vmid, vm_type)
+            return str(live_ip).strip() if live_ip else None
+    except Exception as exc:
+        logger.warning("VMID=%s 即時 IP 解析失敗：%s", vmid, exc)
+    return None
+
+
+def _cache_live_ip(session: Session, vmid: int, live_ip: str) -> None:
+    try:
+        resource_repo.update_ip_address(
+            session=session,
+            vmid=vmid,
+            ip_address=live_ip,
+        )
+    except Exception:
+        session.rollback()
+        logger.warning(
+            "更新 VMID=%s IP 快取失敗（ip=%s）",
+            vmid,
+            live_ip,
+            exc_info=True,
+        )
+
+
+async def _resolve_vm_info_from_db(session: Session, vmid: int) -> tuple[str, str]:
     """從資料庫直接取得 VM IP 與 SSH private key。
 
     回傳 (host_ip, private_key_pem)。
-    僅供主後端內部使用；獨立 ai-pve-log 子服務請沿用 HTTP 回呼路徑。
+    DB 存取留在 event loop 所在執行緒（Session 非 thread-safe），只有 DB
+    無快取時的 Proxmox 即時查詢丟到 worker thread，避免卡住整個 event loop。
     """
     resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
     if not resource:
@@ -494,30 +439,10 @@ def _resolve_vm_info_from_db(session: Session, vmid: int) -> tuple[str, str]:
     host = (resource_repo.get_cached_ip_address(session=session, vmid=vmid) or "").strip()
     if not host:
         # 對齊 /resources/{vmid} 行為：DB 無快取時，向 Proxmox 取即時 IP。
-        try:
-            vm_info = proxmox_service.find_resource(vmid)
-            vm_node = str(vm_info.get("node") or "")
-            vm_type = str(vm_info.get("type") or "")
-            if vm_node and vm_type in {"qemu", "lxc"}:
-                live_ip = proxmox_service.get_ip_address(vm_node, vmid, vm_type)
-                if live_ip:
-                    host = live_ip
-                    try:
-                        resource_repo.update_ip_address(
-                            session=session,
-                            vmid=vmid,
-                            ip_address=live_ip,
-                        )
-                    except Exception:
-                        session.rollback()
-                        logger.warning(
-                            "更新 VMID=%s IP 快取失敗（ip=%s）",
-                            vmid,
-                            live_ip,
-                            exc_info=True,
-                        )
-        except Exception as exc:
-            logger.warning("VMID=%s 即時 IP 解析失敗：%s", vmid, exc)
+        live_ip = await asyncio.to_thread(_lookup_live_ip, vmid)
+        if live_ip:
+            host = live_ip
+            _cache_live_ip(session, vmid, live_ip)
 
     if not host:
         raise RuntimeError(t("pveLog.noIpAddressCached", vmid=vmid))
@@ -528,25 +453,15 @@ def _resolve_vm_info_from_db(session: Session, vmid: int) -> tuple[str, str]:
     return host, private_key
 
 
-# ---------------------------------------------------------------------------
-# 共用 VM 認證解析（DB 路徑 / HTTP 回呼路徑）
-# ---------------------------------------------------------------------------
-
 async def _resolve_vm_credentials(vmid: int, *, session: Session | None) -> tuple[str, str]:
-    """取得 VM 的 (host_ip, private_key_pem)。
+    """取得 VM 的 (host_ip, private_key_pem)；一律走 DB 查詢。
 
-    session 傳入時走內部 DB 查詢路徑（主後端內嵌模組用）；
-    未傳入時走 HTTP 回呼路徑（獨立 ai-pve-log 子服務用）。
+    production 呼叫端都會傳入 session；沒有 session 表示呼叫端接錯，直接報錯
+    （由 _do_exec／run_guest_probe_batch 轉成錯誤結果）。
     """
-    if session is not None:
-        return _resolve_vm_info_from_db(session, vmid)
-    if not settings.skylab_api_user or not settings.skylab_api_password:
-        raise RuntimeError(t("pveLog.skylabCredentialsMissing"))
-    async with httpx.AsyncClient(timeout=settings.ssh_timeout) as client:
-        token = await _get_campus_token(client)
-        host = await _get_vm_ip(client, token, vmid)
-        private_key = await _get_ssh_private_key(client, token, vmid)
-    return host, private_key
+    if session is None:
+        raise RuntimeError("SSH 連線資訊解析需要 DB session")
+    return await _resolve_vm_info_from_db(session, vmid)
 
 
 # ---------------------------------------------------------------------------
@@ -766,11 +681,7 @@ async def _do_exec(
     requester_id: uuid.UUID | None = None,
     confirmed: bool = False,
 ) -> SSHExecResult:
-    """實際執行 SSH 指令（通過安全檢查後）。
-
-    當 session 傳入時走內部 DB 查詢路徑（主後端內嵌模組用）；
-    未傳入時走 HTTP 回呼路徑（獨立 ai-pve-log 子服務用）。
-    """
+    """實際執行 SSH 指令（通過安全檢查後）；IP 與金鑰由 DB 解析。"""
     timeout = settings.ssh_timeout
     host = ""
 
@@ -833,13 +744,31 @@ async def _do_exec(
             stderr_truncated=stderr_truncated,
         )
 
-    except Exception as exc:
-        logger.error("SSH 執行失敗 vmid=%d host=%s: %s", req.vmid, host, exc)
-        _audit(blocked=False, outcome=f"host={host} error")
+    except _SSHCommandTimeoutError:
+        logger.warning(
+            "SSH 指令逾時 vmid=%d host=%s：%d 秒內沒有輸出",
+            req.vmid, host, timeout,
+        )
+        _audit(blocked=False, outcome=f"host={host} timeout")
         return SSHExecResult(
             vmid=req.vmid,
             host=host,
             ssh_user=req.ssh_user,
             command=req.command,
-            error=str(exc),
+            exit_code=-1,
+            error=t("pveLog.sshExecTimeout", seconds=timeout),
+        )
+
+    except Exception as exc:
+        logger.error("SSH 執行失敗 vmid=%d host=%s: %s", req.vmid, host, exc)
+        _audit(blocked=False, outcome=f"host={host} error:{type(exc).__name__}")
+        # 失敗一律帶 exit_code=-1，不能沿用預設的 0 讓模型當成成功；
+        # socket.timeout 之類的例外 str() 是空字串，改用例外類別名稱。
+        return SSHExecResult(
+            vmid=req.vmid,
+            host=host,
+            ssh_user=req.ssh_user,
+            command=req.command,
+            exit_code=-1,
+            error=str(exc) or type(exc).__name__,
         )

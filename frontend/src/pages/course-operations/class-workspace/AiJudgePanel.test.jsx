@@ -23,25 +23,25 @@ import {
   buildProposalDiff,
   buildStudentOverviewRows,
   getRubricDisplayName,
-  getRubricCheckTitle,
   getRubricItemsValue,
   getRubricReviewItemIds,
   getPendingRubricItemIds,
   getStudentOverviewStatus,
   resolveDetectabilityNeedsReview,
   sortStudentOverviewRows,
-  sortTeacherReviewRows,
   getScriptCreationBlocker,
   getSessionMenuPosition,
-  getSelectedRubricSource,
   getScriptCreationDestination,
   getScriptReviewAttemptIssues,
   getTargetReviewSummary,
   getCheckResultSummary,
+  isReviewDraftDirty,
   getSelectableProposalIds,
   mergeNodeTeacherReview,
   mergeSessionMessages,
   resolveActiveSessionId,
+  getDefaultSessionId,
+  getDefaultWeekId,
   proposalToolCallLines,
   RubricsTab,
 } from "./AiJudgePanel";
@@ -50,6 +50,7 @@ import {
   RUBRIC_POLISH_PROMPT,
 } from "../../../services/aiJudge";
 import i18n from "../../../i18n";
+import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 
@@ -128,8 +129,8 @@ describe("ChatPanel", () => {
     expect(html).not.toContain("製作檢查腳本");
     expect(html).toContain("資料來源");
     expect(html).toContain('aria-controls="ai-chat-data-sources"');
-    expect(html).toContain("描述想檢查的需求");
-    expect(html).toContain("同意提案後才會正式保存");
+    expect(html).toContain("描述想檢查的內容");
+    expect(html).toContain("你同意套用後才會寫進檢查表");
     expect(html).not.toContain("檢查表來源");
     expect(html).not.toContain("自動檢測支援");
   });
@@ -360,10 +361,12 @@ describe("RubricsTab 儲存並製作流程", () => {
     const root = createRoot(container);
     await act(async () => {
       root.render(
-        <RubricsTab
-          classId="class-1"
-          judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
-        />,
+        <ConfirmProvider>
+          <RubricsTab
+            classId="class-1"
+            judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
+          />
+        </ConfirmProvider>,
       );
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
@@ -478,10 +481,12 @@ describe("RubricsTab 儲存並製作流程", () => {
     const root = createRoot(container);
     await act(async () => {
       root.render(
-        <RubricsTab
-          classId="class-1"
-          judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
-        />,
+        <ConfirmProvider>
+          <RubricsTab
+            classId="class-1"
+            judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
+          />
+        </ConfirmProvider>,
       );
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
@@ -495,7 +500,7 @@ describe("RubricsTab 儲存並製作流程", () => {
     });
 
     expect(container.textContent).not.toContain("AI 核對提案");
-    expect(container.textContent).not.toContain("同意套用");
+    expect(container.querySelector('[aria-label="AI 提案"]')).toBeNull();
     expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
@@ -529,7 +534,7 @@ describe("CreateCheckDialog", () => {
 });
 
 describe("ProposalPanel", () => {
-  test("以可展開透明預覽呈現 Ready 操作與正式套用文案", () => {
+  test("以可展開透明預覽呈現可套用操作與正式套用文案", () => {
     const html = renderToStaticMarkup(
       <ProposalPanel
         proposal={[
@@ -548,7 +553,7 @@ describe("ProposalPanel", () => {
     expect(html).toContain('aria-label="AI 提案"');
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain("Ready 3");
+    expect(html).toContain("可套用 3");
     expect(html).toContain("新增");
     expect(html).toContain("修改");
     expect(html).toContain("刪除");
@@ -618,7 +623,7 @@ describe("SaveAndCreateAction", () => {
     const html = renderToStaticMarkup(<SaveAndCreateAction onClick={() => {}} />);
 
     expect(html).toContain("儲存並製作");
-    expect(html).toContain("AI 核對全部項目；全綠後會直接製作腳本");
+    expect(html).toContain("AI 核對全部項目；全部通過就會直接製作腳本");
     expect(html).toContain("save");
   });
 
@@ -724,8 +729,10 @@ describe("RubricTable", () => {
     expect(html).toContain("導師核查／無法執行");
     expect(html).toContain("check_circle");
     expect(html).toContain("warning_amber");
-    expect(html.match(/cancel/g)).toHaveLength(2);
-    expect(html.match(/detBadge_manual/g)).toHaveLength(2);
+    // 導師檢查是正常判定方式：藍色＋人像圖示，不跟「無法執行」共用紅色叉叉
+    expect(html.match(/cancel/g)).toHaveLength(1);
+    expect(html.match(/detBadge_manual/g)).toHaveLength(1);
+    expect(html).toContain("detBadge_teacher");
     expect(html).not.toContain("可執行取證");
     expect(html).not.toContain("導師人工審核");
     expect(html).toContain('aria-expanded="false"');
@@ -1020,12 +1027,18 @@ describe("rubric item change detection", () => {
       detectability_needs_review: false,
     };
     const same = { ...saved, detectability_needs_review: true };
-    const changed = {
+    const renamed = {
       ...saved,
       items: [{ ...saved.items[0], title: "檢查 Python 版本" }],
     };
+    const changed = {
+      ...saved,
+      items: [{ ...saved.items[0], detection_method: "執行 python3 --version" }],
+    };
 
     expect(getRubricItemsValue(same)).toBe(getRubricItemsValue(saved));
+    // 只改檢查點名稱不影響自動檢測支援
+    expect(getRubricItemsValue(renamed)).toBe(getRubricItemsValue(saved));
     expect(getRubricItemsValue(changed)).not.toBe(getRubricItemsValue(saved));
   });
 
@@ -1035,12 +1048,19 @@ describe("rubric item change detection", () => {
       { id: "item-2", title: "檢查輸出", detection_method: "讀取輸出內容", detectable: "partial" },
     ];
     const currentItems = [
-      { ...savedItems[0], title: "檢查 Python 版本" },
+      { ...savedItems[0], detection_method: "執行 python3 --version" },
       savedItems[1],
     ];
 
     expect([...getPendingRubricItemIds(currentItems, savedItems)]).toEqual(["item-1"]);
     expect([...getPendingRubricItemIds([savedItems[1]], savedItems)]).toEqual([]);
+  });
+
+  test("只改檢查點名稱不會標成待更新", () => {
+    const savedItems = [
+      { id: "item-1", title: "檢查版本", detection_method: "執行版本檢查", detectable: "auto" },
+    ];
+    expect([...getPendingRubricItemIds([{ ...savedItems[0], title: "檢查 Python 版本" }], savedItems)]).toEqual([]);
   });
 });
 
@@ -1233,13 +1253,11 @@ describe("proposalToolCallLines", () => {
 });
 
 describe("uploaded rubric naming", () => {
-  test("匯入檔名移除副檔名，且檢查名稱保留檔名主體並限制長度", () => {
+  test("匯入檔名移除副檔名", () => {
     expect(getRubricDisplayName({ name: "AI檢查表審核系統_Python服務Running狀態檢測_簡短版.docx" }))
       .toBe("AI檢查表審核系統_Python服務Running狀態檢測_簡短版");
-    expect(getRubricCheckTitle({ original_filename: "保存的檢查表.docx" })).toBe("保存的檢查表");
-    expect(getRubricCheckTitle({ display_name: "自訂檢查表", original_filename: "保存的檢查表.docx" })).toBe("自訂檢查表");
-    expect(getRubricCheckTitle({ name: "  " })).toBe("未命名檢查");
-    expect(getRubricCheckTitle({ name: "a".repeat(300) })).toHaveLength(255);
+    expect(getRubricDisplayName({ display_name: "自訂檢查表", original_filename: "保存的檢查表.docx" })).toBe("自訂檢查表");
+    expect(getRubricDisplayName({ name: "  " }, "未命名檢查表")).toBe("未命名檢查表");
   });
 });
 
@@ -1267,21 +1285,28 @@ describe("SessionTitle", () => {
   });
 });
 
-describe("getSelectedRubricSource", () => {
-  const files = [
-    { id: "file-other", status: "active", display_name: "其他檢查" },
-    { id: "file-selected", status: "active", display_name: "目前檢查" },
-    { id: "file-replaced", status: "replaced", display_name: "已取代來源" },
-  ];
-
-  test("只回傳目前檢查選用的 active 來源", () => {
-    expect(getSelectedRubricSource(files, "file-selected")).toEqual(files[1]);
-    expect(getSelectedRubricSource(files, "file-other")).toEqual(files[0]);
+describe("getDefaultSessionId", () => {
+  test("沒有指定時選最近動過的一項，不是清單第一筆（釘選排在最前）", () => {
+    expect(getDefaultSessionId([
+      { id: "pinned-old", pinned_at: "2026-09-01T00:00:00Z", last_activity_at: "2026-09-01T00:00:00Z" },
+      { id: "recent", last_activity_at: "2026-09-20T08:00:00Z" },
+      { id: "older", last_activity_at: "2026-09-10T08:00:00Z" },
+    ])).toBe("recent");
+    expect(getDefaultSessionId([])).toBeNull();
   });
+});
 
-  test("沒有選用來源或來源已失效時不回傳其他班級來源", () => {
-    expect(getSelectedRubricSource(files, null)).toBeNull();
-    expect(getSelectedRubricSource(files, "file-replaced")).toBeNull();
+describe("getDefaultWeekId", () => {
+  const weeks = [
+    { id: "w1", session_date: "2026-09-07" },
+    { id: "w2", session_date: "2026-09-14" },
+    { id: "w3", session_date: "2026-09-21" },
+  ];
+  test("預設帶入最近已上過的一週", () => {
+    expect(getDefaultWeekId(weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
+  });
+  test("都還沒開始上課就不指定", () => {
+    expect(getDefaultWeekId(weeks, new Date("2026-09-01T12:00:00Z"))).toBe("");
   });
 });
 
@@ -1335,7 +1360,7 @@ describe("teacher review summary", () => {
     expect(markup).toContain("[&quot;pgrep&quot;,&quot;-f&quot;,&quot;n8n&quot;]");
     expect(markup).toContain("/srv/student");
     expect(markup).toContain("指令沒有 stdout/stderr 輸出");
-    expect(markup).toContain("returncode 1");
+    expect(markup).toContain("結束代碼 1");
   });
 
   test("將舊版 command_exception 與非零 returncode 顯示成老師可讀摘要，並保留 raw log", () => {
@@ -1353,7 +1378,7 @@ describe("teacher review summary", () => {
       "指令無法執行：[Errno 2] No such file or directory: 'null'",
     );
     expect(getCheckResultSummary({ status: "unknown", raw: nonzeroRaw })).toBe(
-      "指令執行失敗（returncode 1）：cat: /home/owo/main.log: No such file or directory",
+      "指令執行失敗（結束代碼 1）：cat: /home/owo/main.log: No such file or directory",
     );
     expect(JSON.parse(nonzeroRaw)).toMatchObject({
       stderr: "cat: /home/owo/main.log: No such file or directory\n",
@@ -1391,22 +1416,6 @@ describe("teacher review summary", () => {
   test("沒有結果與執行失敗會清楚分開", () => {
     expect(getTargetReviewSummary(null).kind).toBe("missing");
     expect(getTargetReviewSummary({ status: "failed" }).kind).toBe("failed");
-  });
-
-  test("可依待處理或學號帳號排序", () => {
-    const rows = [
-      {
-        member: { full_name: "Zoe", email: "s10@example.edu", vmid: 310 },
-        target: { vmid: 310, parsed_result: { checks: [{ id: "a", status: "pass" }] } },
-      },
-      {
-        member: { full_name: "Amy", email: "s2@example.edu", vmid: 302 },
-        target: { vmid: 302, parsed_result: { checks: [{ id: "b", status: "unknown" }] } },
-      },
-    ];
-
-    expect(sortTeacherReviewRows(rows, "pending")[0].member.email).toBe("s2@example.edu");
-    expect(sortTeacherReviewRows(rows, "student-number")[0].member.email).toBe("s2@example.edu");
   });
 });
 
@@ -1582,7 +1591,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1603,6 +1612,76 @@ describe("teacher review run-once（整組檢查點）", () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  test("離開再回來時整批還在跑：接回進度，一次執行維持停用", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "running" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      { artifact_set_id: "set-1", status: "approved", children: [] },
+    ]);
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue({
+      ...batchPayload,
+      status: "running",
+      summary: { ...batchPayload.summary, completed: 0 },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const runButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.endsWith("一次執行"));
+    expect(runButton.disabled).toBe(true);
+    expect(container.textContent).toContain("執行中 0 / 1 台");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("腳本集讀取失敗不當成尚未建立，改顯示錯誤狀態並可重試", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    const listSets = vi.spyOn(AiJudgeService, "listSessionScriptSets")
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValue([]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.textContent).not.toContain("尚未建立可執行的檢查腳本集");
+    const retry = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes(i18n.t("Error.retry", { ns: "common" })));
+    expect(retry).toBeTruthy();
+    await act(async () => {
+      retry.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(listSets).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("還沒有可核查的結果");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("核查草稿逐項比對：取消再勾回來不算改過", () => {
+    const saved = { feedback: "", decisions: { a: "pass", b: "fail" } };
+    expect(isReviewDraftDirty({ feedback: "", decisions: { b: "fail", a: "pass" } }, saved)).toBe(false);
+    expect(isReviewDraftDirty({ feedback: "", decisions: { a: "pass" } }, saved)).toBe(true);
+    expect(isReviewDraftDirty({ feedback: "", decisions: { a: "fail", b: "fail" } }, saved)).toBe(true);
+    expect(isReviewDraftDirty({ feedback: "補交", decisions: { a: "pass", b: "fail" } }, saved)).toBe(true);
+    expect(isReviewDraftDirty(undefined, saved)).toBe(false);
   });
 
   test("批次模式下判定會以對應 run 與 vmid 儲存", async () => {
@@ -1627,7 +1706,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1719,7 +1798,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={failedMembers} />);
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={failedMembers} /></ConfirmProvider>);
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1763,7 +1842,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     container.remove();
   });
 
-  test("沒有已核准腳本集時，一次執行不可用且空狀態保留舊提示", async () => {
+  test("沒有已核准腳本集時，一次執行不可用且空狀態說明要先核准腳本", async () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
 
@@ -1771,12 +1850,12 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
     expect(container.textContent).toContain("還沒有可核查的結果");
-    expect(container.textContent).toContain("請先在「檢查設定」製作腳本並通過審查");
+    expect(container.textContent).toContain("在「腳本總覽」核准腳本後再回來");
     expect(container.textContent).not.toContain("一次執行");
     await act(async () => {
       root.unmount();
@@ -1920,7 +1999,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 

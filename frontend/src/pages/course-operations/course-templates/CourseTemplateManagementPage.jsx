@@ -8,6 +8,7 @@ import { CourseEnvironmentsService } from "../../../services/courseEnvironments"
 import { useToast } from "../../../hooks/useToast";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import styles from "../CourseOperations.module.scss";
+import { environmentSpecs } from "../nodeSpecs";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
@@ -87,10 +88,10 @@ export default function CourseTemplateManagementPage() {
     </div>
 
     <section>
-      {loading ? <LoadingState /> : !rows.length ? <EmptyState icon="view_quilt" title={t("CourseTemplateManagementPage.emptyTitle")} /> : <div className={styles.envTableWrap}><table className={styles.envTable}><thead><tr><th>{t("CourseTemplateManagementPage.thName")}</th><th>{t("CourseTemplateManagementPage.thMachinesPerStudent")}</th><th>{t("CourseTemplateManagementPage.thResourceTotal")}</th><th>{t("CourseTemplateManagementPage.thVersion")}</th><th>{t("CourseTemplateManagementPage.thProvideMode")}</th><th>{t("CourseTemplateManagementPage.thUsingClasses")}</th><th>{t("CourseTemplateManagementPage.thStatus")}</th><th /></tr></thead><tbody>{rows.map((template) => <tr key={template.id} onClick={() => navigate(`/course-template-management/${template.id}`)}>
+      {loading ? <LoadingState /> : !rows.length ? <EmptyState icon="view_quilt" title={t("CourseTemplateManagementPage.emptyTitle")} /> : <div className={styles.envTableWrap}><table className={styles.envTable}><thead><tr><th>{t("CourseTemplateManagementPage.thName")}</th><th>{t("CourseTemplateManagementPage.thMachinesPerStudent")}</th><th>{t("CourseTemplateManagementPage.thResourceTotal")}</th><th>{t("CourseTemplateManagementPage.thVersion")}</th><th>{t("CourseTemplateManagementPage.thProvideMode")}</th><th>{t("CourseTemplateManagementPage.thUsingClasses")}</th><th>{t("CourseTemplateManagementPage.thStatus")}</th><th>{t("CourseTemplateManagementPage.thActions")}</th></tr></thead><tbody>{rows.map((template) => <tr key={template.id} onClick={() => navigate(`/course-template-management/${template.id}`)}>
         <td><strong className={template.name?.trim() ? undefined : styles.envUnnamed}>{displayName(template)}</strong></td>
         <td><strong>{t("CourseTemplateManagementPage.machinesPerStudentUnit", { count: template.nodes.length })}</strong></td>
-        <td>{t("CourseTemplateManagementPage.resourceSummary", { cpu: template.nodes.reduce((sum, node) => sum + node.cpu, 0), memory: template.nodes.reduce((sum, node) => sum + node.memory, 0) })}</td><td>v{template.version}</td><td><strong>{t(USAGE_LABEL_KEYS[template.usageScope] ?? USAGE_LABEL_KEYS.course)}</strong></td><td>{t("CourseTemplateManagementPage.classesCount", { count: template.classes })}</td>
+        <td>{t("CourseTemplateManagementPage.resourceSummary", environmentSpecs(template.nodes))}</td><td>v{template.version}</td><td><strong>{t(USAGE_LABEL_KEYS[template.usageScope] ?? USAGE_LABEL_KEYS.course)}</strong></td><td>{t("CourseTemplateManagementPage.classesCount", { count: template.classes })}</td>
         <td><span className={`${styles.statusBadge} ${styles[`status_${template.status}`]}`}>{t(STATUS_LABEL_KEYS[template.status])}</span></td>
         <td onClick={(event) => event.stopPropagation()}><div className={styles.rowActions}>
           <button type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`} title={t("CourseTemplateManagementPage.deleteLabel")} aria-label={t("CourseTemplateManagementPage.deleteLabel")} disabled={busyId === template.id} onClick={() => remove(template)}><MIcon name="delete" size={18} /></button>

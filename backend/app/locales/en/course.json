@@ -22,5 +22,18 @@
   "ai_assignment.source_pdf_not_found": "This task has no PDF available for students to view.",
   "ai_assignment.check_not_found": "AI check not found",
   "ai_assignment.task_item_not_found": "Task item not found",
-  "course.ai_check_incomplete": "This check did not finish. Your teacher will review the result."
+  "course.ai_check_incomplete": "This check did not finish. Your teacher will review the result.",
+  "course.teacher_fallback": "Instructor",
+  "course_reminder.today": "Today",
+  "course_reminder.tomorrow": "Tomorrow",
+  "course_reminder.resource_fallback_name": "Resource #{vmid}",
+  "course_reminder.resource_expires_today": "Expires today. If you still need it, request an extension soon.",
+  "course_reminder.resource_expires_in_days": "Expires in {days} days. If you want to keep it, take care of it ahead of time.",
+  "course_reminder.resource_expiring_title": "{name} is expiring soon",
+  "course_reminder.request_approved_title": "Resource request approved",
+  "course_reminder.request_rejected_title": "Resource request returned",
+  "course_reminder.request_approved_description": "{hostname} has been approved. You can find it in My Resources.",
+  "course_reminder.request_rejected_description": "{hostname} did not pass review. Check My Requests to see why.",
+  "course_reminder.class_task_title": "{class_name}: {title}",
+  "course_reminder.class_task_description": "Week {week} class task. Click to see the content and checklist."
 }

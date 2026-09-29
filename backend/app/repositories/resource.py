@@ -2,7 +2,6 @@ import logging
 import uuid
 from collections.abc import Iterable
 from datetime import date, datetime, timezone
-from typing import Any
 
 from sqlmodel import Session, col, select
 
@@ -132,17 +131,6 @@ def assign_to_teaching_class(
     else:
         session.flush()
     return resource
-
-
-def update_resource(
-    *, session: Session, db_resource: Resource, resource_update: dict[str, Any]
-) -> Resource:
-    for key, value in resource_update.items():
-        setattr(db_resource, key, value)
-    session.add(db_resource)
-    session.commit()
-    session.refresh(db_resource)
-    return db_resource
 
 
 def update_ip_address(*, session: Session, vmid: int, ip_address: str) -> None:

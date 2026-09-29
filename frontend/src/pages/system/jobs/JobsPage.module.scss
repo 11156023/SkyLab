@@ -12,30 +12,6 @@
   }
 }
 
-.pageActions {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  flex-shrink: 0;
-}
-
-%btn-base {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base, box-shadow $transition-base;
-}
-
-.btnSecondary {
-  @include btn-secondary;
-}
-
 .statRow {
   display: grid;
   grid-template-columns: 1fr;
@@ -244,29 +220,4 @@
   min-width: 36px;
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-/* ── Row actions ── */
-.actions {
-  display: flex;
-  gap: $spacing-4;
-}
-
-.actionBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  &.actionBtnDanger {
-    color: var(--color-danger);
-    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
-  }
 }

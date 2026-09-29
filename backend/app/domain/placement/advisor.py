@@ -1,9 +1,16 @@
+"""Pure placement arithmetic: turn PVE snapshots into node capacities.
+
+This module never talks to Proxmox. Loading live cluster state (with its
+process cache) and current GPU usage lives in
+``app.services.vm.placement_support``; callers pass the snapshots and the
+GPU usage map in.
+"""
+
 from __future__ import annotations
 
-import threading
-import time
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from app.domain.placement.config import settings
 from app.domain.placement.schemas import (
@@ -14,39 +21,20 @@ from app.domain.placement.schemas import (
     ResourceSnapshot,
     ResourceType,
 )
-from app.services.proxmox import gpu_service, proxmox_service
 
 GIB = 1024**3
 MIB = 1024**2
 
 
-@dataclass(frozen=True)
-class _ClusterCacheEntry:
-    cached_at: float
-    nodes: list[NodeSnapshot]
-    resources: list[ResourceSnapshot]
-
-
-_cluster_cache: _ClusterCacheEntry | None = None
-_cluster_cache_lock = threading.Lock()
-
-
-def _gpu_used_slots() -> dict[str, int]:
-    """各節點已被 VM 佔用的 GPU 插槽數；查詢失敗回空 dict（fail-open）。"""
-    try:
-        return gpu_service.get_gpu_used_slots_by_node()
-    except Exception:
-        return {}
-
-
-def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
-    cached = _get_cached_cluster_state()
-    if cached is not None:
-        return cached.nodes, cached.resources
-
-    gpu_map = gpu_service.get_gpu_node_counts()
-    disabled = proxmox_service.admin_disabled_node_names()
-    nodes = [
+def parse_node_snapshots(
+    items: Iterable[Mapping[str, Any]],
+    *,
+    gpu_counts: Mapping[str, int],
+    disabled_nodes: Iterable[str] = (),
+) -> list[NodeSnapshot]:
+    """把 PVE ``/nodes`` 回傳的節點列轉成 NodeSnapshot（略過管理員停用的節點）。"""
+    disabled = set(disabled_nodes)
+    return [
         NodeSnapshot(
             node=str(item.get("node") or "unknown"),
             status=str(item.get("status") or "unknown").lower(),
@@ -57,7 +45,7 @@ def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
             disk_bytes=int(item.get("disk") or 0),
             maxdisk_bytes=int(item.get("maxdisk") or 0),
             uptime=_optional_int(item.get("uptime")),
-            gpu_count=gpu_map.get(str(item.get("node") or "unknown"), 0),
+            gpu_count=gpu_counts.get(str(item.get("node") or "unknown"), 0),
             current_loadavg_1=_parse_loadavg_1(item.get("loadavg")),
             average_loadavg_1=_parse_loadavg_1(
                 item.get("avg_load")
@@ -65,10 +53,16 @@ def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
                 or item.get("average_loadavg")
             ),
         )
-        for item in proxmox_service.list_nodes()
+        for item in items
         if str(item.get("node") or "unknown") not in disabled
     ]
-    resources = [
+
+
+def parse_resource_snapshots(
+    items: Iterable[Mapping[str, Any]],
+) -> list[ResourceSnapshot]:
+    """把 PVE cluster resources 轉成 ResourceSnapshot（只留非範本的 VM／LXC）。"""
+    return [
         ResourceSnapshot(
             vmid=int(item.get("vmid") or 0),
             name=str(item.get("name") or ""),
@@ -76,30 +70,28 @@ def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
             node=str(item.get("node") or "unknown"),
             status=str(item.get("status") or "unknown").lower(),
         )
-        for item in proxmox_service.list_all_resources()
+        for item in items
         if item.get("template") != 1 and str(item.get("type") or "") in {"lxc", "qemu", "vm"}
     ]
 
-    _set_cached_cluster_state(nodes=nodes, resources=resources)
-    return nodes, resources
 
-
-def _build_node_capacities(
+def build_node_capacities(
     *,
     nodes: list[NodeSnapshot],
     resources: list[ResourceSnapshot],
+    gpu_used: Mapping[str, int],
     cpu_overcommit_ratio: float = 1.0,
     disk_overcommit_ratio: float = 1.0,
 ) -> list[NodeCapacity]:
+    """依快照算各節點可分配容量；gpu_used 為各節點已被佔用的 GPU 插槽數。"""
     running_counter = Counter(
         resource.node for resource in resources if resource.status == "running"
     )
-    gpu_used = _gpu_used_slots()
     capacities: list[NodeCapacity] = []
     for node in nodes:
         running_resources = running_counter.get(node.node, 0)
         guest_soft_limit = _guest_soft_limit(node.maxcpu)
-        guest_pressure_ratio = _guest_pressure_ratio(running_resources, node.maxcpu)
+        pressure_ratio = guest_pressure_ratio(running_resources, node.maxcpu)
         used_cpu = max(float(node.maxcpu) * node.cpu_ratio, 0.0)
         effective_total_cpu = max(float(node.maxcpu) * max(cpu_overcommit_ratio, 1.0), 0.0)
         raw_available_cpu = max(effective_total_cpu - used_cpu, 0.0)
@@ -112,7 +104,7 @@ def _build_node_capacities(
         allocatable_cpu = _safe_available_float(raw_available_cpu, int(effective_total_cpu))
         allocatable_memory = _safe_available_int(raw_available_memory, node.maxmem_bytes)
         allocatable_disk = _safe_available_int(raw_available_disk, effective_total_disk)
-        guest_overloaded = guest_pressure_ratio >= settings.guest_pressure_threshold
+        guest_overloaded = pressure_ratio >= settings.guest_pressure_threshold
 
         capacities.append(
             NodeCapacity(
@@ -124,7 +116,7 @@ def _build_node_capacities(
                 ),
                 running_resources=running_resources,
                 guest_soft_limit=guest_soft_limit,
-                guest_pressure_ratio=guest_pressure_ratio,
+                guest_pressure_ratio=pressure_ratio,
                 guest_overloaded=guest_overloaded,
                 candidate=(
                     node.status == "online"
@@ -150,7 +142,7 @@ def _build_node_capacities(
     return sorted(capacities, key=lambda item: item.node)
 
 
-def _build_warnings(
+def build_warnings(
     *,
     node_capacities: list[NodeCapacity],
     request: PlacementRequest,
@@ -175,7 +167,7 @@ def _build_warnings(
     return warnings
 
 
-def _build_rationale(
+def build_rationale(
     *,
     request: PlacementRequest,
     placement_decisions: list[PlacementDecision],
@@ -203,7 +195,7 @@ def _build_rationale(
     return reasons
 
 
-def _build_summary_text(
+def build_summary_text(
     *,
     request: PlacementRequest,
     placement_decisions: list[PlacementDecision],
@@ -227,7 +219,7 @@ def _build_summary_text(
     )
 
 
-def _decide_resource_type(request: PlacementRequest) -> tuple[ResourceType, str]:
+def decide_resource_type(request: PlacementRequest) -> tuple[ResourceType, str]:
     if request.resource_type == "lxc":
         if request.gpu_required > 0:
             return "vm", "GPU requests are evaluated as VM placement."
@@ -253,40 +245,13 @@ def _request_label(request: PlacementRequest) -> str:
     return f"{request.resource_type.upper()} request"
 
 
-def _get_cached_cluster_state() -> _ClusterCacheEntry | None:
-    with _cluster_cache_lock:
-        if _cluster_cache is None:
-            return None
-        age = time.monotonic() - _cluster_cache.cached_at
-        if age > settings.source_cache_ttl_seconds:
-            return None
-        return _cluster_cache
-
-
-def _set_cached_cluster_state(
-    *,
-    nodes: list[NodeSnapshot],
-    resources: list[ResourceSnapshot],
-) -> None:
-    if settings.source_cache_ttl_seconds <= 0:
-        return
-
-    with _cluster_cache_lock:
-        global _cluster_cache
-        _cluster_cache = _ClusterCacheEntry(
-            cached_at=time.monotonic(),
-            nodes=nodes,
-            resources=resources,
-        )
-
-
-def _effective_cpu_cores(request: PlacementRequest, resource_type: ResourceType) -> float:
+def effective_cpu_cores(request: PlacementRequest, resource_type: ResourceType) -> float:
     requested = float(request.cpu_cores)
     hypervisor_overhead = 0.25 if resource_type == "vm" else 0.0
     return round(requested + hypervisor_overhead, 2)
 
 
-def _effective_memory_bytes(request: PlacementRequest, resource_type: ResourceType) -> int:
+def effective_memory_bytes(request: PlacementRequest, resource_type: ResourceType) -> int:
     base = request.memory_mb * MIB
     hypervisor_overhead = 256 * MIB if resource_type == "vm" else 0
     return base + hypervisor_overhead
@@ -296,7 +261,7 @@ def _guest_soft_limit(maxcpu: int) -> int:
     return max(int(maxcpu * settings.guest_per_core_limit), 1)
 
 
-def _guest_pressure_ratio(running_resources: int, maxcpu: int) -> float:
+def guest_pressure_ratio(running_resources: int, maxcpu: int) -> float:
     guest_limit = _guest_soft_limit(maxcpu)
     if guest_limit <= 0:
         return 0.0

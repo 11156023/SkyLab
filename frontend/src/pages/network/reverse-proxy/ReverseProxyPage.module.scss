@@ -1,18 +1,6 @@
 @use "../../../assets/styles/variables" as *;
 @use "../../../assets/styles/mixins" as *;
 
-/* ── Page ─────────────────────────────────────────── */
-.page {
-  @include flex-column;
-  gap: $spacing-24;
-  padding: $spacing-8 $spacing-16;
-  flex: 1;
-
-  @media (min-width: $breakpoint-sidebar) {
-    padding: 0;
-  }
-}
-
 /* ── Panel（嵌在網域管理頁的分頁裡） ─────────────── */
 .panel {
   @include flex-column;

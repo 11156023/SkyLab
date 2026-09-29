@@ -45,15 +45,13 @@ def _totp_enrollment_allowed(path: str) -> bool:
     return path.startswith(_TOTP_ENROLLMENT_ALLOWED_PREFIXES)
 
 
-async def get_current_user(
-    session: SessionDep, token: TokenDep, request: Request
-) -> User:
-    # All failures here are authentication problems (bad/expired/revoked token,
-    # missing or inactive user), so they must return 401 to trigger the
-    # frontend refresh-token flow. Never raise 403 from this function — that
-    # would incorrectly signal "authenticated but forbidden". The frontend
-    # treats 403 as forbidden without logging the user out; 401 is what drives
-    # token refresh and eventual logout if refresh fails.
+async def _validate_access_token(token: str) -> TokenPayload:
+    """Decode a JWT and check that it is a live access token.
+
+    HTTP 與 WebSocket 認證共用這一段：簽章／格式、只收 access token、
+    Redis jti 黑名單。失敗一律丟 AuthenticationError（HTTP 401），
+    WebSocket 端再轉成 1008 關閉。
+    """
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
@@ -66,20 +64,40 @@ async def get_current_user(
     if token_data.type != "access":
         raise AuthenticationError(t("auth.access_token_only"))
     # Per-token revocation via Redis blacklist (in addition to the
-    # token_version global kill switch enforced below).
+    # token_version global kill switch enforced in _check_token_user).
     if token_data.jti:
         redis = await get_redis()
         if await is_jti_revoked(redis, token_data.jti):
             raise AuthenticationError(t("auth.token_revoked"))
-    # 同步 DB 查詢不可直接在 event loop 上執行：連線池耗盡時會凍結整個
-    # loop，使已完成的請求無法歸還連線而形成死結（見 tests/performance）。
-    user = await run_in_threadpool(session.get, User, token_data.sub)
+    return token_data
+
+
+def _check_token_user(user: User | None, token_data: TokenPayload) -> User:
+    """The token's user must exist, be active and match the token_version."""
     if not user:
         raise AuthenticationError(t("auth.user_not_found"))
     if not user.is_active:
         raise AuthenticationError(t("auth.user_inactive"))
     if user.token_version != token_data.ver:
         raise AuthenticationError(t("auth.token_revoked"))
+    return user
+
+
+async def get_current_user(
+    session: SessionDep, token: TokenDep, request: Request
+) -> User:
+    # All failures here are authentication problems (bad/expired/revoked token,
+    # missing or inactive user), so they must return 401 to trigger the
+    # frontend refresh-token flow. Never raise 403 from this function — that
+    # would incorrectly signal "authenticated but forbidden". The frontend
+    # treats 403 as forbidden without logging the user out; 401 is what drives
+    # token refresh and eventual logout if refresh fails.
+    token_data = await _validate_access_token(token)
+    # 同步 DB 查詢不可直接在 event loop 上執行：連線池耗盡時會凍結整個
+    # loop，使已完成的請求無法歸還連線而形成死結（見 tests/performance）。
+    user = _check_token_user(
+        await run_in_threadpool(session.get, User, token_data.sub), token_data
+    )
     # 管理員在使用者資料勾了「強制兩步驟驗證」：尚未綁定前只能走綁定相關端點
     # （403 不會觸發前端登出流程；前端依 /users/me 的 totp_setup_required 顯示綁定畫面）。
     if (
@@ -140,34 +158,33 @@ async def get_ws_current_user(
         logger.warning("WebSocket connection attempted with oversized token")
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 
+    # Same token and user checks as get_current_user (shared helpers); any
+    # failure closes the socket with 1008 instead of answering 401.
     try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
-        )
-        token_data = TokenPayload(**payload)
-    except (InvalidTokenError, ValidationError):
-        logger.warning("WebSocket connection with invalid token")
+        token_data = await _validate_access_token(token)
+    except AuthenticationError as exc:
+        logger.warning("WebSocket auth failed: %s", exc.message)
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
-
-    # Mirror get_current_user: only access tokens may open WebSocket
-    # connections; revoked (blacklisted) tokens are rejected as well.
-    if token_data.type != "access":
-        logger.warning("WebSocket connection attempted with a non-access token")
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
-    if token_data.jti:
-        redis = await get_redis()
-        if await is_jti_revoked(redis, token_data.jti):
-            logger.warning("WebSocket connection attempted with a revoked token")
-            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 
     session = Session(engine)
     try:
-        user = await run_in_threadpool(session.get, User, token_data.sub)
-        if not user or not user.is_active:
-            logger.warning(f"WebSocket auth failed: user not found or inactive (sub={token_data.sub})")
+        try:
+            user = _check_token_user(
+                await run_in_threadpool(session.get, User, token_data.sub),
+                token_data,
+            )
+        except AuthenticationError as exc:
+            logger.warning(
+                "WebSocket auth failed (sub=%s): %s", token_data.sub, exc.message
+            )
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
-        if user.token_version != token_data.ver:
-            logger.warning(f"WebSocket auth failed: token version mismatch for user {user.email}")
+        # 與 get_current_user 同一道閘：被要求強制 2FA 但尚未綁定的帳號，
+        # 在完成綁定前不可開任何 WebSocket（VNC／終端機／教室／任務推送）。
+        if user.totp_required and not user.totp_enabled:
+            logger.warning(
+                "WebSocket auth failed: two-factor setup required for user %s",
+                user.email,
+            )
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
         return user, session
     except Exception:

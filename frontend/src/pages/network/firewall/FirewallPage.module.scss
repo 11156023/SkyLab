@@ -280,9 +280,9 @@
   bottom: $spacing-16;
   left: 50%;
   padding: 5px 10px;
-  border: 1px dashed var(--color-primary);
   border-radius: $radius-pill;
-  background: var(--color-surface);
+  /* 疊在拓撲畫布上：淡底要不透明，底下的連線才不會透出來 */
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
   color: var(--color-primary-on-surface);
   font-size: $font-size-12;
   font-weight: $font-weight-700;

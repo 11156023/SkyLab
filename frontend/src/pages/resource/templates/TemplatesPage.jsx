@@ -14,6 +14,7 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { TemplateStatusBadge } from "./TemplateBadges";
 import TemplateCloneDialog from "./TemplateCloneDialog";
 import TemplateFormDialog from "./TemplateFormDialog";
+import { formatBytes } from "./templateFormat";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
@@ -22,12 +23,6 @@ function visibilityLabel(template, t) {
     ? t("TemplatesPage.visibilityGlobal")
     : t("TemplatesPage.visibilityPrivate");
 }
-
-const formatBytes = (bytes) => {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-};
 
 /** 使用手冊（附件）瀏覽與下載 */
 function ManualDialog({ template, closing = false, onClose }) {
@@ -408,12 +403,11 @@ export default function TemplatesPage() {
       {templates === null ? (
         <LoadingState fullPage text={t("TemplatesPage.loadingTemplates")} />
       ) : list.length === 0 ? (
-        <div className={styles.card}>
-          <EmptyState
-            icon="widgets"
-            title={t("TemplatesPage.emptyTitle")}
-          />
-        </div>
+        /* 同資源管理、GPU 管理：頁面層級空狀態不包卡片，直接在剩餘高度垂直置中 */
+        <EmptyState
+          icon="widgets"
+          title={t("TemplatesPage.emptyTitle")}
+        />
       ) : (
         <div className={styles.card}>
           <div className={styles.tableScroll}>
@@ -474,7 +468,6 @@ export default function TemplatesPage() {
       {cloneDialog.open && (
         <TemplateCloneDialog
           template={cloneDialog.item}
-          canBatch
           closing={cloneDialog.closing}
           onClose={() => setCloneTarget(null)}
         />

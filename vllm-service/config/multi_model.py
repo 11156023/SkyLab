@@ -1,4 +1,4 @@
-"""多模型與 Gateway 設定載入工具。"""
+"""多模型 cluster 設定載入工具。"""
 
 from __future__ import annotations
 
@@ -11,9 +11,22 @@ from typing import Any
 from config.settings import PROJECT_ROOT, SERVICE_ENV_FILE_VAR, Settings
 from model_deployment import deployment_kind, upstream_connection
 
-GATEWAY_ENV_FILE_VAR = "VLLM_SERVICE_GATEWAY_ENV_FILE"
 DEFAULT_BASE_ENV = ".env.API"
 DEFAULT_MODELS_JSON = "models.json"
+WILDCARD_HOSTS = frozenset({"0.0.0.0", "::"})
+
+
+def probe_host(host: str) -> str:
+    """把監聽位址轉成可放進本機 URL 的主機部分。
+
+    0.0.0.0／:: 是綁定用的萬用位址，探測時改連 127.0.0.1；
+    其他 IPv6 位址必須加上方括號，否則 ``http://fd00::1:8000`` 不是合法 URL。
+    """
+    if host in WILDCARD_HOSTS:
+        return "127.0.0.1"
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
 
 
 @dataclass(frozen=True)
@@ -25,43 +38,6 @@ class ModelInstanceConfig:
     model_config: dict[str, Any]
     settings: Settings
 
-    @property
-    def upstream_host(self) -> str:
-        if self.settings.api_host in {"0.0.0.0", "::"}:
-            return "127.0.0.1"
-        return self.settings.api_host
-
-    @property
-    def upstream_base_url(self) -> str:
-        return f"http://{self.upstream_host}:{self.settings.api_port}/v1"
-
-
-@dataclass(frozen=True)
-class GatewayConfig:
-    """Gateway 運行設定。"""
-
-    host: str
-    port: int
-    request_timeout: int
-    max_inflight: int
-    per_model_max_inflight: int
-    queue_timeout: float
-    default_model: str
-
-
-@dataclass(frozen=True)
-class GatewayRoute:
-    """Gateway 路由目標。"""
-
-    alias: str
-    model_name: str
-    base_url: str
-    api_key: str
-    max_inflight: int
-    queue_timeout: float
-    scheduling_policy: str
-    capabilities: dict[str, Any]
-
 
 def _resolve_path(file_path: str | Path) -> Path:
     """解析為絕對路徑。"""
@@ -72,34 +48,8 @@ def _resolve_path(file_path: str | Path) -> Path:
 
 
 def _default_base_env_file() -> str:
-    """取得 Gateway/cluster 模式預設 env 檔。"""
-    return (
-        os.getenv(GATEWAY_ENV_FILE_VAR)
-        or os.getenv(SERVICE_ENV_FILE_VAR)
-        or DEFAULT_BASE_ENV
-    )
-
-
-def load_gateway_config(base_env_file: str | Path | None = None) -> GatewayConfig:
-    """從 Gateway 共用 env 載入 Gateway 設定。"""
-    env_path = _resolve_path(base_env_file or _default_base_env_file())
-    if not env_path.exists():
-        raise FileNotFoundError(f"環境設定檔不存在: {env_path}")
-    
-    # 載入 .env 到環境變數
-    from dotenv import load_dotenv
-    load_dotenv(env_path)
-    
-    return GatewayConfig(
-        # gateway 沒有呼叫端認證（會替所有請求注入上游 API key），預設只監聽本機
-        host=os.getenv("GATEWAY_HOST", "127.0.0.1"),
-        port=int(os.getenv("GATEWAY_PORT", "3000")),
-        request_timeout=int(os.getenv("GATEWAY_REQUEST_TIMEOUT", "300")),
-        max_inflight=int(os.getenv("GATEWAY_MAX_INFLIGHT", "48")),
-        per_model_max_inflight=int(os.getenv("GATEWAY_PER_MODEL_MAX_INFLIGHT", "16")),
-        queue_timeout=float(os.getenv("GATEWAY_QUEUE_TIMEOUT", "30")),
-        default_model=os.getenv("GATEWAY_DEFAULT_MODEL", ""),
-    )
+    """取得 cluster 模式預設 env 檔。"""
+    return os.getenv(SERVICE_ENV_FILE_VAR) or DEFAULT_BASE_ENV
 
 
 def load_model_instances(
@@ -261,47 +211,6 @@ def load_model_instances(
     return instances
 
 
-def build_gateway_routes(
-    instances: list[ModelInstanceConfig],
-    default_max_inflight: int | None = None,
-    default_queue_timeout: float | None = None,
-) -> dict[str, GatewayRoute]:
-    """由模型實例建立 Gateway 路由表。"""
-    routes: dict[str, GatewayRoute] = {}
-    for instance in instances:
-        max_inflight = int(
-            instance.model_config.get(
-                "gateway_max_inflight",
-                default_max_inflight if default_max_inflight is not None else instance.settings.max_num_seqs,
-            )
-        )
-        queue_timeout = float(
-            instance.model_config.get(
-                "gateway_queue_timeout",
-                default_queue_timeout if default_queue_timeout is not None else 30,
-            )
-        )
-        capabilities = instance.model_config.get("capabilities", {})
-        if not isinstance(capabilities, dict):
-            raise ValueError(f"模型 {instance.alias} 的 capabilities 必須為物件")
-
-        routes[instance.alias] = GatewayRoute(
-            alias=instance.alias,
-            # vLLM is started with --served-model-name. The legacy Gateway
-            # must forward that stable upstream ID, never the host-local model
-            # directory used before Phase 1; otherwise its rollback path
-            # receives a 404 after the cluster has been decoupled.
-            model_name=instance.served_model_name,
-            base_url=instance.upstream_base_url,
-            api_key=instance.settings.api_key,
-            max_inflight=max(1, max_inflight),
-            queue_timeout=max(0.0, queue_timeout),
-            scheduling_policy=instance.settings.scheduling_policy,
-            capabilities=dict(capabilities),
-        )
-    return routes
-
-
 def validate_cluster_resources(instances: list[ModelInstanceConfig]) -> None:
     """驗證多模型資源配置，避免明顯 OOM。"""
     total_gpu_util = sum(i.settings.gpu_memory_utilization for i in instances)
@@ -312,52 +221,3 @@ def validate_cluster_resources(instances: list[ModelInstanceConfig]) -> None:
             f"{total_gpu_util:.2f} >= {hard_limit:.2f}"
         )
 
-
-def find_route_for_model(
-    model: str,
-    routes: dict[str, GatewayRoute],
-) -> GatewayRoute | None:
-    """依 alias 或實際模型名稱尋找路由。
-    
-    查找優先順序：
-    1. 完全匹配 alias
-    2. 完全匹配 model_name
-    3. 部分匹配 alias（大小寫不敏感）
-    4. 部分匹配 model_name（路徑末段）
-    """
-    # 1. 完全匹配 alias
-    if model in routes:
-        return routes[model]
-    
-    # 2. 完全匹配 model_name
-    for route in routes.values():
-        if model == route.model_name:
-            return route
-    
-    # 3. 大小寫不敏感匹配 alias
-    model_lower = model.lower()
-    for alias, route in routes.items():
-        if model_lower == alias.lower():
-            return route
-    
-    # 4. 部分匹配 model_name 的最後一段路徑名
-    for route in routes.values():
-        # 從 ./AImodels/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4 提取 NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
-        model_basename = route.model_name.rstrip("/").split("/")[-1]
-        if model_lower == model_basename.lower():
-            return route
-        # 也檢查用戶輸入的是否是路徑
-        user_basename = model.rstrip("/").split("/")[-1]
-        if user_basename.lower() == model_basename.lower():
-            return route
-    
-    return None
-
-
-def get_available_models_help(routes: dict[str, GatewayRoute]) -> str:
-    """生成可用模型的幫助訊息。"""
-    lines = ["可用模型:"]
-    for alias, route in sorted(routes.items()):
-        model_basename = route.model_name.rstrip("/").split("/")[-1]
-        lines.append(f"  • {alias} ({model_basename})")
-    return "\n".join(lines)

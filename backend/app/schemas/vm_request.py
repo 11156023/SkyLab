@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field
 
 from app.models.user import UserRole
 from app.models.vm_request import VMProvisioningStatus, VMRequestStatus
+from app.schemas.resource import (
+    SPEC_CORES_MAX,
+    SPEC_CORES_MIN,
+    SPEC_DISK_MAX_GB,
+    SPEC_DISK_MIN_GB,
+    SPEC_MEMORY_MAX_MB,
+    SPEC_MEMORY_MIN_MB,
+)
 from app.utils.hostname import UnicodeHostname
 
 
@@ -17,8 +25,10 @@ class VMRequestCreate(BaseModel):
     hostname: UnicodeHostname = Field(min_length=1, max_length=63)
     # 上下界對齊 EnvironmentNodeIn：課程模板與快速練習共用這個 schema，
     # 收得比模板嚴會讓既有課程環境在開課時被自己的 schema 擋下。
-    cores: int = Field(default=2, ge=1, le=64)
-    memory: int = Field(default=2048, ge=128, le=131072, description="MB")
+    cores: int = Field(default=2, ge=SPEC_CORES_MIN, le=SPEC_CORES_MAX)
+    memory: int = Field(
+        default=2048, ge=SPEC_MEMORY_MIN_MB, le=SPEC_MEMORY_MAX_MB, description="MB"
+    )
     # 留空由系統產生（見 vm_request_service）；Course Lab 明確傳 None 表示
     # 不另發密碼、沿用範本內烘焙的憑證
     password: str | None = Field(default=None, min_length=8, max_length=128)
@@ -31,10 +41,12 @@ class VMRequestCreate(BaseModel):
     end_at: datetime | None = None
 
     ostemplate: str | None = None
-    rootfs_size: int | None = Field(default=None, ge=1, le=2000)
+    rootfs_size: int | None = Field(
+        default=None, ge=SPEC_DISK_MIN_GB, le=SPEC_DISK_MAX_GB
+    )
 
     template_id: int | None = None
-    disk_size: int | None = Field(default=None, ge=1, le=2000)
+    disk_size: int | None = Field(default=None, ge=SPEC_DISK_MIN_GB, le=SPEC_DISK_MAX_GB)
     username: str | None = None
     gpu_mapping_id: str | None = None
     # vGPU 規格（mdev type，如 'nvidia-1436'）；僅對 has_mdev 的 GPU 有意義
@@ -319,22 +331,6 @@ class VMRequestAvailabilityResponse(BaseModel):
     summary: VMRequestAvailabilitySummary
     recommended_slots: list[VMRequestAvailabilitySlot] = Field(default_factory=list)
     days: list[VMRequestAvailabilityDay] = Field(default_factory=list)
-
-
-class VMRequestPlacementPreview(BaseModel):
-    request_id: uuid.UUID
-    start_at: datetime | None = None
-    end_at: datetime | None = None
-    duration_hours: int = Field(default=0, ge=0)
-    feasible: bool = False
-    placement_strategy: str
-    selected_status: str
-    selected_node: str | None = None
-    fallback_node: str | None = None
-    summary: str
-    warnings: list[str] = Field(default_factory=list)
-    recommended_nodes: list[str] = Field(default_factory=list)
-    slot_details: list[VMRequestAvailabilitySlot] = Field(default_factory=list)
 
 
 VMRequestAvailabilitySlot.model_rebuild()

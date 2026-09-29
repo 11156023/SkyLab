@@ -13,26 +13,9 @@ import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { SpecChangeRequestsService } from "../../../../../services/specChangeRequests";
 import { focusInvalidField } from "../../../../../utils/focusField";
+import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime } from "../lifecycleFormat";
 
-const AUTO_STOP_REASON_KEYS = {
-  window_grace: "LifecycleCard.reasonWindowGrace",
-  practice_quota: "LifecycleCard.reasonPracticeQuota",
-  ttl_expired: "LifecycleCard.reasonTtlExpired",
-  idle: "LifecycleCard.reasonIdle",
-};
-
-function formatDateTime(value, lang) {
-  if (!value) return null;
-  return new Date(value).toLocaleString(lang, {
-    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-  });
-}
-
-function formatDate(value, lang) {
-  if (!value) return null;
-  return new Date(value).toLocaleDateString(lang, { year: "numeric", month: "2-digit", day: "2-digit" });
-}
-
+/* 延長日期的下限跟後端一樣以 UTC 日期比較，不走 lifecycleFormat 的本地時區拆解 */
 function tomorrowIso() {
   const d = new Date();
   d.setDate(d.getDate() + 1);

@@ -29,7 +29,8 @@ import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import ConnectionDetailPanel from "./ConnectionDetailPanel";
-import { buildFlow, isOutboundEdge, portLabel, routeEdges } from "./utils/buildFlow";
+import { GATEWAY_KEY, buildFlow, isOutboundEdge, portLabel, routeEdges } from "./utils/buildFlow";
+import { mergePendingLayout, toLayoutEntry, topologyView } from "./utils/pageState";
 import { useTheme } from "../../../contexts/ThemeContext";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -41,7 +42,6 @@ import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
 /* ─── 常數 ──────────────────────────────────────────────── */
-const GATEWAY_KEY   = "gateway";
 const SAVE_DEBOUNCE = 600;
 const VM_COL_X      = 160;
 const ROW_H         = 160;
@@ -84,6 +84,7 @@ export default function FirewallPage() {
   const detailPanel   = useDialogPresence(selectedEdge, 220);
   const rfInstance = useRef(null);
   const saveTimer  = useRef(null);
+  const pendingLayout = useRef(new Map());
   /* 重建拓撲時要沿用目前選取的邊，但選取本身不該讓整張圖重排，所以走 ref */
   const selectedEdgeIdRef = useRef(null);
   selectedEdgeIdRef.current = selectedEdge?.id ?? null;
@@ -124,7 +125,7 @@ export default function FirewallPage() {
     }
   }, [showInternet]);
 
-  /* ── 載入拓撲（silent = true 時不觸發 loading / error state，供背景自動刷新使用） ── */
+  /* ── 載入拓撲（silent = true 時不觸發 loading、失敗也不設 error，供背景自動刷新使用） ── */
   const fetchTopology = useCallback(async (silent = false, signal) => {
     if (!silent) {
       setLoading(true);
@@ -133,6 +134,8 @@ export default function FirewallPage() {
     try {
       const data = await getTopology({ signal });
       setTopology(data ?? { nodes: [], edges: [] });
+      /* 背景刷新成功也要清掉先前的錯誤，否則首次載入失敗後錯誤畫面會一直留著 */
+      setError("");
     } catch (err) {
       if (!silent) setError(err?.message ?? t("FirewallPage.loadTopologyFailed"));
     } finally {
@@ -192,12 +195,10 @@ export default function FirewallPage() {
       }
 
       setTimeout(() => {
-        const layoutNodes = arranged.map((n) => ({
-          vmid:       n.id === GATEWAY_KEY ? null : Number(n.id),
-          node_type:  n.id === GATEWAY_KEY ? "gateway" : "vm",
-          position_x: Math.round(n.position.x),
-          position_y: Math.round(n.position.y),
-        }));
+        /* 自動排列涵蓋所有節點：丟掉還沒送出的拖曳位置，避免晚一步把排好的位置蓋回去 */
+        clearTimeout(saveTimer.current);
+        pendingLayout.current.clear();
+        const layoutNodes = arranged.map((n) => toLayoutEntry(n, GATEWAY_KEY));
         saveLayout(layoutNodes).catch(() => {});
         rfInstance.current?.fitView({ padding: 0.2, duration: 400 });
       }, 50);
@@ -207,18 +208,24 @@ export default function FirewallPage() {
   }, [setNodes]);
 
   /* ── 節點拖曳結束 → debounce 儲存佈局 ── */
-  const onNodeDragStop = useCallback((_, __, draggedNodes) => {
+  /* debounce 期間累積所有被拖過的節點，計時到了一次送出，前一次拖曳的位置不會被丟掉 */
+  const flushPendingLayout = useCallback(() => {
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      const layoutNodes = draggedNodes.map((n) => ({
-        vmid:       n.id === GATEWAY_KEY ? null : Number(n.id),
-        node_type:  n.id === GATEWAY_KEY ? "gateway" : "vm",
-        position_x: Math.round(n.position.x),
-        position_y: Math.round(n.position.y),
-      }));
-      saveLayout(layoutNodes).catch(() => {});
-    }, SAVE_DEBOUNCE);
+    saveTimer.current = null;
+    if (pendingLayout.current.size === 0) return;
+    const layoutNodes = [...pendingLayout.current.values()];
+    pendingLayout.current.clear();
+    saveLayout(layoutNodes).catch(() => {});
   }, []);
+
+  const onNodeDragStop = useCallback((_, __, draggedNodes) => {
+    mergePendingLayout(pendingLayout.current, draggedNodes, GATEWAY_KEY);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushPendingLayout, SAVE_DEBOUNCE);
+  }, [flushPendingLayout]);
+
+  /* 離開頁面時把還沒送出的佈局存掉 */
+  useEffect(() => flushPendingLayout, [flushPendingLayout]);
 
   /* ── 點擊節點：開啟規則面板（與連線面板互斥） ── */
   const onNodeClick = useCallback((_, node) => {
@@ -308,6 +315,9 @@ export default function FirewallPage() {
     }
   };
 
+  /* 已有拓撲時重新載入不卸載整張圖（規則面板、連線面板一併保留） */
+  const contentView = topologyView({ loading, error, topology });
+
   return (
     <div className={styles.page}>
       {/* ── Header ── */}
@@ -327,13 +337,13 @@ export default function FirewallPage() {
 
       {/* ── Content ── */}
       <div className={styles.content}>
-        {loading && !topology && (
+        {contentView === "spinner" && (
           <div className={styles.centerState}>
             <LoadingState text={t("FirewallPage.loadingTopology")} />
           </div>
         )}
 
-        {error && (
+        {contentView === "error" && (
           <div className={styles.centerState}>
             <MIcon name="error_outline" size={36} />
             <span>{error}</span>
@@ -344,7 +354,7 @@ export default function FirewallPage() {
           </div>
         )}
 
-        {!loading && !error && topology && (
+        {contentView === "graph" && (
           <div
             className={`${styles.flowWrap} ${connecting || guideActive ? styles.connecting : ""}`}
             data-guide="firewall-map"
@@ -464,6 +474,7 @@ export default function FirewallPage() {
 
             {rulesPanel.open && (
               <RulesPanel
+                key={rulesPanel.item.id}
                 node={{ vmid: Number(rulesPanel.item.id), name: rulesPanel.item.data.name }}
                 canManage={canManageNode(rulesPanel.item.data)}
                 closing={rulesPanel.closing}

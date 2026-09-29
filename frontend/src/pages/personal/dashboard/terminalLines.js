@@ -4,6 +4,8 @@
  * 外觀交給 MachineTerminal；沒有的欄位就不印那一行，不補假資料。
  * 終端的欄位名（last、uptime…）刻意維持英文當終端語彙，需要文字的值才走 i18n。
  */
+/* 自動關機原因文案與純日期拆解跟資源詳情頁（OverviewTab、LifecycleCard）共用 */
+import { AUTO_STOP_REASON_KEYS, parseDateOnly } from "../resources/detail/lifecycleFormat";
 
 export const TERMINAL_ROWS = 7;
 /* 用量過這條線，格子與數字轉成警示色 */
@@ -14,14 +16,6 @@ const GB = 1024 ** 3;
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-
-/* 與 OverviewTab、LifecycleCard 共用同一組原因文案 */
-const AUTO_STOP_REASON_KEYS = {
-  window_grace: "LifecycleCard.reasonWindowGrace",
-  practice_quota: "LifecycleCard.reasonPracticeQuota",
-  ttl_expired: "LifecycleCard.reasonTtlExpired",
-  idle: "LifecycleCard.reasonIdle",
-};
 
 /* 開機沒有真實進度可讀，逐行印出這段開機訊息當作「正在開」的回饋 */
 const BOOT_LINES = {
@@ -48,12 +42,7 @@ const pad2 = (n) => String(n).padStart(2, "0");
 const shortDate = (date) => `${date.getMonth() + 1}/${date.getDate()}`;
 const clock = (date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 
-/* expiry_date 是純日期字串（YYYY-MM-DD）；用本地時區拆解，避免 UTC 解析在時區邊界差一天（同 OverviewTab） */
-function parseDateOnly(value) {
-  const [y, m, d] = String(value).slice(0, 10).split("-").map(Number);
-  return y && m && d ? new Date(y, m - 1, d) : new Date(value);
-}
-
+/** 距離 expiry_date（純日期，依本地時區拆解）還有幾天；今天到期回 0、已過期為負數 */
 export function daysUntil(dateStr, now = Date.now()) {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);

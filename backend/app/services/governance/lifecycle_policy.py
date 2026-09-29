@@ -10,6 +10,8 @@ import enum
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from app.infrastructure.proxmox.rrd import window_cpu_percentages
+
 
 class TtlAction(str, enum.Enum):
     warn = "warn"      # 到期前通知擁有者
@@ -85,6 +87,43 @@ def decide_ttl_action(
     return TtlAction.none
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def ttl_stop_email_due(
+    *, expiry_date: date | None, expiry_notified_at: datetime | None
+) -> bool:
+    """這次到期的「已到期，將自動關機」信是否還沒寄過。
+
+    寄出時把 ``expiry_notified_at`` 蓋成寄信時間（必然晚於到期時刻），之後
+    VM 沒關成（guest 不理 ACPI）而每 tick 重排關機時，就不會每分鐘再寄一封。
+    延期會把 ``expiry_notified_at`` 清成 None，新的到期日照常通知。
+    """
+    if expiry_date is None or expiry_notified_at is None:
+        return True
+    return _as_utc(expiry_notified_at) < _expiry_datetime(expiry_date)
+
+
+def idle_stop_email_due(
+    *,
+    idle_since: datetime | None,
+    idle_notified_at: datetime | None,
+    grace_hours: int,
+) -> bool:
+    """這段閒置（同一個 ``idle_since``）的「將自動關機」信是否還沒寄過。
+
+    排程閒置關機時把 ``idle_notified_at`` 蓋成當下（必然不早於
+    ``idle_since + grace_hours``）；通知階段的時間戳一定早於寬限期滿，
+    兩者因此分得開。VM 沒關成而每次重掃又判 stop 時，只重排關機、不再寄信。
+    """
+    if idle_since is None or idle_notified_at is None:
+        return True
+    return _as_utc(idle_notified_at) < _as_utc(idle_since) + timedelta(
+        hours=grace_hours
+    )
+
+
 def average_cpu_percent(
     rrd: list[dict[str, Any]], *, window_hours: int, now: datetime
 ) -> float | None:
@@ -92,15 +131,7 @@ def average_cpu_percent(
 
     無有效資料點回傳 None（不可據此判斷閒置）。
     """
-    window_start = (now - timedelta(hours=window_hours)).timestamp()
-    values: list[float] = []
-    for point in rrd:
-        ts = point.get("time")
-        cpu = point.get("cpu")
-        if ts is None or cpu is None:
-            continue
-        if float(ts) >= window_start:
-            values.append(float(cpu) * 100.0)
+    values = window_cpu_percentages(rrd, window_hours=window_hours, now=now)
     if not values:
         return None
     return sum(values) / len(values)

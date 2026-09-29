@@ -623,7 +623,11 @@ def list_student_schedule(
                 session_date=session_date,
                 start_at=starts_at,
                 end_at=ends_at,
-                teacher=(teacher.full_name or teacher.email) if teacher else "授課老師",
+                teacher=(
+                    (teacher.full_name or teacher.email)
+                    if teacher
+                    else t("course.teacher_fallback")
+                ),
                 location=teaching_class.location,
                 state=state,  # type: ignore[arg-type]
                 label=label,

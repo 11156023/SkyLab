@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import quote
 
 from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.authorizers import require_template_manage
 from app.core.db import engine
@@ -58,15 +59,44 @@ _LXC_PASSWORD_RETRY_SECONDS = 5.0
 # 請求端：校驗 + 入列
 # ---------------------------------------------------------------------------
 
+# DNS label 上限 63；批次時要留 "-NN" 四個字元給序號
+_LABEL_MAX = 63
+_BATCH_LABEL_MAX = 59
+
+
+def _slugify_template_name(name: str, max_ace_len: int) -> str:
+    """把範本名稱（自由文字）轉成單一合法 hostname label。
+
+    保留 Unicode 字母與數字（之後轉 Punycode），其餘字元一律換成 ``-``；
+    從尾端逐字截短，直到 ACE 形式不超過 ``max_ace_len``。
+    """
+    slug = re.sub(r"[^\w-]+", "-", name.lower()).replace("_", "-")
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    while slug:
+        try:
+            if len(to_punycode_hostname(slug)) <= max_ace_len:
+                return slug
+        except ValueError:
+            pass  # 單一 label 轉完超過 63 字元時 to_punycode_hostname 會丟錯
+        slug = slug[:-1].rstrip("-")
+    return "vm"
+
+
 def _build_hostnames(
     base: str | None, template_name: str, count: int
 ) -> list[str]:
-    raw = base or template_name
-    hostname = to_punycode_hostname(raw)
+    if not base:
+        max_len = _LABEL_MAX if count == 1 else _BATCH_LABEL_MAX
+        base = _slugify_template_name(template_name, max_len)
+    try:
+        hostname = to_punycode_hostname(base)
+    except ValueError as exc:
+        raise BadRequestError(t("clone.invalidHostname")) from exc
     if count == 1:
         return [hostname]
-    # 批量時加序號，並保留 63 字元上限
-    return [f"{hostname[:59]}-{i + 1:02d}" for i in range(count)]
+    # 批量時加序號，並保留 63 字元上限；截斷後不可留下結尾的 - 或 .
+    prefix = hostname[:_BATCH_LABEL_MAX].rstrip("-.")
+    return [f"{prefix}-{i + 1:02d}" for i in range(count)]
 
 
 async def request_clone(
@@ -76,6 +106,31 @@ async def request_clone(
     template_id: uuid.UUID,
     data: TemplateCloneRequest,
 ) -> list[TaskRecord]:
+    # 校驗（DB、GPU mapping、配額）都是同步查詢，丟到 threadpool；
+    # event loop 上只留入列
+    template, payloads = await run_in_threadpool(
+        _prepare_clone, session, user, template_id, data
+    )
+    records: list[TaskRecord] = []
+    for payload in payloads:
+        record = await enqueue_task(
+            session=session,
+            task_type=TASK_CLONE,
+            user_id=user.id,
+            template_id=template.id,
+            payload=payload,
+        )
+        records.append(record)
+    return records
+
+
+def _prepare_clone(
+    session: Session,
+    user: User,
+    template_id: uuid.UUID,
+    data: TemplateCloneRequest,
+) -> tuple[VMTemplate, list[dict[str, Any]]]:
+    """request_clone 的同步部分：權限、GPU、配額校驗與每台機器的任務 payload。"""
     template = template_service.get_or_404(session, template_id)
     template_service.require_view(session, user, template)
     # 克隆開通僅限教師與管理員；學生要機器一律走申請審核流程。
@@ -117,34 +172,26 @@ async def request_clone(
     )
 
     hostnames = _build_hostnames(data.hostname, template.name, data.count)
-    records: list[TaskRecord] = []
-    for hostname in hostnames:
-        record = await enqueue_task(
-            session=session,
-            task_type=TASK_CLONE,
-            user_id=user.id,
-            template_id=template.id,
-            payload={
-                "template_id": str(template.id),
-                "user_id": str(user.id),
-                "hostname": hostname,
-                "cores": data.cores,
-                "memory": data.memory,
-                # 磁碟不開放調整：固定沿用範本磁碟（batch 路徑仍可帶 disk）
-                "start": data.start,
-                "allow_password_reset": template.allow_password_change,
-                # payload 會落 DB（TaskRecord.payload），密碼必須加密存放
-                "login_password_enc": (
-                    encrypt_value(data.login_password)
-                    if data.login_password
-                    else None
-                ),
-                "gpu_mapping_id": data.gpu_mapping_id,
-                "gpu_mdev_profile": data.gpu_mdev_profile,
-            },
-        )
-        records.append(record)
-    return records
+    payloads = [
+        {
+            "template_id": str(template.id),
+            "user_id": str(user.id),
+            "hostname": hostname,
+            "cores": data.cores,
+            "memory": data.memory,
+            # 磁碟不開放調整：固定沿用範本磁碟（batch 路徑仍可帶 disk）
+            "start": data.start,
+            "allow_password_reset": template.allow_password_change,
+            # payload 會落 DB（TaskRecord.payload），密碼必須加密存放
+            "login_password_enc": (
+                encrypt_value(data.login_password) if data.login_password else None
+            ),
+            "gpu_mapping_id": data.gpu_mapping_id,
+            "gpu_mdev_profile": data.gpu_mdev_profile,
+        }
+        for hostname in hostnames
+    ]
+    return template, payloads
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +304,29 @@ def _reconfigure_qemu(
         config_updates["nameserver"] = net_cfg["dns_servers"]
     proxmox_ops.update_config(node, vmid, "qemu", **config_updates)
     if disk:
-        proxmox_ops.resize_disk(node, vmid, "qemu", "scsi0", f"{disk}G")
+        _grow_qemu_boot_disk(node=node, vmid=vmid, disk_gb=disk)
+
+
+def _grow_qemu_boot_disk(*, node: str, vmid: int, disk_gb: int) -> None:
+    """把克隆機的開機磁碟放大到 disk_gb；已經夠大就不動。
+
+    開機磁碟不一定是 scsi0（virtio0／sata0／ide0 的範本也存在），寫死
+    scsi0 會讓 PVE 找不到磁碟而整台回滾；PVE 也不接受縮小磁碟，要求的
+    大小不大於現況時直接略過。
+    """
+    config = proxmox_ops.get_config(node, vmid, "qemu")
+    boot_disk = template_service.qemu_boot_disk(config)
+    if boot_disk is None:
+        logger.warning(
+            "Clone %s has no recognizable boot disk; skipping resize to %sG",
+            vmid, disk_gb,
+        )
+        return
+    disk_key, raw = boot_disk
+    current_gb = template_service._parse_disk_size_gb(raw)
+    if current_gb is not None and disk_gb <= current_gb:
+        return
+    proxmox_ops.resize_disk(node, vmid, "qemu", disk_key, f"{disk_gb}G")
 
 
 def _reconfigure_lxc(
@@ -294,25 +363,44 @@ def _set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
     ps 與 shell 紀錄裡，同一台節點上的其他人看得到。
     回傳是否成功；失敗方（呼叫端）不得記錄未生效的密碼。
     """
+    return _exec_lxc_with_retry(
+        node,
+        vmid,
+        "chpasswd",
+        stdin=f"root:{password}\n",
+        what="set root password",
+    )
+
+
+def _exec_lxc_with_retry(
+    node: str,
+    vmid: int,
+    command: str,
+    *,
+    stdin: str | None = None,
+    what: str,
+) -> bool:
+    """以 ``pct exec`` 在剛開機的容器內執行指令，容器還沒起來就重試等待。
+
+    最多試 ``_LXC_PASSWORD_ATTEMPTS`` 次、每次間隔 ``_LXC_PASSWORD_RETRY_SECONDS``；
+    全部失敗時以 ``what`` 描述記 warning 並回 False。
+    """
     from app.infrastructure.proxmox import guest
 
+    exec_kwargs: dict[str, Any] = {} if stdin is None else {"stdin": stdin}
     last_error: str = ""
     for attempt in range(_LXC_PASSWORD_ATTEMPTS):
         if attempt:
             time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
         try:
-            code, _out, err = guest.exec_lxc(
-                node, vmid, "chpasswd", stdin=f"root:{password}\n"
-            )
+            code, _out, err = guest.exec_lxc(node, vmid, command, **exec_kwargs)
         except Exception as exc:
             last_error = str(exc)
             continue
         if code == 0:
             return True
         last_error = (err or "").strip()
-    logger.warning(
-        "Failed to set root password for CT %d: %s", vmid, last_error[:300]
-    )
+    logger.warning("Failed to %s for CT %d: %s", what, vmid, last_error[:300])
     return False
 
 
@@ -324,8 +412,6 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
     已存在則不重複追加；回傳是否成功，失敗由呼叫端記 warning（DB 仍落庫，
     管理員可用 regenerate-ssh-key 補救）。
     """
-    from app.infrastructure.proxmox import guest
-
     key = public_key.strip()
     if not key:
         return False
@@ -336,22 +422,9 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
         f"printf %s {shlex.quote(key + chr(10))} >> /root/.ssh/authorized_keys; "
         "chmod 600 /root/.ssh/authorized_keys"
     )
-    last_error: str = ""
-    for attempt in range(_LXC_PASSWORD_ATTEMPTS):
-        if attempt:
-            time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
-        try:
-            code, _out, err = guest.exec_lxc(node, vmid, script)
-        except Exception as exc:
-            last_error = str(exc)
-            continue
-        if code == 0:
-            return True
-        last_error = (err or "").strip()
-    logger.warning(
-        "Failed to inject platform SSH key for CT %d: %s", vmid, last_error[:300]
+    return _exec_lxc_with_retry(
+        node, vmid, script, what="inject platform SSH key"
     )
-    return False
 
 
 def set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
@@ -414,13 +487,18 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
     allocated_ip: str | None = None
     created = False
     try:
-        # ``next_vmid`` 只是讀取 PVE 的 nextid；把鎖一路持有到 clone
-        # 完成，才能避免不同 backend worker 在 PVE 尚未反映新 CT 前拿到
-        # 同一個 VMID。IP 預留也放在同一個臨界區，失敗時再用 reservation
-        # key 精準回滾。
+        # ``next_vmid`` 只讀 PVE 的 nextid，``allocate_free_vmid`` 另外跳過 DB
+        # 已預留（IP 配發紀錄／資源列）的 VMID：排程在鎖內只把 VMID 寫進 DB
+        # 就放鎖，clone 稍後才送出，這段時間 nextid 仍會回同一個號碼。
+        # 把鎖一路持有到 clone 完成，才能避免不同 backend worker 在 PVE 尚未
+        # 反映新 CT 前拿到同一個 VMID。IP 預留也放在同一個臨界區，失敗時再用
+        # reservation key 精準回滾。
+        # provisioning_service 會延遲 import 本模組，這裡也延遲 import 避免循環
+        from app.services.proxmox.provisioning_service import allocate_free_vmid
+
         with proxmox_ops.vmid_allocation_lock():
             with Session(engine) as session:
-                new_vmid = proxmox_ops.next_vmid()
+                new_vmid = allocate_free_vmid(session)
                 net_cfg = ip_management_service.get_network_config_for_vm(session)
                 purpose = "lxc" if resource_type == "lxc" else "vm"
                 allocated_ip = ip_management_service.allocate_ip(

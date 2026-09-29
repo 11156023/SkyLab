@@ -5,7 +5,6 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
-import { useAuth } from "../../../contexts/AuthContext";
 import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
 import { AuthStorage } from "../../../services/auth";
 import {
@@ -24,7 +23,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
   const [report, setReport] = useState(null);
   const [failed, setFailed] = useState(false);
   const [live, setLive] = useState(false);
-  const wsRef = useRef(null);
   const refetchTimer = useRef(null);
   /* 目前顯示的是哪條路徑：慢回來的舊請求不可以蓋掉新路徑的報表 */
   const activePathIdRef = useRef("");
@@ -61,7 +59,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
     // WS 即時推播：收到事件後 debounce 重拉快照
     const token = AuthStorage.getAccessToken() ?? "";
     const ws = new WebSocket(courseProgressWsUrl(pathId, token));
-    wsRef.current = ws;
     ws.onopen = () => setLive(true);
     ws.onmessage = () => {
       clearTimeout(refetchTimer.current);
@@ -73,7 +70,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
     return () => {
       clearTimeout(refetchTimer.current);
       ws.close();
-      wsRef.current = null;
     };
   }, [pathId, fetchReport]);
 
@@ -160,7 +156,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
 /* ══════════════ 主頁 ══════════════ */
 export default function CourseCmsPage() {
   const { t } = useTranslation("teaching");
-  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(searchParams.get("tab") === "progress" ? "progress" : "editor");
   const [pathsLoading, setPathsLoading] = useState(true);
@@ -168,9 +163,6 @@ export default function CourseCmsPage() {
   const [teachingClasses, setTeachingClasses] = useState([]);
 
   const { confirmLeave } = useUnsavedChanges();
-
-  const canManage =
-    user?.role === "admin" || user?.role === "teacher" || user?.is_superuser === true;
 
   /* 回傳 promise：新增路徑後要等清單更新完再選中它 */
   const reloadPaths = useCallback(() => {
@@ -192,14 +184,9 @@ export default function CourseCmsPage() {
   }
 
   useEffect(() => {
-    if (!canManage) return;
     reloadPaths();
     TeachingClassesService.list().then(setTeachingClasses).catch(() => {});
-  }, [canManage, reloadPaths]);
-
-  if (!canManage) {
-    return <div className={styles.stateText}>{t("CourseCmsPage.teacherOnlyText")}</div>;
-  }
+  }, [reloadPaths]);
 
   return (
     <div className={styles.page}>

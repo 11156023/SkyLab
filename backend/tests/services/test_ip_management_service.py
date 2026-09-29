@@ -15,6 +15,7 @@ def test_release_ip_with_reservation_key_only_releases_its_own_row() -> None:
         poolclass=StaticPool,
     )
     SQLModel.metadata.create_all(engine)
+    class_id = uuid.uuid4()
     try:
         with Session(engine) as session:
             session.add_all(
@@ -24,12 +25,14 @@ def test_release_ip_with_reservation_key_only_releases_its_own_row() -> None:
                         purpose="lxc",
                         vmid=487,
                         reservation_key="class:node-a:user",
+                        teaching_class_id=class_id,
                     ),
                     IpAllocation(
                         ip_address="10.0.0.11",
                         purpose="lxc",
                         vmid=487,
                         reservation_key="class:node-b:user",
+                        teaching_class_id=class_id,
                     ),
                 ]
             )

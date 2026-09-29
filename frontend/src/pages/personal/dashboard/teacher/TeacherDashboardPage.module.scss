@@ -29,19 +29,6 @@
   @include btn-ghost;
   color: var(--color-primary-on-surface);
 }
-.error {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  padding: 12px $spacing-16;
-  border: 1px solid
-    color-mix(in srgb, var(--color-danger) 28%, var(--color-border));
-  border-radius: $radius-8;
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 7%, var(--color-surface));
-  font-size: $font-size-12;
-}
-
 .metricGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

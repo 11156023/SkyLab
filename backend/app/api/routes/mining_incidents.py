@@ -5,18 +5,16 @@ import uuid
 from fastapi import APIRouter, Query
 
 from app.api.deps import AdminUser, SessionDep
-from app.exceptions import NotFoundError
 from app.models import MiningIncidentStatus
 from app.repositories import mining as mining_repo
-from app.repositories import resource as resource_repo
 from app.schemas.mining import (
     MiningDismissRequest,
+    MiningDismissResult,
     MiningExemptRequest,
     MiningExemptResponse,
     MiningIncidentPublic,
 )
 from app.services.security import mining_service
-from app.services.user import audit_service
 
 router = APIRouter(prefix="/mining-incidents", tags=["mining"])
 
@@ -51,22 +49,26 @@ def ban_incident(
     return MiningIncidentPublic.model_validate(incident, from_attributes=True)
 
 
-@router.post("/{incident_id}/dismiss", response_model=MiningIncidentPublic)
+@router.post("/{incident_id}/dismiss", response_model=MiningDismissResult)
 def dismiss_incident(
     incident_id: uuid.UUID,
     body: MiningDismissRequest,
     session: SessionDep,
     current_user: AdminUser,
-) -> MiningIncidentPublic:
-    """管理員判定誤判 → 恢復 VM，可一併加入豁免。"""
-    incident = mining_service.dismiss_incident(
+) -> MiningDismissResult:
+    """管理員判定誤判 → 恢復 VM，可一併加入豁免。
+
+    恢復 VM／刪除存證快照失敗不擋結案，逐條放在 ``warnings`` 回給前端。
+    """
+    incident, failures = mining_service.dismiss_incident(
         session=session,
         incident_id=incident_id,
         admin=current_user,
         exempt=body.exempt,
         note=body.note,
     )
-    return MiningIncidentPublic.model_validate(incident, from_attributes=True)
+    public = MiningIncidentPublic.model_validate(incident, from_attributes=True)
+    return MiningDismissResult(**public.model_dump(), warnings=failures)
 
 
 @router.put("/exemptions/{vmid}", response_model=MiningExemptResponse)
@@ -77,21 +79,7 @@ def set_exemption(
     current_user: AdminUser,
 ) -> MiningExemptResponse:
     """設定/解除資源的挖礦偵測豁免（合法長時間高負載的 VM）。"""
-    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-    if resource is None:
-        raise NotFoundError(f"Resource {vmid} not found")
-    resource.mining_exempt = body.exempt
-    session.add(resource)
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        vmid=vmid,
-        action="mining_exempt_change",
-        details=(
-            f"Mining exemption {'granted' if body.exempt else 'revoked'} "
-            f"for vmid={vmid}"
-        ),
-        commit=False,
+    resource = mining_service.set_exemption(
+        session=session, vmid=vmid, exempt=body.exempt, admin=current_user
     )
-    session.commit()
     return MiningExemptResponse(vmid=vmid, exempt=resource.mining_exempt)

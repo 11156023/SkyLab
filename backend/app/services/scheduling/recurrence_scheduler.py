@@ -6,14 +6,18 @@ runs once per tick (default 60s) inside a worker thread.
 
 Three handlers:
 
-- :func:`process_recurrence_windows` — Recompute ``next_window_start/end`` for
-  vm_requests with a recurrence rule. Batch jobs reuse this through their
-  member tasks.
+- :func:`process_recurrence_windows` — First archives/reclaims teaching
+  classes that have ended (and retries failed reclaims), then recomputes
+  ``next_window_start/end`` for vm_requests with a recurrence rule and, directly
+  on the job row, for completed formal-class batch jobs (cleared when the
+  class schedule is disabled or over).
 - :func:`process_scheduled_boot` — For VMs whose next window starts within
   ``lead_time``, power them on in batches with a sleep between batches.
-  Each booted VM gets ``auto_stop_at = window_end + grace_period``.
+  Each booted VM gets ``auto_stop_at = window_end + grace_period``. Formal-class
+  batch-job VMs inside their active window are booted too (no extra grace).
 - :func:`process_auto_stops` — Shut down VMs whose ``auto_stop_at`` has elapsed
-  (covers both ``window_grace`` and ``practice_quota`` reasons).
+  (covers both ``window_grace`` and ``practice_quota`` reasons), escalating
+  to a hard stop when the guest ignores the graceful shutdown.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session, col, select
 
 from app.core.db import engine
+from app.exceptions import NotFoundError, ProxmoxError
 from app.models import (
     BatchProvisionJob,
     BatchProvisionJobStatus,
@@ -40,6 +45,8 @@ from app.models import (
 )
 from app.repositories import resource as resource_repo
 from app.services.proxmox import proxmox_service
+from app.services.scheduling import policy as scheduling_policy
+from app.services.scheduling import support as scheduling_support
 from app.services.scheduling.recurrence import (
     DEFAULT_TIMEZONE,
     compute_active_or_next_window,
@@ -54,7 +61,7 @@ CLASS_RECLAIM_RETRY_INTERVAL = timedelta(minutes=15)
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return scheduling_policy.utc_now()
 
 
 @dataclass(frozen=True)
@@ -75,11 +82,16 @@ class _BootSpec:
 
 
 def process_recurrence_windows() -> None:
-    """Refresh ``next_window_start/end`` on every recurring VMRequest.
+    """Refresh ``next_window_start/end`` on recurring VMRequests and batch jobs.
+
+    Ended teaching classes are archived/reclaimed first (see
+    :func:`_process_expired_class_lifecycle`).
 
     A row's window is "stale" when ``next_window_end`` has passed; we then
     advance to the following occurrence. If no future occurrence exists
-    (RRULE exhausted via UNTIL), the columns are cleared.
+    (RRULE exhausted via UNTIL), the columns are cleared. Completed
+    formal-class batch jobs are refreshed on the job row itself; their window
+    is cleared while the class schedule is disabled or the class has ended.
     """
     now = _utc_now()
     _process_expired_class_lifecycle(now=now)
@@ -92,12 +104,21 @@ def process_recurrence_windows() -> None:
         for req in requests:
             if req.next_window_end and req.next_window_end > now:
                 continue  # current window still valid
-            window = compute_next_window(
-                rule=req.recurrence_rule or "",
-                duration_minutes=req.recurrence_duration_minutes or 0,
-                timezone=req.schedule_timezone,
-                after=now,
-            )
+            try:
+                window = compute_next_window(
+                    rule=req.recurrence_rule or "",
+                    duration_minutes=req.recurrence_duration_minutes or 0,
+                    timezone=req.schedule_timezone,
+                    after=now,
+                )
+            except Exception:
+                # 單筆規則或時區壞掉只跳過它，其他申請照常更新
+                logger.warning(
+                    "Skipping recurrence window for vm_request %s",
+                    req.id,
+                    exc_info=True,
+                )
+                continue
             if window is None:
                 req.next_window_start = None
                 req.next_window_end = None
@@ -125,12 +146,20 @@ def process_recurrence_windows() -> None:
                 continue
             if job.next_window_end and job.next_window_end > now:
                 continue
-            window = compute_active_or_next_window(
-                rule=job.recurrence_rule or "",
-                duration_minutes=job.recurrence_duration_minutes or 0,
-                timezone=job.schedule_timezone,
-                now=_class_schedule_reference(class_item, job, now),
-            )
+            try:
+                window = compute_active_or_next_window(
+                    rule=job.recurrence_rule or "",
+                    duration_minutes=job.recurrence_duration_minutes or 0,
+                    timezone=job.schedule_timezone,
+                    now=_class_schedule_reference(class_item, job, now),
+                )
+            except Exception:
+                logger.warning(
+                    "Skipping recurrence window for batch job %s",
+                    job.id,
+                    exc_info=True,
+                )
+                continue
             job.next_window_start, job.next_window_end = window or (None, None)
             session.add(job)
             updated += 1
@@ -160,7 +189,11 @@ def process_scheduled_boot() -> None:
             VMRequest.vmid.isnot(None),  # type: ignore[union-attr]
         )
         candidates = list(session.exec(stmt).all())
-        targets = _filter_due_for_boot(session=session, requests=candidates)
+        targets = _filter_due_for_boot(
+            session=session,
+            requests=candidates,
+            grace_minutes=policy.window_grace_minutes,
+        )
         # Snapshot plain values while the session is still open — commits made
         # inside _filter_due_for_boot expire these ORM objects, and they become
         # unreadable (DetachedInstanceError) once the session closes.
@@ -170,7 +203,7 @@ def process_scheduled_boot() -> None:
                 vmid=req.vmid,
                 node=req.actual_node or req.assigned_node,
                 window_end=req.next_window_end,
-                resource_type=_resource_type(req),
+                resource_type=scheduling_policy.resource_type_for_request(req),
             )
             for req in targets
             if req.vmid is not None
@@ -204,6 +237,12 @@ def process_auto_stops() -> None:
     with Session(engine) as session:
         due = resource_repo.list_due_auto_stops(session=session, now=now)
 
+    # 排程已清掉或改期的機器不再追蹤「已送出關機」的時間
+    due_keys = {_stop_key(resource) for resource in due}
+    for key in list(_shutdown_requested_at):
+        if key not in due_keys:
+            _shutdown_requested_at.pop(key, None)
+
     if not due:
         return
 
@@ -221,8 +260,20 @@ def process_auto_stops() -> None:
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 
+def _safe_zone(name: str | None) -> ZoneInfo:
+    """解析時區名稱；舊資料裡的無效時區退回預設值，不讓整輪排程中斷。"""
+    try:
+        return ZoneInfo(name or DEFAULT_TIMEZONE)
+    except (KeyError, ValueError, OSError):
+        logger.warning(
+            "Invalid timezone %r in schedule data; falling back to %s",
+            name, DEFAULT_TIMEZONE,
+        )
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
 def _class_expired(teaching_class: TeachingClass, now: datetime) -> bool:
-    tz = ZoneInfo(teaching_class.timezone or DEFAULT_TIMEZONE)
+    tz = _safe_zone(teaching_class.timezone)
     cutoff = datetime.combine(
         teaching_class.end_date,
         teaching_class.end_time,
@@ -258,17 +309,24 @@ def _process_expired_class_lifecycle(*, now: datetime) -> None:
                 )
             ).all()
         )
-        expired_ids = [
-            item.id
-            for item in candidates
-            if item.status != TeachingClassStatus.archived
-            and _class_expired(item, now)
-        ]
-        retry_ids = [
-            item.id
-            for item in candidates
-            if _class_reclaim_retry_due(item, now)
-        ]
+        expired_ids: list[uuid.UUID] = []
+        retry_ids: list[uuid.UUID] = []
+        for item in candidates:
+            # 單一班級資料有問題只跳過它，不能讓後面所有租戶的視窗更新中斷
+            try:
+                if (
+                    item.status != TeachingClassStatus.archived
+                    and _class_expired(item, now)
+                ):
+                    expired_ids.append(item.id)
+                if _class_reclaim_retry_due(item, now):
+                    retry_ids.append(item.id)
+            except Exception:
+                logger.warning(
+                    "Skipping lifecycle check for teaching class %s",
+                    item.id,
+                    exc_info=True,
+                )
 
     for class_id in expired_ids:
         try:
@@ -328,7 +386,7 @@ def _class_schedule_reference(
 ) -> datetime:
     if teaching_class is None:
         return now
-    tz = ZoneInfo(job.schedule_timezone or teaching_class.timezone or DEFAULT_TIMEZONE)
+    tz = _safe_zone(job.schedule_timezone or teaching_class.timezone)
     class_start = datetime.combine(
         teaching_class.start_date,
         teaching_class.start_time,
@@ -344,7 +402,7 @@ def _class_schedule_enabled(
 ) -> bool:
     if teaching_class is None or teaching_class.status == TeachingClassStatus.archived:
         return False
-    tz = ZoneInfo(job.schedule_timezone or teaching_class.timezone or DEFAULT_TIMEZONE)
+    tz = _safe_zone(job.schedule_timezone or teaching_class.timezone)
     local_date = now.astimezone(tz).date()
     return local_date <= teaching_class.end_date
 
@@ -388,7 +446,14 @@ def _batch_boot_specs(*, session: Session, now: datetime) -> list[_BootSpec]:
                 and resource.auto_stop_at >= job.next_window_end
             ):
                 continue
-            info = _resource_info(vmid=vmid)
+            try:
+                info = _resource_info(vmid=vmid)
+            except ProxmoxError as exc:
+                # 單一連線故障只跳過這台，不能讓整輪排程開機中斷
+                logger.warning(
+                    "Scheduled boot: cannot look up vmid=%s: %s", vmid, exc
+                )
+                continue
             if not info:
                 continue
             if info.get("status") == "running":
@@ -416,6 +481,7 @@ def _filter_due_for_boot(
     *,
     session: Session,
     requests: list[VMRequest],
+    grace_minutes: int,
 ) -> list[VMRequest]:
     """Drop requests whose VM is already running or already has a future
     auto_stop set for this window (idempotency across ticks)."""
@@ -439,7 +505,7 @@ def _filter_due_for_boot(
             status = proxmox_service.get_status(
                 req.actual_node or req.assigned_node or "",
                 req.vmid,
-                _resource_type(req),
+                scheduling_policy.resource_type_for_request(req),
             )
             if status.get("status") == "running":
                 # Running but no auto_stop yet — set the grace stop and move on
@@ -447,7 +513,7 @@ def _filter_due_for_boot(
                 _write_window_grace_stop(
                     session=session, vmid=req.vmid,
                     window_end=req.next_window_end,
-                    grace_minutes=get_schedule_policy(session=session).window_grace_minutes,
+                    grace_minutes=grace_minutes,
                 )
                 continue
         except Exception:
@@ -515,27 +581,87 @@ def _write_window_grace_stop(
     )
 
 
+# 送出優雅關機後，超過這個時間機器還在跑就強制斷電
+FORCE_STOP_AFTER_SECONDS = 300
+
+# (vmid, auto_stop_at) → 第一次送出 shutdown 的 time.monotonic()。
+# 只存在排程器行程記憶體：行程重啟頂多讓寬限期重算一次。
+_shutdown_requested_at: dict[tuple[int, datetime | None], float] = {}
+
+# cluster/resources 由 pvestatd 約每 10 秒更新一次，回報的 uptime 可能比實際
+# 少幾秒；判斷「關機後又被開回來」時預留這段誤差，避免把送出關機前幾秒才
+# 開機、正好不理 ACPI 的機器誤判成已重開
+_UPTIME_STALENESS_SECONDS = 15
+
+
+def _stop_key(resource: Resource) -> tuple[int, datetime | None]:
+    return resource.vmid, resource.auto_stop_at
+
+
+def _restarted_since_shutdown(info: dict, *, elapsed: float) -> bool:
+    """送出關機後，機器是否已停下又被其他流程開回來。
+
+    本次開機秒數（uptime）比送出關機至今還短，代表是關機之後才開的機。
+    uptime 缺欄位或不是數字時無法判斷，回 False 照原本流程等待／升級。
+    """
+    try:
+        uptime = int(info["uptime"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return uptime + _UPTIME_STALENESS_SECONDS < elapsed
+
+
+def _clear_auto_stop(resource: Resource) -> None:
+    _shutdown_requested_at.pop(_stop_key(resource), None)
+    with Session(engine) as session:
+        resource_repo.set_auto_stop(
+            session=session, vmid=resource.vmid,
+            auto_stop_at=None, auto_stop_reason=None,
+        )
+
+
 def _stop_one(*, resource: Resource) -> None:
-    """Try a graceful shutdown first; if the VM is still running after a few
-    seconds, fall back to a hard stop."""
+    """先送優雅關機；超過 FORCE_STOP_AFTER_SECONDS 仍在跑就強制斷電。
+
+    proxmox_service.control 不等 PVE 任務結果，送出 shutdown 不代表機器
+    會關（guest 可忽略 ACPI，例如停在開機選單或設了 HandlePowerKey=ignore）。
+    所以排程要留到確認機器已停止才清掉，由之後的 tick 追蹤並升級成 stop。
+
+    同一個 tick 裡 process_due_request_starts 比這裡先跑，申請時段內的機器
+    被關掉後會先被開回來；看到它是關機之後才開的機（uptime 比送出關機至今
+    還短）就當作這次自動關機已完成、清掉排程，不能再強制斷電。
+    """
     info = _resource_info(vmid=resource.vmid)
     if info is None:
         # Already gone from Proxmox — clear the schedule so we don't loop.
-        with Session(engine) as session:
-            resource_repo.set_auto_stop(
-                session=session, vmid=resource.vmid,
-                auto_stop_at=None, auto_stop_reason=None,
-            )
+        _clear_auto_stop(resource)
         return
     node = info["node"]
     rtype = info["type"]
     if info.get("status") != "running":
         # Already off — clear the schedule.
-        with Session(engine) as session:
-            resource_repo.set_auto_stop(
-                session=session, vmid=resource.vmid,
-                auto_stop_at=None, auto_stop_reason=None,
+        _clear_auto_stop(resource)
+        return
+
+    key = _stop_key(resource)
+    requested_at = _shutdown_requested_at.get(key)
+    now = time.monotonic()
+    if requested_at is not None:
+        elapsed = now - requested_at
+        if _restarted_since_shutdown(info, elapsed=elapsed):
+            logger.info(
+                "Auto-stop: vmid=%s restarted after shutdown; clearing schedule",
+                resource.vmid,
             )
+            _clear_auto_stop(resource)
+            return
+        if elapsed < FORCE_STOP_AFTER_SECONDS:
+            return  # 已送出關機，等 guest 自己關
+        logger.warning(
+            "Auto-stop: vmid=%s ignored shutdown for %ss; forcing stop",
+            resource.vmid, FORCE_STOP_AFTER_SECONDS,
+        )
+        proxmox_service.control(node, resource.vmid, rtype, "stop")
         return
     try:
         proxmox_service.control(node, resource.vmid, rtype, "shutdown")
@@ -549,24 +675,20 @@ def _stop_one(*, resource: Resource) -> None:
         except Exception:
             logger.exception("Hard stop also failed for vmid=%s", resource.vmid)
             return
-    with Session(engine) as session:
-        resource_repo.set_auto_stop(
-            session=session, vmid=resource.vmid,
-            auto_stop_at=None, auto_stop_reason=None,
-        )
+    _shutdown_requested_at[key] = now
 
 
 def _resource_info(*, vmid: int) -> dict | None:
-    """Locate the resource on Proxmox to discover its node & type."""
+    """Locate the resource on Proxmox to discover its node & type.
+
+    只有確定機器不在（NotFoundError）才回 None；PVE 連線暫時有問題時
+    讓例外往外丟，保留排程等下一輪，不能把它當成「機器不在」清掉排程。
+    """
     try:
-        info = proxmox_service.find_resource(vmid)
-    except Exception:
+        info = scheduling_support.find_resource_strict(vmid)
+    except NotFoundError:
         return None
     return info if info else None
-
-
-def _resource_type(req: VMRequest) -> str:
-    return "lxc" if req.resource_type == "lxc" else "qemu"
 
 
 def _chunk(items: list, size: int) -> list[list]:

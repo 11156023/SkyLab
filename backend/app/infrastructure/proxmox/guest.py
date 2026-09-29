@@ -1,11 +1,9 @@
-"""Guest 內檔案寫入與指令執行：QEMU 走 guest agent，LXC 走 node SSH pct。
+"""Guest 內的探測與指令執行：QEMU 走 guest agent，LXC 走 node SSH ``pct exec``。
 
-- QEMU：POST /nodes/{node}/qemu/{vmid}/agent/file-write。內容自行 base64
-  並帶 ``encode=0``（二進位安全）。前置 agent ping，失敗回可讀 400。
-  指令執行走 agent exec + exec-status 輪詢。
-- LXC：SSH 到容器所在節點本身（``pct`` 只能操作本機容器），SFTP 寫暫存檔
-  → ``pct push --perms`` → 清理暫存；指令執行走 ``pct exec``。
-  憑節點歸屬路由到正確連線的帳密。
+- QEMU：agent ping（丟例外或回 bool 兩種版本）、``get-osinfo``，以及
+  agent exec + exec-status 輪詢執行指令；執行前先 ping，agent 未回應回可讀的 400。
+- LXC：SSH 到容器所在節點本身（``pct`` 只能操作本機容器）後以 ``pct exec``
+  執行 shell 指令；憑節點歸屬路由到正確連線的帳密。
 """
 
 from __future__ import annotations
@@ -29,9 +27,14 @@ from app.infrastructure.ssh import create_password_client, exec_command
 logger = logging.getLogger(__name__)
 
 
+def _agent_ping(node: str, vmid: int) -> None:
+    """送出 agent ping；agent 未回應時由 PVE 拋出原始例外。"""
+    get_proxmox_api_for_node(node).nodes(node).qemu(vmid).agent("ping").post()
+
+
 def _ping_agent(node: str, vmid: int) -> None:
     try:
-        get_proxmox_api_for_node(node).nodes(node).qemu(vmid).agent("ping").post()
+        _agent_ping(node, vmid)
     except Exception as exc:
         raise AppError(
             t("guest.agentNotResponding", vmid=vmid),
@@ -42,7 +45,7 @@ def _ping_agent(node: str, vmid: int) -> None:
 def ping_qemu_agent(node: str, vmid: int) -> bool:
     """agent ping；未回應回 False（不丟例外），供開機後輪詢等待用。"""
     try:
-        get_proxmox_api_for_node(node).nodes(node).qemu(vmid).agent("ping").post()
+        _agent_ping(node, vmid)
         return True
     except Exception:
         return False
@@ -125,11 +128,11 @@ def exec_lxc(
         client.close()
 
 
-def _node_ssh_client(node: str | None = None) -> Any:
+def _node_ssh_client(node: str) -> Any:
     """SSH 到指定節點本身；未知節點時退回其連線的 active host。"""
-    connection_id = get_connection_id_for_node(node) if node else None
+    connection_id = get_connection_id_for_node(node)
     cfg = get_proxmox_settings(connection_id)
-    host = (get_node_host(node) if node else None) or get_active_host(connection_id)
+    host = get_node_host(node) or get_active_host(connection_id)
     ssh_user = cfg.user.split("@")[0] if "@" in cfg.user else cfg.user
     return create_password_client(host, 22, ssh_user, cfg.password, timeout=30)
 

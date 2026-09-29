@@ -32,31 +32,9 @@ def _pdf_file(row: TeachingClassTaskFile) -> CourseWeeklyTaskFileStudent | None:
 
 def _source_items(source_file: TeacherJudgeFile | None) -> list[CourseAITaskItemStudent]:
     """Expose the AI-extracted task list even before a runnable script is approved."""
-    raw_items = (source_file.analysis_json or {}).get("items", []) if source_file else []
-    if not isinstance(raw_items, list):
+    if source_file is None:
         return []
-
-    items: list[CourseAITaskItemStudent] = []
-    for order, raw in enumerate(raw_items):
-        if not isinstance(raw, dict):
-            continue
-        item_id = str(raw.get("id") or f"item-{order + 1}").strip()
-        title = str(raw.get("title") or "").strip()
-        if not item_id or not title:
-            continue
-        detectable = str(raw.get("detectable") or "manual")
-        items.append(
-            CourseAITaskItemStudent(
-                id=item_id,
-                title=title,
-                description=str(raw.get("description") or "").strip(),
-                detectable=(
-                    detectable if detectable in {"auto", "partial", "manual"} else "manual"
-                ),
-                order=order,
-            )
-        )
-    return items
+    return ai_assignment_service.student_task_items(source_file.analysis_json or {})
 
 
 def list_student_weekly_tasks(

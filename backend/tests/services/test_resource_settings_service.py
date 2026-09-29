@@ -9,6 +9,7 @@ import pytest
 
 from app.exceptions import BadRequestError
 from app.schemas.resource_settings import BootOptionsUpdate
+from app.services.resource import _guest_helpers
 from app.services.resource import settings_service as svc
 
 _QEMU_CONFIG = {
@@ -38,6 +39,8 @@ def fake_proxmox(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         },
     )
     monkeypatch.setattr(svc, "proxmox_service", fake)
+    # get_config 由共用的 _guest_helpers.read_config 呼叫
+    monkeypatch.setattr(_guest_helpers, "proxmox_service", fake)
     monkeypatch.setattr(
         svc,
         "get_proxmox_settings_for_node",

@@ -30,11 +30,6 @@ export const CloudflareService = {
     return apiGet(`/api/v1/cloudflare/zones${toQuery(params)}`);
   },
 
-  /** 建立 Zone */
-  createZone(body) {
-    return apiPost("/api/v1/cloudflare/zones", body);
-  },
-
   /** DNS record 列表（page / per_page / search / type / proxied） */
   listDnsRecords(zoneId, params) {
     return apiGet(`/api/v1/cloudflare/zones/${zoneId}/dns-records${toQuery(params)}`);

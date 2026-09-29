@@ -148,8 +148,9 @@ def build_weekly_rule(
     hour: int,
     minute: int,
 ) -> str:
-    """Helper for the "preset" UI mode — turns a list of weekday codes
-    (``MO``, ``TU``, ...) and a start time into an RRULE string.
+    """Turn a list of weekday codes (``MO``, ``TU``, ...) and a start time
+    into a ``FREQ=WEEKLY`` RRULE string (the form the batch-review page
+    renders as text).
     """
     if not days:
         raise ValueError("days must be non-empty")
@@ -157,12 +158,6 @@ def build_weekly_rule(
         raise ValueError("hour/minute out of range")
     by_day = ",".join(d.upper() for d in days)
     return f"FREQ=WEEKLY;BYDAY={by_day};BYHOUR={hour};BYMINUTE={minute}"
-
-
-def build_daily_rule(hour: int, minute: int) -> str:
-    if not 0 <= hour < 24 or not 0 <= minute < 60:
-        raise ValueError("hour/minute out of range")
-    return f"FREQ=DAILY;BYHOUR={hour};BYMINUTE={minute}"
 
 
 def _ensure_utc(value: datetime) -> datetime:
@@ -174,7 +169,6 @@ def _ensure_utc(value: datetime) -> datetime:
 __all__ = [
     "DEFAULT_TIMEZONE",
     "SchedulePolicy",
-    "build_daily_rule",
     "build_weekly_rule",
     "compute_next_window",
     "compute_active_or_next_window",

@@ -4,7 +4,6 @@ import {
   apiGetBlob,
   apiPatch,
   apiPost,
-  apiPostBlob,
   apiPostMultipart,
 } from "./api";
 import i18n from "../i18n";
@@ -76,18 +75,16 @@ export const AiJudgeService = {
     title = i18n.t("aiJudge.defaultBlankSessionTitle", { ns: "services" }),
     rubricName = i18n.t("aiJudge.defaultBlankRubricName", { ns: "services" }),
     environmentKeys = ["n8n"],
+    teachingClassWeekId = null,
   } = {}) {
     return this.createSession(classId, {
       title,
+      teachingClassWeekId,
       selectedFileId: null,
       creationMode: "blank",
       rubricName,
       environmentKeys,
     });
-  },
-
-  getSession(classId, sessionId) {
-    return apiGet(`/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}`);
   },
 
   updateSession(classId, sessionId, changes) {
@@ -244,13 +241,6 @@ export const AiJudgeService = {
   /** 下載檢查表原始檔 */
   downloadFile(classId, fileId) {
     return apiGetBlob(`/api/v1/teaching-classes/${classId}/judge/files/${fileId}/download`);
-  },
-
-  /* ── 匯出 ── */
-
-  /** 將評分項目匯出成 Excel（回傳 Blob） */
-  downloadExcel(items, summary) {
-    return apiPostBlob("/api/v1/rubric/download-excel", { items, summary });
   },
 
   /* ── 收集腳本 ── */

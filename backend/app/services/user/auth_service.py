@@ -1,16 +1,29 @@
-from datetime import timedelta
+import secrets
+import uuid
+from collections.abc import Mapping
+from typing import Any
 
-import httpx
+import jwt
+from fastapi.concurrency import run_in_threadpool
+from jwt.exceptions import InvalidTokenError
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
 from app.core import security
 from app.core.config import settings
 from app.core.i18n import t
 from app.exceptions import AuthenticationError, BadRequestError
-from app.models import AuditAction
+from app.infrastructure.google.tokeninfo import (
+    GoogleTokenInfoNetworkError,
+    GoogleTokenInfoRejected,
+    fetch_id_token_info,
+)
+from app.models import AuditAction, User, UserRole
 from app.repositories import user as user_repo
-from app.schemas import Token, TotpChallenge, UserUpdate
+from app.schemas import Token, TokenPayload, TotpChallenge, UserUpdate
 from app.services.user import audit_service, totp_service
+from app.services.user.tokens import create_token_pair
 from app.utils import (
     decode_password_reset_token,
     generate_password_reset_token,
@@ -19,19 +32,56 @@ from app.utils import (
 )
 
 
-def create_token_pair(user) -> Token:
-    """Create access + refresh token pair for a user (shared with LDAP login)."""
-    access_token = security.create_access_token(
-        user.id,
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        token_version=user.token_version,
+def _is_education_email(email: str) -> bool:
+    """Return whether the email domain contains an exact ``edu`` label.
+
+    This accepts both US-style ``school.edu`` and country domains such as
+    ``school.edu.tw`` without accepting lookalikes such as ``school-edu.com``.
+    """
+    _, separator, domain = email.strip().casefold().rpartition("@")
+    if not separator:
+        return False
+    return "edu" in domain.strip(".").split(".")
+
+
+def _google_profile_text(
+    data: Mapping[str, object], key: str, max_length: int
+) -> str | None:
+    value = data.get(key)
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value[:max_length] or None
+
+
+def _create_google_user(
+    *, session: Session, email: str, data: Mapping[str, object]
+) -> User:
+    """Create a passwordless-by-default student for an eligible Google login.
+
+    A random local password hash keeps password login unusable until the user
+    explicitly completes the password-reset flow. The unique-email fallback
+    handles two first-login requests racing to create the same account.
+    """
+    user = User(
+        email=email,
+        full_name=_google_profile_text(data, "name", 255),
+        avatar_url=_google_profile_text(data, "picture", 2048),
+        role=UserRole.student,
+        is_active=True,
+        auth_source="google",
+        hashed_password=security.get_password_hash(secrets.token_urlsafe(32)),
     )
-    refresh_token = security.create_refresh_token(
-        user.id,
-        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-        token_version=user.token_version,
-    )
-    return Token(access_token=access_token, refresh_token=refresh_token)
+    session.add(user)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        existing = user_repo.get_user_by_email(session=session, email=email)
+        if existing is None:
+            raise
+        return existing
+    return user
 
 
 def login(
@@ -66,60 +116,47 @@ def login(
     return create_token_pair(user)
 
 
-async def google_login(
-    *, session: Session, id_token: str
+def _log_google_login_failure(
+    session: Session,
+    reason: str,
+    email: str | None = None,
+    user_id: uuid.UUID | None = None,
+) -> None:
+    audit_service.log_action(
+        session=session,
+        user_id=user_id,
+        action=AuditAction.login_google_failed,
+        details=f"Google login failed ({reason})" + (f" for {email}" if email else ""),
+    )
+
+
+def _is_email_verified(data: dict[str, Any]) -> bool:
+    raw = data.get("email_verified")
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.lower() == "true"
+    return False
+
+
+def _complete_google_login(
+    session: Session, email: str, data: Mapping[str, object]
 ) -> Token | TotpChallenge:
-    def _fail(reason: str, email: str | None = None, user_id=None) -> None:
-        audit_service.log_action(
-            session=session,
-            user_id=user_id,
-            action=AuditAction.login_google_failed,
-            details=f"Google login failed ({reason})"
-            + (f" for {email}" if email else ""),
-        )
-
-    # aud 必須永遠驗證：未設定 GOOGLE_CLIENT_ID 時不得接受任何 Google ID token，
-    # 否則使用者交給其他 OAuth 應用的 ID token 也能登入本系統。
-    if not settings.GOOGLE_CLIENT_ID:
-        _fail("google login not configured")
-        raise BadRequestError("Google login is not configured")
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(
-                "https://oauth2.googleapis.com/tokeninfo",
-                params={"id_token": id_token},
-            )
-    except httpx.RequestError as exc:
-        _fail("network error")
-        raise BadRequestError(t("auth.googleTokenVerifyFailed")) from exc
-    if r.status_code != 200:
-        _fail("invalid token")
-        raise BadRequestError(t("auth.googleTokenInvalid"))
-    data = r.json()
-    if data.get("aud") != settings.GOOGLE_CLIENT_ID:
-        _fail("invalid audience")
-        raise BadRequestError(t("auth.googleTokenAudienceInvalid"))
-    email_verified_raw = data.get("email_verified")
-    if isinstance(email_verified_raw, bool):
-        email_verified = email_verified_raw
-    elif isinstance(email_verified_raw, str):
-        email_verified = email_verified_raw.lower() == "true"
-    else:
-        email_verified = False
-    if not email_verified:
-        _fail("email not verified", data.get("email"))
-        raise BadRequestError(t("auth.googleEmailNotVerified"))
-    email = data.get("email")
-    if not email:
-        _fail("missing email")
-        raise BadRequestError(t("auth.googleEmailMissing"))
+    """Google ID token 已驗過之後的同步 DB 流程（查帳號或自動註冊、稽核、發 token）。"""
     user = user_repo.get_user_by_email(session=session, email=email)
     if not user:
-        _fail("user not found", email)
-        raise BadRequestError(t("auth.googleAccountNotRegistered"))
+        # Public signup also governs Google self-registration. Only verified
+        # educational domains may create an account; all other Google accounts
+        # must already have a local user record.
+        if not settings.ENABLE_SIGNUP or not _is_education_email(email):
+            _log_google_login_failure(session, "user not found", email)
+            raise BadRequestError(t("auth.googleAccountNotRegistered"))
+        user = _create_google_user(session=session, email=email, data=data)
+    # Keep the source of an existing account unchanged. In particular, LDAP
+    # remains authoritative for password management even when the same email
+    # also uses Google login.
     if not user.is_active:
-        _fail("inactive user", email, user.id)
+        _log_google_login_failure(session, "inactive user", email, user.id)
         raise BadRequestError(t("auth.inactiveUser"))
     if user.totp_enabled:
         return totp_service.issue_challenge(user, method="google")
@@ -132,19 +169,89 @@ async def google_login(
     return create_token_pair(user)
 
 
+async def google_login(
+    *, session: Session, id_token: str
+) -> Token | TotpChallenge:
+    # 稽核寫入與帳號查詢都是同步 DB 操作（會 commit），一律丟到 worker thread，
+    # 不佔住 event loop；event loop 上只留 Google tokeninfo 呼叫與純資料檢查。
+    async def _fail(
+        reason: str, email: str | None = None, user_id: uuid.UUID | None = None
+    ) -> None:
+        await run_in_threadpool(
+            _log_google_login_failure, session, reason, email, user_id
+        )
+
+    # aud 必須永遠驗證：未設定 GOOGLE_CLIENT_ID 時不得接受任何 Google ID token，
+    # 否則使用者交給其他 OAuth 應用的 ID token 也能登入本系統。
+    if not settings.GOOGLE_CLIENT_ID:
+        await _fail("google login not configured")
+        raise BadRequestError(t("auth.googleNotConfigured"))
+
+    try:
+        data = await fetch_id_token_info(id_token)
+    except GoogleTokenInfoNetworkError as exc:
+        await _fail("network error")
+        raise BadRequestError(t("auth.googleTokenVerifyFailed")) from exc
+    except GoogleTokenInfoRejected:
+        await _fail("invalid token")
+        raise BadRequestError(t("auth.googleTokenInvalid"))
+    if data.get("aud") != settings.GOOGLE_CLIENT_ID:
+        await _fail("invalid audience")
+        raise BadRequestError(t("auth.googleTokenAudienceInvalid"))
+    if not _is_email_verified(data):
+        await _fail("email not verified", data.get("email"))
+        raise BadRequestError(t("auth.googleEmailNotVerified"))
+    email = data.get("email")
+    if not email:
+        await _fail("missing email")
+        raise BadRequestError(t("auth.googleEmailMissing"))
+    return await run_in_threadpool(_complete_google_login, session, email, data)
+
+
+def _decode_token_ignoring_expiry(raw: str) -> TokenPayload | None:
+    """驗簽但不驗效期地解出 token；不合法回 None。"""
+    try:
+        payload = jwt.decode(
+            raw,
+            settings.SECRET_KEY,
+            algorithms=[security.ALGORITHM],
+            # Allow logging out an already-expired token (no-op effect,
+            # but avoids confusing 401s during clock skew).
+            options={"verify_exp": False},
+        )
+        return TokenPayload(**payload)
+    except (InvalidTokenError, ValidationError):
+        return None
+
+
+async def logout(access_token: str, refresh_token: str | None) -> None:
+    """依 JTI 撤銷目前的 access token（以及選填的 refresh token）。
+
+    黑名單項目會在 token 原本的到期時間自動過期，不佔長期儲存。
+    """
+    # 在呼叫時才從 app.infrastructure.redis 取（測試會 monkeypatch 該模組）
+    from app.infrastructure.redis import get_redis, revoke_jti
+
+    targets: list[TokenPayload] = []
+    if (access := _decode_token_ignoring_expiry(access_token)) is not None:
+        targets.append(access)
+    if refresh_token and (refresh := _decode_token_ignoring_expiry(refresh_token)):
+        targets.append(refresh)
+
+    redis = await get_redis()
+    for data in targets:
+        if data.jti and data.exp:
+            await revoke_jti(redis, data.jti, data.exp)
+
+
 async def refresh_access_token(*, session: Session, refresh_token: str) -> Token:
     """Validate a refresh token and return a new access + refresh token pair."""
-    import jwt
-    from jwt.exceptions import InvalidTokenError
-    from pydantic import ValidationError
-
+    # 在呼叫時才從 app.infrastructure.redis 取（測試會 monkeypatch 該模組）
     from app.infrastructure.redis import (
         get_redis,
         is_jti_revoked,
         mark_refresh_token_used,
     )
-    from app.models import User
-    from app.schemas import TokenPayload
 
     # Refresh token failures must return 401 (not 400) so clients can treat
     # them uniformly as "session expired, please log in again".
@@ -166,7 +273,8 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
         if await is_jti_revoked(redis, token_data.jti):
             raise AuthenticationError(t("auth.tokenRevoked"))
 
-    user = session.get(User, token_data.sub)
+    # 同步 DB 查詢丟到 worker thread，不佔住 event loop（同 deps.get_current_user）
+    user = await run_in_threadpool(session.get, User, token_data.sub)
     if not user:
         raise AuthenticationError(t("auth.refreshTokenInvalid"))
     if not user.is_active:
@@ -183,7 +291,7 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
         if not await mark_refresh_token_used(
             redis, token_data.jti, token_data.exp
         ):
-            raise AuthenticationError("Token has been revoked")
+            raise AuthenticationError(t("auth.tokenRevoked"))
 
     return create_token_pair(user)
 

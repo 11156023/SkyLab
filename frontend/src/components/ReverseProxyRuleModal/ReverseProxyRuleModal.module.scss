@@ -21,8 +21,8 @@
 
   input,
   select {
-    min-height: 38px;
-    padding: 8px $spacing-16;
+    min-height: 36px;
+    padding: 6px $spacing-16;
     border: 1px solid var(--color-border);
     border-radius: $radius-8;
     background: var(--color-surface);
@@ -76,20 +76,6 @@
   color: var(--color-text-primary);
   font-size: $font-size-14;
   cursor: pointer;
-}
-
-/* 詳情頁鎖定 VM 的唯讀顯示 */
-.fixedVm {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-height: 38px;
-  padding: 8px $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
 }
 
 /* ── 提示框 ── */

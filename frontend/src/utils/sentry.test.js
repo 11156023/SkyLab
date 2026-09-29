@@ -22,9 +22,8 @@ afterEach(() => {
 describe("utils/sentry", () => {
   test("沒有 DSN 時不載入 SDK、回報是 no-op", async () => {
     vi.stubEnv("VITE_SENTRY_DSN", "");
-    const { initSentry, isSentryEnabled, reportError } = await import("./sentry");
+    const { initSentry, reportError } = await import("./sentry");
 
-    expect(isSentryEnabled()).toBe(false);
     expect(initSentry()).toBeNull();
     reportError(new Error("ignored"));
     await Promise.resolve();

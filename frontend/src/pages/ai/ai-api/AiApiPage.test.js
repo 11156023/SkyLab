@@ -12,7 +12,7 @@ describe("AI API 文件", () => {
       .toBe("https://api.example.edu/api/v1/ai-proxy");
   });
 
-  test.each(["javascript", "python", "bash", "cmd"])(
+  test.each(["javascript", "python", "bash"])(
     "%s 範例包含實際端點與必要替換值",
     (language) => {
       const example = buildApiExample(language, "https://api.example.edu");
@@ -24,7 +24,7 @@ describe("AI API 文件", () => {
     },
   );
 
-  test.each(["javascript", "python", "bash", "cmd"])(
+  test.each(["javascript", "python", "bash"])(
     "%s 的 Chat Completions 範例打到 chat 端點，替換值一樣齊全",
     (language) => {
       const example = buildApiExample(language, "https://api.example.edu", "chat");
@@ -37,15 +37,6 @@ describe("AI API 文件", () => {
       expect(example).toContain("INPUT");
     },
   );
-
-  test("CMD 範例的 JSON 內層引號有跳脫，貼到命令列才不會被拆開", () => {
-    for (const endpoint of ["responses", "chat"]) {
-      const body = buildApiExample("cmd", "https://api.example.edu", endpoint).split("-d ")[1];
-
-      expect(body.startsWith('"{\\"model\\":')).toBe(true);
-      expect(JSON.parse(body.slice(1, -1).replaceAll('\\"', '"')).model).toBe("MODEL_NAME");
-    }
-  });
 
   test.each(["responses", "chat"])("Bash %s 範例保留 JSON 與續行語法", (endpoint) => {
     const example = buildApiExample("bash", "https://api.example.edu", endpoint);

@@ -9,11 +9,41 @@ import { MiningIncidentsService } from "../../../services/miningIncidents";
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { formatDateTime } from "../../../utils/formatDate";
 
-/** detected/suspended 視為待處理（紅），其餘中性 */
+/** 待處理＝detected／suspended（與後端 open 定義相同）；banned／dismissed 為已結案 */
+const isOpenIncident = (status) => status === "detected" || status === "suspended";
+
+/** 待處理顯示紅色，已結案中性 */
 function statusBadgeClass(status) {
-  return status === "detected" || status === "suspended" ? "badge_danger" : "badge_muted";
+  return isOpenIncident(status) ? "badge_danger" : "badge_muted";
+}
+
+/**
+ * 誤判解除後要顯示的提示。
+ * 後端恢復 VM／刪存證快照失敗時仍會結案，只把失敗原因附進 review_note，
+ * 所以不能只看 status（永遠是 dismissed）就報成功。
+ * 優先用回應的 warnings 陣列；舊版後端沒有這個欄位時，review_note 與送出的備註不同
+ * 就代表後端附加了失敗原因（沒有失敗時後端會原樣存入送出的備註）。
+ */
+export function dismissOutcome(incident, result, submittedNote) {
+  let warnings;
+  if (Array.isArray(result?.warnings)) {
+    warnings = result.warnings.filter(Boolean);
+  } else {
+    const stored = result?.review_note ?? null;
+    warnings = stored !== (submittedNote ?? null) && stored ? [stored] : [];
+  }
+  if (warnings.length > 0) {
+    return { level: "warning", key: "MiningIncidentsPanel.toastDismissedWithWarnings", message: warnings.join("；") };
+  }
+  return {
+    level: "success",
+    key: incident?.status === "suspended"
+      ? "MiningIncidentsPanel.toastDismissedAndRecovered"
+      : "MiningIncidentsPanel.toastDismissed",
+  };
 }
 
 export default function MiningIncidentsPanel({ onCountChange }) {
@@ -43,16 +73,11 @@ export default function MiningIncidentsPanel({ onCountChange }) {
 
   useEffect(() => {
     load();
-    const timer = setInterval(load, 30_000);
-    return () => clearInterval(timer);
   }, [load]);
+  useAutoRefresh(load);
 
-  const open = (incidents ?? []).filter(
-    (i) => i.status === "detected" || i.status === "suspended",
-  );
-  const closed = (incidents ?? []).filter(
-    (i) => i.status === "banned" || i.status === "dismissed",
-  );
+  const open = (incidents ?? []).filter((i) => isOpenIncident(i.status));
+  const closed = (incidents ?? []).filter((i) => !isOpenIncident(i.status));
 
   /* 分頁角標顯示「待處理」筆數，載入後回報給監控頁 */
   useEffect(() => {
@@ -91,11 +116,17 @@ export default function MiningIncidentsPanel({ onCountChange }) {
   const handleDismiss = async () => {
     setBusy(true);
     try {
+      const note = dismissNote || null;
       const result = await MiningIncidentsService.dismiss(dismissTarget.id, {
         exempt: dismissExempt,
-        note: dismissNote || null,
+        note,
       });
-      toast.success(result.status === "dismissed" ? t("MiningIncidentsPanel.toastDismissedAndRecovered") : t("MiningIncidentsPanel.toastDismissed"));
+      const outcome = dismissOutcome(dismissTarget, result, note);
+      if (outcome.level === "warning") {
+        toast.warning(t(outcome.key, { message: outcome.message }));
+      } else {
+        toast.success(t(outcome.key));
+      }
       closeDismiss();
       await load();
     } catch (e) {
@@ -154,12 +185,18 @@ export default function MiningIncidentsPanel({ onCountChange }) {
                   <span className={`${styles.badge} ${styles[statusBadgeClass(incident.status)]}`}>
                     {STATUS_LABELS[incident.status] ?? incident.status}
                   </span>
+                  {/* 結案備註含後端附加的失敗原因（例如 VM 恢復失敗要手動開機），重新整理後仍要看得到 */}
+                  {!isOpenIncident(incident.status) && incident.review_note && (
+                    <div className={`${styles.mutedCell} ${styles.reviewNote}`} title={incident.review_note}>
+                      {incident.review_note}
+                    </div>
+                  )}
                 </td>
                 <td className={`${styles.td} ${styles.mutedCell}`}>
                   {formatDateTime(incident.detected_at)}
                 </td>
                 <td className={`${styles.td} ${styles.tdActions}`}>
-                  {(incident.status === "detected" || incident.status === "suspended") && (
+                  {isOpenIncident(incident.status) && (
                     <>
                       <button
                         type="button"

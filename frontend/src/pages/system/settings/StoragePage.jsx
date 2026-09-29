@@ -15,6 +15,22 @@ import { joinList } from "../../../utils/joinList";
  * 放置演算法據此挑選磁碟。2026-09 從「系統設定」的分頁拆成獨立頁面。
  */
 
+/* 使用者優先度範圍，與後端 StorageUpdate.user_priority（ge=1, le=10）一致 */
+export const PRIORITY_MIN = 1;
+export const PRIORITY_MAX = 10;
+
+/**
+ * 優先度輸入框的草稿 → 要送出的值；不合法（空白、非整數、超出範圍）回 null。
+ * 輸入框只在失焦／Enter 時才送出，避免每按一鍵就存檔並鎖住輸入框（打 "15" 只存到 1）。
+ */
+export function parsePriorityDraft(raw) {
+  const text = String(raw ?? "").trim();
+  if (!/^\d+$/.test(text)) return null;
+  const value = Number(text);
+  if (!Number.isInteger(value) || value < PRIORITY_MIN || value > PRIORITY_MAX) return null;
+  return value;
+}
+
 /* ── Storage ───────────────────────────────────────── */
 function StorageList() {
   const { t } = useTranslation("system");
@@ -72,11 +88,25 @@ function StorageList() {
           ? t("SettingsPage.toastStorageUpdatedMultiNode", { storage: storage.storage, count: nodeCount })
           : t("SettingsPage.toastStorageUpdated", { storage: storage.storage }),
       );
+      return true;
     } catch (err) {
       toast.error(err?.message ?? t("SettingsPage.toastUpdateStorageFailed"));
+      return false;
     } finally {
       setSavingId(null);
     }
+  }
+
+  /* 優先度草稿在失焦／Enter 才提交；不合法或沒變就還原成已存的值，存檔失敗也還原 */
+  async function commitPriority(storage, input) {
+    if (savingId === storage.id) return;
+    const next = parsePriorityDraft(input.value);
+    if (next === null || next === storage.user_priority) {
+      input.value = String(storage.user_priority);
+      return;
+    }
+    const ok = await save(storage, { user_priority: next });
+    if (!ok && input.isConnected) input.value = String(storage.user_priority);
   }
 
   return (
@@ -161,12 +191,24 @@ function StorageList() {
                 </label>
                 <label className={styles.inlineField}>
                   <span>{t("SettingsPage.userPriorityTitle")}</span>
+                  {/* 非受控＋key 帶已存值：存檔成功後以新值重建，輸入中不受 re-render 影響；
+                      存檔中不 disabled（會失焦吃掉後續按鍵），只設 readOnly */}
                   <input
+                    key={`${storage.id}:${storage.user_priority}`}
                     type="number"
+                    min={PRIORITY_MIN}
+                    max={PRIORITY_MAX}
+                    step={1}
                     className={styles.inlineInput}
-                    value={storage.user_priority}
-                    disabled={savingId === storage.id}
-                    onChange={(e) => save(storage, { user_priority: Number(e.target.value) || 0 })}
+                    defaultValue={storage.user_priority}
+                    readOnly={savingId === storage.id}
+                    onBlur={(e) => commitPriority(storage, e.currentTarget)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
                   />
                 </label>
                 <label className={styles.checkRow}>

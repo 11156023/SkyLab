@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./DomainPage.module.scss";
@@ -18,7 +18,48 @@ import { formatDateTime, formatShortDateTime } from "../../../utils/formatDate";
 
 const TAB_KEYS = ["dns", "reverse-proxy"];
 
-const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV"];
+/* SRV 需要結構化 data（service/proto/weight/port/target），表單與後端都沒有，所以不提供 */
+export const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS"];
+/* Cloudflare 對 MX 要求 priority；後端 schema 範圍 0–65535 */
+const PRIORITY_TYPES = new Set(["MX"]);
+const DEFAULT_MX_PRIORITY = 10;
+
+/** 編輯既有紀錄時，類型不在清單內（例如外部建立的 SRV）也要列出，避免下拉框顯示成別的類型 */
+export function recordTypeOptions(currentType) {
+  return currentType && !DNS_TYPES.includes(currentType) ? [...DNS_TYPES, currentType] : DNS_TYPES;
+}
+
+/**
+ * DNS record 表單 → API body。
+ * - MX 一定帶 priority（Cloudflare 必填）。
+ * - 編輯時一律帶 comment：空字串代表清除備註；新增時空白就不送。
+ */
+export function buildRecordBody(form, isEdit) {
+  const body = {
+    type: form.type,
+    name: form.name.trim(),
+    content: form.content.trim(),
+    ttl: Number(form.ttl) || 1,
+    proxied: form.proxied,
+  };
+  const comment = (form.comment ?? "").trim();
+  if (isEdit || comment) body.comment = comment;
+  if (PRIORITY_TYPES.has(form.type)) {
+    const raw = String(form.priority ?? "").trim();
+    const priority = raw === "" ? NaN : Number(raw);
+    body.priority = Number.isInteger(priority) && priority >= 0 && priority <= 65535 ? priority : DEFAULT_MX_PRIORITY;
+  }
+  return body;
+}
+
+/**
+ * Zone 清單重新載入後的選取：原本選的 zone 還在就換成新物件（沿用同一個 id），
+ * 不在了（例如換了另一個帳號的 Token）就改選第一個，避免畫面停在舊帳號的紀錄。
+ */
+export function pickSelectedZone(prev, items) {
+  const kept = prev ? items.find((z) => z.id === prev.id) : undefined;
+  return kept ?? items[0] ?? null;
+}
 
 /* 兩個 Modal 共用的「取消／儲存」列；儲存鈕是 submit，交給外層 form 處理 */
 function ModalActions({ loading, onClose }) {
@@ -144,6 +185,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
     ttl: record?.ttl ?? 1,
     proxied: record?.proxied ?? false,
     comment: record?.comment ?? "",
+    priority: record?.priority ?? DEFAULT_MX_PRIORITY,
   });
 
   function set(name, value) {
@@ -152,15 +194,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
 
   function submit(e) {
     e.preventDefault();
-    const body = {
-      type: form.type,
-      name: form.name.trim(),
-      content: form.content.trim(),
-      ttl: Number(form.ttl) || 1,
-      proxied: form.proxied,
-    };
-    if (form.comment.trim()) body.comment = form.comment.trim();
-    onSubmit(body);
+    onSubmit(buildRecordBody(form, isEdit));
   }
 
   return (
@@ -182,7 +216,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
         <label className={styles.field}>
           <span>{t("DomainPage.recordType")}</span>
           <select value={form.type} onChange={(e) => set("type", e.target.value)}>
-            {DNS_TYPES.map((type) => (
+            {recordTypeOptions(record?.type).map((type) => (
               <option key={type} value={type}>{type}</option>
             ))}
           </select>
@@ -217,6 +251,21 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
           required
         />
       </label>
+
+      {PRIORITY_TYPES.has(form.type) && (
+        <label className={styles.field}>
+          <span>{t("DomainPage.recordPriority")}</span>
+          <input
+            type="number"
+            min={0}
+            max={65535}
+            step={1}
+            value={form.priority}
+            onChange={(e) => set("priority", e.target.value)}
+            required
+          />
+        </label>
+      )}
 
       <label className={styles.field}>
         <span>{t("DomainPage.recordComment")}</span>
@@ -282,7 +331,7 @@ export default function DomainPage() {
       const res = await CloudflareService.listZones({ per_page: 50 });
       const items = res?.items ?? [];
       setZones(items);
-      setSelectedZone((prev) => prev ?? items[0] ?? null);
+      setSelectedZone((prev) => pickSelectedZone(prev, items));
     } catch (err) {
       // 未設定連線時後端會回錯誤，front 只顯示空狀態
       if (err?.status !== 400) toast.error(err?.message ?? t("DomainPage.toastLoadZonesFailed"));
@@ -291,18 +340,25 @@ export default function DomainPage() {
     }
   }, [toast, t]);
 
+  /* 只套用最後一次請求的結果：快速切換 zone 時，較晚回來的舊 zone 回應不能蓋掉目前 zone 的紀錄
+     （否則編輯／刪除會拿 A 的 record id 打到 B 的 zone） */
+  const recordsSeq = useRef(0);
   const fetchRecords = useCallback(async (zoneId, keyword) => {
+    const seq = ++recordsSeq.current;
     setLoadingRecords(true);
     try {
       const res = await CloudflareService.listDnsRecords(zoneId, {
         per_page: 100,
         search: keyword || undefined,
       });
-      setRecords(res?.items ?? []);
+      if (seq === recordsSeq.current) setRecords(res?.items ?? []);
     } catch (err) {
-      toast.error(err?.message ?? t("DomainPage.toastLoadRecordsFailed"));
+      if (seq === recordsSeq.current) {
+        setRecords([]);
+        toast.error(err?.message ?? t("DomainPage.toastLoadRecordsFailed"));
+      }
     } finally {
-      setLoadingRecords(false);
+      if (seq === recordsSeq.current) setLoadingRecords(false);
     }
   }, [toast, t]);
 

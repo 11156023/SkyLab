@@ -27,6 +27,16 @@ class MiningIncidentPublic(BaseModel):
     review_note: str | None = None
 
 
+class MiningDismissResult(MiningIncidentPublic):
+    """誤判解除的回應：事件本身加上結案時的非致命失敗。
+
+    恢復 VM／刪除存證快照失敗不會擋結案（原因仍會附進 ``review_note``），
+    ``warnings`` 逐條列出這些失敗，前端據此顯示警告而不是單純的成功。
+    """
+
+    warnings: list[str] = Field(default_factory=list)
+
+
 class MiningDismissRequest(BaseModel):
     """誤判解除：可一併將資源加入豁免。"""
 

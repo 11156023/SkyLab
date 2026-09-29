@@ -3,7 +3,8 @@
  *
  * 登入成功時 AuthContext 立起 loginPreflightPending，App 在所有其他閘門之前只渲染這一頁。
  * 底層打 GET /users/me/preflight，真的檢查 DB、Redis、worker、PVE、Gateway、AI：
- * - 學生／老師：看到包裝過的冒險文案；有任何一項失敗就警告「部分功能可能無法正常使用」，
+ * - 學生／老師：看到包裝過的冒險文案，每項下面再用一行白話說明它管哪些功能（打叉時看得懂壞在哪）；
+ *   有任何一項失敗就警告「打叉的功能暫時不能用」，
  *   可以重新檢查、登出，或仍要繼續進入（並請他們通知管理員）
  * - 管理員：看到真實服務名稱與錯誤細節，失敗時可以略過繼續，或直接前往資源監控
  * 全部通過就自動進入系統。
@@ -15,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import { useAuth } from "../../contexts/AuthContext";
 import { AccountService } from "../../services/account";
+import { isAdminUser } from "../../utils/roles";
 import shell from "../setup/SetupPage.module.scss";
 import styles from "./LoginPreflightPage.module.scss";
 
@@ -38,10 +40,6 @@ const REVEAL_STEP_MS = 260;
 const DONE_PAUSE_MS = 700;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function isAdminUser(user) {
-  return Boolean(user?.is_superuser || user?.role === "admin");
-}
 
 /** 單項的狀態：checking（圈圈轉）／ok／fail／skipped */
 function rowStatus(key, index, state) {
@@ -142,12 +140,8 @@ export default function LoginPreflightPage() {
 
   return (
     <main className={shell.page}>
-      <div className={shell.glow} aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
-
+      {/* 背景不疊登入頁的光暈色球，直接露出全站主題背景（body::before），
+          檢查完進入系統時背景不會突然換一套 */}
       <section
         className={`${shell.card} ${styles.card} ${admin ? styles.card_admin : ""}`}
         aria-busy={checking}
@@ -182,7 +176,7 @@ export default function LoginPreflightPage() {
             const check = state.result?.checks?.find((item) => item.key === key);
             const components = admin && index < state.revealed ? check?.components ?? [] : [];
             return (
-              <li key={key} className={`${styles.row} ${styles[`row_${shown}`]}`}>
+              <li key={key} className={`${styles.row} ${styles[`row_${shown}`] ?? ""}`}>
                 <StatusRing status={shown} />
                 <div className={styles.rowBody}>
                   <div className={styles.rowHead}>
@@ -195,6 +189,7 @@ export default function LoginPreflightPage() {
                       </span>
                     )}
                   </div>
+                  {!admin && <span className={styles.rowHint}>{t(`LoginPreflight.hints.${key}`)}</span>}
                   {components.length > 0 && (
                     <ul className={styles.components}>
                       {components.map((component, i) => {
@@ -245,7 +240,7 @@ export default function LoginPreflightPage() {
 
         {failed && (
           <div className={shell.actions}>
-            <button type="button" className={shell.btnGhost} onClick={logout}>
+            <button type="button" className={styles.btnGhost} onClick={logout}>
               <MIcon name="logout" size={18} />
               {t("LoginPreflight.logout")}
             </button>

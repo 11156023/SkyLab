@@ -33,7 +33,8 @@ _DEFAULT_PER_PAGE = 50
 _PROXIABLE_RECORD_TYPES = {"A", "AAAA", "CNAME", "HTTPS", "SVCB"}
 _PRIORITY_RECORD_TYPES = {"MX", "SRV", "URI"}
 _DEFAULT_REVERSE_PROXY_TARGET_TYPES = {"A", "CNAME"}
-_HOSTNAME_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
+# 單一 DNS label；反向代理的網域檢查也共用這個規則與 is_valid_hostname
+HOSTNAME_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 # Cloudflare 的 zone id / record id 格式：32 位十六進位
 _CLOUDFLARE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
@@ -98,7 +99,7 @@ def test_connection(session: Session) -> CloudflareConnectionTestResult:
     config_repo.mark_cloudflare_config_verified(session, config)
     return CloudflareConnectionTestResult(
         success=True,
-        message=f"Cloudflare API Token 驗證成功（狀態：{token_status}）",
+        message=t("cloudflare.tokenVerified", status=token_status),
         token_status=token_status,
     )
 
@@ -203,7 +204,7 @@ def update_dns_record(
     record = client.update_dns_record(
         zone_id=clean_zone_id,
         record_id=clean_record_id,
-        record=_build_record_payload(data),
+        record=_build_record_payload(data, is_update=True),
     )
     return _to_dns_record_public(clean_zone_id, record)
 
@@ -222,9 +223,8 @@ def upsert_reverse_proxy_dns_record(
     zone_id: str,
     domain: str,
     vmid: int,
-    existing_zone_id: str | None = None,
-    existing_record_id: str | None = None,
 ) -> CloudflareDNSRecordPublic:
+    """建立網域的反向代理 DNS 紀錄（指向預設 DNS 目標）；同名同型別的紀錄就地更新。"""
     clean_zone_id = _require_identifier(zone_id, "zone_id")
     clean_domain = _require_text(domain, "domain").lower()
     client, config = _build_client_from_session(session)
@@ -238,28 +238,6 @@ def upsert_reverse_proxy_dns_record(
         comment=f"SkyLab reverse proxy vmid={vmid}",
     )
     payload = _build_record_payload(record_payload)
-
-    if existing_record_id and existing_zone_id == clean_zone_id:
-        try:
-            record = client.update_dns_record(
-                zone_id=clean_zone_id,
-                record_id=_require_identifier(existing_record_id, "record_id"),
-                record=payload,
-            )
-            return _to_dns_record_public(clean_zone_id, record)
-        except NotFoundError:
-            # Record already deleted or does not exist
-            pass
-
-    if existing_record_id and existing_zone_id and existing_zone_id != clean_zone_id:
-        try:
-            client.delete_dns_record(
-                zone_id=_require_identifier(existing_zone_id, "existing_zone_id"),
-                record_id=_require_identifier(existing_record_id, "existing_record_id"),
-            )
-        except NotFoundError:
-            # Record already deleted or does not exist
-            pass
 
     existing_records = list_dns_records(
         session=session,
@@ -350,7 +328,7 @@ def _resolve_default_dns_target(
             raise BadRequestError(t("cloudflare.defaultDnsTargetInvalidIpv4")) from exc
 
     normalized_target_value = target_value.rstrip(".").lower()
-    if not _is_valid_hostname(normalized_target_value):
+    if not is_valid_hostname(normalized_target_value):
         raise BadRequestError(t("cloudflare.defaultDnsTargetInvalidDomain"))
     return target_type, normalized_target_value
 
@@ -438,6 +416,8 @@ def _to_dns_record_public(
 
 def _build_record_payload(
     data: CloudflareDNSRecordCreate | CloudflareDNSRecordUpdate,
+    *,
+    is_update: bool = False,
 ) -> dict[str, object]:
     record_type = _normalize_record_type(data.type)
     if not record_type:
@@ -460,6 +440,9 @@ def _build_record_payload(
     comment = _normalize_optional_text(data.comment)
     if comment:
         payload["comment"] = comment
+    elif is_update and "comment" in data.model_fields_set:
+        # PATCH 省略欄位＝保留舊值；明確送空字串才會清掉 Cloudflare 上的註解
+        payload["comment"] = ""
 
     if record_type in _PROXIABLE_RECORD_TYPES and data.proxied is not None:
         payload["proxied"] = data.proxied
@@ -482,11 +465,12 @@ def _normalize_optional_text(value: str | None) -> str | None:
     return normalized or None
 
 
-def _is_valid_hostname(value: str) -> bool:
-    if len(value) > 255 or "." not in value:
+def is_valid_hostname(value: str) -> bool:
+    """完整網域名稱：至少兩段、總長 ≤ 255、每段都符合 DNS label 規則。"""
+    if not value or len(value) > 255 or "." not in value:
         return False
     labels = value.split(".")
-    return all(_HOSTNAME_LABEL_PATTERN.fullmatch(label) for label in labels)
+    return all(HOSTNAME_LABEL_PATTERN.fullmatch(label) for label in labels)
 
 
 def _require_identifier(value: str, field_name: str) -> str:
@@ -555,5 +539,5 @@ __all__ = [
     "delete_dns_record",
     "upsert_reverse_proxy_dns_record",
     "delete_reverse_proxy_dns_record",
-    "_build_record_payload",
+    "is_valid_hostname",
 ]

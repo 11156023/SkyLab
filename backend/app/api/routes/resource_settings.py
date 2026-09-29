@@ -1,10 +1,9 @@
-"""資源進階設定 API：規格摘要、開機選項、登入憑證、標籤備註、共享與轉移。
+"""資源進階設定 API：規格摘要、開機選項、ISO 映像、登入憑證、共享與轉移。
 
 路徑都掛在 ``/resources/{vmid}/...`` 下；讀取用 ``ResourceInfoDep``（擁有者／
 管理員），寫入一律再過 ``require_resource_management``。
 """
 
-import logging
 import uuid
 
 from fastapi import APIRouter
@@ -33,8 +32,6 @@ from app.services.resource import (
     sharing_service,
 )
 from app.services.resource.access import require_resource_management
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/resources", tags=["resource-settings"])
 
@@ -230,4 +227,5 @@ def transfer_ownership(
         actor=current_user,
         email=body.email,
         keep_access=body.keep_access,
+        resource_info=_resource_info,
     )

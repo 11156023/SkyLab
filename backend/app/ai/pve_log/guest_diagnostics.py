@@ -150,16 +150,19 @@ class ProbeResult:
 # 敏感資訊遮蔽
 # ---------------------------------------------------------------------------
 
+# 旗標名稱與 URI scheme 的前綴長度必須有上限：不設上限時，每個起點都會把
+# 一整串英數字吃到底再回溯，256 KB 的連續字元要跑十幾分鐘（O(n²)），
+# 卡死 SSH worker thread。超過上限的旗標名稱仍由 _ENV_SECRET 兜底遮蔽。
 _CLI_SECRET_ASSIGN = re.compile(
-    r"(?i)(--?[a-z0-9_-]*(?:password|passwd|secret|api[_-]?key|apikey|token))"
+    r"(?i)(--?[a-z0-9_-]{0,64}(?:password|passwd|secret|api[_-]?key|apikey|token))"
     r"\s*[=:]\s*(\S+)"
 )
 _CLI_SECRET_SPACE = re.compile(
-    r"(?i)(--?[a-z0-9_-]*(?:password|passwd|secret|api[_-]?key|apikey|token))"
+    r"(?i)(--?[a-z0-9_-]{0,64}(?:password|passwd|secret|api[_-]?key|apikey|token))"
     r"\s+(\S+)"
 )
 _URI_CREDENTIALS = re.compile(
-    r"(?i)([a-z][a-z0-9+.-]*://)[^\s/@:]+:[^\s/@]+@"
+    r"(?i)([a-z][a-z0-9+.-]{0,31}://)[^\s/@:]+:[^\s/@]+@"
 )
 _ENV_SECRET = re.compile(
     r"(?i)((?:password|passwd|secret|api[_-]?key|apikey|token)\s*[:=]\s*)"
@@ -174,7 +177,7 @@ _PRIVATE_KEY_BLOCK = re.compile(
 def redact_sensitive_text(value: str) -> str:
     """遮蔽 CLI secret、URI credentials、環境變數 secret 與 private key block。
 
-    與 ssh_exec 的輸出遮蔽同方向：寧可多遮，不可漏遮。
+    ssh_exec 的指令輸出也共用這個函式遮蔽：寧可多遮，不可漏遮。
     """
     redacted = _PRIVATE_KEY_BLOCK.sub("[REDACTED PRIVATE KEY]", value)
     redacted = _CLI_SECRET_ASSIGN.sub(
@@ -536,6 +539,25 @@ def _parse_services_group(
     return section
 
 
+def _parse_process_probe(
+    result: ProbeResult | None, status: str, warnings: list[str]
+) -> tuple[list[dict[str, Any]], str]:
+    """解析單一 ps probe，回傳 (top entries, 調整後的 probe status)。"""
+    if status not in {STATUS_OK, STATUS_PARTIAL} or result is None:
+        return [], status
+    parsed = parse_process_list(result.stdout, limit=TOP_PROCESSES_LIMIT)
+    if parsed.skipped_rows:
+        warnings.append(
+            t("pveLog.guestDiagWarnUnparsedRows", count=parsed.skipped_rows)
+        )
+    if parsed.hit_row_cap or result.truncated:
+        status = STATUS_PARTIAL
+        warnings.append(t("pveLog.guestDiagWarnRowLimit"))
+    if result.truncated:
+        warnings.append(t("pveLog.guestDiagWarnOutputTruncated"))
+    return parsed.entries, status
+
+
 def _parse_processes_group(
     results: Mapping[str, ProbeResult], warnings: list[str]
 ) -> dict[str, Any]:
@@ -545,33 +567,8 @@ def _parse_processes_group(
     cpu_status, cpu_error = _probe_outcome(cpu_result)
     mem_status, mem_error = _probe_outcome(mem_result)
 
-    top_cpu: list[dict[str, Any]] = []
-    top_memory: list[dict[str, Any]] = []
-    if cpu_status in {STATUS_OK, STATUS_PARTIAL} and cpu_result is not None:
-        parsed = parse_process_list(cpu_result.stdout, limit=TOP_PROCESSES_LIMIT)
-        top_cpu = parsed.entries
-        if parsed.skipped_rows:
-            warnings.append(
-                t("pveLog.guestDiagWarnUnparsedRows", count=parsed.skipped_rows)
-            )
-        if parsed.hit_row_cap or cpu_result.truncated:
-            cpu_status = STATUS_PARTIAL
-            warnings.append(t("pveLog.guestDiagWarnRowLimit"))
-        if cpu_result.truncated:
-            warnings.append(t("pveLog.guestDiagWarnOutputTruncated"))
-
-    if mem_status in {STATUS_OK, STATUS_PARTIAL} and mem_result is not None:
-        parsed = parse_process_list(mem_result.stdout, limit=TOP_PROCESSES_LIMIT)
-        top_memory = parsed.entries
-        if parsed.skipped_rows:
-            warnings.append(
-                t("pveLog.guestDiagWarnUnparsedRows", count=parsed.skipped_rows)
-            )
-        if parsed.hit_row_cap or mem_result.truncated:
-            mem_status = STATUS_PARTIAL
-            warnings.append(t("pveLog.guestDiagWarnRowLimit"))
-        if mem_result.truncated:
-            warnings.append(t("pveLog.guestDiagWarnOutputTruncated"))
+    top_cpu, cpu_status = _parse_process_probe(cpu_result, cpu_status, warnings)
+    top_memory, mem_status = _parse_process_probe(mem_result, mem_status, warnings)
 
     _append_probe_failure_warnings((cpu_status, mem_status), warnings)
     section_status = combine_group_status([cpu_status, mem_status])

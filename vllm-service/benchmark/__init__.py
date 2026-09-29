@@ -1,5 +1,4 @@
-"""Benchmark 模組 - 異步壓力測試"""
+"""Benchmark 模組 - 異步壓力測試與 ShareGPT benchmark。
 
-from benchmark.async_bench import run_benchmark
-
-__all__ = ["run_benchmark"]
+請直接從子模組匯入（benchmark.async_bench、benchmark.sharegpt_bench）。
+"""

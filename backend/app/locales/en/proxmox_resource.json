@@ -12,8 +12,10 @@
   "provisioning.vm_network_incomplete": "Network configuration is incomplete; cannot create VM VMID={vmid}. Please check the IP management subnet settings.",
   "reset.init_snapshot_exists": "Init snapshot skylab-init already exists",
   "reset.no_init_snapshot": "This resource has no skylab-init init snapshot and cannot be reset; please ask an instructor or admin to create one first",
+  "reset.already_running": "A reset is already queued or running for this machine. Wait for it to finish and try again.",
   "quota.exceeded": "Quota exceeded: {violations}",
   "provisioning.gpu_mdev_profile_invalid": "Invalid vGPU profile name: '{profile}'",
+  "provisioning.gpu_mapping_id_invalid": "Invalid GPU mapping ID: '{mapping_id}'",
   "resource_settings.readConfigFailed": "Failed to read the configuration of resource {vmid}",
   "resource_settings.updateConfigFailed": "Failed to update the configuration of resource {vmid}: {error}",
   "resource_settings.listIsoFailed": "Failed to list ISO images",
@@ -43,5 +45,8 @@
   "resource_settings.alreadyOwner": "{email} already owns this machine",
   "resource_settings.transferred": "Machine transferred to {email}",
   "resource.start_window_not_started": "This machine’s approved time window has not started yet. Start it once the window begins.",
-  "resource.start_window_ended": "This machine’s approved time window has ended, so it can no longer be started. Submit a new request to keep using it."
+  "resource.start_window_ended": "This machine’s approved time window has ended, so it can no longer be started. Submit a new request to keep using it.",
+  "resource.delete_presence_unverified": "One of the Proxmox connections could not be queried, so it cannot be confirmed that this machine is really gone. Its record is left untouched to avoid deleting it by mistake; please try again later.",
+  "resource.delete_outside_pool": "This machine still exists in Proxmox (outside its resource pool or on a disabled connection). Please have an administrator check it before deleting.",
+  "resource.delete_template_update_temp": "This is the temporary VM for the ongoing update of template \"{name}\". Cancel the update from the Templates page instead."
 }

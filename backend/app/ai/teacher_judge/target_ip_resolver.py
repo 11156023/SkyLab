@@ -54,19 +54,8 @@ def resolve_target_ip_address(
     if not live_ip:
         return ""
 
-    try:
-        resource_repo.update_ip_address(
-            session=session,
-            vmid=vmid,
-            ip_address=live_ip,
-        )
-    except Exception:
-        session.rollback()
-        logger.warning(
-            "Failed to update Teacher Judge target IP cache vmid=%s ip=%s",
-            vmid,
-            live_ip,
-            exc_info=True,
-        )
-
-    return live_ip
+    # Writes the live IP back to the cache (rolling back quietly on failure)
+    # and returns it unchanged.
+    return (
+        resource_repo.sync_ip_cache(session=session, vmid=vmid, live_ip=live_ip) or ""
+    )

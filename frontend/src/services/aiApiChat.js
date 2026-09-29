@@ -1,5 +1,5 @@
 import i18n from "../i18n";
-import { fetchWithTimeout } from "./fetchWithTimeout";
+import { fetchWithTimeout, requestTimeoutError } from "./fetchWithTimeout";
 
 const CHAT_TIMEOUT_MS = 130_000;
 const TRADITIONAL_CHINESE_SYSTEM_PROMPT = [
@@ -12,8 +12,13 @@ function usesInlineThinking(model) {
   return String(model).toLowerCase().includes("nemotron-nano-9b-v2");
 }
 
-function requestDetails(endpoint, accept = "application/json") {
-  const apiKey = String(import.meta.env.VITE_AI_CHAT_API_KEY ?? "").trim();
+/*
+ * 金鑰一律由呼叫端傳入（使用者自己的 AI API 憑證，只放記憶體）。
+ * 不可改回讀 VITE_* 環境變數：Vite 會把值寫進公開的 JS bundle，
+ * 任何人（含未登入訪客）下載 chunk 就能拿走共用金鑰直接打 /ai-proxy。
+ */
+function requestDetails(endpoint, apiKeyInput, accept = "application/json") {
+  const apiKey = String(apiKeyInput ?? "").trim();
   if (!apiKey) throw { status: 0, code: "missing_api_key" };
   const baseUrl = String(import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
   return {
@@ -56,9 +61,9 @@ function requestMessages(messages) {
   ];
 }
 
-// 此路線使用 Campus API Key；不可經過會覆寫 Authorization 的登入 API wrapper。
-async function request(endpoint, { signal, body } = {}) {
-  const { url, headers } = requestDetails(endpoint);
+// 此路線使用登入使用者自己的 AI API 金鑰（由呼叫端傳入）；不可經過會覆寫 Authorization 的登入 API wrapper。
+async function request(endpoint, { signal, body, apiKey } = {}) {
+  const { url, headers } = requestDetails(endpoint, apiKey);
   const response = await fetchWithTimeout(url, {
     method: body ? "POST" : "GET",
     headers,
@@ -96,8 +101,8 @@ function parseSseData(event) {
   }
 }
 
-async function streamChat(model, messages, { signal, onDelta } = {}) {
-  const { url, headers } = requestDetails("chat/completions", "text/event-stream");
+async function streamChat(model, messages, { signal, onDelta, apiKey } = {}) {
+  const { url, headers } = requestDetails("chat/completions", apiKey, "text/event-stream");
   const controller = new AbortController();
   let timedOut = false;
   const abortFromCaller = () => controller.abort(signal?.reason);
@@ -196,7 +201,7 @@ async function streamChat(model, messages, { signal, onDelta } = {}) {
     return reply;
   } catch (error) {
     if (controller.signal.aborted) {
-      if (timedOut) throw { status: 408, message: "Request timed out", timeout: true };
+      if (timedOut) throw requestTimeoutError();
       throw { status: 0, message: "Request cancelled", cancelled: true };
     }
     throw error;
@@ -208,11 +213,9 @@ async function streamChat(model, messages, { signal, onDelta } = {}) {
 }
 
 export const AiApiChatService = {
-  isConfigured() {
-    return Boolean(String(import.meta.env.VITE_AI_CHAT_API_KEY ?? "").trim());
-  },
-  async listModels(options) {
-    const result = await request("models", options);
+  /** @param {{ apiKey: string, signal?: AbortSignal }} options 沒帶 apiKey 會丟 missing_api_key */
+  async listModels({ signal, apiKey } = {}) {
+    const result = await request("models", { signal, apiKey });
     if (!Array.isArray(result?.data)) throw { status: 502, code: "invalid_response" };
     return [...new Set(result.data
       .filter((model) => typeof model?.id === "string" && model.id.trim()
@@ -220,7 +223,8 @@ export const AiApiChatService = {
         && (!model.model_info?.mode || model.model_info.mode === "chat"))
       .map((model) => model.id))];
   },
-  async chat(model, messages, { signal, onDelta } = {}) {
-    return streamChat(model, messages, { signal, onDelta });
+  /** @param {{ apiKey: string, signal?: AbortSignal, onDelta?: (text: string) => void }} options */
+  async chat(model, messages, { signal, onDelta, apiKey } = {}) {
+    return streamChat(model, messages, { signal, onDelta, apiKey });
   },
 };

@@ -2,10 +2,7 @@
 
 import io
 import os
-import select
 import threading
-import time
-from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -82,8 +79,13 @@ class _TrustOnFirstUsePolicy:
 
     def missing_host_key(self, client: Any, hostname: str, key: Any) -> None:
         client.get_host_keys().add(hostname, key.get_name(), key)
+        # 不能用 client.save_host_keys()：它把連線開始時載入的整份快照寫回，
+        # 期間被 forget_host_key() 刪掉的舊 key 會被復活。只在檔案目前內容上
+        # 追加這一筆。
         with _KNOWN_HOSTS_LOCK:
-            client.save_host_keys(self._path)
+            keys = paramiko.HostKeys(self._path)
+            keys.add(hostname, key.get_name(), key)
+            keys.save(self._path)
 
 
 def _configure_host_key_verification(client: Any) -> None:
@@ -190,74 +192,3 @@ def exec_command(
     stderr_text = stderr_ch.read().decode(errors=decode_errors)
     exit_code = stdout_ch.channel.recv_exit_status()
     return exit_code, stdout_text, stderr_text
-
-
-def exec_command_streaming(
-    client: Any,
-    command: str,
-    *,
-    timeout: int = 900,
-    on_stdout: Callable[[str], None] | None = None,
-    decode_errors: str = "replace",
-    cancel_event: Any = None,
-    use_pty: bool = False,
-    auto_responses: list[tuple[str, str]] | None = None,
-) -> tuple[int, str, str]:
-    """Stream a remote command, optionally with PTY and auto-response rules.
-
-    auto_responses: list of (trigger_substring, response_text) pairs.
-    When trigger appears in stdout, response_text is written to stdin once.
-    Only effective when use_pty=True (PTY gives access to channel stdin).
-    """
-    _, stdout_ch, stderr_ch = client.exec_command(command, timeout=timeout, get_pty=use_pty)
-    channel = stdout_ch.channel
-    stdout_parts: list[str] = []
-    stderr_parts: list[str] = []
-    start = time.monotonic()
-    fired_responses: set[str] = set()
-
-    while True:
-        if cancel_event is not None and cancel_event.is_set():
-            try:
-                channel.close()
-            except Exception:
-                # 通道可能已關閉，關閉失敗可忽略
-                pass
-            raise RuntimeError("SSH command cancelled by user")
-        if time.monotonic() - start > timeout:
-            channel.close()
-            raise RuntimeError(f"SSH command timed out ({timeout}s)")
-
-        readable, _, _ = select.select([channel], [], [], 1.0)
-
-        if readable:
-            if channel.recv_ready():
-                chunk = channel.recv(4096).decode(errors=decode_errors)
-                stdout_parts.append(chunk)
-                if on_stdout is not None:
-                    on_stdout(chunk)
-
-                if use_pty and auto_responses:
-                    accumulated = "".join(stdout_parts)
-                    for trigger, response in auto_responses:
-                        if trigger not in fired_responses and trigger in accumulated:
-                            fired_responses.add(trigger)
-                            try:
-                                channel.send(response)
-                            except Exception:
-                                # 自動回應寫入失敗時不中斷輸出讀取
-                                pass
-
-            if channel.recv_stderr_ready():
-                chunk = channel.recv_stderr(4096).decode(errors=decode_errors)
-                stderr_parts.append(chunk)
-
-        if (
-            channel.exit_status_ready()
-            and not channel.recv_ready()
-            and not channel.recv_stderr_ready()
-        ):
-            break
-
-    exit_code = channel.recv_exit_status()
-    return exit_code, "".join(stdout_parts), "".join(stderr_parts)

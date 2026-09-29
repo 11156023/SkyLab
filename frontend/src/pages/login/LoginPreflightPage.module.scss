@@ -1,4 +1,5 @@
-/* 登入後的服務檢查：外框（暈染背景、毛玻璃卡、標題、提示框、按鈕）沿用 SetupPage.module.scss，
+/* 登入後的服務檢查：外框（置中版面、毛玻璃卡、標題、提示框、按鈕）沿用 SetupPage.module.scss，
+   背景不疊光暈色球、跟系統內頁一樣只用主題背景；
    這裡只放本頁獨有的區塊：頂部圖示、檢查清單的圈圈與管理員的細節列 */
 
 .card {
@@ -10,28 +11,95 @@
   max-width: 640px;
 }
 
+/* 圓圈底色混白底而不是透明：半透明淡色疊在玻璃卡上會被背景染成灰濁色 */
 .hero {
   @include flex-center;
+  position: relative;
   width: 64px;
   height: 64px;
   margin: 0 auto $spacing-16;
   border-radius: 50%;
   color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
   animation: hero-float 2.4s ease-in-out infinite;
   transition: color $transition-base, background $transition-base;
+
+  /* 結果出來後的漣漪圈：預設不顯示，通過／失敗才播 */
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+}
+
+/* 結果出來：圖示先彈出；通過泛一次綠色漣漪就停，失敗驚嘆號搖兩下、之後持續泛淡紅漣漪提醒 */
+.hero_ok,
+.hero_fail {
+  animation: hero-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .hero_ok {
+  --hero-ripple: var(--color-success);
   color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  animation: none;
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+
+  &::after {
+    animation: hero-ripple 1.2s ease-out 0.2s 1;
+  }
 }
 
 .hero_fail {
+  --hero-ripple: var(--color-danger);
   color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  animation: none;
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
+
+  &::after {
+    animation: hero-ripple 2.4s ease-out 0.6s infinite;
+  }
+
+  > :global(.material-icons-outlined) {
+    animation: hero-shake 0.5s ease-in-out 0.35s;
+  }
+}
+
+@keyframes hero-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes hero-ripple {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--hero-ripple) 45%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--hero-ripple) 0%, transparent);
+  }
+}
+
+@keyframes hero-shake {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  20% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(12deg);
+  }
+  60% {
+    transform: rotate(-8deg);
+  }
+  80% {
+    transform: rotate(4deg);
+  }
 }
 
 @keyframes hero-float {
@@ -59,25 +127,20 @@
   padding: 0;
 }
 
+/* 每列白底、不畫框線；狀態只靠左邊的圈圈（勾／叉）表示 */
+/* 圈圈與右側文字（標題＋說明）垂直置中 */
 .row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: $spacing-16;
   padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
   border-radius: $radius-12;
   background: var(--color-surface);
-  transition: border-color $transition-base;
-}
-
-.row_fail {
-  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
 }
 
 .rowBody {
   flex: 1;
   min-width: 0;
-  padding-top: 3px;
 }
 
 .rowHead {
@@ -90,6 +153,24 @@
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
   transition: color $transition-base;
+}
+
+/* 學生／老師：標題下的白話說明（這一項管哪些功能）；打叉時轉深紅，一眼看出是哪個功能出問題 */
+.rowHint {
+  display: block;
+  margin-top: 2px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  transition: color $transition-base;
+}
+
+.row_fail .rowHint {
+  color: var(--color-danger-dark);
+
+  /* 深色模式沒有另設深紅，#b91c1c 在深底上太暗，混白提亮 */
+  :global(body.dark) & {
+    color: color-mix(in srgb, var(--color-danger) 55%, #ffffff);
+  }
 }
 
 .row_checking .rowLabel {
@@ -214,19 +295,33 @@
   color: var(--color-danger);
 }
 
-/* 失敗提示：紅色系（SetupPage 的 notice 只有 info／success） */
+/* 失敗提示：紅色系（SetupPage 的 notice 只有 info／success）。
+   淡紅混白底、不畫框線（同上方檢查列），內文用深紅，不會變成紅底藍字 */
 .notice_fail {
   margin-bottom: $spacing-16;
-  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
-  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
+  color: var(--color-danger-dark);
 
   > span:first-child {
     color: var(--color-danger);
   }
+
+  /* 深色模式沒有另設深紅，#b91c1c 在深底上太暗；一般紅也只有約 3.6:1，
+     混白提亮到 4.5:1 以上 */
+  :global(body.dark) & {
+    color: color-mix(in srgb, var(--color-danger) 55%, #ffffff);
+  }
+}
+
+/* 登出：低強調的淡底文字鈕，放在按鈕列左側 */
+.btnGhost {
+  @include btn-ghost;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .hero,
+  .hero::after,
+  .hero_fail > :global(.material-icons-outlined),
   .ring_ok,
   .ring_fail {
     animation: none;

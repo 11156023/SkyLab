@@ -30,7 +30,11 @@ export const ClassroomService = {
     return apiGet("/api/v1/classroom/sessions");
   },
 
-  /** 目前對自己生效的廣播（學生輪詢用） */
+  /**
+   * 目前對自己生效的廣播（學生輪詢用）。
+   * 回傳 { session, taken_over_vmids }：taken_over_vmids 是自己的機器中目前正被老師接管的 vmid，
+   * 重連後用來重建「老師接管中」覆蓋。
+   */
   getLive() {
     return apiGet("/api/v1/classroom/live");
   },

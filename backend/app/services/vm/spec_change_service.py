@@ -28,7 +28,7 @@ from app.exceptions import (
     ProxmoxError,
 )
 from app.infrastructure.worker import background_tasks
-from app.models import SpecChangeRequestStatus, SpecChangeType
+from app.models import Resource, SpecChangeRequestStatus, SpecChangeType
 from app.repositories import resource as resource_repo
 from app.repositories import spec_change_request as spec_request_repo
 from app.schemas import (
@@ -43,6 +43,7 @@ from app.services.proxmox import proxmox_service
 from app.services.resource import quota_service, resource_service
 from app.services.resource.access import require_resource_management
 from app.services.user import audit_service
+from app.utils.timeutil import normalize_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -92,18 +93,12 @@ def _apply_task_id(request_id: uuid.UUID) -> str:
     return f"spec-apply-{request_id}"
 
 
-def _as_utc(value: datetime | None) -> datetime | None:
-    """SQLite（測試）取回的時間沒有 tzinfo，一律補成 UTC 再比較。"""
-    if value is None or value.tzinfo is not None:
-        return value
-    return value.replace(tzinfo=timezone.utc)
-
-
 def _apply_recently_started(request: Any) -> bool:
     """這張申請單是否有一次尚未結束、且還在鎖定期內的套用。"""
     if request.applied_at is not None or request.apply_error:
         return False
-    started = _as_utc(getattr(request, "apply_started_at", None))
+    # SQLite（測試）取回的時間沒有 tzinfo，一律補成 UTC 再比較
+    started = normalize_datetime(getattr(request, "apply_started_at", None))
     if started is None:
         return False
     return datetime.now(timezone.utc) - started < timedelta(
@@ -257,12 +252,6 @@ def _reject_fixed_spec_resource(*, session: Session, vmid: int) -> None:
         raise BadRequestError(t("spec_change.practice_machine_spec_fixed"))
 
 
-def _get_current_specs(
-    node: str, vmid: int, resource_type: ResourceType
-) -> dict[str, Any]:
-    return proxmox_service.get_current_specs(node, vmid, resource_type)
-
-
 # 到期日最多一次延到一年後，超過的交給管理員直接改
 EXPIRY_MAX_EXTENSION_DAYS = 366
 
@@ -292,8 +281,6 @@ def _validate_expiry_request(
 
 def _apply_expiry_extension(session: Session, db_request: Any) -> None:
     """核准即生效：改到期日、清掉 TTL 已發出的通知與刪除排程，讓治理重新起算。"""
-    from app.models import Resource
-
     resource = session.get(Resource, db_request.resource_vmid)
     if resource is None:
         raise BadRequestError(t("spec_change.resource_gone_review"))
@@ -329,7 +316,7 @@ def create(
         )
 
     node = resource_info["node"]
-    specs = _get_current_specs(node, vmid, _rtype(resource_info))
+    specs = proxmox_service.get_current_specs(node, vmid, _rtype(resource_info))
 
     # 延長到期日：不動 Proxmox，只驗日期；核准時直接寫回 resources.expiry_date
     current_expiry: date | None = None

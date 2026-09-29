@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "./api";
+import { apiPost } from "./api";
 
 export const VmRequestAvailabilityService = {
   /**
@@ -16,15 +16,5 @@ export const VmRequestAvailabilityService = {
 
   windowAvailability(draft) {
     return apiPost("/api/v1/vm-requests/window-availability", draft);
-  },
-
-  /**
-   * 取得某筆申請的可用時段
-   * @param {string} requestId
-   */
-  getByRequestId(requestId) {
-    return apiGet(
-      `/api/v1/vm-requests/${requestId}/availability?days=7&timezone=Asia%2FTaipei`,
-    );
   },
 };

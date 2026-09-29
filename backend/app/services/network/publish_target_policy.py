@@ -56,7 +56,6 @@ def validate_publish_target_ip(
     *,
     allowed_cidrs: Iterable[str] = (),
     blocked_ips: Iterable[str] = (),
-    blocked_cidrs: Iterable[str] = (),
 ) -> ipaddress.IPv4Address:
     """純函式：目標 IP 不可對外發布時 raise BadRequestError，否則回傳位址。"""
     addr = _parse_ipv4(ip)
@@ -78,12 +77,6 @@ def validate_publish_target_ip(
         if blocked_addr is not None and addr == blocked_addr:
             raise BadRequestError(
                 t("publish.targetIpInfrastructure", ip=str(addr))
-            )
-
-    for network in _parse_networks(blocked_cidrs):
-        if addr in network:
-            raise BadRequestError(
-                t("publish.targetIpBlocked", ip=str(addr), network=str(network))
             )
 
     allowed_networks = _parse_networks(allowed_cidrs)
@@ -168,4 +161,7 @@ def assert_publishable_vm_ip(
     )
 
 
-__all__ = ["assert_publishable_vm_ip", "validate_publish_target_ip"]
+__all__ = [
+    "assert_publishable_vm_ip",
+    "validate_publish_target_ip",
+]

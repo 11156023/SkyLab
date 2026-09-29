@@ -28,6 +28,19 @@ def ensure_conversation_within_limits(
         raise BadRequestError(t("ai_guard.messages_too_long", limit=max_chars))
 
 
+# 表單快照（form_context）序列化後的上限。它不算在對話字數裡，卻會原樣塞進
+# prompt；schema 已逐欄截斷，這裡再擋總量，避免繞過上面的對話上限。
+MAX_FORM_CONTEXT_CHARS = 64 * 1024
+
+
+def ensure_form_context_within_limits(
+    form_context_json: str, *, max_chars: int = MAX_FORM_CONTEXT_CHARS
+) -> None:
+    """表單快照過大一律 400，必須在呼叫模型之前檢查。"""
+    if len(form_context_json) > max_chars:
+        raise BadRequestError(t("ai_guard.form_context_too_long", limit=max_chars))
+
+
 def strip_think_tags(text: str) -> str:
     """Keep only content after </think> marker; return text as-is if tag absent."""
     marker = "</think>"
@@ -35,6 +48,12 @@ def strip_think_tags(text: str) -> str:
     if idx != -1:
         return text[idx + len(marker) :].strip()
     return text.strip()
+
+
+def mentions(text: str, keywords: tuple[str, ...]) -> bool:
+    """*text* 是否包含任一關鍵字（不分大小寫，子字串比對）。"""
+    lowered = text.casefold()
+    return any(keyword.casefold() in lowered for keyword in keywords)
 
 
 def apply_thinking_control(payload: dict[str, Any], enable_thinking: bool) -> dict[str, Any]:

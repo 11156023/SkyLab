@@ -12,6 +12,7 @@ import {
   LOGIN_REQUEST_TIMEOUT_MS,
   fetchWithTimeout,
 } from "./fetchWithTimeout";
+import { readResponseMessage } from "./responseMessage";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -258,14 +259,7 @@ export const AuthStorage = {
 
 /** 解析錯誤 response 的訊息，統一 throw { status, message } */
 async function throwApiError(res) {
-  let message = `HTTP ${res.status}`;
-  try {
-    const body = await res.json();
-    message = body?.detail ?? body?.message ?? message;
-  } catch {
-    // 若 body 不是 JSON 就用預設訊息
-  }
-  throw { status: res.status, message };
+  throw { status: res.status, message: await readResponseMessage(res) };
 }
 
 /**

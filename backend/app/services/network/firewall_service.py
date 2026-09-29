@@ -35,6 +35,7 @@ from app.services.network.publish_target_policy import assert_publishable_vm_ip
 from app.services.proxmox import proxmox_service
 from app.services.resource import access as resource_access
 from app.services.resource import kind as resource_kind
+from app.utils.hostname import from_punycode_hostname
 
 logger = logging.getLogger(__name__)
 
@@ -50,21 +51,6 @@ _GATEWAY_FULL_ACCESS_COMMENT = f"{_CC_PREFIX}gateway:full-access"
 # 專案改名（campus-cloud → SkyLab）前寫進機器的封鎖規則，只在清理時認得
 _LEGACY_BLOCK_EXTRA_PREFIX = "campus-cloud:block-extra:"
 _LEGACY_BLOCK_LOCAL = "campus-cloud:block-local-subnet"
-
-
-def _from_punycode_hostname(hostname: str) -> str:
-    result_labels = []
-    for label in hostname.split("."):
-        if label.lower().startswith("xn--"):
-            try:
-                decoded = label[4:].encode("ascii").decode("punycode")
-                result_labels.append(decoded)
-            except Exception as e:
-                logger.debug("Punycode decode failed for label %s: %s", label, e)
-                result_labels.append(label)
-        else:
-            result_labels.append(label)
-    return ".".join(result_labels)
 
 
 # ─── Proxmox 防火牆 API 封裝 ─────────────────────────────────────────────────
@@ -254,6 +240,28 @@ def get_vm_firewall_rules(node: str, vmid: int, resource_type: ResourceType) -> 
         return []
 
 
+def list_vm_firewall_rules_strict(
+    node: str, vmid: int, resource_type: ResourceType
+) -> list[dict]:
+    """同 get_vm_firewall_rules，但讀不到時拋 ProxmoxError 而不是回空清單。
+
+    給要依現有規則做差異同步的呼叫端用：把「讀取失敗」當成「沒有規則」會讓
+    同步誤判而重複建立或漏刪規則。
+    """
+    try:
+        rules = _firewall_api(node, vmid, resource_type).rules.get()
+    except Exception as e:
+        raise ProxmoxError(
+            t(
+                "firewall.getRulesFailed",
+                resourceType=resource_type,
+                vmid=vmid,
+                error=e,
+            )
+        ) from e
+    return rules or []
+
+
 def create_rule(
     node: str, vmid: int, resource_type: ResourceType, rule: dict
 ) -> None:
@@ -331,22 +339,30 @@ def ensure_firewall_enabled(node: str, vmid: int, resource_type: ResourceType) -
         logger.error(f"VM {vmid}: 確認防火牆啟用失敗: {e}")
 
 
-def sync_block_local_subnet_rules() -> dict:
+def _load_subnet_settings() -> tuple[list[str], str | None]:
+    """讀 IP 管理設定：(管理員設定的額外封鎖網段, Gateway VM IP)。"""
+    from app.core.db import engine
+    from app.services.network import ip_management_service
+
+    with Session(engine) as s:
+        subnet_config = ip_management_service.get_subnet_config(s)
+        extra_blocks = ip_management_service.get_extra_blocked_subnets(subnet_config)
+        gateway_vm_ip = subnet_config.gateway_vm_ip if subnet_config else None
+    return extra_blocks, gateway_vm_ip
+
+
+def sync_extra_block_rules() -> dict:
     """掃描所有 pool 內 VM/LXC，同步管理員設定的額外封鎖網段規則（含孤兒清理）。
 
     回傳 ``{"extra_blocks": {...}}`` 統計，``errors`` 逐台列出失敗原因。
     連 PVE 機器清單都拿不到時也不拋出，而是記成一筆 ``vmid=None`` 的錯誤，
     呼叫端（PUT /ip-management/subnet）才能把「有機器沒套到」原封不動回給管理員。
     """
-    from app.core.db import engine
     from app.infrastructure.proxmox.operations import (
         list_all_resources,
     )
-    from app.services.network import ip_management_service
 
-    with Session(engine) as s:
-        subnet_config = ip_management_service.get_subnet_config(s)
-        extra_blocks = ip_management_service.get_extra_blocked_subnets(subnet_config)
+    extra_blocks, _gateway_vm_ip = _load_subnet_settings()
     # 清單是空的也要跑：管理員把網段全拿掉時，機器上的舊 DROP 得跟著清掉
 
     extra_aggregate: dict[str, list] = {
@@ -413,36 +429,34 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
         _firewall_api(node, vmid, resource_type).rules.post(**gateway_rule)
         logger.info(f"VM {vmid}: 已新增預設出站規則（往網關）")
 
+        # 額外封鎖網段與 Gateway VM IP 都在 IP 管理設定裡，讀一次給下面兩步用；
+        # 讀不到就兩步都略過（非致命，與各步驟失敗時的處理一致）
+        try:
+            extra_blocks, gw_ip = _load_subnet_settings()
+        except Exception as e:
+            logger.warning(
+                f"VM {vmid}: 讀取 IP 管理設定失敗，略過額外封鎖網段與 Gateway 全埠規則（非致命）: {e}"
+            )
+            extra_blocks, gw_ip = [], None
+
         # 套用管理員設定的額外封鎖網段（多筆）。一定要在 gateway:default 之後做：
         # 那條 ACCEPT 不限目的，DROP 得排在它前面才會生效，順序反過來就白寫了。
-        try:
-            from app.core.db import engine
-            from app.services.network import ip_management_service
-
-            with Session(engine) as s:
-                subnet_config = ip_management_service.get_subnet_config(s)
-                extra_blocks = ip_management_service.get_extra_blocked_subnets(subnet_config)
-            if extra_blocks:
+        if extra_blocks:
+            try:
                 sub = _apply_extra_block_rules(node, vmid, resource_type, extra_blocks)
                 logger.info(
                     f"VM {vmid}: extra-block 規則 created={len(sub['created'])} "
                     f"updated={len(sub['updated'])} deleted={len(sub['deleted'])} "
                     f"errors={len(sub['errors'])}"
                 )
-        except Exception as e:
-            logger.warning(
-                f"VM {vmid}: 套用額外封鎖網段規則失敗 (非致命): {e}"
-            )
+            except Exception as e:
+                logger.warning(
+                    f"VM {vmid}: 套用額外封鎖網段規則失敗 (非致命): {e}"
+                )
 
         # 新增 Gateway VM → VM 全埠 ACCEPT 規則（1-65535 TCP+UDP）
-        try:
-            from app.core.db import engine
-            from app.services.network import ip_management_service
-
-            with Session(engine) as s:
-                subnet_config = ip_management_service.get_subnet_config(s)
-            if subnet_config and subnet_config.gateway_vm_ip:
-                gw_ip = subnet_config.gateway_vm_ip
+        if gw_ip:
+            try:
                 for proto in ("tcp", "udp"):
                     gw_access_rule = {
                         "type": "in",
@@ -457,8 +471,8 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
                 logger.info(
                     f"VM {vmid}: 已新增 Gateway VM ({gw_ip}) → VM 全埠 ACCEPT 規則"
                 )
-        except Exception as gw_err:
-            logger.warning(f"VM {vmid}: 新增 Gateway 全埠規則失敗（非致命）: {gw_err}")
+            except Exception as gw_err:
+                logger.warning(f"VM {vmid}: 新增 Gateway 全埠規則失敗（非致命）: {gw_err}")
 
     except Exception as e:
         logger.error(f"VM {vmid}: 設定防火牆預設規則失敗: {e}")
@@ -473,8 +487,6 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
     優先從 Proxmox 即時查詢；若 VM 離線則回退到 DB 快取。
     查詢成功時自動更新 DB 快取。
     """
-    from app.repositories import resource as resource_repo
-
     ip: str | None = None
     try:
         resource = proxmox_service.find_resource(vmid)
@@ -500,8 +512,6 @@ def _get_publishable_vm_ip(vmid: int, session: object = None) -> str | None:
     guest agent 回報的值只在沒有配發紀錄（手動建的機器）時才採用。VM 擁有者
     在 VM 裡把介面改成同學的位址，不能因此把規則或發布指到別台機器。
     """
-    from app.repositories import resource as resource_repo
-
     if session is not None:
         try:
             allocated = resource_repo.get_allocated_ip_address(session=session, vmid=vmid)  # type: ignore[arg-type]
@@ -599,12 +609,16 @@ def _parse_connection_comment(comment: str) -> dict | None:
 
 
 def _make_connection_comment(
-    source_vmid: int, target_vmid: int, port: int, protocol: str
+    source: int | str, target: int | str, port: int, protocol: str
 ) -> str:
-    """產生連線規則的 comment（port=0 表示無端口協定）"""
+    """產生連線規則的 comment（port=0 表示無端口協定）。
+
+    ``source`` / ``target`` 是 VMID，或 ``"gateway"`` 代表 Internet 端
+    （格式見 _parse_connection_comment）。
+    """
     if port == 0:
-        return f"{_CC_PREFIX}{source_vmid}->{target_vmid}:{protocol}"
-    return f"{_CC_PREFIX}{source_vmid}->{target_vmid}:{port}/{protocol}"
+        return f"{_CC_PREFIX}{source}->{target}:{protocol}"
+    return f"{_CC_PREFIX}{source}->{target}:{port}/{protocol}"
 
 
 def _make_rule_fields(port: int, protocol: str) -> dict:
@@ -651,7 +665,7 @@ def create_connection(
         # 判斷是否需要 Gateway VM（有 external_port 或 domain 的情況）
         needs_gateway = any(
             (p.external_port is not None and p.port != 0)
-            or (getattr(p, "domain", None) is not None and p.port != 0)
+            or (p.domain is not None and p.port != 0)
             for p in ports
         )
         if needs_gateway:
@@ -678,10 +692,8 @@ def create_connection(
         created_comments: list[str] = []
         try:
             for port_spec in ports:
-                comment = (
-                    f"{_CC_PREFIX}gateway->{target_vmid}:{port_spec.protocol}"
-                    if port_spec.port == 0
-                    else f"{_CC_PREFIX}gateway->{target_vmid}:{port_spec.port}/{port_spec.protocol}"
+                comment = _make_connection_comment(
+                    "gateway", target_vmid, port_spec.port, port_spec.protocol
                 )
                 rule = {
                     "type": "in",
@@ -696,8 +708,8 @@ def create_connection(
                 if port_spec.port == 0 or session is None:
                     continue
 
-                domain = getattr(port_spec, "domain", None)
-                enable_https = getattr(port_spec, "enable_https", True)
+                domain = port_spec.domain
+                enable_https = port_spec.enable_https
 
                 if domain:
                     # 🌐 反向代理（nginx http）
@@ -767,10 +779,8 @@ def create_connection(
                 "comment": _GATEWAY_COMMENT,
             })
         for port_spec in ports:
-            comment = (
-                f"{_CC_PREFIX}{source_vmid}->gateway:{port_spec.protocol}"
-                if port_spec.port == 0
-                else f"{_CC_PREFIX}{source_vmid}->gateway:{port_spec.port}/{port_spec.protocol}"
+            comment = _make_connection_comment(
+                source_vmid, "gateway", port_spec.port, port_spec.protocol
             )
             rule = {
                 "type": "out",
@@ -830,7 +840,8 @@ def create_connection(
             "comment": comment_fwd,
         })
 
-        # 在來源 VM 建立出站允許規則（插在 block-local-subnet DROP 之前）
+        # 在來源 VM 建立出站允許規則（依 block_rule_insert_pos 放在不限目的的
+        # gateway:default ACCEPT 之前，但不蓋過管理員的封鎖網段 DROP）
         create_rule(src_node, source_vmid, src_type, {
             "type": "out",
             "action": "ACCEPT",
@@ -854,7 +865,7 @@ def create_connection(
                 "comment": comment_rev,
             })
 
-            # 在目標 VM 建立反向出站規則（插在 block-local-subnet DROP 之前）
+            # 在目標 VM 建立反向出站規則（位置同上，依 block_rule_insert_pos）
             create_rule(tgt_node, target_vmid, tgt_type, {
                 "type": "out",
                 "action": "ACCEPT",
@@ -906,9 +917,11 @@ def delete_connection(
                     nat_service.remove_nat_rules_by_internal_port(
                         session, target_vmid, port_spec.port, port_spec.protocol
                     )
-                    reverse_proxy_service.remove_reverse_proxy_rules_by_internal_port(
-                        session, target_vmid, port_spec.port
-                    )
+                    # 反向代理只有 TCP：撤下同 port 的 UDP 服務不可連帶刪掉網站
+                    if port_spec.protocol == "tcp":
+                        reverse_proxy_service.remove_reverse_proxy_rules_by_internal_port(
+                            session, target_vmid, port_spec.port
+                        )
         return
 
     # 決定要在哪個 VM 上刪除規則
@@ -980,6 +993,16 @@ def delete_connection(
             )
 
 
+def _matches_ports(parsed: dict, ports: list[PortSpec] | None) -> bool:
+    """``ports`` 為 None 代表不限 port；否則任一個 port／協定對得上就算符合。"""
+    if ports is None:
+        return True
+    return any(
+        parsed.get("port") == spec.port and parsed.get("protocol") == spec.protocol
+        for spec in ports
+    )
+
+
 def _delete_matching_rules(
     node: str,
     vmid: int,
@@ -1001,50 +1024,32 @@ def _delete_matching_rules(
 
         if source_vmid is None and target_vmid is not None:
             # 刪除 internet→VM 入站規則
-            if parsed["type"] == "internet_connection" and parsed.get("target_vmid") == target_vmid:
-                if ports is None:
-                    to_delete.append(rule["pos"])
-                else:
-                    for port_spec in ports:
-                        if (
-                            parsed.get("port") == port_spec.port
-                            and parsed.get("protocol") == port_spec.protocol
-                        ):
-                            to_delete.append(rule["pos"])
+            if (
+                parsed["type"] == "internet_connection"
+                and parsed.get("target_vmid") == target_vmid
+                and _matches_ports(parsed, ports)
+            ):
+                to_delete.append(rule["pos"])
         elif target_vmid is None:
-            # 匹配往網關的規則（gateway_default 或 gateway_connection）
-            is_gateway_rule = (
-                parsed["type"] == "gateway_default"
-                or (
-                    parsed["type"] == "gateway_connection"
-                    and parsed.get("source_vmid") == source_vmid
-                )
-            )
-            if is_gateway_rule:
+            # 匹配往網關的規則：不限 port 時連 gateway_default 一起刪，
+            # 指定 port 時只刪對應的 gateway_connection
+            if parsed["type"] == "gateway_default":
                 if ports is None:
                     to_delete.append(rule["pos"])
-                elif parsed["type"] == "gateway_connection":
-                    for port_spec in ports:
-                        if (
-                            parsed.get("port") == port_spec.port
-                            and parsed.get("protocol") == port_spec.protocol
-                        ):
-                            to_delete.append(rule["pos"])
+            elif (
+                parsed["type"] == "gateway_connection"
+                and parsed.get("source_vmid") == source_vmid
+                and _matches_ports(parsed, ports)
+            ):
+                to_delete.append(rule["pos"])
         else:
             # 匹配 VM 間連線規則
             if (
                 parsed.get("source_vmid") == source_vmid
                 and parsed.get("target_vmid") == target_vmid
+                and _matches_ports(parsed, ports)
             ):
-                if ports is None:
-                    to_delete.append(rule["pos"])
-                else:
-                    for port_spec in ports:
-                        if (
-                            parsed.get("port") == port_spec.port
-                            and parsed.get("protocol") == port_spec.protocol
-                        ):
-                            to_delete.append(rule["pos"])
+                to_delete.append(rule["pos"])
 
     # 從最大 pos 開始刪除（避免位移）
     for pos in sorted(set(to_delete), reverse=True):
@@ -1055,6 +1060,14 @@ def _delete_matching_rules(
 
 
 # ─── 拓撲資料聚合 ─────────────────────────────────────────────────────────────
+
+
+def _add_edge_port(edge: TopologyEdge, port: int, protocol: str) -> None:
+    # VM 間連線的同一個 comment 同時寫在目標的入站與來源的出站規則上，
+    # 兩台都看得到時會讀到兩次，同一條 edge 上的 port 只列一次
+    if any(p.port == port and p.protocol == protocol for p in edge.ports):
+        return
+    edge.ports.append(PortSpec(port=port, protocol=protocol))
 
 
 def get_connections_from_rules(vmids: list[int]) -> list[TopologyEdge]:
@@ -1103,7 +1116,7 @@ def get_connections_from_rules(vmids: list[int]) -> list[TopologyEdge]:
                         ports=[],
                         direction="one_way",
                     )
-                edges[edge_key].ports.append(PortSpec(port=port, protocol=proto))
+                _add_edge_port(edges[edge_key], port, proto)
             elif parsed["type"] == "internet_connection":
                 tgt = parsed["target_vmid"]
                 port = parsed["port"]
@@ -1116,7 +1129,7 @@ def get_connections_from_rules(vmids: list[int]) -> list[TopologyEdge]:
                         ports=[],
                         direction="one_way",
                     )
-                edges[edge_key].ports.append(PortSpec(port=port, protocol=proto))
+                _add_edge_port(edges[edge_key], port, proto)
             elif parsed["type"] == "connection":
                 src = parsed["source_vmid"]
                 tgt = parsed["target_vmid"]
@@ -1130,7 +1143,7 @@ def get_connections_from_rules(vmids: list[int]) -> list[TopologyEdge]:
                         ports=[],
                         direction="one_way",
                     )
-                edges[edge_key].ports.append(PortSpec(port=port, protocol=proto))
+                _add_edge_port(edges[edge_key], port, proto)
 
     return list(edges.values())
 
@@ -1171,9 +1184,12 @@ def _enrich_edges_from_db(
     for edge in inbound_edges:
         tgt = edge.target_vmid
         for port_spec in edge.ports:
-            # 先查 reverse proxy
-            rp_key = (tgt, port_spec.port)
-            rp_rule = rp_lookup.get(rp_key)
+            # 先查 reverse proxy（只有 TCP，同 port 的 UDP 服務不是網域）
+            rp_rule = (
+                rp_lookup.get((tgt, port_spec.port))
+                if port_spec.protocol == "tcp"
+                else None
+            )
             if rp_rule:
                 port_spec.domain = rp_rule.domain
                 port_spec.enable_https = rp_rule.enable_https
@@ -1208,6 +1224,20 @@ def _describe_resource_origins(
             for uid, full_name, email in session.exec(owner_stmt).all()
         }
     return class_names, owner_names
+
+
+def _internet_node(x: float, y: float) -> TopologyNode:
+    """拓撲圖上代表 Internet／網關的節點（vmid=None）。"""
+    return TopologyNode(
+        vmid=None,
+        name="Internet",
+        node_type="gateway",
+        status="online",
+        ip_address=None,
+        firewall_enabled=True,
+        position_x=x,
+        position_y=y,
+    )
 
 
 def get_topology(user: User, session: Session) -> TopologyResponse:
@@ -1253,7 +1283,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
             )
             continue
 
-        node_name = _from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
+        node_name = from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
         status = resource.get("status", "unknown")
         ip_address = None
         firewall_enabled = False
@@ -1316,18 +1346,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     # 新增網關節點
     gw_key = "None:gateway"
     gw_x, gw_y = layout_map.get(gw_key, (_DEFAULT_GATEWAY_X, _DEFAULT_GATEWAY_Y))
-    nodes.append(
-        TopologyNode(
-            vmid=None,
-            name="Internet",
-            node_type="gateway",
-            status="online",
-            ip_address=None,
-            firewall_enabled=True,
-            position_x=gw_x,
-            position_y=gw_y,
-        )
-    )
+    nodes.append(_internet_node(gw_x, gw_y))
 
     # 解析連線並充實 DB 資訊（external_port / domain）
     edges = get_connections_from_rules(valid_vmids)
@@ -1475,11 +1494,17 @@ def replace_vm_service(
     replacement: PublishedServiceCreate,
     session: Session,
 ) -> PublishedService:
-    """換掉一條服務的發布方式：先撤下舊的，再依新設定發布。"""
+    """換掉一條服務的發布方式：先撤下舊的，再依新設定發布。
+
+    新設定能先檢查的（對外 port 是否可用、網域是否被占用）都在撤下舊的之前
+    檢查；發布新設定仍失敗時，把原本的服務發布回去，不讓一次失敗的編輯
+    把原本好好的服務弄丟。
+    """
     existing = {
-        (s.port, s.protocol) for s in list_vm_published_services(vmid, session)
+        (s.port, s.protocol): s for s in list_vm_published_services(vmid, session)
     }
-    if (current.port, current.protocol) not in existing:
+    old_service = existing.get((current.port, current.protocol))
+    if old_service is None:
         raise NotFoundError(
             t("firewall.serviceNotFound", port=current.port, protocol=current.protocol)
         )
@@ -1514,11 +1539,45 @@ def replace_vm_service(
             replacement.domain,
             exclude_rule_id=own_rule.id if own_rule else None,
         )
+    if replacement.mode == "port_forward" and replacement.external_port is not None:
+        # 沿用原本的對外 port 時，那筆紀錄撤下後就會釋出，不算衝突
+        keeps_own_port = (
+            old_service.external_port == replacement.external_port
+            and old_service.protocol == replacement.protocol
+        )
+        if not keeps_own_port:
+            from app.services.network import nat_service
+
+            nat_service.check_port_available(
+                replacement.external_port, replacement.protocol, session
+            )
+
+    old_spec = PortSpec(
+        port=old_service.port,
+        protocol=old_service.protocol,
+        external_port=old_service.external_port,
+        domain=old_service.domain,
+        enable_https=old_service.enable_https,
+    )
     unpublish_vm_service(vmid, current, session)
     spec = replacement.to_port_spec()
-    create_connection(
-        source_vmid=None, target_vmid=vmid, ports=[spec], session=session
-    )
+    try:
+        create_connection(
+            source_vmid=None, target_vmid=vmid, ports=[spec], session=session
+        )
+    except Exception:
+        try:
+            create_connection(
+                source_vmid=None, target_vmid=vmid, ports=[old_spec], session=session
+            )
+        except Exception:
+            logger.exception(
+                "VM %s 的服務 %s/%s 換新設定失敗，還原原本的發布也失敗",
+                vmid,
+                old_service.port,
+                old_service.protocol,
+            )
+        raise
     return _service_from_spec(spec, firewall_rule_present=True)
 
 
@@ -1545,7 +1604,7 @@ def _topology_node_for_vm(
             logger.debug("VMID=%s 防火牆狀態查詢失敗: %s", vmid, e)
     return TopologyNode(
         vmid=vmid,
-        name=_from_punycode_hostname(resource.get("name", f"VM-{vmid}")),
+        name=from_punycode_hostname(resource.get("name", f"VM-{vmid}")),
         node_type="vm",
         vm_type=resource.get("type", "qemu"),
         status=resource.get("status", "unknown"),
@@ -1613,18 +1672,7 @@ def get_vm_topology(vmid: int, session: Session) -> TopologyResponse:
             with_details=True,
         )
     )
-    nodes.append(
-        TopologyNode(
-            vmid=None,
-            name="Internet",
-            node_type="gateway",
-            status="online",
-            ip_address=None,
-            firewall_enabled=True,
-            position_x=_MINI_GATEWAY_X,
-            position_y=center_y,
-        )
-    )
+    nodes.append(_internet_node(_MINI_GATEWAY_X, center_y))
 
     visible_edges = [
         edge

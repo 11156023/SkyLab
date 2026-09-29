@@ -109,12 +109,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
           vmstate: false,
         }),
       t("SnapshotsTab.snapshotCreating"),
-      () => {
-        setCreateOpen(false);
-        setSnapname("");
-        setNameInvalid(false);
-        setDescription("");
-      },
+      closeCreate,
     );
   };
 

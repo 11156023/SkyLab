@@ -1,0 +1,137 @@
+name: Provision Class Event
+
+# 一次課程活動的建班：導師 + 學生帳號、每人兩台互通的 LXC、班級排程。
+#
+# 只允許手動觸發（Actions 頁面 → Run workflow）。和 deploy-pve-test 一樣跑在
+# self-hosted runner 上，而且會直接寫正式資料庫，絕對不要加 push /
+# pull_request / pull_request_target 等自動觸發。
+#
+# 預設 dry_run=true：只列出會建立的帳號、範本與機器數量。確認無誤後取消勾選
+# 再跑一次；每一步都會先看現況，失敗後直接重跑會從中斷處接續。
+#
+# 需要的 secrets（放在 pve-test environment）：
+#   SKYLAB_ADMIN_EMAIL / SKYLAB_ADMIN_PASSWORD   核准建機用的管理員
+#   SKYLAB_ADMIN_TOTP_SECRET                     管理員有開兩步驟驗證時才需要
+#   CLASS_STUDENT_PASSWORD_PATTERN               例如 ntubstudent{n:03d}@!
+#   CLASS_TEACHER_PASSWORD                       導師密碼
+# 選用的 variable：SKYLAB_API_URL（backend 不在 127.0.0.1:8000 時）
+on:
+  workflow_dispatch:
+    inputs:
+      class_name:
+        description: "班級名稱（重跑時以名稱 + 開始日找回同一個班級）"
+        required: true
+        default: "SkyLab 課程活動"
+      start_date:
+        description: "開始日 YYYY-MM-DD（空白 = 今天）；每週這一天 00:00–23:59 自動開機"
+        required: false
+        default: ""
+      end_date:
+        description: "結束日 YYYY-MM-DD（空白 = 開始日加兩個月）；到期自動封存並刪除機器"
+        required: false
+        default: ""
+      student_count:
+        description: "學生人數"
+        required: true
+        default: "50"
+      student_email_pattern:
+        description: "學生帳號樣板，{n:03d} 會換成 001、002…"
+        required: true
+        default: "student{n:03d}@gmail.com"
+      teacher_email:
+        description: "導師帳號"
+        required: true
+        default: "teacher001@gmail.com"
+      lxc_image:
+        description: "LXC 映像：local:vztmpl/... 或檔名關鍵字如 ubuntu-24.04（空白 = 最新 Ubuntu，沒有則 Debian）"
+        required: false
+        default: ""
+      lxc_cpu:
+        description: "每台 CPU 核數"
+        required: true
+        default: "1"
+      lxc_memory_mb:
+        description: "每台記憶體 MB"
+        required: true
+        default: "512"
+      lxc_disk_gb:
+        description: "每台磁碟 GB"
+        required: true
+        default: "8"
+      dry_run:
+        description: "只預覽，不建立任何東西"
+        type: boolean
+        required: true
+        default: true
+
+# 同一時間只允許一次建班，避免兩次執行搶同一個班級
+concurrency:
+  group: provision-class-event
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Provision class event
+    # 防止其他 fork 收錄此檔後誤觸發
+    if: github.repository == 'ntubclass/SkyLab'
+    runs-on: skylab-main
+    # 綁定 pve-test environment：required reviewers 按下 Approve 才會執行
+    environment: pve-test
+    # 建 100 多台 LXC 加上等待開機
+    timeout-minutes: 150
+
+    # 輸入一律經 env 傳入，不直接內插進 shell，避免指令注入
+    env:
+      CLASS_NAME: ${{ inputs.class_name }}
+      START_DATE: ${{ inputs.start_date }}
+      END_DATE: ${{ inputs.end_date }}
+      STUDENT_COUNT: ${{ inputs.student_count }}
+      STUDENT_EMAIL_PATTERN: ${{ inputs.student_email_pattern }}
+      TEACHER_EMAIL: ${{ inputs.teacher_email }}
+      LXC_IMAGE: ${{ inputs.lxc_image }}
+      LXC_CPU: ${{ inputs.lxc_cpu }}
+      LXC_MEMORY_MB: ${{ inputs.lxc_memory_mb }}
+      LXC_DISK_GB: ${{ inputs.lxc_disk_gb }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      SKYLAB_API_URL: ${{ vars.SKYLAB_API_URL || 'http://127.0.0.1:8000/api/v1' }}
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Locate backend container
+        # 直接用 compose 標籤找容器，不必為了 exec 把 .env 複製進工作目錄
+        run: |
+          rows=$(docker ps --filter "label=com.docker.compose.service=backend" --filter "status=running" \
+            --format '{{.ID}} {{.Label "com.docker.compose.project"}}')
+          projects=$(printf '%s\n' "$rows" | awk 'NF {print $2}' | sort -u)
+          if [ -z "$rows" ]; then
+            echo "找不到執行中的 backend 容器"
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$projects" | wc -l)" -ne 1 ]; then
+            echo "有多個 compose 專案的 backend 在執行，無法判斷要用哪一個：$projects"
+            exit 1
+          fi
+          echo "BACKEND_CONTAINER=$(printf '%s\n' "$rows" | head -n1 | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Seed accounts
+        # 在容器內用系統自己的 User model 與密碼雜湊寫入資料庫，不寄開通信
+        env:
+          STUDENT_PASSWORD_PATTERN: ${{ secrets.CLASS_STUDENT_PASSWORD_PATTERN }}
+          TEACHER_PASSWORD: ${{ secrets.CLASS_TEACHER_PASSWORD }}
+        run: |
+          docker exec -i \
+            -e STUDENT_COUNT -e STUDENT_EMAIL_PATTERN -e STUDENT_PASSWORD_PATTERN \
+            -e TEACHER_EMAIL -e TEACHER_PASSWORD -e DRY_RUN \
+            "$BACKEND_CONTAINER" python - < scripts/class-event/seed-accounts.py
+
+      - name: Provision class
+        env:
+          SKYLAB_ADMIN_EMAIL: ${{ secrets.SKYLAB_ADMIN_EMAIL }}
+          SKYLAB_ADMIN_PASSWORD: ${{ secrets.SKYLAB_ADMIN_PASSWORD }}
+          SKYLAB_ADMIN_TOTP_SECRET: ${{ secrets.SKYLAB_ADMIN_TOTP_SECRET }}
+          TEACHER_PASSWORD: ${{ secrets.CLASS_TEACHER_PASSWORD }}
+        run: python3 -u scripts/class-event/provision-class.py

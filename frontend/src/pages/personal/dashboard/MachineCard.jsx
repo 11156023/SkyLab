@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
-import card from "./HomeCard.module.scss";
 import MachineTerminal from "./MachineTerminal";
 import { buildTerminal } from "./terminalLines";
 import styles from "./MachineCard.module.scss";
 
 const KNOWN_STATUSES = ["running", "starting", "stopped", "provisioning", "failed", "expired"];
-const STATUS_DOT = { running: card.dotSuccess, starting: card.dotPending, provisioning: card.dotPending, failed: card.dotDanger };
+const STATUS_DOT = { running: styles.dotSuccess, starting: styles.dotPending, provisioning: styles.dotPending, failed: styles.dotDanger };
 /* 終端亮著＝機器有在動；其餘（關機、失敗、到期、未知）螢幕轉灰 */
 const SCREEN_ON = ["running", "starting", "provisioning"];
 /* 使用時段擋住開機時，按鈕的文字與滑過看到的完整說明 */
@@ -66,7 +65,7 @@ export default function MachineCard({ machine, openingMachineId, onOpen, onInfo,
     <article className={styles.card}>
       <div className={styles.head}>
         <div className={styles.headText}>
-          <span className={`${card.dot} ${STATUS_DOT[shownStatus] ?? ""}`}>{t(`HomeOverview.machineStatus.${shownStatus}`)}</span>
+          <span className={`${styles.dot} ${STATUS_DOT[shownStatus] ?? ""}`}>{t(`HomeOverview.machineStatus.${shownStatus}`)}</span>
           <h3 className={styles.name}>{machine.name}</h3>
         </div>
         <span className={styles.typeIcon} aria-hidden="true">

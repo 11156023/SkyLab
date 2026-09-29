@@ -2,20 +2,33 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.ai_api_request import AIAPIRequestStatus
+
+# 與 ai_gateway_service.review_request 換算 expires_at 的期限一一對應
+AIAPIKeyDuration = Literal["1h", "1d", "7d", "30d", "never"]
 
 
 class AIAPIRequestCreate(BaseModel):
     purpose: str = Field(min_length=10, max_length=2000)
     api_key_name: str = Field(default="test", min_length=1, max_length=20)
-    duration: str = Field(default="never", max_length=20)
+    # 只收審核時認得的期限；其他字串會在核准時默默變成永不過期的金鑰
+    duration: AIAPIKeyDuration = "never"
 
 
 class AIAPIRequestReview(BaseModel):
+    """審核 AI API 申請：結果只能是核准或駁回"""
+
     status: AIAPIRequestStatus
     review_comment: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("status")
+    @classmethod
+    def _decision_only(cls, value: AIAPIRequestStatus) -> AIAPIRequestStatus:
+        if value not in (AIAPIRequestStatus.approved, AIAPIRequestStatus.rejected):
+            raise ValueError("審核結果只能是 approved 或 rejected")
+        return value
 
 
 class AIAPIRequestPublic(BaseModel):
@@ -71,6 +84,9 @@ class AIAPICredentialWithSecret(AIAPICredentialPublic):
 class AIAPICredentialsPublic(BaseModel):
     data: list[AIAPICredentialPublic]
     count: int
+    # Base URL 不是機密：還沒有核發金鑰的人也要能在 Quick Start 看到要連哪裡。
+    # 設定留空時為 None，前端改用金鑰上的快照或顯示尚未設定。
+    public_base_url: str | None = None
 
 
 AIAPICredentialStatus = Literal["active", "inactive"]

@@ -1,5 +1,26 @@
-import { describe, expect, test } from "vitest";
-import { matchSurface } from "./aiContextualHelp";
+import { describe, expect, test, vi } from "vitest";
+
+vi.mock("./api", () => ({ apiGet: vi.fn(), apiPost: vi.fn() }));
+
+import { apiGet } from "./api";
+import { AiContextualHelpService, matchSurface } from "./aiContextualHelp";
+
+describe("surfaces 快取", () => {
+  test("同一個身分只載一次，resetSurfaces 之後會重新向後端要", async () => {
+    apiGet.mockReset();
+    AiContextualHelpService.resetSurfaces();
+    apiGet.mockResolvedValueOnce([{ id: "teacher-only" }]);
+    apiGet.mockResolvedValueOnce([{ id: "student-only" }]);
+
+    expect(await AiContextualHelpService.surfaces()).toEqual([{ id: "teacher-only" }]);
+    expect(await AiContextualHelpService.surfaces()).toEqual([{ id: "teacher-only" }]);
+    expect(apiGet).toHaveBeenCalledTimes(1);
+
+    AiContextualHelpService.resetSurfaces();
+    expect(await AiContextualHelpService.surfaces()).toEqual([{ id: "student-only" }]);
+    expect(apiGet).toHaveBeenCalledTimes(2);
+  });
+});
 
 const SURFACES = [
   { id: "my-requests", path: "/my-requests", title: "我的申請" },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -147,12 +147,19 @@ function ReviewActions({ item, onDone }) {
 }
 
 /* ── Main ── */
+const REQUEST_TAB_KEYS = ["pending", "approved", "rejected", "all"];
+/* 後端 /ai-api/requests 的 limit 上限 */
+const REQUEST_LIST_LIMIT = 100;
+
 export default function AiApiReviewPage() {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("pending");
-  const [allRequests, setAllRequests] = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
+  /* 切換分頁時舊請求可能較晚回來，只讓最新一次載入寫入畫面 */
+  const loadSeqRef = useRef(0);
 
   const TABS = [
     { key: "pending",  label: t("AiApiReviewPage.tabPending") },
@@ -169,31 +176,40 @@ export default function AiApiReviewPage() {
 
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
   const load = useCallback(async (silent = false) => {
+    const seq = ++loadSeqRef.current;
+    const isCurrent = () => seq === loadSeqRef.current;
     if (!silent) setLoading(true);
     try {
-      const res = await AiApiService.listAllRequests();
-      setAllRequests(res?.data ?? []);
+      /* 狀態篩選交給後端：清單上限 100 筆且新到舊，前端自己篩會讓
+         比最新 100 筆還舊的待審申請看不到。非目前分頁只取筆數給角標。 */
+      const pages = await Promise.all(
+        REQUEST_TAB_KEYS.map((key) => AiApiService.listAllRequests({
+          status: key === "all" ? undefined : key,
+          limit: key === activeTab ? REQUEST_LIST_LIMIT : 1,
+        })),
+      );
+      if (!isCurrent()) return;
+      const activePage = pages[REQUEST_TAB_KEYS.indexOf(activeTab)];
+      setRequests(activePage?.data ?? []);
+      setCounts(Object.fromEntries(REQUEST_TAB_KEYS.map((key, i) => [
+        key,
+        pages[i]?.count ?? pages[i]?.data?.length ?? 0,
+      ])));
     } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("AiApiReviewPage.loadError"));
+      if (!silent && isCurrent()) toast.error(e?.message ?? t("AiApiReviewPage.loadError"));
     } finally {
-      if (!silent) setLoading(false);
+      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
+      if (isCurrent()) setLoading(false);
     }
-  }, [toast, t]);
+  }, [activeTab, toast, t]);
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
 
   const filtered = useMemo(() => {
-    if (activeTab === "all") return allRequests;
-    return allRequests.filter((r) => r.status === activeTab);
-  }, [allRequests, activeTab]);
-
-  const stats = useMemo(() => {
-    const pending = allRequests.filter((r) => r.status === "pending").length;
-    const approved = allRequests.filter((r) => r.status === "approved").length;
-    const rejected = allRequests.filter((r) => r.status === "rejected").length;
-    return { total: allRequests.length, pending, approved, rejected };
-  }, [allRequests]);
+    if (activeTab === "all") return requests;
+    return requests.filter((r) => r.status === activeTab);
+  }, [requests, activeTab]);
 
   const COLS = [
     t("AiApiReviewPage.colApplicant"),
@@ -215,7 +231,7 @@ export default function AiApiReviewPage() {
           options={TABS.map(({ key, label }) => ({
             value: key,
             label,
-            badge: key === "all" ? stats.total : stats[key],
+            badge: counts[key] ?? 0,
           }))}
           value={activeTab}
           onChange={setActiveTab}
@@ -227,7 +243,7 @@ export default function AiApiReviewPage() {
         {loading ? (
           <LoadingState fullPage />
         ) : filtered.length === 0 ? (
-          <EmptyState tab={activeTab} />
+          <EmptyState />
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -264,7 +280,7 @@ export default function AiApiReviewPage() {
                     <td className={styles.td}>{formatDateTime(r.created_at, t("AiApiReviewPage.notReviewed"))}</td>
                     <td className={styles.td}>{formatDateTime(r.reviewed_at, t("AiApiReviewPage.notReviewed"))}</td>
                     <td className={styles.td}>
-                      <ReviewActions item={r} onDone={load} />
+                      <ReviewActions item={r} onDone={() => load()} />
                     </td>
                   </tr>
                 ))}

@@ -21,6 +21,7 @@ from app.core.i18n import t
 from app.core.permissions import is_admin
 from app.exceptions import BadRequestError, NotFoundError, PermissionDeniedError
 from app.models import (
+    INSTRUCTOR_ENROLLMENT_STATUS,
     Resource,
     TeachingClass,
     TeachingClassMachineNode,
@@ -47,6 +48,11 @@ class _BroadcastFinder(Protocol):
         """回傳這些班級目前進行中的廣播 session（無則 None）。"""
 
 
+class _SessionLister(Protocol):
+    def list_sessions(self) -> list[ClassroomSession]:
+        """目前所有進行中的 session 快照。"""
+
+
 # ---------------------------------------------------------------------------
 # 權限檢查
 # ---------------------------------------------------------------------------
@@ -67,7 +73,12 @@ def _require_active_class(
 def require_can_watch_class(
     session: Session, user: User, class_id: uuid.UUID, vmid: int
 ) -> TeachingClassStudentMachine:
-    """教師只能觀看自己班級中已建立的 QEMU 機器。"""
+    """教師只能觀看自己班級中已建立的 QEMU 機器。
+
+    班級的 owner_id 不會因為帳號被降為學生而改變，所以還要確認
+    「上課監看」權限，不能只看是不是班級擁有者。
+    """
+    require_classroom_monitor(user, detail=t("classroom.monitor_forbidden"))
     _require_active_class(session, user, class_id)
     machine = session.exec(
         select(TeachingClassStudentMachine)
@@ -92,7 +103,7 @@ def require_can_broadcast_class(
     session: Session, user: User, class_id: uuid.UUID, vmid: int
 ) -> None:
     """班級擁有者可將自己的 QEMU 示範機直播給班級。"""
-    require_classroom_monitor(user)
+    require_classroom_monitor(user, detail=t("classroom.monitor_forbidden"))
     _require_active_class(session, user, class_id)
     resource = session.get(Resource, vmid)
     if resource is None:
@@ -144,7 +155,10 @@ def list_class_students(
     enrollments = list(
         session.exec(
             select(TeachingClassStudent)
-            .where(TeachingClassStudent.class_id == class_id)
+            .where(
+                TeachingClassStudent.class_id == class_id,
+                TeachingClassStudent.status != INSTRUCTOR_ENROLLMENT_STATUS,
+            )
             .order_by(TeachingClassStudent.joined_at)
         ).all()
     )
@@ -263,6 +277,33 @@ def get_live_for_user(
     return manager.find_broadcast_for_classes(get_class_ids_of_user(session, user.id))
 
 
+def list_taken_over_vmids_for_user(
+    session: Session,
+    user: User,
+    *,
+    manager: _SessionLister | None = None,
+) -> list[int]:
+    """使用者自己的機器中，目前正被老師接管（monitor session 有控制者）的 vmid。
+
+    學生端重連後用這份清單重建「老師接管中」覆蓋，不必等下一個事件。
+    """
+    lister = manager if manager is not None else vnc_session_manager
+    controlled = {
+        live.vmid
+        for live in lister.list_sessions()
+        if live.mode is SessionMode.monitor and live.controller_user_id is not None
+    }
+    if not controlled:
+        return []
+    owned = session.exec(
+        select(Resource.vmid).where(
+            Resource.user_id == user.id,
+            col(Resource.vmid).in_(controlled),
+        )
+    ).all()
+    return sorted(int(vmid) for vmid in owned)
+
+
 def list_sessions_for(user: User) -> list[ClassroomSession]:
     """admin 看全部；其他人只看自己發起的。"""
     sessions = vnc_session_manager.list_sessions()
@@ -289,6 +330,16 @@ async def start_class_watch(
     session: Session, user: User, vmid: int, class_id: uuid.UUID
 ) -> ClassroomSession:
     require_can_watch_class(session, user, class_id, vmid)
+    existing = vnc_session_manager.get_session_for_vmid(vmid)
+    if (
+        existing is not None
+        and existing.mode is SessionMode.monitor
+        and existing.class_id == class_id
+        and (existing.started_by == user.id or is_admin(user))
+    ):
+        # 重新整理或離開頁面後再點同一位學生：沿用還沒收掉的觀看 session，
+        # 不要回 409 讓老師卡在一個看不到、也停不掉的 session 上
+        return existing
     return await vnc_session_manager.start_session(
         vmid=vmid,
         mode=SessionMode.monitor,
@@ -314,13 +365,22 @@ async def start_class_broadcast(
 
 
 def _require_session_operator(
-    session: Session, user: User, live: ClassroomSession, *, detail: str
+    session: Session,
+    user: User,
+    live: ClassroomSession,
+    *,
+    detail: str,
+    require_monitor: bool = False,
 ) -> None:
     """重新確認操作者仍有資格動這個 session。
 
     session 可能開了一整堂課，期間老師的權限或班級擁有者是會變的；
     開場時檢查過不代表現在還成立，每次操作都要重新問一次。
+    ``require_monitor`` 只給接管用：停止 session 刻意不要求「上課監看」權限，
+    讓被降級的發起者仍能把殘留的 session 收掉。
     """
+    if require_monitor:
+        require_classroom_monitor(user, detail=t("classroom.monitor_forbidden"))
     if live.started_by != user.id and not is_admin(user):
         raise PermissionDeniedError(detail)
     teaching_class = session.get(TeachingClass, live.class_id)
@@ -351,7 +411,11 @@ async def set_control(
     if live.mode is not SessionMode.monitor:
         raise BadRequestError(t("classroom.control_monitor_only"))
     _require_session_operator(
-        session, user, live, detail=t("classroom.control_forbidden")
+        session,
+        user,
+        live,
+        detail=t("classroom.control_forbidden"),
+        require_monitor=True,
     )
 
     if action == "take":
@@ -407,4 +471,17 @@ async def _on_session_end(session: ClassroomSession, _reason: str) -> None:
         logger.exception("Classroom session end event push failed")
 
 
+async def _on_controller_released(session: ClassroomSession) -> None:
+    """控制者離線被自動收回控制權 → 解除學生端的「老師接管中」覆蓋。"""
+    try:
+        owner_id = _lookup_resource_owner(session.vmid)
+        if owner_id is not None:
+            await classroom_presence_hub.send_to_user(
+                owner_id, _event("takeover_stopped", session)
+            )
+    except Exception:
+        logger.exception("Classroom controller release event push failed")
+
+
 vnc_session_manager.on_session_end(_on_session_end)
+vnc_session_manager.on_controller_released(_on_controller_released)

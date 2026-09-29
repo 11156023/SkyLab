@@ -88,14 +88,14 @@ function ExpandableText({ text }) {
   );
 }
 
-function formatDateTime(value, t) {
+function shortTime(value, t) {
   return formatShortDateTime(value, t("RequestReviewPage.notSet"));
 }
 
 function formatRange(startAt, endAt, t) {
   if (!startAt && !endAt) return t("RequestReviewPage.notSet");
-  if (!endAt) return t("RequestReviewPage.startingFrom", { time: formatDateTime(startAt, t) });
-  return `${formatDateTime(startAt, t)} - ${formatDateTime(endAt, t)}`;
+  if (!endAt) return t("RequestReviewPage.startingFrom", { time: shortTime(startAt, t) });
+  return `${shortTime(startAt, t)} - ${shortTime(endAt, t)}`;
 }
 
 function vmSpecLabel(request, t) {
@@ -188,7 +188,7 @@ function normalizeSpecRequest(request, t) {
       : t("RequestReviewPage.specChangeTitle", { vmid: request.vmid }),
     user: request.user_full_name || request.user_email || t("RequestReviewPage.unknownUser"),
     userSubtext: request.user_email || request.user_id || "-",
-    timeText: formatDateTime(request.created_at, t),
+    timeText: shortTime(request.created_at, t),
     specText: specChangeLabel(request, t),
     reason: request.reason,
     paramLabel: t("RequestReviewPage.paramLabelChangeType"),
@@ -224,9 +224,28 @@ function InfoRow({ label, value }) {
   );
 }
 
-function filterByTab(items, tab) {
-  if (tab === "all") return items;
-  return items.filter((item) => item.reviewStatus === tab);
+const TAB_KEYS = ["pending", "approved", "rejected", "expired", "all"];
+const LIST_LIMIT = 100;
+/* 待審分頁是審核工作佇列，不能被截斷：service 超過後端單頁上限時會自動以 skip 分頁補齊 */
+const PENDING_LIST_LIMIT = 1000;
+const EMPTY_PAGE = { data: [], count: 0 };
+
+function pageCount(res) {
+  return res?.count ?? res?.data?.length ?? 0;
+}
+
+/* 狀態篩選交給後端：清單上限 100 筆且依建立時間新到舊，前端自己篩
+   會讓比最新 100 筆還舊的待審申請永遠看不到。規格調整沒有 expired 狀態，
+   傳過去會 422，直接視為空。非目前分頁只取筆數（limit=1）給角標用。 */
+async function fetchTabPage(key, limit) {
+  const status = key === "all" ? undefined : key;
+  const [vm, spec] = await Promise.all([
+    VmRequestsService.listAll(status, { limit }),
+    key === "expired"
+      ? EMPTY_PAGE
+      : SpecChangeRequestsService.listAll({ status, limit }),
+  ]);
+  return { vm, spec, count: pageCount(vm) + pageCount(spec) };
 }
 
 export default function RequestReviewPage() {
@@ -235,7 +254,7 @@ export default function RequestReviewPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("pending");
   const [requests, setRequests] = useState([]);
-  const [allRequests, setAllRequests] = useState([]);
+  const [tabCounts, setTabCounts] = useState({});
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -263,29 +282,27 @@ export default function RequestReviewPage() {
       setError("");
     }
     try {
-      const [vmRes, specRes] = await Promise.all([
-        VmRequestsService.listAll(undefined),
-        SpecChangeRequestsService.listAll(),
-      ]);
+      const pages = await Promise.all(
+        TAB_KEYS.map((key) => fetchTabPage(key, key === tab ? (key === "pending" ? PENDING_LIST_LIMIT : LIST_LIMIT) : 1)),
+      );
+      const active = pages[TAB_KEYS.indexOf(tab)] ?? { vm: EMPTY_PAGE, spec: EMPTY_PAGE };
       const items = [
-        ...(vmRes.data ?? []).map((r) => normalizeVmRequest(r, t)),
-        ...(specRes.data ?? []).map((r) => normalizeSpecRequest(r, t)),
+        ...(active.vm?.data ?? []).map((r) => normalizeVmRequest(r, t)),
+        ...(active.spec?.data ?? []).map((r) => normalizeSpecRequest(r, t)),
       ].sort(
         (a, b) =>
           new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
       );
-      const filtered = filterByTab(items, tab);
-      setAllRequests(items);
-      setRequests(filtered);
+      setTabCounts(Object.fromEntries(TAB_KEYS.map((key, i) => [key, pages[i].count])));
+      setRequests(items);
+      /* 目前那筆不在清單裡了就清空選取，不 fallback 到別筆（理由見 selected 上方） */
       setSelectedId((current) =>
-        current && filtered.some((item) => item.id === current)
-          ? current
-          : filtered[0]?.id ?? null,
+        current && items.some((item) => item.id === current) ? current : null,
       );
     } catch (err) {
       if (!silent) {
         setRequests([]);
-        setAllRequests([]);
+        setTabCounts({});
         setSelectedId(null);
         setError(err?.message ?? t("RequestReviewPage.loadRequestsFailed"));
       }
@@ -300,6 +317,9 @@ export default function RequestReviewPage() {
   }, [activeTab, fetchRequests]);
 
   useAutoRefresh(() => fetchRequests(activeTab, true));
+
+  /* 選取換人（含背景刷新讓原本那筆消失）時備註跟著清空，不能帶到別筆申請上 */
+  useEffect(() => { setComment(""); }, [selectedId]);
 
   useEffect(() => {
     if (
@@ -347,6 +367,7 @@ export default function RequestReviewPage() {
       }
       toast.success(status === "approved" ? t("RequestReviewPage.approvedToast") : t("RequestReviewPage.rejectedToast"));
       setComment("");
+      setSelectedId(null);
       await fetchRequests(activeTab);
     } catch (err) {
       toast.error(err?.message ?? t("RequestReviewPage.reviewFailed"));
@@ -365,14 +386,6 @@ export default function RequestReviewPage() {
     rawReviewComment && !CONSUMED_REQUEST_MARKERS.includes(rawReviewComment)
       ? rawReviewComment
       : null;
-  /* 各狀態筆數掛在分頁角標上（同金鑰管理；原本的四張統計卡已移除） */
-  const tabCounts = useMemo(() => {
-    const counts = { all: allRequests.length };
-    for (const request of allRequests) {
-      counts[request.reviewStatus] = (counts[request.reviewStatus] ?? 0) + 1;
-    }
-    return counts;
-  }, [allRequests]);
 
   const visibleRequests = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -436,7 +449,7 @@ export default function RequestReviewPage() {
                 </button>
               </div>
             ) : visibleRequests.length === 0 ? (
-              <EmptyState tab={activeTab} />
+              <EmptyState />
             ) : (
               <div className={styles.list}>
                 {visibleRequests.map((request) => (
@@ -503,7 +516,7 @@ export default function RequestReviewPage() {
                         <div className={styles.reasonBox}>
                           <span>
                             {t("RequestReviewPage.commentLabel")}
-                            {selected.reviewedAt ? t("RequestReviewPage.reviewedAtSuffix", { time: formatDateTime(selected.reviewedAt, t) }) : ""}
+                            {selected.reviewedAt ? t("RequestReviewPage.reviewedAtSuffix", { time: shortTime(selected.reviewedAt, t) }) : ""}
                           </span>
                           <ExpandableText text={reviewNote || t("RequestReviewPage.noReviewNote")} />
                         </div>
@@ -512,7 +525,7 @@ export default function RequestReviewPage() {
                         <div className={styles.reasonBox}>
                           <span>
                             {t("RequestReviewPage.applyResultLabel")}
-                            {selected.raw.applied_at ? t("RequestReviewPage.applyResultAppliedAt", { time: formatDateTime(selected.raw.applied_at, t) }) : ""}
+                            {selected.raw.applied_at ? t("RequestReviewPage.applyResultAppliedAt", { time: shortTime(selected.raw.applied_at, t) }) : ""}
                           </span>
                           <p>
                             {selected.raw.apply_error
@@ -550,7 +563,7 @@ export default function RequestReviewPage() {
                       <button
                         type="button"
                         className={styles.btnApprove}
-                        disabled={reviewing || (selected.source === "vm" && context && !context.feasible) || specResourceGone}
+                        disabled={reviewing || (selected.source === "vm" && (contextLoading || !context?.feasible)) || specResourceGone}
                         onClick={() => submitReview("approved")}
                       >
                         {t("RequestReviewPage.approve")}

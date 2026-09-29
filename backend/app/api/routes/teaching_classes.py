@@ -2,31 +2,27 @@
 
 import csv
 import io
-import logging
-import math
 import uuid
-from datetime import date, datetime, time, timedelta
-from pathlib import Path
-from typing import Literal
 
 from fastapi import APIRouter, File, UploadFile
-from pydantic import BaseModel, Field, field_validator
-from sqlmodel import col, delete, func, select
+from sqlmodel import col, func, select
 
 from app.api.deps import InstructorUser, SessionDep
-from app.core.authorizers import require_teaching_access
+from app.core.authorizers import (
+    can_bypass_teaching_ownership,
+    require_teaching_access,
+)
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
+    INSTRUCTOR_ENROLLMENT_STATUS,
     BatchProvisionJob,
-    BatchProvisionTask,
     ClassCapacityReservation,
     CourseEnvironment,
     CourseEnvironmentEdge,
     CourseEnvironmentNode,
     CourseEnvironmentPublication,
     CourseEnvironmentVersion,
-    CourseEnvironmentVersionStatus,
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStatus,
@@ -41,8 +37,25 @@ from app.models import (
 from app.models.base import get_datetime_utc
 from app.repositories import resource as resource_repo
 from app.repositories.user import get_user_by_email
-from app.services.course import course_service
-from app.services.proxmox import provisioning_service, proxmox_service
+from app.schemas.teaching_class import (
+    ClassArchive,
+    ClassCreate,
+    ClassExtend,
+    ClassPatch,
+    ClassResourceUsageResponse,
+    CourseSelect,
+    InstructorMachineIn,
+    MachineNodeIn,
+    StudentAdd,
+    WeekIn,
+)
+from app.schemas.teaching_class import (
+    # WeekIn.files 的元素型別；route 本身不直接用，顯式轉出讓 routes.WeekFileIn 可用
+    WeekFileIn as WeekFileIn,
+)
+from app.services.course import course_service, weekly_task_service
+from app.services.course_environment import upload_store
+from app.services.proxmox import proxmox_service
 from app.services.teaching import (
     class_capacity_service,
     class_lifecycle_service,
@@ -51,119 +64,20 @@ from app.services.teaching import (
 )
 
 router = APIRouter(prefix="/teaching-classes", tags=["teaching-classes"])
-logger = logging.getLogger(__name__)
 
-TASK_FILE_ROOT = Path(__file__).resolve().parents[3] / "data" / "teaching-class-tasks"
+# 教材檔的根目錄只定義在 weekly_task_service.TASK_FILE_ROOT（學生下載也讀它）；
+# 這裡一律在呼叫當下讀該模組屬性，換掉它就同時涵蓋上傳、刪除與下載。
 MAX_TASK_FILE_BYTES = 100 * 1024 * 1024
-# 課程期間最多兩年份的課次
-MAX_CLASS_WEEKS = 104
+# 學生名單 CSV：一行一個帳號，1 MB 已足夠放上萬筆
+MAX_STUDENT_CSV_BYTES = 1024 * 1024
 PUBLIC_PROVISION_ERROR = (
     "Machine provisioning failed. Retry or contact an administrator."
 )
 
-
-class ClassCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    term: str = Field(min_length=1, max_length=80)
-    location: str | None = Field(default=None, max_length=255)
-    start_date: date
-    end_date: date
-    weekday: int = Field(ge=0, le=6)
-    start_time: time
-    end_time: time
-    timezone: str = "Asia/Taipei"
-    boot_lead_minutes: int = Field(default=10, ge=0, le=120)
-    shutdown_grace_minutes: int = Field(default=30, ge=0, le=240)
-
-
-class ClassPatch(BaseModel):
-    name: str | None = None
-    term: str | None = None
-    location: str | None = Field(default=None, max_length=255)
-    start_date: date | None = None
-    end_date: date | None = None
-    weekday: int | None = Field(default=None, ge=0, le=6)
-    start_time: time | None = None
-    end_time: time | None = None
-    timezone: str | None = None
-    boot_lead_minutes: int | None = Field(default=None, ge=0, le=120)
-    shutdown_grace_minutes: int | None = Field(default=None, ge=0, le=240)
-
-
-class ClassExtend(BaseModel):
-    end_date: date
-
-
-class ClassArchive(BaseModel):
-    reclaim_resources: bool = True
-    force: bool = False
-
-
-class StudentAdd(BaseModel):
-    emails: list[str]
-
-
-class MachineNodeIn(BaseModel):
-    node_key: str
-    source_type: str = "template"
-    source_template_id: uuid.UUID | None = None
-    custom_image_ref: str | None = None
-    custom_storage: str | None = None
-    custom_username: str | None = None
-    custom_unprivileged: bool = True
-    name: str
-    role: str
-    resource_type: str
-    cpu: int
-    memory_mb: int
-    disk_gb: int
-    network: str | None = None
-
-
-class CourseSelect(BaseModel):
-    course_version_id: uuid.UUID
-
-
-class WeekFileIn(BaseModel):
-    """週次教材只以既有檔案的 id 指定。
-
-    storage_key 是上傳時由伺服器產生的磁碟位置，不能讓 client 指定：
-    收下客戶端送來的值，等於任何老師都可以把別的班級的檔案（或任何
-    猜得到的儲存路徑）掛進自己的週次，再用學生端的下載端點取回。
-    """
-
-    id: uuid.UUID
-    target_path: str | None = Field(default=None, max_length=500)
-
-
-class WeekIn(BaseModel):
-    week_number: int
-    session_date: date
-    title: str = ""
-    # None = 全部機器；否則必須是班級機器節點的 node_key（replace_weeks 檢查）
-    target_node_key: str | None = None
-    status: Literal["draft", "published", "completed"] = "draft"
-    files: list[WeekFileIn] = Field(default_factory=list)
-
-    @field_validator("target_node_key")
-    @classmethod
-    def _blank_target_is_all_machines(cls, value: str | None) -> str | None:
-        value = (value or "").strip()
-        return value or None
-
-
-class ClassResourceUsageItem(BaseModel):
-    vmid: int
-    status: str
-    cpu_usage_pct: float | None = None
-    ram_usage_pct: float | None = None
-    mem_used_bytes: int | None = None
-    mem_total_bytes: int | None = None
-
-
-class ClassResourceUsageResponse(BaseModel):
-    collected_at: datetime
-    items: list[ClassResourceUsageItem]
+# 課次推算與資源用量的計算搬到 service 層；舊名稱留作別名，
+# 既有的測試與呼叫端（``routes._generate_weeks`` 等）不必跟著改。
+_generate_weeks = class_lifecycle_service.generate_weeks
+_class_resource_usage_items = class_status_service.class_resource_usage_items
 
 
 def _get_class(session: SessionDep, current_user, class_id: uuid.UUID) -> TeachingClass:
@@ -182,6 +96,46 @@ def _students(session: SessionDep, class_id: uuid.UUID) -> list[TeachingClassStu
             .order_by(TeachingClassStudent.joined_at)
         ).all()
     )
+
+
+def _class_nodes(
+    session: SessionDep, class_id: uuid.UUID
+) -> list[TeachingClassMachineNode]:
+    """班級的機器節點，依編輯器排序。"""
+    return list(
+        session.exec(
+            select(TeachingClassMachineNode)
+            .where(TeachingClassMachineNode.class_id == class_id)
+            .order_by(col(TeachingClassMachineNode.sort_order))
+        ).all()
+    )
+
+
+def _class_machine_rows(
+    session: SessionDep, enrollment_ids: list[uuid.UUID]
+) -> list[TeachingClassStudentMachine]:
+    """這些選課紀錄對應到的學生機器；沒有選課紀錄就不查。"""
+    if not enrollment_ids:
+        return []
+    return list(
+        session.exec(
+            select(TeachingClassStudentMachine).where(
+                col(TeachingClassStudentMachine.class_student_id).in_(enrollment_ids)
+            )
+        ).all()
+    )
+
+
+def _course_environment_summary(
+    environment: CourseEnvironment, version: CourseEnvironmentVersion
+) -> dict[str, object]:
+    return {
+        "id": environment.id,
+        "version_id": version.id,
+        "name": environment.name,
+        "version": version.version,
+        "status": version.status,
+    }
 
 
 def _public_machine_dump(row: TeachingClassStudentMachine) -> dict:
@@ -216,70 +170,8 @@ def _template_names_for_nodes(
     }
 
 
-def _finite_float(value) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
-
-
-def _usage_percent(used, total) -> float | None:
-    used_number = _finite_float(used)
-    total_number = _finite_float(total)
-    if used_number is None or total_number is None or total_number <= 0:
-        return None
-    return round(max(0.0, min(100.0, used_number / total_number * 100)), 2)
-
-
-def _class_resource_usage_items(
-    vmids: list[int], cluster_resources: list[dict]
-) -> list[ClassResourceUsageItem]:
-    resources_by_vmid = {
-        int(resource["vmid"]): resource
-        for resource in cluster_resources
-        if resource.get("vmid") is not None
-    }
-    items: list[ClassResourceUsageItem] = []
-    for vmid in sorted(set(vmids)):
-        resource = resources_by_vmid.get(vmid)
-        if resource is None:
-            items.append(ClassResourceUsageItem(vmid=vmid, status="unknown"))
-            continue
-
-        cpu_ratio = _finite_float(resource.get("cpu"))
-        cpu_usage_pct = (
-            round(max(0.0, min(100.0, cpu_ratio * 100)), 2)
-            if cpu_ratio is not None
-            else None
-        )
-        mem_used = resource.get("mem")
-        mem_total = resource.get("maxmem")
-        items.append(
-            ClassResourceUsageItem(
-                vmid=vmid,
-                status=str(resource.get("status") or "unknown").lower(),
-                cpu_usage_pct=cpu_usage_pct,
-                ram_usage_pct=_usage_percent(mem_used, mem_total),
-                mem_used_bytes=int(float(mem_used))
-                if _finite_float(mem_used) is not None
-                else None,
-                mem_total_bytes=int(float(mem_total))
-                if _finite_float(mem_total) is not None
-                else None,
-            )
-        )
-    return items
-
-
 def _serialize(session: SessionDep, item: TeachingClass) -> dict:
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode)
-            .where(TeachingClassMachineNode.class_id == item.id)
-            .order_by(TeachingClassMachineNode.sort_order)
-        ).all()
-    )
+    nodes = _class_nodes(session, item.id)
     weeks = list(
         session.exec(
             select(TeachingClassWeek)
@@ -309,33 +201,26 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
         if user_ids
         else {}
     )
-    machine_rows = (
-        list(
-            session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id.in_(enrollment_ids)
-                )
-            ).all()
-        )
-        if enrollment_ids
-        else []
-    )
+    machine_rows = _class_machine_rows(session, enrollment_ids)
     machines_by_student: dict[uuid.UUID, list[dict]] = {}
     for row in machine_rows:
         machines_by_student.setdefault(row.class_student_id, []).append(
             _public_machine_dump(row)
         )
     student_rows = []
+    instructor_row = None
     for enrollment in enrollments:
         user = users.get(enrollment.user_id)
-        student_rows.append(
-            {
-                **enrollment.model_dump(),
-                "email": user.email if user else None,
-                "full_name": user.full_name if user else None,
-                "machines": machines_by_student.get(enrollment.id, []),
-            }
-        )
+        row = {
+            **enrollment.model_dump(),
+            "email": user.email if user else None,
+            "full_name": user.full_name if user else None,
+            "machines": machines_by_student.get(enrollment.id, []),
+        }
+        if enrollment.status == INSTRUCTOR_ENROLLMENT_STATUS:
+            instructor_row = row
+        else:
+            student_rows.append(row)
 
     jobs = [
         session.get(BatchProvisionJob, node.batch_job_id)
@@ -381,13 +266,7 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
                     .order_by(CourseEnvironmentPublication.sort_order)
                 ).all()
             ]
-            course_environment = {
-                "id": environment.id,
-                "version_id": version.id,
-                "name": environment.name,
-                "version": version.version,
-                "status": version.status,
-            }
+            course_environment = _course_environment_summary(environment, version)
     capacity = class_capacity_service.preview(
         session, nodes=nodes, students=enrollments
     )
@@ -399,10 +278,12 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
     template_names = _template_names_for_nodes(session, nodes)
     return {
         **item.model_dump(),
-        "member_count": len(enrollments),
+        "member_count": len(student_rows),
         "machine_nodes": [_machine_node_dump(row, template_names) for row in nodes],
         "weeks": week_rows,
         "students": student_rows,
+        # 老師自己那套機器不列進學生名單，但仍算進 total_machines 與容量
+        "instructor_machine": instructor_row,
         "ready_machines": ready,
         "total_machines": len(enrollments) * len(nodes),
         "provision_jobs": [
@@ -452,13 +333,20 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
     ).all():
         weeks_by_class.setdefault(row.class_id, []).append(row.model_dump())
 
-    member_counts = dict(
-        session.exec(
-            select(col(TeachingClassStudent.class_id), func.count())
-            .where(col(TeachingClassStudent.class_id).in_(class_ids))
-            .group_by(col(TeachingClassStudent.class_id))
-        ).all()
-    )
+    member_counts: dict[uuid.UUID, int] = {}
+    enrollment_counts: dict[uuid.UUID, int] = {}
+    for class_id, status, count in session.exec(
+        select(
+            col(TeachingClassStudent.class_id),
+            col(TeachingClassStudent.status),
+            func.count(),
+        )
+        .where(col(TeachingClassStudent.class_id).in_(class_ids))
+        .group_by(col(TeachingClassStudent.class_id), col(TeachingClassStudent.status))
+    ).all():
+        enrollment_counts[class_id] = enrollment_counts.get(class_id, 0) + count
+        if status != INSTRUCTOR_ENROLLMENT_STATUS:
+            member_counts[class_id] = member_counts.get(class_id, 0) + count
 
     ready_counts = dict(
         session.exec(
@@ -487,13 +375,9 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
             )
             .where(col(CourseEnvironmentVersion.id).in_(version_ids))
         ).all():
-            environment_by_version[version.id] = {
-                "id": environment.id,
-                "version_id": version.id,
-                "name": environment.name,
-                "version": version.version,
-                "status": version.status,
-            }
+            environment_by_version[version.id] = _course_environment_summary(
+                environment, version
+            )
 
     rows = []
     for item in items:
@@ -508,31 +392,13 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
                 ],
                 "weeks": weeks_by_class.get(item.id, []),
                 "ready_machines": ready_counts.get(item.id, 0),
-                "total_machines": members * len(nodes),
+                "total_machines": enrollment_counts.get(item.id, 0) * len(nodes),
                 "course_environment": environment_by_version.get(
                     item.course_version_id
                 ),
             }
         )
     return rows
-
-
-def _validate_schedule(item) -> None:
-    if item.end_date < item.start_date or item.end_time <= item.start_time:
-        raise BadRequestError(t("teachingClasses.scheduleInvalid"))
-    _validate_schedule_span(item.start_date, item.end_date)
-
-
-def _validate_schedule_span(start_date: date, end_date: date) -> None:
-    """課程期間上限兩年。
-
-    每一週都會寫一列 teaching_class_weeks，日期範圍沒有上限的話，
-    一個手滑打錯的年份就能讓單一班級生出幾萬列課次。
-    """
-    if (end_date - start_date).days > MAX_CLASS_WEEKS * 7:
-        raise BadRequestError(
-            t("teachingClasses.scheduleTooLong", weeks=MAX_CLASS_WEEKS)
-        )
 
 
 @router.post("")
@@ -544,7 +410,7 @@ def create_class(body: ClassCreate, session: SessionDep, current_user: Instructo
         code=f"cls-{class_id.hex[:8]}",
         **body.model_dump(),
     )
-    _validate_schedule(item)
+    class_lifecycle_service.validate_schedule(item)
     session.add(item)
     session.flush()
     course_service.ensure_class_path(
@@ -553,14 +419,14 @@ def create_class(body: ClassCreate, session: SessionDep, current_user: Instructo
     )
     session.commit()
     session.refresh(item)
-    _generate_weeks(session, item)
+    class_lifecycle_service.generate_weeks(session, item)
     return _serialize(session, item)
 
 
 @router.get("")
 def list_classes(session: SessionDep, current_user: InstructorUser):
     query = select(TeachingClass).order_by(TeachingClass.updated_at.desc())
-    if not current_user.is_superuser and current_user.role != "admin":
+    if not can_bypass_teaching_ownership(current_user):
         query = query.where(TeachingClass.owner_id == current_user.id)
     return _serialize_list(session, list(session.exec(query).all()))
 
@@ -581,22 +447,12 @@ def get_class_resource_usage(
 ) -> ClassResourceUsageResponse:
     item = _get_class(session, current_user, class_id)
     enrollment_ids = [row.id for row in _students(session, item.id)]
-    machine_rows = (
-        list(
-            session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id.in_(enrollment_ids)
-                )
-            ).all()
-        )
-        if enrollment_ids
-        else []
-    )
+    machine_rows = _class_machine_rows(session, enrollment_ids)
     vmids = [row.vmid for row in machine_rows if row.vmid is not None]
     resources = proxmox_service.list_all_resources() if vmids else []
     return ClassResourceUsageResponse(
         collected_at=get_datetime_utc(),
-        items=_class_resource_usage_items(vmids, resources),
+        items=class_status_service.class_resource_usage_items(vmids, resources),
     )
 
 
@@ -612,11 +468,11 @@ def update_class(
         raise BadRequestError(t("teachingClasses.fixedScheduleLocked"))
     for key, value in body.model_dump(exclude_none=True).items():
         setattr(item, key, value)
-    _validate_schedule(item)
+    class_lifecycle_service.validate_schedule(item)
     item.updated_at = get_datetime_utc()
     session.add(item)
     session.commit()
-    _generate_weeks(session, item, preserve=True)
+    class_lifecycle_service.generate_weeks(session, item, preserve=True)
     return _serialize(session, item)
 
 
@@ -632,7 +488,7 @@ def extend_class(
         raise BadRequestError(t("teachingClasses.archivedCannotExtend"))
     if body.end_date <= item.end_date:
         raise BadRequestError(t("teachingClasses.extendDateMustBeLater"))
-    _validate_schedule_span(item.start_date, body.end_date)
+    class_lifecycle_service.validate_schedule_span(item.start_date, body.end_date)
     item.end_date = body.end_date
     item.updated_at = get_datetime_utc()
     item.resources_reclaimed_at = None
@@ -646,7 +502,7 @@ def extend_class(
     class_lifecycle_service.clear_schedule_windows(session, class_id)
     session.add(item)
     session.commit()
-    _generate_weeks(session, item, preserve=True)
+    class_lifecycle_service.generate_weeks(session, item, preserve=True)
     return _serialize(session, item)
 
 
@@ -736,6 +592,42 @@ def remove_student(
     return _serialize(session, item)
 
 
+@router.put("/{class_id}/instructor-machine")
+def set_instructor_machine(
+    class_id: uuid.UUID,
+    body: InstructorMachineIn,
+    session: SessionDep,
+    current_user: InstructorUser,
+):
+    """讓班級擁有者也拿一套和學生相同的機器。
+
+    做法是替擁有者加一列 status=instructor 的成員：容量預留、建機、機器
+    對應、拓樸與到期回收都照學生的流程走，不必另開一條路。和名單一樣，
+    送出建機後就鎖定。
+    """
+    item = _get_class(session, current_user, class_id)
+    if item.status != TeachingClassStatus.planning:
+        raise BadRequestError(t("teachingClasses.studentsLocked"))
+    row = session.exec(
+        select(TeachingClassStudent).where(
+            TeachingClassStudent.class_id == class_id,
+            TeachingClassStudent.user_id == item.owner_id,
+        )
+    ).first()
+    if body.enabled and row is None:
+        session.add(
+            TeachingClassStudent(
+                class_id=class_id,
+                user_id=item.owner_id,
+                status=INSTRUCTOR_ENROLLMENT_STATUS,
+            )
+        )
+    elif not body.enabled and row is not None:
+        session.delete(row)
+    session.commit()
+    return _serialize(session, item)
+
+
 @router.post("/{class_id}/students/import-csv")
 async def import_students(
     class_id: uuid.UUID,
@@ -746,9 +638,23 @@ async def import_students(
     item = _get_class(session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.studentsLocked"))
-    raw = await file.read()
+    try:
+        raw = await file.read(MAX_STUDENT_CSV_BYTES + 1)
+    finally:
+        await file.close()
+    if len(raw) > MAX_STUDENT_CSV_BYTES:
+        raise BadRequestError(
+            t(
+                "teachingClasses.csvTooLarge",
+                size=MAX_STUDENT_CSV_BYTES // (1024 * 1024),
+            )
+        )
     content = None
-    for encoding in ("cp950", "utf-8-sig", "utf-8"):
+    # UTF-8 要先試：Excel「CSV UTF-8」開頭的 BOM 加一個英文字母剛好是兩個
+    # 合法的 Big5 字，先用 cp950 解不會報錯，第一格就被解成亂碼（標題列
+    # 沒被跳過、或第一位學生被默默漏掉）。真正的 Big5 位元組幾乎一定不是
+    # 合法的 UTF-8，所以舊的 cp950 檔案仍會落到第二順位解出來。
+    for encoding in ("utf-8-sig", "cp950"):
         try:
             content = raw.decode(encoding)
             break
@@ -760,7 +666,7 @@ async def import_students(
     for index, row in enumerate(csv.reader(io.StringIO(content))):
         if not row:
             continue
-        value = row[0].strip()
+        value = row[0].strip().lstrip("\ufeff").strip()
         if index == 0 and value.lower() in {"email", "學號", "帳號"}:
             continue
         if value:
@@ -768,61 +674,12 @@ async def import_students(
     return add_students(class_id, StudentAdd(emails=emails), session, current_user)
 
 
-# 課次推算與排程 RRULE 共用同一個「第一次上課日」
-_first_session_date = class_provision_service.first_session_date
-
-
-def _generate_weeks(session, item: TeachingClass, preserve=False):
-    """重建課次；``preserve`` 時沿用既有週次的主題與教材。
-
-    對應的鍵是「第幾週」而不是上課日期：改動每週上課日或開始日期會讓所有日期
-    整批位移，用日期比對會一筆都對不上，等於把老師填好的主題與上傳的教材全部
-    刪掉。改用 week_number 之後，第 N 週的內容仍然留在第 N 週，只是日期跟著搬。
-    """
-    _validate_schedule_span(item.start_date, item.end_date)
-    existing = (
-        {
-            row.week_number: row
-            for row in session.exec(
-                select(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
-            ).all()
-        }
-        if preserve
-        else {}
-    )
-    if not preserve:
-        session.exec(
-            delete(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
-        )
-    current = _first_session_date(item)
-    number, keep = 1, set()
-    while current <= item.end_date and number <= MAX_CLASS_WEEKS:
-        keep.add(number)
-        row = existing.get(number)
-        if row:
-            row.session_date = current
-            session.add(row)
-        else:
-            session.add(
-                TeachingClassWeek(
-                    class_id=item.id, week_number=number, session_date=current
-                )
-            )
-        current += timedelta(days=7)
-        number += 1
-    if preserve:
-        for week_number, row in existing.items():
-            if week_number not in keep:
-                session.delete(row)
-    session.commit()
-
-
 @router.post("/{class_id}/generate-weeks")
 def generate_weeks(
     class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
 ):
     item = _get_class(session, current_user, class_id)
-    _generate_weeks(session, item, preserve=True)
+    class_lifecycle_service.generate_weeks(session, item, preserve=True)
     return _serialize(session, item)
 
 
@@ -845,70 +702,12 @@ def select_course(
     current_user: InstructorUser,
 ):
     item = _get_class(session, current_user, class_id)
-    if item.status != TeachingClassStatus.planning or item.locked_at is not None:
-        raise BadRequestError(t("teachingClasses.courseLockedCannotChange"))
-    version = session.get(CourseEnvironmentVersion, body.course_version_id)
-    if version is None or version.status != CourseEnvironmentVersionStatus.published:
-        raise BadRequestError(t("teachingClasses.onlyPublishedCourseVersion"))
-    environment = session.get(CourseEnvironment, version.environment_id)
-    if environment is None:
-        raise NotFoundError(t("teachingClasses.courseEnvironmentNotFound"))
-    if environment.usage_scope not in {"course", "both"}:
-        raise BadRequestError(t("teachingClasses.environmentNotForFormalCourse"))
-    require_teaching_access(current_user, environment.owner_id)
-    source_nodes = list(
-        session.exec(
-            select(CourseEnvironmentNode)
-            .where(CourseEnvironmentNode.version_id == version.id)
-            .order_by(CourseEnvironmentNode.sort_order)
-        ).all()
+    class_provision_service.select_course(
+        session,
+        item=item,
+        course_version_id=body.course_version_id,
+        current_user=current_user,
     )
-    if not source_nodes:
-        raise BadRequestError(t("teachingClasses.courseVersionNoMachines"))
-    session.exec(
-        delete(TeachingClassMachineNode).where(
-            TeachingClassMachineNode.class_id == class_id
-        )
-    )
-    for node in source_nodes:
-        session.add(
-            TeachingClassMachineNode(
-                class_id=class_id,
-                node_key=node.node_key,
-                source_type=node.source_type,
-                source_template_id=node.source_template_id,
-                custom_image_ref=node.custom_image_ref,
-                custom_storage=None,
-                custom_username=node.custom_username,
-                custom_unprivileged=node.custom_unprivileged,
-                name=node.name,
-                role=node.role,
-                resource_type=node.resource_type,
-                cpu=node.cpu,
-                memory_mb=node.memory_mb,
-                # 克隆機不可能小於來源範本；把下限寫進班級節點，之後的容量
-                # 預檢、IP/資源保留與開機才會用同一個數字。
-                disk_gb=provisioning_service.clone_source_disk_gb(session, node),
-                network=node.network,
-                sort_order=node.sort_order,
-            )
-        )
-    # 換課程版本後機器節點整批重建：新版本沒有的節點，週次指向它就會讓
-    # 學生端看不到任何機器，改回「全部機器」
-    new_keys = {node.node_key for node in source_nodes}
-    for week in session.exec(
-        select(TeachingClassWeek).where(
-            TeachingClassWeek.class_id == class_id,
-            col(TeachingClassWeek.target_node_key).is_not(None),
-        )
-    ).all():
-        if week.target_node_key not in new_keys:
-            week.target_node_key = None
-            session.add(week)
-    item.course_version_id = version.id
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
     return _serialize(session, item)
 
 
@@ -1010,7 +809,7 @@ def replace_weeks(
             session.delete(week)
     session.commit()
     for storage_key in removed_storage_keys:
-        _remove_task_file_blob(storage_key)
+        class_lifecycle_service.remove_task_file_blob(storage_key)
     return _serialize(session, item)
 
 
@@ -1029,29 +828,19 @@ async def upload_week_file(
     if not week or week.class_id != class_id:
         raise NotFoundError(t("teachingClasses.weekNotFound"))
 
-    filename = (file.filename or "task-file").replace("\\", "/").split("/")[-1].strip()
-    if not filename or filename in {".", ".."}:
-        raise BadRequestError(t("teachingClasses.invalidFileName"))
-    if len(filename) > 255:
-        raise BadRequestError(t("teachingClasses.taskFileNameTooLong"))
-
-    file_id = uuid.uuid4()
-    storage_key = f"{file_id.hex}.task"
-    destination = TASK_FILE_ROOT / storage_key
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
-    try:
-        with destination.open("wb") as output:
-            while chunk := await file.read(1024 * 1024):
-                written += len(chunk)
-                if written > MAX_TASK_FILE_BYTES:
-                    raise BadRequestError(t("teachingClasses.taskFileTooLarge"))
-                output.write(chunk)
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
-    finally:
-        await file.close()
+    filename = upload_store.sanitize_upload_filename(
+        file.filename,
+        default="task-file",
+        invalid_message=t("teachingClasses.invalidFileName"),
+        too_long_message=t("teachingClasses.taskFileNameTooLong"),
+    )
+    file_id, storage_key, _written = await upload_store.save_upload(
+        file,
+        root=weekly_task_service.TASK_FILE_ROOT,
+        suffix=".task",
+        max_bytes=MAX_TASK_FILE_BYTES,
+        too_large_message=t("teachingClasses.taskFileTooLarge"),
+    )
 
     session.add(
         TeachingClassTaskFile(
@@ -1063,16 +852,6 @@ async def upload_week_file(
     )
     session.commit()
     return _serialize(session, item)
-
-
-def _remove_task_file_blob(storage_key: str | None) -> None:
-    """刪掉磁碟上的教材檔；storage_key 一律當成 TASK_FILE_ROOT 底下的相對路徑。"""
-    if not storage_key:
-        return
-    root = TASK_FILE_ROOT.resolve()
-    stored_path = (root / storage_key).resolve()
-    if stored_path.is_relative_to(root):
-        stored_path.unlink(missing_ok=True)
 
 
 @router.delete("/{class_id}/weeks/{week_id}/files/{file_id}")
@@ -1099,7 +878,7 @@ def delete_week_file(
     storage_key = task_file.storage_key
     session.delete(task_file)
     session.commit()
-    _remove_task_file_blob(storage_key)
+    class_lifecycle_service.remove_task_file_blob(storage_key)
     return _serialize(session, item)
 
 
@@ -1112,13 +891,7 @@ def capacity_preview(
     item = _get_class(session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.onlyPlanningCanRecheckCapacity"))
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode)
-            .where(TeachingClassMachineNode.class_id == class_id)
-            .order_by(TeachingClassMachineNode.sort_order)
-        ).all()
-    )
+    nodes = _class_nodes(session, class_id)
     students = _students(session, class_id)
     return class_capacity_service.preview(
         session,
@@ -1133,45 +906,12 @@ def provision_class(
     class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
 ):
     item = _get_class(session, current_user, class_id)
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode)
-            .where(TeachingClassMachineNode.class_id == class_id)
-            .order_by(TeachingClassMachineNode.sort_order)
-        ).all()
-    )
-    students = _students(session, class_id)
-    if not nodes or not students:
-        raise BadRequestError(t("teachingClasses.studentsAndMachinesRequired"))
-    if item.status != TeachingClassStatus.planning or item.locked_at is not None:
-        raise BadRequestError(t("teachingClasses.classLockedOrSubmitted"))
-    if item.course_version_id is None:
-        raise BadRequestError(t("teachingClasses.selectPublishedCourseFirst"))
-    class_capacity_service.reserve(
+    class_provision_service.provision_class(
         session,
-        class_id=item.id,
-        course_version_id=item.course_version_id,
-        nodes=nodes,
-        students=students,
+        item=item,
+        nodes=_class_nodes(session, class_id),
+        students=_students(session, class_id),
     )
-    item.locked_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
-    for node in nodes:
-        if node.batch_job_id:
-            continue
-        node.batch_job_id = class_provision_service.submit_node_job(
-            session=session,
-            item=item,
-            node=node,
-            member_user_ids=[row.user_id for row in students],
-        )
-        session.add(node)
-        session.commit()
-    item.status = TeachingClassStatus.pending_review
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
     return _serialize(session, item)
 
 
@@ -1193,38 +933,7 @@ def reset_failed_class(
     current_user: InstructorUser,
 ):
     item = _get_class(session, current_user, class_id)
-    if item.status != TeachingClassStatus.partial_failed:
-        raise BadRequestError(t("teachingClasses.onlyFailedCanResetToEdit"))
-    enrollment_ids = [row.id for row in _students(session, class_id)]
-    machine_rows = (
-        list(
-            session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id.in_(enrollment_ids)
-                )
-            ).all()
-        )
-        if enrollment_ids
-        else []
-    )
-    if any(row.vmid is not None for row in machine_rows):
-        raise BadRequestError(t("teachingClasses.partialMachinesUseRetry"))
-    for row in machine_rows:
-        session.delete(row)
-    nodes = session.exec(
-        select(TeachingClassMachineNode).where(
-            TeachingClassMachineNode.class_id == class_id
-        )
-    ).all()
-    for node in nodes:
-        node.batch_job_id = None
-        session.add(node)
-    class_capacity_service.release(session, class_id=class_id)
-    item.status = TeachingClassStatus.planning
-    item.locked_at = None
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
+    class_provision_service.reset_failed_class(session, item=item)
     return _serialize(session, item)
 
 
@@ -1251,50 +960,5 @@ def reconcile_class(
     時補齊「哪位學生拿到哪台機器」用的，前端不需要每次輪詢都呼叫。
     """
     item = _get_class(session, current_user, class_id)
-    if item.status == TeachingClassStatus.archived:
-        return _serialize(session, item)
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode).where(
-                TeachingClassMachineNode.class_id == class_id
-            )
-        ).all()
-    )
-    students = _students(session, class_id)
-    enrollment_by_user = {row.user_id: row for row in students}
-    for node in nodes:
-        job = (
-            session.get(BatchProvisionJob, node.batch_job_id)
-            if node.batch_job_id
-            else None
-        )
-        if not job:
-            continue
-        tasks = session.exec(
-            select(BatchProvisionTask).where(BatchProvisionTask.job_id == job.id)
-        ).all()
-        for task in tasks:
-            enrollment = enrollment_by_user.get(task.user_id)
-            if not enrollment:
-                continue
-            mapping = session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id == enrollment.id,
-                    TeachingClassStudentMachine.machine_node_id == node.id,
-                )
-            ).first()
-            if not mapping:
-                mapping = TeachingClassStudentMachine(
-                    class_student_id=enrollment.id, machine_node_id=node.id
-                )
-            mapping.batch_task_id = task.id
-            mapping.vmid = task.vmid
-            mapping.status = (
-                task.status.value if hasattr(task.status, "value") else str(task.status)
-            )
-            mapping.error = task.error
-            session.add(mapping)
-    class_status_service.recompute(session=session, class_id=class_id)
-    session.commit()
-    session.refresh(item)
+    class_provision_service.reconcile_class(session, item=item)
     return _serialize(session, item)

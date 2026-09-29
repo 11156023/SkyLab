@@ -5,6 +5,7 @@ from importlib import import_module
 __all__ = [
     "audit_service",
     "auth_service",
+    "avatar_service",
     "ldap_auth_service",
     "totp_service",
     "user_service",
@@ -13,6 +14,7 @@ __all__ = [
 _MODULES = {
     "audit_service": "app.services.user.audit_service",
     "auth_service": "app.services.user.auth_service",
+    "avatar_service": "app.services.user.avatar_service",
     "ldap_auth_service": "app.services.user.ldap_auth_service",
     "totp_service": "app.services.user.totp_service",
     "user_service": "app.services.user.user_service",

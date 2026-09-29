@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query, Response
@@ -105,18 +105,18 @@ def get_my_usage(
     current_user: CurrentUser,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    tz: str | None = Query(default=None, max_length=64),
 ) -> Any:
     """申請金鑰的 API 用量統計；不包含平台 Template 功能用量。"""
-    if not end_date:
-        end_date = datetime.now(timezone.utc)
-    if not start_date:
-        start_date = end_date - timedelta(days=30)
-
+    start_date, end_date = ai_gateway_service.default_usage_window(
+        start_date, end_date
+    )
     return ai_gateway_service.get_user_usage_stats(
         session=session,
         user_id=current_user.id,
         start_date=start_date,
         end_date=end_date,
+        tz=tz,
     )
 
 
@@ -130,11 +130,9 @@ def get_my_usage_records(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> Any:
     """申請金鑰的逐筆 API 呼叫紀錄（依時間新→舊排序）。"""
-    if not end_date:
-        end_date = datetime.now(timezone.utc)
-    if not start_date:
-        start_date = end_date - timedelta(days=30)
-
+    start_date, end_date = ai_gateway_service.default_usage_window(
+        start_date, end_date
+    )
     return ai_gateway_service.list_user_usage_records(
         session=session,
         user_id=current_user.id,

@@ -6,6 +6,7 @@ import pytest
 
 from app.ai.teacher_judge.script_policy import (
     check_script_policy,
+    normalize_managed_script_checks,
     validate_managed_script_output,
 )
 
@@ -147,3 +148,25 @@ def test_validate_managed_script_output_coerces_structured_evidence() -> None:
 
     assert result["valid"] is True
     assert result["checks_count"] == 2
+
+
+def test_normalize_managed_script_checks_turns_structured_raw_into_text() -> None:
+    """存進 parsed_result 的 checks[].raw／evidence 也要是字串，學生頁才不會看到 Python repr。"""
+    data = {
+        "schema_version": "teacher_judge_result.v1",
+        "metadata": {"timestamp": "now", "platform": "test"},
+        "checks": [
+            {"id": "a", "title": "A", "status": "pass", "evidence": "ok", "raw": {}},
+            {"id": "b", "title": "B", "status": "fail", "evidence": {"port": 80}, "extra": 1},
+        ],
+        "errors": [],
+    }
+
+    normalized = normalize_managed_script_checks(data)
+
+    assert normalized["checks"][0]["raw"] == "{}"
+    assert normalized["checks"][0]["evidence"] == "ok"
+    assert normalized["checks"][1]["evidence"] == '{"port": 80}'
+    assert "raw" not in normalized["checks"][1]
+    assert normalized["checks"][1]["extra"] == 1
+    assert data["checks"][0]["raw"] == {}

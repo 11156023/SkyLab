@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import re
 import shlex
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -35,6 +36,11 @@ LETSENCRYPT_LIVE_DIR = "/etc/letsencrypt/live"
 CERTBOT_CLOUDFLARE_CREDENTIALS_PATH = "/etc/letsencrypt/skylab-cloudflare.ini"
 # Cloudflare 的 DNS 更新通常幾秒內就查得到，certbot 預設 10 秒等待對它夠用
 CERTBOT_DNS_PROPAGATION_SECONDS = 10
+# 寫入 stream.conf／http.conf 的序列化：backend 端的 PG advisory lock（"SKYLABNG"）
+# 與 Gateway 端的 flock（涵蓋其他行程或手動同步）
+_NGINX_CONFIG_LOCK_ID = 0x534B594C41424E47
+_GATEWAY_NGINX_LOCK = "/run/lock/skylab-nginx.lock"
+_GATEWAY_NGINX_LOCK_WAIT_SECONDS = 30
 
 _MANAGED_HEADER = (
     "# SkyLab 自動管理的設定，請勿手動修改\n"
@@ -170,10 +176,12 @@ def _assert_safe_cert_name(value: str) -> None:
 # ─── 遠端寫入 ────────────────────────────────────────────────────────────────
 
 
-def _exec(client: Any, command: str) -> tuple[int, str, str]:
+def _exec(
+    client: Any, command: str, *, timeout: int | None = None
+) -> tuple[int, str, str]:
     from app.infrastructure.ssh import exec_command
 
-    return exec_command(client, command)
+    return exec_command(client, command, timeout=timeout)
 
 
 def _sftp_write(client: Any, path: str, content: str) -> None:
@@ -185,6 +193,32 @@ def _sftp_write(client: Any, path: str, content: str) -> None:
         sftp.close()
 
 
+def lock_config_writes(session: object) -> None:
+    """在呼叫端的交易裡取得「改 Gateway nginx 設定」的 advisory lock。
+
+    stream.conf／http.conf 都是從 DB 整份重建：兩個請求同時同步時，較慢的
+    那個會拿自己先前讀到的舊規則清單蓋掉別人剛寫上去的。所以「讀規則清單
+    → 寫到 Gateway」這段必須序列化：先拿鎖、再讀清單。兩份檔案共用一把鎖，
+    同一個流程先後改兩份時（例如刪 VM 先清網域再清轉發）不會互相等待。
+
+    用交易層級的鎖（PgBouncer transaction pooling 下 session 鎖不安全），
+    隨呼叫端的 commit／rollback 釋放；同一交易內重複取得是可重入的。
+    非 PostgreSQL（單元測試的假 session）時略過。
+    """
+    get_bind = getattr(session, "get_bind", None)
+    if get_bind is None:
+        return
+    bind = get_bind()
+    if bind is None or getattr(bind.dialect, "name", None) != "postgresql":
+        return
+    from sqlalchemy import text
+
+    session.execute(  # type: ignore[attr-defined]
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": _NGINX_CONFIG_LOCK_ID},
+    )
+
+
 def write_validated_config(
     client: Any, path: str, content: str, *, reload: bool = True
 ) -> None:
@@ -193,21 +227,30 @@ def write_validated_config(
     nginx 只能整棵設定樹一起驗證，沒辦法單獨檢查一個 include 進來的檔案，
     所以是「先換上再驗」；驗證失敗會把舊檔放回去，執行中的 nginx 從頭到尾
     不受影響（只有 reload 才會重讀設定）。
+
+    暫存檔每次用不同檔名，換檔／驗證／reload 整段在 Gateway 上以 ``flock``
+    序列化：兩個寫入同時進行時不會共用同一個暫存檔（A 的 ``mv`` 裝上 B 的
+    內容、B 的 ``mv`` 找不到檔案而誤判失敗），也不會在對方驗證途中換掉檔案。
     """
-    tmp_path = f"{path}.SkyLab.tmp"
-    prev_path = f"{path}.SkyLab.prev"
+    token = uuid.uuid4().hex
+    tmp_path = f"{path}.SkyLab.{token}.tmp"
+    prev_path = f"{path}.SkyLab.{token}.prev"
     _sftp_write(client, tmp_path, content)
 
     quoted = shlex.quote(path)
     quoted_tmp = shlex.quote(tmp_path)
     quoted_prev = shlex.quote(prev_path)
     reload_step = " && systemctl reload nginx 2>&1" if reload else ""
-    command = (
+    script = (
         f"if [ -f {quoted} ]; then cp -a {quoted} {quoted_prev}; fi; "
         f"mv -f {quoted_tmp} {quoted} && "
         f"if nginx -t 2>&1; then rm -f {quoted_prev}{reload_step}; "
         f"else if [ -f {quoted_prev} ]; then mv -f {quoted_prev} {quoted}; "
         f"else rm -f {quoted}; fi; exit 1; fi"
+    )
+    command = (
+        f"flock -w {_GATEWAY_NGINX_LOCK_WAIT_SECONDS} "
+        f"{shlex.quote(_GATEWAY_NGINX_LOCK)} sh -c {shlex.quote(script)}"
     )
     code, out, err = _exec(client, command)
     if code != 0:
@@ -460,8 +503,11 @@ def parse_health_output(output: str) -> dict[str, Any]:
     return result
 
 
-def probe_health(client: Any, *, wireguard_unit: str) -> dict[str, Any]:
-    _, out, _ = _exec(client, build_health_command(wireguard_unit))
+def probe_health(
+    client: Any, *, wireguard_unit: str, timeout: int | None = 10
+) -> dict[str, Any]:
+    """探測 Gateway 健康；``timeout`` 限制 SSH 讀取秒數，避免卡住的主機拖住排程輪次。"""
+    _, out, _ = _exec(client, build_health_command(wireguard_unit), timeout=timeout)
     return parse_health_output(out)
 
 

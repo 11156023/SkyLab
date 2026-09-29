@@ -879,7 +879,7 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="aiapi.docs", role="button", label="API 快速開始", section="申請",
-        help="在「新增金鑰」旁邊，點開會跳出視窗，提供 Base URL、Responses API 的 POST 端點，"
+        help="在「申請金鑰」旁邊，點開會跳出視窗，提供 Base URL、Responses API 的 POST 端點，"
              "以及 JavaScript、Python、CMD / cURL 範例。",
     ),
 )

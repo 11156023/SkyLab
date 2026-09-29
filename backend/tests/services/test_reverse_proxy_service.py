@@ -80,7 +80,7 @@ def test_apply_reverse_proxy_rule_creates_cloudflare_dns_record(
     monkeypatch.setattr(
         cloudflare_service,
         "upsert_reverse_proxy_dns_record",
-        lambda *, session, zone_id, domain, vmid, existing_zone_id=None, existing_record_id=None: SimpleNamespace(
+        lambda *, session, zone_id, domain, vmid: SimpleNamespace(
             id="dns_123",
             type="CNAME",
             zone_id=zone_id,
@@ -188,7 +188,7 @@ def test_get_reverse_proxy_setup_context_reports_blockers(
     monkeypatch.setattr(
         reverse_proxy_service,
         "_get_cloudflare_ready_state",
-        lambda _session: (False, "Cloudflare 預設 DNS 指向尚未設定", []),
+        lambda _session: (False, "Cloudflare 預設 DNS 指向尚未設定", [], None, None),
     )
 
     context = reverse_proxy_service.get_reverse_proxy_setup_context(session)

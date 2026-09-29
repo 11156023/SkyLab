@@ -59,7 +59,7 @@ def test_create_reserved_name_rejected(pve: dict) -> None:
         snapshot_service.create_snapshot(
             session=_FakeSession(), vmid=101, snapname="skylab-init",
             description=None, vmstate=False, resource_info=INFO,
-            user_id=STUDENT.id, user=STUDENT,
+            user=STUDENT,
         )
 
 
@@ -72,7 +72,7 @@ def test_create_over_limit_conflicts(pve: dict) -> None:
         snapshot_service.create_snapshot(
             session=_FakeSession(), vmid=101, snapname="d",
             description=None, vmstate=False, resource_info=INFO,
-            user_id=STUDENT.id, user=STUDENT,
+            user=STUDENT,
         )
 
 
@@ -81,7 +81,7 @@ def test_create_within_limit_ok(pve: dict) -> None:
     result = snapshot_service.create_snapshot(
         session=_FakeSession(), vmid=101, snapname="b",
         description=None, vmstate=False, resource_info=INFO,
-        user_id=STUDENT.id, user=STUDENT,
+        user=STUDENT,
     )
     assert pve["created"] == ["b"]
     assert "task_id" in result
@@ -91,7 +91,7 @@ def test_delete_init_snapshot_forbidden(pve: dict) -> None:
     with pytest.raises(PermissionDeniedError):
         snapshot_service.delete_snapshot(
             session=_FakeSession(), vmid=101, snapname="skylab-init",
-            resource_info=INFO, user_id=STUDENT.id, user=STUDENT,
+            resource_info=INFO, user=STUDENT,
         )
 
 
@@ -101,6 +101,6 @@ def test_admin_can_delete_init_snapshot(
     monkeypatch.setattr(snapshot_service, "_is_admin", lambda user: True)
     snapshot_service.delete_snapshot(
         session=_FakeSession(), vmid=101, snapname="skylab-init",
-        resource_info=INFO, user_id=STUDENT.id, user=STUDENT,
+        resource_info=INFO, user=STUDENT,
     )
     assert pve["deleted"] == ["skylab-init"]

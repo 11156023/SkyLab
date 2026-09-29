@@ -10,9 +10,12 @@ import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
+import ErrorState from "../../../../../components/ErrorState/ErrorState";
+import NotFoundState from "../../../../../components/ErrorState/NotFoundState";
 import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { ResourcesService } from "../../../../../services/resources";
+import { isNotFound } from "../../../../../services/api";
 
 const KIND_ICON = { disk: "hard_drive", cdrom: "album", network: "lan", other: "memory" };
 
@@ -32,9 +35,12 @@ export default function BootOptionsCard({ vmid, canManage }) {
   const [selectedIso, setSelectedIso] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  /* 第一次就載入失敗時要換成錯誤狀態（可重試），不能讓轉圈圈一直轉 */
+  const [loadError, setLoadError] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const opts = await ResourcesService.getBootOptions(vmid);
       setOptions(opts);
@@ -45,6 +51,7 @@ export default function BootOptionsCard({ vmid, canManage }) {
         setSelectedIso(opts.cdrom_iso ?? "");
       }
     } catch (err) {
+      setLoadError(err ?? true);
       toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setLoading(false);
@@ -119,7 +126,9 @@ export default function BootOptionsCard({ vmid, canManage }) {
         </div>
       </div>
       <div className={styles.cardBody}>
-        {loading || !options ? (
+        {loadError && !options ? (
+          isNotFound(loadError) ? <NotFoundState /> : <ErrorState onRetry={load} />
+        ) : loading || !options ? (
           <LoadingState text={t("BootOptionsCard.loading")} />
         ) : (
           <>

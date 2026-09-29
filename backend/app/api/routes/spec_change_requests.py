@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep
 from app.models import SpecChangeRequestStatus
@@ -31,8 +31,8 @@ def create_spec_change_request(
 def get_my_spec_change_requests(
     session: SessionDep,
     current_user: CurrentUser,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
 ):
     return spec_change_service.list_by_user(
         session=session, user_id=current_user.id, skip=skip, limit=limit
@@ -43,8 +43,8 @@ def get_my_spec_change_requests(
 def get_all_spec_change_requests(
     session: SessionDep,
     current_user: AdminUser,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
     status: SpecChangeRequestStatus | None = None,
     vmid: int | None = None,
 ):

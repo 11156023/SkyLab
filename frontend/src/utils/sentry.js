@@ -10,10 +10,6 @@ const DSN = import.meta.env.VITE_SENTRY_DSN;
 
 let sentryPromise = null;
 
-export function isSentryEnabled() {
-  return Boolean(DSN);
-}
-
 /** 初始化（重複呼叫只會載入一次）；未設定 DSN 時回 null */
 export function initSentry() {
   if (!DSN) return null;

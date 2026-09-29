@@ -69,7 +69,7 @@ bash scripts/prepare-ai-stack.sh --start
 | Adminer | http://localhost:8080 |
 | MailCatcher（開發用收信匣；正式環境請設 SMTP_HOST） | http://localhost:1080 |
 
-> vLLM 推論請優先使用 `vllm-service/`。`start_single_model.sh` 啟動單模型主服務；`start_multi_model_cluster.sh` 啟動 `models.json` 的本機模型，遠端模型由各主機管理。主 Compose 引用原 [LiteLLM Compose](vllm-service/litellm/docker-compose.yml)，共用 `litellm/config.yaml` 與獨立 `.env`；原檔仍可供獨立部署，但兩種模式不可同時執行。完整操作見 [AI API 使用手冊](docs/ai-api-user-manual.md)。舊 Gateway 保留為備援入口，以 `python main.py gateway` 啟動。
+> vLLM 推論請優先使用 `vllm-service/`。`start_single_model.sh` 啟動單模型主服務；`start_multi_model_cluster.sh` 啟動 `models.json` 的本機模型，遠端模型由各主機管理。主 Compose 引用原 [LiteLLM Compose](vllm-service/litellm/docker-compose.yml)，共用 `litellm/config.yaml` 與獨立 `.env`；原檔仍可供獨立部署，但兩種模式不可同時執行。完整操作見 [AI API 使用手冊](docs/ai-api-user-manual.md)。多模型對外 API 只經 LiteLLM，早期自寫的 FastAPI Gateway 已移除。
 
 
 ## 本地開發
@@ -124,16 +124,9 @@ alembic upgrade head
 
 ## Proxmox 整合設定
 
-於根目錄 `.env` 設定：
+PVE 連線不在 `.env` 設定。首次安裝時在初始化精靈（`/setup`）填入並測試連線；之後由管理員在「PVE 連線」頁新增、編輯或同步，連線資訊加密存進資料庫。可同時接多個 PVE 入口（單台或叢集），叢集內多台主機支援 HA failover（TCP ping 偵測）。
 
-```env
-PROXMOX_HOST=192.168.x.x
-PROXMOX_USER=ccapiuser@pve
-PROXMOX_PASSWORD=...
-PROXMOX_VERIFY_SSL=false
-```
-
-可於後端 `admin/configuration` 頁面動態切換 cluster 連線設定，支援 HA failover（TCP ping 偵測）。
+舊版的 `PROXMOX_HOST`、`PROXMOX_USER`、`PROXMOX_PASSWORD`、`PROXMOX_VERIFY_SSL` 等環境變數後端已不再讀取，即使寫在 `.env` 也不會生效。
 
 ## SSH 目錄查看腳本
 

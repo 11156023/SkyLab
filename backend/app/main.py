@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 # uvicorn 0.36+ 使用 loop_factory 參數直接建立 event loop，繞過 asyncio policy。
 # 其 asyncio_loop_factory 在 Windows 單 worker 模式下固定回傳 ProactorEventLoop，
@@ -118,6 +118,15 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
+async def _cancel_and_wait(task: asyncio.Task[None] | None) -> None:
+    """關機時取消背景迴圈並等它收尾；CancelledError 是預期結果。"""
+    if task is None:
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(
@@ -150,27 +159,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         stop_event.set()
-        if scheduler_task is not None:
-            scheduler_task.cancel()
-            try:
-                await scheduler_task
-            except asyncio.CancelledError:
-                # 排程器取消屬預期的關閉流程
-                pass
-        if wireguard_task is not None:
-            wireguard_task.cancel()
-            try:
-                await wireguard_task
-            except asyncio.CancelledError:
-                # 關機時主動取消 reconciler，CancelledError 是預期結果
-                pass
-        if push_task is not None:
-            push_task.cancel()
-            try:
-                await push_task
-            except asyncio.CancelledError:
-                # 推播迴圈取消屬預期的關閉流程
-                pass
+        for task in (scheduler_task, wireguard_task, push_task):
+            await _cancel_and_wait(task)
         await shutdown_background_runner()
         await close_ai_clients()
         await close_arq_pool()

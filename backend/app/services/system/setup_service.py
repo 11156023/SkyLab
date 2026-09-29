@@ -11,8 +11,6 @@ import logging
 from collections import OrderedDict
 from typing import Any
 
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
 from sqlmodel import Session
 
 from app.core.config import settings
@@ -21,6 +19,8 @@ from app.exceptions import BadRequestError, ConflictError, PermissionDeniedError
 from app.infrastructure.proxmox import (
     fetch_cluster_nodes,
     invalidate_proxmox_client,
+    list_node_storages,
+    open_client,
     resolve_verify,
 )
 from app.models import (
@@ -51,6 +51,7 @@ from app.schemas.setup import (
 )
 from app.services.network import ip_management_service
 from app.services.proxmox import connection_sync_service
+from app.services.proxmox.tls_helpers import validate_ca_cert_pem
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -167,21 +168,12 @@ def _disable_default_admin(session: Session) -> bool:
 # ── 步驟二：PVE 連線 ──────────────────────────────────────────────────────────
 
 
-def _validate_ca_cert(ca_cert: str | None) -> None:
-    if not ca_cert:
-        return
-    try:
-        x509.load_pem_x509_certificate(ca_cert.encode(), default_backend())
-    except Exception:
-        raise BadRequestError(t("proxmoxConfig.invalidCaCert"))
-
-
 def _collect_storages(client: Any, node_names: list[str]) -> list[SetupStoragePublic]:
     """逐節點抓 storage，同名共享 storage 合併成一筆（列出所有節點）。"""
     merged: OrderedDict[str, SetupStoragePublic] = OrderedDict()
     for node_name in node_names:
         try:
-            raw_storages = client.nodes(node_name).storage.get()
+            raw_storages = list_node_storages(client, node_name)
         except Exception as e:
             logger.warning(f"Setup: failed to fetch storage for node {node_name}: {e}")
             continue
@@ -208,29 +200,23 @@ def _collect_storages(client: Any, node_names: list[str]) -> list[SetupStoragePu
 
 def test_proxmox(*, data: SetupProxmoxTestRequest) -> SetupProxmoxTestResult:
     """用表單內容臨時連線：回節點與 storage 清單，讓下一步能用選的而不是用打的。"""
-    _validate_ca_cert(data.ca_cert)
+    validate_ca_cert_pem(data.ca_cert)
     try:
-        from proxmoxer import ProxmoxAPI  # type: ignore[import-untyped]
-
-        verify_ssl = resolve_verify(data.host, data.verify_ssl, data.ca_cert)
+        verify_ssl = resolve_verify(
+            data.host, data.verify_ssl, data.ca_cert, port=data.port
+        )
         raw_nodes = fetch_cluster_nodes(
             host=data.host,
+            port=data.port,
             user=data.user,
             password=data.password,
             verify_ssl=verify_ssl,
             timeout=data.api_timeout,
         )
-        nodes = [
-            ProxmoxNodePublic(
-                name=n["name"],
-                host=n["host"],
-                port=n.get("port", 8006),
-                is_primary=n.get("is_primary", False),
-                is_online=True,
-            )
-            for n in raw_nodes
-        ]
-        client = ProxmoxAPI(
+        nodes = connection_sync_service.to_preview_nodes(
+            raw_nodes, default_port=data.port
+        )
+        client = open_client(
             data.host,
             port=data.port,
             user=data.user,
@@ -260,7 +246,7 @@ def configure_proxmox(
     同步失敗不擋精靈：連線已存好，錯誤帶回給前端顯示，管理員登入後可再同步。
     """
     state = ensure_setup_open(session=session)
-    _validate_ca_cert(data.ca_cert)
+    validate_ca_cert_pem(data.ca_cert)
 
     is_default = data.is_default or not proxmox_connection_repo.get_all_connections(
         session

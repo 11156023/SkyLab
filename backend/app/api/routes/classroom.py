@@ -8,7 +8,9 @@ from typing import Any
 from fastapi import APIRouter
 
 from app.api.deps import CurrentUser, InstructorUser, SessionDep
-from app.infrastructure.proxmox import operations as proxmox_ops
+from app.core.authorizers import require_classroom_monitor
+from app.core.i18n import t
+from app.models import User
 from app.schemas.classroom import (
     ClassroomControlRequest,
     ClassroomLivePublic,
@@ -20,10 +22,21 @@ from app.schemas.classroom import (
 from app.schemas.common import Message
 from app.services.classroom import classroom_service
 from app.services.classroom.vnc_session_manager import ClassroomSession
+from app.services.proxmox import proxmox_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/classroom", tags=["classroom"])
+
+
+def _require_monitor_permission(user: User) -> None:
+    """觀看與接管學生畫面要有「上課監看」權限，不只是班級擁有者。
+
+    班級的 owner_id 不會因為帳號被降為學生而改變；只看擁有者的話，
+    被降級的前任老師仍能對原班學生的 VM 開監看、接管鍵盤滑鼠。
+    停止 session 刻意不檢查，讓發起者仍能把殘留的 session 收掉。
+    """
+    require_classroom_monitor(user, detail=t("classroom.monitor_forbidden"))
 
 
 def _to_public(session: ClassroomSession) -> ClassroomSessionPublic:
@@ -39,8 +52,12 @@ def _to_public(session: ClassroomSession) -> ClassroomSessionPublic:
 
 
 async def _safe_cluster_listing() -> list[dict[str, Any]]:
+    """叢集資源快照（經 services 層的 proxmox_service）；拿不到就當成空清單。
+
+    classroom_service 的 list_* 以 ``cluster_resources`` 參數接收，測試可直接注入。
+    """
     try:
-        return await asyncio.to_thread(proxmox_ops.list_all_resources)
+        return await asyncio.to_thread(proxmox_service.list_all_resources)
     except Exception:
         logger.warning("Classroom: failed to list cluster resources", exc_info=True)
         return []
@@ -76,6 +93,7 @@ async def create_classroom_session(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> ClassroomSessionPublic:
+    _require_monitor_permission(current_user)
     if body.mode == "broadcast":
         live = await classroom_service.start_class_broadcast(
             session, current_user, body.vmid, body.class_id
@@ -104,6 +122,7 @@ async def set_classroom_control(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> ClassroomSessionPublic:
+    _require_monitor_permission(current_user)
     live = await classroom_service.set_control(
         session, current_user, session_id, body.action
     )
@@ -123,4 +142,9 @@ async def get_live_broadcast(
     current_user: CurrentUser,
 ) -> ClassroomLivePublic:
     live = classroom_service.get_live_for_user(session, current_user)
-    return ClassroomLivePublic(session=_to_public(live) if live else None)
+    return ClassroomLivePublic(
+        session=_to_public(live) if live else None,
+        taken_over_vmids=classroom_service.list_taken_over_vmids_for_user(
+            session, current_user
+        ),
+    )

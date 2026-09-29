@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from bisect import bisect_left
 from collections import Counter
 from copy import deepcopy
@@ -34,9 +35,15 @@ from app.schemas.vm_request import (
 from app.services.vm import placement_support, vm_request_placement_service
 from app.utils.timeutil import normalize_datetime
 
+logger = logging.getLogger(__name__)
+
 GIB = 1024**3
 
-_ALL_DAY_POLICY_WINDOW = (0, 24)
+# 申請時段長度上限：與 vm_request_service._approve_and_place 對「無結束時間」
+# 申請所用的 3650 天鎖定範圍一致，比這更長的時段沒有實際用途。
+MAX_REQUEST_WINDOW_DAYS = 3650
+# 開始時間最多可早於現在多久（容許表單停留與時鐘誤差）
+_MAX_START_IN_PAST = timedelta(days=1)
 
 _ROLE_LABELS: dict[UserRole, str] = {
     UserRole.student: "學生",
@@ -50,15 +57,6 @@ _STATUS_PRIORITY: dict[str, int] = {
     "unavailable": 2,
     "policy_blocked": 3,
 }
-
-
-def _is_hour_within_policy(*, hour: int, allowed_start: int, allowed_end: int) -> bool:
-    """Support both same-day windows (08-22) and overnight windows (22-06)."""
-    if allowed_start == allowed_end:
-        return True
-    if allowed_start < allowed_end:
-        return allowed_start <= hour < allowed_end
-    return hour >= allowed_start or hour < allowed_end
 
 
 def assess_request(
@@ -120,6 +118,20 @@ def assess_existing_request(
     )
 
 
+def ensure_window_bounds(*, start_at: datetime, end_at: datetime) -> None:
+    """擋掉不合理的申請時段（在任何容量計算之前呼叫）。
+
+    時段長度與開始時間都由使用者輸入，沒有上下限時，一個跨數千年的時段
+    就能讓逐小時的容量檢查把單一 worker 卡死。傳入值須為 aware datetime。
+    """
+    if end_at - start_at > timedelta(days=MAX_REQUEST_WINDOW_DAYS):
+        raise BadRequestError(
+            t("availability.window_too_long", days=MAX_REQUEST_WINDOW_DAYS)
+        )
+    if start_at < datetime.now(UTC) - _MAX_START_IN_PAST:
+        raise BadRequestError(t("availability.start_too_far_in_past"))
+
+
 def validate_request_window(
     *,
     session: Session,
@@ -132,6 +144,7 @@ def validate_request_window(
         raise BadRequestError(t("availability.window_required"))
     if end_at <= start_at:
         raise BadRequestError(t("availability.end_before_start"))
+    ensure_window_bounds(start_at=start_at, end_at=end_at)
 
     ostemplate, template_vmid = _template_constraints(
         resource_type=cast(str, request_in.resource_type),
@@ -142,7 +155,7 @@ def validate_request_window(
         resource_type=cast(str, request_in.resource_type),
         cpu_cores=int(getattr(request_in, "cores", 1) or 1),
         memory_mb=int(getattr(request_in, "memory", 512) or 512),
-        disk_gb=_extract_disk_gb(
+        disk_gb=placement_support.request_disk_gb(
             resource_type=cast(str, request_in.resource_type),
             disk_size=getattr(request_in, "disk_size", None),
             rootfs_size=getattr(request_in, "rootfs_size", None),
@@ -158,15 +171,14 @@ def validate_request_window(
         request=placement_request,
         start_at=start_at,
         end_at=end_at,
-        allow_cohort_optimization=(
-            getattr(request_in, "mode", "") != "quick_template"
-        ),
     )
     if not selection.node or not selection.plan.feasible:
-        raise BadRequestError(
-            selection.plan.summary
-            or t("availability.no_node_for_window")
+        # plan.summary 是 placement advisor 的英文診斷字串，只留在日誌；
+        # 給使用者的訊息一律走 i18n
+        logger.debug(
+            "Request window infeasible: %s", selection.plan.summary
         )
+        raise BadRequestError(t("availability.no_node_for_window"))
 
 
 def assess_request_window(
@@ -181,6 +193,7 @@ def assess_request_window(
         raise BadRequestError(t("availability.window_required_short"))
     if end_at <= start_at:
         raise BadRequestError(t("availability.end_before_start"))
+    ensure_window_bounds(start_at=start_at, end_at=end_at)
 
     duration_seconds = max((end_at - start_at).total_seconds(), 0)
     duration_hours = int(duration_seconds // 3600)
@@ -197,7 +210,7 @@ def assess_request_window(
         resource_type=cast(str, request_in.resource_type),
         cpu_cores=int(request_in.cores or 1),
         memory_mb=int(request_in.memory or 512),
-        disk_gb=_extract_disk_gb(
+        disk_gb=placement_support.request_disk_gb(
             resource_type=cast(str, request_in.resource_type),
             disk_size=request_in.disk_size,
             rootfs_size=request_in.rootfs_size,
@@ -216,26 +229,26 @@ def assess_request_window(
         request=placement_request,
         start_at=start_at,
         end_at=end_at,
-        allow_cohort_optimization=request_in.mode != "quick_template",
     )
     feasible = bool(selection.node and selection.plan.feasible)
     warnings = list(selection.plan.warnings or [])
 
     if request_in.mode == "quick_template":
-        available_summary = "目前容量可立即建立，系統會保留 3 小時。"
-        unavailable_summary = "目前容量不足，暫時無法立即建立快速模板。"
+        available_summary = t("availability.window_quick_available")
+        unavailable_summary = t("availability.window_quick_unavailable")
     else:
-        available_summary = "此研究期間預估可安排，送出後仍需管理員審核。"
-        unavailable_summary = "此研究期間目前容量不足，建議縮短期間或降低規格。"
+        available_summary = t("availability.window_scheduled_available")
+        unavailable_summary = t("availability.window_scheduled_unavailable")
 
     status: Literal["available", "limited", "unavailable"]
     if feasible:
         status = "limited" if duration_days >= 30 else "available"
         if status == "limited":
-            warnings.append("申請期間較長，核准前建議由管理員確認長期保留影響。")
+            warnings.append(t("availability.window_long_warning"))
     else:
         status = "unavailable"
 
+    summary = available_summary if feasible else unavailable_summary
     return VMRequestWindowAvailabilityResponse(
         status=status,
         feasible=feasible,
@@ -243,9 +256,9 @@ def assess_request_window(
         end_at=end_at,
         duration_hours=duration_hours,
         duration_days=duration_days,
-        summary=available_summary if feasible else unavailable_summary,
-        reason=selection.plan.summary
-        or (available_summary if feasible else unavailable_summary),
+        summary=summary,
+        # plan.summary 是 placement advisor 的英文診斷字串，不直接給使用者看
+        reason=summary,
         selected_node=selection.node,
         placement_strategy=selection.strategy,
         checked_checkpoint_count=max(duration_hours, 1),
@@ -262,14 +275,13 @@ def _build_availability_response(
 ) -> VMRequestAvailabilityResponse:
     tz = _resolve_timezone(source_request.timezone)
     days = max(1, min(int(source_request.days), 90))
-    allowed_start, allowed_end = _ALL_DAY_POLICY_WINDOW
 
     placement_request = _to_placement_request(source_request)
-    baseline_nodes, baseline_resources = placement_advisor._load_cluster_state()
+    baseline_nodes, baseline_resources = placement_support.load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = (
         vm_request_placement_service.get_overcommit_ratios(session)
     )
-    baseline_capacities = placement_advisor._build_node_capacities(
+    baseline_capacities = placement_support.build_live_node_capacities(
         nodes=baseline_nodes,
         resources=baseline_resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -281,7 +293,7 @@ def _build_availability_response(
         session=session,
         baseline_capacities=baseline_capacities,
     )
-    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         placement_request
     )
     placement_strategy = vm_request_placement_service.get_placement_strategy(session)
@@ -306,8 +318,6 @@ def _build_availability_response(
         day_anchor=day_anchor,
         days=days,
         start_anchor=start_anchor,
-        allowed_start=allowed_start,
-        allowed_end=allowed_end,
     )
     reserved_capacities_by_slot = _build_reserved_capacity_timeline(
         baseline_capacities=baseline_capacities,
@@ -349,20 +359,16 @@ def _build_availability_response(
             slot_start = day_start + timedelta(hours=hour)
             slot_end = slot_start + timedelta(hours=1)
             slot_date = slot_start.date()
-            within_policy = _is_hour_within_policy(
-                hour=hour,
-                allowed_start=allowed_start,
-                allowed_end=allowed_end,
-            )
             demand_ratio = hourly_demand.get(hour, 0.0)
 
+            # 申請時段目前全天開放（不再依角色限制時段），每個小時都在政策內
             if slot_start < start_anchor:
                 slot = VMRequestAvailabilitySlot(
                     start_at=slot_start,
                     end_at=slot_end,
                     date=slot_date,
                     hour=hour,
-                    within_policy=within_policy,
+                    within_policy=True,
                     feasible=False,
                     status="unavailable",
                     label="已結束",
@@ -382,7 +388,7 @@ def _build_availability_response(
                         else []
                     ),
                 )
-            elif within_policy:
+            else:
                 reserved_adjusted_nodes = reserved_capacities_by_slot.get(slot_start)
                 # lite 模式：容量狀態（預約狀態 × 該小時需求係數）相同的時段直接沿用配置結果，
                 # 90 天 × 24 小時通常只剩幾十種組合需要真的跑 fit
@@ -418,7 +424,6 @@ def _build_availability_response(
                         slot_start=slot_start,
                         slot_end=slot_end,
                         within_policy=True,
-                        role=role,
                         demand_ratio=demand_ratio,
                         pending_pressure=pending_pressure,
                         adjusted_nodes=adjusted_nodes,
@@ -446,32 +451,6 @@ def _build_availability_response(
                         fit_cache=lite_fit_cache,
                         fit_key=lite_key,
                     )
-            else:
-                slot = VMRequestAvailabilitySlot(
-                    start_at=slot_start,
-                    end_at=slot_end,
-                    date=slot_date,
-                    hour=hour,
-                    within_policy=False,
-                    feasible=False,
-                    status="policy_blocked",
-                    label="不可申請",
-                    summary=_policy_block_summary(role=role, allowed_start=allowed_start, allowed_end=allowed_end),
-                    reasons=[_policy_block_summary(role=role, allowed_start=allowed_start, allowed_end=allowed_end)],
-                    recommended_nodes=[],
-                    placement_strategy=placement_strategy,
-                    node_snapshots=(
-                        _build_slot_node_snapshots(
-                            adjusted_nodes=baseline_capacities,
-                            plan=None,
-                            node_priorities=node_priorities,
-                            resource_stack_by_node=resource_stack_by_node,
-                            stack_label=stack_label,
-                        )
-                        if source_request.detail
-                        else []
-                    ),
-                )
 
             slots.append(slot)
             per_day.setdefault(slot_date, []).append(slot)
@@ -506,8 +485,6 @@ def _availability_slot_starts(
     day_anchor: datetime,
     days: int,
     start_anchor: datetime,
-    allowed_start: int,
-    allowed_end: int,
 ) -> list[datetime]:
     slot_starts: list[datetime] = []
     for day_offset in range(days):
@@ -516,42 +493,30 @@ def _availability_slot_starts(
             slot_start = day_start + timedelta(hours=hour)
             if slot_start < start_anchor:
                 continue
-            if not _is_hour_within_policy(
-                hour=hour,
-                allowed_start=allowed_start,
-                allowed_end=allowed_end,
-            ):
-                continue
             slot_starts.append(slot_start)
     return slot_starts
 
 
-def _vm_request_capacity_tuple(db_request: VMRequest) -> tuple[float, int, int]:
-    cpu_cores = float(db_request.cores or 1)
-    memory_bytes = int(db_request.memory or 512) * 1024 * 1024
-    resource_type = str(db_request.resource_type or "lxc")
-    disk_gb = (
-        int(db_request.disk_size or 0)
-        if resource_type == "vm"
-        else int(db_request.rootfs_size or 0)
-    )
-    if disk_gb <= 0:
-        disk_gb = 20 if resource_type == "vm" else 8
-    return cpu_cores, memory_bytes, disk_gb * GIB
-
-
 def _add_reservation_event(
-    events: dict[int, list[tuple[str, float, int, int, int]]],
+    events: dict[int, list[tuple[str, float, int, int, int, int]]],
     *,
     index: int,
     node: str,
     cpu_cores: float,
     memory_bytes: int,
     disk_bytes: int,
+    gpu_slots: int,
     sign: int,
 ) -> None:
     events.setdefault(index, []).append(
-        (node, cpu_cores * sign, memory_bytes * sign, disk_bytes * sign, sign)
+        (
+            node,
+            cpu_cores * sign,
+            memory_bytes * sign,
+            disk_bytes * sign,
+            gpu_slots * sign,
+            sign,
+        )
     )
 
 
@@ -564,8 +529,12 @@ def _build_reserved_capacity_timeline(
     if not slot_starts:
         return {}
 
-    events: dict[int, list[tuple[str, float, int, int, int]]] = {}
+    events: dict[int, list[tuple[str, float, int, int, int, int]]] = {}
     for reserved in reserved_requests:
+        # 與 placement_support.apply_reserved_requests_to_capacities 同規則：
+        # 已建出機器的申請，佔用已含在 PVE 即時用量（baseline）裡，不再重複扣
+        if reserved.vmid is not None:
+            continue
         reserved_start = normalize_datetime(reserved.start_at)
         reserved_end = normalize_datetime(reserved.end_at)
         assigned_node = str(reserved.assigned_node or "")
@@ -577,7 +546,10 @@ def _build_reserved_capacity_timeline(
         if start_index >= len(slot_starts) or start_index >= end_index:
             continue
 
-        cpu_cores, memory_bytes, disk_bytes = _vm_request_capacity_tuple(reserved)
+        cpu_cores, memory_bytes, disk_bytes = placement_support.request_capacity_tuple(
+            reserved
+        )
+        gpu_slots = placement_support.request_gpu_slots(reserved)
         _add_reservation_event(
             events,
             index=start_index,
@@ -585,6 +557,7 @@ def _build_reserved_capacity_timeline(
             cpu_cores=cpu_cores,
             memory_bytes=memory_bytes,
             disk_bytes=disk_bytes,
+            gpu_slots=gpu_slots,
             sign=1,
         )
         if end_index < len(slot_starts):
@@ -595,6 +568,7 @@ def _build_reserved_capacity_timeline(
                 cpu_cores=cpu_cores,
                 memory_bytes=memory_bytes,
                 disk_bytes=disk_bytes,
+                gpu_slots=gpu_slots,
                 sign=-1,
             )
 
@@ -605,19 +579,28 @@ def _build_reserved_capacity_timeline(
     current: list[NodeCapacity] | None = None
     for index, slot_start in enumerate(slot_starts):
         slot_events = events.get(index, [])
-        for node, cpu_delta, memory_delta, disk_delta, count_delta in slot_events:
-            active = active_by_node.setdefault(node, [0.0, 0, 0, 0])
+        for (
+            event_node,
+            cpu_delta,
+            memory_delta,
+            disk_delta,
+            gpu_delta,
+            count_delta,
+        ) in slot_events:
+            active = active_by_node.setdefault(event_node, [0.0, 0, 0, 0, 0])
             active[0] = float(active[0]) + cpu_delta
             active[1] = int(active[1]) + memory_delta
             active[2] = int(active[2]) + disk_delta
-            active[3] = int(active[3]) + count_delta
+            active[3] = int(active[3]) + gpu_delta
+            active[4] = int(active[4]) + count_delta
             if (
                 abs(float(active[0])) < 1e-9
                 and int(active[1]) == 0
                 and int(active[2]) == 0
                 and int(active[3]) == 0
+                and int(active[4]) == 0
             ):
-                active_by_node.pop(node, None)
+                active_by_node.pop(event_node, None)
 
         if current is not None and not slot_events:
             capacities_by_slot[slot_start] = current
@@ -629,6 +612,7 @@ def _build_reserved_capacity_timeline(
             cpu_cores,
             memory_bytes,
             disk_bytes,
+            active_gpu_slots,
             _count,
         ) in active_by_node.items():
             node = by_node.get(node_name)
@@ -644,6 +628,10 @@ def _build_reserved_capacity_timeline(
             )
             node.allocatable_disk_bytes = max(
                 node.allocatable_disk_bytes - int(disk_bytes),
+                0,
+            )
+            node.allocatable_gpu_slots = max(
+                int(node.allocatable_gpu_slots) - int(active_gpu_slots),
                 0,
             )
             node.candidate = (
@@ -706,8 +694,8 @@ def _lightweight_fit_nodes(
     allowed_gpu_nodes: set[str] | None = None,
     allowed_affinity_nodes: set[str] | None = None,
 ) -> list[str]:
-    required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
-    required_memory = placement_advisor._effective_memory_bytes(
+    required_cpu = placement_advisor.effective_cpu_cores(request, effective_resource_type)
+    required_memory = placement_advisor.effective_memory_bytes(
         request,
         effective_resource_type,
     )
@@ -885,7 +873,9 @@ def _lite_slot_from_capacities(
 def _resolve_timezone(value: str) -> ZoneInfo:
     try:
         return ZoneInfo(value or "Asia/Taipei")
-    except ZoneInfoNotFoundError as exc:
+    # ZoneInfo 對絕對路徑／"../" 等非正規 key 與非 TZif 檔丟 ValueError，
+    # 某些平台對目錄名稱丟 PermissionError 等 OSError；一律當成無效時區
+    except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
         raise BadRequestError(t("availability.invalid_timezone")) from exc
 
 
@@ -897,12 +887,13 @@ def _template_constraints(
 ) -> tuple[str | None, int | None]:
     """對齊 placement_support.to_placement_request 的模板約束規則。
 
-    LXC 帶 template_id 時為克隆路徑（節點由範本釘死），不帶 ostemplate 約束。
+    帶 template_id 時（VM 或 LXC 克隆路徑）以 template_vmid 表示節點由範本釘死，
+    不帶 ostemplate 約束；只有 LXC 不帶 template_id 時才以 ostemplate 約束。
     """
-    if resource_type == "lxc" and ostemplate and not template_id:
-        return str(ostemplate), None
-    if resource_type == "vm" and template_id:
+    if template_id:
         return None, int(template_id)
+    if resource_type == "lxc" and ostemplate:
+        return str(ostemplate), None
     return None, None
 
 
@@ -916,7 +907,7 @@ def _to_placement_request(request_in: VMRequestAvailabilityRequest) -> Placement
         resource_type=cast(str, request_in.resource_type),
         cpu_cores=int(request_in.cores),
         memory_mb=int(request_in.memory),
-        disk_gb=_extract_disk_gb(
+        disk_gb=placement_support.request_disk_gb(
             resource_type=cast(str, request_in.resource_type),
             disk_size=request_in.disk_size,
             rootfs_size=request_in.rootfs_size,
@@ -932,18 +923,6 @@ def _to_placement_request(request_in: VMRequestAvailabilityRequest) -> Placement
     )
 
 
-def _extract_disk_gb(
-    *,
-    resource_type: str,
-    disk_size: int | None,
-    rootfs_size: int | None,
-) -> int:
-    disk_gb = int(disk_size or 0) if resource_type == "vm" else int(rootfs_size or 0)
-    if disk_gb <= 0:
-        return 20 if resource_type == "vm" else 8
-    return disk_gb
-
-
 def _load_hourly_demand_profile(*, session: Session, timezone: ZoneInfo) -> dict[int, float]:
     recent_window_start = datetime.now(UTC) - timedelta(days=30)
     rows = list(
@@ -953,11 +932,9 @@ def _load_hourly_demand_profile(*, session: Session, timezone: ZoneInfo) -> dict
     )
     counts = Counter()
     for row in rows:
-        created_at = row.created_at
+        created_at = normalize_datetime(row.created_at)
         if created_at is None:
             continue
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
         counts[created_at.astimezone(timezone).hour] += 1
 
     peak = max(counts.values(), default=0)
@@ -1033,7 +1010,6 @@ def _slot_from_plan(
     slot_start: datetime,
     slot_end: datetime,
     within_policy: bool,
-    role: UserRole,
     demand_ratio: float,
     pending_pressure: float,
     adjusted_nodes,
@@ -1255,10 +1231,6 @@ def _average_share(
         _usage_share(total=float(total_disk), remaining=float(remaining_disk)),
     ]
     return sum(values) / len(values)
-
-
-def _policy_block_summary(*, role: UserRole, allowed_start: int, allowed_end: int) -> str:
-    return "目前不限制申請時段。"
 
 
 def _summarize_day(day: date, slots: list[VMRequestAvailabilitySlot]) -> VMRequestAvailabilityDay:

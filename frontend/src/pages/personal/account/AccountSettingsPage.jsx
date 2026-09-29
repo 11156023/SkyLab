@@ -1,13 +1,12 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AccountSettingsPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import Avatar from "../../../components/Avatar/Avatar";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import TotpEnrollment from "../../../components/TotpEnrollment/TotpEnrollment";
-import Modal from "../../../components/Modal/Modal";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -15,6 +14,7 @@ import { AccountService } from "../../../services/account";
 import { focusInvalidField } from "../../../utils/focusField";
 import { downscaleImage } from "../../../utils/image/downscaleImage";
 import AppearanceTab from "./AppearanceTab";
+import { AppearanceResetButton } from "./AppearanceSettings";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
@@ -378,6 +378,7 @@ function TwoFactorSection() {
               closeButton
               size="md"
               title={t("TwoFactorSection.enableTitle")}
+              closeProps={{ "aria-label": t("TwoFactorSection.close") }}
               actions={actions}
             >
               {content}
@@ -448,7 +449,6 @@ function DangerZoneSection() {
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
   const confirmWord = t("DangerZoneTab.confirmWord");
-  const confirmTitleId = useId();
 
   /* 關閉一律清掉輸入：否則打完確認字再取消，下次開啟按鈕已是可按狀態 */
   function closeConfirm() {
@@ -456,17 +456,6 @@ function DangerZoneSection() {
     setShowConfirm(false);
     setConfirmText("");
   }
-
-  const closeConfirmRef = useRef(closeConfirm);
-  closeConfirmRef.current = closeConfirm;
-  useEffect(() => {
-    if (!showConfirm) return undefined;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") closeConfirmRef.current();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [showConfirm]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -494,38 +483,22 @@ function DangerZoneSection() {
         </div>
       </div>
 
-      {confirmDialog.open && createPortal(
-        /* 用 portal 掛到 document.body：避免 Modal 巢狀在有 backdrop-filter 的 .dangerCard
-           底下 —— backdrop-filter 會讓後代的 position:fixed 失去「相對整個視窗定位」的能力，
-           變成只覆蓋卡片自己的範圍（CSS containing block 陷阱）。 */
-        <div
-          className={`${styles.modalOverlay} ${confirmDialog.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={closeConfirm}
-        >
-          <div
-            className={styles.confirm}
-            onMouseDown={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={confirmTitleId}
-          >
-            {/* 同共用確認框：紅色 warning 圖示放在標題前，不另佔一行 */}
-            <h2 id={confirmTitleId} className={styles.confirmTitle}>
-              <span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>
-              {t("DangerZoneTab.confirmTitle")}
-            </h2>
-            <p>
-              {t("DangerZoneTab.confirmDescPart1")}<strong>{t("DangerZoneTab.confirmDescBold")}</strong>{t("DangerZoneTab.confirmDescPart2")} <code>{confirmWord}</code> {t("DangerZoneTab.confirmDescPart3")}
-            </p>
-            <input
-              className={styles.confirmInput}
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder={t("DangerZoneTab.confirmPlaceholder", { word: confirmWord })}
-              disabled={deleting}
-              autoFocus
-            />
-            <div className={styles.modalActions}>
+      {confirmDialog.open && (
+        /* 共用 Modal 會 portal 到 body，不受 .dangerCard 的 backdrop-filter 影響 */
+        <Modal
+          closing={confirmDialog.closing}
+          onClose={closeConfirm}
+          busy={deleting}
+          role="alertdialog"
+          icon={<span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>}
+          title={t("DangerZoneTab.confirmTitle")}
+          description={
+            <>
+              {t("DangerZoneTab.confirmDescPart1")}<strong>{t("DangerZoneTab.confirmDescBold")}</strong>{t("DangerZoneTab.confirmDescPart2")} <code className={styles.confirmWord}>{confirmWord}</code> {t("DangerZoneTab.confirmDescPart3")}
+            </>
+          }
+          actions={
+            <>
               <button
                 type="button"
                 className={styles.btnSecondary}
@@ -542,10 +515,18 @@ function DangerZoneSection() {
               >
                 {deleting ? t("DangerZoneTab.deleting") : t("DangerZoneTab.confirmDelete")}
               </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
+            </>
+          }
+        >
+          <input
+            className={styles.confirmInput}
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={t("DangerZoneTab.confirmPlaceholder", { word: confirmWord })}
+            disabled={deleting}
+            autoFocus
+          />
+        </Modal>
       )}
     </>
   );
@@ -561,13 +542,17 @@ export default function AccountSettingsPage() {
     <div className={styles.page}>
       <PageHeader title={t("AccountSettingsPage.title")} />
 
-      <SegmentedControl
-        className={styles.tabs}
-        options={TABS.map((tab) => ({ value: tab.key, label: t(tab.labelKey) }))}
-        value={activeTab}
-        onChange={setActiveTab}
-        ariaLabel={t("AccountSettingsPage.title")}
-      />
+      {/* 分頁列：外觀分頁的「重設為系統預設值」放右側，一進頁面就看得到
+          （原本壓在表單最底，使用者反映會直接忽略） */}
+      <div className={styles.tabBar}>
+        <SegmentedControl
+          options={TABS.map((tab) => ({ value: tab.key, label: t(tab.labelKey) }))}
+          value={activeTab}
+          onChange={setActiveTab}
+          ariaLabel={t("AccountSettingsPage.title")}
+        />
+        {activeTab === "appearance" && <AppearanceResetButton />}
+      </div>
 
       <div className={styles.content}>
         {activeTab === "profile" && (
@@ -576,8 +561,9 @@ export default function AccountSettingsPage() {
             <div className={styles.profileSide}>
               <PasswordSection />
               <TwoFactorSection />
-              <DangerZoneSection />
             </div>
+            {/* 寬螢幕排在左欄個資卡下方，窄螢幕照 DOM 順序壓在最底 */}
+            <DangerZoneSection />
           </div>
         )}
         {activeTab === "appearance" && <AppearanceTab />}

@@ -1,5 +1,5 @@
-from .models import ScheduledTask
-from .runner import run_polling_scheduler
-from .tasks import run_sync_task
+"""Polling scheduler primitives.
 
-__all__ = ["ScheduledTask", "run_polling_scheduler", "run_sync_task"]
+Import the submodules directly (``models``, ``runner``, ``tasks``); the
+package root re-exports nothing.
+"""

@@ -10,6 +10,8 @@ import PageHeader from "../../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import { formatMonthDay } from "../../../../utils/formatDate";
+import { useToast } from "../../../../hooks/useToast";
+import { taipeiDateKey } from "../taipeiDate";
 
 const CLASS_STATUS_KEYS = {
   planning: "TeacherDashboardPage.statusPlanning",
@@ -27,12 +29,6 @@ const DEMO_STUDENT_NAMES = [
   "王小明", "陳怡君", "林志豪", "張雅婷", "劉冠廷", "黃郁雯", "郭家豪", "李欣儒",
   "周柏翰", "吳思妤", "許庭瑋", "鄭凱文", "蔡佳蓉", "楊承恩", "謝宜庭", "何俊傑",
 ];
-
-function dateKey(date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(date);
-}
 
 function weekdayFromDateKey(value) {
   const [year, month, day] = value.split("-").map(Number);
@@ -69,7 +65,7 @@ function demoStudents(prefix, count, totalQuestions, fullyCompleted, inProgress)
 }
 
 export function buildTeacherDashboardDemo(now = new Date()) {
-  const today = dateKey(now);
+  const today = taipeiDateKey(now);
   const endDate = addDaysToDateKey(today, 120);
   const classRows = [
     {
@@ -144,7 +140,7 @@ export function nextClassSession(item, now = new Date()) {
   const end = new Date(`${item.end_date}T23:59:59+08:00`);
   if (now > end) return null;
   const targetWeekday = Number(item.weekday ?? 0);
-  const baseDate = now < start ? item.start_date : dateKey(now);
+  const baseDate = now < start ? item.start_date : taipeiDateKey(now);
   const daysUntilTarget = (targetWeekday - weekdayFromDateKey(baseDate) + 7) % 7;
   let sessionDate = addDaysToDateKey(baseDate, daysUntilTarget);
   let session = taipeiDateTime(sessionDate, String(item.start_time ?? "00:00"));
@@ -186,9 +182,7 @@ function normalizeClass(item) {
 function CheckpointRow({ item, onOpen }) {
   const { t } = useTranslation("personal");
   const students = item.report?.students ?? [];
-  const completed = students.reduce((sum, student) => sum + Number(student.completed_questions ?? 0), 0);
-  const possible = students.reduce((sum, student) => sum + Number(student.total_questions ?? 0), 0);
-  const percent = possible ? Math.round(completed / possible * 100) : 0;
+  const { completed, possible, percent } = summarizeCheckpointReports([item]);
   const fullyCompleted = students.filter((student) => Number(student.progress_percent) >= 100).length;
   // 還沒有作答紀錄時不顯示 0%／空進度條，免得看起來像「全班都沒做」
   const hasRecords = possible > 0;
@@ -204,14 +198,22 @@ function CheckpointRow({ item, onOpen }) {
   </button>;
 }
 
+/** 問候語用的稱呼：姓名第一段；沒填姓名（或全空白）時回 null，由呼叫端改用不帶名字的問候。
+ *  不拿 email 帳號湊名字；用 || 而非 ??：全空白的 full_name trim 後是空字串，不能拿來當名字。 */
+export function teacherDisplayName(user) {
+  return user?.full_name?.trim().split(/\s+/)[0] || null;
+}
+
 export default function TeacherDashboardPage() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const { user } = useAuth();
+  const toast = useToast();
   const [classes, setClasses] = useState([]);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // 載入失敗時統計卡一律「—」，不顯示看起來像真資料的 0
+  const [failed, setFailed] = useState(false);
   const demoMode = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("teacherDemo") === "1";
 
@@ -219,7 +221,7 @@ export default function TeacherDashboardPage() {
     let active = true;
     async function load() {
       setLoading(true);
-      setError("");
+      setFailed(false);
       if (demoMode) {
         const demo = buildTeacherDashboardDemo();
         setClasses(demo.classes.map(normalizeClass));
@@ -240,14 +242,16 @@ export default function TeacherDashboardPage() {
         );
         if (active) setReports(settled.filter((result) => result.status === "fulfilled").map((result) => result.value));
       } catch (reason) {
-        if (active) setError(reason?.message ?? t("TeacherDashboardPage.loadError"));
+        if (!active) return;
+        setFailed(true);
+        toast.error(reason?.message ?? t("TeacherDashboardPage.loadError"));
       } finally {
         if (active) setLoading(false);
       }
     }
     load();
     return () => { active = false; };
-  }, [demoMode, user?.id]);
+  }, [demoMode, user?.id, t, toast]);
 
   const checkpointSummary = useMemo(() => summarizeCheckpointReports(reports), [reports]);
   const upcoming = useMemo(() => classes
@@ -261,13 +265,11 @@ export default function TeacherDashboardPage() {
     .sort((a, b) => Number(a.progress_percent) - Number(b.progress_percent))
     .slice(0, 5), [reports]);
   // 沒填姓名時不拿 email 帳號湊名字，直接打招呼
-  const firstName = user?.full_name?.trim()?.split(/\s+/)[0];
+  const firstName = teacherDisplayName(user);
 
   // 資料是同一次請求抓回來的，整頁一個載入動畫就好
   if (loading) return <LoadingState fullPage />;
 
-  // 載入失敗時統計卡一律「—」，不顯示看起來像真資料的 0
-  const failed = Boolean(error);
   const hasCheckpoints = checkpointSummary.possible > 0;
   const nextClass = upcoming[0];
   const metrics = [
@@ -309,8 +311,6 @@ export default function TeacherDashboardPage() {
     <PageHeader title={firstName ? t("TeacherDashboardPage.greeting", { name: firstName }) : t("TeacherDashboardPage.greetingNoName")}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}><MIcon name="add" size={18} />{t("TeacherDashboardPage.createClass")}</button>
     </PageHeader>
-
-    {error && <div className={styles.error}><MIcon name="error_outline" size={18} />{error}</div>}
 
     <section className={styles.metricGrid} aria-label={t("TeacherDashboardPage.summaryAriaLabel")}>
       {metrics.map((metric) => <button type="button" key={metric.key} className={styles.metricCard} onClick={() => navigate(metric.path)}>

@@ -4,14 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.routes.course_environments import (
+from app.api.routes.teaching_classes import _generate_weeks
+from app.exceptions import BadRequestError
+from app.models import BatchProvisionJobStatus, TeachingClassWeek
+from app.schemas.course_environment import (
     EnvironmentCreate,
     EnvironmentEdgeIn,
     EnvironmentNodeIn,
 )
-from app.api.routes.teaching_classes import _generate_weeks
-from app.exceptions import BadRequestError
-from app.models import BatchProvisionJobStatus, TeachingClassWeek
 from app.services.teaching import class_capacity_service, class_network_service
 from app.services.teaching.class_provision_service import (
     recurrence_rule as _recurrence,
@@ -463,7 +463,7 @@ def test_sync_scope_rules_removes_stale_rules_from_a_previous_vmid(monkeypatch):
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
-        "get_vm_firewall_rules",
+        "list_vm_firewall_rules_strict",
         lambda _node, vmid, _type: existing.get(vmid, []),
     )
     monkeypatch.setattr(
@@ -483,8 +483,6 @@ def test_sync_scope_rules_removes_stale_rules_from_a_previous_vmid(monkeypatch):
         planned=[
             class_network_service.PlannedRule(
                 vmid=101,
-                node="pve1",
-                resource_type="qemu",
                 comment=f"{prefix}abc12345:101>102:any",
                 rule={"type": "out", "action": "ACCEPT"},
             )
@@ -506,7 +504,7 @@ def test_sync_scope_rules_cleans_machines_that_lost_every_edge(monkeypatch):
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
-        "get_vm_firewall_rules",
+        "list_vm_firewall_rules_strict",
         lambda _node, _vmid, _type: [{"pos": 3, "comment": f"{prefix}abc12345:101>102:any"}],
     )
     monkeypatch.setattr(
@@ -533,6 +531,53 @@ def test_sync_scope_rules_skips_machines_that_no_longer_exist(monkeypatch):
         scope_vmids={404},
         planned=[],
     ) == []
+
+
+def _plan(monkeypatch, protocol, port):
+    monkeypatch.setattr(
+        class_network_service, "_ip_by_vmid", lambda _session, vmid: f"10.0.0.{vmid}"
+    )
+    monkeypatch.setattr(
+        class_network_service.proxmox_service,
+        "find_resource",
+        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+    )
+    return class_network_service.plan_one_way(
+        SimpleNamespace(),
+        scope_id=uuid.UUID(int=0),
+        comment_prefix="p:",
+        source_vmid=201,
+        target_vmid=202,
+        protocol=protocol,
+        port=port,
+    )
+
+
+@pytest.mark.parametrize("protocol", ["any", "icmp", "icmpv6"])
+def test_plan_one_way_drops_port_for_portless_protocols(monkeypatch, protocol):
+    """舊版本存下的 any／icmp 連線可能還帶 port；PVE 對沒有 proto 或 icmp 的 dport 會回 400。"""
+    rules = _plan(monkeypatch, protocol, 22)
+
+    for item in rules:
+        assert "dport" not in item.rule
+        assert item.comment.endswith(f":{protocol}")
+    assert ("proto" in rules[0].rule) == (protocol != "any")
+
+
+def test_plan_one_way_keeps_port_for_tcp(monkeypatch):
+    out_rule, in_rule = _plan(monkeypatch, "tcp", 22)
+
+    assert out_rule.rule["proto"] == in_rule.rule["proto"] == "tcp"
+    assert out_rule.rule["dport"] == in_rule.rule["dport"] == "22"
+    assert out_rule.comment.endswith(":tcp/22")
+
+
+@pytest.mark.parametrize("protocol", ["any", "icmp", "icmpv6"])
+def test_edge_input_clears_port_for_portless_protocols(protocol):
+    edge = EnvironmentEdgeIn(
+        source_node_key="a", target_node_key="b", protocol=protocol, port=22
+    )
+    assert edge.port is None
 
 
 def test_ensure_firewall_enabled_restores_a_weakened_inbound_policy(monkeypatch):

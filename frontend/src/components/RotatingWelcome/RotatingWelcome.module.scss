@@ -1,0 +1,59 @@
+@use "../../assets/styles/variables" as *;
+
+/* 歡迎語輪播：保留一行高度，換句時不推動下方內容；
+   進場由下往上浮現、離場往上淡出，減少動態效果時不播 */
+.rotator {
+  display: inline-block;
+  min-height: 1.3em;
+}
+
+.text {
+  display: inline-block;
+  animation: welcome-in 0.4s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+
+.leaving {
+  animation: welcome-out 0.4s ease both;
+}
+
+@keyframes welcome-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35em);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes welcome-out {
+  from {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-0.35em);
+    filter: blur(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .text,
+  .leaving {
+    animation: none;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

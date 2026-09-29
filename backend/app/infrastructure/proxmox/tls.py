@@ -23,19 +23,21 @@ _CA_BUNDLE_LOCK = threading.Lock()
 _ADAPTER_HOOK_ATTR = "_skylab_pve_ca_hook"
 
 
-def _pve_ca_ssl_context(cafile: str) -> ssl.SSLContext:
-    """PVE 自簽 CA 專用的 client context。
+def _pve_ca_ssl_context(
+    *, cafile: str | None = None, cadata: str | None = None
+) -> ssl.SSLContext:
+    """PVE 自簽 CA 專用的 client context（requests、pre-flight、WS、ticket 共用）。
 
     Python 3.13+ 的 urllib3 預設加 ``VERIFY_X509_STRICT``，PVE 產生的 root CA
     沒有 keyUsage 擴充，會被判成「CA cert does not include key usage extension」
-    而整條連線失敗。這裡仍要求憑證鏈與主機名，只拿掉 strict（與 pre-flight、
-    VNC/terminal WS 的 context 一致）。
+    而整條連線失敗。這裡仍要求憑證鏈與主機名（SAN 含 hostname 或 IP），
+    只拿掉 strict。CA 來源可以是 bundle 檔（``cafile``）或 PEM 字串（``cadata``）。
     """
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = True
     ctx.verify_mode = ssl.CERT_REQUIRED
-    ctx.load_verify_locations(cafile=cafile)
+    ctx.load_verify_locations(cafile=cafile, cadata=cadata)
     if hasattr(ssl, "VERIFY_X509_STRICT"):
         ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
     return ctx
@@ -88,11 +90,13 @@ def ca_bundle_path(ca_cert_pem: str) -> str:
         with _CA_BUNDLE_LOCK:
             if key not in _CA_BUNDLE_CONTEXTS:
                 _install_adapter_hook()
-                _CA_BUNDLE_CONTEXTS[key] = _pve_ca_ssl_context(key)
+                _CA_BUNDLE_CONTEXTS[key] = _pve_ca_ssl_context(cafile=key)
     return key
 
 
-def resolve_verify(host: str, verify_ssl: bool, ca_cert: str | None) -> bool | str:
+def resolve_verify(
+    host: str, verify_ssl: bool, ca_cert: str | None, port: int = 8006
+) -> bool | str:
     """決定交給 proxmoxer/requests 的 ``verify_ssl`` 值。
 
     有 CA 時：先做一次 pre-flight 讓錯誤訊息友善，然後回傳 CA bundle 路徑，
@@ -100,7 +104,7 @@ def resolve_verify(host: str, verify_ssl: bool, ca_cert: str | None) -> bool | s
     以前這裡回傳 ``False``，等於「設了 CA 反而全程不驗 TLS」。
     """
     if ca_cert:
-        _verify_server_with_ca(host, ca_cert)
+        _verify_server_with_ca(host, ca_cert, port=port)
         return ca_bundle_path(ca_cert)
     return verify_ssl
 
@@ -116,16 +120,8 @@ def _tcp_ping(host: str, port: int = 8006, timeout: float = _TCP_PING_TIMEOUT) -
 
 def _verify_server_with_ca(host: str, ca_cert_pem: str, port: int = 8006) -> None:
     """Validate a Proxmox node certificate against the configured CA."""
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     # 與 requests 的行為一致：驗鏈也驗主機名（SAN 含 hostname 或 IP）。
-    ctx.check_hostname = True
-    ctx.verify_mode = ssl.CERT_REQUIRED
-    ctx.load_verify_locations(cadata=ca_cert_pem)
-
-    if hasattr(ssl, "VERIFY_X509_STRICT"):
-        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
-
+    ctx = _pve_ca_ssl_context(cadata=ca_cert_pem)
     try:
         with socket.create_connection((host, port), timeout=10) as raw_sock:
             with ctx.wrap_socket(raw_sock, server_hostname=host):
@@ -141,13 +137,7 @@ def _verify_server_with_ca(host: str, ca_cert_pem: str, port: int = 8006) -> Non
 def build_ws_ssl_context(cfg: ProxmoxSettings) -> ssl.SSLContext:
     """Create an SSL context suitable for VNC/terminal websocket handshakes."""
     if cfg.ca_cert:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = True
-        ctx.verify_mode = ssl.CERT_REQUIRED
-        ctx.load_verify_locations(cadata=cfg.ca_cert)
-        if hasattr(ssl, "VERIFY_X509_STRICT"):
-            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        return ctx
+        return _pve_ca_ssl_context(cadata=cfg.ca_cert)
 
     if cfg.verify_ssl:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)

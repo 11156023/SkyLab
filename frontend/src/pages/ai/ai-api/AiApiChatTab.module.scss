@@ -53,32 +53,24 @@
   }
 }
 
-.newChat,
-.reload {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-8;
-  min-height: 40px;
-  padding: $spacing-8 12px;
+/* 沒有設定聊天金鑰：整塊只放一個空狀態 */
+.notConfigured {
+  display: flex;
+  min-height: 420px;
   border: 1px solid var(--color-border);
-  border-radius: $radius-8;
+  border-radius: $radius-16;
   background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  transition: background $transition-base, border-color $transition-base, color $transition-base;
-
-  &:hover:not(:disabled) {
-    border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-border));
-    background: var(--chat-accent-soft);
-    color: var(--color-primary-on-surface);
-  }
 }
 
+/* 按鈕一律用共用 mixin */
 .newChat {
+  @include btn-secondary;
   justify-content: flex-start;
-  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+}
+
+.retry {
+  @include btn-secondary;
+  flex-shrink: 0;
 }
 
 .historyEmpty,
@@ -137,7 +129,7 @@
   small {
     overflow: hidden;
     color: var(--color-text-muted);
-    font-size: 11px;
+    font-size: $font-size-12;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -151,22 +143,8 @@
 }
 
 .deleteChat {
-  display: grid;
-  place-items: center;
+  @include btn-icon($danger: true);
   flex-shrink: 0;
-  width: 36px;
-  min-height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: $radius-8;
-  background: transparent;
-  color: var(--color-text-muted);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover:not(:disabled) {
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 9%, transparent);
-  }
 }
 
 .chat {
@@ -215,19 +193,12 @@
 
   label {
     color: var(--color-text-muted);
-    font-size: 11px;
+    font-size: $font-size-12;
     line-height: 1.2;
   }
 
   select {
-    width: 100%;
-    min-height: 26px;
-    padding: 0 24px 0 0;
-    border: 0;
-    background: transparent;
-    color: var(--color-text-primary);
-    font-size: $font-size-14;
-    font-weight: $font-weight-500;
+    @include form-control;
     text-overflow: ellipsis;
   }
 }
@@ -240,43 +211,6 @@
   padding: $spacing-32 clamp($spacing-16, 4vw, 48px);
   scrollbar-color: var(--color-border) transparent;
   scrollbar-width: thin;
-}
-
-.empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 100%;
-  padding: $spacing-32 $spacing-16;
-  color: var(--color-text-muted);
-  text-align: center;
-
-  h2 {
-    margin: $spacing-8 0 0;
-    color: var(--color-text-primary);
-    font-size: $font-size-18;
-    font-weight: $font-weight-700;
-    letter-spacing: -0.015em;
-  }
-
-  p {
-    max-width: 48ch;
-    margin: 0;
-    font-size: $font-size-14;
-    line-height: 1.7;
-  }
-}
-
-.emptyIcon {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: $radius-16;
-  background: var(--chat-accent-soft);
-  color: var(--color-primary-on-surface);
 }
 
 .messages {
@@ -412,10 +346,10 @@
     padding: 14px $spacing-16;
     overflow-x: auto;
     border-radius: $radius-12;
-    background: #18212f;
-    color: #e7edf6;
+    background: var(--color-code-bg);
+    color: var(--color-code-text);
     line-height: 1.65;
-    scrollbar-color: #52647b transparent;
+    scrollbar-color: var(--color-code-border) transparent;
     scrollbar-width: thin;
 
     code {
@@ -532,6 +466,10 @@
 
 .error,
 .warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
   margin: 0;
   padding: 11px $spacing-24;
   font-size: $font-size-14;
@@ -617,39 +555,18 @@
 
   > span {
     color: var(--color-text-muted);
-    font-size: 11px;
+    font-size: $font-size-12;
   }
 }
 
 .send {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  @include btn-primary;
   flex-shrink: 0;
-  min-height: 36px;
-  padding: 7px 12px;
-  border: 0;
-  border-radius: $radius-8;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-700;
-  transition: background $transition-base, box-shadow $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-    box-shadow: var(--shadow-sm);
-  }
 }
 
 .stop {
-  background: var(--color-text-primary);
-  color: var(--color-surface);
-
-  &:hover:not(:disabled) {
-    background: var(--color-text-secondary);
-  }
+  @include btn-secondary;
+  flex-shrink: 0;
 }
 
 @keyframes thinkingWave {
@@ -704,8 +621,6 @@
   .localNotice { display: none; }
   .newChat { align-self: flex-start; }
   .toolbar { min-height: 64px; padding: 10px $spacing-16; }
-  .reload { width: 40px; padding: 0; font-size: 0; }
-  .reloadLabel { display: none; }
   .log { min-height: 420px; max-height: 62dvh; padding: $spacing-24 $spacing-16; }
   .messages { gap: $spacing-24; }
   .userMessage { width: 92%; }

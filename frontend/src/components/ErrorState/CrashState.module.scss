@@ -198,10 +198,6 @@
   @include btn-primary;
 }
 
-.btnSecondary {
-  @include btn-secondary;
-}
-
 /* 錯誤資訊：預設收合，給要回報問題的人看 */
 .details {
   width: 100%;

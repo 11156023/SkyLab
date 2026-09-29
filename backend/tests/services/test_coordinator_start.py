@@ -114,7 +114,7 @@ class TestEnsureRequestRunningStart:
         monkeypatch.setattr(coordinator.proxmox_service, "control", _fail_start)
 
         started = coordinator._ensure_request_running(
-            session=session, request=req, now=coordinator._utc_now()
+            session=session, request=req
         )
 
         assert started is False
@@ -134,7 +134,7 @@ class TestEnsureRequestRunningStart:
 
         with pytest.raises(ProxmoxError):
             coordinator._ensure_request_running(
-                session=session, request=req, now=coordinator._utc_now()
+                session=session, request=req
             )
         assert req.resource_warning is None
 
@@ -149,7 +149,7 @@ class TestEnsureRequestRunningStart:
         )
 
         started = coordinator._ensure_request_running(
-            session=session, request=req, now=coordinator._utc_now()
+            session=session, request=req
         )
 
         assert started is True
@@ -174,7 +174,7 @@ class TestEnsureRequestRunningStart:
         )
 
         assert coordinator._ensure_request_running(
-            session=session, request=req, now=coordinator._utc_now()
+            session=session, request=req
         )
         assert sync_calls == [("pve205", 480, "lxc")]
 
@@ -184,7 +184,7 @@ class TestEnsureRequestRunningStart:
         _patch_provisioned_vm(monkeypatch, req, status="running")
 
         started = coordinator._ensure_request_running(
-            session=session, request=req, now=coordinator._utc_now()
+            session=session, request=req
         )
 
         assert started is False
@@ -201,7 +201,7 @@ class TestEnsureRequestRunningStart:
         monkeypatch.setattr(coordinator.proxmox_service, "control", _slow_start)
 
         started = coordinator._ensure_request_running(
-            session=session, request=req, now=coordinator._utc_now()
+            session=session, request=req
         )
 
         assert started is True

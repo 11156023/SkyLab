@@ -6,7 +6,8 @@
  * 三種入站模式的判斷方式與後端 PortSpec 一致（domain > external_port > 僅防火牆）。
  */
 
-const GATEWAY_KEY = "gateway";
+/** 網關節點在 ReactFlow 裡的 id（VM 節點用 vmid 字串） */
+export const GATEWAY_KEY = "gateway";
 
 /* 節點四面都有連接點，線走哪一側由兩端的相對位置決定。
    尺寸與 FirewallPage.module.scss 的 .vmNode / .gwNode 一致，
@@ -203,11 +204,18 @@ export function buildFlow(
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const lanes = parallelLanes(rawEdges);
+  /* 邊 id 只由兩端決定（後端保證每組來源→目標只有一條），不含陣列索引：
+     前面的連線增刪時，未變動連線的 id 才不會跟著位移、開著的連線面板才不會被關掉。
+     萬一同一組出現多條，第二條起加序號維持唯一。 */
+  const seenIds = new Map();
 
   const edges = rawEdges.map((edge, i) => {
     const srcKey = edge.source_vmid === null ? GATEWAY_KEY : String(edge.source_vmid);
     const tgtKey = edge.target_vmid === null ? GATEWAY_KEY : String(edge.target_vmid);
-    const id = `edge-${i}-${srcKey}-${tgtKey}`;
+    const baseId = `edge-${srcKey}-${tgtKey}`;
+    const dup = seenIds.get(baseId) ?? 0;
+    seenIds.set(baseId, dup + 1);
+    const id = dup === 0 ? baseId : `${baseId}-${dup}`;
     const [sourceHandle, targetHandle] = pickHandles(
       nodeById.get(srcKey),
       nodeById.get(tgtKey),

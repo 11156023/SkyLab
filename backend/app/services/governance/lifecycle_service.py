@@ -15,7 +15,11 @@ from sqlmodel import Session, col, select
 
 from app.core.db import engine
 from app.infrastructure.proxmox.rrd import timeframe_for_window
-from app.models import DeletionRequest, DeletionRequestStatus, Resource
+from app.models import (
+    DeletionRequest,
+    DeletionRequestStatus,
+    Resource,
+)
 from app.repositories import governance as governance_repo
 from app.repositories import resource as resource_repo
 from app.services.governance.lifecycle_policy import (
@@ -24,6 +28,8 @@ from app.services.governance.lifecycle_policy import (
     average_cpu_percent,
     decide_idle_action,
     decide_ttl_action,
+    idle_stop_email_due,
+    ttl_stop_email_due,
 )
 from app.services.proxmox import proxmox_service
 from app.utils import send_email
@@ -87,15 +93,24 @@ def _apply_ttl_stop(session: Session, resource: Resource, now: datetime) -> None
         auto_stop_reason="ttl_expired",
         commit=False,
     )
-    _send_owner_email(
-        resource,
-        f"[SkyLab] 資源 VMID {resource.vmid} 已到期，將自動關機",
-        (
-            f"<p>您的資源（VMID {resource.vmid}）已於 "
-            f"{resource.expiry_date} 到期，系統即將自動關機。</p>"
-            "<p>寬限期過後資源將被刪除，請儘速備份需要的資料。</p>"
-        ),
-    )
+    # process_auto_stops 會把排程留到確認機器已停止（或關機後又被開回來）才清掉，
+    # guest 不理 ACPI 時會在寬限期後強制斷電；之後機器若又被開起來且仍過期，
+    # 會再走到這裡重排關機，但同一次到期只寄一封信
+    if ttl_stop_email_due(
+        expiry_date=resource.expiry_date,
+        expiry_notified_at=resource.expiry_notified_at,
+    ):
+        _send_owner_email(
+            resource,
+            f"[SkyLab] 資源 VMID {resource.vmid} 已到期，將自動關機",
+            (
+                f"<p>您的資源（VMID {resource.vmid}）已於 "
+                f"{resource.expiry_date} 到期，系統即將自動關機。</p>"
+                "<p>寬限期過後資源將被刪除，請儘速備份需要的資料。</p>"
+            ),
+        )
+        resource.expiry_notified_at = now
+        session.add(resource)
     logger.info("TTL expiry auto-stop scheduled for vmid=%s", resource.vmid)
 
 
@@ -161,6 +176,18 @@ def _vmids_with_open_deletion(session: Session) -> set[int]:
     return {int(vmid) for vmid in rows if vmid is not None}
 
 
+def _vmids_with_open_mining_incident(session: Session) -> set[int]:
+    """有未結案挖礦事件（detected／suspended）的 vmid（單次查詢）。
+
+    這些機器可能被反挖礦模組暫停（paused 在 PVE 仍回報 running、CPU 趨近 0），
+    自動關機會毀掉待審的記憶體狀態，事後 dismiss 也 resume 不回來；
+    交由管理員審核處置，TTL 關機與閒置偵測都先跳過。
+    """
+    from app.services.security import mining_service
+
+    return mining_service.open_incident_vmids(session)
+
+
 def process_ttl_lifecycle() -> int:
     """Scheduler tick：TTL 漸進回收（通知 → 關機 → 寬限期 → 刪除佇列）。"""
     try:
@@ -175,6 +202,7 @@ def process_ttl_lifecycle() -> int:
                 return 0
             pve_map = proxmox_service.list_all_resources_by_vmid()
             open_deletions = _vmids_with_open_deletion(session)
+            open_mining = _vmids_with_open_mining_incident(session)
 
             for resource in resources:
                 pve_info = pve_map.get(resource.vmid)
@@ -193,6 +221,8 @@ def process_ttl_lifecycle() -> int:
                     deletion_pending=resource.vmid in open_deletions,
                 )
                 if action is TtlAction.none:
+                    continue
+                if action is TtlAction.stop and resource.vmid in open_mining:
                     continue
                 try:
                     if action is TtlAction.warn:
@@ -294,14 +324,23 @@ def _apply_idle_action(
             auto_stop_reason="idle",
             commit=False,
         )
-        _send_owner_email(
-            resource,
-            f"[SkyLab] 閒置資源 VMID {resource.vmid} 將自動關機",
-            (
-                f"<p>您的資源（VMID {resource.vmid}）閒置寬限期已滿，"
-                "系統即將自動關機。資料保留，可隨時重新開機。</p>"
-            ),
-        )
+        # idle_since 在排程關機後仍保留；VM 沒關成時每次重掃都會再判 stop，
+        # 只重排關機、同一段閒置只寄一封信（以 idle_notified_at 記錄）
+        if idle_stop_email_due(
+            idle_since=resource.idle_since,
+            idle_notified_at=resource.idle_notified_at,
+            grace_hours=grace_hours,
+        ):
+            _send_owner_email(
+                resource,
+                f"[SkyLab] 閒置資源 VMID {resource.vmid} 將自動關機",
+                (
+                    f"<p>您的資源（VMID {resource.vmid}）閒置寬限期已滿，"
+                    "系統即將自動關機。資料保留，可隨時重新開機。</p>"
+                ),
+            )
+            resource.idle_notified_at = now
+            session.add(resource)
         logger.info("Idle grace elapsed: vmid=%s auto-stop scheduled", resource.vmid)
     elif action is IdleAction.clear:
         resource.idle_since = None
@@ -337,10 +376,22 @@ def process_idle_detection() -> int:
                 checked_before=now - timedelta(minutes=IDLE_RESCAN_MINUTES),
                 limit=config.idle_scan_batch_size,
             )
+            open_mining = (
+                _vmids_with_open_mining_incident(session) if candidates else set()
+            )
 
             for resource in candidates:
                 pve_info = pve_map.get(resource.vmid)
                 if pve_info is None:
+                    continue
+                if resource.vmid in open_mining:
+                    # 被反挖礦暫停的 VM 看起來是 running 且 CPU 趨近 0：不判閒置，
+                    # 並清掉舊標記，避免事件 dismiss 恢復後立刻被排關機
+                    resource.idle_since = None
+                    resource.idle_notified_at = None
+                    resource.idle_checked_at = now
+                    session.add(resource)
+                    session.commit()
                     continue
                 try:
                     avg_cpu = _fetch_avg_cpu(

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
-import { readRecentMachines, recordMachineUse, selectRecentMachines } from "./recentMachines";
+import { readRecentMachines, recordMachineUse } from "./recentMachines";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
@@ -13,15 +13,6 @@ it("keeps a deduplicated, most-recent-first history scoped to the user", () => {
   expect(readRecentMachines("alice")).toEqual([{ vmid: 101, usedAt: 300 }, { vmid: 102, usedAt: 200 }]);
   expect(readRecentMachines("bob")).toEqual([]);
   expect(readRecentMachines(null)).toEqual([]);
-});
-
-it("only shows machines still returned by the current user's resource API", () => {
-  const resources = [{ vmid: 102, name: "Current name", status: "stopped" }];
-  const history = [{ vmid: 101, usedAt: 300 }, { vmid: 102, usedAt: 200 }];
-  expect(selectRecentMachines(resources, history, 1)).toEqual([
-    { vmid: 102, name: "Current name", status: "stopped", usedAt: 200 },
-  ]);
-  expect(selectRecentMachines([], history)).toEqual([]);
 });
 
 it("ignores malformed storage and cannot interrupt connection when storage is blocked", () => {
