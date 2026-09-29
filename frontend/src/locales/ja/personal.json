@@ -1,6 +1,5 @@
 {
-  "HomeOverview.noMachines": "マシンがありません。作成して始めましょう。",
-  "HomeOverview.createMachine": "マシンを作成",
+  "HomeOverview.noMachines": "マシンがありません",
   "HomeOverview.subtitle": "{{today}} · 学習と練習を再開しましょう",
   "HomeOverview.allResources": "マイリソース",
   "HomeOverview.recentMachines": "最近使用したマシン",
@@ -868,7 +867,7 @@
   "StudentHomePage.continuePractice": "練習を続ける",
   "StudentHomePage.researchBadge": "自主研究 · 申請が必要",
   "StudentHomePage.buildResearchEnv": "自分の研究環境を作成",
-  "StudentHomePage.goToMyRequests": "マイ申請へ移動",
+  "StudentHomePage.startRequest": "申請を作成",
   "StudentHomePage.quickPracticeEnv": "クイック練習環境",
   "StudentHomePage.noManualReviewChip": "手動審査不要",
   "StudentHomePage.templateDescFallback": "{{count}} 台のマシンを含み、その場の練習や放課後の作業に適しています。",

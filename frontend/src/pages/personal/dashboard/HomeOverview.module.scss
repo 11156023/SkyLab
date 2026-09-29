@@ -26,13 +26,9 @@
 /* 區塊標題旁的「查看全部」：白底細框，在漸層背景上才看得見 */
 .headingAction { @include btn-secondary; }
 
-/* 空狀態裡的低強調動作 */
-.textButton {
-  @include btn-ghost;
-  min-height: 32px;
-  padding: 5px 10px;
-  font-size: $font-size-12;
-}
+/* 首頁三個區塊都可能同時空著：共用 EmptyState 的上下留白 48 → 24，整頁才不會拉太長。
+   雙類名壓過 EmptyState 自己的 .empty（CSS 載入順序不保證） */
+.sectionEmpty.sectionEmpty { padding: $spacing-24 $spacing-16; }
 
 /* 頁首動作鈕走共用 btn-secondary（同教師首頁等頁首按鈕：36px、14/500） */
 .headerButton { @include btn-secondary; }
@@ -49,16 +45,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: $spacing-16;
-}
-
-.emptyPanel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: $spacing-8;
-  padding: $spacing-8 0;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
 }
 
 /* 「以上都不符合」的出口：整條可點的淡卡片，比一行字更像入口 */

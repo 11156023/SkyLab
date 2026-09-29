@@ -1,6 +1,5 @@
 {
-  "HomeOverview.noMachines": "目前沒有機器，建立一台開始使用。",
-  "HomeOverview.createMachine": "建立機器",
+  "HomeOverview.noMachines": "目前沒有機器",
   "HomeOverview.subtitle": "{{today}} · 從這裡接續你的學習與練習",
   "HomeOverview.allResources": "我的資源",
   "HomeOverview.recentMachines": "最近使用機器",
@@ -868,7 +867,7 @@
   "StudentHomePage.continuePractice": "繼續練習",
   "StudentHomePage.researchBadge": "自主研究 · 需要申請",
   "StudentHomePage.buildResearchEnv": "建立自己的研究環境",
-  "StudentHomePage.goToMyRequests": "前往我的申請",
+  "StudentHomePage.startRequest": "填寫申請",
   "StudentHomePage.quickPracticeEnv": "快速練習環境",
   "StudentHomePage.noManualReviewChip": "免人工審核",
   "StudentHomePage.templateDescFallback": "包含 {{count}} 台機器，適合臨時練習與課後操作。",

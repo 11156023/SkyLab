@@ -107,13 +107,20 @@ it("titles class machines with the course environment name, keeping the hostname
   expect(headings[1].hasAttribute("title")).toBe(false);
 });
 
-it("offers creation only when no machines exist, opening the request form", async () => {
+it("shows a plain empty state without its own create button when no machines exist", async () => {
   await render({ resourcesError: true });
   expect(host.textContent).toContain("HomeOverview.resourcesFailed");
-  expect(host.textContent).not.toContain("HomeOverview.createMachine");
   await render();
-  const create = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.createMachine"));
-  await act(async () => create.click());
+  const section = host.querySelector('[aria-labelledby="recent-machines-title"]');
+  expect(section.querySelector("[data-empty-state]").textContent).toContain("HomeOverview.noMachines");
+  // 建機器的入口只留頁底「建立自己的研究環境」
+  expect(section.querySelector("button")).toBeNull();
+});
+
+it("sends independent research straight to the request form, not the request list", async () => {
+  await render();
+  const research = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("StudentHomePage.buildResearchEnv"));
+  await act(async () => research.click());
   expect(host.querySelector("output").textContent).toBe("/my-requests");
   expect(host.querySelector("output").getAttribute("data-create")).toBe("true");
 });

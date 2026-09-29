@@ -1,6 +1,5 @@
 {
-  "HomeOverview.noMachines": "No machines yet. Create one to get started.",
-  "HomeOverview.createMachine": "Create machine",
+  "HomeOverview.noMachines": "No machines yet",
   "HomeOverview.subtitle": "{{today}} · Pick up your learning and practice",
   "HomeOverview.allResources": "My resources",
   "HomeOverview.recentMachines": "Recently used machines",
@@ -868,7 +867,7 @@
   "StudentHomePage.continuePractice": "Continue Practicing",
   "StudentHomePage.researchBadge": "Independent Research · Request Needed",
   "StudentHomePage.buildResearchEnv": "Build Your Own Research Environment",
-  "StudentHomePage.goToMyRequests": "Go to My Requests",
+  "StudentHomePage.startRequest": "Start a request",
   "StudentHomePage.quickPracticeEnv": "Quick Practice Environments",
   "StudentHomePage.noManualReviewChip": "No Manual Review",
   "StudentHomePage.templateDescFallback": "Includes {{count}} machines, suited for quick practice and after-class work.",
