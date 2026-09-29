@@ -36,6 +36,7 @@
   "ConnectionPanel.modeFirewallOnly": "Firewall only",
   "ConnectionPanel.openUrl": "Open URL",
   "ConnectionPanel.delete": "Delete connection",
+  "ConnectionPanel.courseManaged": "Managed by course topology",
   "ConnectionEdge.allPorts": "All ports",
   "VMNode.exposedHint": "Exposed to the internet: {{count}}",
   "VMNode.originStudent": "Class machine of student {{owner}} · {{cls}}",

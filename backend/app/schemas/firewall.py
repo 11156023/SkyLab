@@ -289,6 +289,10 @@ class TopologyEdge(BaseModel):
     target_vmid: int | None = None
     ports: list[PortSpec] = []
     direction: Literal["one_way", "bidirectional"] = "one_way"
+    course_managed: bool = Field(
+        default=False,
+        description="Whether the connection is managed by a course topology",
+    )
 
 
 class TopologyResponse(BaseModel):

@@ -612,6 +612,35 @@ def _parse_connection_comment(comment: str) -> dict | None:
     return None
 
 
+def _parse_class_network_comment(comment: str) -> dict | None:
+    """Parse a course topology rule for display in the firewall graph.
+
+    Course rules use ``SkyLab:class-net:{scope}:{src}>{tgt}:{proto}``, with an
+    optional ``/{port}``. Keep this separate from ``_parse_connection_comment``
+    because that parser is also used by the regular connection deletion path;
+    course rules must only be changed through the course topology.
+    """
+    match = re.match(
+        r"^SkyLab:class-net:[^:]+:(\d+)>(\d+):([a-zA-Z]\w*)(?:/(\d+))?$",
+        comment or "",
+    )
+    if not match:
+        return None
+    return {
+        "type": "connection",
+        "source_vmid": int(match.group(1)),
+        "target_vmid": int(match.group(2)),
+        "protocol": match.group(3),
+        "port": int(match.group(4)) if match.group(4) else 0,
+        "course_managed": True,
+    }
+
+
+def _parse_topology_comment(comment: str) -> dict | None:
+    """Parse any SkyLab-managed rule that belongs in the topology graph."""
+    return _parse_connection_comment(comment) or _parse_class_network_comment(comment)
+
+
 def _make_connection_comment(
     source: int | str, target: int | str, port: int, protocol: str
 ) -> str:
@@ -1098,7 +1127,7 @@ def _edges_from_rules(rules_by_vmid: dict[int, list[dict]]) -> list[TopologyEdge
     for vmid, rules in rules_by_vmid.items():
         for rule in rules:
             comment = rule.get("comment", "") or ""
-            parsed = _parse_connection_comment(comment)
+            parsed = _parse_topology_comment(comment)
             if not parsed:
                 continue
 
@@ -1152,6 +1181,8 @@ def _edges_from_rules(rules_by_vmid: dict[int, list[dict]]) -> list[TopologyEdge
                         ports=[],
                         direction="one_way",
                     )
+                if parsed.get("course_managed"):
+                    edges[edge_key].course_managed = True
                 _add_edge_port(edges[edge_key], port, proto)
 
     return list(edges.values())
