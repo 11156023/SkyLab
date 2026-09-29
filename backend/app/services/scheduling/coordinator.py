@@ -418,18 +418,28 @@ def _refresh_actual_node(
             f"does not match request hostname '{expected_hostname}'"
         )
     actual_node = str(resource["node"])
-    vm_request_repo.update_vm_request_provisioning(
-        session=session,
-        db_request=db_request,
-        vmid=request.vmid,
-        assigned_node=actual_node,
-        desired_node=actual_node,
-        actual_node=actual_node,
-        placement_strategy_used=db_request.placement_strategy_used,
-        provisioning_status=VMProvisioningStatus.completed,
-        provisioning_error=None,
-        commit=False,
+    # 每個 tick 每張活單都會走到這裡；節點與狀態都沒變時不寫（省一次 UPDATE＋refresh）
+    already_recorded = (
+        db_request.vmid == request.vmid
+        and db_request.assigned_node == actual_node
+        and db_request.desired_node == actual_node
+        and db_request.actual_node == actual_node
+        and db_request.provisioning_status == VMProvisioningStatus.completed
+        and db_request.provisioning_error is None
     )
+    if not already_recorded:
+        vm_request_repo.update_vm_request_provisioning(
+            session=session,
+            db_request=db_request,
+            vmid=request.vmid,
+            assigned_node=actual_node,
+            desired_node=actual_node,
+            actual_node=actual_node,
+            placement_strategy_used=db_request.placement_strategy_used,
+            provisioning_status=VMProvisioningStatus.completed,
+            provisioning_error=None,
+            commit=False,
+        )
     return actual_node, resource
 
 
@@ -533,10 +543,16 @@ def _ensure_request_running(
             request.id,
         )
         return False
-    actual_node, _ = refreshed
+    actual_node, cluster_entry = refreshed
 
-    pve_status = proxmox_service.get_status(actual_node, request.vmid, resource_type)
-    is_running = str(pve_status.get("status") or "").lower() == "running"
+    # 叢集清單（/cluster/resources）已說在跑就不再逐台問 status/current；
+    # 說沒在跑才即時確認，避免依稍舊的清單對已開機的機器送 start
+    is_running = str(cluster_entry.get("status") or "").lower() == "running"
+    if not is_running:
+        pve_status = proxmox_service.get_status(
+            actual_node, request.vmid, resource_type
+        )
+        is_running = str(pve_status.get("status") or "").lower() == "running"
     if not is_running:
         try:
             proxmox_service.control(
@@ -838,6 +854,10 @@ def process_due_request_stops() -> int:
                 # 錯誤分支（只記 log），不會把申請單誤標 failed
                 resource = scheduling_support.find_resource_strict(vmid)
                 node = str(resource["node"])
+                # 過了時段的單會一直留在這個清單直到機器刪除；叢集清單已顯示
+                # 關機的就不再逐台問 status/current（清單稍舊頂多晚一輪關機）
+                if str(resource.get("status") or "").lower() in {"stopped", "paused"}:
+                    continue
                 status = proxmox_service.get_status(node, vmid, resource_type)
                 current_status = str(status.get("status") or "").lower()
                 if current_status in {"stopped", "paused"}:
