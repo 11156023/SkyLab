@@ -873,6 +873,11 @@ export function StudentMachines({ item }) {
     setCollectedAt(null);
 
     async function loadUsage() {
+      // 分頁隱藏時不打 API，只排下一輪
+      if (document.hidden && usageByVmidRef.current !== null) {
+        timer = window.setTimeout(loadUsage, 10_000);
+        return;
+      }
       try {
         const response = await TeachingClassesService.resourceUsage(item.id);
         if (!active) return;
@@ -1143,6 +1148,7 @@ export default function ClassWorkspacePage() {
     // 那一支會實際呼叫 PVE，不適合每三秒打一次。
     let ticks = 0;
     const timer = window.setInterval(() => {
+      if (document.hidden) return;
       ticks += 1;
       const request = ticks % 5 === 1
         ? TeachingClassesService.reconcile(item.id)

@@ -3,7 +3,7 @@
  * 提供全域認證狀態，並區分「登入確實失效」與「暫時無法連線」。
  */
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { AuthStorage, loginLdap, loginTotp } from "../services/auth";
@@ -368,23 +368,36 @@ export function AuthProvider({ children }) {
     [verifyStoredSession],
   );
 
+  // 35 個以上的元件用 useAuth：value 每次重建會讓它們跟著 AuthProvider 一起重繪
+  const value = useMemo(() => ({
+    user: session.user,
+    loading: session.status === AuthSessionStatus.CHECKING,
+    authStatus: session.status,
+    login,
+    googleLogin,
+    ldapLogin,
+    totpLogin,
+    logout,
+    retrySession,
+    updateUser,
+    loginPreflightPending,
+    finishLoginPreflight,
+  }), [
+    session.user,
+    session.status,
+    login,
+    googleLogin,
+    ldapLogin,
+    totpLogin,
+    logout,
+    retrySession,
+    updateUser,
+    loginPreflightPending,
+    finishLoginPreflight,
+  ]);
+
   return (
-    <AuthContext.Provider
-      value={{
-        user: session.user,
-        loading: session.status === AuthSessionStatus.CHECKING,
-        authStatus: session.status,
-        login,
-        googleLogin,
-        ldapLogin,
-        totpLogin,
-        logout,
-        retrySession,
-        updateUser,
-        loginPreflightPending,
-        finishLoginPreflight,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

@@ -272,6 +272,7 @@ export default function SpecificationsTab({ vmid }) {
   useEffect(() => {
     if (!applying) return undefined;
     const timer = setInterval(async () => {
+      if (document.hidden) return;
       const before = openRequest?.id;
       await loadRequests();
       /* 套用完成後 openRequest 會消失；重新載入規格讓「目前」數字更新 */

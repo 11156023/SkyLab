@@ -100,7 +100,7 @@ function NodeTrends({ node }) {
       }
     };
     load();
-    const timer = setInterval(load, 60_000);
+    const timer = setInterval(() => { if (!document.hidden) load(); }, 60_000);
     return () => {
       cancelled = true;
       clearInterval(timer);

@@ -2,6 +2,8 @@ import { VmRequestsService } from "./vmRequests";
 
 /** 建立中狀態變化頻率高，5 秒輪詢一次 */
 export const PENDING_POLL_INTERVAL = 5000;
+/** 沒有建立中的申請時放慢輪詢（新申請送出後頁面會主動刷新） */
+export const PENDING_IDLE_POLL_INTERVAL = 30_000;
 
 /**
  * 後端在使用者刪機／孤兒清理／轉範本時寫進 review_comment、resource_warning、
