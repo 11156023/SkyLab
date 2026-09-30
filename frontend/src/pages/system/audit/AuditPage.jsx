@@ -55,12 +55,13 @@ export function applyDateField(filters, name, value, today = todayDateStr()) {
   return next;
 }
 
-function EmptyState({ hasFilter }) {
+function EmptyState({ hasFilter, onClear }) {
   const { t } = useTranslation("system");
   return (
     <SharedEmptyState
       icon={hasFilter ? "search_off" : "receipt_long"}
       title={hasFilter ? t("AuditPage.emptyNoResult") : t("AuditPage.emptyNone")}
+      action={hasFilter ? <button type="button" className={styles.btnSecondary} onClick={onClear}><MIcon name="filter_alt_off" size={16} />{t("EmptyState.clearFilters", { ns: "common" })}</button> : undefined}
     />
   );
 }
@@ -297,7 +298,7 @@ export default function AuditPage() {
         {isInitialLoading ? (
           <LoadingState fullPage text={t("AuditPage.loading")} />
         ) : logs.length === 0 ? (
-          <EmptyState hasFilter={hasFilter} />
+          <EmptyState hasFilter={hasFilter} onClear={resetFilters} />
         ) : (
           <>
             <div className={styles.tableWrap}>

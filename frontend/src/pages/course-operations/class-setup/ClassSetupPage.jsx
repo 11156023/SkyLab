@@ -131,6 +131,8 @@ export default function ClassSetupPage() {
   const [form, setForm] = useState(initialForm);
   const [item, setItem] = useState(null);
   const [loadError, setLoadError] = useState("");
+  const [loadRetryable, setLoadRetryable] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [templates, setTemplates] = useState([]);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [templateId, setTemplateId] = useState("");
@@ -235,10 +237,14 @@ export default function ClassSetupPage() {
         }
         applyClass(result);
       })
-      .catch((reason) => active && setLoadError(reason?.message ?? t("ClassSetupPage.loadDraftFailed")))
+      .catch((reason) => {
+        if (!active) return;
+        setLoadError(reason?.message ?? t("ClassSetupPage.loadDraftFailed"));
+        setLoadRetryable(![403, 404].includes(reason?.status));
+      })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [classId, navigate, t]);
+  }, [classId, navigate, t, reloadKey]);
 
   // 網址指到還不能去的步驟時，把網址也改成實際顯示的那一步，上一頁／重新整理才不會跳來跳去
   useEffect(() => {
@@ -414,7 +420,10 @@ export default function ClassSetupPage() {
   // 別人的班級（403）、已刪除（404）或網路錯誤：不顯示一份空白表單讓人以為能繼續填
   if (loadError) return <div className={styles.page}>
     <PageHeader title={t("ClassSetupPage.defaultPageTitle")}>{backButton}</PageHeader>
-    <section className={styles.card}><EmptyState icon="error_outline" title={t("ClassSetupPage.loadFailedTitle")} description={loadError} /></section>
+    <section className={styles.card}><EmptyState icon="error_outline" title={t("ClassSetupPage.loadFailedTitle")} description={loadError}
+      action={loadRetryable
+        ? <button type="button" className={styles.btnSecondary} onClick={() => setReloadKey((key) => key + 1)}><MIcon name="refresh" size={16} />{t("Error.retry", { ns: "common" })}</button>
+        : <button type="button" className={styles.btnSecondary} onClick={() => leaveTo("/class-management")}><MIcon name="arrow_back" size={16} />{t("ClassSetupPage.backToClassManagement")}</button>} /></section>
   </div>;
 
   const stepLabel = (number) => t(STEPS[number - 1][1]);

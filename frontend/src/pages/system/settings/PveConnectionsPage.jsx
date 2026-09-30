@@ -348,7 +348,8 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
         {loading ? (
           <LoadingState text={t("SettingsPage.loadingConnections")} />
         ) : connections.length === 0 ? (
-          <EmptyState icon="device_hub" title={t("SettingsPage.noConnectionsYet")} />
+          <EmptyState icon="device_hub" title={t("SettingsPage.noConnectionsYet")}
+            action={<button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")}><MIcon name="add" size={16} />{t("SettingsPage.addConnection")}</button>} />
         ) : (
           /* 清單形式同使用者管理：每列一張玻璃列卡，寬螢幕攤成一行（狀態、節點數各一欄） */
           <div className={styles.list}>

@@ -209,6 +209,10 @@ class ResourcePublic(BaseModel):
     teaching_class_name: str | None = Field(
         default=None, description="班級機所屬班級名稱"
     )
+    course_environment_name: str | None = Field(
+        default=None,
+        description="班級機、快速練習機依據的課程環境名稱（學生首頁機器卡的標題）",
+    )
     public_urls: list[str] = Field(
         default_factory=list,
         description="這台機器的對外網址（反向代理規則組出的 URL），可能有多個",

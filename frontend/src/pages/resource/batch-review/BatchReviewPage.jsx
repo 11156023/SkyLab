@@ -151,9 +151,10 @@ function StatusBadge({ status }) {
   return <span className={`${styles.badge} ${styles[`badge_${meta.tone}`]}`}>{meta.label}</span>;
 }
 
-function EmptyState() {
+function EmptyState({ onClearSearch }) {
   const { t } = useTranslation("resource");
-  return <SharedEmptyState icon="library_add_check" title={t("BatchReviewPage.emptyTitle")} />;
+  return <SharedEmptyState icon="library_add_check" title={t("BatchReviewPage.emptyTitle")}
+    action={onClearSearch && <button type="button" className={styles.btnSecondary} onClick={onClearSearch}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} />;
 }
 
 function InfoRow({ label, value }) {
@@ -423,7 +424,7 @@ export default function BatchReviewPage() {
                 </button>
               </div>
             ) : visibleRows.length === 0 ? (
-              <EmptyState />
+              <EmptyState onClearSearch={query.trim() ? () => setQuery("") : undefined} />
             ) : (
               <div className={styles.list}>
                 {visibleRows.map((row) => (

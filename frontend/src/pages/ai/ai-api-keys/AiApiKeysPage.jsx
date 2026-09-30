@@ -57,12 +57,17 @@ function StatusBadge({ item }) {
   );
 }
 
-function EmptyState({ hasFilters }) {
+function EmptyState({ hasFilters, onClear }) {
   const { t } = useTranslation("ai");
   return (
     <SharedEmptyState
       icon="vpn_key"
       title={t(hasFilters ? "AiApiKeysPage.emptyFilteredTitle" : "AiApiKeysPage.emptyTitle")}
+      action={hasFilters ? (
+        <button type="button" className={styles.btnSecondary} onClick={onClear}>
+          <MIcon name="filter_alt_off" size={16} />{t("EmptyState.clearFilters", { ns: "common" })}
+        </button>
+      ) : undefined}
     />
   );
 }
@@ -271,7 +276,12 @@ export default function AiApiKeysPage() {
 
       <div className={styles.content}>
         {loading ? <LoadingState fullPage /> : (
-          rows.length === 0 ? <EmptyState hasFilters={hasFilters} /> : (
+          rows.length === 0 ? <EmptyState hasFilters={hasFilters} onClear={() => {
+            setStatusFilter("all");
+            setSearchInput("");
+            setQuery("");
+            clearFilters();
+          }} /> : (
             <>
               <div className={styles.tableWrap}>
                 <table className={styles.table}>

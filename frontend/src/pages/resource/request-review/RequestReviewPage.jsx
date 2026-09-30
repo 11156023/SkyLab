@@ -210,9 +210,10 @@ function StatusBadge({ status }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onClearSearch }) {
   const { t } = useTranslation("resource");
-  return <SharedEmptyState icon="assignment_turned_in" title={t("RequestReviewPage.emptyTitle")} />;
+  return <SharedEmptyState icon="assignment_turned_in" title={t("RequestReviewPage.emptyTitle")}
+    action={onClearSearch && <button type="button" className={styles.btnSecondary} onClick={onClearSearch}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} />;
 }
 
 function InfoRow({ label, value }) {
@@ -449,7 +450,7 @@ export default function RequestReviewPage() {
                 </button>
               </div>
             ) : visibleRequests.length === 0 ? (
-              <EmptyState />
+              <EmptyState onClearSearch={query.trim() ? () => setQuery("") : undefined} />
             ) : (
               <div className={styles.list}>
                 {visibleRequests.map((request) => (

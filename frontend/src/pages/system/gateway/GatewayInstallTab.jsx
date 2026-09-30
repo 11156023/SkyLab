@@ -105,7 +105,7 @@ function InterfaceSelect({ label, value, interfaces, onChange, disabled }) {
 }
 
 /* ── 安裝服務 Tab ───────────────────────────────────── */
-export default function GatewayInstallTab({ gatewayReady }) {
+export default function GatewayInstallTab({ gatewayReady, onGoToConnection }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
@@ -218,7 +218,7 @@ export default function GatewayInstallTab({ gatewayReady }) {
   }
 
   if (!gatewayReady) {
-    return <EmptyState icon="install_desktop" title={t("GatewayPage.installNeedsSshKey")} />;
+    return <EmptyState icon="install_desktop" title={t("GatewayPage.installNeedsSshKey")} action={<button type="button" className={styles.btnPrimary} onClick={onGoToConnection}><MIcon name="settings_ethernet" size={16} />{t("GatewayPage.goToConnection")}</button>} />;
   }
 
   if (loading && !status) {

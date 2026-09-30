@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
+import EmptyState from "../../../components/EmptyState/EmptyState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { RECENT_MACHINES_EVENT, readRecentMachines } from "../../../services/recentMachines";
 import QuickTemplateCards from "../quick-practice/QuickTemplateCards";
@@ -16,11 +17,9 @@ function SectionHeading({ id, title, action, onAction }) {
   </header>;
 }
 
-function EmptyPanel({ icon, title, action, onAction }) {
-  return <div className={styles.emptyPanel}>
-    <MIcon name={icon} size={20} /><span>{title}</span>
-    {action && <button type="button" className={styles.textButton} onClick={onAction}>{action}<MIcon name="add" size={16} /></button>}
-  </div>;
+/* 區塊空狀態：全站共用的 EmptyState（置中圖示＋灰字）；要建機器走頁底「建立自己的研究環境」 */
+function EmptyPanel({ icon, title }) {
+  return <EmptyState icon={icon} title={title} className={styles.sectionEmpty} />;
 }
 
 /* 這個瀏覽器的連線紀錄（主控台連上時 recordMachineUse 會寫入並發事件），vmid → usedAt */
@@ -65,8 +64,7 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
             openingMachineId={openingMachineId} onOpen={onOpenMachine}
             onShutdown={onShutdownMachine} shuttingDown={shuttingDownId === machine.vmid}
             onInfo={(target) => navigate(`/my-resources/${target.vmid}`)} />)}
-        </div> : <EmptyPanel icon="computer" title={t("HomeOverview.noMachines")}
-          action={t("HomeOverview.createMachine")} onAction={() => navigate("/my-requests", { state: { create: true } })} />}
+        </div> : <EmptyPanel icon="computer" title={t("HomeOverview.noMachines")} />}
     </section>
 
     <section className={styles.section} aria-labelledby="joined-courses-title" data-guide="home-schedule">
@@ -81,13 +79,15 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
 
     <section className={styles.section} aria-labelledby="quick-template-title" data-guide="home-quick-templates">
       <SectionHeading id="quick-template-title" title={t("StudentHomePage.quickPracticeEnv")} />
-      <QuickTemplateCards templates={templates} loading={templatesLoading} error={templatesError} from="/dashboard" />
+      <QuickTemplateCards templates={templates} loading={templatesLoading} error={templatesError} from="/dashboard"
+        emptyClassName={styles.sectionEmpty} />
     </section>
 
     <aside data-guide="home-other-needs">
-      <button type="button" className={styles.researchLink} onClick={() => navigate("/my-requests")}>
+      {/* 直接開申請表單，不先停在申請列表 */}
+      <button type="button" className={styles.researchLink} onClick={() => navigate("/my-requests", { state: { create: true } })}>
         <span className={styles.researchLabel}><MIcon name="science" size={22} />{t("StudentHomePage.buildResearchEnv")}</span>
-        <span className={styles.researchGo}>{t("StudentHomePage.goToMyRequests")}<MIcon name="arrow_forward" size={16} /></span>
+        <span className={styles.researchGo}>{t("StudentHomePage.startRequest")}<MIcon name="arrow_forward" size={16} /></span>
       </button>
     </aside>
   </>;

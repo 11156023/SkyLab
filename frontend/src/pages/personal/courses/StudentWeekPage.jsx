@@ -145,11 +145,11 @@ export default function StudentWeekPage() {
   if (view.loading) return <div className={styles.page}><LoadingState fullPage text={t("StudentWeekPage.loading")} /></div>;
 
   if (!view.week) {
+    const back = <button type="button" className={`${styles.backBtn} ${styles.backBtnAlone}`} onClick={() => navigate(`/courses/${pathId}`)}><MIcon name="arrow_back" size={18} />{t("StudentWeekPage.back")}</button>;
     return <div className={styles.page}>
-      <button type="button" className={`${styles.backBtn} ${styles.backBtnAlone}`} onClick={() => navigate(`/courses/${pathId}`)}><MIcon name="arrow_back" size={18} />{t("StudentWeekPage.back")}</button>
       {view.failed
-        ? <ErrorState />
-        : <EmptyState icon="event_busy" title={t("StudentWeekPage.notFoundTitle")} description={t("StudentWeekPage.notFoundDesc")} />}
+        ? <>{back}<ErrorState /></>
+        : <EmptyState icon="event_busy" title={t("StudentWeekPage.notFoundTitle")} description={t("StudentWeekPage.notFoundDesc")} action={back} />}
     </div>;
   }
 

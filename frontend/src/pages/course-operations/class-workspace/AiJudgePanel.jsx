@@ -512,13 +512,14 @@ export function getSessionMenuPosition(anchorRect, options = {}) {
 }
 
 /** 還沒有任何檢查時的中央空狀態；新增入口在左側清單頂端（有檢查時一律自動選最近的一項）。 */
-export function EmptyCheckHero() {
+export function EmptyCheckHero({ onCreate }) {
   const { t } = useTranslation("teaching");
   return (
     <EmptyState
       icon="checklist"
       title={t("AiJudgePanel.noChecksTitle")}
       description={t("AiJudgePanel.noChecksDesc")}
+      action={onCreate && <button type="button" className={styles.btnPrimary} onClick={onCreate}><MIcon name="add" size={16} />{t("AiJudgePanel.newCheckBtn")}</button>}
     />
   );
 }
@@ -1190,8 +1191,8 @@ export function ChatPanel({
   const { dragging, dropProps } = useFileDrop(([file]) => onUploadFile?.(file), {
     disabled: !canInteract,
   });
-  // 空對話（無可顯示訊息且非載入中）走中央 Hero Composer：置中 ✦＋標題＋圓角輸入框；
-  // 有訊息或載入中則維持訊息串＋底部輸入的既有版面。
+  // 空對話（無可顯示訊息且非載入中）：訊息區置中放 ✦＋標題＋說明，圓角輸入框（Hero Composer）固定在面板底部；
+  // 有訊息或載入中則維持訊息串＋底部輸入列的既有版面。
   const isEmpty = visibleMessages.length === 0 && !isLoading;
   const heroPlaceholder = t("AiJudgePanel.chatHeroPlaceholder");
 
@@ -1236,59 +1237,6 @@ export function ChatPanel({
             <p className={styles.chatHeroDesc}>
               {t("AiJudgePanel.chatHeroDesc")}
             </p>
-            {attachmentRail}
-            <form
-              className={styles.chatHeroComposer}
-              aria-label={t("AiJudgePanel.chatFormAria")}
-              onSubmit={(e) => {
-                e.preventDefault();
-                send();
-              }}
-            >
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-                placeholder={heroPlaceholder}
-                rows={3}
-                aria-label={t("AiJudgePanel.chatInputAria")}
-                disabled={!canInteract}
-              />
-              <div className={styles.chatHeroFooter}>
-                {onUploadFile ? (
-                  <>
-                    {attachmentInput}
-                    <button
-                      type="button"
-                      className={styles.btnSecondary}
-                      disabled={!canInteract}
-                      aria-label={t("AiJudgePanel.addAttachmentAria")}
-                      title={t("AiJudgePanel.attachFileTitle")}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <MIcon name="add" size={16} />
-                      {t("AiJudgePanel.attachFileBtn")}
-                    </button>
-                  </>
-                ) : <span />}
-                <button
-                  type="submit"
-                  className={`${styles.btnSecondary} ${styles.chatHeroSend}`}
-                  disabled={!canSend}
-                  aria-label={t("AiJudgePanel.sendAria")}
-                  title={t("AiJudgePanel.sendAria")}
-                >
-                  <MIcon name="arrow_upward" size={18} />
-                </button>
-              </div>
-            </form>
-            {sourcesToggle}
-            {sourcesPanel}
           </div>
         ) : (
           visibleMessages.map((msg, i) => (
@@ -1359,6 +1307,65 @@ export function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* 空對話的輸入框是對話框，固定在面板底部（原本置中夾在說明底下）；樣式沿用 Hero Composer */}
+      {isEmpty && (
+        <div className={styles.chatHeroDock}>
+                {attachmentRail}
+                <form
+                  className={styles.chatHeroComposer}
+                  aria-label={t("AiJudgePanel.chatFormAria")}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    send();
+                  }}
+                >
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        send();
+                      }
+                    }}
+                    placeholder={heroPlaceholder}
+                    rows={3}
+                    aria-label={t("AiJudgePanel.chatInputAria")}
+                    disabled={!canInteract}
+                  />
+                  <div className={styles.chatHeroFooter}>
+                    {onUploadFile ? (
+                      <>
+                        {attachmentInput}
+                        <button
+                          type="button"
+                          className={styles.btnSecondary}
+                          disabled={!canInteract}
+                          aria-label={t("AiJudgePanel.addAttachmentAria")}
+                          title={t("AiJudgePanel.attachFileTitle")}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <MIcon name="add" size={16} />
+                          {t("AiJudgePanel.attachFileBtn")}
+                        </button>
+                      </>
+                    ) : <span />}
+                    <button
+                      type="submit"
+                      className={`${styles.btnSecondary} ${styles.chatHeroSend}`}
+                      disabled={!canSend}
+                      aria-label={t("AiJudgePanel.sendAria")}
+                      title={t("AiJudgePanel.sendAria")}
+                    >
+                      <MIcon name="arrow_upward" size={18} />
+                    </button>
+                  </div>
+                </form>
+                {sourcesToggle}
+                {sourcesPanel}
+        </div>
+      )}
+
       {!isEmpty && (
       <div className={styles.chatInputArea}>
         {attachmentRail}
@@ -1419,7 +1426,6 @@ export function ChatPanel({
             <MIcon name="send" size={16} />
           </button>
         </form>
-        <p className={styles.chatHint}>{t("AiJudgePanel.chatHint")}</p>
       </div>
       )}
       {dragging && <FileDropOverlay label={t("AiJudgePanel.dropToAttach")} />}
@@ -1648,6 +1654,8 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const { t } = useTranslation("teaching");
   const toast = useToast();
   const confirm = useConfirm();
+  /* 沒有檢查項目時，空狀態的「詢問檢查表助理」把焦點帶到右側助理的輸入框 */
+  const chatColRef = useRef(null);
   // 製作腳本要等很久：途中切到別的檢查（這個分頁已卸載）就不能再把上層帶去腳本／核查分頁
   const mountedRef = useRef(true);
   const [chatHasDraft, setChatHasDraft] = useState(false);
@@ -2321,6 +2329,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
               icon="playlist_add"
               title={t("AiJudgePanel.noItemsTitle")}
               description={t("AiJudgePanel.noItemsDesc")}
+              action={<button type="button" className={styles.btnSecondary} onClick={() => chatColRef.current?.querySelector("textarea")?.focus()}><MIcon name="fact_check" size={16} />{t("AiJudgePanel.askAssistantBtn")}</button>}
             />
           ) : (
             <>
@@ -2363,7 +2372,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           )}
         </div>
 
-        <div className={`${styles.card} ${styles.checkChatCol}`}>
+        <div ref={chatColRef} className={`${styles.card} ${styles.checkChatCol}`}>
           <div className={styles.checkChatInner}>
             <div className={styles.checkHead}>
               <h4 className={styles.cardTitle}>
@@ -4625,7 +4634,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
             </div>
           ) : (
             <div className={styles.card}>
-              <EmptyCheckHero />
+              <EmptyCheckHero onCreate={openCreateCheckDialog} />
             </div>
           )}
         </div>

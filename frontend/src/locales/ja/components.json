@@ -25,6 +25,7 @@
   "AiFloatingChat.capabilityGuideTitle": "手順をガイド",
   "AiFloatingChat.capabilityRecommendTitle": "構成を推薦して申請フォームを入力",
   "AiFloatingChat.capabilityExplainTitle": "今の画面を説明",
+  "AiFloatingChat.suggestionsLead": "たとえば：",
   "AiFloatingChat.choiceSkipButton": "今すぐ構成を生成",
   "AiFloatingChat.closeAssistantAriaLabel": "AIアシスタントを閉じる",
   "AiFloatingChat.closeLabel": "閉じる",

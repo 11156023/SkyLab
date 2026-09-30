@@ -1,0 +1,12 @@
+/* 班級啟用後的分頁切換：依內容寬度靠左、不被直向 flex 撐滿；
+   六段在窄螢幕放不下時橫向捲動（隱藏捲軸） */
+.segment {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

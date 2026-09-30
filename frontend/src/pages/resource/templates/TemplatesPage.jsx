@@ -412,6 +412,7 @@ export default function TemplatesPage() {
         <EmptyState
           icon="widgets"
           title={t("TemplatesPage.emptyTitle")}
+          action={<button type="button" className={styles.btnPrimary} onClick={() => setCreateOpen(true)}><MIcon name="add" size={16} />{t("TemplatesPage.createFromVm")}</button>}
         />
       ) : (
         <div className={styles.card}>
