@@ -36,6 +36,7 @@
   "ConnectionPanel.modeFirewallOnly": "僅開放防火牆",
   "ConnectionPanel.openUrl": "開啟網址",
   "ConnectionPanel.delete": "刪除連線",
+  "ConnectionPanel.topologyManaged": "由環境模板管理",
   "ConnectionEdge.allPorts": "不限通訊埠",
   "VMNode.exposedHint": "對外開放 {{count}} 項",
   "VMNode.originStudent": "學生 {{owner}} 的課堂機器 · {{cls}}",

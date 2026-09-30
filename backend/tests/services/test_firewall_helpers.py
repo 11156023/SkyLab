@@ -7,6 +7,8 @@ the comment-format contract used by every SkyLab firewall rule.
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.network import firewall_service as fw
 from app.utils.hostname import from_punycode_hostname
 
@@ -80,6 +82,95 @@ def test_parse_unrelated_comment_returns_none() -> None:
 
 def test_parse_malformed_skylab_comment_returns_none() -> None:
     assert fw._parse_connection_comment("SkyLab:not-a-known-shape") is None
+
+
+def test_parse_environment_network_comments_for_topology_only() -> None:
+    icmp = fw._parse_topology_comment(
+        "SkyLab:class-net:704664cd:101>102:icmp"
+    )
+    practice_tcp = fw._parse_topology_comment(
+        "SkyLab:practice-net:704664cd:101>102:tcp/16000"
+    )
+
+    assert icmp == {
+        "type": "connection",
+        "source_vmid": 101,
+        "target_vmid": 102,
+        "protocol": "icmp",
+        "port": 0,
+        "topology_managed": True,
+    }
+    assert practice_tcp == {
+        "type": "connection",
+        "source_vmid": 101,
+        "target_vmid": 102,
+        "protocol": "tcp",
+        "port": 16000,
+        "topology_managed": True,
+    }
+    # The regular deletion parser must not recognize environment-managed rules.
+    assert fw._parse_connection_comment(
+        "SkyLab:class-net:704664cd:101>102:icmp"
+    ) is None
+    assert fw._parse_connection_comment(
+        "SkyLab:practice-net:704664cd:101>102:icmp"
+    ) is None
+
+
+def test_edges_from_rules_includes_and_dedupes_environment_connection() -> None:
+    comment = "SkyLab:practice-net:704664cd:101>102:icmp"
+
+    edges = fw._edges_from_rules(
+        {
+            101: [{"pos": 0, "comment": comment}],
+            102: [{"pos": 0, "comment": comment}],
+        }
+    )
+
+    assert len(edges) == 1
+    assert edges[0].source_vmid == 101
+    assert edges[0].target_vmid == 102
+    assert edges[0].ports == [fw.PortSpec(port=0, protocol="icmp")]
+    assert edges[0].topology_managed is True
+
+
+@pytest.mark.parametrize(
+    "comment",
+    [
+        "SkyLab:class-net:704664cd:101>102:icmp",
+        "SkyLab:practice-net:704664cd:101>102:icmp",
+    ],
+)
+def test_regular_connection_delete_does_not_remove_environment_network_rules(
+    monkeypatch, comment: str,
+) -> None:
+    deleted: list[int] = []
+    monkeypatch.setattr(
+        fw,
+        "get_vm_firewall_rules",
+        lambda *_args: [
+            {
+                "pos": 7,
+                "comment": comment,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        fw,
+        "delete_rule_by_pos",
+        lambda _node, _vmid, _resource_type, pos: deleted.append(pos),
+    )
+
+    fw._delete_matching_rules(
+        node="pve1",
+        vmid=101,
+        resource_type="qemu",
+        source_vmid=101,
+        target_vmid=102,
+        ports=None,
+    )
+
+    assert deleted == []
 
 
 # ─── _make_rule_fields ───────────────────────────────────────────────────────

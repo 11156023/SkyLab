@@ -28,8 +28,8 @@ class IdleAction(str, enum.Enum):
     none = "none"
 
 
-def _expiry_datetime(expiry_date: date) -> datetime:
-    """到期日以當日 00:00 UTC 起算。"""
+def expiry_datetime(expiry_date: date) -> datetime:
+    """回傳既有生命週期政策使用的到期日 00:00 UTC 界線。"""
     return datetime(
         expiry_date.year, expiry_date.month, expiry_date.day, tzinfo=timezone.utc
     )
@@ -55,7 +55,7 @@ def decide_ttl_action(
     if expiry_date is None:
         return TtlAction.none
 
-    expiry_at = _expiry_datetime(expiry_date)
+    expiry_at = expiry_datetime(expiry_date)
 
     # 寬限期滿：進刪除佇列（優先於 stop — 即使還在跑，刪除流程會處理）
     if now >= expiry_at + timedelta(days=grace_delete_days):
@@ -102,7 +102,7 @@ def ttl_stop_email_due(
     """
     if expiry_date is None or expiry_notified_at is None:
         return True
-    return _as_utc(expiry_notified_at) < _expiry_datetime(expiry_date)
+    return _as_utc(expiry_notified_at) < expiry_datetime(expiry_date)
 
 
 def idle_stop_email_due(

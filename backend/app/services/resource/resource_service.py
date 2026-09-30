@@ -49,6 +49,7 @@ from app.schemas.resource import (
     ResourceStatus,
     SessionStatusResponse,
 )
+from app.services.governance.lifecycle_policy import expiry_datetime
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
 from app.services.resource import kind as resource_kind
@@ -1887,9 +1888,7 @@ def _session_status(
     hours_until_expiry: int | None = None
     expiry_warn = False
     if running and resource and resource.expiry_date and resource.batch_job_id is None:
-        expiry_at = datetime.combine(
-            resource.expiry_date, datetime.min.time(), tzinfo=UTC
-        ) + timedelta(days=1)
+        expiry_at = expiry_datetime(resource.expiry_date)
         delta_h = (expiry_at - _utc_now()).total_seconds() / 3600
         hours_until_expiry = max(math.ceil(delta_h), 0)
         expiry_warn = 0 < delta_h <= policy.expiry_warning_hours
