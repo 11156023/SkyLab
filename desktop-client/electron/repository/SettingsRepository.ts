@@ -10,7 +10,22 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
 
   async get(): Promise<SkyLabSettings> {
     const existing = await this.findById(this._id);
-    if (existing) return existing;
+    if (existing) {
+      // The original desktop release stored localhost as its default. Move only
+      // that value to the production site; keep user configured servers intact.
+      if (
+        !existing.backendUrl ||
+        existing.backendUrl.replace(/\/$/, "") ===
+          GlobalConstant.LEGACY_BACKEND_URL
+      ) {
+        return this.updateById(this._id, {
+          ...existing,
+          backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
+          token: ""
+        });
+      }
+      return existing;
+    }
     const defaults: SkyLabSettings = {
       _id: this._id,
       backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,

@@ -159,7 +159,7 @@
     },
     backend: {
       label: "Backend URL",
-      tips: "SkyLab server address."
+      tips: "SkyLab server root URL, without /login."
     },
     account: {
       label: "Account",
