@@ -25,6 +25,8 @@
   "snapshot.reservedName": "skylab-init はシステム予約のスナップショット名です",
   "snapshot.maxCountReached": "スナップショット数が上限（{limit}）に達しています。先に古いスナップショットを削除してから作成してください",
   "snapshot.initProtected": "skylab-init は保護されており、管理者のみ削除できます",
+  "snapshot.unavailable": "このマシンでは現在スナップショットを利用できません（ディスクを置いているストレージが対応していません）。スナップショットとリセットの機能は無効になっています",
+  "snapshot.checkFailed": "このマシンでスナップショットを利用できるかを現在確認できません。しばらくしてからもう一度お試しください",
 
   "wireguard.invalidPublicKey": "WireGuard の公開鍵が無効です",
   "wireguard.clientSubnetInvalid": "WIREGUARD_CLIENT_SUBNET が無効です",

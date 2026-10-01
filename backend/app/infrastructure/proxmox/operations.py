@@ -764,6 +764,20 @@ def _validate_snapname(snapname: object) -> None:
         raise BadRequestError(f"Invalid snapshot name: {snapname!r}")
 
 
+def has_snapshot_feature(node: str, vmid: int, resource_type: ResourceType) -> bool:
+    """GET /nodes/{node}/{type}/{vmid}/feature?feature=snapshot
+
+    PVE 依這台機器「目前」所有磁碟（VM 的 scsi/virtio/efidisk/tpmstate…、
+    LXC 的 rootfs/mp*）所在 storage 與格式判斷能否做快照，和它自己在建立
+    快照前做的檢查是同一套；例如 LVM（非 thin）、目錄型 storage 上的 raw
+    磁碟、已轉成範本的機器都會回 hasFeature=0。VM 與 LXC 都有這支端點。
+    """
+    result = _resource_api(node, vmid, resource_type).feature.get(feature="snapshot")
+    if not isinstance(result, dict):
+        return False
+    return bool(result.get("hasFeature"))
+
+
 def list_snapshots(node: str, vmid: int, resource_type: ResourceType) -> list:
     return _resource_api(node, vmid, resource_type).snapshot.get()
 

@@ -15,10 +15,20 @@ import { formatDateTime } from "../../../../utils/formatDate";
 
 const INIT_SNAPSHOT_NAME = "skylab-init";
 
-export default function SnapshotsTab({ vmid, toolbar }) {
+/**
+ * 快照分頁。只有機器當下能用快照時才會被掛載（由 ResourceDetailPage 依後端的
+ * snapshot-capability 決定）；onOperationFailed 讓上層在任何快照操作失敗後重新確認
+ * 可用性——中途變成不可用（例如磁碟被搬到不支援快照的 storage）時整個分頁會被收起。
+ */
+export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
+  /* 用 ref 持有 callback：不讓它的 identity 進 load 的依賴而觸發重抓 */
+  const onOperationFailedRef = useRef(onOperationFailed);
+  useEffect(() => {
+    onOperationFailedRef.current = onOperationFailed;
+  }, [onOperationFailed]);
   const [snapshots, setSnapshots] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [snapname, setSnapname] = useState("");
@@ -34,6 +44,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
     } catch (e) {
       toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
       setSnapshots((prev) => prev ?? []);
+      onOperationFailedRef.current?.();
     }
   }, [vmid, toast, t]);
 
@@ -52,6 +63,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
       await load();
     } catch (e) {
       toast.error(e?.message ?? t("SnapshotsTab.operationFailed"));
+      onOperationFailedRef.current?.();
     } finally {
       setBusy(false);
     }

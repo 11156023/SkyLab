@@ -41,6 +41,19 @@ describe("ResourcesService 詳情端點", () => {
     expect(url).toContain("/api/v1/resources/105/stats?timeframe=day");
   });
 
+  test("getSnapshotCapability 以 GET 查詢這台機器能否使用快照", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonRes(200, { available: false, reason: "unsupported" }),
+    );
+
+    const result = await ResourcesService.getSnapshotCapability(105);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/resources/105/snapshot-capability");
+    expect(init?.method ?? "GET").toBe("GET");
+    expect(result).toEqual({ available: false, reason: "unsupported" });
+  });
+
   test("createSnapshot 以 POST 送出快照參數", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { success: true }));
 

@@ -83,6 +83,7 @@ def test_malformed_payloads_are_skipped_without_error() -> None:
 def test_start_reset_rejects_second_request_for_same_vmid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(reset_service, "require_snapshot_available", lambda *_: None)
     monkeypatch.setattr(reset_service, "_has_init_snapshot", lambda *_: True)
     monkeypatch.setattr(reset_service.audit_service, "log_action", lambda **_: None)
     enqueued: list[Any] = []

@@ -23,6 +23,7 @@ from app.infrastructure.queue import enqueue_task_sync
 from app.models.task_record import TaskRecord, TaskRecordStatus
 from app.services.proxmox import proxmox_service
 from app.services.resource._guest_helpers import resource_type
+from app.services.resource.snapshot_capability import require_snapshot_available
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -50,12 +51,22 @@ def ensure_init_snapshot(vmid: int) -> bool:
 
     provision 尾聲常伴隨剛下發的 start（qmstart 持有 config lock），
     快照會被 PVE 以 lock timeout 拒絕，因此帶固定間隔重試。
+
+    機器所在 storage 本來就不支援快照時直接放棄，不重試：重試也不會成功，
+    只會讓每台機器的 provision 多等兩輪間隔。
     """
     for attempt in range(1, INIT_SNAPSHOT_ATTEMPTS + 1):
         try:
             info = proxmox_service.find_resource(vmid)
             node = str(info["node"])
             rtype = resource_type(info)
+            if not proxmox_service.has_snapshot_feature(node, vmid, rtype):
+                logger.info(
+                    "Init snapshot skipped for vmid=%s: snapshots are not"
+                    " supported on its storage",
+                    vmid,
+                )
+                return False
             if _has_init_snapshot(node, vmid, rtype):
                 return True
             proxmox_service.create_snapshot(
@@ -95,6 +106,7 @@ def create_init_snapshot(
     """老師/admin 為舊 VM 補建初始快照；已存在回 409。"""
     node = str(resource_info["node"])
     rtype = resource_type(resource_info)
+    require_snapshot_available(node, vmid, rtype)
     if _has_init_snapshot(node, vmid, rtype):
         raise ConflictError(t("reset.init_snapshot_exists"))
     proxmox_service.create_snapshot(
@@ -263,6 +275,7 @@ def start_reset(
     """
     node = str(resource_info["node"])
     rtype = resource_type(resource_info)
+    require_snapshot_available(node, vmid, rtype)
     if not _has_init_snapshot(node, vmid, rtype):
         raise BadRequestError(t("reset.no_init_snapshot"))
     _lock_reset_enqueue(session, vmid)

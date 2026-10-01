@@ -325,6 +325,20 @@ class SnapshotResponse(BaseModel):
     task_id: str | None = None
 
 
+class SnapshotCapability(BaseModel):
+    """這台機器當下能否使用快照（含一鍵重置、初始快照）"""
+
+    available: bool = Field(..., description="Whether snapshots can be used now")
+    reason: Literal["unsupported", "unknown"] | None = Field(
+        None,
+        description=(
+            "Why snapshots are unavailable: 'unsupported' = PVE reports the "
+            "machine's disks/storage cannot snapshot; 'unknown' = the check "
+            "itself failed"
+        ),
+    )
+
+
 # ===== Admin Spec Update Schema =====
 
 

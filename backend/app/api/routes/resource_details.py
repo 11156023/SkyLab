@@ -19,6 +19,7 @@ from app.schemas import (
     ResetAcceptedResponse,
     RRDDataPoint,
     RRDDataResponse,
+    SnapshotCapability,
     SnapshotCreateRequest,
     SnapshotInfo,
     SnapshotResponse,
@@ -108,6 +109,16 @@ def get_rrd_stats(
         for p in rrd_data
     ]
     return RRDDataResponse(timeframe=timeframe, data=data_points)
+
+
+@router.get("/{vmid}/snapshot-capability", response_model=SnapshotCapability)
+def get_snapshot_capability(
+    vmid: int, resource_info: TeachingResourceInfoDep
+) -> SnapshotCapability:
+    """這台機器當下能否使用快照（含一鍵重置）；不可用時前端隱藏整組快照功能。"""
+    return SnapshotCapability(
+        **snapshot_service.get_capability(vmid=vmid, resource_info=resource_info)
+    )
 
 
 @router.get("/{vmid}/snapshots", response_model=list[SnapshotInfo])

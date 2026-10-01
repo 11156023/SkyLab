@@ -270,6 +270,30 @@ def test_snapshot_ops_accept_valid_names(resource_api, snapname) -> None:
     assert resource_api.call_count == 3
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"hasFeature": 1, "nodes": ["pve1"]}, True),
+        ({"hasFeature": True}, True),
+        ({"hasFeature": 0, "nodes": []}, False),
+        ({"hasFeature": False}, False),
+        ({}, False),
+        (None, False),
+    ],
+)
+@pytest.mark.parametrize("rtype", ["qemu", "lxc"])
+def test_has_snapshot_feature_reads_pve_feature_api(
+    resource_api, payload, expected, rtype
+) -> None:
+    """VM 與 LXC 都問 PVE 的 feature=snapshot；回應缺欄位一律當不支援。"""
+    feature_get = resource_api.return_value.feature.get
+    feature_get.return_value = payload
+
+    assert operations.has_snapshot_feature("pve1", 100, rtype) is expected
+    resource_api.assert_called_once_with("pve1", 100, rtype)
+    feature_get.assert_called_once_with(feature="snapshot")
+
+
 # ---------------------------------------------------------------------------
 # GPU mapping id 不可夾帶 hostpci 選項或路徑片段
 # ---------------------------------------------------------------------------

@@ -25,6 +25,8 @@
   "snapshot.reservedName": "skylab-init 為系統保留快照名稱",
   "snapshot.maxCountReached": "快照數量已達上限（{limit}），請先刪除舊快照再建立",
   "snapshot.initProtected": "skylab-init 受保護，僅管理員可刪除",
+  "snapshot.unavailable": "這台機器目前無法使用快照（磁碟所在的儲存空間不支援），快照與重置功能已停用",
+  "snapshot.checkFailed": "目前無法確認這台機器能否使用快照，請稍後再試",
 
   "wireguard.invalidPublicKey": "Invalid WireGuard public key",
   "wireguard.clientSubnetInvalid": "WIREGUARD_CLIENT_SUBNET is invalid",

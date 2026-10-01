@@ -25,6 +25,8 @@
   "snapshot.reservedName": "skylab-init is a reserved system snapshot name",
   "snapshot.maxCountReached": "The snapshot limit ({limit}) has been reached; please delete an old snapshot before creating a new one",
   "snapshot.initProtected": "skylab-init is protected; only an administrator can delete it",
+  "snapshot.unavailable": "Snapshots cannot be used on this machine right now (the storage holding its disks does not support them), so snapshot and reset features are disabled",
+  "snapshot.checkFailed": "Could not confirm whether this machine can use snapshots right now; please try again later",
 
   "wireguard.invalidPublicKey": "Invalid WireGuard public key",
   "wireguard.clientSubnetInvalid": "WIREGUARD_CLIENT_SUBNET is invalid",

@@ -488,6 +488,7 @@ class _ResetSession:
 def test_start_reset_rejects_when_same_vmid_already_resetting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(reset_service, "require_snapshot_available", lambda *_: None)
     monkeypatch.setattr(reset_service, "_has_init_snapshot", lambda *_: True)
     monkeypatch.setattr(reset_service.audit_service, "log_action", lambda **_: None)
     enqueued: list[Any] = []
@@ -509,6 +510,7 @@ def test_start_reset_rejects_when_same_vmid_already_resetting(
 
 
 def test_start_reset_allowed_for_other_vmid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reset_service, "require_snapshot_available", lambda *_: None)
     monkeypatch.setattr(reset_service, "_has_init_snapshot", lambda *_: True)
     audit_calls: list[dict[str, Any]] = []
     monkeypatch.setattr(

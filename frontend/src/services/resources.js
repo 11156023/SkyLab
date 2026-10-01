@@ -137,6 +137,15 @@ export const ResourcesService = {
     return apiGet(`/api/v1/resources/${vmid}/stats?timeframe=${timeframe}`);
   },
 
+  /**
+   * 這台機器當下能否使用快照 → { available, reason }
+   * （reason: "unsupported"＝磁碟所在 storage 不支援、"unknown"＝查不到；可用時為 null）。
+   * 不可用時整組快照功能（含一鍵重置、初始快照）都要藏起來，後端也會拒絕這些操作。
+   */
+  getSnapshotCapability(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/snapshot-capability`);
+  },
+
   /** 快照列表 */
   listSnapshots(vmid) {
     return apiGet(`/api/v1/resources/${vmid}/snapshots`);
