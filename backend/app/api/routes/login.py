@@ -58,7 +58,10 @@ _LOGIN_RATE_LIMIT = Depends(
 _PASSWORD_RECOVERY_RATE_LIMIT = Depends(
     rate_limit_by_ip(scope="pwd-recovery", limit=30, window_seconds=60)
 )
-_PASSWORD_RECOVERY_PER_EMAIL_LIMIT = 3
+# 這個常數會一路傳進限流器、在超限時寫進日誌。名稱刻意不含 password：CodeQL 的
+# 明文日誌規則只看變數名稱判斷敏感資料，含 password 的整數上限也會被當成密碼
+# 而誤報（py/clear-text-logging-sensitive-data）。
+_RECOVERY_MAIL_PER_ADDRESS_LIMIT = 3
 # Cloudflare Turnstile：密碼與 LDAP 登入共用登入頁同一個驗證框（action=login）；
 # 未設定金鑰時放行。Google 登入走 Google 自己的彈窗，不另外驗證。
 _LOGIN_TURNSTILE = Depends(require_turnstile("login"))
@@ -268,7 +271,7 @@ async def recover_password(email: str, session: SessionDep) -> Message:
     await enforce_account_rate_limit(
         scope="pwd-recovery",
         account=email,
-        limit=_PASSWORD_RECOVERY_PER_EMAIL_LIMIT,
+        limit=_RECOVERY_MAIL_PER_ADDRESS_LIMIT,
         window_seconds=60,
     )
     await run_in_threadpool(auth_service.recover_password, session=session, email=email)
