@@ -42,9 +42,14 @@ const authEventHandler = (_event: any, args: ApiResponse<any>) => {
 };
 
 onMounted(() => {
-  on(ipcRouters.AUTH.startLogin, () => {
-    waiting.value = true;
-  });
+  on(
+    ipcRouters.AUTH.startLogin,
+    () => {},
+    (_code, message) => {
+      waiting.value = false;
+      ElMessage.error(t("login.failure", { error: message }));
+    }
+  );
   window.electronIpcRenderer.on("auth:event", authEventHandler);
 });
 

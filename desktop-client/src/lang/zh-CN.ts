@@ -154,7 +154,7 @@
     },
     backend: {
       label: "後端網址",
-      tips: "SkyLab 伺服器位址。"
+      tips: "SkyLab 伺服器根網址，不包含 /login。"
     },
     account: {
       label: "帳號",
