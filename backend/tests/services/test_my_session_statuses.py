@@ -31,7 +31,7 @@ def _resource(vmid: int, *, auto_stop_in_min: int | None = None) -> SimpleNamesp
 
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch):
-    calls: dict[str, int] = {"listing": 0, "policy": 0}
+    calls: dict[str, int] = {"listing": 0, "policy": 0, "released": 0}
 
     def install(resources: list[Any], pve: dict[int, dict[str, Any]]) -> dict[str, int]:
         monkeypatch.setattr(
@@ -41,8 +41,13 @@ def env(monkeypatch: pytest.MonkeyPatch):
         )
 
         def listing() -> dict[int, dict[str, Any]]:
+            # 排隊等叢集清單時不能還抱著 DB 連線
+            assert calls["released"] == 1
             calls["listing"] += 1
             return pve
+
+        def release(_session: Any) -> None:
+            calls["released"] += 1
 
         def policy(*, session: Any) -> SimpleNamespace:
             calls["policy"] += 1
@@ -54,6 +59,7 @@ def env(monkeypatch: pytest.MonkeyPatch):
             SimpleNamespace(list_all_resources_by_vmid=listing),
         )
         monkeypatch.setattr(svc, "get_schedule_policy", policy)
+        monkeypatch.setattr(svc, "end_read_transaction", release)
         return calls
 
     return install
@@ -70,7 +76,7 @@ def test_only_running_machines_are_reported_with_one_listing(env) -> None:
     assert [s.vmid for s in statuses] == [100]
     assert statuses[0].should_warn is True
     assert statuses[0].warn_reason == "auto_stop"
-    assert calls == {"listing": 1, "policy": 1}
+    assert calls == {"listing": 1, "policy": 1, "released": 1}
 
 
 def test_user_without_machines_skips_pve(env) -> None:

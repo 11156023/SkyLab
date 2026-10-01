@@ -94,6 +94,33 @@ def test_update_connection_clears_optional_text_fields(db: Session) -> None:
     assert conn.local_subnet == "10.0.0.0/24"  # 沒帶到就不動
 
 
+def test_backup_storage_defaults_to_disabled_and_can_be_set_and_cleared(
+    db: Session,
+) -> None:
+    """備份 storage 是選填：沒設＝這個叢集不開放備份；空白字串也當成沒設。"""
+    conn = _create(db)
+    assert conn.backup_storage is None
+
+    conn_repo.update_connection(db, conn.id, updates={"backup_storage": " pbs-main "})
+    assert conn.backup_storage == "pbs-main"
+
+    # 沒帶到就不動
+    conn_repo.update_connection(db, conn.id, updates={"enabled": False})
+    assert conn.backup_storage == "pbs-main"
+
+    conn_repo.update_connection(db, conn.id, updates={"backup_storage": "   "})
+    assert conn.backup_storage is None
+
+    conn_repo.update_connection(db, conn.id, updates={"backup_storage": "pbs-main"})
+    conn_repo.update_connection(db, conn.id, updates={"backup_storage": None})
+    assert conn.backup_storage is None
+
+
+def test_create_connection_with_backup_storage(db: Session) -> None:
+    assert _create(db, backup_storage="pbs-main").backup_storage == "pbs-main"
+    assert _create(db, name="機房B", is_default=False, backup_storage=" ").backup_storage is None
+
+
 def test_update_connection_switches_default_flag(db: Session) -> None:
     first = _create(db, name="機房A")
     second = _create(db, name="機房B", is_default=False)

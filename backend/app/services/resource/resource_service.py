@@ -12,6 +12,7 @@ from typing import Any, Literal
 from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
+from app.core.db import end_read_transaction
 from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.domain.resource_markers import (
@@ -986,6 +987,9 @@ def list_by_user(
                 session=session,
                 db_resources=[*owned_vmids.values(), *shared_rows.values(), *taught_rows.values()],
             )
+            # 叢集清單走全域 single-flight 鎖，整班同時開頁面時會排隊；排隊期間
+            # 別抱著 DB 連線（持鎖那一方重連 PVE 時還要再取連線）
+            end_read_transaction(session)
             try:
                 pairs: list[tuple[dict, Any]] = []
                 for r in proxmox_service.list_all_resources():
@@ -1421,6 +1425,9 @@ def delete(
             )
             raise
 
+        # PVE 的 purge 不會刪備份檔，而 VMID 會被重用：連同這台機器的備份一起清
+        _purge_backups_best_effort(node=node, vmid=vmid)
+
         _cleanup_after_resource_removed(
             session=session,
             vmid=vmid,
@@ -1490,6 +1497,18 @@ def delete_orphan_db_record(
         details=f"Orphan DB cleanup for vmid={vmid} (VM not found in Proxmox)",
     )
     logger.info("Orphan DB record for vmid=%s cleaned up", vmid)
+
+
+def _purge_backups_best_effort(*, node: str, vmid: int) -> None:
+    """機器已從 PVE 刪除：清掉 SkyLab 為它建立的備份；失敗只記 log，不擋刪除。"""
+    try:
+        from app.services.resource import backup_service
+
+        backup_service.purge_backups_for_removed_machine(node=node, vmid=vmid)
+    except Exception:
+        logger.warning(
+            "Failed to purge backups of deleted resource %s", vmid, exc_info=True
+        )
 
 
 def _cleanup_after_resource_removed(
@@ -1842,6 +1861,7 @@ def list_my_session_statuses(
     resources = resource_repo.get_resources_by_user(session=session, user_id=user_id)
     if not resources:
         return []
+    end_read_transaction(session)
     pve_by_vmid = proxmox_service.list_all_resources_by_vmid()
     policy = get_schedule_policy(session=session)
     statuses: list[SessionStatusResponse] = []

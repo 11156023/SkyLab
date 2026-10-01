@@ -13,7 +13,7 @@
 }
 
 /* ── Tabs ── */
-/* 分頁：共用 SegmentedControl；四段在窄螢幕放不下時自己橫向捲動（元件註解的建議作法） */
+/* 分頁：共用 SegmentedControl；五段在窄螢幕放不下時自己橫向捲動（元件註解的建議作法） */
 .tabs {
   max-width: 100%;
   overflow-x: auto;
@@ -123,7 +123,8 @@
 }
 
 .securityNote,
-.warningNote {
+.warningNote,
+.successNote {
   display: flex;
   align-items: flex-start;
   gap: $spacing-8;
@@ -156,6 +157,53 @@
   background: color-mix(in srgb, var(--color-pending) 12%, transparent);
   color: var(--color-pending);
   font-size: $font-size-14;
+}
+
+.successNote {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+  font-size: $font-size-14;
+}
+
+/* ── 平台入口 Tab ── */
+/* 勾選列：同設定頁，不包外框盒 */
+.checkRow {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  align-self: flex-start;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  cursor: pointer;
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
+}
+
+/* 待辦清單：玻璃卡裡的清單列一律白底細框 */
+.todoList {
+  @include flex-column;
+  gap: $spacing-8;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: $spacing-8;
+    padding: $spacing-8 $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-primary);
+    line-height: $line-height-base;
+  }
 }
 
 /* ── 服務 Tab 左右分割：左 = 狀態 + 日誌，右 = 設定檔編輯器 ── */

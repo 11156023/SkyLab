@@ -356,6 +356,8 @@
   "JobRow.kindMigration": "遷移",
   "JobRow.kindSpecChange": "規格變更",
   "JobRow.kindTemplate": "範本",
+  "JobRow.kindResourceBackup": "備份",
+  "JobRow.kindResourceRestore": "還原備份",
   "JobRow.kindResourceReset": "重置",
   "JobRow.kindBatchProvision": "批次佈建",
   "JobRow.kindVmRequest": "開機申請",

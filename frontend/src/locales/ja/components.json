@@ -356,6 +356,8 @@
   "JobRow.kindMigration": "移行",
   "JobRow.kindSpecChange": "スペック変更",
   "JobRow.kindTemplate": "テンプレート",
+  "JobRow.kindResourceBackup": "バックアップ",
+  "JobRow.kindResourceRestore": "バックアップから復元",
   "JobRow.kindResourceReset": "リセット",
   "JobRow.kindBatchProvision": "一括プロビジョニング",
   "JobRow.kindVmRequest": "起動申請",

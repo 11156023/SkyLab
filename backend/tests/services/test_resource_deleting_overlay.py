@@ -31,6 +31,7 @@ def _fake_session() -> SimpleNamespace:
 
 
 def _patch_common(monkeypatch: pytest.MonkeyPatch, *, vmid: int) -> None:
+    monkeypatch.setattr(resource_service, "end_read_transaction", lambda _session: None)
     db_resource = SimpleNamespace(
         vmid=vmid,
         request_id=None,

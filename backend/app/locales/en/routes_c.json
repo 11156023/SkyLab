@@ -78,6 +78,7 @@
   "resource_access.classroom_monitor_forbidden": "Only teachers and admins can use classroom monitoring",
   "resource_access.job_view_forbidden": "Not allowed to view this job",
   "rate_limit.ip_too_many_requests": "Too many requests from {ip}. Retry after {retry_after} seconds.",
+  "rate_limit.account_too_many_attempts": "Too many attempts for this account. Retry after {retry_after} seconds.",
   "rate_limit.user_too_many_requests": "Too many requests. Retry after {retry_after} seconds.",
   "rate_limit.backend_unavailable": "The rate limiting service is unavailable, so this request was refused as a precaution. Please try again later.",
   "ai_guard.too_many_messages": "Too many messages in this conversation; at most {limit} are allowed per request.",

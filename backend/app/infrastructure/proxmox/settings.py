@@ -54,6 +54,7 @@ class ProxmoxSettings:
     connection_id: int | None = None
     connection_name: str | None = None
     port: int = 8006
+    backup_storage: str | None = None
 
 
 def get_proxmox_settings(connection_id: int | None = None) -> ProxmoxSettings:
@@ -116,6 +117,7 @@ def _load_proxmox_settings(connection_id: int | None) -> ProxmoxSettings:
         connection_id=connection.id,
         connection_name=connection.name,
         port=connection.port,
+        backup_storage=connection.backup_storage,
     )
 
 

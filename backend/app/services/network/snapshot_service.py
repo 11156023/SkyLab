@@ -12,6 +12,11 @@ from app.services.proxmox import proxmox_service
 
 # 受保護的初始快照名稱由 reset_service（負責建立／還原它）統一定義
 from app.services.resource.reset_service import INIT_SNAPSHOT_NAME
+from app.services.resource.snapshot_capability import (
+    SnapshotCapabilityDict,
+    get_snapshot_capability,
+    require_snapshot_available,
+)
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -20,6 +25,15 @@ logger = logging.getLogger(__name__)
 def _snapshot_max_count(session: Session) -> int:
     return int(
         governance_repo.get_governance_config(session=session).student_snapshot_max_count
+    )
+
+
+def get_capability(
+    *, vmid: int, resource_info: dict[str, Any]
+) -> SnapshotCapabilityDict:
+    """這台機器當下能否使用快照；前端據此顯示或隱藏整組快照功能。"""
+    return get_snapshot_capability(
+        resource_info["node"], vmid, resource_info["type"]
     )
 
 
@@ -54,6 +68,7 @@ def create_snapshot(
     node = resource_info["node"]
     resource_type = resource_info["type"]
 
+    require_snapshot_available(node, vmid, resource_type)
     if snapname == INIT_SNAPSHOT_NAME and not _is_admin(user):
         raise BadRequestError(t("snapshot.reservedName"))
     if not _is_admin(user):
@@ -103,6 +118,7 @@ def delete_snapshot(
     node = resource_info["node"]
     resource_type = resource_info["type"]
 
+    require_snapshot_available(node, vmid, resource_type)
     if snapname == INIT_SNAPSHOT_NAME and not _is_admin(user):
         raise PermissionDeniedError(t("snapshot.initProtected"))
 
@@ -134,6 +150,7 @@ def rollback_snapshot(
     node = resource_info["node"]
     resource_type = resource_info["type"]
 
+    require_snapshot_available(node, vmid, resource_type)
     task = proxmox_service.rollback_snapshot(node, vmid, resource_type, snapname)
 
     audit_service.log_action(

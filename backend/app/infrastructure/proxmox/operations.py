@@ -764,6 +764,20 @@ def _validate_snapname(snapname: object) -> None:
         raise BadRequestError(f"Invalid snapshot name: {snapname!r}")
 
 
+def has_snapshot_feature(node: str, vmid: int, resource_type: ResourceType) -> bool:
+    """GET /nodes/{node}/{type}/{vmid}/feature?feature=snapshot
+
+    PVE 依這台機器「目前」所有磁碟（VM 的 scsi/virtio/efidisk/tpmstate…、
+    LXC 的 rootfs/mp*）所在 storage 與格式判斷能否做快照，和它自己在建立
+    快照前做的檢查是同一套；例如 LVM（非 thin）、目錄型 storage 上的 raw
+    磁碟、已轉成範本的機器都會回 hasFeature=0。VM 與 LXC 都有這支端點。
+    """
+    result = _resource_api(node, vmid, resource_type).feature.get(feature="snapshot")
+    if not isinstance(result, dict):
+        return False
+    return bool(result.get("hasFeature"))
+
+
 def list_snapshots(node: str, vmid: int, resource_type: ResourceType) -> list:
     return _resource_api(node, vmid, resource_type).snapshot.get()
 
@@ -797,6 +811,136 @@ def rollback_snapshot(
     task = _resource_api(node, vmid, resource_type).snapshot(snapname).rollback.post()
     basic_blocking_task_status(node, task)
     return task
+
+
+# ---------------------------------------------------------------------------
+# Backups (vzdump)
+# ---------------------------------------------------------------------------
+
+BackupMode = Literal["snapshot", "suspend", "stop"]
+
+
+def storage_accepts_backups(node: str, storage: str) -> bool:
+    """這個節點上是否看得到名為 ``storage``、已啟用、在線且可放備份的 storage。"""
+    for item in list_node_storages(node):
+        if _storage_name(item) != storage:
+            continue
+        content = {
+            part.strip() for part in str(item.get("content") or "").split(",")
+        }
+        return (
+            _storage_is_enabled(item)
+            and _storage_is_active(item)
+            and "backup" in content
+        )
+    return False
+
+
+def list_backups(node: str, storage: str, vmid: int) -> list[dict]:
+    """GET /nodes/{node}/storage/{storage}/content?content=backup&vmid={vmid}
+
+    回傳這個 storage 上屬於該 VMID 的**所有**備份（含機構自己排程的備份），
+    每筆有 volid／ctime／size／format／subtype，另有選填的 notes／protected。
+    哪些算「SkyLab 建的」由 service 層依 notes 標記判斷。
+    """
+    api = get_proxmox_api_for_node(node).nodes(node).storage(storage).content
+    return list(api.get(content="backup", vmid=vmid) or [])
+
+
+def create_backup(
+    node: str,
+    vmid: int,
+    storage: str,
+    *,
+    mode: BackupMode,
+    notes: str,
+    wait_timeout_seconds: float | None = None,
+) -> str:
+    """POST /nodes/{node}/vzdump：對單一機器做一次備份並等它完成。
+
+    - ``protected=1``：這份備份不參與 storage／PBS 的 prune。備份 storage 常與
+      機構排程備份共用，不保護的話使用者的還原點會被排程的保留策略清掉，也會
+      佔掉排程備份的保留名額。
+    - ``remove=0``：這次備份不觸發 prune，不會順手刪掉同一台機器的其他備份。
+    - ``notes-template`` 裡的反斜線與 ``{{…}}`` 會被 PVE 展開，呼叫端要先清掉。
+    """
+    params: dict[str, Any] = {
+        "vmid": str(vmid),
+        "storage": storage,
+        "mode": mode,
+        "compress": "zstd",
+        "protected": 1,
+        "remove": 0,
+        "notes-template": notes,
+    }
+    task = get_proxmox_api_for_node(node).nodes(node).vzdump.post(**params)
+    basic_blocking_task_status(node, task, timeout_seconds=wait_timeout_seconds)
+    return task
+
+
+def restore_backup(
+    node: str,
+    vmid: int,
+    resource_type: ResourceType,
+    volid: str,
+    *,
+    storage: str | None = None,
+    unprivileged: bool | None = None,
+    wait_timeout_seconds: float | None = None,
+) -> str:
+    """以備份覆蓋還原同一個 VMID（機器必須已關機）。
+
+    - VM：POST /nodes/{node}/qemu，``archive`` + ``force=1``；不帶 storage，磁碟回到
+      備份設定檔裡記的原 storage。
+    - LXC：POST /nodes/{node}/lxc，``ostemplate`` + ``restore=1`` + ``force=1``。LXC
+      還原不帶 storage 時 PVE 一律放到 ``local``，所以呼叫端要傳目前 rootfs 所在
+      的 storage。``unprivileged`` 也要明確帶：非 root 的 API 帳號還原時 PVE 不會
+      沿用備份裡的設定，不帶的話非特權容器可能被還原成特權容器。
+    """
+    proxmox = get_proxmox_api_for_node(node)
+    try:
+        if resource_type == "qemu":
+            task = proxmox.nodes(node).qemu.post(vmid=vmid, archive=volid, force=1)
+        else:
+            params: dict[str, Any] = {
+                "vmid": vmid,
+                "ostemplate": volid,
+                "restore": 1,
+                "force": 1,
+            }
+            if storage:
+                params["storage"] = storage
+            if unprivileged is not None:
+                params["unprivileged"] = 1 if unprivileged else 0
+            task = proxmox.nodes(node).lxc.post(**params)
+        basic_blocking_task_status(node, task, timeout_seconds=wait_timeout_seconds)
+    finally:
+        # 還原會重建機器：成功或半途失敗，快取的叢集清單都不可信
+        invalidate_cluster_resources_cache()
+    return task
+
+
+def delete_backup(
+    node: str,
+    storage: str,
+    volid: str,
+    *,
+    wait_timeout_seconds: float | None = 300.0,
+) -> None:
+    """DELETE /nodes/{node}/storage/{storage}/content/{volid}
+
+    ``volid`` 會成為 URL 路徑的一部分，呼叫端只能傳 ``list_backups`` 回來的值，
+    不可直接轉送使用者輸入。受保護的備份要先解除保護才刪得掉。
+    """
+    volume = get_proxmox_api_for_node(node).nodes(node).storage(storage).content(volid)
+    try:
+        volume.put(protected=0)
+    except Exception:
+        # 本來就沒保護、或 storage 不支援保護旗標：直接往下刪，刪不掉再報錯
+        logger.debug("Could not clear protection on backup %s", volid, exc_info=True)
+    result = volume.delete()
+    if isinstance(result, str) and result.startswith("UPID:"):
+        basic_blocking_task_status(node, result, timeout_seconds=wait_timeout_seconds)
 
 
 # ---------------------------------------------------------------------------

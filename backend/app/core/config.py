@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = secrets.token_urlsafe(32)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 1 day
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7 days
+    # 登入節流（每分鐘）。暴力破解的主要防線是依帳號計次；依 IP 的上限要容得下
+    # 整班共用一個 NAT 出口（rootless Docker 的 builtin port driver 甚至會讓
+    # 所有人看起來都是同一個 IP），只用來擋單一來源大量撞不同帳號。
+    LOGIN_RATE_LIMIT_PER_IP: int = 300
+    LOGIN_RATE_LIMIT_PER_ACCOUNT: int = 10
     FRONTEND_HOST: str = "http://127.0.0.1:5173"
     # External URL for the desktop client zip (e.g. GitHub Releases asset).
     # When set, /desktop-client/download redirects here instead of serving a local file.
@@ -167,6 +172,16 @@ class Settings(BaseSettings):
 
     # Google 登入只驗證 ID token 的 aud，不需要 client secret。
     GOOGLE_CLIENT_ID: str | None = None
+
+    # Cloudflare Turnstile 機器人驗證（密碼／LDAP 登入與註冊）。兩把都填才啟用；
+    # site key 經公開的 /login/methods 交給前端，secret key 只留在後端。
+    TURNSTILE_SITE_KEY: str | None = None
+    TURNSTILE_SECRET_KEY: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def turnstile_enabled(self) -> bool:
+        return bool(self.TURNSTILE_SITE_KEY and self.TURNSTILE_SECRET_KEY)
 
     # LDAP over ldaps:// / StartTLS 一律驗證伺服器憑證與主機名稱。網域控制站
     # 用校內私有 CA 簽發時，把該 CA 的 PEM 檔路徑設在這裡；留空＝系統信任庫。

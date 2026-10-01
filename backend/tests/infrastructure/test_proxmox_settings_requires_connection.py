@@ -48,6 +48,7 @@ def test_settings_come_from_connection_row(monkeypatch: pytest.MonkeyPatch) -> N
         gateway_ip="10.0.0.254",
         local_subnet="10.0.0.0/24",
         default_node="pve1",
+        backup_storage="pbs-main",
     )
     monkeypatch.setattr(connection_repo, "get_connection", lambda _s, _cid: conn)
     monkeypatch.setattr(connection_repo, "get_decrypted_password", lambda _c: "pw")
@@ -56,4 +57,5 @@ def test_settings_come_from_connection_row(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert (result.host, result.port, result.password) == ("10.0.0.3", 443, "pw")
     assert (result.pool_name, result.data_storage) == ("Lab", "ssd")
+    assert result.backup_storage == "pbs-main"
     assert (result.connection_id, result.connection_name) == (3, "lab")

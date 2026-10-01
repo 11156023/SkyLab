@@ -8,6 +8,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.schemas.gateway import PlatformEntryUpdate
 from app.schemas.proxmox_config import ProxmoxConnectionCreate, ProxmoxNodePublic
 
 
@@ -17,6 +18,10 @@ class SetupStepsPublic(BaseModel):
     admin: bool
     proxmox: bool
     subnet: bool
+    # Gateway 的 SSH 連線設定好了（有 IP 與金鑰）；是否裝好服務要 SSH 上去才知道
+    gateway: bool = False
+    # 平台入口已啟用（主系統經 Gateway nginx 對外）
+    platform_entry: bool = False
 
 
 class SetupStatusPublic(BaseModel):
@@ -105,6 +110,16 @@ class SetupSubnetResult(BaseModel):
     dns_servers: str | None = None
     total_ips: int
     available_ips: int
+
+
+class SetupPlatformEntryUpdate(PlatformEntryUpdate):
+    """步驟五：平台入口。
+
+    HTTPS 憑證要用 Cloudflare 的 DNS API Token；全新安裝還沒到過網域管理頁，
+    所以精靈這裡可以順便填，沒填就沿用已經存好的。
+    """
+
+    cloudflare_api_token: str | None = Field(default=None, max_length=255)
 
 
 class SetupCompleteResult(BaseModel):

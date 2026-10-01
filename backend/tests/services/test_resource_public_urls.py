@@ -54,6 +54,7 @@ def _rule(vmid: int, domain: str, *, port: int = 80, https: bool = True) -> Any:
 
 
 def _patch_common(monkeypatch: pytest.MonkeyPatch, vmids: list[int]) -> None:
+    monkeypatch.setattr(resource_service, "end_read_transaction", lambda _session: None)
     rows = [_db_resource(vmid) for vmid in vmids]
     monkeypatch.setattr(
         resource_service.resource_repo,

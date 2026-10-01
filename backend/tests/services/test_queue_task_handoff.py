@@ -48,6 +48,7 @@ def _capture_enqueue(monkeypatch: pytest.MonkeyPatch, module: Any) -> list[dict]
 
 def test_start_reset_enqueues_reset_task(monkeypatch: pytest.MonkeyPatch) -> None:
     user = SimpleNamespace(id=uuid.uuid4())
+    monkeypatch.setattr(reset_service, "require_snapshot_available", lambda *_: None)
     monkeypatch.setattr(reset_service, "_has_init_snapshot", lambda *_: True)
     monkeypatch.setattr(reset_service.audit_service, "log_action", lambda **_: None)
     calls = _capture_enqueue(monkeypatch, reset_service)
@@ -73,6 +74,7 @@ def test_start_reset_rejects_when_reset_already_active(
 ) -> None:
     from app.exceptions import ConflictError
 
+    monkeypatch.setattr(reset_service, "require_snapshot_available", lambda *_: None)
     monkeypatch.setattr(reset_service, "_has_init_snapshot", lambda *_: True)
     monkeypatch.setattr(reset_service, "_has_active_reset", lambda *_: True)
     calls = _capture_enqueue(monkeypatch, reset_service)

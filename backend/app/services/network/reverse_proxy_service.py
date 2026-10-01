@@ -9,6 +9,7 @@
 """
 
 import logging
+from collections.abc import Iterable
 
 from sqlalchemy.exc import IntegrityError
 
@@ -157,6 +158,18 @@ def _zone_names_by_id(session: object) -> dict[str, str]:
     return {zone.id: zone.name for zone in zones}
 
 
+def _best_zone_name(domain: str, zone_names: Iterable[str]) -> str | None:
+    """網域所屬的 zone 名稱：取字尾相符裡最長的那個；都不符合回 ``None``。"""
+    best: str | None = None
+    for name in zone_names:
+        zone = name.strip().lower().rstrip(".")
+        if (domain == zone or domain.endswith(f".{zone}")) and (
+            best is None or len(zone) > len(best)
+        ):
+            best = zone
+    return best
+
+
 def _sync_nginx(session: object, *, renew: bool = False) -> None:
     """從 DB 重建 nginx 的 http.conf、補簽缺的憑證、驗證並 reload。
 
@@ -170,6 +183,7 @@ def _sync_nginx(session: object, *, renew: bool = False) -> None:
         get_decrypted_private_key,
     )
     from app.services.network import nginx_gateway_service as nginx
+    from app.services.network import platform_entry_service
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
@@ -177,12 +191,15 @@ def _sync_nginx(session: object, *, renew: bool = False) -> None:
 
     rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
     https_rules = [rule for rule in rules if rule.enable_https]
+    # 平台入口（主系統自己的網域）和 VM 網域寫在同一份 http.conf、共用同一套憑證流程
+    platform = platform_entry_service.load_entry(session)
+    platform_https = platform is not None and platform.enable_https
 
     # 有 HTTPS 規則才需要 Cloudflare token（DNS-01 驗證）與憑證規劃
     cloudflare_token: str | None = None
     plans: dict[str, list[str]] = {}
     cert_name_by_domain: dict[str, str] = {}
-    if https_rules:
+    if https_rules or platform_https:
         cloudflare_config = cf_repo.get_cloudflare_config(session)  # type: ignore[arg-type]
         if cloudflare_config is None or not cloudflare_config.encrypted_api_token:
             raise BadRequestError(t("gateway.cloudflareApiTokenNotConfigured"))
@@ -194,6 +211,13 @@ def _sync_nginx(session: object, *, renew: bool = False) -> None:
             )
             plans.setdefault(cert_name, domains)
             cert_name_by_domain[rule.domain] = cert_name
+        if platform is not None and platform_https:
+            cert_name, domains = nginx.plan_certificate(
+                platform.domain,
+                _best_zone_name(platform.domain, zone_names.values()),
+            )
+            plans.setdefault(cert_name, domains)
+            cert_name_by_domain[platform.domain] = cert_name
 
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
     logger.info(
@@ -208,7 +232,7 @@ def _sync_nginx(session: object, *, renew: bool = False) -> None:
     )
     try:
         ready: set[str] = set()
-        if https_rules and cloudflare_token is not None:
+        if plans and cloudflare_token is not None:
             nginx.write_certbot_credentials(client, cloudflare_token)
             if renew:
                 nginx.renew_certificates(client)
@@ -225,8 +249,11 @@ def _sync_nginx(session: object, *, renew: bool = False) -> None:
         # 它自己的同步（排在這次之後）會補上正式憑證。
         nginx.lock_config_writes(session)
         rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
+        platform = platform_entry_service.load_entry(session)
         nginx.write_validated_config(
-            client, nginx.NGINX_HTTP_CONF_PATH, nginx.build_http_config(rules, cert_names)
+            client,
+            nginx.NGINX_HTTP_CONF_PATH,
+            nginx.build_http_config(rules, cert_names, platform=platform),
         )
 
         missing = sorted(set(plans) - ready)
@@ -384,7 +411,7 @@ def check_domain_availability(
     import uuid as _uuid
 
     from app.repositories import reverse_proxy as rp_repo
-    from app.services.network import cloudflare_service
+    from app.services.network import cloudflare_service, platform_entry_service
 
     clean = (domain or "").strip().lower().rstrip(".")
     if not is_valid_hostname(clean):
@@ -409,6 +436,15 @@ def check_domain_availability(
             available=False,
             reason="system",
             message=t("reverseProxy.domainAlreadyTaken", domain=clean),
+        )
+
+    # 主系統自己的網域（平台入口）不能被 VM 拿去發布
+    if platform_entry_service.is_platform_domain(session, clean):
+        return DomainAvailability(
+            domain=clean,
+            available=False,
+            reason="system",
+            message=t("reverseProxy.domainReservedForPlatform", domain=clean),
         )
 
     if zone_id is None:

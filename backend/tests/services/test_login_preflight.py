@@ -184,3 +184,41 @@ def test_results_are_cached_and_refresh_is_admin_only(probes: _Probes) -> None:
     assert probes.calls == 2
     assert result["ok"] is False
     assert probes.use_cache_args[-3:] == [False, False, False]
+
+
+async def test_async_concurrent_logins_share_one_computation(
+    probes: _Probes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """一整班同時登入：只算一次，等待者不各自佔一條 threadpool 執行緒。"""
+    import asyncio
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+    original = preflight_service._collect_components
+
+    def slow_collect(*, use_cache: bool) -> list[dict[str, Any]]:
+        started.set()
+        release.wait(timeout=5)
+        return original(use_cache=use_cache)
+
+    monkeypatch.setattr(preflight_service, "_collect_components", slow_collect)
+
+    student = _user(UserRole.student)
+    tasks = [
+        asyncio.create_task(preflight_service.preflight_for_async(student))
+        for _ in range(20)
+    ]
+    await asyncio.to_thread(started.wait, 5)
+    await asyncio.sleep(0.05)
+    # 計算進行中：20 個請求共用一個 in-flight task，探測尚未放行
+    assert probes.calls == 0
+    assert preflight_service._PreflightCache.inflight is not None
+    release.set()
+    results = await asyncio.gather(*tasks)
+
+    assert probes.calls == 1
+    assert all(result["ok"] is True for result in results)
+    # 每個請求拿到自己的 copy
+    results[0]["checks"][0]["status"] = "mutated"
+    assert results[1]["checks"][0]["status"] != "mutated"

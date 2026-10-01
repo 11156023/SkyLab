@@ -3,7 +3,8 @@
  * 負責 token 的讀寫與清除，所有操作都集中在這裡。
  * 其他模組若需要 token，請透過這裡取得，不要直接讀 localStorage。
  *
- * 另提供登入前（無 token）的認證端點：getLoginMethods / loginLdap。
+ * 另提供登入前（無 token）的認證端點：getLoginMethods / loginLdap，以及
+ * Cloudflare Turnstile 機器人驗證 token 的標頭（turnstileHeaders）。
  * 這些不走 api.js 的 request()——登入失敗的 401 不該觸發 refresh 重試與
  * auth:unauthorized 強制登出事件——但仍用 fetchWithTimeout 保住逾時保護。
  */
@@ -15,6 +16,12 @@ import {
 import { readResponseMessage } from "./responseMessage";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
+
+/** Cloudflare Turnstile token 的標頭（密碼／LDAP 登入與註冊）；沒有 token 就不帶 */
+export const TURNSTILE_HEADER = "X-Turnstile-Token";
+export function turnstileHeaders(token) {
+  return token ? { [TURNSTILE_HEADER]: token } : {};
+}
 
 /** 舊版儲存鍵；首次讀取時會無縫遷移到 session-scoped record。 */
 const ACCESS_TOKEN_KEY  = "access_token";
@@ -281,13 +288,16 @@ export async function getLoginMethods() {
  * 以校園 LDAP/AD 帳號登入，成功後儲存 tokens
  * @throws {{ status, message }} 登入失敗時
  */
-export async function loginLdap(username, password) {
+export async function loginLdap(username, password, { turnstileToken } = {}) {
   /* 帶逾時：LDAP 伺服器沒回應時登入按鈕要收得到錯誤，不能一直轉圈 */
   const res = await fetchWithTimeout(
     `${BASE_URL}/api/v1/login/ldap`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...turnstileHeaders(turnstileToken),
+      },
       body: JSON.stringify({ username, password }),
     },
     LOGIN_REQUEST_TIMEOUT_MS,

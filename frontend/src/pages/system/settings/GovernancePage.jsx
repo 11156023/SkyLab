@@ -84,6 +84,7 @@ function useSections(t) {
       fields: [
         { key: "snapshot_retention_days", label: t("GovernanceTab.snapshotRetentionDays"), min: 1, max: 90 },
         { key: "student_snapshot_max_count", label: t("GovernanceTab.studentSnapshotMaxCount"), min: 1, max: 10 },
+        { key: "student_backup_max_count", label: t("GovernanceTab.studentBackupMaxCount"), min: 1, max: 10 },
       ],
     },
     {

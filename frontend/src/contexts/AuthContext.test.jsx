@@ -24,6 +24,7 @@ vi.mock("../services/auth", () => ({
   },
   loginLdap: vi.fn(),
   loginTotp: vi.fn(),
+  turnstileHeaders: (token) => (token ? { "X-Turnstile-Token": token } : {}),
 }));
 vi.mock("../services/api", () => ({
   apiPost: vi.fn(() => Promise.resolve({})),
