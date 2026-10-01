@@ -95,7 +95,8 @@ vLLM instance 的啟動、ready check 與優雅關閉；模型 alias／路由由
 ```
 
 `generate_litellm_config.py` 讀取 `models.json` 與 `litellm/config.template.yaml`，產出
-`litellm/config.yaml`。產物已由 Git 忽略，且只含 `os.environ/...` secret reference，不含任何明文 key。
+`litellm/config.yaml`。產物已由 Git 忽略；一般模型使用 `os.environ/...` secret reference，
+遠端模型若設定 `apikeys`，該值會直接寫入這份本機 runtime 產物。
 `integration` 模式不含資料庫設定；`production` 模式要求部署程序先注入
 `LITELLM_SERVICE_API_KEY`，並產生 `DATABASE_URL` reference。
 
@@ -116,8 +117,9 @@ LiteLLM 容器經 `host.docker.internal` 連本機 vLLM，所以 `.env.API` 的 
 須為 `0.0.0.0`（以防火牆限制引擎埠）。根目錄 `docker compose up/down` 會管理
 LiteLLM，但不管理主機上的 vLLM 程序。
 
-跨主機模型請在 `models.json` 設定 `deployment: "remote"`、`api_base`（含 `/v1`）
-及 `api_key_env`，金鑰值放在 `litellm/.env`。本機啟動器略過這些項目；產生器將它們
+跨主機模型請在 `models.json` 設定 `deployment: "remote"`、`api_base`（含 `/v1`），
+並選擇 `api_key_env`（值放在 `litellm/.env`）或 literal `apikeys`。兩者都未指定時沿用
+`VLLM_UPSTREAM_API_KEY`；`apikeys` 與 `api_key_env` 不可同時設定。本機啟動器略過這些項目；產生器將它們
 整合至相同的 LiteLLM 路由。完整範例、既有獨立容器接管和使用者 API 操作見
 [AI API 使用手冊](../docs/ai-api-user-manual.md)。
 

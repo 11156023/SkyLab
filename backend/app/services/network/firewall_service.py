@@ -612,6 +612,39 @@ def _parse_connection_comment(comment: str) -> dict | None:
     return None
 
 
+def _parse_environment_network_comment(comment: str) -> dict | None:
+    """Parse a course or quick-practice topology rule for the firewall graph.
+
+    Managed environment rules use either ``SkyLab:class-net:...`` or
+    ``SkyLab:practice-net:...``. Keep them separate from
+    ``_parse_connection_comment`` because that parser is also used by the
+    regular connection deletion path; template rules must only be changed
+    through their source environment.
+    """
+    match = re.match(
+        r"^SkyLab:(?:class|practice)-net:[^:]+:(\d+)>(\d+):"
+        r"([a-zA-Z]\w*)(?:/(\d+))?$",
+        comment or "",
+    )
+    if not match:
+        return None
+    return {
+        "type": "connection",
+        "source_vmid": int(match.group(1)),
+        "target_vmid": int(match.group(2)),
+        "protocol": match.group(3),
+        "port": int(match.group(4)) if match.group(4) else 0,
+        "topology_managed": True,
+    }
+
+
+def _parse_topology_comment(comment: str) -> dict | None:
+    """Parse any SkyLab-managed rule that belongs in the topology graph."""
+    return _parse_connection_comment(comment) or _parse_environment_network_comment(
+        comment
+    )
+
+
 def _make_connection_comment(
     source: int | str, target: int | str, port: int, protocol: str
 ) -> str:
@@ -1098,7 +1131,7 @@ def _edges_from_rules(rules_by_vmid: dict[int, list[dict]]) -> list[TopologyEdge
     for vmid, rules in rules_by_vmid.items():
         for rule in rules:
             comment = rule.get("comment", "") or ""
-            parsed = _parse_connection_comment(comment)
+            parsed = _parse_topology_comment(comment)
             if not parsed:
                 continue
 
@@ -1152,6 +1185,8 @@ def _edges_from_rules(rules_by_vmid: dict[int, list[dict]]) -> list[TopologyEdge
                         ports=[],
                         direction="one_way",
                     )
+                if parsed.get("topology_managed"):
+                    edges[edge_key].topology_managed = True
                 _add_edge_port(edges[edge_key], port, proto)
 
     return list(edges.values())
@@ -1383,6 +1418,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
             py = 100.0 + i * row_y_step
 
         db_resource = resource_by_vmid[vmid]
+        machine_kind = kinds.get(vmid, "personal")
         nodes.append(
             TopologyNode(
                 vmid=vmid,
@@ -1394,12 +1430,17 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 firewall_enabled=firewall_enabled,
                 position_x=px,
                 position_y=py,
-                can_manage=resource_access.can_manage_resource(
-                    resource=db_resource, user=user, owned_class_ids=owned_class_ids
+                can_manage=(
+                    machine_kind != "quick_practice"
+                    and resource_access.can_manage_resource(
+                        resource=db_resource,
+                        user=user,
+                        owned_class_ids=owned_class_ids,
+                    )
                 ),
                 owner_name=owner_names.get(db_resource.user_id),
                 teaching_class_name=class_names.get(db_resource.teaching_class_id),
-                machine_kind=kinds.get(vmid, "personal"),  # type: ignore[arg-type]
+                machine_kind=machine_kind,  # type: ignore[arg-type]
                 class_relation=resource_kind.class_relation_for(  # type: ignore[arg-type]
                     db_resource, viewer_id=user.id, owned_class_ids=owned_class_ids
                 ),

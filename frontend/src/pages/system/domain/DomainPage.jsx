@@ -515,6 +515,7 @@ export default function DomainPage() {
         <EmptyState
           icon="domain"
           title={t("DomainPage.emptyNotConnected")}
+          action={<button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })}><MIcon name="settings" size={16} />{t("DomainPage.connectionSettings")}</button>}
         />
       ) : (
         <div className={styles.workbench}>

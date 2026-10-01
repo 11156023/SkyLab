@@ -144,7 +144,11 @@ def test_reminders_first_round_builds_baseline_then_only_new_ones_are_pushed() -
     assert fresh == []
     fresh, baseline = diff_reminders([_reminder("r1"), _reminder("r2")], baseline)
     assert [r.id for r in fresh] == ["r2"]
-    fresh, _ = diff_reminders([_reminder("r2")], baseline)
+    fresh, baseline = diff_reminders([_reminder("r2")], baseline)
+    assert fresh == []
+    fresh, baseline = diff_reminders([], baseline)
+    assert fresh == []
+    fresh, _ = diff_reminders([_reminder("r1")], baseline)
     assert fresh == []
 
 

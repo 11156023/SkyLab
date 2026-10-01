@@ -584,7 +584,9 @@ function ResourceTableHead() {
 /* ── Empty / Error states ── */
 function EmptyState() {
   const { t } = useTranslation("personal");
-  return <SharedEmptyState icon="dns" title={t("ResourcesPage.emptyTitle")} />;
+  const navigate = useNavigate();
+  return <SharedEmptyState icon="dns" title={t("ResourcesPage.emptyTitle")}
+    action={<button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests", { state: { create: true } })}><MIcon name="add" size={16} />{t("ResourcesPage.requestResource")}</button>} />;
 }
 
 function ResourceGuideDemoRow() {

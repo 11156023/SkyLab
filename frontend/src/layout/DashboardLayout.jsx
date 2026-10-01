@@ -15,12 +15,14 @@ import useBodyScrollLock from "../hooks/useBodyScrollLock";
 import ErrorBoundary from "../components/ErrorBoundary/ErrorBoundary";
 import UserGuide from "../components/UserGuide/UserGuide";
 import { LayoutContext } from "./layoutContext";
+import { useAuth } from "../contexts/AuthContext";
 import styles from "./DashboardLayout.module.scss";
 
 const COLLAPSE_MIN_WIDTH = 1024;
 
 export default function DashboardLayout() {
   const location = useLocation();
+  const { user } = useAuth();
   const { t } = useTranslation("common");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -52,7 +54,7 @@ export default function DashboardLayout() {
     }),
     [registerRequestForm, requestForm, registerSurface, surface, requestSubmission],
   );
-  const { active: sessionWarning, dismiss, dismissPermanent } = useSessionWarning();
+  const { active: sessionWarning, dismiss } = useSessionWarning(user?.id);
   const mobileOverlay = useDialogPresence(mobileOpen);
   useEffect(() => {
     function handleResize() {
@@ -124,7 +126,6 @@ export default function DashboardLayout() {
           <SessionWarningDialog
             status={sessionWarning}
             onClose={dismiss}
-            onDismissPermanent={dismissPermanent}
           />
         </ClassroomStudentLayer>
       </main>

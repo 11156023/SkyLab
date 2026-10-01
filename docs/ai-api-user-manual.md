@@ -71,7 +71,7 @@ LITELLM_MASTER_KEY=<gateway 管理金鑰；--init-env 自動產生>
 VLLM_UPSTREAM_API_KEY=<推論主機 vLLM 的 API_KEY；本機模型與 .env.API 相同>
 DATABASE_URL=postgresql://litellm:<已 URL 編碼的密碼>@db:5432/litellm
 LITELLM_SALT_KEY=<第一次部署建立、後續固定保留的隨機金鑰；--init-env 自動產生>
-# 有遠端模型才需要；名稱要對應 models.json 的 api_key_env。
+# 使用 api_key_env 的遠端模型才需要；使用 apikeys 時不需要此變數。
 REMOTE_LAB_API_KEY=<遠端 vLLM 的 API_KEY>
 # 可選：主機端埠（只綁 127.0.0.1），供健康檢查與管理工具。
 # LITELLM_HOST_PORT=4000
@@ -145,10 +145,26 @@ JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 }
 ```
 
+若要讓某個遠端模型直接保存自己的 key，可改用 literal `apikeys`：
+
+```json
+{
+  "alias": "remote-lab-private",
+  "deployment": "remote",
+  "served_model_name": "lab-private-model",
+  "api_base": "http://192.0.2.21:8103/v1",
+  "apikeys": "<該遠端模型的 API key>",
+  "litellm": {"rpm": 10},
+  "capabilities": {"chat": true}
+}
+```
+
 `192.0.2.20` 是文件示例位址，須換成實際主機。遠端主機應先啟動模型，監聽 gateway
 可達的介面，並允許 gateway 的來源連線；確認它的 `/v1/models` 確實提供
-`lab-chat-model`。遠端 bearer key 只填入 LiteLLM `.env`，JSON 放環境變數「名稱」。
-未指定 `api_key_env` 時沿用 `VLLM_UPSTREAM_API_KEY`。
+`lab-chat-model`。未指定 `apikeys` 或 `api_key_env` 時沿用 `VLLM_UPSTREAM_API_KEY`；
+指定 `api_key_env` 時從 LiteLLM `.env` 讀取，指定 `apikeys` 時則直接寫入生成的
+`litellm/config.yaml`。`apikeys` 與 `api_key_env` 不可同時設定。因 `apikeys` 是明文，
+`models.json` 與生成後的 `config.yaml` 都不可提交或複製到不受信任的位置。
 
 `alias` 是呼叫端 `model` 欄位使用的名稱，所有項目都必須唯一；本機
 `served_model_name`、`api_port` 也要唯一。不同遠端主機可使用相同上游模型名稱／埠，

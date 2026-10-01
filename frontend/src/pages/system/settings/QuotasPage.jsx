@@ -460,7 +460,8 @@ function QuotasSection() {
         {quotas === null ? (
           <LoadingState />
         ) : quotas.length === 0 ? (
-          <EmptyState icon="data_usage" title={t("QuotasTab.emptyNoOverrides")} />
+          <EmptyState icon="data_usage" title={t("QuotasTab.emptyNoOverrides")}
+            action={<button type="button" className={styles.btnPrimary} onClick={() => setDialog({ mode: "create" })}><MIcon name="add" size={16} />{t("QuotasTab.addQuota")}</button>} />
         ) : (
           <div className={styles.tableScroll}>
             <table className={styles.table}>

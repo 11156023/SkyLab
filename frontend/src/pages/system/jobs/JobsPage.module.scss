@@ -1,6 +1,9 @@
 @use "../../../assets/styles/variables" as *;
 @use "../../../assets/styles/mixins" as *;
 
+/* 空狀態的「清除篩選」 */
+.btnSecondary { @include btn-secondary; }
+
 .page {
   @include flex-column;
   gap: $spacing-24;

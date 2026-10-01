@@ -13,7 +13,11 @@ from config.multi_model import load_model_instances, validate_cluster_resources
 from model_deployment import upstream_connection
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from generate_litellm_config import assert_secret_free, load_models, render_config
+from generate_litellm_config import (
+    load_models,
+    render_config,
+    validate_generated_config,
+)
 from prepare_ai_stack import check_upstreams, validate_environment
 
 
@@ -35,11 +39,38 @@ def test_remote_route_does_not_launch_engine_or_allocate_local_gpu(tmp_path, mon
     monkeypatch.setenv("CLUSTER_GPU_UTIL_HARD_LIMIT", "0.95")
     validate_cluster_resources(instances)
     config = render_config(load_models(path), {}, "production")
-    assert_secret_free(config)
+    validate_generated_config(config)
     params = config["model_list"][1]["litellm_params"]
     assert params["api_base"] == "http://192.0.2.20:8103/v1"
     assert params["api_key"] == "os.environ/REMOTE_LAB_API_KEY"
     assert params["model"] == "hosted_vllm/shared-model"
+
+
+def test_remote_routes_support_default_and_literal_api_keys(tmp_path):
+    models_path = tmp_path / "models.json"
+    default_key_model = {
+        **remote_model(),
+        "alias": "remote-default-key",
+    }
+    default_key_model.pop("api_key_env")
+    literal_key_model = {
+        **remote_model(),
+        "alias": "remote-literal-key",
+        "api_base": "http://192.0.2.21:8103/v1",
+        "apikeys": "literal-remote-key",
+    }
+    literal_key_model.pop("api_key_env")
+    models_path.write_text(json.dumps([default_key_model, literal_key_model]))
+
+    config = render_config(load_models(models_path), {}, "production")
+
+    assert config["model_list"][0]["litellm_params"]["api_key"] == (
+        "os.environ/VLLM_UPSTREAM_API_KEY"
+    )
+    assert config["model_list"][1]["litellm_params"]["api_key"] == (
+        "literal-remote-key"
+    )
+    validate_generated_config(config)
 
 
 @pytest.mark.parametrize("update", [
@@ -51,6 +82,10 @@ def test_remote_route_does_not_launch_engine_or_allocate_local_gpu(tmp_path, mon
     {"api_key_env": "LITELLM_MASTER_KEY"},
     {"api_key_env": "os.environ/REMOTE_KEY"},
     {"api_key": "a-secret"},
+    {"apikeys": ""},
+    {"apikeys": ["a-secret"]},
+    {"apikeys": "a-secret", "api_key_env": "REMOTE_LAB_API_KEY"},
+    {"apikeys": "a-secret", "deployment": "local"},
     {"deployment": "remtoe"},
 ])
 def test_invalid_remote_connection_rejected_without_echoing_secret(update):
@@ -60,10 +95,12 @@ def test_invalid_remote_connection_rejected_without_echoing_secret(update):
     assert "a-secret" not in str(error.value)
 
 
-def test_secret_check_requires_entire_env_reference():
+def test_generated_config_requires_admin_secret_env_references():
     config = {"model_list": [{"litellm_params": {"api_key": "prefix os.environ/REMOTE_KEY secret"}}], "general_settings": {"master_key": "os.environ/LITELLM_MASTER_KEY"}}
-    with pytest.raises(ValueError, match="明文 secret"):
-        assert_secret_free(config)
+    validate_generated_config(config)
+    config["general_settings"]["master_key"] = "literal-master-key"
+    with pytest.raises(ValueError, match="環境變數 reference"):
+        validate_generated_config(config)
 
 
 def test_bootstrap_can_generate_production_config_before_key_provisioning(tmp_path):
@@ -82,7 +119,7 @@ def test_bootstrap_can_generate_production_config_before_key_provisioning(tmp_pa
     import yaml
     config = yaml.safe_load(output_path.read_text())
     assert config["general_settings"]["database_url"] == "os.environ/DATABASE_URL"
-    assert_secret_free(config)
+    validate_generated_config(config)
 
 
 def environment_fixture():
@@ -108,9 +145,21 @@ def test_preflight_accepts_isolated_credentials():
     validate_environment(*environment_fixture())
 
 
+def test_preflight_accepts_remote_literal_key_without_gateway_env():
+    root, services, models, engine = environment_fixture()
+    literal_model = {
+        **remote_model(),
+        "apikeys": "literal-remote-key",
+    }
+    literal_model.pop("api_key_env")
+    models.append(literal_model)
+
+    validate_environment(root, services, models, engine)
+
+
 @pytest.mark.parametrize("failure", [
     "root-secret", "backend-secret", "loopback", "host-gateway", "same-db", "same-key", "wrong-upstream",
-    "remote-key-missing", "pgbouncer", "db-loopback", "service-key-format", "engine-loopback",
+    "remote-key-missing", "literal-key-placeholder", "pgbouncer", "db-loopback", "service-key-format", "engine-loopback",
 ])
 def test_preflight_rejects_unsafe_or_inconsistent_deployment(failure):
     root, services, models, engine = environment_fixture()
@@ -137,6 +186,10 @@ def test_preflight_rejects_unsafe_or_inconsistent_deployment(failure):
             services[name]["environment"].update(AI_API_API_KEY="service-secret", LITELLM_RUNTIME_API_KEY="service-secret")
     elif failure == "engine-loopback":
         engine["API_HOST"] = "127.0.0.1"
+    elif failure == "literal-key-placeholder":
+        model = {**remote_model(), "apikeys": "replace-with-remote-key"}
+        model.pop("api_key_env")
+        models.append(model)
     else:
         models.append(remote_model())
     with pytest.raises(ValueError) as error:
@@ -169,6 +222,39 @@ def test_upstream_check_validates_served_name_without_inference(monkeypatch):
     assert requested[0].full_url.endswith("/v1/models")
     assert requested[0].get_method() == "GET"
     assert requested[0].get_header("Authorization") == "Bearer remote-secret"
+
+
+def test_upstream_check_uses_remote_literal_key(monkeypatch):
+    requested = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"data":[{"id":"shared-model"}]}'
+
+    class Opener:
+        def open(self, request, timeout):
+            requested.append(request)
+            return Response()
+
+    import prepare_ai_stack
+
+    monkeypatch.setattr(prepare_ai_stack, "build_opener", lambda *args: Opener())
+    model = {
+        **remote_model(),
+        "api_base": "http://192.0.2.20:8103/v1",
+        "apikeys": "literal-remote-key",
+    }
+    model.pop("api_key_env")
+
+    check_upstreams([model], {})
+
+    assert requested[0].get_header("Authorization") == "Bearer literal-remote-key"
 
 
 def _start_workspace(tmp_path, monkeypatch):

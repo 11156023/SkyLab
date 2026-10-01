@@ -20,10 +20,16 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 import yaml
 from dotenv import dotenv_values
-
 from generate_litellm_config import (
-    DEFAULT_MODELS, DEFAULT_OUTPUT, DEFAULT_TEMPLATE, PROJECT_ROOT,
-    assert_secret_free, load_models, load_template, render_config, vllm_scrape_targets,
+    DEFAULT_MODELS,
+    DEFAULT_OUTPUT,
+    DEFAULT_TEMPLATE,
+    PROJECT_ROOT,
+    load_models,
+    load_template,
+    render_config,
+    validate_generated_config,
+    vllm_scrape_targets,
 )
 
 REPO_ROOT = PROJECT_ROOT.parent
@@ -104,6 +110,13 @@ def validate_environment(root_env: dict, services: dict, models: list[dict], eng
     if any(model["deployment"] == "local" for model in models) and engine_env.get("API_HOST", "127.0.0.1") in LOOPBACK_HOSTS - {"0.0.0.0", "::"}:
         raise ValueError(".env.API 的 API_HOST 只綁 loopback，Compose 內的 LiteLLM 連不到本機 vLLM；請改為 0.0.0.0 並以防火牆限制引擎埠")
     for model in models:
+        if "apikeys" in model:
+            upstream_key = model["apikeys"]
+            if is_placeholder(upstream_key):
+                raise ValueError(f"模型 {model['alias']} 的 apikeys 尚未設定有效金鑰")
+            if upstream_key in {master, campus["AI_API_API_KEY"]}:
+                raise ValueError(f"模型 {model['alias']} 不可使用 LiteLLM master / Campus service key 作為上游金鑰")
+            continue
         key_name = model["api_key_env"]
         upstream_key = require_secret(gateway, key_name)
         if key_name in root_env:
@@ -118,9 +131,12 @@ def check_upstreams(models: list[dict], gateway_env: dict) -> None:
     # A direct host connection must not be redirected through HTTP_PROXY.
     opener = build_opener(ProxyHandler({}))
     for model in models:
+        upstream_key = model.get("apikeys")
+        if upstream_key is None:
+            upstream_key = gateway_env[model["api_key_env"]]
         request = Request(
             model["api_base"] + "/models",
-            headers={"Authorization": f"Bearer {gateway_env[model['api_key_env']]}"},
+            headers={"Authorization": f"Bearer {upstream_key}"},
         )
         try:
             with opener.open(request, timeout=10) as response:
@@ -381,7 +397,7 @@ def main() -> int:
                 raise ValueError(f"缺少 {path.relative_to(REPO_ROOT)}，請先執行 prepare-ai-stack.sh --init-env")
         models = load_models(DEFAULT_MODELS)
         config = render_config(models, load_template(DEFAULT_TEMPLATE), "production")
-        assert_secret_free(config)
+        validate_generated_config(config)
         result = subprocess.run(
             ["docker", "compose", "config", "--format", "json"],
             cwd=REPO_ROOT, capture_output=True, text=True, timeout=60,
@@ -402,7 +418,7 @@ def main() -> int:
                 raise ValueError("config.yaml 缺少或與模型／template 不一致；請執行 prepare-ai-stack.sh 重新產生")
         else:
             DEFAULT_OUTPUT.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-            print("已產生 production 設定：vllm-service/litellm/config.yaml（只含金鑰 reference）")
+            print("已產生 production 設定：vllm-service/litellm/config.yaml")
             write_vllm_targets(models)
         print(f"主 Compose 與金鑰邊界檢查通過；本機 {sum(m['deployment'] == 'local' for m in models)} 個、遠端 {sum(m['deployment'] == 'remote' for m in models)} 個模型")
 

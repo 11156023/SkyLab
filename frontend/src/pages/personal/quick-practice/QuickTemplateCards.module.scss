@@ -6,12 +6,5 @@
   min-width: 0;
 }
 
-.emptyPanel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
+.retry { @include btn-secondary; }
+

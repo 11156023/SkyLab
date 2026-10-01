@@ -22,8 +22,16 @@ def deployment_kind(model: dict[str, Any]) -> str:
 
 
 def upstream_connection(model: dict[str, Any]) -> tuple[str, str]:
-    """Return the base URL and key variable name, never a plaintext secret."""
+    """Return the base URL and fallback key variable name."""
     kind = deployment_kind(model)
+    literal_key = model.get("apikeys")
+    if "apikeys" in model:
+        if kind != "remote":
+            raise ValueError("apikeys 只可用於 deployment=remote")
+        if not isinstance(literal_key, str) or not literal_key.strip():
+            raise ValueError("apikeys 必須為非空字串")
+        if "api_key_env" in model:
+            raise ValueError("apikeys 與 api_key_env 不可同時設定")
     key_name = model.get("api_key_env", "VLLM_UPSTREAM_API_KEY")
     if (
         not isinstance(key_name, str)
@@ -32,7 +40,7 @@ def upstream_connection(model: dict[str, Any]) -> tuple[str, str]:
     ):
         raise ValueError("api_key_env 必須為上游金鑰的環境變數名稱，不可使用管理金鑰")
     if "api_key" in model:
-        raise ValueError("models.json 不得填入明文 api_key，請使用 api_key_env")
+        raise ValueError("models.json 不支援 api_key；請使用 api_key_env 或遠端模型的 apikeys")
     if kind == "local":
         port = model.get("api_port")
         if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:

@@ -60,20 +60,23 @@ export default function MachineCard({ machine, openingMachineId, onOpen, onInfo,
   const canShutdown = Boolean(onShutdown) && machine.status === "running" && !openingThis;
   const view = openingThis && status === "running" ? "connecting" : shownStatus;
   const terminal = buildTerminal(machine, { view, now, lang: i18n?.language, t });
+  /* 班級機、快速練習機標題用課程環境名稱（cls-xxx-1-1 這種主機名學生看不懂），滑過仍看得到主機名；
+     個人申請的機器沒有課程環境，維持自己取的名稱 */
+  const title = machine.course_environment_name || machine.name;
 
   return (
     <article className={styles.card}>
       <div className={styles.head}>
         <div className={styles.headText}>
           <span className={`${styles.dot} ${STATUS_DOT[shownStatus] ?? ""}`}>{t(`HomeOverview.machineStatus.${shownStatus}`)}</span>
-          <h3 className={styles.name}>{machine.name}</h3>
+          <h3 className={styles.name} title={title !== machine.name ? machine.name : undefined}>{title}</h3>
         </div>
         <span className={styles.typeIcon} aria-hidden="true">
           <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={20} />
         </span>
       </div>
       <MachineTerminal {...terminal} off={!SCREEN_ON.includes(shownStatus)}
-        label={t("HomeOverview.machineTerminalLabel", { name: machine.name })} />
+        label={t("HomeOverview.machineTerminalLabel", { name: title })} />
       <div className={styles.actions}>
         <button type="button" className={styles.launchButton} onClick={() => onOpen(machine)}
           disabled={openingMachineId !== null || !launchable || shuttingDown}
@@ -85,14 +88,14 @@ export default function MachineCard({ machine, openingMachineId, onOpen, onInfo,
         {canShutdown && (
           <button type="button" className={styles.iconButtonDanger} onClick={() => onShutdown(machine)}
             disabled={shuttingDown || openingMachineId !== null}
-            aria-label={t("HomeOverview.shutdownAria", { name: machine.name })}
+            aria-label={t("HomeOverview.shutdownAria", { name: title })}
             title={t("HomeOverview.shutdown")}>
             <MIcon name="power_settings_new" size={18} />
           </button>
         )}
         <button type="button" className={styles.iconButton} onClick={() => onInfo(machine)}
-          aria-label={t("StudentHomePage.machineInfoAria", { name: machine.name })}
-          title={t("StudentHomePage.machineInfoAria", { name: machine.name })}>
+          aria-label={t("StudentHomePage.machineInfoAria", { name: title })}
+          title={t("StudentHomePage.machineInfoAria", { name: title })}>
           <MIcon name="info" size={18} />
         </button>
       </div>

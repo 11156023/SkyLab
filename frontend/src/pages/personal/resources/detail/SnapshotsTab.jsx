@@ -155,7 +155,8 @@ export default function SnapshotsTab({ vmid, toolbar }) {
       )}
       <div className={styles.card}>
         {snapshots.length === 0 ? (
-          <EmptyState icon="photo_camera" title={t("SnapshotsTab.emptyTitle")} />
+          <EmptyState icon="photo_camera" title={t("SnapshotsTab.emptyTitle")}
+            action={<button type="button" className={styles.btnPrimary} onClick={() => { setNameInvalid(false); setCreateOpen(true); }}><MIcon name="add" size={14} />{t("SnapshotsTab.createSnapshot")}</button>} />
         ) : (
           <div className={styles.tableScroll}>
           <table className={styles.table}>

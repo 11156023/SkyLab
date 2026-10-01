@@ -29,7 +29,7 @@ function Message({ message, t, streaming = false }) {
   const visibleContent = user ? message.content : stripThinkingContent(message.content);
   return <article className={`${styles.message} ${user ? styles.userMessage : ""}`}>
     <div className={`${styles.avatar} ${user ? styles.userAvatar : styles.assistantAvatar}`} aria-hidden="true">
-      <MIcon name={user ? "person" : "auto_awesome"} size={17} />
+      <MIcon name={user ? "person" : "support_agent"} size={17} />
     </div>
     <div className={styles.messageBody}>
       <div className={styles.messageMeta}>
@@ -98,7 +98,9 @@ function useChatApiKey(credentials) {
 function ChatWorkspace({ userId, credentials, credentialsLoading }) {
   const { t } = useTranslation("ai");
   const confirm = useConfirm();
-  const { selected: selectedCredential, selectCredential, apiKey, loadingKey, keyError } = useChatApiKey(credentials);
+  const { selected: selectedCredential, selectCredential, apiKey: credentialKey, loadingKey, keyError } = useChatApiKey(credentials);
+  const [manualKeyInput, setManualKeyInput] = useState("");
+  const [manualApiKey, setManualApiKey] = useState(null);
   const [initial] = useState(() => {
     try { return { ...loadChatHistory(userId), warning: null }; }
     catch {
@@ -123,8 +125,9 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
   const inputRef = useRef(null);
   const logRef = useRef(null);
   const lastSavedRef = useRef({ conversations, activeId });
+  const manualKeyMode = !credentialsLoading && credentials.length === 0;
+  const apiKey = manualKeyMode ? manualApiKey : credentialKey;
   const configured = Boolean(apiKey);
-  const noUsableKey = !credentialsLoading && credentials.length === 0;
   const busy = loadingKey || loadingModels;
   const conversation = conversations.find((item) => item.id === activeId);
   const model = conversation?.model || selectedModel;
@@ -260,13 +263,6 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
     inputRef.current?.focus();
   }
 
-  // 還沒有可用的金鑰：整塊說明要先申請，不擺出用不了的聊天介面
-  if (noUsableKey) {
-    return <section className={styles.notConfigured} aria-label={t("AiApiPage.tabChat")}>
-      <EmptyState icon="key" title={t("AiApiChat.noUsableKeyTitle")} description={t("AiApiChat.noUsableKey")} />
-    </section>;
-  }
-
   // 送出按鈕停用時，把原因寫在按鈕旁（取代鍵盤提示）
   const sendBlockedReason = busy
     ? t("AiApiChat.loadingModels")
@@ -294,10 +290,25 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
     </aside>
     <div className={styles.chat}>
       <div className={styles.toolbar}>
-        <div className={styles.modelControl}>
-          <div className={styles.modelIcon} aria-hidden="true"><MIcon name="smart_toy" size={19} /></div>
+        {manualKeyMode && <form className={styles.manualKeyControl} onSubmit={(event) => {
+          event.preventDefault();
+          setManualApiKey(manualKeyInput.trim());
+        }}>
+          <div className={styles.modelIcon} aria-hidden="true"><MIcon name="key" size={19} /></div>
           <div className={styles.modelField}>
-            <label htmlFor="api-chat-model">{t("AiApiChat.model")}</label>
+            <label htmlFor="api-chat-manual-key">{t("AiApiChat.manualKey")}</label>
+            <input id="api-chat-manual-key" type="password" autoComplete="off" spellCheck={false}
+              value={manualKeyInput} placeholder="ccai_…"
+              onChange={(event) => { setManualKeyInput(event.target.value); setManualApiKey(null); }} />
+          </div>
+          <button type="submit" className={styles.retry} disabled={!manualKeyInput.trim() || Boolean(pending)}>
+            {t("AiApiChat.applyKey")}
+          </button>
+        </form>}
+        <div className={styles.modelControl}>
+          <div className={styles.modelIcon} aria-hidden="true"><MIcon name="support_agent" size={19} /></div>
+          <div className={styles.modelField}>
+            <label className={styles.srOnly} htmlFor="api-chat-model">{t("AiApiChat.model")}</label>
             <select id="api-chat-model" value={model} onChange={(event) => chooseModel(event.target.value)}
               disabled={busy || Boolean(pending) || models.length === 0}>
               {!model && <option value="">{t(busy ? "AiApiChat.loadingModels" : "AiApiChat.chooseModel")}</option>}
@@ -309,7 +320,7 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
         {credentials.length > 1 && <div className={styles.modelControl}>
           <div className={styles.modelIcon} aria-hidden="true"><MIcon name="key" size={19} /></div>
           <div className={styles.modelField}>
-            <label htmlFor="api-chat-credential">{t("AiApiChat.credential")}</label>
+            <label className={styles.srOnly} htmlFor="api-chat-credential">{t("AiApiChat.credential")}</label>
             <select id="api-chat-credential" value={selectedCredential?.id ?? ""}
               onChange={(event) => { setReplyError(null); selectCredential(event.target.value); }}
               disabled={busy || Boolean(pending)}>
@@ -341,7 +352,7 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
       </div>
       {replyError && <p className={styles.error} role="alert">{t(`AiApiChat.${replyError}`)}</p>}
       <form className={styles.composer} onSubmit={send}>
-        <label className={styles.inputLabel} htmlFor="api-chat-input">{t("AiApiChat.inputLabel")}</label>
+        <label className={styles.srOnly} htmlFor="api-chat-input">{t("AiApiChat.inputLabel")}</label>
         <div className={styles.composerSurface}>
           <textarea id="api-chat-input" ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)}
             rows={1} disabled={Boolean(pending)} placeholder={t("AiApiChat.placeholder")}

@@ -303,7 +303,8 @@ export function ReverseProxyPanel() {
           {loading ? (
             <LoadingState text={t("ReverseProxyPage.loadingList")} />
           ) : rules.length === 0 ? (
-            <EmptyState icon="swap_horiz" title={t("ReverseProxyPage.emptyTitle")} />
+            <EmptyState icon="swap_horiz" title={t("ReverseProxyPage.emptyTitle")}
+              action={<button type="button" className={styles.btnPrimary} onClick={openCreate}><MIcon name="add" size={16} />{t("ReverseProxyPage.addDomain")}</button>} />
           ) : (
             <div className={styles.list}>
               {rules.map((rule) => (

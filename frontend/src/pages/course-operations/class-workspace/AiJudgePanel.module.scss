@@ -857,7 +857,7 @@
   min-height: 0;
 }
 
-/* ── AI 聊天室空狀態 Hero（置中 ✦＋標題＋圓角 Composer）── */
+/* ── AI 聊天室空狀態 Hero（置中 ✦＋標題＋說明；圓角 Composer 固定在面板底部的 .chatHeroDock）── */
 .chatHero {
   display: flex;
   flex-direction: column;
@@ -890,7 +890,16 @@
   line-height: $line-height-base;
 }
 
-.chatHero .chatAttachmentRail {
+/* 空對話時的底部輸入區：Hero Composer 與附件、資料來源置中堆疊 */
+.chatHeroDock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-8;
+  padding-top: $spacing-8;
+}
+
+.chatHeroDock .chatAttachmentRail {
   width: min(560px, 100%);
   justify-content: center;
 }
@@ -905,13 +914,12 @@
   border: 1px solid var(--color-border);
   border-radius: $radius-16;
   background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
   text-align: left;
-  transition: border-color $transition-base, box-shadow $transition-base;
+  transition: border-color $transition-base;
 
+  /* 聚焦只換邊框色，不加陰影與外圈光暈：輸入框貼在面板底部，外擴的陰影會被面板裁掉一半 */
   &:focus-within {
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   textarea {
@@ -952,7 +960,7 @@
   @include flex-center;
 }
 
-.chatHero .chatSourcesPanel {
+.chatHeroDock .chatSourcesPanel {
   width: min(560px, 100%);
   text-align: left;
 }
@@ -1168,11 +1176,6 @@
     min-width: 36px;
     padding: 6px;
   }
-}
-
-.chatHint {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
 }
 
 /* ── 收集腳本 ── */

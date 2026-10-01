@@ -174,8 +174,8 @@ export default function JobsProvider({ children }) {
   filterRef.current = { enabled: notifyOnlyMine && isAdmin, myUserId };
   // 上一次 WS snapshot 的基準（各 job 狀態 + 時間高水位），用於 diff 觸發通知
   const snapshotBaselineRef = useRef(null);
-  // 上一次 WS snapshot 中的提醒 id，用於偵測「新出現」的提醒發桌面通知
-  const prevReminderIdsRef = useRef(null);
+  // 本次連線已看過的提醒 id；短暫消失後再出現也不重複發桌面通知
+  const seenReminderIdsRef = useRef(null);
 
   /* 桌面（系統）通知：瀏覽器權限狀態 + 使用者偏好 */
   const [desktopPermission, setDesktopPermission] = useState(() => getDesktopPermission());
@@ -194,6 +194,10 @@ export default function JobsProvider({ children }) {
 
   // WS 連著時 snapshot 每幾秒就來一次，REST 輪詢只在斷線時補位
   const wsConnectedRef = useRef(false);
+
+  useEffect(() => {
+    seenReminderIdsRef.current = null;
+  }, [myUserId]);
 
   /* REST fallback：WS 斷線期間每 15 秒抓一次執行中任務 */
   const load = useCallback(async () => {
@@ -228,10 +232,10 @@ export default function JobsProvider({ children }) {
         setReminders((prev) => keepIfUnchanged(prev, snapshot.reminders));
 
         // ── 新出現且未讀的提醒 → 桌面通知（首次 snapshot 只建 baseline）──
-        const prevIds = prevReminderIdsRef.current;
-        if (prevIds !== null && !pushSubscribedRef.current && isPageInBackground()) {
+        const seenIds = seenReminderIdsRef.current;
+        if (seenIds !== null && !pushSubscribedRef.current && isPageInBackground()) {
           for (const reminder of snapshot.reminders) {
-            if (prevIds.has(reminder.id)) continue;
+            if (seenIds.has(reminder.id)) continue;
             if (readReminderIdsRef.current.includes(reminder.id)) continue;
             showDesktopNotification(reminder.title, {
               body: reminder.description,
@@ -240,7 +244,9 @@ export default function JobsProvider({ children }) {
             });
           }
         }
-        prevReminderIdsRef.current = new Set(snapshot.reminders.map((r) => r.id));
+        const nextSeenIds = new Set(seenIds ?? []);
+        for (const reminder of snapshot.reminders) nextSeenIds.add(reminder.id);
+        seenReminderIdsRef.current = nextSeenIds;
       }
 
       // ── Diff: 比對上一次 snapshot，找出剛轉成終態的任務 ──

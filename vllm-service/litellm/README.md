@@ -43,7 +43,9 @@ dedicated role/database on the Compose PostgreSQL, recreates the gateway, waits
 for its database, registers the Campus service key (or syncs its model
 allowlist) and finally starts the whole stack. `--check-only` validates the
 current generated file without rewriting it. Remote keys named by
-`api_key_env` are injected only into LiteLLM through this directory's `.env`.
+`api_key_env` are injected only into LiteLLM through this directory's `.env`;
+remote `apikeys` values are written directly to the ignored generated
+`config.yaml`.
 
 After changing model routes, rerun `bash scripts/prepare-ai-stack.sh --start`
 so the gateway reloads and the service key allowlist follows the new aliases.
