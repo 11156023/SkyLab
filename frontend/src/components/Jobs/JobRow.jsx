@@ -12,6 +12,8 @@ export const JOB_KIND_LABEL_KEYS = {
   template:      "JobRow.kindTemplate",
   resource_reset:  "JobRow.kindResourceReset",
   batch_provision: "JobRow.kindBatchProvision",
+  resource_backup:  "JobRow.kindResourceBackup",
+  resource_restore: "JobRow.kindResourceRestore",
 };
 
 /** 狀態顯示名稱 + MIcon 名稱 + 色調 class key */

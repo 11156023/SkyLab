@@ -57,6 +57,20 @@ def _clear_proxmox_caches() -> Generator[None, None, None]:
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_backup_purge_on_delete(monkeypatch: pytest.MonkeyPatch) -> None:
+    """resource_service.delete 成功後會順手清掉機器的備份（要查連線設定、打 PVE）。
+
+    一般測試只 mock 刪除本身，不該因此多連一次資料庫或 PVE；要測這個掛鉤的案例
+    自己再換一個替身（見 test_delete_running_resource）。
+    """
+    from app.services.resource import resource_service
+
+    monkeypatch.setattr(
+        resource_service, "_purge_backups_best_effort", lambda **kwargs: None
+    )
+
+
 def _is_truthy_env(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 

@@ -55,6 +55,8 @@ class GovernanceConfig(SQLModel, table=True):
     snapshot_cleanup_enabled: bool = Field(default=True)
     snapshot_retention_days: int = Field(default=7, ge=1, le=90)
     student_snapshot_max_count: int = Field(default=3, ge=1, le=10)
+    # 快照不能用的機器改用備份當還原點；備份佔的空間遠大於快照，上限獨立設定
+    student_backup_max_count: int = Field(default=2, ge=1, le=10)
 
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,

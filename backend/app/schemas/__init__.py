@@ -109,6 +109,10 @@ from .quota import (
     ResourceQuotaUpdate,
 )
 from .resource import (
+    BackupCapability,
+    BackupCreateRequest,
+    BackupInfo,
+    BackupRestoreRequest,
     BatchActionRequest,
     BatchActionResponse,
     BatchActionResultItem,
@@ -235,6 +239,10 @@ __all__ = [
     "SnapshotCapability",
     "SnapshotCreateRequest",
     "SnapshotResponse",
+    "BackupCapability",
+    "BackupCreateRequest",
+    "BackupInfo",
+    "BackupRestoreRequest",
     "DirectSpecUpdateRequest",
     "ResetAcceptedResponse",
     # VM Request

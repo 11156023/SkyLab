@@ -356,6 +356,8 @@
   "JobRow.kindMigration": "Migration",
   "JobRow.kindSpecChange": "Spec change",
   "JobRow.kindTemplate": "Template",
+  "JobRow.kindResourceBackup": "Backup",
+  "JobRow.kindResourceRestore": "Restore backup",
   "JobRow.kindResourceReset": "Reset",
   "JobRow.kindBatchProvision": "Batch provisioning",
   "JobRow.kindVmRequest": "Boot request",

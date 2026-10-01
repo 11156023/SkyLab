@@ -1425,6 +1425,9 @@ def delete(
             )
             raise
 
+        # PVE 的 purge 不會刪備份檔，而 VMID 會被重用：連同這台機器的備份一起清
+        _purge_backups_best_effort(node=node, vmid=vmid)
+
         _cleanup_after_resource_removed(
             session=session,
             vmid=vmid,
@@ -1494,6 +1497,18 @@ def delete_orphan_db_record(
         details=f"Orphan DB cleanup for vmid={vmid} (VM not found in Proxmox)",
     )
     logger.info("Orphan DB record for vmid=%s cleaned up", vmid)
+
+
+def _purge_backups_best_effort(*, node: str, vmid: int) -> None:
+    """機器已從 PVE 刪除：清掉 SkyLab 為它建立的備份；失敗只記 log，不擋刪除。"""
+    try:
+        from app.services.resource import backup_service
+
+        backup_service.purge_backups_for_removed_machine(node=node, vmid=vmid)
+    except Exception:
+        logger.warning(
+            "Failed to purge backups of deleted resource %s", vmid, exc_info=True
+        )
 
 
 def _cleanup_after_resource_removed(

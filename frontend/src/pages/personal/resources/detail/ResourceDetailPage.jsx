@@ -9,6 +9,7 @@ import OverviewTab from "./OverviewTab";
 import MonitoringTab from "./MonitoringTab";
 import SpecificationsTab from "./SpecificationsTab";
 import SnapshotsTab from "./SnapshotsTab";
+import BackupsTab from "./BackupsTab";
 import AuditLogsTab from "./AuditLogsTab";
 import AdvancedSettingsTab from "./AdvancedSettingsTab";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
@@ -20,6 +21,7 @@ const TABS = [
   { key: "monitoring",     labelKey: "ResourceDetailPage.tabMonitoring", icon: "monitor_heart", sharedOnly: true },
   { key: "specifications", labelKey: "ResourceDetailPage.tabSpecifications", icon: "tune", sharedOnly: false },
   { key: "snapshots",      labelKey: "ResourceDetailPage.tabSnapshots", icon: "photo_camera", sharedOnly: false },
+  { key: "backups",        labelKey: "ResourceDetailPage.tabBackups", icon: "backup", sharedOnly: false },
   { key: "auditLogs",      labelKey: "ResourceDetailPage.tabAuditLogs", icon: "receipt_long", sharedOnly: false },
   { key: "advanced",       labelKey: "ResourceDetailPage.tabAdvanced", icon: "settings", sharedOnly: true },
 ];
@@ -77,11 +79,28 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   const snapshotAvailable = isGuideDemo
     || (snapshotCapability.vmid === vmid && snapshotCapability.available === true);
 
+  /* 備份：快照「確定不能用」的機器才查。所屬叢集有設定備份 storage 時，以備份分頁
+     取代快照分頁當還原點；每次重查快照可用性（snapshotCapability 換新物件）也跟著重查 */
+  const snapshotUnavailable = !isGuideDemo
+    && snapshotCapability.vmid === vmid && snapshotCapability.available === false;
+  const [backupCapability, setBackupCapability] = useState({ vmid: null, data: null });
+  useEffect(() => {
+    if (!snapshotUnavailable) return undefined;
+    let cancelled = false;
+    ResourcesService.getBackupCapability(vmid)
+      .then((r) => !cancelled && setBackupCapability({ vmid, data: r ?? null }))
+      .catch(() => !cancelled && setBackupCapability({ vmid, data: null }));
+    return () => { cancelled = true; };
+  }, [snapshotUnavailable, vmid, snapshotCapability]);
+  const backupInfo = snapshotUnavailable && backupCapability.vmid === vmid ? backupCapability.data : null;
+  const backupAvailable = backupInfo?.available === true;
+
   const isShared = access?.access_role === "shared";
   const visibleTabs = TABS.filter((tabDef) => {
     if (isShared && !tabDef.sharedOnly) return false;
     /* 機器當下不能用快照時，整個快照分頁（建立／還原／刪除、一鍵重置、初始快照）都隱藏 */
     if (tabDef.key === "snapshots" && !snapshotAvailable) return false;
+    if (tabDef.key === "backups" && !backupAvailable) return false;
     return true;
   });
   /* 目前分頁被藏起來時（例如停在快照分頁、重新查詢後變成不可用）退回總覽 */
@@ -155,6 +174,14 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
             {activeTab === "specifications" && <SpecificationsTab vmid={vmid} />}
             {activeTab === "snapshots"      && (
               <SnapshotsTab vmid={vmid} toolbar={tabToolbar} onOperationFailed={recheckSnapshotCapability} />
+            )}
+            {activeTab === "backups"        && (
+              <BackupsTab
+                vmid={vmid}
+                toolbar={tabToolbar}
+                capability={backupInfo}
+                onOperationFailed={recheckSnapshotCapability}
+              />
             )}
             {activeTab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
             {activeTab === "advanced"       && (

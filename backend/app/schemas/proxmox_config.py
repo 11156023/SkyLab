@@ -87,6 +87,7 @@ class ProxmoxConnectionPublic(BaseModel):
     pool_name: str
     iso_storage: str
     data_storage: str
+    backup_storage: str | None = None
     task_check_interval: int
     gateway_ip: str | None = None
     local_subnet: str | None = None
@@ -112,6 +113,7 @@ class ProxmoxConnectionCreate(BaseModel):
     pool_name: str = Field(default=DEFAULT_PROXMOX_POOL_NAME, max_length=255)
     iso_storage: str = Field(default="local", max_length=255)
     data_storage: str = Field(default="local-lvm", max_length=255)
+    backup_storage: str | None = Field(default=None, max_length=255)
     task_check_interval: int = Field(default=2, ge=1, le=60)
     gateway_ip: str | None = None
     local_subnet: str | None = None
@@ -129,8 +131,8 @@ class ProxmoxConnectionUpdateIn(BaseModel):
     重設成 schema 預設值。
 
     既有的空值語義保留：``password`` 帶 None 表示不更新密碼；``ca_cert`` 帶 None
-    表示不更新、帶空字串表示清除；``gateway_ip`` 等三個選填欄位帶 None 或空字串
-    表示清空。
+    表示不更新、帶空字串表示清除；``gateway_ip``、``backup_storage`` 等選填欄位帶
+    None 或空字串表示清空。
     """
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -144,6 +146,7 @@ class ProxmoxConnectionUpdateIn(BaseModel):
     pool_name: str | None = Field(default=None, max_length=255)
     iso_storage: str | None = Field(default=None, max_length=255)
     data_storage: str | None = Field(default=None, max_length=255)
+    backup_storage: str | None = Field(default=None, max_length=255)
     task_check_interval: int | None = Field(default=None, ge=1, le=60)
     gateway_ip: str | None = None
     local_subnet: str | None = None

@@ -31,6 +31,7 @@ const EMPTY_CONNECTION_FORM = {
   pool_name: "SkyLab",
   iso_storage: "local",
   data_storage: "local-lvm",
+  backup_storage: "",
   task_check_interval: 2,
   gateway_ip: "",
   local_subnet: "",
@@ -52,6 +53,7 @@ function connectionToForm(conn) {
     pool_name: conn.pool_name ?? "",
     iso_storage: conn.iso_storage ?? "",
     data_storage: conn.data_storage ?? "",
+    backup_storage: conn.backup_storage ?? "",
     task_check_interval: conn.task_check_interval ?? 2,
     gateway_ip: conn.gateway_ip ?? "",
     local_subnet: conn.local_subnet ?? "",
@@ -78,6 +80,8 @@ function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, on
       pool_name: form.pool_name.trim() || "SkyLab",
       iso_storage: form.iso_storage.trim() || "local",
       data_storage: form.data_storage.trim() || "local-lvm",
+      /* 選填：留空＝這個叢集不開放機器備份（後端把 null／空字串都存成未設定） */
+      backup_storage: form.backup_storage.trim() || null,
       task_check_interval: Number(form.task_check_interval) || 2,
       gateway_ip: form.gateway_ip.trim() || null,
       local_subnet: form.local_subnet.trim() || null,
@@ -181,6 +185,11 @@ function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, on
         <label className={styles.field}>
           <span>Data Storage</span>
           <input value={form.data_storage} onChange={(e) => set("data_storage", e.target.value)} placeholder="local-lvm" />
+        </label>
+        <label className={styles.field}>
+          <span>Backup Storage</span>
+          <input value={form.backup_storage} onChange={(e) => set("backup_storage", e.target.value)} placeholder={t("SettingsPage.optional")} />
+          <em className={styles.fieldHint}>{t("SettingsPage.backupStorageHint")}</em>
         </label>
         <label className={styles.field}>
           <span>{t("SettingsPage.taskCheckInterval")}</span>

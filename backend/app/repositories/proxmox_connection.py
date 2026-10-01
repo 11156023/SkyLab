@@ -65,6 +65,7 @@ def create_connection(
     default_node: str | None = None,
     enabled: bool = True,
     is_default: bool = False,
+    backup_storage: str | None = None,
 ) -> ProxmoxConnection:
     if is_default:
         _clear_default(session)
@@ -80,6 +81,7 @@ def create_connection(
         pool_name=pool_name,
         iso_storage=iso_storage,
         data_storage=data_storage,
+        backup_storage=(backup_storage or "").strip() or None,
         task_check_interval=task_check_interval,
         gateway_ip=gateway_ip or None,
         local_subnet=local_subnet or None,
@@ -107,6 +109,7 @@ _UPDATABLE_FIELDS: frozenset[str] = frozenset(
         "pool_name",
         "iso_storage",
         "data_storage",
+        "backup_storage",
         "task_check_interval",
         "gateway_ip",
         "local_subnet",
@@ -116,9 +119,9 @@ _UPDATABLE_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# 這三個欄位允許清空：帶 None 或空字串都存成 None
+# 這幾個欄位允許清空：帶 None 或空字串都存成 None
 _NULLABLE_TEXT_FIELDS: frozenset[str] = frozenset(
-    {"gateway_ip", "local_subnet", "default_node"}
+    {"gateway_ip", "local_subnet", "default_node", "backup_storage"}
 )
 
 
@@ -134,7 +137,8 @@ def update_connection(
     「沒帶這個欄位」與「帶了 None」能分開處理，呼叫端不必回送整份設定：
     - ``password``：帶 None 表示不換密碼
     - ``ca_cert``：帶 None 表示不動，帶空字串才是清除
-    - ``gateway_ip`` / ``local_subnet`` / ``default_node``：帶 None 或空字串是清空
+    - ``gateway_ip`` / ``local_subnet`` / ``default_node`` / ``backup_storage``：帶 None
+      或空字串是清空
     - 其餘欄位帶 None 一律忽略（它們沒有「設為 None」的語義）
     """
     conn = session.get(ProxmoxConnection, connection_id)
@@ -156,7 +160,7 @@ def update_connection(
                 conn.ca_cert = str(value) or None
             continue
         if field in _NULLABLE_TEXT_FIELDS:
-            setattr(conn, field, value or None)
+            setattr(conn, field, (str(value).strip() if value else "") or None)
             continue
         if value is None:
             continue

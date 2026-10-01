@@ -206,6 +206,8 @@ def get_audit_stats(
         AuditAction.resource_delete.value,
         AuditAction.resource_reset.value,
         AuditAction.snapshot_delete.value,
+        AuditAction.backup_restore.value,
+        AuditAction.backup_delete.value,
         AuditAction.user_delete.value,
     ]
     danger_stmt = (

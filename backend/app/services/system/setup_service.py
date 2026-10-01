@@ -287,6 +287,7 @@ def configure_proxmox(
         pool_name=data.pool_name,
         iso_storage=data.iso_storage,
         data_storage=data.data_storage,
+        backup_storage=data.backup_storage,
         task_check_interval=data.task_check_interval,
         gateway_ip=data.gateway_ip,
         local_subnet=data.local_subnet,
