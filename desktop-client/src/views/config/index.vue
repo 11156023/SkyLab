@@ -107,7 +107,7 @@ onUnmounted(() => {
           <el-form-item :label="t('config.backend.label')">
             <el-input
               v-model="form.backendUrl"
-              placeholder="http://localhost:8000"
+              placeholder="https://skylab.ntubimdbirc.tw"
             />
             <div class="form-hint form-hint--block">
               {{ t("config.backend.tips") }}

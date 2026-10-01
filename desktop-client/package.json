@@ -1,6 +1,6 @@
 {
   "name": "SkyLab-connect",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "main": "dist-electron/main/index.js",
   "description": "SkyLab Connect desktop client",
   "private": true,

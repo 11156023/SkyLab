@@ -24,6 +24,11 @@ class SkyLabService {
     const url = backendUrl.replace(/\/$/, "") + pathname;
     return new Promise((resolve, reject) => {
       const req = net.request({ method, url });
+      let timeout: NodeJS.Timeout | null = null;
+      const clearRequestTimeout = () => {
+        if (timeout) clearTimeout(timeout);
+        timeout = null;
+      };
       if (options.body !== undefined) {
         req.setHeader("Content-Type", "application/json");
       }
@@ -37,17 +42,28 @@ class SkyLabService {
           req.on("response", response => {
             response.on("data", chunk => chunks.push(chunk));
             response.on("end", () => {
+              clearRequestTimeout();
               resolve({
                 status: response.statusCode,
                 body: Buffer.concat(chunks).toString("utf-8")
               });
             });
-            response.on("error", (err: Error) => reject(err));
+            response.on("error", (err: Error) => {
+              clearRequestTimeout();
+              reject(err);
+            });
           });
-          req.on("error", (err: Error) => reject(err));
+          req.on("error", (err: Error) => {
+            clearRequestTimeout();
+            reject(new BusinessError(ResponseCode.BACKEND_ERROR, err.message));
+          });
           if (options.body !== undefined) {
             req.write(JSON.stringify(options.body));
           }
+          timeout = setTimeout(() => {
+            reject(new BusinessError(ResponseCode.BACKEND_ERROR, "Request timed out."));
+            req.abort();
+          }, 20_000);
           req.end();
         })
         .catch(reject);
