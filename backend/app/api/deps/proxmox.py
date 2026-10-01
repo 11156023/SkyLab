@@ -6,6 +6,7 @@ from app.api.deps.auth import CurrentUser
 from app.api.deps.database import SessionDep
 from app.services.proxmox import proxmox_service
 from app.services.resource.access import (
+    require_resource_console_access,
     require_resource_management,
     require_resource_ownership,
     require_resource_use,
@@ -63,8 +64,17 @@ def get_resource_info_controllable(
 
 ControlResourceInfoDep = Annotated[dict, Depends(get_resource_info_controllable)]
 
-# VM 主控台用的名稱；與 ControlResourceInfoDep 是同一個 dependency。
-ControlVmInfoDep = ControlResourceInfoDep
+
+def get_vm_info_controllable(
+    vmid: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> dict:
+    require_resource_console_access(session=session, user=current_user, vmid=vmid)
+    return proxmox_service.find_resource(vmid)
+
+
+ControlVmInfoDep = Annotated[dict, Depends(get_vm_info_controllable)]
 
 
 def get_lxc_info_controllable(
@@ -73,7 +83,7 @@ def get_lxc_info_controllable(
     session: SessionDep,
 ) -> dict:
     """LXC info for terminal access (owner, admin, or shared user)."""
-    check_resource_control_access(vmid, current_user, session)
+    require_resource_console_access(session=session, user=current_user, vmid=vmid)
     return proxmox_service.find_lxc(vmid)
 
 

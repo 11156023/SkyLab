@@ -70,6 +70,24 @@ def test_resource_targets_are_running_authorized_and_inside_vm_subnet(
             type="qemu",
             ip_address="192.168.1.10",
         ),
+        ResourcePublic(
+            vmid=105,
+            name="ended-window",
+            status="running",
+            node="pve1",
+            type="lxc",
+            ip_address="10.10.1.13",
+            start_blocked_reason="window_ended",
+        ),
+        ResourcePublic(
+            vmid=106,
+            name="expired-ttl",
+            status="running",
+            node="pve1",
+            type="lxc",
+            ip_address="10.10.1.14",
+            expiry_date=(datetime.now(UTC) - timedelta(days=1)).date(),
+        ),
     ]
     monkeypatch.setattr(
         wireguard_service.resource_service,

@@ -32,6 +32,7 @@ from app.schemas.wireguard import (
     WireGuardConnectionTarget,
     WireGuardConnectResponse,
 )
+from app.services.governance.lifecycle_policy import expiry_datetime
 from app.services.network import gateway_service
 from app.services.resource import resource_service
 
@@ -180,6 +181,11 @@ def _resource_targets(
             or resource.status != "running"
             or not resource.can_control
             or not resource.ip_address
+            or resource.start_blocked_reason is not None
+            or (
+                resource.expiry_date is not None
+                and _now() >= expiry_datetime(resource.expiry_date)
+            )
         ):
             continue
         try:

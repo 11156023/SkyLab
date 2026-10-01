@@ -345,7 +345,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
       <td className={styles.td}>{resource.node ?? "—"}</td>
       <td className={styles.td}>
         {isLive ? <div className={styles.rowActions}>
-          <button type="button" className={styles.terminalBtn} disabled={resource.status !== "running"} title={resource.status === "starting" ? t("ResourceRow.consoleBootingTitle") : undefined} onClick={() => setConsoleOpen(true)} data-guide="resource-console">
+          <button type="button" className={styles.terminalBtn} disabled={resource.status !== "running" || Boolean(resource.start_blocked_reason)} title={resource.start_blocked_reason === "window_ended" ? t("ResourceRow.windowEnded") : resource.status === "starting" ? t("ResourceRow.consoleBootingTitle") : undefined} onClick={() => setConsoleOpen(true)} data-guide="resource-console">
             <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("ResourceRow.terminal") : t("ResourceRow.console")}
           </button>
           {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
@@ -399,7 +399,7 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
   const canControl = Boolean(
     environmentReady && resource?.vmid && resource.can_control !== false,
   );
-  const canOpen = canControl && resource.status === "running";
+  const canOpen = canControl && resource.status === "running" && !resource.start_blocked_reason;
   const specLabel = machineSpecLabel(machine);
 
   // 與單機列同一組電源控制；環境內的機器差別只在不能單台刪除。
