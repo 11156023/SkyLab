@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import PasswordInput from "../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../components/PasswordRules/PasswordRules";
 import RotatingWelcome from "../../components/RotatingWelcome/RotatingWelcome";
 import Stepper from "../../components/Stepper/Stepper";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
@@ -20,6 +21,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../hooks/useToast";
 import { SetupService } from "../../services/setup";
+import { isPasswordStrong } from "../../utils/passwordPolicy";
 import { markSetupCompleted, useSetupStatus } from "./useSetupStatus";
 import { pickDefaultNode } from "./setupDefaults";
 import { LanguagePicker, Notice } from "./wizardParts";
@@ -37,7 +39,6 @@ const STEP_FINISH = 5;
 const STEP_KEYS = ["admin", "proxmox", "subnet", "gateway", "platform_entry", "finish"];
 
 const IPV4_PATTERN = "^(\\d{1,3}\\.){3}\\d{1,3}$";
-const MIN_PASSWORD_LENGTH = 8;
 
 const EMPTY_ADMIN_FORM = {
   email: "",
@@ -180,13 +181,16 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
   const [editing, setEditing] = useState(!alreadyDone);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  /* 送出時密碼不合複雜度規則：規則清單把未滿足的項目標紅 */
+  const [rulesFlagged, setRulesFlagged] = useState(false);
   const set = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
-    if (form.password.length < MIN_PASSWORD_LENGTH) {
-      setError(t("SetupPage.passwordTooShort"));
+    if (!isPasswordStrong(form.password)) {
+      setRulesFlagged(true);
+      setError(t("PasswordRules.notMet", { ns: "common" }));
       return;
     }
     if (form.password !== form.confirm) {
@@ -271,10 +275,10 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
             value={form.password}
             onChange={(e) => set("password", e.target.value)}
             placeholder={t("SetupPage.passwordPlaceholder")}
-            minLength={MIN_PASSWORD_LENGTH}
             disabled={saving}
             required
           />
+          <PasswordRules password={form.password} invalid={rulesFlagged} />
         </label>
         <label className={styles.field}>
           <span>{t("SetupPage.confirmPasswordLabel")} *</span>
@@ -282,8 +286,7 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
             autoComplete="new-password"
             value={form.confirm}
             onChange={(e) => set("confirm", e.target.value)}
-            placeholder={t("SetupPage.passwordPlaceholder")}
-            minLength={MIN_PASSWORD_LENGTH}
+            placeholder={t("SetupPage.confirmPasswordPlaceholder")}
             disabled={saving}
             required
           />

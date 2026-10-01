@@ -2,17 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import PasswordInput from "../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../components/PasswordRules/PasswordRules";
 import SegmentedControl from "../../components/SegmentedControl/SegmentedControl";
 import Turnstile from "../../components/Turnstile/Turnstile";
 import { useAuth } from "../../contexts/AuthContext";
 import { AccountService } from "../../services/account";
 import { getLoginMethods } from "../../services/auth";
+import { isPasswordStrong } from "../../utils/passwordPolicy";
 import PageShell from "./PageShell";
 import styles from "./LoginPage.module.scss";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const ENABLE_SIGNUP = import.meta.env.ENABLE_SIGNUP !== "false";
-const MIN_PASSWORD_LENGTH = 8;
 let googleIdentityScriptPromise;
 
 function loadGoogleIdentityScript() {
@@ -75,14 +76,14 @@ function clearDeviceCodeFromUrl() {
 
 /* 新密碼的前端檢查（重設密碼與註冊共用）：回傳錯誤訊息，通過則回傳空字串 */
 function newPasswordError(password, confirm, t) {
-  if (password.length < MIN_PASSWORD_LENGTH) return t("LoginPage.passwordMinLength");
+  if (!isPasswordStrong(password)) return t("PasswordRules.notMet", { ns: "common" });
   if (password !== confirm) return t("LoginPage.passwordMismatch");
   return "";
 }
 
 /* ─── 共用元件 ─────────────────────────────────────────── */
 
-function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
+function PasswordField({ id, label, value, onChange, disabled, placeholder, children }) {
   const { t } = useTranslation("login");
   return (
     <div className={styles.field}>
@@ -95,6 +96,7 @@ function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
         disabled={disabled}
         required
       />
+      {children}
     </div>
   );
 }
@@ -638,12 +640,14 @@ function ResetView({ token, onDone }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setSubmitted(true);
 
     const passwordError = newPasswordError(password, confirm, t);
     if (passwordError) {
@@ -688,7 +692,9 @@ function ResetView({ token, onDone }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
-          />
+          >
+            <PasswordRules password={password} invalid={submitted} />
+          </PasswordField>
 
           <PasswordField
             id="reset-confirm"
@@ -719,6 +725,7 @@ function RegisterView({ onBack, turnstileSiteKey = "" }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
@@ -728,6 +735,7 @@ function RegisterView({ onBack, turnstileSiteKey = "" }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setSubmitted(true);
 
     const passwordError = newPasswordError(password, confirm, t);
     if (passwordError) {
@@ -807,11 +815,13 @@ function RegisterView({ onBack, turnstileSiteKey = "" }) {
 
           <PasswordField
             id="reg-password"
-            label={t("LoginPage.passwordWithMinLengthLabel")}
+            label={t("LoginPage.passwordLabel")}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
-          />
+          >
+            <PasswordRules password={password} invalid={submitted} />
+          </PasswordField>
 
           <PasswordField
             id="reg-confirm"

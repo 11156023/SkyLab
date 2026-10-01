@@ -5,12 +5,12 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.core.security import verify_password
+from app.core.security import get_password_hash, verify_password
 from app.models import User
 from app.repositories import user as user_repo
 from app.schemas import UserCreate
 from tests.utils.user import create_random_user, user_authentication_headers
-from tests.utils.utils import random_email, random_lower_string
+from tests.utils.utils import random_email, random_lower_string, random_password
 
 
 def _refresh_superuser_token(
@@ -59,7 +59,7 @@ def test_create_user_new_email(
         patch("app.core.config.settings.SMTP_USER", "admin@example.com"),
     ):
         username = random_email()
-        password = random_lower_string()
+        password = random_password()
         data = {"email": username, "password": password}
         r = client.post(
             f"{settings.API_V1_STR}/users/",
@@ -168,7 +168,7 @@ def test_create_user_existing_username(
 ) -> None:
     username = random_email()
     # username = email
-    password = random_lower_string()
+    password = random_password()
     user_in = UserCreate(email=username, password=password)
     user_repo.create_user(session=db, user_create=user_in)
     db.commit()
@@ -249,7 +249,7 @@ def test_update_user_me(
 def test_update_password_me(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
-    new_password = random_lower_string()
+    new_password = random_password()
     data = {
         "current_password": settings.FIRST_SUPERUSER_PASSWORD,
         "new_password": new_password,
@@ -276,28 +276,12 @@ def test_update_password_me(
     # valid token.
     _refresh_superuser_token(client, superuser_token_headers, new_password)
 
-    # Revert to the old password to keep consistency in test
-    old_data = {
-        "current_password": new_password,
-        "new_password": settings.FIRST_SUPERUSER_PASSWORD,
-    }
-    r = client.patch(
-        f"{settings.API_V1_STR}/users/me/password",
-        headers=superuser_token_headers,
-        json=old_data,
-    )
-    db.refresh(user_db)
-
-    assert r.status_code == 200
-    verified, _ = verify_password(
-        settings.FIRST_SUPERUSER_PASSWORD, user_db.hashed_password
-    )
-    assert verified
-
-    # Revert also bumped token_version; refresh fixture again for downstream.
-    _refresh_superuser_token(
-        client, superuser_token_headers, settings.FIRST_SUPERUSER_PASSWORD
-    )
+    # Revert to the old password to keep consistency in test. The .env
+    # password need not satisfy the complexity rule, so it cannot be set back
+    # through the API — restore the hash directly instead.
+    user_db.hashed_password = get_password_hash(settings.FIRST_SUPERUSER_PASSWORD)
+    db.add(user_db)
+    db.commit()
 
 
 def test_update_password_me_incorrect_password(
@@ -354,7 +338,7 @@ def test_update_password_me_same_password_error(
 
 def test_register_user(client: TestClient, db: Session) -> None:
     username = random_email()
-    password = random_lower_string()
+    password = random_password()
     full_name = random_lower_string()
     avatar_url = "https://example.com/register-avatar.png"
     data = {
@@ -385,7 +369,7 @@ def test_register_user(client: TestClient, db: Session) -> None:
 
 
 def test_register_user_already_exists_error(client: TestClient) -> None:
-    password = random_lower_string()
+    password = random_password()
     full_name = random_lower_string()
     data = {
         "email": settings.FIRST_SUPERUSER,

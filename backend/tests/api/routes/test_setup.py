@@ -30,7 +30,7 @@ from app.services.network import ip_management_service
 from tests.utils.utils import random_email, random_lower_string
 
 API = f"{settings.API_V1_STR}/setup"
-ADMIN_PASSWORD = "setup-wizard-pass-123"
+ADMIN_PASSWORD = "Setup-Wizard-Pass-123"
 
 
 def _status(client: TestClient) -> dict:
@@ -80,6 +80,26 @@ def open_setup(db: Session) -> Generator[SystemSetup, None, None]:
     db.add(state)
     db.commit()
     _reactivate_default_admin(db)
+
+
+@pytest.fixture
+def keep_default_admin_password(db: Session) -> Generator[None, None, None]:
+    """接管測試會改掉 .env 預設管理員的密碼；測完還原雜湊，其他測試才能照常用它登入。
+
+    .env 的密碼不一定符合複雜度規則，無法直接拿來當接管時的新密碼。
+    """
+    default = db.exec(
+        select(User).where(User.email == settings.FIRST_SUPERUSER)
+    ).one()
+    original_hash = default.hashed_password
+    yield
+    db.expire_all()
+    default = db.exec(
+        select(User).where(User.email == settings.FIRST_SUPERUSER)
+    ).one()
+    default.hashed_password = original_hash
+    db.add(default)
+    db.commit()
 
 
 def test_status_is_public_and_reports_steps(
@@ -173,14 +193,31 @@ def test_admin_rejects_regular_user_email(
     assert r.status_code == 409, r.text
 
 
-def test_admin_takes_over_existing_superuser(
+def test_admin_rejects_weak_password(
     client: TestClient, db: Session, open_setup: SystemSetup
+) -> None:
+    """精靈建立／接管的管理員密碼也要符合複雜度；.env 的弱密碼不能原樣沿用。"""
+    email = random_email()
+    r = client.post(
+        f"{API}/admin", json={"email": email, "password": "setup-wizard-pass-123"}
+    )
+    assert r.status_code == 400, r.text
+    assert "特殊符號" in r.json()["detail"]
+    assert db.exec(select(User).where(User.email == email)).first() is None
+    assert _status(client)["steps"]["admin"] is False
+
+
+def test_admin_takes_over_existing_superuser(
+    client: TestClient,
+    db: Session,
+    open_setup: SystemSetup,
+    keep_default_admin_password: None,
 ) -> None:
     r = client.post(
         f"{API}/admin",
         json={
             "email": settings.FIRST_SUPERUSER,
-            "password": settings.FIRST_SUPERUSER_PASSWORD,
+            "password": ADMIN_PASSWORD,
         },
     )
     assert r.status_code == 200, r.text
@@ -500,7 +537,10 @@ def test_platform_entry_step_rejects_bad_upstream(
 
 
 def test_complete_requires_admin_then_locks_wizard(
-    client: TestClient, db: Session, open_setup: SystemSetup
+    client: TestClient,
+    db: Session,
+    open_setup: SystemSetup,
+    keep_default_admin_password: None,
 ) -> None:
     r = client.post(f"{API}/complete")
     assert r.status_code == 400, r.text
@@ -509,7 +549,7 @@ def test_complete_requires_admin_then_locks_wizard(
         f"{API}/admin",
         json={
             "email": settings.FIRST_SUPERUSER,
-            "password": settings.FIRST_SUPERUSER_PASSWORD,
+            "password": ADMIN_PASSWORD,
         },
     )
     assert r.status_code == 200, r.text

@@ -37,7 +37,7 @@
   "AdminPage.paginationInfo": "全 {{count}} 名 · {{page}} / {{totalPages}} ページ",
   "AdminPage.prevPage": "前のページ",
   "AdminPage.pageTitle": "ユーザー管理",
-  "AdminPage.passwordMinHint": "8 文字以上",
+  "AdminPage.passwordPlaceholder": "パスワードを入力",
   "AdminPage.passwordUnchangedHint": "未入力の場合は変更しません",
   "AdminPage.roleAdmin": "管理者",
   "AdminPage.roleStudent": "学生",

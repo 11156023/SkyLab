@@ -44,6 +44,7 @@
   "user.selfDeleteForbidden": "管理者は自分自身のアカウントを削除できません",
   "user.incorrectPassword": "パスワードが正しくありません",
   "user.samePassword": "新しいパスワードは現在のパスワードと同じにできません",
+  "user.passwordTooWeak": "パスワードは {min_length} 文字以上で、英大文字・英小文字・数字・記号をすべて含めてください",
   "user.selfEditLocked": "管理者は自分のロールを変更したり、自分のアカウントを無効化したりできません",
   "user.lastAdminLocked": "最後の有効な管理者から管理者権限を外すことはできません",
   "auth.incorrectCredentials": "メールアドレスまたはパスワードが正しくありません",

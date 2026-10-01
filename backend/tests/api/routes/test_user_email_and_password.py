@@ -65,7 +65,7 @@ def test_short_current_password_can_be_changed(
         response = client.patch(
             f"{settings.API_V1_STR}/users/me/password",
             headers=_headers(user),
-            json={"current_password": "abc12", "new_password": "newpassword1"},
+            json={"current_password": "abc12", "new_password": "NewPassw0rd!"},
         )
         assert response.status_code == 200, response.text
     finally:

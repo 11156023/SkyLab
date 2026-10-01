@@ -37,7 +37,7 @@
   "AdminPage.paginationInfo": "共 {{count}} 位 · 第 {{page}} / {{totalPages}} 頁",
   "AdminPage.prevPage": "上一頁",
   "AdminPage.pageTitle": "使用者管理",
-  "AdminPage.passwordMinHint": "至少 8 個字元",
+  "AdminPage.passwordPlaceholder": "請輸入密碼",
   "AdminPage.passwordUnchangedHint": "留空表示不變更",
   "AdminPage.roleAdmin": "管理者",
   "AdminPage.roleStudent": "學生",

@@ -44,6 +44,7 @@
   "user.selfDeleteForbidden": "Super users are not allowed to delete themselves",
   "user.incorrectPassword": "Incorrect password",
   "user.samePassword": "New password cannot be the same as the current one",
+  "user.passwordTooWeak": "Password must be at least {min_length} characters and include an uppercase letter, a lowercase letter, a number, and a symbol",
   "user.selfEditLocked": "Administrators cannot change their own role or deactivate their own account",
   "user.lastAdminLocked": "Cannot remove admin rights from the last active administrator",
   "auth.incorrectCredentials": "Incorrect email or password",

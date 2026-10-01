@@ -23,6 +23,7 @@ from app.models import AuditAction, User, UserRole
 from app.repositories import user as user_repo
 from app.schemas import Token, TokenPayload, TotpChallenge, UserUpdate
 from app.services.user import audit_service, totp_service
+from app.services.user.password_policy import ensure_password_complexity
 from app.services.user.tokens import create_token_pair
 from app.utils import (
     decode_password_reset_token,
@@ -345,6 +346,7 @@ def reset_password(*, session: Session, token: str, new_password: str) -> None:
     # 之後（即使仍在 48 小時內）一律失效。
     if token_version != user.token_version:
         raise BadRequestError(t("auth.tokenInvalid"))
+    ensure_password_complexity(new_password)
     user_repo.update_user(
         session=session, db_user=user, user_in=UserUpdate(password=new_password)
     )

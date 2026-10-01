@@ -12,7 +12,7 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.services.user import avatar_service
 from tests.utils.user import user_authentication_headers
-from tests.utils.utils import random_email, random_lower_string
+from tests.utils.utils import random_email, random_lower_string, random_password
 
 API = settings.API_V1_STR
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
@@ -28,7 +28,7 @@ def _new_user(
     client: TestClient, superuser_headers: dict[str, str]
 ) -> tuple[str, dict[str, str]]:
     email = random_email()
-    password = random_lower_string()
+    password = random_password()
     r = client.post(
         f"{API}/users/",
         headers=superuser_headers,

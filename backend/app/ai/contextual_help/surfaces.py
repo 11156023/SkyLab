@@ -1138,7 +1138,7 @@ _ADMIN_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="admin.password", role="text", label="密碼", section="使用者清單",
         sensitive=True, help="編輯既有使用者時留空表示不變更。",
-        constraints=("至少 8 個字元",),
+        constraints=("至少 8 個字元", "需同時包含大寫英文字母、小寫英文字母、數字與特殊符號"),
     ),
     ElementSpec(id="admin.status_active", role="readonly", label="啟用", section="啟用狀態"),
     ElementSpec(id="admin.status_inactive", role="readonly", label="停用", section="啟用狀態"),
