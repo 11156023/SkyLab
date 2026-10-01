@@ -6,7 +6,7 @@
 - ``governance_config.student_backup_max_count``：非管理員每台機器可保留的備份數。
 
 Revision ID: bkup01_machine_backup
-Revises: perf01_created_at_indexes
+Revises: pentry01_platform_entry
 Create Date: 2026-10-01
 """
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "bkup01_machine_backup"
-down_revision = "perf01_created_at_indexes"
+down_revision = "pentry01_platform_entry"
 branch_labels = None
 depends_on = None
 
