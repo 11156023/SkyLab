@@ -2,11 +2,12 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.api.deps import AdminUser, SessionDep
 from app.core.i18n import t
+from app.core.request_context import get_request_context
 from app.exceptions import BadRequestError, ProxmoxError
 from app.models import AuditAction, GatewayConfig
 from app.repositories import gateway_config as gw_repo
@@ -19,12 +20,21 @@ from app.schemas.gateway import (
     GatewayInstallStatus,
     GatewayServiceVersionsResult,
     GatewayWireGuardOverview,
+    PlatformEntryPublic,
+    PlatformEntryStatus,
+    PlatformEntryUpdate,
+    PlatformEntryUpstreamTest,
+    PlatformEntryUpstreamTestRequest,
     ServiceActionResult,
     ServiceConfigRead,
     ServiceConfigWrite,
     ServiceStatusResult,
 )
-from app.services.network import gateway_install_service, gateway_service
+from app.services.network import (
+    gateway_install_service,
+    gateway_service,
+    platform_entry_service,
+)
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -49,14 +59,8 @@ def _require_configurable_service(service: str) -> None:
         )
 
 
-def _to_public(config: GatewayConfig) -> GatewayConfigPublic:
-    return GatewayConfigPublic(
-        host=config.host,
-        ssh_port=config.ssh_port,
-        ssh_user=config.ssh_user,
-        public_key=config.public_key,
-        is_configured=bool(config.host and config.encrypted_private_key),
-    )
+def _to_public(config: GatewayConfig | None) -> GatewayConfigPublic:
+    return gateway_service.to_public_config(config)
 
 
 # ─── 連線設定 ──────────────────────────────────────────────────────────────────
@@ -65,16 +69,7 @@ def _to_public(config: GatewayConfig) -> GatewayConfigPublic:
 @router.get("/config", response_model=GatewayConfigPublic)
 def get_config(session: SessionDep, _: AdminUser):
     """取得 Gateway VM 連線設定（含公鑰）"""
-    config = gw_repo.get_gateway_config(session)
-    if config is None:
-        return GatewayConfigPublic(
-            host="",
-            ssh_port=22,
-            ssh_user="root",
-            public_key="",
-            is_configured=False,
-        )
-    return _to_public(config)
+    return _to_public(gw_repo.get_gateway_config(session))
 
 
 @router.put("/config", response_model=GatewayConfigPublic)
@@ -123,18 +118,7 @@ def generate_keypair(session: SessionDep, current_user: AdminUser):
 @router.post("/test-connection", response_model=GatewayConnectionTestResult)
 def test_connection(session: SessionDep, _: AdminUser):
     """測試 SSH 連線到 Gateway VM"""
-    config = gw_repo.get_gateway_config(session)
-    if config is None or not config.host or not config.encrypted_private_key:
-        return GatewayConnectionTestResult(
-            success=False, message=t("gateway.ssh_not_configured")
-        )
-    private_key_pem = gw_repo.get_decrypted_private_key(config)
-    success, message = gateway_service.test_connection(
-        host=config.host,
-        ssh_port=config.ssh_port,
-        ssh_user=config.ssh_user,
-        private_key_pem=private_key_pem,
-    )
+    success, message = gateway_service.test_saved_connection(session)
     return GatewayConnectionTestResult(success=success, message=message)
 
 
@@ -199,6 +183,58 @@ def start_install(
         ),
     )
     return result
+
+
+# ─── 平台入口（主系統經 Gateway nginx 對外）──────────────────────────────────
+
+
+@router.get("/platform-entry", response_model=PlatformEntryPublic)
+def get_platform_entry(session: SessionDep, _: AdminUser) -> PlatformEntryPublic:
+    """取得平台入口設定"""
+    return platform_entry_service.get_config(session)
+
+
+@router.put("/platform-entry", response_model=PlatformEntryPublic)
+def update_platform_entry(
+    data: PlatformEntryUpdate,
+    session: SessionDep,
+    current_user: AdminUser,
+) -> PlatformEntryPublic:
+    """儲存平台入口並同步到 Gateway 的 nginx（先從 Gateway 測試上游，連不到不存）"""
+    result = platform_entry_service.save_config(session, data)
+    audit_service.log_action(
+        session=session,
+        user_id=current_user.id,
+        action=AuditAction.gateway_config_write,
+        details=(
+            f"Updated platform entry: enabled={result.enabled} domain={result.domain or '-'} "
+            f"upstream={result.upstream_host or '-'}:{result.upstream_port} "
+            f"https={result.enable_https}"
+        ),
+    )
+    return result
+
+
+@router.post("/platform-entry/test-upstream", response_model=PlatformEntryUpstreamTest)
+def test_platform_entry_upstream(
+    body: PlatformEntryUpstreamTestRequest, session: SessionDep, _: AdminUser
+) -> PlatformEntryUpstreamTest:
+    """從 Gateway 連一次主系統入口，回報通不通（不儲存）"""
+    return platform_entry_service.test_upstream(
+        session, body.upstream_host, body.upstream_port
+    )
+
+
+@router.get("/platform-entry/status", response_model=PlatformEntryStatus)
+def get_platform_entry_status(
+    request: Request, session: SessionDep, _: AdminUser
+) -> PlatformEntryStatus:
+    """經 SSH 讀回 Gateway 上實際套用的平台入口、憑證與上游狀態"""
+    return platform_entry_service.get_status(
+        session,
+        observed_client_ip=get_request_context().ip_address,
+        observed_scheme=request.headers.get("x-forwarded-proto") or request.url.scheme,
+    )
 
 
 # ─── 服務設定檔管理 ────────────────────────────────────────────────────────────

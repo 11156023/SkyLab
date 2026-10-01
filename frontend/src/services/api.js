@@ -353,7 +353,11 @@ export function apiDeleteJson(path, body) {
   return request(path, { method: "DELETE", body: JSON.stringify(body) });
 }
 
-/** PUT */
-export function apiPut(path, body) {
-  return request(path, { method: "PUT", body: JSON.stringify(body) });
+/** PUT；options.timeoutMs 給會等外部系統的請求放寬逾時 */
+export function apiPut(path, body, options = {}) {
+  return request(path, {
+    method: "PUT",
+    body: JSON.stringify(body),
+    timeoutMs: options.timeoutMs,
+  });
 }

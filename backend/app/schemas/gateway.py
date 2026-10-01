@@ -153,7 +153,67 @@ class GatewayInstallStatus(BaseModel):
     wireguard_vm_subnet: str
 
 
+class PlatformEntryUpdate(BaseModel):
+    """平台入口設定；網域與上游格式由 service 檢查（錯誤訊息才能翻譯）。"""
+
+    enabled: bool = False
+    domain: str = Field(default="", max_length=255)
+    upstream_host: str = Field(default="", max_length=255)
+    upstream_port: int = Field(default=8082, ge=1, le=65535)
+    enable_https: bool = True
+
+
+class PlatformEntryPublic(BaseModel):
+    enabled: bool
+    domain: str
+    upstream_host: str
+    upstream_port: int
+    enable_https: bool
+    updated_at: datetime | None = None
+    # Gateway 的 SSH 連線設定好了才能套用
+    gateway_ready: bool
+    # HTTPS 憑證走 Cloudflare DNS-01，需要先設定 API Token
+    cloudflare_ready: bool
+    # 主系統 nginx 要信任的代理位址（.env 的 SKYLAB_TRUSTED_PROXY 建議值）
+    gateway_host: str
+
+
+class PlatformEntryUpstreamTestRequest(BaseModel):
+    upstream_host: str = Field(max_length=255)
+    upstream_port: int = Field(default=8082, ge=1, le=65535)
+
+
+class PlatformEntryUpstreamTest(BaseModel):
+    reachable: bool
+    detail: str
+
+
+class PlatformEntryStatus(BaseModel):
+    """Gateway 上實際套用的狀態（每次查詢都經 SSH 讀回）。"""
+
+    # Gateway 的 http.conf 與目前儲存的設定一致
+    applied: bool
+    applied_domain: str | None = None
+    applied_upstream: str | None = None
+    applied_https: bool | None = None
+    certificate: str | None = None
+    certificate_ready: bool | None = None
+    certificate_expires_at: datetime | None = None
+    upstream_reachable: bool | None = None
+    upstream_detail: str | None = None
+    # 後端從這次請求看到的來源 IP 與通訊協定：經 Gateway 進來卻看到 Gateway 的
+    # 位址或 http，代表主系統 nginx 還沒信任 Gateway（SKYLAB_TRUSTED_PROXY）
+    observed_client_ip: str | None = None
+    observed_scheme: str | None = None
+    checked_at: datetime
+
+
 __all__ = [
+    "PlatformEntryUpdate",
+    "PlatformEntryPublic",
+    "PlatformEntryUpstreamTestRequest",
+    "PlatformEntryUpstreamTest",
+    "PlatformEntryStatus",
     "GatewayService",
     "GatewayInstallState",
     "GatewayInstallOptions",

@@ -52,6 +52,7 @@ from .ip_allocation import IpAllocation
 from .ldap_config import LdapConfig
 from .mining_incident import MiningIncident, MiningIncidentStatus
 from .nat_rule import NatRule
+from .platform_entry_config import PlatformEntryConfig
 from .proxmox_config import ProxmoxConfig
 from .proxmox_connection import ProxmoxConnection
 from .proxmox_node import ProxmoxNode
@@ -178,6 +179,7 @@ __all__ = [
     "NatRule",
     # Gateway Config
     "GatewayConfig",
+    "PlatformEntryConfig",
     # Cloudflare Config
     "CloudflareConfig",
     "CourseEnvironment",

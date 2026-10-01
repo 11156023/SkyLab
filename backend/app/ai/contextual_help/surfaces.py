@@ -1203,6 +1203,26 @@ _GATEWAY_ELEMENTS: tuple[ElementSpec, ...] = (
         id="gateway.status_unavailable", role="readonly", label="無法取得狀態",
         section="服務狀態", help="平台連不到 Gateway VM，讀不到服務狀態。",
     ),
+    ElementSpec(
+        id="gateway.platform_entry", role="list", label="平台入口",
+        section="平台入口",
+        help=(
+            "讓 SkyLab 主系統自己也經 Gateway 的 nginx，以網域和 HTTPS 對外。"
+            "填主系統網域與 Gateway 連得到的部署機位址；儲存時會先從 Gateway 測試連線，連不到就不套用。"
+        ),
+    ),
+    ElementSpec(
+        id="gateway.platform_entry_test", role="button", label="測試上游",
+        section="平台入口", help="從 Gateway 連一次主系統入口，確認通不通，不會儲存。",
+    ),
+    ElementSpec(
+        id="gateway.platform_entry_status", role="readonly", label="Gateway 套用狀態",
+        section="平台入口",
+        help=(
+            "Gateway 上實際套用的網域、轉送目標與憑證。顯示「與 Gateway 不一致」時按「儲存並套用」重新寫入；"
+            "後端看到的來源 IP 若是 Gateway，要在部署機 .env 設定 SKYLAB_TRUSTED_PROXY。"
+        ),
+    ),
 )
 
 # ── 資源監控 ────────────────────────────────────────────────────────
@@ -1774,8 +1794,11 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         id="gateway",
         path="/gateway",
         title="閘道 VM",
-        purpose="管理 nginx（Port 轉發與反向代理）與 WireGuard VPN 的服務設定與狀態。",
-        sections=("連線設定", "服務狀態"),
+        purpose=(
+            "管理 nginx（Port 轉發與反向代理）與 WireGuard VPN 的服務設定與狀態，"
+            "以及主系統自己經 Gateway 對外的平台入口。"
+        ),
+        sections=("連線設定", "服務狀態", "平台入口"),
         access="admin",
         elements=_GATEWAY_ELEMENTS,
     ),

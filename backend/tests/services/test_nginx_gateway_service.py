@@ -102,6 +102,82 @@ def test_build_http_config_http_only_rule_proxies_on_80() -> None:
     assert "        proxy_pass http://10.10.0.3:3000;" in out
 
 
+# ─── 平台入口 ────────────────────────────────────────────────────────────────
+
+
+def _platform(enable_https: bool = True) -> nginx.PlatformEntry:
+    return nginx.PlatformEntry(
+        domain="skylab.example.com",
+        upstream_host="192.168.100.20",
+        upstream_port=8082,
+        enable_https=enable_https,
+    )
+
+
+def test_build_http_config_without_platform_has_no_platform_section() -> None:
+    out = nginx.build_http_config([], {})
+    assert nginx.PLATFORM_BEGIN_MARKER not in out
+    assert nginx.parse_platform_entry(out) is None
+
+
+def test_build_http_config_platform_https_block() -> None:
+    out = nginx.build_http_config(
+        [], {"skylab.example.com": "example.com"}, platform=_platform()
+    )
+
+    assert "upstream skylab_platform {\n    server 192.168.100.20:8082;\n    keepalive 32;" in out
+    assert "    server_name skylab.example.com;\n    return 301 https://$host$request_uri;" in out
+    assert "    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;" in out
+    assert "        proxy_pass http://skylab_platform;" in out
+    # VNC／終端機的 WebSocket 是長連線，不能沿用 VM 網域的 5 分鐘逾時
+    assert "        proxy_read_timeout 3600s;" in out
+    # 上傳與串流都不在 Gateway 緩衝
+    assert "    proxy_request_buffering off;" in out
+    assert "    proxy_buffering off;" in out
+    # 主系統 nginx 要拿這個標頭還原使用者 IP，所以不沿用客戶端自帶的值
+    assert "        proxy_set_header X-Forwarded-For $remote_addr;" in out
+    assert "$proxy_add_x_forwarded_for" not in out.split(nginx.PLATFORM_END_MARKER)[0]
+    assert out.count("{") == out.count("}")
+
+
+def test_build_http_config_platform_http_only_proxies_on_80() -> None:
+    out = nginx.build_http_config([], {}, platform=_platform(enable_https=False))
+
+    assert "listen 443" not in out
+    assert "return 301" not in out
+    assert "        proxy_pass http://skylab_platform;" in out
+    assert out.count("{") == out.count("}")
+
+
+def test_build_http_config_platform_falls_back_to_self_signed() -> None:
+    out = nginx.build_http_config([], {"skylab.example.com": None}, platform=_platform())
+
+    assert f"    ssl_certificate {nginx.NGINX_FALLBACK_CERT_PATH};" in out
+    parsed = nginx.parse_platform_entry(out)
+    assert parsed is not None
+    assert parsed["certificate_ready"] is False
+    assert parsed["certificate"] is None
+
+
+def test_parse_platform_entry_round_trips_and_leaves_vm_rules_alone() -> None:
+    rule = _ProxyRule(vmid=150, domain="web.example.com", vm_ip="10.10.0.5", internal_port=8080, enable_https=True)
+    out = nginx.build_http_config(
+        [rule],
+        {"web.example.com": "example.com", "skylab.example.com": "example.com"},
+        platform=_platform(),
+    )
+
+    assert nginx.parse_platform_entry(out) == {
+        "domain": "skylab.example.com",
+        "upstream": "192.168.100.20:8082",
+        "https": True,
+        "certificate": "example.com",
+        "certificate_ready": True,
+    }
+    # 平台入口不是 VM 規則，不能混進網域管理頁的執行期快照
+    assert [item["name"] for item in nginx.parse_http_servers(out)] == ["cc-150-web-example-com"]
+
+
 # ─── plan_certificate ────────────────────────────────────────────────────────
 
 

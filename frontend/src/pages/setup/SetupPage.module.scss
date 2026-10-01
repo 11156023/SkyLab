@@ -28,8 +28,9 @@
   }
 }
 
+/* 六個步驟的步驟列在三種語言都要放得下（實測英文最寬，需要約 930px） */
 .cardWide {
-  max-width: 760px;
+  max-width: 940px;
 }
 
 @keyframes slideUp {
@@ -406,6 +407,40 @@
   small {
     color: var(--color-text-muted);
   }
+}
+
+/* 小標＋右側動作／狀態（Gateway 步驟的「SSH 公鑰」「安裝服務」） */
+.subHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+
+  .subTitle {
+    margin-top: 0;
+  }
+}
+
+/* 公鑰、安裝日誌：玻璃卡裡的 pre 一律白底細框 */
+.preBlock {
+  margin: 0;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: monospace;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.preLog {
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 .error {

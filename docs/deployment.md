@@ -5,11 +5,39 @@
 > 以根目錄 `docker-compose.yml` 為統一入口，透過 `include` 引用 LiteLLM 原 Compose；Campus 與 LiteLLM 各自保留 `.env`：
 >
 > - **啟動：** 完成模型、資料庫與金鑰設定後執行 `bash scripts/prepare-ai-stack.sh --start`。首次部署、獨立 LiteLLM 接管與 API 操作見 [AI API 使用手冊](ai-api-user-manual.md)。
-> - **對外路由：** 由內建 `nginx`（預設 :8082，可設 `NGINX_HOST_PORT`，設定見 `nginx/default.conf`）做同源反向代理：`/api`、`/ws` → backend，其餘 → frontend。已不使用 Traefik / cloudflared。
+> - **對外路由：** 由內建 `nginx`（預設 :8082，可設 `NGINX_HOST_PORT`，設定見 `nginx/default.conf.template`）做同源反向代理：`/api`、`/ws` → backend，其餘 → frontend。已不使用 Traefik / cloudflared。要用網域＋HTTPS 對外時，讓主系統也經 Gateway 的 nginx，見下方「平台入口」。
 > - **部署 workflow：** 在 Actions 手動觸發 [`.github/workflows/deploy-pve-test.yml`](../.github/workflows/deploy-pve-test.yml)，經 `pve-test` environment 審核後在 self-hosted runner 執行預檢查與主 Compose 啟動。runner 設定檔位置見 AI API 手冊；push 到 `main` 不會自動部署。
 > - 已移除上游 template 的 `compose.yml`、`compose.override.yml`、`compose.traefik.yml`。
 >
 > 以下章節為上游 FastAPI template 的通用部署參考；其中「外部 Traefik」「staging/production」「release 觸發」等**不適用**於本專案，僅供日後自建獨立生產環境時參考。
+
+## 平台入口：主系統經 Gateway 的 nginx 對外
+
+Gateway 主機上的 nginx 原本只代理 VM 的網域與 Port 轉發；「平台入口」讓 SkyLab 主系統自己也走同一台 nginx，用網域加 Let's Encrypt 憑證對外（Web Push 需要 https）。
+
+```
+使用者 ──https──▶ Gateway nginx（終結 TLS）──http──▶ 部署機 :8082（內建 nginx）──▶ backend / frontend
+```
+
+**設定位置：** 側欄「閘道 VM」頁的「平台入口」分頁；全新安裝時初始化精靈（`/setup`）的「Gateway」「平台入口」兩步也能設定。
+
+1. 填主系統的網域，以及 Gateway 連得到的部署機位址與 port（預設 8082）。
+2. 儲存時後端會先從 Gateway 實際連一次 `http://<部署機>:<port>/nginx-health`，連不到就不存；通過後把設定寫進 Gateway 的 `/etc/nginx/skylab/http.conf`（與 VM 網域同一份檔案、同一套 `nginx -t` 失敗還原），重裝 Gateway 後按「重新同步」會一起復原。
+3. HTTPS 憑證走 certbot 的 Cloudflare DNS-01：網域要在 Cloudflare 管理的 zone 內，並先設定 Cloudflare API Token（網域管理頁，或精靈的平台入口步驟）。
+
+**還要手動完成的三件事**（頁面上也會列出）：
+
+| 項目 | 做法 |
+|---|---|
+| DNS | 把主系統網域指到 Gateway 的對外 IP。SkyLab 不會自動改這筆紀錄，避免把還在用的入口指走。 |
+| 信任 Gateway | 部署機 `.env` 設 `SKYLAB_TRUSTED_PROXY=<Gateway 連進來的來源 IP 或 CIDR>`，再 `docker compose up -d nginx`。沒設的話後端看到的來源 IP 全是 Gateway，依 IP 的限流與稽核日誌都會失準，Grafana 免密碼登入的 cookie 也不會帶 `Secure`。 |
+| 網址相關設定 | `.env` 的 `FRONTEND_HOST` 改成新的 https 網址；Google 登入的授權來源、Turnstile 的網域清單一併更新。 |
+
+**注意：**
+
+- **保留直連備援。** 後端是經 SSH 管 Gateway 的 nginx；Gateway 掛掉時從網域進不來，也就沒辦法從介面修它。請保留從內網或 VPN 直連 `http://<部署機>:8082` 的路。
+- **rootless Docker** 不保留來源 IP，容器裡的 nginx 看到的來源一律是 Docker 的轉發位址。這時 `SKYLAB_TRUSTED_PROXY` 要填那個位址（在平台入口頁的「後端看到的來源 IP」可以看到），並且用防火牆把部署機的對外 port 限制成只有 Gateway 連得到，否則直連的人可以自帶 `X-Real-IP` 偽造來源。
+- 主系統網域會被保留：即使平台入口暫時停用，VM 擁有者也不能把這個網域發布到自己的機器上。
 
 You can deploy the project using Docker Compose to a remote server.
 

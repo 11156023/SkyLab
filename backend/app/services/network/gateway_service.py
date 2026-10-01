@@ -24,6 +24,7 @@ from app.infrastructure.ssh import (
     generate_ed25519_keypair as _generate_ed25519_keypair,
 )
 from app.schemas.gateway import (
+    GatewayConfigPublic,
     GatewayServiceVersionInfo,
     GatewayServiceVersionsResult,
     GatewayWireGuardOverview,
@@ -62,6 +63,36 @@ def _systemd_unit(service: str) -> str:
 
 def generate_ed25519_keypair() -> tuple[str, str]:
     return _generate_ed25519_keypair()
+
+
+def to_public_config(config: Any | None) -> GatewayConfigPublic:
+    """Gateway 連線設定的對外樣貌：只帶公鑰，私鑰不出後端。"""
+    if config is None:
+        return GatewayConfigPublic(
+            host="", ssh_port=22, ssh_user="root", public_key="", is_configured=False
+        )
+    return GatewayConfigPublic(
+        host=config.host,
+        ssh_port=config.ssh_port,
+        ssh_user=config.ssh_user,
+        public_key=config.public_key,
+        is_configured=bool(config.host and config.encrypted_private_key),
+    )
+
+
+def test_saved_connection(session: object) -> tuple[bool, str]:
+    """用已儲存的 Gateway 設定測一次 SSH；還沒設定好時回 (False, 原因)。"""
+    from app.repositories import gateway_config as gw_repo
+
+    config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
+    if config is None or not config.host or not config.encrypted_private_key:
+        return False, t("gateway.ssh_not_configured")
+    return test_connection(
+        host=config.host,
+        ssh_port=config.ssh_port,
+        ssh_user=config.ssh_user,
+        private_key_pem=gw_repo.get_decrypted_private_key(config),
+    )
 
 
 def reset_host_key(session: object) -> str:
