@@ -13,8 +13,10 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UsersService } from "../../../services/users";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../../components/PasswordRules/PasswordRules";
 import Pagination from "../shared/Pagination";
 import { formatDate } from "../../../utils/formatDate";
+import { isPasswordStrong } from "../../../utils/passwordPolicy";
 
 const ROLE_ICONS = {
   student: "school",
@@ -76,6 +78,8 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
   const [form, setForm] = useState(() => initialForm(user));
   const isEdit = mode === "edit";
   const [resettingTotp, setResettingTotp] = useState(false);
+  /* 送出時密碼不合複雜度規則：規則清單把未滿足的項目標紅 */
+  const [rulesFlagged, setRulesFlagged] = useState(false);
 
   /* 手機遺失救援：解除對方的兩步驟驗證，對方既有登入全部失效、下次登入只需密碼 */
   async function handleResetTotp() {
@@ -100,7 +104,13 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
 
   function submit(e) {
     e.preventDefault();
-    onSubmit(buildUserPayload(form, { isLdap, isSelf: isEdit && isSelf }));
+    const payload = buildUserPayload(form, { isLdap, isSelf: isEdit && isSelf });
+    /* 編輯時密碼留空＝不變更，payload 不帶 password 就不檢查 */
+    if (payload.password !== undefined && !isPasswordStrong(payload.password)) {
+      setRulesFlagged(true);
+      return;
+    }
+    onSubmit(payload);
   }
 
   /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；送出中 Esc／點遮罩／× 都不關 */
@@ -152,17 +162,19 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
           <PasswordInput
             value={form.password}
             onChange={(e) => setField("password", e.target.value)}
-            minLength={8}
             maxLength={128}
             required={!isEdit}
             disabled={isLdap}
             placeholder={
               isLdap
                 ? t("AdminPage.ldapManagedPlaceholder")
-                : isEdit ? t("AdminPage.passwordUnchangedHint") : t("AdminPage.passwordMinHint")
+                : isEdit ? t("AdminPage.passwordUnchangedHint") : t("AdminPage.passwordPlaceholder")
             }
           />
           {isLdap && <em className={styles.fieldHint}>{t("AdminPage.ldapManagedHint")}</em>}
+          {!isLdap && (!isEdit || form.password) && (
+            <PasswordRules password={form.password} invalid={rulesFlagged} />
+          )}
         </label>
 
         <label className={styles.field}>

@@ -11,7 +11,7 @@ from app.repositories.user import create_user, get_user_by_email
 from app.schemas import UserCreate
 from app.utils import generate_password_reset_token
 from tests.utils.user import user_authentication_headers
-from tests.utils.utils import random_email, random_lower_string
+from tests.utils.utils import random_email, random_lower_string, random_password
 
 
 def test_get_access_token(client: TestClient) -> None:
@@ -71,7 +71,7 @@ def test_recovery_password_user_not_exits(
 def test_reset_password(client: TestClient, db: Session) -> None:
     email = random_email()
     password = random_lower_string()
-    new_password = random_lower_string()
+    new_password = random_password()
 
     user_create = UserCreate(
         email=email,

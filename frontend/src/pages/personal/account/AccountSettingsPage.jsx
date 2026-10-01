@@ -5,6 +5,7 @@ import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import Avatar from "../../../components/Avatar/Avatar";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../../components/PasswordRules/PasswordRules";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import TotpEnrollment from "../../../components/TotpEnrollment/TotpEnrollment";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -12,6 +13,7 @@ import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { AccountService } from "../../../services/account";
 import { focusInvalidField } from "../../../utils/focusField";
+import { isPasswordStrong } from "../../../utils/passwordPolicy";
 import { downscaleImage } from "../../../utils/image/downscaleImage";
 import AppearanceTab from "./AppearanceTab";
 import { AppearanceResetButton } from "./AppearanceSettings";
@@ -193,6 +195,8 @@ function PasswordSection() {
   const [form, setForm] = useState({ current: "", next: "", confirm: "" });
   const [saving, setSaving] = useState(false);
   const [invalid, setInvalid] = useState({});
+  /* 送出過且新密碼不合規則：規則清單把未滿足的項目標紅，直到成功更新為止 */
+  const [rulesFlagged, setRulesFlagged] = useState(false);
   const fieldRefs = { current: useRef(null), next: useRef(null), confirm: useRef(null) };
 
   function set(name, value) {
@@ -201,17 +205,17 @@ function PasswordSection() {
   }
 
   const mismatch = form.confirm.length > 0 && form.next !== form.confirm;
-  const tooShort = form.next.length > 0 && form.next.length < 8;
 
   async function handleSubmit(e) {
     e.preventDefault();
     const missing = {
       current: !form.current,
-      next: form.next.length < 8,
+      next: !isPasswordStrong(form.next),
       confirm: !form.confirm || form.next !== form.confirm,
     };
     if (missing.current || missing.next || missing.confirm) {
       setInvalid(missing);
+      setRulesFlagged(missing.next);
       const key = ["current", "next", "confirm"].find((name) => missing[name]);
       focusInvalidField(fieldRefs[key].current);
       return;
@@ -221,6 +225,7 @@ function PasswordSection() {
       await AccountService.updatePassword(form.current, form.next);
       toast.success(t("PasswordTab.passwordUpdated"));
       setForm({ current: "", next: "", confirm: "" });
+      setRulesFlagged(false);
     } catch (err) {
       toast.error(err?.message ?? t("PasswordTab.updateFailed"));
     } finally {
@@ -253,7 +258,7 @@ function PasswordSection() {
             onChange={(e) => set("next", e.target.value)}
             placeholder={t("PasswordTab.newPlaceholder")}
           />
-          {tooShort && <em className={styles.fieldError}>{t("PasswordTab.newTooShort")}</em>}
+          <PasswordRules password={form.next} invalid={rulesFlagged} />
         </label>
 
         <label className={styles.field}>

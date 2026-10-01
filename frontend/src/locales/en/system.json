@@ -37,7 +37,7 @@
   "AdminPage.paginationInfo": "{{count}} users · Page {{page}} of {{totalPages}}",
   "AdminPage.prevPage": "Previous",
   "AdminPage.pageTitle": "User Management",
-  "AdminPage.passwordMinHint": "At least 8 characters",
+  "AdminPage.passwordPlaceholder": "Enter a password",
   "AdminPage.passwordUnchangedHint": "Leave blank to keep unchanged",
   "AdminPage.roleAdmin": "Administrator",
   "AdminPage.roleStudent": "Student",

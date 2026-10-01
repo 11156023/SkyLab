@@ -10,6 +10,11 @@ def random_lower_string() -> str:
     return "".join(random.choices(string.ascii_lowercase, k=32))
 
 
+def random_password() -> str:
+    """符合帳號密碼複雜度（大寫、小寫、數字、符號）的隨機密碼，給走 API 設密碼的測試用。"""
+    return f"Aa1!{random_lower_string()}"
+
+
 def random_email() -> str:
     return f"{random_lower_string()}@{random_lower_string()}.com"
 

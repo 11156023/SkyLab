@@ -72,6 +72,7 @@ from app.services.network import (
 from app.services.proxmox import connection_sync_service
 from app.services.proxmox.tls_helpers import validate_ca_cert_pem
 from app.services.user import audit_service
+from app.services.user.password_policy import ensure_password_complexity
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,7 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
     信箱屬於一般帳號時拒絕：精靈免登入，不能拿來把既有學生／老師帳號升成管理員。
     """
     ensure_setup_open(session=session)
+    ensure_password_complexity(data.password)
 
     existing = user_repo.get_user_by_email(session=session, email=data.email)
     if existing is not None and not existing.is_superuser:
