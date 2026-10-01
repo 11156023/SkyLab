@@ -93,13 +93,34 @@ def test_restore_lxc_passes_target_storage(pve: dict[str, Any]) -> None:
     lxc.post.return_value = "UPID:restore"
 
     operations.restore_backup(
-        "pve1", 101, "lxc", "s:backup/ct/101/x", storage="lvm-data", wait_timeout_seconds=30
+        "pve1",
+        101,
+        "lxc",
+        "s:backup/ct/101/x",
+        storage="lvm-data",
+        unprivileged=True,
+        wait_timeout_seconds=30,
     )
 
     lxc.post.assert_called_once_with(
-        vmid=101, ostemplate="s:backup/ct/101/x", restore=1, force=1, storage="lvm-data"
+        vmid=101,
+        ostemplate="s:backup/ct/101/x",
+        restore=1,
+        force=1,
+        storage="lvm-data",
+        unprivileged=1,
     )
     assert pve["waits"] == [("pve1", "UPID:restore", 30)]
+
+
+def test_restore_lxc_keeps_privileged_container_privileged(pve: dict[str, Any]) -> None:
+    lxc = pve["api"].nodes.return_value.lxc
+
+    operations.restore_backup("pve1", 101, "lxc", "s:backup/ct/101/x", unprivileged=False)
+
+    lxc.post.assert_called_once_with(
+        vmid=101, ostemplate="s:backup/ct/101/x", restore=1, force=1, unprivileged=0
+    )
 
 
 def test_restore_invalidates_cluster_cache_even_when_it_fails(pve: dict[str, Any]) -> None:

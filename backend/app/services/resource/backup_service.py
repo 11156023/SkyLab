@@ -460,13 +460,18 @@ def run_backup_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, An
     return {"vmid": vmid, "mode": mode}
 
 
-def _lxc_rootfs_storage(node: str, vmid: int) -> str | None:
-    """LXC 還原要明確指定 storage，取目前 rootfs 所在的那個。"""
+def _lxc_restore_target(node: str, vmid: int) -> tuple[str | None, bool]:
+    """LXC 還原要明確指定的兩件事：rootfs 所在的 storage、是否為非特權容器。
+
+    都取自機器「目前」的設定——還原是把同一台機器的內容換回去，不該順便
+    改變它放在哪裡或權限模式。
+    """
     config = proxmox_service.get_config(node, vmid, "lxc")
+    unprivileged = str(config.get("unprivileged") or "0") in ("1", "True", "true")
     rootfs = config.get("rootfs")
     if not isinstance(rootfs, str) or ":" not in rootfs.split(",")[0]:
-        return None
-    return rootfs.split(":", 1)[0].strip() or None
+        return None, unprivileged
+    return rootfs.split(":", 1)[0].strip() or None, unprivileged
 
 
 def run_restore_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any]:
@@ -482,7 +487,10 @@ def run_restore_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
     try:
         status = proxmox_service.get_status(node, vmid, rtype)
         was_running = str(status.get("status") or "").lower() == "running"
-        restore_storage = _lxc_rootfs_storage(node, vmid) if rtype == "lxc" else None
+        restore_storage: str | None = None
+        unprivileged: bool | None = None
+        if rtype == "lxc":
+            restore_storage, unprivileged = _lxc_restore_target(node, vmid)
         if was_running:
             proxmox_service.control(
                 node, vmid, rtype, "stop", wait_timeout_seconds=STOP_WAIT_SECONDS
@@ -493,6 +501,7 @@ def run_restore_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
             rtype,
             volid,
             storage=restore_storage,
+            unprivileged=unprivileged,
             wait_timeout_seconds=RESTORE_WAIT_SECONDS,
         )
     except Exception as exc:

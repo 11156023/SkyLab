@@ -91,6 +91,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "audits": [],
         "key_sync": [],
         "rootfs": "lvm-data:vm-101-disk-0,size=8G",
+        "lxc_config": {"unprivileged": 1},
     }
     pve = backup_service.proxmox_service
 
@@ -139,7 +140,11 @@ def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "control",
         lambda node, vmid, rtype, action, **kw: state["control"].append(action),
     )
-    monkeypatch.setattr(pve, "get_config", lambda node, vmid, rtype: {"rootfs": state["rootfs"]})
+    monkeypatch.setattr(
+        pve,
+        "get_config",
+        lambda node, vmid, rtype: {"rootfs": state["rootfs"], **state["lxc_config"]},
+    )
     monkeypatch.setattr(
         backup_service.resource_repo,
         "get_resource_by_vmid",
@@ -517,12 +522,18 @@ def _restore_payload(rtype: str) -> dict[str, Any]:
 def test_run_restore_running_lxc_stops_restores_to_rootfs_storage_and_restarts(
     env: dict[str, Any],
 ) -> None:
-    """LXC 還原不指定 storage 時 PVE 會放到 local；要帶目前 rootfs 的 storage。"""
+    """LXC 還原不指定 storage 時 PVE 會放到 local、不指定 unprivileged 可能變特權容器。"""
     backup_service.run_restore_task(uuid.uuid4(), _restore_payload("lxc"))
     assert env["control"] == ["stop", "start"]
     assert env["restored"] == [
-        {"vmid": 101, "rtype": "lxc", "volid": OWN_OLD["volid"], "storage": "lvm-data",
-         "wait_timeout_seconds": backup_service.RESTORE_WAIT_SECONDS}
+        {
+            "vmid": 101,
+            "rtype": "lxc",
+            "volid": OWN_OLD["volid"],
+            "storage": "lvm-data",
+            "unprivileged": True,
+            "wait_timeout_seconds": backup_service.RESTORE_WAIT_SECONDS,
+        }
     ]
     assert env["key_sync"] == [(101, "lxc")]
     assert env["audits"][-1]["ok"] is True
@@ -535,7 +546,14 @@ def test_run_restore_stopped_vm_stays_stopped_and_keeps_original_storage(
     backup_service.run_restore_task(uuid.uuid4(), _restore_payload("qemu"))
     assert env["control"] == []
     assert env["restored"][0]["storage"] is None
+    assert env["restored"][0]["unprivileged"] is None
     assert env["key_sync"] == []
+
+
+def test_run_restore_privileged_lxc_stays_privileged(env: dict[str, Any]) -> None:
+    env["lxc_config"] = {}
+    backup_service.run_restore_task(uuid.uuid4(), _restore_payload("lxc"))
+    assert env["restored"][0]["unprivileged"] is False
 
 
 def test_run_restore_failure_tries_to_power_the_machine_back_on(env: dict[str, Any]) -> None:

@@ -885,6 +885,7 @@ def restore_backup(
     volid: str,
     *,
     storage: str | None = None,
+    unprivileged: bool | None = None,
     wait_timeout_seconds: float | None = None,
 ) -> str:
     """以備份覆蓋還原同一個 VMID（機器必須已關機）。
@@ -893,7 +894,8 @@ def restore_backup(
       備份設定檔裡記的原 storage。
     - LXC：POST /nodes/{node}/lxc，``ostemplate`` + ``restore=1`` + ``force=1``。LXC
       還原不帶 storage 時 PVE 一律放到 ``local``，所以呼叫端要傳目前 rootfs 所在
-      的 storage。
+      的 storage。``unprivileged`` 也要明確帶：非 root 的 API 帳號還原時 PVE 不會
+      沿用備份裡的設定，不帶的話非特權容器可能被還原成特權容器。
     """
     proxmox = get_proxmox_api_for_node(node)
     try:
@@ -908,6 +910,8 @@ def restore_backup(
             }
             if storage:
                 params["storage"] = storage
+            if unprivileged is not None:
+                params["unprivileged"] = 1 if unprivileged else 0
             task = proxmox.nodes(node).lxc.post(**params)
         basic_blocking_task_status(node, task, timeout_seconds=wait_timeout_seconds)
     finally:
