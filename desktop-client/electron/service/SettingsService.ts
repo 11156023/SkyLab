@@ -14,7 +14,25 @@ class SettingsService {
   }
 
   async save(patch: Partial<SkyLabSettings>): Promise<SkyLabSettings> {
-    const next = await this._repo.save(patch);
+    const current = await this._repo.get();
+    const safePatch: Partial<SkyLabSettings> = {};
+    if (typeof patch.language === "string") safePatch.language = patch.language;
+    if (typeof patch.launchAtStartup === "boolean") {
+      safePatch.launchAtStartup = patch.launchAtStartup;
+    }
+    if (typeof patch.token === "string") safePatch.token = patch.token;
+    if (typeof patch.refreshToken === "string") {
+      safePatch.refreshToken = patch.refreshToken;
+    }
+    if (typeof patch.backendUrl === "string") {
+      const backendUrl = this.normalizeBackendUrl(patch.backendUrl);
+      safePatch.backendUrl = backendUrl;
+      if (backendUrl !== current.backendUrl?.replace(/\/$/, "")) {
+        safePatch.token = "";
+        safePatch.refreshToken = "";
+      }
+    }
+    const next = await this._repo.save(safePatch);
     try {
       app.setLoginItemSettings({
         openAtLogin: !!next.launchAtStartup,
@@ -56,7 +74,35 @@ class SettingsService {
   }
 
   async getBackendUrl(): Promise<string> {
-    return (await this.get()).backendUrl;
+    const settings = await this.get();
+    try {
+      return this.normalizeBackendUrl(settings.backendUrl);
+    } catch {
+      const migrated = await this.save({
+        backendUrl: "https://skylab.ntubimdbirc.tw"
+      });
+      return migrated.backendUrl;
+    }
+  }
+
+  private normalizeBackendUrl(value: string): string {
+    let url: URL;
+    try {
+      url = new URL(value.trim());
+    } catch {
+      throw new Error("Backend URL is invalid");
+    }
+    const isLocal =
+      url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    if (url.protocol !== "https:" && !(isLocal && url.protocol === "http:")) {
+      throw new Error("Backend URL must use HTTPS");
+    }
+    if (url.username || url.password || url.search || url.hash) {
+      throw new Error(
+        "Backend URL must not contain credentials, query, or fragment"
+      );
+    }
+    return url.toString().replace(/\/$/, "");
   }
 }
 

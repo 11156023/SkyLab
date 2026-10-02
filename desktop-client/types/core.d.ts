@@ -11,7 +11,14 @@ interface ControllerParam {
 }
 
 interface Window {
-  electronIpcRenderer: Electron.IpcRenderer;
+  electronIpcRenderer: SkyLabIpcRenderer;
+}
+
+interface SkyLabIpcRenderer {
+  send(channel: string, args?: unknown): void;
+  on(channel: string, listener: (...args: any[]) => void): void;
+  removeListener(channel: string, listener: (...args: any[]) => void): void;
+  removeAllListeners(channel: string): void;
 }
 
 interface ListenerParam {

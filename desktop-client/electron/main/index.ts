@@ -80,8 +80,9 @@ class SkyLabApp {
       minHeight: 600,
       webPreferences: {
         preload,
-        nodeIntegration: true,
-        contextIsolation: false
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true
       },
       show: !process.argv.includes("--hidden")
     });
@@ -100,10 +101,19 @@ class SkyLabApp {
       );
     });
     this._win.webContents.setWindowOpenHandler(({ url }) => {
-      if (url.startsWith("https:") || url.startsWith("http:")) {
-        shell.openExternal(url);
+      try {
+        const target = new URL(url);
+        const allowedHosts = new Set(["github.com", "skylab.ntubimdbirc.tw"]);
+        if (target.protocol === "https:" && allowedHosts.has(target.hostname)) {
+          void shell.openExternal(target.toString());
+        }
+      } catch {
+        // Invalid URLs are denied below.
       }
       return { action: "deny" };
+    });
+    this._win.webContents.on("will-navigate", event => {
+      event.preventDefault();
     });
 
     Menu.setApplicationMenu(null);

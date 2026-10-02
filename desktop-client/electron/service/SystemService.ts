@@ -3,9 +3,17 @@ import { app, shell } from "electron";
 
 class SystemService {
   async openUrl(url: string) {
-    if (url) {
-      await shell.openExternal(url);
-    }
+    const target = new URL(url);
+    if (target.protocol !== "https:") throw new Error("URL must use HTTPS");
+    const allowedHosts = new Set([
+      "github.com",
+      "objects.githubusercontent.com",
+      "github-releases.githubusercontent.com",
+      "skylab.ntubimdbirc.tw"
+    ]);
+    if (!allowedHosts.has(target.hostname))
+      throw new Error("URL host is not allowed");
+    await shell.openExternal(target.toString());
   }
 
   async relaunch() {

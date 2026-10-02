@@ -1,11 +1,46 @@
-import { ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 import pkg from "../../package.json";
+import { ipcRouters, listeners } from "../core/IpcRouter";
 
-Object.defineProperty(window, "electronIpcRenderer", {
-  value: ipcRenderer,
-  configurable: false,
-  enumerable: false,
-  writable: false
+const requestChannels = new Set(
+  Object.values(ipcRouters).flatMap(group =>
+    Object.values(group).map(router => router.path)
+  )
+);
+const responseChannels = new Set([
+  ...[...requestChannels].map(channel => `${channel}:hook`),
+  ...Object.values(listeners).map(listener => listener.channel),
+  "auth:event"
+]);
+const wrappedListeners = new Map<
+  string,
+  Map<Function, (...args: any[]) => void>
+>();
+
+contextBridge.exposeInMainWorld("electronIpcRenderer", {
+  send(channel: string, args?: unknown) {
+    if (!requestChannels.has(channel)) throw new Error("IPC channel denied");
+    ipcRenderer.send(channel, args);
+  },
+  on(channel: string, listener: (...args: any[]) => void) {
+    if (!responseChannels.has(channel)) throw new Error("IPC channel denied");
+    const wrapped = (_event: unknown, ...args: any[]) => listener({}, ...args);
+    const channelListeners = wrappedListeners.get(channel) || new Map();
+    channelListeners.set(listener, wrapped);
+    wrappedListeners.set(channel, channelListeners);
+    ipcRenderer.on(channel, wrapped);
+  },
+  removeListener(channel: string, listener: (...args: any[]) => void) {
+    const wrapped = wrappedListeners.get(channel)?.get(listener);
+    if (!wrapped) return;
+    ipcRenderer.removeListener(channel, wrapped);
+    wrappedListeners.get(channel)?.delete(listener);
+  },
+  removeAllListeners(channel: string) {
+    if (!responseChannels.has(channel)) throw new Error("IPC channel denied");
+    ipcRenderer.removeAllListeners(channel);
+    wrappedListeners.delete(channel);
+  }
 });
 
 function domReady(
