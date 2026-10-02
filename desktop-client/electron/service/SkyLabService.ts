@@ -10,12 +10,13 @@ type HttpResult = {
 
 class SkyLabService {
   private readonly _settingsService: SettingsService;
+  private _refreshPromise: Promise<boolean> | null = null;
 
   constructor(settingsService: SettingsService) {
     this._settingsService = settingsService;
   }
 
-  private async request(
+  private async requestOnce(
     method: string,
     pathname: string,
     options: { auth?: boolean; body?: any } = {}
@@ -70,6 +71,57 @@ class SkyLabService {
     });
   }
 
+  async refreshSession(): Promise<boolean> {
+    if (this._refreshPromise) return this._refreshPromise;
+    this._refreshPromise = (async () => {
+      const refreshToken = await this._settingsService.getRefreshToken();
+      if (!refreshToken) return false;
+      const res = await this.requestOnce(
+        "POST",
+        "/api/v1/login/refresh-token",
+        { body: { refresh_token: refreshToken } }
+      );
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        return false;
+      }
+      if (res.status !== 200) {
+        throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
+      }
+      const data = JSON.parse(res.body) as {
+        access_token?: string;
+        refresh_token?: string;
+      };
+      if (!data.access_token || !data.refresh_token) return false;
+      await this._settingsService.setTokens(
+        data.access_token,
+        data.refresh_token
+      );
+      return true;
+    })();
+    try {
+      return await this._refreshPromise;
+    } finally {
+      this._refreshPromise = null;
+    }
+  }
+
+  private async request(
+    method: string,
+    pathname: string,
+    options: { auth?: boolean; body?: any } = {}
+  ): Promise<HttpResult> {
+    let res = await this.requestOnce(method, pathname, options);
+    if (!options.auth || res.status !== 401) return res;
+
+    if (await this.refreshSession()) {
+      res = await this.requestOnce(method, pathname, options);
+      if (res.status !== 401) return res;
+    }
+
+    await this._settingsService.clearTokens();
+    throw new BusinessError(ResponseCode.NOT_LOGGED_IN);
+  }
+
   async requestDeviceCode(): Promise<DeviceCodeResponse> {
     const res = await this.request(
       "POST",
@@ -88,7 +140,7 @@ class SkyLabService {
 
   async pollDeviceCode(
     code: string
-  ): Promise<{ status: string; accessToken: string | null }> {
+  ): Promise<DevicePollResult> {
     const res = await this.request(
       "GET",
       `/api/v1/desktop-client/auth/poll?code=${encodeURIComponent(code)}`
@@ -106,14 +158,21 @@ class SkyLabService {
     const data = JSON.parse(res.body);
     return {
       status: data.status,
-      accessToken: data.access_token || null
+      accessToken: data.access_token || null,
+      refreshToken: data.refresh_token || null
     };
   }
 
   async logout(): Promise<void> {
-    const res = await this.request("POST", "/api/v1/login/logout", {
+    try {
+      await this.refreshSession();
+    } catch (error) {
+      Logger.warn("SkyLabService.logout.refresh", (error as Error).message);
+    }
+    const refreshToken = await this._settingsService.getRefreshToken();
+    const res = await this.requestOnce("POST", "/api/v1/login/logout", {
       auth: true,
-      body: {}
+      body: refreshToken ? { refresh_token: refreshToken } : {}
     });
     if (res.status !== 200 && res.status !== 401) {
       throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);

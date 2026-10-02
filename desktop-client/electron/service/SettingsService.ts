@@ -43,6 +43,18 @@ class SettingsService {
     await this.save({ token });
   }
 
+  async getRefreshToken(): Promise<string> {
+    return (await this.get()).refreshToken || "";
+  }
+
+  async setTokens(token: string, refreshToken: string): Promise<void> {
+    await this.save({ token, refreshToken });
+  }
+
+  async clearTokens(): Promise<void> {
+    await this.setTokens("", "");
+  }
+
   async getBackendUrl(): Promise<string> {
     return (await this.get()).backendUrl;
   }

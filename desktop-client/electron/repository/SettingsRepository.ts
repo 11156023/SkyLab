@@ -21,7 +21,8 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
         return this.updateById(this._id, {
           ...existing,
           backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
-          token: ""
+          token: "",
+          refreshToken: ""
         });
       }
       return existing;
@@ -30,6 +31,7 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
       _id: this._id,
       backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
       token: "",
+      refreshToken: "",
       language: GlobalConstant.DEFAULT_LANGUAGE,
       launchAtStartup: false
     };

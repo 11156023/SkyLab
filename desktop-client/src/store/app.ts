@@ -29,6 +29,7 @@ const DEFAULT_TUNNEL_STATUS: TunnelStatusInfo = {
 const SESSION_POLL_INTERVAL_MS = 30_000;
 const LS_KEY = "session_warning_dismissed";
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
+let authExpiryListenerRegistered = false;
 
 function loadPermanentDismissals(): Record<number, string> {
   try {
@@ -81,6 +82,12 @@ export const useAppStore = defineStore("app", {
   },
   actions: {
     registerListeners() {
+      if (!authExpiryListenerRegistered) {
+        window.addEventListener("skylab:auth-expired", () => {
+          this.handleSessionExpired();
+        });
+        authExpiryListenerRegistered = true;
+      }
       on(ipcRouters.AUTH.getAuthState, data => {
         this.loggedIn = !!data.loggedIn;
         this.loginInProgress = !!data.loginInProgress;
@@ -183,6 +190,16 @@ export const useAppStore = defineStore("app", {
       }
       this.sessionStatuses = [];
       this.dismissedWarnings = [];
+    },
+    handleSessionExpired() {
+      this.loggedIn = false;
+      this.loginInProgress = false;
+      this.resources = [];
+      this.stopSessionPolling();
+      send(ipcRouters.TUNNEL.stop);
+      if (router.currentRoute.value.name !== "Home") {
+        void router.replace({ name: "Home" });
+      }
     },
     logout() {
       send(ipcRouters.AUTH.logout);

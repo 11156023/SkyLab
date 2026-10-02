@@ -55,6 +55,7 @@ interface SkyLabSettings {
   language?: string;
   backendUrl?: string;
   token?: string;
+  refreshToken?: string;
   launchAtStartup?: boolean;
 }
 
@@ -62,6 +63,12 @@ interface DeviceCodeResponse {
   device_code: string;
   login_url: string;
   expires_in: number;
+}
+
+interface DevicePollResult {
+  status: string;
+  accessToken: string | null;
+  refreshToken: string | null;
 }
 
 interface SkyLabResource {
