@@ -35,6 +35,7 @@ enum IpcRouterKeys {
   SESSION = "SESSION",
   TUNNEL = "TUNNEL",
   SETTINGS = "SETTINGS",
+  UPDATE = "UPDATE",
   LOG = "LOG",
   SYSTEM = "SYSTEM"
 }
@@ -175,4 +176,11 @@ interface SkyLabExtendResult {
   vmid: number;
   auto_stop_at: string;
   extended_minutes: number;
+}
+
+interface SkyLabUpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  downloadUrl: string;
 }

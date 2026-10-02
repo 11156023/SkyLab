@@ -1,8 +1,10 @@
 ﻿<script lang="ts">
-import { ElConfigProvider } from "element-plus";
+import { on, send } from "@/utils/ipcUtils";
+import { ipcRouters } from "../electron/core/IpcRouter";
+import { ElConfigProvider, ElMessageBox } from "element-plus";
 import en from "element-plus/dist/locale/en.mjs";
 import zhCn from "element-plus/dist/locale/zh-cn.mjs";
-import { defineComponent, ref, watch } from "vue";
+import { defineComponent, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "./store/app";
 
@@ -17,6 +19,28 @@ export default defineComponent({
 
     const warningVisible = ref(false);
     const doNotShow = ref(false);
+
+    on(ipcRouters.UPDATE.check, async (info: SkyLabUpdateInfo | null) => {
+      if (!info?.updateAvailable || !info.downloadUrl) return;
+      const dismissedKey = "dismissed_update_version";
+      if (localStorage.getItem(dismissedKey) === info.latestVersion) return;
+      try {
+        await ElMessageBox.confirm(
+          t("update.message", { version: info.latestVersion }),
+          t("update.title"),
+          {
+            confirmButtonText: t("update.download"),
+            cancelButtonText: t("update.later"),
+            type: "info"
+          }
+        );
+        send(ipcRouters.SYSTEM.openUrl, { url: info.downloadUrl });
+      } catch {
+        localStorage.setItem(dismissedKey, info.latestVersion);
+      }
+    });
+
+    onMounted(() => send(ipcRouters.UPDATE.check));
 
     // Start / stop the session-status poller as the user logs in & out.
     watch(

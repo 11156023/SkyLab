@@ -1,4 +1,10 @@
 ﻿export default {
+  update: {
+    title: "發現新版本",
+    message: "SkyLab Connect {version} 已發布，建議下載並安裝最新版。",
+    download: "下載更新",
+    later: "稍後提醒"
+  },
   app: {
     title: "SkyLab Connect",
     description: "校園雲端虛擬機連線工具"

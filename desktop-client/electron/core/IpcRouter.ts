@@ -65,6 +65,12 @@ export const ipcRouters: IpcRouters = {
       controller: "settingsController.saveLanguage"
     }
   },
+  UPDATE: {
+    check: {
+      path: "update/check",
+      controller: "updateController.check"
+    }
+  },
   LOG: {
     getAppLogContent: {
       path: "log/getAppLogContent",

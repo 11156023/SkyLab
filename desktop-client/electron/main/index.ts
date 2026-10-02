@@ -17,6 +17,7 @@ import ResourceController from "../controller/ResourceController";
 import SettingsController from "../controller/SettingsController";
 import SystemController from "../controller/SystemController";
 import TunnelController from "../controller/TunnelController";
+import UpdateController from "../controller/UpdateController";
 import BeanFactory from "../core/BeanFactory";
 import { ipcRouters, listeners } from "../core/IpcRouter";
 import Logger from "../core/Logger";
@@ -27,6 +28,7 @@ import LogService from "../service/LogService";
 import SettingsService from "../service/SettingsService";
 import SystemService from "../service/SystemService";
 import WireGuardTunnelService from "../service/WireGuardTunnelService";
+import UpdateService from "../service/UpdateService";
 
 process.env.DIST_ELECTRON = join(__dirname, "..");
 process.env.DIST = join(process.env.DIST_ELECTRON, "../dist");
@@ -235,6 +237,7 @@ class SkyLabApp {
       new SettingsService(BeanFactory.getBean("settingsRepository"))
     );
     BeanFactory.setBean("systemService", new SystemService());
+    BeanFactory.setBean("updateService", new UpdateService());
     BeanFactory.setBean(
       "SkyLabService",
       new SkyLabService(BeanFactory.getBean("settingsService"))
@@ -273,6 +276,10 @@ class SkyLabApp {
       new LogController(BeanFactory.getBean("logService"))
     );
     BeanFactory.setBean("systemController", new SystemController());
+    BeanFactory.setBean(
+      "updateController",
+      new UpdateController(BeanFactory.getBean("updateService"))
+    );
 
     Logger.info("SkyLabApp.initializeBeans", "Beans initialized.");
   }

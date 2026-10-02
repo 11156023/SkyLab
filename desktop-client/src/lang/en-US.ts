@@ -1,4 +1,11 @@
 ﻿export default {
+  update: {
+    title: "Update available",
+    message:
+      "SkyLab Connect {version} is available. Download the latest installer now.",
+    download: "Download update",
+    later: "Remind me later"
+  },
   app: {
     title: "SkyLab Connect",
     description: "Connect to your SkyLab virtual machines"
