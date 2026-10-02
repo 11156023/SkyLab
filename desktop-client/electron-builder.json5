@@ -2,71 +2,40 @@
  * @see https://www.electron.build/configuration/configuration
  */
 {
-  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "edu.SkyLab.connect",
-  "asar": true,
-  "productName": "SkyLab Connect",
-  "directories": {
-    "output": "release/${version}"
+  $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  appId: "edu.SkyLab.connect",
+  asar: true,
+  productName: "SkyLab Connect",
+  directories: {
+    output: "release/${version}"
   },
-  "icon": "./public/logo/pack/512x512.png",
-  "files": [
-    "dist",
-    "dist-electron"
-  ],
-  "mac": {
-    "icon": "./public/logo/pack/512x512.png",
-    "target": [
+  icon: "./public/logo/pack/512x512.png",
+  files: ["dist", "dist-electron"],
+  win: {
+    icon: "./public/logo/pack/icon.ico",
+    extraResources: [
       {
-        "target": "dmg",
-        "arch": ["x64", "arm64"]
-      },
-      {
-        "target": "zip",
-        "arch": ["x64", "arm64"]
+        from: "vendor/wireguard",
+        to: "wireguard",
+        filter: ["wireguard-amd64-1.1.msi", "THIRD_PARTY_NOTICES.txt"]
       }
     ],
-    "category": "public.app-category.utilities"
-  },
-  "win": {
-    "icon": "./public/logo/pack/icon.ico",
-    "extraResources": [
+    target: [
       {
-        "from": "vendor/wireguard",
-        "to": "wireguard",
-        "filter": ["wireguard-amd64-1.1.msi", "THIRD_PARTY_NOTICES.txt"]
-      }
-    ],
-    "target": [
-      {
-        "target": "nsis",
-        "arch": ["x64"]
+        target: "nsis",
+        arch: ["x64"]
       },
       {
-        "target": "portable",
-        "arch": ["x64"]
+        target: "portable",
+        arch: ["x64"]
       }
     ]
   },
-  "nsis": {
-    "oneClick": false,
-    "perMachine": true,
-    "allowToChangeInstallationDirectory": true,
-    "deleteAppDataOnUninstall": false,
-    "include": "build/installer.nsh"
-  },
-  "linux": {
-    "icon": "./public/logo/pack/512x512.png",
-    "target": [
-      {
-        "target": "AppImage",
-        "arch": ["x64"]
-      },
-      {
-        "target": "deb",
-        "arch": ["x64"]
-      }
-    ],
-    "category": "Network"
+  nsis: {
+    oneClick: false,
+    perMachine: true,
+    allowToChangeInstallationDirectory: true,
+    deleteAppDataOnUninstall: false,
+    include: "build/installer.nsh"
   }
 }

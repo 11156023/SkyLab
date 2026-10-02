@@ -3,7 +3,8 @@ import { on, send } from "@/utils/ipcUtils";
 import { ipcRouters } from "../electron/core/IpcRouter";
 import { ElConfigProvider, ElMessageBox } from "element-plus";
 import en from "element-plus/dist/locale/en.mjs";
-import zhCn from "element-plus/dist/locale/zh-cn.mjs";
+import ja from "element-plus/dist/locale/ja.mjs";
+import zhTw from "element-plus/dist/locale/zh-tw.mjs";
 import { defineComponent, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "./store/app";
@@ -69,7 +70,11 @@ export default defineComponent({
       const warning = appStore.activeWarning;
       if (!warning) return;
       warningVisible.value = false;
-      if (!warning.warn_reason || warning.warn_reason === "expiry" || !warning.can_extend) {
+      if (
+        !warning.warn_reason ||
+        warning.warn_reason === "expiry" ||
+        !warning.can_extend
+      ) {
         if (doNotShow.value) {
           appStore.dismissWarningPermanent(warning.vmid);
         } else {
@@ -107,7 +112,10 @@ export default defineComponent({
   },
   computed: {
     currentLocale() {
-      return useAppStore().language === "zh-CN" ? zhCn : en;
+      const language = useAppStore().language;
+      if (language === "zh-TW") return zhTw;
+      if (language === "ja") return ja;
+      return en;
     },
     warningInfo(): SkyLabSessionStatus | null {
       return this.appStore.activeWarning;
@@ -151,8 +159,12 @@ export default defineComponent({
       :close-on-press-escape="false"
       :show-close="false"
     >
-      <p class="text-sm text-gray-700 dark:text-gray-300 mb-4">{{ warningMessage }}</p>
-      <el-checkbox v-model="doNotShow">{{ t("sessionWarning.doNotShow") }}</el-checkbox>
+      <p class="text-sm text-gray-700 dark:text-gray-300 mb-4">
+        {{ warningMessage }}
+      </p>
+      <el-checkbox v-model="doNotShow">{{
+        t("sessionWarning.doNotShow")
+      }}</el-checkbox>
 
       <template #footer>
         <div class="flex justify-end gap-2">
@@ -160,7 +172,11 @@ export default defineComponent({
             {{ t("sessionWarning.later") }}
           </el-button>
           <el-button type="primary" @click="handleConfirm">
-            {{ showExtend ? t("sessionWarning.extend") : t("sessionWarning.gotIt") }}
+            {{
+              showExtend
+                ? t("sessionWarning.extend")
+                : t("sessionWarning.gotIt")
+            }}
           </el-button>
         </div>
       </template>

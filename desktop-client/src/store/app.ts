@@ -60,7 +60,7 @@ export const useAppStore = defineStore("app", {
   state: (): AppState => ({
     loggedIn: false,
     loginInProgress: false,
-    language: "zh-CN",
+    language: "zh-TW",
     autoStart: false,
     tunnelStatus: { ...DEFAULT_TUNNEL_STATUS },
     resources: [],
@@ -105,7 +105,7 @@ export const useAppStore = defineStore("app", {
       });
       on(ipcRouters.SETTINGS.getSettings, data => {
         if (data) {
-          this.language = data.language || "zh-CN";
+          this.language = data.language || "zh-TW";
           this.autoStart = !!data.launchAtStartup;
         }
       });
@@ -140,7 +140,10 @@ export const useAppStore = defineStore("app", {
           this.permanentDismissals = updated;
           savePermanentDismissals(updated);
         }
-        if (Date.now() - lastResourceRefreshAt >= RESOURCE_REFRESH_INTERVAL_MS) {
+        if (
+          Date.now() - lastResourceRefreshAt >=
+          RESOURCE_REFRESH_INTERVAL_MS
+        ) {
           this.refreshResources();
         }
       });

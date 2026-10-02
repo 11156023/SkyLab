@@ -4,6 +4,9 @@
   "main": "dist-electron/main/index.js",
   "description": "SkyLab Connect desktop client",
   "private": true,
+  "os": [
+    "win32"
+  ],
   "engines": {
     "node": ">= 22.12.0"
   },
@@ -19,8 +22,6 @@
     "prepare:wireguard:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-wireguard.ps1",
     "build:electron:win": "npm run prepare:wireguard:win && npm run build && electron-builder --win -p never",
     "build:electron:win:unsigned": "npm run prepare:wireguard:win && npm run build && electron-builder --win -p never --config.win.signAndEditExecutable=false",
-    "build:electron:mac": "npm run build && electron-builder --mac -p never",
-    "build:electron:linux": "npm run build && electron-builder --linux -p never",
     "preview": "vite preview",
     "lint": "eslint src/ electron/ --ext .ts,.tsx,.vue",
     "lint:fix": "eslint src/ electron/ --ext .ts,.tsx,.vue --fix"

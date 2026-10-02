@@ -168,8 +168,9 @@
     back: "返回連線畫面",
     language: {
       label: "介面語言",
-      zhCN: "繁體中文",
-      enUS: "English"
+      zhTW: "繁體中文",
+      enUS: "English",
+      ja: "日本語"
     },
     autoStart: {
       label: "開機自動啟動",

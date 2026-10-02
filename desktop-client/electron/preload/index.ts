@@ -191,12 +191,23 @@ function useLoading() {
   const oStyle = document.createElement("style");
   const oDiv = document.createElement("div");
   let removed = false;
+  const locale = navigator.language.toLowerCase();
+  const loadingText = locale.startsWith("ja")
+    ? "安全な接続を準備しています…"
+    : locale.startsWith("zh")
+      ? "正在準備您的安全連線…"
+      : "Preparing your secure connection…";
+  const loadingLabel = locale.startsWith("ja")
+    ? "SkyLab Connect を起動中"
+    : locale.startsWith("zh")
+      ? "正在啟動 SkyLab Connect"
+      : "Starting SkyLab Connect";
 
   oStyle.id = "app-loading-style";
   oStyle.textContent = styleContent;
   oDiv.className = "app-loading-wrap";
   oDiv.setAttribute("role", "status");
-  oDiv.setAttribute("aria-label", "正在啟動 SkyLab Connect");
+  oDiv.setAttribute("aria-label", loadingLabel);
   oDiv.innerHTML = `
     <div class="app-loading-card">
       <div class="app-loading-cubes" aria-hidden="true">
@@ -206,7 +217,7 @@ function useLoading() {
         <span class="app-loading-cube"></span>
       </div>
       <h1 class="app-loading-title">SkyLab Connect</h1>
-      <p class="app-loading-description">正在準備您的安全連線…</p>
+      <p class="app-loading-description">${loadingText}</p>
       <span class="app-loading-version">v${pkg.version}</span>
     </div>`;
 

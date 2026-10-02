@@ -48,6 +48,11 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
   async get(): Promise<SkyLabSettings> {
     const existing = await this.findById(this._id);
     if (existing) {
+      let languageMigrated = false;
+      if (existing.language === "zh-CN") {
+        existing.language = "zh-TW";
+        languageMigrated = true;
+      }
       // The original desktop release stored localhost as its default. Move only
       // that value to the production site; keep user configured servers intact.
       if (
@@ -65,6 +70,7 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
       const token = this.decodeSecret(existing.token, false);
       const refreshToken = this.decodeSecret(existing.refreshToken, true);
       if (
+        languageMigrated ||
         (existing.token && !existing.token.startsWith(ENCRYPTED_PREFIX)) ||
         (existing.refreshToken &&
           !existing.refreshToken.startsWith(ENCRYPTED_PREFIX))

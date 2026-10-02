@@ -138,11 +138,20 @@ class SkyLabApp {
     Logger.info("SkyLabApp.initializeWindow", "Window initialized.");
   }
 
-  initializeTray() {
+  async initializeTray() {
     const that = this;
+    const settingsService: SettingsService =
+      BeanFactory.getBean("settingsService");
+    const language = await settingsService.getLanguage();
+    const labels =
+      language === "ja"
+        ? { show: "表示", quit: "終了" }
+        : language === "zh-TW"
+          ? { show: "顯示", quit: "結束" }
+          : { show: "Show", quit: "Quit" };
     const menu: Array<MenuItemConstructorOptions | MenuItem> = [
       {
-        label: "Show",
+        label: labels.show,
         click: () => {
           that._win?.show();
           if (process.platform === "darwin") {
@@ -151,7 +160,7 @@ class SkyLabApp {
         }
       },
       {
-        label: "Quit",
+        label: labels.quit,
         click: () => {
           that.quitSafely();
         }
@@ -185,7 +194,7 @@ class SkyLabApp {
         Logger.error("SkyLabApp.cleanupOrphanedTunnel", error as Error);
       }
       await this.initializeWindow();
-      this.initializeTray();
+      await this.initializeTray();
       powerMonitor.on("resume", () => {
         void tunnelService.refreshIfRunning("resume");
       });

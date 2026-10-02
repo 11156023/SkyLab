@@ -174,8 +174,9 @@
     back: "Back to connection",
     language: {
       label: "Language",
-      zhCN: "Traditional Chinese",
-      enUS: "English"
+      zhTW: "Traditional Chinese",
+      enUS: "English",
+      ja: "Japanese"
     },
     autoStart: {
       label: "Launch at startup",
