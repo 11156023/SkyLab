@@ -52,9 +52,7 @@ onMounted(() => {
       </li>
     </ul>
     <div class="mb-2 menu-footer">
-      <div
-        class="flex flex-col gap-1 justify-center items-center text-[12px]"
-      >
+      <div class="flex flex-col gap-1 justify-center items-center text-[12px]">
         <span
           class="footer-status-dot"
           :class="{

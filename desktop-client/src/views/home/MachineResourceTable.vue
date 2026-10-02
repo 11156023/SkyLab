@@ -17,8 +17,10 @@ const rows = computed(() => props.resources);
 
 const statusTagType = (status: string) => {
   if (status === "running") return "success";
-  if (["stopped", "paused", "deleted", "deleting"].includes(status)) return "info";
-  if (["scheduled", "provisioning", "starting"].includes(status)) return "warning";
+  if (["stopped", "paused", "deleted", "deleting"].includes(status))
+    return "info";
+  if (["scheduled", "provisioning", "starting"].includes(status))
+    return "warning";
   return "danger";
 };
 
@@ -105,17 +107,24 @@ const connect = (service: "ssh" | "rdp", tunnel?: SkyLabTunnelInfo) => {
           <span class="name-copy">
             <strong>{{ row.name }}</strong>
             <small>
-              {{ typeLabel(row.type) }} · VMID {{ row.vmid }}
-              · {{ kindLabel(row as SkyLabResource) }}
+              {{ typeLabel(row.type) }} · VMID {{ row.vmid }} ·
+              {{ kindLabel(row as SkyLabResource) }}
               <template v-if="row.environment_type">
                 · {{ row.environment_type }}
               </template>
               <template v-if="row.os_info"> · {{ row.os_info }} </template>
             </small>
             <small v-if="row.owner_name || row.owner_email">
-              {{ t("resources.owner", { owner: row.owner_name || row.owner_email }) }}
+              {{
+                t("resources.owner", {
+                  owner: row.owner_name || row.owner_email
+                })
+              }}
             </small>
-            <small v-if="blockedReason(row as SkyLabResource)" class="blocked-reason">
+            <small
+              v-if="blockedReason(row as SkyLabResource)"
+              class="blocked-reason"
+            >
               {{ blockedReason(row as SkyLabResource) }}
             </small>
           </span>
@@ -194,8 +203,7 @@ const connect = (service: "ssh" | "rdp", tunnel?: SkyLabTunnelInfo) => {
               blockedReason(row as SkyLabResource) ||
               (row.status === "running"
                 ? t("home.machines.unavailable")
-                : t("home.tunnels.machineStopped")
-              )
+                : t("home.tunnels.machineStopped"))
             }}
           </span>
         </div>

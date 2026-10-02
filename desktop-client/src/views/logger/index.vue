@@ -105,10 +105,7 @@ onUnmounted(() => {
     <breadcrumb> </breadcrumb>
     <div class="app-container-breadcrumb">
       <div class="page-surface logger-surface">
-        <el-tabs
-          v-model="activeTabName"
-          class="log-tabs"
-        >
+        <el-tabs v-model="activeTabName" class="log-tabs">
           <el-tab-pane
             :label="t('logger.tab.appLog')"
             name="app_log"

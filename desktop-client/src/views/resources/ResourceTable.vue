@@ -12,8 +12,10 @@ const rows = computed(() => props.resources);
 
 const statusTagType = (status: string) => {
   if (status === "running") return "success";
-  if (["stopped", "paused", "deleted", "deleting"].includes(status)) return "info";
-  if (["scheduled", "provisioning", "starting"].includes(status)) return "warning";
+  if (["stopped", "paused", "deleted", "deleting"].includes(status))
+    return "info";
+  if (["scheduled", "provisioning", "starting"].includes(status))
+    return "warning";
   return "danger";
 };
 
@@ -43,7 +45,10 @@ const blockedReason = (resource: SkyLabResource) => {
       ? resource.window_start_at
       : resource.window_end_at;
   const date = rawTime ? new Date(rawTime) : null;
-  const time = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : rawTime || "";
+  const time =
+    date && !Number.isNaN(date.getTime())
+      ? date.toLocaleString()
+      : rawTime || "";
   if (resource.start_blocked_reason === "window_not_started") {
     return t("resources.window.notStarted", { time });
   }
@@ -76,9 +81,16 @@ const goConnect = () => router.push({ name: "Home" });
               {{ kindLabel(row as SkyLabResource) }}
             </small>
             <small v-if="row.owner_name || row.owner_email">
-              {{ t("resources.owner", { owner: row.owner_name || row.owner_email }) }}
+              {{
+                t("resources.owner", {
+                  owner: row.owner_name || row.owner_email
+                })
+              }}
             </small>
-            <small v-if="blockedReason(row as SkyLabResource)" class="blocked-reason">
+            <small
+              v-if="blockedReason(row as SkyLabResource)"
+              class="blocked-reason"
+            >
               {{ blockedReason(row as SkyLabResource) }}
             </small>
           </span>

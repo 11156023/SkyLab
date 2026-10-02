@@ -62,7 +62,12 @@ class SkyLabService {
             req.write(JSON.stringify(options.body));
           }
           timeout = setTimeout(() => {
-            reject(new BusinessError(ResponseCode.BACKEND_ERROR, "Request timed out."));
+            reject(
+              new BusinessError(
+                ResponseCode.BACKEND_ERROR,
+                "Request timed out."
+              )
+            );
             req.abort();
           }, 20_000);
           req.end();
@@ -138,9 +143,7 @@ class SkyLabService {
     return JSON.parse(res.body) as DeviceCodeResponse;
   }
 
-  async pollDeviceCode(
-    code: string
-  ): Promise<DevicePollResult> {
+  async pollDeviceCode(code: string): Promise<DevicePollResult> {
     const res = await this.request(
       "GET",
       `/api/v1/desktop-client/auth/poll?code=${encodeURIComponent(code)}`

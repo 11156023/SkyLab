@@ -12,9 +12,10 @@ const responseChannels = new Set([
   ...Object.values(listeners).map(listener => listener.channel),
   "auth:event"
 ]);
+type RendererListener = (...args: any[]) => void;
 const wrappedListeners = new Map<
   string,
-  Map<Function, (...args: any[]) => void>
+  Map<RendererListener, RendererListener>
 >();
 
 contextBridge.exposeInMainWorld("electronIpcRenderer", {
@@ -22,7 +23,7 @@ contextBridge.exposeInMainWorld("electronIpcRenderer", {
     if (!requestChannels.has(channel)) throw new Error("IPC channel denied");
     ipcRenderer.send(channel, args);
   },
-  on(channel: string, listener: (...args: any[]) => void) {
+  on(channel: string, listener: RendererListener) {
     if (!responseChannels.has(channel)) throw new Error("IPC channel denied");
     const wrapped = (_event: unknown, ...args: any[]) => listener({}, ...args);
     const channelListeners = wrappedListeners.get(channel) || new Map();
@@ -30,7 +31,7 @@ contextBridge.exposeInMainWorld("electronIpcRenderer", {
     wrappedListeners.set(channel, channelListeners);
     ipcRenderer.on(channel, wrapped);
   },
-  removeListener(channel: string, listener: (...args: any[]) => void) {
+  removeListener(channel: string, listener: RendererListener) {
     const wrapped = wrappedListeners.get(channel)?.get(listener);
     if (!wrapped) return;
     ipcRenderer.removeListener(channel, wrapped);

@@ -118,19 +118,15 @@ class SkyLabApp {
 
     Menu.setApplicationMenu(null);
 
-    const that = this;
     (this._win as any).on("minimize", (event: any) => {
       event.preventDefault();
-      that._win?.hide();
+      this._win?.hide();
     });
 
     this._win.on("close", event => {
-      if (!that._quitting) {
+      if (!this._quitting) {
         event.preventDefault();
-        that._win?.hide();
-        if (process.platform === "darwin") {
-          app.dock.hide();
-        }
+        this._win?.hide();
       }
       return false;
     });
@@ -139,7 +135,6 @@ class SkyLabApp {
   }
 
   async initializeTray() {
-    const that = this;
     const settingsService: SettingsService =
       BeanFactory.getBean("settingsService");
     const language = await settingsService.getLanguage();
@@ -153,16 +148,13 @@ class SkyLabApp {
       {
         label: labels.show,
         click: () => {
-          that._win?.show();
-          if (process.platform === "darwin") {
-            app.dock.show();
-          }
+          this._win?.show();
         }
       },
       {
         label: labels.quit,
         click: () => {
-          that.quitSafely();
+          this.quitSafely();
         }
       }
     ];

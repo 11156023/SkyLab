@@ -114,11 +114,7 @@ interface SkyLabResource {
   owner_email?: string | null;
   owner_name?: string | null;
   machine_kind?:
-    | "personal"
-    | "shared"
-    | "teaching_class"
-    | "quick_practice"
-    | "course";
+    "personal" | "shared" | "teaching_class" | "quick_practice" | "course";
   start_blocked_reason?: "window_not_started" | "window_ended" | null;
   window_start_at?: string | null;
   window_end_at?: string | null;

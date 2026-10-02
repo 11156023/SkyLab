@@ -35,8 +35,7 @@ function isNewerVersion(candidate: string, current: string): boolean {
   if (!next || !installed) return false;
   const length = Math.max(next.core.length, installed.core.length);
   for (let index = 0; index < length; index += 1) {
-    const difference =
-      (next.core[index] || 0) - (installed.core[index] || 0);
+    const difference = (next.core[index] || 0) - (installed.core[index] || 0);
     if (difference !== 0) return difference > 0;
   }
   if (!next.prerelease.length || !installed.prerelease.length) {
@@ -66,7 +65,9 @@ class UpdateService {
     const currentVersion = app.getVersion();
     const release = await this.fetchLatestRelease();
     const latestVersion = String(release.tag_name || "").replace(/^v/i, "");
-    const setup = release.assets?.find(asset => asset.name === SETUP_ASSET_NAME);
+    const setup = release.assets?.find(
+      asset => asset.name === SETUP_ASSET_NAME
+    );
     const downloadUrl = setup?.browser_download_url || release.html_url || "";
     return {
       currentVersion,
