@@ -2,15 +2,14 @@ import { rmSync } from "node:fs";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import electron from "vite-plugin-electron";
-import renderer from "vite-plugin-electron-renderer";
 import { notBundle } from "vite-plugin-electron/plugin";
 import { resolve } from "path";
 
-import pkg from "./package.json";
+import pkg from "./package.json" with { type: "json" };
 
 /** 路径查找 */
 const pathResolve = (dir: string): string => {
-  return resolve(__dirname, ".", dir);
+  return resolve(import.meta.dirname, ".", dir);
 };
 
 // https://vitejs.dev/config/
@@ -81,9 +80,7 @@ export default defineConfig(({ command }) => {
             plugins: [isServe && notBundle()]
           }
         }
-      ]),
-      // Use Node.js API in the Renderer process
-      renderer()
+      ])
     ],
     resolve: {
       alias: {
