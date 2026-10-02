@@ -569,7 +569,13 @@ def _mark_peer_inactive(session: Session, peer: WireGuardPeer, now: datetime) ->
 
 
 def reconcile_once() -> None:
-    """Expire stale leases and replay live peers after Gateway service restarts."""
+    """Expire stale leases, refresh ACLs, and replay peers after Gateway restarts.
+
+    Active desktop tunnels can outlive the desktop process because WireGuard runs
+    as a Windows service.  Recompute every peer's resource targets here so a
+    revoked share or expired usage window is removed even when the client is no
+    longer refreshing its lease.
+    """
     now = _now()
     with Session(engine) as session:
         expired = peer_repo.list_expired_active(session=session, now=now)
@@ -608,29 +614,43 @@ def reconcile_once() -> None:
             # Keep leases intact so a transient outage can recover next minute.
             logger.exception("Unable to inspect Gateway WireGuard state")
             return
-        if state_id == _reconcile_state.last_gateway_state_id:
-            return
-
-        logger.info(
-            "Gateway WireGuard state changed; replaying %d active peer(s)",
-            len(peers),
-        )
+        gateway_state_changed = state_id != _reconcile_state.last_gateway_state_id
+        if gateway_state_changed:
+            logger.info(
+                "Gateway WireGuard state changed; replaying %d active peer(s)",
+                len(peers),
+            )
         for peer in peers:
-            endpoints = list(peer.allowed_endpoints or [])
+            old_endpoints = list(peer.allowed_endpoints or [])
             try:
+                targets = _resource_targets(session=session, user_id=peer.user_id)
+                new_endpoints = _endpoint_dicts(targets)
+                if not gateway_state_changed and new_endpoints == old_endpoints:
+                    continue
                 _sync_gateway_peer(
                     session=session,
                     public_key=peer.public_key,
                     tunnel_ip=peer.tunnel_ip,
                     old_public_key=peer.public_key,
-                    old_endpoints=endpoints,
-                    new_endpoints=endpoints,
+                    old_endpoints=old_endpoints,
+                    new_endpoints=new_endpoints,
                 )
+                if new_endpoints != old_endpoints:
+                    peer.allowed_endpoints = new_endpoints
+                    peer.updated_at = now
+                    peer_repo.save(session=session, peer=peer)
             except Exception:
                 logger.exception(
-                    "WireGuard peer %s replay failed; marking it inactive",
+                    "WireGuard peer %s ACL reconciliation failed; revoking it",
                     peer.id,
                 )
+                try:
+                    _remove_gateway_peer(session=session, peer=peer)
+                except Exception:
+                    logger.exception(
+                        "Unable to remove WireGuard peer %s after reconciliation failure",
+                        peer.id,
+                    )
                 _mark_peer_inactive(session, peer, now)
         _reconcile_state.last_gateway_state_id = state_id
 
