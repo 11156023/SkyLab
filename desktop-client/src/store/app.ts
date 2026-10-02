@@ -27,9 +27,11 @@ const DEFAULT_TUNNEL_STATUS: TunnelStatusInfo = {
 /** Poll cadence for the session-status warning system; matches the web hook
  * (which is itself anchored to the backend's 30 min ``practice_warning_minutes``). */
 const SESSION_POLL_INTERVAL_MS = 30_000;
+const RESOURCE_REFRESH_INTERVAL_MS = 60_000;
 const LS_KEY = "session_warning_dismissed";
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let authExpiryListenerRegistered = false;
+let lastResourceRefreshAt = 0;
 
 function loadPermanentDismissals(): Record<number, string> {
   try {
@@ -115,6 +117,7 @@ export const useAppStore = defineStore("app", {
       });
       on(ipcRouters.RESOURCE.listMyResources, data => {
         this.resources = Array.isArray(data) ? data : [];
+        lastResourceRefreshAt = Date.now();
       });
       on(ipcRouters.SESSION.getSessionStatuses, data => {
         const next: SkyLabSessionStatus[] = Array.isArray(data) ? data : [];
@@ -136,6 +139,9 @@ export const useAppStore = defineStore("app", {
         if (changed) {
           this.permanentDismissals = updated;
           savePermanentDismissals(updated);
+        }
+        if (Date.now() - lastResourceRefreshAt >= RESOURCE_REFRESH_INTERVAL_MS) {
+          this.refreshResources();
         }
       });
       on(ipcRouters.SESSION.extendSession, () => {

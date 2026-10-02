@@ -111,6 +111,18 @@
     summary: "{total} machines across {courses} course environments",
     connect: "Connect",
     customEnvironment: "Custom environment",
+    owner: "Owner: {owner}",
+    kind: {
+      personal: "Personal request",
+      shared: "Shared with me",
+      teaching_class: "Class machine",
+      quick_practice: "Quick practice",
+      course: "Course lab"
+    },
+    window: {
+      notStarted: "Usage window starts at {time}",
+      ended: "Usage window ended at {time}"
+    },
     metrics: {
       total: "Machines",
       courseGroups: "Course environments"
@@ -130,8 +142,12 @@
       running: "Running",
       stopped: "Stopped",
       paused: "Paused",
+      scheduled: "Scheduled",
       provisioning: "Provisioning",
+      starting: "Starting",
+      deleting: "Deleting",
       failed: "Failed",
+      deleted: "Deleted",
       unknown: "Unknown"
     },
     table: {

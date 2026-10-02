@@ -207,6 +207,18 @@ class SkyLabService {
     return JSON.parse(res.body) as SkyLabSessionStatus;
   }
 
+  async listSessionStatuses(): Promise<SkyLabSessionStatus[]> {
+    const res = await this.request(
+      "GET",
+      "/api/v1/resources/my/session-status",
+      { auth: true }
+    );
+    if (res.status !== 200) {
+      throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
+    }
+    return JSON.parse(res.body) as SkyLabSessionStatus[];
+  }
+
   async extendSession(vmid: number): Promise<SkyLabExtendResult> {
     const res = await this.request(
       "POST",

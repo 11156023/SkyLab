@@ -68,7 +68,10 @@ const resourceAclSignature = computed(() =>
         resource.vmid,
         resource.status,
         resource.ip_address,
-        resource.can_control
+        resource.can_control,
+        resource.access_role,
+        resource.start_blocked_reason,
+        resource.window_end_at
       ].join(":")
     )
     .sort()

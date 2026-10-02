@@ -79,16 +79,45 @@ interface SkyLabResource {
   control_policy?: "owner" | "class_member";
   name: string;
   type: string;
-  status: string;
+  status:
+    | "scheduled"
+    | "provisioning"
+    | "starting"
+    | "running"
+    | "stopped"
+    | "paused"
+    | "deleting"
+    | "failed"
+    | "deleted"
+    | "unknown";
   node?: string;
   ip_address?: string | null;
   environment_type?: string | null;
   os_info?: string | null;
+  guest_os?: Record<string, unknown> | null;
   expiry_date?: string | null;
   is_placeholder?: boolean;
   can_control?: boolean;
   can_delete?: boolean;
-  [key: string]: any;
+  can_request_spec_change?: boolean;
+  can_extend?: boolean;
+  access_role?: "owner" | "shared" | "class_member" | "class_teacher" | "admin";
+  can_manage?: boolean;
+  owner_email?: string | null;
+  owner_name?: string | null;
+  machine_kind?:
+    | "personal"
+    | "shared"
+    | "teaching_class"
+    | "quick_practice"
+    | "course";
+  start_blocked_reason?: "window_not_started" | "window_ended" | null;
+  window_start_at?: string | null;
+  window_end_at?: string | null;
+  class_relation?: "student" | "teacher" | null;
+  teaching_class_name?: string | null;
+  course_environment_name?: string | null;
+  public_urls?: string[];
 }
 
 interface SkyLabTunnelInfo {

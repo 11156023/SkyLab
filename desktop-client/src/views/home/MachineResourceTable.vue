@@ -17,7 +17,8 @@ const rows = computed(() => props.resources);
 
 const statusTagType = (status: string) => {
   if (status === "running") return "success";
-  if (["stopped", "paused"].includes(status)) return "info";
+  if (["stopped", "paused", "deleted", "deleting"].includes(status)) return "info";
+  if (["scheduled", "provisioning", "starting"].includes(status)) return "warning";
   return "danger";
 };
 
@@ -26,8 +27,12 @@ const statusLabel = (status: string) => {
     running: t("resources.status.running"),
     stopped: t("resources.status.stopped"),
     paused: t("resources.status.paused"),
+    scheduled: t("resources.status.scheduled"),
     provisioning: t("resources.status.provisioning"),
+    starting: t("resources.status.starting"),
+    deleting: t("resources.status.deleting"),
     failed: t("resources.status.failed"),
+    deleted: t("resources.status.deleted"),
     unknown: t("resources.status.unknown")
   };
   return labels[status] ?? status;
@@ -35,6 +40,31 @@ const statusLabel = (status: string) => {
 
 const typeLabel = (type?: string) =>
   type === "lxc" ? "LXC" : type === "qemu" ? "VM" : type || "VM";
+
+const kindLabel = (resource: SkyLabResource) => {
+  const kind = resource.machine_kind || "personal";
+  return t(`resources.kind.${kind}`);
+};
+
+const formatTime = (value?: string | null) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
+
+const blockedReason = (resource: SkyLabResource) => {
+  if (resource.start_blocked_reason === "window_not_started") {
+    return t("resources.window.notStarted", {
+      time: formatTime(resource.window_start_at)
+    });
+  }
+  if (resource.start_blocked_reason === "window_ended") {
+    return t("resources.window.ended", {
+      time: formatTime(resource.window_end_at)
+    });
+  }
+  return "";
+};
 
 const tunnelFor = (resource: SkyLabResource, service: string) =>
   props.tunnels.find(
@@ -49,7 +79,10 @@ const validTarget = (tunnel?: SkyLabTunnelInfo) => {
 };
 
 const canConnect = (resource: SkyLabResource, tunnel?: SkyLabTunnelInfo) =>
-  resource.status === "running" && validTarget(tunnel);
+  resource.status === "running" &&
+  resource.can_control !== false &&
+  !resource.start_blocked_reason &&
+  validTarget(tunnel);
 
 const connect = (service: "ssh" | "rdp", tunnel?: SkyLabTunnelInfo) => {
   if (!validTarget(tunnel)) return;
@@ -73,10 +106,17 @@ const connect = (service: "ssh" | "rdp", tunnel?: SkyLabTunnelInfo) => {
             <strong>{{ row.name }}</strong>
             <small>
               {{ typeLabel(row.type) }} · VMID {{ row.vmid }}
+              · {{ kindLabel(row as SkyLabResource) }}
               <template v-if="row.environment_type">
                 · {{ row.environment_type }}
               </template>
               <template v-if="row.os_info"> · {{ row.os_info }} </template>
+            </small>
+            <small v-if="row.owner_name || row.owner_email">
+              {{ t("resources.owner", { owner: row.owner_name || row.owner_email }) }}
+            </small>
+            <small v-if="blockedReason(row as SkyLabResource)" class="blocked-reason">
+              {{ blockedReason(row as SkyLabResource) }}
             </small>
           </span>
         </div>
@@ -151,9 +191,11 @@ const connect = (service: "ssh" | "rdp", tunnel?: SkyLabTunnelInfo) => {
             class="action-empty"
           >
             {{
-              row.status === "running"
+              blockedReason(row as SkyLabResource) ||
+              (row.status === "running"
                 ? t("home.machines.unavailable")
                 : t("home.tunnels.machineStopped")
+              )
             }}
           </span>
         </div>
@@ -228,6 +270,10 @@ const connect = (service: "ssh" | "rdp", tunnel?: SkyLabTunnelInfo) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.name-copy .blocked-reason {
+  color: var(--el-color-danger);
 }
 
 .mono {
