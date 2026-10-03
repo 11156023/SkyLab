@@ -95,5 +95,6 @@
   "spec_change.expiry_value_required": "延長したい有効期限の日付を入力してください",
   "spec_change.expiry_must_be_future": "新しい有効期限は今日より後の日付にしてください",
   "spec_change.expiry_must_extend": "新しい有効期限は現在の有効期限 {current} より後の日付にしてください",
-  "spec_change.expiry_too_far": "一度に延長できるのは今日から最大 {days} 日後までです。それ以上は管理者に連絡してください"
+  "spec_change.expiry_too_far": "一度に延長できるのは今日から最大 {days} 日後までです。それ以上は管理者に連絡してください",
+  "spec_change.expiry_gpu_reserved": "延長後の期間が、承認済みでまだ起動していない別の GPU 申請と重なります（相手の期間は {date} まで）。より早い日付を選ぶか、管理者に連絡してください"
 }
