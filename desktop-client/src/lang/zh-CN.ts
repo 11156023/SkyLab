@@ -74,11 +74,12 @@
     },
     machines: {
       summary: "連線已建立 · {machines} 台機器 · {courses} 個課程環境",
-      unavailable: "無可用連線"
+      unavailable: "無可用連線",
+      noTargets:
+        "安全連線已建立，但目前沒有可用的 SSH／RDP 目標。請確認機器已啟動並取得可連線的 IP；若仍無法使用，請聯絡管理員檢查 VPN 網段設定。"
     },
     empty: {
       notLoggedIn: "尚未登入，請先登入 SkyLab 帳號。",
-      noTunnels: "目前沒有可用的虛擬機隧道。",
       goLogin: "前往登入",
       goResources: "查看我的資源"
     },

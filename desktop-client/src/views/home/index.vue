@@ -378,6 +378,14 @@ onUnmounted(() => {
           }}</span>
         </div>
 
+        <el-alert
+          v-if="machineCount > 0 && !appStore.tunnelStatus.tunnels.length"
+          :title="t('home.machines.noTargets')"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+
         <div v-if="machineCount" class="resource-sections">
           <section
             v-if="groupedResources.courseGroups.length"

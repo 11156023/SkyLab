@@ -78,11 +78,12 @@
     machines: {
       summary:
         "Connected · {machines} machines · {courses} course environments",
-      unavailable: "No connection"
+      unavailable: "No connection",
+      noTargets:
+        "The secure connection is active, but no SSH or RDP targets are available. Check that a machine is running and has a reachable IP. If the problem persists, ask an administrator to check the VPN subnet."
     },
     empty: {
       notLoggedIn: "Not signed in. Please sign in to SkyLab first.",
-      noTunnels: "No tunnels available.",
       goLogin: "Go to sign-in",
       goResources: "View my resources"
     },
