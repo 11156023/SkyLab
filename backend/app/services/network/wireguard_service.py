@@ -33,7 +33,7 @@ from app.schemas.wireguard import (
     WireGuardConnectResponse,
 )
 from app.services.governance.lifecycle_policy import expiry_datetime
-from app.services.network import gateway_service
+from app.services.network import gateway_service, ip_management_service
 from app.services.resource import resource_service
 
 _SSH_PORT = 22
@@ -87,9 +87,17 @@ def _client_network() -> ipaddress.IPv4Network:
     return network
 
 
-def _vm_network() -> ipaddress.IPv4Network:
+def _vm_network(session: Session | None = None) -> ipaddress.IPv4Network:
+    configured_subnet = (
+        ip_management_service.get_subnet_config(session) if session is not None else None
+    )
+    raw_subnet = (
+        configured_subnet.cidr
+        if configured_subnet
+        else settings.WIREGUARD_VM_SUBNET
+    )
     try:
-        network = ipaddress.ip_network(settings.WIREGUARD_VM_SUBNET, strict=False)
+        network = ipaddress.ip_network(raw_subnet, strict=False)
     except ValueError as exc:
         raise BadRequestError(t("wireguard.vmSubnetInvalid")) from exc
     if not isinstance(network, ipaddress.IPv4Network):
@@ -170,9 +178,12 @@ def _get_or_create_peer(
 
 
 def _resource_targets(
-    *, session: Session, user_id: uuid.UUID
+    *,
+    session: Session,
+    user_id: uuid.UUID,
+    vm_network: ipaddress.IPv4Network | None = None,
 ) -> list[WireGuardConnectionTarget]:
-    vm_network = _vm_network()
+    vm_network = vm_network or _vm_network(session)
     targets: list[WireGuardConnectionTarget] = []
     for resource in resource_service.list_by_user(session=session, user_id=user_id):
         if (
@@ -399,6 +410,7 @@ def _connect_response(
     gateway_public_key: str,
     endpoint_host: str,
     targets: list[WireGuardConnectionTarget],
+    vm_network: ipaddress.IPv4Network,
     ttl: int,
 ) -> WireGuardConnectResponse:
     return WireGuardConnectResponse(
@@ -408,7 +420,7 @@ def _connect_response(
         endpoint=gateway_service.format_endpoint(
             endpoint_host, settings.WIREGUARD_ENDPOINT_PORT
         ),
-        allowed_ips=[str(_vm_network())],
+        allowed_ips=[str(vm_network)],
         persistent_keepalive=settings.WIREGUARD_KEEPALIVE_SECONDS,
         expires_in=ttl,
         connections=targets,
@@ -424,7 +436,12 @@ def _activate_peer(
 ) -> WireGuardConnectResponse:
     old_public_key = peer.public_key
     old_endpoints = list(peer.allowed_endpoints or [])
-    targets = _resource_targets(session=session, user_id=peer.user_id)
+    vm_network = _vm_network(session)
+    targets = _resource_targets(
+        session=session,
+        user_id=peer.user_id,
+        vm_network=vm_network,
+    )
     new_endpoints = _endpoint_dicts(targets)
     endpoint_host = _endpoint_host(session)
     gateway_public_key = _sync_gateway_peer(
@@ -471,6 +488,7 @@ def _activate_peer(
         gateway_public_key=gateway_public_key,
         endpoint_host=endpoint_host,
         targets=targets,
+        vm_network=vm_network,
         ttl=ttl,
     )
 
