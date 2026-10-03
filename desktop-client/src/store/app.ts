@@ -27,8 +27,11 @@ const DEFAULT_TUNNEL_STATUS: TunnelStatusInfo = {
 /** Poll cadence for the session-status warning system; matches the web hook
  * (which is itself anchored to the backend's 30 min ``practice_warning_minutes``). */
 const SESSION_POLL_INTERVAL_MS = 30_000;
+const RESOURCE_REFRESH_INTERVAL_MS = 60_000;
 const LS_KEY = "session_warning_dismissed";
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
+let authExpiryListenerRegistered = false;
+let lastResourceRefreshAt = 0;
 
 function loadPermanentDismissals(): Record<number, string> {
   try {
@@ -57,7 +60,7 @@ export const useAppStore = defineStore("app", {
   state: (): AppState => ({
     loggedIn: false,
     loginInProgress: false,
-    language: "zh-CN",
+    language: "zh-TW",
     autoStart: false,
     tunnelStatus: { ...DEFAULT_TUNNEL_STATUS },
     resources: [],
@@ -81,6 +84,12 @@ export const useAppStore = defineStore("app", {
   },
   actions: {
     registerListeners() {
+      if (!authExpiryListenerRegistered) {
+        window.addEventListener("skylab:auth-expired", () => {
+          this.handleSessionExpired();
+        });
+        authExpiryListenerRegistered = true;
+      }
       on(ipcRouters.AUTH.getAuthState, data => {
         this.loggedIn = !!data.loggedIn;
         this.loginInProgress = !!data.loginInProgress;
@@ -96,7 +105,7 @@ export const useAppStore = defineStore("app", {
       });
       on(ipcRouters.SETTINGS.getSettings, data => {
         if (data) {
-          this.language = data.language || "zh-CN";
+          this.language = data.language || "zh-TW";
           this.autoStart = !!data.launchAtStartup;
         }
       });
@@ -108,6 +117,7 @@ export const useAppStore = defineStore("app", {
       });
       on(ipcRouters.RESOURCE.listMyResources, data => {
         this.resources = Array.isArray(data) ? data : [];
+        lastResourceRefreshAt = Date.now();
       });
       on(ipcRouters.SESSION.getSessionStatuses, data => {
         const next: SkyLabSessionStatus[] = Array.isArray(data) ? data : [];
@@ -129,6 +139,12 @@ export const useAppStore = defineStore("app", {
         if (changed) {
           this.permanentDismissals = updated;
           savePermanentDismissals(updated);
+        }
+        if (
+          Date.now() - lastResourceRefreshAt >=
+          RESOURCE_REFRESH_INTERVAL_MS
+        ) {
+          this.refreshResources();
         }
       });
       on(ipcRouters.SESSION.extendSession, () => {
@@ -183,6 +199,16 @@ export const useAppStore = defineStore("app", {
       }
       this.sessionStatuses = [];
       this.dismissedWarnings = [];
+    },
+    handleSessionExpired() {
+      this.loggedIn = false;
+      this.loginInProgress = false;
+      this.resources = [];
+      this.stopSessionPolling();
+      send(ipcRouters.TUNNEL.stop);
+      if (router.currentRoute.value.name !== "Home") {
+        void router.replace({ name: "Home" });
+      }
     },
     logout() {
       send(ipcRouters.AUTH.logout);

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
@@ -77,3 +78,53 @@ def test_enforce_start_window_raises_translated_message_after_window(monkeypatch
         resource_service._enforce_start_window(session=object(), vmid=484)
 
     assert exc.value.message == t("resource.start_window_ended")
+
+
+@pytest.mark.parametrize("action", ["start", "reboot", "reset"])
+def test_expired_window_rejects_power_on_actions(monkeypatch, action) -> None:
+    _patch(monkeypatch, now=datetime(2026, 9, 26, tzinfo=UTC), request=_request())
+    calls = []
+    monkeypatch.setattr(
+        resource_service.proxmox_service,
+        "control",
+        lambda *args: calls.append(args),
+    )
+
+    with pytest.raises(BadRequestError) as exc:
+        resource_service.control(
+            session=object(),
+            vmid=484,
+            action=action,
+            resource_info={"node": "pve1", "type": "lxc"},
+            user_id=uuid4(),
+        )
+
+    assert exc.value.message == t("resource.start_window_ended")
+    assert calls == []
+
+
+@pytest.mark.parametrize("action", ["stop", "shutdown"])
+def test_user_stop_keeps_expired_window_auto_stop(monkeypatch, action) -> None:
+    monkeypatch.setattr(
+        resource_service.resource_repo,
+        "get_resource_by_vmid",
+        lambda **_: SimpleNamespace(auto_stop_reason="window_grace"),
+    )
+    cleared = []
+    monkeypatch.setattr(
+        resource_service.resource_repo,
+        "set_auto_stop",
+        lambda **kwargs: cleared.append(kwargs),
+    )
+    monkeypatch.setattr(resource_service.proxmox_service, "control", lambda *_: None)
+    monkeypatch.setattr(resource_service.audit_service, "log_action", lambda **_: None)
+
+    resource_service.control(
+        session=object(),
+        vmid=484,
+        action=action,
+        resource_info={"node": "pve1", "type": "lxc"},
+        user_id=uuid4(),
+    )
+
+    assert cleared == []

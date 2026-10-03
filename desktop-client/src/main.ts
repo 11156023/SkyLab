@@ -40,7 +40,9 @@ const appStore = useAppStore(pinia);
 app.mount("#app").$nextTick(async () => {
   appStore.registerListeners();
   const authReady = waitForInitialReply(ipcRouters.AUTH.getAuthState.path);
-  const settingsReady = waitForInitialReply(ipcRouters.SETTINGS.getSettings.path);
+  const settingsReady = waitForInitialReply(
+    ipcRouters.SETTINGS.getSettings.path
+  );
   appStore.refreshAuth();
   appStore.refreshSettings();
 

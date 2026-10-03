@@ -17,6 +17,7 @@ import ResourceController from "../controller/ResourceController";
 import SettingsController from "../controller/SettingsController";
 import SystemController from "../controller/SystemController";
 import TunnelController from "../controller/TunnelController";
+import UpdateController from "../controller/UpdateController";
 import BeanFactory from "../core/BeanFactory";
 import { ipcRouters, listeners } from "../core/IpcRouter";
 import Logger from "../core/Logger";
@@ -27,6 +28,7 @@ import LogService from "../service/LogService";
 import SettingsService from "../service/SettingsService";
 import SystemService from "../service/SystemService";
 import WireGuardTunnelService from "../service/WireGuardTunnelService";
+import UpdateService from "../service/UpdateService";
 
 process.env.DIST_ELECTRON = join(__dirname, "..");
 process.env.DIST = join(process.env.DIST_ELECTRON, "../dist");
@@ -78,8 +80,9 @@ class SkyLabApp {
       minHeight: 600,
       webPreferences: {
         preload,
-        nodeIntegration: true,
-        contextIsolation: false
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true
       },
       show: !process.argv.includes("--hidden")
     });
@@ -98,27 +101,32 @@ class SkyLabApp {
       );
     });
     this._win.webContents.setWindowOpenHandler(({ url }) => {
-      if (url.startsWith("https:") || url.startsWith("http:")) {
-        shell.openExternal(url);
+      try {
+        const target = new URL(url);
+        const allowedHosts = new Set(["github.com", "skylab.ntubimdbirc.tw"]);
+        if (target.protocol === "https:" && allowedHosts.has(target.hostname)) {
+          void shell.openExternal(target.toString());
+        }
+      } catch {
+        // Invalid URLs are denied below.
       }
       return { action: "deny" };
+    });
+    this._win.webContents.on("will-navigate", event => {
+      event.preventDefault();
     });
 
     Menu.setApplicationMenu(null);
 
-    const that = this;
     (this._win as any).on("minimize", (event: any) => {
       event.preventDefault();
-      that._win?.hide();
+      this._win?.hide();
     });
 
     this._win.on("close", event => {
-      if (!that._quitting) {
+      if (!this._quitting) {
         event.preventDefault();
-        that._win?.hide();
-        if (process.platform === "darwin") {
-          app.dock.hide();
-        }
+        this._win?.hide();
       }
       return false;
     });
@@ -126,22 +134,27 @@ class SkyLabApp {
     Logger.info("SkyLabApp.initializeWindow", "Window initialized.");
   }
 
-  initializeTray() {
-    const that = this;
+  async initializeTray() {
+    const settingsService: SettingsService =
+      BeanFactory.getBean("settingsService");
+    const language = await settingsService.getLanguage();
+    const labels =
+      language === "ja"
+        ? { show: "表示", quit: "終了" }
+        : language === "zh-TW"
+          ? { show: "顯示", quit: "結束" }
+          : { show: "Show", quit: "Quit" };
     const menu: Array<MenuItemConstructorOptions | MenuItem> = [
       {
-        label: "Show",
+        label: labels.show,
         click: () => {
-          that._win?.show();
-          if (process.platform === "darwin") {
-            app.dock.show();
-          }
+          this._win?.show();
         }
       },
       {
-        label: "Quit",
+        label: labels.quit,
         click: () => {
-          that.quitSafely();
+          this.quitSafely();
         }
       }
     ];
@@ -173,7 +186,7 @@ class SkyLabApp {
         Logger.error("SkyLabApp.cleanupOrphanedTunnel", error as Error);
       }
       await this.initializeWindow();
-      this.initializeTray();
+      await this.initializeTray();
       powerMonitor.on("resume", () => {
         void tunnelService.refreshIfRunning("resume");
       });
@@ -235,6 +248,7 @@ class SkyLabApp {
       new SettingsService(BeanFactory.getBean("settingsRepository"))
     );
     BeanFactory.setBean("systemService", new SystemService());
+    BeanFactory.setBean("updateService", new UpdateService());
     BeanFactory.setBean(
       "SkyLabService",
       new SkyLabService(BeanFactory.getBean("settingsService"))
@@ -273,6 +287,10 @@ class SkyLabApp {
       new LogController(BeanFactory.getBean("logService"))
     );
     BeanFactory.setBean("systemController", new SystemController());
+    BeanFactory.setBean(
+      "updateController",
+      new UpdateController(BeanFactory.getBean("updateService"))
+    );
 
     Logger.info("SkyLabApp.initializeBeans", "Beans initialized.");
   }

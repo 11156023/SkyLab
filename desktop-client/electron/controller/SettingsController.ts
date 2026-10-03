@@ -15,7 +15,14 @@ class SettingsController extends BaseController {
     this._settingsService
       .get()
       .then(data => {
-        req.event.reply(req.channel, ResponseUtils.success(data));
+        req.event.reply(
+          req.channel,
+          ResponseUtils.success({
+            language: data.language,
+            backendUrl: data.backendUrl,
+            launchAtStartup: data.launchAtStartup
+          })
+        );
       })
       .catch((err: Error) => {
         Logger.error("SettingsController.getSettings", err);
@@ -24,10 +31,22 @@ class SettingsController extends BaseController {
   }
 
   saveSettings(req: ControllerParam) {
+    const patch = {
+      language: req.args?.language,
+      backendUrl: req.args?.backendUrl,
+      launchAtStartup: req.args?.launchAtStartup
+    };
     this._settingsService
-      .save(req.args || {})
+      .save(patch)
       .then(data => {
-        req.event.reply(req.channel, ResponseUtils.success(data));
+        req.event.reply(
+          req.channel,
+          ResponseUtils.success({
+            language: data.language,
+            backendUrl: data.backendUrl,
+            launchAtStartup: data.launchAtStartup
+          })
+        );
       })
       .catch((err: Error) => {
         Logger.error("SettingsController.saveSettings", err);

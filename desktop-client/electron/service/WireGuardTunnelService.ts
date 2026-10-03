@@ -482,9 +482,6 @@ class WireGuardTunnelService {
     const configPath = PathUtils.getWireGuardConfigFilePath();
     try {
       const connections = this._normalizeConnections(config);
-      if (!connections.length) {
-        throw new BusinessError(ResponseCode.NO_TUNNELS);
-      }
       await this._removeLocalTunnelService();
       fs.writeFileSync(configPath, this._buildConfig(identity, config), {
         encoding: "utf-8",
@@ -544,10 +541,6 @@ class WireGuardTunnelService {
     const config = await this._SkyLabService.refreshWireGuard(
       identity.deviceId
     );
-    if (!this._normalizeConnections(config).length) {
-      await this.stopTunnel();
-      throw new BusinessError(ResponseCode.NO_TUNNELS);
-    }
     if (
       this._activeConfigFingerprint !== null &&
       this._configFingerprint(config) !== this._activeConfigFingerprint

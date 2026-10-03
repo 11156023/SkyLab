@@ -12,7 +12,10 @@ const rows = computed(() => props.resources);
 
 const statusTagType = (status: string) => {
   if (status === "running") return "success";
-  if (["stopped", "paused"].includes(status)) return "info";
+  if (["stopped", "paused", "deleted", "deleting"].includes(status))
+    return "info";
+  if (["scheduled", "provisioning", "starting"].includes(status))
+    return "warning";
   return "danger";
 };
 
@@ -21,8 +24,12 @@ const statusLabel = (status: string) => {
     running: t("resources.status.running"),
     stopped: t("resources.status.stopped"),
     paused: t("resources.status.paused"),
+    scheduled: t("resources.status.scheduled"),
     provisioning: t("resources.status.provisioning"),
+    starting: t("resources.status.starting"),
+    deleting: t("resources.status.deleting"),
     failed: t("resources.status.failed"),
+    deleted: t("resources.status.deleted"),
     unknown: t("resources.status.unknown")
   };
   return labels[status] ?? status;
@@ -30,6 +37,26 @@ const statusLabel = (status: string) => {
 
 const typeLabel = (type: string) =>
   type === "lxc" ? "LXC" : type === "qemu" ? "VM" : type;
+const kindLabel = (resource: SkyLabResource) =>
+  t(`resources.kind.${resource.machine_kind || "personal"}`);
+const blockedReason = (resource: SkyLabResource) => {
+  const rawTime =
+    resource.start_blocked_reason === "window_not_started"
+      ? resource.window_start_at
+      : resource.window_end_at;
+  const date = rawTime ? new Date(rawTime) : null;
+  const time =
+    date && !Number.isNaN(date.getTime())
+      ? date.toLocaleString()
+      : rawTime || "";
+  if (resource.start_blocked_reason === "window_not_started") {
+    return t("resources.window.notStarted", { time });
+  }
+  if (resource.start_blocked_reason === "window_ended") {
+    return t("resources.window.ended", { time });
+  }
+  return "";
+};
 const goConnect = () => router.push({ name: "Home" });
 </script>
 
@@ -49,7 +76,23 @@ const goConnect = () => router.push({ name: "Home" });
           </span>
           <span class="resource-title">
             <strong>{{ row.name }}</strong>
-            <small>{{ typeLabel(row.type) }} · VMID {{ row.vmid }}</small>
+            <small>
+              {{ typeLabel(row.type) }} · VMID {{ row.vmid }} ·
+              {{ kindLabel(row as SkyLabResource) }}
+            </small>
+            <small v-if="row.owner_name || row.owner_email">
+              {{
+                t("resources.owner", {
+                  owner: row.owner_name || row.owner_email
+                })
+              }}
+            </small>
+            <small
+              v-if="blockedReason(row as SkyLabResource)"
+              class="blocked-reason"
+            >
+              {{ blockedReason(row as SkyLabResource) }}
+            </small>
           </span>
         </div>
       </template>
@@ -95,7 +138,11 @@ const goConnect = () => router.push({ name: "Home" });
           size="small"
           type="primary"
           plain
-          :disabled="row.status !== 'running'"
+          :disabled="
+            row.status !== 'running' ||
+            row.can_control === false ||
+            !!row.start_blocked_reason
+          "
           @click="goConnect"
         >
           <IconifyIconOffline icon="settings-ethernet-rounded" />
@@ -153,6 +200,10 @@ const goConnect = () => router.push({ name: "Home" });
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.resource-title .blocked-reason {
+  color: var(--el-color-danger);
 }
 
 :deep(.el-button) {
