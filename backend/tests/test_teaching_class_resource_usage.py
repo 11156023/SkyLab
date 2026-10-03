@@ -2,7 +2,9 @@ import uuid
 from types import SimpleNamespace
 
 from app.api.routes import teaching_classes
-from app.api.routes.teaching_classes import _class_resource_usage_items
+from app.services.teaching.class_status_service import (
+    class_resource_usage_items as _class_resource_usage_items,
+)
 
 
 def test_class_resource_usage_converts_pve_ratios_and_memory_bytes() -> None:

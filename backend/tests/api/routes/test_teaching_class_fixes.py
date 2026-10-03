@@ -21,6 +21,7 @@ from app.models import (
     VMTemplate,
     VMTemplateStatus,
 )
+from app.services.teaching import class_lifecycle_service
 
 TEACHER = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
 
@@ -332,7 +333,7 @@ def test_dropped_weeks_remove_their_task_files(
     item.end_date = date(2026, 9, 8)
     db.add(item)
     db.commit()
-    routes._generate_weeks(db, item, preserve=True)
+    class_lifecycle_service.generate_weeks(db, item, preserve=True)
 
     assert blobs[1].exists()
     assert blobs[2].exists()

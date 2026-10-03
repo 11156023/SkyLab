@@ -27,8 +27,8 @@ function loadSeen(userId) {
   }
 }
 
+// Only called once the hook has confirmed a signed-in userId.
 function saveSeen(userId, seen) {
-  if (userId == null) return;
   try {
     const values = [...seen].slice(-MAX_SEEN_WARNINGS);
     localStorage.setItem(storageKey(userId), JSON.stringify(values));

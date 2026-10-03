@@ -29,7 +29,7 @@ from app.schemas.ldap import LdapConfigUpdate
 from app.schemas.push import PushSubscriptionCreate
 from app.services.user import avatar_service, ldap_auth_service
 from tests.utils.user import user_authentication_headers
-from tests.utils.utils import random_email, random_lower_string, random_password
+from tests.utils.utils import random_email, random_password
 
 API = settings.API_V1_STR
 

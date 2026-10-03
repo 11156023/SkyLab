@@ -1,6 +1,5 @@
 """基本資訊發布後仍可調整；機器設定不行。"""
 
-import json
 import uuid
 from types import SimpleNamespace
 from unittest.mock import Mock

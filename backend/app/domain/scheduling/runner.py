@@ -26,9 +26,11 @@ class LoopObserver(Protocol):
     observer 自己出錯不能讓排程停下來，runner 會吞掉並記 warning。
     """
 
-    async def on_start(self, task_names: list[str]) -> None: ...
+    async def on_start(self, task_names: list[str]) -> None:
+        """排程迴圈啟動，帶入本輪會跑的任務名稱。"""
 
-    async def on_tick(self, *, is_leader: bool) -> None: ...
+    async def on_tick(self, *, is_leader: bool) -> None:
+        """每輪 tick 一次；``is_leader`` 為 False 表示本輪略過任務。"""
 
     async def on_task(
         self,
@@ -37,7 +39,8 @@ class LoopObserver(Protocol):
         ok: bool,
         duration_seconds: float,
         error: BaseException | None,
-    ) -> None: ...
+    ) -> None:
+        """單一任務結束（成功或失敗）。"""
 
 
 async def _notify(

@@ -125,7 +125,7 @@ async def _cancel_and_wait(task: asyncio.Task[None] | None) -> None:
         return
     task.cancel()
     with suppress(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
 
 
 @asynccontextmanager

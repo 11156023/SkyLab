@@ -20,6 +20,7 @@ from app.models import (
     TeachingClassTaskFile,
     TeachingClassWeek,
 )
+from app.schemas.teaching_class import WeekFileIn
 
 TEACHER = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
 
@@ -92,7 +93,7 @@ def _body(week: TeachingClassWeek, *, files=(), title="Linux 權限"):
             session_date=week.session_date,
             title=title,
             status="published",
-            files=[routes.WeekFileIn(id=file_id) for file_id in files],
+            files=[WeekFileIn(id=file_id) for file_id in files],
         )
     ]
 
@@ -146,7 +147,7 @@ def test_week_dates_must_still_match_the_schedule(db, _task_file_root):
 
 def test_client_cannot_choose_the_storage_key():
     """WeekFileIn 只認 id；storage_key 連欄位都不存在。"""
-    file_in = routes.WeekFileIn.model_validate(
+    file_in = WeekFileIn.model_validate(
         {"id": str(uuid.uuid4()), "storage_key": "../../.env", "filename": "x.pdf"}
     )
     assert not hasattr(file_in, "storage_key")

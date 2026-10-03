@@ -368,7 +368,7 @@ def prepare_and_submit(api: Api, token: str, cfg: Config, item: dict, version_id
     print(f"學生：本次加入 {result['added']} 位，班上共 {result['class']['member_count']} 位")
 
     try:
-        item = api.call(
+        api.call(
             "PUT", f"{class_path}/instructor-machine", token=token, body={"enabled": True}
         )
     except ApiError as exc:

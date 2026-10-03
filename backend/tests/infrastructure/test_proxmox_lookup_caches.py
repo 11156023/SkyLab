@@ -129,7 +129,7 @@ def test_next_vmid_always_reads_a_fresh_listing(
                     return 100
 
     monkeypatch.setattr(ops, "get_proxmox_api", lambda key=None: _Api())
-    monkeypatch.setattr(ops, "_db_claimed_vmids", lambda: set())
+    monkeypatch.setattr(ops, "_db_claimed_vmids", set)
 
     ops.list_all_resources()
     listing.vms.append({"vmid": 101, "node": "pve1", "type": "qemu", "pool": "SkyLab"})

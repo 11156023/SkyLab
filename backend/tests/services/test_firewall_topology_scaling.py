@@ -31,6 +31,9 @@ def topology_env(monkeypatch: pytest.MonkeyPatch):
     calls: dict[str, list[Any]] = {"list_all": [], "ip": [], "cache": []}
 
     def install(*, reachable: list[int], pve: list[dict[str, Any]]) -> dict[str, list[Any]]:
+        def no_owned_classes(*, session: Any, user: Any) -> set[Any]:
+            return set()
+
         monkeypatch.setattr(
             fw.resource_access,
             "list_reachable_resources",
@@ -42,7 +45,7 @@ def topology_env(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(
             fw.resource_access,
             "list_owned_teaching_class_ids",
-            lambda *, session, user: set(),
+            no_owned_classes,
         )
         monkeypatch.setattr(
             fw.resource_access,

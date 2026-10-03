@@ -82,7 +82,8 @@ def test_dismiss_response_is_superset_of_incident_public(
 
     public = MiningIncidentPublic.model_validate(incident, from_attributes=True)
     dumped = result.model_dump()
-    assert dumped.pop("warnings") == []
+    warnings = dumped.pop("warnings")
+    assert warnings == []
     assert dumped == public.model_dump()
 
 
