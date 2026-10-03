@@ -6,6 +6,22 @@
  * 那段要跟後端一樣以 UTC 日期比較，和這裡「依本地時區顯示」的規則不同。
  */
 
+/**
+ * 目前實際生效的到期（YYYY-MM-DD，UTC 日期）：到期日（expiry_date，TTL）與核准使用時段迄
+ * （window_end_at）取較早者，跟後端 spec_change_service._effective_expiry 同一套規則。
+ * 自己申請的機器通常沒有 expiry_date，讓它過期的是 window_end_at，延期按鈕也要讓這種機器看到。
+ * 兩者都沒有＝不限期，回 null。
+ */
+export function effectiveExpiryIso(resource) {
+  const candidates = [];
+  if (resource?.expiry_date) candidates.push(String(resource.expiry_date).slice(0, 10));
+  if (resource?.window_end_at) {
+    const end = new Date(resource.window_end_at);
+    if (!Number.isNaN(end.getTime())) candidates.push(end.toISOString().slice(0, 10));
+  }
+  return candidates.length ? candidates.sort()[0] : null;
+}
+
 export const AUTO_STOP_REASON_KEYS = {
   window_grace: "LifecycleCard.reasonWindowGrace",
   practice_quota: "LifecycleCard.reasonPracticeQuota",

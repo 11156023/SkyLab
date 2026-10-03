@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime, parseDateOnly } from "./lifecycleFormat";
+import { AUTO_STOP_REASON_KEYS, effectiveExpiryIso, formatDate, formatDateTime, parseDateOnly } from "./lifecycleFormat";
 
 describe("lifecycleFormat", () => {
+  it("effectiveExpiryIso 取到期日與核准時段迄日較早者；只有時段的機器也算有到期", () => {
+    expect(effectiveExpiryIso({ expiry_date: null, window_end_at: null })).toBeNull();
+    expect(effectiveExpiryIso(null)).toBeNull();
+    expect(effectiveExpiryIso({ expiry_date: "2026-11-30" })).toBe("2026-11-30");
+    // 自己申請的機器：沒有 expiry_date，只有時段迄（表單送的是本地 end-of-day 轉 ISO）
+    expect(effectiveExpiryIso({ window_end_at: "2026-10-15T15:59:59.000Z" })).toBe("2026-10-15");
+    // 兩個都有：時段比到期日早 → 時段迄；反過來 → 到期日
+    expect(effectiveExpiryIso({ expiry_date: "2026-11-30", window_end_at: "2026-10-15T15:59:59.000Z" })).toBe("2026-10-15");
+    expect(effectiveExpiryIso({ expiry_date: "2026-10-01", window_end_at: "2026-10-15T15:59:59.000Z" })).toBe("2026-10-01");
+    expect(effectiveExpiryIso({ window_end_at: "not a date" })).toBeNull();
+  });
+
   it("parseDateOnly 以本地時區拆解純日期，不會因 UTC 解析差一天", () => {
     const d = parseDateOnly("2026-10-01");
     expect([d.getFullYear(), d.getMonth(), d.getDate()]).toEqual([2026, 9, 1]);

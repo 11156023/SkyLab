@@ -156,6 +156,36 @@ def get_approved_vm_requests_overlapping_window(
     return list(session.exec(statement).all())
 
 
+def get_unprovisioned_gpu_requests_overlapping_window(
+    *,
+    session: Session,
+    gpu_mapping_id: str,
+    window_start: datetime,
+    window_end: datetime,
+    exclude_request_id: uuid.UUID | None = None,
+) -> list[VMRequest]:
+    """同一張 GPU、已核准但還沒開機（``vmid`` 為空）、與時段重疊的其他申請。
+
+    延長到期日用：已開機的機器實際佔用已反映在 PVE，不算預約衝突。
+    """
+    statement = (
+        select(VMRequest)
+        .where(
+            VMRequest.status.in_(_ACTIVE_STATUSES),
+            VMRequest.provisioning_status != VMProvisioningStatus.failed,
+            VMRequest.gpu_mapping_id == gpu_mapping_id,
+            VMRequest.vmid.is_(None),
+            VMRequest.start_at.is_not(None),
+            VMRequest.start_at < window_end,
+            sa.or_(VMRequest.end_at.is_(None), VMRequest.end_at > window_start),
+        )
+        .order_by(VMRequest.start_at.asc())
+    )
+    if exclude_request_id is not None:
+        statement = statement.where(VMRequest.id != exclude_request_id)
+    return list(session.exec(statement).all())
+
+
 def lock_overlapping_vm_requests_for_window(
     *,
     session: Session,
