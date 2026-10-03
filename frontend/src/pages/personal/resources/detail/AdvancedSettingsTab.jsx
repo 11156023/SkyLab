@@ -9,7 +9,6 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
@@ -23,8 +22,6 @@ import CredentialsCard from "./advanced/CredentialsCard";
 import SharingCard from "./advanced/SharingCard";
 
 export default function AdvancedSettingsTab({ vmid, backTo, onShowOverview }) {
-  const { t } = useTranslation("personal");
-
   const [resource, setResource] = useState(null);
   const [error, setError] = useState(false);
 

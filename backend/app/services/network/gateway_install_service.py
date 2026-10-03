@@ -286,7 +286,7 @@ def suggest_install_options(
         try:
             sources.append(str(ipaddress.ip_address(client_ip)))
         except ValueError:
-            pass
+            pass  # 來源不是合法 IP（例如經代理拿到的字串）就不當建議值
 
     # 預設值只是建議，不在這裡跑驗證（子網設定怪異時也要能回狀態）
     return GatewayInstallOptions.model_construct(

@@ -33,7 +33,7 @@ from generate_litellm_config import load_models
 def restore_signal_handlers(monkeypatch):
     """main.main() 會安裝 SIGTERM／SIGINT handler，測試結束後還原。"""
     saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
-    monkeypatch.setattr(launcher_main, "_shutdown_requested", False)
+    monkeypatch.setattr(launcher_main._shutdown, "requested", False)
     monkeypatch.setenv(SERVICE_ENV_FILE_VAR, "unused")
     yield
     for sig, handler in saved.items():
@@ -213,7 +213,7 @@ def test_stop_all_continues_after_interrupted_engine_stop(fake_engine) -> None:
 
 
 def test_second_signal_during_cleanup_is_ignored(monkeypatch) -> None:
-    monkeypatch.setattr(launcher_main, "_shutdown_requested", False)
+    monkeypatch.setattr(launcher_main._shutdown, "requested", False)
 
     with pytest.raises(KeyboardInterrupt):
         launcher_main._request_shutdown(signal.SIGTERM, None)

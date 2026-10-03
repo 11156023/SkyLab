@@ -98,7 +98,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
         role=UserRole.admin,
     )
     app.dependency_overrides[get_current_user] = lambda: admin
-    app.dependency_overrides[get_db] = lambda: _Session()
+    app.dependency_overrides[get_db] = _Session
     app.dependency_overrides[get_resource_info_teaching] = lambda: {
         "vmid": 105,
         "node": "pve1",
@@ -184,7 +184,8 @@ def test_delete_refuses_institutional_backup(api_client: TestClient, env: dict[s
 
 
 def test_delete_requires_volid(api_client: TestClient, env: dict[str, Any]) -> None:
-    assert api_client.delete(f"{BASE}/backups").status_code == 422
+    response = api_client.delete(f"{BASE}/backups")
+    assert response.status_code == 422
 
 
 BACKUP_MESSAGE_KEYS = [

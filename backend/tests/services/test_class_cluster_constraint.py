@@ -9,7 +9,6 @@ default_node → nodes[0]），可以挑到與範本機器不同的叢集 ——
 「整班同叢集」的行為。
 """
 
-import json
 import uuid
 from collections import Counter
 

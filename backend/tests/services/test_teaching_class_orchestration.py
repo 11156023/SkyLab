@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.routes.teaching_classes import _generate_weeks
 from app.exceptions import BadRequestError
 from app.models import BatchProvisionJobStatus, TeachingClassWeek
 from app.schemas.course_environment import (
@@ -13,6 +12,9 @@ from app.schemas.course_environment import (
     EnvironmentNodeIn,
 )
 from app.services.teaching import class_capacity_service, class_network_service
+from app.services.teaching.class_lifecycle_service import (
+    generate_weeks as _generate_weeks,
+)
 from app.services.teaching.class_provision_service import (
     recurrence_rule as _recurrence,
 )

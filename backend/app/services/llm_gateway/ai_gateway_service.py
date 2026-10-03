@@ -6,8 +6,7 @@ from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import sqlalchemy as sa
-from sqlalchemy import and_, case, distinct, func, or_
+from sqlalchemy import Date, and_, case, cast, distinct, func, literal, or_
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
@@ -833,12 +832,10 @@ def _usage_day_expr(
         return func.strftime(
             "%Y-%m-%d",
             column,
-            sa.literal(f"{minutes:+d} minutes", literal_execute=True),
+            literal(f"{minutes:+d} minutes", literal_execute=True),
         )
     name = zone.key if isinstance(zone, ZoneInfo) else "UTC"
-    return sa.cast(
-        func.timezone(sa.literal(name, literal_execute=True), column), sa.Date
-    )
+    return cast(func.timezone(literal(name, literal_execute=True), column), Date)
 
 
 def _as_date(value: object) -> date:

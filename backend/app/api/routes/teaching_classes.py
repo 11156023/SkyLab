@@ -49,10 +49,6 @@ from app.schemas.teaching_class import (
     StudentAdd,
     WeekIn,
 )
-from app.schemas.teaching_class import (
-    # WeekIn.files 的元素型別；route 本身不直接用，顯式轉出讓 routes.WeekFileIn 可用
-    WeekFileIn as WeekFileIn,
-)
 from app.services.course import course_service, weekly_task_service
 from app.services.course_environment import upload_store
 from app.services.proxmox import proxmox_service
@@ -73,11 +69,6 @@ MAX_STUDENT_CSV_BYTES = 1024 * 1024
 PUBLIC_PROVISION_ERROR = (
     "Machine provisioning failed. Retry or contact an administrator."
 )
-
-# 課次推算與資源用量的計算搬到 service 層；舊名稱留作別名，
-# 既有的測試與呼叫端（``routes._generate_weeks`` 等）不必跟著改。
-_generate_weeks = class_lifecycle_service.generate_weeks
-_class_resource_usage_items = class_status_service.class_resource_usage_items
 
 
 def _get_class(session: SessionDep, current_user, class_id: uuid.UUID) -> TeachingClass:

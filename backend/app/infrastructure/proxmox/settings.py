@@ -26,14 +26,21 @@ SETTINGS_CACHE_TTL = 30.0
 
 _cache_lock = threading.Lock()
 _settings_cache: dict[int | None, tuple[float, ProxmoxSettings]] = {}
-_enabled_ids_cache: tuple[float, list[int]] | None = None
+
+
+class _EnabledIdsCache:
+    """啟用連線 id 清單的快取（時間戳、id 清單）；用屬性而不是 global 重新綁定。"""
+
+    entry: tuple[float, list[int]] | None = None
+
+
+_enabled_ids_cache = _EnabledIdsCache()
 
 
 def invalidate_proxmox_settings_cache() -> None:
-    global _enabled_ids_cache
     with _cache_lock:
         _settings_cache.clear()
-        _enabled_ids_cache = None
+        _enabled_ids_cache.entry = None
 
 
 @dataclass
@@ -140,14 +147,13 @@ def list_enabled_connection_ids() -> list[int]:
 
     尚未建立連線資料時回傳空清單。
     """
-    global _enabled_ids_cache
     from sqlmodel import Session
 
     from app.core.db import engine
     from app.repositories import proxmox_connection as connection_repo
 
     with _cache_lock:
-        cached = _enabled_ids_cache
+        cached = _enabled_ids_cache.entry
     if cached is not None and time.monotonic() - cached[0] < SETTINGS_CACHE_TTL:
         return list(cached[1])
 
@@ -162,5 +168,5 @@ def list_enabled_connection_ids() -> list[int]:
         logger.warning("Unable to list Proxmox connections: %s", exc)
         return []
     with _cache_lock:
-        _enabled_ids_cache = (time.monotonic(), ids)
+        _enabled_ids_cache.entry = (time.monotonic(), ids)
     return list(ids)

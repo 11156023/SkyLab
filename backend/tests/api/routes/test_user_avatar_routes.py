@@ -12,7 +12,7 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.services.user import avatar_service
 from tests.utils.user import user_authentication_headers
-from tests.utils.utils import random_email, random_lower_string, random_password
+from tests.utils.utils import random_email, random_password
 
 API = settings.API_V1_STR
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32

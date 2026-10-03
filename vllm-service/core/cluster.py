@@ -111,7 +111,7 @@ class MultiModelEngineManager:
                 managed.engine.stop()
             except Exception as exc:
                 self.logger.warning(f"模型 {alias} 停止時發生錯誤: {exc}")
-            except BaseException as exc:
+            except (KeyboardInterrupt, SystemExit) as exc:
                 self.logger.warning(f"模型 {alias} 停止時被中斷，繼續停止其餘模型")
                 if interrupted is None:
                     interrupted = exc

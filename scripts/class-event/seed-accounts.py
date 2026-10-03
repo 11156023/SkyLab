@@ -96,7 +96,7 @@ def main() -> int:
                 print(f"[dry-run] 會建立 {role.value:<7} {email}")
                 created += 1
                 continue
-            user = user_repo.create_user(session=session, user_create=user_in)
+            user_repo.create_user(session=session, user_create=user_in)
             audit_service.log_action(
                 session=session,
                 user_id=None,

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from pydantic import EmailStr
-from sqlalchemy import DateTime
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
 from .base import get_datetime_utc
@@ -72,7 +71,7 @@ class User(UserBase, table=True):
     onboarding_completed: bool = Field(default=False)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
         nullable=False,
     )
 

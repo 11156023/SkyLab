@@ -108,7 +108,7 @@ def _collect_gpu_stats() -> tuple[int, list[float], list[float], list[float]]:
         try:
             pynvml.nvmlShutdown()
         except Exception:
-            pass
+            pass  # 關閉 NVML 失敗不影響已讀到的數據
     return count, used_gb, total_gb, utilization
 
 

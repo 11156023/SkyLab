@@ -14,7 +14,6 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-import app.infrastructure.proxmox as proxmox_infra
 from app.api.deps.auth import get_current_active_superuser, get_current_user
 from app.api.deps.database import get_db
 from app.api.routes import batch_provision as batch_provision_route
@@ -27,6 +26,7 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
+from app.infrastructure import proxmox as proxmox_infra
 from app.infrastructure.proxmox import operations as proxmox_operations
 from app.main import app
 from app.models import ResourceQuota, TemplateAttachment, User, UserRole

@@ -71,7 +71,7 @@ def test_upsert_layout_batch_skips_vm_nodes_without_resource(
 
 
 def test_repositories_package_has_no_reexports() -> None:
-    import app.repositories as repositories
+    from app import repositories
 
     assert not hasattr(repositories, "update_resource")
     assert not hasattr(repositories, "get_audit_logs_by_user")

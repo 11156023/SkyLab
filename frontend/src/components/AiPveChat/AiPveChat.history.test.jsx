@@ -150,6 +150,9 @@ describe("AiPveChat SSH confirmation keeps a history the server accepts", () => 
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     if (!globalThis.ResizeObserver) {
       globalThis.ResizeObserver = class {
+        constructor(callback) {
+          this.callback = callback;
+        }
         observe() {}
         disconnect() {}
       };
