@@ -472,7 +472,15 @@ fi
 systemctl daemon-reload
 # --man=no：精簡映像（雲端映像、容器）沒裝 man，預設會因 Documentation=man: 查不到而失敗
 systemd-analyze verify --man=no campus-cloud-wg-firewall.service "wg-quick@${WG_INTERFACE}.service"
-systemctl enable --now campus-cloud-wg-firewall.service
+systemctl enable campus-cloud-wg-firewall.service
+# An active oneshot service keeps its existing kernel rules with enable --now.
+# Reload the regenerated subnet/SNAT policy without stopping the bound wg0 unit.
+# Backend reconciliation or a client reconnect restores the dynamic peer ACLs.
+if systemctl is-active --quiet campus-cloud-wg-firewall.service; then
+    systemctl reload campus-cloud-wg-firewall.service
+else
+    systemctl start campus-cloud-wg-firewall.service
+fi
 systemctl enable --now "wg-quick@${WG_INTERFACE}.service"
 
 systemctl is-active --quiet campus-cloud-wg-firewall.service
