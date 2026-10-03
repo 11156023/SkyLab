@@ -24,7 +24,8 @@
     "build:electron:win:unsigned": "npm run prepare:wireguard:win && npm run build && electron-builder --win -p never --config.forceCodeSigning=false --config.win.signExecutable=false",
     "preview": "vite preview",
     "lint": "eslint src/ electron/ --ext .ts,.tsx,.vue",
-    "lint:fix": "eslint src/ electron/ --ext .ts,.tsx,.vue --fix"
+    "lint:fix": "eslint src/ electron/ --ext .ts,.tsx,.vue --fix",
+    "audit:security": "node scripts/audit-security.mjs"
   },
   "devDependencies": {
     "@iconify-icons/material-symbols": "^1.2.58",

@@ -43,7 +43,7 @@ jobs:
         run: npm run lint
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: npm run audit:security
 
       - name: Production build
         run: npm run build
