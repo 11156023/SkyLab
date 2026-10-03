@@ -13,6 +13,15 @@ from app.schemas import ResourcePublic
 from app.services.network import wireguard_service
 
 
+@pytest.fixture(autouse=True)
+def _default_wireguard_vm_subnet(monkeypatch) -> None:
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda _session: None,
+    )
+
+
 def _public_key(seed: int = 1) -> str:
     return base64.b64encode(bytes([seed]) * 32).decode("ascii")
 
@@ -103,6 +112,35 @@ def test_resource_targets_are_running_authorized_and_inside_vm_subnet(
         (101, "ssh", 22),
         (102, "ssh", 22),
         (102, "rdp", 3389),
+    ]
+
+
+def test_resource_targets_use_configured_platform_subnet(monkeypatch) -> None:
+    resource = ResourcePublic(
+        vmid=205,
+        name="course-lxc",
+        status="running",
+        node="pve1",
+        type="lxc",
+        ip_address="192.168.60.105",
+    )
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda _session: SimpleNamespace(cidr="192.168.60.0/24"),
+    )
+    monkeypatch.setattr(
+        wireguard_service.resource_service,
+        "list_by_user",
+        lambda **_: [resource],
+    )
+
+    targets = wireguard_service._resource_targets(
+        session=object(), user_id=uuid.uuid4()
+    )
+
+    assert [(item.vmid, item.host, item.port) for item in targets] == [
+        (205, "192.168.60.105", 22)
     ]
 
 

@@ -158,6 +158,15 @@ def test_build_env_follows_backend_wireguard_settings() -> None:
     assert env["WG_VM_INTERFACE"] == "ens19"
 
 
+def test_build_env_uses_configured_platform_subnet() -> None:
+    env = svc.build_env(
+        GatewayInstallOptions(),
+        vm_subnet="192.168.60.0/24",
+    )
+
+    assert env["WG_VM_SUBNET"] == "192.168.60.0/24"
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

@@ -46,6 +46,10 @@ WIREGUARD_KEEPALIVE_SECONDS=25
 WIREGUARD_SESSION_TTL_SECONDS=28800
 ```
 
+`WIREGUARD_VM_SUBNET` is a bootstrap fallback. Once IP management is configured,
+the platform subnet stored in `SubnetConfig.cidr` is the source of truth for
+desktop routes, connection targets, Gateway ACLs, and SNAT installation.
+
 正式環境的 `WIREGUARD_ENDPOINT_HOST` 應填 Client 可以到達的 DNS 名稱或公網 IP，而不是管理用 SSH 位址。部署 Backend 前必須先套用 Alembic migration，建立 `wireguard_peers` table。
 
 ## Desktop Client
