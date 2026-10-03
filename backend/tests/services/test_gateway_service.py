@@ -14,6 +14,17 @@ def test_gateway_installer_uses_wireguard() -> None:
     assert not (gateway_dir / "install-wireguard.sh").exists()
 
 
+def test_gateway_installer_replaces_managed_ufw_forward_rule() -> None:
+    gateway_dir = Path(__file__).resolve().parents[3] / "gateway"
+    script = (gateway_dir / "install.sh").read_text(encoding="utf-8")
+
+    assert 'ufw status numbered | awk -v marker="$WG_UFW_FORWARD_COMMENT"' in script
+    assert 'ufw --force delete "$rule_number"' in script
+    assert 'from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET"' in script
+    assert 'comment "$WG_UFW_FORWARD_COMMENT"' in script
+    assert 'if ! ufw status | grep -Fq "Campus Cloud WireGuard routed traffic"' not in script
+
+
 def test_gateway_installer_installs_nginx_stream_and_certbot() -> None:
     """Gateway 改由 nginx 一手包辦 Port 轉發與反向代理，Traefik 不再下載。"""
     gateway_dir = Path(__file__).resolve().parents[3] / "gateway"

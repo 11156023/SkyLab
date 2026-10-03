@@ -41,6 +41,7 @@ WG_SNAT_ADDRESS="${WG_SNAT_ADDRESS:-10.10.0.2}"
 WG_INGRESS_INTERFACE="${WG_INGRESS_INTERFACE:-eth0}"
 WG_LISTEN_PORT="${WG_LISTEN_PORT:-51821}"
 WG_ACL_TIMEOUT="${WG_ACL_TIMEOUT:-8h}"
+WG_UFW_FORWARD_COMMENT="Campus Cloud WireGuard routed traffic after nft ACL"
 
 WG_DIR="/etc/wireguard"
 WG_CONFIG="${WG_DIR}/${WG_INTERFACE}.conf"
@@ -445,11 +446,25 @@ for source in ${MONITORING_ALLOW_FROM//,/ }; do
         ufw allow from "$source" to any port "$port" proto tcp comment "SkyLab monitoring"
     done
 done
-if ! ufw status | grep -Fq "Campus Cloud WireGuard routed traffic"; then
-    ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
-        from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET" \
-        comment "Campus Cloud WireGuard routed traffic after nft ACL"
-fi
+# Replace every previously managed forwarding rule. A comment-only existence
+# check leaves the old destination subnet active after IP management changes.
+# Delete from the highest rule number so lower numbers remain stable.
+while IFS= read -r rule_number; do
+    [[ -n "$rule_number" ]] || continue
+    ufw --force delete "$rule_number"
+done < <(
+    ufw status numbered | awk -v marker="$WG_UFW_FORWARD_COMMENT" '
+        index($0, marker) {
+            line = $0
+            sub(/^\[[[:space:]]*/, "", line)
+            sub(/\].*$/, "", line)
+            print line
+        }
+    ' | sort -rn
+)
+ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
+    from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET" \
+    comment "$WG_UFW_FORWARD_COMMENT"
 if [[ "$ufw_was_active" == false ]]; then
     ufw --force enable
 fi
