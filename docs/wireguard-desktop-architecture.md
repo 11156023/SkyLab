@@ -21,8 +21,8 @@ ACL tuple 為 `client_tunnel_ip . vm_ip . tcp_port`。LXC 僅開 SSH；QEMU VM �
 - UDP listen port：`51821`（`51820` 保留給 NetBird）
 - VM network：`10.10.0.0/16`，由 `eth1` 送出
 - SNAT address：`10.10.0.2`
-- nftables table：`inet campus_cloud_wg`
-- systemd units：`wg-quick@wg0`、`campus-cloud-wg-firewall.service`
+- nftables table：`inet skylab_wg`
+- systemd units：`wg-quick@wg0`、`skylab-wg-firewall.service`
 
 在新 Gateway 上先確認介面、位址與 UDP port 沒有衝突，再以 root 執行：
 
@@ -30,9 +30,16 @@ ACL tuple 為 `client_tunnel_ip . vm_ip . tcp_port`。LXC 僅開 SSH；QEMU VM �
 sudo ./gateway/install.sh
 ```
 
-這是 Gateway 的唯一安裝入口，會安裝 nginx（Port 轉發與網域反向代理）、certbot、WireGuard、nftables ACL 與 SNAT。Installer 會先將網路、防火牆及服務設定備份到 `/root/campus-cloud-backups/`，不會移除既有 NetBird，也不會清空整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 Campus Cloud 管理的檔案，Installer 會拒絕覆寫。
+這是 Gateway 的唯一安裝入口，會安裝 nginx（Port 轉發與網域反向代理）、certbot、WireGuard、nftables ACL 與 SNAT。Installer 會先將網路、防火牆及服務設定備份到 `/root/skylab-backups/`，不會移除既有 NetBird，也不會清空整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 SkyLab 管理的檔案，Installer 會拒絕覆寫。
 
 Gateway 上游防火牆或 NAT 還必須將對外的 UDP `51821` 轉送到 Gateway。若 Client 與 Gateway 位於同一個可路由網路，可直接使用 Gateway 的內部位址。
+
+既有 Gateway 請先部署新版 Backend，再從 Gateway 管理頁重新執行安裝。
+Backend 在遷移前仍可操作舊 `campus_cloud_wg` 規則；安裝器會保留 WireGuard
+金鑰、建立 `skylab_wg` 與 `skylab-wg-firewall.service`，移除舊服務依賴與
+規則表，並更新 UFW 中舊名及新名的受管規則。不要只手動改服務或規則表名稱。
+套用會重建動態 ACL，需等 Backend 重播授權或讓 APP 重新連線。
+UFW 的 IPv4 與 `(v6)` 列，以及不同 VM IP 的 SSH ACL，是不同規則。
 
 ## Backend 設定
 
@@ -65,9 +72,9 @@ Client 不會把私鑰傳給 Backend，產生 tunnel 設定後也會立即刪除
 Gateway 健康檢查：
 
 ```bash
-systemctl is-active wg-quick@wg0 campus-cloud-wg-firewall.service
+systemctl is-active wg-quick@wg0 skylab-wg-firewall.service
 wg show wg0
-nft list set inet campus_cloud_wg allowed_tcp
+nft list set inet skylab_wg allowed_tcp
 ```
 
 連線後應看到一個 peer，以及只屬於該使用者 VM 的限時 ACL。中斷後 peer 與對應 ACL 應立即消失。從 Client 測試時，應直接連 VM IP。
