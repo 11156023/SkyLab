@@ -95,5 +95,6 @@
   "spec_change.expiry_value_required": "請填寫希望延長到的到期日",
   "spec_change.expiry_must_be_future": "新的到期日必須在今天之後",
   "spec_change.expiry_must_extend": "新的到期日必須晚於目前的到期日 {current}",
-  "spec_change.expiry_too_far": "一次最多只能延長到 {days} 天後，更長的期限請聯絡管理員"
+  "spec_change.expiry_too_far": "一次最多只能延長到 {days} 天後，更長的期限請聯絡管理員",
+  "spec_change.expiry_gpu_reserved": "延長後的時段會與其他已核准、尚未開機的 GPU 申請重疊（對方時段到 {date}），請改選較早的日期或聯絡管理員"
 }

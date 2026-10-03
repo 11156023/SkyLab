@@ -95,5 +95,6 @@
   "spec_change.expiry_value_required": "Please enter the expiry date you would like to extend to",
   "spec_change.expiry_must_be_future": "The new expiry date must be after today",
   "spec_change.expiry_must_extend": "The new expiry date must be later than the current expiry date {current}",
-  "spec_change.expiry_too_far": "An extension can reach at most {days} days from today; contact an administrator for a longer period"
+  "spec_change.expiry_too_far": "An extension can reach at most {days} days from today; contact an administrator for a longer period",
+  "spec_change.expiry_gpu_reserved": "The extended period overlaps another approved GPU request that has not started yet (its window ends {date}); choose an earlier date or contact an administrator"
 }
