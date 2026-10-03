@@ -48,6 +48,13 @@ _RESPONSE_HEADER_ALLOWLIST = (
     "retry-after",
     "x-request-id",
 )
+# 串流回應要逐段送到使用者手上。X-Accel-Buffering 讓沿路的 nginx（主系統、
+# 部署端自己多接的一層）只對這個回應關掉 proxy_buffering，不受各層緩衝設定
+# 影響；其他 API 照常緩衝。no-cache 避免中間代理快取串流。
+_STREAM_RESPONSE_HEADERS = {
+    "cache-control": "no-cache",
+    "x-accel-buffering": "no",
+}
 
 
 def openai_error(
@@ -432,7 +439,7 @@ async def relay_generation(
             ),
             status_code=upstream.status_code,
             media_type=upstream.headers.get("content-type", "text/event-stream"),
-            headers=public_headers,
+            headers={**public_headers, **_STREAM_RESPONSE_HEADERS},
         )
 
     try:

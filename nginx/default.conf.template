@@ -129,6 +129,9 @@ server {
         client_max_body_size 256m;
         proxy_pass http://backend_pool;
         # 前端 AI-PVE request deadline 為 120s；代理略長以避免同刻競速。
+        # （兩次讀取之間的閒置上限，不是總長；串流只要持續有片段就不會被切）
+        # AI API 的 SSE 串流另由後端回 X-Accel-Buffering: no，保證這段不緩衝；
+        # text/event-stream 也不在 gzip_types 內，兩者都別改。
         proxy_read_timeout 130s;
         proxy_send_timeout 130s;
     }

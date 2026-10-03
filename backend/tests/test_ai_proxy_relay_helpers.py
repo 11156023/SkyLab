@@ -348,3 +348,67 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
     assert recorded["response_model"] == "resolved-model"
     assert recorded["request_id"] == outbound.headers["x-request-id"]
     assert recorded["upstream_request_id"] == "upstream-1"
+
+
+@pytest.mark.parametrize("is_stream", [True, False])
+def test_only_stream_responses_disable_proxy_buffering(
+    monkeypatch, is_stream: bool
+) -> None:
+    """串流回應要叫主系統 nginx 別緩衝，否則 SSE 會被攢成一大塊才送出。"""
+
+    class FakeClient:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def build_request(self, method: str, url: str, **kwargs) -> httpx.Request:
+            return httpx.Request(method, url, **kwargs)
+
+        async def send(self, request: httpx.Request, *, stream: bool) -> httpx.Response:
+            if stream:
+                return httpx.Response(
+                    200,
+                    content=b"data: [DONE]\n\n",
+                    headers={"content-type": "text/event-stream"},
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                json={"object": "chat.completion", "model": "m"},
+                request=request,
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    async def no_redis():
+        return None
+
+    monkeypatch.setattr(ai_proxy, "get_redis", no_redis)
+    monkeypatch.setattr(relay_service.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        relay_service.ai_gateway_service, "record_usage", lambda **_kwargs: None
+    )
+
+    request = _request(
+        body=json.dumps({"model": "m", "messages": [], "stream": is_stream}).encode(),
+        headers=[(b"content-type", b"application/json")],
+    )
+    response = asyncio.run(
+        ai_proxy._relay_generation(
+            endpoint="chat/completions",
+            request=request,
+            user_and_credential=(
+                SimpleNamespace(id="user-1"),
+                SimpleNamespace(id="credential-1", rate_limit=None),
+            ),
+            session=object(),
+        )
+    )
+
+    assert response.status_code == 200
+    if is_stream:
+        assert response.headers["x-accel-buffering"] == "no"
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers["content-type"].startswith("text/event-stream")
+    else:
+        assert "x-accel-buffering" not in response.headers
