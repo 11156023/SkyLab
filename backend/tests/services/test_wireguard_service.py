@@ -144,6 +144,85 @@ def test_resource_targets_use_configured_platform_subnet(monkeypatch) -> None:
     ]
 
 
+def test_gateway_acl_uses_configured_subnet_and_removes_stale_targets(
+    monkeypatch,
+) -> None:
+    class FakeClient:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    session = object()
+    client = FakeClient()
+    scripts: list[str] = []
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda current_session: (
+            SimpleNamespace(cidr="192.168.60.0/24")
+            if current_session is session
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        wireguard_service,
+        "_gateway_client",
+        lambda current_session: (None, client),
+    )
+    monkeypatch.setattr(
+        wireguard_service,
+        "_run_locked",
+        lambda _client, script, _message: scripts.append(script) or _public_key(9),
+    )
+
+    public_key = wireguard_service._sync_gateway_peer(
+        session=session,
+        public_key=_public_key(1),
+        tunnel_ip="10.250.0.8",
+        old_public_key=_public_key(1),
+        old_endpoints=[
+            {"vmid": 101, "service": "ssh", "host": "10.10.1.10", "port": 22}
+        ],
+        new_endpoints=[
+            {
+                "vmid": 205,
+                "service": "ssh",
+                "host": "192.168.60.105",
+                "port": 22,
+            }
+        ],
+    )
+
+    assert public_key == _public_key(9)
+    assert client.closed is True
+    assert "10.250.0.8 . 10.10.1.10 . 22" in scripts[0]
+    assert "10.250.0.8 . 192.168.60.105 . 22" in scripts[0]
+
+
+def test_gateway_acl_rejects_new_target_outside_configured_subnet(
+    monkeypatch,
+) -> None:
+    session = object()
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda _session: SimpleNamespace(cidr="192.168.60.0/24"),
+    )
+
+    with pytest.raises(BadRequestError, match="Stored WireGuard ACL endpoint"):
+        wireguard_service._sync_gateway_peer(
+            session=session,
+            public_key=_public_key(1),
+            tunnel_ip="10.250.0.8",
+            old_public_key=_public_key(1),
+            old_endpoints=[],
+            new_endpoints=[
+                {"vmid": 205, "service": "ssh", "host": "10.10.1.10", "port": 22}
+            ],
+        )
+
+
 def test_connect_reuses_device_address_and_activates_only_after_gateway_sync(
     monkeypatch,
 ) -> None:
