@@ -1,4 +1,11 @@
 ﻿export default {
+  update: {
+    title: "Update available",
+    message:
+      "SkyLab Connect {version} is available. Download the latest installer now.",
+    download: "Download update",
+    later: "Remind me later"
+  },
   app: {
     title: "SkyLab Connect",
     description: "Connect to your SkyLab virtual machines"
@@ -111,6 +118,18 @@
     summary: "{total} machines across {courses} course environments",
     connect: "Connect",
     customEnvironment: "Custom environment",
+    owner: "Owner: {owner}",
+    kind: {
+      personal: "Personal request",
+      shared: "Shared with me",
+      teaching_class: "Class machine",
+      quick_practice: "Quick practice",
+      course: "Course lab"
+    },
+    window: {
+      notStarted: "Usage window starts at {time}",
+      ended: "Usage window ended at {time}"
+    },
     metrics: {
       total: "Machines",
       courseGroups: "Course environments"
@@ -130,8 +149,12 @@
       running: "Running",
       stopped: "Stopped",
       paused: "Paused",
+      scheduled: "Scheduled",
       provisioning: "Provisioning",
+      starting: "Starting",
+      deleting: "Deleting",
       failed: "Failed",
+      deleted: "Deleted",
       unknown: "Unknown"
     },
     table: {
@@ -151,8 +174,9 @@
     back: "Back to connection",
     language: {
       label: "Language",
-      zhCN: "Traditional Chinese",
-      enUS: "English"
+      zhTW: "Traditional Chinese",
+      enUS: "English",
+      ja: "Japanese"
     },
     autoStart: {
       label: "Launch at startup",

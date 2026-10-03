@@ -41,12 +41,17 @@ class AuthService {
 
   async isLoggedIn(): Promise<boolean> {
     const token = await this._settingsService.getToken();
-    if (!token) return false;
-    if (!this._tokenIsUsable(token)) {
-      await this._settingsService.setToken("");
-      return false;
+    if (token && this._tokenIsUsable(token)) return true;
+    try {
+      if (await this._SkyLabService.refreshSession()) return true;
+    } catch (error) {
+      Logger.warn("AuthService.isLoggedIn.refresh", (error as Error).message);
+      // Preserve the rotating token during a temporary backend outage. API
+      // calls can retry the refresh after connectivity returns.
+      return !!(await this._settingsService.getRefreshToken());
     }
-    return true;
+    await this._settingsService.clearTokens();
+    return false;
   }
 
   isLoginInProgress(): boolean {
@@ -103,7 +108,10 @@ class AuthService {
             dc.device_code
           );
           if (result.status === "approved" && result.accessToken) {
-            await this._settingsService.setToken(result.accessToken);
+            await this._settingsService.setTokens(
+              result.accessToken,
+              result.refreshToken || ""
+            );
             this._loginInProgress = false;
             this._pollTimer = null;
             onResult(true);
@@ -136,7 +144,8 @@ class AuthService {
   async logout(): Promise<void> {
     this.cancelLogin();
     const token = await this._settingsService.getToken();
-    if (token) {
+    const refreshToken = await this._settingsService.getRefreshToken();
+    if (token || refreshToken) {
       try {
         await this._tunnelService.stopTunnel();
       } catch (error) {
@@ -148,7 +157,7 @@ class AuthService {
         Logger.error("AuthService.logout.revokeToken", error as Error);
       }
     }
-    await this._settingsService.setToken("");
+    await this._settingsService.clearTokens();
   }
 }
 

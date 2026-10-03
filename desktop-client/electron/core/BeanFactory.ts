@@ -1,22 +1,24 @@
 import Logger from "./Logger";
 
+type Constructor = new (...args: any[]) => any;
+
 class BeanFactory {
   private static _beans: Map<string, any> = new Map<string, any>();
 
-  static registerBean(clazz: Function, beanName?: string): void {
+  static registerBean(clazz: Constructor, beanName?: string): void {
     if (!beanName) {
       beanName = this.getBeanName(clazz.name);
     }
     if (this.hasBean(beanName)) {
       return;
     }
-    const instance = new (clazz as any)();
+    const instance = new clazz();
     this._beans.set(beanName, instance);
   }
 
   public static setBean<T>(name: string, bean: T): void {
     this._beans.set(name, bean);
-    Logger.info(`${this.name}.${arguments[0]}`, `register bean ${name}`);
+    Logger.info(`${this.name}.${name}`, `register bean ${name}`);
     // Logger.info(`register bean ${name} ${bean}`);
   }
 

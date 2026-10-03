@@ -4,7 +4,7 @@ The desktop client authenticates via a "device auth" flow:
 1. Client calls POST /auth/device-code  -> gets a device_code
 2. Client opens browser to {frontend}/login?device_code={code}
 3. User logs in on the web, frontend auto-calls POST /auth/approve
-4. Client polls GET /auth/poll?code={code} -> gets access_token
+4. Client polls GET /auth/poll?code={code} -> gets an access/refresh token pair
 """
 
 import logging
@@ -92,12 +92,10 @@ def approve_device_code(
     """Approve a device code (called by the frontend after the user explicitly
     confirms the "authorize this device" prompt).
 
-    The current user's access token is associated with the device code.
-    We generate a fresh token for the desktop client using the same user identity.
+    A fresh rotating token pair is associated with the device code so the
+    desktop session can renew without keeping a long-lived access token.
     """
-    from datetime import timedelta
-
-    from app.core.security import create_access_token
+    from app.services.user.tokens import create_token_pair
 
     entry = _device_codes.get(body.device_code)
     if entry is None:
@@ -116,17 +114,19 @@ def approve_device_code(
             status_code=409, detail=t("desktop.device_code_already_approved")
         )
 
-    # Generate a long-lived access token for the desktop client (8 hours).
-    # token_version 必須帶入，否則改過密碼的使用者拿到的 token 會立刻被拒，
-    # 且無法透過 token_version 一次撤銷。
-    token = create_access_token(
-        subject=str(current_user.id),
-        expires_delta=timedelta(hours=8),
-        token_version=current_user.token_version,
-    )
+    # Use the normal rotating refresh-token flow. A desktop app can remain open
+    # for days, so a standalone long-lived access token would leave it stuck
+    # after expiry and broaden the impact of a stolen token.
+    token = create_token_pair(current_user)
     # 保留原本的到期時間：核准不延長 code 的壽命
     _device_codes.set(
-        body.device_code, {**entry, "token": token}, ttl_seconds=remaining
+        body.device_code,
+        {
+            **entry,
+            "token": token.access_token,
+            "refresh_token": token.refresh_token,
+        },
+        ttl_seconds=remaining,
     )
     return {"status": "approved"}
 
@@ -142,9 +142,14 @@ def poll_device_code(code: str) -> DevicePollResponse:
 
     if entry["token"] is not None:
         token = entry["token"]
+        refresh_token = entry.get("refresh_token")
         # One-time use: delete after retrieval
         _device_codes.delete(code)
-        return DevicePollResponse(status="approved", access_token=token)
+        return DevicePollResponse(
+            status="approved",
+            access_token=token,
+            refresh_token=refresh_token,
+        )
 
     return DevicePollResponse(status="pending")
 

@@ -30,10 +30,15 @@ def _user():
 
 
 def test_device_code_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.core import security
+    from app.schemas import Token
+    from app.services.user import tokens
 
     monkeypatch.setattr(
-        security, "create_access_token", lambda **kwargs: f"tok:{kwargs['subject']}"
+        tokens,
+        "create_token_pair",
+        lambda user: Token(
+            access_token=f"access:{user.id}", refresh_token=f"refresh:{user.id}"
+        ),
     )
     created = routes.create_device_code()
     assert created.expires_in == routes._DEVICE_CODE_TTL
@@ -47,7 +52,8 @@ def test_device_code_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
     polled = routes.poll_device_code(created.device_code)
     assert polled.status == "approved"
-    assert polled.access_token == f"tok:{user.id}"
+    assert polled.access_token == f"access:{user.id}"
+    assert polled.refresh_token == f"refresh:{user.id}"
     # 一次性：取走後 code 就失效
     with pytest.raises(HTTPException) as excinfo:
         routes.poll_device_code(created.device_code)
@@ -55,9 +61,14 @@ def test_device_code_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_device_code_cannot_be_approved_twice(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.core import security
+    from app.schemas import Token
+    from app.services.user import tokens
 
-    monkeypatch.setattr(security, "create_access_token", lambda **_: "tok")
+    monkeypatch.setattr(
+        tokens,
+        "create_token_pair",
+        lambda _user: Token(access_token="access", refresh_token="refresh"),
+    )
     created = routes.create_device_code()
     body = routes.DeviceApproveRequest(device_code=created.device_code)
     routes.approve_device_code(body, _user())

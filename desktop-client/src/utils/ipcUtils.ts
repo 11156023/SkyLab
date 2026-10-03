@@ -32,6 +32,9 @@ export const on = (
     if (bizCode === "A1000") {
       listerHandler(data);
     } else {
+      if (bizCode === "B1001") {
+        window.dispatchEvent(new CustomEvent("skylab:auth-expired"));
+      }
       if (errHandler) {
         errHandler(bizCode, message);
       } else {

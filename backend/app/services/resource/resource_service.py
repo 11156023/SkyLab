@@ -1236,7 +1236,7 @@ def control(
         node = resource_info["node"]
         resource_type = resource_info["type"]
 
-        if action == "start":
+        if action in {"start", "reboot", "reset"}:
             _enforce_start_window(session=session, vmid=vmid)
 
         proxmox_service.control(node, vmid, resource_type, action)
@@ -1250,13 +1250,16 @@ def control(
             firewall_service.ensure_firewall_enabled(node, vmid, resource_type)
             _set_auto_stop_for_user_start(session=session, vmid=vmid)
         elif action in ("stop", "shutdown"):
-            # 學生主動關機 → 清除 auto_stop_at，不會被排程器再啟動
-            resource_repo.set_auto_stop(
-                session=session,
-                vmid=vmid,
-                auto_stop_at=None,
-                auto_stop_reason=None,
-            )
+            # A guest can ignore graceful shutdown. Keep the expired-window
+            # deadline until Proxmox confirms that the VM stopped.
+            db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+            if db_resource is None or db_resource.auto_stop_reason != "window_grace":
+                resource_repo.set_auto_stop(
+                    session=session,
+                    vmid=vmid,
+                    auto_stop_at=None,
+                    auto_stop_reason=None,
+                )
 
         action_map = {
             "start": "resource_start",

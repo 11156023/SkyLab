@@ -70,6 +70,24 @@ def test_resource_targets_are_running_authorized_and_inside_vm_subnet(
             type="qemu",
             ip_address="192.168.1.10",
         ),
+        ResourcePublic(
+            vmid=105,
+            name="ended-window",
+            status="running",
+            node="pve1",
+            type="lxc",
+            ip_address="10.10.1.13",
+            start_blocked_reason="window_ended",
+        ),
+        ResourcePublic(
+            vmid=106,
+            name="expired-ttl",
+            status="running",
+            node="pve1",
+            type="lxc",
+            ip_address="10.10.1.14",
+            expiry_date=(datetime.now(UTC) - timedelta(days=1)).date(),
+        ),
     ]
     monkeypatch.setattr(
         wireguard_service.resource_service,
@@ -388,6 +406,8 @@ def test_reconcile_marks_peer_inactive_when_gateway_replay_fails(
         lambda **_: [peer],
     )
     monkeypatch.setattr(wireguard_service, "_gateway_state_id", lambda _: "boot-2")
+    monkeypatch.setattr(wireguard_service, "_resource_targets", lambda **_: [])
+    monkeypatch.setattr(wireguard_service, "_remove_gateway_peer", lambda **_: None)
     monkeypatch.setattr(
         wireguard_service,
         "_sync_gateway_peer",
@@ -408,3 +428,62 @@ def test_reconcile_marks_peer_inactive_when_gateway_replay_fails(
     assert peer.active is False
     assert peer.allowed_endpoints == []
     assert peer.revoked_at is not None
+
+
+def test_reconcile_updates_acl_without_gateway_restart(monkeypatch) -> None:
+    peer = WireGuardPeer(
+        user_id=uuid.uuid4(),
+        device_id="device-1234",
+        public_key=_public_key(1),
+        tunnel_ip="10.250.0.8",
+        allowed_endpoints=[
+            {"vmid": 100, "service": "ssh", "host": "10.10.1.10", "port": 22}
+        ],
+        active=True,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+    sync_calls: list[dict] = []
+    saved: list[WireGuardPeer] = []
+    monkeypatch.setattr(wireguard_service, "Session", lambda _: FakeSession())
+    monkeypatch.setattr(
+        wireguard_service.peer_repo, "list_expired_active", lambda **_: []
+    )
+    monkeypatch.setattr(
+        wireguard_service.peer_repo, "list_revoked_before", lambda **_: []
+    )
+    monkeypatch.setattr(
+        wireguard_service.peer_repo,
+        "list_active_unexpired",
+        lambda **_: [peer],
+    )
+    monkeypatch.setattr(wireguard_service, "_gateway_state_id", lambda _: "boot-1")
+    monkeypatch.setattr(wireguard_service, "_resource_targets", lambda **_: [])
+    monkeypatch.setattr(
+        wireguard_service,
+        "_sync_gateway_peer",
+        lambda **kwargs: sync_calls.append(kwargs) or _public_key(9),
+    )
+    monkeypatch.setattr(
+        wireguard_service.peer_repo,
+        "save",
+        lambda **kwargs: saved.append(kwargs["peer"]) or kwargs["peer"],
+    )
+    monkeypatch.setattr(
+        wireguard_service._reconcile_state, "last_gateway_state_id", "boot-1"
+    )
+
+    wireguard_service.reconcile_once()
+
+    assert len(sync_calls) == 1
+    assert sync_calls[0]["old_endpoints"] != []
+    assert sync_calls[0]["new_endpoints"] == []
+    assert peer.allowed_endpoints == []
+    assert saved == [peer]

@@ -7,6 +7,7 @@
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import Session, select
@@ -20,6 +21,7 @@ from app.core.i18n import t
 from app.exceptions import PermissionDeniedError
 from app.models import Resource, TeachingClass, TeachingClassStatus
 from app.repositories import resource as resource_repo
+from app.services.governance.lifecycle_policy import expiry_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,31 @@ def require_resource_use(*, session: Session, user: Any, vmid: int) -> None:
         if sharing_service.user_has_share(session=session, vmid=vmid, user_id=user.id):
             return
         raise
+
+
+def require_resource_console_access(*, session: Session, user: Any, vmid: int) -> None:
+    """Check use permission and the personal resource's active usage window."""
+    require_resource_use(session=session, user=user, vmid=vmid)
+    if can_bypass_resource_ownership(user):
+        return
+
+    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    if resource is None:
+        raise PermissionDeniedError(t("resource_access.no_permission"))
+    # Teaching-class access follows the class lifecycle and after-class
+    # practice policy; personal request windows do not apply to it.
+    if resource.teaching_class_id:
+        return
+    if resource.expiry_date and datetime.now(UTC) >= expiry_datetime(resource.expiry_date):
+        raise PermissionDeniedError(t("resource_access.no_permission"))
+
+    from app.services.resource.resource_service import start_window_state
+
+    reason, _, _ = start_window_state(
+        session=session, vmid=vmid, db_resource=resource
+    )
+    if reason is not None:
+        raise PermissionDeniedError(t("resource_access.no_permission"))
 
 
 def require_resource_management(
@@ -176,6 +203,7 @@ __all__ = [
     "list_reachable_vmids",
     "list_teaching_class_ids_owned_by",
     "require_resource_management",
+    "require_resource_console_access",
     "require_resource_ownership",
     "require_resource_use",
 ]

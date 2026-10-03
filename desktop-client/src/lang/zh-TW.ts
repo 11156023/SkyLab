@@ -1,4 +1,10 @@
 ﻿export default {
+  update: {
+    title: "發現新版本",
+    message: "SkyLab Connect {version} 已發布，建議下載並安裝最新版。",
+    download: "下載更新",
+    later: "稍後提醒"
+  },
   app: {
     title: "SkyLab Connect",
     description: "校園雲端虛擬機連線工具"
@@ -106,6 +112,18 @@
     summary: "共 {total} 台機器，分屬 {courses} 個課程環境",
     connect: "連線",
     customEnvironment: "自訂環境",
+    owner: "擁有者：{owner}",
+    kind: {
+      personal: "個人申請",
+      shared: "共享給我",
+      teaching_class: "班級機器",
+      quick_practice: "快速練習",
+      course: "課程實驗"
+    },
+    window: {
+      notStarted: "使用時段尚未開始（{time}）",
+      ended: "使用時段已結束（{time}）"
+    },
     metrics: {
       total: "機器總數",
       courseGroups: "課程環境"
@@ -125,8 +143,12 @@
       running: "執行中",
       stopped: "已停止",
       paused: "已暫停",
+      scheduled: "已排程",
       provisioning: "建立中",
+      starting: "啟動中",
+      deleting: "刪除中",
       failed: "建立失敗",
+      deleted: "已刪除",
       unknown: "狀態未知"
     },
     table: {
@@ -146,8 +168,9 @@
     back: "返回連線畫面",
     language: {
       label: "介面語言",
-      zhCN: "繁體中文",
-      enUS: "English"
+      zhTW: "繁體中文",
+      enUS: "English",
+      ja: "日本語"
     },
     autoStart: {
       label: "開機自動啟動",
