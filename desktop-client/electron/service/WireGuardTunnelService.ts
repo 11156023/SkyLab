@@ -37,6 +37,8 @@ const TUNNEL_NAME = "SkyLab";
 const SERVICE_NAME = `WireGuardTunnel$${TUNNEL_NAME}`;
 const LEASE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const LEASE_REFRESH_RETRY_MS = 60 * 1000;
+const ORPHANED_TUNNEL_ERROR =
+  "A tunnel from an earlier app session needs to be reconnected.";
 const WIREGUARD_MSI_SHA256 =
   "6daa5d37a9e2950dfb8c48b95ab8e562cb2bad1c785d020f38f97bea4c6a5566";
 const PRIVATE_KEY_DER_PREFIX = Buffer.from(
@@ -57,6 +59,7 @@ class WireGuardTunnelService {
   private _lastLeaseRefreshAt = -1;
   private _lastLeaseRefreshAttemptAt = -1;
   private _refreshPromise: Promise<void> | null = null;
+  private _startPromise: Promise<void> | null = null;
   private _activeConfigFingerprint: string | null = null;
 
   constructor() {
@@ -472,6 +475,17 @@ class WireGuardTunnelService {
   }
 
   async startTunnel(): Promise<void> {
+    if (this._startPromise) return this._startPromise;
+    const operation = this._startTunnel();
+    this._startPromise = operation;
+    try {
+      await operation;
+    } finally {
+      if (this._startPromise === operation) this._startPromise = null;
+    }
+  }
+
+  private async _startTunnel(): Promise<void> {
     this._connectionError = null;
     await this._ensureWireGuardInstalled();
     const identity = this._loadIdentity();
@@ -639,7 +653,9 @@ class WireGuardTunnelService {
   async getStatus(): Promise<TunnelStatusInfo> {
     const localRunning = await this.isRunning();
     const expired = this._expiresAt !== null && Date.now() >= this._expiresAt;
-    const orphaned = localRunning && this._lastStartTime === -1;
+    const starting = this._startPromise !== null;
+    const orphaned =
+      localRunning && this._lastStartTime === -1 && !starting;
     if (localRunning && !expired) {
       this._latestHandshakeAt = await this._readLatestHandshake();
     }
@@ -647,10 +663,12 @@ class WireGuardTunnelService {
       this._connectionError =
         "The secure session expired. Disconnect and sign in again.";
     } else if (orphaned) {
-      this._connectionError =
-        "A tunnel from an earlier app session needs to be reconnected.";
+      this._connectionError = ORPHANED_TUNNEL_ERROR;
+    } else if (this._connectionError === ORPHANED_TUNNEL_ERROR) {
+      this._connectionError = null;
     }
-    const running = localRunning && !expired && !orphaned;
+    const running =
+      localRunning && this._lastStartTime !== -1 && !expired && !orphaned;
     return {
       running,
       lastStartTime: this._lastStartTime,
