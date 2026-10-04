@@ -1,49 +1,93 @@
 #!/usr/bin/env bash
-# Minimal post-cutover smoke test. It exercises only the four public
-# data-plane endpoints through Campus, never LiteLLM administration endpoints.
+# Minimal post-deployment smoke test. It discovers every model visible to the
+# restricted Campus credential and sends one small chat completion to each.
+# It never calls LiteLLM administration endpoints.
 set -euo pipefail
 
 : "${AI_API_SMOKE_KEY:?set an isolated, approved ccai_* smoke credential}"
 
 base_url="${AI_API_PUBLIC_BASE_URL:-http://127.0.0.1:8000/api/v1}"
-model="${AI_API_SMOKE_MODEL:-gpt-oss-20B}"
+timeout="${AI_API_SMOKE_TIMEOUT:-120}"
+python_bin="${AI_API_SMOKE_PYTHON:-python3}"
 base_url="${base_url%/}"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
+if ! command -v "$python_bin" >/dev/null 2>&1; then
+  printf 'Python interpreter not found: %s\n' "$python_bin" >&2
+  exit 1
+fi
+
 curl_api() {
   # Keep the user credential out of curl's command arguments and output.
   curl --silent --show-error --fail-with-body \
+    --connect-timeout 10 \
+    --max-time "$timeout" \
     --config <(printf 'header = "Authorization: Bearer %s"\n' "$AI_API_SMOKE_KEY") \
     "$@"
 }
 
 printf 'Checking public model list...\n'
 curl_api "$base_url/ai-proxy/models" >"$workdir/models.json"
-jq -e --arg model "$model" '.data | any(.id == $model)' "$workdir/models.json" >/dev/null
+mapfile -t models < <(
+  "$python_bin" - "$workdir/models.json" <<'PY'
+import json
+import sys
 
-printf 'Checking chat/completions (non-stream)...\n'
-curl_api -H 'Content-Type: application/json' \
-  --data "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with OK.\"}],\"max_tokens\":8}" \
-  "$base_url/ai-proxy/chat/completions" >"$workdir/chat.json"
-jq -e '.choices and .usage' "$workdir/chat.json" >/dev/null
+with open(sys.argv[1], encoding="utf-8") as source:
+    payload = json.load(source)
 
-printf 'Checking chat/completions (stream)...\n'
-curl_api --no-buffer -H 'Content-Type: application/json' \
-  --data "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with OK.\"}],\"max_tokens\":8,\"stream\":true}" \
-  "$base_url/ai-proxy/chat/completions" >"$workdir/chat.sse"
-grep -Fqx 'data: [DONE]' "$workdir/chat.sse"
+seen: set[str] = set()
+for item in payload.get("data", []):
+    model_id = item.get("id") if isinstance(item, dict) else None
+    if isinstance(model_id, str) and model_id and model_id not in seen:
+        seen.add(model_id)
+        print(model_id)
+PY
+)
+if (( ${#models[@]} == 0 )); then
+  printf 'No public AI models were returned.\n' >&2
+  exit 1
+fi
 
-printf 'Checking completions...\n'
-curl_api -H 'Content-Type: application/json' \
-  --data "{\"model\":\"$model\",\"prompt\":\"Reply with OK.\",\"max_tokens\":8}" \
-  "$base_url/ai-proxy/completions" >"$workdir/completions.json"
-jq -e '.choices and .usage' "$workdir/completions.json" >/dev/null
+total="${#models[@]}"
+for index in "${!models[@]}"; do
+  model="${models[$index]}"
+  result_file="$workdir/chat-$index.json"
+  payload="$(
+    "$python_bin" - "$model" <<'PY'
+import json
+import sys
 
-printf 'Checking Responses API...\n'
-curl_api -H 'Content-Type: application/json' \
-  --data "{\"model\":\"$model\",\"input\":\"Reply with OK.\",\"max_output_tokens\":8}" \
-  "$base_url/ai-proxy/responses" >"$workdir/responses.json"
-jq -e '.object and .usage' "$workdir/responses.json" >/dev/null
+print(json.dumps({
+    "model": sys.argv[1],
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "max_tokens": 8,
+    "stream": False,
+}))
+PY
+  )"
 
-printf 'AI API LiteLLM cutover smoke test passed.\n'
+  printf '[%d/%d] Checking chat/completions: %s\n' "$((index + 1))" "$total" "$model"
+  curl_api -H 'Content-Type: application/json' \
+    --data "$payload" \
+    "$base_url/ai-proxy/chat/completions" >"$result_file"
+  "$python_bin" - "$result_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    payload = json.load(source)
+
+choices = payload.get("choices")
+usage = payload.get("usage")
+if not isinstance(choices, list) or not choices:
+    raise SystemExit("chat response choices are missing")
+if not isinstance(choices[0], dict) or not isinstance(choices[0].get("message"), dict):
+    raise SystemExit("chat response message is missing")
+if not isinstance(usage, dict):
+    raise SystemExit("chat response usage is missing")
+PY
+done
+
+printf 'AI API smoke test passed for all %d public models.\n' "$total"

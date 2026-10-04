@@ -21,6 +21,10 @@ def no_litellm_env(monkeypatch, tmp_path: Path):
     fake_root = tmp_path / "service"
     fake_root.mkdir()
     monkeypatch.setattr(sharegpt_bench, "PROJECT_ROOT", fake_root)
+    # Benchmark target resolution must not read a developer or self-hosted
+    # runner's real .env.API.  A clean, missing fixture path keeps these tests
+    # deterministic while each case supplies only the settings it needs.
+    monkeypatch.setattr(sharegpt_bench, "DEFAULT_BASE_ENV", fake_root / ".env.API")
     return tmp_path
 
 
