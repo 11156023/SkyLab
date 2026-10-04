@@ -9,6 +9,7 @@ import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { AiApiService } from "../../../services/aiApi";
+import { useAuth } from "../../../contexts/AuthContext";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -1199,15 +1200,19 @@ function ApplyKeyModal({
 
 export default function AiApiPage() {
   const { t } = useTranslation("ai");
+  const { user } = useAuth();
+  const isStudent = user?.role !== "teacher" && user?.role !== "admin";
+  const defaultDuration = isStudent ? "30d" : "never";
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("keys");
 
   const DURATION_OPTIONS = [
-    { value: "1h", label: t("AiApiPage.durationOption1h") },
     { value: "1d", label: t("AiApiPage.durationOption1d") },
     { value: "7d", label: t("AiApiPage.durationOption7d") },
     { value: "30d", label: t("AiApiPage.durationOption30d") },
-    { value: "never", label: t("AiApiPage.durationOptionNever") },
+    isStudent
+      ? { value: "90d", label: t("AiApiPage.durationOption90d") }
+      : { value: "never", label: t("AiApiPage.durationOptionNever") },
   ];
 
   /* 「API 聊天」用登入者自己核准的金鑰（只在需要時向擁有者專用端點取回、留在記憶體），
@@ -1224,7 +1229,8 @@ export default function AiApiPage() {
   const [nameInvalid, setNameInvalid] = useState(false);
   const nameInputRef = useRef(null);
   const [purpose, setPurpose] = useState("");
-  const [duration, setDuration] = useState("never");
+  const [duration, setDuration] = useState(defaultDuration);
+  useEffect(() => { setDuration(defaultDuration); }, [defaultDuration]);
   const [submitting, setSubmitting] = useState(false);
   const [purposeInvalid, setPurposeInvalid] = useState(false);
   const purposeInputRef = useRef(null);
@@ -1307,6 +1313,10 @@ export default function AiApiPage() {
       focusInvalidField((nameMissing ? nameInputRef : purposeInputRef).current);
       return;
     }
+    if (!DURATION_OPTIONS.some((option) => option.value === duration)) {
+      toast.error(t("AiApiPage.formErrorDuration"));
+      return;
+    }
     setSubmitting(true);
     try {
       await AiApiService.createRequest({
@@ -1316,7 +1326,7 @@ export default function AiApiPage() {
       });
       setPurpose("");
       setApiKeyName("");
-      setDuration("never");
+      setDuration(defaultDuration);
       setShowApplyModal(false);
       // 申請要等審核，送出後帶到申請紀錄，才看得到它在等
       setActiveTab("records");
