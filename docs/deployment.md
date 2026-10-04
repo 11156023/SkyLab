@@ -7,6 +7,7 @@
 > - **啟動：** 完成模型、資料庫與金鑰設定後執行 `bash scripts/prepare-ai-stack.sh --start`。首次部署、獨立 LiteLLM 接管與 API 操作見 [AI API 使用手冊](ai-api-user-manual.md)。
 > - **對外路由：** 由內建 `nginx`（預設 :8082，可設 `NGINX_HOST_PORT`，設定見 `nginx/default.conf.template`）做同源反向代理：`/api`、`/ws` → backend，其餘 → frontend。已不使用 Traefik / cloudflared。要用網域＋HTTPS 對外時，讓主系統也經 Gateway 的 nginx，見下方「平台入口」。
 > - **部署 workflow：** 在 Actions 手動觸發 [`.github/workflows/deploy-pve-test.yml`](../.github/workflows/deploy-pve-test.yml)，經 `pve-test` environment 審核後在 self-hosted runner 執行預檢查與主 Compose 啟動。runner 設定檔位置見 AI API 手冊；push 到 `main` 不會自動部署。
+> - **部署測試金鑰：** 每次 AI smoke test 前清除舊的 `pve-deploy-smoke` 金鑰，再核發一日有效的新金鑰；測試後無論成功或失敗都執行清理。未使用的金鑰直接刪除，已有用量紀錄的金鑰撤銷並保留帳務紀錄。若 runner 中斷而無法清理，新金鑰仍會自動過期；清理失敗會讓 workflow 報錯。
 > - 已移除上游 template 的 `compose.yml`、`compose.override.yml`、`compose.traefik.yml`。
 >
 > 以下章節為上游 FastAPI template 的通用部署參考；其中「外部 Traefik」「staging/production」「release 觸發」等**不適用**於本專案，僅供日後自建獨立生產環境時參考。

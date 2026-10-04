@@ -306,7 +306,6 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
           </button>
         </form>}
         <div className={styles.modelControl}>
-          <div className={styles.modelIcon} aria-hidden="true"><MIcon name="support_agent" size={19} /></div>
           <div className={styles.modelField}>
             <label className={styles.srOnly} htmlFor="api-chat-model">{t("AiApiChat.model")}</label>
             <select id="api-chat-model" value={model} onChange={(event) => chooseModel(event.target.value)}

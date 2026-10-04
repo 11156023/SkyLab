@@ -7,13 +7,13 @@ from pydantic import BaseModel, Field, field_validator
 from app.models.ai_api_request import AIAPIRequestStatus
 
 # 與 ai_gateway_service.review_request 換算 expires_at 的期限一一對應
-AIAPIKeyDuration = Literal["1h", "1d", "7d", "30d", "never"]
+AIAPIKeyDuration = Literal["1d", "7d", "30d", "90d", "never"]
 
 
 class AIAPIRequestCreate(BaseModel):
     purpose: str = Field(min_length=10, max_length=2000)
     api_key_name: str = Field(default="test", min_length=1, max_length=20)
-    # 只收審核時認得的期限；其他字串會在核准時默默變成永不過期的金鑰
+    # 教師／管理員維持永久預設；學生必須明確提供有限期限，由服務層驗證。
     duration: AIAPIKeyDuration = "never"
 
 

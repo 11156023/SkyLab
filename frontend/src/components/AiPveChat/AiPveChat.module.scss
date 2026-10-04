@@ -83,14 +83,15 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 比照首頁助手標頭的 assistantIcon（圓角方塊、同色票）縮小版，左緣與標頭 icon 對齊 */
+/* 助手頭像：章魚學士靜態頭像，跟 AI 助手面板同一張臉（32px 圓框，超出的章魚讓圓邊自然裁掉） */
 .avatar {
   display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   place-items: center;
-  border-radius: $radius-8;
+  border-radius: 50%;
+  overflow: hidden;
   color: var(--color-primary-on-surface);
   background: var(--color-hover);
 }

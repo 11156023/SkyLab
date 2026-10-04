@@ -142,7 +142,9 @@ export default function ConnectionEdge(props) {
     ? `color-mix(in srgb, ${baseColor} 70%, white)`
     : baseColor;
 
-  const showLabel = hovered || isSelected || data?.showLabel;
+  /* 上網線（出站、不限 port）是常態，每條都標「不限通訊埠」只是雜訊：常駐標籤略過，滑過或選取仍顯示 */
+  const routineOutbound = isOutbound && !data?.label && !(data?.aggregateCount > 1);
+  const showLabel = hovered || isSelected || (data?.showLabel && !routineOutbound);
   /* 箭頭 marker 必須是全域唯一 id；edge id 已含來源與目標，直接沿用 */
   const markerId = `arrow-${id}`;
   const markerRef = `url(#${markerId})`;
@@ -152,7 +154,10 @@ export default function ConnectionEdge(props) {
   const cursor = clickable ? "pointer" : "default";
   const select = () => data?.onSelect?.(edge, id);
   /* 不限 port 的連線（出站上網等）沒有可列的埠，仍要講清楚它開了什麼 */
-  const label = data?.label || t("ConnectionEdge.allPorts");
+  /* 收合群組合併出來的線：講條數，點下去展開群組 */
+  const label = data?.aggregateCount > 1
+    ? t("ConnectionEdge.aggregate", { count: data.aggregateCount })
+    : data?.label || t("ConnectionEdge.allPorts");
   /* 入站的主體是目標 VM，出站與內部互通的主體是來源 VM */
   const basePoint = labelPointOnPath(edgePath, isInbound)
     ?? { x: labelX, y: labelY, align: "-50%, -50%" };

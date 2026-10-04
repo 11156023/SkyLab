@@ -48,7 +48,7 @@ def _issue_ai_api_key(
         json={
             "purpose": "Exercise the public AI proxy route contract in CI.",
             "api_key_name": "ci-route-test",
-            "duration": "never",
+            "duration": "30d",
         },
     )
     assert request_response.status_code == 200

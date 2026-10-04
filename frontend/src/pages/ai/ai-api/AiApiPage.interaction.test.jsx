@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import AiApiPage, { getCredentialState } from "./AiApiPage";
 
 const mocks = vi.hoisted(() => ({
+  user: { role: "student" },
   listMyCredentials: vi.fn(),
   listMyRequests: vi.fn(),
   getCredential: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("../../../services/aiApi", () => ({
 }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
+vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
   useTranslation: () => ({ t: mocks.t }),
@@ -76,6 +78,7 @@ let host;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.user = { role: "student" };
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement("div");
   document.body.append(host);
@@ -255,6 +258,60 @@ describe("AI API 金鑰狀態", () => {
 });
 
 describe("AI API 申請金鑰", () => {
+  test.each([
+    ["student", ["1d", "7d", "30d", "90d"], "30d"],
+    ["teacher", ["1d", "7d", "30d", "never"], "never"],
+    ["admin", ["1d", "7d", "30d", "never"], "never"],
+  ])("%s 只顯示可申請期限並使用正確預設", async (role, values, defaultValue) => {
+    mocks.user = { role };
+    await renderPage();
+    await act(async () => host.querySelector('[data-guide="ai-add-key"]').click());
+    const select = document.querySelector("#ai-duration");
+    expect([...select.options].map((option) => option.value)).toEqual(values);
+    expect(select.value).toBe(defaultValue);
+  });
+
+  test("切換成學生時不沿用教師的永久期限", async () => {
+    mocks.user = { role: "teacher" };
+    await renderPage();
+    await act(async () => host.querySelector('[data-guide="ai-add-key"]').click());
+    expect(document.querySelector("#ai-duration").value).toBe("never");
+    mocks.user = { role: "student" };
+    await renderPage();
+    expect(document.querySelector("#ai-duration").value).toBe("30d");
+    expect([...document.querySelector("#ai-duration").options].map((option) => option.value))
+      .toEqual(["1d", "7d", "30d", "90d"]);
+  });
+
+  test.each([
+    ["student", "90d", "30d"],
+    ["teacher", "never", "never"],
+    ["admin", "never", "never"],
+  ])("%s 送出期限後重設為身分預設值", async (role, duration, defaultValue) => {
+    mocks.user = { role };
+    mocks.createRequest.mockResolvedValue({ id: "req-duration" });
+    await renderPage();
+    await act(async () => host.querySelector('[data-guide="ai-add-key"]').click());
+    const setInput = async (selector, value, proto) => act(async () => {
+      const element = document.querySelector(selector);
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(element, value);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await setInput("#ai-key-name", "期限測試", HTMLInputElement.prototype);
+    await setInput("#ai-purpose", "使用 AI API 進行課程專題問答", HTMLTextAreaElement.prototype);
+    await act(async () => {
+      const select = document.querySelector("#ai-duration");
+      select.value = duration;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => document.querySelector('[data-guide="ai-submit"]').click());
+    expect(mocks.createRequest).toHaveBeenCalledWith({
+      api_key_name: "期限測試", purpose: "使用 AI API 進行課程專題問答", duration,
+    });
+    await act(async () => host.querySelector('[data-guide="ai-add-key"]').click());
+    expect(document.querySelector("#ai-duration").value).toBe(defaultValue);
+  });
+
   test("名稱與用途不足時標出欄位；送出後帶到申請紀錄", async () => {
     mocks.createRequest.mockResolvedValue({ id: "req-new" });
     await renderPage();
@@ -274,7 +331,7 @@ describe("AI API 申請金鑰", () => {
     await setValue(dialog.querySelector("#ai-key-name"), "專題");
     await setValue(dialog.querySelector("#ai-purpose"), "畢業專題串接聊天模型做問答");
     await act(async () => dialog.querySelector('[data-guide="ai-submit"]').click());
-    expect(mocks.createRequest).toHaveBeenCalledWith({ purpose: "畢業專題串接聊天模型做問答", api_key_name: "專題", duration: "never" });
+    expect(mocks.createRequest).toHaveBeenCalledWith({ purpose: "畢業專題串接聊天模型做問答", api_key_name: "專題", duration: "30d" });
     const recordsTab = [...host.querySelectorAll("button")].find((button) => button.textContent === "AiApiPage.tabRecords");
     expect(recordsTab.getAttribute("aria-pressed")).toBe("true");
   });

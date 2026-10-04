@@ -731,8 +731,13 @@ export default function ConnectionDialog({
             <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
             <SegmentedControl
               className={styles.dirToggle}
+              /* 機器名稱很長，塞進分段會被截斷；分段只寫單向／雙向，完整的「來源 → 目標」放滑過提示 */
               options={[
-                { value: "one_way", label: `${labelOf(peerSourceKey)} → ${labelOf(peerTargetKey)}` },
+                {
+                  value: "one_way",
+                  label: t("ConnectionDialog.oneWay"),
+                  buttonProps: { title: `${labelOf(peerSourceKey)} → ${labelOf(peerTargetKey)}` },
+                },
                 { value: "bidirectional", label: t("ConnectionDialog.bidirectional") },
               ]}
               value={direction}

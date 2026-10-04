@@ -65,9 +65,7 @@ const AdminPage = lazy(() => import("./pages/system/admin/AdminPage"));
 const PveConnectionsPage = lazy(() => import("./pages/system/settings/PveConnectionsPage"));
 const SchedulerPage = lazy(() => import("./pages/system/settings/SchedulerPage"));
 const GovernancePage = lazy(() => import("./pages/system/settings/GovernancePage"));
-const QuotasPage = lazy(() => import("./pages/system/settings/QuotasPage"));
 const LdapPage = lazy(() => import("./pages/system/settings/LdapPage"));
-const NodesPage = lazy(() => import("./pages/system/settings/NodesPage"));
 const StoragePage = lazy(() => import("./pages/system/settings/StoragePage"));
 const MonitoringPage = lazy(() => import("./pages/system/monitoring/MonitoringPage"));
 const IpManagementPage = lazy(() => import("./pages/system/ip-management/IpManagementPage"));
@@ -141,9 +139,9 @@ const LEGACY_SETTINGS_TABS = {
   pve: "/pve-connections",
   scheduler: "/scheduler",
   governance: "/governance",
-  quotas: "/quotas",
+  quotas: "/governance",
   ldap: "/ldap",
-  nodes: "/nodes",
+  nodes: "/pve-connections",
   storage: "/storage",
 };
 
@@ -337,9 +335,11 @@ function App() {
               <Route path="/pve-connections" element={<PveConnectionsPage />} />
               <Route path="/scheduler" element={<SchedulerPage />} />
               <Route path="/governance" element={<GovernancePage />} />
-              <Route path="/quotas"    element={<QuotasPage />} />
+              {/* 配額 2026-10 併入資源政策（原治理頁） */}
+              <Route path="/quotas"    element={<Navigate to="/governance" replace />} />
               <Route path="/ldap"      element={<LdapPage />} />
-              <Route path="/nodes"     element={<NodesPage />} />
+              {/* 節點管理 2026-10 併入 PVE 管理 */}
+              <Route path="/nodes"     element={<Navigate to="/pve-connections" replace />} />
               <Route path="/storage"   element={<StoragePage />} />
               {/* 舊的 /settings?tab=… 書籤依分頁導到對應的新頁面 */}
               <Route path="/settings"  element={<LegacySettingsRedirect />} />

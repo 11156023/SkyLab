@@ -13,6 +13,8 @@ import {
   matchSurface,
 } from "../../services/aiContextualHelp";
 import MIcon from "../MIcon";
+import OctoPet from "../OctoPet/OctoPet";
+import OctoAvatar from "../OctoPet/OctoAvatar";
 import { formatDate } from "../../utils/formatDate";
 import { joinList } from "../../utils/joinList";
 import useDialogPresence from "../../hooks/useDialogPresence";
@@ -202,11 +204,12 @@ function displayName(user, t) {
   return user?.full_name?.trim() || user?.email?.split("@")[0] || t("AiFloatingChat.defaultUserName");
 }
 
+/* 回覆中：章魚學士敲筆電，飄出 0 和 1（原本是三個跳動的點） */
 function TypingIndicator() {
   const { t } = useTranslation("components");
   return (
-    <div className={styles.typing} aria-label={t("AiFloatingChat.aiReplyingAriaLabel")}>
-      <span /><span /><span />
+    <div className={styles.typing} role="status" aria-label={t("AiFloatingChat.aiReplyingAriaLabel")}>
+      <OctoPet activity="thinking" scale={3} />
     </div>
   );
 }
@@ -300,13 +303,14 @@ function ChoiceRow({ choices, progress, onAnswer, onPlanNow, allowPlan = true })
 // markdown 解析器很大，等真的有 AI 回覆要顯示時才載入
 const MarkdownContent = lazy(() => import("./MarkdownContent"));
 
-function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPlanNow, onFlowStep }) {
+function Message({ message, live = false, currentPath, onNavigate, onRecommend, onAnswer, onPlanNow, onFlowStep }) {
   const isUser = message.role === "user";
   return (
     <div className={`${styles.message} ${isUser ? styles.messageUser : styles.messageAssistant}`}>
+      {/* 最新一則回覆是整隻會動的章魚（安靜模式），較舊的回覆是靜態頭像 */}
       {!isUser && (
-        <span className={styles.messageAvatar}>
-          <MIcon name="support_agent" size={17} />
+        <span className={`${styles.messageAvatar} ${live ? styles.messageAvatarLive : ""}`}>
+          {live ? <OctoPet scale={2} quiet /> : <OctoAvatar />}
         </span>
       )}
       <div className={styles.messageContent}>
@@ -429,6 +433,26 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   const [history, setHistory] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  /* 浮動按鈕的章魚要知道：面板關著時回覆好了（或出錯）還沒被看到，就冒對話泡泡提醒 */
+  const [fabNotice, setFabNotice] = useState(null);
+  const replyFailedRef = useRef(false);
+  const wasLoadingRef = useRef(false);
+  useEffect(() => {
+    if (loading) replyFailedRef.current = false;
+    else if (wasLoadingRef.current && !open) setFabNotice(replyFailedRef.current ? "error" : "done");
+    wasLoadingRef.current = loading;
+  }, [loading, open]);
+  useEffect(() => {
+    if (open) setFabNotice(null);
+  }, [open]);
+  const fabActivity = loading ? "thinking" : fabNotice ?? "idle";
+  /* 只有最新一則回覆旁的章魚會動；AI 正在回覆時下方已有敲筆電的章魚，這時全部回覆都用靜態頭像 */
+  let liveReplyIndex = -1;
+  if (!loading) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role !== "user") { liveReplyIndex = i; break; }
+    }
+  }
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   // 配置模式：{ answered, total }，null 代表沒在配置模式
@@ -815,6 +839,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       if (taskRef.current.stage === "collecting") await advanceIntake(nextHistory);
       else await startIntake(nextHistory);
     } catch {
+      replyFailedRef.current = true;
       setMessages((previous) => [...previous, {
         role: "assistant",
         content: t("AiFloatingChat.planFailed"),
@@ -833,6 +858,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     try {
       await sendRecommendation(history);
     } catch (error) {
+      replyFailedRef.current = true;
       appendAssistant(error?.message || t("AiFloatingChat.planFailed"));
     } finally {
       saveWorkflow();
@@ -946,6 +972,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       else if (route === "navigate") handled = await sendNavigation(text, nextHistory);
       if (!handled) await sendChat(text, nextHistory);
     } catch (error) {
+      replyFailedRef.current = true;
       setMessages((previous) => [...previous, {
         role: "assistant",
         content: error?.message || t("AiFloatingChat.genericErrorFallback"),
@@ -1054,6 +1081,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
                 <Message
                   key={`${message.role}-${index}`}
                   message={message}
+                  live={index === liveReplyIndex}
                   currentPath={location.pathname}
                   onNavigate={handleNavigate}
                   onRecommend={() => { if (message.flowId) selectWorkflow(message.flowId); runRecommendation(); }}
@@ -1065,7 +1093,6 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
             )}
             {loading && (
               <div className={`${styles.message} ${styles.messageAssistant}`}>
-                <span className={styles.messageAvatar}><MIcon name="support_agent" size={17} /></span>
                 <TypingIndicator />
               </div>
             )}
@@ -1092,8 +1119,17 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       )}
 
       {!presence.open && (
-        <button type="button" className={styles.fab} onClick={() => onOpenChange(true)} title={t("AiFloatingChat.assistantName")} aria-label={t("AiFloatingChat.openAssistantAriaLabel")} data-guide="request-ai-helper-button">
-          <MIcon name="support_agent" size={22} />
+        /* 章魚學士本身就是按鈕：點擊只負責打開助手，章魚只回應游標移上去與摸頭 */
+        <button
+          type="button"
+          className={styles.fab}
+          onClick={() => onOpenChange(true)}
+          title={t("AiFloatingChat.assistantName")}
+          aria-label={t(fabNotice ? "AiFloatingChat.openAssistantUnreadAriaLabel" : "AiFloatingChat.openAssistantAriaLabel")}
+          data-guide="request-ai-helper-button"
+        >
+          {/* 待機時偶爾往左走幾步（最多 8 格 = 24px）；整隻章魚一起移動，走到哪點到哪都會打開助手 */}
+          <OctoPet activity={fabActivity} walkRange={8} className={styles.fabOcto} />
         </button>
       )}
     </div>
