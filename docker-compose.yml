@@ -154,7 +154,7 @@ services:
   #     承接（PgBouncer ≥ 1.21）
   #   - alembic migration 走 prestart 直連 db
   pgbouncer:
-    image: edoburu/pgbouncer:v1.25.2-p0
+    image: edoburu/pgbouncer:v1.26.0-p0
     logging: *default-logging
     restart: always
     environment:
@@ -193,7 +193,7 @@ services:
   # Redis
   # -------------------------
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     logging: *default-logging
     restart: always
     command: ["redis-server", "--appendonly", "yes"]
@@ -385,7 +385,7 @@ services:
   # Prometheus：抓 backend /metrics 與各 exporter，保留 15 天
   # -------------------------
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: prom/prometheus:v3.15.0
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -413,7 +413,7 @@ services:
   # Grafana：儀表板（平台、基礎設施、日誌、Proxmox）
   # -------------------------
   grafana:
-    image: grafana/grafana:12.1.1
+    image: grafana/grafana:13.2.3
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -468,7 +468,7 @@ services:
   # Loki + Alloy：所有容器的日誌集中查詢，保留 14 天
   # -------------------------
   loki:
-    image: grafana/loki:3.5.3
+    image: grafana/loki:3.7.8
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -486,7 +486,7 @@ services:
       start_period: 30s
 
   alloy:
-    image: grafana/alloy:v1.10.0
+    image: grafana/alloy:v1.20.1
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -513,7 +513,7 @@ services:
   # 並換掉預設 token，見 docs/monitoring.md。
   # -------------------------
   influxdb:
-    image: influxdb:2.7-alpine
+    image: influxdb:2.9-alpine
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -544,7 +544,7 @@ services:
   # Exporters：PostgreSQL、Redis、容器（cAdvisor）、主機（node-exporter）
   # -------------------------
   postgres-exporter:
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -560,7 +560,7 @@ services:
       - skylab
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.74.0
+    image: oliver006/redis_exporter:v1.93.0
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -607,7 +607,7 @@ services:
       - skylab
 
   node-exporter:
-    image: prom/node-exporter:v1.9.1
+    image: prom/node-exporter:v1.12.1
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
