@@ -397,6 +397,8 @@ def _parse_json(value: dict | str | None) -> dict:
 _QUEUE_TASK_KINDS: dict[str, JobKind] = {
     "resource.reset": JobKind.resource_reset,
     "batch_provision.run": JobKind.batch_provision,
+    "resource.backup": JobKind.resource_backup,
+    "resource.restore": JobKind.resource_restore,
 }
 
 
@@ -407,6 +409,12 @@ def _queue_task_title(kind: JobKind, payload: dict[str, Any]) -> str:
     if kind == JobKind.batch_provision:
         job_id = str(payload.get("job_id") or "")
         return f"批次佈建：{job_id[:8]}" if job_id else "批次佈建"
+    if kind == JobKind.resource_backup:
+        vmid = payload.get("vmid")
+        return f"備份：VMID {vmid}" if vmid else "備份"
+    if kind == JobKind.resource_restore:
+        vmid = payload.get("vmid")
+        return f"還原備份：VMID {vmid}" if vmid else "還原備份"
     return kind.value
 
 
@@ -458,6 +466,9 @@ def _task_record_to_job(
             "template_name": template_name,
             "resource_vmid": record.resource_vmid,
             "hostname": payload.get("hostname"),
+            # 任務針對的機器（重置／備份／還原）：執行中就有值，前端用它判斷
+            # 「這台機器現在有沒有任務在跑」；resource_vmid 要等任務完成才寫入
+            "vmid": payload.get("vmid"),
         },
     )
 
@@ -528,6 +539,8 @@ _FETCHERS = {
     JobKind.template: _task_record_fetcher(JobKind.template),
     JobKind.resource_reset: _task_record_fetcher(JobKind.resource_reset),
     JobKind.batch_provision: _task_record_fetcher(JobKind.batch_provision),
+    JobKind.resource_backup: _task_record_fetcher(JobKind.resource_backup),
+    JobKind.resource_restore: _task_record_fetcher(JobKind.resource_restore),
 }
 
 
@@ -802,10 +815,12 @@ _DETAIL_FETCHERS = {
     JobKind.vm_request: _detail_vm_request,
     JobKind.spec_change: _detail_spec_change,
     JobKind.deletion: _detail_deletion,
-    # 三種 TaskRecord 來源共用同一個 detail：item 的 kind 由 task_type 決定
+    # TaskRecord 來源共用同一個 detail：item 的 kind 由 task_type 決定
     JobKind.template: _detail_task_record,
     JobKind.resource_reset: _detail_task_record,
     JobKind.batch_provision: _detail_task_record,
+    JobKind.resource_backup: _detail_task_record,
+    JobKind.resource_restore: _detail_task_record,
 }
 
 

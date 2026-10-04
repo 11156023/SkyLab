@@ -325,6 +325,66 @@ class SnapshotResponse(BaseModel):
     task_id: str | None = None
 
 
+class SnapshotCapability(BaseModel):
+    """這台機器當下能否使用快照（含一鍵重置、初始快照）"""
+
+    available: bool = Field(..., description="Whether snapshots can be used now")
+    reason: Literal["unsupported", "unknown"] | None = Field(
+        None,
+        description=(
+            "Why snapshots are unavailable: 'unsupported' = PVE reports the "
+            "machine's disks/storage cannot snapshot; 'unknown' = the check "
+            "itself failed"
+        ),
+    )
+
+
+# ===== Backup Schemas =====
+
+
+class BackupCapability(BaseModel):
+    """這台機器能否使用備份（快照不能用時的還原點替代方案）"""
+
+    available: bool = Field(..., description="Whether backups can be used now")
+    reason: Literal["not_configured", "storage_unavailable", "unknown"] | None = Field(
+        None,
+        description=(
+            "Why backups are unavailable: 'not_configured' = the cluster has no "
+            "backup storage set; 'storage_unavailable' = the storage is offline "
+            "or cannot hold backups; 'unknown' = the check itself failed"
+        ),
+    )
+    requires_shutdown: bool = Field(
+        False, description="The guest is stopped while it is being backed up"
+    )
+    max_count: int | None = Field(
+        None, description="Backup limit for this user; null = unlimited (admin)"
+    )
+
+
+class BackupInfo(BaseModel):
+    """一份由 SkyLab 建立的備份"""
+
+    volid: str = Field(..., description="PVE volume id of the backup")
+    created_at: int | None = Field(None, description="Creation timestamp")
+    size: int | None = Field(None, description="Size in bytes")
+    description: str | None = Field(None, description="User description")
+
+
+class BackupCreateRequest(BaseModel):
+    """建立備份"""
+
+    description: str | None = Field(
+        None, max_length=120, description="Optional description"
+    )
+
+
+class BackupRestoreRequest(BaseModel):
+    """以備份還原"""
+
+    volid: str = Field(..., min_length=1, max_length=500, description="Backup volume id")
+
+
 # ===== Admin Spec Update Schema =====
 
 

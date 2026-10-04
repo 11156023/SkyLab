@@ -23,6 +23,9 @@ import pytest
 from app.exceptions import ProxmoxError
 from app.services.resource import resource_service
 
+# conftest 的 autouse fixture 會把這個掛鉤換成空函式；先留住真正的實作來測它
+_REAL_PURGE_BACKUPS = resource_service._purge_backups_best_effort
+
 
 class FakeTime:
     """Virtual clock so timeout loops run instantly."""
@@ -234,3 +237,55 @@ def test_status_poll_errors_never_count_as_stopped(
         _delete(fake_env, pve, snapshot_status="running")
 
     assert pve.deleted == []
+
+
+# ---------------------------------------------------------------------------
+# 刪除成功後清掉這台機器的備份（PVE 的 purge 不會刪備份檔，VMID 會被重用）
+# ---------------------------------------------------------------------------
+
+
+def test_backups_are_purged_after_the_machine_is_deleted(
+    monkeypatch: pytest.MonkeyPatch, fake_env: dict[str, Any]
+) -> None:
+    pve = FakeProxmox(status="stopped")
+    monkeypatch.setattr(resource_service, "proxmox_service", pve)
+    purged: list[dict[str, Any]] = []
+
+    def _purge(**kwargs: Any) -> None:
+        # 清備份時機器必須已經從 PVE 刪掉
+        purged.append({**kwargs, "deleted_before": list(pve.deleted)})
+
+    monkeypatch.setattr(resource_service, "_purge_backups_best_effort", _purge)
+
+    _delete(fake_env, pve)
+
+    assert purged == [{"node": "pve1", "vmid": 150, "deleted_before": [150]}]
+
+
+def test_backups_are_kept_when_deletion_is_aborted(
+    monkeypatch: pytest.MonkeyPatch, fake_env: dict[str, Any]
+) -> None:
+    pve = FakeProxmox(status="running", stops_on=set())
+    monkeypatch.setattr(resource_service, "proxmox_service", pve)
+    purged: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        resource_service, "_purge_backups_best_effort", lambda **kw: purged.append(kw)
+    )
+
+    with pytest.raises(ProxmoxError, match="still running"):
+        _delete(fake_env, pve)
+
+    assert purged == []
+
+
+def test_backup_purge_failure_never_fails_the_deletion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.resource import backup_service
+
+    def _boom(**kwargs: Any) -> int:
+        raise RuntimeError("backup storage offline")
+
+    monkeypatch.setattr(backup_service, "purge_backups_for_removed_machine", _boom)
+
+    _REAL_PURGE_BACKUPS(node="pve1", vmid=150)  # 不可拋出

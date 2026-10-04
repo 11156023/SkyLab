@@ -34,8 +34,7 @@
   --shadow-md: 0 4px 12px rgba(67, 90, 149, 0.08);
   --shadow-lg: 0 8px 24px rgba(67, 90, 149, 0.12);
   --shadow-glass:
-    0 4px 16px rgba(67, 90, 149, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.70);
+    0 4px 16px rgba(67, 90, 149, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .html-grey {
@@ -63,9 +62,21 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 100% 60% at 100% 0%, var(--color-bg-gradient-blue) 0%, transparent 100%),
-    radial-gradient(ellipse 100% 80% at 0% 90%, var(--color-bg-gradient-yellow) 0%, transparent 100%),
-    radial-gradient(ellipse 150% 70% at 100% 100%, var(--color-bg-gradient-green) 0%, transparent 100%);
+    radial-gradient(
+      ellipse 100% 60% at 100% 0%,
+      var(--color-bg-gradient-blue) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 100% 80% at 0% 90%,
+      var(--color-bg-gradient-yellow) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 150% 70% at 100% 100%,
+      var(--color-bg-gradient-green) 0%,
+      transparent 100%
+    );
 }
 
 .h2 {
@@ -73,13 +84,8 @@ body::before {
   margin-bottom: 18px;
   color: var(--color-text-primary);
   font-family:
-    "Helvetica Neue",
-    Helvetica,
-    "PingFang SC",
-    "Hiragino Sans GB",
-    "Microsoft YaHei",
-    Arial,
-    sans-serif;
+    "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", Arial, sans-serif;
   font-size: 16px;
   font-weight: 700;
   background-color: var(--color-hover);
@@ -92,13 +98,8 @@ body::before {
   margin-bottom: 14px;
   color: var(--color-text-primary);
   font-family:
-    "Helvetica Neue",
-    Helvetica,
-    "PingFang SC",
-    "Hiragino Sans GB",
-    "Microsoft YaHei",
-    Arial,
-    sans-serif;
+    "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", Arial, sans-serif;
   font-size: 14px;
   font-weight: 600;
   background-color: var(--color-hover);

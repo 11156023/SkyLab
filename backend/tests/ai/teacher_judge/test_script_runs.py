@@ -755,12 +755,15 @@ def test_execute_target_script_uploads_runs_and_collects_result(
         "/tmp/campus-cloud-judge/run-1/101/stderr.log && "
         "rmdir -- /tmp/campus-cloud-judge/run-1/101 2>/dev/null || true"
     )
-    assert commands == [
-        "mkdir -p /tmp/campus-cloud-judge/run-1/101",
+    run_command = (
         "cd /tmp/campus-cloud-judge/run-1/101 && "
         "if command -v timeout >/dev/null 2>&1; "
         "then timeout -k 5 60 python3 script.py; "
-        "else python3 script.py; fi > result.json 2> stderr.log",
+        "else python3 script.py; fi > result.json 2> stderr.log"
+    )
+    assert commands == [
+        "mkdir -p /tmp/campus-cloud-judge/run-1/101",
+        run_command,
         cleanup_command,
     ]
     assert fake_client.sftp.files[f"{remote_dir}/script.py"] == SAFE_SCRIPT.encode()

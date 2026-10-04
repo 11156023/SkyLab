@@ -44,6 +44,7 @@
   "user.selfDeleteForbidden": "管理員不可刪除自己的帳號",
   "user.incorrectPassword": "密碼錯誤",
   "user.samePassword": "新密碼不可與目前密碼相同",
+  "user.passwordTooWeak": "密碼至少需要 {min_length} 個字元，並同時包含大寫英文字母、小寫英文字母、數字與特殊符號",
   "user.selfEditLocked": "管理員不可變更自己的角色或停用自己的帳號",
   "user.lastAdminLocked": "無法移除最後一位啟用中管理員的管理權限",
   "auth.incorrectCredentials": "電子郵件或密碼錯誤",
@@ -71,6 +72,9 @@
   "ldapAuth.invalidEmailAttribute": "LDAP 回傳的電子郵件格式不正確，請管理員檢查 LDAP 設定中的信箱屬性",
   "auth.googleNotConfigured": "尚未設定 Google 登入",
   "auth.totpTooManyAttempts": "驗證碼錯誤次數過多，請 {minutes} 分鐘後再試",
+  "auth.turnstileRequired": "請先完成「我不是機器人」驗證",
+  "auth.turnstileFailed": "機器人驗證未通過或已過期，請重新驗證後再試一次",
+  "auth.turnstileUnavailable": "機器人驗證服務暫時無法連線，請稍後再試",
   "template.sourceVmNotRegistered": "VM {vmid} 未登記在平台，無法轉換為範本",
   "template.fieldCannotBeNull": "欄位 {field} 不可設為空值",
   "template.updateCloneMismatch": "VMID {vmid} 已不是這次更新循環的暫存母機，請取消更新後重新開始"

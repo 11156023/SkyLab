@@ -44,6 +44,7 @@
   "user.selfDeleteForbidden": "管理者は自分自身のアカウントを削除できません",
   "user.incorrectPassword": "パスワードが正しくありません",
   "user.samePassword": "新しいパスワードは現在のパスワードと同じにできません",
+  "user.passwordTooWeak": "パスワードは {min_length} 文字以上で、英大文字・英小文字・数字・記号をすべて含めてください",
   "user.selfEditLocked": "管理者は自分のロールを変更したり、自分のアカウントを無効化したりできません",
   "user.lastAdminLocked": "最後の有効な管理者から管理者権限を外すことはできません",
   "auth.incorrectCredentials": "メールアドレスまたはパスワードが正しくありません",
@@ -71,6 +72,9 @@
   "ldapAuth.invalidEmailAttribute": "LDAP から返されたメールアドレスの形式が正しくありません。管理者に LDAP 設定のメール属性を確認してもらってください",
   "auth.googleNotConfigured": "Google ログインは設定されていません",
   "auth.totpTooManyAttempts": "認証コードの誤入力が多すぎます。{minutes} 分後にもう一度お試しください",
+  "auth.turnstileRequired": "先に「ロボットではありません」の確認を完了してください",
+  "auth.turnstileFailed": "ロボット確認に失敗したか、有効期限が切れました。もう一度確認してからお試しください",
+  "auth.turnstileUnavailable": "ロボット確認サービスに一時的に接続できません。しばらくしてからもう一度お試しください",
   "template.sourceVmNotRegistered": "VM {vmid} はプラットフォームに登録されていないため、テンプレートに変換できません",
   "template.fieldCannotBeNull": "フィールド {field} を空の値に設定することはできません",
   "template.updateCloneMismatch": "VMID {vmid} はこの更新サイクルの一時的な元 VM ではなくなりました。更新をキャンセルしてからやり直してください"

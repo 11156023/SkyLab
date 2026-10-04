@@ -186,7 +186,7 @@ def test_parse_enum_csv_keeps_none_vs_empty_semantics() -> None:
 
 def test_kinds_description_lists_every_job_kind() -> None:
     description = jobs_route._enum_values(JobKind)
-    for kind in JobKind:
+    for kind in JobKind.__members__.values():
         assert kind.value in description
 
 

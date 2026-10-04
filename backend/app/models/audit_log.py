@@ -24,6 +24,11 @@ class AuditAction(str, enum.Enum):
     snapshot_delete = "snapshot_delete"
     snapshot_rollback = "snapshot_rollback"
 
+    # 備份管理（快照不能用的機器以 vzdump 備份當還原點）
+    backup_create = "backup_create"
+    backup_restore = "backup_restore"
+    backup_delete = "backup_delete"
+
     # 配置更新
     config_update = "config_update"
 

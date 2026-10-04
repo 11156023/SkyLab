@@ -143,7 +143,6 @@ _GIT_READ_SUBCOMMANDS = frozenset(
      "--version", "version", "shortlog", "blame", "ls-tree", "cat-file",
      "rev-list", "show-ref", "for-each-ref"}
 )
-_GIT_LISTING_SUBCOMMANDS = frozenset({"branch", "tag", "remote", "config"})
 _GIT_BRANCH_LIST_FLAGS = frozenset(
     {"-a", "-r", "-l", "--list", "-v", "-vv", "--show-current", "--all",
      "--remotes", "--verbose", "--no-color", "--contains", "--merged",

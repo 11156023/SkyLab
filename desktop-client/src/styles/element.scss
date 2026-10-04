@@ -1,14 +1,14 @@
 @forward "element-plus/theme-chalk/src/common/var.scss" with (
   $colors: (
     "primary": (
-      "base": #5471bf,
-    ),
+      "base": #5471bf
+    )
   ),
   $border-radius: (
     "base": 8px,
     "small": 6px,
     "round": 20px,
-    "circle": 100%,
+    "circle": 100%
   )
 );
 
@@ -28,7 +28,11 @@
 .el-table {
   overflow: hidden;
   border-radius: 8px;
-  --el-table-header-bg-color: color-mix(in srgb, var(--color-hover) 50%, var(--color-surface));
+  --el-table-header-bg-color: color-mix(
+    in srgb,
+    var(--color-hover) 50%,
+    var(--color-surface)
+  );
   --el-table-header-text-color: var(--color-text-primary);
   --el-table-text-color: var(--color-text);
   --el-table-row-hover-bg-color: var(--color-hover);

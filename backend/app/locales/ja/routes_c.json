@@ -78,6 +78,7 @@
   "resource_access.classroom_monitor_forbidden": "授業モニタリングは教師と管理者のみ利用できます",
   "resource_access.job_view_forbidden": "このバックグラウンドタスクを表示する権限がありません",
   "rate_limit.ip_too_many_requests": "{ip} からのリクエストが多すぎます。{retry_after} 秒後に再試行してください。",
+  "rate_limit.account_too_many_attempts": "このアカウントの試行回数が多すぎます。{retry_after} 秒後に再試行してください。",
   "rate_limit.user_too_many_requests": "リクエストが多すぎます。{retry_after} 秒後に再試行してください。",
   "rate_limit.backend_unavailable": "レート制限サービスが利用できないため、安全のためこのリクエストを拒否しました。しばらくしてから再試行してください。",
   "ai_guard.too_many_messages": "会話のメッセージ数が多すぎます。1 回につき最大 {limit} 件までです。",

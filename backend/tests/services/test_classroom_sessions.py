@@ -203,7 +203,7 @@ async def test_monitor_session_ends_when_everyone_left(
 
     assert ended == ["idle"]
     assert manager.is_input_blocked(100) is False
-    await task
+    await asyncio.gather(task)
     # 收掉之後同一台可以再開
     again = await _start(manager)
     await manager.stop_session(again.id)
@@ -216,12 +216,12 @@ async def test_reattaching_within_grace_keeps_the_session(
     session = await _start(manager)
     ws, task = await _attach(manager, session.id, TEACHER)
     ws.disconnect()
-    await task
+    await asyncio.gather(task)
     ws2, task2 = await _attach(manager, session.id, TEACHER)
     await asyncio.sleep(0.5)
     assert manager.get_session(session.id) is not None
     await manager.stop_session(session.id)
-    await task2
+    await asyncio.gather(task2)
 
 
 async def test_broadcast_without_viewers_is_not_auto_stopped(
@@ -282,7 +282,7 @@ async def test_late_joiner_handshakes_with_the_current_size(
 
     assert b"".join(ws.sent).startswith(_handshake_prefix(1024, 768))
     await manager.stop_session(session.id)
-    await task
+    await asyncio.gather(task)
 
 
 async def test_late_joiner_gets_keyframe_plus_later_deltas(
@@ -300,7 +300,7 @@ async def test_late_joiner_gets_keyframe_plus_later_deltas(
 
     assert upstream.sent.count(FULL_FBUR) == 1  # 沒有多要一張全畫面
     await manager.stop_session(session.id)
-    await task
+    await asyncio.gather(task)
 
 
 async def test_too_many_deltas_drop_the_cache(
@@ -324,7 +324,7 @@ async def test_too_many_deltas_drop_the_cache(
     # 快取作廢 → 新訂閱者觸發一張新的全畫面，而不是拿到過時的畫面
     await eventually(lambda: upstream.sent.count(FULL_FBUR) == 2)
     await manager.stop_session(session.id)
-    await task
+    await asyncio.gather(task)
 
 
 # ---------------------------------------------------------------------------

@@ -32,7 +32,18 @@ def no_audit(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture()
 def pve(monkeypatch: pytest.MonkeyPatch) -> dict:
-    calls: dict = {"snapshots": [], "control": [], "rollback": [], "status": "running"}
+    calls: dict = {
+        "snapshots": [],
+        "control": [],
+        "rollback": [],
+        "status": "running",
+        "supported": True,
+    }
+    monkeypatch.setattr(
+        reset_service.proxmox_service,
+        "has_snapshot_feature",
+        lambda node, vmid, rtype: calls["supported"],
+    )
     monkeypatch.setattr(
         reset_service.proxmox_service,
         "list_snapshots",
@@ -149,3 +160,40 @@ def test_ensure_init_snapshot_retries_after_lock_timeout(
     )
     assert reset_service.ensure_init_snapshot(101) is True
     assert len(attempts) == 2
+
+
+# ---------------------------------------------------------------------------
+# 機器當下不支援快照：重置與初始快照一律停用
+# ---------------------------------------------------------------------------
+
+
+def test_start_reset_rejected_when_snapshot_unsupported(pve: dict) -> None:
+    """就算留有 skylab-init，也不讓重置入列。"""
+    pve["supported"] = False
+    pve["snapshots"] = [{"name": reset_service.INIT_SNAPSHOT_NAME}]
+    with pytest.raises(ConflictError):
+        reset_service.start_reset(
+            _FakeSession(), vmid=101, resource_info=INFO, user=USER
+        )
+
+
+def test_create_init_snapshot_rejected_when_unsupported(pve: dict) -> None:
+    pve["supported"] = False
+    with pytest.raises(ConflictError):
+        reset_service.create_init_snapshot(
+            _FakeSession(), vmid=101, resource_info=INFO, user=USER
+        )
+    assert "created" not in pve
+
+
+def test_ensure_init_snapshot_skips_without_retry_when_unsupported(
+    pve: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """storage 不支援快照時重試也沒用：直接放棄，不佔 provision 時間。"""
+    sleeps: list[float] = []
+    monkeypatch.setattr(reset_service.time, "sleep", sleeps.append)
+    pve["supported"] = False
+
+    assert reset_service.ensure_init_snapshot(101) is False
+    assert sleeps == []
+    assert "created" not in pve

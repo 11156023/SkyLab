@@ -23,31 +23,9 @@ class ResourceController extends BaseController {
       });
   }
 
-  /**
-   * Aggregates session-status for every running VM the user owns. The
-   * renderer polls this so a single IPC round-trip surfaces all warnings.
-   * Per-VM failures don't fail the whole call — they're logged and skipped.
-   */
   async getSessionStatuses(req: ControllerParam) {
     try {
-      const resources = await this._SkyLabService.listResources();
-      const runningVmids = resources
-        .filter(r => r.status === "running" && typeof r.vmid === "number")
-        .map(r => r.vmid);
-      const results = await Promise.all(
-        runningVmids.map(vmid =>
-          this._SkyLabService.getSessionStatus(vmid).catch(err => {
-            Logger.warn(
-              "ResourceController.getSessionStatuses",
-              `vmid=${vmid} failed: ${(err as Error).message}`
-            );
-            return null;
-          })
-        )
-      );
-      const statuses = results.filter(
-        (s): s is SkyLabSessionStatus => s !== null
-      );
+      const statuses = await this._SkyLabService.listSessionStatuses();
       req.event.reply(req.channel, ResponseUtils.success(statuses));
     } catch (err) {
       Logger.error("ResourceController.getSessionStatuses", err as Error);

@@ -10,7 +10,7 @@ def test_gateway_installer_uses_wireguard() -> None:
     script = (gateway_dir / "install.sh").read_text(encoding="utf-8")
 
     assert "wireguard-tools" in script
-    assert "campus-cloud-wg-firewall.service" in script
+    assert "skylab-wg-firewall.service" in script
     assert not (gateway_dir / "install-wireguard.sh").exists()
 
 

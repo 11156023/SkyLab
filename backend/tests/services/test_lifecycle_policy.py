@@ -8,6 +8,7 @@ from app.services.governance.lifecycle_policy import (
     average_cpu_percent,
     decide_idle_action,
     decide_ttl_action,
+    expiry_datetime,
 )
 
 NOW = datetime(2026, 7, 4, 12, 0, 0, tzinfo=timezone.utc)
@@ -37,6 +38,12 @@ def _ttl(
 
 
 class TestDecideTtlAction:
+    def test_warning_and_stop_use_the_existing_expiry_boundary(self) -> None:
+        expiry = date(2026, 7, 5)
+        assert expiry_datetime(expiry) == datetime(2026, 7, 5, tzinfo=timezone.utc)
+        assert _ttl(expiry=expiry, now=datetime(2026, 7, 4, 23, 59, tzinfo=timezone.utc)) is TtlAction.warn
+        assert _ttl(expiry=expiry, now=datetime(2026, 7, 5, tzinfo=timezone.utc)) is TtlAction.stop
+
     def test_no_expiry(self) -> None:
         assert _ttl(expiry=None) is TtlAction.none
 

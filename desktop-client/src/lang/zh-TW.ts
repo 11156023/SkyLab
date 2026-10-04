@@ -1,4 +1,10 @@
 ﻿export default {
+  update: {
+    title: "發現新版本",
+    message: "SkyLab Connect {version} 已發布，建議下載並安裝最新版。",
+    download: "下載更新",
+    later: "稍後提醒"
+  },
   app: {
     title: "SkyLab Connect",
     description: "校園雲端虛擬機連線工具"
@@ -53,6 +59,8 @@
   },
   home: {
     status: {
+      leaseRefreshFailed:
+        "連線授權更新失敗，將自動重試；授權到期後須重新連線。",
       running: "已連線",
       stopped: "未連線",
       error: "連線錯誤",
@@ -74,11 +82,12 @@
     },
     machines: {
       summary: "連線已建立 · {machines} 台機器 · {courses} 個課程環境",
-      unavailable: "無可用連線"
+      unavailable: "無可用連線",
+      noTargets:
+        "安全連線已建立，但目前沒有可用的 SSH／RDP 目標。請確認機器已啟動並取得可連線的 IP；若仍無法使用，請聯絡管理員檢查 VPN 網段設定。"
     },
     empty: {
       notLoggedIn: "尚未登入，請先登入 SkyLab 帳號。",
-      noTunnels: "目前沒有可用的虛擬機隧道。",
       goLogin: "前往登入",
       goResources: "查看我的資源"
     },
@@ -105,6 +114,18 @@
     summary: "共 {total} 台機器，分屬 {courses} 個課程環境",
     connect: "連線",
     customEnvironment: "自訂環境",
+    owner: "擁有者：{owner}",
+    kind: {
+      personal: "個人申請",
+      shared: "共享給我",
+      teaching_class: "班級機器",
+      quick_practice: "快速練習",
+      course: "課程實驗"
+    },
+    window: {
+      notStarted: "使用時段尚未開始（{time}）",
+      ended: "使用時段已結束（{time}）"
+    },
     metrics: {
       total: "機器總數",
       courseGroups: "課程環境"
@@ -124,8 +145,12 @@
       running: "執行中",
       stopped: "已停止",
       paused: "已暫停",
+      scheduled: "已排程",
       provisioning: "建立中",
+      starting: "啟動中",
+      deleting: "刪除中",
       failed: "建立失敗",
+      deleted: "已刪除",
       unknown: "狀態未知"
     },
     table: {
@@ -145,8 +170,9 @@
     back: "返回連線畫面",
     language: {
       label: "介面語言",
-      zhCN: "繁體中文",
-      enUS: "English"
+      zhTW: "繁體中文",
+      enUS: "English",
+      ja: "日本語"
     },
     autoStart: {
       label: "開機自動啟動",
@@ -154,7 +180,7 @@
     },
     backend: {
       label: "後端網址",
-      tips: "SkyLab 伺服器位址。"
+      tips: "SkyLab 伺服器根網址，不包含 /login。"
     },
     account: {
       label: "帳號",

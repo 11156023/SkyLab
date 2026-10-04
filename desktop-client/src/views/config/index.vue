@@ -13,14 +13,14 @@ const { t } = useI18n();
 const appStore = useAppStore();
 
 const form = reactive({
-  language: "zh-CN",
+  language: "zh-TW",
   launchAtStartup: false,
   backendUrl: ""
 });
 
 const syncFromStore = (settings: Partial<SkyLabSettings> | null) => {
   if (!settings) return;
-  form.language = settings.language || "zh-CN";
+  form.language = settings.language || "zh-TW";
   form.launchAtStartup = !!settings.launchAtStartup;
   form.backendUrl = settings.backendUrl || "";
 };
@@ -92,8 +92,9 @@ onUnmounted(() => {
         >
           <el-form-item :label="t('config.language.label')">
             <el-radio-group v-model="form.language">
-              <el-radio value="zh-CN">{{ t("config.language.zhCN") }}</el-radio>
+              <el-radio value="zh-TW">{{ t("config.language.zhTW") }}</el-radio>
               <el-radio value="en-US">{{ t("config.language.enUS") }}</el-radio>
+              <el-radio value="ja">{{ t("config.language.ja") }}</el-radio>
             </el-radio-group>
           </el-form-item>
 
@@ -107,7 +108,7 @@ onUnmounted(() => {
           <el-form-item :label="t('config.backend.label')">
             <el-input
               v-model="form.backendUrl"
-              placeholder="http://localhost:8000"
+              placeholder="https://skylab.ntubimdbirc.tw"
             />
             <div class="form-hint form-hint--block">
               {{ t("config.backend.tips") }}

@@ -1,5 +1,6 @@
 # SkyLab 反向代理 —— 單一對外入口 :80
 # 同源分流：/api、/ws、/docs 等 → backend:8000；其餘 → frontend:8080
+# （範本檔，${SKYLAB_*} 於容器啟動時替換，見下方「平台入口」一節）
 #
 # 前端 VITE_API_URL 留空 → API 走相對路徑、WebSocket 用 window.location.host，
 # 因此一切同源：免 CORS、不綁定固定 host，從哪個 IP/網域進來就走那個，IP 變動無感。
@@ -45,6 +46,29 @@ map $http_upgrade $connection_upgrade {
     ''      '';
 }
 
+# ── 平台入口：主系統也經 Gateway 的 nginx 對外時（「閘道 VM」頁的「平台入口」分頁）──
+# 這時連線來源一律是 Gateway。只信任 SKYLAB_TRUSTED_PROXY（.env；預設 127.0.0.1，
+# 等於不信任任何外部代理）送來的 X-Real-IP 與 X-Forwarded-Proto，用來還原使用者
+# 真正的 IP 與通訊協定；其他來源自帶的同名標頭一律不採用，所以偽造不了來源 IP。
+# 還原之後 $remote_addr 就是使用者 IP，下面的日誌與轉給後端的標頭都不必另外處理。
+#
+# 本檔是範本：容器啟動時由官方映像的 envsubst 產生 conf.d/default.conf，
+# compose 以 NGINX_ENVSUBST_FILTER 限定只替換 SKYLAB_ 開頭的變數，nginx 自己的
+# $變數不受影響。
+set_real_ip_from ${SKYLAB_TRUSTED_PROXY};
+real_ip_header X-Real-IP;
+
+geo $realip_remote_addr $skylab_from_trusted_proxy {
+    default 0;
+    ${SKYLAB_TRUSTED_PROXY} 1;
+}
+
+# Gateway 終結 TLS 後到這裡是 http；信任的代理說是 https 才當成 https
+map "$skylab_from_trusted_proxy:$http_x_forwarded_proto" $skylab_forwarded_proto {
+    default   $scheme;
+    "1:https" https;
+}
+
 # access log 帶 request id 與耗時：同一個 $request_id 會以 X-Request-ID 轉給
 # backend，並出現在後端 JSON 日誌的 request_id 欄位，三邊可以直接對上。
 log_format skylab '$remote_addr - $remote_user [$time_local] "$request" '
@@ -83,7 +107,7 @@ server {
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $skylab_forwarded_proto;
     # 一律以 nginx 產生的 id 覆寫，客戶端自帶的 X-Request-ID 不往後傳
     proxy_set_header X-Request-ID $request_id;
 
@@ -126,7 +150,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $skylab_forwarded_proto;
         proxy_set_header X-Request-ID $request_id;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
@@ -155,7 +179,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $skylab_forwarded_proto;
         proxy_set_header X-WEBAUTH-USER  $grafana_user;
         proxy_set_header X-WEBAUTH-EMAIL $grafana_email;
         proxy_set_header X-WEBAUTH-NAME  $grafana_name;
@@ -169,7 +193,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $skylab_forwarded_proto;
         proxy_set_header X-WEBAUTH-USER  "";
         proxy_set_header X-WEBAUTH-EMAIL "";
         proxy_set_header X-WEBAUTH-NAME  "";
@@ -183,7 +207,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $skylab_forwarded_proto;
         proxy_set_header X-WEBAUTH-USER  "";
         proxy_set_header X-WEBAUTH-EMAIL "";
         proxy_set_header X-WEBAUTH-NAME  "";
@@ -199,7 +223,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $skylab_forwarded_proto;
         proxy_set_header X-Request-ID $request_id;
         proxy_connect_timeout 3s;
         proxy_read_timeout 5s;

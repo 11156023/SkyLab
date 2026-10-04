@@ -45,6 +45,7 @@
   "ConnectionPanel.modeFirewallOnly": "Firewall only",
   "ConnectionPanel.openUrl": "Open URL",
   "ConnectionPanel.delete": "Delete connection",
+  "ConnectionPanel.topologyManaged": "Managed by environment template",
   "ConnectionEdge.allPorts": "All ports",
   "ConnectionEdge.aggregate": "{{count}} connections",
   "VMNode.exposedHint": "Exposed to the internet: {{count}}",

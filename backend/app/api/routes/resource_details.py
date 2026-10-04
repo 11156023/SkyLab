@@ -1,6 +1,7 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
 from app.api.deps import (
@@ -14,11 +15,16 @@ from app.api.deps import (
     check_resource_ownership,
 )
 from app.schemas import (
+    BackupCapability,
+    BackupCreateRequest,
+    BackupInfo,
+    BackupRestoreRequest,
     CurrentStatsResponse,
     DirectSpecUpdateRequest,
     ResetAcceptedResponse,
     RRDDataPoint,
     RRDDataResponse,
+    SnapshotCapability,
     SnapshotCreateRequest,
     SnapshotInfo,
     SnapshotResponse,
@@ -28,7 +34,7 @@ from app.schemas.template import (
     TemplateAttachmentPublic,
 )
 from app.services.network import snapshot_service
-from app.services.resource import reset_service, resource_service
+from app.services.resource import backup_service, reset_service, resource_service
 from app.services.resource.access import require_resource_management
 from app.services.template import template_service
 
@@ -108,6 +114,16 @@ def get_rrd_stats(
         for p in rrd_data
     ]
     return RRDDataResponse(timeframe=timeframe, data=data_points)
+
+
+@router.get("/{vmid}/snapshot-capability", response_model=SnapshotCapability)
+def get_snapshot_capability(
+    vmid: int, resource_info: TeachingResourceInfoDep
+) -> SnapshotCapability:
+    """這台機器當下能否使用快照（含一鍵重置）；不可用時前端隱藏整組快照功能。"""
+    return SnapshotCapability(
+        **snapshot_service.get_capability(vmid=vmid, resource_info=resource_info)
+    )
 
 
 @router.get("/{vmid}/snapshots", response_model=list[SnapshotInfo])
@@ -221,3 +237,96 @@ def create_init_snapshot(
     return reset_service.create_init_snapshot(
         session, vmid=vmid, resource_info=resource_info, user=current_user
     )
+
+
+# ===== 備份／還原（快照不能用的機器以備份當還原點） =====
+
+
+@router.get("/{vmid}/backup-capability", response_model=BackupCapability)
+def get_backup_capability(
+    vmid: int,
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> BackupCapability:
+    """這台機器能否使用備份（所屬叢集有設定備份 storage 且可用）。"""
+    return BackupCapability(
+        **backup_service.get_capability(
+            session=session, vmid=vmid, resource_info=resource_info, user=current_user
+        )
+    )
+
+
+@router.get("/{vmid}/backups", response_model=list[BackupInfo])
+def list_backups(
+    vmid: int, resource_info: TeachingResourceInfoDep, session: SessionDep
+) -> list[BackupInfo]:
+    """只列出 SkyLab 為這台機器建立的備份，不含機構自己的排程備份。"""
+    return [
+        BackupInfo(**item)
+        for item in backup_service.list_backups(
+            session=session, vmid=vmid, resource_info=resource_info
+        )
+    ]
+
+
+@router.post(
+    "/{vmid}/backups", response_model=ResetAcceptedResponse, status_code=202
+)
+def create_backup(
+    vmid: int,
+    request: BackupCreateRequest,
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> ResetAcceptedResponse:
+    require_resource_management(session=session, user=current_user, vmid=vmid)
+    task_id = backup_service.start_backup(
+        session,
+        vmid=vmid,
+        resource_info=resource_info,
+        user=current_user,
+        description=request.description,
+    )
+    return ResetAcceptedResponse(message="備份任務已排入背景執行", task_id=task_id)
+
+
+@router.post(
+    "/{vmid}/backups/restore", response_model=ResetAcceptedResponse, status_code=202
+)
+def restore_backup(
+    vmid: int,
+    request: BackupRestoreRequest,
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> ResetAcceptedResponse:
+    require_resource_management(session=session, user=current_user, vmid=vmid)
+    task_id = backup_service.start_restore(
+        session,
+        vmid=vmid,
+        resource_info=resource_info,
+        user=current_user,
+        volid=request.volid,
+    )
+    return ResetAcceptedResponse(message="還原任務已排入背景執行", task_id=task_id)
+
+
+# volid 含斜線與冒號，放 query 而不是路徑片段
+@router.delete("/{vmid}/backups", response_model=SnapshotResponse)
+def delete_backup(
+    vmid: int,
+    volid: Annotated[str, Query(min_length=1, max_length=500)],
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> SnapshotResponse:
+    require_resource_management(session=session, user=current_user, vmid=vmid)
+    result = backup_service.delete_backup(
+        session=session,
+        vmid=vmid,
+        resource_info=resource_info,
+        user=current_user,
+        volid=volid,
+    )
+    return SnapshotResponse(message=result["message"])

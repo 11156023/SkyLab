@@ -33,6 +33,8 @@ class ProxmoxConnection(SQLModel, table=True):
     pool_name: str = Field(default="SkyLab", max_length=255)
     iso_storage: str = Field(default="local", max_length=255)
     data_storage: str = Field(default="local-lvm", max_length=255)
+    # 機器備份（vzdump）要放的 storage；None＝這個叢集不開放備份功能
+    backup_storage: str | None = Field(default=None, max_length=255)
     task_check_interval: int = Field(default=2, ge=1, le=60)
     gateway_ip: str | None = Field(default=None, max_length=255)
     local_subnet: str | None = Field(default=None, max_length=50)

@@ -33,8 +33,13 @@ from utils.health_utils import check_system_health
 from utils.logging_utils import get_logger
 
 
-# 全局 shutdown 標記
-_shutdown_requested = False
+class _ShutdownState:
+    """全局 shutdown 標記；用屬性而不是 global 重新綁定（測試也直接改這個屬性）。"""
+
+    requested = False
+
+
+_shutdown = _ShutdownState()
 
 
 def _request_shutdown(signum, frame) -> None:
@@ -44,10 +49,9 @@ def _request_shutdown(signum, frame) -> None:
     子程序不會跟著停（nohup 背景執行時 SIGINT 也被忽略）。只在第一次收到時
     丟出例外；清理期間再收到信號就忽略，避免打斷 engine.stop()／stop_all()。
     """
-    global _shutdown_requested
-    if _shutdown_requested:
+    if _shutdown.requested:
         return
-    _shutdown_requested = True
+    _shutdown.requested = True
     raise KeyboardInterrupt(signal.Signals(signum).name)
 
 
@@ -543,7 +547,7 @@ def _run_cluster_mode(args) -> None:
 
     # SIGTERM／SIGINT 由 main() 開頭安裝的 _request_shutdown 轉成 KeyboardInterrupt。
     try:
-        while not _shutdown_requested:
+        while not _shutdown.requested:
             time.sleep(2)
     except KeyboardInterrupt:
         logger.info("收到中斷信號，正在停止集群...")

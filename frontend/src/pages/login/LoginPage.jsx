@@ -2,16 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import PasswordInput from "../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../components/PasswordRules/PasswordRules";
 import SegmentedControl from "../../components/SegmentedControl/SegmentedControl";
+import Turnstile from "../../components/Turnstile/Turnstile";
 import { useAuth } from "../../contexts/AuthContext";
 import { AccountService } from "../../services/account";
 import { getLoginMethods } from "../../services/auth";
+import { isPasswordStrong } from "../../utils/passwordPolicy";
 import PageShell from "./PageShell";
 import styles from "./LoginPage.module.scss";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const ENABLE_SIGNUP = import.meta.env.ENABLE_SIGNUP !== "false";
-const MIN_PASSWORD_LENGTH = 8;
 let googleIdentityScriptPromise;
 
 function loadGoogleIdentityScript() {
@@ -74,14 +76,14 @@ function clearDeviceCodeFromUrl() {
 
 /* 新密碼的前端檢查（重設密碼與註冊共用）：回傳錯誤訊息，通過則回傳空字串 */
 function newPasswordError(password, confirm, t) {
-  if (password.length < MIN_PASSWORD_LENGTH) return t("LoginPage.passwordMinLength");
+  if (!isPasswordStrong(password)) return t("PasswordRules.notMet", { ns: "common" });
   if (password !== confirm) return t("LoginPage.passwordMismatch");
   return "";
 }
 
 /* ─── 共用元件 ─────────────────────────────────────────── */
 
-function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
+function PasswordField({ id, label, value, onChange, disabled, placeholder, children }) {
   const { t } = useTranslation("login");
   return (
     <div className={styles.field}>
@@ -94,6 +96,7 @@ function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
         disabled={disabled}
         required
       />
+      {children}
     </div>
   );
 }
@@ -250,11 +253,20 @@ function TotpStepView({ totpToken, onSubmit, onBack }) {
   );
 }
 
-function LoginView({ onForgot, onRegister, deviceApproval = false }) {
+function LoginView({
+  onForgot,
+  onRegister,
+  deviceApproval = false,
+  ldapEnabled = false,
+  turnstileSiteKey = "",
+}) {
   const { t } = useTranslation("login");
   const { login, googleLogin, ldapLogin, totpLogin } = useAuth();
   const [mode, setMode] = useState("password"); // "password" | "ldap"
-  const [ldapEnabled, setLdapEnabled] = useState(false);
+  // Cloudflare 機器人驗證（後端有設定金鑰才顯示）；密碼與校園帳號表單共用
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef(null);
+  const turnstilePending = Boolean(turnstileSiteKey) && !turnstileToken;
   // 帳號已綁定兩步驟驗證：第一階段通過後拿到挑戰 token，切到驗證碼步驟
   const [totpChallenge, setTotpChallenge] = useState(null); // { totpToken } | null
   const [username, setUsername] = useState("");
@@ -265,51 +277,54 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  // 依後端啟用的登入方式決定是否顯示「校園帳號」分頁（公開端點；取不到就只顯示 Email）
-  useEffect(() => {
-    let cancelled = false;
-    getLoginMethods()
-      .then((methods) => {
-        if (!cancelled) setLdapEnabled(Boolean(methods?.ldap));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const switchMode = (next) => {
     setMode(next);
     setError("");
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  /* 密碼／校園帳號登入共用：先確認機器人驗證，送出失敗後換一個新 token（token 只能用一次） */
+  const submitWithTurnstile = async (doLogin, defaultError) => {
     setError("");
+    if (turnstilePending) {
+      setError(t("LoginPage.turnstileRequired"));
+      return;
+    }
     setLoading(true);
     try {
-      const challenge = await login(username, password);
+      const challenge = await doLogin({ turnstileToken });
       if (challenge?.totpRequired) setTotpChallenge(challenge);
     } catch (err) {
-      setError(err?.message ?? t("LoginPage.loginErrorDefault"));
+      setError(err?.message ?? defaultError);
+      turnstileRef.current?.reset();
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLdapSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const challenge = await ldapLogin(ldapUsername, ldapPassword);
-      if (challenge?.totpRequired) setTotpChallenge(challenge);
-    } catch (err) {
-      setError(err?.message ?? t("LoginPage.ldapLoginErrorDefault"));
-    } finally {
-      setLoading(false);
-    }
+    submitWithTurnstile(
+      (options) => login(username, password, options),
+      t("LoginPage.loginErrorDefault"),
+    );
   };
+
+  const handleLdapSubmit = (e) => {
+    e.preventDefault();
+    submitWithTurnstile(
+      (options) => ldapLogin(ldapUsername, ldapPassword, options),
+      t("LoginPage.ldapLoginErrorDefault"),
+    );
+  };
+
+  const turnstileBox = turnstileSiteKey ? (
+    <Turnstile
+      ref={turnstileRef}
+      siteKey={turnstileSiteKey}
+      action="login"
+      onToken={setTurnstileToken}
+    />
+  ) : null;
 
   const handleGoogleCredential = useCallback(
     async (credential) => {
@@ -376,9 +391,11 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
         {t("LoginPage.forgotPasswordLink")}
       </button>
 
+      {turnstileBox}
+
       {error && <p className={styles.error}>{error}</p>}
 
-      <button type="submit" className={styles.btn} disabled={loading}>
+      <button type="submit" className={styles.btn} disabled={loading || turnstilePending}>
         {loading ? t("LoginPage.loggingIn") : t("LoginPage.login")}
       </button>
     </form>
@@ -408,9 +425,11 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
         disabled={loading}
       />
 
+      {turnstileBox}
+
       {error && <p className={styles.error}>{error}</p>}
 
-      <button type="submit" className={styles.btn} disabled={loading}>
+      <button type="submit" className={styles.btn} disabled={loading || turnstilePending}>
         {loading ? t("LoginPage.loggingIn") : t("LoginPage.login")}
       </button>
     </form>
@@ -621,12 +640,14 @@ function ResetView({ token, onDone }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setSubmitted(true);
 
     const passwordError = newPasswordError(password, confirm, t);
     if (passwordError) {
@@ -671,7 +692,9 @@ function ResetView({ token, onDone }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
-          />
+          >
+            <PasswordRules password={password} invalid={submitted} />
+          </PasswordField>
 
           <PasswordField
             id="reset-confirm"
@@ -695,32 +718,45 @@ function ResetView({ token, onDone }) {
 
 /* ─── 註冊 ──────────────────────────────────────────────── */
 
-function RegisterView({ onBack }) {
+function RegisterView({ onBack, turnstileSiteKey = "" }) {
   const { t } = useTranslation("login");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef(null);
+  const turnstilePending = Boolean(turnstileSiteKey) && !turnstileToken;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setSubmitted(true);
 
     const passwordError = newPasswordError(password, confirm, t);
     if (passwordError) {
       setError(passwordError);
       return;
     }
+    if (turnstilePending) {
+      setError(t("LoginPage.turnstileRequired"));
+      return;
+    }
 
     setLoading(true);
     try {
-      await AccountService.signup({ email, full_name: fullName, password });
+      await AccountService.signup(
+        { email, full_name: fullName, password },
+        { turnstileToken },
+      );
       setSuccess(true);
     } catch (err) {
       setError(err?.message ?? t("LoginPage.registerErrorDefault"));
+      turnstileRef.current?.reset();
     } finally {
       setLoading(false);
     }
@@ -779,11 +815,13 @@ function RegisterView({ onBack }) {
 
           <PasswordField
             id="reg-password"
-            label={t("LoginPage.passwordWithMinLengthLabel")}
+            label={t("LoginPage.passwordLabel")}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
-          />
+          >
+            <PasswordRules password={password} invalid={submitted} />
+          </PasswordField>
 
           <PasswordField
             id="reg-confirm"
@@ -794,9 +832,18 @@ function RegisterView({ onBack }) {
             placeholder={t("LoginPage.confirmPasswordPlaceholder")}
           />
 
+          {turnstileSiteKey && (
+            <Turnstile
+              ref={turnstileRef}
+              siteKey={turnstileSiteKey}
+              action="signup"
+              onToken={setTurnstileToken}
+            />
+          )}
+
           {error && <p className={styles.error}>{error}</p>}
 
-          <button type="submit" className={styles.btn} disabled={loading}>
+          <button type="submit" className={styles.btn} disabled={loading || turnstilePending}>
             {loading ? t("LoginPage.creating") : t("LoginPage.createAccount")}
           </button>
         </form>
@@ -820,6 +867,22 @@ export default function LoginPage() {
   const [view, setView] = useState(() =>
     readResetTokenFromUrl() ? "reset" : "login",
   ); // "login" | "forgot" | "register" | "reset"
+  // 後端啟用的登入方式（決定是否顯示「校園帳號」分頁）與機器人驗證 site key；
+  // 公開端點，取不到就只顯示 Email、不顯示驗證框（後端若已啟用會回錯誤訊息）
+  const [loginMethods, setLoginMethods] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getLoginMethods()
+      .then((methods) => {
+        if (!cancelled) setLoginMethods(methods);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const turnstileSiteKey = loginMethods?.turnstile_site_key ?? "";
 
   useEffect(() => {
     const onPop = () => {
@@ -888,12 +951,19 @@ export default function LoginPage() {
       {view === "login" && (
         <LoginView
           deviceApproval={Boolean(deviceCode)}
+          ldapEnabled={Boolean(loginMethods?.ldap)}
+          turnstileSiteKey={turnstileSiteKey}
           onForgot={() => setView("forgot")}
           onRegister={() => setView("register")}
         />
       )}
       {view === "forgot" && <ForgotView onBack={() => setView("login")} />}
-      {view === "register" && <RegisterView onBack={() => setView("login")} />}
+      {view === "register" && (
+        <RegisterView
+          turnstileSiteKey={turnstileSiteKey}
+          onBack={() => setView("login")}
+        />
+      )}
       {view === "reset" && <ResetView token={resetToken} onDone={goLogin} />}
     </PageShell>
   );

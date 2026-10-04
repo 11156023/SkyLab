@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import uuid
 from pathlib import Path
@@ -9,12 +10,14 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session, SQLModel
 
-import app.models  # noqa: F401  -- registers every table on SQLModel.metadata
 from app.core import security
 from app.core.config import settings
 from app.models.task_record import TaskRecord
 from scripts import rotate_secret_key as rsk
 from tests.utils.user import create_random_user
+
+# Registers every table on SQLModel.metadata (import for side effect only).
+importlib.import_module("app.models")
 
 # Encrypted columns whose names do not say so.
 _UNNAMED_ENCRYPTED = {

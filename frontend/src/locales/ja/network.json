@@ -45,6 +45,7 @@
   "ConnectionPanel.modeFirewallOnly": "ファイアウォールのみ開放",
   "ConnectionPanel.openUrl": "URL を開く",
   "ConnectionPanel.delete": "接続を削除",
+  "ConnectionPanel.topologyManaged": "環境テンプレートで管理",
   "ConnectionEdge.allPorts": "ポート制限なし",
   "ConnectionEdge.aggregate": "{{count}} 本の接続",
   "VMNode.exposedHint": "インターネットへの公開: {{count}} 件",

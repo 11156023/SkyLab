@@ -395,7 +395,7 @@ const RESOURCE_DETAIL_GUIDE = {
     { selector: '[data-guide="resource-detail-overview"]', activateSelector: '[data-guide-tab="resource-overview"]', deferred: true, titleKey: "UserGuide.resourceDetail.step2.title", textKey: "UserGuide.resourceDetail.step2.text" },
     { selector: '[data-guide="resource-detail-monitoring"]', activateSelector: '[data-guide-tab="resource-monitoring"]', deferred: true, titleKey: "UserGuide.resourceDetail.step3.title", textKey: "UserGuide.resourceDetail.step3.text" },
     { selector: '[data-guide="resource-detail-specifications"]', activateSelector: '[data-guide-tab="resource-specifications"]', deferred: true, titleKey: "UserGuide.resourceDetail.step4.title", textKey: "UserGuide.resourceDetail.step4.text" },
-    { selector: '[data-guide="resource-detail-snapshots"]', activateSelector: '[data-guide-tab="resource-snapshots"]', deferred: true, titleKey: "UserGuide.resourceDetail.step5.title", textKey: "UserGuide.resourceDetail.step5.text" },
+    { selector: '[data-guide="resource-detail-snapshots"]', activateSelector: '[data-guide-tab="resource-snapshots"]', conditionSelector: '[data-guide-tab="resource-snapshots"]', deferred: true, titleKey: "UserGuide.resourceDetail.step5.title", textKey: "UserGuide.resourceDetail.step5.text" },
     { selector: '[data-guide="resource-detail-auditLogs"]', activateSelector: '[data-guide-tab="resource-auditLogs"]', deferred: true, titleKey: "UserGuide.resourceDetail.step6.title", textKey: "UserGuide.resourceDetail.step6.text" },
     { selector: '[data-guide="resource-detail-advanced"]', activateSelector: '[data-guide-tab="resource-advanced"]', deferred: true, titleKey: "UserGuide.resourceDetail.step7.title", textKey: "UserGuide.resourceDetail.step7.text" },
     { selector: '[data-guide="resource-setting-lifecycle"]', deferred: true, titleKey: "UserGuide.resourceDetail.step8.title", textKey: "UserGuide.resourceDetail.step8.text" },
@@ -590,8 +590,10 @@ export default function UserGuide() {
       ? [...guide.steps, EMPTY_SIMULATION_STEP]
       : guide.steps;
     return steps.filter((item) => {
-      if (item.deferred) return true;
+      /* conditionSelector 先於 deferred：條件不成立的步驟（例如這台機器沒有快照分頁）
+         直接不列入，不要等目標逾時才跳過 */
       if (item.conditionSelector && !document.querySelector(item.conditionSelector)) return false;
+      if (item.deferred) return true;
       const targetExists = document.querySelector(item.selector);
       if (item.optional) return targetExists;
       return targetExists

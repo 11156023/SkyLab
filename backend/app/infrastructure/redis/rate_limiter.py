@@ -57,9 +57,9 @@ return {1, current + 1}
 """
 
 
-def ai_proxy_rate_limit_key(user_id: str) -> str:
-    """AI Proxy 每使用者配額的 key（不含 ``rate_limit:`` 前綴）。"""
-    return f"user:{user_id}"
+def ai_proxy_rate_limit_key(credential_id: str) -> str:
+    """AI Proxy 每把 credential 配額的 key（不含 ``rate_limit:`` 前綴）。"""
+    return f"credential:{credential_id}"
 
 
 def _require_redis_or_fail_closed(scope: str) -> None:
@@ -168,17 +168,17 @@ async def check_rate_limit_by_key(
 
 async def check_rate_limit_sliding_window(
     redis: Redis | None,
-    user_id: str,
+    credential_id: str,
     limit: int = 20,
     window_seconds: int = 60,
 ) -> tuple[bool, dict[str, Any]]:
-    """AI Proxy 每使用者配額：``check_rate_limit_by_key`` 的 fail-closed 特化。
+    """AI Proxy 每 credential 配額：``check_rate_limit_by_key`` 的 fail-closed 特化。
 
     非 local 少了 Redis 就是無上限用量，所以 scope 固定為 ``ai-proxy``。
     """
     return await check_rate_limit_by_key(
         redis,
-        key=ai_proxy_rate_limit_key(user_id),
+        key=ai_proxy_rate_limit_key(credential_id),
         limit=limit,
         window_seconds=window_seconds,
         scope=AI_PROXY_SCOPE,

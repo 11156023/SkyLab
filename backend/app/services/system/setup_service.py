@@ -31,15 +31,28 @@ from app.models import (
     User,
     UserRole,
 )
+from app.repositories import gateway_config as gw_repo
 from app.repositories import proxmox_connection as proxmox_connection_repo
 from app.repositories import system_setup as system_setup_repo
 from app.repositories import user as user_repo
 from app.schemas import UserCreate, UserUpdate
+from app.schemas.cloudflare import CloudflareConfigUpdate
+from app.schemas.gateway import (
+    GatewayConfigPublic,
+    GatewayConfigUpdate,
+    GatewayConnectionTestResult,
+    GatewayInstallOptions,
+    GatewayInstallStatus,
+    PlatformEntryPublic,
+    PlatformEntryUpstreamTest,
+    PlatformEntryUpstreamTestRequest,
+)
 from app.schemas.ip_management import SubnetConfigCreate
 from app.schemas.proxmox_config import ProxmoxNodePublic
 from app.schemas.setup import (
     SetupAdminCreate,
     SetupAdminResult,
+    SetupPlatformEntryUpdate,
     SetupProxmoxCreate,
     SetupProxmoxResult,
     SetupProxmoxTestRequest,
@@ -49,10 +62,17 @@ from app.schemas.setup import (
     SetupStoragePublic,
     SetupSubnetResult,
 )
-from app.services.network import ip_management_service
+from app.services.network import (
+    cloudflare_service,
+    gateway_install_service,
+    gateway_service,
+    ip_management_service,
+    platform_entry_service,
+)
 from app.services.proxmox import connection_sync_service
 from app.services.proxmox.tls_helpers import validate_ca_cert_pem
 from app.services.user import audit_service
+from app.services.user.password_policy import ensure_password_complexity
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +85,10 @@ def _steps(session: Session, state: SystemSetup) -> SetupStepsPublic:
         admin=state.admin_user_id is not None,
         proxmox=bool(proxmox_connection_repo.get_all_connections(session)),
         subnet=ip_management_service.get_subnet_config(session) is not None,
+        gateway=gateway_service.to_public_config(
+            gw_repo.get_gateway_config(session)
+        ).is_configured,
+        platform_entry=platform_entry_service.load_entry(session) is not None,
     )
 
 
@@ -94,6 +118,7 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
     信箱屬於一般帳號時拒絕：精靈免登入，不能拿來把既有學生／老師帳號升成管理員。
     """
     ensure_setup_open(session=session)
+    ensure_password_complexity(data.password)
 
     existing = user_repo.get_user_by_email(session=session, email=data.email)
     if existing is not None and not existing.is_superuser:
@@ -264,6 +289,7 @@ def configure_proxmox(
         pool_name=data.pool_name,
         iso_storage=data.iso_storage,
         data_storage=data.data_storage,
+        backup_storage=data.backup_storage,
         task_check_interval=data.task_check_interval,
         gateway_ip=data.gateway_ip,
         local_subnet=data.local_subnet,
@@ -362,6 +388,121 @@ def configure_subnet(*, session: Session, data: SubnetConfigCreate) -> SetupSubn
         total_ips=stats["total"],
         available_ips=stats["available"],
     )
+
+
+# ── 步驟四：Gateway ───────────────────────────────────────────────────────────
+
+
+def get_gateway(*, session: Session) -> GatewayConfigPublic:
+    ensure_setup_open(session=session)
+    return gateway_service.to_public_config(gw_repo.get_gateway_config(session))
+
+
+def configure_gateway(
+    *, session: Session, data: GatewayConfigUpdate
+) -> GatewayConfigPublic:
+    """存 Gateway 的 SSH 連線設定；還沒有金鑰就順便產生一組。
+
+    回傳的公鑰要由管理員自己貼到 Gateway 的 authorized_keys，之後才測得通。
+    已經有金鑰時不重產：否則重填一次表單就會讓貼好的公鑰失效。
+    """
+    state = ensure_setup_open(session=session)
+    config = gw_repo.upsert_connection_settings(
+        session=session,
+        host=data.host.strip(),
+        ssh_port=data.ssh_port,
+        ssh_user=data.ssh_user.strip() or "root",
+    )
+    generated = False
+    if not config.encrypted_private_key:
+        private_key_pem, public_key = gateway_service.generate_ed25519_keypair()
+        config = gw_repo.save_keypair(
+            session=session, private_key_pem=private_key_pem, public_key=public_key
+        )
+        generated = True
+    audit_service.log_action(
+        session=session,
+        user_id=state.admin_user_id,
+        action=AuditAction.gateway_config_update,
+        details=(
+            f"Setup wizard: gateway config host={config.host} port={config.ssh_port} "
+            f"user={config.ssh_user}" + (" (generated SSH keypair)" if generated else "")
+        ),
+    )
+    return gateway_service.to_public_config(config)
+
+
+def test_gateway(*, session: Session) -> GatewayConnectionTestResult:
+    ensure_setup_open(session=session)
+    success, message = gateway_service.test_saved_connection(session)
+    return GatewayConnectionTestResult(success=success, message=message)
+
+
+def get_gateway_install(*, session: Session) -> GatewayInstallStatus:
+    ensure_setup_open(session=session)
+    return gateway_install_service.get_install_status(session=session)
+
+
+def start_gateway_install(
+    *, session: Session, options: GatewayInstallOptions
+) -> GatewayInstallStatus:
+    state = ensure_setup_open(session=session)
+    result = gateway_install_service.start_install(session=session, options=options)
+    audit_service.log_action(
+        session=session,
+        user_id=state.admin_user_id,
+        action=AuditAction.gateway_service_control,
+        details=(
+            "Setup wizard: started gateway one-click install: "
+            f"ingress={options.ingress_interface} vm={options.vm_interface} "
+            f"snat={options.snat_address} wg_port={options.listen_port} "
+            f"forward={options.forward_port_start}:{options.forward_port_end}"
+        ),
+    )
+    return result
+
+
+# ── 步驟五：平台入口 ──────────────────────────────────────────────────────────
+
+
+def get_platform_entry(*, session: Session) -> PlatformEntryPublic:
+    ensure_setup_open(session=session)
+    return platform_entry_service.get_config(session)
+
+
+def test_platform_entry_upstream(
+    *, session: Session, data: PlatformEntryUpstreamTestRequest
+) -> PlatformEntryUpstreamTest:
+    ensure_setup_open(session=session)
+    return platform_entry_service.test_upstream(
+        session, data.upstream_host, data.upstream_port
+    )
+
+
+def configure_platform_entry(
+    *, session: Session, data: SetupPlatformEntryUpdate
+) -> PlatformEntryPublic:
+    """存平台入口並同步到 Gateway；有填 Cloudflare Token 就先存起來（HTTPS 憑證要用）。"""
+    state = ensure_setup_open(session=session)
+    token = (data.cloudflare_api_token or "").strip()
+    if token:
+        cloudflare_service.update_config(
+            session=session, data=CloudflareConfigUpdate(api_token=token)
+        )
+    result = platform_entry_service.save_config(session, data)
+    audit_service.log_action(
+        session=session,
+        user_id=state.admin_user_id,
+        action=AuditAction.gateway_config_write,
+        details=(
+            f"Setup wizard: platform entry enabled={result.enabled} "
+            f"domain={result.domain or '-'} "
+            f"upstream={result.upstream_host or '-'}:{result.upstream_port} "
+            f"https={result.enable_https}"
+            + (" (saved Cloudflare API token)" if token else "")
+        ),
+    )
+    return result
 
 
 # ── 完成 ────────────────────────────────────────────────────────────────────

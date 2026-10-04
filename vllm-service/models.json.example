@@ -1,6 +1,7 @@
 [
   {
     "alias": "gemma-4-31b",
+    "deployment": "local",
     "served_model_name": "gemma-4-31b",
     "model_name": "./AImodels/Gemma-4-31B-IT-NVFP4",
     "api_port": 8103,
@@ -35,6 +36,7 @@
   },
   {
     "alias": "qwen3-14b",
+    "deployment": "local",
     "served_model_name": "qwen3-14b",
     "model_name": "./AImodels/Qwen3-14B-FP8",
     "api_port": 8104,
@@ -63,6 +65,32 @@
       "tool_use": true,
       "vision": false,
       "priority_scheduling": true
+    }
+  },
+  {
+    "alias": "remote-lab-chat",
+    "deployment": "remote",
+    "served_model_name": "lab-chat-model",
+    "api_base": "http://192.0.2.20:8103/v1",
+    "api_key_env": "REMOTE_LAB_API_KEY",
+    "litellm": {
+      "rpm": 10
+    },
+    "capabilities": {
+      "chat": true
+    }
+  },
+  {
+    "alias": "remote-lab-private",
+    "deployment": "remote",
+    "served_model_name": "lab-private-model",
+    "api_base": "http://192.0.2.21:8103/v1",
+    "apikeys": "replace-with-remote-model-api-key",
+    "litellm": {
+      "rpm": 10
+    },
+    "capabilities": {
+      "chat": true
     }
   }
 ]

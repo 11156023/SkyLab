@@ -262,7 +262,10 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
         assert request_id
         return responses.pop(0)
 
-    monkeypatch.setattr(collector, "get_proxmox_api", lambda: proxmox)
+    # 連線清單也要換成替身：不換的話會去讀真資料庫的 proxmox_connections，
+    # 連到有 PVE 連線的庫（例如本機指向共用開發庫）時，測試結果就跟著庫的內容變。
+    monkeypatch.setattr(collector, "list_enabled_connection_ids", lambda: [1])
+    monkeypatch.setattr(collector, "get_proxmox_api", lambda connection_id: proxmox)
     monkeypatch.setattr(collector.settings, "collector_retry_attempts", 1)
     monkeypatch.setattr(collector.settings, "collector_retry_backoff", 0)
     monkeypatch.setattr(collector.settings, "collector_max_workers", 4)

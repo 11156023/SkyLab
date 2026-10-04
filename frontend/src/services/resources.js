@@ -137,6 +137,15 @@ export const ResourcesService = {
     return apiGet(`/api/v1/resources/${vmid}/stats?timeframe=${timeframe}`);
   },
 
+  /**
+   * 這台機器當下能否使用快照 → { available, reason }
+   * （reason: "unsupported"＝磁碟所在 storage 不支援、"unknown"＝查不到；可用時為 null）。
+   * 不可用時整組快照功能（含一鍵重置、初始快照）都要藏起來，後端也會拒絕這些操作。
+   */
+  getSnapshotCapability(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/snapshot-capability`);
+  },
+
   /** 快照列表 */
   listSnapshots(vmid) {
     return apiGet(`/api/v1/resources/${vmid}/snapshots`);
@@ -175,6 +184,39 @@ export const ResourcesService = {
   /** 建立初始快照（教師/管理員） */
   createInitSnapshot(vmid) {
     return apiPost(`/api/v1/resources/${vmid}/init-snapshot`, {});
+  },
+
+  /* ── 備份（快照不能用的機器以備份當還原點；備份與還原都是背景任務） ── */
+
+  /**
+   * 這台機器能否使用備份 → { available, reason, requires_shutdown, max_count }
+   * （reason: "not_configured"＝所屬叢集沒設備份 storage、"storage_unavailable"、"unknown"；
+   * requires_shutdown＝備份期間機器會先關機；max_count＝可保留份數，null 表示不限）。
+   */
+  getBackupCapability(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/backup-capability`);
+  },
+
+  /** 備份列表 → [{ volid, created_at, size, description }]（只含 SkyLab 為這台機器建立的備份） */
+  listBackups(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/backups`);
+  },
+
+  /** 建立備份（202，背景任務；body: { description? }）→ { message, task_id } */
+  createBackup(vmid, body = {}) {
+    return apiPost(`/api/v1/resources/${vmid}/backups`, body);
+  },
+
+  /** 以備份還原整台機器（202，背景任務）→ { message, task_id } */
+  restoreBackup(vmid, volid) {
+    return apiPost(`/api/v1/resources/${vmid}/backups/restore`, { volid });
+  },
+
+  /** 刪除備份；volid 含斜線與冒號，放 query 而不是路徑 */
+  deleteBackup(vmid, volid) {
+    return apiDelete(
+      `/api/v1/resources/${vmid}/backups?volid=${encodeURIComponent(volid)}`,
+    );
   },
 
   /* ── 進階設定端點（resource_settings.py） ── */

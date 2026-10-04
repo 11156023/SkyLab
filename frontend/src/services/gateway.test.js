@@ -63,6 +63,64 @@ describe("GatewayService one-click install", () => {
   });
 });
 
+describe("GatewayService 平台入口", () => {
+  const entry = {
+    enabled: true,
+    domain: "skylab.example.com",
+    upstream_host: "192.168.100.20",
+    upstream_port: 8082,
+    enable_https: true,
+  };
+
+  test("getPlatformEntry 以 GET 打 /gateway/platform-entry", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { ...entry, gateway_ready: true }));
+
+    const res = await GatewayService.getPlatformEntry();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/gateway\/platform-entry$/);
+    expect(init.method).toBe("GET");
+    expect(res.gateway_ready).toBe(true);
+  });
+
+  test("updatePlatformEntry 以 PUT 送完整設定", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, entry));
+
+    await GatewayService.updatePlatformEntry(entry);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/gateway\/platform-entry$/);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual(entry);
+  });
+
+  test("testPlatformEntryUpstream 以 POST 送上游位址", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { reachable: true, detail: "ok" }));
+
+    const res = await GatewayService.testPlatformEntryUpstream({
+      upstream_host: "192.168.100.20",
+      upstream_port: 8082,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/gateway/platform-entry/test-upstream");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ upstream_host: "192.168.100.20", upstream_port: 8082 });
+    expect(res.reachable).toBe(true);
+  });
+
+  test("getPlatformEntryStatus 以 GET 打 status 端點", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { applied: true }));
+
+    const res = await GatewayService.getPlatformEntryStatus();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/gateway/platform-entry/status");
+    expect(init.method).toBe("GET");
+    expect(res.applied).toBe(true);
+  });
+});
+
 describe("GatewayService host key", () => {
   test("resetHostKey 以 POST 打 /gateway/reset-host-key", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { message: "已重設" }));

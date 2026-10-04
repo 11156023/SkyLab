@@ -2,7 +2,8 @@
  * SetupPage — 首次安裝初始化精靈（/setup）。
  *
  * 免登入頁面，只在後端 `system_setup.completed` 為 false 時有作用：
- *   開始 → 管理員 → PVE 連線（可略過）→ IP 網段（可略過）→ 完成並登入。
+ *   開始 → 管理員 → PVE 連線（可略過）→ IP 網段（可略過）→ Gateway（可略過）
+ *   → 平台入口（可略過）→ 完成並登入。
  * 每一步存檔都直接打 /api/v1/setup/*，重新整理後會依 status.steps 顯示「已設定」讓人直接往下走。
  * 完成後呼叫 markSetupCompleted()，登入頁就不會再把人導回來。
  */
@@ -12,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import PasswordInput from "../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../components/PasswordRules/PasswordRules";
 import RotatingWelcome from "../../components/RotatingWelcome/RotatingWelcome";
 import Stepper from "../../components/Stepper/Stepper";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
@@ -19,19 +21,24 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../hooks/useToast";
 import { SetupService } from "../../services/setup";
+import { isPasswordStrong } from "../../utils/passwordPolicy";
 import { markSetupCompleted, useSetupStatus } from "./useSetupStatus";
 import { pickDefaultNode } from "./setupDefaults";
 import { LanguagePicker, Notice } from "./wizardParts";
+import GatewayStep from "./GatewayStep";
+import PlatformEntryStep from "./PlatformEntryStep";
 import styles from "./SetupPage.module.scss";
 
 const STEP_ADMIN = 0;
 const STEP_PROXMOX = 1;
 const STEP_SUBNET = 2;
-const STEP_FINISH = 3;
-const STEP_KEYS = ["admin", "proxmox", "subnet", "finish"];
+const STEP_GATEWAY = 3;
+const STEP_PLATFORM = 4;
+const STEP_FINISH = 5;
+/* key 對應後端 status.steps 的欄位名稱 */
+const STEP_KEYS = ["admin", "proxmox", "subnet", "gateway", "platform_entry", "finish"];
 
 const IPV4_PATTERN = "^(\\d{1,3}\\.){3}\\d{1,3}$";
-const MIN_PASSWORD_LENGTH = 8;
 
 const EMPTY_ADMIN_FORM = {
   email: "",
@@ -174,13 +181,16 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
   const [editing, setEditing] = useState(!alreadyDone);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  /* 送出時密碼不合複雜度規則：規則清單把未滿足的項目標紅 */
+  const [rulesFlagged, setRulesFlagged] = useState(false);
   const set = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
-    if (form.password.length < MIN_PASSWORD_LENGTH) {
-      setError(t("SetupPage.passwordTooShort"));
+    if (!isPasswordStrong(form.password)) {
+      setRulesFlagged(true);
+      setError(t("PasswordRules.notMet", { ns: "common" }));
       return;
     }
     if (form.password !== form.confirm) {
@@ -265,10 +275,10 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
             value={form.password}
             onChange={(e) => set("password", e.target.value)}
             placeholder={t("SetupPage.passwordPlaceholder")}
-            minLength={MIN_PASSWORD_LENGTH}
             disabled={saving}
             required
           />
+          <PasswordRules password={form.password} invalid={rulesFlagged} />
         </label>
         <label className={styles.field}>
           <span>{t("SetupPage.confirmPasswordLabel")} *</span>
@@ -276,8 +286,7 @@ function AdminStep({ alreadyDone, savedEmail, onSaved, onBack, onNext }) {
             autoComplete="new-password"
             value={form.confirm}
             onChange={(e) => set("confirm", e.target.value)}
-            placeholder={t("SetupPage.passwordPlaceholder")}
-            minLength={MIN_PASSWORD_LENGTH}
+            placeholder={t("SetupPage.confirmPasswordPlaceholder")}
             disabled={saving}
             required
           />
@@ -813,7 +822,7 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
 
 /* ─── 步驟 4：完成 ───────────────────────────────────────── */
 
-function FinishStep({ steps, adminCreds, proxmoxResult, subnetResult, onBack }) {
+function FinishStep({ steps, adminCreds, proxmoxResult, subnetResult, gatewayConfig, platformResult, onBack }) {
   const { t } = useTranslation("login");
   const toast = useToast();
   const navigate = useNavigate();
@@ -858,6 +867,12 @@ function FinishStep({ steps, adminCreds, proxmoxResult, subnetResult, onBack }) 
         subnetResult.vlan_tag != null ? `VLAN ${subnetResult.vlan_tag}` : null,
       ].filter(Boolean).join(" · ")
     : steps.subnet ? t("SetupPage.summaryConfigured") : t("SetupPage.summarySkipped");
+  const gatewayText = gatewayConfig?.is_configured
+    ? `${gatewayConfig.ssh_user}@${gatewayConfig.host}`
+    : steps.gateway ? t("SetupPage.summaryConfigured") : t("SetupPage.summarySkipped");
+  const platformText = platformResult?.enabled
+    ? `${platformResult.enable_https ? "https" : "http"}://${platformResult.domain}`
+    : steps.platform_entry ? t("SetupPage.summaryConfigured") : t("SetupPage.summarySkipped");
 
   return (
     <section className={styles.section}>
@@ -876,6 +891,14 @@ function FinishStep({ steps, adminCreds, proxmoxResult, subnetResult, onBack }) 
         <div>
           <dt><MIcon name="lan" size={18} />{t("SetupPage.summarySubnet")}</dt>
           <dd className={!subnetResult && !steps.subnet ? styles.muted : undefined}>{subnetText}</dd>
+        </div>
+        <div>
+          <dt><MIcon name="router" size={18} />{t("SetupPage.summaryGateway")}</dt>
+          <dd className={!steps.gateway ? styles.muted : undefined}>{gatewayText}</dd>
+        </div>
+        <div>
+          <dt><MIcon name="public" size={18} />{t("SetupPage.summaryPlatform")}</dt>
+          <dd className={!steps.platform_entry ? styles.muted : undefined}>{platformText}</dd>
         </div>
       </dl>
 
@@ -907,6 +930,8 @@ export default function SetupPage() {
   const [adminDone, setAdminDone] = useState(false);
   const [proxmoxResult, setProxmoxResult] = useState(null);
   const [subnetResult, setSubnetResult] = useState(null);
+  const [gatewayConfig, setGatewayConfig] = useState(null);
+  const [platformResult, setPlatformResult] = useState(null);
 
   useEffect(() => {
     document.title = `${t("SetupPage.title")} · SkyLab`;
@@ -916,12 +941,16 @@ export default function SetupPage() {
     admin: Boolean(status?.steps?.admin) || adminDone,
     proxmox: Boolean(status?.steps?.proxmox) || Boolean(proxmoxResult),
     subnet: Boolean(status?.steps?.subnet) || Boolean(subnetResult),
-  }), [status, adminDone, proxmoxResult, subnetResult]);
+    gateway: Boolean(status?.steps?.gateway) || Boolean(gatewayConfig?.is_configured),
+    platform_entry: Boolean(status?.steps?.platform_entry) || Boolean(platformResult?.enabled),
+  }), [status, adminDone, proxmoxResult, subnetResult, gatewayConfig, platformResult]);
 
   const stepLabels = useMemo(() => [
     t("SetupPage.stepAdmin"),
     t("SetupPage.stepProxmox"),
     t("SetupPage.stepSubnet"),
+    t("SetupPage.stepGateway"),
+    t("SetupPage.stepPlatform"),
     t("SetupPage.stepFinish"),
   ], [t]);
 
@@ -1010,10 +1039,30 @@ export default function SetupPage() {
             alreadyDone={steps.subnet}
             onSaved={(result) => {
               setSubnetResult(result);
+              setStep(STEP_GATEWAY);
+            }}
+            onSkip={() => setStep(STEP_GATEWAY)}
+            onBack={() => setStep(STEP_PROXMOX)}
+            onNext={() => setStep(STEP_GATEWAY)}
+          />
+        )}
+        {step === STEP_GATEWAY && (
+          <GatewayStep
+            onConfigured={setGatewayConfig}
+            onSkip={() => setStep(STEP_PLATFORM)}
+            onBack={() => setStep(STEP_SUBNET)}
+            onNext={() => setStep(STEP_PLATFORM)}
+          />
+        )}
+        {step === STEP_PLATFORM && (
+          <PlatformEntryStep
+            gatewayReady={steps.gateway}
+            onSaved={(result) => {
+              setPlatformResult(result);
               setStep(STEP_FINISH);
             }}
             onSkip={() => setStep(STEP_FINISH)}
-            onBack={() => setStep(STEP_PROXMOX)}
+            onBack={() => setStep(STEP_GATEWAY)}
             onNext={() => setStep(STEP_FINISH)}
           />
         )}
@@ -1023,7 +1072,9 @@ export default function SetupPage() {
             adminCreds={adminCreds}
             proxmoxResult={proxmoxResult}
             subnetResult={subnetResult}
-            onBack={() => setStep(STEP_SUBNET)}
+            gatewayConfig={gatewayConfig}
+            platformResult={platformResult}
+            onBack={() => setStep(STEP_PLATFORM)}
           />
         )}
       </>

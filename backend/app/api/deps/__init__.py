@@ -26,7 +26,12 @@ from app.api.deps.proxmox import (
     get_resource_info_controllable,
     get_resource_info_teaching,
 )
-from app.api.deps.rate_limit import rate_limit_by_ip, rate_limit_by_user
+from app.api.deps.rate_limit import (
+    enforce_account_rate_limit,
+    rate_limit_by_ip,
+    rate_limit_by_user,
+)
+from app.api.deps.turnstile import TURNSTILE_HEADER, require_turnstile
 
 __all__ = [
     # Database
@@ -60,6 +65,10 @@ __all__ = [
     "get_resource_info_teaching",
     "TeachingResourceInfoDep",
     # Rate limiting
+    "enforce_account_rate_limit",
     "rate_limit_by_ip",
     "rate_limit_by_user",
+    # Bot protection
+    "TURNSTILE_HEADER",
+    "require_turnstile",
 ]

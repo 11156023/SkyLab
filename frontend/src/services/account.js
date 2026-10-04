@@ -1,4 +1,5 @@
 import { apiGet, apiPatch, apiDelete, apiPost, apiPostMultipart } from "./api";
+import { turnstileHeaders } from "./auth";
 
 const BASE = "/api/v1/users/me";
 
@@ -72,8 +73,12 @@ export const AccountService = {
   },
 
   /** 自行註冊帳號 */
-  signup({ email, full_name, password }) {
-    return apiPost("/api/v1/users/signup", { email, full_name, password });
+  signup({ email, full_name, password }, { turnstileToken } = {}) {
+    return apiPost(
+      "/api/v1/users/signup",
+      { email, full_name, password },
+      { headers: turnstileHeaders(turnstileToken) },
+    );
   },
 
   /** 核准桌面用戶端的裝置授權碼（需已登入） */

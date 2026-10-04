@@ -250,7 +250,7 @@ def test_sync_nginx_http_rereads_rules_under_the_lock(
     monkeypatch.setattr(
         nginx,
         "build_http_config",
-        lambda rules, cert_names: built.append(list(rules)) or "",
+        lambda rules, cert_names, **_kwargs: built.append(list(rules)) or "",
     )
 
     reverse_proxy_service._sync_nginx(object())

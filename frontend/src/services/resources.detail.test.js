@@ -41,6 +41,19 @@ describe("ResourcesService 詳情端點", () => {
     expect(url).toContain("/api/v1/resources/105/stats?timeframe=day");
   });
 
+  test("getSnapshotCapability 以 GET 查詢這台機器能否使用快照", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonRes(200, { available: false, reason: "unsupported" }),
+    );
+
+    const result = await ResourcesService.getSnapshotCapability(105);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/resources/105/snapshot-capability");
+    expect(init?.method ?? "GET").toBe("GET");
+    expect(result).toEqual({ available: false, reason: "unsupported" });
+  });
+
   test("createSnapshot 以 POST 送出快照參數", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { success: true }));
 
@@ -58,6 +71,63 @@ describe("ResourcesService 詳情端點", () => {
       description: "升級前",
       vmstate: false,
     });
+  });
+
+  test("getBackupCapability 以 GET 查詢這台機器能否使用備份", async () => {
+    const body = { available: true, reason: null, requires_shutdown: true, max_count: 2 };
+    fetchMock.mockResolvedValueOnce(jsonRes(200, body));
+
+    const result = await ResourcesService.getBackupCapability(105);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/resources/105/backup-capability");
+    expect(init?.method ?? "GET").toBe("GET");
+    expect(result).toEqual(body);
+  });
+
+  test("listBackups 以 GET 取得備份清單", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, []));
+
+    await ResourcesService.listBackups(105);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/resources\/105\/backups$/);
+    expect(init?.method ?? "GET").toBe("GET");
+  });
+
+  test("createBackup 以 POST 送出描述", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(202, { message: "ok", task_id: "t1" }));
+
+    const result = await ResourcesService.createBackup(105, { description: "升級前" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/resources\/105\/backups$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ description: "升級前" });
+    expect(result.task_id).toBe("t1");
+  });
+
+  test("restoreBackup 以 POST 送出 volid", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(202, { message: "ok", task_id: "t2" }));
+
+    await ResourcesService.restoreBackup(105, "pbs:backup/ct/105/2026-09-20T00:00:00Z");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/resources/105/backups/restore");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ volid: "pbs:backup/ct/105/2026-09-20T00:00:00Z" });
+  });
+
+  test("deleteBackup 以 DELETE 送出，volid 放在編碼過的 query", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { message: "ok" }));
+
+    await ResourcesService.deleteBackup(105, "pbs:backup/ct/105/2026-09-20T00:00:00Z");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain(
+      "/api/v1/resources/105/backups?volid=pbs%3Abackup%2Fct%2F105%2F2026-09-20T00%3A00%3A00Z",
+    );
+    expect(init.method).toBe("DELETE");
   });
 
   test("updateSpecDirect 以 PUT 送出規格", async () => {

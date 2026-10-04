@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-import app.schemas.firewall
+from app.schemas import firewall as firewall_schemas
 from app.schemas.firewall import (
     PortSpec,
     PublishedServiceCreate,
@@ -14,7 +14,7 @@ from app.schemas.reverse_proxy import ReverseProxyRulePublic
 
 
 def test_reverse_proxy_rule_public_lives_in_reverse_proxy_schema() -> None:
-    assert not hasattr(app.schemas.firewall, "ReverseProxyRulePublic")
+    assert not hasattr(firewall_schemas, "ReverseProxyRulePublic")
     assert ReverseProxyRulePublic.__module__ == "app.schemas.reverse_proxy"
 
 

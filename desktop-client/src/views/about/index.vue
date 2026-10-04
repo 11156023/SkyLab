@@ -24,9 +24,15 @@ const openAppData = () => send(ipcRouters.SYSTEM.openAppData);
           {{ t("about.description") }}
         </div>
         <div class="about-tags">
-          <el-tag size="small" type="success">{{ t("about.features.oneClick") }}</el-tag>
-          <el-tag size="small" type="primary">{{ t("about.features.bundled") }}</el-tag>
-          <el-tag size="small" type="danger">{{ t("about.features.secure") }}</el-tag>
+          <el-tag size="small" type="success">{{
+            t("about.features.oneClick")
+          }}</el-tag>
+          <el-tag size="small" type="primary">{{
+            t("about.features.bundled")
+          }}</el-tag>
+          <el-tag size="small" type="danger">{{
+            t("about.features.secure")
+          }}</el-tag>
         </div>
         <div class="about-version">
           {{ t("about.version") }} v{{ pkg.version }}

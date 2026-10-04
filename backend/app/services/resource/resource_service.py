@@ -12,6 +12,7 @@ from typing import Any, Literal
 from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
+from app.core.db import end_read_transaction
 from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.domain.resource_markers import (
@@ -49,6 +50,7 @@ from app.schemas.resource import (
     ResourceStatus,
     SessionStatusResponse,
 )
+from app.services.governance.lifecycle_policy import expiry_datetime
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
 from app.services.resource import kind as resource_kind
@@ -985,6 +987,9 @@ def list_by_user(
                 session=session,
                 db_resources=[*owned_vmids.values(), *shared_rows.values(), *taught_rows.values()],
             )
+            # 叢集清單走全域 single-flight 鎖，整班同時開頁面時會排隊；排隊期間
+            # 別抱著 DB 連線（持鎖那一方重連 PVE 時還要再取連線）
+            end_read_transaction(session)
             try:
                 pairs: list[tuple[dict, Any]] = []
                 for r in proxmox_service.list_all_resources():
@@ -1231,7 +1236,7 @@ def control(
         node = resource_info["node"]
         resource_type = resource_info["type"]
 
-        if action == "start":
+        if action in {"start", "reboot", "reset"}:
             _enforce_start_window(session=session, vmid=vmid)
 
         proxmox_service.control(node, vmid, resource_type, action)
@@ -1245,13 +1250,16 @@ def control(
             firewall_service.ensure_firewall_enabled(node, vmid, resource_type)
             _set_auto_stop_for_user_start(session=session, vmid=vmid)
         elif action in ("stop", "shutdown"):
-            # 學生主動關機 → 清除 auto_stop_at，不會被排程器再啟動
-            resource_repo.set_auto_stop(
-                session=session,
-                vmid=vmid,
-                auto_stop_at=None,
-                auto_stop_reason=None,
-            )
+            # A guest can ignore graceful shutdown. Keep the expired-window
+            # deadline until Proxmox confirms that the VM stopped.
+            db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+            if db_resource is None or db_resource.auto_stop_reason != "window_grace":
+                resource_repo.set_auto_stop(
+                    session=session,
+                    vmid=vmid,
+                    auto_stop_at=None,
+                    auto_stop_reason=None,
+                )
 
         action_map = {
             "start": "resource_start",
@@ -1420,6 +1428,9 @@ def delete(
             )
             raise
 
+        # PVE 的 purge 不會刪備份檔，而 VMID 會被重用：連同這台機器的備份一起清
+        _purge_backups_best_effort(node=node, vmid=vmid)
+
         _cleanup_after_resource_removed(
             session=session,
             vmid=vmid,
@@ -1489,6 +1500,18 @@ def delete_orphan_db_record(
         details=f"Orphan DB cleanup for vmid={vmid} (VM not found in Proxmox)",
     )
     logger.info("Orphan DB record for vmid=%s cleaned up", vmid)
+
+
+def _purge_backups_best_effort(*, node: str, vmid: int) -> None:
+    """機器已從 PVE 刪除：清掉 SkyLab 為它建立的備份；失敗只記 log，不擋刪除。"""
+    try:
+        from app.services.resource import backup_service
+
+        backup_service.purge_backups_for_removed_machine(node=node, vmid=vmid)
+    except Exception:
+        logger.warning(
+            "Failed to purge backups of deleted resource %s", vmid, exc_info=True
+        )
 
 
 def _cleanup_after_resource_removed(
@@ -1841,6 +1864,7 @@ def list_my_session_statuses(
     resources = resource_repo.get_resources_by_user(session=session, user_id=user_id)
     if not resources:
         return []
+    end_read_transaction(session)
     pve_by_vmid = proxmox_service.list_all_resources_by_vmid()
     policy = get_schedule_policy(session=session)
     statuses: list[SessionStatusResponse] = []
@@ -1887,9 +1911,7 @@ def _session_status(
     hours_until_expiry: int | None = None
     expiry_warn = False
     if running and resource and resource.expiry_date and resource.batch_job_id is None:
-        expiry_at = datetime.combine(
-            resource.expiry_date, datetime.min.time(), tzinfo=UTC
-        ) + timedelta(days=1)
+        expiry_at = expiry_datetime(resource.expiry_date)
         delta_h = (expiry_at - _utc_now()).total_seconds() / 3600
         hours_until_expiry = max(math.ceil(delta_h), 0)
         expiry_warn = 0 < delta_h <= policy.expiry_warning_hours

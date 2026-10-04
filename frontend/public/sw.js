@@ -86,8 +86,8 @@ self.addEventListener("push", (event) => {
         icon: "/favicon.png",
         badge: "/favicon.png",
         data: { url: payload.url || "/", kind: payload.kind, id: payload.id },
-        // 同 tag 的通知會互相取代；renotify 讓取代時仍提示一次
-        renotify: Boolean(payload.tag),
+        // 同 tag 的通知只取代既有項目，不再次震動或提示。
+        renotify: false,
       });
     })(),
   );

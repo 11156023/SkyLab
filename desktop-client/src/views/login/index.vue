@@ -42,9 +42,14 @@ const authEventHandler = (_event: any, args: ApiResponse<any>) => {
 };
 
 onMounted(() => {
-  on(ipcRouters.AUTH.startLogin, () => {
-    waiting.value = true;
-  });
+  on(
+    ipcRouters.AUTH.startLogin,
+    () => {},
+    (_code, message) => {
+      waiting.value = false;
+      ElMessage.error(t("login.failure", { error: message }));
+    }
+  );
   window.electronIpcRenderer.on("auth:event", authEventHandler);
 });
 
@@ -90,10 +95,7 @@ onUnmounted(() => {
           </svg>
           <svg v-else viewBox="0 0 24 24" fill="none">
             <path d="M12 3v9" stroke="currentColor" />
-            <path
-              d="M7.05 6.64a8 8 0 1 0 9.9 0"
-              stroke="currentColor"
-            />
+            <path d="M7.05 6.64a8 8 0 1 0 9.9 0" stroke="currentColor" />
           </svg>
         </span>
         <span class="connect-button__label">

@@ -68,7 +68,10 @@ const resourceAclSignature = computed(() =>
         resource.vmid,
         resource.status,
         resource.ip_address,
-        resource.can_control
+        resource.can_control,
+        resource.access_role,
+        resource.start_blocked_reason,
+        resource.window_end_at
       ].join(":")
     )
     .sort()
@@ -343,6 +346,14 @@ onUnmounted(() => {
       </section>
 
       <template v-else>
+        <el-alert
+          v-if="appStore.tunnelStatus.leaseRefreshError"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="t('home.status.leaseRefreshFailed')"
+          :description="appStore.tunnelStatus.leaseRefreshError"
+        />
         <div class="resource-header">
           <div>
             <h1>{{ t("resources.webTitle") }}</h1>
@@ -377,6 +388,14 @@ onUnmounted(() => {
             })
           }}</span>
         </div>
+
+        <el-alert
+          v-if="machineCount > 0 && !appStore.tunnelStatus.tunnels.length"
+          :title="t('home.machines.noTargets')"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
 
         <div v-if="machineCount" class="resource-sections">
           <section

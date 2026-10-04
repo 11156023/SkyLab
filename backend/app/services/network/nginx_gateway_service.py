@@ -18,6 +18,7 @@ import logging
 import re
 import shlex
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -48,6 +49,11 @@ _MANAGED_HEADER = (
 )
 
 _CERT_NAME_PATTERN = re.compile(r"^[a-z0-9.-]{1,255}$")
+
+# 平台入口（主系統自己的網域）在 http.conf 裡的區段標記與 upstream 名稱
+PLATFORM_BEGIN_MARKER = "# BEGIN skylab-platform"
+PLATFORM_END_MARKER = "# END skylab-platform"
+PLATFORM_UPSTREAM_NAME = "skylab_platform"
 
 
 # ─── 設定檔產生 ──────────────────────────────────────────────────────────────
@@ -100,8 +106,102 @@ def _proxy_location(vm_ip: str, internal_port: int) -> list[str]:
     ]
 
 
-def build_http_config(rules: list[Any], cert_names: dict[str, str | None]) -> str:
-    """從反向代理規則產生 ``http.conf``。
+@dataclass(frozen=True)
+class PlatformEntry:
+    """平台入口：SkyLab 主系統自己經 Gateway nginx 對外的那一個網域。"""
+
+    domain: str
+    upstream_host: str
+    upstream_port: int
+    enable_https: bool
+
+    @property
+    def upstream(self) -> str:
+        return f"{self.upstream_host}:{self.upstream_port}"
+
+
+def _ssl_certificate_lines(cert_name: str | None) -> list[str]:
+    """憑證簽下來就用 Let's Encrypt 那張，否則先掛安裝時產生的自簽憑證。"""
+    if cert_name:
+        return [
+            f"    # 憑證：{cert_name}",
+            f"    ssl_certificate {LETSENCRYPT_LIVE_DIR}/{cert_name}/fullchain.pem;",
+            f"    ssl_certificate_key {LETSENCRYPT_LIVE_DIR}/{cert_name}/privkey.pem;",
+        ]
+    return [
+        "    # 憑證尚未簽發，暫用自簽憑證；重新同步會再嘗試簽發",
+        f"    ssl_certificate {NGINX_FALLBACK_CERT_PATH};",
+        f"    ssl_certificate_key {NGINX_FALLBACK_KEY_PATH};",
+    ]
+
+
+def build_platform_servers(entry: PlatformEntry, cert_name: str | None) -> list[str]:
+    """平台入口的 server 區塊（夾在 BEGIN／END 標記之間，供狀態檢查讀回）。
+
+    和 VM 網域的差別：
+    - 到主系統的連線走 upstream keepalive，整班同時操作時不必每個請求重開 TCP
+    - VNC／終端機／教室的 WebSocket 是長連線，逾時放到 1 小時（VM 網域是 5 分鐘）；
+      一般 API 的逾時仍由主系統自己的 nginx 決定
+    - 上傳與串流回應都不在 Gateway 緩衝：大檔不落地、AI 對話逐字送出
+    - ``X-Forwarded-For`` 一律覆寫成連線來源，主系統的 nginx 才能放心拿它還原
+      使用者 IP（客戶端自帶的同名標頭不往後傳）
+    """
+    proxy_server = [
+        "    proxy_request_buffering off;",
+        "    proxy_buffering off;",
+        "    location / {",
+        f"        proxy_pass http://{PLATFORM_UPSTREAM_NAME};",
+        "        proxy_http_version 1.1;",
+        "        proxy_set_header Host $host;",
+        "        proxy_set_header X-Real-IP $remote_addr;",
+        "        proxy_set_header X-Forwarded-For $remote_addr;",
+        "        proxy_set_header X-Forwarded-Proto $scheme;",
+        "        proxy_set_header Upgrade $http_upgrade;",
+        "        proxy_set_header Connection $skylab_platform_connection;",
+        "        proxy_connect_timeout 5s;",
+        "        proxy_read_timeout 3600s;",
+        "        proxy_send_timeout 3600s;",
+        "    }",
+        "}",
+    ]
+    lines = [
+        PLATFORM_BEGIN_MARKER,
+        f"upstream {PLATFORM_UPSTREAM_NAME} {{",
+        f"    server {entry.upstream};",
+        "    keepalive 32;",
+        "}",
+        "# 一般請求送空的 Connection 才能保留到主系統的 keep-alive",
+        "map $http_upgrade $skylab_platform_connection {",
+        "    default upgrade;",
+        "    ''      '';",
+        "}",
+        "server {",
+        "    listen 80;",
+        f"    server_name {entry.domain};",
+    ]
+    if entry.enable_https:
+        lines += [
+            "    return 301 https://$host$request_uri;",
+            "}",
+            "server {",
+            "    listen 443 ssl;",
+            f"    server_name {entry.domain};",
+            *_ssl_certificate_lines(cert_name),
+            *proxy_server,
+        ]
+    else:
+        lines += proxy_server
+    lines += [PLATFORM_END_MARKER, ""]
+    return lines
+
+
+def build_http_config(
+    rules: list[Any],
+    cert_names: dict[str, str | None],
+    *,
+    platform: PlatformEntry | None = None,
+) -> str:
+    """從反向代理規則（與平台入口）產生 ``http.conf``。
 
     ``cert_names`` 是 domain → 已簽好的憑證名稱（``/etc/letsencrypt/live/<name>``）；
     給 ``None`` 代表這個網域的憑證還沒簽下來，先用安裝時產生的自簽憑證頂著，
@@ -116,28 +216,19 @@ def build_http_config(rules: list[Any], cert_names: dict[str, str | None]) -> st
         "}",
         "",
     ]
+    if platform is not None:
+        lines += build_platform_servers(platform, cert_names.get(platform.domain))
     for r in rules:
         name = http_server_name(r.vmid, r.domain)
         lines += [f"# {name}", "server {", "    listen 80;", f"    server_name {r.domain};"]
         if r.enable_https:
             lines += ["    return 301 https://$host$request_uri;", "}", ""]
-            cert_name = cert_names.get(r.domain)
-            if cert_name:
-                cert_path = f"{LETSENCRYPT_LIVE_DIR}/{cert_name}/fullchain.pem"
-                key_path = f"{LETSENCRYPT_LIVE_DIR}/{cert_name}/privkey.pem"
-                cert_note = f"    # 憑證：{cert_name}"
-            else:
-                cert_path = NGINX_FALLBACK_CERT_PATH
-                key_path = NGINX_FALLBACK_KEY_PATH
-                cert_note = "    # 憑證尚未簽發，暫用自簽憑證；重新同步會再嘗試簽發"
             lines += [
                 f"# {name} (https)",
                 "server {",
                 "    listen 443 ssl;",
                 f"    server_name {r.domain};",
-                cert_note,
-                f"    ssl_certificate {cert_path};",
-                f"    ssl_certificate_key {key_path};",
+                *_ssl_certificate_lines(cert_names.get(r.domain)),
                 *_proxy_location(r.vm_ip, r.internal_port),
                 "}",
                 "",
@@ -415,6 +506,49 @@ def parse_http_servers(content: str) -> list[dict[str, Any]]:
     return list(servers.values())
 
 
+_PLATFORM_SECTION_PATTERN = re.compile(
+    re.escape(PLATFORM_BEGIN_MARKER) + r"\n(?P<body>.*?)" + re.escape(PLATFORM_END_MARKER),
+    re.DOTALL,
+)
+_UPSTREAM_SERVER_PATTERN = re.compile(r"^\s*server\s+([^;\s{]+);", re.MULTILINE)
+
+
+def parse_platform_entry(content: str) -> dict[str, Any] | None:
+    """從 ``http.conf`` 讀回目前套用中的平台入口；沒有那一段就回 ``None``。"""
+    match = _PLATFORM_SECTION_PATTERN.search(content)
+    if match is None:
+        return None
+    body = match.group("body")
+    server_name = _SERVER_NAME_PATTERN.search(body)
+    upstream = _UPSTREAM_SERVER_PATTERN.search(body)
+    https = "listen 443 ssl;" in body
+    certificate: str | None = None
+    certificate_ready: bool | None = None
+    if https:
+        cert_line = _CERT_LINE_PATTERN.search(body)
+        cert_path = cert_line.group(1).strip() if cert_line else ""
+        certificate_ready = cert_path.startswith(f"{LETSENCRYPT_LIVE_DIR}/")
+        if certificate_ready:
+            certificate = cert_path[len(LETSENCRYPT_LIVE_DIR) + 1 :].split("/")[0]
+    return {
+        "domain": server_name.group(1).strip() if server_name else "",
+        "upstream": upstream.group(1).strip() if upstream else None,
+        "https": https,
+        "certificate": certificate,
+        "certificate_ready": certificate_ready,
+    }
+
+
+def read_http_config(client: Any) -> str:
+    _, content, _ = _exec(client, f"cat {shlex.quote(NGINX_HTTP_CONF_PATH)} 2>/dev/null")
+    return content
+
+
+def list_certificates(client: Any) -> list[dict[str, Any]]:
+    _, out, _ = _exec(client, _CERT_LISTING_COMMAND)
+    return parse_certificate_listing(out)
+
+
 def parse_stream_servers(content: str) -> list[dict[str, Any]]:
     servers: list[dict[str, Any]] = []
     for match in _STREAM_SERVER_PATTERN.finditer(content):
@@ -540,8 +674,13 @@ __all__ = [
     "NGINX_HTTP_CONF_PATH",
     "NGINX_MANAGED_DIR",
     "NGINX_STREAM_CONF_PATH",
+    "PLATFORM_BEGIN_MARKER",
+    "PLATFORM_END_MARKER",
+    "PLATFORM_UPSTREAM_NAME",
+    "PlatformEntry",
     "build_health_command",
     "build_http_config",
+    "build_platform_servers",
     "build_stream_config",
     "certificate_exists",
     "collect_runtime",
@@ -549,13 +688,16 @@ __all__ = [
     "get_acme_email",
     "http_server_name",
     "issue_certificate",
+    "list_certificates",
     "parse_certificate_listing",
     "parse_health_output",
     "parse_http_servers",
+    "parse_platform_entry",
     "parse_stream_servers",
     "parse_version",
     "plan_certificate",
     "probe_health",
+    "read_http_config",
     "renew_certificates",
     "stream_server_name",
     "write_certbot_credentials",

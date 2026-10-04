@@ -22,6 +22,10 @@ function resourceSort(a: SkyLabResource, b: SkyLabResource): number {
 
 function courseTitle(resources: SkyLabResource[], classId: string): string {
   return (
+    resources.find(resource => resource.teaching_class_name)
+      ?.teaching_class_name ||
+    resources.find(resource => resource.course_environment_name)
+      ?.course_environment_name ||
     resources.find(resource => resource.environment_type)?.environment_type ||
     `課程 ${classId.slice(0, 8)}`
   );

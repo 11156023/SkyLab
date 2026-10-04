@@ -7,6 +7,8 @@
 - template:       機器範本任務 (task_records：轉換／克隆／刪除／更新循環)
 - resource_reset: 機器重設 (task_records，task_type=resource.reset)
 - batch_provision: 批次建機 (task_records，task_type=batch_provision.run)
+- resource_backup: 機器備份 (task_records，task_type=resource.backup)
+- resource_restore: 以備份還原機器 (task_records，task_type=resource.restore)
 
 所有來源被正規化到統一的 JobItem 結構，以便前端 Job 中心一致顯示。
 """
@@ -28,9 +30,11 @@ class JobKind(str, enum.Enum):
     spec_change = "spec_change"
     deletion = "deletion"
     template = "template"
-    # 以下兩種同樣來自 TaskRecord（arq 任務），依 task_type 分類
+    # 以下幾種同樣來自 TaskRecord（arq 任務），依 task_type 分類
     resource_reset = "resource_reset"
     batch_provision = "batch_provision"
+    resource_backup = "resource_backup"
+    resource_restore = "resource_restore"
 
 
 class JobStatus(str, enum.Enum):

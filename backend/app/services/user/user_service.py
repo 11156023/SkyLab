@@ -38,6 +38,7 @@ from app.schemas import (
     UserUpdateMe,
 )
 from app.services.user import audit_service
+from app.services.user.password_policy import ensure_password_complexity
 from app.utils import generate_new_account_email, send_email
 
 
@@ -158,6 +159,7 @@ def _prepare_user_delete(*, session: Session, user: User) -> None:
 def create_user(
     *, session: Session, user_in: UserCreate, current_user_id: uuid.UUID
 ) -> User:
+    ensure_password_complexity(user_in.password)
     existing = user_repo.get_user_by_email(session=session, email=user_in.email)
     if existing:
         raise ConflictError(t("user.emailExists"))
@@ -192,6 +194,7 @@ def create_user(
 def register_user(*, session: Session, user_in: UserRegister) -> User:
     if not settings.ENABLE_SIGNUP:
         raise BadRequestError(t("user.registrationDisabled"))
+    ensure_password_complexity(user_in.password)
 
     existing = user_repo.get_user_by_email(session=session, email=user_in.email)
     if existing:
@@ -247,6 +250,8 @@ def update_user(
     # LDAP 帳號的密碼歸目錄管：設本地密碼登不進去，只會造成困惑（稽核 #9）
     if user_in.password and db_user.auth_source == "ldap":
         raise BadRequestError(t("user.ldapPasswordLocked"))
+    if user_in.password:
+        ensure_password_complexity(user_in.password)
     role_changed = user_in.role is not None and user_in.role != db_user.role
     # 管理員不可變更自己的角色或停用自己（與 delete_user 的 selfDeleteForbidden 對稱），
     # 否則一個按鍵就能把自己鎖在管理介面外。
@@ -351,6 +356,7 @@ def update_password(
         raise BadRequestError(t("user.incorrectPassword"))
     if current_password == new_password:
         raise BadRequestError(t("user.samePassword"))
+    ensure_password_complexity(new_password)
     current_user.hashed_password = get_password_hash(new_password)
     current_user.token_version += 1  # Invalidate all existing tokens
     session.add(current_user)

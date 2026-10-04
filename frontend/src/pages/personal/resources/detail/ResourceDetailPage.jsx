@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
@@ -9,6 +9,7 @@ import OverviewTab from "./OverviewTab";
 import MonitoringTab from "./MonitoringTab";
 import SpecificationsTab from "./SpecificationsTab";
 import SnapshotsTab from "./SnapshotsTab";
+import BackupsTab from "./BackupsTab";
 import AuditLogsTab from "./AuditLogsTab";
 import AdvancedSettingsTab from "./AdvancedSettingsTab";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
@@ -20,6 +21,7 @@ const TABS = [
   { key: "monitoring",     labelKey: "ResourceDetailPage.tabMonitoring", icon: "monitor_heart", sharedOnly: true },
   { key: "specifications", labelKey: "ResourceDetailPage.tabSpecifications", icon: "tune", sharedOnly: false },
   { key: "snapshots",      labelKey: "ResourceDetailPage.tabSnapshots", icon: "photo_camera", sharedOnly: false },
+  { key: "backups",        labelKey: "ResourceDetailPage.tabBackups", icon: "backup", sharedOnly: false },
   { key: "auditLogs",      labelKey: "ResourceDetailPage.tabAuditLogs", icon: "receipt_long", sharedOnly: false },
   { key: "advanced",       labelKey: "ResourceDetailPage.tabAdvanced", icon: "settings", sharedOnly: true },
 ];
@@ -59,8 +61,50 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
     return () => { cancelled = true; };
   }, [isGuideDemo, vmid]);
 
+  /* 快照可用性：後端即時問 PVE 這台機器「當下」能不能做快照（磁碟所在 storage 不支援時為否）。
+     結果連同 vmid 一起存，換機器時不會沿用上一台的答案；checkSeq 遞增＝重新查一次 */
+  const [snapshotCapability, setSnapshotCapability] = useState({ vmid: null, available: null });
+  const [capabilityCheckSeq, setCapabilityCheckSeq] = useState(0);
+  useEffect(() => {
+    if (isGuideDemo) return undefined;
+    let cancelled = false;
+    ResourcesService.getSnapshotCapability(vmid)
+      .then((r) => !cancelled && setSnapshotCapability({ vmid, available: r?.available === true }))
+      /* 查不到（含被分享者無權限）一律當不可用：寧可少一個分頁，也不露出按了必失敗的功能 */
+      .catch(() => !cancelled && setSnapshotCapability({ vmid, available: false }));
+    return () => { cancelled = true; };
+  }, [isGuideDemo, vmid, capabilityCheckSeq]);
+  const recheckSnapshotCapability = useCallback(() => setCapabilityCheckSeq((n) => n + 1), []);
+  /* 只有確定可用才顯示快照分頁；還沒查到（available 為 null）的期間先不顯示 */
+  const snapshotAvailable = isGuideDemo
+    || (snapshotCapability.vmid === vmid && snapshotCapability.available === true);
+
+  /* 備份：快照「確定不能用」的機器才查。所屬叢集有設定備份 storage 時，以備份分頁
+     取代快照分頁當還原點；每次重查快照可用性（snapshotCapability 換新物件）也跟著重查 */
+  const snapshotUnavailable = !isGuideDemo
+    && snapshotCapability.vmid === vmid && snapshotCapability.available === false;
+  const [backupCapability, setBackupCapability] = useState({ vmid: null, data: null });
+  useEffect(() => {
+    if (!snapshotUnavailable) return undefined;
+    let cancelled = false;
+    ResourcesService.getBackupCapability(vmid)
+      .then((r) => !cancelled && setBackupCapability({ vmid, data: r ?? null }))
+      .catch(() => !cancelled && setBackupCapability({ vmid, data: null }));
+    return () => { cancelled = true; };
+  }, [snapshotUnavailable, vmid, snapshotCapability]);
+  const backupInfo = snapshotUnavailable && backupCapability.vmid === vmid ? backupCapability.data : null;
+  const backupAvailable = backupInfo?.available === true;
+
   const isShared = access?.access_role === "shared";
-  const visibleTabs = TABS.filter((tabDef) => !isShared || tabDef.sharedOnly);
+  const visibleTabs = TABS.filter((tabDef) => {
+    if (isShared && !tabDef.sharedOnly) return false;
+    /* 機器當下不能用快照時，整個快照分頁（建立／還原／刪除、一鍵重置、初始快照）都隱藏 */
+    if (tabDef.key === "snapshots" && !snapshotAvailable) return false;
+    if (tabDef.key === "backups" && !backupAvailable) return false;
+    return true;
+  });
+  /* 目前分頁被藏起來時（例如停在快照分頁、重新查詢後變成不可用）退回總覽 */
+  const activeTab = visibleTabs.some((tabDef) => tabDef.key === tab) ? tab : "overview";
 
   /* 操作紀錄分頁的筆數 badge；count 是後端獨立的總數查詢，limit 1 只為省流量。
      被分享的使用者看不到這個分頁，等 access 回來確認身分後才抓 */
@@ -115,22 +159,32 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
             badge: tabDef.key === "auditLogs" ? auditCount ?? undefined : undefined,
             buttonProps: { "data-guide-tab": `resource-${tabDef.key}` },
           }))}
-          value={tab}
+          value={activeTab}
           onChange={setTab}
           ariaLabel={t("ResourceDetailPage.tabsAriaLabel")}
         />
         <div className={styles.tabsToolbar} ref={setTabToolbar} />
       </div>
 
-      <div className={styles.content} data-guide={`resource-detail-${tab}`}>
-        {isGuideDemo ? <ResourceDetailGuideDemo tab={tab} /> : (
+      <div className={styles.content} data-guide={`resource-detail-${activeTab}`}>
+        {isGuideDemo ? <ResourceDetailGuideDemo tab={activeTab} /> : (
           <>
-            {tab === "overview"       && <OverviewTab vmid={vmid} access={access} />}
-            {tab === "monitoring"     && <MonitoringTab vmid={vmid} toolbar={tabToolbar} />}
-            {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
-            {tab === "snapshots"      && <SnapshotsTab vmid={vmid} toolbar={tabToolbar} />}
-            {tab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
-            {tab === "advanced"       && (
+            {activeTab === "overview"       && <OverviewTab vmid={vmid} access={access} />}
+            {activeTab === "monitoring"     && <MonitoringTab vmid={vmid} toolbar={tabToolbar} />}
+            {activeTab === "specifications" && <SpecificationsTab vmid={vmid} />}
+            {activeTab === "snapshots"      && (
+              <SnapshotsTab vmid={vmid} toolbar={tabToolbar} onOperationFailed={recheckSnapshotCapability} />
+            )}
+            {activeTab === "backups"        && (
+              <BackupsTab
+                vmid={vmid}
+                toolbar={tabToolbar}
+                capability={backupInfo}
+                onOperationFailed={recheckSnapshotCapability}
+              />
+            )}
+            {activeTab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
+            {activeTab === "advanced"       && (
               <AdvancedSettingsTab
                 vmid={vmid}
                 backTo={backTo}

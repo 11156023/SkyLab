@@ -16,7 +16,7 @@ from app.core.authorizers import (
     require_instructor_or_admin_access,
 )
 from app.core.config import settings
-from app.core.db import engine
+from app.core.db import end_read_transaction, engine
 from app.core.i18n import t
 from app.core.permissions import Permission, require_permission
 from app.exceptions import AuthenticationError, PermissionDeniedError
@@ -83,6 +83,19 @@ def _check_token_user(user: User | None, token_data: TokenPayload) -> User:
     return user
 
 
+def _load_user_and_release(session: Session, user_id: str | None) -> User | None:
+    """讀出 token 的使用者後立刻結束讀取交易、歸還連線。
+
+    每個已登入請求都先經過這裡；若沿用 session.get 開出的交易，連線會一路
+    被佔到回應送出為止——端點在等 threadpool 空位或 await PVE／LLM 時也一樣，
+    整班同時登入就會把連線池耗盡（QueuePool limit ... reached）。端點之後需要
+    DB 時會自動再取一條。
+    """
+    user = session.get(User, user_id)
+    end_read_transaction(session)
+    return user
+
+
 async def get_current_user(
     session: SessionDep, token: TokenDep, request: Request
 ) -> User:
@@ -96,7 +109,8 @@ async def get_current_user(
     # 同步 DB 查詢不可直接在 event loop 上執行：連線池耗盡時會凍結整個
     # loop，使已完成的請求無法歸還連線而形成死結（見 tests/performance）。
     user = _check_token_user(
-        await run_in_threadpool(session.get, User, token_data.sub), token_data
+        await run_in_threadpool(_load_user_and_release, session, token_data.sub),
+        token_data,
     )
     # 管理員在使用者資料勾了「強制兩步驟驗證」：尚未綁定前只能走綁定相關端點
     # （403 不會觸發前端登出流程；前端依 /users/me 的 totp_setup_required 顯示綁定畫面）。

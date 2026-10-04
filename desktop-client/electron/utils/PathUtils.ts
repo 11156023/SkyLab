@@ -45,7 +45,6 @@ class PathUtils {
     if (app.isPackaged || fs.existsSync(packed)) return packed;
     return path.join(app.getAppPath(), "vendor", "wireguard", filename);
   }
-
 }
 
 export default PathUtils;

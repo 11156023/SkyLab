@@ -21,7 +21,7 @@ from app.repositories import user as user_repo
 from app.repositories.ldap_config import get_ldap_config, update_ldap_config
 from app.schemas import Token, TotpChallenge, UserUpdate
 from app.schemas.ldap import LdapConfigUpdate, LdapTestResult
-from app.services.user import audit_service, totp_service
+from app.services.user import audit_service, totp_service, turnstile_service
 from app.services.user.tokens import create_token_pair
 
 logger = logging.getLogger(__name__)
@@ -257,11 +257,12 @@ def login_ldap(
     return create_token_pair(user)
 
 
-def get_login_methods(*, session: Session) -> dict[str, bool]:
-    """登入頁可用的認證方式（公開資訊）。"""
+def get_login_methods(*, session: Session) -> dict[str, Any]:
+    """登入頁可用的認證方式與機器人驗證 site key（公開資訊）。"""
     config = get_ldap_config(session=session)
     return {
         "password": True,
         "google": bool(settings.GOOGLE_CLIENT_ID),
         "ldap": bool(config.enabled),
+        "turnstile_site_key": turnstile_service.public_site_key(),
     }

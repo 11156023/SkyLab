@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { AuthStorage, loginLdap, loginTotp } from "../services/auth";
+import { AuthStorage, loginLdap, loginTotp, turnstileHeaders } from "../services/auth";
 import { apiPost, apiPostForm, refreshTokens } from "../services/api";
 import {
   AuthSessionStatus,
@@ -321,11 +321,13 @@ export function AuthProvider({ children }) {
   const toTotpChallenge = (tokens) =>
     tokens?.totp_required ? { totpRequired: true, totpToken: tokens.totp_token } : null;
 
-  const login = useCallback(async (username, password) => {
-    const tokens = await apiPostForm("/api/v1/login/access-token", {
-      username,
-      password,
-    });
+  /* turnstileToken：登入頁 Cloudflare 機器人驗證框的 token（後端未啟用時為空） */
+  const login = useCallback(async (username, password, { turnstileToken } = {}) => {
+    const tokens = await apiPostForm(
+      "/api/v1/login/access-token",
+      { username, password },
+      { headers: turnstileHeaders(turnstileToken) },
+    );
     const challenge = toTotpChallenge(tokens);
     if (challenge) return challenge;
     AuthStorage.setTokens(tokens);
@@ -342,8 +344,8 @@ export function AuthProvider({ children }) {
     return null;
   }, [completeLogin]);
 
-  const ldapLogin = useCallback(async (username, password) => {
-    const tokens = await loginLdap(username, password);
+  const ldapLogin = useCallback(async (username, password, options) => {
+    const tokens = await loginLdap(username, password, options);
     const challenge = toTotpChallenge(tokens);
     if (challenge) return challenge;
     await completeLogin();

@@ -110,6 +110,7 @@ from app.ai.teacher_judge.session_service import (
 from app.ai.teacher_judge.template_command_service import get_enabled_template_commands
 from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
+from app.core.db import end_read_transaction
 from app.core.i18n import t
 from app.infrastructure.worker import submit
 from app.models import TeachingClass, TeachingClassWeek
@@ -148,21 +149,6 @@ def _selected_file_conflict() -> HTTPException:
             "message": t("teacherJudgeSessions.selectedFileInUse"),
         },
     )
-
-
-def _end_read_transaction(session: SessionDep) -> None:
-    """在等待模型前結束目前的讀取交易，把 DB 連線還給連線池。
-
-    暫時關掉 expire_on_commit：已讀進來的 ORM 物件（範本指令、附件）會在
-    LLM 呼叫期間被讀取，若被標成過期，讀屬性時會在 await 途中重新開一段
-    交易，等於白做。之後需要最新狀態的地方本來就會明確 refresh。
-    """
-    expire_on_commit = session.expire_on_commit
-    session.expire_on_commit = False
-    try:
-        session.commit()
-    finally:
-        session.expire_on_commit = expire_on_commit
 
 
 def _save_workflow_message(
@@ -725,7 +711,7 @@ async def create_message(
                 summary_through_message_id=item.summary_through_message_id,
             )
         )
-        _end_read_transaction(session)
+        end_read_transaction(session)
         if use_itemwise:
             # Attachment analysis runs itemwise: extract source rows first, then
             # judge each row through the same isolated single-item chat core so

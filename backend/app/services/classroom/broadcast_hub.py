@@ -22,10 +22,12 @@ class JsonSocket(Protocol):
 
 class HubConnection(Protocol):
     @property
-    def key(self) -> object: ...
+    def key(self) -> object:
+        """連線的身分（登記用的 dict key，同一人多個分頁各不相同）。"""
 
     @property
-    def websocket(self) -> JsonSocket: ...
+    def websocket(self) -> JsonSocket:
+        """這條連線底下的 WebSocket。"""
 
 
 ConnT = TypeVar("ConnT", bound=HubConnection)
