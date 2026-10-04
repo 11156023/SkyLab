@@ -27,6 +27,7 @@ vi.mock("../../../services/aiApi", () => ({
 }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
+vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { role: "student" } }) }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
   useTranslation: () => ({ t: mocks.t }),

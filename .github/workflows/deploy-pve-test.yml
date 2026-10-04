@@ -76,6 +76,59 @@ jobs:
           docker compose logs --tail 50 backend
           exit 1
 
+      - name: Smoke test every public AI model
+        id: ai_api_smoke
+        # Use the normal request/review flow to create a temporary, dedicated
+        # ccai_* smoke credential after cleaning up previous runs. The optional variable
+        # is the Campus API root ending in /api/v1; otherwise use the published
+        # backend port from this deployment.
+        env:
+          CONFIGURED_AI_API_PUBLIC_BASE_URL: ${{ vars.AI_API_PUBLIC_BASE_URL }}
+        run: |
+          set +x
+          umask 077
+          smoke_dir="$(mktemp -d)"
+          container_smoke_dir=""
+          cleanup_smoke_files() {
+            rm -rf -- "$smoke_dir"
+            if [[ -n "$container_smoke_dir" ]]; then
+              docker compose exec -T backend rm -rf -- "$container_smoke_dir"
+            fi
+          }
+          trap cleanup_smoke_files EXIT
+          container_smoke_dir="$(docker compose exec -T backend mktemp -d)"
+          docker compose exec -T backend \
+            python -m scripts.ensure_ai_api_smoke_credential \
+            --output "$container_smoke_dir/key"
+          docker compose cp "backend:$container_smoke_dir/key" "$smoke_dir/key"
+          AI_API_SMOKE_KEY="$(<"$smoke_dir/key")"
+          cleanup_smoke_files
+          container_smoke_dir=""
+          if [[ ! "$AI_API_SMOKE_KEY" =~ ^ccai_[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::Unable to create or recover the deployment smoke credential."
+            exit 1
+          fi
+          echo "::add-mask::$AI_API_SMOKE_KEY"
+          export AI_API_SMOKE_KEY
+          if [[ -n "$CONFIGURED_AI_API_PUBLIC_BASE_URL" ]]; then
+            export AI_API_PUBLIC_BASE_URL="$CONFIGURED_AI_API_PUBLIC_BASE_URL"
+          else
+            backend_address="$(docker compose port backend 8000 | tail -n 1)"
+            backend_port="${backend_address##*:}"
+            if [[ ! "$backend_port" =~ ^[0-9]+$ ]]; then
+              echo "Unable to resolve the published backend port"
+              exit 1
+            fi
+            export AI_API_PUBLIC_BASE_URL="http://127.0.0.1:${backend_port}/api/v1"
+          fi
+          bash scripts/verify-ai-api-cutover.sh
+
+      - name: Delete deployment smoke credentials
+        if: ${{ always() && steps.ai_api_smoke.outcome != 'skipped' }}
+        # Run even when credential creation or a model check fails. Keys with
+        # usage records are revoked to preserve accounting; unused keys are deleted.
+        run: docker compose exec -T backend python -m scripts.ensure_ai_api_smoke_credential --cleanup
+
       - name: Cleanup dangling images
         if: always()
         run: docker image prune -f

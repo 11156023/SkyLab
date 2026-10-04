@@ -40,34 +40,54 @@ async def test_ai_proxy_limit_delegates_to_generic_key_limiter() -> None:
     redis = _FakeRedis()
 
     allowed, info = await rate_limiter.check_rate_limit_sliding_window(
-        redis, "user-1", limit=2, window_seconds=60
+        redis, "credential-1", limit=2, window_seconds=60
     )
 
     assert allowed is True
     assert info["current"] == 1
     assert info["remaining"] == 1
-    # key 命名與舊實作相容：額度查詢端點也靠這個 key
-    assert redis.eval_calls == [("rate_limit:user:user-1", 2, 120)]
+    assert redis.eval_calls == [("rate_limit:credential:credential-1", 2, 120)]
 
 
 async def test_ai_proxy_limit_blocks_and_peek_does_not_consume() -> None:
     redis = _FakeRedis()
     for _ in range(2):
         await rate_limiter.check_rate_limit_sliding_window(
-            redis, "user-2", limit=2, window_seconds=60
+            redis, "credential-2", limit=2, window_seconds=60
         )
 
     allowed, info = await rate_limiter.check_rate_limit_sliding_window(
-        redis, "user-2", limit=2, window_seconds=60
+        redis, "credential-2", limit=2, window_seconds=60
     )
     assert allowed is False
     assert info["remaining"] == 0
 
     peeked = await rate_limiter.peek_rate_limit_by_key(
-        redis, key=rate_limiter.ai_proxy_rate_limit_key("user-2"), window_seconds=60
+        redis,
+        key=rate_limiter.ai_proxy_rate_limit_key("credential-2"),
+        window_seconds=60,
     )
     assert peeked == 2
-    assert redis.counts["rate_limit:user:user-2"] == 2
+    assert redis.counts["rate_limit:credential:credential-2"] == 2
+
+
+async def test_ai_proxy_credentials_have_independent_buckets() -> None:
+    redis = _FakeRedis()
+    for _ in range(2):
+        await rate_limiter.check_rate_limit_sliding_window(
+            redis, "credential-a", limit=2, window_seconds=60
+        )
+
+    blocked_a, _ = await rate_limiter.check_rate_limit_sliding_window(
+        redis, "credential-a", limit=2, window_seconds=60
+    )
+    allowed_b, info_b = await rate_limiter.check_rate_limit_sliding_window(
+        redis, "credential-b", limit=2, window_seconds=60
+    )
+
+    assert blocked_a is False
+    assert allowed_b is True
+    assert info_b["current"] == 1
 
 
 async def test_peek_returns_none_without_redis() -> None:

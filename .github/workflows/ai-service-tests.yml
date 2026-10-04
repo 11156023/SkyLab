@@ -1,0 +1,58 @@
+name: AI Service Tests
+
+on:
+  pull_request:
+    paths:
+      - "vllm-service/**"
+      - "scripts/prepare-ai-stack.sh"
+      - "scripts/verify-ai-api-cutover.sh"
+      - "docker-compose.yml"
+      - ".github/workflows/ai-service-tests.yml"
+      - ".github/workflows/deploy-pve-test.yml"
+  push:
+    branches: [main]
+    paths:
+      - "vllm-service/**"
+      - "scripts/prepare-ai-stack.sh"
+      - "scripts/verify-ai-api-cutover.sh"
+      - "docker-compose.yml"
+      - ".github/workflows/ai-service-tests.yml"
+      - ".github/workflows/deploy-pve-test.yml"
+
+concurrency:
+  group: ai-service-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: vLLM service pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: vllm-service
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: vllm-service/requirements.txt
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Run CPU-only service tests
+        run: >-
+          uv run --no-project --python 3.11
+          --with 'pytest>=9,<10'
+          --with-requirements requirements.txt
+          python -m pytest tests -q
+
+      - name: Check deployment smoke script syntax
+        run: bash -n ../scripts/verify-ai-api-cutover.sh

@@ -60,6 +60,29 @@ def reset_known_models() -> None:
         _known_models.clear()
 
 
+def update_proxy_admission(*, active: int, waiting: int) -> None:
+    """Update bounded proxy admission queue gauges without affecting requests."""
+    try:
+        metrics.AI_PROXY_INFLIGHT.set(max(active, 0))
+        metrics.AI_PROXY_WAITING.set(max(waiting, 0))
+    except Exception:
+        logger.debug("Updating AI proxy admission gauges failed", exc_info=True)
+
+
+def observe_proxy_queue_wait(seconds: float) -> None:
+    try:
+        metrics.AI_PROXY_QUEUE_WAIT.observe(max(seconds, 0.0))
+    except Exception:
+        logger.debug("Updating AI proxy queue wait metric failed", exc_info=True)
+
+
+def record_proxy_admission_rejection(reason: str) -> None:
+    try:
+        metrics.AI_PROXY_ADMISSION_REJECTIONS.labels(reason=reason).inc()
+    except Exception:
+        logger.debug("Updating AI proxy admission rejection failed", exc_info=True)
+
+
 def outcome(record_status: str | None, error_message: str | None) -> str:
     """用量紀錄的 status／error_message → 少數幾種結果類別。"""
     if record_status == "success":
@@ -128,6 +151,9 @@ __all__ = [
     "model_label",
     "observe_call",
     "outcome",
+    "observe_proxy_queue_wait",
+    "record_proxy_admission_rejection",
     "remember_models",
     "reset_known_models",
+    "update_proxy_admission",
 ]

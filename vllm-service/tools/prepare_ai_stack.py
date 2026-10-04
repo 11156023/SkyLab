@@ -166,7 +166,10 @@ def write_vllm_targets(models: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def _write_env_values(path: Path, updates: dict[str, str]) -> None:
-    text = path.read_text(encoding="utf-8")
+    # newline="" disables universal-newline translation.  Without it Linux
+    # sees a CRLF file as LF-only before we can detect and preserve its style.
+    with path.open("r", encoding="utf-8", newline="") as source:
+        text = source.read()
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
     pending = dict(updates)
@@ -178,7 +181,8 @@ def _write_env_values(path: Path, updates: dict[str, str]) -> None:
             if match and match.group(1) in pending:
                 lines[index] = f"{match.group(1)}={pending.pop(match.group(1))}"
     lines.extend(f"{name}={value}" for name, value in pending.items())
-    path.write_text(newline.join(lines) + newline, encoding="utf-8")
+    with path.open("w", encoding="utf-8", newline="") as destination:
+        destination.write(newline.join(lines) + newline)
 
 
 def _compose_database_url(url: str) -> str:

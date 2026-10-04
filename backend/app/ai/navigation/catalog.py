@@ -179,12 +179,14 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         access="admin",
     ),
     # 原「系統設定」的七個分頁，2026-09 各自升格為系統管理底下的獨立頁面；
-    # 舊網址 /settings 預設導到 PVE 連線，所以「系統設定」這個關鍵字留在它身上。
+    # 舊網址 /settings 預設導到 PVE 管理，所以「系統設定」這個關鍵字留在它身上。
+    # 2026-10「節點管理」併入 PVE 管理（舊網址 /nodes 也導過去），節點的關鍵字一起收進來。
     NavigationRoute(
         path="/pve-connections",
-        title="PVE 連線",
-        summary="管理 Proxmox VE 連線入口，以及各叢集自己的 pool、Storage 與網段。",
-        keywords=("pve 連線", "proxmox", "連線", "叢集", "cluster", "pool", "系統設定"),
+        title="PVE 管理",
+        summary="管理 Proxmox VE 連線入口、各叢集自己的 pool、Storage 與網段，以及各節點的啟用狀態與放置優先度。",
+        keywords=("pve 管理", "pve 連線", "proxmox", "連線", "叢集", "cluster", "pool", "系統設定",
+                  "節點", "node", "節點管理", "優先度"),
         access="admin",
     ),
     NavigationRoute(
@@ -194,18 +196,13 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         keywords=("資源排程", "排程", "超配", "放置", "placement", "overcommit", "scheduler"),
         access="admin",
     ),
+    # 2026-10「配額」併入治理頁、改名「資源政策」（舊網址 /quotas 導過去），配額的關鍵字一起收進來。
     NavigationRoute(
         path="/governance",
-        title="治理",
-        summary="設定資源警告、TTL 回收、閒置與挖礦偵測等治理政策。",
-        keywords=("治理", "政策", "governance", "ttl", "閒置", "挖礦", "快照"),
-        access="admin",
-    ),
-    NavigationRoute(
-        path="/quotas",
-        title="配額",
-        summary="設定全域預設的資源上限與個別使用者的覆寫。",
-        keywords=("配額", "quota", "上限", "限制"),
+        title="資源政策",
+        summary="設定資源警告、TTL 回收、閒置與挖礦偵測等治理政策，以及全域預設的資源上限與個別使用者的配額覆寫。",
+        keywords=("資源政策", "治理", "政策", "governance", "ttl", "閒置", "挖礦", "快照",
+                  "配額", "quota", "上限", "限制"),
         access="admin",
     ),
     NavigationRoute(
@@ -213,13 +210,6 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         title="LDAP",
         summary="設定 LDAP / Active Directory 登入與角色對映。",
         keywords=("ldap", "active directory", "ad 登入", "網域帳號"),
-        access="admin",
-    ),
-    NavigationRoute(
-        path="/nodes",
-        title="節點管理",
-        summary="管理各 PVE 節點的啟用狀態、連線位址與放置優先度。",
-        keywords=("節點", "node", "節點管理", "優先度"),
         access="admin",
     ),
     NavigationRoute(

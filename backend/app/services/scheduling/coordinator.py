@@ -28,6 +28,7 @@ from app.services.scheduling import provision_pool, recurrence_scheduler
 from app.services.scheduling import support as scheduling_support
 from app.services.user import audit_service
 from app.services.vm import vm_request_placement_service
+from app.utils.timeutil import normalize_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -880,6 +881,27 @@ def process_due_request_stops() -> int:
                 if current_status in {"stopped", "paused"}:
                     continue
 
+                # Persist the deadline before contacting PVE. The auto-stop
+                # worker then retries and force-stops a guest that ignores (or
+                # rejects) this first graceful shutdown attempt.
+                deadline = normalize_datetime(request.end_at)
+                db_resource = resource_repo.get_resource_by_vmid(
+                    session=session, vmid=vmid
+                )
+                existing_stop = (
+                    normalize_datetime(db_resource.auto_stop_at)
+                    if db_resource is not None
+                    else None
+                )
+                if db_resource is not None and deadline is not None and (
+                    existing_stop is None or existing_stop > deadline
+                ):
+                    resource_repo.set_auto_stop(
+                        session=session,
+                        vmid=vmid,
+                        auto_stop_at=deadline,
+                        auto_stop_reason="window_grace",
+                    )
                 proxmox_service.control(node, vmid, resource_type, "shutdown")
                 audit_service.log_action(
                     session=session,

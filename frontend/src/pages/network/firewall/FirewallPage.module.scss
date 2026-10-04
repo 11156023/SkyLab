@@ -53,6 +53,8 @@
   display: flex;
   min-height: 0;
   overflow: hidden;
+  /* 篩選列依畫布寬度決定放右上還是工具列下方（.filterPanel 的 container query） */
+  container: firewall-canvas / inline-size;
   /* 細項 RulesPanel 以絕對定位浮在畫布上，高度以此為界 */
   position: relative;
 
@@ -90,44 +92,38 @@
   }
 }
 
-.emptyTopology {
-  @include flex-column;
+/* 畫布空狀態（篩光了／沒有機器）：置中浮在畫布上，不擋拖曳與縮放；只有裡面的按鈕可點 */
+.emptyOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
   align-items: center;
-  gap: 5px;
-  padding: $spacing-16 $spacing-24;
-  border: 1px dashed var(--color-border);
-  border-radius: $radius-12;
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  color: var(--color-text-muted);
-  text-align: center;
+  justify-content: center;
+  pointer-events: none;
 
-  strong {
-    color: var(--color-text-primary);
-    font-size: $font-size-14;
-  }
-
-  span {
-    color: var(--color-text-secondary);
-    font-size: $font-size-12;
-  }
+  button { pointer-events: auto; }
 }
 
 /* ── Toolbar（在 Panel 內） ── */
+/* 工具列外框 36px（跟右上的搜尋框、下拉同高，兩邊才對得齊）：內距 3＋按鈕 28＋框 1，同 SegmentedControl 的算法 */
 .toolbar {
   display: flex;
   align-items: center;
   gap: $spacing-4;
+  min-height: 36px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  padding: 4px;
+  padding: 3px;
 }
 
 .toolbarBtn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px $spacing-8;
+  height: 28px;
+  padding: 0 $spacing-8;
   border-radius: 6px;
   font-size: $font-size-14;
   color: var(--color-text-secondary);
@@ -146,6 +142,211 @@
     background: color-mix(in srgb, var(--color-success) 12%, transparent);
     color: var(--color-success);
   }
+}
+
+/* 工具列兩排：上排檢視開關，下排篩選 */
+.toolbarStack {
+  @include flex-column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* 篩選列的面板：預設在畫布右上。右上被規則面板佔住（.filterPanelBelow），
+   或畫布太窄、會跟左上工具列撞在一起時，改排到工具列下方。
+   選擇器疊三個 class 壓過 react-flow 的 .react-flow__panel.right（載入順序不保證） */
+@mixin filter-panel-below {
+  top: 48px;
+  right: auto;
+  left: 0;
+}
+
+.filterPanelBelow.filterPanelBelow:global(.react-flow__panel) {
+  @include filter-panel-below;
+}
+
+@container firewall-canvas (max-width: 1000px) {
+  .filterPanel.filterPanel:global(.react-flow__panel) {
+    @include filter-panel-below;
+  }
+}
+
+/* ── 篩選列：搜尋名稱／IP、群組下拉、只看有規則 ── */
+/* 搜尋框與群組下拉各自成框、並排，兩者都是 36px（跟按鈕、表單欄位同高） */
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+/* 搜尋框：外框在容器上（min-height 36），輸入框本身 34px */
+.filterSearch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 $spacing-8 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  transition: border-color $transition-base, box-shadow $transition-base;
+
+  input {
+    width: 180px;
+    height: 34px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--color-text);
+    font-size: $font-size-14;
+
+    &::placeholder { color: var(--color-text-muted); }
+  }
+
+  &:focus-within {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary-on-surface);
+  }
+}
+
+/* 群組下拉：共用表單控制項（36px、白底細框） */
+.filterSelect {
+  @include form-control;
+  width: auto;
+  max-width: 200px;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+/* 被篩掉的台數＋清除篩選（畫布左下，跟圖例同一套浮層樣式） */
+.filteredNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+  backdrop-filter: blur(4px);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+
+  button {
+    padding: 0;
+    color: var(--color-primary-on-surface);
+    font-weight: $font-weight-500;
+    cursor: pointer;
+
+    &:hover { text-decoration: underline; }
+  }
+}
+
+/* ── 群組框（班級／機器類型）──
+   展開：虛線框＋標題列，機器以子節點畫在框內；收合：實線摘要卡，往外的連線接在卡上。
+   框本身可拖（整組一起動），標題列的按鈕是 nodrag，點了才切換收合 */
+.groupNode {
+  width: 100%;
+  height: 100%;
+  /* 底色沿用介面風格（毛玻璃／液態玻璃／純白／純黑）的玻璃卡塗層與濾鏡，跟機器卡、規則面板同一款；
+     外框維持虛線標示群組範圍 */
+  @include glass-surface($shadow: var(--shadow-sm));
+  border: 1.5px dashed color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  border-radius: $radius-16;
+  cursor: grab;
+  transition: box-shadow $transition-base;
+
+  /* 整框可拖：滑過加深陰影，不改框色 */
+  &:hover { box-shadow: var(--shadow-md); }
+  &:active { cursor: grabbing; }
+}
+
+.groupNodeCollapsed {
+  border: 1.5px solid var(--color-flow-border);
+  background: var(--color-surface);
+  box-shadow: 0 2px 12px var(--color-flow-shadow);
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+  padding: 10px 12px 0 8px;
+}
+
+.groupToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: $font-size-16;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+
+  &:hover { background: var(--color-hover); }
+  &:hover .groupChevron { opacity: 1; }
+  /* 搜尋中不能收合：保留標題的樣子，只拿掉可點的暗示 */
+  &:disabled { cursor: default; background: none; }
+  &:disabled .groupChevron { opacity: 0.35; }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-on-surface);
+    outline-offset: 1px;
+  }
+}
+
+/* 收合箭頭：同側邊欄分組標題——名稱右端、半透明、展開時旋轉 90°；滑過標題或收合中時實色 */
+.groupChevron {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--color-primary-on-surface);
+  transition: transform $transition-base, opacity $transition-base;
+}
+
+.groupChevronOpen { transform: rotate(90deg); opacity: 0.5; }
+
+.groupName {
+  @include text-truncate;
+}
+
+.groupCount {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+/* 群組裡有對外開放：與機器卡右上角的徽章同一套 */
+.groupExposed {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: var(--color-flow-inbound);
+  color: var(--color-surface);
+  font-size: 11px;
+  font-weight: $font-weight-700;
+  line-height: 1.5;
+}
+
+.groupStats {
+  margin: 6px 0 0;
+  padding: 0 16px 10px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+}
+
+/* 收合群組卡上的連接點只當連線端點，不給拉線，也不顯示 */
+.nodeHandleStatic {
+  opacity: 0 !important;
+  pointer-events: none;
 }
 
 /* ── 圖例 + 操作提示（畫布左下） ── */

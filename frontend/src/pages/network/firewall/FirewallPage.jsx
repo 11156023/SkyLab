@@ -3,7 +3,7 @@
  * 防火牆拓撲頁面，使用 @xyflow/react 繪製互動式節點圖。
  */
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ReactFlow,
@@ -23,14 +23,24 @@ import {
   saveLayout,
 } from "../../../services/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
+import EmptyState       from "../../../components/EmptyState/EmptyState";
 import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDialog";
 import { canManageNode, toDialogNodes } from "../../../components/ConnectionDialog/topologyNodes";
 import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
+import GroupNode        from "./nodes/GroupNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import ConnectionDetailPanel from "./ConnectionDetailPanel";
 import { GATEWAY_KEY, buildFlow, isOutboundEdge, portLabel, routeEdges } from "./utils/buildFlow";
 import { mergePendingLayout, toLayoutEntry, topologyView } from "./utils/pageState";
+import {
+  GROUP_THRESHOLD,
+  applyView,
+  defaultCollapsed,
+  groupLabelOf,
+  isGroupNodeId,
+  listGroupKeys,
+} from "./utils/grouping";
 import { useTheme } from "../../../contexts/ThemeContext";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -47,7 +57,33 @@ const VM_COL_X      = 160;
 const ROW_H         = 160;
 const GATEWAY_X     = VM_COL_X + 520;
 
-const NODE_TYPES = { gateway: GatewayNode, vm: VMNode };
+const NODE_TYPES = { gateway: GatewayNode, vm: VMNode, vmGroup: GroupNode };
+
+/* 縮放到全貌時上下多留空間：畫布左上有兩排工具列、左下有圖例與提示，不留會蓋住最上面的群組標題與最底下的機器 */
+const FIT_PADDING = { top: "104px", bottom: "120px", x: "48px" };
+/* 篩到只剩一兩台時不要放大到比原尺寸大太多 */
+const FIT_MAX_ZOOM = 1.1;
+
+/* 分組模式的群組框／網際網路節點位置：自動排好的版面只是預設，
+   使用者拖過的位置存在瀏覽器本機（後端只存單機位置，分組框是純前端的檢視） */
+const GROUP_LAYOUT_STORAGE_KEY = "skylab:firewall-group-layout";
+
+function loadGroupLayout() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GROUP_LAYOUT_STORAGE_KEY) ?? "{}");
+    return { groups: parsed.groups ?? {}, gateway: parsed.gateway ?? null };
+  } catch {
+    return { groups: {}, gateway: null };
+  }
+}
+
+function storeGroupLayout(layout) {
+  try {
+    localStorage.setItem(GROUP_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+  } catch {
+    /* 無痕模式等存不了：只影響下次進來的位置 */
+  }
+}
 const EDGE_TYPES = { connection: ConnectionEdge };
 
 /** ReactFlow 節點 id → ConnectionDialog 的選項 key（網關節點對應 "internet"） */
@@ -56,6 +92,7 @@ const toDialogKey = (nodeId) => (nodeId === GATEWAY_KEY ? "internet" : String(no
 /* ─── 主頁面 ─────────────────────────────────────────────── */
 export default function FirewallPage() {
   const { t } = useTranslation("network");
+  const { t: tc } = useTranslation("components");
   const [guideActive, setGuideActive] = useState(false);
   const { theme } = useTheme();
   const toast = useToast();
@@ -91,6 +128,51 @@ export default function FirewallPage() {
   /* 上網線開關同理：切換由下方的同步 effect 就地套用，不重排、不 fitView */
   const showInternetRef = useRef(showInternet);
   showInternetRef.current = showInternet;
+
+  /* ── 分組／收合／篩選 ──
+     分組：null 代表沒手動切過，機器數達門檻就預設分組；
+     收合：只記使用者手動切過的群組，其餘照預設（機器多時收、有對外開放的不收），自動刷新不會重設 */
+  const [groupedPref, setGroupedPref] = useState(null);
+  const [collapsedOverrides, setCollapsedOverrides] = useState(() => new Map());
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [groupFilter, setGroupFilter] = useState("");
+  const [onlyExposed, setOnlyExposed] = useState(false);
+  const [viewSummary, setViewSummary] = useState({ total: 0, visible: 0 });
+  /* 群組框位置改了不需要重排整張圖，所以走 ref；「自動排列」才遞增 layoutVersion 重建 */
+  const groupLayoutRef = useRef(loadGroupLayout());
+  const [layoutVersion, setLayoutVersion] = useState(0);
+  /* 最近一次畫出來時各群組是否收合，切換按鈕據此取反 */
+  const collapsedNowRef = useRef(new Map());
+  /* 重建節點後要縮放到全貌，但得等尺寸量好 */
+  const pendingFitRef = useRef(false);
+
+  const vmCount = useMemo(
+    () => (topology?.nodes ?? []).filter((n) => n.node_type !== "gateway").length,
+    [topology],
+  );
+  const grouped = groupedPref ?? vmCount >= GROUP_THRESHOLD;
+  const groupOptions = useMemo(() => listGroupKeys(topology?.nodes), [topology]);
+  /* 篩選的群組已經不在了（機器刪光）就當作沒篩 */
+  const activeGroupFilter = groupOptions.includes(groupFilter) ? groupFilter : "";
+  const filtersActive = Boolean(query.trim() || activeGroupFilter || onlyExposed);
+
+  const groupName = useCallback((key) => {
+    const label = groupLabelOf(key);
+    return label.type === "class" ? label.name : tc(label.labelKey);
+  }, [tc]);
+
+  const toggleGroup = useCallback((key) => {
+    setCollapsedOverrides((prev) => new Map(prev).set(key, !collapsedNowRef.current.get(key)));
+  }, []);
+  const expandGroup = useCallback((key) => {
+    setCollapsedOverrides((prev) => new Map(prev).set(key, false));
+  }, []);
+  const clearFilters = useCallback(() => {
+    setQuery("");
+    setGroupFilter("");
+    setOnlyExposed(false);
+  }, []);
 
   /* ── 點選邊：開啟連線細節面板（與節點面板互斥） ── */
   const handleSelectEdge = useCallback((edge, id) => {
@@ -145,12 +227,25 @@ export default function FirewallPage() {
 
   useEffect(() => {
     if (!topology) return;
-    const { nodes: nextNodes, edges: nextEdges } = buildFlow(topology, {
+    const flow = buildFlow(topology, {
       onSelectEdge: handleSelectEdge,
       showLabel: showLabels,
       showInternet: showInternetRef.current,
       selectedEdgeId: selectedEdgeIdRef.current,
     });
+    const view = applyView(flow, topology.edges ?? [], {
+      grouped,
+      isCollapsed: (group) => (collapsedOverrides.has(group.key)
+        ? collapsedOverrides.get(group.key)
+        : defaultCollapsed(group, vmCount)),
+      filter: { query: deferredQuery, groupKey: activeGroupFilter, onlyExposed },
+      positions: groupLayoutRef.current,
+      onExpandGroup: expandGroup,
+      onToggleGroup: toggleGroup,
+    });
+    collapsedNowRef.current = new Map(view.groups.map((group) => [group.key, group.collapsed]));
+    setViewSummary({ total: view.totalVms, visible: view.visibleVms });
+    const { nodes: nextNodes, edges: nextEdges } = view;
     /* 拓撲刷新時保留仍存在的選取節點：規則面板可就地操作後，
        不能被 30 秒自動刷新或連線變更關掉 */
     setSelectedNode((prev) =>
@@ -164,8 +259,21 @@ export default function FirewallPage() {
     });
     setNodes(nextNodes);
     setEdges(nextEdges);
-    window.requestAnimationFrame(() => rfInstance.current?.fitView({ padding: 0.2, duration: 250 }));
-  }, [handleSelectEdge, setEdges, setNodes, showLabels, topology]);
+    /* 新節點要等 ReactFlow 量好尺寸才縮放得準（立刻縮會被當成還沒初始化而略過），交給下面的 effect */
+    pendingFitRef.current = true;
+  }, [
+    handleSelectEdge, setEdges, setNodes, showLabels, topology,
+    grouped, collapsedOverrides, vmCount, deferredQuery, activeGroupFilter, onlyExposed,
+    expandGroup, toggleGroup, layoutVersion,
+  ]);
+
+  /* 重建後全部節點都量到尺寸（dimension 變更回填 measured）才縮放到全貌 */
+  useEffect(() => {
+    if (!pendingFitRef.current || nodes.length === 0) return;
+    if (!nodes.every((n) => n.hidden || (n.measured?.width && n.measured?.height))) return;
+    pendingFitRef.current = false;
+    rfInstance.current?.fitView({ padding: FIT_PADDING, maxZoom: FIT_MAX_ZOOM, duration: 250 });
+  }, [nodes]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -176,6 +284,13 @@ export default function FirewallPage() {
 
   /* ── 自動排列 ── */
   const autoArrange = useCallback(() => {
+    /* 分組模式：丟掉拖過的群組位置，回到依序堆疊的預設版面 */
+    if (grouped) {
+      groupLayoutRef.current = { groups: {}, gateway: null };
+      storeGroupLayout(groupLayoutRef.current);
+      setLayoutVersion((v) => v + 1);
+      return;
+    }
     setNodes((prev) => {
       const vmNodes = prev.filter((n) => n.type === "vm");
       const gateway = prev.find((n) => n.type === "gateway");
@@ -200,12 +315,12 @@ export default function FirewallPage() {
         pendingLayout.current.clear();
         const layoutNodes = arranged.map((n) => toLayoutEntry(n, GATEWAY_KEY));
         saveLayout(layoutNodes).catch(() => {});
-        rfInstance.current?.fitView({ padding: 0.2, duration: 400 });
+        rfInstance.current?.fitView({ padding: FIT_PADDING, maxZoom: FIT_MAX_ZOOM, duration: 400 });
       }, 50);
 
       return arranged;
     });
-  }, [setNodes]);
+  }, [grouped, setNodes]);
 
   /* ── 節點拖曳結束 → debounce 儲存佈局 ── */
   /* debounce 期間累積所有被拖過的節點，計時到了一次送出，前一次拖曳的位置不會被丟掉 */
@@ -219,10 +334,20 @@ export default function FirewallPage() {
   }, []);
 
   const onNodeDragStop = useCallback((_, __, draggedNodes) => {
+    /* 分組模式：機器固定在群組框的格子裡，能拖的只有群組框與網際網路，位置存本機 */
+    if (grouped) {
+      const layout = groupLayoutRef.current;
+      for (const node of draggedNodes ?? []) {
+        if (node.type === "vmGroup") layout.groups[node.data.groupKey] = { ...node.position };
+        else if (node.id === GATEWAY_KEY) layout.gateway = { ...node.position };
+      }
+      storeGroupLayout(layout);
+      return;
+    }
     mergePendingLayout(pendingLayout.current, draggedNodes, GATEWAY_KEY);
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(flushPendingLayout, SAVE_DEBOUNCE);
-  }, [flushPendingLayout]);
+  }, [flushPendingLayout, grouped]);
 
   /* 離開頁面時把還沒送出的佈局存掉 */
   useEffect(() => flushPendingLayout, [flushPendingLayout]);
@@ -230,7 +355,8 @@ export default function FirewallPage() {
   /* ── 點擊節點：開啟規則面板（與連線面板互斥） ── */
   const onNodeClick = useCallback((_, node) => {
     setSelectedEdge(null);
-    if (node.type === "gateway") { setSelectedNode(null); return; }
+    /* 群組框本身沒有規則可看；收合切換由標題上的按鈕負責 */
+    if (node.type === "gateway" || isGroupNodeId(node.id)) { setSelectedNode(null); return; }
     setSelectedNode((prev) => prev?.id === node.id ? null : node);
   }, []);
 
@@ -392,7 +518,7 @@ export default function FirewallPage() {
               edgeTypes={EDGE_TYPES}
               deleteKeyCode={null}
               fitView
-              fitViewOptions={{ padding: 0.2 }}
+              fitViewOptions={{ padding: FIT_PADDING, maxZoom: FIT_MAX_ZOOM }}
               colorMode={theme}
               proOptions={{ hideAttribution: true }}
             >
@@ -400,55 +526,112 @@ export default function FirewallPage() {
               <Controls />
               {showMiniMap && <MiniMap zoomable pannable />}
 
-              {nodes.length === 0 && (
-                <Panel position="top-center">
-                  <div className={styles.emptyTopology}>
-                    <MIcon name="security" size={23} />
-                    <strong>{t("FirewallPage.emptyTitle")}</strong>
-                    <span>{t("FirewallPage.emptyDesc")}</span>
-                  </div>
-                </Panel>
-              )}
 
               <Panel position="top-left">
-                <div className={styles.toolbar} data-guide="firewall-tools">
-                  <button
-                    type="button"
-                    className={styles.toolbarBtn}
-                    onClick={autoArrange}
-                  >
-                    <MIcon name="dashboard" size={16} />
-                    {t("FirewallPage.autoArrange")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.toolbarBtn} ${showLabels ? styles.toolbarBtnActive : ""}`}
-                    onClick={() => setShowLabels((v) => !v)}
-                  >
-                    <MIcon name={showLabels ? "label" : "label_off"} size={16} />
-                    {t("FirewallPage.connectionLabels")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.toolbarBtn} ${showInternet ? styles.toolbarBtnActive : ""}`}
-                    onClick={toggleInternet}
-                  >
-                    <MIcon name={showInternet ? "public" : "public_off"} size={16} />
-                    {t("FirewallPage.internetLines")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.toolbarBtn} ${showMiniMap ? styles.toolbarBtnActive : ""}`}
-                    onClick={() => setShowMiniMap((v) => !v)}
-                  >
-                    <MIcon name="map" size={16} />
-                    {t("FirewallPage.miniMap")}
-                  </button>
+                <div className={styles.toolbarStack}>
+                  <div className={styles.toolbar} data-guide="firewall-tools">
+                    <button
+                      type="button"
+                      className={styles.toolbarBtn}
+                      onClick={autoArrange}
+                    >
+                      {/* 分組模式位置由程式算，這顆只是丟掉拖過的群組位置 */}
+                      <MIcon name={grouped ? "restart_alt" : "dashboard"} size={16} />
+                      {t(grouped ? "FirewallPage.resetLayout" : "FirewallPage.autoArrange")}
+                    </button>
+                    {/* 分組：班級／機器類型各包成一個群組框，可收合（機器多時預設分組） */}
+                    <button
+                      type="button"
+                      className={`${styles.toolbarBtn} ${grouped ? styles.toolbarBtnActive : ""}`}
+                      aria-pressed={grouped}
+                      onClick={() => setGroupedPref(!grouped)}
+                    >
+                      <MIcon name={grouped ? "workspaces" : "scatter_plot"} size={16} />
+                      {t("FirewallPage.groupToggle")}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.toolbarBtn} ${showLabels ? styles.toolbarBtnActive : ""}`}
+                      onClick={() => setShowLabels((v) => !v)}
+                    >
+                      <MIcon name={showLabels ? "label" : "label_off"} size={16} />
+                      {t("FirewallPage.connectionLabels")}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.toolbarBtn} ${showInternet ? styles.toolbarBtnActive : ""}`}
+                      onClick={toggleInternet}
+                    >
+                      <MIcon name={showInternet ? "public" : "public_off"} size={16} />
+                      {t("FirewallPage.internetLines")}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.toolbarBtn} ${showMiniMap ? styles.toolbarBtnActive : ""}`}
+                      onClick={() => setShowMiniMap((v) => !v)}
+                    >
+                      <MIcon name={showMiniMap ? "map" : "location_off"} size={16} />
+                      {t("FirewallPage.miniMap")}
+                    </button>
+                    {/* 只看有暴露面的機器（網際網路開進來的）：防火牆頁真正該盯的就是這些 */}
+                    <button
+                      type="button"
+                      className={`${styles.toolbarBtn} ${onlyExposed ? styles.toolbarBtnActive : ""}`}
+                      aria-pressed={onlyExposed}
+                      onClick={() => setOnlyExposed((v) => !v)}
+                    >
+                      <MIcon name={onlyExposed ? "filter_alt" : "filter_alt_off"} size={16} />
+                      {t("FirewallPage.onlyExposed")}
+                    </button>
+                  </div>
+
+                </div>
+              </Panel>
+
+              {/* 篩選列放右上角，跟左上的工具列分開；選了機器時規則面板會佔住右上，
+                  篩選列改排到工具列下方（往左讓位會跟工具列撞在一起） */}
+              <Panel
+                position="top-right"
+                className={`${styles.filterPanel} ${rulesPanel.open ? styles.filterPanelBelow : ""}`}
+              >
+                {/* 篩選列：搜尋名稱／IP、只看某個群組，兩個控制項各自成框 */}
+                <div className={styles.filterBar} role="search">
+                  <label className={styles.filterSearch}>
+                    <MIcon name="search" size={16} />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t("FirewallPage.searchPlaceholder")}
+                      aria-label={t("FirewallPage.searchPlaceholder")}
+                    />
+                  </label>
+                  {groupOptions.length > 1 && (
+                    <select
+                      className={styles.filterSelect}
+                      value={activeGroupFilter}
+                      onChange={(e) => setGroupFilter(e.target.value)}
+                      aria-label={t("FirewallPage.groupFilterLabel")}
+                    >
+                      <option value="">{t("FirewallPage.groupFilterAll")}</option>
+                      {groupOptions.map((key) => (
+                        <option key={key} value={key}>{groupName(key)}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </Panel>
 
               <Panel position="bottom-left" style={{ marginLeft: 60 }}>
                 <div className={styles.bottomStack}>
+                  {/* 有機器被篩掉時講出台數，不然會以為機器不見了 */}
+                  {filtersActive && viewSummary.visible > 0 && viewSummary.visible < viewSummary.total && (
+                    <div className={styles.filteredNote}>
+                      <MIcon name="filter_alt" size={14} />
+                      {t("FirewallPage.hiddenCount", { count: viewSummary.total - viewSummary.visible })}
+                      <button type="button" onClick={clearFilters}>{t("FirewallPage.clearFilters")}</button>
+                    </div>
+                  )}
                   {/* 線的顏色本來只寫在程式碼註解裡，圖上沒有任何地方解釋 */}
                   <div className={styles.legend}>
                     <span className={styles.legendItem}>
@@ -471,6 +654,23 @@ export default function FirewallPage() {
                 </div>
               </Panel>
             </ReactFlow>
+
+            {/* 畫布空狀態：共用 EmptyState 置中浮在畫布上（放在 ReactFlow 外，才不會跟工具列擠在頂端） */}
+            {viewSummary.total > 0 && viewSummary.visible === 0 && (
+              <div className={styles.emptyOverlay}>
+                <EmptyState
+                  icon="filter_alt_off"
+                  title={t("FirewallPage.noMatch")}
+                  action={<button type="button" className={styles.btnSecondary} onClick={clearFilters}><MIcon name="filter_alt_off" size={16} />{t("FirewallPage.clearFilters")}</button>}
+                />
+              </div>
+            )}
+            {/* 看全部機器是不是零台，不看畫面上的節點數（篩光時節點也是零，但那是上面那個空狀態） */}
+            {viewSummary.total === 0 && !guideActive && (
+              <div className={styles.emptyOverlay}>
+                <EmptyState icon="security" title={t("FirewallPage.emptyTitle")} description={t("FirewallPage.emptyDesc")} />
+              </div>
+            )}
 
             {rulesPanel.open && (
               <RulesPanel

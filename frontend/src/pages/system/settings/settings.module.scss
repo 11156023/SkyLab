@@ -1,7 +1,7 @@
 @use "../../../assets/styles/variables" as *;
 @use "../../../assets/styles/mixins" as *;
 
-/* 系統管理底下七個設定頁（PVE 連線／資源排程／治理／配額／LDAP／節點管理／Storage）共用的版面與表單樣式 */
+/* 系統管理底下五個設定頁（PVE 管理／資源排程／資源政策／LDAP／儲存空間）共用的版面與表單樣式 */
 .page {
   @include flex-column;
   gap: $spacing-24;
@@ -11,6 +11,19 @@
   @media (min-width: $breakpoint-sidebar) {
     padding: 0;
   }
+}
+
+/* 頁面裡的分段：標題＋內容（PVE 管理的「連線」「節點」、資源政策的「治理」「配額」）；
+   分段標題比卡片標題大一號，底下再有多張卡片時才看得出層級 */
+.pageSection {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.sectionHeading {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
 }
 
 /* ── Content ── */

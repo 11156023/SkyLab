@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -86,19 +87,239 @@ def test_model_is_forwarded_without_a_campus_allowlist() -> None:
     )[:2] == (11, 7)
 
 
+@pytest.mark.asyncio
+async def test_ai_proxy_rate_limit_uses_credential_identity(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_redis() -> object:
+        return object()
+
+    async def fake_check(**kwargs):
+        captured.update(kwargs)
+        return True, {}
+
+    monkeypatch.setattr(ai_proxy, "get_redis", fake_redis)
+    monkeypatch.setattr(ai_proxy, "check_rate_limit_sliding_window", fake_check)
+
+    await ai_proxy._enforce_rate_limit(
+        credential=SimpleNamespace(id="credential-1", rate_limit=7)
+    )
+
+    assert captured["credential_id"] == "credential-1"
+    assert captured["limit"] == 7
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_status_reads_the_same_credential_bucket(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_redis() -> object:
+        return object()
+
+    async def fake_peek(_redis, *, key: str, window_seconds: int) -> int:
+        captured["key"] = key
+        captured["window_seconds"] = window_seconds
+        return 3
+
+    monkeypatch.setattr(ai_proxy, "get_redis", fake_redis)
+    monkeypatch.setattr(ai_proxy, "peek_rate_limit_by_key", fake_peek)
+
+    result = await ai_proxy.get_rate_limit_status(
+        (
+            SimpleNamespace(id="user-1"),
+            SimpleNamespace(id="credential-1", rate_limit=7),
+        )
+    )
+
+    assert captured["key"] == "credential:credential-1"
+    assert result.current_usage == 3
+    assert result.remaining == 4
+
+
 def test_usage_recording_failure_does_not_replace_model_response(monkeypatch) -> None:
+    class FakeSession:
+        def __init__(self, _engine) -> None:
+            pass
+
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args) -> None:
+            return None
+
     def fail_record(**_kwargs) -> None:
         raise RuntimeError("database unavailable")
 
+    monkeypatch.setattr(relay_service, "Session", FakeSession)
     monkeypatch.setattr(relay_service.ai_gateway_service, "record_usage", fail_record)
 
     relay_service.record_usage_safely(
-        session=object(),
-        user=SimpleNamespace(id="user-1"),
-        credential=SimpleNamespace(id="credential-1"),
+        user_id="user-1",
+        credential_id="credential-1",
         model_name="model",
         request_type="chat_completion",
     )
+
+
+@pytest.mark.asyncio
+async def test_usage_recording_uses_independent_session_off_event_loop(
+    monkeypatch,
+) -> None:
+    main_thread_id = threading.get_ident()
+    started = threading.Event()
+    release = threading.Event()
+    usage_session = object()
+    observed: dict[str, object] = {}
+
+    class FakeSession:
+        def __init__(self, _engine) -> None:
+            observed["session_created_in"] = threading.get_ident()
+
+        def __enter__(self):
+            return usage_session
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+    def slow_record(**kwargs) -> None:
+        observed["recorded_in"] = threading.get_ident()
+        observed["session"] = kwargs["session"]
+        started.set()
+        release.wait(timeout=2)
+
+    monkeypatch.setattr(relay_service, "Session", FakeSession)
+    monkeypatch.setattr(relay_service.ai_gateway_service, "record_usage", slow_record)
+
+    task = asyncio.create_task(
+        relay_service.record_usage_in_threadpool(
+            user_id="user-1",
+            credential_id="credential-1",
+            model_name="model",
+            request_type="chat_completion",
+        )
+    )
+    try:
+        assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=1)
+        # DB worker 尚未放行時，event loop 仍可排程其他 coroutine。
+        await asyncio.wait_for(asyncio.sleep(0), timeout=0.2)
+        assert not task.done()
+    finally:
+        release.set()
+        await task
+
+    assert observed["session"] is usage_session
+    assert observed["session_created_in"] != main_thread_id
+    assert observed["recorded_in"] != main_thread_id
+
+
+@pytest.mark.asyncio
+async def test_admission_queue_waits_rejects_overflow_and_releases() -> None:
+    queue = relay_service.AdmissionQueue(
+        max_active=1,
+        max_waiting=1,
+        wait_timeout_seconds=1,
+    )
+    first = await queue.acquire()
+    second_task = asyncio.create_task(queue.acquire())
+    while queue.waiting == 0:
+        await asyncio.sleep(0)
+
+    with pytest.raises(relay_service.AdmissionRejected, match="queue_full"):
+        await queue.acquire()
+
+    first.release()
+    second = await second_task
+    assert queue.active == 1
+    assert queue.waiting == 0
+    second.release()
+    assert queue.active == 0
+
+
+@pytest.mark.asyncio
+async def test_admission_queue_does_not_let_new_requests_bypass_waiters() -> None:
+    queue = relay_service.AdmissionQueue(
+        max_active=1,
+        max_waiting=2,
+        wait_timeout_seconds=1,
+    )
+    first = await queue.acquire()
+    order: list[str] = []
+
+    async def queued_request() -> None:
+        lease = await queue.acquire()
+        order.append("waiting")
+        lease.release()
+
+    waiter = asyncio.create_task(queued_request())
+    while queue.waiting == 0:
+        await asyncio.sleep(0)
+
+    first.release()
+    newcomer = await queue.acquire()
+    order.append("newcomer")
+    newcomer.release()
+    await waiter
+
+    assert order == ["waiting", "newcomer"]
+
+
+@pytest.mark.asyncio
+async def test_admission_queue_timeout_and_cancel_do_not_leak_waiters() -> None:
+    queue = relay_service.AdmissionQueue(
+        max_active=1,
+        max_waiting=1,
+        wait_timeout_seconds=0.01,
+    )
+    first = await queue.acquire()
+
+    with pytest.raises(relay_service.AdmissionRejected, match="timeout"):
+        await queue.acquire()
+    assert queue.waiting == 0
+    assert queue.active == 1
+
+    queue.wait_timeout_seconds = 1
+    waiter = asyncio.create_task(queue.acquire())
+    while queue.waiting == 0:
+        await asyncio.sleep(0)
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    assert queue.waiting == 0
+    first.release()
+    assert queue.active == 0
+
+
+@pytest.mark.asyncio
+async def test_shared_relay_client_is_reused_and_closed_on_shutdown(
+    monkeypatch,
+) -> None:
+    created: list[object] = []
+    init_kwargs: dict[str, object] = {}
+
+    class FakeClient:
+        is_closed = False
+
+        def __init__(self, **kwargs) -> None:
+            created.append(self)
+            init_kwargs.update(kwargs)
+
+        async def aclose(self) -> None:
+            self.is_closed = True
+
+    await relay_service.close_relay_runtime()
+    monkeypatch.setattr(relay_service.httpx, "AsyncClient", FakeClient)
+
+    first = relay_service._get_relay_http_client()
+    second = relay_service._get_relay_http_client()
+
+    assert first is second
+    assert len(created) == 1
+    limits = init_kwargs["limits"]
+    assert isinstance(limits, httpx.Limits)
+    assert limits.max_connections == relay_service.AI_PROXY_MAX_ACTIVE
+    assert limits.max_keepalive_connections == relay_service.AI_PROXY_MAX_ACTIVE
+    await relay_service.close_relay_runtime()
+    assert first.is_closed is True  # type: ignore[attr-defined]
 
 
 def test_stream_usage_is_injected_without_mutating_the_original_payload() -> None:
@@ -148,22 +369,7 @@ async def test_stream_completion_records_usage_and_first_token(monkeypatch) -> N
             yield b'data: {"usage":{"prompt_tokens":3,"completion_tokens":2}}\n\n'
             yield b"data: [DONE]\n\n"
 
-    class FakeClient:
-        async def aclose(self) -> None:
-            return None
-
-    class FakeSession:
-        def __init__(self, _engine) -> None:
-            pass
-
-        def __enter__(self):
-            return object()
-
-        def __exit__(self, *_args) -> None:
-            return None
-
     recorded: dict[str, object] = {}
-    monkeypatch.setattr(relay_service, "Session", FakeSession)
     monkeypatch.setattr(
         relay_service,
         "record_usage_safely",
@@ -176,12 +382,16 @@ async def test_stream_completion_records_usage_and_first_token(monkeypatch) -> N
         stream=Stream(),
     )
     started_at = time.monotonic()
+    queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
+    )
+    lease = await queue.acquire()
 
     chunks = [
         chunk
         async for chunk in relay_service.stream_upstream_response(
-            client=FakeClient(),
             upstream=upstream,
+            admission_lease=lease,
             user=SimpleNamespace(id="user-1"),
             credential=SimpleNamespace(id="credential-1"),
             model_name="requested",
@@ -200,6 +410,8 @@ async def test_stream_completion_records_usage_and_first_token(monkeypatch) -> N
     assert recorded["response_model"] == "resolved"
     assert isinstance(recorded["first_token_ms"], int)
     assert recorded["record_status"] == "success"
+    assert lease.released is True
+    assert queue.active == 0
 
 
 @pytest.mark.asyncio
@@ -209,22 +421,7 @@ async def test_cancelled_stream_still_records_partial_observation(monkeypatch) -
             yield b'data: {"model":"resolved","choices":[{"delta":{"content":"ok"}}]}\n\n'
             raise asyncio.CancelledError
 
-    class FakeClient:
-        async def aclose(self) -> None:
-            return None
-
-    class FakeSession:
-        def __init__(self, _engine) -> None:
-            pass
-
-        def __enter__(self):
-            return object()
-
-        def __exit__(self, *_args) -> None:
-            return None
-
     recorded: dict[str, object] = {}
-    monkeypatch.setattr(relay_service, "Session", FakeSession)
     monkeypatch.setattr(
         relay_service,
         "record_usage_safely",
@@ -236,9 +433,13 @@ async def test_cancelled_stream_still_records_partial_observation(monkeypatch) -
         request=httpx.Request("POST", "http://upstream/v1/chat/completions"),
         stream=Stream(),
     )
+    queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
+    )
+    lease = await queue.acquire()
     stream = relay_service.stream_upstream_response(
-        client=FakeClient(),
         upstream=upstream,
+        admission_lease=lease,
         user=SimpleNamespace(id="user-1"),
         credential=SimpleNamespace(id="credential-1"),
         model_name="requested",
@@ -261,6 +462,8 @@ async def test_cancelled_stream_still_records_partial_observation(monkeypatch) -
     assert recorded["usage_reported"] is False
     assert recorded["response_model"] == "resolved"
     assert isinstance(recorded["first_token_ms"], int)
+    assert lease.released is True
+    assert queue.active == 0
 
 
 def test_generation_relay_replaces_authorization_and_preserves_query(
@@ -269,9 +472,6 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
     captured: dict[str, object] = {}
 
     class FakeClient:
-        def __init__(self, **_kwargs) -> None:
-            pass
-
         def build_request(self, method: str, url: str, **kwargs) -> httpx.Request:
             captured["request"] = httpx.Request(method, url, **kwargs)
             return captured["request"]  # type: ignore[return-value]
@@ -292,18 +492,23 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
                 request=request,
             )
 
-        async def aclose(self) -> None:
-            return None
-
     async def no_redis():
         return None
 
     recorded: dict[str, object] = {}
+    admission_queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
+    )
     monkeypatch.setattr(ai_proxy, "get_redis", no_redis)
-    monkeypatch.setattr(relay_service.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(relay_service, "_get_relay_http_client", FakeClient)
     monkeypatch.setattr(
-        relay_service.ai_gateway_service,
-        "record_usage",
+        relay_service,
+        "_get_admission_queue",
+        lambda: admission_queue,
+    )
+    monkeypatch.setattr(
+        relay_service,
+        "record_usage_safely",
         lambda **kwargs: recorded.update(kwargs),
     )
     monkeypatch.setattr(
@@ -327,7 +532,6 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
             endpoint="responses",
             request=request,
             user_and_credential=(user, credential),
-            session=object(),
         )
     )
 
@@ -348,6 +552,7 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
     assert recorded["response_model"] == "resolved-model"
     assert recorded["request_id"] == outbound.headers["x-request-id"]
     assert recorded["upstream_request_id"] == "upstream-1"
+    assert admission_queue.active == 0
 
 
 @pytest.mark.parametrize("is_stream", [True, False])
@@ -357,9 +562,6 @@ def test_only_stream_responses_disable_proxy_buffering(
     """串流回應要叫主系統 nginx 別緩衝，否則 SSE 會被攢成一大塊才送出。"""
 
     class FakeClient:
-        def __init__(self, **_kwargs) -> None:
-            pass
-
         def build_request(self, method: str, url: str, **kwargs) -> httpx.Request:
             return httpx.Request(method, url, **kwargs)
 
@@ -377,17 +579,16 @@ def test_only_stream_responses_disable_proxy_buffering(
                 request=request,
             )
 
-        async def aclose(self) -> None:
-            return None
-
     async def no_redis():
         return None
 
-    monkeypatch.setattr(ai_proxy, "get_redis", no_redis)
-    monkeypatch.setattr(relay_service.httpx, "AsyncClient", FakeClient)
-    monkeypatch.setattr(
-        relay_service.ai_gateway_service, "record_usage", lambda **_kwargs: None
+    admission_queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
     )
+    monkeypatch.setattr(ai_proxy, "get_redis", no_redis)
+    monkeypatch.setattr(relay_service, "_get_relay_http_client", FakeClient)
+    monkeypatch.setattr(relay_service, "_get_admission_queue", lambda: admission_queue)
+    monkeypatch.setattr(relay_service, "record_usage_safely", lambda **_kwargs: None)
 
     request = _request(
         body=json.dumps({"model": "m", "messages": [], "stream": is_stream}).encode(),
@@ -401,7 +602,6 @@ def test_only_stream_responses_disable_proxy_buffering(
                 SimpleNamespace(id="user-1"),
                 SimpleNamespace(id="credential-1", rate_limit=None),
             ),
-            session=object(),
         )
     )
 
@@ -412,3 +612,65 @@ def test_only_stream_responses_disable_proxy_buffering(
         assert response.headers["content-type"].startswith("text/event-stream")
     else:
         assert "x-accel-buffering" not in response.headers
+
+
+@pytest.mark.asyncio
+async def test_upstream_connection_error_releases_admission_slot(
+    monkeypatch,
+) -> None:
+    class FailingClient:
+        def build_request(self, method: str, url: str, **kwargs) -> httpx.Request:
+            return httpx.Request(method, url, **kwargs)
+
+        async def send(self, request: httpx.Request, *, stream: bool) -> httpx.Response:
+            raise httpx.ConnectError("offline", request=request)
+
+    queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
+    )
+    monkeypatch.setattr(relay_service, "_get_relay_http_client", FailingClient)
+    monkeypatch.setattr(relay_service, "_get_admission_queue", lambda: queue)
+    monkeypatch.setattr(
+        relay_service,
+        "record_usage_safely",
+        lambda **_kwargs: None,
+    )
+
+    response = await relay_service.relay_generation(
+        endpoint="chat/completions",
+        request=_request(),
+        payload={"model": "model"},
+        model_name="model",
+        user=SimpleNamespace(id="user-1"),
+        credential=SimpleNamespace(id="credential-1"),
+    )
+
+    assert response.status_code == 503
+    assert queue.active == 0
+
+
+@pytest.mark.asyncio
+async def test_generation_returns_503_when_admission_queue_is_full(
+    monkeypatch,
+) -> None:
+    queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
+    )
+    lease = await queue.acquire()
+    monkeypatch.setattr(relay_service, "_get_admission_queue", lambda: queue)
+
+    response = await relay_service.relay_generation(
+        endpoint="chat/completions",
+        request=_request(),
+        payload={"model": "model"},
+        model_name="model",
+        user=SimpleNamespace(id="user-1"),
+        credential=SimpleNamespace(id="credential-1"),
+    )
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == str(
+        relay_service.AI_PROXY_RETRY_AFTER_SECONDS
+    )
+    assert json.loads(response.body)["error"]["code"] == "server_busy"
+    lease.release()

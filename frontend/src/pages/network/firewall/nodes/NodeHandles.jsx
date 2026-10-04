@@ -20,7 +20,8 @@ const SIDES = [
   { position: Position.Left,   source: HANDLE.SOURCE.left,   target: HANDLE.TARGET.left },
 ];
 
-export default function NodeHandles({ dragStartSide, dragEndSide }) {
+/* connectable=false：只當連線端點用、不能從這裡拉線（例如收合的群組卡） */
+export default function NodeHandles({ dragStartSide, dragEndSide, connectable = true }) {
   /* 用 Fragment 而非 div：節點本身是 flex container，多一層元素會變成 flex item */
   return SIDES.map((side) => (
     <Fragment key={side.position}>
@@ -28,7 +29,8 @@ export default function NodeHandles({ dragStartSide, dragEndSide }) {
         type="target"
         id={side.target}
         position={side.position}
-        className={styles.nodeHandle}
+        isConnectable={connectable}
+        className={`${styles.nodeHandle} ${connectable ? "" : styles.nodeHandleStatic}`}
         data-firewall-handle="target"
         data-guide={side.position === dragEndSide ? "firewall-drag-end" : undefined}
       />
@@ -36,7 +38,8 @@ export default function NodeHandles({ dragStartSide, dragEndSide }) {
         type="source"
         id={side.source}
         position={side.position}
-        className={styles.nodeHandle}
+        isConnectable={connectable}
+        className={`${styles.nodeHandle} ${connectable ? "" : styles.nodeHandleStatic}`}
         data-firewall-handle="source"
         data-guide={side.position === dragStartSide ? "firewall-drag-start" : undefined}
       />

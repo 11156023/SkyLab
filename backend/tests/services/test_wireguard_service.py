@@ -13,6 +13,15 @@ from app.schemas import ResourcePublic
 from app.services.network import wireguard_service
 
 
+@pytest.fixture(autouse=True)
+def _default_wireguard_vm_subnet(monkeypatch) -> None:
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda _session: None,
+    )
+
+
 def _public_key(seed: int = 1) -> str:
     return base64.b64encode(bytes([seed]) * 32).decode("ascii")
 
@@ -70,6 +79,24 @@ def test_resource_targets_are_running_authorized_and_inside_vm_subnet(
             type="qemu",
             ip_address="192.168.1.10",
         ),
+        ResourcePublic(
+            vmid=105,
+            name="ended-window",
+            status="running",
+            node="pve1",
+            type="lxc",
+            ip_address="10.10.1.13",
+            start_blocked_reason="window_ended",
+        ),
+        ResourcePublic(
+            vmid=106,
+            name="expired-ttl",
+            status="running",
+            node="pve1",
+            type="lxc",
+            ip_address="10.10.1.14",
+            expiry_date=(datetime.now(UTC) - timedelta(days=1)).date(),
+        ),
     ]
     monkeypatch.setattr(
         wireguard_service.resource_service,
@@ -86,6 +113,114 @@ def test_resource_targets_are_running_authorized_and_inside_vm_subnet(
         (102, "ssh", 22),
         (102, "rdp", 3389),
     ]
+
+
+def test_resource_targets_use_configured_platform_subnet(monkeypatch) -> None:
+    resource = ResourcePublic(
+        vmid=205,
+        name="course-lxc",
+        status="running",
+        node="pve1",
+        type="lxc",
+        ip_address="192.168.60.105",
+    )
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda _session: SimpleNamespace(cidr="192.168.60.0/24"),
+    )
+    monkeypatch.setattr(
+        wireguard_service.resource_service,
+        "list_by_user",
+        lambda **_: [resource],
+    )
+
+    targets = wireguard_service._resource_targets(
+        session=object(), user_id=uuid.uuid4()
+    )
+
+    assert [(item.vmid, item.host, item.port) for item in targets] == [
+        (205, "192.168.60.105", 22)
+    ]
+
+
+def test_gateway_acl_uses_configured_subnet_and_removes_stale_targets(
+    monkeypatch,
+) -> None:
+    class FakeClient:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    session = object()
+    client = FakeClient()
+    scripts: list[str] = []
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda current_session: (
+            SimpleNamespace(cidr="192.168.60.0/24")
+            if current_session is session
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        wireguard_service,
+        "_gateway_client",
+        lambda current_session: (None, client),
+    )
+    monkeypatch.setattr(
+        wireguard_service,
+        "_run_locked",
+        lambda _client, script, _message: scripts.append(script) or _public_key(9),
+    )
+
+    public_key = wireguard_service._sync_gateway_peer(
+        session=session,
+        public_key=_public_key(1),
+        tunnel_ip="10.250.0.8",
+        old_public_key=_public_key(1),
+        old_endpoints=[
+            {"vmid": 101, "service": "ssh", "host": "10.10.1.10", "port": 22}
+        ],
+        new_endpoints=[
+            {
+                "vmid": 205,
+                "service": "ssh",
+                "host": "192.168.60.105",
+                "port": 22,
+            }
+        ],
+    )
+
+    assert public_key == _public_key(9)
+    assert client.closed is True
+    assert "10.250.0.8 . 10.10.1.10 . 22" in scripts[0]
+    assert "10.250.0.8 . 192.168.60.105 . 22" in scripts[0]
+
+
+def test_gateway_acl_rejects_new_target_outside_configured_subnet(
+    monkeypatch,
+) -> None:
+    session = object()
+    monkeypatch.setattr(
+        wireguard_service.ip_management_service,
+        "get_subnet_config",
+        lambda _session: SimpleNamespace(cidr="192.168.60.0/24"),
+    )
+
+    with pytest.raises(BadRequestError, match="Stored WireGuard ACL endpoint"):
+        wireguard_service._sync_gateway_peer(
+            session=session,
+            public_key=_public_key(1),
+            tunnel_ip="10.250.0.8",
+            old_public_key=_public_key(1),
+            old_endpoints=[],
+            new_endpoints=[
+                {"vmid": 205, "service": "ssh", "host": "10.10.1.10", "port": 22}
+            ],
+        )
 
 
 def test_connect_reuses_device_address_and_activates_only_after_gateway_sync(
@@ -388,6 +523,8 @@ def test_reconcile_marks_peer_inactive_when_gateway_replay_fails(
         lambda **_: [peer],
     )
     monkeypatch.setattr(wireguard_service, "_gateway_state_id", lambda _: "boot-2")
+    monkeypatch.setattr(wireguard_service, "_resource_targets", lambda **_: [])
+    monkeypatch.setattr(wireguard_service, "_remove_gateway_peer", lambda **_: None)
     monkeypatch.setattr(
         wireguard_service,
         "_sync_gateway_peer",
@@ -408,3 +545,62 @@ def test_reconcile_marks_peer_inactive_when_gateway_replay_fails(
     assert peer.active is False
     assert peer.allowed_endpoints == []
     assert peer.revoked_at is not None
+
+
+def test_reconcile_updates_acl_without_gateway_restart(monkeypatch) -> None:
+    peer = WireGuardPeer(
+        user_id=uuid.uuid4(),
+        device_id="device-1234",
+        public_key=_public_key(1),
+        tunnel_ip="10.250.0.8",
+        allowed_endpoints=[
+            {"vmid": 100, "service": "ssh", "host": "10.10.1.10", "port": 22}
+        ],
+        active=True,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+    sync_calls: list[dict] = []
+    saved: list[WireGuardPeer] = []
+    monkeypatch.setattr(wireguard_service, "Session", lambda _: FakeSession())
+    monkeypatch.setattr(
+        wireguard_service.peer_repo, "list_expired_active", lambda **_: []
+    )
+    monkeypatch.setattr(
+        wireguard_service.peer_repo, "list_revoked_before", lambda **_: []
+    )
+    monkeypatch.setattr(
+        wireguard_service.peer_repo,
+        "list_active_unexpired",
+        lambda **_: [peer],
+    )
+    monkeypatch.setattr(wireguard_service, "_gateway_state_id", lambda _: "boot-1")
+    monkeypatch.setattr(wireguard_service, "_resource_targets", lambda **_: [])
+    monkeypatch.setattr(
+        wireguard_service,
+        "_sync_gateway_peer",
+        lambda **kwargs: sync_calls.append(kwargs) or _public_key(9),
+    )
+    monkeypatch.setattr(
+        wireguard_service.peer_repo,
+        "save",
+        lambda **kwargs: saved.append(kwargs["peer"]) or kwargs["peer"],
+    )
+    monkeypatch.setattr(
+        wireguard_service._reconcile_state, "last_gateway_state_id", "boot-1"
+    )
+
+    wireguard_service.reconcile_once()
+
+    assert len(sync_calls) == 1
+    assert sync_calls[0]["old_endpoints"] != []
+    assert sync_calls[0]["new_endpoints"] == []
+    assert peer.allowed_endpoints == []
+    assert saved == [peer]

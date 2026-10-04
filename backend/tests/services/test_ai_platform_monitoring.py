@@ -320,6 +320,25 @@ def test_observe_call_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     ai_metrics.observe_call(source="api_key", model="m", request_type="t", record_status="success")
 
 
+def test_proxy_admission_metrics_track_queue_state_wait_and_rejection() -> None:
+    rejected_before = _sample(
+        "skylab_ai_proxy_admission_rejections_total", reason="queue_full"
+    )
+    wait_count_before = _sample("skylab_ai_proxy_queue_wait_seconds_count")
+
+    ai_metrics.update_proxy_admission(active=3, waiting=4)
+    ai_metrics.observe_proxy_queue_wait(0.25)
+    ai_metrics.record_proxy_admission_rejection("queue_full")
+
+    assert _sample("skylab_ai_proxy_inflight_requests") == 3
+    assert _sample("skylab_ai_proxy_waiting_requests") == 4
+    assert _sample("skylab_ai_proxy_queue_wait_seconds_count") == wait_count_before + 1
+    assert (
+        _sample("skylab_ai_proxy_admission_rejections_total", reason="queue_full")
+        == rejected_before + 1
+    )
+
+
 def test_proxy_usage_recording_updates_metrics_even_if_accounting_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(**_: Any) -> None:
         raise RuntimeError("db down")
@@ -328,12 +347,9 @@ def test_proxy_usage_recording_updates_metrics_even_if_accounting_fails(monkeypa
     before = _sample(
         "skylab_ai_requests_total", source="api_key", model="other", request_type="chat_completion", outcome="unavailable"
     )
-    user = type("U", (), {"id": "u"})()
-    credential = type("C", (), {"id": "c"})()
     relay_service.record_usage_safely(
-        session=None,
-        user=user,
-        credential=credential,
+        user_id="u",
+        credential_id="c",
         model_name="never-served",
         request_type="chat_completion",
         record_status="error",

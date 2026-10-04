@@ -383,6 +383,7 @@ def format_endpoint(host: str, port: int) -> str:
 def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     """Return a secret-free WireGuard control-plane and runtime summary."""
     from app.repositories import wireguard_peer as peer_repo
+    from app.services.network import ip_management_service
 
     now = datetime.now(timezone.utc)
     config, private_key_pem = _get_credentials(session)
@@ -394,6 +395,7 @@ def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     expired_sessions = peer_repo.list_expired_active(  # type: ignore[arg-type]
         session=session, now=now
     )
+    subnet = ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
 
     metrics = _parse_wireguard_dump("")
     try:
@@ -414,7 +416,7 @@ def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
             wireguard_endpoint_host(config), settings.WIREGUARD_ENDPOINT_PORT
         ),
         client_subnet=settings.WIREGUARD_CLIENT_SUBNET,
-        vm_subnet=settings.WIREGUARD_VM_SUBNET,
+        vm_subnet=subnet.cidr if subnet else settings.WIREGUARD_VM_SUBNET,
         session_ttl_seconds=settings.WIREGUARD_SESSION_TTL_SECONDS,
         reconcile_enabled=settings.WIREGUARD_RECONCILE_ENABLED,
         authorized_sessions=len(active_sessions),

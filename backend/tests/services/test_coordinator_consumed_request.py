@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 from app.exceptions import NotFoundError
@@ -326,6 +327,17 @@ class TestProcessDueRequestStops:
             "control",
             lambda node, vmid, rtype, action: actions.append(action),
         )
+        scheduled: list[dict] = []
+        monkeypatch.setattr(
+            coordinator.resource_repo,
+            "get_resource_by_vmid",
+            lambda **_: SimpleNamespace(auto_stop_at=None),
+        )
+        monkeypatch.setattr(
+            coordinator.resource_repo,
+            "set_auto_stop",
+            lambda **kwargs: scheduled.append(kwargs),
+        )
         monkeypatch.setattr(
             coordinator.audit_service, "log_action", lambda **kwargs: None
         )
@@ -334,5 +346,7 @@ class TestProcessDueRequestStops:
 
         assert stopped == 1
         assert actions == ["shutdown"]
+        assert scheduled[0]["auto_stop_at"] == req.end_at
+        assert scheduled[0]["auto_stop_reason"] == "window_grace"
         assert req.vmid == 480
         assert req.provisioning_status != VMProvisioningStatus.failed

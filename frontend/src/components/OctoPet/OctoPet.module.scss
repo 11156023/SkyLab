@@ -1,0 +1,35 @@
+/* 章魚學士：身體固定用主題藍，不跟使用者換的主色；
+   深色模式只把帽子、筆電調亮（不然會融進深色背景），特效改淺色 */
+.root {
+  --octo-cap: #252c48;
+  --octo-lid: #252c48;
+  --octo-fx: #5471bf;
+  --octo-heart: #ec7aa2;
+  --octo-ink: #232a4d;
+  --octo-shadow: rgba(30, 46, 100, 0.18);
+  --octo-bubble-line: #202748;
+  --octo-bubble-fill: #ffffff;
+  --octo-bubble-dot: #202748;
+  position: relative;
+  display: block;
+  flex: none;
+
+  :global(body.dark) & {
+    --octo-cap: #3a4470;
+    --octo-lid: #3a4470;
+    --octo-fx: #89a5e0;
+    --octo-heart: #f08fb2;
+    --octo-ink: #090c17;
+    --octo-shadow: rgba(0, 0, 0, 0.38);
+    --octo-bubble-line: #0d1122;
+    --octo-bubble-fill: #e6ecf8;
+    --octo-bubble-dot: #202748;
+  }
+}
+
+.canvas {
+  position: absolute;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;
+}

@@ -18,7 +18,7 @@ from app.infrastructure.proxmox import (
     open_vncwebsocket,
 )
 from app.services.proxmox import proxmox_service
-from app.services.resource.access import require_resource_use
+from app.services.resource.access import require_resource_console_access
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
     try:
         # 同步 DB 查詢丟到 worker thread，連線池耗盡時才不會凍住 event loop
         await asyncio.to_thread(
-            require_resource_use, session=session, user=user, vmid=vmid
+            require_resource_console_access, session=session, user=user, vmid=vmid
         )
     except Exception:
         await safe_close_websocket(websocket, code=1008, reason="Permission denied")

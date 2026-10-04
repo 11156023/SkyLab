@@ -763,6 +763,7 @@
   "AiJudgePanel.chatInputAria": "AI へのメッセージ",
   "AiJudgePanel.chatInputPlaceholder": "メッセージを入力…（Shift+Enter で改行）",
   "AiJudgePanel.chatSyncUnknown": "会話履歴が同期されたか確認できませんでした。",
+  "AiJudgePanel.chatThinking": "チェック表アシスタントが考え中…",
   "AiJudgePanel.checkActionFailed": "操作できませんでした",
   "AiJudgePanel.checkCopied": "「{{title}}」としてコピーしました。チェック表を調整できます。",
   "AiJudgePanel.checkCreated": "「{{title}}」を作成しました",

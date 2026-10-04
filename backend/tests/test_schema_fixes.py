@@ -178,7 +178,7 @@ def test_subnet_accepts_common_prefix(cidr: str) -> None:
 # ---- AI API 期限與審核結果只收已知值 ----
 
 
-@pytest.mark.parametrize("duration", ["1h", "1d", "7d", "30d", "never"])
+@pytest.mark.parametrize("duration", ["1d", "7d", "30d", "90d", "never"])
 def test_ai_api_request_accepts_known_durations(duration: str) -> None:
     req = AIAPIRequestCreate(purpose="x" * 10, duration=duration)
     assert req.duration == duration
@@ -188,7 +188,7 @@ def test_ai_api_request_defaults_to_never() -> None:
     assert AIAPIRequestCreate(purpose="x" * 10).duration == "never"
 
 
-@pytest.mark.parametrize("duration", ["90d", "30D", "1w", "7 days", ""])
+@pytest.mark.parametrize("duration", ["1h", "91d", "180d", "30D", "1w", "7 days", ""])
 def test_ai_api_request_rejects_unknown_duration(duration: str) -> None:
     with pytest.raises(ValidationError):
         AIAPIRequestCreate(purpose="x" * 10, duration=duration)

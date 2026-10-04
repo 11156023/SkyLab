@@ -971,84 +971,89 @@
   }
 }
 
+/* 訊息排法比照首頁 AI 對話（AiPveChat）：助理頭像＋不加框的回覆、
+   使用者靠右的實心氣泡（不放頭像），訊息間距、字級、行高、思考中樣式都一樣 */
 .chatMessages {
   flex: 1;
   min-height: 150px;
   overflow-y: auto;
   @include flex-column;
-  gap: $spacing-16;
+  gap: $spacing-24;
   padding: $spacing-8 0;
 }
 
 .chatMsgRow {
   display: flex;
-  gap: $spacing-8;
+  align-items: flex-start;
+  gap: 10px;
   justify-content: flex-start;
+  animation: chatMsgIn 150ms ease both;
+}
+
+@keyframes chatMsgIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .chatMsgRow_user {
   justify-content: flex-end;
 }
 
+/* 章魚學士靜態頭像：32px 圓框，超出的章魚讓圓邊自然裁掉（跟首頁 AI 對話同一張臉） */
 .chatAvatar {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   border-radius: 50%;
-  flex-shrink: 0;
+  overflow: hidden;
   @include flex-center;
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary);
-}
-
-.chatAvatar_user {
   background: var(--color-hover);
-  color: var(--color-text-secondary);
 }
 
+/* 回覆不加框、寬度給滿 */
 .chatBubble {
-  max-width: 80%;
-  padding: 8px $spacing-16;
-  border-radius: $radius-12;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  flex: 1;
+  min-width: 0;
+  padding-top: 3px;
   font-size: $font-size-14;
   color: var(--color-text);
   white-space: pre-wrap;
-  line-height: $line-height-base;
+  line-height: 1.7;
   overflow-wrap: anywhere;
 }
 
+/* 問題通常一句話：靠右的實心氣泡，缺角朝發話端 */
 .chatBubble_user {
-  border-color: var(--color-primary);
+  flex: 0 1 auto;
+  max-width: 84%;
+  padding: 9px 14px;
+  border-radius: $radius-16 $radius-16 4px $radius-16;
   background: var(--color-primary);
   color: var(--color-text-on-primary);
+  line-height: $line-height-base;
 }
 
-.chatLoadingText {
-  margin: 0 0 6px;
+.chatThinking {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding-top: 7px;
+  color: var(--color-text-muted);
   font-size: $font-size-14;
-  color: var(--color-text-secondary);
 }
 
-@keyframes typingPulse {
-  0%, 100% { transform: translateY(0); opacity: 0.4; }
-  50% { transform: translateY(-2px); opacity: 1; }
+@keyframes chatPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.4); }
 }
 
-.typing {
-  display: inline-flex;
-  gap: 4px;
-
-  span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-primary);
-    animation: typingPulse 1.2s ease-in-out infinite;
-
-    &:nth-child(2) { animation-delay: 0.15s; }
-    &:nth-child(3) { animation-delay: 0.3s; }
-  }
+.chatPulse {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: chatPulse 1.2s ease-in-out infinite;
 }
 
 .chatInputArea {
@@ -2065,7 +2070,9 @@
   overflow-x: auto;
 }
 
-/* 欄位頂部標頭統一高度：檢查項目／AI 聊天室對齊 */
+/* 欄位頂部標頭統一高度：檢查項目／檢查表助理對齊。
+   標題要在「卡片上緣到分隔線」之間置中：往上吃掉 8px 卡片內距、下方留 16px，
+   上下各約 17px（原本上 30、下 15，看起來沉在分隔線上） */
 .checkHead {
   display: flex;
   flex: 0 0 auto;
@@ -2073,8 +2080,9 @@
   justify-content: space-between;
   gap: $spacing-8;
   min-height: 44px;
+  margin-top: -$spacing-8;
   margin-bottom: $spacing-8;
-  padding-bottom: $spacing-8;
+  padding-bottom: $spacing-16;
   border-bottom: 1px solid var(--color-divider);
 
   .cardTitle {

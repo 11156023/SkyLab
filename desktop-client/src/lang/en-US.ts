@@ -1,4 +1,11 @@
 ﻿export default {
+  update: {
+    title: "Update available",
+    message:
+      "SkyLab Connect {version} is available. Download the latest installer now.",
+    download: "Download update",
+    later: "Remind me later"
+  },
   app: {
     title: "SkyLab Connect",
     description: "Connect to your SkyLab virtual machines"
@@ -55,6 +62,8 @@
   },
   home: {
     status: {
+      leaseRefreshFailed:
+        "Session renewal failed and will retry automatically. Reconnect if the session expires.",
       running: "Connected",
       stopped: "Disconnected",
       error: "Connection error",
@@ -78,11 +87,12 @@
     machines: {
       summary:
         "Connected · {machines} machines · {courses} course environments",
-      unavailable: "No connection"
+      unavailable: "No connection",
+      noTargets:
+        "The secure connection is active, but no SSH or RDP targets are available. Check that a machine is running and has a reachable IP. If the problem persists, ask an administrator to check the VPN subnet."
     },
     empty: {
       notLoggedIn: "Not signed in. Please sign in to SkyLab first.",
-      noTunnels: "No tunnels available.",
       goLogin: "Go to sign-in",
       goResources: "View my resources"
     },
@@ -110,6 +120,18 @@
     summary: "{total} machines across {courses} course environments",
     connect: "Connect",
     customEnvironment: "Custom environment",
+    owner: "Owner: {owner}",
+    kind: {
+      personal: "Personal request",
+      shared: "Shared with me",
+      teaching_class: "Class machine",
+      quick_practice: "Quick practice",
+      course: "Course lab"
+    },
+    window: {
+      notStarted: "Usage window starts at {time}",
+      ended: "Usage window ended at {time}"
+    },
     metrics: {
       total: "Machines",
       courseGroups: "Course environments"
@@ -129,8 +151,12 @@
       running: "Running",
       stopped: "Stopped",
       paused: "Paused",
+      scheduled: "Scheduled",
       provisioning: "Provisioning",
+      starting: "Starting",
+      deleting: "Deleting",
       failed: "Failed",
+      deleted: "Deleted",
       unknown: "Unknown"
     },
     table: {
@@ -150,8 +176,9 @@
     back: "Back to connection",
     language: {
       label: "Language",
-      zhCN: "Traditional Chinese",
-      enUS: "English"
+      zhTW: "Traditional Chinese",
+      enUS: "English",
+      ja: "Japanese"
     },
     autoStart: {
       label: "Launch at startup",

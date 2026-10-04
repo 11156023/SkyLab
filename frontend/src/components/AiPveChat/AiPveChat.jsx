@@ -4,6 +4,7 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
+import OctoAvatar from "../OctoPet/OctoAvatar";
 import { useToast } from "../../hooks/useToast";
 import { AiPveLogService } from "../../services/aiPveLog";
 import { AI_PVE_MARKDOWN_COMPONENTS } from "./aiPveRichText";
@@ -413,9 +414,9 @@ export default function AiPveChat({ initialPrompt = "", compact = false, fill = 
             >
               {/* 助理有頭像、回覆不加框；使用者是靠右的實心氣泡——
                   與站上另一個對話元件 AiFloatingChat 用同一套語彙。
-                  頭像圖示則跟首頁助手標頭一致（support_agent），同一位助手不換臉。 */}
+                  頭像也一樣是章魚學士，這裡一律用圓框靜態頭像（首頁卡片裡不放會動的章魚） */}
               {!isUser && (
-                <span className={styles.avatar}><MIcon name="support_agent" size={18} /></span>
+                <span className={styles.avatar}><OctoAvatar /></span>
               )}
               <div className={styles.msgBody}>
                 {isUser ? (
@@ -473,7 +474,7 @@ export default function AiPveChat({ initialPrompt = "", compact = false, fill = 
 
         {isSending && (
           <div className={`${styles.msg} ${styles.msg_assistant}`}>
-            <span className={styles.avatar}><MIcon name="support_agent" size={18} /></span>
+            <span className={styles.avatar}><OctoAvatar /></span>
             <div className={styles.thinking}>
               <span className={styles.pulse} />
               {t("AiPveChat.thinking")}
