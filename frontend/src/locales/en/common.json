@@ -298,7 +298,7 @@
   "UserGuide.reverseProxy.domain.title": "Compose the public URL",
   "UserGuide.reverseProxy.domain.text": "Enter a hostname prefix and select a connected domain suffix to form the final address.",
   "UserGuide.reverseProxy.port.title": "Choose the service's internal port",
-  "UserGuide.reverseProxy.port.text": "Pick a common port or switch to a custom one. When HTTPS is enabled, the system handles the public certificate.",
+  "UserGuide.reverseProxy.port.text": "Pick a common port or switch to a custom one. When HTTPS is enabled, the certificate the administrator set up on the Gateway is used.",
   "UserGuide.reverseProxy.actions.title": "Create only after the preview is correct",
   "UserGuide.reverseProxy.actions.text": "Verify the VM, URL, and port preview before creating. The guide never submits or changes a rule.",
   "UserGuide.reverseProxy.list.title": "Created URLs return to this list",

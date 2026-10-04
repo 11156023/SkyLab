@@ -74,13 +74,13 @@
   "ReverseProxyPage.nginx.stopped": "停止中",
   "ReverseProxyPage.nginx.configValid": "設定ファイルの検証に成功",
   "ReverseProxyPage.nginx.configInvalid": "設定ファイルの検証に失敗",
-  "ReverseProxyPage.nginx.pendingCertificates": "{{count}} 件のドメイン証明書が未発行のため、自己署名証明書で代用中",
+  "ReverseProxyPage.nginx.pendingCertificates": "{{count}} 件のドメインが自己署名証明書を使用中（ゲートウェイ VM ページで HTTPS 証明書が未設定）",
   "ReverseProxyPage.nginx.httpServers": "ドメインのリバースプロキシ",
   "ReverseProxyPage.nginx.tcpForwards": "TCP ポート転送",
   "ReverseProxyPage.nginx.udpForwards": "UDP ポート転送",
   "ReverseProxyPage.nginx.serverBlocks": "server ブロック",
-  "ReverseProxyPage.nginx.certificates": "Let's Encrypt 証明書",
-  "ReverseProxyPage.nginx.noCertificates": "まだ証明書は発行されていません",
+  "ReverseProxyPage.nginx.certificates": "HTTPS 証明書",
+  "ReverseProxyPage.nginx.noCertificates": "HTTPS 証明書は未設定です",
   "ReverseProxyPage.nginx.expires": "有効期限 {{date}}",
   "ReverseProxyPage.nginx.expiryUnknown": "有効期限は不明"
 }

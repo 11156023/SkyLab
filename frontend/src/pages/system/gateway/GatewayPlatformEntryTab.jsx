@@ -39,6 +39,9 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
   if (status) {
     if (!status.applied) warnings.push(t("GatewayPage.platformWarnDrift"));
     if (status.certificate_ready === false) warnings.push(t("GatewayPage.platformWarnCert"));
+    else if (status.certificate_matches_domain === false) {
+      warnings.push(t("GatewayPage.platformWarnCertDomain", { domain: status.applied_domain ?? "" }));
+    }
     if (status.upstream_reachable === false) {
       warnings.push(t("GatewayPage.platformWarnUpstream", { detail: status.upstream_detail ?? "" }));
     }
@@ -51,7 +54,7 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
 
   let certificateText = "—";
   if (status?.applied_https === false) certificateText = t("GatewayPage.platformStatusCertNone");
-  else if (status?.certificate_ready === false) certificateText = t("GatewayPage.platformStatusCertFallback");
+  else if (!status?.certificate && status?.applied_https) certificateText = t("GatewayPage.platformStatusCertFallback");
   else if (status?.certificate) {
     const date = formatDate(status.certificate_expires_at);
     certificateText = date
@@ -146,7 +149,7 @@ function PlatformTodoCard({ gatewayHost }) {
 }
 
 /* ── 平台入口 Tab ───────────────────────────────────── */
-export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection, onDirtyChange }) {
+export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection, onGoToCertificate, onDirtyChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
@@ -272,7 +275,7 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
   const formError = validatePlatformForm(form);
   const busy = saving || testing;
   const badge = entryBadge(config, status);
-  const needsCloudflare = form.enabled && form.enable_https && !config.cloudflare_ready;
+  const needsCertificate = form.enabled && form.enable_https && !config.certificate_configured;
   // 表單沒改但 Gateway 上的內容跑掉了（例如重裝過）：仍要能按一次重新套用
   const drifted = Boolean(status && !status.applied);
   const canSave = !busy && !formError && (dirty || drifted);
@@ -365,10 +368,18 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
           </div>
         )}
 
-        {needsCloudflare && (
+        {needsCertificate && (
           <div className={styles.warningNote}>
             <MIcon name="warning" size={18} />
-            {t("GatewayPage.platformCloudflareRequired")}
+            <div className={styles.noteText}>
+              <span>{t("GatewayPage.platformCertificateRequired")}</span>
+              {onGoToCertificate && (
+                <button type="button" className={styles.btnSecondary} onClick={onGoToCertificate}>
+                  <MIcon name="lock" size={16} />
+                  {t("GatewayPage.goToCertificate")}
+                </button>
+              )}
+            </div>
           </div>
         )}
 

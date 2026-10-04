@@ -43,11 +43,11 @@ Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建�
 - 排程任務連續失敗 ≥ 3 次，或停擺
 - 背景迴圈停擺（沒有任何行程拿到 leader）
 - worker 沒有心跳、Redis 連不上、某個 PVE 連線連不上
-- Gateway：SSH 連不上、nginx 或 WireGuard 沒在跑、`nginx -t` 失敗（狀態「無法連線」）；Let's Encrypt 憑證剩不到 14 天或已過期（狀態「需要處理」——certbot 會在剩 30 天時自動續期，還剩 14 天代表續期一直失敗）
+- Gateway：SSH 連不上、nginx 或 WireGuard 沒在跑、`nginx -t` 失敗（狀態「無法連線」）；HTTPS 憑證剩不到 14 天或已過期（狀態「需要處理」——憑證由管理員自備、自己續期，見 deployment.md「Gateway 的 HTTPS 憑證」）
 
 - AI：LiteLLM 連不上或它的資料庫斷線（`component:ai_gateway`，使用者 API 與內建 AI 功能都會失敗）；某個模型的上游推論服務（例如 DGX 上的 vLLM）健康檢查失敗（`component:ai_model:<alias>`，全部部署異常為「無法連線」、部分異常為「需要處理」）
 
-Gateway 的檢查是後端用 SSH 在 Gateway 上跑一條指令（`systemctl is-active`、`nginx -t`、讀 `/etc/letsencrypt/live/*` 到期日），結果快取 60 秒；Gateway 沒設定時卡片顯示「停用」。
+Gateway 的檢查是後端用 SSH 在 Gateway 上跑一條指令（`systemctl is-active`、`nginx -t`、讀 `http.conf` 引用的憑證到期日，自簽備援憑證不算），結果快取 60 秒；Gateway 沒設定時卡片顯示「停用」。
 
 AI 的檢查是後端用受限的 runtime key（`LITELLM_RUNTIME_API_KEY`，不需要 master key）問 LiteLLM：`/health/liveliness`、`/health/readiness`（DB 是否連線）、`/model/info`（公開模型名稱）與 `/health`（LiteLLM 每 60 秒背景健康檢查的結果，讀快取、不會為了探測去打推論服務），結果快取 60 秒。沒設 runtime key 時卡片顯示「停用」；LiteLLM 剛啟動、背景檢查還沒跑完的模型顯示「尚未執行」，不影響整體狀態也不發告警。
 

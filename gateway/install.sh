@@ -2,8 +2,10 @@
 # =============================================================================
 # SkyLab - Gateway 主機安裝腳本
 # 支援系統：Debian 12 / 13
-# 安裝服務：nginx（Port 轉發 stream + 網域反向代理 http）+ certbot（Let's Encrypt，
-#           Cloudflare DNS-01）+ WireGuard + nftables ACL / SNAT
+# 安裝服務：nginx（Port 轉發 stream + 網域反向代理 http）+ WireGuard
+#           + nftables ACL / SNAT
+# HTTPS 憑證不由這台簽發：管理員自行準備後放在 Gateway 上（建議 /etc/ssl/skylab/），
+# 再到 SkyLab「閘道 VM → HTTPS 憑證」填路徑
 # =============================================================================
 
 set -euo pipefail
@@ -142,19 +144,19 @@ sha256sum -c "${backup}/SHA256SUMS" >/dev/null
 info "備份完成：${backup}"
 
 apt-get install -y -qq \
-    nginx libnginx-mod-stream certbot python3-certbot-dns-cloudflare \
+    nginx libnginx-mod-stream \
     wireguard-tools nftables ufw
 
 # Debian 的全域 nftables.service 可能載入含 `flush ruleset` 的規則；SkyLab
 # 使用自己的獨立 unit，避免清除 UFW、NetBird 或其他既有服務的規則。
 systemctl disable --now nftables.service >/dev/null 2>&1 || true
 
-for command in wg nft ufw nginx certbot openssl; do
+for command in wg nft ufw nginx openssl; do
     command -v "$command" >/dev/null || error "缺少必要指令：${command}"
 done
 
 # =============================================================================
-# 1. nginx（Port 轉發 + 網域反向代理）+ certbot
+# 1. nginx（Port 轉發 + 網域反向代理）
 # =============================================================================
 section "安裝 nginx"
 
@@ -274,7 +276,7 @@ if ! grep -Fq "include /etc/nginx/skylab/status.conf;" "$NGINX_CONF"; then
     warn "請在 http { } 區塊裡補上這一行後執行 nginx -t && systemctl reload nginx"
 fi
 
-# 自簽備援憑證：給 443 的 default_server，以及 Let's Encrypt 還沒簽下來的網域先頂著用
+# 自簽備援憑證：給 443 的 default_server，以及管理員還沒設定 HTTPS 憑證時先頂著用
 if [[ ! -s "${NGINX_MANAGED_DIR}/fallback.crt" || ! -s "${NGINX_MANAGED_DIR}/fallback.key" ]]; then
     openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
         -subj "/CN=skylab-gateway" \
@@ -283,22 +285,14 @@ if [[ ! -s "${NGINX_MANAGED_DIR}/fallback.crt" || ! -s "${NGINX_MANAGED_DIR}/fal
     chmod 600 "${NGINX_MANAGED_DIR}/fallback.key"
 fi
 
-# certbot：Cloudflare token 由 SkyLab 後端在第一次同步 HTTPS 網域時寫入
-# /etc/letsencrypt/skylab-cloudflare.ini；Debian 的 certbot.timer 會自動續期，
-# 續期後由 deploy hook reload nginx
-install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy
-cat > /etc/letsencrypt/renewal-hooks/deploy/skylab-nginx-reload << 'HOOK_EOF'
-#!/bin/sh
-# SkyLab：Let's Encrypt 憑證續期後重新載入 nginx
-systemctl reload nginx
-HOOK_EOF
-chmod 755 /etc/letsencrypt/renewal-hooks/deploy/skylab-nginx-reload
-systemctl enable certbot.timer >/dev/null 2>&1 || true
+# 管理員自備 HTTPS 憑證的建議存放位置（私鑰只給 root 讀）；路徑在 SkyLab 裡填，
+# 換新憑證後 reload nginx 即可
+install -d -m 750 /etc/ssl/skylab
 
 nginx -t
 systemctl enable nginx
 systemctl restart nginx
-info "nginx 安裝完成（stream + http，certbot 續期 hook 已就緒）"
+info "nginx 安裝完成（stream + http）"
 
 # =============================================================================
 # 2. 監控 exporter（Prometheus：主機資源、網卡流量含 wg0、nginx 連線數）
@@ -496,7 +490,7 @@ cat <<SUMMARY_EOF
 │  nginx         ✅ 運行   /etc/nginx/nginx.conf                  │
 │    Port 轉發             /etc/nginx/skylab/stream.conf（自動）   │
 │    反向代理              /etc/nginx/skylab/http.conf（自動）     │
-│  certbot       ⏱ timer   /etc/letsencrypt（Cloudflare DNS-01）  │
+│  HTTPS 憑證    自行準備  建議放 /etc/ssl/skylab/                 │
 │  exporter      :${NODE_EXPORTER_PORT} node、:${NGINX_EXPORTER_PORT} nginx（Prometheus）       │
 │  WireGuard     ✅ 運行   /etc/wireguard/${WG_INTERFACE}.conf                │
 │  WG ACL/SNAT   ✅ 運行   /etc/nftables.d/campus-cloud-wg.nft   │
@@ -507,11 +501,12 @@ cat <<SUMMARY_EOF
 │  2. 在 Backend 設定 WIREGUARD_ENDPOINT_HOST                    │
 │  3. 回到 SkyLab 管理介面填入此主機的 IP                         │
 │  4. 點擊「測試連線」確認 SSH 連線正常                           │
+│  5. 把 HTTPS 憑證放到 Gateway，在「HTTPS 憑證」分頁填路徑       │
 ├─────────────────────────────────────────────────────────────────┤
 │  常用指令：                                                      │
 │  systemctl status nginx wg-quick@${WG_INTERFACE}                            │
 │  nginx -t && systemctl reload nginx                              │
-│  certbot certificates                                            │
+│  openssl x509 -noout -enddate -in /etc/ssl/skylab/fullchain.pem  │
 │  systemctl status campus-cloud-wg-firewall                       │
 │  wg show ${WG_INTERFACE}                                                     │
 └─────────────────────────────────────────────────────────────────┘

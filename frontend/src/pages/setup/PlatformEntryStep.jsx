@@ -3,16 +3,22 @@
  *
  * 讓 SkyLab 主系統自己也經 Gateway 的 nginx 對外。要先完成 Gateway 步驟；
  * 表單驗證與送出內容和閘道頁的「平台入口」分頁共用（platformEntryForm.js）。
- * 全新安裝還沒到過網域管理頁，所以要開 HTTPS 時可以在這裡順便填 Cloudflare API Token。
+ * 系統不簽發 HTTPS 憑證：要開 HTTPS 而 Gateway 還沒設定憑證時，在這裡順便填
+ * 管理員自備的憑證／私鑰路徑（之後在閘道頁「HTTPS 憑證」分頁管理）。
  */
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
-import PasswordInput from "../../components/PasswordInput/PasswordInput";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
 import { useToast } from "../../hooks/useToast";
 import { SetupService } from "../../services/setup";
+import {
+  SUGGESTED_CERT_PATH,
+  SUGGESTED_KEY_PATH,
+  toCertificatePayload,
+  validateCertificateForm,
+} from "../system/gateway/certificateForm";
 import {
   isPlatformFormDirty,
   isValidUpstreamHost,
@@ -48,7 +54,7 @@ export default function PlatformEntryStep({ gatewayReady, onSaved, onSkip, onBac
   const [loading, setLoading] = useState(gatewayReady);
   const [config, setConfig] = useState(null);
   const [form, setForm] = useState(null);
-  const [token, setToken] = useState("");
+  const [cert, setCert] = useState({ ssl_certificate_path: "", ssl_certificate_key_path: "" });
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -100,18 +106,24 @@ export default function PlatformEntryStep({ gatewayReady, onSaved, onSkip, onBac
       setError(ts(`GatewayPage.${formError}`));
       return;
     }
-    const needsToken = form.enable_https && !config.cloudflare_ready;
-    if (needsToken && !token.trim()) {
-      setError(t("SetupPage.platformErrorToken"));
-      return;
+    const needsCert = form.enable_https && !config.certificate_configured;
+    if (needsCert) {
+      const certPayload = toCertificatePayload(cert);
+      if (!certPayload.ssl_certificate_path || !certPayload.ssl_certificate_key_path) {
+        setError(t("SetupPage.platformErrorCertificate"));
+        return;
+      }
+      const certError = validateCertificateForm(cert);
+      if (certError) {
+        setError(ts(`GatewayPage.${certError}`));
+        return;
+      }
     }
     setSaving(true);
     try {
-      const payload = toPlatformPayload(form);
-      if (needsToken) payload.cloudflare_api_token = token.trim();
+      const payload = { ...toPlatformPayload(form), ...(needsCert ? toCertificatePayload(cert) : {}) };
       const result = await SetupService.savePlatformEntry(payload);
       setConfig(result);
-      setToken("");
       toast.success(t("SetupPage.platformSaved"));
       onSaved(result);
     } catch (err) {
@@ -161,7 +173,7 @@ export default function PlatformEntryStep({ gatewayReady, onSaved, onSkip, onBac
   }
 
   const busy = saving || testing;
-  const needsToken = form.enable_https && !config.cloudflare_ready;
+  const needsCert = form.enable_https && !config.certificate_configured;
   // 已經啟用而且表單沒動過：這一步等於做完了，主要按鈕改成「下一步」
   const alreadyApplied = config.enabled && !isPlatformFormDirty(form, config);
 
@@ -222,17 +234,30 @@ export default function PlatformEntryStep({ gatewayReady, onSaved, onSkip, onBac
         <span>{ts("GatewayPage.platformHttps")}</span>
       </label>
 
-      {needsToken && (
-        <label className={styles.field}>
-          <span>{t("SetupPage.platformCloudflareToken")} *</span>
-          <PasswordInput
-            autoComplete="off"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            disabled={busy}
-          />
-          <small className={styles.fieldHint}>{t("SetupPage.platformCloudflareTokenHint")}</small>
-        </label>
+      {needsCert && (
+        <div className={styles.formGrid}>
+          <label className={`${styles.field} ${styles.fieldWide}`}>
+            <span>{ts("GatewayPage.certPath")} *</span>
+            <input
+              value={cert.ssl_certificate_path}
+              onChange={(e) => setCert((prev) => ({ ...prev, ssl_certificate_path: e.target.value }))}
+              placeholder={SUGGESTED_CERT_PATH}
+              spellCheck={false}
+              disabled={busy}
+            />
+          </label>
+          <label className={`${styles.field} ${styles.fieldWide}`}>
+            <span>{ts("GatewayPage.certKeyPath")} *</span>
+            <input
+              value={cert.ssl_certificate_key_path}
+              onChange={(e) => setCert((prev) => ({ ...prev, ssl_certificate_key_path: e.target.value }))}
+              placeholder={SUGGESTED_KEY_PATH}
+              spellCheck={false}
+              disabled={busy}
+            />
+            <small className={styles.fieldHint}>{t("SetupPage.platformCertificateHint")}</small>
+          </label>
+        </div>
       )}
 
       <div className={styles.testRow}>

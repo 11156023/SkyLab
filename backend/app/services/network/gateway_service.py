@@ -13,7 +13,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.core.i18n import t
-from app.exceptions import BadRequestError, ProxmoxError
+from app.exceptions import BadRequestError, ProxmoxError, UpstreamServiceError
 from app.infrastructure.ssh import (
     SSHAuthenticationError,
     create_key_client,
@@ -165,6 +165,20 @@ def gateway_client(session: object) -> Iterator[Any]:
     config, private_key_pem = _get_credentials(session)
     with _ssh_client(config, private_key_pem) as client:
         yield client
+
+
+@contextmanager
+def gateway_client_or_502(session: object) -> Iterator[Any]:
+    """同 ``gateway_client``，但連不上 Gateway 時改丟 502（給要回應管理員的 API 用）。"""
+    config, private_key_pem = _get_credentials(session)
+    try:
+        client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+    except Exception as exc:
+        raise UpstreamServiceError(t("gateway.installConnectFailed", error=exc)) from exc
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 def test_connection(

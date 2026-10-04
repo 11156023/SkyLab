@@ -8,11 +8,14 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from app.api.deps import AdminUser, SessionDep
 from app.core.i18n import t
 from app.core.request_context import get_request_context
-from app.exceptions import BadRequestError, ProxmoxError
+from app.exceptions import BadRequestError
 from app.models import AuditAction, GatewayConfig
 from app.repositories import gateway_config as gw_repo
 from app.schemas.common import Message
 from app.schemas.gateway import (
+    GatewayCertificatePublic,
+    GatewayCertificateStatus,
+    GatewayCertificateUpdate,
     GatewayConfigPublic,
     GatewayConfigUpdate,
     GatewayConnectionTestResult,
@@ -31,6 +34,7 @@ from app.schemas.gateway import (
     ServiceStatusResult,
 )
 from app.services.network import (
+    gateway_certificate_service,
     gateway_install_service,
     gateway_service,
     platform_entry_service,
@@ -168,7 +172,7 @@ def start_install(
     session: SessionDep,
     current_user: AdminUser,
 ):
-    """用已綁定的 SSH 金鑰上傳 install.sh，在 Gateway 背景執行（nginx／certbot／WireGuard）"""
+    """用已綁定的 SSH 金鑰上傳 install.sh，在 Gateway 背景執行（nginx／WireGuard）"""
     result = gateway_install_service.start_install(session=session, options=options)
     audit_service.log_action(
         session=session,
@@ -183,6 +187,41 @@ def start_install(
         ),
     )
     return result
+
+
+# ─── HTTPS 憑證（管理員自備，平台入口與 VM 網域共用）────────────────────────
+
+
+@router.get("/certificate", response_model=GatewayCertificatePublic)
+def get_certificate(session: SessionDep, _: AdminUser) -> GatewayCertificatePublic:
+    """取得 HTTPS 憑證設定（Gateway 上的憑證／私鑰路徑）"""
+    return gateway_certificate_service.get_config(session)
+
+
+@router.put("/certificate", response_model=GatewayCertificatePublic)
+def update_certificate(
+    data: GatewayCertificateUpdate,
+    session: SessionDep,
+    current_user: AdminUser,
+) -> GatewayCertificatePublic:
+    """儲存憑證路徑：先在 Gateway 上檢查憑證，再重寫 nginx 設定並 reload"""
+    result = gateway_certificate_service.save_config(session, data)
+    audit_service.log_action(
+        session=session,
+        user_id=current_user.id,
+        action=AuditAction.gateway_config_write,
+        details=(
+            f"Updated gateway HTTPS certificate: cert={result.ssl_certificate_path or '-'} "
+            f"key={result.ssl_certificate_key_path or '-'}"
+        ),
+    )
+    return result
+
+
+@router.get("/certificate/status", response_model=GatewayCertificateStatus)
+def get_certificate_status(session: SessionDep, _: AdminUser) -> GatewayCertificateStatus:
+    """經 SSH 檢查 Gateway 上的憑證：讀得到、私鑰配對、到期日、涵蓋哪些網域"""
+    return gateway_certificate_service.get_status(session)
 
 
 # ─── 平台入口（主系統經 Gateway nginx 對外）──────────────────────────────────
@@ -273,36 +312,6 @@ def write_config(
         return Message(message=t("gateway.service_config_saved", service=service))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/nginx/certificates/sync", response_model=Message)
-def sync_nginx_certificates(session: SessionDep, current_user: AdminUser):
-    """用 Cloudflare DNS-01 補簽／續期 Let's Encrypt 憑證，再重寫 nginx 設定並 reload
-
-    前端目前沒有按鈕呼叫此端點；規則異動時的 nginx 同步只會補簽缺的憑證，
-    ``certbot renew`` 只有這裡會觸發，因此保留給管理員以 API／CLI 手動續期使用。
-    """
-    from app.services.network import reverse_proxy_service
-
-    try:
-        reverse_proxy_service.sync_certificates(session=session)
-        audit_service.log_action(
-            session=session,
-            user_id=current_user.id,
-            action=AuditAction.gateway_config_write,
-            details="Synced nginx certificates via certbot (Cloudflare DNS-01)",
-        )
-        return Message(message=t("gateway.certificates_synced"))
-    except BadRequestError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except ProxmoxError as exc:
-        logger.error("Failed to sync nginx certificates: %s", exc)
-        raise HTTPException(status_code=502, detail=t("gateway.proxmox_failed"))
-    except Exception:
-        logger.exception("Unexpected error syncing nginx certificates")
-        raise HTTPException(
-            status_code=500, detail=t("gateway.certificate_sync_failed")
-        )
 
 
 # ─── 服務控制 ──────────────────────────────────────────────────────────────────

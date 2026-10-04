@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any
 
 FAILING_THRESHOLD = 3
-# certbot 在到期前 30 天就會續期；剩不到 14 天代表續期一直失敗，要人處理
+# HTTPS 憑證由管理員自己續期；剩不到 14 天就提醒該換新了
 GATEWAY_CERT_WARN_DAYS = 14
 # 任務每輪都會跑；超過「5 個間隔或 10 分鐘」沒有執行紀錄就視為停擺。
 # 一輪 tick 依序跑十幾個任務，PVE 慢的時候單輪可能好幾分鐘，門檻不能太緊。
@@ -101,7 +101,7 @@ def gateway_status(
         return (
             "attention",
             detail,
-            f"Gateway 憑證需要處理（certbot 續期可能一直失敗）：{detail}",
+            f"Gateway 的 HTTPS 憑證該換新了（請更新 Gateway 上的憑證檔並 reload nginx）：{detail}",
         )
     return "ok", None, None
 

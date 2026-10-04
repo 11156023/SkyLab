@@ -298,7 +298,7 @@
   "UserGuide.reverseProxy.domain.title": "組合對外網址",
   "UserGuide.reverseProxy.domain.text": "輸入子網域前綴並選擇已連線的網域後綴，畫面會組合出最終網址。",
   "UserGuide.reverseProxy.port.title": "指定機器內部服務的 Port",
-  "UserGuide.reverseProxy.port.text": "選常用 Port，或切換為自訂 Port；HTTPS 開啟時系統會處理對外憑證。",
+  "UserGuide.reverseProxy.port.text": "選常用 Port，或切換為自訂 Port；HTTPS 開啟時會使用管理員在 Gateway 設定的憑證。",
   "UserGuide.reverseProxy.actions.title": "預覽正確後才建立網址",
   "UserGuide.reverseProxy.actions.text": "確認 VM、網址與 Port 的預覽，再按建立。導覽不會送出或修改規則。",
   "UserGuide.reverseProxy.list.title": "建立完成的網址會回到這份清單",
