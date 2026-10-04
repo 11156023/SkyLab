@@ -180,7 +180,7 @@
   "GatewayPage.installFinishedAt": "上次結束",
   "GatewayPage.installForwardEnd": "Port 轉發結束",
   "GatewayPage.installForwardStart": "Port 轉發起始",
-  "GatewayPage.installImpactHint": "會安裝 nginx、WireGuard 與監控 exporter，重寫 nginx.conf 並啟用 UFW（先放行 SSH）。原有設定會先備份到 /root/campus-cloud-backups；nginx 重啟期間既有的轉發連線會中斷。",
+  "GatewayPage.installImpactHint": "會安裝 nginx、WireGuard 與監控 exporter，重寫 nginx.conf 並啟用 UFW（先放行 SSH）。原有設定會先備份到 /root/skylab-backups；nginx 重啟期間既有的轉發連線會中斷。",
   "GatewayPage.installImpactTitle": "安裝會變更 Gateway 的系統設定",
   "GatewayPage.installIngressInterface": "對外網卡（WireGuard 入口）",
   "GatewayPage.installListenPort": "WireGuard 監聽 Port（UDP）",

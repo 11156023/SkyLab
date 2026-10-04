@@ -180,7 +180,7 @@
   "GatewayPage.installFinishedAt": "前回の終了",
   "GatewayPage.installForwardEnd": "ポート転送の終了",
   "GatewayPage.installForwardStart": "ポート転送の開始",
-  "GatewayPage.installImpactHint": "nginx、WireGuard と監視用 exporter をインストールし、nginx.conf を書き換えて UFW を有効にします（先に SSH を許可します）。既存の設定は先に /root/campus-cloud-backups にバックアップされます。nginx の再起動中は転送中の接続が切断されます。",
+  "GatewayPage.installImpactHint": "nginx、WireGuard と監視用 exporter をインストールし、nginx.conf を書き換えて UFW を有効にします（先に SSH を許可します）。既存の設定は先に /root/skylab-backups にバックアップされます。nginx の再起動中は転送中の接続が切断されます。",
   "GatewayPage.installImpactTitle": "インストールすると Gateway のシステム設定が変更されます",
   "GatewayPage.installIngressInterface": "外部インターフェース（WireGuard の入口）",
   "GatewayPage.installListenPort": "WireGuard の待ち受けポート（UDP）",

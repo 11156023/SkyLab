@@ -180,7 +180,7 @@
   "GatewayPage.installFinishedAt": "Last finished",
   "GatewayPage.installForwardEnd": "Port forwarding end",
   "GatewayPage.installForwardStart": "Port forwarding start",
-  "GatewayPage.installImpactHint": "It installs nginx, WireGuard and the monitoring exporters, rewrites nginx.conf and enables UFW (SSH is allowed first). Existing configuration is backed up to /root/campus-cloud-backups first; active forwarded connections drop while nginx restarts.",
+  "GatewayPage.installImpactHint": "It installs nginx, WireGuard and the monitoring exporters, rewrites nginx.conf and enables UFW (SSH is allowed first). Existing configuration is backed up to /root/skylab-backups first; active forwarded connections drop while nginx restarts.",
   "GatewayPage.installImpactTitle": "Installation changes the Gateway's system configuration",
   "GatewayPage.installIngressInterface": "Public interface (WireGuard ingress)",
   "GatewayPage.installListenPort": "WireGuard listen port (UDP)",
