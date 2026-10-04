@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.api.routes import ai_proxy
 from app.core.config import settings
 from app.core.db import engine
 from app.features.ai.config import settings as ai_api_settings
@@ -161,7 +164,7 @@ def test_ai_proxy_models_uses_the_restricted_upstream_identity(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     db: Session,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api_key, _credential_id = _issue_ai_api_key(
         client=client,
@@ -195,7 +198,7 @@ def test_ai_proxy_chat_relays_and_records_usage(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     db: Session,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api_key, credential_id = _issue_ai_api_key(
         client=client,
@@ -250,9 +253,9 @@ def test_ai_proxy_chat_enforces_the_credential_rate_limit(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     db: Session,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    api_key, _credential_id = _issue_ai_api_key(
+    api_key, credential_id = _issue_ai_api_key(
         client=client,
         db=db,
         superuser_token_headers=superuser_token_headers,
@@ -263,8 +266,42 @@ def test_ai_proxy_chat_enforces_the_credential_rate_limit(
     monkeypatch.setattr(
         relay_service, "_get_relay_http_client", lambda: fake_client
     )
+    counts: dict[str, int] = {}
+    checked_credentials: list[tuple[str, int]] = []
 
-    request_kwargs = {
+    async def fake_get_redis() -> object:
+        return object()
+
+    async def fake_check_rate_limit(
+        *,
+        redis: object,
+        credential_id: str,
+        limit: int,
+        window_seconds: int,
+    ) -> tuple[bool, dict[str, Any]]:
+        del redis
+        checked_credentials.append((credential_id, limit))
+        current = counts.get(credential_id, 0)
+        allowed = current < limit
+        if allowed:
+            current += 1
+            counts[credential_id] = current
+        return allowed, {
+            "limit": limit,
+            "current": current,
+            "remaining": max(0, limit - current),
+            "reset_at": datetime.now(timezone.utc),
+            "window_seconds": window_seconds,
+        }
+
+    monkeypatch.setattr(ai_proxy, "get_redis", fake_get_redis)
+    monkeypatch.setattr(
+        ai_proxy,
+        "check_rate_limit_sliding_window",
+        fake_check_rate_limit,
+    )
+
+    request_kwargs: dict[str, Any] = {
         "headers": {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -288,3 +325,4 @@ def test_ai_proxy_chat_enforces_the_credential_rate_limit(
     assert second.status_code == 429
     assert second.json()["detail"]["error"] == "rate_limit_exceeded"
     assert len(captured["chat_requests"]) == 1
+    assert checked_credentials == [(str(credential_id), 1), (str(credential_id), 1)]
