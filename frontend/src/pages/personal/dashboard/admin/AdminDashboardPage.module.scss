@@ -187,20 +187,10 @@
   border-bottom: 1px solid var(--color-divider);
 }
 .assistantIdentity { display: flex; min-width: 0; align-items: center; gap: 12px; }
-.assistantIcon {
-  @include flex-center;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: $radius-12;
-  color: var(--color-primary-on-surface);
-  background: var(--color-hover);
-}
 .assistantActions { display: flex; flex-wrap: wrap; margin-left: auto; gap: $spacing-8; }
 .assistantForm { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(40%); align-items: center; min-width: 0; gap: $spacing-16; }
-/* 閒置狀態：標頭移除，輸入框上方放一行精簡的助手識別（icon＋名稱） */
+/* 閒置狀態：標頭移除，輸入框上方放一行精簡的助手名稱 */
 .assistantForm .assistantIdentity { grid-column: 1 / -1; gap: $spacing-8; }
-.assistantForm .assistantIcon { width: 32px; height: 32px; border-radius: $radius-8; }
 .assistantName { color: var(--color-text-primary); font-size: $font-size-14; font-weight: $font-weight-700; white-space: nowrap; }
 .assistantInput {
   display: grid;
