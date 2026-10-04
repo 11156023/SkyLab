@@ -41,7 +41,6 @@ const ROUTE_GUIDES = [
   { match: /^\/scheduler$/, id: "scheduler", icon: "settings_input_component", profile: "configure" },
   { match: /^\/governance$/, id: "governance", icon: "policy", profile: "configure" },
   { match: /^\/ldap$/, id: "ldap", icon: "badge", profile: "configure" },
-  { match: /^\/nodes$/, id: "nodes", icon: "hub", profile: "monitor" },
   { match: /^\/storage$/, id: "storage", icon: "storage", profile: "monitor" },
   { match: /^\/monitoring$/, id: "monitoring", icon: "monitor_heart", profile: "monitor" },
   { match: /^\/ip-management$/, id: "ip-management", icon: "lan", profile: "configure" },

@@ -98,7 +98,6 @@ const adminSettingsItems = [
   { key: "scheduler",       labelKey: "Sidebar.itemScheduler",      icon: "settings_input_component" },
   { key: "governance",      labelKey: "Sidebar.itemGovernance",     icon: "policy" },
   { key: "ldap",            labelKey: "Sidebar.itemLdap",           icon: "badge" },
-  { key: "nodes",           labelKey: "Sidebar.itemNodes",          icon: "lock" },
   { key: "storage",         labelKey: "Sidebar.itemStorage",        icon: "storage" },
   { key: "gpu-mgmt",        labelKey: "Sidebar.itemGpuMgmt",        icon: "memory" },
 ];
