@@ -9,6 +9,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlmodel import col, select
 
 from app.api.deps.database import SessionDep
+from app.core.db import end_read_transaction
 from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.models import (
@@ -60,7 +61,7 @@ def get_current_user_by_ai_api_key(
     candidates = session.exec(
         select(AIAPICredential)
         .where(col(AIAPICredential.api_key_prefix).in_(prefix_candidates))
-        .where(AIAPICredential.revoked_at.is_(None))
+        .where(col(AIAPICredential.revoked_at).is_(None))
     ).all()
 
     # 3. 逐一解密比對，找到真正匹配的憑證（用 compare_digest 避免時序側通道）
@@ -101,6 +102,9 @@ def get_current_user_by_ai_api_key(
             detail=t("ai_api_key.user_inactive"),
         )
 
+    # 認證只需要讀取資料；不要讓這個 transaction 跟著後續 Redis、
+    # LiteLLM／vLLM I/O 一直持有 DB connection。
+    end_read_transaction(session)
     return user, credential
 
 

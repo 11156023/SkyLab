@@ -207,6 +207,28 @@ AI_TOKENS = Counter(
     labelnames=("source", "model", "direction"),
     registry=REGISTRY,
 )
+AI_PROXY_INFLIGHT = Gauge(
+    "skylab_ai_proxy_inflight_requests",
+    "Campus AI proxy generation requests currently admitted to the upstream",
+    registry=REGISTRY,
+)
+AI_PROXY_WAITING = Gauge(
+    "skylab_ai_proxy_waiting_requests",
+    "Campus AI proxy generation requests waiting for an admission slot",
+    registry=REGISTRY,
+)
+AI_PROXY_QUEUE_WAIT = Histogram(
+    "skylab_ai_proxy_queue_wait_seconds",
+    "Time Campus AI proxy generation requests wait for an admission slot",
+    registry=REGISTRY,
+    buckets=(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+AI_PROXY_ADMISSION_REJECTIONS = Counter(
+    "skylab_ai_proxy_admission_rejections_total",
+    "Campus AI proxy requests rejected before upstream dispatch",
+    labelnames=("reason",),
+    registry=REGISTRY,
+)
 
 
 @contextmanager
