@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampToRange, growthRange, quotaRemaining, sliderRange, sliderTicks } from "./quotaLimits";
+import { clampToRange, growthRange, quotaRemaining, sliderRange, sliderTicks, snapToRange } from "./quotaLimits";
 
 const usage = (quota, used = {}) => ({
   used_cpu_cores: used.cores ?? 0,
@@ -114,5 +114,24 @@ describe("sliderTicks", () => {
 
   it("上限等於下限時只有一格", () => {
     expect(sliderTicks([1, 2], { min: 1, max: 1 })).toEqual([{ value: 1, label: "1", left: 0 }]);
+  });
+});
+
+describe("snapToRange", () => {
+  const range = { min: 20, max: 500 };
+  it("範圍內原值不動，超出就壓回上下限", () => {
+    expect(snapToRange(30, range)).toBe(30);
+    expect(snapToRange(3, range)).toBe(20);
+    expect(snapToRange(9999, range)).toBe(500);
+  });
+  it("以 min 為基準對齊步進", () => {
+    expect(snapToRange(2.3, { min: 0.5, max: 64, step: 0.5 })).toBe(2.5);
+    expect(snapToRange(2.2, { min: 0.5, max: 64, step: 0.5 })).toBe(2);
+    expect(snapToRange(700, { min: 512, max: 65536, step: 512 })).toBe(512);
+    expect(snapToRange(800, { min: 512, max: 65536, step: 512 })).toBe(1024);
+  });
+  it("上限沒對齊步進時，對齊後超過上限仍停在上限", () => {
+    expect(snapToRange(10, { min: 1, max: 7.3, step: 2 })).toBe(7);
+    expect(snapToRange(6.3, { min: 1, max: 6.3, step: 2 })).toBe(6.3);
   });
 });

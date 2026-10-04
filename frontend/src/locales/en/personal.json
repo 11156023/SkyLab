@@ -499,6 +499,7 @@
   "RequestFormPage.hardwareConfigHint": "Recommended specs from the template have been applied and can be adjusted as needed; disk size cannot be smaller than the template itself.",
   "RequestFormPage.cpuCoresLabel": "CPU Cores",
   "RequestFormPage.coresValue": "{{count}} cores",
+  "RequestFormPage.coresUnit": "cores",
   "RequestFormPage.memoryLabel": "Memory (RAM)",
   "RequestFormPage.diskSpaceLabel": "Disk Space",
   "RequestFormPage.quotaCapCores": "Based on your remaining quota, you can request up to {{max}} cores.",

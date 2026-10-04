@@ -499,6 +499,7 @@
   "RequestFormPage.hardwareConfigHint": "已帶入範本的建議規格，可依需求調整；硬碟不可小於範本本身的大小。",
   "RequestFormPage.cpuCoresLabel": "CPU 核心數",
   "RequestFormPage.coresValue": "{{count}} 核心",
+  "RequestFormPage.coresUnit": "核心",
   "RequestFormPage.memoryLabel": "記憶體 (RAM)",
   "RequestFormPage.diskSpaceLabel": "硬碟空間 (Disk)",
   "RequestFormPage.quotaCapCores": "依剩餘配額，最多可申請 {{max}} 核。",

@@ -12,6 +12,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import { ResourcesService } from "../../../../services/resources";
 import { QuotasService } from "../../../../services/quotas";
 import { growthRange, quotaRemaining, sliderTicks } from "../../../../utils/quotaLimits";
+import NumberInput from "../../../../components/NumberInput/NumberInput";
 import {
   SpecChangeRequestsService,
   canApplySpecRequest,
@@ -37,10 +38,6 @@ const DISK_MAX = 1000;
 const CORE_TICKS = [1, 4, 8, 16, 24, 32];
 /* 記憶體刻度不放 8GB：與最左邊的 0.5GB 距離太近，標籤會疊在一起 */
 const MEM_TICKS = [512, 16384, 32768, 49152, 65536];
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function formatGb(mb) {
   const gb = mb / 1024;
@@ -144,6 +141,7 @@ function OpenRequestNotice({ request, busy, onApply, onCancel }) {
  * 規格拉桿：標題列右側是可直接鍵入的數字框，下面是拉桿、刻度與「目前值」標記，
  * 最底下顯示目前值與相對於目前的變化量。
  * value／min／max／step 是拉桿的原始單位；數字框可用另一個單位（記憶體用 GB）。
+ * 數字框在離開欄位時才定稿（夾範圍、對齊步進）再呼叫 onInput，編輯中不干涉。
  */
 function SliderField({
   id, label, unit, wide, disabled,
@@ -161,8 +159,7 @@ function SliderField({
       <div className={sl.labelRow}>
         <label htmlFor={id} className={sl.label}>{label}</label>
         <div className={sl.valueBox}>
-          <input
-            type="number"
+          <NumberInput
             className={sl.numInput}
             min={inputMin}
             max={inputMax}
@@ -170,7 +167,7 @@ function SliderField({
             value={inputValue}
             disabled={disabled}
             aria-label={label}
-            onChange={(e) => onInput(e.target.value)}
+            onCommit={onInput}
           />
           <span className={sl.unit}>{unit}</span>
         </div>
@@ -485,10 +482,7 @@ export default function SpecificationsTab({ vmid }) {
               inputMin={CORE_MIN}
               inputMax={coresRange.max}
               inputStep={1}
-              onInput={(raw) => {
-                const n = Number.parseInt(raw, 10);
-                if (Number.isFinite(n)) setCores(clamp(n, CORE_MIN, coresRange.max));
-              }}
+              onInput={setCores}
               currentText={t("SpecificationsTab.currentLabel", { value: config.cpu_cores })}
               deltaText={t("SpecificationsTab.deltaCores", { delta: signed(cores - config.cpu_cores) })}
               limitText={limitText(coresRange, "SpecificationsTab.quotaCapCores", coresRange.max)}
@@ -509,11 +503,8 @@ export default function SpecificationsTab({ vmid }) {
               inputMin={MEM_MIN / 1024}
               inputMax={memoryRange.max / 1024}
               inputStep={0.5}
-              onInput={(raw) => {
-                const gb = Number.parseFloat(raw);
-                /* 數字框以 GB 輸入，換回 MB 後對齊 512 MB 一格 */
-                if (Number.isFinite(gb)) setMemory(clamp(Math.round(gb * 2) * MEM_STEP, MEM_MIN, memoryRange.max));
-              }}
+              /* 數字框以 GB 輸入（0.5 GB 一格），定稿後換回 MB */
+              onInput={(gb) => setMemory(Math.round(gb * 1024))}
               currentText={t("SpecificationsTab.currentMemoryLabel", { value: formatGb(config.memory_mb) })}
               deltaText={t("SpecificationsTab.deltaGb", { delta: signedGb(memory - config.memory_mb) })}
               limitText={limitText(memoryRange, "SpecificationsTab.quotaCapGb", formatGb(memoryRange.max))}
@@ -535,10 +526,7 @@ export default function SpecificationsTab({ vmid }) {
               inputMin={diskMin}
               inputMax={diskRange.max}
               inputStep={1}
-              onInput={(raw) => {
-                const n = Number.parseInt(raw, 10);
-                if (Number.isFinite(n)) setDisk(clamp(n, diskMin, diskRange.max));
-              }}
+              onInput={setDisk}
               currentText={currentDisk
                 ? t("SpecificationsTab.currentDiskLabel", { value: currentDisk })
                 : t("SpecificationsTab.diskUnknown")}

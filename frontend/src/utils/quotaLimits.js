@@ -46,6 +46,14 @@ export function clampToRange(value, range) {
   return Math.min(Number(value), range.max);
 }
 
+/** 鍵入的數字定稿：夾進 min～max，再以 min 為基準對齊步進（對齊後若超出上限仍壓回上限）。
+ *  給數字框在 blur 時用——編輯中不夾值，否則全選重打會被下限插隊。 */
+export function snapToRange(value, { min, max, step = 1 }) {
+  const clamped = Math.min(max, Math.max(min, Number(value)));
+  const aligned = min + Math.round((clamped - min) / step) * step;
+  return Math.min(max, Math.max(min, Number(aligned.toFixed(6))));
+}
+
 /** 刻度：保留落在範圍內的預設刻度，最後一格固定是上限本身；
  *  離上限太近的刻度會跟上限的標籤疊在一起，拿掉。 */
 export function sliderTicks(candidates, range, format = String) {

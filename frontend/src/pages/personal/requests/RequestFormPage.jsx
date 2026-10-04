@@ -12,6 +12,7 @@ import { TemplatesService } from "../../../services/templates";
 import { ResourcesService } from "../../../services/resources";
 import { QuotasService } from "../../../services/quotas";
 import { clampToRange, quotaRemaining, sliderRange, sliderTicks } from "../../../utils/quotaLimits";
+import NumberInput from "../../../components/NumberInput/NumberInput";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -1256,7 +1257,19 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
               )}
 
               <FieldGroup label={t("RequestFormPage.cpuCoresLabel")} name="cores"
-                labelRight={t("RequestFormPage.coresValue", { count: form.cores })}
+                labelRight={
+                  <div className={styles.numberField}>
+                    <NumberInput
+                      min={coresRange.min} max={coresRange.max} step={1}
+                      className={`${styles.input} ${styles.inputNumber}`}
+                      value={form.cores}
+                      disabled={coresRange.max <= coresRange.min}
+                      aria-label={t("RequestFormPage.cpuCoresLabel")}
+                      onCommit={(n) => set("cores", n)}
+                    />
+                    <span className={styles.numberUnit}>{t("RequestFormPage.coresUnit")}</span>
+                  </div>
+                }
                 hint={coresRange.quotaCapped && !coresRange.short
                   ? t("RequestFormPage.quotaCapCores", { max: coresRange.max })
                   : undefined}
@@ -1276,7 +1289,20 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
               </FieldGroup>
 
               <FieldGroup label={t("RequestFormPage.memoryLabel")} name="memory"
-                labelRight={`${(form.memory / 1024).toFixed(1)} GB`}
+                labelRight={
+                  <div className={styles.numberField}>
+                    {/* 數字框以 GB 輸入，0.5 GB 一格，定稿時換回 MB */}
+                    <NumberInput
+                      min={memoryRange.min / 1024} max={memoryRange.max / 1024} step={0.5}
+                      className={`${styles.input} ${styles.inputNumber}`}
+                      value={form.memory / 1024}
+                      disabled={memoryRange.max <= memoryRange.min}
+                      aria-label={t("RequestFormPage.memoryLabel")}
+                      onCommit={(gb) => set("memory", Math.round(gb * 1024))}
+                    />
+                    <span className={styles.numberUnit}>GB</span>
+                  </div>
+                }
                 hint={memoryRange.quotaCapped && !memoryRange.short
                   ? t("RequestFormPage.quotaCapMemory", { max: (memoryRange.max / 1024).toFixed(1) })
                   : undefined}
@@ -1301,15 +1327,16 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                   : undefined}
                 error={quotaShortMessage("disk")}
                 labelRight={
-                  <div className={styles.diskInput}>
-                    <input
-                      type="number" min={diskRange.min} max={diskRange.max}
+                  <div className={styles.numberField}>
+                    <NumberInput
+                      min={diskRange.min} max={diskRange.max} step={1}
                       className={`${styles.input} ${styles.inputNumber}`}
                       value={form[diskKey]}
                       disabled={diskRange.max <= diskRange.min}
-                      onChange={(e) => set(diskKey, Math.min(diskRange.max, Math.max(diskRange.min, Number(e.target.value) || diskRange.min)))}
+                      aria-label={t("RequestFormPage.diskSpaceLabel")}
+                      onCommit={(n) => set(diskKey, n)}
                     />
-                    <span className={styles.diskUnit}>GB</span>
+                    <span className={styles.numberUnit}>GB</span>
                   </div>
                 }>
                 <input

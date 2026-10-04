@@ -499,6 +499,7 @@
   "RequestFormPage.hardwareConfigHint": "テンプレートの推奨スペックが反映されています。必要に応じて調整できますが、ディスクはテンプレート本体より小さくできません。",
   "RequestFormPage.cpuCoresLabel": "CPUコア数",
   "RequestFormPage.coresValue": "{{count}}コア",
+  "RequestFormPage.coresUnit": "コア",
   "RequestFormPage.memoryLabel": "メモリ (RAM)",
   "RequestFormPage.diskSpaceLabel": "ディスク容量 (Disk)",
   "RequestFormPage.quotaCapCores": "残りのクォータに基づき、最大 {{max}} コアまで申請できます。",
