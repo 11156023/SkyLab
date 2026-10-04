@@ -211,6 +211,7 @@
   "ConnectionDialog.addRule": "新增規則",
   "ConnectionDialog.anyProtocol": "任意",
   "ConnectionDialog.bidirectional": "雙向",
+  "ConnectionDialog.oneWay": "單向",
   "ConnectionDialog.cancel": "取消",
   "ConnectionDialog.changeIntent": "更改連線方式",
   "ConnectionDialog.checkingDomain": "正在確認 {{domain}} 是否可用…",

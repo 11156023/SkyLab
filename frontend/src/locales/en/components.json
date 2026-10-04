@@ -211,6 +211,7 @@
   "ConnectionDialog.addRule": "Add rule",
   "ConnectionDialog.anyProtocol": "Any",
   "ConnectionDialog.bidirectional": "Bidirectional",
+  "ConnectionDialog.oneWay": "One-way",
   "ConnectionDialog.cancel": "Cancel",
   "ConnectionDialog.changeIntent": "Change connection type",
   "ConnectionDialog.checkingDomain": "Checking whether {{domain}} is available…",
