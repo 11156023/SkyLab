@@ -1,17 +1,35 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta, timezone
+from pathlib import Path
 
 import pytest
+import yaml
+from fastapi import HTTPException
+from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models import AIAPICredential, AIAPIRequest, User, UserRole
+from app.api.deps import ai_api_key
+from app.api.deps.ai_api_key import get_current_user_by_ai_api_key
+from app.models import (
+    AIAPICredential,
+    AIAPIRequest,
+    AIAPIRequestStatus,
+    AIAPIUsage,
+    User,
+    UserRole,
+    get_datetime_utc,
+)
+from app.schemas import AIAPIRequestCreate, AIAPIRequestReview
 from app.services.llm_gateway import ai_gateway_service
+from scripts import ensure_ai_api_smoke_credential as smoke_script
 from scripts.ensure_ai_api_smoke_credential import (
     SMOKE_KEY_NAME,
     SMOKE_KEY_PURPOSE,
     SMOKE_KEY_RATE_LIMIT,
+    cleanup_ai_api_smoke_credentials,
     ensure_ai_api_smoke_credential,
 )
 
@@ -23,12 +41,18 @@ def isolated_session(monkeypatch: pytest.MonkeyPatch) -> Session:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(connection, _record) -> None:
+        connection.execute("PRAGMA foreign_keys=ON")
+
     SQLModel.metadata.create_all(
         engine,
         tables=[
             User.__table__,
             AIAPIRequest.__table__,
             AIAPICredential.__table__,
+            AIAPIUsage.__table__,
         ],
     )
     monkeypatch.setattr(
@@ -41,13 +65,18 @@ def isolated_session(monkeypatch: pytest.MonkeyPatch) -> Session:
         "ai_api_public_base_url",
         "https://campus.example.test/api/v1",
     )
+    # SQLite strips timezone information; PostgreSQL returns aware timestamps.
+    monkeypatch.setattr(
+        ai_api_key,
+        "get_datetime_utc",
+        lambda: get_datetime_utc().replace(tzinfo=None),
+    )
     with Session(engine) as session:
         yield session
 
 
-def test_smoke_credential_is_created_through_request_flow_and_reused(
-    isolated_session: Session,
-) -> None:
+@pytest.fixture
+def owner(isolated_session: Session) -> User:
     owner = User(
         email=f"ai-api-smoke-{uuid.uuid4().hex[:10]}@example.com",
         hashed_password="not-used-by-this-test",
@@ -56,6 +85,18 @@ def test_smoke_credential_is_created_through_request_flow_and_reused(
     isolated_session.add(owner)
     isolated_session.commit()
     isolated_session.refresh(owner)
+    return owner
+
+
+def _assert_invalid_key(session: Session, key: str) -> None:
+    with pytest.raises(HTTPException) as error:
+        get_current_user_by_ai_api_key(session=session, authorization=f"Bearer {key}")
+    assert error.value.status_code == 401
+
+
+def test_smoke_credential_is_temporary_and_replaced_for_each_deployment(
+    isolated_session: Session, owner: User
+) -> None:
 
     first_key = ensure_ai_api_smoke_credential(isolated_session)
     second_key = ensure_ai_api_smoke_credential(isolated_session)
@@ -76,8 +117,239 @@ def test_smoke_credential_is_created_through_request_flow_and_reused(
     )
 
     assert first_key.startswith("ccai_")
-    assert second_key == first_key
-    assert len(requests) == 1
+    assert second_key != first_key
+    assert len(requests) == 2
     assert len(credentials) == 1
     assert requests[0].rate_limit == SMOKE_KEY_RATE_LIMIT
     assert credentials[0].rate_limit == SMOKE_KEY_RATE_LIMIT
+    assert all(request.duration == "1d" for request in requests)
+    expires_at = credentials[0].expires_at
+    assert expires_at is not None
+    assert (
+        get_datetime_utc()
+        < expires_at.replace(tzinfo=timezone.utc)
+        <= (get_datetime_utc() + timedelta(days=1))
+    )
+    _assert_invalid_key(isolated_session, first_key)
+    authenticated_owner, _ = get_current_user_by_ai_api_key(
+        session=isolated_session, authorization=f"Bearer {second_key}"
+    )
+    assert authenticated_owner.id == owner.id
+
+
+@pytest.mark.parametrize("with_usage", [False, True])
+def test_cleanup_invalidates_key_and_preserves_usage(
+    isolated_session: Session, owner: User, with_usage: bool
+) -> None:
+    key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    credential = isolated_session.exec(select(AIAPICredential)).one()
+    credential_id = credential.id
+    if with_usage:
+        usage = AIAPIUsage(
+            user_id=owner.id,
+            credential_id=credential_id,
+            model_name="smoke-model",
+            call_type="chat_completion",
+            status="success",
+        )
+        isolated_session.add(usage)
+        isolated_session.commit()
+
+    cleanup_ai_api_smoke_credentials(isolated_session)
+    cleanup_ai_api_smoke_credentials(isolated_session)
+
+    stored = isolated_session.get(AIAPICredential, credential_id)
+    if with_usage:
+        assert stored is not None and stored.revoked_at is not None
+        assert isolated_session.get(AIAPIUsage, usage.id) is not None
+    else:
+        assert stored is None
+    _assert_invalid_key(isolated_session, key)
+
+    next_key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    assert next_key != key
+    get_current_user_by_ai_api_key(
+        session=isolated_session, authorization=f"Bearer {next_key}"
+    )
+
+
+def test_cleanup_finds_legacy_renamed_rotated_keys_of_inactive_owner(
+    isolated_session: Session, owner: User
+) -> None:
+    key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    credential = isolated_session.exec(select(AIAPICredential)).one()
+    credential.expires_at = None
+    isolated_session.add(credential)
+    isolated_session.commit()
+    rotated = ai_gateway_service.rotate_credential(
+        session=isolated_session, credential_id=credential.id, current_user=owner
+    )
+    assert rotated.api_key is not None
+    ai_gateway_service.update_credential_name(
+        session=isolated_session,
+        credential_id=rotated.id,
+        name="renamed-smoke",
+        current_user=owner,
+    )
+    owner.is_active = False
+    owner.role = UserRole.student
+    isolated_session.add(owner)
+    isolated_session.commit()
+
+    cleanup_ai_api_smoke_credentials(isolated_session)
+
+    assert isolated_session.get(AIAPICredential, rotated.id) is None
+    _assert_invalid_key(isolated_session, key)
+    _assert_invalid_key(isolated_session, rotated.api_key)
+
+
+@pytest.mark.parametrize(
+    ("key_name", "purpose"),
+    [
+        (SMOKE_KEY_NAME, "Unrelated application credential."),
+        ("other-key", SMOKE_KEY_PURPOSE),
+    ],
+)
+def test_cleanup_preserves_unrelated_keys(
+    isolated_session: Session, owner: User, key_name: str, purpose: str
+) -> None:
+    request = ai_gateway_service.create_request(
+        session=isolated_session,
+        request_in=AIAPIRequestCreate(
+            api_key_name=key_name, purpose=purpose, duration="never"
+        ),
+        user=owner,
+    )
+    ai_gateway_service.review_request(
+        session=isolated_session,
+        request_id=request.id,
+        review_data=AIAPIRequestReview(status=AIAPIRequestStatus.approved),
+        reviewer=owner,
+    )
+    credential = isolated_session.exec(select(AIAPICredential)).one()
+    key = ai_gateway_service.get_credential(
+        session=isolated_session, credential_id=credential.id, current_user=owner
+    ).api_key
+    assert key is not None
+
+    cleanup_ai_api_smoke_credentials(isolated_session)
+
+    assert credential.expires_at is None
+    get_current_user_by_ai_api_key(
+        session=isolated_session, authorization=f"Bearer {key}"
+    )
+
+
+def test_cleanup_failure_prevents_new_key(
+    isolated_session: Session, owner: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+
+    def fail_cleanup(**_kwargs) -> None:
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(ai_gateway_service, "delete_credential", fail_cleanup)
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    assert len(isolated_session.exec(select(AIAPICredential)).all()) == 1
+
+
+def test_cleanup_empty_database_needs_no_admin(isolated_session: Session) -> None:
+    cleanup_ai_api_smoke_credentials(isolated_session)
+
+
+def test_key_expires_even_if_cleanup_cannot_run(
+    isolated_session: Session, owner: User
+) -> None:
+    key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    credential = isolated_session.exec(select(AIAPICredential)).one()
+    credential.expires_at = get_datetime_utc() - timedelta(seconds=1)
+    isolated_session.add(credential)
+    isolated_session.commit()
+
+    _assert_invalid_key(isolated_session, key)
+
+
+def test_legacy_pending_request_cannot_create_a_permanent_smoke_key(
+    isolated_session: Session, owner: User
+) -> None:
+    ai_gateway_service.create_request(
+        session=isolated_session,
+        request_in=AIAPIRequestCreate(
+            api_key_name=SMOKE_KEY_NAME, purpose=SMOKE_KEY_PURPOSE, duration="never"
+        ),
+        user=owner,
+    )
+
+    ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+
+    credential = isolated_session.exec(select(AIAPICredential)).one()
+    request = isolated_session.get(AIAPIRequest, credential.request_id)
+    assert request is not None and request.duration == "1d"
+    assert credential.expires_at is not None
+
+
+def test_cleanup_cli_outputs_no_secret(
+    isolated_session: Session,
+    owner: User,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    monkeypatch.setattr(smoke_script, "engine", isolated_session.get_bind())
+    monkeypatch.setattr(smoke_script.sys, "argv", ["smoke-credential", "--cleanup"])
+
+    assert smoke_script.main() == 0
+    assert capsys.readouterr().out == ""
+    isolated_session.expire_all()
+    _assert_invalid_key(isolated_session, key)
+
+
+def test_cleanup_cli_propagates_failure(
+    isolated_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_cleanup(_session: Session) -> None:
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(smoke_script, "engine", isolated_session.get_bind())
+    monkeypatch.setattr(smoke_script, "cleanup_ai_api_smoke_credentials", fail_cleanup)
+    monkeypatch.setattr(smoke_script.sys, "argv", ["smoke-credential", "--cleanup"])
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        smoke_script.main()
+
+
+def test_cleanup_after_key_recovery_failure(
+    isolated_session: Session, owner: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_recovery(**_kwargs) -> None:
+        raise RuntimeError("key recovery failed")
+
+    monkeypatch.setattr(ai_gateway_service, "get_credential", fail_recovery)
+    with pytest.raises(RuntimeError, match="key recovery failed"):
+        ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    assert len(isolated_session.exec(select(AIAPICredential)).all()) == 1
+
+    cleanup_ai_api_smoke_credentials(isolated_session)
+
+    assert isolated_session.exec(select(AIAPICredential)).all() == []
+
+
+def test_workflow_cleans_up_even_after_failed_or_cancelled_smoke() -> None:
+    workflow_path = (
+        Path(__file__).resolve().parents[3] / ".github/workflows/deploy-pve-test.yml"
+    )
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    smoke_index = next(
+        index for index, step in enumerate(steps) if step.get("id") == "ai_api_smoke"
+    )
+    cleanup_step = steps[smoke_index + 1]
+    assert cleanup_step["if"] == (
+        "${{ always() && steps.ai_api_smoke.outcome != 'skipped' }}"
+    )
+    assert cleanup_step["run"] == (
+        "docker compose exec -T backend python -m "
+        "scripts.ensure_ai_api_smoke_credential --cleanup"
+    )
+    assert not cleanup_step.get("continue-on-error", False)

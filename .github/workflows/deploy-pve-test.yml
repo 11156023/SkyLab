@@ -77,8 +77,9 @@ jobs:
           exit 1
 
       - name: Smoke test every public AI model
-        # Reuse the normal request/review flow to create or recover the dedicated
-        # ccai_* smoke credential from the Campus database.  The optional variable
+        id: ai_api_smoke
+        # Use the normal request/review flow to create a temporary, dedicated
+        # ccai_* smoke credential after cleaning up previous runs. The optional variable
         # is the Campus API root ending in /api/v1; otherwise use the published
         # backend port from this deployment.
         env:
@@ -106,6 +107,12 @@ jobs:
             export AI_API_PUBLIC_BASE_URL="http://127.0.0.1:${backend_port}/api/v1"
           fi
           bash scripts/verify-ai-api-cutover.sh
+
+      - name: Delete deployment smoke credentials
+        if: ${{ always() && steps.ai_api_smoke.outcome != 'skipped' }}
+        # Run even when credential creation or a model check fails. Keys with
+        # usage records are revoked to preserve accounting; unused keys are deleted.
+        run: docker compose exec -T backend python -m scripts.ensure_ai_api_smoke_credential --cleanup
 
       - name: Cleanup dangling images
         if: always()
