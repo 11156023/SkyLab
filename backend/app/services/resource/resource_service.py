@@ -53,6 +53,7 @@ from app.schemas.resource import (
 from app.services.governance.lifecycle_policy import expiry_datetime
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
+from app.services.resource import guest_ssh_login
 from app.services.resource import kind as resource_kind
 from app.services.resource.access import (
     list_owned_teaching_class_ids,
@@ -1244,6 +1245,8 @@ def control(
         if action == "start" and resource_type == "lxc":
             ensure_lxc_platform_key(session=session, node=node, vmid=vmid)
             ensure_lxc_login_password(session=session, node=node, vmid=vmid)
+        elif action == "start":
+            guest_ssh_login.schedule_after_start(node, vmid, resource_type)
 
         # 啟動時確保防火牆仍為啟用狀態
         if action == "start":
