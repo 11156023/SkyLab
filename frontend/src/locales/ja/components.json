@@ -46,6 +46,7 @@
   "AiFloatingChat.newChatLabel": "新しい会話を開始",
   "AiFloatingChat.noReplyFallback": "現在返信を生成できません。しばらくしてから再度お試しください。",
   "AiFloatingChat.openAssistantAriaLabel": "AIアシスタントを開く",
+  "AiFloatingChat.openAssistantUnreadAriaLabel": "AIアシスタントを開く（新しい返信あり）",
   "AiFloatingChat.pageAiApiKeysSuggestion1": "AI利用量モニタリングへ移動して",
   "AiFloatingChat.pageAiApiKeysSuggestion2": "申請審査へ移動して",
   "AiFloatingChat.pageAiApiKeysSuggestion3": "APIキーのセキュリティ原則を教えて",
