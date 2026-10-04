@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import styles from "./GatewayPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
+import GatewayCertificateTab from "./GatewayCertificateTab";
 import GatewayInstallTab from "./GatewayInstallTab";
 import GatewayPlatformEntryTab from "./GatewayPlatformEntryTab";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -629,6 +630,7 @@ export default function GatewayPage() {
   const TABS = [
     { key: "connection", label: t("GatewayPage.tabConnection") },
     { key: "install",    label: t("GatewayPage.tabInstall") },
+    { key: "certificate", label: t("GatewayPage.tabCertificate") },
     { key: "platform",   label: t("GatewayPage.tabPlatformEntry") },
     { key: "nginx",      label: "nginx" },
     { key: "wireguard",  label: t("GatewayPage.tabWireGuard") },
@@ -680,11 +682,18 @@ export default function GatewayPage() {
           <ConnectionTab config={config} onConfigChange={setConfig} />
         ) : activeTab === "install" ? (
           <GatewayInstallTab gatewayReady={Boolean(config?.is_configured)} onGoToConnection={() => handleTabSelect("connection")} />
+        ) : activeTab === "certificate" ? (
+          <GatewayCertificateTab
+            gatewayReady={Boolean(config?.is_configured)}
+            onDirtyChange={handleDirtyChange}
+            onGoToConnection={() => handleTabSelect("connection")}
+          />
         ) : activeTab === "platform" ? (
           <GatewayPlatformEntryTab
             gatewayReady={Boolean(config?.is_configured)}
             onDirtyChange={handleDirtyChange}
             onGoToConnection={() => handleTabSelect("connection")}
+            onGoToCertificate={() => handleTabSelect("certificate")}
           />
         ) : activeTab === "wireguard" ? (
           <WireGuardTab gatewayReady={Boolean(config?.is_configured)} onGoToConnection={() => handleTabSelect("connection")} />

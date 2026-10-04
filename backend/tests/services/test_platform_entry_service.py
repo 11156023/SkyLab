@@ -15,11 +15,29 @@ from app.repositories import platform_entry as repo
 from app.repositories import reverse_proxy as rp_repo
 from app.schemas.gateway import PlatformEntryUpdate
 from app.services.network import (
-    cloudflare_service,
+    gateway_certificate_service,
+    gateway_service,
     platform_entry_service,
     reverse_proxy_service,
 )
 from app.services.network import nginx_gateway_service as nginx
+
+_CERT = nginx.CertificatePaths(
+    certificate="/etc/ssl/skylab/fullchain.pem", key="/etc/ssl/skylab/privkey.pem"
+)
+
+
+def _inspect_output(*sans: str, end: str = "Jan  5 12:00:00 2027 GMT") -> str:
+    lines = [
+        "cert_readable=1",
+        "key_readable=1",
+        "cert_valid=1",
+        f"cert_end={end}",
+        "key_valid=1",
+        "key_match=1",
+        *(f"san={name}" for name in sans),
+    ]
+    return "\n".join(lines) + "\n"
 
 
 class _Session:
@@ -54,6 +72,8 @@ class _Harness:
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.probe_result: tuple[int, str, str] = (0, "", "")
+        self.inspect_output = _inspect_output("example.com", "*.example.com")
+        self.certificate: nginx.CertificatePaths | None = _CERT
         self.commands: list[str] = []
         self.upserts: list[dict[str, Any]] = []
         self.syncs = 0
@@ -74,8 +94,8 @@ class _Harness:
             self.commands.append(command)
             if command.startswith("cat "):
                 return 0, self.http_conf, ""
-            if "fullchain.pem" in command:
-                return 0, "example.com\tJan  5 12:00:00 2027 GMT\n", ""
+            if "Subject Alternative Name" in command:
+                return 0, self.inspect_output, ""
             return self.probe_result
 
         def fake_sync(_session: object) -> None:
@@ -85,16 +105,11 @@ class _Harness:
 
         monkeypatch.setattr(repo, "upsert_platform_entry_config", fake_upsert)
         monkeypatch.setattr(rp_repo, "is_domain_taken", lambda *_a, **_k: self.domain_taken)
-        monkeypatch.setattr(platform_entry_service, "_gateway_client", fake_client)
+        monkeypatch.setattr(gateway_service, "gateway_client_or_502", fake_client)
         monkeypatch.setattr(platform_entry_service, "_gateway_host", lambda _s: (True, "192.168.100.2"))
+        monkeypatch.setattr(gateway_certificate_service, "load_paths", lambda _s: self.certificate)
         monkeypatch.setattr(nginx, "_exec", fake_exec)
         monkeypatch.setattr(reverse_proxy_service, "sync_to_gateway", fake_sync)
-        monkeypatch.setattr(
-            cloudflare_service, "get_public_config", lambda _s: SimpleNamespace(is_configured=True)
-        )
-        monkeypatch.setattr(
-            reverse_proxy_service, "resolve_zone_for_domain", lambda _s, _d: ("zone-id", "skylab")
-        )
 
 
 @pytest.fixture
@@ -265,25 +280,48 @@ def test_save_rejects_domain_already_published_for_a_vm(harness: _Harness) -> No
     assert harness.upserts == []
 
 
-def test_save_https_requires_cloudflare_zone(
-    harness: _Harness, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def no_zone(_session: object, _domain: str) -> tuple[str, str]:
-        raise BadRequestError("no zone")
+def test_save_https_requires_gateway_certificate(harness: _Harness) -> None:
+    harness.certificate = None
 
-    monkeypatch.setattr(reverse_proxy_service, "resolve_zone_for_domain", no_zone)
+    with pytest.raises(BadRequestError):
+        platform_entry_service.save_config(_Session(), _update(enable_https=True))
+    assert harness.upserts == []
+    assert harness.syncs == 0
 
-    with pytest.raises(BadRequestError, match="Cloudflare"):
+
+def test_save_https_checks_certificate_then_probes_and_persists(harness: _Harness) -> None:
+    result = platform_entry_service.save_config(_Session(), _update(enable_https=True))
+
+    assert "Subject Alternative Name" in harness.commands[0]
+    assert "/nginx-health" in harness.commands[1]
+    assert harness.upserts[0]["enable_https"] is True
+    assert harness.syncs == 1
+    assert result.certificate_configured is True
+
+
+def test_save_https_rejects_certificate_not_covering_platform_domain(harness: _Harness) -> None:
+    harness.inspect_output = _inspect_output("other.org", "*.other.org")
+
+    with pytest.raises(BadRequestError, match="skylab.example.com"):
         platform_entry_service.save_config(_Session(), _update(enable_https=True))
     assert harness.upserts == []
 
 
-def test_save_https_requires_cloudflare_token(
-    harness: _Harness, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        cloudflare_service, "get_public_config", lambda _s: SimpleNamespace(is_configured=False)
+def test_save_https_rejects_expired_certificate(harness: _Harness) -> None:
+    harness.inspect_output = _inspect_output(
+        "*.example.com", end="Jan  5 12:00:00 2020 GMT"
     )
+
+    with pytest.raises(BadRequestError, match="2020-01-05"):
+        platform_entry_service.save_config(_Session(), _update(enable_https=True))
+    assert harness.upserts == []
+
+
+def test_save_https_rejects_mismatched_key(harness: _Harness) -> None:
+    harness.inspect_output = _inspect_output("*.example.com").replace(
+        "key_match=1", "key_match=0"
+    )
+
     with pytest.raises(BadRequestError):
         platform_entry_service.save_config(_Session(), _update(enable_https=True))
     assert harness.upserts == []
@@ -296,7 +334,7 @@ def test_status_reports_applied_when_gateway_matches_saved_config(harness: _Harn
     config = _config(enable_https=True)
     harness.http_conf = nginx.build_http_config(
         [],
-        {"skylab.example.com": "example.com"},
+        _CERT,
         platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.20", 8082, True),
     )
 
@@ -306,17 +344,47 @@ def test_status_reports_applied_when_gateway_matches_saved_config(harness: _Harn
 
     assert status.applied is True
     assert status.applied_upstream == "192.168.100.20:8082"
-    assert status.certificate == "example.com"
+    assert status.certificate == "/etc/ssl/skylab/fullchain.pem"
     assert status.certificate_ready is True
+    assert status.certificate_matches_domain is True
     assert status.certificate_expires_at is not None
     assert status.upstream_reachable is True
     assert status.observed_client_ip == "203.0.113.7"
     assert status.observed_scheme == "https"
 
 
+def test_status_flags_certificate_path_not_yet_applied(harness: _Harness) -> None:
+    """憑證路徑換了但 Gateway 上還是舊的（或還在掛自簽）就算沒套用。"""
+    harness.http_conf = nginx.build_http_config(
+        [],
+        None,
+        platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.20", 8082, True),
+    )
+
+    status = platform_entry_service.get_status(_Session(_config(enable_https=True)))
+
+    assert status.applied is False
+    assert status.certificate is None
+    assert status.certificate_ready is False
+
+
+def test_status_flags_certificate_not_covering_domain(harness: _Harness) -> None:
+    harness.inspect_output = _inspect_output("other.org")
+    harness.http_conf = nginx.build_http_config(
+        [],
+        _CERT,
+        platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.20", 8082, True),
+    )
+
+    status = platform_entry_service.get_status(_Session(_config(enable_https=True)))
+
+    assert status.certificate_ready is True
+    assert status.certificate_matches_domain is False
+
+
 def test_status_flags_drift_between_gateway_and_saved_config(harness: _Harness) -> None:
     harness.http_conf = nginx.build_http_config(
-        [], {}, platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.9", 8082, False)
+        [], None, platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.9", 8082, False)
     )
     harness.probe_result = (28, "curl: (28) Connection timed out", "")
 
@@ -333,13 +401,6 @@ def test_status_disabled_entry_is_applied_only_when_block_is_gone(harness: _Harn
     assert platform_entry_service.get_status(session).applied is True
 
     harness.http_conf = nginx.build_http_config(
-        [], {}, platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.20", 8082, False)
+        [], None, platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.20", 8082, False)
     )
     assert platform_entry_service.get_status(session).applied is False
-
-
-def test_best_zone_name_prefers_longest_matching_zone() -> None:
-    zones = ["example.com", "lab.example.com", "other.org"]
-    assert reverse_proxy_service._best_zone_name("skylab.lab.example.com", zones) == "lab.example.com"
-    assert reverse_proxy_service._best_zone_name("skylab.example.com", zones) == "example.com"
-    assert reverse_proxy_service._best_zone_name("notexample.com", zones) is None

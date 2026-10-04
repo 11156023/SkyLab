@@ -144,7 +144,7 @@ class GatewayInstallStatus(BaseModel):
     finished_at: datetime | None = None
     os_name: str | None = None
     interfaces: list[GatewayInstallInterface] = Field(default_factory=list)
-    # nginx / wireguard / certbot / ufw 是否已安裝
+    # nginx / wireguard / ufw 是否已安裝
     components: dict[str, bool] = Field(default_factory=dict)
     log: str = ""
     defaults: GatewayInstallOptions
@@ -172,10 +172,42 @@ class PlatformEntryPublic(BaseModel):
     updated_at: datetime | None = None
     # Gateway 的 SSH 連線設定好了才能套用
     gateway_ready: bool
-    # HTTPS 憑證走 Cloudflare DNS-01，需要先設定 API Token
-    cloudflare_ready: bool
+    # HTTPS 用 Gateway 的憑證設定（管理員自備）；還沒填就不能開 HTTPS
+    certificate_configured: bool
     # 主系統 nginx 要信任的代理位址（.env 的 SKYLAB_TRUSTED_PROXY 建議值）
     gateway_host: str
+
+
+class GatewayCertificateUpdate(BaseModel):
+    """管理員自備的 HTTPS 憑證在 Gateway 上的絕對路徑；兩個都留空代表不使用。"""
+
+    ssl_certificate_path: str = Field(default="", max_length=512)
+    ssl_certificate_key_path: str = Field(default="", max_length=512)
+
+
+class GatewayCertificatePublic(BaseModel):
+    ssl_certificate_path: str
+    ssl_certificate_key_path: str
+    configured: bool
+    gateway_ready: bool
+
+
+class GatewayCertificateStatus(BaseModel):
+    """經 SSH 在 Gateway 上檢查憑證（每次查詢都重新檢查）。"""
+
+    configured: bool
+    cert_readable: bool | None = None
+    key_readable: bool | None = None
+    cert_valid: bool | None = None
+    key_valid: bool | None = None
+    key_matches: bool | None = None
+    expires_at: datetime | None = None
+    # 憑證的 subjectAltName（DNS 名稱，萬用字元原樣保留）
+    dns_names: list[str] = Field(default_factory=list)
+    # 啟用 HTTPS 的網域（平台入口＋VM 網域）裡，憑證涵蓋／沒涵蓋到的
+    covered_domains: list[str] = Field(default_factory=list)
+    uncovered_domains: list[str] = Field(default_factory=list)
+    checked_at: datetime
 
 
 class PlatformEntryUpstreamTestRequest(BaseModel):
@@ -196,9 +228,12 @@ class PlatformEntryStatus(BaseModel):
     applied_domain: str | None = None
     applied_upstream: str | None = None
     applied_https: bool | None = None
+    # http.conf 裡實際引用的憑證路徑；ready＝Gateway 上讀得到且是合法憑證
     certificate: str | None = None
     certificate_ready: bool | None = None
     certificate_expires_at: datetime | None = None
+    # 憑證是否涵蓋平台網域（openssl -checkhost）
+    certificate_matches_domain: bool | None = None
     upstream_reachable: bool | None = None
     upstream_detail: str | None = None
     # 後端從這次請求看到的來源 IP 與通訊協定：經 Gateway 進來卻看到 Gateway 的
@@ -209,6 +244,9 @@ class PlatformEntryStatus(BaseModel):
 
 
 __all__ = [
+    "GatewayCertificatePublic",
+    "GatewayCertificateStatus",
+    "GatewayCertificateUpdate",
     "PlatformEntryUpdate",
     "PlatformEntryPublic",
     "PlatformEntryUpstreamTestRequest",

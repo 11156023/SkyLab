@@ -187,6 +187,8 @@ def _patch_gateway_ssh(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> No
             ssh_port=22,
             ssh_user="root",
             encrypted_private_key="x",
+            ssl_certificate_path="/etc/ssl/skylab/fullchain.pem",
+            ssl_certificate_key_path="/etc/ssl/skylab/privkey.pem",
         ),
     )
     monkeypatch.setattr(gw_repo, "get_decrypted_private_key", lambda _cfg: "pem")
@@ -235,28 +237,36 @@ def test_sync_then_delete_builds_remaining_list_under_the_lock(
     assert events[-1] == "delete"
 
 
-def test_sync_nginx_http_rereads_rules_under_the_lock(
+def test_sync_nginx_http_reads_rules_under_the_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
     _patch_gateway_ssh(monkeypatch, events)
-    first = [SimpleNamespace(domain="a.example.com", enable_https=False)]
-    second = [*first, SimpleNamespace(domain="b.example.com", enable_https=False)]
-    reads = iter([first, second])
+    rules = [SimpleNamespace(domain="a.example.com", enable_https=True)]
     monkeypatch.setattr(
-        rp_repo, "list_rules", lambda _session: events.append("list") or next(reads)
+        rp_repo, "list_rules", lambda _session: events.append("list") or rules
     )
     built: list[Any] = []
     monkeypatch.setattr(
         nginx,
         "build_http_config",
-        lambda rules, cert_names, **_kwargs: built.append(list(rules)) or "",
+        lambda rules, certificate, **_kwargs: built.append((list(rules), certificate))
+        or "",
     )
 
     reverse_proxy_service._sync_nginx(object())
 
-    assert events == ["list", "lock", "list", f"write:{nginx.NGINX_HTTP_CONF_PATH}"]
-    assert built == [second]
+    # 不再簽憑證，規則清單只在拿到鎖之後讀一次
+    assert events == ["lock", "list", f"write:{nginx.NGINX_HTTP_CONF_PATH}"]
+    assert built == [
+        (
+            rules,
+            nginx.CertificatePaths(
+                certificate="/etc/ssl/skylab/fullchain.pem",
+                key="/etc/ssl/skylab/privkey.pem",
+            ),
+        )
+    ]
 
 
 # ─── 換服務設定失敗時不可弄丟原本的服務 ─────────────────────────────

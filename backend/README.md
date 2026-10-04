@@ -210,7 +210,7 @@ uv run prek run --all-files  # 手動執行
 
 - **VM 申請工作流**：可用性檢查 → 租借時段 placement 節點建議 → 審核 → 排程供應；已建立資源不再由 SkyLab 自動跨節點搬移
 - **HA failover**：cluster 設定支援多個 Proxmox host，TCP ping 偵測接管
-- **Gateway 控制**：透過 SSH 管理 nginx（stream Port 轉發、http 反向代理、certbot 憑證）/ WireGuard 與連線 ACL
+- **Gateway 控制**：透過 SSH 管理 nginx（stream Port 轉發、http 反向代理、引用管理員自備的 HTTPS 憑證）/ WireGuard 與連線 ACL
 - **腳本部署**：從 community-scripts/ProxmoxVE 拉取腳本並於 PVE 節點背景部署
 - **AI 代理**：以 OpenAI Chat Completion 介面連接內部 vLLM，含 Redis sliding-window 流量限制
 - **加密憑證儲存**：AI API 憑證以 Fernet 加密落地

@@ -110,7 +110,7 @@ describe("SetupService", () => {
     expect(started.state).toBe("running");
   });
 
-  test("平台入口步驟：讀取、測試上游、儲存（可帶 Cloudflare Token）", async () => {
+  test("平台入口步驟：讀取、測試上游、儲存（可帶 HTTPS 憑證路徑）", async () => {
     fetchMock.mockResolvedValue(jsonRes(200, { enabled: true, reachable: true }));
     const body = {
       enabled: true,
@@ -118,7 +118,8 @@ describe("SetupService", () => {
       upstream_host: "192.168.100.20",
       upstream_port: 8082,
       enable_https: true,
-      cloudflare_api_token: "cf-token-0123456789abcdef",
+      ssl_certificate_path: "/etc/ssl/skylab/fullchain.pem",
+      ssl_certificate_key_path: "/etc/ssl/skylab/privkey.pem",
     };
 
     await SetupService.getPlatformEntry();

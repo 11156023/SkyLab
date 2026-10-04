@@ -121,6 +121,46 @@ describe("GatewayService 平台入口", () => {
   });
 });
 
+describe("GatewayService HTTPS 憑證", () => {
+  const paths = {
+    ssl_certificate_path: "/etc/ssl/skylab/fullchain.pem",
+    ssl_certificate_key_path: "/etc/ssl/skylab/privkey.pem",
+  };
+
+  test("getCertificate 以 GET 打 /gateway/certificate", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { ...paths, configured: true }));
+
+    const res = await GatewayService.getCertificate();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/gateway\/certificate$/);
+    expect(init.method).toBe("GET");
+    expect(res.configured).toBe(true);
+  });
+
+  test("updateCertificate 以 PUT 送兩個路徑", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { ...paths, configured: true }));
+
+    await GatewayService.updateCertificate(paths);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/gateway\/certificate$/);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual(paths);
+  });
+
+  test("getCertificateStatus 以 GET 打 status 端點", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { configured: true, uncovered_domains: [] }));
+
+    const res = await GatewayService.getCertificateStatus();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/gateway/certificate/status");
+    expect(init.method).toBe("GET");
+    expect(res.uncovered_domains).toEqual([]);
+  });
+});
+
 describe("GatewayService host key", () => {
   test("resetHostKey 以 POST 打 /gateway/reset-host-key", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { message: "已重設" }));

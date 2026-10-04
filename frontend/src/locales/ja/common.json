@@ -296,7 +296,7 @@
   "UserGuide.reverseProxy.domain.title": "公開 URL を組み立てる",
   "UserGuide.reverseProxy.domain.text": "ホスト名の接頭辞と接続済みドメインの接尾辞を選び、最終 URL を作成します。",
   "UserGuide.reverseProxy.port.title": "内部サービスのポートを指定",
-  "UserGuide.reverseProxy.port.text": "一般的なポートまたはカスタムポートを選びます。HTTPS 有効時は公開証明書をシステムが処理します。",
+  "UserGuide.reverseProxy.port.text": "一般的なポートまたはカスタムポートを選びます。HTTPS 有効時は管理者が Gateway に設定した証明書を使用します。",
   "UserGuide.reverseProxy.actions.title": "プレビューを確認してから作成",
   "UserGuide.reverseProxy.actions.text": "VM、URL、ポートを確認して作成します。ガイドが送信や変更を行うことはありません。",
   "UserGuide.reverseProxy.list.title": "作成した URL は一覧に戻ります",

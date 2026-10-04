@@ -35,7 +35,7 @@ SkyLab 是一個面向校園資源管理的全端 Proxmox VE（PVE）虛擬化�
 - VM 申請工作流：學生提交 → 審核 → 租借時段容量評估 → 自動排程供應
 - AI 放置建議（PVE Placement Advisor）與模板推薦
 - 防火牆拓撲視覺化、NAT 規則、Reverse Proxy 規則管理
-- 閘道主機管理：nginx（Port 轉發／網域反向代理／Let's Encrypt）與 WireGuard 設定
+- 閘道主機管理：nginx（Port 轉發／網域反向代理／管理員自備的 HTTPS 憑證）與 WireGuard 設定
 - 多重 Proxmox cluster 連線設定與 HA failover
 - 正式班級管理、固定課表、學生名單、多機環境與整班批次建置
 - 班級教室監看、教師廣播，以及班級內的 AI 評分檢查

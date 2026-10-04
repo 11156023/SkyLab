@@ -4,7 +4,9 @@
 - DB（``platform_entry_config`` singleton）為 source of truth
 - 不另開設定檔：平台入口的 server 區塊由 ``reverse_proxy_service`` 的同步流程
   一併寫進 ``/etc/nginx/skylab/http.conf``，所以重裝 Gateway 後按「重新同步」
-  就會連同 VM 網域一起復原，憑證也走同一套 certbot DNS-01
+  就會連同 VM 網域一起復原
+- HTTPS 用 Gateway 的憑證設定（管理員自備，與 VM 網域共用，見
+  ``gateway_certificate_service``）；開 HTTPS 前憑證必須已設定且涵蓋平台網域
 - 套用前先從 Gateway 實際連一次上游：主系統自己的入口指錯位址，管理介面
   會跟著進不來，所以連不到就不存
 - 同步失敗時把 DB 還原成原本的設定（Gateway 上的檔案有 ``nginx -t`` 失敗還原）
@@ -15,13 +17,11 @@ from __future__ import annotations
 import ipaddress
 import logging
 import shlex
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
 from app.core.i18n import t
-from app.exceptions import BadRequestError, UpstreamServiceError
+from app.exceptions import BadRequestError
 from app.models.platform_entry_config import PlatformEntryConfig
 from app.schemas.gateway import (
     PlatformEntryPublic,
@@ -93,11 +93,10 @@ def _gateway_host(session: object) -> tuple[bool, str]:
 
 
 def get_config(session: object) -> PlatformEntryPublic:
-    from app.services.network import cloudflare_service
+    from app.services.network import gateway_certificate_service
 
     config = _get_config(session)
     gateway_ready, gateway_host = _gateway_host(session)
-    cloudflare_ready = cloudflare_service.get_public_config(session).is_configured  # type: ignore[arg-type]
     return PlatformEntryPublic(
         enabled=bool(config and config.enabled),
         domain=config.domain if config else "",
@@ -106,7 +105,7 @@ def get_config(session: object) -> PlatformEntryPublic:
         enable_https=config.enable_https if config else True,
         updated_at=config.updated_at if config else None,
         gateway_ready=gateway_ready,
-        cloudflare_ready=cloudflare_ready,
+        certificate_configured=gateway_certificate_service.is_configured(session),
         gateway_host=gateway_host,
     )
 
@@ -143,49 +142,33 @@ def normalize_upstream_host(value: str) -> str:
     raise BadRequestError(t("gateway.platformEntryUpstreamInvalid", host=value))
 
 
-def _require_https_ready(session: object, domain: str) -> None:
-    """HTTPS 憑證走 Cloudflare DNS-01：要有 API Token，網域也要在 Cloudflare 的 zone 裡。
+def _require_certificate_paths(session: object) -> nginx.CertificatePaths:
+    """平台入口要開 HTTPS，Gateway 的憑證必須先設定好（不必連線就能判斷）。"""
+    from app.services.network import gateway_certificate_service
 
-    不在 zone 裡的網域憑證永遠簽不下來，而且之後每次同步（任何人新增網域）
-    都會多等一次 certbot 失敗，所以在儲存時就擋掉。
-    """
-    from app.services.network import cloudflare_service, reverse_proxy_service
+    paths = gateway_certificate_service.load_paths(session)
+    if paths is None:
+        raise BadRequestError(t("gateway.platformEntryCertificateRequired"))
+    return paths
 
-    if not cloudflare_service.get_public_config(session).is_configured:  # type: ignore[arg-type]
-        raise BadRequestError(t("gateway.cloudflareApiTokenNotConfigured"))
-    try:
-        reverse_proxy_service.resolve_zone_for_domain(session, domain)
-    except BadRequestError as exc:
-        raise BadRequestError(
-            t("gateway.platformEntryDomainNotInZone", domain=domain)
-        ) from exc
-    except Exception as exc:
-        raise BadRequestError(
-            t("gateway.platformEntryZoneLookupFailed", error=exc)
-        ) from exc
+
+def _require_certificate(
+    client: Any, paths: nginx.CertificatePaths, domain: str
+) -> None:
+    """在 Gateway 上檢查憑證：合格，而且涵蓋平台網域。"""
+    from app.services.network import gateway_certificate_service
+
+    inspection = nginx.inspect_certificate(client, paths.certificate, paths.key)
+    gateway_certificate_service.verify_inspection(
+        inspection,
+        cert_path=paths.certificate,
+        key_path=paths.key,
+        now=datetime.now(timezone.utc),
+    )
+    gateway_certificate_service.ensure_covers_platform(inspection, domain)
 
 
 # ─── Gateway 端探測 ──────────────────────────────────────────────────────────
-
-
-@contextmanager
-def _gateway_client(session: object) -> Iterator[Any]:
-    """開 Gateway 的 SSH 連線；未設定 raise BadRequestError，連不上回 502。"""
-    from app.services.network import gateway_service
-
-    config, private_key_pem = gateway_service._get_credentials(session)
-    try:
-        client = gateway_service.make_client(
-            config.host, config.ssh_port, config.ssh_user, private_key_pem
-        )
-    except Exception as exc:
-        raise UpstreamServiceError(
-            t("gateway.installConnectFailed", error=exc)
-        ) from exc
-    try:
-        yield client
-    finally:
-        client.close()
 
 
 def build_upstream_probe_command(host: str, port: int) -> str:
@@ -215,10 +198,12 @@ def _probe_upstream(client: Any, host: str, port: int) -> PlatformEntryUpstreamT
 
 def test_upstream(session: object, host: str, port: int) -> PlatformEntryUpstreamTest:
     """管理員按「測試上游」：從 Gateway 連主系統入口，回報通不通。"""
+    from app.services.network import gateway_service
+
     clean_host = normalize_upstream_host(host)
     if not clean_host:
         raise BadRequestError(t("gateway.platformEntryUpstreamRequired"))
-    with _gateway_client(session) as client:
+    with gateway_service.gateway_client_or_502(session) as client:
         return _probe_upstream(client, clean_host, port)
 
 
@@ -244,10 +229,10 @@ def _snapshot(config: PlatformEntryConfig | None) -> dict[str, Any]:
 
 
 def save_config(session: object, data: PlatformEntryUpdate) -> PlatformEntryPublic:
-    """驗證 → 從 Gateway 測試上游 → 寫 DB → 同步 nginx；同步失敗就還原 DB。"""
+    """驗證 → 在 Gateway 上檢查憑證、測試上游 → 寫 DB → 同步 nginx；同步失敗就還原 DB。"""
     from app.repositories import platform_entry as repo
     from app.repositories import reverse_proxy as rp_repo
-    from app.services.network import reverse_proxy_service
+    from app.services.network import gateway_service, reverse_proxy_service
 
     domain = normalize_domain(data.domain)
     upstream_host = normalize_upstream_host(data.upstream_host)
@@ -262,9 +247,10 @@ def save_config(session: object, data: PlatformEntryUpdate) -> PlatformEntryPubl
     previous = _snapshot(_get_config(session))
 
     if data.enabled:
-        if data.enable_https:
-            _require_https_ready(session, domain)
-        with _gateway_client(session) as client:
+        paths = _require_certificate_paths(session) if data.enable_https else None
+        with gateway_service.gateway_client_or_502(session) as client:
+            if paths is not None:
+                _require_certificate(client, paths, domain)
             probe = _probe_upstream(client, upstream_host, data.upstream_port)
         if not probe.reachable:
             raise BadRequestError(
@@ -310,16 +296,21 @@ def get_status(
     observed_client_ip: str | None = None,
     observed_scheme: str | None = None,
 ) -> PlatformEntryStatus:
-    """SSH 到 Gateway 讀回實際套用的平台入口、憑證到期日，並測一次上游。"""
+    """SSH 到 Gateway 讀回實際套用的平台入口、檢查引用中的憑證，並測一次上游。"""
+    from app.services.network import gateway_certificate_service, gateway_service
+
     config = _get_config(session)
     expected = load_entry(session)
+    expected_certificate = gateway_certificate_service.load_paths(session)
 
-    with _gateway_client(session) as client:
+    with gateway_service.gateway_client_or_502(session) as client:
         applied = nginx.parse_platform_entry(nginx.read_http_config(client))
-        certificates = (
-            nginx.list_certificates(client)
+        inspection = (
+            nginx.inspect_certificate(
+                client, applied["certificate"], applied["certificate_key"] or ""
+            )
             if applied is not None and applied["certificate"]
-            else []
+            else None
         )
         probe = (
             _probe_upstream(client, config.upstream_host, config.upstream_port)
@@ -335,18 +326,17 @@ def get_status(
             and applied["domain"] == expected.domain
             and applied["upstream"] == expected.upstream
             and applied["https"] == expected.enable_https
+            # 換了憑證路徑但還沒同步上去，也算沒套用
+            and (
+                not expected.enable_https
+                or applied["certificate"]
+                == (expected_certificate.certificate if expected_certificate else None)
+            )
         )
 
-    expires_at = None
-    if applied is not None and applied["certificate"]:
-        expires_at = next(
-            (
-                item["expires_at"]
-                for item in certificates
-                if item["name"] == applied["certificate"]
-            ),
-            None,
-        )
+    certificate_ready: bool | None = None
+    if applied is not None and applied["https"]:
+        certificate_ready = inspection is not None and inspection.usable
 
     return PlatformEntryStatus(
         applied=in_sync,
@@ -354,8 +344,13 @@ def get_status(
         applied_upstream=applied["upstream"] if applied else None,
         applied_https=applied["https"] if applied else None,
         certificate=applied["certificate"] if applied else None,
-        certificate_ready=applied["certificate_ready"] if applied else None,
-        certificate_expires_at=expires_at,
+        certificate_ready=certificate_ready,
+        certificate_expires_at=inspection.expires_at if inspection else None,
+        certificate_matches_domain=(
+            nginx.certificate_covers(applied["domain"], inspection.dns_names)
+            if applied is not None and inspection is not None and inspection.cert_valid
+            else None
+        ),
         upstream_reachable=probe.reachable if probe else None,
         upstream_detail=probe.detail if probe else None,
         observed_client_ip=observed_client_ip,

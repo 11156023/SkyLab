@@ -14,7 +14,7 @@
 
 ## 平台入口：主系統經 Gateway 的 nginx 對外
 
-Gateway 主機上的 nginx 原本只代理 VM 的網域與 Port 轉發；「平台入口」讓 SkyLab 主系統自己也走同一台 nginx，用網域加 Let's Encrypt 憑證對外（Web Push 需要 https）。
+Gateway 主機上的 nginx 原本只代理 VM 的網域與 Port 轉發；「平台入口」讓 SkyLab 主系統自己也走同一台 nginx，用網域加 HTTPS 對外（Web Push 需要 https）。
 
 ```
 使用者 ──https──▶ Gateway nginx（終結 TLS）──http──▶ 部署機 :8082（內建 nginx）──▶ backend / frontend
@@ -24,7 +24,28 @@ Gateway 主機上的 nginx 原本只代理 VM 的網域與 Port 轉發；「平�
 
 1. 填主系統的網域，以及 Gateway 連得到的部署機位址與 port（預設 8082）。
 2. 儲存時後端會先從 Gateway 實際連一次 `http://<部署機>:<port>/nginx-health`，連不到就不存；通過後把設定寫進 Gateway 的 `/etc/nginx/skylab/http.conf`（與 VM 網域同一份檔案、同一套 `nginx -t` 失敗還原），重裝 Gateway 後按「重新同步」會一起復原。
-3. HTTPS 憑證走 certbot 的 Cloudflare DNS-01：網域要在 Cloudflare 管理的 zone 內，並先設定 Cloudflare API Token（網域管理頁，或精靈的平台入口步驟）。
+3. HTTPS 憑證見下一節「Gateway 的 HTTPS 憑證」：開 HTTPS 前憑證要先設定好，而且要涵蓋平台網域。
+
+## Gateway 的 HTTPS 憑證（管理員自備）
+
+SkyLab **不簽發憑證**（不跑 certbot、不做 ACME）。管理員自己準備一張憑證放到 Gateway 主機上，SkyLab 只記路徑；平台入口與所有機器發布的網域**共用這一張**，所以建議用涵蓋整個網域的萬用憑證（例如 `example.com` + `*.example.com`）。萬用字元只涵蓋一層子網域，`a.b.example.com` 不在 `*.example.com` 的範圍內。
+
+**設定位置：** 「閘道 VM」頁的「HTTPS 憑證」分頁；初始化精靈在平台入口步驟勾 HTTPS 時也能填。
+
+1. 把 fullchain 憑證與私鑰放到 Gateway（安裝腳本會建好 `/etc/ssl/skylab/`，權限 750）：
+   ```bash
+   install -m 644 fullchain.pem /etc/ssl/skylab/fullchain.pem
+   install -m 600 privkey.pem   /etc/ssl/skylab/privkey.pem
+   ```
+   私鑰不能有密碼保護（nginx 啟動時沒辦法輸入）。
+2. 在「HTTPS 憑證」分頁填兩個完整路徑後儲存。後端會先經 SSH 在 Gateway 上檢查：讀得到、格式正確、私鑰配對、還沒過期；平台入口已開 HTTPS 的話還要涵蓋平台網域。通過後重寫 `/etc/nginx/skylab/http.conf`（`nginx -t` 失敗會還原）並 reload。
+3. 分頁下方的「Gateway 上的憑證」卡片列出到期日、憑證涵蓋的名稱，以及**沒被涵蓋到的 HTTPS 網域**（這些網域仍可連，但瀏覽器會警告）。
+
+**換新憑證：** 直接覆蓋同路徑的檔案，再按分頁上的「重新套用」（或在 Gateway 上 `nginx -t && systemctl reload nginx`）。平台健康監控會在憑證剩不到 14 天或已過期時把 Gateway 標成「需要處理」。
+
+**還沒設定憑證時**，HTTPS 網域掛 Gateway 安裝時產生的自簽憑證（`/etc/nginx/skylab/fallback.crt`），連得上但瀏覽器會警告。
+
+> 2026-10 以前的版本由 certbot 以 Cloudflare DNS-01 自動簽發；升級後舊 Gateway 上的 `/etc/letsencrypt` 與 certbot 不會被移除，但 SkyLab 不再使用。可以直接把 `/etc/letsencrypt/live/<名稱>/fullchain.pem`、`privkey.pem` 的路徑填進「HTTPS 憑證」分頁沿用舊憑證（之後要自己續期）。Cloudflare API Token 仍用於網域管理的 DNS 紀錄。
 
 **還要手動完成的三件事**（頁面上也會列出）：
 
