@@ -24,6 +24,7 @@ from app.models import (
     AIAPIRequestStatus,
     AIAPIUsage,
     User,
+    UserRole,
     get_datetime_utc,
 )
 from app.schemas import (
@@ -43,12 +44,12 @@ from app.services.user import audit_service
 logger = logging.getLogger(__name__)
 
 DEFAULT_REQUEST_RATE_LIMIT = 20
-#: 申請可選的金鑰效期（與前端 DURATION_OPTIONS 一致）；never 代表不過期
+#: 可換算的金鑰效期；never 只供教師／管理員申請。
 KEY_DURATIONS: dict[str, timedelta | None] = {
-    "1h": timedelta(hours=1),
     "1d": timedelta(days=1),
     "7d": timedelta(days=7),
     "30d": timedelta(days=30),
+    "90d": timedelta(days=90),
     "never": None,
 }
 _REVIEW_DECISIONS = (AIAPIRequestStatus.approved, AIAPIRequestStatus.rejected)
@@ -247,12 +248,19 @@ def _to_credential_admin_public(
     )
 
 
-def create_request(
-    *, session: Session, request_in: AIAPIRequestCreate, user
-) -> AIAPIRequestPublic:
-    # 審核時只認得這幾種效期；其他字串核准後會變成永不過期的金鑰
-    if request_in.duration not in KEY_DURATIONS:
+def _validate_request_duration(duration: str, user: User) -> None:
+    if duration not in KEY_DURATIONS:
         raise BadRequestError(t("ai_gateway.invalid_duration"))
+    if user.role == UserRole.student and KEY_DURATIONS[duration] is None:
+        raise BadRequestError(t("ai_gateway.student_duration_restricted"))
+    if user.role != UserRole.student and duration == "90d":
+        raise BadRequestError(t("ai_gateway.non_student_duration_restricted"))
+
+
+def create_request(
+    *, session: Session, request_in: AIAPIRequestCreate, user: User
+) -> AIAPIRequestPublic:
+    _validate_request_duration(request_in.duration, user)
     db_request = AIAPIRequest(
         user_id=user.id,
         purpose=request_in.purpose.strip(),
@@ -347,12 +355,12 @@ def review_request(
         raise NotFoundError(t("ai_gateway.request_not_found"))
     if db_request.status != AIAPIRequestStatus.pending:
         raise BadRequestError(t("ai_gateway.request_already_reviewed"))
-    if (
-        review_data.status == AIAPIRequestStatus.approved
-        and db_request.duration not in KEY_DURATIONS
-    ):
-        # 舊資料的效期字串無法換算；不能默默發出永不過期的金鑰
-        raise BadRequestError(t("ai_gateway.invalid_duration"))
+    if review_data.status == AIAPIRequestStatus.approved:
+        # 舊待審申請也必須符合申請人目前身分的期限限制；駁回不受影響。
+        applicant = session.get(User, db_request.user_id)
+        if applicant is None:
+            raise NotFoundError(t("ai_gateway.request_not_found"))
+        _validate_request_duration(db_request.duration, applicant)
 
     db_request.status = review_data.status
     db_request.reviewer_id = reviewer.id
