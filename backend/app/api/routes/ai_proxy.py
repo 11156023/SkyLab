@@ -47,12 +47,12 @@ def _credential_rate_limit(credential: Any) -> int:
     return limit
 
 
-async def _enforce_rate_limit(*, user: Any, credential: Any) -> None:
+async def _enforce_rate_limit(*, credential: Any) -> None:
     limit = _credential_rate_limit(credential)
     redis = await get_redis()
     allowed, rate_info = await check_rate_limit_sliding_window(
         redis=redis,
-        user_id=str(user.id),
+        credential_id=str(credential.id),
         limit=limit,
         window_seconds=ai_api_settings.ai_api_rate_limit_window_seconds,
     )
@@ -145,10 +145,9 @@ async def _relay_generation(
     endpoint: str,
     request: Request,
     user_and_credential: tuple[Any, Any],
-    session: Any,
 ) -> Response:
     user, credential = user_and_credential
-    await _enforce_rate_limit(user=user, credential=credential)
+    await _enforce_rate_limit(credential=credential)
 
     payload = await _json_payload(request)
     if isinstance(payload, JSONResponse):
@@ -164,7 +163,6 @@ async def _relay_generation(
         model_name=model_name,
         user=user,
         credential=credential,
-        session=session,
     )
 
 
@@ -176,13 +174,11 @@ async def _relay_generation(
 async def chat_completions(
     request: Request,
     user_and_credential: AIAPIUserDep,
-    session: SessionDep,
 ) -> Response:
     return await _relay_generation(
         endpoint="chat/completions",
         request=request,
         user_and_credential=user_and_credential,
-        session=session,
     )
 
 
@@ -194,13 +190,11 @@ async def chat_completions(
 async def completions(
     request: Request,
     user_and_credential: AIAPIUserDep,
-    session: SessionDep,
 ) -> Response:
     return await _relay_generation(
         endpoint="completions",
         request=request,
         user_and_credential=user_and_credential,
-        session=session,
     )
 
 
@@ -212,13 +206,11 @@ async def completions(
 async def responses(
     request: Request,
     user_and_credential: AIAPIUserDep,
-    session: SessionDep,
 ) -> Response:
     return await _relay_generation(
         endpoint="responses",
         request=request,
         user_and_credential=user_and_credential,
-        session=session,
     )
 
 
@@ -242,7 +234,7 @@ async def get_my_usage_stats(
     session: SessionDep,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
-):
+) -> dict[str, Any]:
     user, _credential = user_and_credential
     start_date, end_date = ai_gateway_service.default_usage_window(
         start_date, end_date
@@ -262,7 +254,7 @@ async def get_my_usage_stats(
 async def get_rate_limit_status(
     user_and_credential: AIAPIUserDep,
 ) -> RateLimitStatusResponse:
-    user, credential = user_and_credential
+    _user, credential = user_and_credential
     limit = _credential_rate_limit(credential)
     redis = await get_redis()
     if redis is None:
@@ -278,7 +270,7 @@ async def get_rate_limit_status(
     now_ms = int(time.time() * 1000)
     current_usage = await peek_rate_limit_by_key(
         redis,
-        key=ai_proxy_rate_limit_key(str(user.id)),
+        key=ai_proxy_rate_limit_key(str(credential.id)),
         window_seconds=window_seconds,
     )
     if current_usage is None:

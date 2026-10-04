@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import jwt
@@ -18,6 +19,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import QueuePool
 from sqlmodel import Session
 
+from app.api.deps import ai_api_key as ai_api_key_module
 from app.api.deps import auth as auth_module
 from app.core import security
 from app.core.config import settings
@@ -172,3 +174,53 @@ async def test_get_current_user_releases_connection(
     assert session.calls == ["get", "commit(expire_on_commit=False)"]
     assert not session.in_transaction()
     assert session.expire_on_commit is True
+
+
+def test_ai_api_key_auth_releases_connection_and_keeps_identity_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api_key = "ccai_test_key"
+    credential = SimpleNamespace(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        api_key_encrypted="encrypted",
+        expires_at=None,
+        rate_limit=20,
+    )
+    user = SimpleNamespace(id=credential.user_id, is_active=True)
+
+    class _Candidates:
+        def all(self) -> list[Any]:
+            return [credential]
+
+    class _AIKeySession(_RecordingSession):
+        def exec(self, _statement: Any) -> _Candidates:
+            self.calls.append("exec")
+            self._in_tx = True
+            return _Candidates()
+
+        def get(self, _model: Any, ident: Any) -> Any:
+            self.calls.append("get")
+            assert ident == credential.user_id
+            return user
+
+    monkeypatch.setattr(
+        ai_api_key_module,
+        "decrypt_value",
+        lambda encrypted: api_key if encrypted == "encrypted" else "",
+    )
+    session = _AIKeySession()
+
+    loaded_user, loaded_credential = (
+        ai_api_key_module.get_current_user_by_ai_api_key(
+            session=session,  # type: ignore[arg-type]
+            authorization=f"Bearer {api_key}",
+        )
+    )
+
+    assert session.calls == ["exec", "get", "commit(expire_on_commit=False)"]
+    assert not session.in_transaction()
+    assert session.expire_on_commit is True
+    assert loaded_user.id == user.id
+    assert loaded_credential.id == credential.id
+    assert loaded_credential.rate_limit == 20

@@ -51,6 +51,7 @@ from app.infrastructure.ai import close_ai_clients
 from app.infrastructure.queue import close_arq_pool, init_arq_pool
 from app.infrastructure.redis import close_redis, init_redis
 from app.infrastructure.worker import init_background_runner, shutdown_background_runner
+from app.services.llm_gateway.relay_service import close_relay_runtime
 from app.services.monitoring import system_health_service
 from app.services.network import wireguard_service
 from app.services.notification import web_push_service
@@ -163,6 +164,7 @@ async def lifespan(app: FastAPI):
         for task in (scheduler_task, wireguard_task, push_task):
             await _cancel_and_wait(task)
         await shutdown_background_runner()
+        await close_relay_runtime()
         await close_ai_clients()
         await close_arq_pool()
         await close_redis()

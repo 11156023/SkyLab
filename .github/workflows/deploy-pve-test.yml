@@ -76,6 +76,28 @@ jobs:
           docker compose logs --tail 50 backend
           exit 1
 
+      - name: Smoke test every public AI model
+        # pve-test environment must provide a dedicated ccai_* key whose rate
+        # limit is at least the number of public models.  The optional variable
+        # is the Campus API root ending in /api/v1; otherwise use the published
+        # backend port from this deployment.
+        env:
+          AI_API_SMOKE_KEY: ${{ secrets.AI_API_SMOKE_KEY }}
+          CONFIGURED_AI_API_PUBLIC_BASE_URL: ${{ vars.AI_API_PUBLIC_BASE_URL }}
+        run: |
+          if [[ -n "$CONFIGURED_AI_API_PUBLIC_BASE_URL" ]]; then
+            export AI_API_PUBLIC_BASE_URL="$CONFIGURED_AI_API_PUBLIC_BASE_URL"
+          else
+            backend_address="$(docker compose port backend 8000 | tail -n 1)"
+            backend_port="${backend_address##*:}"
+            if [[ ! "$backend_port" =~ ^[0-9]+$ ]]; then
+              echo "Unable to resolve the published backend port"
+              exit 1
+            fi
+            export AI_API_PUBLIC_BASE_URL="http://127.0.0.1:${backend_port}/api/v1"
+          fi
+          bash scripts/verify-ai-api-cutover.sh
+
       - name: Cleanup dangling images
         if: always()
         run: docker image prune -f
