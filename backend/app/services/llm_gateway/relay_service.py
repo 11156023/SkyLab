@@ -131,15 +131,27 @@ class AdmissionQueue:
             if self._waiting >= self.max_waiting:
                 ai_metrics.record_proxy_admission_rejection("queue_full")
                 raise AdmissionRejected("queue_full")
-            waiter: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+            loop = asyncio.get_running_loop()
+            waiter: asyncio.Future[object] = loop.create_future()
             self._waiters.append(waiter)
             self._waiting += 1
             self._update_metrics()
+            # 逾時自己用 call_later 做、不用 asyncio.wait_for：Python 3.11 的
+            # wait_for 在內層 future 已完成時會吞掉取消、直接回傳結果，
+            # 被取消的請求就會帶著名額繼續跑；3.12 起才改掉。直接 await
+            # future 的取消語意各版本一致。
+            timeout_handle = loop.call_later(
+                self.wait_timeout_seconds, self._expire_waiter, waiter
+            )
             try:
-                token = await asyncio.wait_for(waiter, timeout=self.wait_timeout_seconds)
+                token = await waiter
             except BaseException as exc:
-                if waiter.done() and not waiter.cancelled():
-                    # token 已交到手上才逾時／被取消：直接歸還給下一位，名額不流失。
+                if (
+                    waiter.done()
+                    and not waiter.cancelled()
+                    and waiter.exception() is None
+                ):
+                    # token 已交到手上才被取消：直接歸還給下一位，名額不流失。
                     self.release(waiter.result())
                 else:
                     with suppress(ValueError):
@@ -149,6 +161,7 @@ class AdmissionQueue:
                     raise AdmissionRejected("timeout") from exc
                 raise
             finally:
+                timeout_handle.cancel()
                 self._waiting -= 1
                 self._update_metrics()
 
@@ -173,6 +186,12 @@ class AdmissionQueue:
                 self._active += 1
                 return
         self._free.append(token)
+
+    @staticmethod
+    def _expire_waiter(waiter: asyncio.Future[object]) -> None:
+        # 逾時前 token 已交到手上就不動它；acquire 端看到 TimeoutError 才算逾時。
+        if not waiter.done():
+            waiter.set_exception(asyncio.TimeoutError())
 
     def _update_metrics(self) -> None:
         ai_metrics.update_proxy_admission(active=self._active, waiting=self._waiting)
