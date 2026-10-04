@@ -358,6 +358,8 @@ services:
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
         VITE_SENTRY_ENVIRONMENT: ${ENVIRONMENT:-local}
         VITE_SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+        # 帳號設定「關於」分頁顯示的 commit（CI 部署會帶 GITHUB_SHA）
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-}
     ports:
       # Localhost only — public traffic goes through nginx (:80).
       # 容器內是非 root 的 nginx，聽 8080。

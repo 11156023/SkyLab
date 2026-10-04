@@ -1,166 +1,168 @@
-﻿# SkyLab — Backend
+# SkyLab — Backend
 
-SkyLab 後端：基於 FastAPI + SQLModel + PostgreSQL 的 Proxmox VE 虛擬化管理 API，提供 VM/LXC 生命週期、申請審核、防火牆/閘道、placement 檢查與 vLLM 代理等能力。
+> **English** | [繁體中文](./README.zh-TW.md)
 
-## 技術棧
+The SkyLab backend is a FastAPI + SQLModel + PostgreSQL service that manages Proxmox VE: VM/LXC lifecycle, request and approval workflows, teaching classes and batch provisioning, firewall and gateway control, governance, monitoring, and the AI API gateway.
 
-- **Web 框架**：FastAPI（standard ≥ 0.135）+ Pydantic v2
-- **ORM / 遷移**：SQLModel + Alembic
-- **資料庫**：PostgreSQL（psycopg）+ Redis（hiredis，速率限制與快取）
-- **Proxmox 整合**：proxmoxer（含 HA failover、TCP ping）
-- **安全**：PyJWT、pwdlib（Argon2 + Bcrypt）、Cryptography（Fernet 加密）
-- **遠端連線**：websockets（VNC 代理）、Paramiko（Gateway SSH / LXC terminal）
-- **錯誤追蹤**：sentry-sdk[fastapi]
-- **重試 / 工具**：tenacity、httpx、emails、jinja2、pyyaml
-- **開發工具**：UV、pytest、ruff、mypy、prek
+## Tech stack
 
-## 目錄結構
+- **Web framework:** FastAPI (standard ≥ 0.135) + Pydantic v2
+- **ORM / migrations:** SQLModel + Alembic
+- **Database:** PostgreSQL via PgBouncer (transaction pooling) + Redis (rate limiting, token revocation, arq queue, caches)
+- **Background jobs:** arq worker (`worker` container); in-process fallback when `REDIS_ENABLED=false`
+- **Proxmox:** proxmoxer with per-connection pools, HA failover (TCP ping) and CA handling
+- **Security:** PyJWT, pwdlib (Argon2 + Bcrypt), cryptography (Fernet for stored credentials), TOTP (standard library)
+- **Remote access:** websockets (VNC proxy, pure RFB handling in `infrastructure/vnc/`), Paramiko (gateway SSH, LXC terminal, PVE node commands), ldap3
+- **Observability:** structured JSON logging, Prometheus metrics, Sentry
+- **Tooling:** uv, pytest, ruff, mypy, prek
+
+## Layout
 
 ```
 backend/
 ├── app/
-│   ├── main.py                # FastAPI 入口、lifespan、middleware、WebSocket
+│   ├── main.py                 # FastAPI app, lifespan, middleware, WebSocket endpoints
 │   ├── api/
-│   │   ├── main.py            # 路由聚合
-│   │   ├── routes/            # 19 個 REST 路由模組
-│   │   ├── websocket/         # VNC / Terminal WebSocket 代理
-│   │   └── deps/              # 依賴注入（auth、db、proxmox）
-│   ├── core/                  # config、db、security、proxmox client、redis
-│   ├── models/                # 21 個 SQLModel 模型
-│   ├── schemas/               # 14 個 Pydantic schema 模組
-│   ├── services/              # 21 個業務邏輯服務
-│   ├── repositories/          # 15 個資料存取層
-│   ├── ai/                    # Template Recommendation / PVE Log 等 AI 內嵌邏輯
-│   ├── domain/placement/      # VM/LXC placement 規則、容量與 scoring
-│   ├── ai_api/                # 外部 AI API 整合設定
-│   ├── alembic/versions/      # 22+ 個遷移版本
-│   ├── email-templates/       # MJML 來源 + 編譯後 HTML
-│   ├── utils/                 # email、token 工具
-│   ├── backend_pre_start.py   # 啟動前 DB 連線檢查
-│   └── initial_data.py        # 預設超級管理員初始化
-├── tests/                     # pytest 測試
-├── scripts/                   # prestart / test / lint / format
+│   │   ├── main.py             # router aggregation
+│   │   ├── routes/             # REST endpoints (thin controllers, ~50 modules)
+│   │   ├── websocket/          # VNC, terminal, jobs, classroom, course progress
+│   │   ├── deps/               # dependency injection (auth, db, proxmox)
+│   │   └── prometheus_sd.py    # http_sd targets for the monitoring stack
+│   ├── schemas/                # Pydantic request/response schemas
+│   ├── models/                 # SQLModel tables and enums only
+│   ├── services/               # business logic, grouped by domain
+│   │   ├── classroom/          #   VNC fan-out sessions, signalling hub
+│   │   ├── course/, course_environment/, teaching/, template/
+│   │   ├── governance/         #   TTL reclamation, idle detection
+│   │   ├── jobs/               #   task records shown on the Jobs page
+│   │   ├── llm_gateway/        #   AI API gateway / proxy (upstream is always LiteLLM)
+│   │   ├── monitoring/         #   health policy, heartbeats, preflight, alerts
+│   │   ├── network/            #   firewall, NAT, gateway, reverse proxy, IP management, WireGuard, platform entry, certificates
+│   │   ├── notification/       #   Web Push
+│   │   ├── proxmox/            #   VM/LXC provisioning, connection sync
+│   │   ├── resource/           #   resource CRUD, backups, snapshots
+│   │   ├── scheduling/         #   VM request scheduler (coordinator, policy, provision pool, leader lock)
+│   │   ├── security/           #   mining detection
+│   │   ├── system/             #   setup wizard
+│   │   ├── user/               #   auth, users, TOTP, LDAP, password policy, audit log
+│   │   └── vm/                 #   batch provisioning, placement, spec changes, VM requests
+│   ├── infrastructure/         # external systems only
+│   │   ├── proxmox/            #   API client (per-connection pools), operations, routing, TLS
+│   │   ├── ssh/, ldap/, google/, cloudflare/, redis/, vnc/, ai/
+│   │   ├── queue/              #   arq task modules
+│   │   └── worker/             #   in-process background runner
+│   ├── core/                   # config, db, security, permissions, i18n, logging, metrics, sentry, request context
+│   ├── ai/                     # built-in AI assistants (PVE log, navigation, contextual help, template recommendation, teacher judge)
+│   ├── domain/                 # placement and scheduling rules (pure functions)
+│   ├── repositories/           # data access helpers
+│   ├── locales/                # backend message translations
+│   ├── alembic/versions/       # 200+ migrations
+│   ├── email-templates/        # MJML sources and built HTML
+│   ├── utils/                  # email, tokens, TOTP, login passwords, time helpers
+│   ├── exceptions.py           # AppError and the global handler
+│   ├── backend_pre_start.py    # wait for the database
+│   ├── initial_data.py         # create the first superuser
+│   └── reset_totp.py           # CLI rescue for a locked-out administrator
+├── tests/                      # pytest (api/routes, services, performance)
+├── scripts/                    # prestart, test, migration check, rotate_secret_key
 ├── alembic.ini
 ├── pyproject.toml
 └── Dockerfile
 ```
 
-## API 路由概覽
+Rules that keep the layout honest:
 
-於 `app/api/main.py` 註冊的主要路由：
+- **Routes → Services → Infrastructure**, never the other way around. Routes validate and delegate; services hold business rules; only `infrastructure/` talks to Proxmox, SSH, Redis, LDAP or LLMs.
+- **Models vs schemas:** tables in `models/`, API I/O in `schemas/`.
+- **Errors:** raise `AppError(status_code, message)`; the global handler turns it into the HTTP response.
+- **PgBouncer transaction pooling:** never rely on session state across transactions. Advisory locks are always `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock`; no `SET`, `LISTEN/NOTIFY` or temp tables.
+- **Proxmox settings are per connection.** Code that works on a node must use `get_proxmox_settings_for_node(node)` or `get_proxmox_settings(connection_id)`; the parameterless form raises when no connection exists.
 
-| 模組 | 功能 |
+## API overview
+
+All REST routes are mounted under `/api/v1` from `app/api/main.py`. Grouped by area:
+
+| Area | Modules | Notes |
+| --- | --- | --- |
+| Auth and users | `login`, `users`, `setup`, `ldap_config`, `private`, `utils` | password / Google / LDAP login, TOTP challenge, refresh, first-install wizard, health checks |
+| Resources | `resources`, `resource_details`, `resource_settings`, `vm`, `lxc`, `templates`, `gpu`, `quotas`, `jobs` | list, specs, RRD, snapshots, backups, create (202, clone runs in the worker), GPU mappings, quota usage, task records |
+| Requests | `vm_requests`, `spec_change_requests`, `batch_provision` | request workflow, availability and placement advice, spec change approval, whole-class provisioning |
+| Teaching | `teaching_classes`, `classroom`, `courses`, `course_admin`, `course_environments`, `quick_practice`, `rubric`, `teacher_judge_*` | classes, timetables, rosters, classroom monitoring and broadcast, course paths, teaching environments, quick practice, AI grading |
+| Network | `firewall`, `gateway`, `reverse_proxy`, `ip_management`, `cloudflare`, `desktop_client` | firewall topology and rules, gateway (nginx, WireGuard, platform entry, certificate), domains, subnets, Cloudflare DNS, SkyLab Connect device login |
+| Platform | `proxmox_config`, `monitoring`, `governance`, `mining_incidents`, `audit_logs`, `push` | PVE connections (CRUD, test, sync), overview and RRD, system health, alerts, governance config, mining incidents, audit log, Web Push |
+| AI | `ai`, `ai_api`, `ai_proxy`, `ai_contextual_help`, `ai_monitoring`, `ai_navigation`, `ai_pve_log`, `ai_template_recommendation` | AI API credentials and approval, OpenAI-compatible proxy, assistants, usage monitoring |
+
+WebSocket endpoints are registered directly on the app in `app/main.py`:
+
+| Path | Purpose |
 | --- | --- |
-| `login.py` | 登入 / token 換發 / 刷新 |
-| `users.py` | 使用者 CRUD、密碼管理、個人資料 |
-| `teaching_classes.py` | 正式班級、課表、學生名單、機器配置與整班建置 |
-| `classroom.py` | 正式班級學生機器監看與教師廣播 |
-| `teacher_judge_*.py` | 班級 AI 評分表、受管檢查腳本與執行結果 |
-| `ai_pve_log.py` | 管理員專用的全站 AI PVE 維運助手 |
-| `vm.py` | VM 建立、VNC ticket、模板列舉 |
-| `lxc.py` | LXC 建立與終端機連線 |
-| `vm_requests.py` | VM 申請提交、可用性檢查、審核工作流 |
-| `migration_jobs.py` | VM 遷移工作追蹤 |
-| `resources.py` | 節點 / VM / LXC 列表、使用者資源 |
-| `resource_details.py` | 規格、RRD、快照、直接規格更新 |
-| `proxmox_config.py` | PVE 連線（多叢集）、節點、Storage、放置／排程策略 |
-| `firewall.py` | 防火牆拓撲、規則、NAT、Reverse Proxy |
-| `gateway.py` | 閘道主機 SSH、nginx / WireGuard 管理與憑證同步 |
-| `ai_api.py` | AI API 憑證、申請審核、流量限制 |
-| `ai_proxy.py` | OpenAI 相容文字 API allowlist（`/models`、`/chat/completions`、`/completions`、`/responses`）代理至受限 LiteLLM service key |
-| `spec_change_requests.py` | VM 規格變更申請與審核 |
-| `audit_logs.py` | 操作稽核紀錄查詢 |
-| `ai_template_recommendation` | 內嵌 AI 規格建議 |
+| `/ws/vnc/{vmid}` | Proxmox VNC proxy (JWT in query) |
+| `/ws/terminal/{vmid}` | LXC terminal (Paramiko + xterm.js) |
+| `/ws/jobs` | live task updates for the Jobs page |
+| `/ws/classroom`, `/ws/classroom/{session_id}/watch` | classroom signalling and VNC fan-out |
+| `/ws/courses/paths/{path_id}/progress` | course progress updates |
 
-WebSocket 端點（`app/main.py`）：
+Bidirectional forwarding uses an `asyncio.Event` to signal disconnects between the two pump tasks; always check it before sending or receiving.
 
-- `GET /ws/vnc/{vmid}` — 透過 JWT query token 取得 Proxmox VNC 代理
-- `GET /ws/terminal/{vmid}` — LXC 終端機（Paramiko + xterm.js）
+## Runtime
 
-## 核心模組
+- **Lifespan** initialises Redis and starts three background loops: the VM request scheduler, the Web Push notifier and the WireGuard reconciler. Each holds a PostgreSQL transaction-scoped advisory lock, so with several replicas only one process runs a given loop.
+- **Scheduler tasks** (60 s cycle) include request start/stop, auto-stop, deletion queue, resource alerts, TTL lifecycle, idle detection, mining detection and system health alerts. Behaviour is controlled by the `GovernanceConfig` singleton (`GET/PUT /governance/config`).
+- **arq worker:** template conversion and cloning, VM request provisioning, one-click reset, class batch provisioning and resource deletion are queued as task records. Provisioning is deduplicated with the job id `vm_request:<id>` and limited by `provision_max_concurrency`.
+- **Health:** `GET /api/v1/utils/health-check/` (liveness), `GET /api/v1/utils/health-check/ready` (DB + Redis, 503 on failure), `GET /api/v1/monitoring/system-health` (admin), `GET /metrics` (internal network only). See [`../docs/monitoring.md`](../docs/monitoring.md).
+- **Middleware:** security headers (CSP, HSTS, X-Frame-Options), CORS, request context with `X-Request-ID`, Prometheus instrumentation.
 
-`app/core/`：
+## Configuration
 
-- `config.py`：Pydantic Settings，從 `.env` 載入 SMTP / CORS / DB / SECRET_KEY 等（PVE 連線存在資料庫，不讀 .env）
-- `db.py`：SQLAlchemy engine、連線池、首位 superuser 建立
-- `security.py`：密碼雜湊（Argon2 + Bcrypt）、JWT 簽發/驗證、Fernet 加密
-- `proxmox.py`：ProxmoxAPI client factory，HA failover（TCP ping）、SSL/CA 處理
-- `redis.py`：Redis 連線池初始化與關閉
-
-## 中介層與安全
-
-- **SecurityHeadersMiddleware**：純 ASGI，注入 X-Content-Type-Options、X-Frame-Options、CSP、HSTS
-- **CORSMiddleware**：可從環境變數設定來源，預設加入 `FRONTEND_HOST`
-- **lifespan**：啟動 Redis 與 arq 連線池、啟動 / 停止三個治理迴圈（VM 申請排程器、Web Push 推播、WireGuard reconciler）；每個迴圈各持一把 PostgreSQL advisory lock，多副本時只有一個行程執行
-- **arq worker**（`worker` 容器）：範本轉換 / 克隆、VM 申請佈建（clone）、一鍵重置、班級批次佈建、資源刪除都以 TaskRecord 入列到 Redis 由 worker 執行；任務模組清單在 `infrastructure/queue/modules.py`。REDIS_ENABLED=false 時退回行程內背景執行。除了申請佈建與資源刪除（申請單、刪除單本身就各是一個 job），這些任務會出現在 Jobs 頁（kind：template / resource_reset / batch_provision）。
-VM 申請佈建以固定 job id `vm_request:<id>` 去重，並在 worker 內以 `provision_max_concurrency` 限制同時 clone 數
-
-
-- **跨行程短期狀態**：desktop device code 走 `infrastructure/redis/sync_kv.ExpiringKV`（Redis 為主、記憶體備援），多副本時發碼與核准可落在不同行程
-
-- **Exception handlers**：將 `AppError`/`ProxmoxError`/`ProvisioningError` 等映射到對應 HTTP 狀態
-
-## 環境變數
-
-主要設定（完整見 `app/core/config.py` 與根目錄 `.env.example`）：
+Settings are loaded by `app/core/config.py` from the project root `.env` (`env_file="../.env"`). The commented template is `.env.example`; the main groups:
 
 ```env
-# Project
-PROJECT_NAME=SkyLab
-SECRET_KEY=...
-ENVIRONMENT=local            # local | staging | production
-BACKEND_CORS_ORIGINS=http://localhost:5173
-
-# PostgreSQL
-POSTGRES_SERVER=db
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=...
-POSTGRES_DB=app
-
-# Initial superuser
+# identity and secrets (must change in production)
+SECRET_KEY=...                  # signs JWTs and derives the Fernet key for stored credentials
 FIRST_SUPERUSER=admin@example.com
 FIRST_SUPERUSER_PASSWORD=...
+POSTGRES_PASSWORD=...
 
-# SMTP（可選）
-SMTP_HOST=...
-SMTP_USER=...
-SMTP_PASSWORD=...
-EMAILS_FROM_EMAIL=...
+# environment
+ENVIRONMENT=local               # local | staging | production
+ENABLE_SIGNUP=true
+FRONTEND_HOST=http://127.0.0.1:5173
+NGINX_HOST_PORT=8082
+# SKYLAB_TRUSTED_PROXY=...      # only when the platform entry on the gateway is used
 
-# Sentry（可選）
-SENTRY_DSN=...
+# database / redis
+POSTGRES_SERVER=db
+POSTGRES_DB=app
+REDIS_ENABLED=true
+REDIS_URL=redis://redis:6379/0
+
+# optional: System AI, AI API via LiteLLM, SMTP, Google login, Turnstile, LDAP CA, Sentry, WireGuard, logging, monitoring stack
 ```
 
-PVE 連線不在 `.env` 設定：首次安裝時在初始化精靈（`/setup`）填入並測試連線，之後由管理員在「PVE 連線」頁新增、編輯或同步。舊版的 `PROXMOX_HOST`、`PROXMOX_USER`、`PROXMOX_PASSWORD`、`PROXMOX_VERIFY_SSL` 等環境變數後端已不再讀取，即使寫在 `.env` 也不會生效。
+Proxmox connections are **not** in `.env`: they are entered in the setup wizard or the "PVE Connections" page and stored encrypted. The legacy `PROXMOX_*` variables are ignored.
 
-## 開發環境
+`SECRET_KEY` must be a fixed value of at least 32 characters shared by backend and worker. Rotate it with `python -m scripts.rotate_secret_key --apply` (see [`../docs/deployment.md`](../docs/deployment.md)); changing `.env` alone makes every stored credential undecryptable.
 
-### 使用 UV 本機開發
+## Development
 
 ```bash
 cd backend
 uv sync
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
-fastapi dev app/main.py
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+fastapi dev app/main.py              # http://localhost:8000/docs
 ```
 
-`fastapi dev` 會啟動單一 worker、autoreload 模式。Swagger 位於 http://localhost:8000/docs。
-
-### Docker Compose
+Or run the whole stack with Docker Compose from the repository root:
 
 ```bash
-docker compose watch                # 全 stack 熱重載
-docker compose exec backend bash    # 進入容器
-docker compose logs backend         # 查看日誌
+docker compose watch
+docker compose exec backend bash
+docker compose logs backend
 ```
 
-容器啟動時 `scripts/prestart.sh` 會：
+On container start `scripts/prestart.sh` waits for the database, runs `alembic upgrade head` and creates the first superuser.
 
-1. 執行 `app/backend_pre_start.py` 等待 DB 就緒
-2. 執行 `alembic upgrade head`
-3. 執行 `app/initial_data.py` 建立預設 superuser
-
-## 資料庫遷移
+## Migrations
 
 ```bash
 docker compose exec backend bash
@@ -168,60 +170,37 @@ alembic revision --autogenerate -m "Add column foo to bar"
 alembic upgrade head
 ```
 
-> 修改 `app/models/` 下任何 SQLModel 後務必建立遷移檔；`app/alembic/versions/` 內已有 22+ 個歷史版本。
+Every change under `app/models/` needs a migration. Revision ids are limited to 32 characters. `audit_logs.action` is a PostgreSQL enum: adding an `AuditAction` value requires an `ALTER TYPE … ADD VALUE` migration, and removing one breaks the audit log listing.
 
-## 測試
-
-```bash
-# 完整測試
-bash ./scripts/test.sh
-
-# 在執行中的 stack 內跑（支援 pytest 參數）
-docker compose exec backend bash scripts/tests-start.sh -x
-```
-
-`tests/conftest.py` 的 `db` fixture 具備安全防護：
-
-- 預設拒絕在「非測試型資料庫目標」上執行 DB-backed pytest（避免誤連正式/開發 DB）。
-- 若你確定要覆蓋此保護，可顯式設定：`PYTEST_ALLOW_NON_TEST_DB=1`。
-- 測試結束後的資料清理預設為關閉；如需啟用再設定：`PYTEST_ENABLE_DB_CLEANUP=1`。
-
-> 建議維持透過 compose 測試流程執行，以確保資料庫環境隔離。
-
-測試報告：`backend/htmlcov/index.html`
-
-主要測試檔（`tests/api/routes/`）：
-
-- `test_login.py` / `test_users.py`：認證與使用者
-- `test_ai_api.py`：AI API 工作流
-- `test_vm_request_availability.py`：VM 申請可用性
-
-## 程式碼品質
+## Tests
 
 ```bash
-uv run ruff check .          # Lint
-uv run ruff check --fix .    # 自動修復
-uv run mypy .                # 型別檢查
-uv run prek install -f       # 安裝 pre-commit
-uv run prek run --all-files  # 手動執行
+bash ./scripts/test.sh                                   # pytest with coverage → htmlcov/
+docker compose exec backend bash scripts/tests-start.sh -x   # inside the running stack
 ```
 
-## 主要特性
+The `db` fixture in `tests/conftest.py` refuses to run against a database whose name does not look like a test database; set `PYTEST_ALLOW_NON_TEST_DB=1` to override and `PYTEST_ENABLE_DB_CLEANUP=1` to enable cleanup. Tests disable Sentry. Pure-function layers (`domain/`, `services/*/policy.py`, `tests/performance/` tier 2) run without any external dependency.
 
-- **VM 申請工作流**：可用性檢查 → 租借時段 placement 節點建議 → 審核 → 排程供應；已建立資源不再由 SkyLab 自動跨節點搬移
-- **HA failover**：cluster 設定支援多個 Proxmox host，TCP ping 偵測接管
-- **Gateway 控制**：透過 SSH 管理 nginx（stream Port 轉發、http 反向代理、引用管理員自備的 HTTPS 憑證）/ WireGuard 與連線 ACL
-- **腳本部署**：從 community-scripts/ProxmoxVE 拉取腳本並於 PVE 節點背景部署
-- **AI 代理**：以 OpenAI Chat Completion 介面連接內部 vLLM，含 Redis sliding-window 流量限制
-- **加密憑證儲存**：AI API 憑證以 Fernet 加密落地
+CI runs the suite on Python 3.11 (`.github/workflows/backend-tests.yml`); the production image is `python:3.14-slim`.
 
-## Email 模板
+## Code quality
 
-`app/email-templates/` 內含 `src/`（MJML）與 `build/`（HTML）兩個資料夾。建議在 VS Code 安裝 MJML 套件，編輯後 `MJML: Export to HTML` 輸出到 `build/`。
+```bash
+uv run ruff check .
+uv run ruff check --fix .
+uv run ruff format .
+uv run mypy .
+uv run prek install -f           # pre-commit hooks
+uv run prek run --all-files
+```
 
-## 參考
+## Email templates
 
-- 主專案：[`../README.md`](../README.md)
-- 開發指引：[`../docs/development.md`](../docs/development.md)
-- 部署指引：[`../docs/deployment.md`](../docs/deployment.md)
-- VM 放置邏輯：[`../placement.md`](../placement.md)
+`app/email-templates/src/` holds MJML sources and `build/` the compiled HTML. Edit the MJML and export with the VS Code MJML extension ("MJML: Export to HTML").
+
+## See also
+
+- Project overview: [`../README.md`](../README.md)
+- Development guide: [`../docs/development.md`](../docs/development.md)
+- Deployment guide: [`../docs/deployment.md`](../docs/deployment.md)
+- Monitoring: [`../docs/monitoring.md`](../docs/monitoring.md)

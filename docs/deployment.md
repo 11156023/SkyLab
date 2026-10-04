@@ -1,234 +1,41 @@
-# FastAPI Project - Deployment
+# Deployment Guide
 
-> **本專案部署現況（SkyLab）**
->
-> 以根目錄 `docker-compose.yml` 為統一入口，透過 `include` 引用 LiteLLM 原 Compose；Campus 與 LiteLLM 各自保留 `.env`：
->
-> - **啟動：** 完成模型、資料庫與金鑰設定後執行 `bash scripts/prepare-ai-stack.sh --start`。首次部署、獨立 LiteLLM 接管與 API 操作見 [AI API 使用手冊](ai-api-user-manual.md)。
-> - **對外路由：** 由內建 `nginx`（預設 :8082，可設 `NGINX_HOST_PORT`，設定見 `nginx/default.conf.template`）做同源反向代理：`/api`、`/ws` → backend，其餘 → frontend。已不使用 Traefik / cloudflared。要用網域＋HTTPS 對外時，讓主系統也經 Gateway 的 nginx，見下方「平台入口」。
-> - **部署 workflow：** 在 Actions 手動觸發 [`.github/workflows/deploy-pve-test.yml`](../.github/workflows/deploy-pve-test.yml)，經 `pve-test` environment 審核後在 self-hosted runner 執行預檢查與主 Compose 啟動。runner 設定檔位置見 AI API 手冊；push 到 `main` 不會自動部署。
-> - **部署測試金鑰：** 每次 AI smoke test 前清除舊的 `pve-deploy-smoke` 金鑰，再核發一日有效的新金鑰；測試後無論成功或失敗都執行清理。未使用的金鑰直接刪除，已有用量紀錄的金鑰撤銷並保留帳務紀錄。若 runner 中斷而無法清理，新金鑰仍會自動過期；清理失敗會讓 workflow 報錯。
-> - 已移除上游 template 的 `compose.yml`、`compose.override.yml`、`compose.traefik.yml`。
->
-> 以下章節為上游 FastAPI template 的通用部署參考；其中「外部 Traefik」「staging/production」「release 觸發」等**不適用**於本專案，僅供日後自建獨立生產環境時參考。
+> **English** | [繁體中文](./deployment.zh-TW.md)
 
-## 平台入口：主系統經 Gateway 的 nginx 對外
+How SkyLab is deployed on a server with Docker Compose. Development setup is in [`development.md`](development.md); the AI stack (LiteLLM, vLLM, keys) is covered in detail by the [AI API User Manual](ai-api-user-manual.md).
 
-Gateway 主機上的 nginx 原本只代理 VM 的網域與 Port 轉發；「平台入口」讓 SkyLab 主系統自己也走同一台 nginx，用網域加 HTTPS 對外（Web Push 需要 https）。
+## Overview
 
-```
-使用者 ──https──▶ Gateway nginx（終結 TLS）──http──▶ 部署機 :8082（內建 nginx）──▶ backend / frontend
-```
+- One `docker-compose.yml` at the repository root is the whole deployment. It `include`s the LiteLLM compose file from `vllm-service/litellm/`; the two keep separate `.env` files.
+- The built-in `nginx` container is the only public entry point (host port `NGINX_HOST_PORT`, default 8082): `/api` and `/ws` go to the backend, `/grafana/` to Grafana, everything else to the frontend. There is no Traefik or cloudflared.
+- To expose the platform on a domain with HTTPS, route it through the gateway VM's nginx ("platform entry", below). SkyLab does not issue certificates; the administrator supplies one.
+- The database is PostgreSQL in the stack (behind PgBouncer), Redis holds queues and caches, and an `arq` worker runs background jobs. Migrations run automatically on start.
+- Deployment to the test environment is a manually triggered GitHub Actions workflow on a self-hosted runner (below). Pushing to `main` does not deploy.
 
-**設定位置：** 側欄「閘道 VM」頁的「平台入口」分頁；全新安裝時初始化精靈（`/setup`）的「Gateway」「平台入口」兩步也能設定。
+## 1. Prepare the server
 
-1. 填主系統的網域，以及 Gateway 連得到的部署機位址與 port（預設 8082）。
-2. 儲存時後端會先從 Gateway 實際連一次 `http://<部署機>:<port>/nginx-health`，連不到就不存；通過後把設定寫進 Gateway 的 `/etc/nginx/skylab/http.conf`（與 VM 網域同一份檔案、同一套 `nginx -t` 失敗還原），重裝 Gateway 後按「重新同步」會一起復原。
-3. HTTPS 憑證見下一節「Gateway 的 HTTPS 憑證」：開 HTTPS 前憑證要先設定好，而且要涵蓋平台網域。
-
-## Gateway 的 HTTPS 憑證（管理員自備）
-
-SkyLab **不簽發憑證**（不跑 certbot、不做 ACME）。管理員自己準備一張憑證放到 Gateway 主機上，SkyLab 只記路徑；平台入口與所有機器發布的網域**共用這一張**，所以建議用涵蓋整個網域的萬用憑證（例如 `example.com` + `*.example.com`）。萬用字元只涵蓋一層子網域，`a.b.example.com` 不在 `*.example.com` 的範圍內。
-
-**設定位置：** 「閘道 VM」頁的「HTTPS 憑證」分頁；初始化精靈在平台入口步驟勾 HTTPS 時也能填。
-
-1. 把 fullchain 憑證與私鑰放到 Gateway（安裝腳本會建好 `/etc/ssl/skylab/`，權限 750）：
-   ```bash
-   install -m 644 fullchain.pem /etc/ssl/skylab/fullchain.pem
-   install -m 600 privkey.pem   /etc/ssl/skylab/privkey.pem
-   ```
-   私鑰不能有密碼保護（nginx 啟動時沒辦法輸入）。
-2. 在「HTTPS 憑證」分頁填兩個完整路徑後儲存。後端會先經 SSH 在 Gateway 上檢查：讀得到、格式正確、私鑰配對、還沒過期；平台入口已開 HTTPS 的話還要涵蓋平台網域。通過後重寫 `/etc/nginx/skylab/http.conf`（`nginx -t` 失敗會還原）並 reload。
-3. 分頁下方的「Gateway 上的憑證」卡片列出到期日、憑證涵蓋的名稱，以及**沒被涵蓋到的 HTTPS 網域**（這些網域仍可連，但瀏覽器會警告）。
-
-**換新憑證：** 直接覆蓋同路徑的檔案，再按分頁上的「重新套用」（或在 Gateway 上 `nginx -t && systemctl reload nginx`）。平台健康監控會在憑證剩不到 14 天或已過期時把 Gateway 標成「需要處理」。
-
-**還沒設定憑證時**，HTTPS 網域掛 Gateway 安裝時產生的自簽憑證（`/etc/nginx/skylab/fallback.crt`），連得上但瀏覽器會警告。
-
-> 2026-10 以前的版本由 certbot 以 Cloudflare DNS-01 自動簽發；升級後舊 Gateway 上的 `/etc/letsencrypt` 與 certbot 不會被移除，但 SkyLab 不再使用。可以直接把 `/etc/letsencrypt/live/<名稱>/fullchain.pem`、`privkey.pem` 的路徑填進「HTTPS 憑證」分頁沿用舊憑證（之後要自己續期）。Cloudflare API Token 仍用於網域管理的 DNS 紀錄。
-
-**還要手動完成的三件事**（頁面上也會列出）：
-
-| 項目 | 做法 |
-|---|---|
-| DNS | 把主系統網域指到 Gateway 的對外 IP。SkyLab 不會自動改這筆紀錄，避免把還在用的入口指走。 |
-| 信任 Gateway | 部署機 `.env` 設 `SKYLAB_TRUSTED_PROXY=<Gateway 連進來的來源 IP 或 CIDR>`，再 `docker compose up -d nginx`。沒設的話後端看到的來源 IP 全是 Gateway，依 IP 的限流與稽核日誌都會失準，Grafana 免密碼登入的 cookie 也不會帶 `Secure`。 |
-| 網址相關設定 | `.env` 的 `FRONTEND_HOST` 改成新的 https 網址；Google 登入的授權來源、Turnstile 的網域清單一併更新。 |
-
-**注意：**
-
-- **保留直連備援。** 後端是經 SSH 管 Gateway 的 nginx；Gateway 掛掉時從網域進不來，也就沒辦法從介面修它。請保留從內網或 VPN 直連 `http://<部署機>:8082` 的路。
-- **rootless Docker** 不保留來源 IP，容器裡的 nginx 看到的來源一律是 Docker 的轉發位址。這時 `SKYLAB_TRUSTED_PROXY` 要填那個位址（在平台入口頁的「後端看到的來源 IP」可以看到），並且用防火牆把部署機的對外 port 限制成只有 Gateway 連得到，否則直連的人可以自帶 `X-Real-IP` 偽造來源。
-- 主系統網域會被保留：即使平台入口暫時停用，VM 擁有者也不能把這個網域發布到自己的機器上。
-
-You can deploy the project using Docker Compose to a remote server.
-
-This project expects you to have a Traefik proxy handling communication to the outside world and HTTPS certificates.
-
-You can use CI/CD (continuous integration and continuous deployment) systems to deploy automatically, there are already configurations to do it with GitHub Actions.
-
-But you have to configure a couple things first. 🤓
-
-## Preparation
-
-* Have a remote server ready and available.
-* Configure the DNS records of your domain to point to the IP of the server you just created.
-* Configure a wildcard subdomain for your domain, so that you can have multiple subdomains for different services, e.g. `*.fastapi-project.example.com`. This will be useful for accessing different components, like `dashboard.fastapi-project.example.com`, `api.fastapi-project.example.com`, `traefik.fastapi-project.example.com`, `adminer.fastapi-project.example.com`, etc. And also for `staging`, like `dashboard.staging.fastapi-project.example.com`, `adminer.staging.fastapi-project.example.com`, etc.
-* Install and configure [Docker](https://docs.docker.com/engine/install/) on the remote server (Docker Engine, not Docker Desktop).
-
-## Public Traefik
-
-> **注意（SkyLab）：** 本專案已移除 `compose.traefik.yml`、改用 `docker-compose.yml` 內建的 `nginx` 服務做反向代理。以下「外部 Traefik」章節僅為上游 template 參考，相關 `compose.traefik.yml` 指令在本專案已無對應檔案。
-
-We need a Traefik proxy to handle incoming connections and HTTPS certificates.
-
-You need to do these next steps only once.
-
-### Traefik Docker Compose
-
-* Create a remote directory to store your Traefik Docker Compose file:
+- Linux host with Docker Engine and Compose ≥ 2.20. Rootless Docker works (the default port 8082 avoids privileged ports) but note the source-IP caveats below.
+- Network reachability from the host to every Proxmox VE API endpoint (8006), to the gateway VM over SSH, and to the vLLM hosts if models run elsewhere.
+- Clone the repository, for example to `/opt/skylab/app`, and copy the environment templates:
 
 ```bash
-mkdir -p /root/code/traefik-public/
+cp -n .env.example .env
+cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
 ```
 
-Copy the Traefik Docker Compose file to your server. You could do it by running the command `rsync` in your local terminal:
+### Secrets
 
-```bash
-rsync -a compose.traefik.yml root@your-server.example.com:/root/code/traefik-public/
-```
-
-### Traefik Public Network
-
-This Traefik will expect a Docker "public network" named `traefik-public` to communicate with your stack(s).
-
-This way, there will be a single public Traefik proxy that handles the communication (HTTP and HTTPS) with the outside world, and then behind that, you could have one or more stacks with different domains, even if they are on the same single server.
-
-To create a Docker "public network" named `traefik-public` run the following command in your remote server:
-
-```bash
-docker network create traefik-public
-```
-
-### Traefik Environment Variables
-
-The Traefik Docker Compose file expects some environment variables to be set in your terminal before starting it. You can do it by running the following commands in your remote server.
-
-* Create the username for HTTP Basic Auth, e.g.:
-
-```bash
-export USERNAME=admin
-```
-
-* Create an environment variable with the password for HTTP Basic Auth, e.g.:
-
-```bash
-export PASSWORD=changethis
-```
-
-* Use openssl to generate the "hashed" version of the password for HTTP Basic Auth and store it in an environment variable:
-
-```bash
-export HASHED_PASSWORD=$(openssl passwd -apr1 $PASSWORD)
-```
-
-To verify that the hashed password is correct, you can print it:
-
-```bash
-echo $HASHED_PASSWORD
-```
-
-* Create an environment variable with the domain name for your server, e.g.:
-
-```bash
-export DOMAIN=fastapi-project.example.com
-```
-
-* Create an environment variable with the email for Let's Encrypt, e.g.:
-
-```bash
-export EMAIL=admin@example.com
-```
-
-**Note**: you need to set a different email, an email `@example.com` won't work.
-
-### Start the Traefik Docker Compose
-
-Go to the directory where you copied the Traefik Docker Compose file in your remote server:
-
-```bash
-cd /root/code/traefik-public/
-```
-
-Now with the environment variables set and the `compose.traefik.yml` in place, you can start the Traefik Docker Compose running the following command:
-
-```bash
-docker compose -f compose.traefik.yml up -d
-```
-
-## Deploy the FastAPI Project
-
-Now that you have Traefik in place you can deploy your FastAPI project with Docker Compose.
-
-**Note**: You might want to jump ahead to the section about Continuous Deployment with GitHub Actions.
-
-## Copy the Code
-
-```bash
-rsync -av --filter=":- .gitignore" ./ root@your-server.example.com:/root/code/app/
-```
-
-Note: `--filter=":- .gitignore"` tells `rsync` to use the same rules as git, ignore files ignored by git, like the Python virtual environment.
-
-## Environment Variables
-
-You need to set some environment variables first.
-
-### Generate secret keys
-
-Some environment variables in the `.env` file have a default value of `changethis`.
-
-You have to change them with a secret key, to generate secret keys you can run the following command:
+Generate strong values with:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Copy the content and use that as password / secret key. And run that again to generate another secure key.
-
-### Required Environment Variables
-
-Set the `ENVIRONMENT`, by default `local` (for development), but when deploying to a server you would put something like `staging` or `production`:
-
-```bash
-export ENVIRONMENT=production
-```
-
-Set the `DOMAIN`, by default `localhost` (for development), but when deploying you would use your own domain, for example:
-
-```bash
-export DOMAIN=fastapi-project.example.com
-```
-
-Set the `POSTGRES_PASSWORD` to something different than `changethis`:
-
-```bash
-export POSTGRES_PASSWORD="changethis"
-```
-
-Set the `SECRET_KEY`, used to sign tokens:
-
-```bash
-export SECRET_KEY="changethis"
-```
-
-Note: you can use the Python command above to generate a secure secret key.
-
 `SECRET_KEY` does more than sign tokens: it also derives the key that encrypts credentials stored in the database (Proxmox and LDAP passwords, TOTP secrets, the gateway SSH key and so on). Therefore:
 
-* It must be a fixed value of at least 32 characters, and the backend and the worker must use the same value (both read it from `.env`).
-* When `ENVIRONMENT` is anything other than `local`, the backend refuses to start if `SECRET_KEY` is unset, empty or still `changethis`. A value shorter than 32 characters only logs a warning, but you should rotate it.
-* Never change it by editing `.env` alone: every stored credential would become undecryptable. Rotate it with `backend/scripts/rotate_secret_key.py`, which re-encrypts the stored values with the new key in one transaction and then updates `.env`:
+- It must be a fixed value of at least 32 characters, and the backend and the worker must use the same value (both read it from `.env`).
+- When `ENVIRONMENT` is anything other than `local`, the backend refuses to start if `SECRET_KEY` is unset, empty or still `changethis`. A value shorter than 32 characters only logs a warning, but you should rotate it.
+- Never change it by editing `.env` alone: every stored credential would become undecryptable. Rotate it with `backend/scripts/rotate_secret_key.py`, which re-encrypts the stored values with the new key in one transaction and then updates `.env`:
 
 ```bash
 cd backend
@@ -238,36 +45,96 @@ python -m scripts.rotate_secret_key --apply    # rotate and update ../.env
 
 Inside the backend container the project `.env` is not mounted, so run it there with `--skip-env-update` (the new key is printed for you to put in `.env`), or pass `--env-file <path>`. Restart the backend and the worker afterwards; all users have to log in again.
 
-Set the `FIRST_SUPER_USER_PASSWORD` to something different than `changethis`:
+## 2. Environment variables
+
+`.env.example` is organised in numbered sections and documents every variable. The ones that matter for a server:
+
+| Variable | Notes |
+| --- | --- |
+| `SECRET_KEY`, `FIRST_SUPERUSER`, `FIRST_SUPERUSER_PASSWORD`, `POSTGRES_PASSWORD` | must be changed; the setup wizard can take over or disable the `.env` administrator |
+| `ENVIRONMENT` | `production` on a server; enables the `changethis` safety checks |
+| `FRONTEND_HOST` | public URL users open (used in emails and by SkyLab Connect device login); update it when you enable the platform entry |
+| `NGINX_HOST_PORT` | host port of the entry point, default 8082 |
+| `SKYLAB_TRUSTED_PROXY` | source IP/CIDR of the gateway when the platform entry is used; default trusts nobody |
+| `ENABLE_SIGNUP` | public self-registration and automatic account creation for education-domain Google logins |
+| `LOGIN_RATE_LIMIT_PER_ACCOUNT`, `LOGIN_RATE_LIMIT_PER_IP` | login throttling per minute; the per-IP limit must cover a whole class behind one NAT |
+| `BACKEND_CORS_ORIGINS` | leave empty when everything is served through nginx on one origin |
+| `REDIS_ENABLED`, `REDIS_URL` | keep `true` in containers |
+| `VLLM_BASE_URL`, `VLLM_API_KEY`, `VLLM_MODEL_NAME` | the model used by the built-in AI assistants ("System AI") |
+| `AI_API_BASE_URL`, `AI_API_API_KEY`, `AI_API_PUBLIC_BASE_URL`, `LITELLM_RUNTIME_*` | the user-facing AI API through LiteLLM; `AI_API_API_KEY` is a restricted service key, never the master key |
+| `SMTP_*`, `EMAILS_FROM_EMAIL` | outgoing mail; without `SMTP_HOST` the stack points at MailCatcher |
+| `GOOGLE_CLIENT_ID` | Google login (ID token audience only) |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile on login and sign-up; both required to enable |
+| `LDAP_CA_CERT_FILE` | CA for LDAP/AD over TLS, see below |
+| `SENTRY_DSN`, `SENTRY_RELEASE`, `VITE_SENTRY_DSN` | error tracking; the frontend value is baked in at image build time |
+| `DESKTOP_CLIENT_DOWNLOAD_URL`, `WIREGUARD_*` | SkyLab Connect and the WireGuard tunnel, see [`wireguard-desktop-architecture.md`](wireguard-desktop-architecture.md) |
+| `LOG_LEVEL`, `LOG_JSON`, `DOCKER_LOG_MAX_*` | logging; keep JSON on when the monitoring stack parses logs |
+| `COMPOSE_PROFILES=monitoring`, `GRAFANA_*`, `INFLUXDB_*`, `METRICS_TOKEN`, `DOCKER_SOCKET`… | optional monitoring stack, see [`monitoring.md`](monitoring.md) |
+
+Proxmox connections are **not** environment variables. They are entered in the setup wizard or on the "PVE Connections" page and stored encrypted; the legacy `PROXMOX_*` variables are ignored.
+
+## 3. Start the stack
 
 ```bash
-export FIRST_SUPERUSER_PASSWORD="changethis"
+docker compose up -d --build
+# or, when the AI stack is configured, let the helper verify models and keys first:
+bash scripts/prepare-ai-stack.sh --start
 ```
 
-Set the `BACKEND_CORS_ORIGINS` to include your domain:
+`prestart` waits for PostgreSQL, applies Alembic migrations and creates the first superuser; `docker compose ps` shows the services as `(healthy)` once ready. Open `http://<host>:8082` and complete the setup wizard: administrator → Proxmox connection → IP subnet → gateway → platform entry → done (the last two steps can be skipped and configured later).
 
-```bash
-export BACKEND_CORS_ORIGINS="https://dashboard.${DOMAIN?Variable not set},https://api.${DOMAIN?Variable not set}"
+Upgrading is `git pull && docker compose up -d --build`. Migrations run on start; keep `SECRET_KEY` unchanged across upgrades. Back up the `app-db-data` volume (or `pg_dump` through the `db` container) before major upgrades.
+
+## 4. Platform entry: serving SkyLab through the gateway's nginx
+
+The nginx on the gateway host normally proxies only VM domains and port forwards. The "platform entry" lets the SkyLab platform itself use the same nginx, so it is reachable on a domain with HTTPS (Web Push requires HTTPS).
+
+```
+user ──https──▶ gateway nginx (TLS termination) ──http──▶ deployment host :8082 (built-in nginx) ──▶ backend / frontend
 ```
 
-You can set several other environment variables:
+**Where to configure:** the "Platform entry" tab of the "Gateway VM" page; on a fresh install the "Gateway" and "Platform entry" steps of the setup wizard (`/setup`) offer the same settings.
 
-* `PROJECT_NAME`: The name of the project, used in the API for the docs and emails.
-* `STACK_NAME`: The name of the stack used for Docker Compose labels and project name, this should be different for `staging`, `production`, etc. You could use the same domain replacing dots with dashes, e.g. `fastapi-project-example-com` and `staging-fastapi-project-example-com`.
-* `BACKEND_CORS_ORIGINS`: A list of allowed CORS origins separated by commas.
-* `FIRST_SUPERUSER`: The email of the first superuser, this superuser will be the one that can create new users.
-* `SMTP_HOST`: The SMTP server host to send emails, this would come from your email provider (E.g. Mailgun, Sparkpost, Sendgrid, etc).
-* `SMTP_USER`: The SMTP server user to send emails.
-* `SMTP_PASSWORD`: The SMTP server password to send emails.
-* `EMAILS_FROM_EMAIL`: The email account to send emails from.
-* `POSTGRES_SERVER`: The hostname of the PostgreSQL server. You can leave the default of `db`, provided by the same Docker Compose. You normally wouldn't need to change this unless you are using a third-party provider.
-* `POSTGRES_PORT`: The port of the PostgreSQL server. You can leave the default. You normally wouldn't need to change this unless you are using a third-party provider.
-* `POSTGRES_USER`: The Postgres user, you can leave the default.
-* `POSTGRES_DB`: The database name to use for this application. You can leave the default of `app`.
-* `SENTRY_DSN`: The DSN for Sentry, if you are using it.
-* `LDAP_CA_CERT_FILE`: Path (inside the containers) to the PEM file of the CA that signed your LDAP / Active Directory server certificate. Leave it empty to use the system trust store. See below.
+1. Enter the platform's domain and the deployment host address and port that the gateway can reach (default 8082).
+2. On save the backend first connects from the gateway to `http://<deployment host>:<port>/nginx-health`; if that fails nothing is saved. On success the settings are written to `/etc/nginx/skylab/http.conf` on the gateway (the same file as the VM domains, with the same `nginx -t`-and-roll-back protection). After reinstalling the gateway, "Resync" restores it together with the VM rules.
+3. HTTPS needs the certificate from the next section. Configure the certificate before enabling HTTPS, and make sure it covers the platform domain.
 
-### LDAP / Active Directory over TLS
+## 5. Gateway HTTPS certificate (supplied by the administrator)
+
+SkyLab **does not issue certificates** (no certbot, no ACME). The administrator places a certificate on the gateway host and SkyLab only records the paths. The platform entry and every published VM domain **share this one certificate**, so a wildcard certificate covering the whole domain is recommended (for example `example.com` + `*.example.com`). A wildcard covers one label only: `a.b.example.com` is not covered by `*.example.com`.
+
+**Where to configure:** the "HTTPS certificate" tab of the "Gateway VM" page; the setup wizard also asks for it when you tick HTTPS in the platform-entry step.
+
+1. Put the full-chain certificate and the private key on the gateway (the installer creates `/etc/ssl/skylab/` with mode 750):
+   ```bash
+   install -m 644 fullchain.pem /etc/ssl/skylab/fullchain.pem
+   install -m 600 privkey.pem   /etc/ssl/skylab/privkey.pem
+   ```
+   The private key must not be password protected (nginx cannot prompt for it at start).
+2. Enter the two full paths on the "HTTPS certificate" tab and save. Over SSH the backend first checks on the gateway that the files are readable, well formed, that the key matches the certificate and that it has not expired; if the platform entry already uses HTTPS the certificate must also cover the platform domain. It then rewrites `/etc/nginx/skylab/http.conf` (rolled back if `nginx -t` fails) and reloads nginx.
+3. The "Certificate on the gateway" card below the form lists the expiry date, the names the certificate covers, and **the HTTPS domains it does not cover** (those still work, but browsers warn).
+
+**Renewing:** overwrite the files at the same paths, then press "Reapply" on the tab (or run `nginx -t && systemctl reload nginx` on the gateway). Platform health monitoring marks the gateway as "needs attention" when the certificate has less than 14 days left or has expired.
+
+**Before a certificate is configured**, HTTPS domains are served with the self-signed certificate generated when the gateway was installed (`/etc/nginx/skylab/fallback.crt`): reachable, but browsers warn.
+
+> Versions before 2026-10 obtained certificates automatically with certbot and Cloudflare DNS-01. After upgrading, `/etc/letsencrypt` and certbot are left on old gateways but no longer used by SkyLab. You can keep using those certificates by entering `/etc/letsencrypt/live/<name>/fullchain.pem` and `privkey.pem` on the "HTTPS certificate" tab (renewal is then up to you). The Cloudflare API token is still used for DNS records in domain management.
+
+**Three things that remain manual** (the page lists them too):
+
+| Item | What to do |
+|---|---|
+| DNS | Point the platform domain at the gateway's public IP. SkyLab never changes this record itself, to avoid redirecting an entry point that is still in use. |
+| Trust the gateway | Set `SKYLAB_TRUSTED_PROXY=<source IP or CIDR the gateway connects from>` in the deployment host's `.env`, then `docker compose up -d nginx`. Without it every request appears to come from the gateway: IP-based rate limiting and audit logs are wrong, and the Grafana single-sign-on cookie is not marked `Secure`. |
+| URL-related settings | Change `FRONTEND_HOST` in `.env` to the new https URL; update the authorised origins of Google login and the domain list of Turnstile. |
+
+**Notes:**
+
+- **Keep a direct path as a fallback.** The backend manages the gateway's nginx over SSH; if the gateway is down, the domain is unreachable and so is the page you would use to fix it. Keep a way to reach `http://<deployment host>:8082` directly from the internal network or a VPN.
+- **Rootless Docker** does not preserve source IPs: nginx inside the container sees Docker's forwarding address for every connection. In that case set `SKYLAB_TRUSTED_PROXY` to that address (shown as "source IP seen by the backend" on the platform-entry page) and firewall the deployment host's public port so that only the gateway can connect; otherwise anyone connecting directly could forge `X-Real-IP`.
+- The platform domain is reserved: even while the platform entry is disabled, VM owners cannot publish that domain on their own machines.
+
+## 6. LDAP / Active Directory over TLS
 
 LDAP connections over `ldaps://` or StartTLS always verify the server certificate and its hostname. The host in the LDAP server URI (a DNS name such as `dc01.campus.example` or an IP address such as `192.168.10.5`) must be listed in the directory server certificate's subjectAltName (a DNS entry for names, an IP Address entry for IPs); otherwise the handshake fails with a hostname / IP address mismatch. Private CAs without a keyUsage extension are accepted.
 
@@ -294,156 +161,25 @@ LDAP connections over `ldaps://` or StartTLS always verify the server certificat
 
 Leaving `LDAP_CA_CERT_FILE` empty uses the system trust store, which is enough when the domain controller has a certificate from a public CA.
 
-## GitHub Actions Environment Variables
+## 7. Gateway VM
 
-There are some environment variables only used by GitHub Actions that you can configure:
+The gateway is a separate Linux VM installed with `gateway/install.sh` (nginx stream + http, WireGuard, nftables ACL, SNAT, optional Prometheus exporters). SkyLab manages it over SSH from the "Gateway VM" page, which can also run the installer for you. Details: [`wireguard-desktop-architecture.md`](wireguard-desktop-architecture.md) and the "Gateway monitoring" section of [`monitoring.md`](monitoring.md).
 
-* `LATEST_CHANGES`: Used by the GitHub Action [latest-changes](https://github.com/tiangolo/latest-changes) to automatically add release notes based on the PRs merged. It's a personal access token, read the docs for details.
-* `SMOKESHOW_AUTH_KEY`: Used to handle and publish the code coverage using [Smokeshow](https://github.com/samuelcolvin/smokeshow), follow their instructions to create a (free) Smokeshow key.
+## 8. Continuous deployment (test environment)
 
-### Deploy with Docker Compose
+`.github/workflows/deploy-pve-test.yml` ("Deploy to PVE Test") is started manually from the Actions tab (`workflow_dispatch`). It runs on the self-hosted runner labelled `skylab-main` and waits for approval of the `pve-test` environment before doing anything.
 
-With the environment variables in place, you can deploy with Docker Compose:
+On the runner:
 
-```bash
-cd /root/code/app/
-docker compose build
-docker compose up -d
-```
+- Secrets and model routing never enter the repository. The workflow copies `/opt/skylab/.env`, `/opt/skylab/vllm-service/litellm/.env`, `/opt/skylab/vllm-service/models.json` (and `.env.API` if present) into the checkout, filling in only missing LiteLLM master/salt/DB values and the Campus service key.
+- It then runs `docker compose up -d` (with `--profile monitoring` if `COMPOSE_PROFILES=monitoring` is set in that `.env`), waits for the backend health check and LiteLLM readiness, and runs an AI smoke test.
+- For the smoke test it deletes any old `pve-deploy-smoke` credential, issues a new one valid for one day, and cleans it up afterwards whether the test passed or not (unused keys are deleted; keys with usage are revoked and kept for accounting). A failed cleanup fails the workflow; an abandoned key still expires on its own.
 
-本專案的單一 `docker-compose.yml` 會被自動載入，因此不需要 `-f` 參數。
+To set up a new runner, install the GitHub Actions runner as a dedicated user on the deployment host, give it the `skylab-main` label, create the `pve-test` environment with required reviewers in the repository settings, and place the files above under `/opt/skylab`.
 
-## Continuous Deployment (CD)
+## 9. Operations checklist
 
-You can use GitHub Actions to deploy your project automatically. 😎
-
-You can have multiple environment deployments.
-
-There are already two environments configured, `staging` and `production`. 🚀
-
-### Install GitHub Actions Runner
-
-* On your remote server, create a user for your GitHub Actions:
-
-```bash
-sudo adduser github
-```
-
-* Add Docker permissions to the `github` user:
-
-```bash
-sudo usermod -aG docker github
-```
-
-* Temporarily switch to the `github` user:
-
-```bash
-sudo su - github
-```
-
-* Go to the `github` user's home directory:
-
-```bash
-cd
-```
-
-* [Install a GitHub Action self-hosted runner following the official guide](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners#adding-a-self-hosted-runner-to-a-repository).
-
-* When asked about labels, add a label for the environment, e.g. `production`. You can also add labels later.
-
-After installing, the guide would tell you to run a command to start the runner. Nevertheless, it would stop once you terminate that process or if your local connection to your server is lost.
-
-To make sure it runs on startup and continues running, you can install it as a service. To do that, exit the `github` user and go back to the `root` user:
-
-```bash
-exit
-```
-
-After you do it, you will be on the previous user again. And you will be on the previous directory, belonging to that user.
-
-Before being able to go the `github` user directory, you need to become the `root` user (you might already be):
-
-```bash
-sudo su
-```
-
-* As the `root` user, go to the `actions-runner` directory inside of the `github` user's home directory:
-
-```bash
-cd /home/github/actions-runner
-```
-
-* Install the self-hosted runner as a service with the user `github`:
-
-```bash
-./svc.sh install github
-```
-
-* Start the service:
-
-```bash
-./svc.sh start
-```
-
-* Check the status of the service:
-
-```bash
-./svc.sh status
-```
-
-You can read more about it in the official guide: [Configuring the self-hosted runner application as a service](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/configuring-the-self-hosted-runner-application-as-a-service).
-
-### Set Secrets
-
-On your repository, configure secrets for the environment variables you need, the same ones described above, including `SECRET_KEY`, etc. Follow the [official GitHub guide for setting repository secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions#creating-secrets-for-a-repository).
-
-The current Github Actions workflows expect these secrets:
-
-* `DOMAIN_PRODUCTION`
-* `DOMAIN_STAGING`
-* `STACK_NAME_PRODUCTION`
-* `STACK_NAME_STAGING`
-* `EMAILS_FROM_EMAIL`
-* `FIRST_SUPERUSER`
-* `FIRST_SUPERUSER_PASSWORD`
-* `POSTGRES_PASSWORD`
-* `SECRET_KEY`
-* `LATEST_CHANGES`
-* `SMOKESHOW_AUTH_KEY`
-
-## GitHub Action Deployment Workflows
-
-There are GitHub Action workflows in the `.github/workflows` directory already configured for deploying to the environments (GitHub Actions runners with the labels):
-
-* `staging`: after pushing (or merging) to the branch `master`.
-* `production`: after publishing a release.
-
-If you need to add extra environments you could use those as a starting point.
-
-## URLs
-
-Replace `fastapi-project.example.com` with your domain.
-
-### Main Traefik Dashboard
-
-Traefik UI: `https://traefik.fastapi-project.example.com`
-
-### Production
-
-Frontend: `https://dashboard.fastapi-project.example.com`
-
-Backend API docs: `https://api.fastapi-project.example.com/docs`
-
-Backend API base URL: `https://api.fastapi-project.example.com`
-
-Adminer: `https://adminer.fastapi-project.example.com`
-
-### Staging
-
-Frontend: `https://dashboard.staging.fastapi-project.example.com`
-
-Backend API docs: `https://api.staging.fastapi-project.example.com/docs`
-
-Backend API base URL: `https://api.staging.fastapi-project.example.com`
-
-Adminer: `https://adminer.staging.fastapi-project.example.com`
+- Health: `GET /api/v1/utils/health-check/ready` returns 503 when the database or Redis is down; the "System health" card on the Resource Monitoring page and the optional Grafana dashboards show the rest ([`monitoring.md`](monitoring.md)).
+- Logs: `docker compose logs backend worker nginx`; JSON logs carry `request_id`, which is also returned in the `X-Request-ID` response header.
+- Locked-out administrator (lost TOTP device): `docker compose exec backend uv run python app/reset_totp.py <email>`.
+- Backups of machines are handled inside SkyLab (per-resource backup/restore); back up the PostgreSQL volume separately.

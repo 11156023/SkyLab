@@ -1,122 +1,141 @@
-# AI API 使用與部署手冊
+# AI API User and Deployment Manual
 
-本手冊適用於 Campus 主 Compose 整合 LiteLLM 的部署方式。一般使用者從 Campus
-取得 `ccai_*` 金鑰；維運人員統一在專案根目錄管理 Docker，模型連線集中在
-`vllm-service/models.json`。以下部署指令除特別標示外，均在 `Campus-Cloud/` 執行。
+> **English** | [繁體中文](./ai-api-user-manual.zh-TW.md)
 
-## 1. 呼叫流程與檔案位置
+This manual covers the deployment in which the main Campus Compose stack integrates LiteLLM.
+Regular users obtain `ccai_*` keys from Campus; operators manage Docker from the project root,
+and model connections are centralised in `vllm-service/models.json`. Unless stated otherwise,
+every deployment command below is run from `Campus-Cloud/`.
+
+## 1. Request flow and file locations
 
 ```mermaid
 flowchart LR
-    U[使用者：ccai 金鑰] --> N[Campus nginx：8082]
-    N --> B[Backend：驗證金鑰與限流]
-    B -->|受限 service key| L[LiteLLM：Compose 內網 litellm:4000]
-    L -->|本機 upstream key| V[本機 vLLM：8103／8104]
-    L -->|各主機 upstream key| R[遠端 vLLM：IP 或網域]
+    U[User: ccai key] --> N[Campus nginx: 8082]
+    N --> B[Backend: key validation and rate limiting]
+    B -->|restricted service key| L[LiteLLM: Compose internal network litellm:4000]
+    L -->|local upstream key| V[Local vLLM: 8103 / 8104]
+    L -->|per-host upstream key| R[Remote vLLM: IP or domain]
     B -->|PgBouncer| C[(Campus DB)]
-    L -->|直連 db:5432| D[(LiteLLM 專用 DB)]
+    L -->|direct to db:5432| D[(Dedicated LiteLLM DB)]
 ```
 
-LiteLLM 與 backend／worker 同在 Compose `skylab` 內網，backend 以 `http://litellm:4000` 呼叫；
-LiteLLM 直連同一台 PostgreSQL 的專用資料庫（`db:5432`），不經 PgBouncer。主機上只有
-`127.0.0.1:4000` 供健康檢查、金鑰核發與管理工具使用。LiteLLM 不接 nginx：使用者一律經
-Campus `/api/v1/ai-proxy` 由 backend 驗證 `ccai_*` 金鑰與限流後轉送，LiteLLM 的管理 UI、
-`/key/*` 與 health API 不對外公開；需要管理 UI 時從部署機本機或 SSH tunnel 連 `127.0.0.1:4000`。
+LiteLLM shares the Compose `skylab` internal network with the backend and worker; the backend calls it at
+`http://litellm:4000`. LiteLLM connects directly to its own dedicated database on the same PostgreSQL
+instance (`db:5432`), bypassing PgBouncer. On the host, only `127.0.0.1:4000` is exposed, for health
+checks, key issuance and admin tooling. LiteLLM is not behind nginx: users always go through Campus
+`/api/v1/ai-proxy`, where the backend validates the `ccai_*` key and applies rate limiting before
+forwarding. LiteLLM's admin UI, `/key/*` and health APIs are not exposed publicly; when you need the
+admin UI, connect to `127.0.0.1:4000` from the deployment host itself or through an SSH tunnel.
 
-| 檔案 | 用途 | 日常維護方式 |
+| File | Purpose | Day-to-day maintenance |
 | --- | --- | --- |
-| `docker-compose.yml` | Campus 正式 Docker 入口；include 原 LiteLLM Compose | 根目錄 `docker compose` |
-| `vllm-service/litellm/docker-compose.yml` | LiteLLM 服務定義；也保留獨立部署入口 | 修改一次，兩種啟動模式共用 |
-| `.env` | Campus、backend/worker 到 LiteLLM 的 URL 與受限 service key | 保留現有值，不存 LiteLLM 管理／上游金鑰 |
-| `vllm-service/litellm/.env` | LiteLLM master、salt、DB、各上游金鑰 | 僅注入 LiteLLM 容器 |
-| `vllm-service/models.json` | 本機與遠端模型連線清單 | 新增／移除模型、調整 alias 或 IP |
-| `vllm-service/litellm/config.template.yaml` | 共用 timeout、重試、健康檢查等政策 | 政策有變更才修改 |
-| `vllm-service/litellm/config.yaml` | 由清單與 template 產生的 LiteLLM 路由 | 保留原位置；不要直接編輯 |
-| `scripts/prepare-ai-stack.sh` | `--init-env` 補齊金鑰；預檢查、產生 production config；`--start` 自動建 DB、核發／同步 service key 並啟動 | 部署／改路由前執行 |
+| `docker-compose.yml` | Campus production Docker entry point; includes the original LiteLLM Compose | `docker compose` from the repo root |
+| `vllm-service/litellm/docker-compose.yml` | LiteLLM service definition; also kept as the standalone entry point | Edit once, shared by both launch modes |
+| `.env` | URLs and the restricted service key used by Campus backend/worker to reach LiteLLM | Keep existing values; never store LiteLLM admin/upstream keys here |
+| `vllm-service/litellm/.env` | LiteLLM master key, salt, DB and every upstream key | Injected only into the LiteLLM container |
+| `vllm-service/models.json` | List of local and remote model connections | Add/remove models, adjust aliases or IPs |
+| `vllm-service/litellm/config.template.yaml` | Shared timeout, retry and health-check policy | Edit only when the policy changes |
+| `vllm-service/litellm/config.yaml` | LiteLLM routing generated from the list and the template | Keep in place; never edit directly |
+| `scripts/prepare-ai-stack.sh` | `--init-env` fills in keys; pre-flight checks and production config generation; `--start` creates the DB, issues/syncs the service key and starts everything | Run before deploying or changing routes |
 
-`config.yaml`、`models.json` 與實際 `.env` 均受 Git 忽略。範例與 template 可提交。
-根目錄 `.dockerignore` 排除推論目錄與各層 `.env`，避免將模型權重／機密帶入 Campus build。
-不將 LiteLLM `.env` 合併到主 `.env`：backend、worker、prestart 會讀取主 `.env`，
-分開可讓高權限金鑰只進入 gateway。減少維護工作靠單一 Compose 定義、模型清單與預檢查。
+`config.yaml`, `models.json` and the real `.env` files are all ignored by Git. Examples and templates may be committed.
+The root `.dockerignore` excludes the inference directories and every layer's `.env` so that model weights
+and secrets never end up in the Campus build. The LiteLLM `.env` is deliberately not merged into the main
+`.env`: backend, worker and prestart read the main `.env`, and keeping them separate ensures that
+high-privilege keys only reach the gateway. Maintenance stays small thanks to a single Compose definition,
+one model list and the pre-flight checks.
 
-## 2. 位址與金鑰怎麼填
+## 2. Filling in addresses and keys
 
-主 `.env` 的 AI 區域：
+The AI section of the main `.env`:
 
 ```dotenv
 AI_API_BASE_URL=http://litellm:4000
-AI_API_API_KEY=<sk- 開頭的受限 service key；--init-env 自動產生>
+AI_API_API_KEY=<restricted service key starting with sk-; generated automatically by --init-env>
 LITELLM_RUNTIME_BASE_URL=http://litellm:4000
-LITELLM_RUNTIME_API_KEY=<同一把受限 service key；--init-env 自動填入>
-# 若原本已有這個欄位，須與 AI_API_API_KEY 一致；沒有可省略。
-LITELLM_SERVICE_API_KEY=<同一把受限 service key>
+LITELLM_RUNTIME_API_KEY=<the same restricted service key; filled in automatically by --init-env>
+# If this field already exists it must match AI_API_API_KEY; it can be omitted otherwise.
+LITELLM_SERVICE_API_KEY=<the same restricted service key>
 AI_API_PUBLIC_BASE_URL=https://campus.example.edu
 BACKEND_HOST_PORT=8000
 REDIS_HOST_PORT=6379
 ```
 
-`AI_API_PUBLIC_BASE_URL` 是使用者可以連線的 Campus 根網址；本機預設為
-`http://localhost:8082`。API 完整 base URL 為該網址加上 `/api/v1/ai-proxy`。
-如果 backend 直接跑在主機上，兩個 gateway URL 改用 `http://127.0.0.1:4000`；
-主 Compose 模式一律用服務名稱 `litellm`（預檢查會擋 `127.0.0.1` 與舊的 `host.docker.internal`）。
+`AI_API_PUBLIC_BASE_URL` is the Campus root URL that users can reach; locally it defaults to
+`http://localhost:8082`. The full API base URL is that address plus `/api/v1/ai-proxy`.
+If the backend runs directly on the host, change both gateway URLs to `http://127.0.0.1:4000`;
+in main-Compose mode always use the service name `litellm` (the pre-flight check rejects `127.0.0.1`
+and the old `host.docker.internal`).
 
-`AI_API_API_KEY` 由部署端決定、LiteLLM 依它登記：`--start` 會用 master key 在 LiteLLM
-以這個值建立 Virtual Key（別名 `campus-ai-api-service`），已存在時則把模型白名單同步成
-`models.json` 目前的 alias。沿用既有 LiteLLM 資料庫時，把當初核發給 Campus 的那把 key 填進來即可。
+`AI_API_API_KEY` is chosen by the deployment and registered in LiteLLM: `--start` uses the master key to
+create a Virtual Key in LiteLLM with this value (alias `campus-ai-api-service`); if it already exists, the
+model allowlist is synced to the aliases currently in `models.json`. When reusing an existing LiteLLM
+database, simply fill in the key that was originally issued to Campus.
 
-LiteLLM `.env`：
+The LiteLLM `.env`:
 
 ```dotenv
-LITELLM_MASTER_KEY=<gateway 管理金鑰；--init-env 自動產生>
-VLLM_UPSTREAM_API_KEY=<推論主機 vLLM 的 API_KEY；本機模型與 .env.API 相同>
-DATABASE_URL=postgresql://litellm:<已 URL 編碼的密碼>@db:5432/litellm
-LITELLM_SALT_KEY=<第一次部署建立、後續固定保留的隨機金鑰；--init-env 自動產生>
-# 使用 api_key_env 的遠端模型才需要；使用 apikeys 時不需要此變數。
-REMOTE_LAB_API_KEY=<遠端 vLLM 的 API_KEY>
-# 可選：主機端埠（只綁 127.0.0.1），供健康檢查與管理工具。
+LITELLM_MASTER_KEY=<gateway admin key; generated automatically by --init-env>
+VLLM_UPSTREAM_API_KEY=<API_KEY of the vLLM on the inference host; same as .env.API for local models>
+DATABASE_URL=postgresql://litellm:<URL-encoded password>@db:5432/litellm
+LITELLM_SALT_KEY=<random key created on first deployment and kept fixed afterwards; generated automatically by --init-env>
+# Only needed by remote models that use api_key_env; not needed when using apikeys.
+REMOTE_LAB_API_KEY=<API_KEY of the remote vLLM>
+# Optional: host-side port (bound to 127.0.0.1 only) for health checks and admin tooling.
 # LITELLM_HOST_PORT=4000
-# 可選：填已驗證的 tag 或 digest，供可重現的升級／回滾。
+# Optional: a verified tag or digest for reproducible upgrades/rollbacks.
 # LITELLM_IMAGE=litellm/litellm:<tested-tag>
 ```
 
-`--init-env` 只補缺少或仍為範例值（`replace-with-*`、`ai-api-secret-*`）的項目，既有真實值一律不動，
-所以可以重複執行。上游 vLLM 金鑰無法產生，本機模型會從 `.env.API` 複製，遠端主機的 key 需手動填入。
+`--init-env` only fills in entries that are missing or still hold example values (`replace-with-*`,
+`ai-api-secret-*`); existing real values are never touched, so it is safe to run repeatedly. Upstream vLLM
+keys cannot be generated: for local models they are copied from `.env.API`, and keys for remote hosts must
+be entered by hand.
 
-| 金鑰 | 使用者／服務 | 授權範圍 |
+| Key | User / service | Scope |
 | --- | --- | --- |
-| `ccai_*` | 一般使用者 → Campus | Campus 核准的個人 API 存取 |
-| `AI_API_API_KEY` | Campus → LiteLLM | LiteLLM Virtual Key 允許的模型 |
-| `LITELLM_MASTER_KEY` | 維運人員 → LiteLLM | gateway 管理與 Virtual Key 核發 |
-| `VLLM_UPSTREAM_API_KEY`、遠端 key | LiteLLM → 推論主機 | 各上游的模型 API |
+| `ccai_*` | Regular user → Campus | Personal API access approved by Campus |
+| `AI_API_API_KEY` | Campus → LiteLLM | Models allowed by the LiteLLM Virtual Key |
+| `LITELLM_MASTER_KEY` | Operators → LiteLLM | Gateway administration and Virtual Key issuance |
+| `VLLM_UPSTREAM_API_KEY`, remote keys | LiteLLM → inference hosts | Each upstream's model API |
 
-不要互相替代這幾類金鑰。一般使用者取得的是 `ccai_*`，不需知道推論主機 IP 或服務金鑰。
-`LITELLM_RUNTIME_API_KEY` 未設定時，管理端 runtime 觀測功能維持關閉。
+Never substitute one class of key for another. Regular users receive a `ccai_*` key and do not need to
+know inference host IPs or service keys. When `LITELLM_RUNTIME_API_KEY` is not set, the admin-side runtime
+observability features stay disabled.
 
-### DATABASE_URL 與 LITELLM_SALT_KEY
+### DATABASE_URL and LITELLM_SALT_KEY
 
-`DATABASE_URL` 是資料庫連線字串，不是紀錄內容本身。LiteLLM 透過它保存 Virtual Key
-設定／驗證資料、用量與花費紀錄、使用者／團隊設定，以及自己的 schema。用量紀錄
-是否包含請求內容取決於 LiteLLM 記錄設定；不要假設它只保存 token 數。
-資料庫須使用獨立 DB 與登入帳號，不可指向 Campus 的應用程式 DB，也不可對它執行 Campus Alembic。
+`DATABASE_URL` is a database connection string, not the stored records themselves. LiteLLM uses it to
+persist Virtual Key configuration and validation data, usage and spend records, user/team settings and its
+own schema. Whether usage records include request content depends on LiteLLM's logging settings; do not
+assume it stores only token counts. The database must be a dedicated DB with its own login role. It must
+not point to the Campus application DB, and Campus Alembic must never be run against it.
 
-`LITELLM_SALT_KEY` 用於 LiteLLM 保存部分敏感設定／上游憑證時的加解密，不是使用者 API key。
-固定保留，與 DB 一起備份、一起還原；直接換掉會使既有加密資料無法解密。
-它不會將所有日誌自動加密。詳見 [LiteLLM 加密說明](https://docs.litellm.ai/docs/proxy/security_encryption_faq)。
+`LITELLM_SALT_KEY` is used by LiteLLM to encrypt and decrypt some sensitive settings and upstream
+credentials it stores; it is not a user API key. Keep it fixed, and back it up and restore it together
+with the DB; replacing it makes the existing encrypted data undecryptable. It does not automatically
+encrypt all logs. See the [LiteLLM encryption FAQ](https://docs.litellm.ai/docs/proxy/security_encryption_faq).
 
-同機部署時 LiteLLM 與主 Compose PostgreSQL 在同一內網，URL 主機填 `db:5432`，與 `POSTGRES_HOST_PORT`
-無關；不可填 `pgbouncer`（LiteLLM 的 Prisma 需要 session 語意），也不可填 `127.0.0.1`（容器內指向自己）。
-主機為 `db` 時，`--start` 會以 URL 內的帳號、密碼、資料庫名稱自動建立專用角色與資料庫（已存在則把角色
-密碼對齊 URL），並驗證該角色對 Campus 資料庫沒有建表權限；LiteLLM 啟動時自行跑 schema migration。
-使用遠端 DB 時填該主機的 IP／網域及連線參數，保留既有 DB 與 salt 即可；外部 DB 由其管理者建立，腳本不會碰。
-整合 Compose 不會自動搬移資料庫。舊版 host network 設定的 `127.0.0.1:5433` 會由 `--init-env` 改寫為 `db:5432`。
+In a same-host deployment, LiteLLM and the main Compose PostgreSQL are on the same internal network, so the
+host in the URL is `db:5432`, unrelated to `POSTGRES_HOST_PORT`. Do not use `pgbouncer` (LiteLLM's Prisma
+needs session semantics) or `127.0.0.1` (inside the container that points to itself). When the host is
+`db`, `--start` automatically creates the dedicated role and database using the account, password and
+database name in the URL (if they already exist, the role password is aligned with the URL), and verifies
+that the role has no table-creation privilege on the Campus database; LiteLLM runs its own schema
+migration on startup. For a remote DB, enter that host's IP/domain and connection parameters and keep the
+existing DB and salt; external DBs are created by their own administrators and the script will not touch
+them. The integrated Compose does not migrate databases automatically. The old host-network value
+`127.0.0.1:5433` is rewritten to `db:5432` by `--init-env`.
 
-## 3. 本機與遠端模型清單
+## 3. Local and remote model list
 
-現行本機模型為 `gpt-oss-20B`（8103）與 `NVIDIA-Nemotron-Nano-9B-v2-FP8`（8104）；
-實際對外名稱以 `models.json` 與 `/models` 回應為準。以下為欄位範例，請合併到現有
-JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
+The current local models are `gpt-oss-20B` (8103) and `NVIDIA-Nemotron-Nano-9B-v2-FP8` (8104);
+the actual public names are whatever `models.json` and the `/models` response say. The following are
+field examples; merge them into the existing JSON array and keep the existing models' GPU, context,
+parser and other tuning parameters.
 
-本機項目預設 `deployment` 為 `local`：
+Local entries default to `deployment` = `local`:
 
 ```json
 {
@@ -131,7 +150,7 @@ JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 }
 ```
 
-遠端 vLLM 項目不需要 `model_name`、`api_port` 或本機 GPU 配置：
+Remote vLLM entries need no `model_name`, `api_port` or local GPU configuration:
 
 ```json
 {
@@ -145,7 +164,7 @@ JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 }
 ```
 
-若要讓某個遠端模型直接保存自己的 key，可改用 literal `apikeys`：
+To let a remote model carry its own key directly, use a literal `apikeys` instead:
 
 ```json
 {
@@ -153,69 +172,75 @@ JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
   "deployment": "remote",
   "served_model_name": "lab-private-model",
   "api_base": "http://192.0.2.21:8103/v1",
-  "apikeys": "<該遠端模型的 API key>",
+  "apikeys": "<API key of that remote model>",
   "litellm": {"rpm": 10},
   "capabilities": {"chat": true}
 }
 ```
 
-`192.0.2.20` 是文件示例位址，須換成實際主機。遠端主機應先啟動模型，監聽 gateway
-可達的介面，並允許 gateway 的來源連線；確認它的 `/v1/models` 確實提供
-`lab-chat-model`。未指定 `apikeys` 或 `api_key_env` 時沿用 `VLLM_UPSTREAM_API_KEY`；
-指定 `api_key_env` 時從 LiteLLM `.env` 讀取，指定 `apikeys` 時則直接寫入生成的
-`litellm/config.yaml`。`apikeys` 與 `api_key_env` 不可同時設定。因 `apikeys` 是明文，
-`models.json` 與生成後的 `config.yaml` 都不可提交或複製到不受信任的位置。
+`192.0.2.20` is a documentation example address and must be replaced with the real host. The remote host
+should start the model first, listen on an interface the gateway can reach, and allow connections from the
+gateway's source address; confirm that its `/v1/models` really serves `lab-chat-model`. When neither
+`apikeys` nor `api_key_env` is given, `VLLM_UPSTREAM_API_KEY` is used; with `api_key_env` the key is read
+from the LiteLLM `.env`, and with `apikeys` it is written straight into the generated
+`litellm/config.yaml`. `apikeys` and `api_key_env` cannot be set at the same time. Because `apikeys` is
+plaintext, neither `models.json` nor the generated `config.yaml` may be committed or copied to an
+untrusted location.
 
-`alias` 是呼叫端 `model` 欄位使用的名稱，所有項目都必須唯一；本機
-`served_model_name`、`api_port` 也要唯一。不同遠端主機可使用相同上游模型名稱／埠，
-但公開 alias 要不同。`api_base` 須含 `/v1`，不可把帳密寫入 URL。
-目前產生器使用 `hosted_vllm` provider，這個範例針對遠端 vLLM；雲端原生 provider
-或不同協定需另外擴充產生器，填 IP 不會自動轉換協定。
-`capabilities` 是描述資料，仍需模型及 vLLM parser 實際支援才能啟用工具、推理或多模態功能。
+`alias` is the name callers put in the `model` field and must be unique across all entries; local
+`served_model_name` and `api_port` must be unique as well. Different remote hosts may use the same upstream
+model name/port, but their public aliases must differ. `api_base` must include `/v1`, and credentials must
+not be embedded in the URL. The current generator uses the `hosted_vllm` provider and this example targets
+remote vLLM; cloud-native providers or other protocols require extending the generator, and entering an IP
+does not convert the protocol automatically. `capabilities` is descriptive metadata: tools, reasoning or
+multimodal features only work if the model and the vLLM parser actually support them.
 
-本機 launcher 會略過 `remote`，不消耗本機 GPU。全遠端部署不需跑 cluster launcher。
-本機與遠端模型的路由都由 LiteLLM 管理。
+The local launcher skips `remote` entries and does not consume local GPU. A fully remote deployment does
+not need to run the cluster launcher. Routing for both local and remote models is handled by LiteLLM.
 
-## 4. 正式啟動與既有獨立 gateway 接管
+## 4. Production launch and taking over an existing standalone gateway
 
-需要 Linux Docker Engine、Docker Compose 2.20 以上，以及包含 `PyYAML`、
-`python-dotenv` 的 Python。腳本優先使用 `vllm-service/.venv/bin/python`，
-也可用 `AI_STACK_PYTHON=/path/to/python` 指定。
-Compose 的相對掛載路徑以被 include 的檔案目錄解析，詳見
-[Docker include 說明](https://docs.docker.com/reference/compose-file/include/)。
+Requires Linux Docker Engine, Docker Compose 2.20 or later, and a Python with `PyYAML` and
+`python-dotenv`. The script prefers `vllm-service/.venv/bin/python`; you can also point it at an
+interpreter with `AI_STACK_PYTHON=/path/to/python`.
+Relative mount paths in Compose resolve against the directory of the included file; see the
+[Docker include reference](https://docs.docker.com/reference/compose-file/include/).
 
-### 部署三步驟（全新或既有部署共用）
+### Three-step deployment (same for fresh and existing deployments)
 
 ```bash
-# 1. 補齊金鑰與位址：缺少或仍為範例值才寫入，既有真實值不動（可重複執行）
+# 1. Fill in keys and addresses: only missing or example values are written, real values are left alone (safe to repeat)
 bash scripts/prepare-ai-stack.sh --init-env
-# 2. 填入 --init-env 提示的上游金鑰（例如 DGX 的 VLLM_UPSTREAM_API_KEY），並備妥 models.json
-# 3. 預檢查、產生 config、建 DB、啟動 LiteLLM、核發／同步 service key，最後啟動主 Compose
+# 2. Enter the upstream keys that --init-env prompts for (e.g. the DGX VLLM_UPSTREAM_API_KEY) and prepare models.json
+# 3. Pre-flight checks, config generation, DB creation, LiteLLM start, service key issuance/sync, then start the main Compose
 bash scripts/prepare-ai-stack.sh --start
 ```
 
-主 `.env` 需先由 `.env.example` 建立並填好 Campus 必要參數；LiteLLM `.env` 不存在時
-`--init-env` 會由範本建立。`--init-env` 會自動產生：
+The main `.env` must first be created from `.env.example` with the required Campus parameters filled in;
+if the LiteLLM `.env` does not exist, `--init-env` creates it from the template. `--init-env` generates
+automatically:
 
-- LiteLLM `LITELLM_MASTER_KEY`（`sk-` 開頭）、`LITELLM_SALT_KEY`；
-- `DATABASE_URL`（`litellm` 帳號、隨機密碼、`db:5432/litellm`）；
-- 主 `.env` 的 `AI_API_API_KEY` 與 `LITELLM_RUNTIME_API_KEY`（同一把 `sk-` key），
-  並把兩個 gateway URL 設為 `http://litellm:4000`。
+- the LiteLLM `LITELLM_MASTER_KEY` (starting with `sk-`) and `LITELLM_SALT_KEY`;
+- `DATABASE_URL` (`litellm` account, random password, `db:5432/litellm`);
+- `AI_API_API_KEY` and `LITELLM_RUNTIME_API_KEY` in the main `.env` (the same `sk-` key),
+  and sets both gateway URLs to `http://litellm:4000`.
 
-`--start` 依序執行：
+`--start` runs, in order:
 
-1. 核對 root／gateway 金鑰隔離、service key 一致性、local upstream key 與 `.env.API`
-   一致性、DB 名稱／帳號隔離、必要遠端 key（不查詢上游；需要時另跑 `--check-only --check-upstreams`）；
-2. 產生 production `config.yaml`；
-3. `DATABASE_URL` 主機為 `db` 時，啟動主 Compose PostgreSQL，等它接受 TCP 連線後
-   建立（或對齊密碼）專用角色與資料庫；
-4. 重建 LiteLLM 以載入新路由，等 `/health/readiness` 回報資料庫已連線（首次會先跑 migration）；
-5. 以 master key 在 LiteLLM 登記 `AI_API_API_KEY`（別名 `campus-ai-api-service`），
-   已存在則把模型白名單同步成 `models.json` 目前的 alias；
-6. `docker compose up -d --build` 啟動主專案。
+1. Verifies root/gateway key isolation, service key consistency, local upstream key consistency with
+   `.env.API`, DB name/account isolation and required remote keys (upstreams are not queried; run
+   `--check-only --check-upstreams` separately when needed);
+2. Generates the production `config.yaml`;
+3. When the `DATABASE_URL` host is `db`, starts the main Compose PostgreSQL, waits for it to accept TCP
+   connections, then creates the dedicated role and database (or aligns the password);
+4. Recreates LiteLLM to load the new routes and waits for `/health/readiness` to report the database as
+   connected (the first run performs the migration first);
+5. Registers `AI_API_API_KEY` in LiteLLM using the master key (alias `campus-ai-api-service`); if it
+   already exists, syncs its model allowlist to the aliases currently in `models.json`;
+6. Starts the main project with `docker compose up -d --build`.
 
-它不會自動停止其他專案的 gateway；若另有獨立 `campus-litellm` 在跑，腳本會取消啟動並保留既有服務，
-先停它再重跑：
+It does not stop gateways belonging to other projects: if a standalone `campus-litellm` is running, the
+script aborts the start and leaves the existing service alone. Stop it first, then rerun:
 
 ```bash
 docker compose -f vllm-service/litellm/docker-compose.yml \
@@ -225,97 +250,113 @@ docker compose ps
 curl -fsS http://127.0.0.1:4000/health/readiness
 ```
 
-只驗證、不改檔：
+Verify only, without changing any file:
 
 ```bash
 bash scripts/prepare-ai-stack.sh --check-only --check-upstreams
 ```
 
-本機模型若尚未執行，先 `bash vllm-service/start_multi_model_cluster.sh`；全遠端部署略過。
-LiteLLM 在容器內，本機 vLLM 須監聽 Docker 可達的介面：`.env.API` 設 `API_HOST=0.0.0.0`，
-並以防火牆限制 8103／8104 只供本機與 Docker 網段，預檢查會擋只綁 loopback 的設定。
+If the local models are not running yet, run `bash vllm-service/start_multi_model_cluster.sh` first;
+skip this for fully remote deployments. LiteLLM runs inside a container, so local vLLM must listen on an
+interface Docker can reach: set `API_HOST=0.0.0.0` in `.env.API` and use the firewall to restrict
+8103/8104 to the host and the Docker network. The pre-flight check rejects configurations bound only to
+loopback.
 
-### 沿用既有 LiteLLM 資料庫
+### Reusing an existing LiteLLM database
 
-保留原本的 `LITELLM_MASTER_KEY`、`LITELLM_SALT_KEY` 與 `DATABASE_URL`（外部主機填其 IP／網域，
-腳本不會嘗試建立），並把當初核發給 Campus 的 service key 填入主 `.env` 的 `AI_API_API_KEY`、
-`LITELLM_RUNTIME_API_KEY`。`--init-env` 看到真實值就不會改動；`--start` 只同步該 key 的模型白名單。
+Keep the original `LITELLM_MASTER_KEY`, `LITELLM_SALT_KEY` and `DATABASE_URL` (for an external host enter
+its IP/domain; the script will not try to create it), and put the service key originally issued to
+Campus into `AI_API_API_KEY` and `LITELLM_RUNTIME_API_KEY` in the main `.env`. `--init-env` leaves real
+values untouched; `--start` only syncs that key's model allowlist.
 
-### 從舊版 host network 部署升級
+### Upgrading from the old host-network deployment
 
-舊設定的 `AI_API_BASE_URL=http://host.docker.internal:4000` 與
-`DATABASE_URL=...@127.0.0.1:5433/...` 在內網架構下連不到。執行一次 `--init-env`，它會把 gateway URL
-改成 `http://litellm:4000`、把資料庫主機改成 `db:5432`（帳號密碼不變），再 `--start`。
+The old settings `AI_API_BASE_URL=http://host.docker.internal:4000` and
+`DATABASE_URL=...@127.0.0.1:5433/...` are unreachable under the internal-network architecture. Run
+`--init-env` once: it rewrites the gateway URL to `http://litellm:4000` and the database host to
+`db:5432` (account and password unchanged), then run `--start`.
 
-### 手動部署 workflow
+### Manual deployment workflow
 
-runner 需預先配置 `/opt/skylab/.env` 與 `/opt/skylab/vllm-service/models.json`；有本機模型時還需要
-`/opt/skylab/vllm-service/.env.API`。workflow 會先對 `/opt/skylab` 執行 `--init-env`
-（缺少的 LiteLLM `.env` 由範本建立；金鑰寫回 `/opt/skylab` 才能跨次部署保留，什麼都不缺時不寫檔），
-上游金鑰仍缺時在此步驟失敗；接著把檔案複製進 checkout，由 `--start` 完成建 DB、核發 key 與啟動。
-runner 需能使用 `python3 -m venv`，並對 `/opt/skylab` 有寫入權限（首次補金鑰時）。
-GPU 模型程序應由部署主機獨立管理，不放在可能被 checkout 清除的 runner 工作目錄。
+The runner must have `/opt/skylab/.env` and `/opt/skylab/vllm-service/models.json` prepared in advance;
+with local models it also needs `/opt/skylab/vllm-service/.env.API`. The workflow first runs `--init-env`
+against `/opt/skylab` (a missing LiteLLM `.env` is created from the template; keys are written back to
+`/opt/skylab` so they persist across deployments, and nothing is written when nothing is missing) and
+fails at this step if upstream keys are still missing. It then copies the files into the checkout, and
+`--start` completes DB creation, key issuance and startup. The runner must be able to use
+`python3 -m venv` and have write access to `/opt/skylab` (when keys are filled in for the first time).
+GPU model processes should be managed independently on the deployment host, not inside the runner's
+working directory, which may be wiped by a checkout.
 
-## 5. 修改連線、重啟與回滾
+## 5. Changing connections, restarting and rolling back
 
-新增模型／改 IP：修改 `models.json`，在 LiteLLM `.env` 加入對應 key，再執行：
+To add a model or change an IP: edit `models.json`, add the matching key to the LiteLLM `.env`, then run:
 
 ```bash
 bash scripts/prepare-ai-stack.sh --start
 ```
 
-`--start` 會重建 LiteLLM 載入新路由，並把 Campus service Virtual Key 的模型白名單同步成新的
-alias 清單，不必另外呼叫 `/key/update`。只用 `docker compose up -d --force-recreate litellm`
-重建時白名單不會同步，新模型對 Campus 使用者仍不可用。
-改模型本體、GPU 或本機監聽埠時，也需要重啟本機推論 cluster。
-改主 `.env` 後，用 `docker compose up -d --force-recreate backend worker` 讓容器讀到新值。
-單純 `restart` 不會重新注入 `.env`。
+`--start` recreates LiteLLM to load the new routes and syncs the Campus service Virtual Key's model
+allowlist to the new alias list; no separate `/key/update` call is needed. If you only recreate with
+`docker compose up -d --force-recreate litellm`, the allowlist is not synced and new models remain
+unavailable to Campus users. Changing the model itself, the GPU or the local listening port also requires
+restarting the local inference cluster. After editing the main `.env`, run
+`docker compose up -d --force-recreate backend worker` so the containers pick up the new values. A plain
+`restart` does not re-inject `.env`.
 
-| 操作 | 根目錄指令／影響 |
+| Operation | Root-directory command / effect |
 | --- | --- |
-| 查看狀態 | `docker compose ps` |
-| gateway 日誌 | `docker compose logs --tail 100 -f litellm` |
-| 只停止 gateway | `docker compose stop litellm` |
-| 重建 gateway | `docker compose up -d --force-recreate litellm` |
-| 停止主 Docker stack | `docker compose down`，包含已接管的 LiteLLM |
+| Check status | `docker compose ps` |
+| Gateway logs | `docker compose logs --tail 100 -f litellm` |
+| Stop only the gateway | `docker compose stop litellm` |
+| Recreate the gateway | `docker compose up -d --force-recreate litellm` |
+| Stop the main Docker stack | `docker compose down`, including the taken-over LiteLLM |
 
-**監控**：「資源監控 → 系統健康」會列出 AI Gateway（LiteLLM）與每個模型的狀態，模型的上游推論服務
-（例如 DGX）連不到時發系統告警並寄信給管理員。有啟用監控 stack 時，Grafana「SkyLab AI」儀表板顯示
-Campus 請求量／錯誤／延遲、LiteLLM 與 vLLM 引擎指標；vLLM 的抓取目標由 `--start` 依 `models.json`
-自動產生，遠端主機防火牆要放行部署機連推論埠（與 LiteLLM 同一條規則）。細節見
-[系統監控](monitoring.md#ai-模組監控)。
+**Monitoring**: "Resource Monitoring → System Health" lists the status of the AI Gateway (LiteLLM) and of
+every model; when a model's upstream inference service (for example the DGX) is unreachable, a system
+alert is raised and emailed to administrators. With the monitoring stack enabled, the Grafana "SkyLab AI"
+dashboard shows Campus request volume/errors/latency plus LiteLLM and vLLM engine metrics; the vLLM scrape
+targets are generated automatically by `--start` from `models.json`, and the remote host's firewall must
+allow the deployment host to reach the inference port (the same rule LiteLLM needs). See
+[System Monitoring](monitoring.md#ai-module-monitoring) for details.
 
-`down` 不停止主機 vLLM 程序，也不刪除外部 LiteLLM DB。不要使用 `down -v` 作為日常停止指令。
-缺少 config 時 Compose 的 bind mount 會直接失敗，不會誤建 `config.yaml/` 目錄。
+`down` does not stop host vLLM processes and does not delete an external LiteLLM DB. Do not use `down -v`
+as the routine stop command. When the config is missing, the Compose bind mount fails outright instead of
+accidentally creating a `config.yaml/` directory.
 
-退回獨立部署：先在 root `docker compose stop litellm`，再從
-`vllm-service/litellm/` 執行 `docker compose up -d`。使用同一份 DB URL、salt 與 config。
-LiteLLM 是唯一的 AI API gateway；早期自寫的 FastAPI Gateway 已移除，沒有其他回退入口。
+Falling back to standalone deployment: first run `docker compose stop litellm` at the root, then run
+`docker compose up -d` from `vllm-service/litellm/`. Use the same DB URL, salt and config.
+LiteLLM is the only AI API gateway; the early hand-written FastAPI Gateway has been removed and there is
+no other fallback entry point.
 
-## 6. 一般使用者申請與呼叫 API
+## 6. Requesting and calling the API as a regular user
 
-登入 Campus 的 AI API 頁面，填用途、金鑰名稱與期限，送出申請。具審核權限的人員核准後，
-使用者可查看自己的 key 與連線範例。key 清單只回傳前綴；單把明文僅提供擁有者。
-學生可選 1、7、30、90 天，預設 30 天；教師與管理員可選 1、7、30 天或永久，預設永久。
-API 申請時學生必須明確提供 `duration`；有效期限從核准時起算。所有身分都不能申請 1 小時。
-舊的 1 小時待審申請與學生永久待審申請須駁回後重新申請；已核發金鑰維持原到期日。
-輪替後舊 key 立即失效，需同步更新使用它的程式；可查看個人用量並撤銷不再使用的 key。
+Sign in to Campus, open the AI API page, fill in the purpose, key name and duration, and submit the
+request. Once someone with approval rights approves it, the user can view their key and connection
+examples. The key list only returns prefixes; the single plaintext key is shown only to its owner.
+Students can choose 1, 7, 30 or 90 days (default 30); teachers and administrators can choose 1, 7 or 30
+days or permanent (default permanent). Students must explicitly provide `duration` when requesting via
+the API; the validity period starts at approval. No role may request a 1-hour key. Old pending 1-hour
+requests and pending permanent requests from students must be rejected and resubmitted; already issued
+keys keep their original expiry. After rotation the old key is invalidated immediately, so programs using
+it must be updated at the same time; users can view their own usage and revoke keys they no longer use.
 
-管理申請的 `/api/v1/ai-api/*` 使用 Campus 登入 bearer token；下列推論端點使用 `ccai_*`。
-兩者不是同一種認證。SDK 或相容客戶端的 `base_url` 設為
-`https://campus.example.edu/api/v1/ai-proxy`，不再加一段 `/v1`。
+The request-management endpoints under `/api/v1/ai-api/*` use the Campus login bearer token; the
+inference endpoints below use `ccai_*`. These are two different kinds of authentication. Set the
+`base_url` of your SDK or compatible client to `https://campus.example.edu/api/v1/ai-proxy`, without an
+extra `/v1` segment.
 
-| 方法／端點（相對 base URL） | 用途 |
+| Method / endpoint (relative to the base URL) | Purpose |
 | --- | --- |
-| `GET /models` | 查詢目前 service key 可用的模型 ID |
-| `POST /chat/completions` | messages 對話，可使用 SSE 串流 |
-| `POST /completions` | prompt 文字生成，需上游支援 |
-| `POST /responses` | Responses 格式，需上游支援 |
+| `GET /models` | List the model IDs available to the current service key |
+| `POST /chat/completions` | Chat with messages; SSE streaming available |
+| `POST /completions` | Prompt-based text generation; requires upstream support |
+| `POST /responses` | Responses format; requires upstream support |
 
-Campus 不轉送 LiteLLM 的管理、key、DB 或 health API。embedding 等其他 endpoint
-目前不在 Campus proxy 的公開範圍。
+Campus does not forward LiteLLM's admin, key, DB or health APIs. Other endpoints such as embeddings are
+currently outside the public scope of the Campus proxy.
 
-### curl 模型清單與對話
+### curl: model list and chat
 
 ```bash
 export CAMPUS_AI_BASE_URL='http://localhost:8082/api/v1/ai-proxy'
@@ -332,11 +373,12 @@ curl --fail --silent --show-error \
   "$CAMPUS_AI_BASE_URL/chat/completions"
 ```
 
-把 `model` 換成 `/models` 回傳的 ID 可切換模型。串流時加 `"stream":true`，curl 加
-`--no-buffer`，逐行接收 `data:` 事件。推理模型可能先耗用 reasoning tokens；若輸出
-`content` 為空且 `finish_reason=length`，先增加 token 預算並核對模型 parser，不能僅據此判定連線故障。
+Replace `model` with an ID returned by `/models` to switch models. For streaming, add `"stream":true`
+and pass `--no-buffer` to curl to receive `data:` events line by line. Reasoning models may spend
+reasoning tokens first; if `content` comes back empty with `finish_reason=length`, increase the token
+budget and check the model parser first rather than concluding that the connection is broken.
 
-Python 可直接透過 HTTP 呼叫，不依賴特定 SDK：
+Python can call the API over plain HTTP without any particular SDK:
 
 ```python
 import json
@@ -361,51 +403,53 @@ with urlopen(request, timeout=120) as response:
 print(payload["choices"][0]["message"])
 ```
 
-### 維運驗證
+### Operational verification
 
 ```bash
 bash scripts/prepare-ai-stack.sh --check-only --check-upstreams
 curl -fsS http://127.0.0.1:4000/health/liveliness
 curl -fsS http://127.0.0.1:4000/health/readiness
-# 已啟動 Campus backend 時，使用管理 key 驗證 gateway 清單、上游與 backend 連線。
+# With the Campus backend running, use the admin key to verify the gateway model list, upstreams and backend connectivity.
 read -rsp 'LiteLLM master key: ' LITELLM_MASTER_KEY; echo
 export LITELLM_MASTER_KEY
 bash scripts/verify-litellm-staging.sh
 unset LITELLM_MASTER_KEY
 
-# 使用已核准的 Campus 測試 key 驗證四種公開 endpoint。
+# Verify the four public endpoints with an approved Campus test key.
 export AI_API_SMOKE_KEY="$CAMPUS_AI_API_KEY"
 AI_API_PUBLIC_BASE_URL=http://localhost:8082/api/v1 \
   AI_API_SMOKE_MODEL=gpt-oss-20B bash scripts/verify-ai-api-cutover.sh
 unset AI_API_SMOKE_KEY
 ```
 
-`verify-ai-api-cutover.sh` 包含實際生成與串流請求，會產生模型用量；請用專用測試 key。
-該腳本需要 curl、jq，且測試模型要支援 completions 與 responses。全部通過表示對應
-路徑正常，不代表其他模型也支援所有格式。操作結束可 `unset CAMPUS_AI_API_KEY`。
+`verify-ai-api-cutover.sh` sends real generation and streaming requests and therefore consumes model
+usage; use a dedicated test key. The script needs curl and jq, and the test model must support
+completions and responses. Passing everything means those paths work; it does not mean other models
+support every format. Run `unset CAMPUS_AI_API_KEY` when you are done.
 
-## 7. 常見問題
+## 7. Troubleshooting
 
-| 現象 | 檢查與處理 |
+| Symptom | What to check / do |
 | --- | --- |
-| `4000` 已占用／有兩個 gateway | `docker ps` 核對 Compose project；停止舊 gateway 再接管；或設 `LITELLM_HOST_PORT` |
-| backend 無法連線 gateway | `AI_API_BASE_URL` 應為 `http://litellm:4000`（舊的 `host.docker.internal` 已不適用，跑 `--init-env` 改寫） |
-| 本機上游 401 | `.env.API` 的 `API_KEY` 要與 LiteLLM 上游 key 相同 |
-| 本機上游連不到 | `.env.API` 的 `API_HOST` 須為 `0.0.0.0`（容器經 `host.docker.internal` 連入），並以防火牆限制引擎埠 |
-| 遠端模型連線失敗 | IP／網域、監聽介面、防火牆、`/v1`、served model name、key 是否一致 |
-| Campus 401／403 | 檢查 `ccai_*` 是否核准、過期、撤銷；service Virtual Key 是否有效／允許模型（`--start` 會重新登記並同步） |
-| 模型清單少了新模型 | 用 `--start` 重新部署：會重產 config、重建 LiteLLM 並同步 service key 白名單 |
-| `--start` 卡在 LiteLLM 就緒 | `docker compose logs litellm`；多半是 `DATABASE_URL` 帳密／主機錯誤或首次 migration 仍在跑 |
-| key 核發回 HTTP 400 | 已有別把 key 用了別名 `campus-ai-api-service`：把那把 key 填進 `AI_API_API_KEY`，或在 LiteLLM 撤銷後重跑 |
-| 429 | Campus 限流或 LiteLLM RPM 限制；依 `Retry-After` 延後重試 |
-| 413／415 | 請求超過 `AI_API_MAX_REQUEST_BODY_BYTES`，或 Content-Type 不是 JSON |
-| 502／503 | 檢查 gateway、上游與 DB 是否可用，再看 backend／LiteLLM 日誌 |
-| DB 認證／migration 失敗 | 核對專用角色、密碼 URL 編碼、DB 主機與埠；不要改用 Campus DB |
-| salt 更換後不能解密 | 還原原 salt 與對應 DB 備份，不能以新 salt 修復舊密文 |
-| 修改 `.env` 沒生效 | 用 `up -d --force-recreate` 重建相關容器 |
-| `8000` 或 `6379` 衝突 | 設 `BACKEND_HOST_PORT`／`REDIS_HOST_PORT`；容器間服務埠保持原值 |
+| `4000` already in use / two gateways | Check the Compose project with `docker ps`; stop the old gateway before taking over, or set `LITELLM_HOST_PORT` |
+| Backend cannot reach the gateway | `AI_API_BASE_URL` should be `http://litellm:4000` (the old `host.docker.internal` no longer applies; run `--init-env` to rewrite it) |
+| Local upstream returns 401 | `API_KEY` in `.env.API` must match the LiteLLM upstream key |
+| Local upstream unreachable | `API_HOST` in `.env.API` must be `0.0.0.0` (the container connects via `host.docker.internal`), and restrict the engine port with the firewall |
+| Remote model connection fails | Check IP/domain, listening interface, firewall, `/v1`, served model name and key consistency |
+| Campus 401 / 403 | Check whether the `ccai_*` key is approved, expired or revoked; whether the service Virtual Key is valid and allows the model (`--start` re-registers and syncs it) |
+| New model missing from the model list | Redeploy with `--start`: it regenerates the config, recreates LiteLLM and syncs the service key allowlist |
+| `--start` stuck waiting for LiteLLM readiness | `docker compose logs litellm`; usually wrong `DATABASE_URL` credentials/host, or the first migration is still running |
+| Key issuance returns HTTP 400 | Another key already uses the alias `campus-ai-api-service`: put that key into `AI_API_API_KEY`, or revoke it in LiteLLM and rerun |
+| 429 | Campus rate limit or LiteLLM RPM limit; retry after the `Retry-After` delay |
+| 413 / 415 | Request exceeds `AI_API_MAX_REQUEST_BODY_BYTES`, or Content-Type is not JSON |
+| 502 / 503 | Check whether the gateway, upstream and DB are available, then read the backend/LiteLLM logs |
+| DB authentication / migration failure | Check the dedicated role, URL-encoded password, DB host and port; do not switch to the Campus DB |
+| Cannot decrypt after changing the salt | Restore the original salt and the matching DB backup; old ciphertext cannot be repaired with a new salt |
+| `.env` changes have no effect | Recreate the affected containers with `up -d --force-recreate` |
+| `8000` or `6379` port conflict | Set `BACKEND_HOST_PORT` / `REDIS_HOST_PORT`; service ports between containers stay unchanged |
 
-LiteLLM 只在主機 `127.0.0.1:4000` 開埠，外部網路連不到；容器間一律走 Compose 內網。
-使用者的正常入口是 Campus（nginx → backend），LiteLLM 不經 nginx 對外。完整 LiteLLM 功能與 key 管理請參考
-[Virtual Keys](https://docs.litellm.ai/docs/proxy/virtual_keys) 與
-[vLLM provider](https://docs.litellm.ai/docs/providers/vllm)。
+LiteLLM only opens port `127.0.0.1:4000` on the host and is unreachable from external networks; traffic
+between containers always uses the Compose internal network. The normal entry point for users is Campus
+(nginx → backend); LiteLLM is not exposed through nginx. For the full LiteLLM feature set and key
+management, see [Virtual Keys](https://docs.litellm.ai/docs/proxy/virtual_keys) and the
+[vLLM provider](https://docs.litellm.ai/docs/providers/vllm).

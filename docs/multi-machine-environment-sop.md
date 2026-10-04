@@ -1,370 +1,372 @@
-# 多機教學環境建構、發布與學生使用 SOP
+# SOP: Building, Publishing and Using Multi-Machine Teaching Environments
 
-| 項目 | 內容 |
+> **English** | [繁體中文](./multi-machine-environment-sop.zh-TW.md)
+
+| Item | Content |
 | --- | --- |
-| 文件版本 | v1.0 |
-| 生效日期 | 2026-08-31（Asia/Taipei） |
-| 文件狀態 | 正式產品與開發基準 |
-| 適用系統 | SkyLab／Campus Cloud |
-| 適用角色 | 系統管理員、教師、學生、開發與維運人員 |
-| 規範優先序 | 本文件高於既有快速模板、單機克隆及多機環境設計草案；若舊文件與本文件衝突，以本文件為準 |
+| Document version | v1.0 |
+| Effective date | 2026-08-31 (Asia/Taipei) |
+| Document status | Official product and development baseline |
+| Applicable system | SkyLab / Campus Cloud |
+| Applicable roles | System administrators, teachers, students, development and operations staff |
+| Precedence | This document takes precedence over the existing quick-template, single-machine clone and multi-machine environment design drafts; where an older document conflicts with this one, this document prevails |
 
-## 一、目的
+## 1. Purpose
 
-本 SOP 統一規範以下完整流程：
+This SOP uniformly governs the following end-to-end process:
 
-1. 管理員或教師準備單機母模板。
-2. 教師以多台 VM／LXC 組成可重複使用的多機教學環境。
-3. 教師發布固定且不可變更的環境版本。
-4. 學生使用公開練習環境，或使用正式班級指派的環境。
-5. 系統在背景完成整組複製、網路套用、啟動、到期停止與回收。
+1. An administrator or teacher prepares a single-machine base template.
+2. A teacher composes several VMs / LXCs into a reusable multi-machine teaching environment.
+3. The teacher publishes a fixed, immutable version of the environment.
+4. Students use a public practice environment, or the environment assigned to a formal class.
+5. The system clones the whole set, applies the network, starts the machines, stops them on expiry and reclaims them, all in the background.
 
-本 SOP 的核心原則是：
+The core principle of this SOP is:
 
-> 教師建構與發布環境；學生只啟動、進入及使用環境。學生不管理母模板，也不直接操作模板複製。
+> Teachers build and publish environments; students only launch, enter and use them. Students do not manage base templates and never operate template cloning directly.
 
-## 二、適用範圍與排除範圍
+## 2. Scope and Exclusions
 
-### 2.1 適用範圍
+### 2.1 In scope
 
-- 單機 VM／LXC 母模板的來源管理。
-- 一至三台機器的多機環境建構。
-- 機器角色、固定規格、網路與連線拓撲。
-- 草稿、發布、版本鎖定及新版建立。
-- 公開快速練習。
-- 正式課程班級環境。
-- 學生環境啟動、使用、到期及回收。
-- 權限、安全、失敗處理、稽核與驗收。
+- Source management of single-machine VM / LXC base templates.
+- Building multi-machine environments of one to three machines.
+- Machine roles, fixed specifications, networking and connection topology.
+- Drafts, publishing, version locking and creating new versions.
+- Public quick practice.
+- Formal course class environments.
+- Student environment launch, use, expiry and reclamation.
+- Permissions, security, failure handling, auditing and acceptance.
 
-### 2.2 排除範圍
+### 2.2 Out of scope
 
-- 課程教材編輯、作答、評分與學習進度。
-- 一般研究型或個人自訂 VM 申請。
-- 學生自行建立、轉換或複製單機母模板。（學生仍可用教師開放的應用範本「申請」一台機器，但不能管理範本，也不能直接呼叫 clone API。）
+- Editing course materials, answering, grading and learning progress.
+- General research-type or personally customised VM requests.
+- Students creating, converting or cloning single-machine base templates themselves. (Students may still "request" one machine from an application template a teacher has opened up, but they cannot manage templates and cannot call the clone API directly.)
 
-一般研究型機器若仍需保留，必須使用獨立的「資源申請」流程，不得與本 SOP 的公開練習環境混用。
+If general research-type machines are still needed, they must use the separate "resource request" flow and must not be mixed with the public practice environments governed by this SOP.
 
-## 三、名詞與資料模型
+## 3. Terminology and Data Model
 
-| 使用者用語 | 系統模型 | 定義 | 學生是否可見 |
+| User-facing term | System model | Definition | Visible to students? |
 | --- | --- | --- | --- |
-| 單機母模板／機器映像 | `VMTemplate` 或 PVE VM／LXC image | 已安裝作業系統與工具的單台來源機器，供建構環境使用 | 預設私人；教師把可見範圍設為「全部可見」的才會出現在學生申請表單的資源設定 |
-| 多機教學環境 | `CourseEnvironment` | 由一至三台固定機器及拓撲組成的可重複使用環境 | 可見名稱、說明與機器角色 |
-| 環境版本 | `CourseEnvironmentVersion` | 某次發布後鎖定的節點、規格與拓撲快照 | 可見版本號，不可修改 |
-| 公開練習環境 | `usage_scope = quick_practice` 或 `both` 的已發布版本 | 學生可自行啟動的短期多機環境 | 可見且可啟動 |
-| 課程環境 | `usage_scope = course` 或 `both` 的已發布版本 | 教師套用到正式班級的固定環境 | 僅班級成員可使用 |
-| 練習執行個體 | `QuickPracticeSession` | 某位學生啟動一次完整多機環境的生命週期 | 只看自己的 |
-| 學生機器 | `Resource`／`VMRequest` | 系統依發布版本在 PVE 建立的實際 VM／LXC | 只看自己或班級授權資源 |
+| Single-machine base template / machine image | `VMTemplate` or a PVE VM / LXC image | A single source machine with the OS and tools already installed, used as the source for building environments | Private by default; only templates whose visibility a teacher sets to "visible to everyone" appear under resource settings in the student request form |
+| Multi-machine teaching environment | `CourseEnvironment` | A reusable environment composed of one to three fixed machines plus a topology | Name, description and machine roles are visible |
+| Environment version | `CourseEnvironmentVersion` | A snapshot of nodes, specifications and topology locked at publish time | Version number is visible; not modifiable |
+| Public practice environment | A published version with `usage_scope = quick_practice` or `both` | A short-lived multi-machine environment students can launch themselves | Visible and launchable |
+| Course environment | A published version with `usage_scope = course` or `both` | A fixed environment a teacher applies to a formal class | Usable only by class members |
+| Practice instance | `QuickPracticeSession` | The lifecycle of one student launching the full multi-machine environment once | Students only see their own |
+| Student machine | `Resource` / `VMRequest` | The actual VM / LXC the system creates on PVE from a published version | Students only see their own or class-authorised resources |
 
-### 3.1 用語規則
+### 3.1 Terminology rules
 
-- 教師端可使用「母模板」、「環境模板」、「建立新版本」。
-- 學生端只能使用「公開練習環境」、「課程環境」、「啟動環境」、「進入環境」及「結束練習」。
-- 學生端不得使用「克隆」、「完整複製」、「連結複製」、「PVE 範本 ID」等基礎設施用語。
-- 「複製」只代表系統內部依環境版本建立機器，不是學生功能。
+- The teacher side may use "base template", "environment template" and "create new version".
+- The student side may only use "public practice environment", "course environment", "launch environment", "enter environment" and "end practice".
+- The student side must not use infrastructure terms such as "clone", "full clone", "linked clone" or "PVE template ID".
+- "Copy" only means the system creating machines internally from an environment version; it is not a student feature.
 
-## 四、角色與權限
+## 4. Roles and Permissions
 
-| 操作 | 管理員 | 教師 | 學生 |
+| Operation | Administrator | Teacher | Student |
 | --- | :---: | :---: | :---: |
-| 建立、轉換及維護單機母模板 | 是 | 依授權 | 否 |
-| 查看母模板技術資訊 | 是 | 依授權 | 否 |
-| 建立多機環境草稿 | 是 | 是 | 否 |
-| 編輯自己的草稿 | 是 | 是 | 否 |
-| 發布環境版本 | 是 | 是；高風險環境可要求審核 | 否 |
-| 建立環境新版本 | 是 | 是 | 否 |
-| 下架或封存環境 | 是 | 自己的環境 | 否 |
-| 啟動公開練習環境 | 可測試 | 可測試 | 是 |
-| 使用正式班級環境 | 依管理權限 | 依教學權限 | 僅自己的班級環境 |
-| 查看其他學生環境 | 是 | 僅授課班級 | 否 |
-| 直接呼叫單機模板 clone API | 管理用途 | 依授權 | 否 |
-| 以應用範本目錄申請單機 | 是 | 是 | 是；限已開放的範本，規格由範本決定並走一般審核 |
+| Create, convert and maintain single-machine base templates | Yes | If authorised | No |
+| View base template technical details | Yes | If authorised | No |
+| Create a multi-machine environment draft | Yes | Yes | No |
+| Edit own drafts | Yes | Yes | No |
+| Publish an environment version | Yes | Yes; high-risk environments may require review | No |
+| Create a new environment version | Yes | Yes | No |
+| Unpublish or archive an environment | Yes | Own environments | No |
+| Launch a public practice environment | For testing | For testing | Yes |
+| Use a formal class environment | Per management permission | Per teaching permission | Only own class environments |
+| View other students' environments | Yes | Only classes they teach | No |
+| Call the single-machine template clone API directly | Administrative use | If authorised | No |
+| Request a single machine from the application template catalog | Yes | Yes | Yes; limited to opened templates, specs decided by the template, goes through normal review |
 
-前端隱藏功能不算權限控制。所有限制必須由後端 API 再次驗證；未授權請求必須回傳 `403`，不存在或不可見資源依資訊揭露政策回傳 `404`。
+Hiding features in the frontend does not count as access control. Every restriction must be re-validated by the backend API; unauthorised requests must return `403`, and resources that do not exist or are not visible return `404` according to the information-disclosure policy.
 
-## 五、標準端到端流程
+## 5. Standard End-to-End Flow
 
 ```text
-管理員／教師準備單機母模板
+Administrator / teacher prepares a single-machine base template
           ↓
-教師建立多機環境草稿
+Teacher creates a multi-machine environment draft
           ↓
-加入機器、規格、角色、網路與拓撲
+Add machines, specifications, roles, network and topology
           ↓
-儲存 → 預覽 → 驗證 → 發布並鎖定版本
+Save → preview → validate → publish and lock the version
           ↓
      ┌────┴────┐
      ↓         ↓
-公開快速練習   正式班級套用
+Public quick practice   Applied to a formal class
      ↓         ↓
-學生自行啟動   班級審核與預建
+Students launch themselves   Class review and pre-provisioning
      └────┬────┘
           ↓
-學生以一個環境群組使用所有機器
+Students use all machines as one environment group
           ↓
-結束／到期／課程封存
+End / expiry / course archived
           ↓
-整組停止、刪除並釋放 IP、VMID 與容量
+Whole set stopped, deleted; IPs, VMIDs and capacity released
 ```
 
-## 六、SOP-A：準備單機母模板
+## 6. SOP-A: Preparing a Single-Machine Base Template
 
-### 6.1 執行角色
+### 6.1 Executing role
 
-主要執行者為管理員；教師只有在被授權時才可執行。
+The primary executor is the administrator; a teacher may do this only when authorised.
 
-### 6.2 前置條件
+### 6.2 Prerequisites
 
-- PVE 節點、儲存及網路正常。
-- 作業系統、授權及教學軟體來源合法。
-- 母機已完成安全更新及必要工具安裝。
-- 已確認 VM／LXC 類型、預設使用者及啟動方式。
+- PVE nodes, storage and network are healthy.
+- The operating system, licences and teaching software come from legitimate sources.
+- The base machine has had security updates and the required tools installed.
+- The VM / LXC type, default user and boot method have been confirmed.
 
-### 6.3 操作步驟
+### 6.3 Steps
 
-1. 建立或選擇已安裝完成的來源 VM／LXC。
-2. 移除個人資料、固定 SSH host key、暫存檔及不應被複製的憑證。
-3. 確認 cloud-init、網路、guest agent 或 LXC 啟動設定可正常產生新機器。
-4. 設定模板名稱、作業系統、資源類型、儲存位置及預設規格。
-5. 執行一次測試複製，確認可開機、取得 IP、登入及清理。
-6. 將模板標示為 `ready` 後，才允許教師引用。
+1. Create or select a fully installed source VM / LXC.
+2. Remove personal data, fixed SSH host keys, temporary files and credentials that must not be copied.
+3. Confirm that cloud-init, networking, the guest agent or the LXC boot settings can correctly produce a new machine.
+4. Set the template name, operating system, resource type, storage location and default specification.
+5. Run one test clone and confirm it boots, obtains an IP, can be logged into and can be cleaned up.
+6. Mark the template as `ready` before allowing teachers to reference it.
 
-### 6.4 完成條件
+### 6.4 Completion criteria
 
-- 模板狀態為 `ready`。
-- 測試機器可在允許時間內建立並開機。
-- 不包含測試帳號密碼、API key、學生資料或其他敏感資訊。
-- 已發布環境正在引用的母模板不得直接 hard delete；應先停用並完成引用盤點。
+- The template status is `ready`.
+- The test machine can be created and booted within the allowed time.
+- It contains no test account passwords, API keys, student data or other sensitive information.
+- A base template referenced by a published environment must not be hard-deleted directly; disable it first and complete a reference inventory.
 
-### 6.5 開放學生自行申請（選用）
+### 6.5 Opening the template to student self-service requests (optional)
 
-需要讓學生自己申請一台已裝好的應用環境（例如 n8n、Jupyter）時，才勾選「開放學生自行申請」：
+Tick "Allow students to request" only when students should be able to request one pre-installed application environment themselves (for example n8n or Jupyter):
 
-- 只有 `ready` 且勾選的範本會出現在學生申請表單的「應用範本」分組（`GET /templates/catalog`）。
-- 申請一律是單台。範本只決定來源與型別（VM／LXC），CPU 與記憶體由申請者自訂，個人配額照常把關；磁碟會自動提高到不小於範本本身的大小（克隆只能放大）。
-- 申請仍走一般審核流程，不會自動核准，也一併計入個人配額。
-- 未勾選的母模板不會出現在學生的任何清單：`GET /vm/templates` 對非教師只回傳未註冊的基礎映像。
-- 建立當下由後端再次驗證範本存在、`ready` 與開放旗標；前端清單過濾不算權限控制。
+- Only templates that are `ready` and ticked appear in the "Application templates" group of the student request form (`GET /templates/catalog`).
+- Requests are always for a single machine. The template only decides the source and type (VM / LXC); CPU and memory are chosen by the requester and the personal quota applies as usual; disk is automatically raised to no less than the template's own size (a clone can only grow).
+- The request still goes through the normal review flow, is never auto-approved, and counts towards the personal quota.
+- Base templates that are not ticked never appear in any student list: `GET /vm/templates` returns only unregistered base images to non-teachers.
+- At creation time the backend re-validates that the template exists, is `ready` and has the open flag; frontend list filtering does not count as access control.
 
-## 七、SOP-B：教師建構多機教學環境
+## 7. SOP-B: Teacher Builds a Multi-Machine Teaching Environment
 
-### 7.1 入口
+### 7.1 Entry point
 
-教師進入「多機環境模板」並選擇「建立多機環境」。
+The teacher opens "Multi-machine environment templates" and selects "Create multi-machine environment".
 
-### 7.2 填寫基本資料
+### 7.2 Fill in basic information
 
-教師必須填寫：
+The teacher must fill in:
 
-- 環境名稱：使用學生能理解的名稱。
-- 環境說明：描述用途、先備知識及預期成果。
-- 提供方式：
-  - `course`：只用於正式課程。
-  - `quick_practice`：只用於快速練習。
-  - `both`：兩者均可使用。
-- 同時最多幾組（選填）：整個環境的並行 Session 上限，留空代表不限，仍受每位學生「同時 1 組、24 小時 3 組」的限制。
-- 學生可見對象（提供方式含快速練習時必填）：
-  - `class`：只有指定班級的在籍學生看得到，須至少選一個自己的班級。
-  - `campus`：所有登入者都看得到。
-  - `owner`：先不開放，只有建立者看得到，可用於發布前自行確認。
+- Environment name: use a name students can understand.
+- Environment description: describe the purpose, prerequisites and expected outcome.
+- Availability:
+  - `course`: used only for formal courses.
+  - `quick_practice`: used only for quick practice.
+  - `both`: usable for both.
+- Maximum concurrent sessions (optional): the cap on parallel sessions for the whole environment; leave blank for unlimited. The per-student limit of "1 concurrent, 3 per 24 hours" still applies.
+- Student audience (required when availability includes quick practice):
+  - `class`: only enrolled students of the specified classes can see it; at least one of the teacher's own classes must be selected.
+  - `campus`: every signed-in user can see it.
+  - `owner`: not open yet; only the creator can see it, useful for self-verification before publishing.
 
-### 7.3 加入機器
+### 7.3 Add machines
 
-1. 加入一至三台 VM／LXC。
-2. 每台機器選擇一個已就緒母模板或允許的基礎映像。
-3. 設定機器名稱及角色，例如「Web」、「Database」、「Client」。
-4. 設定固定 CPU、RAM、Disk 及網路。
-5. 確認整組資源合計符合平台及學生配額政策。
+1. Add one to three VMs / LXCs.
+2. For each machine, choose a ready base template or an allowed base image.
+3. Set the machine name and role, for example "Web", "Database", "Client".
+4. Set fixed CPU, RAM, disk and network.
+5. Confirm that the total resources of the set comply with the platform and student quota policies.
 
-學生啟動時不得修改上述項目。
+Students must not be able to modify any of the above at launch time.
 
-### 7.4 設定拓撲
+### 7.4 Configure the topology
 
-教師依教學需求設定機器連線：
+The teacher configures machine connections according to the teaching needs:
 
-- 來源機器與目標機器。
-- 單向或雙向。
-- 通訊協定。
-- Port；協定為 `any` 時不指定 Port。
+- Source machine and target machine.
+- One-way or two-way.
+- Protocol.
+- Port; no port is specified when the protocol is `any`.
 
-系統必須阻擋：
+The system must block:
 
-- 來源與目標為同一台機器。
-- 指向不存在的節點。
-- 重複連線。
-- 無效 Port 或協定。
-- 無法由平台實際套用的網路設定。
+- Source and target being the same machine.
+- Links pointing to a node that does not exist.
+- Duplicate connections.
+- Invalid ports or protocols.
+- Network settings the platform cannot actually apply.
 
-### 7.5 下架與刪除
+### 7.5 Unpublishing and deletion
 
-- 下架（`POST /course-environments/{id}/retire`）把所有已發布版本轉為 `retired`：學生清單與班級可選清單立刻看不到，既有 Session 與班級照原期限走完。需要重新開放時建立新版本再發布。
-- 刪除（`DELETE /course-environments/{id}`）只允許沒有任何班級與練習紀錄引用的環境；有引用一律拒絕並要求改用下架。
-- 母模板刪除前會盤點多機環境引用（含草稿與已下架版本），有引用時拒絕刪除。
+- Unpublishing (`POST /course-environments/{id}/retire`) switches all published versions to `retired`: the environment disappears immediately from student lists and from the class selection list, while existing sessions and classes run to their original deadlines. To reopen it, create a new version and publish it.
+- Deletion (`DELETE /course-environments/{id}`) is allowed only for environments with no class or practice records referencing them; any reference causes a rejection with a request to unpublish instead.
+- Before a base template is deleted, the system inventories multi-machine environment references (including drafts and retired versions) and refuses deletion if any exist.
 
-### 7.6 儲存草稿
+### 7.6 Save a draft
 
-- 草稿可重複編輯。
-- 草稿不對學生顯示，也不可套用到正式班級。
-- 教師可在發布前進行測試部署；測試資源不得被視為學生環境。
+- A draft can be edited repeatedly.
+- A draft is not shown to students and cannot be applied to a formal class.
+- A teacher may run a test deployment before publishing; test resources must not be treated as student environments.
 
-### 7.7 建構完成檢核
+### 7.7 Build completion checklist
 
-- [ ] 名稱及說明完整。
-- [ ] 提供方式正確。
-- [ ] 快速練習的可見對象正確；指定班級時名單無誤。
-- [ ] 已依叢集容量評估是否要設定同時上限。
-- [ ] 每台機器都有來源、角色與固定規格。
-- [ ] 機器數量為一至三台。
-- [ ] 所有母模板均為 `ready`。
-- [ ] 拓撲沒有孤立錯誤、重複連線或無效 Port。
-- [ ] 整組 CPU、RAM、Disk、IP 與機器數量在允許範圍。
-- [ ] 不含密碼、token 或個人資料。
+- [ ] Name and description are complete.
+- [ ] Availability is correct.
+- [ ] The quick-practice audience is correct; when classes are specified, the list is accurate.
+- [ ] Whether to set a concurrency cap has been assessed against cluster capacity.
+- [ ] Every machine has a source, a role and fixed specifications.
+- [ ] The machine count is between one and three.
+- [ ] All base templates are `ready`.
+- [ ] The topology has no orphan errors, duplicate connections or invalid ports.
+- [ ] Total CPU, RAM, disk, IPs and machine count are within the allowed range.
+- [ ] No passwords, tokens or personal data are included.
 
-## 八、SOP-C：教師發布及公開環境
+## 8. SOP-C: Teacher Publishes and Opens the Environment
 
-### 8.1 發布前驗證
+### 8.1 Pre-publish validation
 
-系統必須重新執行伺服器端驗證，不得只信任前端：
+The system must re-run server-side validation and must not trust the frontend alone:
 
-1. 教師擁有或有權管理該環境。
-2. 最新版本仍為草稿。
-3. 所有節點及來源模板有效。
-4. 規格與拓撲合法。
-5. 容量及安全政策允許發布。
-6. 高風險能力若超過教師權限，已完成管理員審核。
+1. The teacher owns or has the right to manage the environment.
+2. The latest version is still a draft.
+3. All nodes and source templates are valid.
+4. Specifications and topology are legal.
+5. Capacity and security policies allow publishing.
+6. If high-risk capabilities exceed the teacher's authority, administrator review has been completed.
 
-高風險能力至少包含 GPU、特權 LXC、公開連接埠、高資源規格及高權限啟動腳本。
+High-risk capabilities include at least GPUs, privileged LXCs, public ports, high resource specifications and high-privilege startup scripts.
 
-### 8.2 公開範圍
+### 8.2 Audience
 
-發布時必須分開設定「提供方式」及「可見對象」：
+When publishing, "availability" and "audience" must be set separately:
 
-| 可見對象 | 定義 | 現況 |
+| Audience | Definition | Status |
 | --- | --- | --- |
-| `owner` | 僅建立者與管理員可測試 | 已實作 |
-| `class` | 僅指定正式班級的在籍學生 | 已實作，新環境的預設值 |
-| `campus` | 全體已登入使用者 | 已實作 |
-| `users` | 僅指定學生 | 尚未實作 |
-| `system` | 系統管理員維護的全平台環境 | 尚未實作 |
+| `owner` | Only the creator and administrators can test | Implemented |
+| `class` | Only enrolled students of the specified formal classes | Implemented; the default for new environments |
+| `campus` | All signed-in users | Implemented |
+| `users` | Only specified students | Not yet implemented |
+| `system` | Platform-wide environments maintained by system administrators | Not yet implemented |
 
-`class` 只認狀態為 `active` 的班級名單；退選學生會立即失去可見性。清單與啟動 API 都會重新驗證可見對象，且對不可見的環境一律回 404，不得洩漏環境是否存在。選 `campus` 時，發布畫面必須明確警告「全體已登入學生皆可看見並啟動」。
+`class` only honours the rosters of classes whose status is `active`; students who drop a class lose visibility immediately. Both the list and the launch API re-validate the audience, and always return 404 for environments that are not visible, never revealing whether the environment exists. When `campus` is selected, the publish screen must warn explicitly that "every signed-in student can see and launch this".
 
-本次改版前既有的環境一律沿用 `campus` 以免既有練習消失，教師應逐一改為正確對象。
+Environments that existed before this revision keep `campus` so that existing practice does not disappear; teachers should change each one to the correct audience.
 
-### 8.3 發布動作
+### 8.3 Publish action
 
-1. 教師查看發布摘要，包括機器數、整組規格、拓撲、期限及可見對象。
-2. 教師按「發布並鎖定」。
-3. 系統建立 configuration hash、記錄發布者及發布時間。
-4. 版本狀態由 `draft` 變為 `published`。
-5. 已發布版本永久不可直接修改。
+1. The teacher reviews the publish summary, including machine count, total specifications, topology, deadline and audience.
+2. The teacher clicks "Publish and lock".
+3. The system creates a configuration hash and records the publisher and publish time.
+4. The version status changes from `draft` to `published`.
+5. A published version can never be modified directly.
 
-### 8.4 發布結果
+### 8.4 Publish result
 
-- `course`：出現在教師的正式班級環境選擇清單。
-- `quick_practice`：出現在符合可見範圍的學生公開練習清單。
-- `both`：同時出現在以上兩處。
+- `course`: appears in the teacher's environment selection list for formal classes.
+- `quick_practice`: appears in the public practice list of students who match the audience.
+- `both`: appears in both places.
 
-### 8.5 修改、下架與封存
+### 8.5 Modifying, unpublishing and archiving
 
-- 修改已發布內容時，必須從既有版本建立新草稿版本。
-- 舊版本繼續服務已綁定班級及既有 Session，不得被新版本覆蓋。
-- 下架只阻止新啟動，不得立即刪除學生正在使用的環境。
-- 封存前必須確認沒有進行中的 Session、班級引用或待處理資源。
-- 母模板或環境刪除一律先做引用檢查，預設採 soft delete／retired。
+- To modify published content, a new draft version must be created from the existing version.
+- The old version keeps serving bound classes and existing sessions and must not be overwritten by the new version.
+- Unpublishing only blocks new launches; it must not immediately delete environments students are using.
+- Before archiving, confirm there are no in-progress sessions, class references or pending resources.
+- Deleting a base template or an environment always starts with a reference check; the default is soft delete / retired.
 
-## 九、SOP-D：學生使用公開練習環境
+## 9. SOP-D: Students Use a Public Practice Environment
 
-### 9.1 學生可見內容
+### 9.1 What students see
 
-學生首頁的「快速練習環境」只顯示：
+The "Quick practice environments" section on the student home page shows only:
 
-- 環境名稱與說明。
-- 機器數量、名稱及角色。
-- 整組 CPU、RAM 與 Disk 摘要。
-- 使用期限。
-- 可用、建立中、額滿或暫停狀態。
+- Environment name and description.
+- Machine count, names and roles.
+- A summary of total CPU, RAM and disk.
+- Usage period.
+- Status: available, creating, full or paused.
 
-不得顯示來源母模板 ID、PVE 節點選擇、複製模式、管理用儲存名稱或母模板操作。
+It must not show the source base template ID, PVE node selection, clone mode, administrative storage names or base template operations.
 
-### 9.2 啟動步驟
+### 9.2 Launch steps
 
-1. 學生登入首頁。
-2. 選擇一個可用的公開練習環境。
-3. 查看固定機器組合、使用期限及資料回收提醒。
-4. 按「啟動環境」。學生送出的必要參數只有環境 ID。
-5. 系統鎖定使用者啟動流程，防止重複點擊。
-6. 系統重新驗證發布狀態、用途、可見對象、個人限制及整組配額。
-7. 系統一次預留整組容量、IP、VMID 與必要網路資源。
-8. 系統建立一筆 Session，並依固定版本建立所有機器。
-9. 所有機器完成後，系統套用拓撲並執行健康檢查。
-10. Session 狀態為 `ready` 後，學生由「我的環境」進入使用。
+1. The student signs in to the home page.
+2. The student selects an available public practice environment.
+3. The student reviews the fixed machine set, usage period and data reclamation notice.
+4. The student clicks "Launch environment". The only required parameter the student submits is the environment ID.
+5. The system locks the user's launch flow to prevent duplicate clicks.
+6. The system re-validates the publish status, usage, audience, personal limits and total quota.
+7. The system reserves the full set of capacity, IPs, VMIDs and required network resources in one step.
+8. The system creates one session and creates all machines from the fixed version.
+9. After all machines are complete, the system applies the topology and runs health checks.
+10. Once the session status is `ready`, the student enters from "My environments".
 
-### 9.3 系統強制規則
+### 9.3 Rules enforced by the system
 
-- 學生不可修改機器數、類型、CPU、RAM、Disk、來源映像與期限。
-- 同一位學生同時最多一組公開快速練習環境。
-- 同一位學生滾動 24 小時內最多建立三組。
-- 練習時間取自系統 `practice_session_hours`，目前預設三小時。
-- 快速練習不得自行延長；若未來允許，必須另建明確政策。
-- 限制以 Session 計算；三台機器仍只算一次練習。
+- Students cannot change the machine count, type, CPU, RAM, disk, source image or deadline.
+- One student may have at most one public quick practice environment at a time.
+- One student may create at most three sets within a rolling 24-hour window.
+- The practice duration comes from the system setting `practice_session_hours`, currently defaulting to three hours.
+- Quick practice cannot be extended by the student; if this is allowed in future, a separate explicit policy must be created.
+- Limits are counted per session; three machines still count as one practice.
 
-### 9.4 使用方式
+### 9.4 How it is used
 
-- 「我的環境」以一個父層環境群組呈現。
-- 展開後顯示各台機器名稱、角色、狀態、IP、終端機或控制台入口。
-- 學生可依授權啟動、正常關機及開啟自己的機器。
-- 逐台操作不得破壞 Session 的固定期限與整組回收規則。
-- 建議提供「整組啟動」、「整組停止」及「結束練習」的專用 Session 操作。
+- "My environments" presents one parent environment group.
+- Expanding it shows each machine's name, role, status, IP and terminal or console entry.
+- Students may start, shut down normally and open their own machines as authorised.
+- Per-machine operations must not break the session's fixed deadline or the whole-set reclamation rules.
+- Dedicated session operations "Start all", "Stop all" and "End practice" are recommended.
 
-### 9.5 就緒標準
+### 9.5 Readiness criteria
 
-只有同時符合以下條件，才可向學生顯示「環境已就緒」：
+"Environment ready" may be shown to the student only when all of the following hold:
 
-- 所有機器建立完成。
-- 所有必要機器取得 IP。
-- 拓撲及防火牆規則已套用。
-- 必要的機器間連線測試通過。
-- 學生具有自己的終端機／控制台權限。
+- All machines have been created.
+- All required machines have obtained an IP.
+- Topology and firewall rules have been applied.
+- The required inter-machine connectivity tests pass.
+- The student has terminal / console permission on their own machines.
 
-## 十、SOP-E：正式班級環境
+## 10. SOP-E: Formal Class Environments
 
-### 10.1 教師設定班級
+### 10.1 Teacher sets up the class
 
-1. 建立班級及課表。
-2. 加入已存在的學生帳號。
-3. 選擇用途為 `course` 或 `both` 的已發布固定版本。
-4. 系統計算「學生人數 × 每位學生的完整機器組合」。
-5. 系統預檢 CPU、RAM、Disk、IP、VMID、節點與時間窗容量。
-6. 教師確認並送出建機。
-7. 班級進入管理員審核或平台核准流程。
+1. Create the class and its timetable.
+2. Add existing student accounts.
+3. Select a published, fixed version whose usage is `course` or `both`.
+4. The system calculates "number of students × one full machine set per student".
+5. The system pre-checks CPU, RAM, disk, IP, VMID, node and time-window capacity.
+6. The teacher confirms and submits provisioning.
+7. The class enters administrator review or the platform approval flow.
 
-### 10.2 系統建機
+### 10.2 System provisioning
 
-1. 為每位學生建立獨立的環境群組。
-2. 每位學生取得相同發布版本的機器、規格與拓撲。
-3. 套用每位學生專屬的 IP 與隔離規則。
-4. 套用環境版本中的所有 topology edges。
-5. 全部成功後班級進入 `active`。
-6. 部分失敗時進入 `partial_failed`，不得誤顯示為已完成。
+1. An independent environment group is created for each student.
+2. Each student receives machines, specifications and topology from the same published version.
+3. Each student's dedicated IPs and isolation rules are applied.
+4. All topology edges in the environment version are applied.
+5. When everything succeeds, the class becomes `active`.
+6. On partial failure the class becomes `partial_failed` and must not be shown as completed.
 
-### 10.3 學生使用
+### 10.3 Student use
 
-- 學生只看到自己班級與自己名下的機器。
-- 學生從「我的課程」或「我的環境」進入，不經過模板清單。
-- 學生不可更換環境版本、增加機器或修改固定規格。
-- 是否可在課堂時段外啟動、停止或延長，由班級及平台政策決定。
+- Students only see their own class and the machines under their own name.
+- Students enter from "My courses" or "My environments", never through the template list.
+- Students cannot switch environment versions, add machines or modify fixed specifications.
+- Whether machines can be started, stopped or extended outside class hours is decided by class and platform policy.
 
-### 10.4 班級結束
+### 10.4 Class end
 
-- 教師封存班級前，系統顯示仍在執行的機器及資料影響。
-- 依保存政策先通知學生匯出成果。
-- 到達保留期限後，系統整批停止與刪除班級資源。
-- 完成資源釋放後，班級才可標示為已完整封存。
+- Before a teacher archives a class, the system shows the machines still running and the data impact.
+- Students are notified to export their work first, according to the retention policy.
+- When the retention period ends, the system stops and deletes the class resources in bulk.
+- The class may be marked as fully archived only after resource release is complete.
 
-## 十一、Session 狀態與失敗處理
+## 11. Session States and Failure Handling
 
-### 11.1 目標狀態機
+### 11.1 Target state machine
 
 ```text
 creating → ready → stopping → reclaiming → reclaimed
@@ -373,210 +375,210 @@ creating → ready → stopping → reclaiming → reclaimed
                     └→ reclaiming
 ```
 
-| 狀態 | 意義 | 學生介面 |
+| State | Meaning | Student UI |
 | --- | --- | --- |
-| `creating` | 正在預留與建立整組機器 | 顯示進度，不可重複啟動 |
-| `ready` | 所有機器與拓撲已完成 | 可進入環境 |
-| `partial_failed` | 至少一台失敗或拓撲未完成 | 顯示正在處理，不得宣稱可正常使用 |
-| `repairing` | 系統冪等補建失敗節點 | 顯示修復中 |
-| `stopping` | 到期或使用者結束，正在正常關機 | 停用新操作 |
-| `reclaiming` | 正在刪除整組資源 | 顯示回收中 |
-| `reclaimed` | 機器、IP、VMID 與 reservation 已釋放 | 從進行中清單移除，可保留稽核摘要 |
+| `creating` | Reserving and creating the full machine set | Show progress; relaunch not allowed |
+| `ready` | All machines and topology complete | Can enter the environment |
+| `partial_failed` | At least one machine failed or the topology is incomplete | Show "being processed"; must not claim it is usable |
+| `repairing` | The system is idempotently rebuilding failed nodes | Show "repairing" |
+| `stopping` | Expired or ended by the user; shutting down normally | New operations disabled |
+| `reclaiming` | Deleting the full resource set | Show "reclaiming" |
+| `reclaimed` | Machines, IPs, VMIDs and reservations released | Removed from the in-progress list; an audit summary may be kept |
 
-### 11.2 全有或全無原則
+### 11.2 All-or-nothing principle
 
-- DB 中的 Session 與所有 machine request 必須在同一交易建立。
-- PVE 建機使用每台機器的 idempotency key，重試不得建立重複 VM。
-- 啟動前必須一次預留整組資源，任一資源不足即不開始建機。
-- 部分失敗優先只補建失敗節點。
-- 無法在政策時間內修復時，系統必須整組回收並釋放所有 reservation。
-- 不得讓學生自行處理殘缺的多機環境。
+- The session and all its machine requests must be created in the same DB transaction.
+- PVE provisioning uses a per-machine idempotency key; retries must not create duplicate VMs.
+- The full resource set must be reserved in one step before launch; if any resource is insufficient, provisioning does not start.
+- On partial failure, prefer rebuilding only the failed nodes.
+- If repair cannot complete within the policy time, the system must reclaim the whole set and release all reservations.
+- Students must never be left to deal with an incomplete multi-machine environment themselves.
 
-### 11.3 使用者訊息
+### 11.3 User messages
 
-錯誤訊息必須告訴學生下一步，但不得暴露 PVE 憑證、內部位址、堆疊或敏感錯誤。例如：
+Error messages must tell students what to do next, but must not expose PVE credentials, internal addresses, stack traces or sensitive errors. For example:
 
-- 容量不足：「目前可用容量不足，尚未建立任何機器，請稍後再試。」
-- 建立失敗：「環境建立未完成，系統正在修復；你的使用次數不會重複計算。」
-- 修復失敗：「環境無法完成，系統已回收資源；本次不計入使用上限。」
+- Insufficient capacity: "There is not enough capacity available right now. No machines were created; please try again later."
+- Creation failed: "The environment was not fully created and the system is repairing it; your usage count will not be charged twice."
+- Repair failed: "The environment could not be completed and the system has reclaimed its resources; this attempt does not count towards your usage limit."
 
-## 十二、到期、結束與資源回收
+## 12. Expiry, End and Resource Reclamation
 
-### 12.1 公開快速練習
+### 12.1 Public quick practice
 
-標準流程：
+Standard flow:
 
 ```text
-到期前提醒
-→ expires_at 到達
-→ 整組正常關機
-→ 15～30 分鐘回收緩衝
-→ 刪除全部 VM／LXC
-→ 移除拓撲與防火牆規則
-→ 釋放 IP、VMID、容量 reservation
+Reminder before expiry
+→ expires_at reached
+→ Whole set shut down normally
+→ 15–30 minute reclamation buffer
+→ Delete all VMs / LXCs
+→ Remove topology and firewall rules
+→ Release IPs, VMIDs and capacity reservations
 → Session = reclaimed
 ```
 
-- 學生主動按「結束練習」時，必須明確提示資料會被刪除。
-- 到期回收以整組為單位，不得只刪除其中一台。
-- 回收工作必須可重試且具冪等性。
-- 任一資源刪除失敗時保留錯誤紀錄並交由維運重試。
+- When a student clicks "End practice", the system must state clearly that data will be deleted.
+- Expiry reclamation is done for the whole set; deleting only one machine is not allowed.
+- Reclamation jobs must be retryable and idempotent.
+- If any resource deletion fails, keep the error record and hand it to operations for retry.
 
-### 12.2 正式班級
+### 12.2 Formal classes
 
-- 依課表關機與班級資料保存政策執行。
-- 課堂暫停不等同刪除；不得因單次下課刪除學生長期成果。
-- 班級封存或保留期結束後才執行最終整組回收。
+- Follow the timetable shutdown and the class data retention policy.
+- A class pause is not deletion; a student's long-term work must not be deleted because one lesson ended.
+- Final whole-set reclamation happens only after the class is archived or the retention period ends.
 
-## 十三、教師公開、下架及版本治理規則
+## 13. Teacher Publishing, Unpublishing and Version Governance Rules
 
-1. 發布版本不可覆寫。
-2. 新版本只影響後續新 Session 或新班級；既有使用者維持原版本。
-3. 下架後不可再建立新 Session，但既有 Session 可用至到期，除非管理員因安全事件強制停止。
-4. 發現重大弱點時，管理員可緊急停用，並記錄原因、操作者與影響範圍。
-5. 退役母模板前，必須列出所有引用環境與版本。
-6. 已發布、被班級引用或仍有 Session 的版本不得 hard delete。
-7. 教師只能管理自己建立的環境；管理員可治理全部環境。
+1. A published version cannot be overwritten.
+2. A new version affects only subsequent new sessions or new classes; existing users stay on their original version.
+3. After unpublishing, no new sessions can be created, but existing sessions may be used until they expire unless an administrator force-stops them due to a security incident.
+4. When a serious vulnerability is found, an administrator may disable the environment urgently and must record the reason, the operator and the scope of impact.
+5. Before retiring a base template, all referencing environments and versions must be listed.
+6. Versions that are published, referenced by a class or still have sessions must not be hard-deleted.
+7. Teachers may manage only the environments they created; administrators may govern all environments.
 
-## 十四、安全、隱私與稽核
+## 14. Security, Privacy and Auditing
 
-### 14.1 必要權限限制
+### 14.1 Required permission restrictions
 
-- 學生不可進入 `/templates` 的母模板管理與 clone 功能。
-- `/api/v1/templates/{template_id}/clone` 必須限制為管理員／被授權教師。
-- `/course-template-management` 及相關建立、編輯路由必須有教師端 route guard；後端仍需驗證 `InstructorUser`。
-- 學生只能取得自己的 Session、Request、Resource 與連線憑證。
-- 教師只能查看授課班級學生環境，且所有查看與控制操作都需稽核。
+- Students must not access the base template management and clone features under `/templates`.
+- `/api/v1/templates/{template_id}/clone` must be restricted to administrators / authorised teachers.
+- `/course-template-management` and the related create / edit routes must have a teacher-side route guard; the backend must still validate `InstructorUser`.
+- Students may only obtain their own sessions, requests, resources and connection credentials.
+- Teachers may only view student environments in the classes they teach, and every view and control operation must be audited.
 
-### 14.2 稽核事件
+### 14.2 Audit events
 
-至少記錄：
+Record at least:
 
-- 母模板建立、狀態變更與退役。
-- 環境草稿建立、更新、發布、下架與建立新版。
-- 發布者、發布時間、版本及 configuration hash。
-- 學生 Session 啟動、就緒、失敗、結束、到期及回收。
-- 管理員強制停止、修復與刪除。
-- 教師或管理員開啟學生終端機／控制台的行為。
+- Base template creation, status changes and retirement.
+- Environment draft creation, update, publish, unpublish and new version creation.
+- Publisher, publish time, version and configuration hash.
+- Student session launch, ready, failure, end, expiry and reclamation.
+- Administrator force-stop, repair and deletion.
+- Teachers or administrators opening a student's terminal / console.
 
-## 十五、UI 與 API 對應
+## 15. UI and API Mapping
 
-### 15.1 教師端
+### 15.1 Teacher side
 
-| 工作 | UI 路由 | 現有 API |
+| Task | UI route | Existing API |
 | --- | --- | --- |
-| 多機環境清單 | `/course-template-management` | `GET /api/v1/course-environments` |
-| 建立環境 | `/course-template-management/new` | `POST /api/v1/course-environments` |
-| 更新草稿 | `/course-template-management/{id}` | `PUT /api/v1/course-environments/{id}` |
-| 發布並鎖定 | 同上 | `POST /api/v1/course-environments/{id}/publish` |
-| 建立新版 | 同上 | `POST /api/v1/course-environments/{id}/versions` |
-| 取得正式課程可用版本 | 班級設定 | `GET /api/v1/course-environments/published` |
+| Multi-machine environment list | `/course-template-management` | `GET /api/v1/course-environments` |
+| Create environment | `/course-template-management/new` | `POST /api/v1/course-environments` |
+| Update draft | `/course-template-management/{id}` | `PUT /api/v1/course-environments/{id}` |
+| Publish and lock | Same as above | `POST /api/v1/course-environments/{id}/publish` |
+| Create new version | Same as above | `POST /api/v1/course-environments/{id}/versions` |
+| Fetch versions available to formal courses | Class settings | `GET /api/v1/course-environments/published` |
 
-### 15.2 學生端
+### 15.2 Student side
 
-| 工作 | UI 路由 | 現有 API |
+| Task | UI route | Existing API |
 | --- | --- | --- |
-| 瀏覽公開練習環境 | `/dashboard` | `GET /api/v1/quick-practice/templates` |
-| 查看環境內容 | `/quick-template/{id}` | `GET /api/v1/quick-practice/templates/{id}` |
-| 啟動整組環境 | 同上 | `POST /api/v1/quick-practice/templates/{id}/launch` |
-| 查看自己的 Session | `/my-resources` | `GET /api/v1/quick-practice/sessions/my` |
+| Browse public practice environments | `/dashboard` | `GET /api/v1/quick-practice/templates` |
+| View environment details | `/quick-template/{id}` | `GET /api/v1/quick-practice/templates/{id}` |
+| Launch the full environment | Same as above | `POST /api/v1/quick-practice/templates/{id}/launch` |
+| View own sessions | `/my-resources` | `GET /api/v1/quick-practice/sessions/my` |
 
-學生端未來路由及文案可將 `quick-template` 改名為 `practice-environment`；改名前也不得把它解釋成學生複製模板。
+Future student-side routes and copy may rename `quick-template` to `practice-environment`; even before the rename it must not be presented as students cloning a template.
 
-## 十六、驗收標準
+## 16. Acceptance Criteria
 
-### 16.1 權限驗收
+### 16.1 Permission acceptance
 
-- [ ] 學生 Sidebar 不顯示「機器範本」與「多機環境模板」。
-- [ ] 學生直接輸入上述管理路由會被導回或顯示無權限。
-- [ ] 學生呼叫單機 clone API 回傳 `403`。
-- [ ] 學生無法看到其他學生或不符合 audience 的環境及 Session。
-- [ ] 教師無法編輯其他教師的環境。
+- [ ] The student sidebar does not show "Machine templates" or "Multi-machine environment templates".
+- [ ] A student typing the management routes above directly is redirected or shown "no permission".
+- [ ] A student calling the single-machine clone API receives `403`.
+- [ ] Students cannot see other students' environments and sessions, or environments outside their audience.
+- [ ] Teachers cannot edit other teachers' environments.
 
-### 16.2 教師建構與發布驗收
+### 16.2 Teacher build and publish acceptance
 
-- [ ] 可建立一至三台機器的環境草稿。
-- [ ] 無效母模板、節點、拓撲及 Port 會被後端拒絕。
-- [ ] 發布後版本不可修改。
-- [ ] 建立新版不影響既有班級與 Session。
-- [ ] `usage_scope` 能正確隔離正式班級與快速練習清單。
-- [ ] 發布前能看見完整資源、期限及可見對象摘要。
+- [ ] An environment draft with one to three machines can be created.
+- [ ] Invalid base templates, nodes, topologies and ports are rejected by the backend.
+- [ ] A version cannot be modified after publishing.
+- [ ] Creating a new version does not affect existing classes and sessions.
+- [ ] `usage_scope` correctly separates the formal class list from the quick practice list.
+- [ ] A complete summary of resources, deadline and audience is visible before publishing.
 
-### 16.3 公開練習驗收
+### 16.3 Public practice acceptance
 
-- [ ] 學生只提交環境 ID 即可啟動整組環境。
-- [ ] 篡改前端不能更改規格、數量、來源模板與期限。
-- [ ] 多台機器只計一次 Session。
-- [ ] 重複點擊不會建立重複 Session 或機器。
-- [ ] 配額或容量不足時不建立任何機器。
-- [ ] 所有機器及拓撲完成後才顯示 ready。
-- [ ] 任一機器失敗時可補建，或自動整組回收。
-- [ ] 到期後整組刪除並釋放全部資源。
+- [ ] A student can launch the full environment by submitting only the environment ID.
+- [ ] Tampering with the frontend cannot change specifications, count, source template or deadline.
+- [ ] Multiple machines count as a single session.
+- [ ] Duplicate clicks do not create duplicate sessions or machines.
+- [ ] No machines are created when quota or capacity is insufficient.
+- [ ] `ready` is shown only after all machines and the topology are complete.
+- [ ] When any machine fails, it can be rebuilt or the whole set is reclaimed automatically.
+- [ ] After expiry the whole set is deleted and all resources are released.
 
-### 16.4 正式班級驗收
+### 16.4 Formal class acceptance
 
-- [ ] 只能選擇用途為 `course`／`both` 的已發布版本。
-- [ ] 每位學生取得獨立且相同規格的完整機器組。
-- [ ] 每位學生的 topology edges 實際套用成功。
-- [ ] 學生只能操作自己的班級環境。
-- [ ] 部分失敗班級進入 `partial_failed`，修復後才能進入 `active`。
-- [ ] 班級封存依保存政策回收資源。
+- [ ] Only published versions whose usage is `course` / `both` can be selected.
+- [ ] Each student receives an independent, identically specified full machine set.
+- [ ] Each student's topology edges are actually applied successfully.
+- [ ] Students can operate only their own class environment.
+- [ ] A partially failed class enters `partial_failed` and can become `active` only after repair.
+- [ ] Class archiving reclaims resources according to the retention policy.
 
-## 十七、現況差異與實作優先序
+## 17. Current Gaps and Implementation Priority
 
-本節記錄 2026-08-31 程式現況與本 SOP 的差距，不降低前述規範要求。
+This section records the gaps between the code as of 2026-08-31 and this SOP; it does not lower the requirements above.
 
-### P0：2026-08-31 已完成基線
+### P0: Baseline completed on 2026-08-31
 
-| 項目 | 完成內容 |
+| Item | What was completed |
 | --- | --- |
-| 關閉學生單機模板克隆 | 學生導覽與路由不再提供母模板；模板清單、附件與 clone API 限教師／管理員；clone service 再次驗證權限 |
-| 快速練習多機拓撲 | 全部機器完成後才依發布版本 edges 套用防火牆拓撲；未完成前 Session 不進入 ready |
-| 整組 IP 與請求交易 | 啟動前一次預留所有具體 IP；Session、machine requests 與 reservations 使用同一 DB 交易 |
-| 部分失敗補償 | 建機失敗會回收已成功的同組機器；拓撲可週期重試，超過十五分鐘仍失敗則整組回收 |
-| 到期整組回收 | 到期先由既有排程關機，三十分鐘緩衝後經冪等刪除佇列移除 VM／LXC 並釋放 IP 與資料庫資源 |
-| 教師管理路由 guard | `/templates`、多機環境與班級管理路由均限制教師／管理員，後端 API 同步驗證 |
+| Student single-machine template cloning closed | Student navigation and routes no longer offer base templates; template lists, attachments and the clone API are limited to teachers / administrators; the clone service re-validates permissions |
+| Quick practice multi-machine topology | The firewall topology is applied from the published version's edges only after all machines are complete; the session does not become ready before that |
+| Whole-set IP and request transaction | All concrete IPs are reserved in one step before launch; the session, machine requests and reservations use the same DB transaction |
+| Partial failure compensation | A failed provisioning reclaims the machines of the same set that already succeeded; topology can be retried periodically, and if it still fails after fifteen minutes the whole set is reclaimed |
+| Whole-set reclamation on expiry | On expiry the existing scheduler shuts the machines down first; after a thirty-minute buffer the idempotent deletion queue removes the VMs / LXCs and releases IPs and database resources |
+| Teacher management route guard | `/templates`, multi-machine environment and class management routes are restricted to teachers / administrators, and the backend API validates in step |
 
-正式 PVE 上線前仍必須完成實機 E2E：確認每一種 VM／LXC 組合在套用規則後，可通過環境定義要求的實際服務連線測試。現階段 `ready` 代表所有機器建立完成且防火牆拓撲 API 套用成功，尚未從 guest 內主動執行應用層 health check。
+Before going live on production PVE, real-machine E2E must still be completed: confirm that every VM / LXC combination passes the actual service connectivity tests required by the environment definition after rules are applied. At this stage `ready` means all machines have been created and the firewall topology API was applied successfully; no application-level health check is yet run actively from inside the guest.
 
-### P1：發布治理
+### P1: Publishing governance
 
-| 差異 | 現況 | 完成標準 |
+| Gap | Current state | Done when |
 | --- | --- | --- |
-| audience 僅三級 | 已支援 owner、class、campus；清單與啟動都會驗證 | 視需要再擴充 users、system 等更細的對象 |
-| 沒有發布審核 | 教師發布立即生效 | 高風險能力進入管理員審核 |
-| ~~沒有完整下架／封存~~ | 已支援下架（版本轉 `retired`）與無引用時的刪除 | 既有 Session 照原期限走完 |
-| ~~沒有環境全域並行上限~~ | 已支援 `max_concurrent_sessions`，留空＝不限 | 額滿時啟動會被擋下 |
-| ~~母模板引用保護不足~~ | 刪除母範本前會盤點多機環境引用並拒絕 | 需先改用其他來源或下架環境 |
+| Only three audience levels | owner, class and campus are supported; both the list and the launch validate | Extend to finer audiences such as users and system as needed |
+| No publish review | Teacher publishing takes effect immediately | High-risk capabilities go through administrator review |
+| ~~No full unpublish / archive~~ | Unpublishing (versions become `retired`) and deletion when unreferenced are supported | Existing sessions run to their original deadlines |
+| ~~No environment-wide concurrency cap~~ | `max_concurrent_sessions` is supported; blank = unlimited | Launch is blocked when full |
+| ~~Insufficient base template reference protection~~ | Deleting a base template inventories multi-machine environment references and refuses | Switch to another source or unpublish the environment first |
 
-### P2：使用與維運體驗
+### P2: Usage and operations experience
 
-- ~~增加整組啟動、停止及結束練習 API。~~（已支援 `POST /quick-practice/sessions/{id}/end`，學生可提早結束並立即回收）
-- 管理者資源群組顯示班級與學生識別。
-- 顯示 Session 建立進度與各節點健康狀態。
-- 加入環境額滿、排隊及預估等待時間。
-- 建立失敗、拓撲失敗及回收失敗的告警與維運面板。
+- ~~Add whole-set start, stop and end-practice APIs.~~ (`POST /quick-practice/sessions/{id}/end` is supported; students can end early and reclaim immediately)
+- Show class and student identity in the administrator resource groups.
+- Show session creation progress and the health of each node.
+- Add environment-full, queueing and estimated wait time.
+- Alerts and an operations panel for creation failures, topology failures and reclamation failures.
 
-## 十八、上線核准表
+## 18. Go-Live Approval Form
 
-每一份準備提供學生使用的環境，發布者應完成以下核准表：
+For every environment prepared for student use, the publisher should complete the following approval form:
 
-| 檢查項目 | 結果 | 備註 |
+| Check item | Result | Notes |
 | --- | --- | --- |
-| 母模板安全與授權檢查 | 通過／不通過 |  |
-| 一至三台機器均可正常建立 | 通過／不通過 |  |
-| 整組資源與並行容量可接受 | 通過／不通過 |  |
-| IP 與網路拓撲驗證 | 通過／不通過 |  |
-| 機器間必要連線測試 | 通過／不通過 |  |
-| 學生無法修改固定規格 | 通過／不通過 |  |
-| 可見對象與用途正確 | 通過／不通過 |  |
-| 到期及整組回收測試 | 通過／不通過 |  |
-| 失敗補建或 rollback 測試 | 通過／不通過 |  |
-| 發布者／審核者 | 姓名及時間 |  |
+| Base template security and licensing check | Pass / Fail |  |
+| All one to three machines can be created normally | Pass / Fail |  |
+| Total resources and concurrency capacity are acceptable | Pass / Fail |  |
+| IP and network topology validated | Pass / Fail |  |
+| Required inter-machine connectivity tested | Pass / Fail |  |
+| Students cannot modify fixed specifications | Pass / Fail |  |
+| Audience and usage are correct | Pass / Fail |  |
+| Expiry and whole-set reclamation tested | Pass / Fail |  |
+| Failure rebuild or rollback tested | Pass / Fail |  |
+| Publisher / reviewer | Name and time |  |
 
-## 十九、文件維護
+## 19. Document Maintenance
 
-- 產品角色、公開規則、Session 生命週期或權限模型變更時，必須同步更新本 SOP。
-- API 或 UI 名稱調整但流程不變時，更新第十五節對應表。
-- 每次正式上線前依第十六節執行回歸驗收。
-- 現況差異完成後，從第十七節移除並保留於版本紀錄，不得默認為永久例外。
+- Whenever product roles, publishing rules, the session lifecycle or the permission model change, this SOP must be updated in step.
+- When API or UI names change but the flow does not, update the mapping table in section 15.
+- Before every production release, run the regression acceptance in section 16.
+- Once a gap in section 17 is closed, remove it from that section and keep it in the version history; it must not be silently treated as a permanent exception.

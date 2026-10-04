@@ -50,6 +50,23 @@ class SystemController extends BaseController {
       });
   }
 
+  openThirdPartyNotices(req: ControllerParam) {
+    this._systemService
+      .openLocalFile(PathUtils.getThirdPartyNoticesPath())
+      .then(opened => {
+        req.event.reply(
+          req.channel,
+          opened
+            ? ResponseUtils.success()
+            : ResponseUtils.fail(new Error("notices file not found"))
+        );
+      })
+      .catch((err: Error) => {
+        Logger.error("SystemController.openThirdPartyNotices", err);
+        req.event.reply(req.channel, ResponseUtils.fail(err));
+      });
+  }
+
   openSsh(req: ControllerParam) {
     const port = Number(req.args?.port);
     const host = String(req.args?.host || "");

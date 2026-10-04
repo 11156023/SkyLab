@@ -75,7 +75,7 @@
 }
 
 /* ── 標準表單欄位 ──
-   全站表單一律用這組 mixin（詳見 docs/2026-09-05-frontend-style-guide.md「表單」段）：
+   全站表單一律用這組 mixin（詳見 docs/frontend-style-guide.zh-TW.md「表單」段）：
    .field   { @include form-field; }             標籤 + 控制項的直式容器
    .field input, .field select, .field textarea { @include form-control; }
    .fieldInvalid.fieldInvalid { @include form-control-invalid; }
@@ -149,7 +149,7 @@
 }
 
 /* ── 標準列表表格 ──
-   全站列表頁的表格一律用這組 mixin（詳見 docs/2026-09-05-frontend-style-guide.md「表格」段）：
+   全站列表頁的表格一律用這組 mixin（詳見 docs/frontend-style-guide.zh-TW.md「表格」段）：
    .tableWrap { @include table-wrap; }   外層玻璃容器＋橫向卷動
    .table     { @include table-base; }   可加 min-width 撐出卷動
    .th        { @include table-th; }

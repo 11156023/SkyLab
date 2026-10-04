@@ -1,27 +1,26 @@
-﻿# SkyLab — Copilot Instructions
+# SkyLab — Copilot Instructions
 
-> 本檔為 GitHub Copilot CLI / Copilot Chat 等 Agent 的工作守則。
-> **更詳盡的開發指引請參考 repo 根目錄的 [`CLAUDE.md`](../CLAUDE.md)**——本檔是其精簡版，兩者衝突以 `CLAUDE.md` 為準。
+> Working rules for GitHub Copilot CLI / Copilot Chat and similar agents. This is the short version; the full guide for AI agents lives in the repository root `CLAUDE.md` (local, not committed) and the human-facing docs in [`docs/`](../docs/README.md). When they disagree, `CLAUDE.md` wins.
 
-## 專案速覽
+## Project at a glance
 
-SkyLab 是 Proxmox VE 管理平台，提供：VM/LXC 生命週期、VNC/Terminal Console、批次配置、防火牆/NAT/Gateway 網路、AI 輔助運維、群組多租戶。
+SkyLab is a Proxmox VE management platform for campuses: VM/LXC lifecycle, VNC/terminal console, request workflow and batch provisioning, firewall/NAT/gateway networking, AI-assisted operations, teaching classes and multi-tenancy by group.
 
-- **Backend**: FastAPI + SQLModel + PostgreSQL + Redis + Proxmox API + SSH (paramiko) — `uv` 套件管理
-- **Frontend**: React 19 + TypeScript + Vite + TanStack Router/Query/Table + Tailwind 4 + shadcn/ui + i18next — `bun` 套件管理
-- **Infra**: Docker Compose + nginx
+- **Backend:** FastAPI + SQLModel + PostgreSQL (via PgBouncer) + Redis + arq worker + Proxmox API + SSH (paramiko), managed with `uv`
+- **Frontend:** React 19 (JSX) + Vite + react-router-dom 7 + SCSS Modules + react-i18next, managed with `bun`
+- **Infra:** Docker Compose, nginx entry point on `:8082`, optional monitoring profile
 
-## 必要指令
+## Essential commands
 
 ### Backend
 ```bash
 cd backend
-uv sync                                 # 安裝
-fastapi dev app/main.py                 # 本地 dev server
-uv run ruff check --fix .               # lint + fix
-uv run mypy .                           # 型別檢查
-bash ./scripts/test.sh                  # 跑測試
-# Alembic（在 docker container 內執行）
+uv sync                                 # install
+fastapi dev app/main.py                 # local dev server (:8000)
+uv run ruff check --fix . && uv run ruff format .
+uv run mypy .
+bash ./scripts/test.sh                  # pytest + coverage
+# Alembic (inside the backend container)
 alembic revision --autogenerate -m "..." && alembic upgrade head
 ```
 
@@ -29,71 +28,70 @@ alembic revision --autogenerate -m "..." && alembic upgrade head
 ```bash
 cd frontend
 bun install
-bun run dev                             # http://localhost:5173
-bun run build                           # tsc + vite build
-bun run lint                            # Biome check + fix
-bash ./scripts/generate-client.sh       # 重生 OpenAPI client（後端 API 改動後必跑）
+bun run dev                             # http://localhost:5173 (/api proxied to :8000)
+bun run build                           # vite build
+bun run test                            # vitest (services layer)
 ```
 
-### 全棧
+### Full stack
 ```bash
-docker compose watch                    # 啟動全部含 hot reload
-docker compose exec backend bash        # 進 backend container
+docker compose watch                    # everything with hot reload
+docker compose exec backend bash
 ```
 
-## 架構分層（Backend）
+## Backend layering
 
 ```
-api/routes/      ← 薄薄的 REST controller，只負責驗證+委派
-api/websocket/   ← VNC、Terminal proxy
-schemas/         ← Pydantic 請求/回應 schema
-models/          ← SQLModel DB 表 + enum
-services/        ← 業務邏輯（ai/, llm_gateway/, network/, proxmox/, resource/, scheduling/, user/, vm/）
-infrastructure/  ← 外部系統整合（proxmox/, redis/, ssh/, ai/, worker/）
-core/            ← config, db, security, request_context
-exceptions.py    ← AppError 自訂例外（raise AppError(status, msg)）
-main.py          ← FastAPI app、lifespan（Redis init + scheduler 啟停）
+api/routes/       ← thin REST controllers: validate + delegate
+api/websocket/    ← VNC, terminal, jobs, classroom, course progress proxies
+schemas/          ← Pydantic request/response schemas
+models/           ← SQLModel tables + enums only
+services/         ← business logic (classroom/, course*/, governance/, llm_gateway/, monitoring/, network/, notification/, proxmox/, resource/, scheduling/, security/, system/, teaching/, template/, user/, vm/)
+infrastructure/   ← external systems (proxmox/, ssh/, ldap/, google/, cloudflare/, redis/, vnc/, ai/, queue/, worker/)
+core/             ← config, db, security, permissions, i18n, logging, metrics, request_context
+exceptions.py     ← AppError (raise AppError(status, msg))
+main.py           ← FastAPI app, lifespan (Redis init + scheduler / push / WireGuard loops)
 ```
 
-**核心原則**：`Routes → Services → Infrastructure`，**不可反向依賴**。Models 只放 DB，Schemas 只放 API I/O，**不要混用**。
+**Core rule:** `Routes → Services → Infrastructure`, never the reverse. Models hold DB tables, schemas hold API I/O; do not mix them.
 
-## 維護者鐵則（節錄自 CLAUDE.md）
+## Maintainer rules
 
-1. **不要把外部連線細節寫回 service**（Proxmox/SSH/LLM 必須在 `infrastructure/`）
-2. **不要把業務規則寫回 route**（route 只是 controller）
-3. **不要在多個地方複製權限判斷**（用 `core/security.py` 的依賴）
-4. **不要讓單一 service 變成上帝物件**（按子領域拆檔）
-5. **新增 async 時先處理高 I/O 熱點**，不要一次全 async 化
-6. **重構優先保留 facade**，相容層最後才刪
-7. **嚴禁 silent fallback**：捕到例外就 raise 或記 ERROR，**不可吞掉錯誤後改用預設值**繼續跑（曾因此導致 IP 設定 silently 退回 DHCP，debug 4 小時）
+1. **No external-connection details in services** (Proxmox/SSH/LLM calls belong in `infrastructure/`).
+2. **No business rules in routes** (routes are controllers only).
+3. **No duplicated permission checks** (use the dependencies in `core/security.py` / `core/permissions.py`).
+4. **No god-object services** (split by sub-domain).
+5. **When adding async, start with the high-I/O hot spots**, not everything at once.
+6. **Refactor by keeping the facade first**, remove compatibility layers last.
+7. **No silent fallbacks:** on an exception either re-raise or log at ERROR; never swallow it and continue with a default value (this once turned a static IP silently into DHCP and cost four hours of debugging).
 
-## 常見坑
+## Common pitfalls
 
-- **Frontend client 是自動生成的**：`frontend/src/client/` 千萬不要手改。後端動 API → 跑 `generate-client.sh`
-- **Models 改了一定要建 Alembic migration**（startup 會跑 `scripts/prestart.sh`）
-- **WebSocket 雙向轉發**：VNC/Terminal proxy 一定要用 `asyncio.Event` 同步 disconnect，避免「receive after disconnect」error
-- **SQLModel scalar select**：`session.exec(select(Model.column)).all()` 回傳 **scalar list**，不是 row list — 不要用 `row.column`
-- **`.env` 永遠別 commit**，用 `.env.example` 為範本
-- **Logging format**：用 `%s` 不要用 `%d`，因為很多 vmid 在傳遞時會被序列化成 str
-- **環境變數**：在 root 的 `.env`，由 `core/config.py` 透過 `env_file="../.env"` 載入
+- **No generated frontend client.** Every endpoint is wrapped by hand in `frontend/src/services/*.js` (built on `services/api.js`) with a Vitest mock test. A backend API change means updating the matching service file; pages never call `fetch` directly.
+- **Models changed → Alembic migration**, always (startup runs `scripts/prestart.sh`). Revision ids ≤ 32 chars. `audit_logs.action` is a PostgreSQL enum: adding an `AuditAction` value needs an `ADD VALUE` migration.
+- **PgBouncer transaction pooling:** use `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock`, never session-level locks, `SET`, `LISTEN/NOTIFY` or temp tables.
+- **Proxmox settings are per connection:** use `get_proxmox_settings_for_node(node)` or `get_proxmox_settings(connection_id)`; the parameterless form raises when no connection exists. Clones cannot cross connections.
+- **WebSocket forwarding:** VNC/terminal proxies must use an `asyncio.Event` to synchronise disconnects, or you get "receive after disconnect".
+- **SQLModel scalar select:** `session.exec(select(Model.column)).all()` returns a **scalar list**, not rows.
+- **Never commit `.env`;** `.env.example` is the template. Settings load from the root `.env` via `core/config.py` (`env_file="../.env"`). Proxmox credentials are not in `.env` at all.
+- **Logging format:** use `%s`, not `%d`, because vmids are often serialised as strings.
+- **UI text** goes through react-i18next (`frontend/src/locales/{zh-TW,en,ja}`); add every key to all three locales.
+- **Documentation** is English-first with `.zh-TW.md` counterparts (see `docs/README.md`); update both when you change behaviour.
 
-## 部署/Provision 流程關鍵
+## Provisioning flow (key points)
 
-- VM 請求 → scheduler (`services/scheduling/coordinator.py`) → `_provision_via_service_template` 或一般 provisioning
-- 服務模板部署走 `services/network/script_deploy_service.py`（SSH 到 Proxmox node 跑 community-scripts）
-- 部署去重：`_ACTIVE_BY_REQUEST` dict + Lock（避免 scheduler 重跑與 API 立即觸發雙觸發）
-- 部署取消：`script_deploy_service.cancel_task(task_id)` 設 cancel event → SSH streaming loop 中斷 → except 走 rollback（destroy container + release IP）
-- IP 分配：**必須**從 `services/network/ip_management_service` 拿 `cidr/gateway/dns`，不要 fallback 到 DHCP
+- VM request → scheduler (`services/scheduling/coordinator.py`) → provisioning fan-out through `provision_pool` (dedup: runner task id + DB `SKIP LOCKED` + status re-check); clones run in the arq worker.
+- Service-template deployment goes through `services/network/script_deploy_service.py` (SSH to the Proxmox node, community-scripts); cancellation sets a cancel event → the SSH streaming loop breaks → rollback (destroy container + release IP).
+- IP allocation **must** come from `services/network/ip_management_service` (`cidr/gateway/dns`); never fall back to DHCP.
 
-## 程式風格
+## Commit messages
 
-- **Backend**: Ruff + Mypy strict + prek pre-commit
-- **Frontend**: Biome（lint + format）+ TypeScript strict
-- **註解**：只在需要解釋意圖時才加，不要重複描述程式碼字面行為
-- **i18n**：所有面向使用者的字串走 i18next，**不要硬編碼中/英文**
+- Conventional prefixes (`feat(scope):`, `fix(scope):`, `docs:` …), imperative subject, sign-off with `git commit -s`.
+- **Never add AI co-author trailers or "generated with" markers.**
 
-## Tool 使用
+## Style
 
-- 改檔案優先 `edit`，多個 edit 同 turn 並行
-- 探索檔案用 `grep` + `glob`，不要直接 `view` 整個大檔
-- 環境是 Windows，路徑用 `\`
+- **Backend:** Ruff + Mypy strict + prek pre-commit.
+- **Frontend:** SCSS Modules per [`docs/frontend-style-guide.md`](../docs/frontend-style-guide.md); no linter configured yet.
+- **Comments:** only to explain intent, never to restate what the code literally does.
+- Environment is Windows for the main maintainer; use `\` paths in shell suggestions where it matters.

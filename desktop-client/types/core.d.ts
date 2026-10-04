@@ -10,6 +10,18 @@ interface ControllerParam {
   args: any;
 }
 
+/** 由 vite.config.mts 在建置時注入：授權、原始碼網址與直接依賴的授權清單（「關於」頁） */
+declare const __SKYLAB_ABOUT__: {
+  license: string;
+  repository: string;
+  dependencies: {
+    name: string;
+    version: string;
+    license: string;
+    repository: string;
+  }[];
+};
+
 interface Window {
   electronIpcRenderer: SkyLabIpcRenderer;
 }

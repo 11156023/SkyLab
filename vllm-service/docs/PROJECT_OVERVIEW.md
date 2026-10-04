@@ -1,68 +1,70 @@
 # vLLM Service Project Overview
 
-`vllm-service/` 是 SkyLab 的 canonical vLLM 推論服務。它只提供服務端能力：
+> **English** | [繁體中文](./PROJECT_OVERVIEW.zh-TW.md)
 
-- 單模型 OpenAI-compatible vLLM server
-- 多模型 vLLM cluster（各模型獨立 instance）
-- LiteLLM gateway 設定（多模型對外 API、金鑰與路由）
-- Benchmark 工具
+`vllm-service/` is SkyLab's canonical vLLM inference service. It provides server-side capabilities only:
 
-本服務不提供 React/Vite 前端；互動介面由 SkyLab 主 frontend 或外部
-OpenAI-compatible client 負責。早期自寫的 FastAPI Gateway 已移除，多模型 API
-一律經 LiteLLM。
+- Single-model OpenAI-compatible vLLM server
+- Multi-model vLLM cluster (one independent instance per model)
+- LiteLLM gateway configuration (public multi-model API, keys and routing)
+- Benchmark tools
 
-## 服務模式
+This service does not ship a React/Vite frontend; the interactive interface is the responsibility of the
+SkyLab main frontend or an external OpenAI-compatible client. The early hand-written FastAPI gateway has been
+removed, and the multi-model API always goes through LiteLLM.
 
-| 模式 | 指令 | 用途 |
+## Service modes
+
+| Mode | Command | Purpose |
 | --- | --- | --- |
-| Single | `python main.py single`（`start_single_model.sh`） | 啟動單一 vLLM instance，供內部 AI 直接呼叫 |
-| Cluster | `python main.py cluster`（預設模式，`start_multi_model_cluster.sh`） | 依 `models.json` 啟動多個本機 vLLM instance，路由與對外 API 交給 LiteLLM |
+| Single | `python main.py single` (`start_single_model.sh`) | Starts a single vLLM instance for internal AI to call directly |
+| Cluster | `python main.py cluster` (default mode, `start_multi_model_cluster.sh`) | Starts multiple local vLLM instances according to `models.json`; routing and the public API are left to LiteLLM |
 
-`python main.py gateway` 已不再支援，執行時會直接報錯並提示改用 cluster＋LiteLLM。
-舊指令帶的 `--no-gateway`、`--gateway-ready-timeout` 仍會被接受但不影響行為。
+`python main.py gateway` is no longer supported; running it fails immediately with a hint to use cluster + LiteLLM instead.
+The `--no-gateway` and `--gateway-ready-timeout` flags from the old command are still accepted but have no effect.
 
-## 主要端點
+## Main endpoints
 
-| 服務 | 預設位址 | 說明 |
+| Service | Default address | Notes |
 | --- | --- | --- |
-| 單模型 vLLM | `http://<API_HOST>:<API_PORT>/v1` | `.env.interface` |
-| cluster 各 instance | `http://127.0.0.1:<api_port>/v1` | `models.json` 的 `api_port`，只給 LiteLLM 連 |
-| LiteLLM gateway | `http://127.0.0.1:4000/v1`（Compose 內網 `http://litellm:4000`） | `GET /v1/models`、`POST /v1/chat/completions` 等 OpenAI 相容端點 |
+| Single-model vLLM | `http://<API_HOST>:<API_PORT>/v1` | `.env.interface` |
+| Each cluster instance | `http://127.0.0.1:<api_port>/v1` | `api_port` from `models.json`; only LiteLLM connects to it |
+| LiteLLM gateway | `http://127.0.0.1:4000/v1` (`http://litellm:4000` on the Compose network) | OpenAI-compatible endpoints such as `GET /v1/models`, `POST /v1/chat/completions` |
 
-## 設定邊界
+## Configuration boundaries
 
-主 Campus-Cloud backend 使用兩條不同設定：
+The main Campus-Cloud backend uses two different settings:
 
 ```env
 VLLM_BASE_URL=http://localhost:8000/v1
 AI_API_BASE_URL=http://litellm:4000
 ```
 
-- `VLLM_BASE_URL` 指向單模型主服務，且包含 `/v1`。
-- `AI_API_BASE_URL` 指向 LiteLLM gateway root，不包含 `/v1`；金鑰為受限的 service key `AI_API_API_KEY`。
-- 多模型公開 alias、per-model port 與遠端模型由 `models.json` 管理，
-  `tools/generate_litellm_config.py` 依它產生 `litellm/config.yaml`。
+- `VLLM_BASE_URL` points at the single-model main service and includes `/v1`.
+- `AI_API_BASE_URL` points at the LiteLLM gateway root, without `/v1`; the key is the restricted service key `AI_API_API_KEY`.
+- Public multi-model aliases, per-model ports and remote models are managed in `models.json`;
+  `tools/generate_litellm_config.py` generates `litellm/config.yaml` from it.
 
-## 目錄
+## Directory
 
 ```text
 vllm-service/
-├── main.py                     # 啟動器：single / cluster
+├── main.py                     # launcher: single / cluster
 ├── start_single_model.sh
 ├── start_multi_model_cluster.sh
-├── model_deployment.py         # local / remote 部署判定與上游連線
-├── config/                     # Settings 與 models.json 載入
-├── core/                       # vLLM instance 與 cluster 生命週期
-├── utils/                      # 日誌、啟動前健康檢查
-├── litellm/                    # LiteLLM Compose 與 config template
-├── tools/                      # LiteLLM 設定產生／部署工具、backend AI 整合測試
+├── model_deployment.py         # local / remote deployment detection and upstream connection
+├── config/                     # Settings and models.json loading
+├── core/                       # vLLM instance and cluster lifecycle
+├── utils/                      # logging, pre-start health checks
+├── litellm/                    # LiteLLM Compose and config template
+├── tools/                      # LiteLLM config generation / deployment tools, backend AI integration test
 ├── benchmark/                  # async / ShareGPT benchmark
 ├── run_sharegpt_benchmark.py
 └── run_sharegpt_benchmark.sh
 ```
 
-## 相關文件
+## Related documents
 
-- [README.md](../README.md)：安裝、啟動與 LiteLLM 部署流程
-- [SHAREGPT_QUICKSTART.md](SHAREGPT_QUICKSTART.md)：ShareGPT benchmark 用法
-- [AI API 使用手冊](../../docs/ai-api-user-manual.md)：LiteLLM 部署、金鑰與使用者 API 操作
+- [README.md](../README.md): installation, startup and the LiteLLM deployment flow
+- [SHAREGPT_QUICKSTART.md](SHAREGPT_QUICKSTART.md): ShareGPT benchmark usage
+- [AI API User Manual](../../docs/ai-api-user-manual.md): LiteLLM deployment, keys and user API operations

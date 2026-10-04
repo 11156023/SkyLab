@@ -196,7 +196,20 @@ export default {
       secure: "許可された VM のみ"
     },
     version: "バージョン",
-    openDataDir: "データフォルダーを開く"
+    openDataDir: "データフォルダーを開く",
+    license: "ライセンス",
+    licenseName: "GNU Affero General Public License v3.0",
+    licenseHint:
+      "SkyLab はオープンソースソフトウェアです。改変してネットワーク経由で第三者に提供する場合は改変後のソースコードを公開する必要があります。商用ライセンスも提供しています。",
+    repository: "ソースコード",
+    thirdPartyNotices: "サードパーティライセンス",
+    components: {
+      title: "オープンソースコンポーネント",
+      hint: "このアプリケーションが直接依存する {count} 個のパッケージです。ビルド時に package.json から生成されます。",
+      package: "パッケージ",
+      version: "バージョン",
+      license: "ライセンス"
+    }
   },
   logger: {
     tab: { appLog: "アプリログ" },

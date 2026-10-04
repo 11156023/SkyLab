@@ -94,6 +94,10 @@ export const ipcRouters: IpcRouters = {
       path: "system/openAppData",
       controller: "systemController.openAppData"
     },
+    openThirdPartyNotices: {
+      path: "system/openThirdPartyNotices",
+      controller: "systemController.openThirdPartyNotices"
+    },
     openSsh: {
       path: "system/openSsh",
       controller: "systemController.openSsh"

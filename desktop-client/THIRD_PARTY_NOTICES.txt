@@ -1,0 +1,37 @@
+SkyLab Connect — Third-party notices
+
+SkyLab Connect is part of SkyLab and is licensed under the GNU Affero General
+Public License v3.0. Source code: https://github.com/ntubclass/SkyLab
+(the full license text is in the LICENSE file of that repository).
+
+This application is built with the open-source components listed below.
+Each component remains under its own license; the "About" page inside the
+application shows the exact versions bundled with this build.
+
+Runtime
+  Electron                          MIT      https://github.com/electron/electron
+  Vue 3                             MIT      https://github.com/vuejs/core
+  Vue Router                        MIT      https://github.com/vuejs/router
+  Pinia                             MIT      https://github.com/vuejs/pinia
+  vue-i18n                          MIT      https://github.com/intlify/vue-i18n
+  Element Plus                      MIT      https://github.com/element-plus/element-plus
+  @vueuse/core                      MIT      https://github.com/vueuse/vueuse
+  @seald-io/nedb                    MIT      https://github.com/seald/nedb
+  electron-log                      MIT      https://github.com/megahertz/electron-log
+  tree-kill                         MIT      https://github.com/pkrumins/node-tree-kill
+  animate.css                       MIT      https://github.com/animate-css/animate.css
+  Material Symbols (@iconify)       Apache-2.0  https://github.com/google/material-design-icons
+
+Bundled installer
+  WireGuard for Windows             MIT      https://git.zx2c4.com/wireguard-windows/
+  The unmodified, Authenticode-signed MSI from the official WireGuard download
+  server is shipped in the "wireguard" folder next to this file, together with
+  its own THIRD_PARTY_NOTICES.txt. It is installed only when WireGuard for
+  Windows is not already present and is not removed when SkyLab Connect is
+  uninstalled, because other applications may share it.
+
+Build tooling (Vite, TypeScript, electron-builder, ESLint, Tailwind CSS) is
+used to produce this application and is not distributed with it.
+
+The complete list for the whole SkyLab project, including the backend and the
+web frontend, is kept at THIRD_PARTY_NOTICES.md in the repository.
