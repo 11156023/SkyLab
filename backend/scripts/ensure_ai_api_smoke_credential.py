@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import sys
+import os
+from pathlib import Path
 
 from sqlmodel import Session, col, select
 
@@ -108,16 +109,28 @@ def ensure_ai_api_smoke_credential(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument(
         "--cleanup", action="store_true", help="Delete or revoke deployment smoke keys."
     )
+    action.add_argument(
+        "--output", type=Path, help="Write the key to a new owner-only file, never stdout."
+    )
     args = parser.parse_args()
-    with Session(engine) as session:
-        if args.cleanup:
+    if args.cleanup:
+        with Session(engine) as session:
             cleanup_ai_api_smoke_credentials(session)
-        else:
-            api_key = ensure_ai_api_smoke_credential(session)
-            sys.stdout.write(f"{api_key}\n")
+    else:
+        # Refuse existing files and symlinks; set permissions before writing any secret.
+        descriptor = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                with Session(engine) as session:
+                    api_key = ensure_ai_api_smoke_credential(session)
+                output.write(f"{api_key}\n")
+        except BaseException:
+            args.output.unlink(missing_ok=True)
+            raise
     return 0
 
 

@@ -85,10 +85,25 @@ jobs:
         env:
           CONFIGURED_AI_API_PUBLIC_BASE_URL: ${{ vars.AI_API_PUBLIC_BASE_URL }}
         run: |
-          AI_API_SMOKE_KEY="$(
-            docker compose exec -T backend \
-              python -m scripts.ensure_ai_api_smoke_credential
-          )"
+          set +x
+          umask 077
+          smoke_dir="$(mktemp -d)"
+          container_smoke_dir=""
+          cleanup_smoke_files() {
+            rm -rf -- "$smoke_dir"
+            if [[ -n "$container_smoke_dir" ]]; then
+              docker compose exec -T backend rm -rf -- "$container_smoke_dir"
+            fi
+          }
+          trap cleanup_smoke_files EXIT
+          container_smoke_dir="$(docker compose exec -T backend mktemp -d)"
+          docker compose exec -T backend \
+            python -m scripts.ensure_ai_api_smoke_credential \
+            --output "$container_smoke_dir/key"
+          docker compose cp "backend:$container_smoke_dir/key" "$smoke_dir/key"
+          AI_API_SMOKE_KEY="$(<"$smoke_dir/key")"
+          cleanup_smoke_files
+          container_smoke_dir=""
           if [[ ! "$AI_API_SMOKE_KEY" =~ ^ccai_[A-Za-z0-9_-]+$ ]]; then
             echo "::error::Unable to create or recover the deployment smoke credential."
             exit 1

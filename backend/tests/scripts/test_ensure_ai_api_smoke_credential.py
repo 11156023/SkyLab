@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import stat
+import sys
 import uuid
 from datetime import timedelta, timezone
 from pathlib import Path
@@ -297,7 +300,7 @@ def test_cleanup_cli_outputs_no_secret(
 ) -> None:
     key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
     monkeypatch.setattr(smoke_script, "engine", isolated_session.get_bind())
-    monkeypatch.setattr(smoke_script.sys, "argv", ["smoke-credential", "--cleanup"])
+    monkeypatch.setattr(sys, "argv", ["smoke-credential", "--cleanup"])
 
     assert smoke_script.main() == 0
     assert capsys.readouterr().out == ""
@@ -313,7 +316,7 @@ def test_cleanup_cli_propagates_failure(
 
     monkeypatch.setattr(smoke_script, "engine", isolated_session.get_bind())
     monkeypatch.setattr(smoke_script, "cleanup_ai_api_smoke_credentials", fail_cleanup)
-    monkeypatch.setattr(smoke_script.sys, "argv", ["smoke-credential", "--cleanup"])
+    monkeypatch.setattr(sys, "argv", ["smoke-credential", "--cleanup"])
 
     with pytest.raises(RuntimeError, match="cleanup failed"):
         smoke_script.main()
@@ -335,6 +338,75 @@ def test_cleanup_after_key_recovery_failure(
     assert isolated_session.exec(select(AIAPICredential)).all() == []
 
 
+def test_creation_cli_writes_private_file_without_logging_secret(
+    isolated_session: Session,
+    owner: User,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    output = tmp_path / "key"
+    monkeypatch.setattr(smoke_script, "engine", isolated_session.get_bind())
+    monkeypatch.setattr(sys, "argv", ["smoke-credential", "--output", str(output)])
+
+    assert smoke_script.main() == 0
+    key = output.read_text(encoding="utf-8").strip()
+    assert key.startswith("ccai_")
+    captured = capsys.readouterr()
+    assert key not in captured.out + captured.err + caplog.text
+    assert captured.out == ""
+    if os.name != "nt":
+        assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    authenticated_owner, _ = get_current_user_by_ai_api_key(
+        session=isolated_session, authorization=f"Bearer {key}"
+    )
+    assert authenticated_owner.id == owner.id
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_creation_cli_requires_new_output_before_creating_key(
+    isolated_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    existing: bool,
+) -> None:
+    monkeypatch.setattr(smoke_script, "engine", isolated_session.get_bind())
+    output = tmp_path / "key"
+    argv = ["smoke-credential"]
+    if existing:
+        output.write_text("preserve", encoding="utf-8")
+        argv += ["--output", str(output)]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(FileExistsError if existing else SystemExit):
+        smoke_script.main()
+    assert isolated_session.exec(select(AIAPIRequest)).all() == []
+    if existing:
+        assert output.read_text(encoding="utf-8") == "preserve"
+
+
+def test_creation_cli_removes_file_on_recovery_failure(
+    isolated_session: Session,
+    owner: User,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_recovery(**_kwargs) -> None:
+        raise RuntimeError("key recovery failed")
+
+    output = tmp_path / "key"
+    monkeypatch.setattr(smoke_script, "engine", isolated_session.get_bind())
+    monkeypatch.setattr(ai_gateway_service, "get_credential", fail_recovery)
+    monkeypatch.setattr(sys, "argv", ["smoke-credential", "--output", str(output)])
+    with pytest.raises(RuntimeError, match="key recovery failed"):
+        smoke_script.main()
+    assert not output.exists()
+    captured = capsys.readouterr()
+    assert "ccai_" not in captured.out + captured.err
+    cleanup_ai_api_smoke_credentials(isolated_session)
+
+
 def test_workflow_cleans_up_even_after_failed_or_cancelled_smoke() -> None:
     workflow_path = (
         Path(__file__).resolve().parents[3] / ".github/workflows/deploy-pve-test.yml"
@@ -344,6 +416,13 @@ def test_workflow_cleans_up_even_after_failed_or_cancelled_smoke() -> None:
     smoke_index = next(
         index for index, step in enumerate(steps) if step.get("id") == "ai_api_smoke"
     )
+    smoke_run = steps[smoke_index]["run"]
+    assert '--output "$container_smoke_dir/key"' in smoke_run
+    assert 'docker compose cp "backend:$container_smoke_dir/key" "$smoke_dir/key"' in smoke_run
+    assert "trap cleanup_smoke_files EXIT" in smoke_run
+    assert smoke_run.index("set +x") < smoke_run.index('AI_API_SMOKE_KEY="')
+    assert smoke_run.index("umask 077") < smoke_run.index("mktemp -d")
+    assert smoke_run.index("::add-mask::") < smoke_run.index("export AI_API_SMOKE_KEY")
     cleanup_step = steps[smoke_index + 1]
     assert cleanup_step["if"] == (
         "${{ always() && steps.ai_api_smoke.outcome != 'skipped' }}"

@@ -297,8 +297,12 @@ def test_ai_api_requests_require_admin_for_review(
     create_response = client.post(
         f"{settings.API_V1_STR}/ai-api/requests",
         headers=user_headers,
-        json={"purpose": "Use AI API for another classroom workflow."},
+        json={
+            "purpose": "Use AI API for another classroom workflow.",
+            "duration": "30d",
+        },
     )
+    assert create_response.status_code == 200
     request_id = create_response.json()["id"]
 
     review_response = client.post(
