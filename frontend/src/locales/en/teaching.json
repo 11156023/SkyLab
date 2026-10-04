@@ -763,6 +763,7 @@
   "AiJudgePanel.chatInputAria": "Message to the AI",
   "AiJudgePanel.chatInputPlaceholder": "Type a message… (Shift+Enter for a new line)",
   "AiJudgePanel.chatSyncUnknown": "Couldn't confirm the conversation is in sync.",
+  "AiJudgePanel.chatThinking": "Checklist assistant is thinking…",
   "AiJudgePanel.checkActionFailed": "Couldn't complete the action",
   "AiJudgePanel.checkCopied": "Copied as “{{title}}”. You can start adjusting the checklist.",
   "AiJudgePanel.checkCreated": "Created “{{title}}”",
