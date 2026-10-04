@@ -40,7 +40,7 @@ def _admin(db: Session) -> User:
     return admin
 
 
-def _request(db: Session, user: User, *, duration: str = "never") -> uuid.UUID:
+def _request(db: Session, user: User, *, duration: str = "30d") -> uuid.UUID:
     created = ai_gateway_service.create_request(
         session=db,
         request_in=AIAPIRequestCreate(

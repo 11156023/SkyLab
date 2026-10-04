@@ -77,14 +77,23 @@ jobs:
           exit 1
 
       - name: Smoke test every public AI model
-        # pve-test environment must provide a dedicated ccai_* key whose rate
-        # limit is at least the number of public models.  The optional variable
+        # Reuse the normal request/review flow to create or recover the dedicated
+        # ccai_* smoke credential from the Campus database.  The optional variable
         # is the Campus API root ending in /api/v1; otherwise use the published
         # backend port from this deployment.
         env:
-          AI_API_SMOKE_KEY: ${{ secrets.AI_API_SMOKE_KEY }}
           CONFIGURED_AI_API_PUBLIC_BASE_URL: ${{ vars.AI_API_PUBLIC_BASE_URL }}
         run: |
+          AI_API_SMOKE_KEY="$(
+            docker compose exec -T backend \
+              python -m scripts.ensure_ai_api_smoke_credential
+          )"
+          if [[ ! "$AI_API_SMOKE_KEY" =~ ^ccai_[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::Unable to create or recover the deployment smoke credential."
+            exit 1
+          fi
+          echo "::add-mask::$AI_API_SMOKE_KEY"
+          export AI_API_SMOKE_KEY
           if [[ -n "$CONFIGURED_AI_API_PUBLIC_BASE_URL" ]]; then
             export AI_API_PUBLIC_BASE_URL="$CONFIGURED_AI_API_PUBLIC_BASE_URL"
           else

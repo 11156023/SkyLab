@@ -43,7 +43,7 @@ def _create_and_approve_ai_api_request(
     superuser_token_headers: dict[str, str],
     purpose: str,
     api_key_name: str,
-    duration: str = "never",
+    duration: str = "30d",
 ) -> str:
     create_response = client.post(
         f"{settings.API_V1_STR}/ai-api/requests",
@@ -75,7 +75,10 @@ def test_ai_api_request_review_flow(
     create_response = client.post(
         f"{settings.API_V1_STR}/ai-api/requests",
         headers=user_headers,
-        json={"purpose": "Use AI API for course project integration testing."},
+        json={
+            "purpose": "Use AI API for course project integration testing.",
+            "duration": "30d",
+        },
     )
     assert create_response.status_code == 200
     created = create_response.json()
