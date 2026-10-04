@@ -40,8 +40,14 @@ export const GROUP_LAYOUT = {
   gatewaySize: 90,
 };
 
-export const groupNodeId = (key) => `${GROUP_PREFIX}${key}`;
+/* 群組節點 id 會再被拿去組合併邊的 id，進而變成 ConnectionEdge 的 marker id（`url(#arrow-<id>)`）：
+   班級名稱裡的空白、引號、括號會讓 CSS url() 解析失敗、箭頭畫不出來，所以 key 先完整百分號編碼
+   （encodeURIComponent 不會編 !'()*，補上） */
+const encodeKey = (key) => encodeURIComponent(key).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+export const groupNodeId = (key) => `${GROUP_PREFIX}${encodeKey(key)}`;
 export const isGroupNodeId = (id) => String(id).startsWith(GROUP_PREFIX);
+/** 群組節點 id → 群組 key（groupNodeId 的反向） */
+export const groupKeyOfId = (id) => decodeURIComponent(String(id).slice(GROUP_PREFIX.length));
 
 /** 機器所屬群組：有班級名稱依班級，否則依機器類型（與 MachineKindBadge 同一套分類） */
 export function groupKeyOf(node) {
@@ -256,7 +262,8 @@ export function applyView(flow, rawEdges, {
         exposed: group.exposed,
         rules: group.rules,
         collapsed: group.collapsed,
-        onToggle: onToggleGroup,
+        /* 搜尋中群組被強制展開，這時切收合只會寫進覆寫、清掉搜尋後才突然收起：先不給切 */
+        onToggle: searching ? undefined : onToggleGroup,
       },
       selectable: false,
       zIndex: -1,
@@ -318,7 +325,7 @@ export function applyView(flow, rawEdges, {
   for (const { source, target, members } of merged.values()) {
     const first = members[0];
     const groupId = isGroupNodeId(source) ? source : target;
-    const groupKey = groupId.slice(GROUP_PREFIX.length);
+    const groupKey = groupKeyOfId(groupId);
     edges.push({
       ...first,
       id: `agg-${source}-${target}`,

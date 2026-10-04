@@ -27,6 +27,8 @@ export default function GroupNode({ data }) {
           type="button"
           className={`${styles.groupToggle} nodrag`}
           onClick={() => data.onToggle?.(data.groupKey)}
+          /* 搜尋中群組被強制展開、不能收合（applyView 不給 onToggle） */
+          disabled={!data.onToggle}
           aria-expanded={!data.collapsed}
           aria-label={toggleLabel}
           title={toggleLabel}

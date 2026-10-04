@@ -289,6 +289,9 @@
 
   &:hover { background: var(--color-hover); }
   &:hover .groupChevron { opacity: 1; }
+  /* 搜尋中不能收合：保留標題的樣子，只拿掉可點的暗示 */
+  &:disabled { cursor: default; background: none; }
+  &:disabled .groupChevron { opacity: 0.35; }
 
   &:focus-visible {
     outline: 2px solid var(--color-primary-on-surface);

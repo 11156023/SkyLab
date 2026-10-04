@@ -14,6 +14,7 @@ import {
   buildGroups,
   defaultCollapsed,
   groupKeyOf,
+  groupKeyOfId,
   groupNodeId,
   listGroupKeys,
   vmidsWithRules,
@@ -167,5 +168,44 @@ describe("applyView 不分組", () => {
   test("群組篩選只留該群組", () => {
     const view = applyView(flow(), TOPOLOGY.edges, { filter: { groupKey: PERSONAL_KEY } });
     expect(view.nodes.filter((n) => n.type === "vm").map((n) => n.id).sort()).toEqual(["201", "202"]);
+  });
+});
+
+describe("群組 id 與搜尋中的收合", () => {
+  test("群組 id 不含空白、引號、括號（會進 marker 的 url(#…)），且能還原成 key", () => {
+    const key = "class:Network Security (A) 'B'";
+    const id = groupNodeId(key);
+    expect(id).not.toMatch(/[\s"'()]/);
+    expect(groupKeyOfId(id)).toBe(key);
+  });
+
+  test("班級名稱含空白：合併邊點下去展開的仍是原本的群組 key", () => {
+    const name = "網路 安全";
+    const topology = {
+      nodes: [
+        { vmid: null, name: "gateway", node_type: "gateway" },
+        vm(401, { machine_kind: "teaching_class", class_relation: "teacher", teaching_class_name: name }),
+        vm(402, { machine_kind: "teaching_class", class_relation: "teacher", teaching_class_name: name }),
+      ],
+      edges: [{ source_vmid: null, target_vmid: 401, ports: [{ port: 80, protocol: "tcp" }] }],
+    };
+    const onExpandGroup = vi.fn();
+    const view = applyView(buildFlow(topology, { showLabel: true, showInternet: true }), topology.edges, {
+      grouped: true,
+      isCollapsed: () => true,
+      onExpandGroup,
+    });
+    const agg = view.edges.find((e) => e.data.aggregateCount >= 1);
+    expect(agg.id).not.toMatch(/[\s"'()]/);
+    agg.data.onSelect();
+    expect(onExpandGroup).toHaveBeenCalledWith(`class:${name}`);
+  });
+
+  test("搜尋中群組被強制展開，標題不給切收合；沒搜尋時照常", () => {
+    const onToggleGroup = vi.fn();
+    const searched = applyView(flow(), TOPOLOGY.edges, { grouped: true, filter: { query: "vm-102" }, onToggleGroup });
+    expect(searched.nodes.find((n) => n.id === groupNodeId(CLASS_KEY)).data.onToggle).toBeUndefined();
+    const plain = applyView(flow(), TOPOLOGY.edges, { grouped: true, onToggleGroup });
+    expect(plain.nodes.find((n) => n.id === groupNodeId(CLASS_KEY)).data.onToggle).toBe(onToggleGroup);
   });
 });
