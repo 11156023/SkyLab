@@ -27,7 +27,7 @@ export const on = (
   listerHandler: (data: any) => void,
   errHandler?: (bizCode: string, message: string) => void
 ) => {
-  ipcRenderer.on(`${router.path}:hook`, (event, args: ApiResponse<any>) => {
+  const handler = (event: unknown, args: ApiResponse<any>) => {
     const { bizCode, data, message } = args;
     if (bizCode === "A1000") {
       listerHandler(data);
@@ -46,7 +46,9 @@ export const on = (
       }
       // reject(new Error(message));
     }
-  });
+  };
+  ipcRenderer.on(`${router.path}:hook`, handler);
+  return () => ipcRenderer.removeListener(`${router.path}:hook`, handler);
 };
 
 export const onListener = (
