@@ -11,7 +11,7 @@ import { GpuService } from "../../../services/gpu";
 import { TemplatesService } from "../../../services/templates";
 import { ResourcesService } from "../../../services/resources";
 import { QuotasService } from "../../../services/quotas";
-import { clampToRange, quotaRemaining, sliderRange, sliderTicks } from "./quotaLimits";
+import { clampToRange, quotaRemaining, sliderRange, sliderTicks } from "../../../utils/quotaLimits";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";

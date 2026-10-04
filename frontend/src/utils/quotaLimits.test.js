@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampToRange, quotaRemaining, sliderRange, sliderTicks } from "./quotaLimits";
+import { clampToRange, growthRange, quotaRemaining, sliderRange, sliderTicks } from "./quotaLimits";
 
 const usage = (quota, used = {}) => ({
   used_cpu_cores: used.cores ?? 0,
@@ -57,6 +57,32 @@ describe("sliderRange", () => {
   it("剩餘量不到下限時標記不足，滑桿停在下限", () => {
     expect(sliderRange({ min: 20, max: 500, remaining: 10 }))
       .toEqual({ min: 20, max: 20, quotaCapped: true, short: true });
+  });
+});
+
+describe("growthRange", () => {
+  it("上限是目前值加上剩餘配額", () => {
+    expect(growthRange({ min: 1, max: 32, current: 2, remaining: 3 }))
+      .toEqual({ min: 1, max: 5, quotaCapped: true, exhausted: false });
+  });
+
+  it("沒有配額限制或剩餘很多時維持表單原本上限", () => {
+    expect(growthRange({ min: 1, max: 32, current: 2 }).max).toBe(32);
+    expect(growthRange({ min: 1, max: 32, current: 2, remaining: 100 }).max).toBe(32);
+  });
+
+  it("記憶體增量往下對齊步進", () => {
+    expect(growthRange({ min: 512, max: 65536, step: 512, current: 2048, remaining: 1500 }).max)
+      .toBe(3072);
+  });
+
+  it("剩餘 0 時只能維持或調小", () => {
+    expect(growthRange({ min: 1, max: 32, current: 4, remaining: 0 }))
+      .toEqual({ min: 1, max: 4, quotaCapped: true, exhausted: true });
+  });
+
+  it("目前值已超過表單上限時，上限至少容得下目前值", () => {
+    expect(growthRange({ min: 1, max: 32, current: 40, remaining: 0 }).max).toBe(40);
   });
 });
 

@@ -29,6 +29,18 @@ export function sliderRange({ min, max, step = 1, remaining = null }) {
   return { min, max: aligned, quotaCapped: true, short: false };
 }
 
+/** 規格調整的範圍：後端只對「調大的部分」扣配額，所以上限是「目前值＋剩餘配額」
+ *  （對齊步進），下限不變（調小永遠可以）。剩餘 0 時上限就是目前值。
+ *  目前值本來就超過表單上限時不往下砍，讓滑桿至少容得下目前值。 */
+export function growthRange({ min, max, step = 1, current, remaining = null }) {
+  const ceiling = Math.max(max, current);
+  if (remaining == null) return { min, max: ceiling, quotaCapped: false, exhausted: false };
+  const grow = Math.floor(Math.max(0, remaining) / step) * step;
+  const capped = Math.max(min, current + grow);
+  if (capped >= ceiling) return { min, max: ceiling, quotaCapped: false, exhausted: false };
+  return { min, max: capped, quotaCapped: true, exhausted: grow === 0 };
+}
+
 /** 把值夾進範圍內（只往下壓超出上限的部分，低於下限的交給原本的邏輯）。 */
 export function clampToRange(value, range) {
   return Math.min(Number(value), range.max);
