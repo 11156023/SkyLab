@@ -33,9 +33,10 @@ pip install vllm
 - 單模型模式讀取 `.env.interface`，主要看 `MODEL_NAME`、`API_PORT`、`API_KEY` 與單模型 vLLM 容量參數。
 - 多模型 cluster 讀取 `.env.API`（各模型共用的部署值）與 `models.json`。
 - `models.json` 管理多模型各自的 `model_name`、`api_port`、engine/parser 參數。
-- 目前第二個 instance 使用 `AImodels/NVIDIA-Nemotron-Nano-9B-v2-FP8`；Nemotron
-  的 Mamba SSM cache 會以 `float32` 啟動，並以 32K context / 16 路併發作為多模型
-  初始部署基線；另外關閉 Nemotron 的實驗性 prefix cache。
+- `models.json.example` 附兩個本機範例（`gemma-4-31b` 用 8103、`qwen3-14b` 用 8104），
+  請換成實際部署的模型；本文其餘出現的模型名稱都只是範例，不代表哪裡正在跑什麼。
+- 帶 Mamba SSM cache 的模型（例如 NVIDIA Nemotron Nano 系列）cache 會以 `float32`
+  啟動，32K context / 16 路併發是合理的初始基線，實驗性 prefix cache 要保持關閉。
 - `.env.API` 將 `MAX_JOBS` / `NINJAFLAGS` 限制為單工，避免第二個模型首次做
   FlashInfer CUDA JIT 時耗盡主機記憶體。
 - `API_KEY` 是 vLLM 各 instance 的 Bearer key。LiteLLM 以
@@ -90,7 +91,7 @@ vLLM instance 的啟動、ready check 與優雅關閉；模型 alias／路由由
 `served_model_name` 會傳入 vLLM 的 `--served-model-name`，所以各 instance 的
 `/v1/models` 不會暴露主機模型路徑。
 
-若需重新下載 Nemotron 模型，可使用固定 revision，避免模型檔案更新造成不可重現的部署：
+從 Hugging Face 下載模型時請固定 revision，避免上游檔案更新造成不可重現的部署，例如：
 
 ```bash
 ./.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8', revision='8bc5eece2eb5514c4bca7f2ec655b91eb554f4c0', local_dir='AImodels/NVIDIA-Nemotron-Nano-9B-v2-FP8', max_workers=4)"

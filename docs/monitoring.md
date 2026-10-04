@@ -27,7 +27,7 @@ Proxmox node / VM resource usage **does not pass through the SkyLab backend**: t
 
 ### Scheduler task heartbeats
 
-The main scheduler (`scheduler`, one round every 60 seconds, 17 tasks), the Web Push notifier (`web_push`) and the WireGuard reconciler (`wireguard`) record on every run: last run, last success, duration, consecutive failure count and the most recent error. The data lives in Redis (`skylab:hb:*`, 7-day expiry) and falls back to process memory when Redis is unavailable.
+The main scheduler (`scheduler`, one round every 60 seconds; the task list is the `tasks=[…]` registered in `services/scheduling/coordinator.py`), the Web Push notifier (`web_push`) and the WireGuard reconciler (`wireguard`) record on every run: last run, last success, duration, consecutive failure count and the most recent error. The data lives in Redis (`skylab:hb:*`, 7-day expiry) and falls back to process memory when Redis is unavailable.
 
 Status rules (`services/monitoring/health_policy.py`):
 

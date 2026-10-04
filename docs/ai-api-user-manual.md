@@ -130,8 +130,9 @@ them. The integrated Compose does not migrate databases automatically. The old h
 
 ## 3. Local and remote model list
 
-The current local models are `gpt-oss-20B` (8103) and `NVIDIA-Nemotron-Nano-9B-v2-FP8` (8104);
-the actual public names are whatever `models.json` and the `/models` response say. The following are
+The example configuration (`vllm-service/models.json.example`) defines two local models, `gemma-4-31b` (8103)
+and `qwen3-14b` (8104); the model names used in this manual are examples, and the actual public names
+are whatever `models.json` and the `/models` response say. The following are
 field examples; merge them into the existing JSON array and keep the existing models' GPU, context,
 parser and other tuning parameters.
 

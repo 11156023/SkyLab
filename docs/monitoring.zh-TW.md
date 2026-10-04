@@ -27,7 +27,7 @@ Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建�
 
 ### 排程任務心跳
 
-主排程（`scheduler`，60 秒一輪、17 個任務）、Web Push 推播（`web_push`）、WireGuard 同步（`wireguard`）每次執行都會記錄：上次執行、上次成功、耗時、連續失敗次數、最近一次錯誤。資料寫在 Redis（`skylab:hb:*`，7 天過期），Redis 不可用時退回行程記憶體。
+主排程（`scheduler`，60 秒一輪，任務清單以 `services/scheduling/coordinator.py` 註冊的 `tasks=[…]` 為準）、Web Push 推播（`web_push`）、WireGuard 同步（`wireguard`）每次執行都會記錄：上次執行、上次成功、耗時、連續失敗次數、最近一次錯誤。資料寫在 Redis（`skylab:hb:*`，7 天過期），Redis 不可用時退回行程記憶體。
 
 狀態判定（`services/monitoring/health_policy.py`）：
 

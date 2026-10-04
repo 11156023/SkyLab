@@ -46,7 +46,7 @@ The IPv4 and `(v6)` rows in UFW, as well as SSH ACLs for different VM IPs, are s
 ## Backend configuration
 
 ```dotenv
-WIREGUARD_ENDPOINT_HOST=192.168.100.143
+WIREGUARD_ENDPOINT_HOST=vpn.example.edu      # DNS name or public IP the clients can reach
 WIREGUARD_ENDPOINT_PORT=51821
 WIREGUARD_INTERFACE=wg0
 WIREGUARD_CLIENT_SUBNET=10.250.0.0/16

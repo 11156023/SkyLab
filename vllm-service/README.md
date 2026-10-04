@@ -35,9 +35,12 @@ Edit the configuration file that matches your deployment mode:
 - Single-model mode reads `.env.interface`; the values that matter are `MODEL_NAME`, `API_PORT`, `API_KEY` and the single-model vLLM capacity parameters.
 - The multi-model cluster reads `.env.API` (deployment values shared by all models) and `models.json`.
 - `models.json` manages each model's own `model_name`, `api_port` and engine/parser parameters.
-- The second instance currently uses `AImodels/NVIDIA-Nemotron-Nano-9B-v2-FP8`; Nemotron's
-  Mamba SSM cache starts in `float32`, and a 32K context / 16 concurrent requests is the initial
-  multi-model deployment baseline. Nemotron's experimental prefix cache is also disabled.
+- `models.json.example` ships two local entries as a starting point (`gemma-4-31b` on 8103 and
+  `qwen3-14b` on 8104); replace them with the models you actually deploy. The model names in the
+  rest of this document are examples, not a statement of what is running anywhere.
+- Models with a Mamba SSM cache (for example the NVIDIA Nemotron Nano family) start the cache in
+  `float32`; a 32K context / 16 concurrent requests is a reasonable initial baseline for them, and
+  their experimental prefix cache should stay disabled.
 - `.env.API` limits `MAX_JOBS` / `NINJAFLAGS` to a single job so that the second model's first
   FlashInfer CUDA JIT compile does not exhaust host memory.
 - `API_KEY` is the Bearer key of each vLLM instance. LiteLLM obtains the same value as
@@ -95,8 +98,8 @@ Every `models.json` entry must have a unique `alias`; for local models, `served_
 `served_model_name` is passed to vLLM's `--served-model-name`, so each instance's
 `/v1/models` does not expose the host model path.
 
-If you need to re-download the Nemotron model, pin a fixed revision so that model file updates
-cannot make the deployment non-reproducible:
+When you download a model from Hugging Face, pin a fixed revision so that upstream file updates
+cannot make the deployment non-reproducible, for example:
 
 ```bash
 ./.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8', revision='8bc5eece2eb5514c4bca7f2ec655b91eb554f4c0', local_dir='AImodels/NVIDIA-Nemotron-Nano-9B-v2-FP8', max_workers=4)"

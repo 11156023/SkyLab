@@ -42,7 +42,7 @@ The core principle of this SOP is:
 
 - Editing course materials, answering, grading and learning progress.
 - General research-type or personally customised VM requests.
-- Students creating, converting or cloning single-machine base templates themselves. (Students may still "request" one machine from an application template a teacher has opened up, but they cannot manage templates and cannot call the clone API directly.)
+- Students creating, converting or cloning single-machine base templates themselves. (Students may still "request" one machine from an application template whose visibility is "Visible to all", but they cannot manage templates and cannot call the clone API directly.)
 
 If general research-type machines are still needed, they must use the separate "resource request" flow and must not be mixed with the public practice environments governed by this SOP.
 
@@ -80,7 +80,7 @@ If general research-type machines are still needed, they must use the separate "
 | Use a formal class environment | Per management permission | Per teaching permission | Only own class environments |
 | View other students' environments | Yes | Only classes they teach | No |
 | Call the single-machine template clone API directly | Administrative use | If authorised | No |
-| Request a single machine from the application template catalog | Yes | Yes | Yes; limited to opened templates, specs decided by the template, goes through normal review |
+| Request a single machine from the application template catalog | Yes | Yes | Yes; limited to templates set to "Visible to all", specs decided by the template, goes through normal review |
 
 Hiding features in the frontend does not count as access control. Every restriction must be re-validated by the backend API; unauthorised requests must return `403`, and resources that do not exist or are not visible return `404` according to the information-disclosure policy.
 
@@ -140,13 +140,13 @@ The primary executor is the administrator; a teacher may do this only when autho
 
 ### 6.5 Opening the template to student self-service requests (optional)
 
-Tick "Allow students to request" only when students should be able to request one pre-installed application environment themselves (for example n8n or Jupyter):
+Whether students can request one pre-installed application environment themselves (for example n8n or Jupyter) is decided by the template's **visibility**: set it to "Visible to all" (`global`); "Private" keeps it out of every student list. There is no separate "allow students to request" flag any more.
 
-- Only templates that are `ready` and ticked appear in the "Application templates" group of the student request form (`GET /templates/catalog`).
+- Only templates that are `ready` and set to "Visible to all" appear in the "Application templates" group of the student request form (`GET /templates/catalog`).
 - Requests are always for a single machine. The template only decides the source and type (VM / LXC); CPU and memory are chosen by the requester and the personal quota applies as usual; disk is automatically raised to no less than the template's own size (a clone can only grow).
 - The request still goes through the normal review flow, is never auto-approved, and counts towards the personal quota.
-- Base templates that are not ticked never appear in any student list: `GET /vm/templates` returns only unregistered base images to non-teachers.
-- At creation time the backend re-validates that the template exists, is `ready` and has the open flag; frontend list filtering does not count as access control.
+- Private base templates never appear in any student list: `GET /vm/templates` returns only unregistered base images to non-teachers.
+- At creation time the backend re-validates that the template exists, is `ready` and is visible to all; frontend list filtering does not count as access control.
 
 ## 7. SOP-B: Teacher Builds a Multi-Machine Teaching Environment
 

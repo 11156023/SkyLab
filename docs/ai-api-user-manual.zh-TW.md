@@ -114,8 +114,9 @@ REMOTE_LAB_API_KEY=<遠端 vLLM 的 API_KEY>
 
 ## 3. 本機與遠端模型清單
 
-現行本機模型為 `gpt-oss-20B`（8103）與 `NVIDIA-Nemotron-Nano-9B-v2-FP8`（8104）；
-實際對外名稱以 `models.json` 與 `/models` 回應為準。以下為欄位範例，請合併到現有
+範例設定（`vllm-service/models.json.example`）定義兩個本機模型 `gemma-4-31b`（8103）與
+`qwen3-14b`（8104）；本手冊出現的模型名稱都是範例，實際對外名稱以 `models.json` 與
+`/models` 回應為準。以下為欄位範例，請合併到現有
 JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 
 本機項目預設 `deployment` 為 `local`：
