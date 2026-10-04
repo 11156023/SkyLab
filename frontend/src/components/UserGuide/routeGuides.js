@@ -40,7 +40,6 @@ const ROUTE_GUIDES = [
   { match: /^\/pve-connections$/, id: "pve-connections", icon: "device_hub", profile: "configure" },
   { match: /^\/scheduler$/, id: "scheduler", icon: "settings_input_component", profile: "configure" },
   { match: /^\/governance$/, id: "governance", icon: "policy", profile: "configure" },
-  { match: /^\/quotas$/, id: "quotas", icon: "data_usage", profile: "configure" },
   { match: /^\/ldap$/, id: "ldap", icon: "badge", profile: "configure" },
   { match: /^\/nodes$/, id: "nodes", icon: "hub", profile: "monitor" },
   { match: /^\/storage$/, id: "storage", icon: "storage", profile: "monitor" },

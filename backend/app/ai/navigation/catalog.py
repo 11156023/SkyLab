@@ -194,18 +194,13 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         keywords=("資源排程", "排程", "超配", "放置", "placement", "overcommit", "scheduler"),
         access="admin",
     ),
+    # 2026-10「配額」併入治理頁、改名「資源政策」（舊網址 /quotas 導過去），配額的關鍵字一起收進來。
     NavigationRoute(
         path="/governance",
-        title="治理",
-        summary="設定資源警告、TTL 回收、閒置與挖礦偵測等治理政策。",
-        keywords=("治理", "政策", "governance", "ttl", "閒置", "挖礦", "快照"),
-        access="admin",
-    ),
-    NavigationRoute(
-        path="/quotas",
-        title="配額",
-        summary="設定全域預設的資源上限與個別使用者的覆寫。",
-        keywords=("配額", "quota", "上限", "限制"),
+        title="資源政策",
+        summary="設定資源警告、TTL 回收、閒置與挖礦偵測等治理政策，以及全域預設的資源上限與個別使用者的配額覆寫。",
+        keywords=("資源政策", "治理", "政策", "governance", "ttl", "閒置", "挖礦", "快照",
+                  "配額", "quota", "上限", "限制"),
         access="admin",
     ),
     NavigationRoute(

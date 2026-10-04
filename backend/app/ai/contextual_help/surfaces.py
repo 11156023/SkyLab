@@ -1701,25 +1701,19 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         elements=_SCHEDULER_ELEMENTS,
         access="admin",
     ),
+    # 2026-10「配額」併入治理頁、改名「資源政策」（舊網址 /quotas 導過去）
     SurfaceSpec(
         id="governance",
         path="/governance",
-        title="治理",
-        purpose="資源警告、TTL 回收、閒置與挖礦偵測、快照與克隆併發的治理政策。",
+        title="資源政策",
+        purpose="資源警告、TTL 回收、閒置與挖礦偵測、快照與克隆併發的治理政策，"
+        "以及全域預設的資源上限與個別使用者的配額覆寫。",
         sections=(
             "資源警告", "TTL 生命週期", "閒置偵測", "VM / LXC 自動判斷",
             "反挖礦偵測", "快照治理", "克隆併發",
+            "全域預設配額", "個別使用者覆寫",
         ),
-        elements=_GOVERNANCE_ELEMENTS,
-        access="admin",
-    ),
-    SurfaceSpec(
-        id="quotas",
-        path="/quotas",
-        title="配額",
-        purpose="全域預設的資源上限，以及個別使用者的覆寫。",
-        sections=("全域預設配額", "個別使用者覆寫"),
-        elements=_QUOTAS_ELEMENTS,
+        elements=_GOVERNANCE_ELEMENTS + _QUOTAS_ELEMENTS,
         access="admin",
     ),
     SurfaceSpec(

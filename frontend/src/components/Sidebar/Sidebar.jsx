@@ -97,7 +97,6 @@ const adminSettingsItems = [
   { key: "pve-connections", labelKey: "Sidebar.itemPveConnections", icon: "device_hub" },
   { key: "scheduler",       labelKey: "Sidebar.itemScheduler",      icon: "settings_input_component" },
   { key: "governance",      labelKey: "Sidebar.itemGovernance",     icon: "policy" },
-  { key: "quotas",          labelKey: "Sidebar.itemQuotas",         icon: "data_usage" },
   { key: "ldap",            labelKey: "Sidebar.itemLdap",           icon: "badge" },
   { key: "nodes",           labelKey: "Sidebar.itemNodes",          icon: "lock" },
   { key: "storage",         labelKey: "Sidebar.itemStorage",        icon: "storage" },

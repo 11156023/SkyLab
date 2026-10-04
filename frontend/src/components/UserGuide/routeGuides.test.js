@@ -11,7 +11,7 @@ describe("route guide catalog", () => {
       "/course-cms", "/course-template-management", "/course-template-management/new",
       "/course-template-management/template-1", "/class-management", "/class-setup",
       "/class-management/class-1", "/class-management/class-1/machines", "/class-management/class-1/ai",
-      "/admin", "/pve-connections", "/scheduler", "/governance", "/quotas", "/ldap", "/nodes", "/storage",
+      "/admin", "/pve-connections", "/scheduler", "/governance", "/ldap", "/nodes", "/storage",
       "/monitoring", "/ip-management", "/audit", "/jobs", "/firewall", "/domain", "/gateway",
     ];
 

@@ -4,14 +4,16 @@ import styles from "./settings.module.scss";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import QuotasSection from "./QuotasSection";
 import { GovernanceService } from "../../../services/governance";
 import { useToast } from "../../../hooks/useToast";
 import { useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
 
 /**
- * 治理設定（系統管理 → 治理）：閾值警告 / TTL 回收 / 閒置偵測 / 自動判斷 /
- * 反挖礦 / 快照治理 / 克隆併發 / 課程教學環境。單一儲存鍵送出全部欄位。
- * 2026-09 從「系統設定」的分頁拆成獨立頁面。
+ * 資源政策（系統管理 → 資源政策）：上半是治理設定——閾值警告 / TTL 回收 / 閒置偵測 /
+ * 自動判斷 / 反挖礦 / 快照治理 / 克隆併發，單一儲存鍵送出全部欄位；
+ * 下半是配額——全域預設上限與個別使用者覆寫（QuotasSection），各自儲存。
+ * 2026-09 從「系統設定」的分頁拆成獨立頁面；2026-10 把原本獨立的「配額」頁併進來（/quotas 也導向這裡）。
  */
 
 function useSections(t) {
@@ -164,7 +166,7 @@ function GovernanceForm() {
     <form className={styles.panelStack} onSubmit={handleSave}>
       {SECTIONS.map((section) => (
         <div key={section.title} className={styles.card}>
-          <h2 className={styles.cardTitle}>{section.title}</h2>
+          <h3 className={styles.cardTitle}>{section.title}</h3>
           {section.desc && <p className={styles.cardDesc}>{section.desc}</p>}
 
           {section.toggles.map((toggle) => (
@@ -222,7 +224,14 @@ export default function GovernancePage() {
     <div className={styles.page}>
       <PageHeader title={t("SettingsPage.governanceTitle")} />
       <div className={styles.content}>
-        <GovernanceForm />
+        <section className={styles.pageSection} aria-labelledby="governance-section-title">
+          <h2 id="governance-section-title" className={styles.sectionHeading}>{t("SettingsPage.governanceSectionTitle")}</h2>
+          <GovernanceForm />
+        </section>
+        <section className={styles.pageSection} aria-labelledby="quotas-section-title">
+          <h2 id="quotas-section-title" className={styles.sectionHeading}>{t("SettingsPage.quotasTitle")}</h2>
+          <QuotasSection />
+        </section>
       </div>
     </div>
   );
