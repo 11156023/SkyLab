@@ -117,7 +117,9 @@ jobs:
           echo "Postgres did not become ready in time"; exit 1
 
       - name: Run prestart (alembic upgrade + initial data)
-        run: bash scripts/prestart.sh
+        # prestart.sh 直接呼叫 python／alembic（容器裡 /app/.venv 在 PATH 上），
+        # runner 上要靠 uv run 把 workspace 的 .venv 放進 PATH。
+        run: uv run bash scripts/prestart.sh
 
       - name: Run pytest with coverage
         run: |
