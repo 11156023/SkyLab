@@ -14,7 +14,9 @@ import json
 import logging
 import time
 import uuid
+from collections import deque
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any
 
@@ -102,9 +104,8 @@ class AdmissionQueue:
         self.max_active = max_active
         self.max_waiting = max_waiting
         self.wait_timeout_seconds = wait_timeout_seconds
-        self._tokens: asyncio.Queue[object] = asyncio.Queue(maxsize=max_active)
-        for _ in range(max_active):
-            self._tokens.put_nowait(object())
+        self._free: list[object] = [object() for _ in range(max_active)]
+        self._waiters: deque[asyncio.Future[object]] = deque()
         self._active = 0
         self._waiting = 0
         self._update_metrics()
@@ -119,32 +120,38 @@ class AdmissionQueue:
 
     async def acquire(self) -> AdmissionLease:
         started_at = time.monotonic()
-        token: object | None = None
         # 已有 waiter 時不可讓新 request 直接拿走剛歸還的 token，否則高流量下
-        # 舊 waiter 可能持續被插隊。
-        if self._waiting == 0:
-            try:
-                token = self._tokens.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-        if token is None:
+        # 舊 waiter 可能持續被插隊。token 由 release 直接交到隊首 waiter 手上，
+        # 不靠事件迴圈的喚醒順序：Python 3.12+ 的 wait_for 不再把 coroutine
+        # 包成 task，asyncio.Queue 喚醒後、取走前的空檔會被新 request 搶走。
+        if not self._waiters and self._free:
+            token = self._free.pop()
+            self._active += 1
+        else:
             if self._waiting >= self.max_waiting:
                 ai_metrics.record_proxy_admission_rejection("queue_full")
                 raise AdmissionRejected("queue_full")
+            waiter: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+            self._waiters.append(waiter)
             self._waiting += 1
             self._update_metrics()
             try:
-                token = await asyncio.wait_for(
-                    self._tokens.get(), timeout=self.wait_timeout_seconds
-                )
-            except asyncio.TimeoutError as exc:
-                ai_metrics.record_proxy_admission_rejection("timeout")
-                raise AdmissionRejected("timeout") from exc
+                token = await asyncio.wait_for(waiter, timeout=self.wait_timeout_seconds)
+            except BaseException as exc:
+                if waiter.done() and not waiter.cancelled():
+                    # token 已交到手上才逾時／被取消：直接歸還給下一位，名額不流失。
+                    self.release(waiter.result())
+                else:
+                    with suppress(ValueError):
+                        self._waiters.remove(waiter)
+                if isinstance(exc, asyncio.TimeoutError):
+                    ai_metrics.record_proxy_admission_rejection("timeout")
+                    raise AdmissionRejected("timeout") from exc
+                raise
             finally:
                 self._waiting -= 1
                 self._update_metrics()
 
-        self._active += 1
         self._update_metrics()
         ai_metrics.observe_proxy_queue_wait(time.monotonic() - started_at)
         return AdmissionLease(self, token)
@@ -154,8 +161,18 @@ class AdmissionQueue:
             logger.error("AI proxy admission lease released without an active request")
             return
         self._active -= 1
-        self._tokens.put_nowait(token)
+        self._hand_off(token)
         self._update_metrics()
+
+    def _hand_off(self, token: object) -> None:
+        # 交給隊首還在等的 waiter，並在交出當下就算進 active。
+        while self._waiters:
+            waiter = self._waiters.popleft()
+            if not waiter.done():
+                waiter.set_result(token)
+                self._active += 1
+                return
+        self._free.append(token)
 
     def _update_metrics(self) -> None:
         ai_metrics.update_proxy_admission(active=self._active, waiting=self._waiting)

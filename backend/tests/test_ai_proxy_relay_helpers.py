@@ -290,6 +290,31 @@ async def test_admission_queue_timeout_and_cancel_do_not_leak_waiters() -> None:
 
 
 @pytest.mark.asyncio
+async def test_admission_slot_handed_to_cancelled_waiter_is_returned() -> None:
+    """token 已交給 waiter、它卻在恢復執行前被取消時，名額要還回去。"""
+    queue = relay_service.AdmissionQueue(
+        max_active=1,
+        max_waiting=1,
+        wait_timeout_seconds=1,
+    )
+    first = await queue.acquire()
+    waiter = asyncio.create_task(queue.acquire())
+    while queue.waiting == 0:
+        await asyncio.sleep(0)
+
+    first.release()
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    assert queue.waiting == 0
+    assert queue.active == 0
+    again = await asyncio.wait_for(queue.acquire(), timeout=0.1)
+    again.release()
+    assert queue.active == 0
+
+
+@pytest.mark.asyncio
 async def test_shared_relay_client_is_reused_and_closed_on_shutdown(
     monkeypatch,
 ) -> None:
