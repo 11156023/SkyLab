@@ -233,7 +233,7 @@
   "Sidebar.itemScheduler": "資源排程",
   "Sidebar.itemGovernance": "資源政策",
   "Sidebar.itemLdap": "LDAP",
-  "Sidebar.itemStorage": "Storage",
+  "Sidebar.itemStorage": "儲存空間",
   "Sidebar.groupMonitoring": "監控與日誌",
   "Sidebar.itemMonitoring": "資源監控",
   "Sidebar.itemJobs": "背景任務",

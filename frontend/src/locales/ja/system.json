@@ -699,7 +699,7 @@
   "SettingsPage.storageFilterLabel": "Storage を状態で絞り込み",
   "SettingsPage.storageNoResult": "Storage が見つかりません",
   "SettingsPage.storageSearchPlaceholder": "名前、ノード、タイプで検索",
-  "SettingsPage.storageTitle": "Storage",
+  "SettingsPage.storageTitle": "ストレージ",
   "SettingsPage.sync": "同期",
   "SettingsPage.syncing": "同期中...",
   "SettingsPage.taskCheckInterval": "タスクチェック間隔（秒）",

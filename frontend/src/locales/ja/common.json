@@ -233,7 +233,7 @@
   "Sidebar.itemScheduler": "リソーススケジューリング",
   "Sidebar.itemGovernance": "リソースポリシー",
   "Sidebar.itemLdap": "LDAP",
-  "Sidebar.itemStorage": "Storage",
+  "Sidebar.itemStorage": "ストレージ",
   "Sidebar.groupMonitoring": "監視とログ",
   "Sidebar.itemMonitoring": "リソース監視",
   "Sidebar.itemJobs": "バックグラウンドタスク",

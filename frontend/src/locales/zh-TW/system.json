@@ -699,7 +699,7 @@
   "SettingsPage.storageFilterLabel": "Storage 狀態篩選",
   "SettingsPage.storageNoResult": "找不到 Storage",
   "SettingsPage.storageSearchPlaceholder": "搜尋名稱、節點或類型",
-  "SettingsPage.storageTitle": "Storage",
+  "SettingsPage.storageTitle": "儲存空間",
   "SettingsPage.sync": "同步",
   "SettingsPage.syncing": "同步中...",
   "SettingsPage.taskCheckInterval": "任務檢查間隔（秒）",
