@@ -1,4 +1,4 @@
-"""Gateway 主機上的 nginx：SkyLab 自動管理的設定檔與 Let's Encrypt 憑證。
+"""Gateway 主機上的 nginx：SkyLab 自動管理的設定檔。
 
 nginx 同時扛兩件事，各自對應一份 SkyLab 完整持有的設定檔：
 - ``stream.conf``：Port 轉發（TCP／UDP，由 ``nat_service`` 產生）
@@ -8,8 +8,9 @@ nginx 同時扛兩件事，各自對應一份 SkyLab 完整持有的設定檔：
 不需要像以前的 haproxy 那樣用 BEGIN/END 標記切出自動管理區段。寫入一律
 「先落地、``nginx -t`` 驗證、失敗就還原」，避免壞設定讓下一次 reload 失敗。
 
-HTTPS 憑證改由 certbot 的 Cloudflare DNS-01 簽發（同一把 DNS API token），
-同一個 zone 底下的一層子網域共用一張萬用憑證，多層子網域才逐一簽發。
+系統不簽發 HTTPS 憑證：管理員自己準備一張（通常是萬用憑證）放在 Gateway 上，
+設定裡只記路徑，平台入口與所有 VM 網域共用；還沒設定時先掛安裝時產生的
+自簽憑證。``inspect_certificate`` 在存檔前檢查那張憑證。
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.i18n import t
-from app.exceptions import BadRequestError, ProxmoxError
+from app.exceptions import ProxmoxError
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,6 @@ NGINX_STREAM_CONF_PATH = f"{NGINX_MANAGED_DIR}/stream.conf"
 NGINX_HTTP_CONF_PATH = f"{NGINX_MANAGED_DIR}/http.conf"
 NGINX_FALLBACK_CERT_PATH = f"{NGINX_MANAGED_DIR}/fallback.crt"
 NGINX_FALLBACK_KEY_PATH = f"{NGINX_MANAGED_DIR}/fallback.key"
-LETSENCRYPT_LIVE_DIR = "/etc/letsencrypt/live"
-CERTBOT_CLOUDFLARE_CREDENTIALS_PATH = "/etc/letsencrypt/skylab-cloudflare.ini"
-# Cloudflare 的 DNS 更新通常幾秒內就查得到，certbot 預設 10 秒等待對它夠用
-CERTBOT_DNS_PROPAGATION_SECONDS = 10
 # 寫入 stream.conf／http.conf 的序列化：backend 端的 PG advisory lock（"SKYLABNG"）
 # 與 Gateway 端的 flock（涵蓋其他行程或手動同步）
 _NGINX_CONFIG_LOCK_ID = 0x534B594C41424E47
@@ -47,8 +44,6 @@ _MANAGED_HEADER = (
     "# SkyLab 自動管理的設定，請勿手動修改\n"
     "# 由 SkyLab 後端透過 SSH 依資料庫規則重建，手動改動會在下次同步時被覆蓋\n"
 )
-
-_CERT_NAME_PATTERN = re.compile(r"^[a-z0-9.-]{1,255}$")
 
 # 平台入口（主系統自己的網域）在 http.conf 裡的區段標記與 upstream 名稱
 PLATFORM_BEGIN_MARKER = "# BEGIN skylab-platform"
@@ -120,22 +115,31 @@ class PlatformEntry:
         return f"{self.upstream_host}:{self.upstream_port}"
 
 
-def _ssl_certificate_lines(cert_name: str | None) -> list[str]:
-    """憑證簽下來就用 Let's Encrypt 那張，否則先掛安裝時產生的自簽憑證。"""
-    if cert_name:
+@dataclass(frozen=True)
+class CertificatePaths:
+    """管理員自備的 HTTPS 憑證（fullchain）與私鑰在 Gateway 上的路徑。"""
+
+    certificate: str
+    key: str
+
+
+def _ssl_certificate_lines(certificate: CertificatePaths | None) -> list[str]:
+    """有設定憑證就用它，否則先掛安裝時產生的自簽憑證讓 ``nginx -t`` 能過。"""
+    if certificate is not None:
         return [
-            f"    # 憑證：{cert_name}",
-            f"    ssl_certificate {LETSENCRYPT_LIVE_DIR}/{cert_name}/fullchain.pem;",
-            f"    ssl_certificate_key {LETSENCRYPT_LIVE_DIR}/{cert_name}/privkey.pem;",
+            f"    ssl_certificate {certificate.certificate};",
+            f"    ssl_certificate_key {certificate.key};",
         ]
     return [
-        "    # 憑證尚未簽發，暫用自簽憑證；重新同步會再嘗試簽發",
+        "    # 尚未設定 HTTPS 憑證，暫用自簽憑證",
         f"    ssl_certificate {NGINX_FALLBACK_CERT_PATH};",
         f"    ssl_certificate_key {NGINX_FALLBACK_KEY_PATH};",
     ]
 
 
-def build_platform_servers(entry: PlatformEntry, cert_name: str | None) -> list[str]:
+def build_platform_servers(
+    entry: PlatformEntry, certificate: CertificatePaths | None
+) -> list[str]:
     """平台入口的 server 區塊（夾在 BEGIN／END 標記之間，供狀態檢查讀回）。
 
     和 VM 網域的差別：
@@ -186,7 +190,7 @@ def build_platform_servers(entry: PlatformEntry, cert_name: str | None) -> list[
             "server {",
             "    listen 443 ssl;",
             f"    server_name {entry.domain};",
-            *_ssl_certificate_lines(cert_name),
+            *_ssl_certificate_lines(certificate),
             *proxy_server,
         ]
     else:
@@ -197,15 +201,15 @@ def build_platform_servers(entry: PlatformEntry, cert_name: str | None) -> list[
 
 def build_http_config(
     rules: list[Any],
-    cert_names: dict[str, str | None],
+    certificate: CertificatePaths | None,
     *,
     platform: PlatformEntry | None = None,
 ) -> str:
     """從反向代理規則（與平台入口）產生 ``http.conf``。
 
-    ``cert_names`` 是 domain → 已簽好的憑證名稱（``/etc/letsencrypt/live/<name>``）；
-    給 ``None`` 代表這個網域的憑證還沒簽下來，先用安裝時產生的自簽憑證頂著，
-    讓 ``nginx -t`` 能過、站台照樣可以連（瀏覽器會警告），下次同步再補簽。
+    所有 HTTPS 站台共用管理員設定的那張憑證；``certificate`` 為 ``None``（還沒設定）
+    時先用安裝時產生的自簽憑證頂著，讓 ``nginx -t`` 能過、站台照樣可以連
+    （瀏覽器會警告）。憑證沒涵蓋到的網域也一樣會出現瀏覽器警告。
     """
     lines: list[str] = [
         _MANAGED_HEADER,
@@ -217,7 +221,7 @@ def build_http_config(
         "",
     ]
     if platform is not None:
-        lines += build_platform_servers(platform, cert_names.get(platform.domain))
+        lines += build_platform_servers(platform, certificate)
     for r in rules:
         name = http_server_name(r.vmid, r.domain)
         lines += [f"# {name}", "server {", "    listen 80;", f"    server_name {r.domain};"]
@@ -228,7 +232,7 @@ def build_http_config(
                 "server {",
                 "    listen 443 ssl;",
                 f"    server_name {r.domain};",
-                *_ssl_certificate_lines(cert_names.get(r.domain)),
+                *_ssl_certificate_lines(certificate),
                 *_proxy_location(r.vm_ip, r.internal_port),
                 "}",
                 "",
@@ -236,32 +240,6 @@ def build_http_config(
         else:
             lines += [*_proxy_location(r.vm_ip, r.internal_port), "}", ""]
     return "\n".join(lines)
-
-
-# ─── 憑證規劃 ────────────────────────────────────────────────────────────────
-
-
-def plan_certificate(domain: str, zone_name: str | None) -> tuple[str, list[str]]:
-    """決定某個網域該用哪張憑證：回傳 ``(憑證名稱, 要涵蓋的網域清單)``。
-
-    萬用憑證只涵蓋一層子網域，所以 zone 本身與 ``x.zone`` 共用 ``zone`` 這張
-    （``zone`` + ``*.zone``）；``a.b.zone`` 這種多層的只能單獨簽。查不到 zone
-    名稱時也退回單獨簽，不會因此簽不出來。
-    """
-    clean = domain.strip().lower().rstrip(".")
-    if zone_name:
-        zone = zone_name.strip().lower().rstrip(".")
-        if clean == zone or (
-            clean.endswith(f".{zone}") and "." not in clean[: -(len(zone) + 1)]
-        ):
-            return zone, [zone, f"*.{zone}"]
-    return clean, [clean]
-
-
-def _assert_safe_cert_name(value: str) -> None:
-    # 憑證名稱與網域會拼進 shell 指令與 nginx 設定，只放行主機名稱字元
-    if not _CERT_NAME_PATTERN.fullmatch(value) or ".." in value or value.startswith("-"):
-        raise BadRequestError(t("gateway.certificateNameInvalid", name=value))
 
 
 # ─── 遠端寫入 ────────────────────────────────────────────────────────────────
@@ -351,101 +329,123 @@ def write_validated_config(
         )
 
 
-def write_certbot_credentials(client: Any, cloudflare_api_token: str) -> None:
-    """把 Cloudflare token 寫成 certbot-dns-cloudflare 的認證檔（600）。"""
-    clean_token = cloudflare_api_token.strip()
-    if not clean_token or "\n" in clean_token or "\r" in clean_token:
-        raise BadRequestError(t("gateway.cloudflareApiTokenInvalidFormat"))
+# ─── 管理員自備的憑證 ────────────────────────────────────────────────────────
 
-    content = (
-        "# SkyLab 自動管理，供 certbot 的 Cloudflare DNS-01 驗證使用\n"
-        f"dns_cloudflare_api_token = {clean_token}\n"
-    )
-    quoted = shlex.quote(CERTBOT_CLOUDFLARE_CREDENTIALS_PATH)
-    code, out, err = _exec(
-        client,
-        f"mkdir -p {shlex.quote(LETSENCRYPT_LIVE_DIR)} && "
-        f"touch {quoted} && chmod 600 {quoted}",
-    )
-    if code != 0:
-        raise ProxmoxError(
-            t("gateway.writeCertbotCredentialsFailed", detail=(out + err).strip())
+
+@dataclass(frozen=True)
+class CertificateInspection:
+    """``inspect_certificate`` 的結果；``None`` 代表前一項沒過、沒辦法判斷。"""
+
+    cert_readable: bool
+    key_readable: bool
+    cert_valid: bool
+    key_valid: bool
+    key_matches: bool | None
+    expires_at: datetime | None
+    # subjectAltName 裡的 DNS 名稱（小寫，萬用字元原樣保留）
+    dns_names: tuple[str, ...] = ()
+
+    @property
+    def usable(self) -> bool:
+        """讀得到、格式正確、私鑰配對：nginx 載得起來。"""
+        return (
+            self.cert_readable
+            and self.key_readable
+            and self.cert_valid
+            and self.key_valid
+            and self.key_matches is True
         )
-    _sftp_write(client, CERTBOT_CLOUDFLARE_CREDENTIALS_PATH, content)
 
 
-def certificate_exists(client: Any, cert_name: str) -> bool:
-    _assert_safe_cert_name(cert_name)
-    code, _, _ = _exec(
-        client,
-        f"test -f {shlex.quote(f'{LETSENCRYPT_LIVE_DIR}/{cert_name}/fullchain.pem')}",
-    )
-    return code == 0
+def certificate_covers(domain: str, dns_names: tuple[str, ...] | list[str]) -> bool:
+    """憑證的 DNS 名稱有沒有涵蓋這個網域；萬用字元只涵蓋一層子網域（RFC 6125）。"""
+    clean = domain.strip().lower().rstrip(".")
+    for raw in dns_names:
+        name = raw.strip().lower().rstrip(".")
+        if name == clean:
+            return True
+        if name.startswith("*."):
+            head, _, tail = clean.partition(".")
+            if head and tail == name[2:]:
+                return True
+    return False
 
 
-def issue_certificate(
-    client: Any, cert_name: str, domains: list[str], *, acme_email: str
-) -> bool:
-    """用 certbot 的 Cloudflare DNS-01 簽一張憑證；失敗只記 log、回傳 False。
+def build_certificate_inspect_command(cert_path: str, key_path: str) -> str:
+    """一條指令檢查憑證與私鑰：讀得到、格式正確、互相配對、到期日、涵蓋的網域。
 
-    簽發要等 DNS 傳播與 Let's Encrypt 驗證，通常十幾秒。失敗不中斷同步：
-    站台會先掛自簽憑證，管理員重新同步時會再試一次。
+    輸出 ``key=value`` 逐行（每個 DNS 名稱一行 ``san=``）。私鑰配對比的是兩邊
+    公鑰的 DER 雜湊；呼叫端只在兩邊都解析成功時才採信，否則空輸入的雜湊會被
+    誤判成相同。subjectAltName 用 ``-text`` 抓而不是 ``-ext``，舊版 openssl 也能用。
     """
-    _assert_safe_cert_name(cert_name)
-    for domain in domains:
-        _assert_safe_cert_name(domain.lstrip("*."))
-    clean_email = acme_email.strip()
-    if not clean_email:
-        raise BadRequestError(t("gateway.acmeEmailRequired"))
-
-    domain_args = " ".join(f"-d {shlex.quote(domain)}" for domain in domains)
-    command = (
-        "certbot certonly --non-interactive --agree-tos --keep-until-expiring "
-        f"--email {shlex.quote(clean_email)} "
-        "--dns-cloudflare "
-        f"--dns-cloudflare-credentials {shlex.quote(CERTBOT_CLOUDFLARE_CREDENTIALS_PATH)} "
-        f"--dns-cloudflare-propagation-seconds {CERTBOT_DNS_PROPAGATION_SECONDS} "
-        f"--cert-name {shlex.quote(cert_name)} {domain_args} 2>&1"
+    cert = shlex.quote(cert_path)
+    key = shlex.quote(key_path)
+    return (
+        f"c={cert}; k={key}; "
+        'if [ -r "$c" ]; then echo cert_readable=1; else echo cert_readable=0; fi; '
+        'if [ -r "$k" ]; then echo key_readable=1; else echo key_readable=0; fi; '
+        'end=$(openssl x509 -noout -enddate -in "$c" 2>/dev/null) && '
+        'echo cert_valid=1 && echo "cert_end=${end#notAfter=}" || echo cert_valid=0; '
+        # 有密碼的私鑰 nginx 也載不起來；給空密碼讓它直接失敗，不會停下來等輸入
+        'if openssl pkey -in "$k" -passin pass: -noout 2>/dev/null; then echo key_valid=1; '
+        "else echo key_valid=0; fi; "
+        'cp=$(openssl x509 -noout -pubkey -in "$c" 2>/dev/null | '
+        "openssl pkey -pubin -outform der 2>/dev/null | openssl dgst -sha256 2>/dev/null); "
+        'kp=$(openssl pkey -in "$k" -passin pass: -pubout -outform der 2>/dev/null | '
+        "openssl dgst -sha256 2>/dev/null); "
+        'if [ "$cp" = "$kp" ]; then echo key_match=1; else echo key_match=0; fi; '
+        'openssl x509 -noout -text -in "$c" 2>/dev/null '
+        "| grep -A1 'Subject Alternative Name' | tail -n 1 | tr ',' '\\n' "
+        "| sed -n 's/^[[:space:]]*DNS:\\([^[:space:]]*\\).*$/san=\\1/p'"
     )
-    code, out, err = _exec(client, command)
-    if code != 0:
-        logger.warning(
-            "[nginx] 憑證 %s（%s）簽發失敗，先以自簽憑證頂替：%s",
-            cert_name,
-            ", ".join(domains),
-            (out + err).strip()[-800:],
+
+
+def _parse_openssl_date(text: str) -> datetime | None:
+    try:
+        return datetime.strptime(text.strip(), "%b %d %H:%M:%S %Y %Z").replace(
+            tzinfo=timezone.utc
         )
-        return False
-    logger.info("[nginx] 憑證 %s 已簽發（%s）", cert_name, ", ".join(domains))
-    return True
+    except ValueError:
+        return None
 
 
-def ensure_certificates(
-    client: Any, plans: dict[str, list[str]], *, acme_email: str
-) -> set[str]:
-    """確認每張規劃中的憑證都在；缺的就簽。回傳目前可用的憑證名稱。"""
-    ready: set[str] = set()
-    for cert_name, domains in plans.items():
-        if certificate_exists(client, cert_name) or issue_certificate(
-            client, cert_name, domains, acme_email=acme_email
-        ):
-            ready.add(cert_name)
-    return ready
+def parse_certificate_inspection(output: str) -> CertificateInspection:
+    values: dict[str, str] = {}
+    dns_names: list[str] = []
+    for raw_line in output.splitlines():
+        key, sep, value = raw_line.strip().partition("=")
+        if not sep:
+            continue
+        if key == "san":
+            name = value.strip().lower()
+            if name and name not in dns_names:
+                dns_names.append(name)
+        else:
+            values[key] = value.strip()
+
+    cert_valid = values.get("cert_valid") == "1"
+    key_valid = values.get("key_valid") == "1"
+    return CertificateInspection(
+        cert_readable=values.get("cert_readable") == "1",
+        key_readable=values.get("key_readable") == "1",
+        cert_valid=cert_valid,
+        key_valid=key_valid,
+        key_matches=values.get("key_match") == "1" if cert_valid and key_valid else None,
+        expires_at=_parse_openssl_date(values.get("cert_end", "")) if cert_valid else None,
+        dns_names=tuple(dns_names) if cert_valid else (),
+    )
 
 
-def get_acme_email() -> str:
-    from app.core.config import settings
-
-    return str(settings.EMAILS_FROM_EMAIL or settings.FIRST_SUPERUSER)
+_INSPECT_TIMEOUT_SECONDS = 20
 
 
-def renew_certificates(client: Any) -> None:
-    """跑一次 ``certbot renew``；到期前 30 天內的憑證會換新並 reload nginx。"""
-    code, out, err = _exec(client, "certbot renew --non-interactive --quiet 2>&1")
-    if code != 0:
-        raise ProxmoxError(
-            t("gateway.certificateRenewFailed", detail=(out + err).strip()[-800:])
-        )
+def inspect_certificate(client: Any, cert_path: str, key_path: str) -> CertificateInspection:
+    _, out, _ = _exec(
+        client,
+        build_certificate_inspect_command(cert_path, key_path),
+        timeout=_INSPECT_TIMEOUT_SECONDS,
+    )
+    return parse_certificate_inspection(out)
 
 
 # ─── 執行期快照 ──────────────────────────────────────────────────────────────
@@ -462,6 +462,7 @@ _STREAM_SERVER_PATTERN = re.compile(
 _SERVER_NAME_PATTERN = re.compile(r"^\s*server_name\s+([^;]+);", re.MULTILINE)
 _PROXY_PASS_PATTERN = re.compile(r"^\s*proxy_pass\s+([^;]+);", re.MULTILINE)
 _CERT_LINE_PATTERN = re.compile(r"^\s*ssl_certificate\s+([^;]+);", re.MULTILINE)
+_CERT_KEY_LINE_PATTERN = re.compile(r"^\s*ssl_certificate_key\s+([^;]+);", re.MULTILINE)
 
 
 def parse_http_servers(content: str) -> list[dict[str, Any]]:
@@ -496,8 +497,9 @@ def parse_http_servers(content: str) -> list[dict[str, Any]]:
             entry["https"] = True
             cert_line = _CERT_LINE_PATTERN.search(body)
             cert_path = cert_line.group(1).strip() if cert_line else ""
-            if cert_path.startswith(f"{LETSENCRYPT_LIVE_DIR}/"):
-                entry["certificate"] = cert_path[len(LETSENCRYPT_LIVE_DIR) + 1 :].split("/")[0]
+            # 掛的是自簽備援憑證就代表管理員還沒設定 HTTPS 憑證
+            if cert_path and cert_path != NGINX_FALLBACK_CERT_PATH:
+                entry["certificate"] = cert_path
                 entry["certificate_ready"] = True
             else:
                 entry["certificate_ready"] = False
@@ -514,7 +516,11 @@ _UPSTREAM_SERVER_PATTERN = re.compile(r"^\s*server\s+([^;\s{]+);", re.MULTILINE)
 
 
 def parse_platform_entry(content: str) -> dict[str, Any] | None:
-    """從 ``http.conf`` 讀回目前套用中的平台入口；沒有那一段就回 ``None``。"""
+    """從 ``http.conf`` 讀回目前套用中的平台入口；沒有那一段就回 ``None``。
+
+    ``certificate`` 是 nginx 實際引用的憑證路徑；掛的是自簽備援憑證時為 ``None``、
+    ``fallback`` 為 True。
+    """
     match = _PLATFORM_SECTION_PATTERN.search(content)
     if match is None:
         return None
@@ -523,19 +529,23 @@ def parse_platform_entry(content: str) -> dict[str, Any] | None:
     upstream = _UPSTREAM_SERVER_PATTERN.search(body)
     https = "listen 443 ssl;" in body
     certificate: str | None = None
-    certificate_ready: bool | None = None
+    certificate_key: str | None = None
+    fallback = False
     if https:
         cert_line = _CERT_LINE_PATTERN.search(body)
+        key_line = _CERT_KEY_LINE_PATTERN.search(body)
         cert_path = cert_line.group(1).strip() if cert_line else ""
-        certificate_ready = cert_path.startswith(f"{LETSENCRYPT_LIVE_DIR}/")
-        if certificate_ready:
-            certificate = cert_path[len(LETSENCRYPT_LIVE_DIR) + 1 :].split("/")[0]
+        fallback = not cert_path or cert_path == NGINX_FALLBACK_CERT_PATH
+        if not fallback:
+            certificate = cert_path
+            certificate_key = key_line.group(1).strip() if key_line else None
     return {
         "domain": server_name.group(1).strip() if server_name else "",
         "upstream": upstream.group(1).strip() if upstream else None,
         "https": https,
         "certificate": certificate,
-        "certificate_ready": certificate_ready,
+        "certificate_key": certificate_key,
+        "fallback": fallback,
     }
 
 
@@ -574,14 +584,7 @@ def parse_certificate_listing(output: str) -> list[dict[str, Any]]:
         if not line:
             continue
         name, _, end_text = line.partition("\t")
-        expires_at: datetime | None = None
-        try:
-            expires_at = datetime.strptime(end_text.strip(), "%b %d %H:%M:%S %Y %Z").replace(
-                tzinfo=timezone.utc
-            )
-        except ValueError:
-            expires_at = None
-        items.append({"name": name.strip(), "expires_at": expires_at})
+        items.append({"name": name.strip(), "expires_at": _parse_openssl_date(end_text)})
     return items
 
 
@@ -590,10 +593,14 @@ def parse_version(output: str) -> str | None:
     return match.group(1) if match else None
 
 
+# 憑證清單：http.conf 實際引用、不是自簽備援的憑證（名稱＝完整路徑）。
+# 憑證由管理員自己續期，健康監控靠這份清單提醒快到期
 _CERT_LISTING_COMMAND = (
-    f"for f in {LETSENCRYPT_LIVE_DIR}/*/fullchain.pem; do "
+    "for f in $(sed -n 's/^[[:space:]]*ssl_certificate[[:space:]][[:space:]]*\\([^;]*\\);.*/\\1/p' "
+    f"{NGINX_HTTP_CONF_PATH} 2>/dev/null | sort -u); do "
+    f'[ "$f" = {NGINX_FALLBACK_CERT_PATH} ] && continue; '
     '[ -f "$f" ] || continue; '
-    'printf "%s\\t%s\\n" "$(basename "$(dirname "$f")")" '
+    'printf "%s\\t%s\\n" "$f" '
     '"$(openssl x509 -enddate -noout -in "$f" 2>/dev/null | cut -d= -f2)"; '
     "done"
 )
@@ -666,8 +673,6 @@ def collect_runtime(client: Any) -> dict[str, Any]:
 
 
 __all__ = [
-    "CERTBOT_CLOUDFLARE_CREDENTIALS_PATH",
-    "LETSENCRYPT_LIVE_DIR",
     "NGINX_CONF_PATH",
     "NGINX_FALLBACK_CERT_PATH",
     "NGINX_FALLBACK_KEY_PATH",
@@ -677,29 +682,28 @@ __all__ = [
     "PLATFORM_BEGIN_MARKER",
     "PLATFORM_END_MARKER",
     "PLATFORM_UPSTREAM_NAME",
+    "CertificateInspection",
+    "CertificatePaths",
     "PlatformEntry",
+    "build_certificate_inspect_command",
     "build_health_command",
     "build_http_config",
     "build_platform_servers",
     "build_stream_config",
-    "certificate_exists",
+    "certificate_covers",
     "collect_runtime",
-    "ensure_certificates",
-    "get_acme_email",
     "http_server_name",
-    "issue_certificate",
+    "inspect_certificate",
     "list_certificates",
+    "parse_certificate_inspection",
     "parse_certificate_listing",
     "parse_health_output",
     "parse_http_servers",
     "parse_platform_entry",
     "parse_stream_servers",
     "parse_version",
-    "plan_certificate",
     "probe_health",
     "read_http_config",
-    "renew_certificates",
     "stream_server_name",
-    "write_certbot_credentials",
     "write_validated_config",
 ]

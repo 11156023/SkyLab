@@ -91,13 +91,13 @@
   "ReverseProxyPage.nginx.stopped": "Stopped",
   "ReverseProxyPage.nginx.configValid": "Configuration valid",
   "ReverseProxyPage.nginx.configInvalid": "Configuration invalid",
-  "ReverseProxyPage.nginx.pendingCertificates": "{{count}} domain certificate(s) not issued yet; using the self-signed fallback",
+  "ReverseProxyPage.nginx.pendingCertificates": "{{count}} domain(s) using the self-signed fallback (no HTTPS certificate set up on the Gateway VM page)",
   "ReverseProxyPage.nginx.httpServers": "Domain reverse proxies",
   "ReverseProxyPage.nginx.tcpForwards": "TCP port forwards",
   "ReverseProxyPage.nginx.udpForwards": "UDP port forwards",
   "ReverseProxyPage.nginx.serverBlocks": "server blocks",
-  "ReverseProxyPage.nginx.certificates": "Let's Encrypt certificates",
-  "ReverseProxyPage.nginx.noCertificates": "No certificates have been issued yet",
+  "ReverseProxyPage.nginx.certificates": "HTTPS certificate",
+  "ReverseProxyPage.nginx.noCertificates": "No HTTPS certificate set up",
   "ReverseProxyPage.nginx.expires": "expires {{date}}",
   "ReverseProxyPage.nginx.expiryUnknown": "expiry unknown"
 }

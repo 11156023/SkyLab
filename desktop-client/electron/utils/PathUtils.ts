@@ -45,6 +45,14 @@ class PathUtils {
     if (app.isPackaged || fs.existsSync(packed)) return packed;
     return path.join(app.getAppPath(), "vendor", "wireguard", filename);
   }
+
+  /** 第三方授權聲明：打包後在 resources 根目錄（electron-builder extraResources），開發時讀專案根目錄 */
+  public static getThirdPartyNoticesPath() {
+    const filename = "THIRD_PARTY_NOTICES.txt";
+    const packed = path.join(process.resourcesPath || "", filename);
+    if (app.isPackaged || fs.existsSync(packed)) return packed;
+    return path.join(app.getAppPath(), filename);
+  }
 }
 
 export default PathUtils;

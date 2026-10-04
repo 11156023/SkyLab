@@ -5,7 +5,7 @@ deployment. This file is also retained for standalone deployment. Both modes
 use the same configuration and host port 4000; run only one at a time.
 
 Complete setup, remote routes, database/key operations, project handover and
-user API examples: [AI API 使用手冊](../../docs/ai-api-user-manual.md).
+user API examples: [AI API User Manual](../../docs/ai-api-user-manual.md).
 
 ## Files and secret boundaries
 

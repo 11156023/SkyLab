@@ -32,6 +32,7 @@ from app.services.os_identity_service import (
     initial_guest_os as initial_guest_os_identity,
 )
 from app.services.proxmox import gpu_service, proxmox_service
+from app.services.resource import guest_ssh_login
 from app.services.user import audit_service
 from app.services.vm import placement_support, vm_request_placement_service
 from app.utils.hostname import to_punycode_hostname
@@ -508,6 +509,20 @@ def allocate_free_vmid(session: Session) -> int:
     return new_vmid
 
 
+def _open_lxc_ssh_login(node: str, vmid: int, public_key: str) -> None:
+    """ostemplate 建出的 LXC 開機後開放 sshd 的 root／密碼登入（best-effort）。
+
+    建立時已帶 ssh-public-keys，這裡借公鑰同步（冪等）的 ``pct exec``
+    一併改 sshd；失敗只記 warning，不能讓建好的機器被 rollback。
+    """
+    try:
+        from app.services.template import clone_service
+
+        clone_service.inject_lxc_platform_key(node, vmid, public_key)
+    except Exception:
+        logger.warning("SSH login setup failed for CT %s", vmid, exc_info=True)
+
+
 def create_lxc(
     *,
     session: Session,
@@ -573,6 +588,8 @@ def create_lxc(
             created = True
 
         firewall_service.setup_default_rules(target_node, vmid, "lxc")
+        if lxc_data.start:
+            _open_lxc_ssh_login(target_node, vmid, public_key)
 
         db_lxc_resource = resource_repo.create_resource(
             session=session,
@@ -706,6 +723,7 @@ def create_vm(
 
         if vm_data.start:
             proxmox_service.control(target_node, new_vmid, "qemu", "start")
+            guest_ssh_login.schedule_after_start(target_node, new_vmid, "qemu")
 
         db_vm_resource = resource_repo.create_resource(
             session=session,
@@ -1055,6 +1073,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             proxmox_service.create_lxc(target_node, **config)
             created = True
             firewall_service.setup_default_rules(target_node, new_vmid, "lxc")
+            if plan["start_immediately"]:
+                _open_lxc_ssh_login(target_node, new_vmid, config["ssh-public-keys"])
         else:
             template_node = plan["template_node"]
             if target_node == template_node:
@@ -1155,6 +1175,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             firewall_service.setup_default_rules(actual_node, new_vmid, "qemu")
             if plan["start_immediately"]:
                 proxmox_service.control(actual_node, new_vmid, "qemu", "start")
+                guest_ssh_login.schedule_after_start(actual_node, new_vmid, "qemu")
     except Exception:
         if created:
             _rollback_created_resource(actual_node, new_vmid, resource_type)

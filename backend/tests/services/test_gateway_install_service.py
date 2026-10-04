@@ -53,10 +53,10 @@ def test_parse_finished_status_with_interfaces_and_log() -> None:
     # veth 的 @ifN 後綴要去掉、lo 不列
     assert names == ["eth0", "eth1", "veth9", "wg0"]
     assert parsed["interfaces"][1].addresses == ["10.10.0.2/16"]
+    # 系統不再簽發憑證，certbot 不算元件（舊輸出裡多出來的行直接忽略）
     assert parsed["components"] == {
         "nginx": True,
         "wireguard": True,
-        "certbot": False,
         "ufw": True,
     }
     # ANSI 顏色碼要剝掉

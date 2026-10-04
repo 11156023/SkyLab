@@ -475,7 +475,7 @@
   color: var(--color-danger);
 }
 
-.diskInput {
+.numberField {
   display: flex;
   align-items: center;
   gap: $spacing-8;
@@ -487,7 +487,7 @@
   padding: 6px 10px;
 }
 
-.diskUnit {
+.numberUnit {
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   color: var(--color-primary);

@@ -56,7 +56,7 @@ export function toInstallPayload(form) {
   };
 }
 
-/* UFW、certbot 可能是系統原本就有的，只有 nginx／WireGuard 在才算裝過 */
+/* UFW 可能是系統原本就有的，只有 nginx／WireGuard 在才算裝過 */
 export function hasCoreServices(status) {
   return Boolean(status?.components?.nginx || status?.components?.wireguard);
 }

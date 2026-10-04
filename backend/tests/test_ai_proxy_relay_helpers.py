@@ -290,6 +290,31 @@ async def test_admission_queue_timeout_and_cancel_do_not_leak_waiters() -> None:
 
 
 @pytest.mark.asyncio
+async def test_admission_slot_handed_to_cancelled_waiter_is_returned() -> None:
+    """token 已交給 waiter、它卻在恢復執行前被取消時，名額要還回去。"""
+    queue = relay_service.AdmissionQueue(
+        max_active=1,
+        max_waiting=1,
+        wait_timeout_seconds=1,
+    )
+    first = await queue.acquire()
+    waiter = asyncio.create_task(queue.acquire())
+    while queue.waiting == 0:
+        await asyncio.sleep(0)
+
+    first.release()
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    assert queue.waiting == 0
+    assert queue.active == 0
+    again = await asyncio.wait_for(queue.acquire(), timeout=0.1)
+    again.release()
+    assert queue.active == 0
+
+
+@pytest.mark.asyncio
 async def test_shared_relay_client_is_reused_and_closed_on_shutdown(
     monkeypatch,
 ) -> None:
@@ -553,6 +578,65 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
     assert recorded["request_id"] == outbound.headers["x-request-id"]
     assert recorded["upstream_request_id"] == "upstream-1"
     assert admission_queue.active == 0
+
+
+@pytest.mark.parametrize("is_stream", [True, False])
+def test_only_stream_responses_disable_proxy_buffering(
+    monkeypatch, is_stream: bool
+) -> None:
+    """串流回應要叫主系統 nginx 別緩衝，否則 SSE 會被攢成一大塊才送出。"""
+
+    class FakeClient:
+        def build_request(self, method: str, url: str, **kwargs) -> httpx.Request:
+            return httpx.Request(method, url, **kwargs)
+
+        async def send(self, request: httpx.Request, *, stream: bool) -> httpx.Response:
+            if stream:
+                return httpx.Response(
+                    200,
+                    content=b"data: [DONE]\n\n",
+                    headers={"content-type": "text/event-stream"},
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                json={"object": "chat.completion", "model": "m"},
+                request=request,
+            )
+
+    async def no_redis():
+        return None
+
+    admission_queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
+    )
+    monkeypatch.setattr(ai_proxy, "get_redis", no_redis)
+    monkeypatch.setattr(relay_service, "_get_relay_http_client", FakeClient)
+    monkeypatch.setattr(relay_service, "_get_admission_queue", lambda: admission_queue)
+    monkeypatch.setattr(relay_service, "record_usage_safely", lambda **_kwargs: None)
+
+    request = _request(
+        body=json.dumps({"model": "m", "messages": [], "stream": is_stream}).encode(),
+        headers=[(b"content-type", b"application/json")],
+    )
+    response = asyncio.run(
+        ai_proxy._relay_generation(
+            endpoint="chat/completions",
+            request=request,
+            user_and_credential=(
+                SimpleNamespace(id="user-1"),
+                SimpleNamespace(id="credential-1", rate_limit=None),
+            ),
+        )
+    )
+
+    assert response.status_code == 200
+    if is_stream:
+        assert response.headers["x-accel-buffering"] == "no"
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers["content-type"].startswith("text/event-stream")
+    else:
+        assert "x-accel-buffering" not in response.headers
 
 
 @pytest.mark.asyncio

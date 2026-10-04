@@ -34,9 +34,10 @@ class SettingsService {
     }
     const next = await this._repo.save(safePatch);
     try {
+      // Electron 44 移除了 openAsHidden（原本就只有 macOS 認得）；Windows 的
+      // 開機啟動只需要 openAtLogin。
       app.setLoginItemSettings({
-        openAtLogin: !!next.launchAtStartup,
-        openAsHidden: !!next.launchAtStartup
+        openAtLogin: !!next.launchAtStartup
       });
     } catch (e) {
       Logger.error("SettingsService.save", e as Error);

@@ -71,6 +71,21 @@ def _no_backup_purge_on_delete(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_qemu_ssh_login_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QEMU 開機後的 sshd 設定在背景執行緒等 guest agent（會打 PVE）。
+
+    一般測試只 mock 開機本身；背景工作換成什麼都不做，test_guest_ssh_login 自己測它。
+    """
+    from app.services.resource import guest_ssh_login
+
+    monkeypatch.setattr(
+        guest_ssh_login,
+        "_run_qemu",
+        lambda node, vmid: guest_ssh_login._pending.discard((node, vmid)),
+    )
+
+
 def _is_truthy_env(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 

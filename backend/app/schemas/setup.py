@@ -115,11 +115,12 @@ class SetupSubnetResult(BaseModel):
 class SetupPlatformEntryUpdate(PlatformEntryUpdate):
     """步驟五：平台入口。
 
-    HTTPS 憑證要用 Cloudflare 的 DNS API Token；全新安裝還沒到過網域管理頁，
-    所以精靈這裡可以順便填，沒填就沿用已經存好的。
+    HTTPS 用管理員自備、放在 Gateway 上的憑證；全新安裝還沒到過閘道頁的
+    「HTTPS 憑證」分頁，所以精靈這裡可以順便填路徑，沒填就沿用已經存好的。
     """
 
-    cloudflare_api_token: str | None = Field(default=None, max_length=255)
+    ssl_certificate_path: str | None = Field(default=None, max_length=512)
+    ssl_certificate_key_path: str | None = Field(default=None, max_length=512)
 
 
 class SetupCompleteResult(BaseModel):

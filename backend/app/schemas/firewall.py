@@ -45,7 +45,7 @@ class PortSpec(BaseModel):
     )
     enable_https: bool = Field(
         default=True,
-        description="反向代理是否啟用 HTTPS（Let's Encrypt）",
+        description="反向代理是否啟用 HTTPS（用管理員設定在 Gateway 上的憑證）",
     )
 
     @field_validator("protocol", mode="before")

@@ -233,7 +233,7 @@ def test_check_quota_raises_conflict(
     monkeypatch.setattr(
         quota_service,
         "get_usage",
-        lambda session, user_id, cluster_resources=None: QuotaUsage(
+        lambda session, user_id, **kwargs: QuotaUsage(
             cpu_cores=8, memory_mb=0, disk_gb=0, instances=0
         ),
     )
@@ -246,7 +246,7 @@ def test_check_quota_fail_open_on_pve_error(
 ) -> None:
     stub_quota()
 
-    def _boom(session, user_id, cluster_resources=None):
+    def _boom(session, user_id, **kwargs):
         raise RuntimeError("PVE down")
 
     monkeypatch.setattr(quota_service, "get_usage", _boom)

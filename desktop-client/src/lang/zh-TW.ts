@@ -237,7 +237,20 @@
       secure: "僅對已授權的虛擬機開放"
     },
     version: "版本",
-    openDataDir: "開啟資料目錄"
+    openDataDir: "開啟資料目錄",
+    license: "授權",
+    licenseName: "GNU Affero General Public License v3.0",
+    licenseHint:
+      "SkyLab 是開源軟體；修改後對外提供網路服務時須公開修改後的原始碼，也可洽談商業授權。",
+    repository: "原始碼",
+    thirdPartyNotices: "第三方授權聲明",
+    components: {
+      title: "開源元件",
+      hint: "本程式直接使用的 {count} 個套件，由建置時的 package.json 產生。",
+      package: "套件",
+      version: "版本",
+      license: "授權"
+    }
   },
   logger: {
     tab: { appLog: "應用日誌" },

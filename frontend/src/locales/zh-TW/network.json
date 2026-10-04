@@ -91,13 +91,13 @@
   "ReverseProxyPage.nginx.stopped": "已停止",
   "ReverseProxyPage.nginx.configValid": "設定檔驗證通過",
   "ReverseProxyPage.nginx.configInvalid": "設定檔驗證失敗",
-  "ReverseProxyPage.nginx.pendingCertificates": "{{count}} 個網域憑證尚未簽發，暫用自簽憑證",
+  "ReverseProxyPage.nginx.pendingCertificates": "{{count}} 個網域暫用自簽憑證（尚未在閘道 VM 頁設定 HTTPS 憑證）",
   "ReverseProxyPage.nginx.httpServers": "網域反向代理",
   "ReverseProxyPage.nginx.tcpForwards": "TCP Port 轉發",
   "ReverseProxyPage.nginx.udpForwards": "UDP Port 轉發",
   "ReverseProxyPage.nginx.serverBlocks": "server 區塊",
-  "ReverseProxyPage.nginx.certificates": "Let's Encrypt 憑證",
-  "ReverseProxyPage.nginx.noCertificates": "尚未簽發任何憑證",
+  "ReverseProxyPage.nginx.certificates": "HTTPS 憑證",
+  "ReverseProxyPage.nginx.noCertificates": "尚未設定 HTTPS 憑證",
   "ReverseProxyPage.nginx.expires": "到期 {{date}}",
   "ReverseProxyPage.nginx.expiryUnknown": "到期日未知"
 }
