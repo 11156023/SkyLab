@@ -135,6 +135,7 @@ interface SkyLabTunnelInfo {
 }
 
 interface TunnelStatusInfo {
+  leaseRefreshError?: string | null;
   running: boolean;
   lastStartTime: number;
   connectionError: string | null;

@@ -39,13 +39,27 @@ from app.services.resource import resource_service
 _SSH_PORT = 22
 _RDP_PORT = 3389
 _NFT_FAMILY = "inet"
-_NFT_TABLE = "campus_cloud_wg"
+_NFT_TABLE = "${SKYLAB_WG_TABLE}"
 _NFT_SET = "allowed_tcp"
-_GATEWAY_LOCK = "/run/lock/campus-cloud-wg.lock"
+_GATEWAY_LOCK = "/run/lock/skylab-wg.lock"
+_LEGACY_GATEWAY_LOCK = "/run/lock/campus-cloud-wg.lock"
 _IP_ALLOCATION_LOCK_ID = 0x534B594C41425747
 _ALLOCATION_RETRIES = 3
 
 logger = logging.getLogger(__name__)
+
+
+def _gateway_runtime_script() -> str:
+    # Prefer the renamed policy; keep existing Gateways usable until their
+    # installer migrates them. Never create a second table from the backend.
+    return """if systemctl is-active --quiet skylab-wg-firewall.service; then
+    SKYLAB_WG_TABLE=skylab_wg
+    SKYLAB_WG_FIREWALL_UNIT=skylab-wg-firewall.service
+else
+    SKYLAB_WG_TABLE=campus_cloud_wg
+    SKYLAB_WG_FIREWALL_UNIT=campus-cloud-wg-firewall.service
+fi
+"""
 
 
 class _ReconcileState:
@@ -276,7 +290,9 @@ def _gateway_client(session: Session):
 
 def _run_locked(client, script: str, error_message: str) -> str:
     command = (
-        f"flock -w 15 {shlex.quote(_GATEWAY_LOCK)} sh -eu -c {shlex.quote(script)}"
+        f"flock -w 15 {shlex.quote(_LEGACY_GATEWAY_LOCK)} "
+        f"flock -w 15 {shlex.quote(_GATEWAY_LOCK)} "
+        f"sh -eu -c {shlex.quote(_gateway_runtime_script() + script)}"
     )
     return gateway_service.exec_checked(
         client, command, error_message
@@ -358,7 +374,7 @@ def _sync_gateway_peer(
     lines = [
         "set -eu",
         f"systemctl is-active --quiet wg-quick@{shlex.quote(settings.WIREGUARD_INTERFACE)}",
-        "systemctl is-active --quiet campus-cloud-wg-firewall.service",
+        'systemctl is-active --quiet "$SKYLAB_WG_FIREWALL_UNIT"',
         f"trap {shlex.quote(cleanup)} EXIT",
     ]
     if old_public_key and old_public_key != public_key:
@@ -590,14 +606,14 @@ def _gateway_state_id(session: Session) -> str:
             ),
             (
                 "systemctl show -p ActiveEnterTimestampMonotonic --value "
-                "campus-cloud-wg-firewall.service"
+                '"$SKYLAB_WG_FIREWALL_UNIT"'
             ),
         ]
     )
     try:
         state_id = gateway_service.exec_checked(
             client,
-            command,
+            _gateway_runtime_script() + command,
             t("wireguard.inspectStateFailed"),
         ).strip()
     finally:

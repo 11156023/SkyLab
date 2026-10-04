@@ -61,6 +61,8 @@ export default {
   },
   home: {
     status: {
+      leaseRefreshFailed:
+        "接続の認証更新に失敗しました。自動的に再試行します。有効期限が切れた場合は再接続してください。",
       running: "接続済み",
       stopped: "未接続",
       error: "接続エラー",

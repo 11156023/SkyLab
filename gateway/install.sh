@@ -41,17 +41,18 @@ WG_SNAT_ADDRESS="${WG_SNAT_ADDRESS:-10.10.0.2}"
 WG_INGRESS_INTERFACE="${WG_INGRESS_INTERFACE:-eth0}"
 WG_LISTEN_PORT="${WG_LISTEN_PORT:-51821}"
 WG_ACL_TIMEOUT="${WG_ACL_TIMEOUT:-8h}"
-WG_UFW_FORWARD_COMMENT="Campus Cloud WireGuard routed traffic after nft ACL"
+WG_UFW_FORWARD_COMMENT="SkyLab WireGuard routed traffic after nft ACL"
 
 WG_DIR="/etc/wireguard"
 WG_CONFIG="${WG_DIR}/${WG_INTERFACE}.conf"
 NFT_DIR="/etc/nftables.d"
-NFT_CONFIG="${NFT_DIR}/campus-cloud-wg.nft"
-FIREWALL_UNIT="/etc/systemd/system/campus-cloud-wg-firewall.service"
+NFT_CONFIG="${NFT_DIR}/skylab-wg.nft"
+FIREWALL_UNIT="/etc/systemd/system/skylab-wg-firewall.service"
 WG_OVERRIDE_DIR="/etc/systemd/system/wg-quick@${WG_INTERFACE}.service.d"
-WG_OVERRIDE="${WG_OVERRIDE_DIR}/campus-cloud.conf"
-BACKUP_ROOT="/root/campus-cloud-backups"
-MANAGED_WG_MARKER="# Campus Cloud managed WireGuard interface"
+WG_OVERRIDE="${WG_OVERRIDE_DIR}/skylab.conf"
+BACKUP_ROOT="/root/skylab-backups"
+MANAGED_WG_MARKER="# SkyLab managed WireGuard interface"
+LEGACY_WG_MARKER="# Campus Cloud managed WireGuard interface"
 NGINX_DIR="/etc/nginx"
 NGINX_CONF="${NGINX_DIR}/nginx.conf"
 NGINX_MANAGED_DIR="${NGINX_DIR}/skylab"
@@ -82,7 +83,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -qq \
     curl wget ca-certificates gnupg lsb-release openssl tar iproute2
 
-for command in ip ss systemctl tar; do
+for command in ip ss systemctl tar flock; do
     command -v "$command" >/dev/null || error "缺少必要指令：${command}"
 done
 
@@ -93,7 +94,8 @@ ip link show "$WG_INGRESS_INTERFACE" >/dev/null 2>&1 \
 ip -4 address show dev "$WG_VM_INTERFACE" | grep -Fq "${WG_SNAT_ADDRESS}/" \
     || error "${WG_VM_INTERFACE} 未設定 SNAT 位址 ${WG_SNAT_ADDRESS}"
 
-if [[ -f "$WG_CONFIG" ]] && ! grep -Fq "$MANAGED_WG_MARKER" "$WG_CONFIG"; then
+if [[ -f "$WG_CONFIG" ]] && ! grep -Fq "$MANAGED_WG_MARKER" "$WG_CONFIG" \
+    && ! grep -Fq "$LEGACY_WG_MARKER" "$WG_CONFIG"; then
     error "拒絕覆寫非 SkyLab 管理的 WireGuard 設定：${WG_CONFIG}"
 fi
 
@@ -333,6 +335,12 @@ fi
 # =============================================================================
 section "安裝 WireGuard 資料平面"
 
+# Serialize policy migration with both old and upgraded backend processes.
+exec 8>/run/lock/campus-cloud-wg.lock
+flock -w 60 8
+exec 9>/run/lock/skylab-wg.lock
+flock -w 60 9
+
 install -d -m 700 "$WG_DIR"
 install -d -m 755 "$NFT_DIR" "$WG_OVERRIDE_DIR"
 
@@ -357,9 +365,9 @@ chmod 600 "$WG_CONFIG" "${WG_DIR}/server_private.key" "${WG_DIR}/server_public.k
 unset private_key
 
 cat >"$NFT_CONFIG" <<EOF
-destroy table inet campus_cloud_wg
+destroy table inet skylab_wg
 
-table inet campus_cloud_wg {
+table inet skylab_wg {
     set allowed_tcp {
         type ipv4_addr . ipv4_addr . inet_service
         flags timeout
@@ -385,7 +393,7 @@ nft --check --file "$NFT_CONFIG"
 
 cat >"$FIREWALL_UNIT" <<EOF
 [Unit]
-Description=Campus Cloud WireGuard nftables policy
+Description=SkyLab WireGuard nftables policy
 After=network-online.target ufw.service
 Wants=network-online.target
 
@@ -394,7 +402,7 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/sbin/nft --file ${NFT_CONFIG}
 ExecReload=/usr/sbin/nft --file ${NFT_CONFIG}
-ExecStop=-/usr/sbin/nft destroy table inet campus_cloud_wg
+ExecStop=-/usr/sbin/nft destroy table inet skylab_wg
 
 [Install]
 WantedBy=multi-user.target
@@ -402,13 +410,13 @@ EOF
 
 cat >"$WG_OVERRIDE" <<EOF
 [Unit]
-Requires=campus-cloud-wg-firewall.service
-After=campus-cloud-wg-firewall.service
-BindsTo=campus-cloud-wg-firewall.service
+Requires=skylab-wg-firewall.service
+After=skylab-wg-firewall.service
+BindsTo=skylab-wg-firewall.service
 EOF
 
-cat >/etc/sysctl.d/90-campus-cloud-wireguard.conf <<EOF
-# Campus Cloud WireGuard gateway forwarding
+cat >/etc/sysctl.d/90-skylab-wireguard.conf <<EOF
+# SkyLab WireGuard gateway forwarding
 net.ipv4.ip_forward = 1
 EOF
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
@@ -430,10 +438,40 @@ else
     ufw allow 443/tcp comment "HTTPS"
 fi
 
-if ! ufw status | grep -Fq "${WG_LISTEN_PORT}/udp on ${WG_INGRESS_INTERFACE}"; then
-    ufw allow in on "$WG_INGRESS_INTERFACE" to any port "$WG_LISTEN_PORT" \
-        proto udp comment "Campus Cloud WireGuard"
+# BEGIN managed WireGuard UFW reconciliation
+# Numbered status includes stored rules only while UFW is active. SSH/HTTP
+# bootstrap allowances above must be installed before enabling it.
+if [[ "$ufw_was_active" == false ]]; then
+    ufw --force enable
 fi
+# Remove only exact SkyLab/legacy comments, descending to keep rule numbers
+# stable. IPv4 and IPv6 ingress entries are distinct, not duplicates.
+managed_ufw_status="$(ufw status numbered)"
+managed_ufw_numbers="$(printf '%s\n' "$managed_ufw_status" | awk '
+    /^[[:space:]]*\[[[:space:]]*[0-9]+\]/ {
+        comment = $0
+        sub(/^.*# /, "", comment)
+        sub(/[[:space:]]+$/, "", comment)
+        if (comment == "Campus Cloud WireGuard" || comment == "SkyLab WireGuard" ||
+            comment == "Campus Cloud WireGuard routed traffic after nft ACL" ||
+            comment == "SkyLab WireGuard routed traffic after nft ACL") {
+            line = $0
+            sub(/^[[:space:]]*\[[[:space:]]*/, "", line)
+            sub(/\].*$/, "", line)
+            print line
+        }
+    }
+' | sort -rn)"
+while IFS= read -r rule_number; do
+    [[ -n "$rule_number" ]] || continue
+    ufw --force delete "$rule_number"
+done <<<"$managed_ufw_numbers"
+ufw allow in on "$WG_INGRESS_INTERFACE" to any port "$WG_LISTEN_PORT" \
+    proto udp comment "SkyLab WireGuard"
+ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
+    from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET" \
+    comment "$WG_UFW_FORWARD_COMMENT"
+# END managed WireGuard UFW reconciliation
 # Port 轉發配號池：nginx stream 在這段 port 監聽，外面連不進來轉發就沒用
 for proto in tcp udp; do
     if ! ufw status | grep -Fq "${FORWARD_PORT_RANGE}/${proto}"; then
@@ -446,38 +484,39 @@ for source in ${MONITORING_ALLOW_FROM//,/ }; do
         ufw allow from "$source" to any port "$port" proto tcp comment "SkyLab monitoring"
     done
 done
-# Replace every previously managed forwarding rule. A comment-only existence
-# check leaves the old destination subnet active after IP management changes.
-# Delete from the highest rule number so lower numbers remain stable.
-while IFS= read -r rule_number; do
-    [[ -n "$rule_number" ]] || continue
-    ufw --force delete "$rule_number"
-done < <(
-    ufw status numbered | awk -v marker="$WG_UFW_FORWARD_COMMENT" '
-        index($0, marker) {
-            line = $0
-            sub(/^\[[[:space:]]*/, "", line)
-            sub(/\].*$/, "", line)
-            print line
-        }
-    ' | sort -rn
-)
-ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
-    from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET" \
-    comment "$WG_UFW_FORWARD_COMMENT"
-if [[ "$ufw_was_active" == false ]]; then
-    ufw --force enable
-fi
-
+# Remove the legacy dependency before stopping its service, otherwise BindsTo
+# would tear down wg0. The verified backup above retains the old files.
+rm -f "${WG_OVERRIDE_DIR}/campus-cloud.conf"
 systemctl daemon-reload
 # --man=no：精簡映像（雲端映像、容器）沒裝 man，預設會因 Documentation=man: 查不到而失敗
-systemd-analyze verify --man=no campus-cloud-wg-firewall.service "wg-quick@${WG_INTERFACE}.service"
-systemctl enable --now campus-cloud-wg-firewall.service
+systemd-analyze verify --man=no skylab-wg-firewall.service "wg-quick@${WG_INTERFACE}.service"
+systemctl enable skylab-wg-firewall.service
+# An active oneshot service keeps its existing kernel rules with enable --now.
+# Reload the regenerated subnet/SNAT policy without stopping the bound wg0 unit.
+# Backend reconciliation or a client reconnect restores the dynamic peer ACLs.
+if systemctl is-active --quiet skylab-wg-firewall.service; then
+    systemctl reload skylab-wg-firewall.service
+else
+    systemctl start skylab-wg-firewall.service
+fi
 systemctl enable --now "wg-quick@${WG_INTERFACE}.service"
 
-systemctl is-active --quiet campus-cloud-wg-firewall.service
+# Only retire the old policy once the new fail-closed policy is active.
+# A leftover legacy forward_guard would still DROP traffic accepted by SkyLab.
+if [[ -f /etc/systemd/system/campus-cloud-wg-firewall.service ]]; then
+    systemctl disable --now campus-cloud-wg-firewall.service
+fi
+nft destroy table inet campus_cloud_wg
+rm -f /etc/systemd/system/campus-cloud-wg-firewall.service \
+    /etc/nftables.d/campus-cloud-wg.nft \
+    /etc/sysctl.d/90-campus-cloud-wireguard.conf
+systemctl daemon-reload
+
+systemctl is-active --quiet skylab-wg-firewall.service
 systemctl is-active --quiet "wg-quick@${WG_INTERFACE}.service"
 systemctl is-active --quiet ssh
+flock -u 9
+flock -u 8
 info "WireGuard 安裝完成（${WG_INTERFACE} / UDP ${WG_LISTEN_PORT}）"
 
 # =============================================================================
@@ -514,7 +553,7 @@ cat <<SUMMARY_EOF
 │  certbot       ⏱ timer   /etc/letsencrypt（Cloudflare DNS-01）  │
 │  exporter      :${NODE_EXPORTER_PORT} node、:${NGINX_EXPORTER_PORT} nginx（Prometheus）       │
 │  WireGuard     ✅ 運行   /etc/wireguard/${WG_INTERFACE}.conf                │
-│  WG ACL/SNAT   ✅ 運行   /etc/nftables.d/campus-cloud-wg.nft   │
+│  WG ACL/SNAT   ✅ 運行   /etc/nftables.d/skylab-wg.nft   │
 ├─────────────────────────────────────────────────────────────────┤
 │  後續步驟：                                                      │
 │  1. 將 TCP 80/443、TCP+UDP ${FORWARD_PORT_RANGE} 與 UDP ${WG_LISTEN_PORT}      │
@@ -527,7 +566,7 @@ cat <<SUMMARY_EOF
 │  systemctl status nginx wg-quick@${WG_INTERFACE}                            │
 │  nginx -t && systemctl reload nginx                              │
 │  certbot certificates                                            │
-│  systemctl status campus-cloud-wg-firewall                       │
+│  systemctl status skylab-wg-firewall                       │
 │  wg show ${WG_INTERFACE}                                                     │
 └─────────────────────────────────────────────────────────────────┘
 

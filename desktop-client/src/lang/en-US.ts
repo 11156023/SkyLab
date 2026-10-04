@@ -62,6 +62,8 @@
   },
   home: {
     status: {
+      leaseRefreshFailed:
+        "Session renewal failed and will retry automatically. Reconnect if the session expires.",
       running: "Connected",
       stopped: "Disconnected",
       error: "Connection error",
