@@ -10,6 +10,7 @@ import useOutsideClick from "../../hooks/useOutsideClick";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
 import Avatar from "../Avatar/Avatar";
+import OctoMark from "../OctoPet/OctoMark";
 import JobsButton from "../Jobs/JobsButton";
 import { canTeachUser, isAdminUser } from "../../utils/roles";
 
@@ -383,8 +384,9 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
     <aside className={cls}>
       {/* ===== Brand ===== */}
       <div className={styles.brand} onClick={() => window.innerWidth >= 1024 && onToggle?.()}>
+        {/* 品牌標誌＝靜態的章魚學士（跟 AI 助手同一隻），不再用 favicon 點陣圖 */}
         <span className={styles.brandIcon}>
-          <img src="/favicon.png" alt="SkyLab" />
+          <OctoMark size={28} label="SkyLab" />
         </span>
         {!collapsed && (
           <>
