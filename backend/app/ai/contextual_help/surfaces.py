@@ -305,28 +305,28 @@ _PVE_CONNECTIONS_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
 )
 
-# ── 節點管理 ─────────────────────────────────────────────────────────
+# ── 節點（2026-10 併入 PVE 管理頁的下半段）───────────────────────────
 _NODES_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="nodes.enable", role="toggle", label="啟用",
-        section="節點管理",
+        section="節點",
         help="停用後不再接收新 VM，既有 VM 不受影響。",
     ),
     ElementSpec(
         id="nodes.edit", role="button", label="編輯",
-        section="節點管理", help="修改這個節點的連線位址、Port 與放置優先度。",
+        section="節點", help="修改這個節點的連線位址、Port 與放置優先度。",
     ),
     ElementSpec(
         id="nodes.primary", role="readonly", label="主節點",
-        section="節點管理", help="這組 PVE 連線的主要節點。",
+        section="節點", help="這組 PVE 連線的主要節點。",
     ),
     ElementSpec(
         id="nodes.online", role="readonly", label="在線",
-        section="節點管理", help="同步時 PVE 回報這個節點可連線。",
+        section="節點", help="同步時 PVE 回報這個節點可連線。",
     ),
     ElementSpec(
         id="nodes.offline", role="readonly", label="離線",
-        section="節點管理", help="同步時 PVE 回報這個節點連不上。",
+        section="節點", help="同步時 PVE 回報這個節點連不上。",
     ),
 )
 
@@ -1706,10 +1706,11 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec(
         id="pve-connections",
         path="/pve-connections",
-        title="PVE 連線",
-        purpose="管理 Proxmox VE 的連線入口，以及每個叢集自己的 pool、Storage 與網段設定。",
-        sections=("PVE 連線清單", "連線設定", "此叢集的資源設定"),
-        elements=_PVE_CONNECTIONS_ELEMENTS,
+        title="PVE 管理",
+        purpose="管理 Proxmox VE 的連線入口與每個叢集自己的 pool、Storage 與網段設定，"
+        "以及各節點的啟用狀態、連線位址與放置優先度（原「節點管理」頁已併入）。",
+        sections=("PVE 連線清單", "連線設定", "此叢集的資源設定", "節點"),
+        elements=_PVE_CONNECTIONS_ELEMENTS + _NODES_ELEMENTS,
         access="admin",
     ),
     SurfaceSpec(
@@ -1721,25 +1722,19 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         elements=_SCHEDULER_ELEMENTS,
         access="admin",
     ),
+    # 2026-10「配額」併入治理頁、改名「資源政策」（舊網址 /quotas 導過去）
     SurfaceSpec(
         id="governance",
         path="/governance",
-        title="治理",
-        purpose="資源警告、TTL 回收、閒置與挖礦偵測、快照與克隆併發的治理政策。",
+        title="資源政策",
+        purpose="資源警告、TTL 回收、閒置與挖礦偵測、快照與克隆併發的治理政策，"
+        "以及全域預設的資源上限與個別使用者的配額覆寫。",
         sections=(
             "資源警告", "TTL 生命週期", "閒置偵測", "VM / LXC 自動判斷",
             "反挖礦偵測", "快照治理", "克隆併發",
+            "全域預設配額", "個別使用者覆寫",
         ),
-        elements=_GOVERNANCE_ELEMENTS,
-        access="admin",
-    ),
-    SurfaceSpec(
-        id="quotas",
-        path="/quotas",
-        title="配額",
-        purpose="全域預設的資源上限，以及個別使用者的覆寫。",
-        sections=("全域預設配額", "個別使用者覆寫"),
-        elements=_QUOTAS_ELEMENTS,
+        elements=_GOVERNANCE_ELEMENTS + _QUOTAS_ELEMENTS,
         access="admin",
     ),
     SurfaceSpec(
@@ -1749,15 +1744,6 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         purpose="LDAP / Active Directory 登入的連線、服務帳號與角色對映。",
         sections=("LDAP / Active Directory 登入", "服務帳號與使用者搜尋", "帳號建立與角色對映"),
         elements=_LDAP_ELEMENTS,
-        access="admin",
-    ),
-    SurfaceSpec(
-        id="nodes",
-        path="/nodes",
-        title="節點管理",
-        purpose="各 PVE 節點的啟用狀態、連線位址與放置優先度。",
-        sections=("節點管理",),
-        elements=_NODES_ELEMENTS,
         access="admin",
     ),
     SurfaceSpec(

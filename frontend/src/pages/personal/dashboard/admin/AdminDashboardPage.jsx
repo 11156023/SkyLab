@@ -178,7 +178,6 @@ export default function AdminDashboardPage() {
       {/* 閒置時不出現整條標頭，助手身份直接放在輸入列上 */}
       {conversationPrompt && <div className={styles.assistantHead}>
         <div className={styles.assistantIdentity}>
-          <span className={styles.assistantIcon}><MIcon name="support_agent" size={24} /></span>
           <h2 id="admin-assistant-title">{t("AdminDashboardPage.assistantLabel")}</h2>
         </div>
         <div className={styles.assistantActions}>
@@ -196,7 +195,6 @@ export default function AdminDashboardPage() {
       {conversationPrompt ? <AiPveChat initialPrompt={conversationPrompt} compact={!focusMode} fill={focusMode} />
         : <form className={styles.assistantForm} onSubmit={openAssistant}>
           <div className={styles.assistantIdentity}>
-            <span className={styles.assistantIcon}><MIcon name="support_agent" size={20} /></span>
             <span id="admin-assistant-title" className={styles.assistantName}>{t("AdminDashboardPage.assistantLabel")}</span>
           </div>
           <div className={styles.assistantInput}>

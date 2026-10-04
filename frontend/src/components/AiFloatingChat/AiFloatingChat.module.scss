@@ -200,14 +200,29 @@
   color: var(--color-text-primary);
 }
 
+/* 頭像欄固定 40px 寬（會動的章魚 40×32），靜態頭像的 32px 圓框左右各讓 4px，
+   新舊回覆的文字才會對齊。圓框裁掉超出的章魚，像照片頭像一樣自然切到 */
 .messageAvatar {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  margin-inline: 4px;
   border-radius: 50%;
+  overflow: hidden;
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
   @include flex-center;
+}
+
+/* 會動的那隻不進圓框：愛心、甩起來的帽穗會畫到框外，不能裁 */
+.messageAvatarLive {
+  width: 40px;
+  height: 32px;
+  flex-basis: 40px;
+  margin: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: none;
 }
 
 .messageText {
@@ -491,27 +506,9 @@
   opacity: 0.9;
 }
 
+/* 回覆中的章魚（跟浮動按鈕同尺寸 60×48）：上方留空間給飄出來的 0 和 1 */
 .typing {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding-top: 10px;
-
-  span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-text-muted);
-    animation: pulse 1.2s infinite;
-  }
-
-  span:nth-child(2) { animation-delay: 160ms; }
-  span:nth-child(3) { animation-delay: 320ms; }
-}
-
-@keyframes pulse {
-  0%, 70%, 100% { opacity: 0.3; transform: translateY(0); }
-  35% { opacity: 1; transform: translateY(-3px); }
+  padding-top: 24px;
 }
 
 /* 透明底讓面板的玻璃質感延伸到底部；輸入框自己是實色卡，可讀性不受影響 */
@@ -567,32 +564,30 @@
   }
 }
 
+/* 章魚學士本身就是按鈕，不墊任何底色（hover 也不浮底）：
+   平常章魚外圍有一圈淡淡的光暈，跟底下內容分開；hover 時章魚自己變開心臉。
+   6px 內距只是放大可點範圍；鍵盤聚焦時給一圈外框 */
 .fab {
   animation: fabIn 0.18s ease;
   position: fixed;
-  right: $spacing-24;
-  bottom: $spacing-24;
+  right: $spacing-16;
+  bottom: $spacing-16;
   z-index: 70;
-  width: 48px;
-  height: 48px;
   @include flex-center;
-  padding: 0;
-  border-radius: $radius-pill;
-  /* 常駐在畫面右下角，稍微透一點才不會一直搶走底下內容的注意力；
-     hover 時回到不透明，表示它是活的 */
-  background: color-mix(in srgb, var(--color-primary) 88%, transparent);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  color: var(--color-text-on-primary);
-  box-shadow: 0 6px 22px color-mix(in srgb, var(--color-primary) 26%, transparent);
+  padding: 6px;
+  border: 0;
+  border-radius: $radius-16;
+  background: transparent;
   cursor: pointer;
-  transition: background $transition-base, box-shadow $transition-base, transform $transition-base;
 
-  &:hover {
-    transform: translateY(-1px);
-    background: var(--color-primary);
-    box-shadow: 0 6px 22px color-mix(in srgb, var(--color-primary) 34%, transparent);
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
+}
+
+.fabOcto {
+  filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--color-primary) 32%, transparent));
 }
 
 .backdrop { display: none; }
@@ -639,7 +634,8 @@
 @media (max-width: 560px) {
   .rootOpen { width: 100vw; }
   .panel { border: 0; border-radius: 0; }
-  .fab { right: $spacing-16; bottom: $spacing-16; }
+  /* 按鈕有 6px 內距，往外推回去，章魚本體才跟原本一樣離邊 16px */
+  .fab { right: 10px; bottom: 10px; }
 }
 
 @keyframes fabIn {

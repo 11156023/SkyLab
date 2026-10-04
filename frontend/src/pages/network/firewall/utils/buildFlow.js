@@ -23,7 +23,9 @@ export const HANDLE = {
 };
 
 function centerOf(node) {
-  const fallback = NODE_SIZE[node.type] ?? NODE_SIZE.vm;
+  /* 群組節點的尺寸寫在 style 上（依機器數算出來的） */
+  const fallback = NODE_SIZE[node.type]
+    ?? { w: node.style?.width ?? NODE_SIZE.vm.w, h: node.style?.height ?? NODE_SIZE.vm.h };
   const w = node.measured?.width ?? fallback.w;
   const h = node.measured?.height ?? fallback.h;
   return {
@@ -58,10 +60,22 @@ export function pickHandles(sourceNode, targetNode) {
 /** 依目前節點位置重算每條邊該走哪一側；節點拖動時即時套用 */
 export function routeEdges(edges, nodes) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  /* 群組框裡的機器 position 是相對於群組的，比較相對位置前先換成畫布座標 */
+  const onCanvas = (node) => {
+    const parent = node?.parentId ? byId.get(node.parentId) : null;
+    if (!parent) return node;
+    return {
+      ...node,
+      position: {
+        x: parent.position.x + node.position.x,
+        y: parent.position.y + node.position.y,
+      },
+    };
+  };
   return edges.map((edge) => {
     const [sourceHandle, targetHandle] = pickHandles(
-      byId.get(edge.source),
-      byId.get(edge.target),
+      onCanvas(byId.get(edge.source)),
+      onCanvas(byId.get(edge.target)),
     );
     if (edge.sourceHandle === sourceHandle && edge.targetHandle === targetHandle) {
       return edge;

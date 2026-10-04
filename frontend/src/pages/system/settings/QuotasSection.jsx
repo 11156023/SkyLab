@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import styles from "./QuotasPage.module.scss";
-import pageStyles from "./settings.module.scss";
+import styles from "./QuotasSection.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
-import PageHeader from "../../../components/PageHeader/PageHeader";
 import { QuotasService } from "../../../services/quotas";
 import { UsersService } from "../../../services/users";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -16,8 +14,9 @@ import useOutsideClick from "../../../hooks/useOutsideClick";
 import { formatDateTime } from "../../../utils/formatDate";
 
 /**
- * 配額（系統管理 → 配額）：全域預設上限 + 個別使用者覆寫。
- * 2026-09 曾短暫併入「系統設定」的分頁，同月隨系統設定拆分回到獨立的 /quotas。
+ * 配額（資源政策頁的下半段）：全域預設上限 + 個別使用者覆寫。
+ * 2026-09 曾短暫併入「系統設定」的分頁，同月隨系統設定拆分回到獨立的 /quotas；
+ * 2026-10 與治理合併成「資源政策」一頁（/quotas 導向 /governance），這裡只輸出區段。
  */
 
 const FIELD_KEYS = ["max_cpu_cores", "max_memory_mb", "max_disk_gb", "max_instances"];
@@ -363,7 +362,7 @@ function GlobalQuotaCard({ config, onSaved }) {
   );
 }
 
-function QuotasSection() {
+export default function QuotasSection() {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
@@ -529,19 +528,6 @@ function QuotasSection() {
           }}
         />
       )}
-    </div>
-  );
-}
-
-/* ── Page ──────────────────────────────────────────── */
-export default function QuotasPage() {
-  const { t } = useTranslation("system");
-  return (
-    <div className={pageStyles.page}>
-      <PageHeader title={t("SettingsPage.quotasTitle")} />
-      <div className={pageStyles.content}>
-        <QuotasSection />
-      </div>
     </div>
   );
 }

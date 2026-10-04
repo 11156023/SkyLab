@@ -9,6 +9,7 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
+import OctoAvatar from "../../../components/OctoPet/OctoAvatar";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -1244,9 +1245,11 @@ export function ChatPanel({
               key={`${msg.role}-${i}`}
               className={`${styles.chatMsgRow} ${msg.role === "user" ? styles.chatMsgRow_user : ""}`}
             >
+              {/* 跟首頁 AI 對話同一套：助理有頭像、回覆不加框；使用者是靠右的實心氣泡、不放頭像。
+                  頭像也是章魚學士的靜態頭像（標題列的 fact_check 圖示保留，用來辨認是檢查表助理） */}
               {msg.role === "assistant" && (
                 <span className={styles.chatAvatar}>
-                  <MIcon name="fact_check" size={16} />
+                  <OctoAvatar />
                 </span>
               )}
               <div
@@ -1280,11 +1283,6 @@ export function ChatPanel({
                   })()
                 )}
               </div>
-              {msg.role === "user" && (
-                <span className={`${styles.chatAvatar} ${styles.chatAvatar_user}`}>
-                  <MIcon name="person" size={16} />
-                </span>
-              )}
             </div>
           ))
         )}
@@ -1292,15 +1290,11 @@ export function ChatPanel({
         {isLoading && (
           <div className={styles.chatMsgRow}>
             <span className={styles.chatAvatar}>
-              <MIcon name="fact_check" size={16} />
+              <OctoAvatar />
             </span>
-            <div className={styles.chatBubble}>
-              {loadingText ? <p className={styles.chatLoadingText}>{loadingText}</p> : null}
-              <span className={styles.typing}>
-                <span />
-                <span />
-                <span />
-              </span>
+            <div className={styles.chatThinking}>
+              <span className={styles.chatPulse} />
+              {loadingText || t("AiJudgePanel.chatThinking")}
             </div>
           </div>
         )}

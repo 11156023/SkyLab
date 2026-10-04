@@ -29,6 +29,16 @@
     transform: translateX(0);
   }
 
+  /* 液態玻璃在窄螢幕是蓋在內容上的抽屜：2px 的清透玻璃會讓底下頁面的字透上來、跟選單疊成一團。
+     抽屜狀態改成重霧＋較不透明的塗層（亮邊、陰影照舊）；桌機並排時背後只有背景，維持清透 */
+  @media (max-width: $breakpoint-sidebar - 0.02px) {
+    :global(body[data-style="liquid"]) & {
+      background: color-mix(in srgb, var(--color-surface) 86%, transparent);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    }
+  }
+
   @media (min-width: $breakpoint-sidebar) {
     position: sticky;
     top: var(--layout-py);
@@ -64,18 +74,13 @@
   }
 }
 
+/* 章魚標誌 20:14 格，高 28px 時寬 40px；svg 直接撐，不另鎖寬 */
 .brandIcon {
   @include flex-center;
-  width: 28px;
   height: 28px;
   flex-shrink: 0;
 
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    display: block;
-  }
+  svg { display: block; }
 }
 
 .brandText {

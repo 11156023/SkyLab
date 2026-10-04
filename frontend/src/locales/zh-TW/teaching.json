@@ -763,6 +763,7 @@
   "AiJudgePanel.chatInputAria": "與 AI 對話輸入框",
   "AiJudgePanel.chatInputPlaceholder": "輸入訊息…（Shift+Enter 換行）",
   "AiJudgePanel.chatSyncUnknown": "無法確認對話紀錄是否已同步。",
+  "AiJudgePanel.chatThinking": "檢查表助理思考中…",
   "AiJudgePanel.checkActionFailed": "檢查操作失敗",
   "AiJudgePanel.checkCopied": "已複製為「{{title}}」，可開始調整檢查表。",
   "AiJudgePanel.checkCreated": "已建立「{{title}}」",
