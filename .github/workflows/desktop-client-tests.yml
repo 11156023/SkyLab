@@ -45,6 +45,9 @@ jobs:
       - name: Test tunnel lifecycle
         run: npm run test:tunnel
 
+      - name: Test resource access guards
+        run: npm run test:resources
+
       - name: Audit dependencies
         run: npm run audit:security
 
