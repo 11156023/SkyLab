@@ -13,7 +13,7 @@ import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { SpecChangeRequestsService } from "../../../../../services/specChangeRequests";
 import { focusInvalidField } from "../../../../../utils/focusField";
-import { AUTO_STOP_REASON_KEYS, formatDate, formatDateTime } from "../lifecycleFormat";
+import { AUTO_STOP_REASON_KEYS, effectiveExpiryIso, formatDate, formatDateTime } from "../lifecycleFormat";
 
 /* 延長日期的下限跟後端一樣以 UTC 日期比較，不走 lifecycleFormat 的本地時區拆解 */
 function tomorrowIso() {
@@ -24,8 +24,9 @@ function tomorrowIso() {
 
 function ExtendModal({ resource, closing, loading, onClose, onSubmit }) {
   const { t } = useTranslation("personal");
-  const minDate = resource.expiry_date && resource.expiry_date >= tomorrowIso()
-    ? new Date(new Date(resource.expiry_date).getTime() + 86400000).toISOString().slice(0, 10)
+  const currentExpiry = effectiveExpiryIso(resource);
+  const minDate = currentExpiry && currentExpiry >= tomorrowIso()
+    ? new Date(new Date(currentExpiry).getTime() + 86400000).toISOString().slice(0, 10)
     : tomorrowIso();
   const [date, setDate] = useState(minDate);
   const [reason, setReason] = useState("");
@@ -152,9 +153,11 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
     }
   }
 
-  /* 不限期的機器沒有到期日可延長 */
+  /* 到期日與核准使用時段取較早者；兩者都沒有＝不限期，沒有東西可延長 */
+  const currentExpiry = effectiveExpiryIso(resource);
+  const expiryFromWindow = Boolean(currentExpiry) && currentExpiry !== resource?.expiry_date;
   const canExtend = canManage
-    && Boolean(resource?.expiry_date)
+    && Boolean(currentExpiry)
     && resource?.can_extend !== false
     && resource?.allocation_scope !== "teaching_class";
   /* 閒置偵測只對開著的機器有意義；關機後留下的舊時間點會和「自動關機：無」互相矛盾 */
@@ -163,7 +166,7 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
     ? Math.max(0, Math.floor((Date.now() - new Date(resource.idle_since).getTime()) / 3_600_000))
     : null;
   /* 每一格都是空值（不限期、無自動關機、無預定刪除、也不顯示閒置）時，四格「無」改成一句話 */
-  const nothingScheduled = !resource?.expiry_date
+  const nothingScheduled = !currentExpiry
     && !resource?.auto_stop_at
     && !resource?.scheduled_deletion_at
     && !showIdle;
@@ -221,9 +224,13 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
           <div className={styles.fact}>
             <span className={styles.factLabel}>{t("LifecycleCard.expiryLabel")}</span>
             <span className={styles.factValue}>
-              {formatDate(resource?.expiry_date, lang) ?? t("LifecycleCard.unlimited")}
+              {formatDate(currentExpiry, lang) ?? t("LifecycleCard.unlimited")}
             </span>
-            {resource?.expiry_date && <span className={styles.mutedText}>{t("LifecycleCard.expiryHint")}</span>}
+            {currentExpiry && (
+              <span className={styles.mutedText}>
+                {t(expiryFromWindow ? "LifecycleCard.windowExpiryHint" : "LifecycleCard.expiryHint")}
+              </span>
+            )}
           </div>
           <div className={styles.fact}>
             <span className={styles.factLabel}>{t("LifecycleCard.autoStopLabel")}</span>

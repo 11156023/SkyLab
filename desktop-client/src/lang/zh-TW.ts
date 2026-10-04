@@ -59,6 +59,8 @@
   },
   home: {
     status: {
+      leaseRefreshFailed:
+        "連線授權更新失敗，將自動重試；授權到期後須重新連線。",
       running: "已連線",
       stopped: "未連線",
       error: "連線錯誤",

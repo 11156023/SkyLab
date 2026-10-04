@@ -10,6 +10,7 @@ import logging
 import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -31,6 +32,7 @@ from app.infrastructure.worker import background_tasks
 from app.models import Resource, SpecChangeRequestStatus, SpecChangeType
 from app.repositories import resource as resource_repo
 from app.repositories import spec_change_request as spec_request_repo
+from app.repositories import vm_request as vm_request_repo
 from app.schemas import (
     SpecChangeApplyAccepted,
     SpecChangeRequestCreate,
@@ -256,15 +258,80 @@ def _reject_fixed_spec_resource(*, session: Session, vmid: int) -> None:
 EXPIRY_MAX_EXTENSION_DAYS = 366
 
 
+def _window_request(session: Session, vmid: int) -> Any | None:
+    """個人申請機器的核准使用時段：回傳帶 ``end_at`` 的最新核准申請，沒有時段就 None。
+
+    自己申請的機器通常沒有 ``resources.expiry_date``，真正讓它「過期」的是
+    這張申請的 ``end_at``（時段結束後 start_window_state 會擋開機）。
+    """
+    request = vm_request_repo.get_latest_approved_vm_request_by_vmid(
+        session=session, vmid=vmid
+    )
+    if request is None or request.end_at is None:
+        return None
+    return request
+
+
+def _window_end_date(window_request: Any) -> date:
+    end_at = normalize_datetime(window_request.end_at)
+    assert end_at is not None
+    return end_at.date()
+
+
+def _window_end_at(requested: date) -> datetime:
+    """延長後的時段迄：延到該日最後一刻（申請表單選日期時也是 end-of-day）。"""
+    return datetime.combine(requested, dt_time(23, 59, 59), tzinfo=timezone.utc)
+
+
+def _effective_expiry(resource: Any | None, window_request: Any | None) -> date | None:
+    """目前實際生效的到期：到期日（TTL）與核准時段迄日取較早者；兩者都沒有＝不限期。"""
+    candidates: list[date] = []
+    if resource is not None and resource.expiry_date is not None:
+        candidates.append(resource.expiry_date)
+    if window_request is not None:
+        candidates.append(_window_end_date(window_request))
+    return min(candidates) if candidates else None
+
+
+def _ensure_gpu_window_free(
+    session: Session, window_request: Any, new_end_at: datetime
+) -> None:
+    """GPU 機器延長時段：延長的那段不能撞到別人已核准、尚未開機的同一張 GPU 預約。
+
+    CPU／記憶體容量交給管理員審核時判斷（機器本來就佔著實體資源）；GPU 是獨占
+    資源，被排進去的人到時會開不了機，所以在申請與核准兩個時點都擋。
+    """
+    mapping_id = str(getattr(window_request, "gpu_mapping_id", "") or "").strip()
+    if not mapping_id:
+        return
+    old_end_at = normalize_datetime(window_request.end_at)
+    assert old_end_at is not None
+    conflicts = vm_request_repo.get_unprovisioned_gpu_requests_overlapping_window(
+        session=session,
+        gpu_mapping_id=mapping_id,
+        window_start=old_end_at,
+        window_end=new_end_at,
+        exclude_request_id=window_request.id,
+    )
+    if conflicts:
+        raise BadRequestError(
+            t("spec_change.expiry_gpu_reserved", date=_window_end_date(conflicts[0]).isoformat())
+        )
+
+
 def _validate_expiry_request(
     *, session: Session, vmid: int, request_in: SpecChangeRequestCreate
 ) -> date | None:
-    """延期申請：要有日期、要在今天之後、要比目前到期日晚、不能超過上限。回傳目前到期日。"""
+    """延期申請：要有日期、要在今天之後、要比目前到期晚、不能超過上限。回傳目前到期。
+
+    「目前到期」是到期日與核准使用時段迄日取較早者（見 ``_effective_expiry``）。
+    """
     requested = request_in.requested_expiry_date
     if requested is None:
         raise BadRequestError(t("spec_change.expiry_value_required"))
     resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-    current_expiry = resource.expiry_date if resource else None
+    window_request = _window_request(session, vmid)
+    current_expiry = _effective_expiry(resource, window_request)
     today = datetime.now(timezone.utc).date()
     if requested <= today:
         raise BadRequestError(t("spec_change.expiry_must_be_future"))
@@ -276,21 +343,40 @@ def _validate_expiry_request(
         raise BadRequestError(
             t("spec_change.expiry_too_far", days=EXPIRY_MAX_EXTENSION_DAYS)
         )
+    if window_request is not None:
+        new_end_at = _window_end_at(requested)
+        if new_end_at > normalize_datetime(window_request.end_at):  # type: ignore[operator]
+            _ensure_gpu_window_free(session, window_request, new_end_at)
     return current_expiry
 
 
 def _apply_expiry_extension(session: Session, db_request: Any) -> None:
-    """核准即生效：改到期日、清掉 TTL 已發出的通知與刪除排程，讓治理重新起算。"""
+    """核准即生效：到期日與核准使用時段都往後推到申請日期，並清掉 TTL 的通知與刪除排程。
+
+    只往後不往前：到期日已經比申請日期晚就不動；本來沒有到期日的機器也不補上
+    （補了會把它拉進 TTL 的寬限刪除流程）。時段迄日同理只在申請日期更晚時延長。
+    """
     resource = session.get(Resource, db_request.resource_vmid)
     if resource is None:
         raise BadRequestError(t("spec_change.resource_gone_review"))
-    resource.expiry_date = db_request.requested_expiry_date
+    requested: date = db_request.requested_expiry_date
+    if resource.expiry_date is not None and requested > resource.expiry_date:
+        resource.expiry_date = requested
     resource.expiry_notified_at = None
     resource.scheduled_deletion_at = None
     if resource.auto_stop_reason == "ttl_expired":
         resource.auto_stop_at = None
         resource.auto_stop_reason = None
     session.add(resource)
+
+    window_request = _window_request(session, resource.vmid)
+    if window_request is not None:
+        new_end_at = _window_end_at(requested)
+        if new_end_at > normalize_datetime(window_request.end_at):  # type: ignore[operator]
+            _ensure_gpu_window_free(session, window_request, new_end_at)
+            window_request.end_at = new_end_at
+            session.add(window_request)
+
     db_request.applied_at = datetime.now(timezone.utc)
     db_request.apply_error = None
     session.add(db_request)
@@ -318,7 +404,7 @@ def create(
     node = resource_info["node"]
     specs = proxmox_service.get_current_specs(node, vmid, _rtype(resource_info))
 
-    # 延長到期日：不動 Proxmox，只驗日期；核准時直接寫回 resources.expiry_date
+    # 延長到期日：不動 Proxmox，只驗日期；核准時寫回 resources.expiry_date 與核准使用時段 end_at
     current_expiry: date | None = None
     if request_in.change_type == SpecChangeType.expiry:
         current_expiry = _validate_expiry_request(session=session, vmid=vmid, request_in=request_in)

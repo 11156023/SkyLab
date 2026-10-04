@@ -25,7 +25,7 @@ from app.schemas.gateway import (
     GatewayInstallOptions,
     GatewayInstallStatus,
 )
-from app.services.network import gateway_service
+from app.services.network import gateway_service, ip_management_service
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,11 @@ def build_status_command() -> str:
     return _as_root(status_script())
 
 
-def build_env(options: GatewayInstallOptions) -> dict[str, str]:
+def build_env(
+    options: GatewayInstallOptions,
+    *,
+    vm_subnet: str | None = None,
+) -> dict[str, str]:
     """install.sh 讀的環境變數。WireGuard 介面與子網固定跟後端設定走。"""
     client_subnet = ipaddress.ip_network(settings.WIREGUARD_CLIENT_SUBNET, strict=False)
     # 伺服器端取客戶端子網的第一個位址（預設 10.250.0.1/16），與 install.sh 預設一致
@@ -118,7 +122,12 @@ def build_env(options: GatewayInstallOptions) -> dict[str, str]:
         "WG_INTERFACE": settings.WIREGUARD_INTERFACE,
         "WG_ADDRESS": wg_address,
         "WG_CLIENT_SUBNET": str(client_subnet),
-        "WG_VM_SUBNET": str(ipaddress.ip_network(settings.WIREGUARD_VM_SUBNET, strict=False)),
+        "WG_VM_SUBNET": str(
+            ipaddress.ip_network(
+                vm_subnet or settings.WIREGUARD_VM_SUBNET,
+                strict=False,
+            )
+        ),
         "WG_VM_INTERFACE": options.vm_interface,
         "WG_SNAT_ADDRESS": options.snat_address,
         "WG_INGRESS_INTERFACE": options.ingress_interface,
@@ -243,13 +252,17 @@ def suggest_install_options(
     client_ip: str | None,
     gateway_vm_ip: str | None,
     forward_port_range: tuple[int, int] | None,
+    vm_subnet: str | None = None,
 ) -> GatewayInstallOptions:
     """依 Gateway 實際的網卡與 IP 管理的子網設定推出表單預設值。
 
     VM 內網介面＝持有 Gateway VM IP（或位在 WireGuard VM 子網內位址）的那張卡，
     對外介面＝預設路由走的那張卡。
     """
-    vm_subnet = ipaddress.ip_network(settings.WIREGUARD_VM_SUBNET, strict=False)
+    vm_network = ipaddress.ip_network(
+        vm_subnet or settings.WIREGUARD_VM_SUBNET,
+        strict=False,
+    )
     vm_interface: str | None = None
     snat_address: str | None = None
 
@@ -271,7 +284,7 @@ def suggest_install_options(
             break
     if vm_interface is None:
         for name, host in candidates:
-            if host in vm_subnet:
+            if host in vm_network:
                 vm_interface, snat_address = name, str(host)
                 break
 
@@ -320,8 +333,6 @@ def _connect(session: object) -> Any:
 
 
 def _read_status(session: object, client: Any) -> GatewayInstallStatus:
-    from app.services.network import ip_management_service
-
     code, out, err = gateway_service._exec(client, build_status_command())
     if code != 0 and "ROOT=" not in out:
         detail = (err or out).strip() or t("gateway.noOutput")
@@ -329,12 +340,14 @@ def _read_status(session: object, client: Any) -> GatewayInstallStatus:
     parsed = parse_status_output(out)
 
     subnet = ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
+    vm_subnet = subnet.cidr if subnet else settings.WIREGUARD_VM_SUBNET
     defaults = suggest_install_options(
         interfaces=parsed["interfaces"],  # type: ignore[arg-type]
         default_interface=parsed["default_interface"],  # type: ignore[arg-type]
         client_ip=parsed["client_ip"],  # type: ignore[arg-type]
         gateway_vm_ip=subnet.gateway_vm_ip if subnet else None,
         forward_port_range=ip_management_service.get_forward_port_range(subnet),
+        vm_subnet=vm_subnet,
     )
     return GatewayInstallStatus(
         state=parsed["state"],  # type: ignore[arg-type]
@@ -349,7 +362,7 @@ def _read_status(session: object, client: Any) -> GatewayInstallStatus:
         defaults=defaults,
         wireguard_interface=settings.WIREGUARD_INTERFACE,
         wireguard_client_subnet=settings.WIREGUARD_CLIENT_SUBNET,
-        wireguard_vm_subnet=settings.WIREGUARD_VM_SUBNET,
+        wireguard_vm_subnet=vm_subnet,
     )
 
 
@@ -364,7 +377,11 @@ def get_install_status(session: object) -> GatewayInstallStatus:
 def start_install(session: object, options: GatewayInstallOptions) -> GatewayInstallStatus:
     """上傳 install.sh 並以 systemd-run 在背景執行，回傳啟動後的狀態。"""
     script = load_install_script()
-    env = build_env(options)
+    subnet = ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
+    env = build_env(
+        options,
+        vm_subnet=subnet.cidr if subnet else settings.WIREGUARD_VM_SUBNET,
+    )
     client = _connect(session)
     try:
         sftp = client.open_sftp()

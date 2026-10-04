@@ -33,19 +33,33 @@ from app.schemas.wireguard import (
     WireGuardConnectResponse,
 )
 from app.services.governance.lifecycle_policy import expiry_datetime
-from app.services.network import gateway_service
+from app.services.network import gateway_service, ip_management_service
 from app.services.resource import resource_service
 
 _SSH_PORT = 22
 _RDP_PORT = 3389
 _NFT_FAMILY = "inet"
-_NFT_TABLE = "campus_cloud_wg"
+_NFT_TABLE = "${SKYLAB_WG_TABLE}"
 _NFT_SET = "allowed_tcp"
-_GATEWAY_LOCK = "/run/lock/campus-cloud-wg.lock"
+_GATEWAY_LOCK = "/run/lock/skylab-wg.lock"
+_LEGACY_GATEWAY_LOCK = "/run/lock/campus-cloud-wg.lock"
 _IP_ALLOCATION_LOCK_ID = 0x534B594C41425747
 _ALLOCATION_RETRIES = 3
 
 logger = logging.getLogger(__name__)
+
+
+def _gateway_runtime_script() -> str:
+    # Prefer the renamed policy; keep existing Gateways usable until their
+    # installer migrates them. Never create a second table from the backend.
+    return """if systemctl is-active --quiet skylab-wg-firewall.service; then
+    SKYLAB_WG_TABLE=skylab_wg
+    SKYLAB_WG_FIREWALL_UNIT=skylab-wg-firewall.service
+else
+    SKYLAB_WG_TABLE=campus_cloud_wg
+    SKYLAB_WG_FIREWALL_UNIT=campus-cloud-wg-firewall.service
+fi
+"""
 
 
 class _ReconcileState:
@@ -87,9 +101,17 @@ def _client_network() -> ipaddress.IPv4Network:
     return network
 
 
-def _vm_network() -> ipaddress.IPv4Network:
+def _vm_network(session: Session | None = None) -> ipaddress.IPv4Network:
+    configured_subnet = (
+        ip_management_service.get_subnet_config(session) if session is not None else None
+    )
+    raw_subnet = (
+        configured_subnet.cidr
+        if configured_subnet
+        else settings.WIREGUARD_VM_SUBNET
+    )
     try:
-        network = ipaddress.ip_network(settings.WIREGUARD_VM_SUBNET, strict=False)
+        network = ipaddress.ip_network(raw_subnet, strict=False)
     except ValueError as exc:
         raise BadRequestError(t("wireguard.vmSubnetInvalid")) from exc
     if not isinstance(network, ipaddress.IPv4Network):
@@ -170,9 +192,12 @@ def _get_or_create_peer(
 
 
 def _resource_targets(
-    *, session: Session, user_id: uuid.UUID
+    *,
+    session: Session,
+    user_id: uuid.UUID,
+    vm_network: ipaddress.IPv4Network | None = None,
 ) -> list[WireGuardConnectionTarget]:
-    vm_network = _vm_network()
+    vm_network = vm_network or _vm_network(session)
     targets: list[WireGuardConnectionTarget] = []
     for resource in resource_service.list_by_user(session=session, user_id=user_id):
         if (
@@ -223,7 +248,12 @@ def _endpoint_dicts(
     return [target.model_dump() for target in targets]
 
 
-def _validated_endpoint_tuple(endpoint: dict[str, object]) -> tuple[str, str, int]:
+def _validated_endpoint_tuple(
+    endpoint: dict[str, object],
+    *,
+    vm_network: ipaddress.IPv4Network,
+    allow_stale_host: bool = False,
+) -> tuple[str, str, int]:
     service = str(endpoint.get("service", ""))
     expected_port = (
         _SSH_PORT if service == "ssh" else _RDP_PORT if service == "rdp" else 0
@@ -237,7 +267,7 @@ def _validated_endpoint_tuple(endpoint: dict[str, object]) -> tuple[str, str, in
     if (
         vmid <= 0
         or not isinstance(host, ipaddress.IPv4Address)
-        or host not in _vm_network()
+        or (not allow_stale_host and host not in vm_network)
         or port != expected_port
     ):
         raise BadRequestError(t("wireguard.storedAclEndpointInvalid"))
@@ -260,15 +290,27 @@ def _gateway_client(session: Session):
 
 def _run_locked(client, script: str, error_message: str) -> str:
     command = (
-        f"flock -w 15 {shlex.quote(_GATEWAY_LOCK)} sh -eu -c {shlex.quote(script)}"
+        f"flock -w 15 {shlex.quote(_LEGACY_GATEWAY_LOCK)} "
+        f"flock -w 15 {shlex.quote(_GATEWAY_LOCK)} "
+        f"sh -eu -c {shlex.quote(_gateway_runtime_script() + script)}"
     )
     return gateway_service.exec_checked(
         client, command, error_message
     )
 
 
-def _nft_tuple(address: str, endpoint: dict[str, object]) -> str:
-    _, host, port = _validated_endpoint_tuple(endpoint)
+def _nft_tuple(
+    address: str,
+    endpoint: dict[str, object],
+    *,
+    vm_network: ipaddress.IPv4Network,
+    allow_stale_host: bool = False,
+) -> str:
+    _, host, port = _validated_endpoint_tuple(
+        endpoint,
+        vm_network=vm_network,
+        allow_stale_host=allow_stale_host,
+    )
     return f"{address} . {host} . {port}"
 
 
@@ -282,13 +324,27 @@ def _sync_gateway_peer(
     new_endpoints: list[dict[str, object]],
 ) -> str:
     address = str(ipaddress.ip_address(tunnel_ip))
+    vm_network = _vm_network(session)
     public_key = _validate_public_key(public_key)
     if old_public_key:
         old_public_key = _validate_public_key(old_public_key)
 
+    # Stored endpoints can belong to the previously configured VM subnet. They
+    # are only used to delete stale ACL elements, while every newly granted
+    # endpoint must be inside the current configured subnet.
     delete_tuples = {
-        _nft_tuple(address, endpoint) for endpoint in [*old_endpoints, *new_endpoints]
+        _nft_tuple(
+            address,
+            endpoint,
+            vm_network=vm_network,
+            allow_stale_host=True,
+        )
+        for endpoint in old_endpoints
     }
+    delete_tuples.update(
+        _nft_tuple(address, endpoint, vm_network=vm_network)
+        for endpoint in new_endpoints
+    )
     delete_lines = [
         (
             f"nft delete element {_NFT_FAMILY} {_NFT_TABLE} {_NFT_SET} "
@@ -300,7 +356,7 @@ def _sync_gateway_peer(
     add_lines = [
         (
             f"nft add element {_NFT_FAMILY} {_NFT_TABLE} {_NFT_SET} "
-            f"{{ {_nft_tuple(address, endpoint)} timeout {ttl}s }}"
+            f"{{ {_nft_tuple(address, endpoint, vm_network=vm_network)} timeout {ttl}s }}"
         )
         for endpoint in new_endpoints
     ]
@@ -308,7 +364,7 @@ def _sync_gateway_peer(
         *[
             (
                 f"nft delete element {_NFT_FAMILY} {_NFT_TABLE} {_NFT_SET} "
-                f"{{ {_nft_tuple(address, endpoint)} }} 2>/dev/null || true"
+                f"{{ {_nft_tuple(address, endpoint, vm_network=vm_network)} }} 2>/dev/null || true"
             )
             for endpoint in new_endpoints
         ],
@@ -318,7 +374,7 @@ def _sync_gateway_peer(
     lines = [
         "set -eu",
         f"systemctl is-active --quiet wg-quick@{shlex.quote(settings.WIREGUARD_INTERFACE)}",
-        "systemctl is-active --quiet campus-cloud-wg-firewall.service",
+        'systemctl is-active --quiet "$SKYLAB_WG_FIREWALL_UNIT"',
         f"trap {shlex.quote(cleanup)} EXIT",
     ]
     if old_public_key and old_public_key != public_key:
@@ -355,6 +411,7 @@ def _remove_gateway_access(
     endpoints: list[dict[str, object]],
 ) -> None:
     address = str(ipaddress.ip_address(tunnel_ip))
+    vm_network = _vm_network(session)
     public_key = _validate_public_key(public_key)
     lines = [
         "set -eu",
@@ -363,7 +420,7 @@ def _remove_gateway_access(
     for endpoint in endpoints:
         lines.append(
             f"nft delete element {_NFT_FAMILY} {_NFT_TABLE} {_NFT_SET} "
-            f"{{ {_nft_tuple(address, endpoint)} }} 2>/dev/null || true"
+            f"{{ {_nft_tuple(address, endpoint, vm_network=vm_network, allow_stale_host=True)} }} 2>/dev/null || true"
         )
     _, client = _gateway_client(session)
     try:
@@ -399,6 +456,7 @@ def _connect_response(
     gateway_public_key: str,
     endpoint_host: str,
     targets: list[WireGuardConnectionTarget],
+    vm_network: ipaddress.IPv4Network,
     ttl: int,
 ) -> WireGuardConnectResponse:
     return WireGuardConnectResponse(
@@ -408,7 +466,7 @@ def _connect_response(
         endpoint=gateway_service.format_endpoint(
             endpoint_host, settings.WIREGUARD_ENDPOINT_PORT
         ),
-        allowed_ips=[str(_vm_network())],
+        allowed_ips=[str(vm_network)],
         persistent_keepalive=settings.WIREGUARD_KEEPALIVE_SECONDS,
         expires_in=ttl,
         connections=targets,
@@ -424,7 +482,12 @@ def _activate_peer(
 ) -> WireGuardConnectResponse:
     old_public_key = peer.public_key
     old_endpoints = list(peer.allowed_endpoints or [])
-    targets = _resource_targets(session=session, user_id=peer.user_id)
+    vm_network = _vm_network(session)
+    targets = _resource_targets(
+        session=session,
+        user_id=peer.user_id,
+        vm_network=vm_network,
+    )
     new_endpoints = _endpoint_dicts(targets)
     endpoint_host = _endpoint_host(session)
     gateway_public_key = _sync_gateway_peer(
@@ -471,6 +534,7 @@ def _activate_peer(
         gateway_public_key=gateway_public_key,
         endpoint_host=endpoint_host,
         targets=targets,
+        vm_network=vm_network,
         ttl=ttl,
     )
 
@@ -542,14 +606,14 @@ def _gateway_state_id(session: Session) -> str:
             ),
             (
                 "systemctl show -p ActiveEnterTimestampMonotonic --value "
-                "campus-cloud-wg-firewall.service"
+                '"$SKYLAB_WG_FIREWALL_UNIT"'
             ),
         ]
     )
     try:
         state_id = gateway_service.exec_checked(
             client,
-            command,
+            _gateway_runtime_script() + command,
             t("wireguard.inspectStateFailed"),
         ).strip()
     finally:

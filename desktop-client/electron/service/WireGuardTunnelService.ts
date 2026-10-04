@@ -37,6 +37,8 @@ const TUNNEL_NAME = "SkyLab";
 const SERVICE_NAME = `WireGuardTunnel$${TUNNEL_NAME}`;
 const LEASE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const LEASE_REFRESH_RETRY_MS = 60 * 1000;
+const ORPHANED_TUNNEL_ERROR =
+  "A tunnel from an earlier app session needs to be reconnected.";
 const WIREGUARD_MSI_SHA256 =
   "6daa5d37a9e2950dfb8c48b95ab8e562cb2bad1c785d020f38f97bea4c6a5566";
 const PRIVATE_KEY_DER_PREFIX = Buffer.from(
@@ -57,6 +59,10 @@ class WireGuardTunnelService {
   private _lastLeaseRefreshAt = -1;
   private _lastLeaseRefreshAttemptAt = -1;
   private _refreshPromise: Promise<void> | null = null;
+  private _startPromise: Promise<void> | null = null;
+  private _operationTail: Promise<void> = Promise.resolve();
+  private _operationRevision = 0;
+  private _leaseRefreshError: string | null = null;
   private _activeConfigFingerprint: string | null = null;
 
   constructor() {
@@ -469,9 +475,43 @@ class WireGuardTunnelService {
     this._lastLeaseRefreshAt = now;
     this._lastLeaseRefreshAttemptAt = now;
     this._connectionError = null;
+    this._leaseRefreshError = null;
+  }
+
+  private _serializeOperation(action: () => Promise<void>): Promise<void> {
+    this._operationRevision++;
+    const operation = this._operationTail.then(action);
+    this._operationTail = operation.then(
+      () => {
+        this._operationRevision++;
+      },
+      () => {
+        this._operationRevision++;
+      }
+    );
+    return operation;
   }
 
   async startTunnel(): Promise<void> {
+    if (this._startPromise) return this._startPromise;
+    const operation = this._serializeOperation(() => this._startTunnel());
+    this._startPromise = operation;
+    try {
+      await operation;
+    } finally {
+      if (this._startPromise === operation) this._startPromise = null;
+    }
+  }
+
+  private async _startTunnel(): Promise<void> {
+    if (
+      this._lastStartTime !== -1 &&
+      this._expiresAt !== null &&
+      Date.now() < this._expiresAt &&
+      !this._connectionError &&
+      (await this.isRunning())
+    )
+      return;
     this._connectionError = null;
     await this._ensureWireGuardInstalled();
     const identity = this._loadIdentity();
@@ -523,7 +563,14 @@ class WireGuardTunnelService {
 
   async refreshTunnel(): Promise<void> {
     if (this._refreshPromise) return this._refreshPromise;
-    this._refreshPromise = this._refreshTunnelLease().finally(() => {
+    this._refreshPromise = this._serializeOperation(async () => {
+      try {
+        await this._refreshTunnelLease();
+      } catch (error) {
+        this._leaseRefreshError = (error as Error).message;
+        throw error;
+      }
+    }).finally(() => {
       this._refreshPromise = null;
     });
     return this._refreshPromise;
@@ -564,7 +611,6 @@ class WireGuardTunnelService {
     try {
       await this.refreshTunnel();
     } catch (error) {
-      this._connectionError = (error as Error).message;
       Logger.error(`WireGuardTunnelService.refreshIfRunning.${reason}`, error);
     }
   }
@@ -587,6 +633,10 @@ class WireGuardTunnelService {
   }
 
   async stopTunnel(): Promise<void> {
+    return this._serializeOperation(() => this._stopTunnel());
+  }
+
+  private async _stopTunnel(): Promise<void> {
     let localError: Error | null = null;
     let backendError: Error | null = null;
     try {
@@ -611,6 +661,7 @@ class WireGuardTunnelService {
     this._lastLeaseRefreshAt = -1;
     this._lastLeaseRefreshAttemptAt = -1;
     this._activeConfigFingerprint = null;
+    this._leaseRefreshError = null;
     this._connectionError = (localError || backendError)?.message || null;
     if (localError || backendError) {
       throw localError || backendError;
@@ -637,24 +688,34 @@ class WireGuardTunnelService {
   }
 
   async getStatus(): Promise<TunnelStatusInfo> {
+    // A service query/handshake read can straddle start, stop or refresh. Retry
+    // instead of publishing a snapshot from a different operation generation.
+    const revision = this._operationRevision;
+    await this._operationTail;
     const localRunning = await this.isRunning();
+    const handshake = localRunning ? await this._readLatestHandshake() : null;
+    if (revision !== this._operationRevision) return this.getStatus();
     const expired = this._expiresAt !== null && Date.now() >= this._expiresAt;
-    const orphaned = localRunning && this._lastStartTime === -1;
+    const starting = this._startPromise !== null;
+    const orphaned = localRunning && this._lastStartTime === -1 && !starting;
     if (localRunning && !expired) {
-      this._latestHandshakeAt = await this._readLatestHandshake();
+      this._latestHandshakeAt = handshake;
     }
     if (expired) {
       this._connectionError =
         "The secure session expired. Disconnect and sign in again.";
     } else if (orphaned) {
-      this._connectionError =
-        "A tunnel from an earlier app session needs to be reconnected.";
+      this._connectionError = ORPHANED_TUNNEL_ERROR;
+    } else if (this._connectionError === ORPHANED_TUNNEL_ERROR) {
+      this._connectionError = null;
     }
-    const running = localRunning && !expired && !orphaned;
+    const running =
+      localRunning && this._lastStartTime !== -1 && !expired && !orphaned;
     return {
       running,
       lastStartTime: this._lastStartTime,
       connectionError: this._connectionError,
+      leaseRefreshError: this._leaseRefreshError,
       tunnels: this._connections,
       mode: "wireguard",
       interfaceName: running ? TUNNEL_NAME : null,
@@ -668,9 +729,10 @@ class WireGuardTunnelService {
       if (this._polling) return;
       this._polling = true;
       try {
-        const status = await this.getStatus();
+        let status = await this.getStatus();
         if (status.running) {
           await this._refreshLeaseWhenDue();
+          status = await this.getStatus();
         }
         if (
           !status.running &&
@@ -690,6 +752,8 @@ class WireGuardTunnelService {
             ResponseUtils.success(status)
           );
         }
+      } catch (error) {
+        Logger.error("WireGuardTunnelService.watchTunnel", error);
       } finally {
         this._polling = false;
       }

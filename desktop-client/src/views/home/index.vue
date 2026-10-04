@@ -346,6 +346,14 @@ onUnmounted(() => {
       </section>
 
       <template v-else>
+        <el-alert
+          v-if="appStore.tunnelStatus.leaseRefreshError"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="t('home.status.leaseRefreshFailed')"
+          :description="appStore.tunnelStatus.leaseRefreshError"
+        />
         <div class="resource-header">
           <div>
             <h1>{{ t("resources.webTitle") }}</h1>
