@@ -180,6 +180,15 @@ function useLoading() {
   font-size: 12px;
   letter-spacing: .04em;
 }
+html:not([data-theme="light"]) .app-loading-wrap { background: #101722; }
+html:not([data-theme="light"]) .app-loading-card {
+  background: #1a2434;
+  border-color: #ffffff14;
+  box-shadow: none;
+}
+html:not([data-theme="light"]) .app-loading-title { color: #edf2fa; }
+html:not([data-theme="light"]) .app-loading-description,
+html:not([data-theme="light"]) .app-loading-version { color: #a9b7ce; }
 @keyframes app-cube-rise {
   0%, 16%, 100% { transform: translateY(8px) rotateX(-25deg) rotateY(-35deg); opacity: .55; }
   45%, 64% { transform: translateY(-9px) rotateX(-25deg) rotateY(-35deg); opacity: 1; }
@@ -225,6 +234,12 @@ function useLoading() {
   return {
     appendLoading() {
       if (removed) return;
+      try {
+        document.documentElement.dataset.theme =
+          localStorage.getItem("skylab.theme") === "light" ? "light" : "dark";
+      } catch {
+        document.documentElement.dataset.theme = "dark";
+      }
       safeDOM.append(document.head, oStyle);
       safeDOM.append(document.body, oDiv);
     },

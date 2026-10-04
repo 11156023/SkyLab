@@ -8,6 +8,9 @@ interface AppState {
   loginInProgress: boolean;
   language: string;
   autoStart: boolean;
+  backendUrl: string;
+  resourcesLoading: boolean;
+  resourcesError: string;
   tunnelStatus: TunnelStatusInfo;
   resources: SkyLabResource[];
   sessionStatuses: SkyLabSessionStatus[];
@@ -62,6 +65,9 @@ export const useAppStore = defineStore("app", {
     loginInProgress: false,
     language: "zh-TW",
     autoStart: false,
+    backendUrl: "https://skylab.ntubimdbirc.tw",
+    resourcesLoading: false,
+    resourcesError: "",
     tunnelStatus: { ...DEFAULT_TUNNEL_STATUS },
     resources: [],
     sessionStatuses: [],
@@ -96,6 +102,9 @@ export const useAppStore = defineStore("app", {
       });
       on(ipcRouters.AUTH.logout, () => {
         this.loggedIn = false;
+        this.resources = [];
+        this.resourcesLoading = false;
+        this.resourcesError = "";
         this.loginInProgress = false;
         this.tunnelStatus = { ...DEFAULT_TUNNEL_STATUS };
         this.stopSessionPolling();
@@ -107,18 +116,30 @@ export const useAppStore = defineStore("app", {
         if (data) {
           this.language = data.language || "zh-TW";
           this.autoStart = !!data.launchAtStartup;
+          this.backendUrl = data.backendUrl || this.backendUrl;
         }
       });
       on(ipcRouters.SETTINGS.saveSettings, data => {
         if (data) {
           this.language = data.language || this.language;
           this.autoStart = !!data.launchAtStartup;
+          this.backendUrl = data.backendUrl || this.backendUrl;
         }
       });
-      on(ipcRouters.RESOURCE.listMyResources, data => {
-        this.resources = Array.isArray(data) ? data : [];
-        lastResourceRefreshAt = Date.now();
-      });
+      on(
+        ipcRouters.RESOURCE.listMyResources,
+        data => {
+          this.resourcesLoading = false;
+          this.resourcesError = "";
+          if (!this.loggedIn) return;
+          this.resources = Array.isArray(data) ? data : [];
+          lastResourceRefreshAt = Date.now();
+        },
+        (_code, message) => {
+          this.resourcesLoading = false;
+          this.resourcesError = message;
+        }
+      );
       on(ipcRouters.SESSION.getSessionStatuses, data => {
         const next: SkyLabSessionStatus[] = Array.isArray(data) ? data : [];
         this.sessionStatuses = next;
@@ -162,6 +183,9 @@ export const useAppStore = defineStore("app", {
       send(ipcRouters.SETTINGS.getSettings);
     },
     refreshResources() {
+      if (!this.loggedIn || this.resourcesLoading) return;
+      this.resourcesLoading = true;
+      this.resourcesError = "";
       send(ipcRouters.RESOURCE.listMyResources);
     },
     refreshSessionStatuses() {
@@ -204,6 +228,8 @@ export const useAppStore = defineStore("app", {
       this.loggedIn = false;
       this.loginInProgress = false;
       this.resources = [];
+      this.resourcesLoading = false;
+      this.resourcesError = "";
       this.stopSessionPolling();
       send(ipcRouters.TUNNEL.stop);
       if (router.currentRoute.value.name !== "Home") {
