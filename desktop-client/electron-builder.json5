@@ -10,10 +10,10 @@
   directories: {
     output: "release/${version}"
   },
-  icon: "./public/logo/pack/512x512.png",
+  icon: "./public/logo/pixel-octo/512x512.png",
   files: ["dist", "dist-electron"],
   win: {
-    icon: "./public/logo/pack/icon.ico",
+    icon: "./public/logo/pixel-octo/icon.ico",
     extraResources: [
       {
         from: "vendor/wireguard",

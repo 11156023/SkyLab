@@ -6,6 +6,7 @@ import { ElMessage } from "element-plus";
 import { defineComponent, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { ipcRouters } from "../../../electron/core/IpcRouter";
+import PixelOcto from "@/components/PixelOcto.vue";
 
 defineComponent({ name: "Login" });
 
@@ -70,7 +71,7 @@ onUnmounted(() => {
       <IconifyIconOffline icon="settings" />
     </button>
     <div class="login-panel">
-      <img src="/logo/only/128x128.png" class="login-logo" alt="Logo" />
+      <PixelOcto :scale="3" class="login-logo" />
       <div class="brand-name">SkyLab Connect</div>
       <h1 class="login-title">{{ t("login.connectTitle") }}</h1>
       <p class="login-description">
@@ -167,11 +168,7 @@ onUnmounted(() => {
 }
 
 .login-logo {
-  width: 58px;
-  height: 58px;
   margin-bottom: 10px;
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
 }
 
 .brand-name {

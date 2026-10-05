@@ -42,6 +42,7 @@ const indexHtml = join(process.env.DIST, "index.html");
 
 class SkyLabApp {
   private _win: BrowserWindow | null = null;
+  private _tray: Tray | null = null;
   private _quitting = false;
   private _cleanupInProgress = false;
   private _cleanupComplete = false;
@@ -73,7 +74,7 @@ class SkyLabApp {
 
     this._win = new BrowserWindow({
       title: `${app.getName()} v${app.getVersion()}`,
-      icon: join(process.env.VITE_PUBLIC, "logo/pack/icon.ico"),
+      icon: join(process.env.VITE_PUBLIC, "logo/pixel-octo/icon.ico"),
       width: 960,
       height: 640,
       minWidth: 900,
@@ -118,23 +119,23 @@ class SkyLabApp {
 
     Menu.setApplicationMenu(null);
 
-    (this._win as any).on("minimize", (event: any) => {
-      event.preventDefault();
-      this._win?.hide();
+    this._win.on("minimize", () => {
+      Logger.info("SkyLabApp.window", "Window minimized to taskbar");
     });
 
     this._win.on("close", event => {
       if (!this._quitting) {
         event.preventDefault();
+        Logger.info("SkyLabApp.window", "Window closed to tray");
         this._win?.hide();
       }
-      return false;
     });
 
     Logger.info("SkyLabApp.initializeWindow", "Window initialized.");
   }
 
   async initializeTray() {
+    if (this._tray) return;
     const settingsService: SettingsService =
       BeanFactory.getBean("settingsService");
     const language = await settingsService.getLanguage();
@@ -158,12 +159,15 @@ class SkyLabApp {
         }
       }
     ];
-    const tray = new Tray(
-      node_path.join(process.env.VITE_PUBLIC, "logo/only/16x16.png")
+    this._tray = new Tray(
+      node_path.join(process.env.VITE_PUBLIC, "logo/pixel-octo/16x16.png")
     );
-    tray.setToolTip(app.getName());
-    tray.setContextMenu(Menu.buildFromTemplate(menu));
-    tray.on("double-click", () => this._win?.show());
+    this._tray.setToolTip(app.getName());
+    this._tray.setContextMenu(Menu.buildFromTemplate(menu));
+    this._tray.on("click", () => {
+      this._win?.show();
+      this._win?.focus();
+    });
     Logger.info("SkyLabApp.initializeTray", "Tray initialized.");
   }
 

@@ -6,6 +6,7 @@ import { useAppStore } from "@/store/app";
 import { send } from "@/utils/ipcUtils";
 import { ipcRouters } from "../../electron/core/IpcRouter";
 import AppIcon from "@/components/AppIcon.vue";
+import PixelOcto from "@/components/PixelOcto.vue";
 import "@/components/IconifyIcon/src/offlineIcon";
 import "@/utils/appearance";
 
@@ -32,7 +33,7 @@ const openWeb = () =>
   <div class="desktop-shell">
     <aside class="desktop-sidebar" :aria-label="t('workspace.navigation')">
       <div class="desktop-brand">
-        <img src="/logo/only/128x128.png" alt="SkyLab" />
+        <PixelOcto :scale="2" />
         <div><strong>SkyLab</strong><small>CONNECT</small></div>
       </div>
       <router-link

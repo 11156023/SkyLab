@@ -5,6 +5,7 @@ import { useAppStore } from "@/store/app";
 import { computed, defineComponent, onMounted, ref } from "vue";
 import { RouteRecordRaw } from "vue-router";
 import pkg from "../../../package.json";
+import PixelOcto from "@/components/PixelOcto.vue";
 
 defineComponent({
   name: "LeftMenu"
@@ -38,7 +39,7 @@ onMounted(() => {
 <template>
   <div class="drop-shadow-xl left-menu-container">
     <div class="logo-container">
-      <img src="/logo/only/128x128.png" class="logo" alt="Logo" />
+      <PixelOcto :scale="2" class="logo" />
     </div>
     <ul class="menu-container">
       <li

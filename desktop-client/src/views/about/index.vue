@@ -5,6 +5,7 @@ import { defineComponent } from "vue";
 import { useI18n } from "vue-i18n";
 import { ipcRouters } from "../../../electron/core/IpcRouter";
 import pkg from "../../../package.json";
+import PixelOcto from "@/components/PixelOcto.vue";
 
 defineComponent({ name: "About" });
 
@@ -18,7 +19,7 @@ const openAppData = () => send(ipcRouters.SYSTEM.openAppData);
     <breadcrumb />
     <div class="app-container-breadcrumb">
       <div class="page-surface about-surface">
-        <img src="/logo/only/128x128.png" class="about-logo" alt="Logo" />
+        <PixelOcto :scale="5" class="about-logo" />
         <div class="about-name">{{ t("about.name") }}</div>
         <div class="about-description">
           {{ t("about.description") }}
@@ -53,10 +54,7 @@ const openAppData = () => send(ipcRouters.SYSTEM.openAppData);
 }
 
 .about-logo {
-  width: 88px;
-  height: 88px;
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
+  margin-bottom: 8px;
 }
 
 .about-name {

@@ -144,12 +144,8 @@ input:focus-visible {
   gap: 10px;
   padding: 0 8px 32px;
 }
-.desktop-brand img {
-  width: 39px;
-  height: 39px;
-  padding: 4px;
-  background: #eff5ff;
-  border-radius: 10px;
+.desktop-brand .pixel-octo {
+  margin-block: 4px;
 }
 .desktop-brand strong {
   display: block;
