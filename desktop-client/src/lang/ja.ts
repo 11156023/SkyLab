@@ -6,10 +6,14 @@ export default {
     waitingGateway: "ゲートウェイの応答待ち",
     waitingGatewayHint:
       "トンネルは起動しましたが、WireGuard ハンドシェイクは未受信です。応答がない場合はネットワークを確認するか、管理者に連絡してください。",
+    tunnelActive: "トンネル起動中",
+    tunnelActiveHint:
+      "WireGuard のハンドシェイク情報を読み取れません。接続先への通信を確認しています。",
     protocol: "プロトコル",
     interface: "インターフェース",
     handshake: "最終ハンドシェイク",
     noHandshake: "未受信",
+    handshakeUnavailable: "読み取り権限がありません",
     close: "閉じる",
     details: "マシンの詳細",
     detailsFor: "{name} の詳細",

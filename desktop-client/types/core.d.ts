@@ -137,6 +137,8 @@ interface SkyLabTunnelInfo {
 interface TunnelStatusInfo {
   leaseRefreshError?: string | null;
   running: boolean;
+  connected?: boolean;
+  handshakeUnavailable?: boolean;
   lastStartTime: number;
   connectionError: string | null;
   tunnels: SkyLabTunnelInfo[];

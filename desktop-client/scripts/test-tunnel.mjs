@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import { test } from "node:test";
 import { build } from "esbuild";
 
@@ -131,4 +132,54 @@ test("a genuinely orphaned service still requires reconnecting", async () => {
   const status = await tunnel.getStatus();
   assert.equal(status.running, false);
   assert.match(status.connectionError, /earlier app session/);
+});
+
+test("reachable authorized SSH target confirms the tunnel when wg inspection is denied", async () => {
+  const tunnel = new Tunnel();
+  tunnel._lastStartTime = Date.now();
+  tunnel._expiresAt = Date.now() + 60_000;
+  tunnel._connections = [
+    { vmid: 106, service: "ssh", host: "192.168.60.106", port: 22 }
+  ];
+  tunnel.isRunning = async () => true;
+  tunnel._readLatestHandshake = async () => ({ at: null, unavailable: true });
+  tunnel._probeAuthorizedTargets = async () => true;
+
+  const status = await tunnel.getStatus();
+  assert.equal(status.running, true);
+  assert.equal(status.connected, true);
+  assert.equal(status.handshakeUnavailable, true);
+  assert.equal(status.latestHandshakeAt, null);
+});
+
+test("unreadable handshake without reachable targets does not claim a connection", async () => {
+  const tunnel = new Tunnel();
+  tunnel._lastStartTime = Date.now();
+  tunnel._expiresAt = Date.now() + 60_000;
+  tunnel._connections = [
+    { vmid: 106, service: "ssh", host: "192.168.60.106", port: 22 }
+  ];
+  tunnel.isRunning = async () => true;
+  tunnel._readLatestHandshake = async () => ({ at: null, unavailable: true });
+  tunnel._probeAuthorizedTargets = async () => false;
+
+  const status = await tunnel.getStatus();
+  assert.equal(status.running, true);
+  assert.equal(status.connected, false);
+  assert.equal(status.handshakeUnavailable, true);
+});
+
+test("authorized target probe detects an open TCP port", async () => {
+  const server = createServer(socket => socket.end());
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    const tunnel = new Tunnel();
+    assert.equal(
+      await tunnel._probeTarget({ host: "127.0.0.1", port: address.port }),
+      true
+    );
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
 });

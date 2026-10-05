@@ -77,9 +77,11 @@ const connectionTitle = computed(() =>
         )
       : status.value === "running"
         ? t(
-            appStore.tunnelStatus.latestHandshakeAt
+            appStore.tunnelStatus.connected
               ? "workspace.connected"
-              : "workspace.waitingGateway"
+              : appStore.tunnelStatus.handshakeUnavailable
+                ? "workspace.tunnelActive"
+                : "workspace.waitingGateway"
           )
         : status.value === "error"
           ? t("home.status.error")
@@ -89,9 +91,13 @@ const connectionHint = computed(() =>
   authenticating.value
     ? t("home.connect.authHint")
     : status.value === "running"
-      ? appStore.tunnelStatus.latestHandshakeAt
+      ? appStore.tunnelStatus.connected
         ? ""
-        : t("workspace.waitingGatewayHint")
+        : t(
+            appStore.tunnelStatus.handshakeUnavailable
+              ? "workspace.tunnelActiveHint"
+              : "workspace.waitingGatewayHint"
+          )
       : t("home.connect.description")
 );
 const displayedError = computed(
@@ -382,7 +388,7 @@ onUnmounted(() => {
         :class="{
           'sl-spin': loading,
           'is-running':
-            status === 'running' && !!appStore.tunnelStatus.latestHandshakeAt
+            status === 'running' && !!appStore.tunnelStatus.connected
         }"
       />
       <div class="connection-copy">

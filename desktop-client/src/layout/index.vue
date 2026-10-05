@@ -19,9 +19,11 @@ const connectionLabel = computed(() =>
     ? t("home.status.error")
     : !tunnel.value.running
       ? t("home.status.stopped")
-      : tunnel.value.latestHandshakeAt
+      : tunnel.value.connected
         ? t("home.status.running")
-        : t("workspace.waitingGateway")
+        : tunnel.value.handshakeUnavailable
+          ? t("workspace.tunnelActive")
+          : t("workspace.waitingGateway")
 );
 const openWeb = () =>
   send(ipcRouters.SYSTEM.openUrl, { url: store.backendUrl });
@@ -106,7 +108,11 @@ const openWeb = () =>
             {{
               tunnel.latestHandshakeAt
                 ? new Date(tunnel.latestHandshakeAt).toLocaleString()
-                : t("workspace.noHandshake")
+                : t(
+                    tunnel.handshakeUnavailable
+                      ? "workspace.handshakeUnavailable"
+                      : "workspace.noHandshake"
+                  )
             }}
           </dd>
         </div>

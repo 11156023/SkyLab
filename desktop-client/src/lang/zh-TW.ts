@@ -6,10 +6,13 @@
     waitingGateway: "等待 Gateway 回應",
     waitingGatewayHint:
       "通道已啟動，尚未收到 WireGuard 握手。若持續無回應，請檢查網路或聯絡管理員。",
+    tunnelActive: "通道已啟動",
+    tunnelActiveHint: "目前無法讀取 WireGuard 握手資訊，正在確認機器連通性。",
     protocol: "通訊協定",
     interface: "網路介面",
     handshake: "最近一次握手",
     noHandshake: "尚未收到",
+    handshakeUnavailable: "無權限讀取",
     close: "關閉",
     details: "機器詳情",
     detailsFor: "{name} 詳情",

@@ -8,7 +8,7 @@ import {
 } from "crypto";
 import { app, BrowserWindow, Notification, safeStorage } from "electron";
 import fs from "fs";
-import { isIP } from "net";
+import { createConnection, isIP } from "net";
 import path from "path";
 import BeanFactory from "../core/BeanFactory";
 import { BusinessError, ResponseCode } from "../core/BusinessError";
@@ -37,6 +37,9 @@ const TUNNEL_NAME = "SkyLab";
 const SERVICE_NAME = `WireGuardTunnel$${TUNNEL_NAME}`;
 const LEASE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const LEASE_REFRESH_RETRY_MS = 60 * 1000;
+const TARGET_PROBE_INTERVAL_MS = 10 * 1000;
+const TARGET_PROBE_TIMEOUT_MS = 1500;
+const CONNECTION_EVIDENCE_MAX_AGE_MS = 90 * 1000;
 const ORPHANED_TUNNEL_ERROR =
   "A tunnel from an earlier app session needs to be reconnected.";
 const WIREGUARD_MSI_SHA256 =
@@ -54,6 +57,10 @@ class WireGuardTunnelService {
   private _connectionError: string | null = null;
   private _connections: SkyLabTunnelInfo[] = [];
   private _latestHandshakeAt: number | null = null;
+  private _handshakeUnavailable = false;
+  private _lastTargetProbeAt = -1;
+  private _lastReachableAt: number | null = null;
+  private _nextTargetProbeOffset = 0;
   private _expiresAt: number | null = null;
   private _polling = false;
   private _lastLeaseRefreshAt = -1;
@@ -414,10 +421,13 @@ class WireGuardTunnelService {
     return this.isRunning();
   }
 
-  private async _readLatestHandshake(): Promise<number | null> {
-    const executable = this._wgExecutable();
-    if (!executable || !(await this.isRunning())) return null;
+  private async _readLatestHandshake(): Promise<{
+    at: number | null;
+    unavailable: boolean;
+  }> {
     try {
+      const executable = this._wgExecutable();
+      if (!executable) return { at: null, unavailable: true };
       const output = await this._execFile(executable, [
         "show",
         TUNNEL_NAME,
@@ -428,10 +438,51 @@ class WireGuardTunnelService {
         .split(/\s+/)
         .map(value => Number(value))
         .filter(value => Number.isFinite(value) && value > 0);
-      return values.length ? Math.max(...values) * 1000 : null;
+      return {
+        at: values.length ? Math.max(...values) * 1000 : null,
+        unavailable: false
+      };
     } catch {
-      return null;
+      // A normal Windows user cannot inspect a protected WireGuard tunnel.
+      // This says nothing about whether the tunnel has exchanged traffic.
+      return { at: null, unavailable: true };
     }
+  }
+
+  private _probeTarget(target: SkyLabTunnelInfo): Promise<boolean> {
+    return new Promise(resolve => {
+      const socket = createConnection({
+        host: target.host!,
+        port: target.port!
+      });
+      let settled = false;
+      const finish = (reachable: boolean) => {
+        if (settled) return;
+        settled = true;
+        socket.destroy();
+        resolve(reachable);
+      };
+      socket.setTimeout(TARGET_PROBE_TIMEOUT_MS);
+      socket.once("connect", () => finish(true));
+      socket.once("error", () => finish(false));
+      socket.once("timeout", () => finish(false));
+    });
+  }
+
+  private async _probeAuthorizedTargets(): Promise<boolean> {
+    const targets = Array.from(
+      { length: Math.min(3, this._connections.length) },
+      (_, index) =>
+        this._connections[
+          (this._nextTargetProbeOffset + index) % this._connections.length
+        ]
+    );
+    if (!targets.length) return false;
+    this._nextTargetProbeOffset =
+      (this._nextTargetProbeOffset + targets.length) % this._connections.length;
+    return (
+      await Promise.all(targets.map(target => this._probeTarget(target)))
+    ).some(Boolean);
   }
 
   private _normalizeConnections(
@@ -470,7 +521,13 @@ class WireGuardTunnelService {
 
   private _applyLease(config: SkyLabWireGuardConfig): void {
     const now = Date.now();
-    this._connections = this._normalizeConnections(config);
+    const connections = this._normalizeConnections(config);
+    if (JSON.stringify(connections) !== JSON.stringify(this._connections)) {
+      this._lastTargetProbeAt = -1;
+      this._lastReachableAt = null;
+      this._nextTargetProbeOffset = 0;
+    }
+    this._connections = connections;
     this._expiresAt = now + Math.max(60, Number(config.expires_in) || 0) * 1000;
     this._lastLeaseRefreshAt = now;
     this._lastLeaseRefreshAttemptAt = now;
@@ -536,7 +593,12 @@ class WireGuardTunnelService {
       this._activeConfigFingerprint = this._configFingerprint(config);
       this._applyLease(config);
       this._notifiedStartTime = -1;
-      this._latestHandshakeAt = await this._readLatestHandshake();
+      const handshake = await this._readLatestHandshake();
+      this._latestHandshakeAt = handshake.at;
+      this._handshakeUnavailable = handshake.unavailable;
+      this._lastTargetProbeAt = -1;
+      this._lastReachableAt = null;
+      this._nextTargetProbeOffset = 0;
       Logger.info(
         "WireGuardTunnelService.startTunnel",
         `Started ${TUNNEL_NAME}; targets=${this._connections.length}`
@@ -657,6 +719,10 @@ class WireGuardTunnelService {
     this._notifiedStartTime = -1;
     this._connections = [];
     this._latestHandshakeAt = null;
+    this._handshakeUnavailable = false;
+    this._lastTargetProbeAt = -1;
+    this._lastReachableAt = null;
+    this._nextTargetProbeOffset = 0;
     this._expiresAt = null;
     this._lastLeaseRefreshAt = -1;
     this._lastLeaseRefreshAttemptAt = -1;
@@ -694,12 +760,30 @@ class WireGuardTunnelService {
     await this._operationTail;
     const localRunning = await this.isRunning();
     const handshake = localRunning ? await this._readLatestHandshake() : null;
-    if (revision !== this._operationRevision) return this.getStatus();
     const expired = this._expiresAt !== null && Date.now() >= this._expiresAt;
+    const shouldProbe =
+      localRunning &&
+      !expired &&
+      this._lastStartTime !== -1 &&
+      this._connections.length > 0 &&
+      (handshake?.at === null ||
+        handshake?.at === undefined ||
+        Date.now() - handshake.at >= CONNECTION_EVIDENCE_MAX_AGE_MS) &&
+      (this._lastTargetProbeAt === -1 ||
+        Date.now() - this._lastTargetProbeAt >= TARGET_PROBE_INTERVAL_MS);
+    const reachable = shouldProbe
+      ? await this._probeAuthorizedTargets()
+      : false;
+    if (revision !== this._operationRevision) return this.getStatus();
     const starting = this._startPromise !== null;
     const orphaned = localRunning && this._lastStartTime === -1 && !starting;
     if (localRunning && !expired) {
-      this._latestHandshakeAt = handshake;
+      this._latestHandshakeAt = handshake?.at ?? null;
+      this._handshakeUnavailable = handshake?.unavailable ?? false;
+      if (shouldProbe) {
+        this._lastTargetProbeAt = Date.now();
+        if (reachable) this._lastReachableAt = Date.now();
+      }
     }
     if (expired) {
       this._connectionError =
@@ -711,8 +795,17 @@ class WireGuardTunnelService {
     }
     const running =
       localRunning && this._lastStartTime !== -1 && !expired && !orphaned;
+    const connected =
+      running &&
+      ((this._latestHandshakeAt !== null &&
+        Date.now() - this._latestHandshakeAt <
+          CONNECTION_EVIDENCE_MAX_AGE_MS) ||
+        (this._lastReachableAt !== null &&
+          Date.now() - this._lastReachableAt < CONNECTION_EVIDENCE_MAX_AGE_MS));
     return {
       running,
+      connected,
+      handshakeUnavailable: this._handshakeUnavailable,
       lastStartTime: this._lastStartTime,
       connectionError: this._connectionError,
       leaseRefreshError: this._leaseRefreshError,

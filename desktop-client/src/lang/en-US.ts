@@ -6,10 +6,14 @@
     waitingGateway: "Waiting for gateway",
     waitingGatewayHint:
       "The tunnel has started, but no WireGuard handshake has been received. Check your network or contact an administrator if this continues.",
+    tunnelActive: "Tunnel active",
+    tunnelActiveHint:
+      "WireGuard handshake details are unavailable. Checking machine reachability.",
     protocol: "Protocol",
     interface: "Interface",
     handshake: "Last handshake",
     noHandshake: "Not received yet",
+    handshakeUnavailable: "Permission required",
     close: "Close",
     details: "Machine details",
     detailsFor: "Details for {name}",
