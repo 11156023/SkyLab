@@ -300,18 +300,28 @@ def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
     if not is_valid_hostname(clean):
         raise BadRequestError(t("reverseProxy.domainInvalid", domain=domain))
 
-    zones = _active_zones(session)
+    found = find_zone_for_domain(session, clean)
+    if found is None:
+        raise BadRequestError(
+            t("reverseProxy.domainZoneNotFound", domain=clean)
+        )
+    return found
 
+
+def find_zone_for_domain(session: object, domain: str) -> tuple[str, str] | None:
+    """同 ``resolve_zone_for_domain``，但網域不在任何 active zone 內時回 ``None``。
+
+    Cloudflare 查詢失敗照樣 raise：查不到和不在 zone 內是兩回事。
+    """
+    clean = domain.strip().lower().rstrip(".")
     best: tuple[str, str] | None = None
-    for zone in zones:
+    for zone in _active_zones(session):
         zone_name = zone.name.strip().lower().rstrip(".")
         if clean == zone_name or clean.endswith(f".{zone_name}"):
             if best is None or len(zone_name) > len(best[1]):
                 best = (zone.id, zone_name)
     if best is None:
-        raise BadRequestError(
-            t("reverseProxy.domainZoneNotFound", domain=clean)
-        )
+        return None
 
     zone_id, zone_name = best
     prefix = "" if clean == zone_name else clean[: -(len(zone_name) + 1)]
@@ -464,13 +474,19 @@ def assert_domain_available(
 
 
 def annotate_dns_records_with_system_rules(session: object, records: list) -> None:
-    """把 Cloudflare DNS 紀錄標上「本系統建立」：對得上反向代理規則的 record id 或網域。"""
+    """把 Cloudflare DNS 紀錄標上「本系統建立」：對得上反向代理規則的 record id 或網域，
+    或是平台入口建的那筆（沒有對應的 VM）。"""
     from app.repositories import reverse_proxy as rp_repo
+    from app.services.network import platform_entry_service
 
     rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
     by_record_id = {r.cloudflare_record_id: r for r in rules if r.cloudflare_record_id}
     by_domain = {r.domain.lower(): r for r in rules}
+    platform_record_id = platform_entry_service.managed_dns_record_id(session)
     for record in records:
+        if platform_record_id and record.id == platform_record_id:
+            record.managed_by_system = True
+            continue
         rule = by_record_id.get(record.id) or by_domain.get(record.name.lower())
         if rule is None:
             continue

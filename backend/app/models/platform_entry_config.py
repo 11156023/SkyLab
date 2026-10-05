@@ -20,6 +20,9 @@ class PlatformEntryConfig(SQLModel, table=True):
     upstream_host: str = Field(default="", max_length=255)
     upstream_port: int = Field(default=8082)
     enable_https: bool = Field(default=True)
+    # SkyLab 在 Cloudflare 建的平台網域 DNS 紀錄；空字串＝DNS 由管理員自己設定
+    dns_zone_id: str = Field(default="", max_length=64)
+    dns_record_id: str = Field(default="", max_length=64)
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),

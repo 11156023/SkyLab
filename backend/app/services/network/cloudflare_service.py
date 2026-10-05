@@ -225,6 +225,84 @@ def upsert_reverse_proxy_dns_record(
     vmid: int,
 ) -> CloudflareDNSRecordPublic:
     """建立網域的反向代理 DNS 紀錄（指向預設 DNS 目標）；同名同型別的紀錄就地更新。"""
+    return _upsert_default_target_record(
+        session=session,
+        zone_id=zone_id,
+        domain=domain,
+        proxied=True,
+        comment=f"SkyLab reverse proxy vmid={vmid}",
+        reject_other_types=False,
+    )
+
+
+def upsert_platform_dns_record(
+    *,
+    session: Session,
+    zone_id: str,
+    domain: str,
+    managed_record_id: str = "",
+) -> CloudflareDNSRecordPublic:
+    """把主系統（平台入口）的網域指到預設 DNS 目標（Gateway）；同名同型別的紀錄就地更新。
+
+    不經 Cloudflare 代理（DNS only）：平台入口要讓 Gateway 看到使用者的真實
+    IP、上傳不受 Cloudflare 的大小限制、VNC／終端機長連線不被 100 秒逾時切斷，
+    HTTPS 也是 Gateway 上管理員自備的那張憑證。
+    同名但型別不同的位址紀錄（例如舊入口的 AAAA 或 CNAME）會讓一部分使用者
+    繼續連到舊位址，所以直接擋下，請管理員自己決定怎麼處理。
+    例外是 ``managed_record_id``（SkyLab 先前建的那筆）：預設 DNS 目標換了型別
+    （例如 A 改成 CNAME）時，先刪掉自己的舊紀錄再建新的。
+    """
+    return _upsert_default_target_record(
+        session=session,
+        zone_id=zone_id,
+        domain=domain,
+        proxied=False,
+        comment="SkyLab platform entry",
+        reject_other_types=True,
+        managed_record_id=managed_record_id,
+    )
+
+
+def find_dns_record(
+    *,
+    session: Session,
+    zone_id: str,
+    domain: str,
+    record_id: str,
+) -> CloudflareDNSRecordPublic | None:
+    """在網域的紀錄裡找指定 id 的那筆；被刪掉了就回 ``None``。"""
+    clean_domain = _require_text(domain, "domain").lower()
+    records = list_dns_records(
+        session=session,
+        zone_id=zone_id,
+        page=1,
+        per_page=100,
+        search=clean_domain,
+    ).items
+    return next((record for record in records if record.id == record_id), None)
+
+
+def get_default_dns_target(session: Session) -> tuple[str, str]:
+    """反向代理與平台入口共用的 DNS 目標（型別、內容）；沒設定就 raise。"""
+    config = config_repo.get_cloudflare_config(session)
+    if config is None:
+        raise BadRequestError(t("cloudflare.providerNotConfigured"))
+    return _get_default_dns_target(config)
+
+
+_ADDRESS_RECORD_TYPES = frozenset({"A", "AAAA", "CNAME"})
+
+
+def _upsert_default_target_record(
+    *,
+    session: Session,
+    zone_id: str,
+    domain: str,
+    proxied: bool,
+    comment: str,
+    reject_other_types: bool,
+    managed_record_id: str = "",
+) -> CloudflareDNSRecordPublic:
     clean_zone_id = _require_identifier(zone_id, "zone_id")
     clean_domain = _require_text(domain, "domain").lower()
     client, config = _build_client_from_session(session)
@@ -234,26 +312,48 @@ def upsert_reverse_proxy_dns_record(
         name=clean_domain,
         content=target_value,
         ttl=1,
-        proxied=True,
-        comment=f"SkyLab reverse proxy vmid={vmid}",
+        proxied=proxied,
+        comment=comment,
     )
     payload = _build_record_payload(record_payload)
 
-    existing_records = list_dns_records(
-        session=session,
-        zone_id=clean_zone_id,
-        page=1,
-        per_page=200,
-        search=clean_domain,
-        record_type=target_type,
-        proxied=None,
-    ).items
-    matched_record = next(
-        (
+    existing_records = [
+        record
+        for record in list_dns_records(
+            session=session,
+            zone_id=clean_zone_id,
+            page=1,
+            per_page=200,
+            search=clean_domain,
+            record_type=None if reject_other_types else target_type,
+            proxied=None,
+        ).items
+        if record.name.lower() == clean_domain
+    ]
+    if reject_other_types:
+        others = [
             record
             for record in existing_records
-            if record.name.lower() == clean_domain and record.type == target_type
-        ),
+            if record.type.upper() in _ADDRESS_RECORD_TYPES and record.type.upper() != target_type
+        ]
+        other = next(
+            (record for record in others if not managed_record_id or record.id != managed_record_id),
+            None,
+        )
+        if other is not None:
+            raise BadRequestError(
+                t(
+                    "cloudflare.dnsRecordTypeConflict",
+                    domain=clean_domain,
+                    record_type=other.type,
+                    target_type=target_type,
+                )
+            )
+        # 剩下的都是自己先前建的舊型別紀錄：Cloudflare 不允許 CNAME 與 A 同名並存
+        for stale in others:
+            client.delete_dns_record(zone_id=clean_zone_id, record_id=stale.id)
+    matched_record = next(
+        (record for record in existing_records if record.type == target_type),
         None,
     )
 

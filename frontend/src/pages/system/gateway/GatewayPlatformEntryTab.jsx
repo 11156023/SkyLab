@@ -45,6 +45,8 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
     if (status.upstream_reachable === false) {
       warnings.push(t("GatewayPage.platformWarnUpstream", { detail: status.upstream_detail ?? "" }));
     }
+    if (status.dns_detail) warnings.push(status.dns_detail);
+    else if (status.dns_record_ok === false) warnings.push(t("GatewayPage.platformWarnDns"));
     if (viaPlatform && config.gateway_host && status.observed_client_ip === config.gateway_host) {
       warnings.push(t("GatewayPage.platformWarnTrustedProxy", { ip: config.gateway_host }));
     } else if (viaPlatform && window.location.protocol === "https:" && status.observed_scheme !== "https") {
@@ -66,9 +68,13 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
   if (status?.upstream_reachable === true) upstreamText = t("GatewayPage.platformStatusReachable");
   else if (status?.upstream_reachable === false) upstreamText = t("GatewayPage.platformStatusUnreachable");
 
+  let dnsText = t("GatewayPage.platformStatusDnsManual");
+  if (config.dns_managed) dnsText = status?.dns_record || "—";
+
   const details = status ? [
     [t("GatewayPage.platformStatusDomain"), status.applied_domain || t("GatewayPage.platformStatusNotApplied")],
     [t("GatewayPage.platformStatusUpstream"), status.applied_upstream || "—"],
+    [t("GatewayPage.platformStatusDns"), dnsText],
     [t("GatewayPage.platformStatusCertificate"), certificateText],
     [t("GatewayPage.platformStatusUpstreamCheck"), upstreamText],
     [t("GatewayPage.platformStatusClientIp"), status.observed_client_ip || "—"],
@@ -120,10 +126,14 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
 }
 
 /* ── 啟用後還要手動完成的事 ─────────────────────────── */
-function PlatformTodoCard({ gatewayHost }) {
+function PlatformTodoCard({ gatewayHost, domain, dnsManaged }) {
   const { t } = useTranslation("system");
+  /* 網域在 Cloudflare 管理的 zone 內時，儲存就已經把 DNS 指過去了 */
+  const dnsItem = dnsManaged
+    ? ["dns", t("GatewayPage.platformTodoDnsManagedTitle"), t("GatewayPage.platformTodoDnsManaged", { domain })]
+    : ["dns", t("GatewayPage.platformTodoDnsTitle"), t("GatewayPage.platformTodoDns")];
   const items = [
-    ["dns", t("GatewayPage.platformTodoDnsTitle"), t("GatewayPage.platformTodoDns")],
+    dnsItem,
     ["verified_user", t("GatewayPage.platformTodoProxyTitle"), t("GatewayPage.platformTodoProxy", { host: gatewayHost || "<Gateway IP>" })],
     ["link", t("GatewayPage.platformTodoUrlsTitle"), t("GatewayPage.platformTodoUrls")],
     ["lan", t("GatewayPage.platformTodoFallbackTitle"), t("GatewayPage.platformTodoFallback")],
@@ -237,7 +247,9 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
     if (disabling) {
       const ok = await confirm({
         title: t("GatewayPage.platformDisableConfirmTitle"),
-        message: t("GatewayPage.platformDisableConfirmMessage", { domain: config.domain }),
+        message: config.dns_managed
+          ? `${t("GatewayPage.platformDisableConfirmMessage", { domain: config.domain })} ${t("GatewayPage.platformDisableConfirmDns")}`
+          : t("GatewayPage.platformDisableConfirmMessage", { domain: config.domain }),
         confirmText: t("GatewayPage.platformDisableConfirmButton"),
         danger: true,
       });
@@ -407,7 +419,7 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
         onRefresh={refreshStatus}
       />
 
-      <PlatformTodoCard gatewayHost={config.gateway_host} />
+      <PlatformTodoCard gatewayHost={config.gateway_host} domain={config.domain} dnsManaged={config.dns_managed} />
     </div>
   );
 }

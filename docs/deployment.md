@@ -124,7 +124,7 @@ SkyLab **does not issue certificates** (no certbot, no ACME). The administrator 
 
 | Item | What to do |
 |---|---|
-| DNS | Point the platform domain at the gateway's public IP. SkyLab never changes this record itself, to avoid redirecting an entry point that is still in use. |
+| DNS | If the domain is in a zone managed in Cloudflare and domain management has an API token and a default DNS target, saving the platform entry points the domain at the default DNS target once nginx is applied (not proxied through Cloudflare, so the real client IP is visible and uploads and long-lived connections are not subject to Cloudflare's limits); changing the domain or disabling the entry deletes that record. An address record of a different type with the same name (for example an AAAA record for the old entry point) blocks the save, so deal with it in Cloudflare first. Otherwise, point the platform domain at the gateway's public IP yourself. |
 | Trust the gateway | Set `SKYLAB_TRUSTED_PROXY=<source IP or CIDR the gateway connects from>` in the deployment host's `.env`, then `docker compose up -d nginx`. Without it every request appears to come from the gateway: IP-based rate limiting and audit logs are wrong, and the Grafana single-sign-on cookie is not marked `Secure`. |
 | URL-related settings | Change `FRONTEND_HOST` in `.env` to the new https URL; update the authorised origins of Google login and the domain list of Turnstile. |
 

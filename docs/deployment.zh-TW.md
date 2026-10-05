@@ -124,7 +124,7 @@ SkyLab **不簽發憑證**（不跑 certbot、不做 ACME）。管理員自己�
 
 | 項目 | 做法 |
 |---|---|
-| DNS | 把主系統網域指到 Gateway 的對外 IP。SkyLab 不會自動改這筆紀錄，避免把還在用的入口指走。 |
+| DNS | 網域在 Cloudflare 管理的 zone 內、且「網域管理」已設定 API Token 與預設 DNS 目標時，儲存平台入口就會在 nginx 套用後把網域指到預設 DNS 目標（不經 Cloudflare 代理，才看得到使用者的真實 IP、上傳與長連線也不受 Cloudflare 限制）；換網域或停用時刪掉這筆紀錄。同名但型別不同的位址紀錄（例如舊入口的 AAAA）會擋下儲存，請先到 Cloudflare 處理。其他情況請自己把主系統網域指到 Gateway 的對外 IP。 |
 | 信任 Gateway | 部署機 `.env` 設 `SKYLAB_TRUSTED_PROXY=<Gateway 連進來的來源 IP 或 CIDR>`，再 `docker compose up -d nginx`。沒設的話後端看到的來源 IP 全是 Gateway，依 IP 的限流與稽核日誌都會失準，Grafana 免密碼登入的 cookie 也不會帶 `Secure`。 |
 | 網址相關設定 | `.env` 的 `FRONTEND_HOST` 改成新的 https 網址；Google 登入的授權來源、Turnstile 的網域清單一併更新。 |
 
