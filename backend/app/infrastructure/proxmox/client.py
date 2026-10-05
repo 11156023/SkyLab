@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 PROXMOX_TICKET_TTL = 7000
 PROXMOX_FAILURE_CACHE_TTL = 15.0
 NODE_CONNECTION_MAP_TTL = 60.0
+# 等待 PVE 任務時，輪詢狀態連續連不到 API 多久才放棄（任務本身不受影響）
+TASK_STATUS_OUTAGE_TOLERANCE_SECONDS = 300.0
 
 # 連線池的 key：connection_id；None 代表「預設連線」（含舊版單連線相容）。
 _ClientKey = int | None
@@ -330,13 +332,42 @@ def basic_blocking_task_status(
         time.monotonic() + timeout_seconds if timeout_seconds is not None else None
     )
 
+    outage_started: float | None = None
+
     while True:
         if deadline is not None and time.monotonic() > deadline:
             raise TimeoutError(
                 f"PVE task {task_id} on {node_name} did not finish within "
                 f"{timeout_seconds:.0f}s"
             )
-        data = proxmox.nodes(node_name).tasks(task_id).status.get()
+        try:
+            data = proxmox.nodes(node_name).tasks(task_id).status.get()
+        except OSError as exc:
+            # 只是問進度時連不到 API（requests 的 timeout／連線錯誤都是 OSError；
+            # PVE 回的 HTTP 錯誤是 ResourceException，不在此列）：任務在 PVE 端
+            # 照跑，不能當成任務失敗。連續斷線超過容忍時間才放棄。
+            now = time.monotonic()
+            if outage_started is None:
+                outage_started = now
+            unreachable_for = now - outage_started
+            if unreachable_for >= TASK_STATUS_OUTAGE_TOLERANCE_SECONDS:
+                error_msg = (
+                    f"Lost contact with PVE for {unreachable_for:.0f}s while "
+                    f"waiting for task {task_id} on {node_name}; the task may "
+                    f"still be running on PVE: {exc}"
+                )
+                logger.error(error_msg)
+                raise ProxmoxError(error_msg) from exc
+            logger.warning(
+                "Polling task %s on %s failed (%s); retrying, unreachable for %.0fs",
+                task_id,
+                node_name,
+                exc,
+                unreachable_for,
+            )
+            time.sleep(check_interval)
+            continue
+        outage_started = None
 
         status = data.get("status", "")
         exitstatus = data.get("exitstatus")
