@@ -1,7 +1,7 @@
 """Add the AI API active-credential invariant.
 
 Revision ID: aiapi01_control_guards
-Revises: bkup01_machine_backup
+Revises: norm3nf01_normalize_schema
 Create Date: 2026-10-05
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "aiapi01_control_guards"
-down_revision = "bkup01_machine_backup"
+down_revision = "norm3nf01_normalize_schema"
 branch_labels = None
 depends_on = None
 
