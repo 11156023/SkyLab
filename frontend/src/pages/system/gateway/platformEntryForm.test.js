@@ -18,13 +18,14 @@ const saved = {
 };
 
 describe("平台入口表單", () => {
-  test("沒有設定時帶入預設值：未啟用、8082、開 HTTPS", () => {
+  test("沒有設定時帶入預設值：未啟用、8082、開 HTTPS、DNS only", () => {
     expect(toPlatformForm(null)).toEqual({
       enabled: false,
       domain: "",
       upstream_host: "",
       upstream_port: "8082",
       enable_https: true,
+      dns_proxied: false,
     });
   });
 
@@ -66,6 +67,7 @@ describe("平台入口表單", () => {
         upstream_host: " Deploy-Host ",
         upstream_port: "8082",
         enable_https: false,
+        dns_proxied: true,
       }),
     ).toEqual({
       enabled: true,
@@ -73,6 +75,7 @@ describe("平台入口表單", () => {
       upstream_host: "deploy-host",
       upstream_port: 8082,
       enable_https: false,
+      dns_proxied: true,
     });
   });
 
@@ -82,6 +85,10 @@ describe("平台入口表單", () => {
     expect(isPlatformFormDirty({ ...form, domain: " SKYLAB.example.com " }, saved)).toBe(false);
     expect(isPlatformFormDirty({ ...form, upstream_port: "8083" }, saved)).toBe(true);
     expect(isPlatformFormDirty({ ...form, enabled: false }, saved)).toBe(true);
+    // 只切橘色雲也要能儲存
+    expect(isPlatformFormDirty({ ...form, dns_proxied: true }, saved)).toBe(true);
+    expect(isPlatformFormDirty(toPlatformForm({ ...saved, dns_proxied: true }), { ...saved, dns_proxied: true }))
+      .toBe(false);
   });
 
   test("上游沒填好就沒有測試目標", () => {

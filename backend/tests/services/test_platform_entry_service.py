@@ -221,6 +221,7 @@ def test_save_probes_upstream_then_persists_and_syncs(harness: _Harness) -> None
             "upstream_host": "192.168.100.20",
             "upstream_port": 8082,
             "enable_https": False,
+            "dns_proxied": False,
         }
     ]
     assert harness.syncs == 1
@@ -515,12 +516,27 @@ def test_save_points_dns_to_gateway_after_nginx_is_ready(harness: _Harness, dns:
             "session": session,
             "zone_id": _ZONE,
             "domain": "skylab.example.com",
+            "proxied": False,
             "managed_record_id": "",
         }
     ]
     assert dns.tracked == [(_ZONE, "rec-new")]
     assert dns.deleted == []
     assert result.dns_managed is True
+    assert result.dns_proxied is False
+
+
+def test_save_with_cloudflare_proxy_creates_proxied_record(harness: _Harness, dns: _Dns) -> None:
+    session = _Session()
+
+    result = platform_entry_service.save_config(session, _update(dns_proxied=True))
+
+    assert harness.upserts[0]["dns_proxied"] is True
+    assert dns.upserts[0]["proxied"] is True
+    assert result.dns_proxied is True
+    # Gateway 的 nginx 要跟著改從 CF-Connecting-IP 取使用者 IP
+    entry = platform_entry_service.load_entry(session)
+    assert entry is not None and entry.cloudflare_proxy is True
 
 
 def test_save_leaves_dns_to_admin_when_domain_is_outside_cloudflare(
@@ -637,7 +653,8 @@ def test_status_reports_managed_dns_record(harness: _Harness, dns: _Dns) -> None
     assert status.dns_record == "A 203.0.113.5"
     assert status.dns_record_ok is True
 
-    # 被人改成經 Cloudflare 代理：真實來源 IP 與長連線都會壞掉
+    # 設定是 DNS only 卻被人改成經 Cloudflare 代理：Gateway 沒信任 Cloudflare，
+    # 主系統看到的來源 IP 全是 Cloudflare 的位址
     dns.found = _record("rec-1", proxied=True)
     assert platform_entry_service.get_status(session).dns_record_ok is False
 
@@ -645,6 +662,36 @@ def test_status_reports_managed_dns_record(harness: _Harness, dns: _Dns) -> None
     status = platform_entry_service.get_status(session)
     assert status.dns_record_ok is False
     assert status.dns_detail
+
+
+def test_status_flags_proxied_record_switched_back_to_dns_only(
+    harness: _Harness, dns: _Dns
+) -> None:
+    session = _Session(_config(dns_zone_id=_ZONE, dns_record_id="rec-1", dns_proxied=True))
+
+    dns.found = _record("rec-1", proxied=True)
+    assert platform_entry_service.get_status(session).dns_record_ok is True
+
+    dns.found = _record("rec-1", proxied=False)
+    assert platform_entry_service.get_status(session).dns_record_ok is False
+
+
+def test_status_flags_cloudflare_proxy_not_yet_applied_on_gateway(harness: _Harness) -> None:
+    """改成經 Cloudflare 代理但 Gateway 上還沒有 realip 設定：還沒套用。"""
+    harness.http_conf = nginx.build_http_config(
+        [], None, platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.20", 8082, False)
+    )
+    session = _Session(_config(dns_proxied=True))
+    assert platform_entry_service.get_status(session).applied is False
+
+    harness.http_conf = nginx.build_http_config(
+        [],
+        None,
+        platform=nginx.PlatformEntry(
+            "skylab.example.com", "192.168.100.20", 8082, False, cloudflare_proxy=True
+        ),
+    )
+    assert platform_entry_service.get_status(session).applied is True
 
 
 def test_status_without_managed_dns_has_no_dns_fields(harness: _Harness, dns: _Dns) -> None:
@@ -712,12 +759,26 @@ def test_platform_dns_record_is_dns_only(cf_client: Any) -> None:
         session=object(),  # type: ignore[arg-type]
         zone_id=_ZONE,
         domain="SkyLab.example.com",
+        proxied=False,
     )
 
     assert record.id == "rec-created"
     assert client.created[0]["proxied"] is False
     assert client.created[0]["name"] == "skylab.example.com"
     assert client.created[0]["content"] == "203.0.113.5"
+
+
+def test_platform_dns_record_can_be_proxied(cf_client: Any) -> None:
+    client, _existing = cf_client
+
+    cloudflare_service.upsert_platform_dns_record(
+        session=object(),  # type: ignore[arg-type]
+        zone_id=_ZONE,
+        domain="skylab.example.com",
+        proxied=True,
+    )
+
+    assert client.created[0]["proxied"] is True
 
 
 def test_platform_dns_record_updates_existing_same_type_record(cf_client: Any) -> None:
@@ -728,6 +789,7 @@ def test_platform_dns_record_updates_existing_same_type_record(cf_client: Any) -
         session=object(),  # type: ignore[arg-type]
         zone_id=_ZONE,
         domain="skylab.example.com",
+        proxied=False,
     )
 
     assert client.created == []
@@ -744,6 +806,7 @@ def test_platform_dns_record_refuses_foreign_record_of_other_type(cf_client: Any
             session=object(),  # type: ignore[arg-type]
             zone_id=_ZONE,
             domain="skylab.example.com",
+            proxied=False,
         )
     assert client.created == []
     assert client.updated == []
@@ -759,6 +822,7 @@ def test_platform_dns_record_replaces_own_record_of_other_type(cf_client: Any) -
         session=object(),  # type: ignore[arg-type]
         zone_id=_ZONE,
         domain="skylab.example.com",
+        proxied=False,
         managed_record_id="rec-1",
     )
 

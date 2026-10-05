@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./DomainPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -11,12 +10,8 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
-import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
-import { ReverseProxyPanel } from "../../network/reverse-proxy/ReverseProxyPage";
 import { formatDateTime, formatShortDateTime } from "../../../utils/formatDate";
-
-const TAB_KEYS = ["dns", "reverse-proxy"];
 
 /* SRV 需要結構化 data（service/proto/weight/port/target），表單與後端都沒有，所以不提供 */
 export const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS"];
@@ -306,17 +301,6 @@ export default function DomainPage() {
   const [modal, setModal] = useState(null); // { kind: "config" } | { kind: "record", record? }
   const modalPresence = useDialogPresence(modal);
 
-  // 分頁狀態放在網址 ?tab=，讓 /domain?tab=reverse-proxy 這類連結（舊反向代理頁）能直接開到指定分頁
-  const [searchParams, setSearchParams] = useSearchParams();
-  const requestedTab = searchParams.get("tab");
-  const activeTab = TAB_KEYS.includes(requestedTab) ? requestedTab : TAB_KEYS[0];
-  const selectTab = (key) => {
-    const next = new URLSearchParams(searchParams);
-    if (key === TAB_KEYS[0]) next.delete("tab");
-    else next.set("tab", key);
-    setSearchParams(next, { replace: true });
-  };
-
   const fetchConfig = useCallback(async () => {
     try {
       setConfig(await CloudflareService.getConfig());
@@ -481,10 +465,8 @@ export default function DomainPage() {
         </div>
       </PageHeader>
 
-      <div className={styles.tabsRow}>
-        {/* 連線狀態顯示在分頁列右側，但 DOM 排在分頁前面（order 移到右邊）：
-            導覽第 2 步的選擇器取第一個符合的元素，才會先框狀態、設定未載入時再退回分頁 */}
-        {config && (
+      {config && (
+        <div className={styles.statusRow}>
           <div className={styles.connStatus} title={statusTitle || undefined} data-guide="domain-status">
             <span className={`${styles.badge} ${isConfigured ? styles.badge_success : styles.badge_danger}`}>
               <MIcon name={isConfigured ? "check_circle" : "error"} size={13} />
@@ -492,26 +474,10 @@ export default function DomainPage() {
             </span>
             {statusMeta && <span className={styles.connMeta}>{statusMeta}</span>}
           </div>
-        )}
-        {/* 外層 div 承接頁面導覽的 data-guide 錨點（SegmentedControl 根節點不收額外屬性） */}
-        <div className={styles.tabs} data-guide="domain-tabs">
-          <SegmentedControl
-            ariaLabel={t("DomainPage.tabsAriaLabel")}
-            value={activeTab}
-            onChange={selectTab}
-            options={[
-              { value: "dns", label: t("DomainPage.tabDns"), icon: "dns" },
-              { value: "reverse-proxy", label: t("DomainPage.tabReverseProxy"), icon: "swap_horiz" },
-            ]}
-          />
         </div>
-      </div>
+      )}
 
-      {activeTab === "reverse-proxy" ? (
-        <div className={styles.tabBody}>
-          <ReverseProxyPanel />
-        </div>
-      ) : !isConfigured && !loadingZones ? (
+      {!isConfigured && !loadingZones ? (
         <EmptyState
           icon="domain"
           title={t("DomainPage.emptyNotConnected")}
