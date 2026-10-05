@@ -5,4 +5,7 @@ members = ["backend"]
 # arq 0.28 仍釘 redis<6（上游 main 也還沒放寬），但它只用 redis.asyncio 的基本
 # 連線池／pipeline API，實測 redis-py 8 可用；override 只在 workspace root 生效，
 # 所以放這裡而不是 backend/pyproject.toml。升 arq 時若它已放寬上限，這段可以拿掉。
+# 注意：Docker 映像只在建置階段 bind-mount 這份檔案與 uv.lock，執行期容器裡沒有它，
+# 所以容器內的腳本（prestart.sh 等）不可再用 `uv run`，否則會只拿 backend/pyproject.toml
+# 重解依賴而少了這條 override、直接無解失敗；要直接呼叫 /app/.venv 裡的執行檔。
 override-dependencies = ["redis[hiredis]>=8.1.0"]
