@@ -120,12 +120,13 @@ def test_build_http_config_http_only_rule_proxies_on_80() -> None:
 # ─── 平台入口 ────────────────────────────────────────────────────────────────
 
 
-def _platform(enable_https: bool = True) -> nginx.PlatformEntry:
+def _platform(enable_https: bool = True, cloudflare_proxy: bool = False) -> nginx.PlatformEntry:
     return nginx.PlatformEntry(
         domain="skylab.example.com",
         upstream_host="192.168.100.20",
         upstream_port=8082,
         enable_https=enable_https,
+        cloudflare_proxy=cloudflare_proxy,
     )
 
 
@@ -150,7 +151,27 @@ def test_build_http_config_platform_https_block() -> None:
     # 主系統 nginx 要拿這個標頭還原使用者 IP，所以不沿用客戶端自帶的值
     assert "        proxy_set_header X-Forwarded-For $remote_addr;" in out
     assert "$proxy_add_x_forwarded_for" not in out.split(nginx.PLATFORM_END_MARKER)[0]
+    # 沒經 Cloudflare 代理就不採信 CF-Connecting-IP
+    assert "real_ip_header" not in out
     assert out.count("{") == out.count("}")
+
+
+def test_build_http_config_platform_behind_cloudflare_restores_client_ip() -> None:
+    out = nginx.build_http_config([], _CERT, platform=_platform(cloudflare_proxy=True))
+    section = out.split(nginx.PLATFORM_END_MARKER)[0]
+
+    # 80（轉址）與 443 兩個 server 都要換回使用者 IP，只採信 Cloudflare 的網段
+    assert section.count("    real_ip_header CF-Connecting-IP;") == 2
+    for cidr in nginx.CLOUDFLARE_IP_RANGES:
+        assert section.count(f"    set_real_ip_from {cidr};") == 2
+    assert "set_real_ip_from 0.0.0.0/0" not in section
+    # realip 改的是 $remote_addr，送給主系統的仍是這一個值
+    assert "        proxy_set_header X-Forwarded-For $remote_addr;" in section
+    assert out.count("{") == out.count("}")
+
+    parsed = nginx.parse_platform_entry(out)
+    assert parsed is not None
+    assert parsed["cloudflare_proxy"] is True
 
 
 def test_build_http_config_platform_http_only_proxies_on_80() -> None:
@@ -183,6 +204,7 @@ def test_parse_platform_entry_round_trips_and_leaves_vm_rules_alone() -> None:
         "certificate": "/etc/ssl/skylab/fullchain.pem",
         "certificate_key": "/etc/ssl/skylab/privkey.pem",
         "fallback": False,
+        "cloudflare_proxy": False,
     }
     # 平台入口不是 VM 規則，不能混進網域管理頁的執行期快照
     assert [item["name"] for item in nginx.parse_http_servers(out)] == ["cc-150-web-example-com"]

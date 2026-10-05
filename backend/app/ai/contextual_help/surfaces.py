@@ -1172,6 +1172,17 @@ _GATEWAY_ELEMENTS: tuple[ElementSpec, ...] = (
             "讓 SkyLab 主系統自己也經 Gateway 的 nginx，以網域和 HTTPS 對外。"
             "填主系統網域與 Gateway 連得到的部署機位址；儲存時會先從 Gateway 測試連線，連不到就不套用。"
             "開 HTTPS 前要先在「HTTPS 憑證」分頁設定好涵蓋這個網域的憑證。"
+            "網域在 Cloudflare 管理的 zone 內時，儲存後會自動把 DNS 指到 Gateway。"
+        ),
+    ),
+    ElementSpec(
+        id="gateway.platform_entry_proxied", role="toggle", label="經由 Cloudflare Proxy（橘色雲）",
+        section="平台入口",
+        help=(
+            "勾選後 SkyLab 建的 DNS 紀錄會設成橘色雲，使用者先連到 Cloudflare 再轉到 Gateway，"
+            "Gateway 的 IP 不會公開，並改從 CF-Connecting-IP 取得使用者 IP。"
+            "Gateway 開 HTTPS 時，Cloudflare 的 SSL/TLS 模式要設成「完整（嚴格）」；免費方案單次上傳上限 100 MB。"
+            "不勾就是 DNS only（灰色雲）。"
         ),
     ),
     ElementSpec(

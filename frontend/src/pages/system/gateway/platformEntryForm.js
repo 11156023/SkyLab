@@ -25,6 +25,7 @@ export function toPlatformForm(config) {
     upstream_host: config?.upstream_host ?? "",
     upstream_port: String(config?.upstream_port ?? DEFAULT_UPSTREAM_PORT),
     enable_https: config?.enable_https ?? true,
+    dns_proxied: Boolean(config?.dns_proxied),
   };
 }
 
@@ -65,6 +66,7 @@ export function toPlatformPayload(form) {
     upstream_host: cleanHost(form.upstream_host),
     upstream_port: parsePort(form.upstream_port) ?? DEFAULT_UPSTREAM_PORT,
     enable_https: Boolean(form.enable_https),
+    dns_proxied: Boolean(form.dns_proxied),
   };
 }
 
