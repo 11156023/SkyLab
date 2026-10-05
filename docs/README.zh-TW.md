@@ -33,6 +33,7 @@
 | [`multi-machine-environment-sop.zh-TW.md`](multi-machine-environment-sop.zh-TW.md) | 多機教學環境建構、發布與學生使用的正式 SOP（v1.0，2026-08-31）：角色、資料模型、端到端流程 |
 | [`ai-navigation-teaching-workflows.zh-TW.md`](ai-navigation-teaching-workflows.zh-TW.md) | 建立班級與環境編輯精靈中的導覽 AI 設計筆記 |
 | [`frontend-style-guide.zh-TW.md`](frontend-style-guide.zh-TW.md) | 前端樣式規範：SCSS 架構、設計 token、元件、表單、表格、深色模式 |
+| [`database-design.zh-TW.md`](database-design.zh-TW.md) | 資料庫正規化（1NF–3NF）、刻意保留的冗餘與一致性控管、schema 變更檢查清單 |
 
 ## 歷史報告
 

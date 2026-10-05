@@ -9,12 +9,13 @@ import uuid
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.schemas import TeacherJudgeSessionAttachmentPublic
 from app.models.teacher_judge_attachment import (
     TeacherJudgeAttachmentStatus,
+    TeacherJudgeMessageAttachment,
     TeacherJudgeSessionAttachment,
 )
 from app.services.rubric_parser import parse_document
@@ -46,11 +47,12 @@ def storage_path(attachment: TeacherJudgeSessionAttachment) -> Path:
 
 def attachment_public(
     attachment: TeacherJudgeSessionAttachment,
+    message_id: uuid.UUID | None = None,
 ) -> TeacherJudgeSessionAttachmentPublic:
     return TeacherJudgeSessionAttachmentPublic(
         id=str(attachment.id),
         session_id=str(attachment.session_id),
-        message_id=str(attachment.message_id) if attachment.message_id else None,
+        message_id=str(message_id) if message_id else None,
         original_filename=attachment.original_filename,
         media_type=attachment.media_type,
         size_bytes=attachment.size_bytes,
@@ -59,6 +61,34 @@ def attachment_public(
         error_message=attachment.error_message,
         created_at=attachment.created_at.isoformat(),
     )
+
+
+def _sent_attachment_ids(
+    db: Session, attachment_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Return the subset of ``attachment_ids`` already bound to a message."""
+    if not attachment_ids:
+        return set()
+    return set(
+        db.exec(
+            select(TeacherJudgeMessageAttachment.attachment_id).where(
+                col(TeacherJudgeMessageAttachment.attachment_id).in_(attachment_ids)
+            )
+        ).all()
+    )
+
+
+def bind_attachments_to_message(
+    db: Session,
+    attachments: list[TeacherJudgeSessionAttachment],
+    message_id: uuid.UUID,
+) -> None:
+    for attachment in attachments:
+        db.add(
+            TeacherJudgeMessageAttachment(
+                attachment_id=attachment.id, message_id=message_id
+            )
+        )
 
 
 def get_pending_attachments(
@@ -81,7 +111,7 @@ def get_pending_attachments(
     by_id = {row.id: row for row in rows}
     if len(rows) != len(attachment_ids):
         raise HTTPException(status_code=400, detail="附件不存在或不屬於目前檢查。")
-    if any(row.message_id is not None for row in rows):
+    if _sent_attachment_ids(db, attachment_ids):
         raise HTTPException(status_code=409, detail="附件已經附加到其他訊息。")
     if any(row.status != TeacherJudgeAttachmentStatus.ready for row in rows):
         raise HTTPException(status_code=409, detail="附件尚未完成解析。")
@@ -147,7 +177,7 @@ def create_attachment(
 
 
 def delete_attachment(db: Session, attachment: TeacherJudgeSessionAttachment) -> None:
-    if attachment.message_id is not None:
+    if _sent_attachment_ids(db, [attachment.id]):
         raise HTTPException(status_code=409, detail="已送出的訊息附件不可移除。")
     target = storage_path(attachment)
     db.delete(attachment)
@@ -194,6 +224,7 @@ __all__ = [
     "attachment_compact_context",
     "attachment_context",
     "attachment_public",
+    "bind_attachments_to_message",
     "create_attachment",
     "delete_attachment",
     "get_pending_attachments",

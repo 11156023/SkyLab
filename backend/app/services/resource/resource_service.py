@@ -29,7 +29,6 @@ from app.models import (
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStatus,
-    TeachingClassStudentMachine,
     User,
     VMTemplate,
     VMTemplateStatus,
@@ -1586,9 +1585,6 @@ def _cleanup_after_resource_removed(
     # 作廢失敗只回滾它自己的 savepoint，不會丟掉已 flush 的其他收尾。
     _cancel_open_spec_change_requests(session=session, vmid=vmid, marker=marker)
 
-    if teaching_class_id is not None:
-        _mark_class_machine_reclaimed(session=session, vmid=vmid)
-
     # Remove the resource record; audit_logs.resource_vmid is ON DELETE SET NULL,
     # so audit history is kept (just unlinked)
     resource_repo.delete_resource(session=session, vmid=vmid)
@@ -1618,20 +1614,6 @@ def _mark_class_reclaimed_if_empty(
     session.add(teaching_class)
     session.commit()
 
-
-def _mark_class_machine_reclaimed(*, session: Session, vmid: int) -> None:
-    mappings = session.exec(
-        select(TeachingClassStudentMachine).where(
-            TeachingClassStudentMachine.vmid == vmid
-        )
-    ).all()
-    for mapping in mappings:
-        mapping.vmid = None
-        mapping.status = "reclaimed"
-        mapping.error = None
-        session.add(mapping)
-    if mappings:
-        session.flush()
 
 
 def get_current_stats(*, vmid: int, resource_info: dict) -> dict:

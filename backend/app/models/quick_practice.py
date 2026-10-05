@@ -59,12 +59,14 @@ class QuickPracticeSession(SQLModel, table=True):
 
 
 class QuickPracticeSessionMachine(SQLModel, table=True):
+    """One machine of a session; name/role/type/order come from the source node.
+
+    The node is (session.environment_version_id, node_key) in
+    ``course_environment_nodes``; published versions are immutable.
+    """
+
     __tablename__ = "quick_practice_session_machines"
     __table_args__ = (
-        sa.CheckConstraint(
-            "resource_type IN ('qemu', 'lxc')",
-            name="ck_quick_practice_session_machines_resource_type",
-        ),
         UniqueConstraint(
             "session_id",
             "node_key",
@@ -91,10 +93,6 @@ class QuickPracticeSessionMachine(SQLModel, table=True):
         )
     )
     node_key: str = Field(max_length=80)
-    name: str = Field(max_length=255)
-    role: str = Field(max_length=120)
-    resource_type: str = Field(max_length=10)
-    sort_order: int = Field(default=0)
 
 
 __all__ = ["QuickPracticeSession", "QuickPracticeSessionMachine"]

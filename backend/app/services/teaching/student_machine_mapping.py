@@ -21,13 +21,11 @@ def upsert_student_machine_mapping(
     enrollment_id: uuid.UUID,
     node_id: uuid.UUID,
     task_id: uuid.UUID,
-    vmid: int | None,
-    status: str,
-    error: str | None = None,
 ) -> TeachingClassStudentMachine:
     """寫入（或建立）學生在某個機器節點上的對應；只 ``session.add``。
 
-    不 flush、不 commit —— 交易邊界由呼叫端決定。狀態字串也由呼叫端推導。
+    不 flush、不 commit —— 交易邊界由呼叫端決定。機器的 vmid／狀態／錯誤
+    屬於 batch task（對應列只記是哪個 task），呼叫端更新 task 即可。
     """
     mapping = session.exec(
         select(TeachingClassStudentMachine).where(
@@ -41,9 +39,6 @@ def upsert_student_machine_mapping(
             machine_node_id=node_id,
         )
     mapping.batch_task_id = task_id
-    mapping.vmid = vmid
-    mapping.status = status
-    mapping.error = error
     session.add(mapping)
     return mapping
 

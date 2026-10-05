@@ -161,7 +161,6 @@ def test_delete_session_data_removes_owned_records_and_private_file() -> None:
     db.add_all(
         [
             TeacherJudgeScriptRun(
-                teaching_class_id=class_id,
                 artifact_id=artifact.id,
             ),
             TeacherJudgeSessionMessage(

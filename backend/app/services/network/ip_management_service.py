@@ -19,8 +19,13 @@ from app.exceptions import BadRequestError, ConflictError
 from app.models import Resource
 from app.models.base import get_datetime_utc
 from app.models.ip_allocation import IpAllocation
-from app.models.subnet_config import SubnetConfig
+from app.models.subnet_config import (
+    SubnetBlockedSubnet,
+    SubnetConfig,
+    SubnetDnsServer,
+)
 from app.repositories import resource as resource_repo
+from app.schemas.ip_management import join_dns_servers, split_dns_servers
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +39,44 @@ def get_subnet_config(session: Session) -> SubnetConfig | None:
 
 
 def get_extra_blocked_subnets(config: SubnetConfig | None) -> list[str]:
-    """解析 extra_blocked_subnets 欄位為 list[str]（已過濾與去重）。"""
-    if config is None or not config.extra_blocked_subnets:
+    """管理員設定的額外封鎖網段（subnet_blocked_subnets，依 position 排序）。"""
+    if config is None:
         return []
-    raw = config.extra_blocked_subnets.replace("\n", ",")
-    items = [s.strip() for s in raw.split(",")]
-    seen: set[str] = set()
-    out: list[str] = []
-    for s in items:
-        if s and s not in seen:
-            seen.add(s)
-            out.append(s)
-    return out
+    return config.blocked_subnet_list
+
+
+def get_dns_servers(config: SubnetConfig | None) -> str | None:
+    """DNS 伺服器組成逗號分隔字串（API 與 PVE nameserver 用）；沒設定回 None。"""
+    if config is None:
+        return None
+    return join_dns_servers(config.dns_server_list)
+
+
+def _replace_list_rows(
+    session: Session,
+    config: SubnetConfig,
+    *,
+    dns_servers: list[str],
+    blocked_subnets: list[str] | None,
+) -> None:
+    """整批換掉子網設定的 DNS／封鎖網段子表。
+
+    先清空並 flush 讓舊列真的刪掉，再插入新列，避免同一個
+    (subnet_config_id, position) 主鍵在同一次 flush 裡先插後刪而撞鍵。
+    """
+    config.dns_server_rows.clear()
+    if blocked_subnets is not None:
+        config.blocked_subnet_rows.clear()
+    session.flush()
+    config.dns_server_rows.extend(
+        SubnetDnsServer(subnet_config_id=config.id, position=index, address=address)
+        for index, address in enumerate(dns_servers)
+    )
+    if blocked_subnets is not None:
+        config.blocked_subnet_rows.extend(
+            SubnetBlockedSubnet(subnet_config_id=config.id, position=index, cidr=cidr)
+            for index, cidr in enumerate(dict.fromkeys(blocked_subnets))
+        )
 
 
 def blocked_subnet_overlapping(
@@ -148,11 +179,6 @@ def upsert_subnet_config(
         existing.bridge_name = bridge_name
         existing.vlan_tag = vlan_tag
         existing.gateway_vm_ip = gateway_vm_ip
-        existing.dns_servers = dns_servers
-        if extra_blocked_subnets is not None:
-            existing.extra_blocked_subnets = (
-                ",".join(extra_blocked_subnets) if extra_blocked_subnets else None
-            )
         if forward_port_start is not None:
             existing.forward_port_start = forward_port_start
         if forward_port_end is not None:
@@ -169,18 +195,24 @@ def upsert_subnet_config(
             bridge_name=bridge_name,
             vlan_tag=vlan_tag,
             gateway_vm_ip=gateway_vm_ip,
-            dns_servers=dns_servers,
-            extra_blocked_subnets=(
-                ",".join(extra_blocked_subnets)
-                if extra_blocked_subnets
-                else None
-            ),
             forward_port_start=forward_port_start or 30000,
             forward_port_end=forward_port_end or 39999,
             forward_public_host=forward_public_host,
         )
         session.add(config)
 
+    session.flush()
+    _replace_list_rows(
+        session,
+        config,
+        dns_servers=split_dns_servers(dns_servers),
+        # 新建時沒給清單就是空的；更新時 None 代表沿用原本的封鎖網段
+        blocked_subnets=(
+            extra_blocked_subnets or []
+            if existing is None
+            else extra_blocked_subnets
+        ),
+    )
     session.flush()
 
     # 清除舊的系統 IP 保留並重新建立
@@ -609,6 +641,7 @@ def get_network_config_for_vm(session: Session) -> dict:
         "gateway": config.gateway,
         "gateway_vm_ip": config.gateway_vm_ip,
     }
-    if config.dns_servers:
-        result["dns_servers"] = config.dns_servers
+    dns_servers = get_dns_servers(config)
+    if dns_servers:
+        result["dns_servers"] = dns_servers
     return result

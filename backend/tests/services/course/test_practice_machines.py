@@ -14,6 +14,7 @@ from app.models.teaching_class import (
     TeachingClassStudent,
     TeachingClassStudentMachine,
 )
+from tests.utils.class_machines import add_student_machine
 
 
 def _session() -> Session:
@@ -77,21 +78,11 @@ def test_student_gets_every_assigned_course_machine_in_role_order(monkeypatch) -
     session.add(main_node)
     session.add(database_node)
     session.commit()
-    session.add(
-        TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=main_node.id,
-            vmid=218,
-            status="completed",
-        )
+    add_student_machine(
+        session, enrollment=enrollment, node=main_node, vmid=218, status="completed"
     )
-    session.add(
-        TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=database_node.id,
-            vmid=None,
-            status="pending",
-        )
+    add_student_machine(
+        session, enrollment=enrollment, node=database_node, vmid=None, status="pending"
     )
     session.commit()
     monkeypatch.setattr(

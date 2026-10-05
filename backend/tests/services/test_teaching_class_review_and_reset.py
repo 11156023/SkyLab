@@ -14,7 +14,10 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.api.routes import batch_provision as batch_provision_route
 from app.exceptions import BadRequestError
 from app.models import (
+    BatchProvisionJob,
     BatchProvisionJobStatus,
+    BatchProvisionTask,
+    Resource,
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStatus,
@@ -23,6 +26,7 @@ from app.models import (
 )
 from app.models.base import get_datetime_utc
 from app.services.teaching import class_provision_service
+from tests.utils.class_machines import add_student_machine
 
 
 @pytest.fixture
@@ -35,6 +39,9 @@ def db():
             TeachingClassMachineNode.__table__,  # type: ignore[arg-type]
             TeachingClassStudent.__table__,  # type: ignore[arg-type]
             TeachingClassStudentMachine.__table__,  # type: ignore[arg-type]
+            BatchProvisionJob.__table__,  # type: ignore[arg-type]
+            BatchProvisionTask.__table__,  # type: ignore[arg-type]
+            Resource.__table__,  # type: ignore[arg-type]
         ],
     )
     with Session(engine) as session:
@@ -237,13 +244,7 @@ def test_reset_failed_class_shares_the_planning_revert(db: Session, released) ->
     enrollment = TeachingClassStudent(class_id=item.id, user_id=uuid.uuid4())
     db.add(enrollment)
     db.commit()
-    db.add(
-        TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=node.id,
-            status="failed",
-        )
-    )
+    add_student_machine(db, enrollment=enrollment, node=node, status="failed")
     db.commit()
 
     class_provision_service.reset_failed_class(db, item=item)
@@ -270,13 +271,8 @@ def test_reset_failed_class_refuses_when_a_machine_was_built(
     enrollment = TeachingClassStudent(class_id=item.id, user_id=uuid.uuid4())
     db.add(enrollment)
     db.commit()
-    db.add(
-        TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=node.id,
-            vmid=4300,
-            status="completed",
-        )
+    add_student_machine(
+        db, enrollment=enrollment, node=node, vmid=4300, status="completed"
     )
     db.commit()
 

@@ -43,7 +43,10 @@ from app.ai.teacher_judge.service import summarize_conversation
 from app.core.db import engine
 from app.core.i18n import t
 from app.infrastructure.worker import submit
-from app.models.teacher_judge_attachment import TeacherJudgeSessionAttachment
+from app.models.teacher_judge_attachment import (
+    TeacherJudgeMessageAttachment,
+    TeacherJudgeSessionAttachment,
+)
 from app.models.teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_script_run import TeacherJudgeScriptRun
@@ -1110,20 +1113,22 @@ def message_attachments_by_message_ids(
     unique_ids = list(dict.fromkeys(message_ids))
     if not unique_ids:
         return {}
-    rows = list(
-        db.exec(
-            select(TeacherJudgeSessionAttachment)
-            .where(col(TeacherJudgeSessionAttachment.message_id).in_(unique_ids))
-            .order_by(
-                col(TeacherJudgeSessionAttachment.created_at),
-                col(TeacherJudgeSessionAttachment.id),
-            )
+    rows = db.exec(
+        select(TeacherJudgeSessionAttachment, TeacherJudgeMessageAttachment.message_id)
+        .join(
+            TeacherJudgeMessageAttachment,
+            col(TeacherJudgeMessageAttachment.attachment_id)
+            == col(TeacherJudgeSessionAttachment.id),
         )
-    )
+        .where(col(TeacherJudgeMessageAttachment.message_id).in_(unique_ids))
+        .order_by(
+            col(TeacherJudgeSessionAttachment.created_at),
+            col(TeacherJudgeSessionAttachment.id),
+        )
+    ).all()
     grouped: dict[uuid.UUID, list[TeacherJudgeSessionAttachment]] = {}
-    for row in rows:
-        if row.message_id is not None:
-            grouped.setdefault(row.message_id, []).append(row)
+    for row, message_id in rows:
+        grouped.setdefault(message_id, []).append(row)
     return grouped
 
 
@@ -1138,7 +1143,7 @@ def message_public(
         content=normalize_message_text(item.content),
         message_type=item.message_type.value,
         metadata_json=item.metadata_json,
-        attachments=[attachment_public(row) for row in attachments or []],
+        attachments=[attachment_public(row, item.id) for row in attachments or []],
         created_by=str(item.created_by) if item.created_by else None,
         created_at=item.created_at.isoformat(),
     )
