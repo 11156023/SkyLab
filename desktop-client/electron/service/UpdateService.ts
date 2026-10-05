@@ -1,13 +1,32 @@
-import { app, net } from "electron";
+import { app, net, shell } from "electron";
+import { createHash } from "node:crypto";
+import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const LATEST_RELEASE_API =
-  "https://api.github.com/repos/1Ray0/SkyLab-Connect-Releases/releases/latest";
+const RELEASES_API =
+  "https://api.github.com/repos/1Ray0/SkyLab-Connect-Releases/releases?per_page=30";
 const SETUP_ASSET_NAME = "SkyLab-Connect-Setup.exe";
+const MAX_INSTALLER_SIZE = 512 * 1024 * 1024;
+const DOWNLOAD_HOSTS = new Set([
+  "github.com",
+  "release-assets.githubusercontent.com",
+  "objects.githubusercontent.com"
+]);
 
 type GitHubRelease = {
   tag_name?: string;
   html_url?: string;
-  assets?: Array<{ name?: string; browser_download_url?: string }>;
+  draft?: boolean;
+  assets?: GitHubAsset[];
+};
+
+type GitHubAsset = {
+  name?: string;
+  browser_download_url?: string;
+  digest?: string | null;
+  size?: number;
+  state?: string;
 };
 
 type ParsedVersion = {
@@ -60,27 +79,162 @@ function isNewerVersion(candidate: string, current: string): boolean {
   return false;
 }
 
+function validDownloadUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && DOWNLOAD_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function setupAsset(release: GitHubRelease): GitHubAsset | undefined {
+  return release.assets?.find(
+    asset =>
+      asset.name === SETUP_ASSET_NAME &&
+      asset.state === "uploaded" &&
+      Number.isSafeInteger(asset.size) &&
+      Number(asset.size) > 0 &&
+      Number(asset.size) <= MAX_INSTALLER_SIZE &&
+      /^sha256:[a-f\d]{64}$/i.test(asset.digest || "") &&
+      validDownloadUrl(asset.browser_download_url || "")
+  );
+}
+
+function selectNewestInstallableRelease(
+  releases: GitHubRelease[]
+): GitHubRelease | null {
+  let selected: GitHubRelease | null = null;
+  for (const release of releases) {
+    if (release.draft || !release.tag_name || !parseVersion(release.tag_name))
+      continue;
+    if (!setupAsset(release)) continue;
+    if (!selected || isNewerVersion(release.tag_name, selected.tag_name || ""))
+      selected = release;
+  }
+  return selected;
+}
+
 class UpdateService {
+  private installing = false;
+
   async check(): Promise<SkyLabUpdateInfo> {
     const currentVersion = app.getVersion();
-    const release = await this.fetchLatestRelease();
-    const latestVersion = String(release.tag_name || "").replace(/^v/i, "");
-    const setup = release.assets?.find(
-      asset => asset.name === SETUP_ASSET_NAME
+    const release = selectNewestInstallableRelease(await this.fetchReleases());
+    const latestVersion = String(release?.tag_name || currentVersion).replace(
+      /^v/i,
+      ""
     );
-    const downloadUrl = setup?.browser_download_url || release.html_url || "";
+    const downloadUrl = release
+      ? setupAsset(release)?.browser_download_url || ""
+      : "";
     return {
       currentVersion,
       latestVersion,
       updateAvailable:
-        !!downloadUrl && isNewerVersion(latestVersion, currentVersion),
+        !!release && isNewerVersion(latestVersion, currentVersion),
       downloadUrl
     };
   }
 
-  private fetchLatestRelease(): Promise<GitHubRelease> {
+  async install(
+    progress: (status: SkyLabUpdateProgress) => void
+  ): Promise<void> {
+    if (this.installing) throw new Error("An update is already in progress");
+    this.installing = true;
+    let directory = "";
+    try {
+      const release = selectNewestInstallableRelease(
+        await this.fetchReleases()
+      );
+      const asset = release && setupAsset(release);
+      if (
+        !release ||
+        !asset?.browser_download_url ||
+        !asset.digest ||
+        !asset.size ||
+        !isNewerVersion(release.tag_name || "", app.getVersion())
+      ) {
+        throw new Error("No newer verified installer is available");
+      }
+      directory = await fs.mkdtemp(join(tmpdir(), "SkyLab-Connect-update-"));
+      const installer = join(directory, SETUP_ASSET_NAME);
+      progress({ stage: "downloading", received: 0, total: asset.size });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5 * 60_000);
+      let response: Response;
+      try {
+        let url = asset.browser_download_url;
+        for (let redirects = 0; ; redirects += 1) {
+          if (redirects > 5 || !validDownloadUrl(url))
+            throw new Error("Update download redirected to an untrusted host");
+          response = await net.fetch(url, {
+            redirect: "manual",
+            signal: controller.signal
+          });
+          if (![301, 302, 303, 307, 308].includes(response.status)) break;
+          const location = response.headers.get("location");
+          if (!location) throw new Error("Update redirect has no destination");
+          await response.body?.cancel();
+          url = new URL(location, url).href;
+        }
+        if (!response.ok || !response.body)
+          throw new Error(`Update download failed (${response.status})`);
+        const contentLength = Number(response.headers.get("content-length"));
+        if (contentLength && contentLength !== asset.size)
+          throw new Error("Installer size differs from the release metadata");
+        const reader = response.body.getReader();
+        const file = await fs.open(installer, "wx");
+        const hash = createHash("sha256");
+        let received = 0;
+        let lastProgressAt = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            received += value.byteLength;
+            if (received > asset.size)
+              throw new Error("Installer exceeds expected size");
+            hash.update(value);
+            await file.writeFile(value);
+            if (Date.now() - lastProgressAt > 200) {
+              progress({ stage: "downloading", received, total: asset.size });
+              lastProgressAt = Date.now();
+            }
+          }
+        } finally {
+          await file.close();
+          reader.releaseLock();
+        }
+        progress({ stage: "verifying", received, total: asset.size });
+        if (
+          received !== asset.size ||
+          hash.digest("hex").toLowerCase() !==
+            asset.digest.slice(7).toLowerCase()
+        ) {
+          throw new Error("Installer integrity check failed");
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+      progress({ stage: "launching", received: asset.size, total: asset.size });
+      const launchError = await shell.openPath(installer);
+      if (launchError)
+        throw new Error(`Could not open installer: ${launchError}`);
+    } catch (error) {
+      if (directory)
+        await fs
+          .rm(directory, { recursive: true, force: true })
+          .catch(() => {});
+      throw error;
+    } finally {
+      this.installing = false;
+    }
+  }
+
+  private fetchReleases(): Promise<GitHubRelease[]> {
     return new Promise((resolve, reject) => {
-      const request = net.request({ method: "GET", url: LATEST_RELEASE_API });
+      const request = net.request({ method: "GET", url: RELEASES_API });
       request.setHeader("Accept", "application/vnd.github+json");
       request.setHeader("User-Agent", `SkyLab-Connect/${app.getVersion()}`);
       const timeout = setTimeout(() => {
@@ -98,7 +252,10 @@ class UpdateService {
             return;
           }
           try {
-            resolve(JSON.parse(body) as GitHubRelease);
+            const releases = JSON.parse(body);
+            if (!Array.isArray(releases))
+              throw new Error("Invalid release list");
+            resolve(releases as GitHubRelease[]);
           } catch {
             reject(new Error("Update service returned invalid JSON"));
           }
@@ -117,5 +274,5 @@ class UpdateService {
   }
 }
 
-export { isNewerVersion };
+export { isNewerVersion, selectNewestInstallableRelease };
 export default UpdateService;

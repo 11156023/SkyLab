@@ -42,6 +42,20 @@
     light: "Light"
   },
   update: {
+    settingsTitle: "Software update",
+    currentVersion: "Current version",
+    available: "Update available",
+    availableVersion: "Version {version} is available",
+    upToDate: "You're up to date",
+    check: "Check for updates",
+    checkError: "Could not check for updates. Try again later.",
+    install: "Download and install",
+    confirmMessage:
+      "The app will download and verify the installer, then open it and disconnect the current session. Continue?",
+    downloading: "Downloading update",
+    verifying: "Verifying installer",
+    launching: "Opening installer",
+    installError: "Update failed",
     title: "Update available",
     message:
       "SkyLab Connect {version} is available. Download the latest installer now.",

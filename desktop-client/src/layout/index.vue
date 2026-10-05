@@ -57,10 +57,12 @@ const openWeb = () =>
           class="desktop-nav"
           :class="{ active: route.name === 'Config' }"
           :to="{ name: 'Config' }"
-          ><AppIcon name="settings" /><span>{{
-            t("router.config.title")
-          }}</span></router-link
-        >
+          ><AppIcon name="settings" /><span>{{ t("router.config.title") }}</span
+          ><i
+            v-if="store.updateInfo?.updateAvailable"
+            class="update-dot"
+            :aria-label="t('update.available')"
+        /></router-link>
         <router-link
           class="desktop-nav"
           :class="{ active: route.name === 'About' }"

@@ -202,3 +202,9 @@ interface SkyLabUpdateInfo {
   updateAvailable: boolean;
   downloadUrl: string;
 }
+
+interface SkyLabUpdateProgress {
+  stage: "downloading" | "verifying" | "launching";
+  received: number;
+  total: number;
+}

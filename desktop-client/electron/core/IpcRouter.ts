@@ -69,6 +69,10 @@ export const ipcRouters: IpcRouters = {
     check: {
       path: "update/check",
       controller: "updateController.check"
+    },
+    install: {
+      path: "update/install",
+      controller: "updateController.install"
     }
   },
   LOG: {
@@ -110,6 +114,10 @@ export const ipcRouters: IpcRouters = {
 };
 
 export const listeners: Listeners = {
+  updateProgress: {
+    listenerMethod: "updateService.install",
+    channel: "update:progress"
+  },
   watchTunnel: {
     listenerMethod: "wireGuardTunnelService.watchTunnel",
     channel: "tunnel:watch"

@@ -41,6 +41,20 @@
     light: "亮色"
   },
   update: {
+    settingsTitle: "軟體更新",
+    currentVersion: "目前版本",
+    available: "有可用更新",
+    availableVersion: "新版本 {version} 已發布",
+    upToDate: "目前已是最新版",
+    check: "檢查更新",
+    checkError: "暫時無法檢查更新，請稍後重試。",
+    install: "下載並安裝",
+    confirmMessage:
+      "App 會下載並驗證安裝程式，然後啟動安裝並中斷目前連線。要繼續嗎？",
+    downloading: "正在下載更新",
+    verifying: "正在驗證安裝程式",
+    launching: "正在啟動安裝程式",
+    installError: "更新失敗",
     title: "發現新版本",
     message: "SkyLab Connect {version} 已發布，建議下載並安裝最新版。",
     download: "下載更新",

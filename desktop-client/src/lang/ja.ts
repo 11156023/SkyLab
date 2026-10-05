@@ -42,6 +42,20 @@ export default {
     light: "ライト"
   },
   update: {
+    settingsTitle: "ソフトウェア更新",
+    currentVersion: "現在のバージョン",
+    available: "更新があります",
+    availableVersion: "新しいバージョン {version} があります",
+    upToDate: "最新版を使用しています",
+    check: "更新を確認",
+    checkError: "更新を確認できません。後でもう一度お試しください。",
+    install: "ダウンロードしてインストール",
+    confirmMessage:
+      "インストーラーをダウンロードして検証した後、起動して現在の接続を切断します。続行しますか？",
+    downloading: "更新をダウンロード中",
+    verifying: "インストーラーを検証中",
+    launching: "インストーラーを起動中",
+    installError: "更新に失敗しました",
     title: "新しいバージョンがあります",
     message:
       "SkyLab Connect {version} が公開されました。最新版をダウンロードしてください。",

@@ -69,6 +69,11 @@ onUnmounted(() => {
       @click="goSettings"
     >
       <IconifyIconOffline icon="settings" />
+      <i
+        v-if="appStore.updateInfo?.updateAvailable"
+        class="login-update-dot"
+        :aria-label="t('update.available')"
+      />
     </button>
     <div class="login-panel">
       <PixelOcto :scale="3" class="login-logo" />
@@ -155,6 +160,16 @@ onUnmounted(() => {
 .settings-button:hover {
   color: var(--color-primary);
   background: var(--color-hover);
+}
+
+.login-update-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-danger);
 }
 
 .login-panel {

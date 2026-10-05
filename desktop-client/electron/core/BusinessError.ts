@@ -7,7 +7,8 @@ enum ResponseCode {
   WIREGUARD_NOT_INSTALLED = "B1006;WireGuard is not installed.",
   WIREGUARD_KEY_STORAGE = "B1007;Secure key storage is unavailable.",
   WIREGUARD_START_FAILED = "B1008;WireGuard tunnel failed to start.",
-  WIREGUARD_INSTALL_FAILED = "B1009;WireGuard could not be installed."
+  WIREGUARD_INSTALL_FAILED = "B1009;WireGuard could not be installed.",
+  UPDATE_INSTALL_FAILED = "B1010;Update installation failed."
 }
 
 class BusinessError extends Error {

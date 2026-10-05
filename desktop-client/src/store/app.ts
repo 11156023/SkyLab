@@ -11,6 +11,13 @@ interface AppState {
   backendUrl: string;
   resourcesLoading: boolean;
   resourcesError: string;
+  updateInfo: SkyLabUpdateInfo | null;
+  updateChecking: boolean;
+  updateCheckError: boolean;
+  updateCheckedAt: number;
+  updateInstalling: boolean;
+  updateProgress: SkyLabUpdateProgress | null;
+  updateInstallError: string;
   tunnelStatus: TunnelStatusInfo;
   resources: SkyLabResource[];
   sessionStatuses: SkyLabSessionStatus[];
@@ -31,8 +38,10 @@ const DEFAULT_TUNNEL_STATUS: TunnelStatusInfo = {
  * (which is itself anchored to the backend's 30 min ``practice_warning_minutes``). */
 const SESSION_POLL_INTERVAL_MS = 30_000;
 const RESOURCE_REFRESH_INTERVAL_MS = 60_000;
+const UPDATE_POLL_INTERVAL_MS = 60 * 60_000;
 const LS_KEY = "session_warning_dismissed";
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
+let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let authExpiryListenerRegistered = false;
 let lastResourceRefreshAt = 0;
 
@@ -68,6 +77,13 @@ export const useAppStore = defineStore("app", {
     backendUrl: "https://skylab.ntubimdbirc.tw",
     resourcesLoading: false,
     resourcesError: "",
+    updateInfo: null,
+    updateChecking: false,
+    updateCheckError: false,
+    updateCheckedAt: 0,
+    updateInstalling: false,
+    updateProgress: null,
+    updateInstallError: "",
     tunnelStatus: { ...DEFAULT_TUNNEL_STATUS },
     resources: [],
     sessionStatuses: [],
@@ -127,6 +143,34 @@ export const useAppStore = defineStore("app", {
         }
       });
       on(
+        ipcRouters.UPDATE.check,
+        (info: SkyLabUpdateInfo | null) => {
+          this.updateChecking = false;
+          this.updateCheckError = !info;
+          if (info) {
+            this.updateInfo = info;
+            this.updateCheckedAt = Date.now();
+          }
+        },
+        () => {
+          this.updateChecking = false;
+          this.updateCheckError = true;
+        }
+      );
+      on(
+        ipcRouters.UPDATE.install,
+        () => {
+          this.updateInstalling = false;
+        },
+        (_code, message) => {
+          this.updateInstalling = false;
+          this.updateInstallError = message;
+        }
+      );
+      onListener(listeners.updateProgress, (progress: SkyLabUpdateProgress) => {
+        this.updateProgress = progress;
+      });
+      on(
         ipcRouters.RESOURCE.listMyResources,
         data => {
           this.resourcesLoading = false;
@@ -181,6 +225,27 @@ export const useAppStore = defineStore("app", {
     },
     refreshSettings() {
       send(ipcRouters.SETTINGS.getSettings);
+    },
+    checkForUpdates(force = false) {
+      if (this.updateChecking || this.updateInstalling) return;
+      if (!force && Date.now() - this.updateCheckedAt < 5 * 60_000) return;
+      this.updateChecking = true;
+      this.updateCheckError = false;
+      send(ipcRouters.UPDATE.check);
+    },
+    startUpdatePolling() {
+      if (updatePollTimer) return;
+      this.checkForUpdates();
+      updatePollTimer = setInterval(() => {
+        this.checkForUpdates(true);
+      }, UPDATE_POLL_INTERVAL_MS);
+    },
+    installUpdate() {
+      if (this.updateInstalling || !this.updateInfo?.updateAvailable) return;
+      this.updateInstalling = true;
+      this.updateProgress = null;
+      this.updateInstallError = "";
+      send(ipcRouters.UPDATE.install);
     },
     refreshResources() {
       if (!this.loggedIn || this.resourcesLoading) return;
