@@ -11,8 +11,9 @@
   會跟著進不來，所以連不到就不存
 - 同步失敗時把 DB 還原成原本的設定（Gateway 上的檔案有 ``nginx -t`` 失敗還原）
 - 網域在 Cloudflare 管理的 zone 內時，nginx 接好後把 DNS 指到預設 DNS 目標
-  （與 VM 網域同一個，即 Gateway），不經 Cloudflare 代理；停用或換網域時刪掉
-  舊紀錄。不歸 SkyLab 管的網域由管理員自己設定 DNS
+  （與 VM 網域同一個，即 Gateway），經不經 Cloudflare 代理由管理員選
+  （``dns_proxied``，預設 DNS only）；停用或換網域時刪掉舊紀錄。不歸 SkyLab
+  管的網域由管理員自己設定 DNS
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ def load_entry(session: object) -> nginx.PlatformEntry | None:
         upstream_host=config.upstream_host,
         upstream_port=config.upstream_port,
         enable_https=config.enable_https,
+        cloudflare_proxy=config.dns_proxied,
     )
 
 
@@ -111,6 +113,7 @@ def get_config(session: object) -> PlatformEntryPublic:
         certificate_configured=gateway_certificate_service.is_configured(session),
         gateway_host=gateway_host,
         dns_managed=bool(config and config.dns_record_id),
+        dns_proxied=bool(config and config.dns_proxied),
     )
 
 
@@ -222,6 +225,7 @@ def _snapshot(config: PlatformEntryConfig | None) -> dict[str, Any]:
             "upstream_host": "",
             "upstream_port": DEFAULT_UPSTREAM_PORT,
             "enable_https": True,
+            "dns_proxied": False,
         }
     return {
         "enabled": config.enabled,
@@ -229,6 +233,7 @@ def _snapshot(config: PlatformEntryConfig | None) -> dict[str, Any]:
         "upstream_host": config.upstream_host,
         "upstream_port": config.upstream_port,
         "enable_https": config.enable_https,
+        "dns_proxied": config.dns_proxied,
     }
 
 
@@ -281,6 +286,7 @@ def save_config(session: object, data: PlatformEntryUpdate) -> PlatformEntryPubl
         upstream_host=upstream_host,
         upstream_port=data.upstream_port,
         enable_https=data.enable_https,
+        dns_proxied=data.dns_proxied,
     )
 
     # 啟用中或剛停用都要重寫 http.conf；從頭到尾都沒啟用就只是存欄位
@@ -297,6 +303,7 @@ def save_config(session: object, data: PlatformEntryUpdate) -> PlatformEntryPubl
                 session,
                 zone_id=dns_zone_id,
                 domain=domain,
+                proxied=data.dns_proxied,
                 managed_record_id=(
                     previous_dns[1]
                     if previous_dns is not None and previous_dns[0] == dns_zone_id
@@ -368,7 +375,7 @@ def _managed_dns_zone(session: object, domain: str) -> str:
 
 
 def _point_dns_to_gateway(
-    session: object, *, zone_id: str, domain: str, managed_record_id: str
+    session: object, *, zone_id: str, domain: str, proxied: bool, managed_record_id: str
 ) -> str:
     from app.services.network import cloudflare_service
 
@@ -376,9 +383,16 @@ def _point_dns_to_gateway(
         session=session,  # type: ignore[arg-type]
         zone_id=zone_id,
         domain=domain,
+        proxied=proxied,
         managed_record_id=managed_record_id,
     )
-    logger.info("[PlatformEntry] DNS %s 已指向 %s %s", domain, record.type, record.content)
+    logger.info(
+        "[PlatformEntry] DNS %s 已指向 %s %s（proxied=%s）",
+        domain,
+        record.type,
+        record.content,
+        record.proxied,
+    )
     return record.id
 
 
@@ -466,6 +480,7 @@ def get_status(
             and applied["domain"] == expected.domain
             and applied["upstream"] == expected.upstream
             and applied["https"] == expected.enable_https
+            and applied["cloudflare_proxy"] == expected.cloudflare_proxy
             # 換了憑證路徑但還沒同步上去，也算沒套用
             and (
                 not expected.enable_https
@@ -501,7 +516,7 @@ def get_status(
 
 
 def _dns_status(session: object, config: PlatformEntryConfig | None) -> dict[str, Any]:
-    """讀回 SkyLab 管理的 DNS 紀錄，確認它還指著預設 DNS 目標而且沒被改成經代理。"""
+    """讀回 SkyLab 管理的 DNS 紀錄，確認它還指著預設 DNS 目標、代理狀態也和設定一致。"""
     from app.services.network import cloudflare_service
 
     if config is None or not config.dns_record_id or not config.domain:
@@ -522,7 +537,7 @@ def _dns_status(session: object, config: PlatformEntryConfig | None) -> dict[str
     ok = (
         record.type.upper() == target_type
         and record.content.strip().lower().rstrip(".") == target_value.strip().lower().rstrip(".")
-        and not record.proxied
+        and bool(record.proxied) == config.dns_proxied
     )
     return {"dns_record": f"{record.type} {record.content}", "dns_record_ok": ok}
 

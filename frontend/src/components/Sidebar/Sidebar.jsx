@@ -49,7 +49,7 @@ const navGroups = [
     icon: "router",
     items: [
       { key: "firewall",      labelKey: "Sidebar.itemFirewall",     icon: "security" },
-      /* 對外網址已併入「網域管理」（管理員）；使用者從防火牆拓撲頁或資源詳情「進階設定 › 防火牆」的連線對話框發布 */
+      /* 對外網址沒有獨立頁面；從防火牆拓撲頁或資源詳情「進階設定 › 防火牆」的連線對話框發布 */
     ],
   },
   {

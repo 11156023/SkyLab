@@ -117,17 +117,13 @@
   @include btn-primary;
 }
 
-/* ── 分頁列：左分頁、右連線狀態 ── */
-.tabsRow {
+/* ── 連線狀態列（靠右） ── */
+.statusRow {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: $spacing-8 $spacing-16;
 }
 
-/* DOM 排在分頁前面（見 JSX 註解），視覺用 order 放到最右 */
 .connStatus {
-  order: 1;
   display: inline-flex;
   align-items: center;
   gap: $spacing-8;
@@ -157,19 +153,6 @@
 .badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── 工作台雙欄 ── */
-/* ── 分頁（DNS 紀錄 / 對外網址）：共用 SegmentedControl，這裡只管外層不被 flex 壓縮 ── */
-.tabs {
-  display: flex;
-  flex-shrink: 0;
-}
-
-.tabBody {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  @include flex-column;
-}
-
 .workbench {
   display: grid;
   grid-template-columns: 1fr;
