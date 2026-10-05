@@ -26,6 +26,14 @@ class AIAPICredential(SQLModel, table=True):
         sa.Index("ix_ai_api_credentials_user_id", "user_id"),
         sa.Index("ix_ai_api_credentials_request_id", "request_id"),
         sa.Index("ix_ai_api_credentials_user_revoked", "user_id", "revoked_at"),
+        # 輪替保留歷史列，但同一核准 request 在任何時間只能有一把未撤銷金鑰。
+        sa.Index(
+            "uq_ai_api_credentials_active_request",
+            "request_id",
+            unique=True,
+            postgresql_where=sa.text("revoked_at IS NULL"),
+            sqlite_where=sa.text("revoked_at IS NULL"),
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

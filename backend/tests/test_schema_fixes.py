@@ -8,7 +8,11 @@ from pydantic import ValidationError
 from app.core.i18n import t
 from app.exceptions import BadRequestError
 from app.models.ai_api_request import AIAPIRequestStatus
-from app.schemas.ai_api import AIAPIRequestCreate, AIAPIRequestReview
+from app.schemas.ai_api import (
+    AIAPIRequestBulkReject,
+    AIAPIRequestCreate,
+    AIAPIRequestReview,
+)
 from app.schemas.classroom import ClassroomStudent
 from app.schemas.ip_management import SubnetConfigCreate
 from app.schemas.push import PushSubscriptionCreate
@@ -199,6 +203,22 @@ def test_ai_api_review_rejects_pending() -> None:
         AIAPIRequestReview(status="pending")
     for status in (AIAPIRequestStatus.approved, AIAPIRequestStatus.rejected):
         assert AIAPIRequestReview(status=status.value).status == status
+
+
+def test_ai_api_bulk_reject_requires_unique_ids_and_a_reason() -> None:
+    request_id = uuid.uuid4()
+    payload = AIAPIRequestBulkReject(
+        request_ids=[request_id], review_comment="不符合申請規範"
+    )
+    assert payload.request_ids == [request_id]
+    assert payload.review_comment == "不符合申請規範"
+
+    with pytest.raises(ValidationError):
+        AIAPIRequestBulkReject(
+            request_ids=[request_id, request_id], review_comment="批量理由"
+        )
+    with pytest.raises(ValidationError):
+        AIAPIRequestBulkReject(request_ids=[request_id], review_comment="   ")
 
 
 # ---- 不合法時區回 400，不是 500 ----

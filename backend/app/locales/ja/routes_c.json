@@ -92,5 +92,6 @@
   "course_env.file_name_invalid": "ファイル名が不正です",
   "course_env.file_name_too_long": "ファイル名が長すぎます",
   "course_env.file_too_large": "ファイルが 50 MB の上限を超えています",
-  "course_env.file_not_found": "このファイルが見つかりません"
+  "course_env.file_not_found": "このファイルが見つかりません",
+  "error.request_body_too_large": "リクエスト本文が許可されたサイズを超えています。"
 }

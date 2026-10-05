@@ -8,12 +8,17 @@ import AiApiReviewPage from "./AiApiReviewPage";
 const mocks = vi.hoisted(() => ({
   listAllRequests: vi.fn(),
   reviewRequest: vi.fn(),
+  bulkRejectRequests: vi.fn(),
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("../../../services/aiApi", () => ({
-  AiApiService: { listAllRequests: mocks.listAllRequests, reviewRequest: mocks.reviewRequest },
+  AiApiService: {
+    listAllRequests: mocks.listAllRequests,
+    reviewRequest: mocks.reviewRequest,
+    bulkRejectRequests: mocks.bulkRejectRequests,
+  },
 }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
@@ -21,6 +26,19 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
 vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
+vi.mock("../../../hooks/useDialogPresence", () => ({
+  default: (open) => ({ open, closing: false }),
+}));
+vi.mock("../../../components/Modal/Modal", () => ({
+  default: ({ title, description, children, actions }) => (
+    <div role="dialog">
+      <h2>{title}</h2>
+      {description && <p>{description}</p>}
+      {children}
+      <div>{actions}</div>
+    </div>
+  ),
+}));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
 vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
@@ -154,5 +172,50 @@ describe("AiApiReviewPage", () => {
     await act(async () => { respond(approvedBatch); await flush(); });
     expect(host.querySelector('[data-testid="loading"]')).toBeNull();
     expect(host.textContent).toContain("key-ok1");
+  });
+
+  test("selects pending requests and submits one shared reason for bulk rejection", async () => {
+    const pendingRows = [
+      request("p1", "pending", "2026-09-01T00:00:00Z"),
+      request("p2", "pending", "2026-09-02T00:00:00Z"),
+    ];
+    mocks.listAllRequests.mockImplementation(async ({ status } = {}) => {
+      if (status === "pending") return { data: pendingRows, count: pendingRows.length };
+      return { data: [], count: 0 };
+    });
+    mocks.bulkRejectRequests.mockResolvedValue({ count: 2 });
+
+    const flush = async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    };
+
+    await act(async () => { root.render(<AiApiReviewPage />); await flush(); });
+    const selectAll = host.querySelector('input[aria-label="AiApiReviewPage.selectAll"]');
+    expect(selectAll).not.toBeNull();
+
+    await act(async () => { selectAll.click(); });
+    const bulkButton = [...host.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiApiReviewPage.bulkReject"));
+    expect(bulkButton).not.toBeUndefined();
+
+    await act(async () => { bulkButton.click(); });
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      ).set;
+      setter.call(textarea, "用途與申請內容不符");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const confirmButton = [...host.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiApiReviewPage.bulkRejectConfirm"));
+    expect(confirmButton).not.toBeUndefined();
+
+    await act(async () => { confirmButton.click(); await flush(); });
+    expect(mocks.bulkRejectRequests).toHaveBeenCalledWith(["p1", "p2"], "用途與申請內容不符");
   });
 });

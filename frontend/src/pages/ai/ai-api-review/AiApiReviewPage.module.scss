@@ -52,7 +52,7 @@
 
 .table {
   @include table-base;
-  min-width: 1080px;
+  min-width: 1160px;
 }
 
 .th {
@@ -61,6 +61,10 @@
 
 .tr {
   @include table-tr;
+}
+
+.trSelected {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 .td {
@@ -114,6 +118,47 @@
 .actions {
   display: flex;
   gap: $spacing-4;
+}
+
+.bulkSelectionHeader {
+  min-width: 190px;
+  white-space: nowrap;
+}
+
+.bulkControls {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+}
+
+.selectAllControl {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+  }
+}
+
+.bulkSelectionCell {
+  width: 190px;
+  text-align: center;
+}
+
+.selectCheckbox {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
 }
 
 .actionBtn {
@@ -172,6 +217,12 @@
 .dialogPurpose {
   white-space: pre-wrap;
   color: var(--color-text-muted);
+}
+
+.dialogFieldLabel {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
 }
 
 .dialogTextarea {
