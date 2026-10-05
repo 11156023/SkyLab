@@ -74,7 +74,7 @@ export const useAppStore = defineStore("app", {
     loginInProgress: false,
     language: "zh-TW",
     autoStart: false,
-    backendUrl: "https://skylab.ntubimdbirc.tw",
+    backendUrl: "https://skylab-tw.com",
     resourcesLoading: false,
     resourcesError: "",
     updateInfo: null,

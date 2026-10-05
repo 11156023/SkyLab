@@ -1,5 +1,6 @@
 ﻿import { app } from "electron";
 import Logger from "../core/Logger";
+import GlobalConstant from "../core/GlobalConstant";
 import SettingsRepository from "../repository/SettingsRepository";
 
 class SettingsService {
@@ -80,7 +81,7 @@ class SettingsService {
       return this.normalizeBackendUrl(settings.backendUrl);
     } catch {
       const migrated = await this.save({
-        backendUrl: "https://skylab.ntubimdbirc.tw"
+        backendUrl: GlobalConstant.DEFAULT_BACKEND_URL
       });
       return migrated.backendUrl;
     }

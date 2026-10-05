@@ -213,7 +213,7 @@ onUnmounted(() => {
           <el-form-item :label="t('config.backend.label')">
             <el-input
               v-model="form.backendUrl"
-              placeholder="https://skylab.ntubimdbirc.tw"
+              placeholder="https://skylab-tw.com"
             />
             <div class="form-hint form-hint--block">
               {{ t("config.backend.tips") }}

@@ -9,7 +9,7 @@ class SystemService {
       "github.com",
       "objects.githubusercontent.com",
       "github-releases.githubusercontent.com",
-      "skylab.ntubimdbirc.tw"
+      "skylab-tw.com"
     ]);
     if (!allowedHosts.has(target.hostname))
       throw new Error("URL host is not allowed");

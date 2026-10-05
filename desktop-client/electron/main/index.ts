@@ -104,7 +104,7 @@ class SkyLabApp {
     this._win.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url);
-        const allowedHosts = new Set(["github.com", "skylab.ntubimdbirc.tw"]);
+        const allowedHosts = new Set(["github.com", "skylab-tw.com"]);
         if (target.protocol === "https:" && allowedHosts.has(target.hostname)) {
           void shell.openExternal(target.toString());
         }

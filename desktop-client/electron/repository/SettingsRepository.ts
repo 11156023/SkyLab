@@ -53,12 +53,13 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
         existing.language = "zh-TW";
         languageMigrated = true;
       }
-      // The original desktop release stored localhost as its default. Move only
-      // that value to the production site; keep user configured servers intact.
+      // Migrate only former defaults. Keep user-configured servers intact.
       if (
         !existing.backendUrl ||
-        existing.backendUrl.replace(/\/$/, "") ===
-          GlobalConstant.LEGACY_BACKEND_URL
+        [
+          GlobalConstant.LEGACY_BACKEND_URL,
+          GlobalConstant.PREVIOUS_BACKEND_URL
+        ].includes(existing.backendUrl.replace(/\/$/, ""))
       ) {
         return this.updateById(this._id, {
           ...existing,

@@ -76,23 +76,19 @@ class AuthService {
 
     try {
       const dc = await this._SkyLabService.requestDeviceCode();
-      // 只允許在瀏覽器開啟 http(s) 連結；後端若被竄改回傳 file:// 或自訂 scheme，
-      // shell.openExternal 會直接交給作業系統執行，必須先擋掉。
-      let loginUrl: URL;
-      try {
-        loginUrl = new URL(dc.login_url);
-      } catch {
+      if (!dc.device_code) {
         throw new BusinessError(
           ResponseCode.INTERNAL_ERROR,
-          "Backend returned an invalid login URL"
+          "Backend returned an invalid device code"
         );
       }
-      if (loginUrl.protocol !== "https:" && loginUrl.protocol !== "http:") {
-        throw new BusinessError(
-          ResponseCode.INTERNAL_ERROR,
-          `Refusing to open login URL with scheme ${loginUrl.protocol}`
-        );
-      }
+      // Use the configured server for the login page. The backend's
+      // FRONTEND_HOST may still point to an earlier deployment domain.
+      const loginUrl = new URL(
+        "/login",
+        await this._settingsService.getBackendUrl()
+      );
+      loginUrl.searchParams.set("device_code", dc.device_code);
       await shell.openExternal(loginUrl.toString());
       const expiresAt = Date.now() + dc.expires_in * 1000;
 
