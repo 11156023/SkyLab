@@ -31,6 +31,13 @@ const refreshing = ref(false);
 const operationError = ref("");
 const query = ref("");
 const filter = ref("all");
+const expandedCourseIds = ref<Set<string>>(new Set());
+const toggleCourse = (id: string) => {
+  const next = new Set(expandedCourseIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedCourseIds.value = next;
+};
 const stopping = ref(false);
 const filters = ["all", "course", "personal"] as const;
 const filteredResources = computed(() => {
@@ -507,15 +514,27 @@ onUnmounted(() => {
           ><section
             v-for="group in filteredGroups.courseGroups"
             :key="group.id"
-            class="resource-group"
+            class="resource-group course-folder"
           >
-            <header>
-              <h2>{{ group.title }}</h2>
-              <span>{{
+            <button
+              type="button"
+              class="course-folder__toggle"
+              :aria-expanded="expandedCourseIds.has(group.id)"
+              @click="toggleCourse(group.id)"
+            >
+              <AppIcon name="folder" />
+              <span class="course-folder__name">{{ group.title }}</span>
+              <span class="course-folder__count">{{
                 t("workspace.machineCount", { count: group.resources.length })
               }}</span>
-            </header>
+              <AppIcon
+                name="chevron"
+                class="course-folder__chevron"
+                :class="{ 'is-open': expandedCourseIds.has(group.id) }"
+              />
+            </button>
             <ResourceCards
+              v-if="expandedCourseIds.has(group.id)"
               :resources="group.resources"
               :tunnels="appStore.tunnelStatus.tunnels"
               :connected="status === 'running'"

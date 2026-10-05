@@ -3,6 +3,8 @@ defineProps<{ name: string }>();
 const paths: Record<string, string> = {
   grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
   list: "M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1",
+  folder: "M3 6h7l2 2h9v11H3z",
+  chevron: "m6 9 6 6 6-6",
   terminal: "M3 4h18v16H3zM7 9l3 3-3 3m6 0h4",
   monitor: "M3 4h18v13H3zM8 21h8m-4-4v4",
   shield: "m12 3 8 3v6c0 4-5 8-8 9-3-1-8-5-8-9V6zm-4 9 3 3 5-6",
