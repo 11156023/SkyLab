@@ -51,6 +51,14 @@ class UserUpdateMe(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=2048)
 
 
+class EmailChangeRequest(BaseModel):
+    email: EmailStr = Field(max_length=255)
+
+
+class EmailChangeConfirm(BaseModel):
+    token: str = Field(min_length=1, max_length=2048)
+
+
 class UpdatePassword(BaseModel):
     """更新密碼"""
 

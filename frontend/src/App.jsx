@@ -19,6 +19,7 @@ const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
 // 兩步驟驗證綁定與首次引導只有少數人會看到，而且都帶著 qrcode：不放進入口 chunk
 const TotpEnrollPage = lazy(() => import("./pages/login/TotpEnrollPage"));
 const OnboardingPage = lazy(() => import("./pages/onboarding/OnboardingPage"));
+const VerifyEmailChangePage = lazy(() => import("./pages/login/VerifyEmailChangePage"));
 // 首次安裝初始化精靈（免登入；後端 system_setup.completed 之前登入頁會導過來）
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 // 404：登入後開到不存在的路徑
@@ -170,6 +171,10 @@ function App() {
       <LandingPage />
     </Suspense>
   );
+
+  if (window.location.pathname === "/verify-email-change") {
+    return <Suspense fallback={<AuthBootstrapState />}><VerifyEmailChangePage /></Suspense>;
+  }
 
   if (authStatus === AuthSessionStatus.UNAVAILABLE && !user) {
     return (
