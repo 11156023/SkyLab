@@ -390,6 +390,11 @@ input:focus-visible {
   font-size: 13px;
   white-space: nowrap;
 }
+.course-folder__status {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
 .course-folder__chevron {
   color: var(--color-text-muted);
   transition: transform 0.2s ease;

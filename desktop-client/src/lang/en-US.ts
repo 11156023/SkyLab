@@ -28,6 +28,7 @@
     connected: "Securely connected",
     all: "All",
     course: "Courses",
+    practice: "Quick practice",
     personal: "Personal",
     filter: "Resource category",
     search: "Search machine or IP",

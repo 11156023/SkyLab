@@ -28,6 +28,7 @@ export default {
     connected: "安全に接続済み",
     all: "すべて",
     course: "授業",
+    practice: "クイック練習",
     personal: "個人",
     filter: "リソース分類",
     search: "マシン名・IP で検索",

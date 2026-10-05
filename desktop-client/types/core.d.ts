@@ -136,6 +136,14 @@ interface SkyLabResource {
   public_urls?: string[];
 }
 
+interface SkyLabQuickPracticeSession {
+  id: string;
+  title: string;
+  status: string;
+  expires_at?: string | null;
+  machines: { request_id: string; vmid?: number | null }[];
+}
+
 interface SkyLabTunnelInfo {
   vmid?: number;
   name?: string;

@@ -39,7 +39,18 @@ const toggleCourse = (id: string) => {
   expandedCourseIds.value = next;
 };
 const stopping = ref(false);
-const filters = ["all", "course", "personal"] as const;
+const filters = ["all", "course", "practice", "personal"] as const;
+const practiceTitleByRequest = computed(() => {
+  const titles = new Map<string, string>();
+  for (const session of appStore.quickPracticeSessions) {
+    for (const machine of session.machines ?? []) {
+      if (machine.request_id) {
+        titles.set(String(machine.request_id), session.title);
+      }
+    }
+  }
+  return titles;
+});
 const filteredResources = computed(() => {
   const search = query.value.trim().toLowerCase();
   return visibleResources.value.filter(resource =>
@@ -49,6 +60,7 @@ const filteredResources = computed(() => {
       resource.vmid,
       resource.teaching_class_name,
       resource.course_environment_name,
+      practiceTitleByRequest.value.get(String(resource.request_id ?? "")),
       resource.owner_name
     ].some(value =>
       String(value ?? "")
@@ -58,11 +70,26 @@ const filteredResources = computed(() => {
   );
 });
 const filteredGroups = computed(() =>
-  groupResourcesByCourse(filteredResources.value)
+  groupResourcesByCourse(
+    filteredResources.value,
+    appStore.quickPracticeSessions
+  )
 );
+const filteredFolders = computed(() => [
+  ...(filter.value === "all" || filter.value === "course"
+    ? filteredGroups.value.courseGroups
+    : []),
+  ...(filter.value === "all" || filter.value === "practice"
+    ? filteredGroups.value.quickPracticeGroups
+    : [])
+]);
 const counts = computed(() => ({
   all: machineCount.value,
   course: groupedResources.value.courseGroups.reduce(
+    (total, group) => total + group.resources.length,
+    0
+  ),
+  practice: groupedResources.value.quickPracticeGroups.reduce(
     (total, group) => total + group.resources.length,
     0
   ),
@@ -70,9 +97,8 @@ const counts = computed(() => ({
 }));
 const hasResults = computed(
   () =>
-    (filter.value !== "personal" &&
-      filteredGroups.value.courseGroups.length > 0) ||
-    (filter.value !== "course" &&
+    filteredFolders.value.length > 0 ||
+    ((filter.value === "all" || filter.value === "personal") &&
       filteredGroups.value.personalResources.length > 0)
 );
 const connectionTitle = computed(() =>
@@ -141,7 +167,7 @@ const visibleResources = computed(() =>
   appStore.loggedIn ? [...appStore.resources, ...orphanResources.value] : []
 );
 const groupedResources = computed(() =>
-  groupResourcesByCourse(visibleResources.value)
+  groupResourcesByCourse(visibleResources.value, appStore.quickPracticeSessions)
 );
 const machineCount = computed(() => visibleResources.value.length);
 const resourceAclSignature = computed(() =>
@@ -510,9 +536,9 @@ onUnmounted(() => {
         {{ t("common.loading") }}
       </div>
       <template v-else>
-        <template v-if="filter !== 'personal'"
+        <template v-if="filteredFolders.length"
           ><section
-            v-for="group in filteredGroups.courseGroups"
+            v-for="group in filteredFolders"
             :key="group.id"
             class="resource-group course-folder"
           >
@@ -526,6 +552,12 @@ onUnmounted(() => {
               <span class="course-folder__name">{{ group.title }}</span>
               <span class="course-folder__count">{{
                 t("workspace.machineCount", { count: group.resources.length })
+              }}</span>
+              <span class="course-folder__status">{{
+                t("resources.course.runningCount", {
+                  running: group.runningCount,
+                  total: group.resources.length
+                })
               }}</span>
               <AppIcon
                 name="chevron"
@@ -545,7 +577,10 @@ onUnmounted(() => {
             /></section
         ></template>
         <section
-          v-if="filter !== 'course' && filteredGroups.personalResources.length"
+          v-if="
+            (filter === 'all' || filter === 'personal') &&
+            filteredGroups.personalResources.length
+          "
           class="resource-group"
         >
           <header>

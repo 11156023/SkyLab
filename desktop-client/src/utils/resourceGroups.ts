@@ -8,6 +8,7 @@ export interface CourseResourceGroup {
 
 export interface GroupedResources {
   courseGroups: CourseResourceGroup[];
+  quickPracticeGroups: CourseResourceGroup[];
   personalResources: SkyLabResource[];
 }
 
@@ -32,13 +33,31 @@ function courseTitle(resources: SkyLabResource[], classId: string): string {
 }
 
 export function groupResourcesByCourse(
-  resources: SkyLabResource[] = []
+  resources: SkyLabResource[] = [],
+  sessions: SkyLabQuickPracticeSession[] = []
 ): GroupedResources {
   const courseMap = new Map<string, SkyLabResource[]>();
+  const quickPracticeMap = new Map<string, SkyLabResource[]>();
   const personalResources: SkyLabResource[] = [];
+  const sessionByRequest = new Map<string, SkyLabQuickPracticeSession>();
+
+  for (const session of sessions) {
+    for (const machine of session.machines ?? []) {
+      if (machine.request_id) {
+        sessionByRequest.set(String(machine.request_id), session);
+      }
+    }
+  }
 
   for (const resource of resources) {
-    if (resource.teaching_class_id) {
+    const practiceSession = resource.request_id
+      ? sessionByRequest.get(String(resource.request_id))
+      : undefined;
+    if (practiceSession) {
+      const rows = quickPracticeMap.get(practiceSession.id) ?? [];
+      rows.push(resource);
+      quickPracticeMap.set(practiceSession.id, rows);
+    } else if (resource.teaching_class_id) {
       const classId = String(resource.teaching_class_id);
       const rows = courseMap.get(classId) ?? [];
       rows.push(resource);
@@ -71,8 +90,29 @@ export function groupResourcesByCourse(
     })
     .sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
 
+  const quickPracticeGroups = sessions
+    .filter(session => quickPracticeMap.has(session.id))
+    .map(session => {
+      const sortedRows = [...quickPracticeMap.get(session.id)!].sort(
+        resourceSort
+      );
+      const nodes = new Set(
+        sortedRows.map(resource => resource.node).filter(Boolean)
+      );
+      return {
+        id: `practice-${session.id}`,
+        title: session.title || "Quick practice",
+        resources: sortedRows,
+        runningCount: sortedRows.filter(
+          resource => resource.status === "running"
+        ).length,
+        nodeLabel: nodes.size === 1 ? String([...nodes][0]) : ""
+      };
+    });
+
   return {
     courseGroups,
+    quickPracticeGroups,
     personalResources: [...personalResources].sort(resourceSort)
   };
 }

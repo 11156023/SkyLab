@@ -195,6 +195,23 @@ class SkyLabService {
     return JSON.parse(res.body) as SkyLabResource[];
   }
 
+  async listQuickPracticeSessions(): Promise<SkyLabQuickPracticeSession[]> {
+    const res = await this.request(
+      "GET",
+      "/api/v1/quick-practice/sessions/my",
+      {
+        auth: true
+      }
+    );
+    if (res.status === 401) {
+      throw new BusinessError(ResponseCode.NOT_LOGGED_IN);
+    }
+    if (res.status !== 200) {
+      throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
+    }
+    return JSON.parse(res.body) as SkyLabQuickPracticeSession[];
+  }
+
   async getSessionStatus(vmid: number): Promise<SkyLabSessionStatus> {
     const res = await this.request(
       "GET",

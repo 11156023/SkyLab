@@ -27,6 +27,7 @@
     connected: "已安全連線",
     all: "全部資源",
     course: "課程環境",
+    practice: "快速練習",
     personal: "個人資源",
     filter: "資源分類",
     search: "搜尋機器或 IP",

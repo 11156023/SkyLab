@@ -23,6 +23,18 @@ class ResourceController extends BaseController {
       });
   }
 
+  listMyQuickPracticeSessions(req: ControllerParam) {
+    this._SkyLabService
+      .listQuickPracticeSessions()
+      .then(data => {
+        req.event.reply(req.channel, ResponseUtils.success(data));
+      })
+      .catch((err: Error) => {
+        Logger.error("ResourceController.listMyQuickPracticeSessions", err);
+        req.event.reply(req.channel, ResponseUtils.fail(err));
+      });
+  }
+
   async getSessionStatuses(req: ControllerParam) {
     try {
       const statuses = await this._SkyLabService.listSessionStatuses();

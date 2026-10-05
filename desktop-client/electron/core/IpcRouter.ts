@@ -17,6 +17,10 @@ export const ipcRouters: IpcRouters = {
     listMyResources: {
       path: "resource/listMyResources",
       controller: "resourceController.listMyResources"
+    },
+    listMyQuickPracticeSessions: {
+      path: "resource/listMyQuickPracticeSessions",
+      controller: "resourceController.listMyQuickPracticeSessions"
     }
   },
   SESSION: {

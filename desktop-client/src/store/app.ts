@@ -20,6 +20,7 @@ interface AppState {
   updateInstallError: string;
   tunnelStatus: TunnelStatusInfo;
   resources: SkyLabResource[];
+  quickPracticeSessions: SkyLabQuickPracticeSession[];
   sessionStatuses: SkyLabSessionStatus[];
   /** vmids the user already snoozed so we don't re-pop while still warning. */
   dismissedWarnings: number[];
@@ -86,6 +87,7 @@ export const useAppStore = defineStore("app", {
     updateInstallError: "",
     tunnelStatus: { ...DEFAULT_TUNNEL_STATUS },
     resources: [],
+    quickPracticeSessions: [],
     sessionStatuses: [],
     dismissedWarnings: [],
     permanentDismissals: loadPermanentDismissals()
@@ -119,6 +121,7 @@ export const useAppStore = defineStore("app", {
       on(ipcRouters.AUTH.logout, () => {
         this.loggedIn = false;
         this.resources = [];
+        this.quickPracticeSessions = [];
         this.resourcesLoading = false;
         this.resourcesError = "";
         this.loginInProgress = false;
@@ -182,6 +185,16 @@ export const useAppStore = defineStore("app", {
         (_code, message) => {
           this.resourcesLoading = false;
           this.resourcesError = message;
+        }
+      );
+      on(
+        ipcRouters.RESOURCE.listMyQuickPracticeSessions,
+        data => {
+          if (!this.loggedIn) return;
+          this.quickPracticeSessions = Array.isArray(data) ? data : [];
+        },
+        () => {
+          this.quickPracticeSessions = [];
         }
       );
       on(ipcRouters.SESSION.getSessionStatuses, data => {
@@ -252,6 +265,7 @@ export const useAppStore = defineStore("app", {
       this.resourcesLoading = true;
       this.resourcesError = "";
       send(ipcRouters.RESOURCE.listMyResources);
+      send(ipcRouters.RESOURCE.listMyQuickPracticeSessions);
     },
     refreshSessionStatuses() {
       if (!this.loggedIn) return;
@@ -293,6 +307,7 @@ export const useAppStore = defineStore("app", {
       this.loggedIn = false;
       this.loginInProgress = false;
       this.resources = [];
+      this.quickPracticeSessions = [];
       this.resourcesLoading = false;
       this.resourcesError = "";
       this.stopSessionPolling();
