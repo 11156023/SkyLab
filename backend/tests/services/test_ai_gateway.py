@@ -195,6 +195,56 @@ def test_review_reads_the_row_with_a_lock(
     )
 
 
+def test_bulk_reject_uses_one_reason_and_one_transaction(db: Session) -> None:
+    user = _user(db)
+    request_ids = [_request(db, user), _request(db, user)]
+    reviewer = _admin(db)
+
+    result = ai_gateway_service.bulk_reject_requests(
+        session=db,
+        request_ids=list(reversed(request_ids)),
+        review_comment="用途與申請內容不符",
+        reviewer=reviewer,
+    )
+
+    assert result.count == 2
+    assert {item.id for item in result.data} == set(request_ids)
+    assert {item.status for item in result.data} == {AIAPIRequestStatus.rejected}
+    assert {item.review_comment for item in result.data} == {"用途與申請內容不符"}
+    assert {item.reviewer_id for item in result.data} == {reviewer.id}
+
+
+def test_bulk_reject_is_atomic_when_one_request_was_already_reviewed(
+    db: Session,
+) -> None:
+    user = _user(db)
+    request_ids = [_request(db, user), _request(db, user)]
+    reviewer = _admin(db)
+    ai_gateway_service.review_request(
+        session=db,
+        request_id=request_ids[0],
+        review_data=AIAPIRequestReview(
+            status=AIAPIRequestStatus.rejected,
+            review_comment="先前已處理",
+        ),
+        reviewer=reviewer,
+    )
+
+    with pytest.raises(BadRequestError):
+        ai_gateway_service.bulk_reject_requests(
+            session=db,
+            request_ids=request_ids,
+            review_comment="批量理由",
+            reviewer=reviewer,
+        )
+
+    db.expire_all()
+    already_reviewed = db.get(AIAPIRequest, request_ids[0])
+    still_pending = db.get(AIAPIRequest, request_ids[1])
+    assert already_reviewed is not None and already_reviewed.review_comment == "先前已處理"
+    assert still_pending is not None and still_pending.status == AIAPIRequestStatus.pending
+
+
 def test_submit_locks_the_applicant_row(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

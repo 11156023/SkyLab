@@ -21,6 +21,7 @@ from app.schemas import (
     AIAPICredentialsPublic,
     AIAPICredentialUpdate,
     AIAPICredentialWithSecret,
+    AIAPIRequestBulkReject,
     AIAPIRequestCreate,
     AIAPIRequestPublic,
     AIAPIRequestReview,
@@ -92,6 +93,21 @@ def list_all_ai_api_requests(
 ) -> Any:
     return ai_gateway_service.list_all_requests(
         session=session, status=status, skip=skip, limit=limit
+    )
+
+
+@router.post("/requests/bulk-reject", response_model=AIAPIRequestsPublic)
+def bulk_reject_ai_api_requests(
+    review: AIAPIRequestBulkReject,
+    session: SessionDep,
+    current_user: AIAPIReviewerUser,
+) -> Any:
+    """以同一理由原子駁回多筆仍在待審核狀態的申請。"""
+    return ai_gateway_service.bulk_reject_requests(
+        session=session,
+        request_ids=review.request_ids,
+        review_comment=review.review_comment,
+        reviewer=current_user,
     )
 
 

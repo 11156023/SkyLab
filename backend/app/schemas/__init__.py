@@ -16,6 +16,7 @@ from .ai_api import (
     AIAPICredentialsPublic,
     AIAPICredentialUpdate,
     AIAPICredentialWithSecret,
+    AIAPIRequestBulkReject,
     AIAPIRequestCreate,
     AIAPIRequestPublic,
     AIAPIRequestReview,
@@ -191,6 +192,7 @@ __all__ = [
     "DeletionRequestCreated",
     # AI API
     "AIAPIRequestCreate",
+    "AIAPIRequestBulkReject",
     "AIAPIRequestReview",
     "AIAPIRequestPublic",
     "AIAPIRequestsPublic",
