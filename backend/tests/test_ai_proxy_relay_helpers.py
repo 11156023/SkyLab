@@ -18,6 +18,14 @@ from app.features.ai.config import settings as ai_api_settings
 from app.services.llm_gateway import relay_service
 
 
+@pytest.fixture(autouse=True)
+def _mock_model_catalogue(monkeypatch) -> None:
+    async def catalogue():
+        return {"m", "model", "gpt-oss-20B"}
+
+    monkeypatch.setattr(relay_service, "public_models", catalogue)
+
+
 def _request(
     *,
     body: bytes = b"{}",
@@ -216,7 +224,7 @@ async def test_usage_recording_uses_independent_session_off_event_loop(
 async def test_admission_queue_waits_rejects_overflow_and_releases() -> None:
     queue = relay_service.AdmissionQueue(
         max_active=1,
-        max_waiting=1,
+        max_waiting=2,
         wait_timeout_seconds=1,
     )
     first = await queue.acquire()
@@ -267,7 +275,7 @@ async def test_admission_queue_does_not_let_new_requests_bypass_waiters() -> Non
 async def test_admission_queue_timeout_and_cancel_do_not_leak_waiters() -> None:
     queue = relay_service.AdmissionQueue(
         max_active=1,
-        max_waiting=1,
+        max_waiting=2,
         wait_timeout_seconds=0.01,
     )
     first = await queue.acquire()
@@ -294,7 +302,7 @@ async def test_admission_slot_handed_to_cancelled_waiter_is_returned() -> None:
     """token 已交給 waiter、它卻在恢復執行前被取消時，名額要還回去。"""
     queue = relay_service.AdmissionQueue(
         max_active=1,
-        max_waiting=1,
+        max_waiting=2,
         wait_timeout_seconds=1,
     )
     first = await queue.acquire()
@@ -552,13 +560,20 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
     user = SimpleNamespace(id="user-1")
     credential = SimpleNamespace(id="credential-1", rate_limit=None)
 
-    response = asyncio.run(
-        ai_proxy._relay_generation(
+    async def invoke():
+        response = await ai_proxy._relay_generation(
             endpoint="responses",
             request=request,
             user_and_credential=(user, credential),
         )
-    )
+
+        async def send(_message):
+            return None
+
+        await response(request.scope, request.receive, send)
+        return response
+
+    response = asyncio.run(invoke())
 
     outbound = captured["request"]
     assert isinstance(outbound, httpx.Request)
@@ -683,6 +698,7 @@ async def test_generation_returns_503_when_admission_queue_is_full(
     )
     lease = await queue.acquire()
     monkeypatch.setattr(relay_service, "_get_admission_queue", lambda: queue)
+    monkeypatch.setattr(relay_service, "record_usage_safely", lambda **_kwargs: None)
 
     response = await relay_service.relay_generation(
         endpoint="chat/completions",

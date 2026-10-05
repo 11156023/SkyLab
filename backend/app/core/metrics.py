@@ -229,6 +229,37 @@ AI_PROXY_ADMISSION_REJECTIONS = Counter(
     labelnames=("reason",),
     registry=REGISTRY,
 )
+AI_PROXY_MODEL_INFLIGHT = Gauge(
+    "skylab_ai_proxy_model_inflight_requests",
+    "Active Campus AI relay attempts per public model",
+    labelnames=("model",),
+    registry=REGISTRY,
+)
+AI_PROXY_MODEL_WAITING = Gauge(
+    "skylab_ai_proxy_model_waiting_requests",
+    "Waiting Campus AI relay requests per public model",
+    labelnames=("model",),
+    registry=REGISTRY,
+)
+AI_PROXY_EVENTS = Counter(
+    "skylab_ai_proxy_scheduler_events_total",
+    "Campus relay attempts, model limits and recovery probe outcomes",
+    labelnames=("model", "event"),
+    registry=REGISTRY,
+)
+AI_PROXY_COOLDOWN = Histogram(
+    "skylab_ai_proxy_cooldown_seconds",
+    "Upstream signalled model cooldown durations",
+    labelnames=("model",),
+    registry=REGISTRY,
+    buckets=(0.1, 1, 5, 10, 20, 30, 60, 120),
+)
+AI_PROXY_FINAL_STATUS = Counter(
+    "skylab_ai_proxy_final_status_total",
+    "Terminal Campus relay status (499 = disconnect, 503 = deadline/shutdown)",
+    labelnames=("model", "status"),
+    registry=REGISTRY,
+)
 
 
 @contextmanager

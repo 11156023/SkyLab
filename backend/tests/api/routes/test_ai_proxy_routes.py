@@ -118,7 +118,8 @@ def _fake_upstream_client(captured: dict[str, Any]) -> type:
         async def send(
             self, request: httpx.Request, *, stream: bool
         ) -> httpx.Response:
-            assert stream is False
+            # httpx stream=True 只表示 headers-first transport，與 public SSE 選項無關。
+            assert stream is True
             payload = json.loads(request.content)
             return httpx.Response(
                 200,
