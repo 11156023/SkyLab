@@ -10,6 +10,7 @@ local 一律放行；非 local 的認證類 scope 會回 503，其餘照舊放�
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request, status
@@ -39,6 +40,16 @@ def _client_ip(request: Request) -> str:
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
+
+
+def _client_network(ip: str) -> str:
+    """將來源收旂為 IPv4 /24 或 IPv6 /64，擋住輪換單一 IP 的分散源。"""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return "unknown"
+    prefix = 24 if address.version == 4 else 64
+    return str(ipaddress.ip_network(f"{address}/{prefix}", strict=False))
 
 
 def rate_limit_by_ip(
@@ -122,6 +133,43 @@ def rate_limit_by_user(
     return _dep
 
 
+def rate_limit_by_network_and_global(
+    *,
+    scope: str,
+    subnet_limit: int,
+    global_limit: int,
+    window_seconds: int,
+) -> Callable:
+    """用同一 Redis 滑動視窗同時限制來源網段與全站容量。"""
+
+    async def _dep(request: Request) -> None:
+        redis = await get_redis()
+        buckets = (
+            (f"network:{scope}:{_client_network(_client_ip(request))}", subnet_limit),
+            (f"global:{scope}", global_limit),
+        )
+        for key, limit in buckets:
+            allowed, info = await check_rate_limit_by_key(
+                redis,
+                key=key,
+                limit=limit,
+                window_seconds=window_seconds,
+                scope=scope,
+            )
+            if not allowed:
+                retry_after = info.get("window_seconds", window_seconds)
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=t(
+                        "rate_limit.user_too_many_requests",
+                        retry_after=retry_after,
+                    ),
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+    return _dep
+
+
 async def enforce_account_rate_limit(
     *,
     scope: str,
@@ -154,4 +202,9 @@ async def enforce_account_rate_limit(
         )
 
 
-__all__ = ["enforce_account_rate_limit", "rate_limit_by_ip", "rate_limit_by_user"]
+__all__ = [
+    "enforce_account_rate_limit",
+    "rate_limit_by_ip",
+    "rate_limit_by_network_and_global",
+    "rate_limit_by_user",
+]

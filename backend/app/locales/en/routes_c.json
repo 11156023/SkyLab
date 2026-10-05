@@ -95,5 +95,6 @@
   "course_env.file_name_invalid": "Invalid file name",
   "course_env.file_name_too_long": "File name is too long",
   "course_env.file_too_large": "File exceeds the 50 MB limit",
-  "course_env.file_not_found": "This file no longer exists"
+  "course_env.file_not_found": "This file no longer exists",
+  "error.request_body_too_large": "The request body exceeds the allowed size."
 }

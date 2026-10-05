@@ -2,9 +2,18 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 
-from app.api.deps import AIAPIReviewerUser, AIAPIViewAllUser, CurrentUser, SessionDep
+from app.api.deps import (
+    AIAPIReviewerUser,
+    AIAPIViewAllUser,
+    CurrentUser,
+    SessionDep,
+    rate_limit_by_user,
+)
+from app.api.request_body import limited_json_openapi, parse_limited_json
+from app.core.config import settings
 from app.models import AIAPIRequestStatus, UserRole
 from app.schemas import (
     AIAPICredentialPublic,
@@ -24,15 +33,40 @@ from app.services.llm_gateway import ai_gateway_service
 
 router = APIRouter(prefix="/ai-api", tags=["ai-api"])
 
+_AI_API_REQUEST_RATE_LIMIT = Depends(
+    rate_limit_by_user(
+        scope="ai-api-request",
+        limit=settings.AI_API_CONTROL_RATE_LIMIT_PER_USER,
+        window_seconds=60,
+    )
+)
+_AI_API_ROTATE_RATE_LIMIT = Depends(
+    rate_limit_by_user(
+        scope="ai-api-rotate",
+        limit=settings.AI_API_CONTROL_RATE_LIMIT_PER_USER,
+        window_seconds=60,
+    )
+)
 
-@router.post("/requests", response_model=AIAPIRequestPublic)
-def create_ai_api_request(
-    request_in: AIAPIRequestCreate,
+
+@router.post(
+    "/requests",
+    response_model=AIAPIRequestPublic,
+    dependencies=[_AI_API_REQUEST_RATE_LIMIT],
+    openapi_extra=limited_json_openapi(AIAPIRequestCreate),
+)
+async def create_ai_api_request(
+    request: Request,
     session: SessionDep,
     current_user: CurrentUser,
 ) -> Any:
-    return ai_gateway_service.create_request(
-        session=session, request_in=request_in, user=current_user
+    # 不宣告 Pydantic body parameter：先完成 auth／限流，再串流讀取有界 JSON。
+    request_in = await parse_limited_json(request, AIAPIRequestCreate)
+    return await run_in_threadpool(
+        ai_gateway_service.create_request,
+        session=session,
+        request_in=request_in,
+        user=current_user,
     )
 
 
@@ -184,6 +218,7 @@ def get_my_ai_api_credential(
 @router.post(
     "/credentials/{credential_id}/rotate",
     response_model=AIAPICredentialWithSecret,
+    dependencies=[_AI_API_ROTATE_RATE_LIMIT],
 )
 def rotate_my_ai_api_credential(
     credential_id: uuid.UUID,

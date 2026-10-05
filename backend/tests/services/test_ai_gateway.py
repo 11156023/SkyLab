@@ -195,6 +195,25 @@ def test_review_reads_the_row_with_a_lock(
     )
 
 
+def test_submit_locks_the_applicant_row(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _user(db)
+    statements: list[str] = []
+    original_exec = db.exec
+
+    def spy(statement, *args, **kwargs):
+        statements.append(str(statement.compile(dialect=db.get_bind().dialect)))
+        return original_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "exec", spy)
+    _request(db, user)
+
+    assert any(
+        'FROM "user"' in sql and "FOR UPDATE" in sql for sql in statements
+    )
+
+
 # ---- 我的用量 ----------------------------------------------------
 
 
@@ -208,6 +227,29 @@ def _approved_credential(db: Session, user: User) -> uuid.UUID:
     )
     [credential] = _credentials(db, request_id)
     return credential.id
+
+
+def test_rotation_locks_the_source_credential(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _user(db)
+    credential_id = _approved_credential(db, user)
+    statements: list[str] = []
+    original_exec = db.exec
+
+    def spy(statement, *args, **kwargs):
+        statements.append(str(statement.compile(dialect=db.get_bind().dialect)))
+        return original_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "exec", spy)
+    ai_gateway_service.rotate_credential(
+        session=db, credential_id=credential_id, current_user=user
+    )
+
+    assert any(
+        "FROM ai_api_credentials" in sql and "FOR UPDATE" in sql
+        for sql in statements
+    )
 
 
 def _usage(

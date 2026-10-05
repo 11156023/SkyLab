@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -15,7 +16,7 @@ from app.api.deps import get_current_user, get_db
 from app.api.deps.auth import get_current_ai_api_reviewer
 from app.api.routes.ai_api import router
 from app.core.security import encrypt_value
-from app.exceptions import AppError, BadRequestError
+from app.exceptions import AppError, BadRequestError, ConflictError
 from app.models import (
     AIAPICredential,
     AIAPIRequest,
@@ -333,3 +334,59 @@ def test_existing_student_permanent_key_can_still_be_rotated_without_shortening(
     assert old.expires_at is None
     assert old.revoked_at is not None
     assert len(isolated_session.exec(select(AIAPICredential)).all()) == 2
+
+
+def test_user_cannot_accumulate_more_than_three_pending_requests(
+    isolated_session: Session,
+) -> None:
+    applicant = _user(isolated_session, UserRole.student)
+    request_in = AIAPIRequestCreate(
+        purpose="Bound pending control-plane work", duration="1d"
+    )
+    for _ in range(ai_gateway_service.MAX_PENDING_REQUESTS_PER_USER):
+        ai_gateway_service.create_request(
+            session=isolated_session, request_in=request_in, user=applicant
+        )
+
+    with pytest.raises(ConflictError):
+        ai_gateway_service.create_request(
+            session=isolated_session, request_in=request_in, user=applicant
+        )
+
+    requests = isolated_session.exec(
+        select(AIAPIRequest).where(AIAPIRequest.user_id == applicant.id)
+    ).all()
+    assert len(requests) == ai_gateway_service.MAX_PENDING_REQUESTS_PER_USER
+    assert all(item.status == AIAPIRequestStatus.pending for item in requests)
+
+
+def test_database_rejects_two_active_credentials_for_one_request(
+    isolated_session: Session,
+) -> None:
+    applicant = _user(isolated_session, UserRole.student)
+    approved = AIAPIRequest(
+        user_id=applicant.id,
+        purpose="Prove active credential uniqueness",
+        duration="1d",
+        status=AIAPIRequestStatus.approved,
+    )
+    isolated_session.add(approved)
+    isolated_session.commit()
+
+    def credential(suffix: str) -> AIAPICredential:
+        return AIAPICredential(
+            user_id=applicant.id,
+            request_id=approved.id,
+            api_key_name=suffix,
+            base_url="https://campus.example.test",
+            api_key_prefix=f"ccai_{suffix}",
+            api_key_encrypted=encrypt_value(f"ccai_{suffix}_secret"),
+        )
+
+    isolated_session.add(credential("first"))
+    isolated_session.commit()
+    isolated_session.add(credential("second"))
+    with pytest.raises(IntegrityError):
+        isolated_session.commit()
+    isolated_session.rollback()
+    assert len(isolated_session.exec(select(AIAPICredential)).all()) == 1

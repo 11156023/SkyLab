@@ -24,6 +24,7 @@
   "ai_gateway.student_duration_restricted": "学生が申請できるキーの有効期間は 1 日・7 日・30 日・90 日です。無期限は申請できません。有効期間を選択して再申請してください。旧申請は却下してください。",
   "ai_gateway.non_student_duration_restricted": "教師と管理者は 1 日・7 日・30 日・無期限のキーを申請できます。有効期間を選択して再申請してください。旧申請は却下してください。",
   "ai_gateway.invalid_review_status": "審査結果は「承認」または「却下」のいずれかを指定してください",
+  "ai_gateway.pending_request_limit": "1 ユーザーが同時に保持できる審査待ち AI API 申請は {limit} 件までです。審査完了後に再申請してください。",
   "monitoring.invalid_timeframe": "timeframe は {allowed} のいずれかである必要があります",
   "monitoring.resource_not_found": "リソース {vmid} が見つかりません",
   "governance.idle_notify_after_must_precede_grace": "アイドル通知までの時間（{notify_after} 時間）はシャットダウン猶予期間（{grace} 時間）より短く設定してください",

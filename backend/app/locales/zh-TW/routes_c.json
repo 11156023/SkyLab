@@ -95,5 +95,6 @@
   "course_env.file_name_invalid": "檔名不合法",
   "course_env.file_name_too_long": "檔名過長",
   "course_env.file_too_large": "檔案超過 50 MB 上限",
-  "course_env.file_not_found": "找不到這份文件"
+  "course_env.file_not_found": "找不到這份文件",
+  "error.request_body_too_large": "請求內容超過允許大小。"
 }

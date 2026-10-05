@@ -7,7 +7,12 @@ import pytest
 redis_asyncio = pytest.importorskip("redis.asyncio")
 Redis = redis_asyncio.Redis
 
-from app.infrastructure.redis.rate_limiter import check_rate_limit_by_key
+from app.exceptions import AppError
+from app.infrastructure.redis import rate_limiter
+from app.infrastructure.redis.rate_limiter import (
+    FAIL_CLOSED_SCOPES,
+    check_rate_limit_by_key,
+)
 
 
 @pytest.fixture
@@ -69,3 +74,21 @@ async def test_redis_disabled_fails_open() -> None:
     )
     assert allowed is True
     assert info.get("disabled") is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["signup", "ai-api-request", "ai-api-rotate"])
+async def test_control_plane_scopes_fail_closed_without_redis(
+    monkeypatch: pytest.MonkeyPatch, scope: str
+) -> None:
+    monkeypatch.setattr(rate_limiter, "redis_failures_are_fatal", lambda: True)
+    assert scope in FAIL_CLOSED_SCOPES
+    with pytest.raises(AppError) as exc_info:
+        await check_rate_limit_by_key(
+            None,
+            key=f"test:{scope}",
+            limit=1,
+            window_seconds=60,
+            scope=scope,
+        )
+    assert exc_info.value.status_code == 503
