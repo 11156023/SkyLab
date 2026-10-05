@@ -121,6 +121,39 @@ def test_ai_api_request_review_flow(
     assert len(latest["api_key_prefix"]) == API_KEY_PREFIX_LENGTH
 
 
+def test_ai_api_bulk_reject_flow(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+) -> None:
+    user_headers = _create_test_user_headers(client, db, "ai-api-bulk-review@example.com")
+    request_ids = []
+    for index in range(2):
+        response = client.post(
+            f"{settings.API_V1_STR}/ai-api/requests",
+            headers=user_headers,
+            json={
+                "purpose": f"Bulk rejection route test request {index}.",
+                "duration": "30d",
+            },
+        )
+        assert response.status_code == 200
+        request_ids.append(response.json()["id"])
+
+    response = client.post(
+        f"{settings.API_V1_STR}/ai-api/requests/bulk-reject",
+        headers=superuser_token_headers,
+        json={"request_ids": request_ids, "review_comment": "批量測試理由"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    assert {item["id"] for item in payload["data"]} == set(request_ids)
+    assert {item["status"] for item in payload["data"]} == {"rejected"}
+    assert {item["review_comment"] for item in payload["data"]} == {"批量測試理由"}
+
+
 def test_ai_api_rotate_rejects_expired_credential(
     client: TestClient,
     superuser_token_headers: dict[str, str],

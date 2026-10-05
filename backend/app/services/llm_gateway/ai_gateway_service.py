@@ -7,13 +7,14 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import Date, and_, case, cast, distinct, func, literal, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from app.core.authorizers import require_ai_api_access, require_ai_api_manage
 from app.core.i18n import t
 from app.core.security import decrypt_value, encrypt_value
-from app.exceptions import BadRequestError, NotFoundError
+from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.features.ai.config import settings as ai_api_settings
 from app.models import (
     API_KEY_PREFIX_LENGTH,
@@ -44,6 +45,10 @@ from app.services.user import audit_service
 logger = logging.getLogger(__name__)
 
 DEFAULT_REQUEST_RATE_LIMIT = 20
+# 同一使用者可同時說明數個不同用途，但不能無上限堆積待審工作。
+MAX_PENDING_REQUESTS_PER_USER = 3
+# 清單端點最多一次呈現 100 筆；批量駁回沿用同一上限，避免一次鎖住過大的交易。
+MAX_BULK_REJECT_REQUESTS = 100
 #: 可換算的金鑰效期；never 只供教師／管理員申請。
 KEY_DURATIONS: dict[str, timedelta | None] = {
     "1d": timedelta(days=1),
@@ -112,10 +117,22 @@ def _credential_prefix(api_key: str) -> str:
 
 
 def _get_manageable_credential(
-    *, session: Session, credential_id: uuid.UUID, current_user
+    *,
+    session: Session,
+    credential_id: uuid.UUID,
+    current_user,
+    for_update: bool = False,
 ) -> AIAPICredential:
     """取出金鑰並檢查「可寫」權限（擁有者，或具 AI_API_MANAGE_ALL 的管理員）。"""
-    credential = session.get(AIAPICredential, credential_id)
+    if for_update:
+        credential = session.exec(
+            select(AIAPICredential)
+            .where(AIAPICredential.id == credential_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).one_or_none()
+    else:
+        credential = session.get(AIAPICredential, credential_id)
     if not credential:
         raise NotFoundError(t("ai_gateway.credential_not_found"))
     require_ai_api_manage(
@@ -260,9 +277,38 @@ def _validate_request_duration(duration: str, user: User) -> None:
 def create_request(
     *, session: Session, request_in: AIAPIRequestCreate, user: User
 ) -> AIAPIRequestPublic:
-    _validate_request_duration(request_in.duration, user)
+    # 以 User row 當每位申請人的 transaction mutex。兩個同步送件會依序取得
+    # 這把鎖，再計算 pending 數量，不會同時讀到舊 count 而一起超額寫入。
+    applicant = session.exec(
+        select(User)
+        .where(User.id == user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one_or_none()
+    if applicant is None:
+        raise NotFoundError(t("auth.user_not_found"))
+
+    _validate_request_duration(request_in.duration, applicant)
+    pending_count = int(
+        session.exec(
+            select(func.count())
+            .select_from(AIAPIRequest)
+            .where(
+                AIAPIRequest.user_id == applicant.id,
+                AIAPIRequest.status == AIAPIRequestStatus.pending,
+            )
+        ).one()
+    )
+    if pending_count >= MAX_PENDING_REQUESTS_PER_USER:
+        raise ConflictError(
+            t(
+                "ai_gateway.pending_request_limit",
+                limit=MAX_PENDING_REQUESTS_PER_USER,
+            )
+        )
+
     db_request = AIAPIRequest(
-        user_id=user.id,
+        user_id=applicant.id,
         purpose=request_in.purpose.strip(),
         api_key_name=request_in.api_key_name.strip(),
         duration=request_in.duration,
@@ -271,14 +317,16 @@ def create_request(
     session.add(db_request)
     audit_service.log_action(
         session=session,
-        user_id=user.id,
+        user_id=applicant.id,
         action="ai_api_request_submit",
         details=f"Submitted AI API request. Purpose: {db_request.purpose}",
         commit=False,
     )
     session.commit()
     session.refresh(db_request)
-    logger.info("User %s submitted AI API request %s", user.email, db_request.id)
+    logger.info(
+        "User %s submitted AI API request %s", applicant.email, db_request.id
+    )
     return _to_request_public(db_request)
 
 
@@ -410,6 +458,69 @@ def review_request(
     session.refresh(db_request)
     logger.info("Admin %s %s AI API request %s", reviewer.email, action, request_id)
     return _to_request_public(db_request)
+
+
+def bulk_reject_requests(
+    *,
+    session: Session,
+    request_ids: list[uuid.UUID],
+    review_comment: str,
+    reviewer,
+) -> AIAPIRequestsPublic:
+    """在單一交易內駁回一組仍待審核的申請。
+
+    先以固定順序鎖定所有列並驗證完整集合，任一列已被處理或不存在時
+    都不會寫入任何一筆，避免前端批量操作只完成半組。
+    """
+    if not request_ids or len(request_ids) > MAX_BULK_REJECT_REQUESTS:
+        raise BadRequestError(t("ai_gateway.bulk_invalid_selection"))
+    if len(request_ids) != len(set(request_ids)):
+        raise BadRequestError(t("ai_gateway.bulk_invalid_selection"))
+    comment = review_comment.strip() if review_comment else ""
+    if not comment:
+        raise BadRequestError(t("ai_gateway.bulk_review_comment_required"))
+
+    rows = list(
+        session.exec(
+            select(AIAPIRequest)
+            .where(AIAPIRequest.id.in_(request_ids))
+            .order_by(AIAPIRequest.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).all()
+    )
+    if len(rows) != len(request_ids):
+        raise NotFoundError(t("ai_gateway.bulk_request_not_found"))
+    if any(row.status != AIAPIRequestStatus.pending for row in rows):
+        raise BadRequestError(t("ai_gateway.bulk_request_already_reviewed"))
+
+    reviewed_at = get_datetime_utc()
+    for row in rows:
+        row.status = AIAPIRequestStatus.rejected
+        row.reviewer_id = reviewer.id
+        row.review_comment = comment
+        row.reviewed_at = reviewed_at
+        session.add(row)
+        audit_service.log_action(
+            session=session,
+            user_id=reviewer.id,
+            action="ai_api_request_review",
+            details=f"Reviewed AI API request {row.id}: rejected. Comment: {comment}",
+            commit=False,
+        )
+
+    session.commit()
+    for row in rows:
+        session.refresh(row)
+    logger.info(
+        "Admin %s bulk rejected %d AI API requests",
+        reviewer.email,
+        len(rows),
+    )
+    return AIAPIRequestsPublic(
+        data=[_to_request_public(row) for row in rows],
+        count=len(rows),
+    )
 
 
 def list_credentials_by_user(
@@ -555,7 +666,10 @@ def rotate_credential(
     *, session: Session, credential_id: uuid.UUID, current_user
 ) -> AIAPICredentialWithSecret:
     credential = _get_manageable_credential(
-        session=session, credential_id=credential_id, current_user=current_user
+        session=session,
+        credential_id=credential_id,
+        current_user=current_user,
+        for_update=True,
     )
 
     if credential.revoked_at is not None:
@@ -593,7 +707,16 @@ def rotate_credential(
         commit=False,
     )
 
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # Partial unique index 是最後一道防線。若另一個 transaction 已完成輪替，
+        # 回到既有「已失效」語意；其他完整性錯誤仍交給上層，不可誤報。
+        session.rollback()
+        source = session.get(AIAPICredential, credential_id)
+        if source is not None and source.revoked_at is not None:
+            raise BadRequestError(t("ai_gateway.credential_already_revoked"))
+        raise
     session.refresh(new_credential)
     # 代操時不回明文：管理員的目的是撤換別人的金鑰，不是取得它
     return _to_credential_with_secret(
