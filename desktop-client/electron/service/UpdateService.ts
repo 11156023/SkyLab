@@ -160,63 +160,7 @@ class UpdateService {
       directory = await fs.mkdtemp(join(tmpdir(), "SkyLab-Connect-update-"));
       const installer = join(directory, SETUP_ASSET_NAME);
       progress({ stage: "downloading", received: 0, total: asset.size });
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5 * 60_000);
-      let response: Response;
-      try {
-        let url = asset.browser_download_url;
-        for (let redirects = 0; ; redirects += 1) {
-          if (redirects > 5 || !validDownloadUrl(url))
-            throw new Error("Update download redirected to an untrusted host");
-          response = await net.fetch(url, {
-            redirect: "manual",
-            signal: controller.signal
-          });
-          if (![301, 302, 303, 307, 308].includes(response.status)) break;
-          const location = response.headers.get("location");
-          if (!location) throw new Error("Update redirect has no destination");
-          await response.body?.cancel();
-          url = new URL(location, url).href;
-        }
-        if (!response.ok || !response.body)
-          throw new Error(`Update download failed (${response.status})`);
-        const contentLength = Number(response.headers.get("content-length"));
-        if (contentLength && contentLength !== asset.size)
-          throw new Error("Installer size differs from the release metadata");
-        const reader = response.body.getReader();
-        const file = await fs.open(installer, "wx");
-        const hash = createHash("sha256");
-        let received = 0;
-        let lastProgressAt = 0;
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            received += value.byteLength;
-            if (received > asset.size)
-              throw new Error("Installer exceeds expected size");
-            hash.update(value);
-            await file.writeFile(value);
-            if (Date.now() - lastProgressAt > 200) {
-              progress({ stage: "downloading", received, total: asset.size });
-              lastProgressAt = Date.now();
-            }
-          }
-        } finally {
-          await file.close();
-          reader.releaseLock();
-        }
-        progress({ stage: "verifying", received, total: asset.size });
-        if (
-          received !== asset.size ||
-          hash.digest("hex").toLowerCase() !==
-            asset.digest.slice(7).toLowerCase()
-        ) {
-          throw new Error("Installer integrity check failed");
-        }
-      } finally {
-        clearTimeout(timeout);
-      }
+      await this.downloadInstaller(asset, installer, progress);
       progress({ stage: "launching", received: asset.size, total: asset.size });
       const launchError = await shell.openPath(installer);
       if (launchError)
@@ -230,6 +174,98 @@ class UpdateService {
     } finally {
       this.installing = false;
     }
+  }
+
+  private downloadInstaller(
+    asset: GitHubAsset,
+    installer: string,
+    progress: (status: SkyLabUpdateProgress) => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const size = asset.size as number;
+      const digest = asset.digest as string;
+      const request = net.request({
+        method: "GET",
+        url: asset.browser_download_url as string,
+        redirect: "manual"
+      });
+      request.setHeader("User-Agent", `SkyLab-Connect/${app.getVersion()}`);
+      let redirects = 0;
+      let settled = false;
+      const timeout = setTimeout(() => {
+        fail(new Error("Update download timed out"));
+        request.abort();
+      }, 30 * 60_000);
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      };
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      request.on("redirect", (_status, _method, redirectUrl) => {
+        redirects += 1;
+        if (redirects > 5 || !validDownloadUrl(redirectUrl)) {
+          fail(new Error("Update download redirected to an untrusted host"));
+          request.abort();
+          return;
+        }
+        // Electron requires this call synchronously inside the redirect event.
+        request.followRedirect();
+      });
+      request.on("response", response => {
+        if (response.statusCode !== 200) {
+          fail(new Error(`Update download failed (${response.statusCode})`));
+          request.abort();
+          return;
+        }
+        const contentLength = Number(response.headers["content-length"]);
+        if (contentLength && contentLength !== size) {
+          fail(new Error("Installer size differs from the release metadata"));
+          request.abort();
+          return;
+        }
+        void (async () => {
+          const file = await fs.open(installer, "wx");
+          const hash = createHash("sha256");
+          let received = 0;
+          let lastProgressAt = 0;
+          try {
+            for await (const chunk of response as unknown as AsyncIterable<Buffer>) {
+              const data = Buffer.from(chunk);
+              received += data.byteLength;
+              if (received > size)
+                throw new Error("Installer exceeds expected size");
+              hash.update(data);
+              await file.writeFile(data);
+              if (Date.now() - lastProgressAt > 200) {
+                progress({ stage: "downloading", received, total: size });
+                lastProgressAt = Date.now();
+              }
+            }
+          } finally {
+            await file.close();
+          }
+          progress({ stage: "verifying", received, total: size });
+          if (
+            received !== size ||
+            hash.digest("hex").toLowerCase() !== digest.slice(7).toLowerCase()
+          ) {
+            throw new Error("Installer integrity check failed");
+          }
+        })().then(finish, error => {
+          fail(error as Error);
+          request.abort();
+        });
+      });
+      request.on("error", fail);
+      request.end();
+    });
   }
 
   private fetchReleases(): Promise<GitHubRelease[]> {
