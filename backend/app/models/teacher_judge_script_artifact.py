@@ -37,6 +37,17 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
 
     __tablename__ = "teacher_judge_script_artifacts"
     __table_args__ = (
+        # 選填的 session／來源檔案必須屬於同一個班級（複合外鍵；刪除時由單欄外鍵 SET NULL）
+        sa.ForeignKeyConstraint(
+            ["session_id", "teaching_class_id"],
+            ["teacher_judge_sessions.id", "teacher_judge_sessions.teaching_class_id"],
+            name="fk_teacher_judge_artifacts_session_same_class",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_file_id", "teaching_class_id"],
+            ["teacher_judge_files.id", "teacher_judge_files.teaching_class_id"],
+            name="fk_teacher_judge_artifacts_file_same_class",
+        ),
         sa.Index(
             "ix_teacher_judge_script_artifacts_class_status",
             "teaching_class_id",

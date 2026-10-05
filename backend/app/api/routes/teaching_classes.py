@@ -17,6 +17,8 @@ from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
     INSTRUCTOR_ENROLLMENT_STATUS,
     BatchProvisionJob,
+    BatchProvisionTask,
+    BatchProvisionTaskStatus,
     ClassCapacityReservation,
     CourseEnvironment,
     CourseEnvironmentEdge,
@@ -347,9 +349,14 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
                 col(TeachingClassStudentMachine.class_student_id)
                 == col(TeachingClassStudent.id),
             )
+            .join(
+                BatchProvisionTask,
+                col(BatchProvisionTask.id)
+                == col(TeachingClassStudentMachine.batch_task_id),
+            )
             .where(col(TeachingClassStudent.class_id).in_(class_ids))
-            .where(col(TeachingClassStudentMachine.status) == "completed")
-            .where(col(TeachingClassStudentMachine.vmid).is_not(None))
+            .where(col(BatchProvisionTask.status) == BatchProvisionTaskStatus.completed)
+            .where(col(BatchProvisionTask.vmid).is_not(None))
             .group_by(col(TeachingClassStudent.class_id))
         ).all()
     )

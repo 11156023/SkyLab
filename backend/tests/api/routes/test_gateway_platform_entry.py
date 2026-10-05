@@ -42,6 +42,7 @@ def test_platform_entry_get_returns_config_shape(
         "gateway_ready",
         "certificate_configured",
         "gateway_host",
+        "dns_managed",
     }
 
 

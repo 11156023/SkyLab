@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlmodel import Session, desc, select
+from sqlmodel import Session, col, delete, desc, select
 
 from app.ai.teacher_judge import file_service
 from app.core.i18n import t
@@ -29,6 +29,7 @@ from app.models.teacher_judge_script_run import TeacherJudgeScriptRun
 from app.models.teacher_judge_session import TeacherJudgeSession
 from app.models.teacher_judge_student_submission import (
     TeacherJudgeStudentSubmission,
+    TeacherJudgeSubmissionItem,
 )
 from app.models.teaching_class import TeachingClass, TeachingClassStudent
 from app.schemas.course import (
@@ -58,12 +59,28 @@ def _student_submission(
     ).first()
 
 
+def _submission_item_ids(
+    session: Session,
+    submission: TeacherJudgeStudentSubmission | None,
+) -> set[str]:
+    if submission is None:
+        return set()
+    return set(
+        session.exec(
+            select(TeacherJudgeSubmissionItem.item_id).where(
+                TeacherJudgeSubmissionItem.submission_id == submission.id
+            )
+        ).all()
+    )
+
+
 def _completion_to_student(
+    session: Session,
     submission: TeacherJudgeStudentSubmission | None,
     *,
     item_ids: list[str],
 ) -> CourseAICompletionStudent:
-    completed = set(submission.completed_item_ids if submission else [])
+    completed = _submission_item_ids(session, submission)
     completed_item_ids = [item_id for item_id in item_ids if item_id in completed]
     all_completed = bool(item_ids) and len(completed_item_ids) == len(item_ids)
     return CourseAICompletionStudent(
@@ -544,6 +561,7 @@ def list_student_ai_assignments(
                     teaching_class_id=teaching_class.id,
                 ),
                 completion=_completion_to_student(
+                    session,
                     submission,
                     item_ids=[item.id for item in items],
                 ),
@@ -637,11 +655,12 @@ def get_student_ai_check(
         path_id=path_id,
         assignment_id=assignment_id,
     )
+    # The assignment is an artifact of the student's class, so matching the
+    # artifact also pins the run to that class.
     run = session.get(TeacherJudgeScriptRun, run_id)
     if (
         run is None
         or run.artifact_id != assignment.id
-        or run.teaching_class_id != assignment.teaching_class_id
         or not _target_for_student(run, user_id)
     ):
         raise NotFoundError(t("ai_assignment.check_not_found"))
@@ -688,7 +707,7 @@ def update_student_completion(
     if item_id is None:
         completed_items = set(valid_item_ids if completed else [])
     else:
-        completed_items = set(submission.completed_item_ids if submission else [])
+        completed_items = _submission_item_ids(session, submission)
         if completed:
             completed_items.add(item_id)
         else:
@@ -701,26 +720,36 @@ def update_student_completion(
     all_completed = len(completed_item_ids) == len(valid_item_ids)
     if submission is None:
         submission = TeacherJudgeStudentSubmission(
-            teaching_class_id=assignment.teaching_class_id,
             artifact_id=assignment.id,
             student_id=user_id,
-            completed_item_ids=completed_item_ids,
-            is_ready=all_completed,
             ready_at=now if all_completed else None,
             updated_at=now,
         )
+        session.add(submission)
+        session.flush()
     else:
-        was_ready = submission.is_ready
-        submission.completed_item_ids = completed_item_ids
-        submission.is_ready = all_completed
-        submission.ready_at = (
-            submission.ready_at if all_completed and was_ready else now
-        ) if all_completed else None
+        # 已就緒（ready_at 有值）且仍全部完成時保留原本的就緒時間
+        if not all_completed:
+            submission.ready_at = None
+        elif submission.ready_at is None:
+            submission.ready_at = now
         submission.updated_at = now
-    session.add(submission)
+        session.add(submission)
+        session.exec(
+            delete(TeacherJudgeSubmissionItem).where(
+                col(TeacherJudgeSubmissionItem.submission_id) == submission.id
+            )
+        )
+    for completed_item_id in completed_item_ids:
+        session.add(
+            TeacherJudgeSubmissionItem(
+                submission_id=submission.id, item_id=completed_item_id
+            )
+        )
     session.commit()
     session.refresh(submission)
     return _completion_to_student(
+        session,
         submission,
         item_ids=valid_item_ids,
     )

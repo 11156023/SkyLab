@@ -176,6 +176,8 @@ class PlatformEntryPublic(BaseModel):
     certificate_configured: bool
     # 主系統 nginx 要信任的代理位址（.env 的 SKYLAB_TRUSTED_PROXY 建議值）
     gateway_host: str
+    # 平台網域的 DNS 紀錄由 SkyLab 在 Cloudflare 建立與維護；False＝管理員自己設定
+    dns_managed: bool = False
 
 
 class GatewayCertificateUpdate(BaseModel):
@@ -240,6 +242,10 @@ class PlatformEntryStatus(BaseModel):
     # 位址或 http，代表主系統 nginx 還沒信任 Gateway（SKYLAB_TRUSTED_PROXY）
     observed_client_ip: str | None = None
     observed_scheme: str | None = None
+    # SkyLab 管理的 DNS 紀錄現況（"A 203.0.113.5"）；ok＝仍指向預設 DNS 目標且不經代理
+    dns_record: str | None = None
+    dns_record_ok: bool | None = None
+    dns_detail: str | None = None
     checked_at: datetime
 
 

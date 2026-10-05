@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.ai.teacher_judge import session_service
+from app.ai.teacher_judge import attachment_service, session_service
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionUpdateRequest,
 )
@@ -561,7 +561,7 @@ def test_session_public_many_matches_single_session_contract() -> None:
     db.add(artifact)
     db.commit()
     db.refresh(artifact)
-    db.add(TeacherJudgeScriptRun(teaching_class_id=class_id, artifact_id=artifact.id))
+    db.add(TeacherJudgeScriptRun(artifact_id=artifact.id))
     db.commit()
 
     batch = session_service.session_public_many(db, [first, second])
@@ -762,7 +762,6 @@ def test_bounded_history_compacts_older_attachments_but_keeps_latest_full() -> N
         [
             TeacherJudgeSessionAttachment(
                 session_id=item.id,
-                message_id=first.id,
                 original_filename="old.md",
                 extracted_text="OLD-FULL-TEXT-12345",
                 storage_key="old.md",
@@ -771,7 +770,6 @@ def test_bounded_history_compacts_older_attachments_but_keeps_latest_full() -> N
             ),
             TeacherJudgeSessionAttachment(
                 session_id=item.id,
-                message_id=second.id,
                 original_filename="new.md",
                 extracted_text="NEW-FULL-TEXT-67890",
                 storage_key="new.md",
@@ -780,6 +778,12 @@ def test_bounded_history_compacts_older_attachments_but_keeps_latest_full() -> N
             ),
         ]
     )
+    db.commit()
+    new_file, old_file = db.exec(
+        select(TeacherJudgeSessionAttachment).order_by(TeacherJudgeSessionAttachment.storage_key)
+    ).all()
+    attachment_service.bind_attachments_to_message(db, [new_file], second.id)
+    attachment_service.bind_attachments_to_message(db, [old_file], first.id)
     db.commit()
 
     history = session_service.bounded_history(db, item.id)

@@ -22,6 +22,7 @@ from app.models import (
     TeachingClassStudentMachine,
     TeachingClassWeek,
 )
+from tests.utils.class_machines import add_student_machine
 
 
 @pytest.fixture(name="engine")
@@ -97,13 +98,12 @@ def _make_class(
             done = remaining_ready > 0
             if done:
                 remaining_ready -= 1
-            session.add(
-                TeachingClassStudentMachine(
-                    class_student_id=enrollment.id,
-                    machine_node_id=node.id,
-                    vmid=1000 + remaining_ready if done else None,
-                    status="completed" if done else "pending",
-                )
+            add_student_machine(
+                session,
+                enrollment=enrollment,
+                node=node,
+                vmid=1000 + remaining_ready if done else None,
+                status="completed" if done else "pending",
             )
     session.flush()
     return item

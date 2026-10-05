@@ -20,6 +20,7 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionScriptCreateRequest,
 )
 from app.api.routes import teacher_judge_sessions
+from app.models.teacher_judge_attachment import TeacherJudgeMessageAttachment
 from app.models.teacher_judge_session import (
     TeacherJudgeMessageRole,
     TeacherJudgeMessageType,
@@ -493,8 +494,9 @@ async def test_message_can_send_parsed_attachment_without_text(
     assert [row.original_filename for row in result.user_message.attachments] == [
         "requirements.md"
     ]
-    db.refresh(attachment)
-    assert attachment.message_id == uuid.UUID(result.user_message.id)
+    link = db.get(TeacherJudgeMessageAttachment, attachment.id)
+    assert link is not None
+    assert link.message_id == uuid.UUID(result.user_message.id)
 
 
 @pytest.mark.asyncio

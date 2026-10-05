@@ -13,8 +13,10 @@ from app.exceptions import BadRequestError, ProxmoxError
 from app.models.platform_entry_config import PlatformEntryConfig
 from app.repositories import platform_entry as repo
 from app.repositories import reverse_proxy as rp_repo
+from app.schemas.cloudflare import CloudflareConfigPublic, CloudflareDNSRecordPublic
 from app.schemas.gateway import PlatformEntryUpdate
 from app.services.network import (
+    cloudflare_service,
     gateway_certificate_service,
     gateway_service,
     platform_entry_service,
@@ -83,7 +85,14 @@ class _Harness:
 
         def fake_upsert(session: _Session, **values: Any) -> PlatformEntryConfig:
             self.upserts.append(values)
-            session.config = PlatformEntryConfig(id=1, **values)
+            # 真的 repo 是就地更新同一列，DNS 紀錄欄位不會被洗掉
+            old = session.config
+            session.config = PlatformEntryConfig(
+                id=1,
+                dns_zone_id=old.dns_zone_id if old else "",
+                dns_record_id=old.dns_record_id if old else "",
+                **values,
+            )
             return session.config
 
         @contextmanager
@@ -404,3 +413,369 @@ def test_status_disabled_entry_is_applied_only_when_block_is_gone(harness: _Harn
         [], None, platform=nginx.PlatformEntry("skylab.example.com", "192.168.100.20", 8082, False)
     )
     assert platform_entry_service.get_status(session).applied is False
+
+
+# ─── DNS ─────────────────────────────────────────────────────────────────────
+
+_ZONE = "a" * 32
+_OTHER_ZONE = "b" * 32
+
+
+def _record(
+    record_id: str,
+    *,
+    type_: str = "A",
+    content: str = "203.0.113.5",
+    proxied: bool = False,
+    name: str = "skylab.example.com",
+) -> CloudflareDNSRecordPublic:
+    return CloudflareDNSRecordPublic(
+        id=record_id, zone_id=_ZONE, type=type_, name=name, content=content, ttl=1, proxied=proxied
+    )
+
+
+class _Dns:
+    """Cloudflare 那一側的替身：記錄建了／刪了哪些紀錄、DB 記下了哪筆。"""
+
+    def __init__(self, harness: _Harness, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.configured = True
+        self.zones: dict[str, str] = {"example.com": _ZONE, "example.org": _OTHER_ZONE}
+        self.events: list[str] = []
+        self.upserts: list[dict[str, Any]] = []
+        self.deleted: list[tuple[str, str]] = []
+        self.tracked: list[tuple[str, str]] = []
+        self.upsert_error: Exception | None = None
+        self.next_record_id = "rec-new"
+        self.found: CloudflareDNSRecordPublic | None = None
+
+        def fake_public_config(_session: object) -> CloudflareConfigPublic:
+            return CloudflareConfigPublic(
+                account_id=None,
+                is_configured=self.configured,
+                has_api_token=self.configured,
+                has_default_dns_target=self.configured,
+                default_dns_target_type="A" if self.configured else None,
+                default_dns_target_value="203.0.113.5" if self.configured else None,
+            )
+
+        def fake_find_zone(_session: object, domain: str) -> tuple[str, str] | None:
+            for name, zone_id in self.zones.items():
+                if domain == name or domain.endswith(f".{name}"):
+                    return zone_id, domain[: -(len(name) + 1)]
+            return None
+
+        def fake_upsert(**kwargs: Any) -> CloudflareDNSRecordPublic:
+            self.events.append("dns")
+            if self.upsert_error is not None:
+                raise self.upsert_error
+            self.upserts.append(kwargs)
+            return _record(self.next_record_id, name=kwargs["domain"])
+
+        def fake_delete(*, session: object, zone_id: str, record_id: str) -> None:
+            self.deleted.append((zone_id, record_id))
+
+        def fake_track(session: _Session, *, zone_id: str, record_id: str) -> None:
+            self.tracked.append((zone_id, record_id))
+            assert session.config is not None
+            session.config.dns_zone_id = zone_id
+            session.config.dns_record_id = record_id
+
+        def fake_sync(_session: object) -> None:
+            self.events.append("sync")
+            harness.syncs += 1
+            if harness.sync_error is not None:
+                raise harness.sync_error
+
+        monkeypatch.setattr(cloudflare_service, "get_public_config", fake_public_config)
+        monkeypatch.setattr(reverse_proxy_service, "find_zone_for_domain", fake_find_zone)
+        monkeypatch.setattr(cloudflare_service, "upsert_platform_dns_record", fake_upsert)
+        monkeypatch.setattr(cloudflare_service, "delete_reverse_proxy_dns_record", fake_delete)
+        monkeypatch.setattr(repo, "set_platform_dns_record", fake_track)
+        monkeypatch.setattr(reverse_proxy_service, "sync_to_gateway", fake_sync)
+        monkeypatch.setattr(cloudflare_service, "find_dns_record", lambda **_k: self.found)
+        monkeypatch.setattr(
+            cloudflare_service, "get_default_dns_target", lambda _s: ("A", "203.0.113.5")
+        )
+
+
+@pytest.fixture
+def dns(harness: _Harness, monkeypatch: pytest.MonkeyPatch) -> _Dns:
+    return _Dns(harness, monkeypatch)
+
+
+def test_save_points_dns_to_gateway_after_nginx_is_ready(harness: _Harness, dns: _Dns) -> None:
+    session = _Session()
+
+    result = platform_entry_service.save_config(session, _update())
+
+    # nginx 先接好網域，DNS 才指過來
+    assert dns.events == ["sync", "dns"]
+    assert dns.upserts == [
+        {
+            "session": session,
+            "zone_id": _ZONE,
+            "domain": "skylab.example.com",
+            "managed_record_id": "",
+        }
+    ]
+    assert dns.tracked == [(_ZONE, "rec-new")]
+    assert dns.deleted == []
+    assert result.dns_managed is True
+
+
+def test_save_leaves_dns_to_admin_when_domain_is_outside_cloudflare(
+    harness: _Harness, dns: _Dns
+) -> None:
+    result = platform_entry_service.save_config(
+        _Session(), _update(domain="skylab.campus.edu.tw")
+    )
+
+    assert dns.events == ["sync"]
+    assert dns.tracked == []
+    assert result.dns_managed is False
+
+
+def test_save_leaves_dns_to_admin_when_cloudflare_is_not_configured(
+    harness: _Harness, dns: _Dns
+) -> None:
+    dns.configured = False
+
+    result = platform_entry_service.save_config(_Session(), _update())
+
+    assert dns.events == ["sync"]
+    assert result.dns_managed is False
+
+
+def test_save_restores_config_and_nginx_when_dns_fails(harness: _Harness, dns: _Dns) -> None:
+    dns.upsert_error = BadRequestError("conflicting CNAME")
+    session = _Session(_config(domain="old.example.com", upstream_host="192.168.100.9"))
+
+    with pytest.raises(BadRequestError, match="conflicting CNAME"):
+        platform_entry_service.save_config(session, _update())
+
+    # DB 還原，nginx 再同步一次把剛寫上去的新區塊蓋回舊設定
+    assert dns.events == ["sync", "dns", "sync"]
+    assert session.rolled_back is True
+    assert session.config is not None
+    assert session.config.domain == "old.example.com"
+    assert dns.tracked == []
+
+
+def test_save_resaving_same_domain_updates_the_managed_record_in_place(
+    harness: _Harness, dns: _Dns
+) -> None:
+    dns.next_record_id = "rec-1"
+    session = _Session(_config(dns_zone_id=_ZONE, dns_record_id="rec-1"))
+
+    platform_entry_service.save_config(session, _update(upstream_host="192.168.100.21"))
+
+    assert dns.upserts[0]["managed_record_id"] == "rec-1"
+    assert dns.deleted == []
+    assert dns.tracked == []
+
+
+def test_save_changing_domain_removes_the_old_record(harness: _Harness, dns: _Dns) -> None:
+    session = _Session(
+        _config(domain="old.example.org", dns_zone_id=_OTHER_ZONE, dns_record_id="rec-old")
+    )
+
+    result = platform_entry_service.save_config(session, _update())
+
+    # 新網域在另一個 zone，舊紀錄不能拿來就地改
+    assert dns.upserts[0]["managed_record_id"] == ""
+    assert dns.deleted == [(_OTHER_ZONE, "rec-old")]
+    assert dns.tracked == [(_ZONE, "rec-new")]
+    assert result.dns_managed is True
+
+
+def test_save_disabling_removes_the_managed_record(harness: _Harness, dns: _Dns) -> None:
+    session = _Session(_config(dns_zone_id=_ZONE, dns_record_id="rec-1"))
+
+    result = platform_entry_service.save_config(session, _update(enabled=False))
+
+    assert dns.events == ["sync"]
+    assert dns.deleted == [(_ZONE, "rec-1")]
+    assert dns.tracked == [("", "")]
+    assert result.dns_managed is False
+
+
+def test_save_keeps_record_when_same_domain_is_no_longer_managed(
+    harness: _Harness, dns: _Dns
+) -> None:
+    """Cloudflare 設定被拿掉不代表入口不用了：刪掉紀錄會讓正在用的網域斷線。"""
+    dns.configured = False
+    session = _Session(_config(dns_zone_id=_ZONE, dns_record_id="rec-1"))
+
+    result = platform_entry_service.save_config(session, _update())
+
+    assert dns.deleted == []
+    assert dns.tracked == []
+    assert result.dns_managed is True
+
+
+def test_save_old_record_cleanup_failure_does_not_undo_the_new_entry(
+    harness: _Harness, dns: _Dns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken_delete(**_kwargs: Any) -> None:
+        raise RuntimeError("cloudflare down")
+
+    monkeypatch.setattr(cloudflare_service, "delete_reverse_proxy_dns_record", broken_delete)
+    session = _Session(
+        _config(domain="old.example.com", dns_zone_id=_ZONE, dns_record_id="rec-old")
+    )
+
+    platform_entry_service.save_config(session, _update())
+
+    assert dns.tracked == [(_ZONE, "rec-new")]
+
+
+def test_status_reports_managed_dns_record(harness: _Harness, dns: _Dns) -> None:
+    session = _Session(_config(dns_zone_id=_ZONE, dns_record_id="rec-1"))
+
+    dns.found = _record("rec-1")
+    status = platform_entry_service.get_status(session)
+    assert status.dns_record == "A 203.0.113.5"
+    assert status.dns_record_ok is True
+
+    # 被人改成經 Cloudflare 代理：真實來源 IP 與長連線都會壞掉
+    dns.found = _record("rec-1", proxied=True)
+    assert platform_entry_service.get_status(session).dns_record_ok is False
+
+    dns.found = None
+    status = platform_entry_service.get_status(session)
+    assert status.dns_record_ok is False
+    assert status.dns_detail
+
+
+def test_status_without_managed_dns_has_no_dns_fields(harness: _Harness, dns: _Dns) -> None:
+    status = platform_entry_service.get_status(_Session(_config()))
+    assert status.dns_record is None
+    assert status.dns_record_ok is None
+
+
+# ─── Cloudflare 紀錄寫入 ─────────────────────────────────────────────────────
+
+
+def _api_record(record_id: str, record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "type": record["type"],
+        "name": record["name"],
+        "content": record["content"],
+        "ttl": 1,
+        "proxied": record.get("proxied"),
+    }
+
+
+class _FakeCloudflareClient:
+    def __init__(self) -> None:
+        self.created: list[dict[str, Any]] = []
+        self.updated: list[tuple[str, dict[str, Any]]] = []
+        self.deleted: list[str] = []
+
+    def create_dns_record(self, *, zone_id: str, record: dict[str, Any]) -> dict[str, Any]:
+        self.created.append(record)
+        return _api_record("rec-created", record)
+
+    def update_dns_record(
+        self, *, zone_id: str, record_id: str, record: dict[str, Any]
+    ) -> dict[str, Any]:
+        self.updated.append((record_id, record))
+        return _api_record(record_id, record)
+
+    def delete_dns_record(self, *, zone_id: str, record_id: str) -> None:
+        self.deleted.append(record_id)
+
+
+@pytest.fixture
+def cf_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[_FakeCloudflareClient, list[CloudflareDNSRecordPublic]]:
+    client = _FakeCloudflareClient()
+    existing: list[CloudflareDNSRecordPublic] = []
+    config = SimpleNamespace(default_dns_target_type="A", default_dns_target_value="203.0.113.5")
+    monkeypatch.setattr(
+        cloudflare_service, "_build_client_from_session", lambda _s: (client, config)
+    )
+    monkeypatch.setattr(
+        cloudflare_service,
+        "list_dns_records",
+        lambda **_k: SimpleNamespace(items=list(existing)),
+    )
+    return client, existing
+
+
+def test_platform_dns_record_is_dns_only(cf_client: Any) -> None:
+    client, _existing = cf_client
+
+    record = cloudflare_service.upsert_platform_dns_record(
+        session=object(),  # type: ignore[arg-type]
+        zone_id=_ZONE,
+        domain="SkyLab.example.com",
+    )
+
+    assert record.id == "rec-created"
+    assert client.created[0]["proxied"] is False
+    assert client.created[0]["name"] == "skylab.example.com"
+    assert client.created[0]["content"] == "203.0.113.5"
+
+
+def test_platform_dns_record_updates_existing_same_type_record(cf_client: Any) -> None:
+    client, existing = cf_client
+    existing.append(_record("rec-old", content="198.51.100.7", proxied=True))
+
+    cloudflare_service.upsert_platform_dns_record(
+        session=object(),  # type: ignore[arg-type]
+        zone_id=_ZONE,
+        domain="skylab.example.com",
+    )
+
+    assert client.created == []
+    assert client.updated[0][0] == "rec-old"
+    assert client.updated[0][1]["proxied"] is False
+
+
+def test_platform_dns_record_refuses_foreign_record_of_other_type(cf_client: Any) -> None:
+    client, existing = cf_client
+    existing.append(_record("rec-ipv6", type_="AAAA", content="2001:db8::1"))
+
+    with pytest.raises(BadRequestError, match="AAAA"):
+        cloudflare_service.upsert_platform_dns_record(
+            session=object(),  # type: ignore[arg-type]
+            zone_id=_ZONE,
+            domain="skylab.example.com",
+        )
+    assert client.created == []
+    assert client.updated == []
+    assert client.deleted == []
+
+
+def test_platform_dns_record_replaces_own_record_of_other_type(cf_client: Any) -> None:
+    """預設 DNS 目標從 CNAME 改成 A：自己先前建的 CNAME 先刪，否則 Cloudflare 不給建。"""
+    client, existing = cf_client
+    existing.append(_record("rec-1", type_="CNAME", content="gw.example.com"))
+
+    cloudflare_service.upsert_platform_dns_record(
+        session=object(),  # type: ignore[arg-type]
+        zone_id=_ZONE,
+        domain="skylab.example.com",
+        managed_record_id="rec-1",
+    )
+
+    assert client.deleted == ["rec-1"]
+    assert client.created[0]["type"] == "A"
+
+
+def test_annotate_marks_platform_record_as_system_managed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rp_repo, "list_rules", lambda _s: [])
+    records = [_record("rec-1"), _record("rec-2", name="other.example.com")]
+
+    reverse_proxy_service.annotate_dns_records_with_system_rules(
+        _Session(_config(dns_zone_id=_ZONE, dns_record_id="rec-1")), records
+    )
+
+    assert records[0].managed_by_system is True
+    assert records[0].managed_vmid is None
+    assert records[1].managed_by_system is False

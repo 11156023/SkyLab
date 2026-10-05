@@ -37,7 +37,20 @@ def upsert_platform_entry_config(
     return config
 
 
+def set_platform_dns_record(session: Session, *, zone_id: str, record_id: str) -> None:
+    """記下 SkyLab 管理的平台網域 DNS 紀錄；兩個都給空字串代表不再管理。"""
+    config = session.get(PlatformEntryConfig, _SINGLETON_ID)
+    if config is None:
+        return
+    config.dns_zone_id = zone_id
+    config.dns_record_id = record_id
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+
+
 __all__ = [
     "get_platform_entry_config",
+    "set_platform_dns_record",
     "upsert_platform_entry_config",
 ]

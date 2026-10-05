@@ -976,7 +976,6 @@ async def test_executor_sessions_and_ssh_wait_stay_off_loop(monkeypatch, tmp_pat
         session.add(artifact)
         session.flush()
         run = TeacherJudgeScriptRun(
-            teaching_class_id=artifact.teaching_class_id,
             artifact_id=artifact.id,
             target_snapshot_json={"targets": [{"vmid": 101}]},
         )

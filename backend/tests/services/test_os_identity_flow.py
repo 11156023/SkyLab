@@ -19,6 +19,8 @@ from app.ai.teacher_judge.script_run_service import (
     _ensure_linux_executor_capability as ensure_linux_capability_http,
 )
 from app.models import (
+    BatchProvisionJob,
+    BatchProvisionTask,
     Resource,
     TeachingClass,
     TeachingClassMachineNode,
@@ -27,6 +29,7 @@ from app.models import (
     User,
     UserRole,
 )
+from tests.utils.class_machines import add_student_machine
 
 _UBUNTU_OS = {
     "family": "linux",
@@ -60,6 +63,8 @@ def db():
             TeachingClassStudent.__table__,  # type: ignore[arg-type]
             TeachingClassMachineNode.__table__,  # type: ignore[arg-type]
             TeachingClassStudentMachine.__table__,  # type: ignore[arg-type]
+            BatchProvisionJob.__table__,  # type: ignore[arg-type]
+            BatchProvisionTask.__table__,  # type: ignore[arg-type]
             Resource.__table__,  # type: ignore[arg-type]
         ],
     )
@@ -136,13 +141,8 @@ def _class_with_node(
             )
         ).first()
         assert enrollment is not None
-        db.add(
-            TeachingClassStudentMachine(
-                class_student_id=enrollment.id,
-                machine_node_id=node.id,
-                vmid=vmid,
-                status="completed",
-            )
+        add_student_machine(
+            db, enrollment=enrollment, node=node, vmid=vmid, status="completed"
         )
         db.commit()
     return teaching_class.id

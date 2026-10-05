@@ -491,7 +491,6 @@ def test_executor_runtime_target_falls_back_to_live_ip_when_cache_missing(
     session.commit()
 
     run = models.TeacherJudgeScriptRun(
-        teaching_class_id=teaching_class_id,
         artifact_id=uuid.uuid4(),
         target_scope=TeacherJudgeScriptRunTargetScope.manual,
         status=TeacherJudgeScriptRunStatus.running,

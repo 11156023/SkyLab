@@ -70,11 +70,12 @@ from .spec_change_request import (
     SpecChangeRequestStatus,
     SpecChangeType,
 )
-from .subnet_config import SubnetConfig
+from .subnet_config import SubnetBlockedSubnet, SubnetConfig, SubnetDnsServer
 from .system_setup import SystemSetup
 from .task_record import TaskRecord, TaskRecordStatus
 from .teacher_judge_attachment import (
     TeacherJudgeAttachmentStatus,
+    TeacherJudgeMessageAttachment,
     TeacherJudgeSessionAttachment,
 )
 from .teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
@@ -96,7 +97,10 @@ from .teacher_judge_session import (
     TeacherJudgeSessionMessage,
     TeacherJudgeSessionStatus,
 )
-from .teacher_judge_student_submission import TeacherJudgeStudentSubmission
+from .teacher_judge_student_submission import (
+    TeacherJudgeStudentSubmission,
+    TeacherJudgeSubmissionItem,
+)
 from .teacher_judge_template_command import TeacherJudgeTemplateCommand
 from .teaching_class import (
     INSTRUCTOR_ENROLLMENT_STATUS,
@@ -116,7 +120,7 @@ from .vm_template import (
     VMTemplateStatus,
     VMTemplateVisibility,
 )
-from .wireguard_peer import WireGuardPeer
+from .wireguard_peer import WireGuardPeer, WireGuardPeerEndpoint
 
 __all__ = [
     # Base
@@ -200,11 +204,14 @@ __all__ = [
     "BatchProvisionTask",
     "BatchProvisionTaskStatus",
     # Subnet & IP Management
+    "SubnetBlockedSubnet",
     "SubnetConfig",
+    "SubnetDnsServer",
     "IpAllocation",
     "TeacherJudgeFile",
     "TeacherJudgeFileStatus",
     "TeacherJudgeAttachmentStatus",
+    "TeacherJudgeMessageAttachment",
     "TeacherJudgeSessionAttachment",
     "TeacherJudgeMessageRole",
     "TeacherJudgeMessageType",
@@ -219,6 +226,7 @@ __all__ = [
     "TeacherJudgeScriptSource",
     "TeacherJudgeScriptStatus",
     "TeacherJudgeStudentSubmission",
+    "TeacherJudgeSubmissionItem",
     "TeacherJudgeTemplateCommand",
     # Deletion Request
     "DeletionRequest",
@@ -240,6 +248,7 @@ __all__ = [
     "TeachingClassStudent",
     "TeachingClassStudentMachine",
     "WireGuardPeer",
+    "WireGuardPeerEndpoint",
     # Course Lab (互動式實作教學)
     "CoursePath",
     "CoursePathStatus",

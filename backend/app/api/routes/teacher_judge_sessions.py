@@ -10,7 +10,7 @@ from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from sqlalchemy import case, func
+from sqlalchemy import case, exists, func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, desc, select
 
@@ -19,6 +19,7 @@ from app.ai.teacher_judge.attachment_service import (
     MAX_ATTACHMENT_COUNT,
     attachment_context,
     attachment_public,
+    bind_attachments_to_message,
     create_attachment,
     delete_attachment,
     get_pending_attachments,
@@ -115,7 +116,10 @@ from app.core.i18n import t
 from app.infrastructure.worker import submit
 from app.models import TeachingClass, TeachingClassWeek
 from app.models.base import get_datetime_utc
-from app.models.teacher_judge_attachment import TeacherJudgeSessionAttachment
+from app.models.teacher_judge_attachment import (
+    TeacherJudgeMessageAttachment,
+    TeacherJudgeSessionAttachment,
+)
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_script_run import TeacherJudgeScriptRunTargetScope
 from app.models.teacher_judge_session import (
@@ -510,7 +514,10 @@ def upload_session_attachment(
         .select_from(TeacherJudgeSessionAttachment)
         .where(
             TeacherJudgeSessionAttachment.session_id == item.id,
-            col(TeacherJudgeSessionAttachment.message_id).is_(None),
+            ~exists().where(
+                col(TeacherJudgeMessageAttachment.attachment_id)
+                == col(TeacherJudgeSessionAttachment.id)
+            ),
         )
     ).one()
     if pending_count >= MAX_ATTACHMENT_COUNT:
@@ -660,9 +667,7 @@ async def create_message(
     )
     session.add(user_message)
     session.flush()
-    for attachment in attachments:
-        attachment.message_id = user_message.id
-        session.add(attachment)
+    bind_attachments_to_message(session, attachments, user_message.id)
     session.commit()
     session.refresh(user_message)
     ai_request_id = new_ai_request_id()

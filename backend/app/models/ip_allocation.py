@@ -13,6 +13,13 @@ class IpAllocation(SQLModel, table=True):
     """Track allocated IP addresses within the managed subnet."""
 
     __tablename__ = "ip_allocation"
+    __table_args__ = (
+        # resource_vmid 只能是空的（資源已刪或從未建立）或就是這筆的 vmid
+        sa.CheckConstraint(
+            "resource_vmid IS NULL OR (vmid IS NOT NULL AND resource_vmid = vmid)",
+            name="ck_ip_allocation_resource_vmid_matches",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     ip_address: str = Field(max_length=50, unique=True, index=True)

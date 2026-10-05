@@ -567,7 +567,6 @@ def test_execute_targets_releases_db_session_before_ssh(
         session.add(artifact)
         session.flush()
         run = TeacherJudgeScriptRun(
-            teaching_class_id=artifact.teaching_class_id,
             artifact_id=artifact.id,
             target_snapshot_json={"targets": [{"vmid": 101}]},
         )

@@ -10,6 +10,9 @@
 - 套用前先從 Gateway 實際連一次上游：主系統自己的入口指錯位址，管理介面
   會跟著進不來，所以連不到就不存
 - 同步失敗時把 DB 還原成原本的設定（Gateway 上的檔案有 ``nginx -t`` 失敗還原）
+- 網域在 Cloudflare 管理的 zone 內時，nginx 接好後把 DNS 指到預設 DNS 目標
+  （與 VM 網域同一個，即 Gateway），不經 Cloudflare 代理；停用或換網域時刪掉
+  舊紀錄。不歸 SkyLab 管的網域由管理員自己設定 DNS
 """
 
 from __future__ import annotations
@@ -107,6 +110,7 @@ def get_config(session: object) -> PlatformEntryPublic:
         gateway_ready=gateway_ready,
         certificate_configured=gateway_certificate_service.is_configured(session),
         gateway_host=gateway_host,
+        dns_managed=bool(config and config.dns_record_id),
     )
 
 
@@ -244,7 +248,16 @@ def save_config(session: object, data: PlatformEntryUpdate) -> PlatformEntryPubl
     if domain and rp_repo.is_domain_taken(session, domain):  # type: ignore[arg-type]
         raise BadRequestError(t("gateway.platformEntryDomainUsedByVm", domain=domain))
 
-    previous = _snapshot(_get_config(session))
+    current = _get_config(session)
+    previous = _snapshot(current)
+    previous_dns = (
+        (current.dns_zone_id, current.dns_record_id)
+        if current is not None and current.dns_record_id
+        else None
+    )
+
+    # 先決定 DNS 要不要由 SkyLab 管：Cloudflare 查詢失敗就在動任何東西之前擋下
+    dns_zone_id = _managed_dns_zone(session, domain) if data.enabled else ""
 
     if data.enabled:
         paths = _require_certificate_paths(session) if data.enable_https else None
@@ -271,20 +284,147 @@ def save_config(session: object, data: PlatformEntryUpdate) -> PlatformEntryPubl
     )
 
     # 啟用中或剛停用都要重寫 http.conf；從頭到尾都沒啟用就只是存欄位
-    if data.enabled or previous["enabled"]:
+    if not (data.enabled or previous["enabled"]):
+        return get_config(session)
+
+    synced = False
+    try:
+        reverse_proxy_service.sync_to_gateway(session)
+        synced = True
+        # nginx 先接好這個網域再把 DNS 指過來，切換期間才不會連到沒人接的 Gateway
+        record_id = (
+            _point_dns_to_gateway(
+                session,
+                zone_id=dns_zone_id,
+                domain=domain,
+                managed_record_id=(
+                    previous_dns[1]
+                    if previous_dns is not None and previous_dns[0] == dns_zone_id
+                    else ""
+                ),
+            )
+            if dns_zone_id
+            else ""
+        )
+    except Exception:
+        _restore_previous(session, previous, resync=synced)
+        raise
+
+    _settle_dns_tracking(
+        session,
+        previous_dns=previous_dns,
+        domain_changed=domain != previous["domain"],
+        enabled=data.enabled,
+        new_dns=(dns_zone_id, record_id) if record_id else None,
+    )
+    return get_config(session)
+
+
+def _restore_previous(session: object, previous: dict[str, Any], *, resync: bool) -> None:
+    """套用失敗：DB 還原成原本的設定；nginx 已經寫上新設定的話再同步一次蓋回去。"""
+    from app.repositories import platform_entry as repo
+    from app.services.network import reverse_proxy_service
+
+    rollback = getattr(session, "rollback", None)
+    if rollback is not None:
+        rollback()
+    try:
+        repo.upsert_platform_entry_config(session, **previous)  # type: ignore[arg-type]
+    except Exception:
+        logger.exception("平台入口套用失敗後還原設定也失敗，DB 與 Gateway 可能不一致")
+        return
+    if resync:
         try:
             reverse_proxy_service.sync_to_gateway(session)
         except Exception:
-            rollback = getattr(session, "rollback", None)
-            if rollback is not None:
-                rollback()
-            try:
-                repo.upsert_platform_entry_config(session, **previous)  # type: ignore[arg-type]
-            except Exception:
-                logger.exception("平台入口同步失敗後還原設定也失敗，DB 與 Gateway 可能不一致")
-            raise
+            logger.exception("平台入口套用失敗後重新同步 nginx 也失敗，Gateway 上仍是新設定")
 
-    return get_config(session)
+
+# ─── DNS ─────────────────────────────────────────────────────────────────────
+
+
+def managed_dns_record_id(session: object) -> str:
+    """SkyLab 在 Cloudflare 建的平台網域紀錄 id；沒有就是空字串。"""
+    config = _get_config(session)
+    return config.dns_record_id if config is not None else ""
+
+
+def _managed_dns_zone(session: object, domain: str) -> str:
+    """平台網域的 DNS 由 SkyLab 管理時回傳所在的 Cloudflare zone id，否則回空字串。
+
+    Cloudflare 沒設定 API Token／預設 DNS 目標、或網域不在任何 active zone 內，
+    代表這個網域的 DNS 不歸 SkyLab 管，由管理員自己指到 Gateway（頁面會列出）。
+    Cloudflare 查詢失敗則照樣 raise。
+    """
+    from app.services.network import cloudflare_service, reverse_proxy_service
+
+    if not domain:
+        return ""
+    cloudflare = cloudflare_service.get_public_config(session)  # type: ignore[arg-type]
+    if not cloudflare.is_configured or not cloudflare.has_default_dns_target:
+        return ""
+    found = reverse_proxy_service.find_zone_for_domain(session, domain)
+    return found[0] if found is not None else ""
+
+
+def _point_dns_to_gateway(
+    session: object, *, zone_id: str, domain: str, managed_record_id: str
+) -> str:
+    from app.services.network import cloudflare_service
+
+    record = cloudflare_service.upsert_platform_dns_record(
+        session=session,  # type: ignore[arg-type]
+        zone_id=zone_id,
+        domain=domain,
+        managed_record_id=managed_record_id,
+    )
+    logger.info("[PlatformEntry] DNS %s 已指向 %s %s", domain, record.type, record.content)
+    return record.id
+
+
+def _settle_dns_tracking(
+    session: object,
+    *,
+    previous_dns: tuple[str, str] | None,
+    domain_changed: bool,
+    enabled: bool,
+    new_dns: tuple[str, str] | None,
+) -> None:
+    """記下新的受管紀錄，並收掉不再用的舊紀錄。
+
+    停用或換網域後，舊網域的紀錄仍指著 Gateway 卻沒人接，所以刪掉。同一個
+    網域但這次 DNS 不歸 SkyLab 管（例如 Cloudflare 設定被拿掉）就保留原紀錄，
+    不然正在用的入口會直接斷掉。
+    """
+    from app.repositories import platform_entry as repo
+    from app.services.network import cloudflare_service
+
+    keep_previous = (
+        previous_dns is not None and enabled and not domain_changed and new_dns is None
+    )
+    if keep_previous:
+        return
+
+    if previous_dns is not None and previous_dns != new_dns:
+        old_zone_id, old_record_id = previous_dns
+        try:
+            cloudflare_service.delete_reverse_proxy_dns_record(
+                session=session,  # type: ignore[arg-type]
+                zone_id=old_zone_id,
+                record_id=old_record_id,
+            )
+        except Exception:
+            logger.exception(
+                "平台入口舊的 DNS 紀錄 %s 刪除失敗，請到 Cloudflare 手動移除", old_record_id
+            )
+
+    zone_id, record_id = new_dns if new_dns is not None else ("", "")
+    if previous_dns != new_dns:
+        repo.set_platform_dns_record(
+            session,  # type: ignore[arg-type]
+            zone_id=zone_id,
+            record_id=record_id,
+        )
 
 
 # ─── 狀態 ────────────────────────────────────────────────────────────────────
@@ -355,8 +495,36 @@ def get_status(
         upstream_detail=probe.detail if probe else None,
         observed_client_ip=observed_client_ip,
         observed_scheme=observed_scheme,
+        **_dns_status(session, config),
         checked_at=datetime.now(timezone.utc),
     )
+
+
+def _dns_status(session: object, config: PlatformEntryConfig | None) -> dict[str, Any]:
+    """讀回 SkyLab 管理的 DNS 紀錄，確認它還指著預設 DNS 目標而且沒被改成經代理。"""
+    from app.services.network import cloudflare_service
+
+    if config is None or not config.dns_record_id or not config.domain:
+        return {}
+    try:
+        record = cloudflare_service.find_dns_record(
+            session=session,  # type: ignore[arg-type]
+            zone_id=config.dns_zone_id,
+            domain=config.domain,
+            record_id=config.dns_record_id,
+        )
+        target_type, target_value = cloudflare_service.get_default_dns_target(session)  # type: ignore[arg-type]
+    except Exception as exc:
+        logger.exception("讀取平台網域 %s 的 Cloudflare DNS 紀錄失敗", config.domain)
+        return {"dns_detail": t("gateway.platformEntryDnsCheckFailed", error=exc)}
+    if record is None:
+        return {"dns_record_ok": False, "dns_detail": t("gateway.platformEntryDnsRecordMissing")}
+    ok = (
+        record.type.upper() == target_type
+        and record.content.strip().lower().rstrip(".") == target_value.strip().lower().rstrip(".")
+        and not record.proxied
+    )
+    return {"dns_record": f"{record.type} {record.content}", "dns_record_ok": ok}
 
 
 __all__ = [
@@ -366,6 +534,7 @@ __all__ = [
     "get_status",
     "is_platform_domain",
     "load_entry",
+    "managed_dns_record_id",
     "normalize_domain",
     "normalize_upstream_host",
     "save_config",
