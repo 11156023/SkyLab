@@ -167,44 +167,6 @@ _SPEC_CHANGE_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
 )
 
-# ── 反向代理 ─────────────────────────────────────────────────────────
-_REVERSE_PROXY_ELEMENTS: tuple[ElementSpec, ...] = (
-    ElementSpec(
-        id="proxy.subdomain",
-        role="text",
-        label="網址開頭",
-        help="自訂的名稱，會接在所選的網址結尾前面。",
-    ),
-    ElementSpec(
-        id="proxy.zone",
-        role="select",
-        label="網址結尾",
-        help="可選的網域由管理員在網域管理設定，這裡只能從已開放的清單挑。",
-    ),
-    ElementSpec(
-        id="proxy.vm",
-        role="select",
-        label="綁定的 VM",
-        help="這個網址要把流量送到哪一台機器。",
-    ),
-    ElementSpec(
-        id="proxy.port",
-        role="number",
-        label="服務 Port",
-        help=(
-            "服務在機器裡跑在哪個 Port。常見預設值：Node.js 3000、Flask 5000、"
-            "Nginx 80。"
-        ),
-    ),
-    ElementSpec(
-        id="proxy.https",
-        role="toggle",
-        label="安全連線 (https)",
-        help="開啟時使用管理員在 Gateway 上設定的憑證；網域不在憑證涵蓋範圍內時瀏覽器會出現警告。",
-    ),
-)
-
-
 # ── 系統管理底下的七個設定頁 ───────────────────────────────────────
 # 原「系統設定」的分頁，2026-09 各自升格為獨立頁面。label 一律沿用畫面上的文字，
 # help 取自各欄既有的 hint / placeholder / 確認訊息。
@@ -1557,18 +1519,6 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         ),
         sections=("拓撲圖", "連線規則"),
         elements=_FIREWALL_ELEMENTS,
-    ),
-    SurfaceSpec(
-        id="reverse-proxy",
-        path="/reverse-proxy",
-        title="反向代理",
-        purpose=(
-            "讓別人透過一個好記的網址訪問你機器裡的網站或服務。"
-            "前提是服務已經在機器裡跑起來，而且你知道它在哪個 Port；"
-            "可用的網址結尾由管理員先在網域管理設定。"
-        ),
-        sections=("網址清單", "新增網址"),
-        elements=_REVERSE_PROXY_ELEMENTS,
     ),
     SurfaceSpec(
         id="ai-api",

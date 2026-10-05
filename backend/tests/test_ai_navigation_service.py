@@ -121,13 +121,13 @@ async def test_visiting_a_page_does_not_complete_previous_steps(
     result = await navigation_service.resolve_navigation(
         "我想把網站公開出去",
         _user(UserRole.student),
-        current_path="/reverse-proxy",
+        current_path="/firewall",
     )
 
     assert result.action == "guide"
     assert result.flow_id == "publish_service"
     assert result.active_step == 0
-    assert [step.status for step in result.steps] == ["current", "todo", "todo"]
+    assert [step.status for step in result.steps] == ["current", "todo"]
 
 
 @pytest.mark.asyncio

@@ -8,8 +8,8 @@ import { describePlan, routeQuestion, stepStatuses, indexableSurfaces } from "./
 
 const STEPS = [
   { path: "/my-resources", status: "current" },
-  { path: "/reverse-proxy", status: "todo" },
   { path: "/firewall", status: "todo" },
+  { path: "/jobs", status: "todo" },
 ];
 
 describe("routeQuestion", () => {

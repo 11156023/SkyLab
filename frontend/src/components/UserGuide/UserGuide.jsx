@@ -206,35 +206,6 @@ const PAGE_GUIDES = {
       },
     ],
   },
-  "/reverse-proxy": {
-    id: "reverse-proxy",
-    titleKey: "UserGuide.reverseProxy.title",
-    icon: "swap_horiz",
-    cleanupSelector: '[data-guide="proxy-rule-close"]',
-    steps: [
-      {
-        selector: '[data-guide="proxy-create"]',
-        titleKey: "UserGuide.reverseProxy.step1.title",
-        textKey: "UserGuide.reverseProxy.step1.text",
-      },
-      {
-        selector: '[data-guide="proxy-rule-resource"]',
-        activateSelector: '[data-guide="proxy-create"]',
-        deferred: true,
-        titleKey: "UserGuide.reverseProxy.step2.title",
-        textKey: "UserGuide.reverseProxy.step2.text",
-      },
-      { selector: '[data-guide="proxy-rule-domain"]', deferred: true, titleKey: "UserGuide.reverseProxy.domain.title", textKey: "UserGuide.reverseProxy.domain.text" },
-      { selector: '[data-guide="proxy-rule-port"]', deferred: true, titleKey: "UserGuide.reverseProxy.port.title", textKey: "UserGuide.reverseProxy.port.text" },
-      { selector: '[data-guide="proxy-rule-actions"]', deferred: true, titleKey: "UserGuide.reverseProxy.actions.title", textKey: "UserGuide.reverseProxy.actions.text" },
-      {
-        selector: '[data-guide="proxy-list"]',
-        activateSelector: '[data-guide="proxy-rule-close"]',
-        titleKey: "UserGuide.reverseProxy.list.title",
-        textKey: "UserGuide.reverseProxy.list.text",
-      },
-    ],
-  },
   "/domain": {
     id: "domain",
     titleKey: "UserGuide.domain.title",
@@ -254,15 +225,10 @@ const PAGE_GUIDES = {
         textKey: "UserGuide.domain.configForm.text",
       },
       {
-        selector: '[data-guide="domain-status"], [data-guide="domain-tabs"]',
+        selector: '[data-guide="domain-status"]',
         activateSelector: '[data-guide="domain-modal-close"]',
         titleKey: "UserGuide.domain.step2.title",
         textKey: "UserGuide.domain.step2.text",
-      },
-      {
-        selector: '[data-guide="domain-tabs"]',
-        titleKey: "UserGuide.domain.tabs.title",
-        textKey: "UserGuide.domain.tabs.text",
       },
       {
         selector: '[data-guide="domain-zones"]',
@@ -438,11 +404,10 @@ const COURSE_WEEK_GUIDE = {
   ],
 };
 
-function getDetailedGuide(pathname, search = "") {
+function getDetailedGuide(pathname) {
   if (/^\/courses\/[^/]+\/weeks\/[^/]+$/.test(pathname)) return COURSE_WEEK_GUIDE;
   if (/^\/courses\/[^/]+$/.test(pathname)) return STUDENT_COURSE_GUIDE;
   if (/^\/(?:my-resources|resource-mgmt)\/[^/]+$/.test(pathname)) return RESOURCE_DETAIL_GUIDE;
-  if (pathname === "/domain" && new URLSearchParams(search).get("tab") === "reverse-proxy") return PAGE_GUIDES["/reverse-proxy"];
   return PAGE_GUIDES[pathname] ?? null;
 }
 
@@ -550,7 +515,7 @@ export default function UserGuide() {
   const guide = useMemo(() => {
     const routeGuide = getRouteGuide(location.pathname);
     if (!routeGuide) return null;
-    const detailed = getDetailedGuide(location.pathname, location.search);
+    const detailed = getDetailedGuide(location.pathname);
     if (!detailed || (location.pathname === "/dashboard" && !isStudent)) return routeGuide;
     /* guideVersion 沿用 getRouteGuide 的全站版本（進 storageKey，決定自動導覽是否已看過） */
     return {
@@ -558,7 +523,7 @@ export default function UserGuide() {
       ...detailed,
       generic: false,
     };
-  }, [isStudent, location.pathname, location.search]);
+  }, [isStudent, location.pathname]);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [pageTitle, setPageTitle] = useState("");
