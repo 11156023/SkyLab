@@ -61,6 +61,9 @@ jobs:
         # 建立 LiteLLM 專用 DB（db:5432）、啟動 gateway、核發／同步 Campus service key，
         # 再啟動主 Compose。Refuse to compete with an existing standalone gateway;
         # start no GPU engine.
+        env:
+          # 前端「關於」分頁顯示的 commit（build context 沒有 .git）
+          SOURCE_COMMIT: ${{ github.sha }}
         run: AI_STACK_PYTHON="$PWD/vllm-service/.runtime/deploy-venv/bin/python" bash scripts/prepare-ai-stack.sh --start
 
       - name: Smoke test

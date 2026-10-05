@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import emails  # type: ignore
+from emails.message import Message
 from jinja2 import Template
 
 from app.core.config import settings
@@ -26,7 +26,8 @@ def render_email_template(*, template_name: str, context: dict[str, Any]) -> str
     template_str = (
         Path(__file__).parent.parent / "email-templates" / "build" / template_name
     ).read_text()
-    return Template(template_str).render(context)
+    rendered: str = Template(template_str).render(context)
+    return rendered
 
 
 def send_email(
@@ -36,11 +37,14 @@ def send_email(
     html_content: str = "",
 ) -> None:
     """發送 Email"""
-    assert settings.emails_enabled, "no provided configuration for email variables"
-    message = emails.Message(
+    from_email = settings.EMAILS_FROM_EMAIL
+    assert settings.emails_enabled and from_email, (
+        "no provided configuration for email variables"
+    )
+    message = Message(
         subject=subject,
         html=html_content,
-        mail_from=(settings.EMAILS_FROM_NAME, settings.EMAILS_FROM_EMAIL),
+        mail_from=(settings.EMAILS_FROM_NAME, from_email),
     )
     smtp_options = {"host": settings.SMTP_HOST, "port": settings.SMTP_PORT}
     if settings.SMTP_TLS:

@@ -218,10 +218,6 @@ def _session_graph(
                 session_id=practice.id,
                 vm_request_id=request.id,
                 node_key=node.node_key,
-                name=node.name,
-                role=node.role,
-                resource_type=node.resource_type,
-                sort_order=index,
             )
         )
         db.add(

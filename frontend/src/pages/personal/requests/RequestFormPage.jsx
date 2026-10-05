@@ -10,6 +10,9 @@ import { VmRequestAvailabilityService } from "../../../services/vmRequestAvailab
 import { GpuService } from "../../../services/gpu";
 import { TemplatesService } from "../../../services/templates";
 import { ResourcesService } from "../../../services/resources";
+import { QuotasService } from "../../../services/quotas";
+import { clampToRange, quotaRemaining, sliderRange, sliderTicks } from "../../../utils/quotaLimits";
+import NumberInput from "../../../components/NumberInput/NumberInput";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -26,6 +29,11 @@ function normalizeHostname(value) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 63);
+}
+
+/* 記憶體刻度：MB → 「8GB」「4.5GB」 */
+function formatMemoryTick(mb) {
+  return `${Number((mb / 1024).toFixed(1))}GB`;
 }
 
 /* ── Form field primitives ── */
@@ -187,6 +195,7 @@ function buildAiScheduleOptions(availability) {
 /* 依畫面順序排列，送出時定位到第一個有問題的欄位 */
 const FIELD_ORDER = [
   "hostname", "ostemplate", "template_id", "username", "password",
+  "instances", "cores", "memory", "disk",
   "gpu_mapping_id", "start_at", "end_at", "reason",
 ];
 
@@ -408,6 +417,61 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   /* 範本不勾「允許自訂登入密碼」：機器沿用範本內的密碼，表單不問、也不送密碼 */
   const keepsTemplatePassword =
     (selectedCatalogItem ?? selectedTpl)?.allow_password_change === false;
+
+  /* 配額：滑桿最多只能拉到剩餘配額，超出的值自動壓回上限。
+     載入失敗就維持原本的上限，送單時後端仍會擋。 */
+  const [quotaUsage, setQuotaUsage] = useState(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    QuotasService.getMyUsage({ signal: controller.signal })
+      .then(setQuotaUsage)
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+  const quotaLeft = useMemo(() => quotaRemaining(quotaUsage), [quotaUsage]);
+  const isLxcForm = resourceType === "lxc";
+  const diskKey = isLxcForm ? "rootfs_size" : "disk_size";
+  // 選了範本時磁碟下限為範本自身大小（克隆後只能放大，不能縮小）；
+  // 範本若大於 500 上限，上限跟著放寬——克隆機天生就是範本大小
+  const diskMin = isLxcForm
+    ? (selectedTpl?.default_disk || 8)
+    : (selectedVmTemplate?.disk_gb || 20);
+  const coresRange = sliderRange({ min: 1, max: 8, remaining: quotaLeft.cores });
+  const memoryRange = sliderRange({
+    min: 512, max: 32768, step: 512, remaining: quotaLeft.memoryMb,
+  });
+  const diskRange = sliderRange({
+    min: diskMin, max: Math.max(500, diskMin), remaining: quotaLeft.diskGb,
+  });
+  const instancesShort = quotaLeft.instances === 0;
+  const quotaShortMessage = (kind) => {
+    if (kind === "cores" && coresRange.short) {
+      return t("RequestFormPage.quotaShortCores", { left: quotaLeft.cores, min: coresRange.min });
+    }
+    if (kind === "memory" && memoryRange.short) {
+      return t("RequestFormPage.quotaShortMemory", {
+        left: (quotaLeft.memoryMb / 1024).toFixed(1), min: (memoryRange.min / 1024).toFixed(1),
+      });
+    }
+    if (kind === "disk" && diskRange.short) {
+      return t("RequestFormPage.quotaShortDisk", { left: quotaLeft.diskGb, min: diskRange.min });
+    }
+    return "";
+  };
+  useEffect(() => {
+    setForm((prev) => {
+      const next = {
+        cores: clampToRange(prev.cores, coresRange),
+        memory: clampToRange(prev.memory, memoryRange),
+        [diskKey]: clampToRange(prev[diskKey], diskRange),
+      };
+      const changed = Object.keys(next).some((key) => next[key] !== prev[key]);
+      return changed ? { ...prev, ...next } : prev;
+    });
+  }, [
+    form.cores, form.memory, form[diskKey], diskKey,
+    coresRange.max, memoryRange.max, diskRange.max,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedTemplateRequiresGpu = useMemo(() => {
     if (resourceType !== "vm" || !form.template_id) return false;
@@ -795,6 +859,13 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
       if (gpuNeeded && !form.gpu_mapping_id) errs.gpu_mapping_id = t(MSG.gpuRequired);
     }
 
+    /* 剩餘配額不夠開這台：送出去後端一定擋，先在表單上講清楚 */
+    if (instancesShort) errs.instances = t("RequestFormPage.quotaShortInstances");
+    for (const kind of ["cores", "memory", "disk"]) {
+      const message = quotaShortMessage(kind);
+      if (message) errs[kind] = message;
+    }
+
     if (mode === "scheduled") {
       if (!form.start_at) errs.start_at = t(MSG.startRequired);
       if (!form.end_at)   errs.end_at   = t(MSG.endRequired);
@@ -1179,64 +1250,103 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                 </p>
               )}
 
-              <FieldGroup label={t("RequestFormPage.cpuCoresLabel")} labelRight={t("RequestFormPage.coresValue", { count: form.cores })}>
+              {instancesShort && (
+                <p className={styles.fieldError} data-field="instances">
+                  {t("RequestFormPage.quotaShortInstances")}
+                </p>
+              )}
+
+              <FieldGroup label={t("RequestFormPage.cpuCoresLabel")} name="cores"
+                labelRight={
+                  <div className={styles.numberField}>
+                    <NumberInput
+                      min={coresRange.min} max={coresRange.max} step={1}
+                      className={`${styles.input} ${styles.inputNumber}`}
+                      value={form.cores}
+                      disabled={coresRange.max <= coresRange.min}
+                      aria-label={t("RequestFormPage.cpuCoresLabel")}
+                      onCommit={(n) => set("cores", n)}
+                    />
+                    <span className={styles.numberUnit}>{t("RequestFormPage.coresUnit")}</span>
+                  </div>
+                }
+                hint={coresRange.quotaCapped && !coresRange.short
+                  ? t("RequestFormPage.quotaCapCores", { max: coresRange.max })
+                  : undefined}
+                error={quotaShortMessage("cores")}>
                 <input
-                  type="range" min={1} max={8} step={1}
+                  type="range" min={coresRange.min} max={coresRange.max} step={1}
                   className={styles.slider}
                   value={form.cores}
+                  disabled={coresRange.max <= coresRange.min}
                   onChange={(e) => set("cores", Number(e.target.value))}
                 />
                 <div className={styles.sliderTicks}>
-                  {[1, 2, 4, 6, 8].map((v) => (
-                    <span key={v} style={{ left: `${(v - 1) / (8 - 1) * 100}%` }}>{v}</span>
+                  {sliderTicks([1, 2, 4, 6, 8], coresRange).map((tick) => (
+                    <span key={tick.value} style={{ left: `${tick.left}%` }}>{tick.label}</span>
                   ))}
                 </div>
               </FieldGroup>
 
-              <FieldGroup label={t("RequestFormPage.memoryLabel")} labelRight={`${(form.memory / 1024).toFixed(1)} GB`}>
+              <FieldGroup label={t("RequestFormPage.memoryLabel")} name="memory"
+                labelRight={
+                  <div className={styles.numberField}>
+                    {/* 數字框以 GB 輸入，0.5 GB 一格，定稿時換回 MB */}
+                    <NumberInput
+                      min={memoryRange.min / 1024} max={memoryRange.max / 1024} step={0.5}
+                      className={`${styles.input} ${styles.inputNumber}`}
+                      value={form.memory / 1024}
+                      disabled={memoryRange.max <= memoryRange.min}
+                      aria-label={t("RequestFormPage.memoryLabel")}
+                      onCommit={(gb) => set("memory", Math.round(gb * 1024))}
+                    />
+                    <span className={styles.numberUnit}>GB</span>
+                  </div>
+                }
+                hint={memoryRange.quotaCapped && !memoryRange.short
+                  ? t("RequestFormPage.quotaCapMemory", { max: (memoryRange.max / 1024).toFixed(1) })
+                  : undefined}
+                error={quotaShortMessage("memory")}>
                 <input
-                  type="range" min={512} max={32768} step={512}
+                  type="range" min={memoryRange.min} max={memoryRange.max} step={512}
                   className={styles.slider}
                   value={form.memory}
+                  disabled={memoryRange.max <= memoryRange.min}
                   onChange={(e) => set("memory", Number(e.target.value))}
                 />
                 <div className={styles.sliderTicks}>
-                  {[[1024,"1GB"],[8192,"8GB"],[16384,"16GB"],[24576,"24GB"],[32768,"32GB"]].map(([v, label]) => (
-                    <span key={label} style={{ left: `${(v - 512) / (32768 - 512) * 100}%` }}>{label}</span>
+                  {sliderTicks([1024, 8192, 16384, 24576, 32768], memoryRange, formatMemoryTick).map((tick) => (
+                    <span key={tick.value} style={{ left: `${tick.left}%` }}>{tick.label}</span>
                   ))}
                 </div>
               </FieldGroup>
 
-              {(() => {
-                const isLxc   = resourceType === "lxc";
-                const diskKey = isLxc ? "rootfs_size" : "disk_size";
-                // 選了範本時磁碟下限為範本自身大小（克隆後只能放大，不能縮小）；
-                // 範本若大於 500 上限，上限跟著放寬——克隆機天生就是範本大小
-                const diskMin = isLxc
-                  ? (selectedTpl?.default_disk || 8)
-                  : (selectedVmTemplate?.disk_gb || 20);
-                const diskMax = Math.max(500, diskMin);
-                return (
-                  <FieldGroup label={t("RequestFormPage.diskSpaceLabel")} labelRight={
-                    <div className={styles.diskInput}>
-                      <input
-                        type="number" min={diskMin} max={diskMax}
-                        className={`${styles.input} ${styles.inputNumber}`}
-                        value={form[diskKey]}
-                        onChange={(e) => set(diskKey, Math.min(diskMax, Math.max(diskMin, Number(e.target.value) || diskMin)))}
-                      />
-                      <span className={styles.diskUnit}>GB</span>
-                    </div>
-                  }>
-                    <input
-                      type="range" min={diskMin} max={diskMax} step={1}
-                      className={styles.slider}
+              <FieldGroup label={t("RequestFormPage.diskSpaceLabel")} name="disk"
+                hint={diskRange.quotaCapped && !diskRange.short
+                  ? t("RequestFormPage.quotaCapDisk", { max: diskRange.max })
+                  : undefined}
+                error={quotaShortMessage("disk")}
+                labelRight={
+                  <div className={styles.numberField}>
+                    <NumberInput
+                      min={diskRange.min} max={diskRange.max} step={1}
+                      className={`${styles.input} ${styles.inputNumber}`}
                       value={form[diskKey]}
-                      onChange={(e) => set(diskKey, Number(e.target.value))}
+                      disabled={diskRange.max <= diskRange.min}
+                      aria-label={t("RequestFormPage.diskSpaceLabel")}
+                      onCommit={(n) => set(diskKey, n)}
                     />
-                  </FieldGroup>
-                );
-              })()}
+                    <span className={styles.numberUnit}>GB</span>
+                  </div>
+                }>
+                <input
+                  type="range" min={diskRange.min} max={diskRange.max} step={1}
+                  className={styles.slider}
+                  value={form[diskKey]}
+                  disabled={diskRange.max <= diskRange.min}
+                  onChange={(e) => set(diskKey, Number(e.target.value))}
+                />
+              </FieldGroup>
             </div>
 
             {/* ── GPU（作業系統標記 -GPU、或範本政策要求 GPU 時才顯示）── */}

@@ -12,6 +12,8 @@ import router from "./router";
 import { useAppStore } from "./store/app";
 import { ipcRouters } from "../electron/core/IpcRouter";
 import "./styles/index.scss";
+import "element-plus/theme-chalk/dark/css-vars.css";
+import "./styles/workspace.scss";
 
 function waitForInitialReply(path: string): Promise<void> {
   return new Promise(resolve => {
@@ -50,6 +52,7 @@ app.mount("#app").$nextTick(async () => {
     () => appStore.language,
     lang => {
       if (lang) {
+        document.documentElement.lang = lang === "zh-TW" ? "zh-Hant" : lang;
         (i18n.global.locale as any).value = lang;
       }
     },

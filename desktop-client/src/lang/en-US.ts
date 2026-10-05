@@ -1,4 +1,42 @@
 ﻿export default {
+  workspace: {
+    navigation: "Main navigation",
+    connectionInfo: "Connection details",
+    openWeb: "Open web platform",
+    waitingGateway: "Waiting for gateway",
+    waitingGatewayHint:
+      "The tunnel has started, but no WireGuard handshake has been received. Check your network or contact an administrator if this continues.",
+    protocol: "Protocol",
+    interface: "Interface",
+    handshake: "Last handshake",
+    noHandshake: "Not received yet",
+    close: "Close",
+    details: "Machine details",
+    detailsFor: "Details for {name}",
+    owner: "Owner",
+    startsAt: "Starts at",
+    access: "Access",
+    window_ended: "Access period ended",
+    window_not_started: "Access period has not started",
+    readOnly: "View only",
+    connectFirst: "Connect to SkyLab first",
+    disconnecting: "Disconnecting",
+    connected: "Securely connected",
+    all: "All",
+    course: "Courses",
+    personal: "Personal",
+    filter: "Resource category",
+    search: "Search machine or IP",
+    grid: "Card view",
+    list: "List view",
+    toggleTheme: "Toggle color theme",
+    machineCount: "{count} machines",
+    noMatches: "No machines match your search",
+    resourceError: "Could not update resources. Please refresh.",
+    appearance: "Appearance",
+    dark: "Dark",
+    light: "Light"
+  },
   update: {
     title: "Update available",
     message:
@@ -205,7 +243,20 @@
       secure: "Authorized VMs only"
     },
     version: "Version",
-    openDataDir: "Open data directory"
+    openDataDir: "Open data directory",
+    license: "License",
+    licenseName: "GNU Affero General Public License v3.0",
+    licenseHint:
+      "SkyLab is open source. If you modify it and offer it to others over a network you must publish your changes; commercial licensing is available.",
+    repository: "Source code",
+    thirdPartyNotices: "Third-party notices",
+    components: {
+      title: "Open-source components",
+      hint: "The {count} packages this application depends on directly, generated from package.json at build time.",
+      package: "Package",
+      version: "Version",
+      license: "License"
+    }
   },
   logger: {
     tab: { appLog: "App log" },

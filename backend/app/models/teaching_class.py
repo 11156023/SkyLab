@@ -3,11 +3,15 @@
 import enum
 import uuid
 from datetime import date, datetime, time
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
-from sqlmodel import Column, DateTime, Field, SQLModel, UniqueConstraint
+from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, UniqueConstraint
 
 from .base import get_datetime_utc
+
+if TYPE_CHECKING:
+    from .batch_provision import BatchProvisionTask
 
 
 class TeachingClassStatus(str, enum.Enum):
@@ -132,6 +136,7 @@ class TeachingClassMachineNode(SQLModel, table=True):
 class TeachingClassWeek(SQLModel, table=True):
     __tablename__ = "teaching_class_weeks"
     __table_args__ = (
+        UniqueConstraint("id", "class_id", name="uq_teaching_class_weeks_id_class"),
         sa.CheckConstraint(
             "status IN ('draft', 'published', 'completed')",
             name="ck_teaching_class_weeks_status",
@@ -202,12 +207,14 @@ class TeachingClassStudent(SQLModel, table=True):
 
 
 class TeachingClassStudentMachine(SQLModel, table=True):
+    """Which batch task built a student's machine for one class machine node.
+
+    The machine's vmid / status / error belong to that task and are read through
+    it; the task's vmid is cleared by its FK when the resource is deleted.
+    """
+
     __tablename__ = "teaching_class_student_machines"
     __table_args__ = (
-        sa.CheckConstraint(
-            "status IN ('pending', 'running', 'completed', 'failed', 'reclaimed')",
-            name="ck_teaching_class_student_machines_status",
-        ),
         UniqueConstraint(
             "class_student_id",
             "machine_node_id",
@@ -238,9 +245,32 @@ class TeachingClassStudentMachine(SQLModel, table=True):
             index=True,
         ),
     )
-    vmid: int | None = Field(default=None)
-    status: str = Field(default="pending", max_length=32)
-    error: str | None = Field(default=None, max_length=500)
+
+    batch_task: Optional["BatchProvisionTask"] = Relationship(
+        sa_relationship_kwargs={"lazy": "joined"}
+    )
+
+    @property
+    def vmid(self) -> int | None:
+        return self.batch_task.vmid if self.batch_task is not None else None
+
+    @property
+    def status(self) -> str:
+        """pending / running / completed / failed, or reclaimed once deleted.
+
+        A completed task whose vmid has been cleared (the resource was deleted)
+        is a reclaimed machine.
+        """
+        if self.batch_task is None:
+            return "pending"
+        status = str(getattr(self.batch_task.status, "value", self.batch_task.status))
+        if status == "completed" and self.batch_task.vmid is None:
+            return "reclaimed"
+        return status
+
+    @property
+    def error(self) -> str | None:
+        return self.batch_task.error if self.batch_task is not None else None
 
 
 __all__ = [

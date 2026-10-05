@@ -1,4 +1,42 @@
 ﻿export default {
+  workspace: {
+    navigation: "主要導覽",
+    connectionInfo: "連線資訊",
+    openWeb: "開啟 Web 平台",
+    waitingGateway: "等待 Gateway 回應",
+    waitingGatewayHint:
+      "通道已啟動，尚未收到 WireGuard 握手。若持續無回應，請檢查網路或聯絡管理員。",
+    protocol: "通訊協定",
+    interface: "網路介面",
+    handshake: "最近一次握手",
+    noHandshake: "尚未收到",
+    close: "關閉",
+    details: "機器詳情",
+    detailsFor: "{name} 詳情",
+    owner: "擁有者",
+    startsAt: "開始時間",
+    access: "使用權限",
+    window_ended: "使用時段已結束",
+    window_not_started: "使用時段尚未開始",
+    readOnly: "僅供檢視",
+    connectFirst: "請先建立安全連線",
+    disconnecting: "正在中斷連線",
+    connected: "已安全連線",
+    all: "全部資源",
+    course: "課程環境",
+    personal: "個人資源",
+    filter: "資源分類",
+    search: "搜尋機器或 IP",
+    grid: "卡片檢視",
+    list: "列表檢視",
+    toggleTheme: "切換明暗主題",
+    machineCount: "{count} 台",
+    noMatches: "找不到符合條件的機器",
+    resourceError: "無法更新資源，請重新整理",
+    appearance: "外觀",
+    dark: "深色",
+    light: "亮色"
+  },
   update: {
     title: "發現新版本",
     message: "SkyLab Connect {version} 已發布，建議下載並安裝最新版。",
@@ -199,7 +237,20 @@
       secure: "僅對已授權的虛擬機開放"
     },
     version: "版本",
-    openDataDir: "開啟資料目錄"
+    openDataDir: "開啟資料目錄",
+    license: "授權",
+    licenseName: "GNU Affero General Public License v3.0",
+    licenseHint:
+      "SkyLab 是開源軟體；修改後對外提供網路服務時須公開修改後的原始碼，也可洽談商業授權。",
+    repository: "原始碼",
+    thirdPartyNotices: "第三方授權聲明",
+    components: {
+      title: "開源元件",
+      hint: "本程式直接使用的 {count} 個套件，由建置時的 package.json 產生。",
+      package: "套件",
+      version: "版本",
+      license: "授權"
+    }
   },
   logger: {
     tab: { appLog: "應用日誌" },

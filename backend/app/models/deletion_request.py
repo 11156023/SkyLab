@@ -27,6 +27,11 @@ class DeletionRequestStatus(str, enum.Enum):
 class DeletionRequest(SQLModel, table=True):
     __tablename__ = "deletion_requests"
     __table_args__ = (
+        # resource_vmid 只能是空的（資源已刪或從未建立）或就是這筆的 vmid
+        sa.CheckConstraint(
+            "resource_vmid IS NULL OR (vmid IS NOT NULL AND resource_vmid = vmid)",
+            name="ck_deletion_requests_resource_vmid_matches",
+        ),
         sa.Index(
             "uq_deletion_requests_active_vmid",
             "vmid",

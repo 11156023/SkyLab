@@ -67,7 +67,7 @@ def test_gateway_status_attention_for_expiring_or_expired_certs() -> None:
     status, detail, message = health_policy.gateway_status(probe, now=NOW)
     assert status == "attention"
     assert detail == "soon.example.com 剩 5 天到期；old.example.com 已過期"
-    assert message is not None and "certbot" in message
+    assert message is not None and "換新" in message and "certbot" not in message
 
 
 def test_gateway_status_down_wins_over_cert_attention() -> None:

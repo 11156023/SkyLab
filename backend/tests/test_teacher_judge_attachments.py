@@ -52,8 +52,7 @@ def test_create_attachment_is_persisted_and_reintroduced_in_history(
     )
     db.add(message)
     db.flush()
-    attachment.message_id = message.id
-    db.add(attachment)
+    attachment_service.bind_attachments_to_message(db, [attachment], message.id)
     db.commit()
 
     history = session_service.bounded_history(db, session.id)

@@ -232,7 +232,6 @@ def test_connect_reuses_device_address_and_activates_only_after_gateway_sync(
         device_id="device-1234",
         public_key=_public_key(1),
         tunnel_ip="10.250.0.8",
-        allowed_endpoints=[],
         active=False,
     )
     saved_active_states: list[bool] = []
@@ -357,7 +356,6 @@ def test_connect_revokes_gateway_access_when_database_save_fails(monkeypatch) ->
         device_id="device-1234",
         public_key=_public_key(1),
         tunnel_ip="10.250.0.8",
-        allowed_endpoints=[],
         active=False,
     )
 
@@ -423,7 +421,6 @@ def test_refresh_rebuilds_targets_and_renews_active_lease(monkeypatch) -> None:
         device_id="device-1234",
         public_key=_public_key(1),
         tunnel_ip="10.250.0.8",
-        allowed_endpoints=[],
         active=True,
         expires_at=old_expiry,
     )
@@ -497,7 +494,6 @@ def test_reconcile_marks_peer_inactive_when_gateway_replay_fails(
         device_id="device-1234",
         public_key=_public_key(1),
         tunnel_ip="10.250.0.8",
-        allowed_endpoints=[],
         active=True,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
@@ -553,12 +549,12 @@ def test_reconcile_updates_acl_without_gateway_restart(monkeypatch) -> None:
         device_id="device-1234",
         public_key=_public_key(1),
         tunnel_ip="10.250.0.8",
-        allowed_endpoints=[
-            {"vmid": 100, "service": "ssh", "host": "10.10.1.10", "port": 22}
-        ],
         active=True,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
+    peer.allowed_endpoints = [
+        {"vmid": 100, "service": "ssh", "host": "10.10.1.10", "port": 22}
+    ]
 
     class FakeSession:
         def __enter__(self):

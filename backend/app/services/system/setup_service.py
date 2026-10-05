@@ -36,8 +36,8 @@ from app.repositories import proxmox_connection as proxmox_connection_repo
 from app.repositories import system_setup as system_setup_repo
 from app.repositories import user as user_repo
 from app.schemas import UserCreate, UserUpdate
-from app.schemas.cloudflare import CloudflareConfigUpdate
 from app.schemas.gateway import (
+    GatewayCertificateUpdate,
     GatewayConfigPublic,
     GatewayConfigUpdate,
     GatewayConnectionTestResult,
@@ -63,7 +63,7 @@ from app.schemas.setup import (
     SetupSubnetResult,
 )
 from app.services.network import (
-    cloudflare_service,
+    gateway_certificate_service,
     gateway_install_service,
     gateway_service,
     ip_management_service,
@@ -384,7 +384,7 @@ def configure_subnet(*, session: Session, data: SubnetConfigCreate) -> SetupSubn
         bridge_name=config.bridge_name,
         vlan_tag=config.vlan_tag,
         gateway_vm_ip=config.gateway_vm_ip,
-        dns_servers=config.dns_servers,
+        dns_servers=ip_management_service.get_dns_servers(config),
         total_ips=stats["total"],
         available_ips=stats["available"],
     )
@@ -482,12 +482,16 @@ def test_platform_entry_upstream(
 def configure_platform_entry(
     *, session: Session, data: SetupPlatformEntryUpdate
 ) -> PlatformEntryPublic:
-    """存平台入口並同步到 Gateway；有填 Cloudflare Token 就先存起來（HTTPS 憑證要用）。"""
+    """存平台入口並同步到 Gateway；有填憑證路徑就先存（HTTPS 用管理員自備的憑證）。"""
     state = ensure_setup_open(session=session)
-    token = (data.cloudflare_api_token or "").strip()
-    if token:
-        cloudflare_service.update_config(
-            session=session, data=CloudflareConfigUpdate(api_token=token)
+    cert_path = (data.ssl_certificate_path or "").strip()
+    key_path = (data.ssl_certificate_key_path or "").strip()
+    if cert_path or key_path:
+        gateway_certificate_service.save_config(
+            session,
+            GatewayCertificateUpdate(
+                ssl_certificate_path=cert_path, ssl_certificate_key_path=key_path
+            ),
         )
     result = platform_entry_service.save_config(session, data)
     audit_service.log_action(
@@ -499,7 +503,7 @@ def configure_platform_entry(
             f"domain={result.domain or '-'} "
             f"upstream={result.upstream_host or '-'}:{result.upstream_port} "
             f"https={result.enable_https}"
-            + (" (saved Cloudflare API token)" if token else "")
+            + (f" (saved certificate paths {cert_path}, {key_path})" if cert_path else "")
         ),
     )
     return result

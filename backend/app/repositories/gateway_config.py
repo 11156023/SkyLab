@@ -66,6 +66,24 @@ def save_keypair(
     return config
 
 
+def save_certificate_paths(
+    session: Session,
+    *,
+    ssl_certificate_path: str,
+    ssl_certificate_key_path: str,
+) -> GatewayConfig:
+    config = session.get(GatewayConfig, _SINGLETON_ID)
+    if config is None:
+        config = GatewayConfig(id=_SINGLETON_ID)
+    config.ssl_certificate_path = ssl_certificate_path
+    config.ssl_certificate_key_path = ssl_certificate_key_path
+    config.updated_at = datetime.now(timezone.utc)
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
 def get_decrypted_private_key(config: GatewayConfig) -> str:
     try:
         return decrypt_value(config.encrypted_private_key)
@@ -80,5 +98,6 @@ __all__ = [
     "get_gateway_config",
     "upsert_connection_settings",
     "save_keypair",
+    "save_certificate_paths",
     "get_decrypted_private_key",
 ]

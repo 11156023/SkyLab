@@ -1,29 +1,32 @@
 # Security Policy
 
-Security is very important for this project and its community. 🔒
+> **English** | [繁體中文](./SECURITY.zh-TW.md)
 
-Learn more about it below. 👇
+SkyLab manages hypervisors, student machines, gateway firewalls and AI API credentials, so we take vulnerability reports seriously.
 
-## Versions
+## Supported versions
 
-The latest version or release is supported.
+Only the `main` branch is supported. There are no maintained release lines; deploy from `main` and keep up to date.
 
-You are encouraged to write tests for your application and update your versions frequently after ensuring that your tests are passing. This way you will benefit from the latest features, bug fixes, and **security fixes**.
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Please **do not** open a public issue for a security problem.
 
-If you think you found a vulnerability, and even if you are not sure about it, please report it right away by sending an email to: security@tiangolo.com. Please try to be as explicit as possible, describing all the steps and example code to reproduce the security issue.
+Use GitHub's private vulnerability reporting instead: open the **Security** tab of this repository and choose **Report a vulnerability**. This creates a private advisory that only the maintainers can see.
 
-I (the author, [@tiangolo](https://twitter.com/tiangolo)) will review it thoroughly and get back to you.
+Include as much of the following as you can:
 
-## Public Discussions
+- the affected component (backend route, frontend page, gateway script, desktop client, vLLM / LiteLLM stack)
+- steps to reproduce, or a proof of concept
+- the impact you believe it has (for example privilege escalation between roles, access to another user's VM, credential disclosure)
+- the commit or version you tested against
 
-Please restrain from publicly discussing a potential security vulnerability. 🙊
+We aim to acknowledge reports within a week and to keep you informed while we work on a fix. Please give us reasonable time to ship a fix before disclosing publicly.
 
-It's better to discuss privately and try to find a solution first, to limit the potential impact as much as possible.
+## Scope notes
 
----
+- Secrets must never be committed. `SECRET_KEY` both signs tokens and derives the key that encrypts stored credentials; rotate it with `backend/scripts/rotate_secret_key.py`, never by editing `.env` alone.
+- Proxmox, LDAP and gateway credentials are stored encrypted in the database and are configured through the UI, not through `.env`.
+- Hardening guidance for operators (trusted proxy, rootless Docker source IPs, certificate handling) is in [`docs/deployment.md`](docs/deployment.md).
 
-Thanks for your help!
-
-The community and I thank you for that. 🙇
+Thank you for helping keep SkyLab and its users safe.

@@ -36,6 +36,11 @@ class SpecChangeRequest(SQLModel, table=True):
 
     __tablename__ = "spec_change_requests"
     __table_args__ = (
+        # resource_vmid 只能是空的（資源已刪或從未建立）或就是這筆的 vmid
+        sa.CheckConstraint(
+            "resource_vmid IS NULL OR (vmid IS NOT NULL AND resource_vmid = vmid)",
+            name="ck_spec_change_requests_resource_vmid_matches",
+        ),
         # 申請人列表（user_id + status，依 created_at 排序）與審核佇列（status）
         sa.Index(
             "ix_spec_change_requests_user_status_created",

@@ -133,7 +133,7 @@ def setup_gateway_install_status(session: SessionDep) -> GatewayInstallStatus:
 def setup_gateway_install(
     session: SessionDep, body: GatewayInstallOptions
 ) -> GatewayInstallStatus:
-    """步驟四：在 Gateway 背景執行 install.sh（nginx／certbot／WireGuard）。"""
+    """步驟四：在 Gateway 背景執行 install.sh（nginx／WireGuard）。"""
     return setup_service.start_gateway_install(session=session, options=body)
 
 

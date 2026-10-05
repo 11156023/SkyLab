@@ -22,6 +22,7 @@ from app.exceptions import BadRequestError, ConflictError
 from app.infrastructure.queue import enqueue_task_sync
 from app.models.task_record import TaskRecord, TaskRecordStatus
 from app.services.proxmox import proxmox_service
+from app.services.resource import guest_ssh_login
 from app.services.resource._guest_helpers import resource_type
 from app.services.resource.snapshot_capability import require_snapshot_available
 from app.services.user import audit_service
@@ -154,8 +155,12 @@ def _audit_reset(vmid: int, user_id: uuid.UUID, *, ok: bool, detail: str) -> Non
 def _sync_lxc_platform_key_after_start(
     node: str, vmid: int, rtype: Literal["qemu", "lxc"]
 ) -> None:
-    """Best-effort key repair after a snapshot rollback restarts an LXC."""
+    """Best-effort key repair after a snapshot rollback restarts an LXC.
+
+    QEMU 只補 sshd 的密碼登入設定（回滾可能退回設定前的狀態）。
+    """
     if rtype != "lxc":
+        guest_ssh_login.schedule_after_start(node, vmid, rtype)
         return
 
     try:

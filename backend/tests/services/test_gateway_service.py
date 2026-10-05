@@ -14,16 +14,19 @@ def test_gateway_installer_uses_wireguard() -> None:
     assert not (gateway_dir / "install-wireguard.sh").exists()
 
 
-def test_gateway_installer_installs_nginx_stream_and_certbot() -> None:
-    """Gateway 改由 nginx 一手包辦 Port 轉發與反向代理，Traefik 不再下載。"""
+def test_gateway_installer_installs_nginx_stream_without_certbot() -> None:
+    """Gateway 由 nginx 一手包辦 Port 轉發與反向代理；憑證由管理員自備，不裝 certbot。"""
     gateway_dir = Path(__file__).resolve().parents[3] / "gateway"
     script = (gateway_dir / "install.sh").read_text(encoding="utf-8")
 
     assert "libnginx-mod-stream" in script
-    assert "python3-certbot-dns-cloudflare" in script
     assert "include /etc/nginx/skylab/http.conf;" in script
     assert "include /etc/nginx/skylab/stream.conf;" in script
-    assert "renewal-hooks/deploy/skylab-nginx-reload" in script
+    # 還沒設定憑證時 HTTPS 站台要有自簽憑證可掛
+    assert "fallback.crt" in script
+    assert "install -d -m 750 /etc/ssl/skylab" in script
+    assert "python3-certbot-dns-cloudflare" not in script
+    assert "certbot.timer" not in script
     assert "TRAEFIK_VERSION" not in script
     assert "BEGIN_skylab_MANAGED" not in script
 

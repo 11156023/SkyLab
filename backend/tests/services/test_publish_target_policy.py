@@ -15,7 +15,7 @@ def publish_config(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         cidr="10.10.0.0/16",
         gateway="10.10.0.1",
         gateway_vm_ip="10.10.0.2",
-        extra_blocked_subnets="10.10.0.0/16",
+        blocked_subnet_list=["10.10.0.0/16"],
     )
     monkeypatch.setattr(ip_management_service, "get_subnet_config", lambda _: config)
     return config
@@ -33,7 +33,7 @@ def _session() -> SimpleNamespace:
 def test_vm_can_be_published_with_outbound_isolation(
     publish_config: SimpleNamespace, outbound_block: str,
 ) -> None:
-    publish_config.extra_blocked_subnets = outbound_block
+    publish_config.blocked_subnet_list = [outbound_block]
 
     assert_publishable_vm_ip(_session(), "10.10.0.11")
 

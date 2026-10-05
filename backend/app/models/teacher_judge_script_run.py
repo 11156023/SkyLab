@@ -6,9 +6,10 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
-from sqlmodel import Column, Field, SQLModel
+from sqlmodel import Column, Field, Relationship, SQLModel
 
 from .base import get_datetime_utc
+from .teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 
 
 class TeacherJudgeScriptRunTargetScope(str, enum.Enum):
@@ -27,15 +28,13 @@ class TeacherJudgeScriptRunStatus(str, enum.Enum):
 
 
 class TeacherJudgeScriptRun(SQLModel, table=True):
-    """Execution run for a Teacher Judge managed script artifact."""
+    """Execution run for a Teacher Judge managed script artifact.
+
+    The teaching class is not stored here: it is ``artifact.teaching_class_id``.
+    """
 
     __tablename__ = "teacher_judge_script_runs"
     __table_args__ = (
-        sa.Index(
-            "ix_teacher_judge_script_runs_class_status",
-            "teaching_class_id",
-            "status",
-        ),
         sa.Index(
             "ix_teacher_judge_script_runs_artifact_created",
             "artifact_id",
@@ -47,14 +46,6 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
     run_batch_id: uuid.UUID | None = Field(
         default=None,
         sa_column=Column(sa.Uuid, nullable=True, index=True),
-    )
-    teaching_class_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("teaching_classes.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        )
     )
     artifact_id: uuid.UUID = Field(
         sa_column=Column(
@@ -122,6 +113,14 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
         default_factory=get_datetime_utc,
         sa_column=Column(sa.DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
+
+    artifact: TeacherJudgeScriptArtifact = Relationship(
+        sa_relationship_kwargs={"lazy": "joined", "innerjoin": True}
+    )
+
+    @property
+    def teaching_class_id(self) -> uuid.UUID:
+        return self.artifact.teaching_class_id
 
 
 __all__ = [

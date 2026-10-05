@@ -130,13 +130,31 @@ def nodes_for_version(
 
 def _session_machine_rows(
     session: Session, *, practice_id: uuid.UUID
-) -> list[tuple[QuickPracticeSessionMachine, VMRequest]]:
+) -> list[tuple[QuickPracticeSessionMachine, VMRequest, CourseEnvironmentNode]]:
+    """每台機器配上它的申請單與來源節點。
+
+    名稱、角色、類型與排序不另存在 session machine 上，一律從 Session 所屬
+    （已發佈、不可再改）版本的同 node_key 節點讀，避免複製出第二份。
+    """
     return list(
         session.exec(
-            select(QuickPracticeSessionMachine, VMRequest)
+            select(QuickPracticeSessionMachine, VMRequest, CourseEnvironmentNode)
             .join(VMRequest, QuickPracticeSessionMachine.vm_request_id == VMRequest.id)
+            .join(
+                QuickPracticeSession,
+                col(QuickPracticeSession.id) == col(QuickPracticeSessionMachine.session_id),
+            )
+            .join(
+                CourseEnvironmentNode,
+                sa.and_(
+                    col(CourseEnvironmentNode.version_id)
+                    == col(QuickPracticeSession.environment_version_id),
+                    col(CourseEnvironmentNode.node_key)
+                    == col(QuickPracticeSessionMachine.node_key),
+                ),
+            )
             .where(QuickPracticeSessionMachine.session_id == practice_id)
-            .order_by(col(QuickPracticeSessionMachine.sort_order))
+            .order_by(col(CourseEnvironmentNode.sort_order))
         ).all()
     )
 
@@ -151,7 +169,7 @@ def _apply_session_topology(
     rows = _session_machine_rows(session, practice_id=practice.id)
     machines_by_key = {
         machine.node_key: request
-        for machine, request in rows
+        for machine, request, _node in rows
         if request.vmid is not None
         and request.provisioning_status == VMProvisioningStatus.completed
     }
@@ -252,8 +270,8 @@ def reconcile_session(
     if not rows:
         return practice
     failed = [
-        machine.name
-        for machine, request in rows
+        node.name
+        for _machine, request, node in rows
         if request.provisioning_status == VMProvisioningStatus.failed
     ]
     if failed:
@@ -265,7 +283,7 @@ def reconcile_session(
     completed = all(
         request.vmid is not None
         and request.provisioning_status == VMProvisioningStatus.completed
-        for _machine, request in rows
+        for _machine, request, _node in rows
     )
     if not completed:
         practice.status = "creating"
@@ -348,7 +366,7 @@ def _settle_unstarted_machines(
     now = _utc_now()
     in_flight = False
     cancellable: list[uuid.UUID] = []
-    for _machine, request in _session_machine_rows(session, practice_id=practice_id):
+    for _machine, request, _node in _session_machine_rows(session, practice_id=practice_id):
         if request.vmid is not None or request.status not in _OPEN_REQUEST_STATUSES:
             continue
         if _clone_in_flight(request, now=now):
@@ -787,10 +805,6 @@ def launch(
                 session_id=practice.id,
                 vm_request_id=db_request.id,
                 node_key=node.node_key,
-                name=node.name,
-                role=node.role,
-                resource_type=node.resource_type,
-                sort_order=node.sort_order,
             )
         )
         request_ids.append(db_request.id)
@@ -856,13 +870,13 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
     # 對外網址直接讀反向代理紀錄，清單頁不打 Proxmox
     from app.services.teaching import course_publication_service
 
-    vmids = [request.vmid for _machine, request in rows if request.vmid is not None]
+    vmids = [request.vmid for _machine, request, _node in rows if request.vmid is not None]
     public_urls = course_publication_service.public_urls_by_vmid(session, vmids)
     forward_endpoints = course_publication_service.forward_endpoints_by_vmid(
         session, vmids
     )
     machines = []
-    for machine, request in rows:
+    for machine, request, node in rows:
         if request.vmid is not None:
             status = "running" if request.provisioning_status == VMProvisioningStatus.completed else "provisioning"
         elif request.provisioning_status == VMProvisioningStatus.failed:
@@ -873,9 +887,9 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
             {
                 "id": machine.id,
                 "node_key": machine.node_key,
-                "name": machine.name,
-                "role": machine.role,
-                "resource_type": machine.resource_type,
+                "name": node.name,
+                "role": node.role,
+                "resource_type": node.resource_type,
                 "request_id": request.id,
                 "vmid": request.vmid,
                 "status": status,

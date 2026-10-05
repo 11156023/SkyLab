@@ -200,7 +200,7 @@ _REVERSE_PROXY_ELEMENTS: tuple[ElementSpec, ...] = (
         id="proxy.https",
         role="toggle",
         label="安全連線 (https)",
-        help="開啟時系統會自動申請免費憑證。",
+        help="開啟時使用管理員在 Gateway 上設定的憑證；網域不在憑證涵蓋範圍內時瀏覽器會出現警告。",
     ),
 )
 
@@ -1209,6 +1209,16 @@ _GATEWAY_ELEMENTS: tuple[ElementSpec, ...] = (
         help=(
             "讓 SkyLab 主系統自己也經 Gateway 的 nginx，以網域和 HTTPS 對外。"
             "填主系統網域與 Gateway 連得到的部署機位址；儲存時會先從 Gateway 測試連線，連不到就不套用。"
+            "開 HTTPS 前要先在「HTTPS 憑證」分頁設定好涵蓋這個網域的憑證。"
+        ),
+    ),
+    ElementSpec(
+        id="gateway.certificate", role="text", label="HTTPS 憑證",
+        section="HTTPS 憑證",
+        help=(
+            "系統不會自動簽發憑證：請自行簽好（建議涵蓋整個網域的萬用憑證）放到 Gateway 主機上，"
+            "再填憑證（fullchain）與私鑰的完整路徑。平台入口與所有機器網域共用這張；"
+            "儲存時會在 Gateway 上檢查檔案、私鑰配對與到期日。換新憑證後若路徑不變，按「重新套用」或在 Gateway 上 reload nginx。"
         ),
     ),
     ElementSpec(
@@ -1782,9 +1792,10 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         title="閘道 VM",
         purpose=(
             "管理 nginx（Port 轉發與反向代理）與 WireGuard VPN 的服務設定與狀態，"
-            "以及主系統自己經 Gateway 對外的平台入口。"
+            "以及主系統自己經 Gateway 對外的平台入口；HTTPS 憑證由管理員自備，"
+            "平台入口與所有機器網域共用一張。"
         ),
-        sections=("連線設定", "服務狀態", "平台入口"),
+        sections=("連線設定", "服務狀態", "HTTPS 憑證", "平台入口"),
         access="admin",
         elements=_GATEWAY_ELEMENTS,
     ),

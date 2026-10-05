@@ -22,6 +22,7 @@ LEGACY_API_KEY_PREFIX_LENGTH = 8
 class AIAPICredential(SQLModel, table=True):
     __tablename__ = "ai_api_credentials"
     __table_args__ = (
+        sa.UniqueConstraint("id", "user_id", name="uq_ai_api_credentials_id_user"),
         sa.Index("ix_ai_api_credentials_user_id", "user_id"),
         sa.Index("ix_ai_api_credentials_request_id", "request_id"),
         sa.Index("ix_ai_api_credentials_user_revoked", "user_id", "revoked_at"),

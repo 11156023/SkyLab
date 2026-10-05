@@ -78,7 +78,7 @@ export const SetupService = {
     });
   },
 
-  /** 步驟五：儲存平台入口並同步到 Gateway 的 nginx；body 可帶 cloudflare_api_token */
+  /** 步驟五：儲存平台入口並同步到 Gateway 的 nginx；body 可帶 ssl_certificate_path／ssl_certificate_key_path（管理員自備的憑證） */
   savePlatformEntry(body) {
     return apiPut("/api/v1/setup/platform-entry", body, {
       timeoutMs: PLATFORM_ENTRY_SAVE_TIMEOUT_MS,

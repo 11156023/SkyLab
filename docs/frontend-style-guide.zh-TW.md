@@ -1,5 +1,7 @@
 ﻿# SkyLab Frontend — 樣式規範
 
+> [English](./frontend-style-guide.md) | **繁體中文**
+
 - 日期：2026-09-05（Asia/Taipei；原 `frontend/src/assets/styles/STYLE_GUIDE.md` 移入 docs）
 - 狀態：現行規範，持續維護
 - 適用範圍：前端所有頁面與元件

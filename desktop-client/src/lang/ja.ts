@@ -1,4 +1,42 @@
 export default {
+  workspace: {
+    navigation: "メインナビゲーション",
+    connectionInfo: "接続情報",
+    openWeb: "Web を開く",
+    waitingGateway: "ゲートウェイの応答待ち",
+    waitingGatewayHint:
+      "トンネルは起動しましたが、WireGuard ハンドシェイクは未受信です。応答がない場合はネットワークを確認するか、管理者に連絡してください。",
+    protocol: "プロトコル",
+    interface: "インターフェース",
+    handshake: "最終ハンドシェイク",
+    noHandshake: "未受信",
+    close: "閉じる",
+    details: "マシンの詳細",
+    detailsFor: "{name} の詳細",
+    owner: "所有者",
+    startsAt: "開始時刻",
+    access: "アクセス権限",
+    window_ended: "利用期間が終了しました",
+    window_not_started: "利用期間はまだ開始されていません",
+    readOnly: "閲覧のみ",
+    connectFirst: "先に安全な接続を確立してください",
+    disconnecting: "切断中",
+    connected: "安全に接続済み",
+    all: "すべて",
+    course: "授業",
+    personal: "個人",
+    filter: "リソース分類",
+    search: "マシン名・IP で検索",
+    grid: "カード表示",
+    list: "リスト表示",
+    toggleTheme: "テーマを切り替え",
+    machineCount: "{count} 台",
+    noMatches: "一致するマシンがありません",
+    resourceError: "リソースを更新できません。再読み込みしてください。",
+    appearance: "外観",
+    dark: "ダーク",
+    light: "ライト"
+  },
   update: {
     title: "新しいバージョンがあります",
     message:
@@ -196,7 +234,20 @@ export default {
       secure: "許可された VM のみ"
     },
     version: "バージョン",
-    openDataDir: "データフォルダーを開く"
+    openDataDir: "データフォルダーを開く",
+    license: "ライセンス",
+    licenseName: "GNU Affero General Public License v3.0",
+    licenseHint:
+      "SkyLab はオープンソースソフトウェアです。改変してネットワーク経由で第三者に提供する場合は改変後のソースコードを公開する必要があります。商用ライセンスも提供しています。",
+    repository: "ソースコード",
+    thirdPartyNotices: "サードパーティライセンス",
+    components: {
+      title: "オープンソースコンポーネント",
+      hint: "このアプリケーションが直接依存する {count} 個のパッケージです。ビルド時に package.json から生成されます。",
+      package: "パッケージ",
+      version: "バージョン",
+      license: "ライセンス"
+    }
   },
   logger: {
     tab: { appLog: "アプリログ" },

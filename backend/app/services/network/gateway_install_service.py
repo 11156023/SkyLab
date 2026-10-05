@@ -1,6 +1,6 @@
 """Gateway 一鍵安裝：用已綁定的 SSH 金鑰把 gateway/install.sh 送上去並在背景執行。
 
-安裝要跑好幾分鐘（apt、certbot、WireGuard），不能卡在一個 HTTP 請求裡；
+安裝要跑好幾分鐘（apt、nginx、WireGuard），不能卡在一個 HTTP 請求裡；
 所以腳本交給 Gateway 自己的 systemd（``systemd-run`` 臨時服務）執行，
 日誌、開始時間與結束碼都寫在 Gateway 的 ``STATE_DIR``。狀態查詢每次重新 SSH
 讀回來，後端重啟、SSH 斷線或多個 worker 行程都不影響判斷。
@@ -35,8 +35,8 @@ SYSTEMD_UNIT = "skylab-gateway-install"
 # 先放這裡再由 root 搬過去
 UPLOAD_NAME = ".skylab-gateway-install.sh"
 LOG_TAIL_LINES = 400
-COMPONENTS = ("nginx", "wg", "certbot", "ufw")
-_COMPONENT_KEYS = {"nginx": "nginx", "wg": "wireguard", "certbot": "certbot", "ufw": "ufw"}
+COMPONENTS = ("nginx", "wg", "ufw")
+_COMPONENT_KEYS = {"nginx": "nginx", "wg": "wireguard", "ufw": "ufw"}
 
 _LOG_MARKER = "---SKYLAB-LOG---"
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")

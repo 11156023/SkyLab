@@ -141,6 +141,11 @@ class AuditLog(SQLModel, table=True):
 
     __tablename__ = "audit_logs"
     __table_args__ = (
+        # resource_vmid 只能是空的（資源已刪或從未建立）或就是這筆的 vmid
+        sa.CheckConstraint(
+            "resource_vmid IS NULL OR (vmid IS NOT NULL AND resource_vmid = vmid)",
+            name="ck_audit_logs_resource_vmid_matches",
+        ),
         sa.Index("ix_audit_logs_created_at", "created_at"),
         sa.Index("ix_audit_logs_user_created", "user_id", "created_at"),
         sa.Index("ix_audit_logs_action_created", "action", "created_at"),

@@ -32,6 +32,20 @@ class TeacherJudgeMessageType(str, enum.Enum):
 class TeacherJudgeSession(SQLModel, table=True):
     __tablename__ = "teacher_judge_sessions"
     __table_args__ = (
+        sa.UniqueConstraint(
+            "id", "teaching_class_id", name="uq_teacher_judge_sessions_id_class"
+        ),
+        # 選填的週次／選定檔案必須屬於同一個班級（複合外鍵；刪除時由單欄外鍵 SET NULL）
+        sa.ForeignKeyConstraint(
+            ["teaching_class_week_id", "teaching_class_id"],
+            ["teaching_class_weeks.id", "teaching_class_weeks.class_id"],
+            name="fk_teacher_judge_sessions_week_same_class",
+        ),
+        sa.ForeignKeyConstraint(
+            ["selected_file_id", "teaching_class_id"],
+            ["teacher_judge_files.id", "teacher_judge_files.teaching_class_id"],
+            name="fk_teacher_judge_sessions_file_same_class",
+        ),
         sa.Index(
             "ix_teacher_judge_sessions_class_activity",
             "teaching_class_id",

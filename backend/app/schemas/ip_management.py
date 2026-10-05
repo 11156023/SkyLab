@@ -1,6 +1,7 @@
 """IP 管理相關的 API Schemas"""
 
 import ipaddress
+import re
 from datetime import datetime
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -8,6 +9,21 @@ from pydantic import BaseModel, field_validator, model_validator
 from app.core.i18n import t
 
 _MIN_SUBNET_PREFIXLEN = 8
+_DNS_SEPARATORS = re.compile(r"[,;\s]+")
+
+
+def split_dns_servers(raw: str | None) -> list[str]:
+    """把 DNS 輸入（逗號、分號或空白分隔）拆成位址清單，保留順序並去重。"""
+    out: list[str] = []
+    for item in _DNS_SEPARATORS.split(raw or ""):
+        if item and item not in out:
+            out.append(item)
+    return out
+
+
+def join_dns_servers(addresses: list[str]) -> str | None:
+    """位址清單組回 API／PVE nameserver 用的逗號分隔字串；空清單回 None。"""
+    return ",".join(addresses) or None
 
 
 class SubnetConfigCreate(BaseModel):
@@ -83,6 +99,17 @@ class SubnetConfigCreate(BaseModel):
         except (ipaddress.AddressValueError, ValueError) as e:
             raise ValueError(t("ip.invalid_ip", error=str(e))) from e
         return v
+
+    @field_validator("dns_servers")
+    @classmethod
+    def validate_dns_servers(cls, v: str | None) -> str | None:
+        addresses = split_dns_servers(v)
+        for address in addresses:
+            try:
+                ipaddress.ip_address(address)
+            except ValueError as e:
+                raise ValueError(t("ip.invalid_ip", error=str(e))) from e
+        return join_dns_servers(addresses)
 
     @field_validator("extra_blocked_subnets", mode="before")
     @classmethod

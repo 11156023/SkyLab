@@ -1,225 +1,162 @@
-# FastAPI Project - Development
+# Development Guide
+
+> **English** | [繁體中文](./development.zh-TW.md)
+
+This guide covers running SkyLab locally. For production see [`deployment.md`](deployment.md); for the backend layout see [`../backend/README.md`](../backend/README.md).
+
+## Prerequisites
+
+- Docker Engine with Compose ≥ 2.20 (the root compose file uses `include`)
+- [uv](https://docs.astral.sh/uv/) for Python, [Bun](https://bun.sh/) for the frontend
+- A reachable Proxmox VE node or cluster if you want to provision anything; the UI, auth, docs and most tests work without one
 
 ## Docker Compose
 
-* Start the local stack with Docker Compose:
-
 ```bash
-docker compose watch
+cp -n .env.example .env         # edit SECRET_KEY, FIRST_SUPERUSER*, POSTGRES_PASSWORD at least
+docker compose watch            # build, start, and sync source changes into the containers
 ```
 
-* Now you can open your browser and interact with these URLs:
+Services started by the root `docker-compose.yml`:
 
-Frontend, built with Docker, with routes handled based on the path: <http://localhost:5173>
+| Service | Role | Host port |
+| --- | --- | --- |
+| `nginx` | single entry point: `/api`, `/ws` → backend, `/grafana/` → Grafana, everything else → frontend | `NGINX_HOST_PORT` (8082) |
+| `backend` | FastAPI app | `BACKEND_HOST_PORT` (8000) |
+| `worker` | arq background worker (clone, batch provisioning, deletion …) | – |
+| `prestart` | waits for the DB, runs Alembic, creates the first superuser, then exits | – |
+| `frontend` | Vite dev server (production image serves the built bundle) | 5173 |
+| `db` / `pgbouncer` | PostgreSQL and the transaction-pooling proxy the app connects through | `POSTGRES_HOST_PORT` (5433) |
+| `redis` | rate limiting, token revocation, arq queue, caches | `REDIS_HOST_PORT` (6379) |
+| `mailcatcher` | catches all outgoing mail in development | 1080 (web), 1025 (SMTP) |
+| `litellm` | AI API gateway, included from `vllm-service/litellm/docker-compose.yml` | 4000 (localhost) |
+| monitoring profile | Prometheus, Grafana, Loki, Alloy, InfluxDB, exporters, cAdvisor | see [`monitoring.md`](monitoring.md) |
 
-Backend, JSON based web API based on OpenAPI: <http://localhost:8000>
-
-Automatic interactive documentation with Swagger UI (from the OpenAPI backend): <http://localhost:8000/docs>
-
-Adminer, database web administration: <http://localhost:8080>
-
-Traefik UI, to see how the routes are being handled by the proxy: <http://localhost:8090>
-
-**Note**: The first time you start your stack, it might take a minute for it to be ready. While the backend waits for the database to be ready and configures everything. You can check the logs to monitor it.
-
-To check the logs, run (in another terminal):
-
-```bash
-docker compose logs
-```
-
-To check the logs of a specific service, add the name of the service, e.g.:
+Useful commands:
 
 ```bash
-docker compose logs backend
+docker compose logs -f backend
+docker compose exec backend bash
+docker compose --profile monitoring up -d       # add the monitoring stack
+docker compose down -v --remove-orphans         # wipe volumes (database included)
 ```
 
-## Mailcatcher
+The first start takes a while: `prestart` waits for PostgreSQL and applies 200+ migrations. When the stack is up, open http://localhost:8082. On a fresh database the setup wizard (`/setup`) runs first; it creates (or takes over) the administrator, tests the Proxmox connection and configures the IP subnet. The gateway and platform-entry steps can be skipped in development.
 
-Mailcatcher is a simple SMTP server that catches all emails sent by the backend during local development. Instead of sending real emails, they are captured and displayed in a web interface.
+### MailCatcher
 
-This is useful for:
+With Compose the backend is pointed at MailCatcher (`SMTP_HOST=mailcatcher`, port 1025) unless you set `SMTP_HOST` in `.env`. Every email the backend sends (password reset, approvals, alerts) shows up at http://localhost:1080. Note that `SMTP_PORT=587` / `SMTP_TLS=True` from a copied production `.env` will make MailCatcher miss the mail.
 
-* Testing email functionality during development
-* Verifying email content and formatting
-* Debugging email-related functionality without sending real emails
+## Running services on the host
 
-The backend is automatically configured to use Mailcatcher when running with Docker Compose locally (SMTP on port 1025). All captured emails can be viewed at <http://localhost:1080>.
+Each service uses the same port inside Compose and on the host, so you can stop one container and run that service locally while the rest stays in Docker.
 
-## Local Development
+### Backend
 
-The Docker Compose files are configured so that each of the services is available in a different port in `localhost`.
+```bash
+docker compose stop backend worker
+cd backend
+uv sync
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+fastapi dev app/main.py          # http://localhost:8000, Swagger at /docs
+```
 
-For the backend and frontend, they use the same port that would be used by their local development server, so, the backend is at `http://localhost:8000` and the frontend at `http://localhost:5173`.
+Activate the virtual environment first. A globally installed `fastapi` starts fine but lacks project dependencies such as `paramiko`, so provisioning fails at runtime with "SSH backend is unavailable".
 
-This way, you could turn off a Docker Compose service and start its local development service, and everything would keep working, because it all uses the same ports.
+The host process reads the root `.env` (`env_file="../.env"`). Point `POSTGRES_SERVER` at `localhost` and `POSTGRES_PORT` at `POSTGRES_HOST_PORT` (5433), `REDIS_URL` at `redis://localhost:6379/0`, and `AI_API_BASE_URL` / `LITELLM_RUNTIME_BASE_URL` at `http://127.0.0.1:4000` when the rest of the stack is in Docker. The worker is a separate process: `uv run arq app.infrastructure.queue.worker.WorkerSettings`, or set `REDIS_ENABLED=false` to run background tasks in-process.
 
-For example, you can stop that `frontend` service in the Docker Compose, in another terminal, run:
+### Frontend
 
 ```bash
 docker compose stop frontend
+cd frontend
+bun install
+bun run dev                      # http://localhost:5173
 ```
 
-And then start the local frontend development server:
+The Vite dev server proxies `/api` and `/ws` to `http://localhost:8000`. Set `VITE_API_URL` to target a different backend. Other scripts: `bun run build` (production bundle), `bun run preview`, `bun run test` (Vitest).
+
+Frontend conventions:
+
+- Routing is centralised in `src/App.jsx`; sidebar entries in `src/components/Sidebar/Sidebar.jsx`.
+- Pages live under `src/pages/<area>/<Feature>/XxxPage.jsx` with a sibling `.module.scss`.
+- There is no generated API client. Every endpoint has a hand-written function in `src/services/*.js` built on `apiGet/apiPost/...` from `src/services/api.js` (token, 401 refresh), with a Vitest mock test next to it. Pages never call `fetch` directly.
+- Styles follow [`frontend-style-guide.md`](frontend-style-guide.md): SCSS Modules, `_variables` / `_mixins` injected by Vite, theme colours via `--color-*` custom properties.
+- Text goes through react-i18next; keys live in `src/locales/{zh-TW,en,ja}/`. Add every key to all three locales.
+
+## Environment variables
+
+The single source of truth is `.env` at the repository root, read by Compose and by `backend/app/core/config.py`. `.env.example` documents every variable in sections; the ones you must change before any non-local deployment are `SECRET_KEY`, `FIRST_SUPERUSER_PASSWORD` and `POSTGRES_PASSWORD` (the backend refuses to start with `changethis` when `ENVIRONMENT` is not `local`).
+
+Proxmox credentials are **not** environment variables: they are entered in the setup wizard or on the "PVE Connections" page and stored encrypted in the database.
+
+LiteLLM has its own `vllm-service/litellm/.env` (master key, upstream keys, its database URL). Never copy the master key into the root `.env`; the backend only gets a restricted service key (`AI_API_API_KEY`). `bash scripts/prepare-ai-stack.sh --init-env` fills both files; see the [AI API User Manual](ai-api-user-manual.md).
+
+Never commit `.env`.
+
+## Database and migrations
+
+The app connects through PgBouncer in transaction-pooling mode. Consequences for code:
+
+- Advisory locks must be transaction scoped (`pg_advisory_xact_lock`), never session scoped.
+- No `SET`, `LISTEN/NOTIFY` or temp tables that assume the same server connection across transactions.
+
+Schema changes:
 
 ```bash
-bun run dev
+docker compose exec backend bash
+alembic revision --autogenerate -m "Describe the change"
+alembic upgrade head
 ```
 
-Or you could stop the `backend` Docker Compose service:
+Migrations run automatically on container start (`scripts/prestart.sh`). Keep revision ids under 32 characters and review autogenerated output: enum changes (for example `AuditAction`) need explicit `ALTER TYPE … ADD VALUE` statements. The `migration-check` workflow in CI verifies that models and migrations agree.
 
-```bash
-docker compose stop backend
-```
+## Tests and linting
 
-And then you can run the local development server for the backend:
+Backend:
 
 ```bash
 cd backend
-source ../.venv/bin/activate   # Windows PowerShell: ..\.venv\Scripts\Activate.ps1
-fastapi dev app/main.py
+bash ./scripts/test.sh                       # pytest + coverage (htmlcov/)
+uv run pytest tests/api/routes/test_login.py  # a single file
+uv run ruff check . && uv run ruff format --check .
+uv run mypy .
 ```
 
-Activate the virtual environment first. Without it the shell picks up whatever
-`fastapi` is installed globally, which starts fine but is missing project
-dependencies (for example `paramiko`), so provisioning fails at runtime with
-`SSH backend is unavailable`.
+DB-backed tests use the `db` fixture, which refuses databases whose name does not look like a test database (`PYTEST_ALLOW_NON_TEST_DB=1` overrides). For a disposable local database run `postgres` and `redis` containers on spare ports and point `POSTGRES_*` / `REDIS_URL` at them, or run the suite inside the stack with `docker compose exec backend bash scripts/tests-start.sh -x`. Tests always disable Sentry.
 
-## Docker Compose in `localhost.tiangolo.com`
-
-When you start the Docker Compose stack, it uses `localhost` by default, with different ports for each service (backend, frontend, adminer, etc).
-
-When you deploy it to production (or staging), it will deploy each service in a different subdomain, like `api.example.com` for the backend and `dashboard.example.com` for the frontend.
-
-In the guide about [deployment](deployment.md) you can read about Traefik, the configured proxy. That's the component in charge of transmitting traffic to each service based on the subdomain.
-
-If you want to test that it's all working locally, you can edit the local `.env` file, and change:
-
-```dotenv
-DOMAIN=localhost.tiangolo.com
-```
-
-That will be used by the Docker Compose files to configure the base domain for the services.
-
-Traefik will use this to transmit traffic at `api.localhost.tiangolo.com` to the backend, and traffic at `dashboard.localhost.tiangolo.com` to the frontend.
-
-The domain `localhost.tiangolo.com` is a special domain that is configured (with all its subdomains) to point to `127.0.0.1`. This way you can use that for your local development.
-
-After you update it, run again:
+Frontend:
 
 ```bash
-docker compose watch
+cd frontend
+bun run test          # Vitest, services layer
+bun run build         # catches import and syntax errors
 ```
 
-For local development, there's an included Traefik (the `proxy` service) in `docker-compose.yml`, just to let you test that the domains work as expected, for example with `api.localhost.tiangolo.com` and `dashboard.localhost.tiangolo.com`.
-
-## Docker Compose file and env vars
-
-There is a single `docker-compose.yml` file with all the configurations that apply to the whole stack — services, exposed ports, and development source-code sync (via `develop.watch`). It is used automatically by `docker compose`, so no `-f` flag is needed.
-
-This Docker Compose file uses the `.env` file containing configurations to be injected as environment variables in the containers.
-
-They also use some additional configurations taken from environment variables set in the scripts before calling the `docker compose` command.
-
-After changing variables, make sure you restart the stack:
+Pre-commit hooks (ruff, ruff-format, trailing whitespace, YAML/TOML checks) are managed with [prek](https://prek.j178.dev/):
 
 ```bash
-docker compose watch
+cd backend
+uv run prek install -f        # once
+uv run prek run --all-files   # on demand
 ```
 
-## The .env file
+## Local URLs
 
-The `.env` file is the one that contains all your configurations, generated keys and passwords, etc.
+| URL | What |
+| --- | --- |
+| http://localhost:8082 | SkyLab through nginx (what users see) |
+| http://localhost:5173 | Vite dev server |
+| http://localhost:8000/docs | Swagger UI, http://localhost:8000/redoc for ReDoc |
+| http://localhost:1080 | MailCatcher |
+| http://localhost:8082/grafana/ | Grafana (monitoring profile only) |
+| http://127.0.0.1:9090 | Prometheus (monitoring profile, localhost only) |
 
-Depending on your workflow, you could want to exclude it from Git, for example if your project is public. In that case, you would have to make sure to set up a way for your CI tools to obtain it while building or deploying your project.
+## Common pitfalls
 
-One way to do it could be to add each environment variable to your CI/CD system, and updating the `docker-compose.yml` file to read that specific env var instead of reading the `.env` file.
-
-## Pre-commits and code linting
-
-we are using a tool called [prek](https://prek.j178.dev/) (modern alternative to [Pre-commit](https://pre-commit.com/)) for code linting and formatting.
-
-When you install it, it runs right before making a commit in git. This way it ensures that the code is consistent and formatted even before it is committed.
-
-You can find a file `.pre-commit-config.yaml` with configurations at the root of the project.
-
-#### Install prek to run automatically
-
-`prek` is already part of the dependencies of the project.
-
-After having the `prek` tool installed and available, you need to "install" it in the local repository, so that it runs automatically before each commit.
-
-Using `uv`, you could do it with (make sure you are inside `backend` folder):
-
-```bash
-❯ uv run prek install -f
-prek installed at `../.git/hooks/pre-commit`
-```
-
-The `-f` flag forces the installation, in case there was already a `pre-commit` hook previously installed.
-
-Now whenever you try to commit, e.g. with:
-
-```bash
-git commit
-```
-
-...prek will run and check and format the code you are about to commit, and will ask you to add that code (stage it) with git again before committing.
-
-Then you can `git add` the modified/fixed files again and now you can commit.
-
-#### Running prek hooks manually
-
-you can also run `prek` manually on all the files, you can do it using `uv` with:
-
-```bash
-❯ uv run prek run --all-files
-check for added large files..............................................Passed
-check toml...............................................................Passed
-check yaml...............................................................Passed
-fix end of files.........................................................Passed
-trim trailing whitespace.................................................Passed
-ruff.....................................................................Passed
-ruff-format..............................................................Passed
-biome check..............................................................Passed
-```
-
-## URLs
-
-The production or staging URLs would use these same paths, but with your own domain.
-
-### Development URLs
-
-Development URLs, for local development.
-
-Frontend: <http://localhost:5173>
-
-Backend: <http://localhost:8000>
-
-Automatic Interactive Docs (Swagger UI): <http://localhost:8000/docs>
-
-Automatic Alternative Docs (ReDoc): <http://localhost:8000/redoc>
-
-Adminer: <http://localhost:8080>
-
-Traefik UI: <http://localhost:8090>
-
-MailCatcher: <http://localhost:1080>
-
-### Development URLs with `localhost.tiangolo.com` Configured
-
-Development URLs, for local development.
-
-Frontend: <http://dashboard.localhost.tiangolo.com>
-
-Backend: <http://api.localhost.tiangolo.com>
-
-Automatic Interactive Docs (Swagger UI): <http://api.localhost.tiangolo.com/docs>
-
-Automatic Alternative Docs (ReDoc): <http://api.localhost.tiangolo.com/redoc>
-
-Adminer: <http://localhost.tiangolo.com:8080>
-
-Traefik UI: <http://localhost.tiangolo.com:8090>
-
-MailCatcher: <http://localhost.tiangolo.com:1080>
+- **Port 80 / privileged ports:** the entry point defaults to 8082 because rootless Docker cannot bind ports below 1024. On Windows, port 80 is often held by HTTP.sys.
+- **Docker subnets vs. PVE networks:** the default `docker0` 172.17/16 and Compose pools can overlap with campus PVE networks; set `bip` and `default-address-pools` in `daemon.json` if containers cannot reach a PVE host.
+- **Scheduler errors without Proxmox:** until a PVE connection exists, scheduler tasks log errors every cycle. That is expected on an empty database.
+- **WebSocket proxies:** the VNC/terminal pumps signal disconnects with an `asyncio.Event`; always check it before sending or receiving to avoid "receive after disconnect".
+- **Logging format:** use `%s`, not `%d`, for vmids, which are often strings by the time they reach the logger.
+- **No silent fallbacks:** catch an exception only to re-raise or log at ERROR; never swallow it and continue with a default (this once turned a static IP into DHCP without any trace).

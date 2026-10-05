@@ -2,7 +2,7 @@
 
 nginx 沒有像 Traefik 那樣的 runtime API；這裡是 SSH 上去看版本、服務狀態、
 ``nginx -t`` 結果，並把 SkyLab 自己產生的兩份設定檔讀回來解析，再列出
-Let's Encrypt 憑證與到期日。
+設定裡引用的 HTTPS 憑證（管理員自備）與到期日。
 """
 
 from __future__ import annotations

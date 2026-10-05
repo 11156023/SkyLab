@@ -1,7 +1,8 @@
 ﻿<script lang="ts" setup>
 import router from "@/router";
 import { useAppStore } from "@/store/app";
-import { on, removeRouterListeners, send } from "@/utils/ipcUtils";
+import { on, send } from "@/utils/ipcUtils";
+import { theme } from "@/utils/appearance";
 import { ElMessage } from "element-plus";
 import { defineComponent, onMounted, onUnmounted, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -11,6 +12,7 @@ defineComponent({ name: "Config" });
 
 const { t } = useI18n();
 const appStore = useAppStore();
+const disposers: Array<() => void> = [];
 
 const form = reactive({
   language: "zh-TW",
@@ -56,19 +58,22 @@ watch(
 );
 
 onMounted(() => {
-  on(ipcRouters.SETTINGS.getSettings, (data: SkyLabSettings) => {
-    syncFromStore(data);
-  });
-  on(ipcRouters.SETTINGS.saveSettings, (data: SkyLabSettings) => {
-    syncFromStore(data);
-    ElMessage.success(t("config.saveSuccess"));
-  });
+  disposers.push(
+    on(ipcRouters.SETTINGS.getSettings, (data: SkyLabSettings) => {
+      syncFromStore(data);
+    })
+  );
+  disposers.push(
+    on(ipcRouters.SETTINGS.saveSettings, (data: SkyLabSettings) => {
+      syncFromStore(data);
+      ElMessage.success(t("config.saveSuccess"));
+    })
+  );
   send(ipcRouters.SETTINGS.getSettings);
 });
 
 onUnmounted(() => {
-  removeRouterListeners(ipcRouters.SETTINGS.getSettings);
-  removeRouterListeners(ipcRouters.SETTINGS.saveSettings);
+  disposers.forEach(dispose => dispose());
 });
 </script>
 
@@ -90,6 +95,14 @@ onUnmounted(() => {
           label-width="140px"
           label-position="left"
         >
+          <el-form-item :label="t('workspace.appearance')">
+            <el-radio-group v-model="theme"
+              ><el-radio value="dark">{{ t("workspace.dark") }}</el-radio
+              ><el-radio value="light">{{
+                t("workspace.light")
+              }}</el-radio></el-radio-group
+            >
+          </el-form-item>
           <el-form-item :label="t('config.language.label')">
             <el-radio-group v-model="form.language">
               <el-radio value="zh-TW">{{ t("config.language.zhTW") }}</el-radio>

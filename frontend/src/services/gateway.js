@@ -2,7 +2,7 @@ import { apiGet, apiGetBlob, apiPost, apiPut } from "./api";
 
 /** 平台入口的狀態／測試要 SSH 到 Gateway 再連主系統，比一般請求慢 */
 export const PLATFORM_ENTRY_PROBE_TIMEOUT_MS = 45_000;
-/** 儲存平台入口會同步 nginx，第一次還要等 certbot 簽憑證（主系統 nginx 的 /api 上限是 130 秒） */
+/** 儲存平台入口／HTTPS 憑證要先在 Gateway 上檢查，再同步 nginx（主系統 nginx 的 /api 上限是 130 秒） */
 export const PLATFORM_ENTRY_SAVE_TIMEOUT_MS = 120_000;
 
 export const GatewayService = {
@@ -39,6 +39,25 @@ export const GatewayService = {
   /** 以已綁定的 SSH 金鑰在 Gateway 背景執行 install.sh，回傳啟動後的狀態 */
   startInstall(options) {
     return apiPost("/api/v1/gateway/install", options);
+  },
+
+  /** HTTPS 憑證設定：管理員自備、放在 Gateway 上的憑證／私鑰路徑 */
+  getCertificate() {
+    return apiGet("/api/v1/gateway/certificate");
+  },
+
+  /** 儲存憑證路徑：後端先在 Gateway 上檢查憑證，再重寫 nginx 設定 */
+  updateCertificate(body) {
+    return apiPut("/api/v1/gateway/certificate", body, {
+      timeoutMs: PLATFORM_ENTRY_SAVE_TIMEOUT_MS,
+    });
+  },
+
+  /** 在 Gateway 上檢查目前的憑證：讀得到、私鑰配對、到期日、涵蓋哪些網域 */
+  getCertificateStatus() {
+    return apiGet("/api/v1/gateway/certificate/status", {
+      timeoutMs: PLATFORM_ENTRY_PROBE_TIMEOUT_MS,
+    });
   },
 
   /** 平台入口設定：主系統經 Gateway nginx 對外的網域與上游 */
