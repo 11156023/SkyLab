@@ -3,13 +3,12 @@
 設計原則：
 - DB 為 source of truth
 - 每次新增 / 刪除後，從 DB 完整重建 ``/etc/nginx/skylab/http.conf``、驗證並 reload
-- HTTPS 憑證由 certbot 以 Cloudflare DNS-01 簽發（同一 zone 共用萬用憑證），
-  簽不下來時先掛自簽憑證讓站台可用，下次同步再補簽
+- 系統不簽發 HTTPS 憑證：所有 HTTPS 網域（含平台入口）共用管理員放在 Gateway 上
+  的那張（``gateway_certificate_service``），還沒設定時先掛自簽憑證
 - DNS 紀錄由 Cloudflare 管理（dns_provider 固定為 cloudflare）
 """
 
 import logging
-from collections.abc import Iterable
 
 from sqlalchemy.exc import IntegrityError
 
@@ -145,84 +144,27 @@ def ensure_reverse_proxy_ready(session: object) -> None:
 # ─── nginx 同步（核心）────────────────────────────────────────────────────────
 
 
-def _zone_names_by_id(session: object) -> dict[str, str]:
-    """zone_id → zone 名稱，用來決定哪些網域能共用同一張萬用憑證。
+def _sync_nginx(session: object) -> None:
+    """從 DB 重建 nginx 的 http.conf、驗證並 reload。
 
-    查不到（Cloudflare 暫時連不上）不擋同步，只是退回逐網域簽發。
-    """
-    try:
-        zones = _active_zones(session)
-    except Exception as exc:
-        logger.warning("查詢 Cloudflare zone 失敗，憑證改逐網域簽發: %s", exc)
-        return {}
-    return {zone.id: zone.name for zone in zones}
-
-
-def _best_zone_name(domain: str, zone_names: Iterable[str]) -> str | None:
-    """網域所屬的 zone 名稱：取字尾相符裡最長的那個；都不符合回 ``None``。"""
-    best: str | None = None
-    for name in zone_names:
-        zone = name.strip().lower().rstrip(".")
-        if (domain == zone or domain.endswith(f".{zone}")) and (
-            best is None or len(zone) > len(best)
-        ):
-            best = zone
-    return best
-
-
-def _sync_nginx(session: object, *, renew: bool = False) -> None:
-    """從 DB 重建 nginx 的 http.conf、補簽缺的憑證、驗證並 reload。
-
-    ``renew=True`` 給管理員手動同步憑證用：多跑一次 ``certbot renew``。
+    系統不簽發憑證：所有 HTTPS 站台共用管理員設定在 Gateway 上的那張
+    （``gateway_certificate_service``），還沒設定就掛自簽憑證。
     """
     from app.infrastructure.ssh import create_key_client
-    from app.repositories import cloudflare_config as cf_repo
     from app.repositories import gateway_config as gw_repo
     from app.repositories import reverse_proxy as rp_repo
     from app.repositories.gateway_config import (
         get_decrypted_private_key,
     )
+    from app.services.network import gateway_certificate_service, platform_entry_service
     from app.services.network import nginx_gateway_service as nginx
-    from app.services.network import platform_entry_service
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
         raise ProxmoxError(t("reverseProxy.gatewayNotConfiguredSyncFailed"))
 
-    rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
-    https_rules = [rule for rule in rules if rule.enable_https]
-    # 平台入口（主系統自己的網域）和 VM 網域寫在同一份 http.conf、共用同一套憑證流程
-    platform = platform_entry_service.load_entry(session)
-    platform_https = platform is not None and platform.enable_https
-
-    # 有 HTTPS 規則才需要 Cloudflare token（DNS-01 驗證）與憑證規劃
-    cloudflare_token: str | None = None
-    plans: dict[str, list[str]] = {}
-    cert_name_by_domain: dict[str, str] = {}
-    if https_rules or platform_https:
-        cloudflare_config = cf_repo.get_cloudflare_config(session)  # type: ignore[arg-type]
-        if cloudflare_config is None or not cloudflare_config.encrypted_api_token:
-            raise BadRequestError(t("gateway.cloudflareApiTokenNotConfigured"))
-        cloudflare_token = cf_repo.get_decrypted_api_token(cloudflare_config)
-        zone_names = _zone_names_by_id(session)
-        for rule in https_rules:
-            cert_name, domains = nginx.plan_certificate(
-                rule.domain, zone_names.get(rule.zone_id or "")
-            )
-            plans.setdefault(cert_name, domains)
-            cert_name_by_domain[rule.domain] = cert_name
-        if platform is not None and platform_https:
-            cert_name, domains = nginx.plan_certificate(
-                platform.domain,
-                _best_zone_name(platform.domain, zone_names.values()),
-            )
-            plans.setdefault(cert_name, domains)
-            cert_name_by_domain[platform.domain] = cert_name
-
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
-    logger.info(
-        f"[ReverseProxy] 準備同步 {len(rules)} 條規則到 {config.host}:{config.ssh_port}"
-    )
+    logger.info(f"[ReverseProxy] 準備同步 domain 規則到 {config.host}:{config.ssh_port}")
 
     client = create_key_client(
         config.host,
@@ -231,38 +173,21 @@ def _sync_nginx(session: object, *, renew: bool = False) -> None:
         private_key_pem,
     )
     try:
-        ready: set[str] = set()
-        if plans and cloudflare_token is not None:
-            nginx.write_certbot_credentials(client, cloudflare_token)
-            if renew:
-                nginx.renew_certificates(client)
-            ready = nginx.ensure_certificates(
-                client, plans, acme_email=nginx.get_acme_email()
-            )
-
-        cert_names = {
-            domain: (name if name in ready else None)
-            for domain, name in cert_name_by_domain.items()
-        }
-        # 簽憑證可能要十幾秒，不在鎖內做；拿到鎖之後重讀一次規則清單再寫，
-        # 避免拿舊清單蓋掉別人剛同步上去的網域。期間新增的網域先掛自簽憑證，
-        # 它自己的同步（排在這次之後）會補上正式憑證。
+        # 先拿鎖再讀規則清單：避免拿舊清單蓋掉別人剛同步上去的網域
         nginx.lock_config_writes(session)
         rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
         platform = platform_entry_service.load_entry(session)
+        certificate = gateway_certificate_service.load_paths(session)
         nginx.write_validated_config(
             client,
             nginx.NGINX_HTTP_CONF_PATH,
-            nginx.build_http_config(rules, cert_names, platform=platform),
+            nginx.build_http_config(rules, certificate, platform=platform),
         )
-
-        missing = sorted(set(plans) - ready)
-        if missing:
-            logger.warning(
-                "[ReverseProxy] 有 %d 張憑證尚未簽發（%s），對應網域暫用自簽憑證",
-                len(missing),
-                ", ".join(missing),
-            )
+        if certificate is None and (
+            any(rule.enable_https for rule in rules)
+            or (platform is not None and platform.enable_https)
+        ):
+            logger.warning("[ReverseProxy] 尚未設定 HTTPS 憑證，HTTPS 網域暫用自簽憑證")
         logger.info(f"[ReverseProxy] nginx 已同步 {len(rules)} 條 domain 規則並 reload")
     except (ProxmoxError, BadRequestError):
         raise
@@ -375,18 +300,28 @@ def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
     if not is_valid_hostname(clean):
         raise BadRequestError(t("reverseProxy.domainInvalid", domain=domain))
 
-    zones = _active_zones(session)
+    found = find_zone_for_domain(session, clean)
+    if found is None:
+        raise BadRequestError(
+            t("reverseProxy.domainZoneNotFound", domain=clean)
+        )
+    return found
 
+
+def find_zone_for_domain(session: object, domain: str) -> tuple[str, str] | None:
+    """同 ``resolve_zone_for_domain``，但網域不在任何 active zone 內時回 ``None``。
+
+    Cloudflare 查詢失敗照樣 raise：查不到和不在 zone 內是兩回事。
+    """
+    clean = domain.strip().lower().rstrip(".")
     best: tuple[str, str] | None = None
-    for zone in zones:
+    for zone in _active_zones(session):
         zone_name = zone.name.strip().lower().rstrip(".")
         if clean == zone_name or clean.endswith(f".{zone_name}"):
             if best is None or len(zone_name) > len(best[1]):
                 best = (zone.id, zone_name)
     if best is None:
-        raise BadRequestError(
-            t("reverseProxy.domainZoneNotFound", domain=clean)
-        )
+        return None
 
     zone_id, zone_name = best
     prefix = "" if clean == zone_name else clean[: -(len(zone_name) + 1)]
@@ -539,13 +474,19 @@ def assert_domain_available(
 
 
 def annotate_dns_records_with_system_rules(session: object, records: list) -> None:
-    """把 Cloudflare DNS 紀錄標上「本系統建立」：對得上反向代理規則的 record id 或網域。"""
+    """把 Cloudflare DNS 紀錄標上「本系統建立」：對得上反向代理規則的 record id 或網域，
+    或是平台入口建的那筆（沒有對應的 VM）。"""
     from app.repositories import reverse_proxy as rp_repo
+    from app.services.network import platform_entry_service
 
     rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
     by_record_id = {r.cloudflare_record_id: r for r in rules if r.cloudflare_record_id}
     by_domain = {r.domain.lower(): r for r in rules}
+    platform_record_id = platform_entry_service.managed_dns_record_id(session)
     for record in records:
+        if platform_record_id and record.id == platform_record_id:
+            record.managed_by_system = True
+            continue
         rule = by_record_id.get(record.id) or by_domain.get(record.name.lower())
         if rule is None:
             continue
@@ -621,10 +562,5 @@ def remove_reverse_proxy_rules_by_internal_port(
 
 
 def sync_to_gateway(session: object) -> None:
-    """手動觸發 nginx 同步（會補簽缺的憑證）。"""
+    """手動觸發 nginx 同步。"""
     _sync_nginx(session)
-
-
-def sync_certificates(session: object) -> None:
-    """管理員手動同步憑證：續期快到期的、補簽缺的，再重寫設定並 reload。"""
-    _sync_nginx(session, renew=True)

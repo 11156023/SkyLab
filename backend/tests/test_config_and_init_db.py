@@ -21,6 +21,8 @@ _REQUIRED = {
     "POSTGRES_PASSWORD": "a-real-db-password",
     "FIRST_SUPERUSER": "admin@example.com",
     "FIRST_SUPERUSER_PASSWORD": "a-real-admin-password",
+    # 非註冊設定測試不應被公開註冊的 Turnstile 前置條件干擾。
+    "ENABLE_SIGNUP": False,
 }
 
 
@@ -68,6 +70,36 @@ def test_short_secret_key_only_warns(no_secret_key_env: None) -> None:
 def test_missing_secret_key_only_warns_in_local(no_secret_key_env: None) -> None:
     with pytest.warns(UserWarning, match="SECRET_KEY is not set"):
         Settings(_env_file=None, ENVIRONMENT="local", **_REQUIRED)  # type: ignore[call-arg]
+
+
+def test_public_signup_requires_complete_turnstile_outside_local() -> None:
+    with pytest.raises(ValidationError, match="TURNSTILE_SITE_KEY"):
+        Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY="z" * 43,
+            **{**_REQUIRED, "ENABLE_SIGNUP": True},
+        )
+
+    configured = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        ENVIRONMENT="production",
+        SECRET_KEY="z" * 43,
+        TURNSTILE_SITE_KEY="site-key",
+        TURNSTILE_SECRET_KEY="secret-key",
+        **{**_REQUIRED, "ENABLE_SIGNUP": True},
+    )
+    assert configured.turnstile_enabled is True
+
+
+def test_local_signup_can_run_without_turnstile() -> None:
+    configured = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        ENVIRONMENT="local",
+        SECRET_KEY="z" * 43,
+        **{**_REQUIRED, "ENABLE_SIGNUP": True},
+    )
+    assert configured.turnstile_enabled is False
 
 
 def _set_setup_completed(db: Session, completed: bool | None) -> None:

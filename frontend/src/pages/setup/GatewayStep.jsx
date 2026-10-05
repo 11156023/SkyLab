@@ -4,7 +4,7 @@
  * 同一個畫面由上往下三段，前一段完成才出現下一段：
  *   1. SSH 連線設定 → 儲存時後端產生金鑰並回傳公鑰
  *   2. 管理員把公鑰貼到 Gateway 後「測試連線」
- *   3. 一鍵安裝（nginx／certbot／WireGuard），安裝在 Gateway 背景跑，這裡每 3 秒讀一次日誌
+ *   3. 一鍵安裝（nginx／WireGuard），安裝在 Gateway 背景跑，這裡每 3 秒讀一次日誌
  * 表單驗證與送出內容和閘道頁的「安裝服務」分頁共用（installForm.js）。
  */
 
@@ -31,7 +31,6 @@ const POLL_MS = 3_000;
 const COMPONENTS = [
   ["nginx", "nginx"],
   ["wireguard", "WireGuard"],
-  ["certbot", "certbot"],
   ["ufw", "UFW"],
 ];
 

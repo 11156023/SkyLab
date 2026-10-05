@@ -32,6 +32,7 @@ from app.ai.teacher_judge.target_os import is_windows_target, resource_os_contex
 from app.core.i18n import t
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.models.base import get_datetime_utc as _now
+from app.models.batch_provision import BatchProvisionTask
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptStatus,
@@ -260,7 +261,7 @@ def list_session_run_summaries(
         .join(TeacherJudgeScriptArtifact)
         .where(
             TeacherJudgeScriptArtifact.session_id == session_id,
-            TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
+            TeacherJudgeScriptArtifact.teaching_class_id == teaching_class_id,
         )
         .order_by(desc(TeacherJudgeScriptRun.created_at))
         .offset(skip)
@@ -296,7 +297,7 @@ def get_session_run_record(
         .join(TeacherJudgeScriptArtifact)
         .where(
             TeacherJudgeScriptRun.id == run_id,
-            TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
+            TeacherJudgeScriptArtifact.teaching_class_id == teaching_class_id,
             TeacherJudgeScriptArtifact.session_id == session_id,
         )
     ).first()
@@ -458,11 +459,17 @@ def _class_member_by_vmid(
     }
     machines = list(
         session.exec(
-            select(TeachingClassStudentMachine).where(
+            select(TeachingClassStudentMachine)
+            .join(
+                BatchProvisionTask,
+                col(BatchProvisionTask.id)
+                == col(TeachingClassStudentMachine.batch_task_id),
+            )
+            .where(
                 col(TeachingClassStudentMachine.class_student_id).in_(
                     list(enrollments_by_id)
                 ),
-                col(TeachingClassStudentMachine.vmid).is_not(None),
+                col(BatchProvisionTask.vmid).is_not(None),
             )
         ).all()
     )
@@ -1058,7 +1065,6 @@ def create_script_run(
 
     run = TeacherJudgeScriptRun(
         run_batch_id=run_batch_id,
-        teaching_class_id=teaching_class_id,
         artifact_id=artifact.id,
         target_scope=target_scope,
         target_snapshot_json={
@@ -1275,7 +1281,7 @@ def get_script_run_batch_public(
                 == col(TeacherJudgeScriptRun.artifact_id),
             )
             .where(
-                TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
+                TeacherJudgeScriptArtifact.teaching_class_id == teaching_class_id,
                 TeacherJudgeScriptRun.run_batch_id == run_batch_id,
             )
         ).all()

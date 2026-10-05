@@ -23,6 +23,12 @@ class AIAPIUsage(SQLModel, table=True):
 
     __tablename__ = "ai_api_usage"
     __table_args__ = (
+        # 金鑰呼叫的 user_id 必須是該金鑰的擁有者（平台呼叫沒有憑證，不檢查）
+        sa.ForeignKeyConstraint(
+            ["credential_id", "user_id"],
+            ["ai_api_credentials.id", "ai_api_credentials.user_id"],
+            name="fk_ai_api_usage_credential_owner",
+        ),
         sa.CheckConstraint(
             "status IN ('success', 'error', 'cancelled')",
             name="ck_ai_api_usage_status",
@@ -81,7 +87,10 @@ class AIAPIUsage(SQLModel, table=True):
 
     # 關聯
     user: "User" = Relationship()
-    credential: Optional["AIAPICredential"] = Relationship()
+    # 複合外鍵 fk_ai_api_usage_credential_owner 也連到憑證，關聯只走單欄 credential_id
+    credential: Optional["AIAPICredential"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[AIAPIUsage.credential_id]"}
+    )
 
 
 __all__ = ["AIAPIUsage", "USAGE_SOURCE_API_KEY", "USAGE_SOURCE_PLATFORM"]

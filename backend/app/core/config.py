@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # 所有人看起來都是同一個 IP），只用來擋單一來源大量撞不同帳號。
     LOGIN_RATE_LIMIT_PER_IP: int = 300
     LOGIN_RATE_LIMIT_PER_ACCOUNT: int = 10
+    # 公開註冊會執行 Argon2 並永久寫入 User；AI API 控制面每次操作也會寫 DB。
+    # 兩者使用短窗 Redis 節流，另外各自保留 Turnstile／DB quota 第二道防線。
+    SIGNUP_RATE_LIMIT_PER_IP: int = 20
+    SIGNUP_RATE_LIMIT_PER_SUBNET: int = 60
+    SIGNUP_RATE_LIMIT_GLOBAL: int = 120
+    AI_API_CONTROL_RATE_LIMIT_PER_USER: int = 10
     FRONTEND_HOST: str = "http://127.0.0.1:5173"
     # External URL for the desktop client zip (e.g. GitHub Releases asset).
     # When set, /desktop-client/download redirects here instead of serving a local file.
@@ -182,6 +188,19 @@ class Settings(BaseSettings):
     @property
     def turnstile_enabled(self) -> bool:
         return bool(self.TURNSTILE_SITE_KEY and self.TURNSTILE_SECRET_KEY)
+
+    @model_validator(mode="after")
+    def _require_turnstile_for_public_signup(self) -> Self:
+        if (
+            self.ENVIRONMENT != "local"
+            and self.ENABLE_SIGNUP
+            and not self.turnstile_enabled
+        ):
+            raise ValueError(
+                "TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are required when "
+                "ENABLE_SIGNUP=true outside the local environment."
+            )
+        return self
 
     # LDAP over ldaps:// / StartTLS 一律驗證伺服器憑證與主機名稱。網域控制站
     # 用校內私有 CA 簽發時，把該 CA 的 PEM 檔路徑設在這裡；留空＝系統信任庫。

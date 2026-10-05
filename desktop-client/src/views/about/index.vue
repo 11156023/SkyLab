@@ -11,7 +11,19 @@ defineComponent({ name: "About" });
 
 const { t } = useI18n();
 
+/* 建置時由 vite.config.mts 注入：授權、原始碼網址、直接依賴的授權清單 */
+const about = __SKYLAB_ABOUT__;
+const repositoryHost = about.repository.replace(/^https?:\/\//, "");
+
 const openAppData = () => send(ipcRouters.SYSTEM.openAppData);
+const openRepository = () =>
+  send(ipcRouters.SYSTEM.openUrl, { url: about.repository });
+const openLicense = () =>
+  send(ipcRouters.SYSTEM.openUrl, {
+    url: `${about.repository.replace(/\/$/, "")}/blob/main/LICENSE`
+  });
+const openThirdPartyNotices = () =>
+  send(ipcRouters.SYSTEM.openThirdPartyNotices);
 </script>
 
 <template>
@@ -38,9 +50,73 @@ const openAppData = () => send(ipcRouters.SYSTEM.openAppData);
         <div class="about-version">
           {{ t("about.version") }} v{{ pkg.version }}
         </div>
-        <el-button size="small" @click="openAppData">
-          {{ t("about.openDataDir") }}
-        </el-button>
+
+        <dl class="about-meta">
+          <dt>{{ t("about.license") }}</dt>
+          <dd>
+            <el-link type="primary" :underline="false" @click="openLicense">
+              {{ t("about.licenseName") }}
+            </el-link>
+            <div class="about-hint">{{ t("about.licenseHint") }}</div>
+          </dd>
+          <dt>{{ t("about.repository") }}</dt>
+          <dd>
+            <el-link type="primary" :underline="false" @click="openRepository">
+              {{ repositoryHost }}
+            </el-link>
+          </dd>
+        </dl>
+
+        <div class="about-actions">
+          <el-button size="small" @click="openThirdPartyNotices">
+            {{ t("about.thirdPartyNotices") }}
+          </el-button>
+          <el-button size="small" @click="openAppData">
+            {{ t("about.openDataDir") }}
+          </el-button>
+        </div>
+
+        <div class="about-components">
+          <div class="about-components-title">
+            {{ t("about.components.title") }}
+          </div>
+          <div class="about-hint">
+            {{
+              t("about.components.hint", { count: about.dependencies.length })
+            }}
+          </div>
+          <el-table :data="about.dependencies" size="small" max-height="260">
+            <el-table-column
+              prop="name"
+              :label="t('about.components.package')"
+              min-width="160"
+            >
+              <template #default="{ row }">
+                <el-link
+                  v-if="row.repository"
+                  type="primary"
+                  :underline="false"
+                  @click="
+                    send(ipcRouters.SYSTEM.openUrl, { url: row.repository })
+                  "
+                >
+                  {{ row.name }}
+                </el-link>
+                <span v-else>{{ row.name }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="version"
+              :label="t('about.components.version')"
+              width="110"
+            />
+            <el-table-column
+              prop="license"
+              :label="t('about.components.license')"
+              width="110"
+            />
+          </el-table>
+        </div>
       </div>
     </div>
   </div>
@@ -80,5 +156,52 @@ const openAppData = () => send(ipcRouters.SYSTEM.openAppData);
 .about-version {
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.about-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  width: 100%;
+  max-width: 520px;
+  margin: 8px 0 0;
+  text-align: left;
+  font-size: 13px;
+
+  dt {
+    color: var(--color-text-secondary);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--color-text-primary);
+  }
+}
+
+.about-hint {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.about-components {
+  width: 100%;
+  max-width: 520px;
+  margin-top: 8px;
+  text-align: left;
+}
+
+.about-components-title {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 600;
 }
 </style>

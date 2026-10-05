@@ -447,7 +447,6 @@ def test_student_assignment_includes_only_safe_latest_ai_feedback() -> None:
     session.refresh(artifact)
     session.add(
         TeacherJudgeScriptRun(
-            teaching_class_id=teaching_class.id,
             artifact_id=artifact.id,
             target_scope=TeacherJudgeScriptRunTargetScope.manual,
             status=TeacherJudgeScriptRunStatus.completed,
@@ -523,7 +522,6 @@ def test_student_script_result_projection_uses_checks_and_coverage() -> None:
         }
     }
     run = TeacherJudgeScriptRun(
-        teaching_class_id=teaching_class_id,
         artifact_id=artifact.id,
         status=TeacherJudgeScriptRunStatus.completed,
         target_results_json={
@@ -577,7 +575,6 @@ def test_student_projection_hides_technical_validation_error() -> None:
     )
     # 舊資料相容路徑：學生自己發起、只有一個沒帶 user 快照的 target
     run = TeacherJudgeScriptRun(
-        teaching_class_id=teaching_class_id,
         status=TeacherJudgeScriptRunStatus.completed,
         started_by=student_id,
         target_results_json={
@@ -611,7 +608,6 @@ def test_student_projection_hides_validation_error_in_legacy_judgement_summary()
     student_id = uuid.uuid4()
     # 舊資料相容路徑：學生自己發起、只有一個沒帶 user 快照的 target
     run = TeacherJudgeScriptRun(
-        teaching_class_id=uuid.uuid4(),
         status=TeacherJudgeScriptRunStatus.completed,
         started_by=student_id,
         target_results_json={
@@ -651,7 +647,6 @@ def test_student_projection_uses_own_batch_target_and_teacher_review() -> None:
         name="人工核查任務",
     )
     run = TeacherJudgeScriptRun(
-        teaching_class_id=teaching_class_id,
         artifact_id=artifact.id,
         status=TeacherJudgeScriptRunStatus.completed,
         target_results_json={

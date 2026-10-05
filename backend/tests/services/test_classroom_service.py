@@ -9,6 +9,8 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.exceptions import NotFoundError, PermissionDeniedError
 from app.models import (
     INSTRUCTOR_ENROLLMENT_STATUS,
+    BatchProvisionJob,
+    BatchProvisionTask,
     Resource,
     TeachingClass,
     TeachingClassMachineNode,
@@ -20,6 +22,7 @@ from app.models import (
 )
 from app.services.classroom import classroom_service
 from app.services.classroom.vnc_session_manager import ClassroomSession, SessionMode
+from tests.utils.class_machines import add_student_machine
 
 
 @pytest.fixture
@@ -33,6 +36,8 @@ def db():
             TeachingClassStudent.__table__,  # type: ignore[arg-type]
             TeachingClassMachineNode.__table__,  # type: ignore[arg-type]
             TeachingClassStudentMachine.__table__,  # type: ignore[arg-type]
+            BatchProvisionJob.__table__,  # type: ignore[arg-type]
+            BatchProvisionTask.__table__,  # type: ignore[arg-type]
             Resource.__table__,  # type: ignore[arg-type]
         ],
     )
@@ -113,13 +118,8 @@ def _student_machine(
     db.add(node)
     db.commit()
     db.refresh(node)
-    db.add(
-        TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=node.id,
-            vmid=vmid,
-            status="completed",
-        )
+    add_student_machine(
+        db, enrollment=enrollment, node=node, vmid=vmid, status="completed"
     )
     db.commit()
 

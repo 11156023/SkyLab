@@ -2,7 +2,7 @@ import time
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
@@ -10,8 +10,11 @@ from app.api.deps import (
     CurrentUser,
     SessionDep,
     get_current_active_superuser,
+    rate_limit_by_ip,
+    rate_limit_by_network_and_global,
     require_turnstile,
 )
+from app.api.request_body import limited_json_openapi, parse_limited_json
 from app.core.config import settings
 from app.core.i18n import t
 from app.models import User
@@ -33,6 +36,23 @@ from app.services.monitoring import preflight_service
 from app.services.user import avatar_service, totp_service, user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+_SIGNUP_RATE_LIMIT = Depends(
+    rate_limit_by_ip(
+        scope="signup",
+        limit=settings.SIGNUP_RATE_LIMIT_PER_IP,
+        window_seconds=60,
+    )
+)
+_SIGNUP_TURNSTILE = Depends(require_turnstile("signup"))
+_SIGNUP_CAPACITY_LIMIT = Depends(
+    rate_limit_by_network_and_global(
+        scope="signup",
+        subnet_limit=settings.SIGNUP_RATE_LIMIT_PER_SUBNET,
+        global_limit=settings.SIGNUP_RATE_LIMIT_GLOBAL,
+        window_seconds=60,
+    )
+)
 
 @router.get(
     "/",
@@ -194,10 +214,21 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
 @router.post(
     "/signup",
     response_model=UserPublic,
-    dependencies=[Depends(require_turnstile("signup"))],
+    # 先限流再呼叫 Turnstile；超額請求不應繼續消耗外部驗證資源。
+    # 全站 budget 放在 Turnstile 後，無效 token 不能惡意用完全校額度。
+    dependencies=[
+        _SIGNUP_RATE_LIMIT,
+        _SIGNUP_TURNSTILE,
+        _SIGNUP_CAPACITY_LIMIT,
+    ],
+    openapi_extra=limited_json_openapi(UserRegister),
 )
-def register_user(session: SessionDep, user_in: UserRegister) -> Any:
-    return user_service.register_user(session=session, user_in=user_in)
+async def register_user(request: Request, session: SessionDep) -> Any:
+    user_in = await parse_limited_json(request, UserRegister)
+    # Argon2 與同步 DB transaction 留在 worker thread，不阻塞 event loop。
+    return await run_in_threadpool(
+        user_service.register_user, session=session, user_in=user_in
+    )
 
 
 @router.get("/{user_id}", response_model=UserPublic)

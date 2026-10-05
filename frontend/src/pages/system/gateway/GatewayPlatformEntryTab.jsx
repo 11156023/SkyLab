@@ -39,9 +39,14 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
   if (status) {
     if (!status.applied) warnings.push(t("GatewayPage.platformWarnDrift"));
     if (status.certificate_ready === false) warnings.push(t("GatewayPage.platformWarnCert"));
+    else if (status.certificate_matches_domain === false) {
+      warnings.push(t("GatewayPage.platformWarnCertDomain", { domain: status.applied_domain ?? "" }));
+    }
     if (status.upstream_reachable === false) {
       warnings.push(t("GatewayPage.platformWarnUpstream", { detail: status.upstream_detail ?? "" }));
     }
+    if (status.dns_detail) warnings.push(status.dns_detail);
+    else if (status.dns_record_ok === false) warnings.push(t("GatewayPage.platformWarnDns"));
     if (viaPlatform && config.gateway_host && status.observed_client_ip === config.gateway_host) {
       warnings.push(t("GatewayPage.platformWarnTrustedProxy", { ip: config.gateway_host }));
     } else if (viaPlatform && window.location.protocol === "https:" && status.observed_scheme !== "https") {
@@ -51,7 +56,7 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
 
   let certificateText = "—";
   if (status?.applied_https === false) certificateText = t("GatewayPage.platformStatusCertNone");
-  else if (status?.certificate_ready === false) certificateText = t("GatewayPage.platformStatusCertFallback");
+  else if (!status?.certificate && status?.applied_https) certificateText = t("GatewayPage.platformStatusCertFallback");
   else if (status?.certificate) {
     const date = formatDate(status.certificate_expires_at);
     certificateText = date
@@ -63,9 +68,13 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
   if (status?.upstream_reachable === true) upstreamText = t("GatewayPage.platformStatusReachable");
   else if (status?.upstream_reachable === false) upstreamText = t("GatewayPage.platformStatusUnreachable");
 
+  let dnsText = t("GatewayPage.platformStatusDnsManual");
+  if (config.dns_managed) dnsText = status?.dns_record || "—";
+
   const details = status ? [
     [t("GatewayPage.platformStatusDomain"), status.applied_domain || t("GatewayPage.platformStatusNotApplied")],
     [t("GatewayPage.platformStatusUpstream"), status.applied_upstream || "—"],
+    [t("GatewayPage.platformStatusDns"), dnsText],
     [t("GatewayPage.platformStatusCertificate"), certificateText],
     [t("GatewayPage.platformStatusUpstreamCheck"), upstreamText],
     [t("GatewayPage.platformStatusClientIp"), status.observed_client_ip || "—"],
@@ -117,10 +126,14 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
 }
 
 /* ── 啟用後還要手動完成的事 ─────────────────────────── */
-function PlatformTodoCard({ gatewayHost }) {
+function PlatformTodoCard({ gatewayHost, domain, dnsManaged }) {
   const { t } = useTranslation("system");
+  /* 網域在 Cloudflare 管理的 zone 內時，儲存就已經把 DNS 指過去了 */
+  const dnsItem = dnsManaged
+    ? ["dns", t("GatewayPage.platformTodoDnsManagedTitle"), t("GatewayPage.platformTodoDnsManaged", { domain })]
+    : ["dns", t("GatewayPage.platformTodoDnsTitle"), t("GatewayPage.platformTodoDns")];
   const items = [
-    ["dns", t("GatewayPage.platformTodoDnsTitle"), t("GatewayPage.platformTodoDns")],
+    dnsItem,
     ["verified_user", t("GatewayPage.platformTodoProxyTitle"), t("GatewayPage.platformTodoProxy", { host: gatewayHost || "<Gateway IP>" })],
     ["link", t("GatewayPage.platformTodoUrlsTitle"), t("GatewayPage.platformTodoUrls")],
     ["lan", t("GatewayPage.platformTodoFallbackTitle"), t("GatewayPage.platformTodoFallback")],
@@ -146,7 +159,7 @@ function PlatformTodoCard({ gatewayHost }) {
 }
 
 /* ── 平台入口 Tab ───────────────────────────────────── */
-export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection, onDirtyChange }) {
+export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection, onGoToCertificate, onDirtyChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
@@ -234,7 +247,9 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
     if (disabling) {
       const ok = await confirm({
         title: t("GatewayPage.platformDisableConfirmTitle"),
-        message: t("GatewayPage.platformDisableConfirmMessage", { domain: config.domain }),
+        message: config.dns_managed
+          ? `${t("GatewayPage.platformDisableConfirmMessage", { domain: config.domain })} ${t("GatewayPage.platformDisableConfirmDns")}`
+          : t("GatewayPage.platformDisableConfirmMessage", { domain: config.domain }),
         confirmText: t("GatewayPage.platformDisableConfirmButton"),
         danger: true,
       });
@@ -272,7 +287,7 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
   const formError = validatePlatformForm(form);
   const busy = saving || testing;
   const badge = entryBadge(config, status);
-  const needsCloudflare = form.enabled && form.enable_https && !config.cloudflare_ready;
+  const needsCertificate = form.enabled && form.enable_https && !config.certificate_configured;
   // 表單沒改但 Gateway 上的內容跑掉了（例如重裝過）：仍要能按一次重新套用
   const drifted = Boolean(status && !status.applied);
   const canSave = !busy && !formError && (dirty || drifted);
@@ -365,10 +380,18 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
           </div>
         )}
 
-        {needsCloudflare && (
+        {needsCertificate && (
           <div className={styles.warningNote}>
             <MIcon name="warning" size={18} />
-            {t("GatewayPage.platformCloudflareRequired")}
+            <div className={styles.noteText}>
+              <span>{t("GatewayPage.platformCertificateRequired")}</span>
+              {onGoToCertificate && (
+                <button type="button" className={styles.btnSecondary} onClick={onGoToCertificate}>
+                  <MIcon name="lock" size={16} />
+                  {t("GatewayPage.goToCertificate")}
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -396,7 +419,7 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
         onRefresh={refreshStatus}
       />
 
-      <PlatformTodoCard gatewayHost={config.gateway_host} />
+      <PlatformTodoCard gatewayHost={config.gateway_host} domain={config.domain} dnsManaged={config.dns_managed} />
     </div>
   );
 }

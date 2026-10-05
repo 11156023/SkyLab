@@ -52,7 +52,7 @@ def _subnet_public(
         bridge_name=config.bridge_name,
         vlan_tag=config.vlan_tag,
         gateway_vm_ip=config.gateway_vm_ip,
-        dns_servers=config.dns_servers,
+        dns_servers=ip_management_service.get_dns_servers(config),
         extra_blocked_subnets=ip_management_service.get_extra_blocked_subnets(config),
         forward_port_start=config.forward_port_start,
         forward_port_end=config.forward_port_end,

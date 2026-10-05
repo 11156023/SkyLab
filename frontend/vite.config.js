@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { buildAboutInfo } from "./scripts/aboutInfo.mjs";
 
 export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, path.resolve(import.meta.dirname, ".."), "");
@@ -9,6 +10,8 @@ export default defineConfig(({ mode }) => {
   return {
     define: {
       "import.meta.env.ENABLE_SIGNUP": JSON.stringify(enableSignup),
+      // 帳號設定「關於」分頁：版本、commit、授權與直接依賴清單，建置時從 package.json 產生
+      __SKYLAB_ABOUT__: JSON.stringify(buildAboutInfo(import.meta.dirname)),
     },
     plugins: [react()],
     server: {

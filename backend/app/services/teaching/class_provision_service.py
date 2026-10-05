@@ -198,9 +198,6 @@ def recover_existing_task_resource(
         enrollment_id=enrollment.id,
         node_id=node.id,
         task_id=task.id,
-        vmid=resource.vmid,
-        status="completed",
-        error=None,
     )
     task.status = BatchProvisionTaskStatus.completed
     task.vmid = resource.vmid
@@ -604,13 +601,6 @@ def reconcile_class(session: Session, *, item: TeachingClass) -> None:
                 enrollment_id=enrollment.id,
                 node_id=node.id,
                 task_id=task.id,
-                vmid=task.vmid,
-                status=(
-                    task.status.value
-                    if hasattr(task.status, "value")
-                    else str(task.status)
-                ),
-                error=task.error,
             )
     class_status_service.recompute(session=session, class_id=item.id)
     session.commit()

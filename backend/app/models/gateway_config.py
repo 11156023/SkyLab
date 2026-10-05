@@ -20,6 +20,10 @@ class GatewayConfig(SQLModel, table=True):
     # 私鑰加密儲存；公鑰明文儲存（給 admin 貼到 Gateway VM）
     encrypted_private_key: str = Field(default="", sa_type=sa.Text())
     public_key: str = Field(default="", sa_type=sa.Text())
+    # HTTPS 憑證由管理員自行簽發、放在 Gateway 主機上（系統不簽發憑證）；
+    # 平台入口與所有 VM 網域共用這一張，這裡只記路徑
+    ssl_certificate_path: str = Field(default="", max_length=512)
+    ssl_certificate_key_path: str = Field(default="", max_length=512)
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),

@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import electron from "vite-plugin-electron";
@@ -12,6 +12,46 @@ const pathResolve = (dir: string): string => {
   return resolve(import.meta.dirname, ".", dir);
 };
 
+/** 「關於」頁的直接依賴授權清單：建置時從 package.json 與 node_modules 讀，注入成 __SKYLAB_ABOUT__ */
+const buildAboutInfo = () => {
+  const deps =
+    "dependencies" in pkg ? (pkg.dependencies as Record<string, string>) : {};
+  const dependencies = Object.keys(deps)
+    .sort((a, b) => a.localeCompare(b))
+    .map(name => {
+      const metaFile = pathResolve(`node_modules/${name}/package.json`);
+      let version = deps[name].replace(/^[\^~]/, "");
+      let license = "";
+      let repository = "";
+      if (existsSync(metaFile)) {
+        const meta = JSON.parse(readFileSync(metaFile, "utf8"));
+        version = meta.version ?? version;
+        license =
+          typeof meta.license === "string"
+            ? meta.license
+            : (meta.license?.type ?? "");
+        const raw =
+          typeof meta.repository === "string"
+            ? meta.repository
+            : meta.repository?.url;
+        repository = raw
+          ? String(raw)
+              .replace(/^git\+/, "")
+              .replace(/^git:\/\//, "https://")
+              .replace(/^ssh:\/\/git@/, "https://")
+              .replace(/\.git$/, "")
+          : (meta.homepage ?? "");
+      }
+      return { name, version, license, repository };
+    });
+  return {
+    license: "AGPL-3.0",
+    repository:
+      process.env.SKYLAB_REPO_URL || "https://github.com/ntubclass/SkyLab",
+    dependencies
+  };
+};
+
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
   rmSync("dist-electron", { recursive: true, force: true });
@@ -21,6 +61,9 @@ export default defineConfig(({ command }) => {
   const sourcemap = isServe || !!process.env.VSCODE_DEBUG;
 
   return {
+    define: {
+      __SKYLAB_ABOUT__: JSON.stringify(buildAboutInfo())
+    },
     css: {
       preprocessorOptions: {
         scss: {

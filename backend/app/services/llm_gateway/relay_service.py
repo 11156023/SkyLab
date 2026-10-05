@@ -14,7 +14,9 @@ import json
 import logging
 import time
 import uuid
+from collections import deque
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any
 
@@ -49,6 +51,13 @@ _RESPONSE_HEADER_ALLOWLIST = (
     "retry-after",
     "x-request-id",
 )
+# 串流回應要逐段送到使用者手上。X-Accel-Buffering 讓沿路的 nginx（主系統、
+# 部署端自己多接的一層）只對這個回應關掉 proxy_buffering，不受各層緩衝設定
+# 影響；其他 API 照常緩衝。no-cache 避免中間代理快取串流。
+_STREAM_RESPONSE_HEADERS = {
+    "cache-control": "no-cache",
+    "x-accel-buffering": "no",
+}
 
 # 單一 backend process 的固定 admission contract。這些值同時限制送往
 # LiteLLM 的 active requests 與 shared HTTP connection pool；不是部署設定，
@@ -95,9 +104,8 @@ class AdmissionQueue:
         self.max_active = max_active
         self.max_waiting = max_waiting
         self.wait_timeout_seconds = wait_timeout_seconds
-        self._tokens: asyncio.Queue[object] = asyncio.Queue(maxsize=max_active)
-        for _ in range(max_active):
-            self._tokens.put_nowait(object())
+        self._free: list[object] = [object() for _ in range(max_active)]
+        self._waiters: deque[asyncio.Future[object]] = deque()
         self._active = 0
         self._waiting = 0
         self._update_metrics()
@@ -112,32 +120,51 @@ class AdmissionQueue:
 
     async def acquire(self) -> AdmissionLease:
         started_at = time.monotonic()
-        token: object | None = None
         # 已有 waiter 時不可讓新 request 直接拿走剛歸還的 token，否則高流量下
-        # 舊 waiter 可能持續被插隊。
-        if self._waiting == 0:
-            try:
-                token = self._tokens.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-        if token is None:
+        # 舊 waiter 可能持續被插隊。token 由 release 直接交到隊首 waiter 手上，
+        # 不靠事件迴圈的喚醒順序：Python 3.12+ 的 wait_for 不再把 coroutine
+        # 包成 task，asyncio.Queue 喚醒後、取走前的空檔會被新 request 搶走。
+        if not self._waiters and self._free:
+            token = self._free.pop()
+            self._active += 1
+        else:
             if self._waiting >= self.max_waiting:
                 ai_metrics.record_proxy_admission_rejection("queue_full")
                 raise AdmissionRejected("queue_full")
+            loop = asyncio.get_running_loop()
+            waiter: asyncio.Future[object] = loop.create_future()
+            self._waiters.append(waiter)
             self._waiting += 1
             self._update_metrics()
+            # 逾時自己用 call_later 做、不用 asyncio.wait_for：Python 3.11 的
+            # wait_for 在內層 future 已完成時會吞掉取消、直接回傳結果，
+            # 被取消的請求就會帶著名額繼續跑；3.12 起才改掉。直接 await
+            # future 的取消語意各版本一致。
+            timeout_handle = loop.call_later(
+                self.wait_timeout_seconds, self._expire_waiter, waiter
+            )
             try:
-                token = await asyncio.wait_for(
-                    self._tokens.get(), timeout=self.wait_timeout_seconds
-                )
-            except asyncio.TimeoutError as exc:
-                ai_metrics.record_proxy_admission_rejection("timeout")
-                raise AdmissionRejected("timeout") from exc
+                token = await waiter
+            except BaseException as exc:
+                if (
+                    waiter.done()
+                    and not waiter.cancelled()
+                    and waiter.exception() is None
+                ):
+                    # token 已交到手上才被取消：直接歸還給下一位，名額不流失。
+                    self.release(waiter.result())
+                else:
+                    with suppress(ValueError):
+                        self._waiters.remove(waiter)
+                if isinstance(exc, asyncio.TimeoutError):
+                    ai_metrics.record_proxy_admission_rejection("timeout")
+                    raise AdmissionRejected("timeout") from exc
+                raise
             finally:
+                timeout_handle.cancel()
                 self._waiting -= 1
                 self._update_metrics()
 
-        self._active += 1
         self._update_metrics()
         ai_metrics.observe_proxy_queue_wait(time.monotonic() - started_at)
         return AdmissionLease(self, token)
@@ -147,8 +174,24 @@ class AdmissionQueue:
             logger.error("AI proxy admission lease released without an active request")
             return
         self._active -= 1
-        self._tokens.put_nowait(token)
+        self._hand_off(token)
         self._update_metrics()
+
+    def _hand_off(self, token: object) -> None:
+        # 交給隊首還在等的 waiter，並在交出當下就算進 active。
+        while self._waiters:
+            waiter = self._waiters.popleft()
+            if not waiter.done():
+                waiter.set_result(token)
+                self._active += 1
+                return
+        self._free.append(token)
+
+    @staticmethod
+    def _expire_waiter(waiter: asyncio.Future[object]) -> None:
+        # 逾時前 token 已交到手上就不動它；acquire 端看到 TimeoutError 才算逾時。
+        if not waiter.done():
+            waiter.set_exception(asyncio.TimeoutError())
 
     def _update_metrics(self) -> None:
         ai_metrics.update_proxy_admission(active=self._active, waiting=self._waiting)
@@ -615,7 +658,7 @@ async def relay_generation(
                 ),
                 status_code=upstream.status_code,
                 media_type=upstream.headers.get("content-type", "text/event-stream"),
-                headers=public_headers,
+                headers={**public_headers, **_STREAM_RESPONSE_HEADERS},
             )
     except BaseException:
         try:

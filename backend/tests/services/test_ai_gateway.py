@@ -195,6 +195,75 @@ def test_review_reads_the_row_with_a_lock(
     )
 
 
+def test_bulk_reject_uses_one_reason_and_one_transaction(db: Session) -> None:
+    user = _user(db)
+    request_ids = [_request(db, user), _request(db, user)]
+    reviewer = _admin(db)
+
+    result = ai_gateway_service.bulk_reject_requests(
+        session=db,
+        request_ids=list(reversed(request_ids)),
+        review_comment="用途與申請內容不符",
+        reviewer=reviewer,
+    )
+
+    assert result.count == 2
+    assert {item.id for item in result.data} == set(request_ids)
+    assert {item.status for item in result.data} == {AIAPIRequestStatus.rejected}
+    assert {item.review_comment for item in result.data} == {"用途與申請內容不符"}
+    assert {item.reviewer_id for item in result.data} == {reviewer.id}
+
+
+def test_bulk_reject_is_atomic_when_one_request_was_already_reviewed(
+    db: Session,
+) -> None:
+    user = _user(db)
+    request_ids = [_request(db, user), _request(db, user)]
+    reviewer = _admin(db)
+    ai_gateway_service.review_request(
+        session=db,
+        request_id=request_ids[0],
+        review_data=AIAPIRequestReview(
+            status=AIAPIRequestStatus.rejected,
+            review_comment="先前已處理",
+        ),
+        reviewer=reviewer,
+    )
+
+    with pytest.raises(BadRequestError):
+        ai_gateway_service.bulk_reject_requests(
+            session=db,
+            request_ids=request_ids,
+            review_comment="批量理由",
+            reviewer=reviewer,
+        )
+
+    db.expire_all()
+    already_reviewed = db.get(AIAPIRequest, request_ids[0])
+    still_pending = db.get(AIAPIRequest, request_ids[1])
+    assert already_reviewed is not None and already_reviewed.review_comment == "先前已處理"
+    assert still_pending is not None and still_pending.status == AIAPIRequestStatus.pending
+
+
+def test_submit_locks_the_applicant_row(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _user(db)
+    statements: list[str] = []
+    original_exec = db.exec
+
+    def spy(statement, *args, **kwargs):
+        statements.append(str(statement.compile(dialect=db.get_bind().dialect)))
+        return original_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "exec", spy)
+    _request(db, user)
+
+    assert any(
+        'FROM "user"' in sql and "FOR UPDATE" in sql for sql in statements
+    )
+
+
 # ---- 我的用量 ----------------------------------------------------
 
 
@@ -208,6 +277,29 @@ def _approved_credential(db: Session, user: User) -> uuid.UUID:
     )
     [credential] = _credentials(db, request_id)
     return credential.id
+
+
+def test_rotation_locks_the_source_credential(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _user(db)
+    credential_id = _approved_credential(db, user)
+    statements: list[str] = []
+    original_exec = db.exec
+
+    def spy(statement, *args, **kwargs):
+        statements.append(str(statement.compile(dialect=db.get_bind().dialect)))
+        return original_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "exec", spy)
+    ai_gateway_service.rotate_credential(
+        session=db, credential_id=credential_id, current_user=user
+    )
+
+    assert any(
+        "FROM ai_api_credentials" in sql and "FOR UPDATE" in sql
+        for sql in statements
+    )
 
 
 def _usage(

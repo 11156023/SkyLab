@@ -23,10 +23,13 @@ logger = logging.getLogger(__name__)
 FAIL_CLOSED_SCOPES = frozenset(
     {
         "ai-proxy",
+        "ai-api-request",
+        "ai-api-rotate",
         "login",
         "login-ldap",
         "pwd-recovery",
         "pwd-reset",
+        "signup",
     }
 )
 

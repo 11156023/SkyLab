@@ -511,8 +511,6 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                     job_id=job_id,
                     task_id=task_id,
                     user_id=user_id,
-                    vmid=vmid,
-                    status="completed",
                 )
                 bp_repo.increment_job_done(session=session, job_id=job_id)
         except Exception:
@@ -539,9 +537,6 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 job_id=job_id,
                 task_id=task_id,
                 user_id=user_id,
-                vmid=None,
-                status="failed",
-                error=error_msg,
             )
             bp_repo.increment_job_failed(session=session, job_id=job_id)
 
@@ -716,11 +711,12 @@ def _sync_class_machine_mapping(
     job_id: uuid.UUID,
     task_id: uuid.UUID,
     user_id: uuid.UUID,
-    vmid: int | None,
-    status: str,
-    error: str | None = None,
 ) -> None:
-    """Persist the class-to-student machine grant as soon as provisioning ends."""
+    """Persist the class-to-student machine grant as soon as provisioning ends.
+
+    The task must already carry the outcome (vmid / status / error); the
+    mapping only points at it.
+    """
     job = session.get(BatchProvisionJob, job_id)
     if job is None:
         return
@@ -742,9 +738,6 @@ def _sync_class_machine_mapping(
         enrollment_id=enrollment.id,
         node_id=node.id,
         task_id=task_id,
-        vmid=vmid,
-        status=status,
-        error=error,
     )
     session.commit()
 

@@ -22,9 +22,18 @@ LEGACY_API_KEY_PREFIX_LENGTH = 8
 class AIAPICredential(SQLModel, table=True):
     __tablename__ = "ai_api_credentials"
     __table_args__ = (
+        sa.UniqueConstraint("id", "user_id", name="uq_ai_api_credentials_id_user"),
         sa.Index("ix_ai_api_credentials_user_id", "user_id"),
         sa.Index("ix_ai_api_credentials_request_id", "request_id"),
         sa.Index("ix_ai_api_credentials_user_revoked", "user_id", "revoked_at"),
+        # 輪替保留歷史列，但同一核准 request 在任何時間只能有一把未撤銷金鑰。
+        sa.Index(
+            "uq_ai_api_credentials_active_request",
+            "request_id",
+            unique=True,
+            postgresql_where=sa.text("revoked_at IS NULL"),
+            sqlite_where=sa.text("revoked_at IS NULL"),
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

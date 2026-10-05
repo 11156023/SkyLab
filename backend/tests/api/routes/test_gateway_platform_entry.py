@@ -40,8 +40,9 @@ def test_platform_entry_get_returns_config_shape(
         "enable_https",
         "updated_at",
         "gateway_ready",
-        "cloudflare_ready",
+        "certificate_configured",
         "gateway_host",
+        "dns_managed",
     }
 
 
@@ -78,3 +79,48 @@ def test_platform_entry_status_passes_observed_client(
         )
     assert r.status_code == 200, r.text
     assert seen == {"observed_client_ip": "203.0.113.7", "observed_scheme": "https"}
+
+
+# ─── HTTPS 憑證（/gateway/certificate*）──────────────────────────────────────
+
+CERT_API = f"{settings.API_V1_STR}/gateway/certificate"
+
+
+def test_certificate_requires_admin(
+    client: TestClient, normal_user_token_headers: dict[str, str]
+) -> None:
+    assert client.get(CERT_API).status_code == 401
+    assert client.get(CERT_API, headers=normal_user_token_headers).status_code == 403
+    assert (
+        client.put(CERT_API, json={}, headers=normal_user_token_headers).status_code == 403
+    )
+    assert (
+        client.get(f"{CERT_API}/status", headers=normal_user_token_headers).status_code
+        == 403
+    )
+
+
+def test_certificate_get_returns_config_shape(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    r = client.get(CERT_API, headers=superuser_token_headers)
+    assert r.status_code == 200, r.text
+    assert set(r.json()) == {
+        "ssl_certificate_path",
+        "ssl_certificate_key_path",
+        "configured",
+        "gateway_ready",
+    }
+
+
+def test_certificate_put_rejects_unsafe_or_half_filled_paths(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    for body in (
+        {"ssl_certificate_path": "/etc/ssl/a.pem; rm -rf /", "ssl_certificate_key_path": "/etc/ssl/a.key"},
+        {"ssl_certificate_path": "relative/a.pem", "ssl_certificate_key_path": "/etc/ssl/a.key"},
+        {"ssl_certificate_path": "/etc/ssl/../shadow", "ssl_certificate_key_path": "/etc/ssl/a.key"},
+        {"ssl_certificate_path": "/etc/ssl/a.pem", "ssl_certificate_key_path": ""},
+    ):
+        r = client.put(CERT_API, json=body, headers=superuser_token_headers)
+        assert r.status_code == 400, (body, r.text)

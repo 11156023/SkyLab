@@ -22,6 +22,9 @@ from app.models import (
     QuotaConfig,
     Resource,
     ResourceQuota,
+    SpecChangeRequest,
+    SpecChangeRequestStatus,
+    SpecChangeType,
     User,
     VMRequest,
     VMRequestStatus,
@@ -241,17 +244,68 @@ def _reserved_by_requests(
     return cores, memory_mb, disk_gb, count
 
 
+def spec_change_delta(request: Any) -> tuple[int, int, int]:
+    """規格調整申請會多佔用的 (cores, memory_mb, disk_gb)；調小或沒動的欄位算 0。"""
+
+    def grow(requested: Any, current: Any) -> int:
+        if requested is None:
+            return 0
+        return max(0, int(requested) - int(current or 0))
+
+    return (
+        grow(getattr(request, "requested_cpu", None), getattr(request, "current_cpu", None)),
+        grow(
+            getattr(request, "requested_memory", None),
+            getattr(request, "current_memory", None),
+        ),
+        grow(getattr(request, "requested_disk", None), getattr(request, "current_disk", None)),
+    )
+
+
+def _reserved_by_spec_changes(
+    session: Session,
+    user_id: uuid.UUID,
+    *,
+    exclude_spec_request_id: uuid.UUID | None = None,
+) -> tuple[int, int, int]:
+    """尚未套用的規格調整申請預約的增量，回傳 (cores, memory_mb, disk_gb)。
+
+    待審核／已核准但還沒套用成功的申請，PVE 上的規格還是舊的。不計入的話，
+    每台機器各送一張調大的單，單張看都沒超過，核准後加起來就超過配額。
+    套用成功（applied_at 有值）後 PVE 已是新規格，不再重複計算。
+    """
+    statement = select(SpecChangeRequest).where(
+        SpecChangeRequest.user_id == user_id,
+        col(SpecChangeRequest.status).in_(
+            [SpecChangeRequestStatus.pending, SpecChangeRequestStatus.approved]
+        ),
+        col(SpecChangeRequest.applied_at).is_(None),
+        col(SpecChangeRequest.resource_vmid).is_not(None),
+        SpecChangeRequest.change_type != SpecChangeType.expiry,
+    )
+    if exclude_spec_request_id is not None:
+        statement = statement.where(SpecChangeRequest.id != exclude_spec_request_id)
+    cores = memory_mb = disk_gb = 0
+    for request in session.exec(statement).all():
+        req_cores, req_memory, req_disk = spec_change_delta(request)
+        cores += req_cores
+        memory_mb += req_memory
+        disk_gb += req_disk
+    return cores, memory_mb, disk_gb
+
+
 def get_usage(
     session: Session,
     user_id: uuid.UUID,
     *,
     cluster_resources: list[dict[str, Any]] | None = None,
     exclude_request_id: uuid.UUID | None = None,
+    exclude_spec_request_id: uuid.UUID | None = None,
 ) -> QuotaUsage:
-    """已佈建機器（PVE 實況）＋ 尚未佈建的申請單（DB 預約）。
+    """已佈建機器（PVE 實況）＋ 尚未佈建的申請單 ＋ 尚未套用的規格調整（DB 預約）。
 
-    ``exclude_request_id`` 給「正要佈建這張單」的呼叫端把自己扣掉，
-    否則同一張單會被算兩次（一次預約、一次增量）。
+    ``exclude_request_id``／``exclude_spec_request_id`` 給「正要處理這張單」的
+    呼叫端把自己扣掉，否則同一張單會被算兩次（一次預約、一次增量）。
     """
     vmids = set(_owned_vmids(session, user_id))
     listing = (
@@ -269,10 +323,13 @@ def get_usage(
     reserved_cores, reserved_memory, reserved_disk, reserved_count = (
         _reserved_by_requests(session, user_id, exclude_request_id=exclude_request_id)
     )
+    spec_cores, spec_memory, spec_disk = _reserved_by_spec_changes(
+        session, user_id, exclude_spec_request_id=exclude_spec_request_id
+    )
     return QuotaUsage(
-        cpu_cores=cores + reserved_cores,
-        memory_mb=memory_mb + reserved_memory,
-        disk_gb=disk_gb + reserved_disk,
+        cpu_cores=cores + reserved_cores + spec_cores,
+        memory_mb=memory_mb + reserved_memory + spec_memory,
+        disk_gb=disk_gb + reserved_disk + spec_disk,
         instances=len(vmids) + reserved_count,
     )
 
@@ -285,11 +342,14 @@ def check_quota(
     delta_memory_mb: int = 0,
     delta_disk_gb: int = 0,
     delta_instances: int = 0,
+    exclude_spec_request_id: uuid.UUID | None = None,
 ) -> None:
     """執法點呼叫；超限 raise ConflictError(409)。PVE 失敗 fail-open。"""
     quota = get_effective_quota(session, user_id)
     try:
-        usage = get_usage(session, user_id)
+        usage = get_usage(
+            session, user_id, exclude_spec_request_id=exclude_spec_request_id
+        )
     except Exception:
         logger.warning(
             "Quota usage lookup failed for user %s; skipping enforcement",
@@ -361,6 +421,7 @@ __all__ = [
     "check_quota",
     "check_quota_for_existing_resource",
     "check_quota_for_provision",
+    "spec_change_delta",
     "create_user_quota",
     "delete_user_quota",
     "get_effective_quota",

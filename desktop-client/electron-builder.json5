@@ -19,6 +19,11 @@
         from: "vendor/wireguard",
         to: "wireguard",
         filter: ["wireguard-amd64-1.1.msi", "THIRD_PARTY_NOTICES.txt"]
+      },
+      {
+        // 「關於」頁的「第三方授權聲明」按鈕開啟這個檔（SystemController.openThirdPartyNotices）
+        from: "THIRD_PARTY_NOTICES.txt",
+        to: "THIRD_PARTY_NOTICES.txt"
       }
     ],
     target: [

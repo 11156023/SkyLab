@@ -247,7 +247,20 @@
       secure: "Authorized VMs only"
     },
     version: "Version",
-    openDataDir: "Open data directory"
+    openDataDir: "Open data directory",
+    license: "License",
+    licenseName: "GNU Affero General Public License v3.0",
+    licenseHint:
+      "SkyLab is open source. If you modify it and offer it to others over a network you must publish your changes; commercial licensing is available.",
+    repository: "Source code",
+    thirdPartyNotices: "Third-party notices",
+    components: {
+      title: "Open-source components",
+      hint: "The {count} packages this application depends on directly, generated from package.json at build time.",
+      package: "Package",
+      version: "Version",
+      license: "License"
+    }
   },
   logger: {
     tab: { appLog: "App log" },

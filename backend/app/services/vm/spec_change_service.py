@@ -442,6 +442,27 @@ def create(
             t("spec_change.disk_increase_only", current=specs["disk"])
         )
 
+    # 送單時就檢查剩餘配額（與申請新機器一致），不要等到管理員核准才擋；
+    # 核准與套用時仍會用最新規格再檢查一次
+    if request_in.change_type != SpecChangeType.expiry:
+        delta_cores, delta_memory_mb, delta_disk_gb = quota_service.spec_change_delta(
+            SimpleNamespace(
+                requested_cpu=request_in.requested_cpu,
+                requested_memory=request_in.requested_memory,
+                requested_disk=request_in.requested_disk,
+                current_cpu=specs["cpu"],
+                current_memory=specs["memory"],
+                current_disk=specs["disk"],
+            )
+        )
+        quota_service.check_quota(
+            session,
+            user.id,
+            delta_cores=delta_cores,
+            delta_memory_mb=delta_memory_mb,
+            delta_disk_gb=delta_disk_gb,
+        )
+
     db_request = spec_request_repo.create_spec_change_request(
         session=session,
         user_id=user.id,
@@ -561,24 +582,18 @@ def _refresh_current_specs(
 
 
 def _check_quota_delta(session: Session, db_request: Any) -> None:
+    # 這張單自己已經算在「尚未套用的規格調整」預約裡，先扣掉再用它的增量檢查，
+    # 否則同一張單會被算兩次
+    delta_cores, delta_memory_mb, delta_disk_gb = quota_service.spec_change_delta(
+        db_request
+    )
     quota_service.check_quota(
         session,
         db_request.user_id,
-        delta_cores=max(
-            0,
-            int(db_request.requested_cpu or db_request.current_cpu or 0)
-            - int(db_request.current_cpu or 0),
-        ),
-        delta_memory_mb=max(
-            0,
-            int(db_request.requested_memory or db_request.current_memory or 0)
-            - int(db_request.current_memory or 0),
-        ),
-        delta_disk_gb=max(
-            0,
-            int(db_request.requested_disk or db_request.current_disk or 0)
-            - int(db_request.current_disk or 0),
-        ),
+        delta_cores=delta_cores,
+        delta_memory_mb=delta_memory_mb,
+        delta_disk_gb=delta_disk_gb,
+        exclude_spec_request_id=db_request.id,
     )
 
 

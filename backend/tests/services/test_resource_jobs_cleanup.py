@@ -78,9 +78,6 @@ def cleanup_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(
         resource_service, "_cancel_open_spec_change_requests", rec("spec")
     )
-    monkeypatch.setattr(
-        resource_service, "_mark_class_machine_reclaimed", rec("class_machine")
-    )
     monkeypatch.setattr(resource_service.resource_repo, "delete_resource", rec("row"))
     monkeypatch.setattr(
         resource_service, "_mark_class_reclaimed_if_empty", rec("class_empty")
@@ -98,7 +95,6 @@ _CLEANUP_ORDER = [
     "ip",
     "batch",
     "spec",
-    "class_machine",
     "row",
     "class_empty",
 ]
@@ -144,9 +140,8 @@ def test_delete_consumes_request_first_then_runs_shared_steps(
         user_id=uuid.uuid4(),
     )
 
-    # 沒有班級：跳過 class_machine
-    expected = [s for s in _CLEANUP_ORDER if s != "class_machine"]
-    assert cleanup_calls == ["consume", *expected, "log"]
+    # 班級機器的「已回收」由 batch task 的 vmid 被清空推導，不再另外標記
+    assert cleanup_calls == ["consume", *_CLEANUP_ORDER, "log"]
 
 
 def test_cleanup_step_failure_does_not_stop_the_rest(

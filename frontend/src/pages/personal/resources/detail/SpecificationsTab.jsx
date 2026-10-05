@@ -10,6 +10,9 @@ import MIcon from "../../../../components/MIcon";
 import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { ResourcesService } from "../../../../services/resources";
+import { QuotasService } from "../../../../services/quotas";
+import { growthRange, quotaRemaining, sliderTicks } from "../../../../utils/quotaLimits";
+import NumberInput from "../../../../components/NumberInput/NumberInput";
 import {
   SpecChangeRequestsService,
   canApplySpecRequest,
@@ -35,10 +38,6 @@ const DISK_MAX = 1000;
 const CORE_TICKS = [1, 4, 8, 16, 24, 32];
 /* 記憶體刻度不放 8GB：與最左邊的 0.5GB 距離太近，標籤會疊在一起 */
 const MEM_TICKS = [512, 16384, 32768, 49152, 65536];
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function formatGb(mb) {
   const gb = mb / 1024;
@@ -142,12 +141,13 @@ function OpenRequestNotice({ request, busy, onApply, onCancel }) {
  * 規格拉桿：標題列右側是可直接鍵入的數字框，下面是拉桿、刻度與「目前值」標記，
  * 最底下顯示目前值與相對於目前的變化量。
  * value／min／max／step 是拉桿的原始單位；數字框可用另一個單位（記憶體用 GB）。
+ * 數字框在離開欄位時才定稿（夾範圍、對齊步進）再呼叫 onInput，編輯中不干涉。
  */
 function SliderField({
   id, label, unit, wide, disabled,
   min, max, step, value, current, ticks, onChange,
   inputValue, inputMin, inputMax, inputStep, onInput,
-  currentText, deltaText,
+  currentText, deltaText, limitText,
 }) {
   const { t } = useTranslation("personal");
   const pct = (v) => `${((v - min) / (max - min || 1)) * 100}%`;
@@ -159,8 +159,7 @@ function SliderField({
       <div className={sl.labelRow}>
         <label htmlFor={id} className={sl.label}>{label}</label>
         <div className={sl.valueBox}>
-          <input
-            type="number"
+          <NumberInput
             className={sl.numInput}
             min={inputMin}
             max={inputMax}
@@ -168,7 +167,7 @@ function SliderField({
             value={inputValue}
             disabled={disabled}
             aria-label={label}
-            onChange={(e) => onInput(e.target.value)}
+            onCommit={onInput}
           />
           <span className={sl.unit}>{unit}</span>
         </div>
@@ -205,6 +204,7 @@ function SliderField({
           <span className={`${sl.delta} ${value > current ? sl.deltaUp : sl.deltaDown}`}>{deltaText}</span>
         )}
       </div>
+      {limitText && <p className={sl.limit}>{limitText}</p>}
     </div>
   );
 }
@@ -326,6 +326,44 @@ export default function SpecificationsTab({ vmid }) {
   const currentDisk = config?.disk_gb ?? 0;
   const diskChanged = currentDisk > 0 && disk !== currentDisk;
 
+  /* 配額：後端送單、核准、套用都會對「調大的部分」檢查剩餘配額，
+     所以拉桿上限＝目前規格＋剩餘配額。管理員直接改規格不走申請、不扣自己的配額。
+     送出／撤銷／套用完成後剩餘量會變，跟著申請狀態重抓。 */
+  const [quotaUsage, setQuotaUsage] = useState(null);
+  useEffect(() => {
+    if (isAdmin) return undefined;
+    const controller = new AbortController();
+    QuotasService.getMyUsage({ signal: controller.signal })
+      .then(setQuotaUsage)
+      .catch(() => {});
+    return () => controller.abort();
+  }, [isAdmin, openRequest?.id, openRequest?.apply_status, config]);
+  const quotaLeft = quotaRemaining(quotaUsage);
+  const coresRange = growthRange({
+    min: CORE_MIN, max: CORE_MAX,
+    current: config?.cpu_cores || CORE_MIN, remaining: quotaLeft.cores,
+  });
+  const memoryRange = growthRange({
+    min: MEM_MIN, max: MEM_MAX, step: MEM_STEP,
+    current: config?.memory_mb || MEM_MIN, remaining: quotaLeft.memoryMb,
+  });
+  /* 磁碟只能放大，拉桿下限就是目前大小；讀不到目前大小時整條停用 */
+  const diskMin = currentDisk || 1;
+  const diskRange = growthRange({
+    min: diskMin, max: Math.max(DISK_MAX, diskMin),
+    current: diskMin, remaining: quotaLeft.diskGb,
+  });
+  /* 配額晚一步載入時，已經拉高的值要壓回上限 */
+  useEffect(() => {
+    setCores((v) => Math.min(v, coresRange.max));
+    setMemory((v) => Math.min(v, memoryRange.max));
+    setDisk((v) => Math.min(v, diskRange.max));
+  }, [coresRange.max, memoryRange.max, diskRange.max]);
+  const limitText = (range, capKey, value, exhaustedKey = "SpecificationsTab.quotaExhausted") => {
+    if (isAdmin || specFixed || !range.quotaCapped) return null;
+    return range.exhausted ? t(exhaustedKey) : t(capKey, { max: value });
+  };
+
   const handleSubmit = async () => {
     const hasChanges = cores !== config.cpu_cores || memory !== config.memory_mb || diskChanged;
 
@@ -400,10 +438,6 @@ export default function SpecificationsTab({ vmid }) {
   else if (formLocked) desc = t("SpecificationsTab.descLocked");
   else desc = t("SpecificationsTab.descUser");
 
-  /* 磁碟只能放大，拉桿下限就是目前大小；讀不到目前大小時整條停用 */
-  const diskMin = currentDisk || 1;
-  const diskMax = Math.max(DISK_MAX, diskMin);
-
   return (
     <div className={styles.tabStack}>
       {!isAdmin && appliedWarning && !openRequest && (
@@ -438,22 +472,20 @@ export default function SpecificationsTab({ vmid }) {
               unit={t("SpecificationsTab.coresUnit")}
               disabled={inputsDisabled}
               min={CORE_MIN}
-              max={CORE_MAX}
+              max={coresRange.max}
               step={1}
               value={cores}
               current={config.cpu_cores}
-              ticks={CORE_TICKS.map((v) => ({ value: v, label: String(v) }))}
+              ticks={sliderTicks(CORE_TICKS, coresRange).map(({ value, label }) => ({ value, label }))}
               onChange={setCores}
               inputValue={cores}
               inputMin={CORE_MIN}
-              inputMax={CORE_MAX}
+              inputMax={coresRange.max}
               inputStep={1}
-              onInput={(raw) => {
-                const n = Number.parseInt(raw, 10);
-                if (Number.isFinite(n)) setCores(clamp(n, CORE_MIN, CORE_MAX));
-              }}
+              onInput={setCores}
               currentText={t("SpecificationsTab.currentLabel", { value: config.cpu_cores })}
               deltaText={t("SpecificationsTab.deltaCores", { delta: signed(cores - config.cpu_cores) })}
+              limitText={limitText(coresRange, "SpecificationsTab.quotaCapCores", coresRange.max)}
             />
             <SliderField
               id="spec-memory"
@@ -461,49 +493,45 @@ export default function SpecificationsTab({ vmid }) {
               unit="GB"
               disabled={inputsDisabled}
               min={MEM_MIN}
-              max={MEM_MAX}
+              max={memoryRange.max}
               step={MEM_STEP}
               value={memory}
               current={config.memory_mb}
-              ticks={MEM_TICKS.map((v) => ({ value: v, label: `${formatGb(v)}GB` }))}
+              ticks={sliderTicks(MEM_TICKS, memoryRange, (v) => `${formatGb(v)}GB`).map(({ value, label }) => ({ value, label }))}
               onChange={setMemory}
               inputValue={memory / 1024}
               inputMin={MEM_MIN / 1024}
-              inputMax={MEM_MAX / 1024}
+              inputMax={memoryRange.max / 1024}
               inputStep={0.5}
-              onInput={(raw) => {
-                const gb = Number.parseFloat(raw);
-                /* 數字框以 GB 輸入，換回 MB 後對齊 512 MB 一格 */
-                if (Number.isFinite(gb)) setMemory(clamp(Math.round(gb * 2) * MEM_STEP, MEM_MIN, MEM_MAX));
-              }}
+              /* 數字框以 GB 輸入（0.5 GB 一格），定稿後換回 MB */
+              onInput={(gb) => setMemory(Math.round(gb * 1024))}
               currentText={t("SpecificationsTab.currentMemoryLabel", { value: formatGb(config.memory_mb) })}
               deltaText={t("SpecificationsTab.deltaGb", { delta: signedGb(memory - config.memory_mb) })}
+              limitText={limitText(memoryRange, "SpecificationsTab.quotaCapGb", formatGb(memoryRange.max))}
             />
             <SliderField
               id="spec-disk"
               wide
               label={t("SpecificationsTab.diskLabel")}
               unit="GB"
-              disabled={inputsDisabled || !currentDisk}
+              disabled={inputsDisabled || !currentDisk || diskRange.max <= diskRange.min}
               min={diskMin}
-              max={diskMax}
+              max={diskRange.max}
               step={1}
               value={currentDisk ? disk : diskMin}
               current={currentDisk || null}
-              ticks={diskTicks(diskMin, diskMax).map((v) => ({ value: v, label: String(v) }))}
+              ticks={diskTicks(diskMin, diskRange.max).map((v) => ({ value: v, label: String(v) }))}
               onChange={setDisk}
               inputValue={currentDisk ? disk : diskMin}
               inputMin={diskMin}
-              inputMax={diskMax}
+              inputMax={diskRange.max}
               inputStep={1}
-              onInput={(raw) => {
-                const n = Number.parseInt(raw, 10);
-                if (Number.isFinite(n)) setDisk(clamp(n, diskMin, diskMax));
-              }}
+              onInput={setDisk}
               currentText={currentDisk
                 ? t("SpecificationsTab.currentDiskLabel", { value: currentDisk })
                 : t("SpecificationsTab.diskUnknown")}
               deltaText={t("SpecificationsTab.deltaGb", { delta: signed(disk - currentDisk) })}
+              limitText={limitText(diskRange, "SpecificationsTab.quotaCapGb", diskRange.max, "SpecificationsTab.quotaExhaustedDisk")}
             />
           </div>
 

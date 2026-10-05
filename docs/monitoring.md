@@ -1,253 +1,255 @@
-# SkyLab 系統監控
+# SkyLab System Monitoring
 
-SkyLab 的監控分成兩層：
+> **English** | [繁體中文](./monitoring.zh-TW.md)
 
-| 層 | 看什麼 | 在哪裡 | 需要額外容器？ |
+SkyLab monitoring has two layers:
+
+| Layer | What it covers | Where to look | Extra containers? |
 |---|---|---|---|
-| **內建** | 平台健康（DB、Redis、worker、PVE API 連線、Gateway、AI Gateway 與各模型、排程任務心跳）、系統告警＋Email | 管理員「資源監控」頁的「系統健康」卡、活動警告 | 否 |
-| **監控 stack**（選用） | API 流量／延遲／錯誤率、排程與佇列指標、容器與主機資源、PostgreSQL／Redis、集中日誌、Proxmox 節點／VM 用量、Gateway 主機與 nginx、AI 請求與 LiteLLM／vLLM 推論引擎 | Grafana、Prometheus | `docker compose --profile monitoring` |
+| **Built-in** | Platform health (DB, Redis, worker, PVE API connectivity, Gateway, AI Gateway and each model, scheduler task heartbeats), system alerts + email | "System health" card and active alerts on the admin "Resource Monitoring" page | No |
+| **Monitoring stack** (optional) | API traffic / latency / error rate, scheduler and queue metrics, container and host resources, PostgreSQL / Redis, centralized logs, Proxmox node / VM usage, Gateway host and nginx, AI requests and the LiteLLM / vLLM inference engines | Grafana, Prometheus | `docker compose --profile monitoring` |
 
-Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建的 Metric Server 直接推到監控 stack 的 InfluxDB。後端只檢查「自己連不連得到 PVE API」。
+Proxmox node / VM resource usage **does not pass through the SkyLab backend**: the PVE built-in Metric Server pushes it straight to the InfluxDB in the monitoring stack. The backend only checks whether it can reach the PVE API itself.
 
 ---
 
-## 1. 內建（不必另外裝東西）
+## 1. Built-in (nothing extra to install)
 
-### 健康檢查端點
+### Health-check endpoints
 
-| 端點 | 用途 | 權限 |
+| Endpoint | Purpose | Access |
 |---|---|---|
-| `GET /api/v1/utils/health-check/` | Liveness：程序活著就回 `true`（compose healthcheck 用） | 免登入 |
-| `GET /api/v1/utils/health-check/ready` | Readiness：DB 與 Redis 都通才 200，否則 **503**。回傳 `{"status":"ok","checks":{"database":true,"redis":true}}`，不帶錯誤細節 | 免登入 |
-| `GET /api/v1/monitoring/system-health` | 完整報告：各元件狀態與延遲、背景迴圈與每個排程任務的心跳 | 管理員 |
-| `GET /metrics` | Prometheus 格式指標（只在內網 `backend:8000`，nginx 不轉發） | 內網；可設 `METRICS_TOKEN` |
-| `GET /metrics/gateway-targets?exporter=node\|nginx` | Prometheus `http_sd`：回傳 Gateway exporter 的位址（取自「閘道 VM」頁的連線設定，未設定回 `[]`） | 同 `/metrics` |
+| `GET /api/v1/utils/health-check/` | Liveness: returns `true` as long as the process is alive (used by the compose healthcheck) | No login |
+| `GET /api/v1/utils/health-check/ready` | Readiness: 200 only when both DB and Redis are reachable, otherwise **503**. Returns `{"status":"ok","checks":{"database":true,"redis":true}}` with no error details | No login |
+| `GET /api/v1/monitoring/system-health` | Full report: status and latency of each component, background loops and the heartbeat of every scheduler task | Admin |
+| `GET /metrics` | Prometheus-format metrics (internal network only, `backend:8000`; nginx does not forward it) | Internal; `METRICS_TOKEN` optional |
+| `GET /metrics/gateway-targets?exporter=node\|nginx` | Prometheus `http_sd`: returns the addresses of the Gateway exporters (taken from the connection settings on the "Gateway VM" page; returns `[]` when not configured) | Same as `/metrics` |
 
-### 排程任務心跳
+### Scheduler task heartbeats
 
-主排程（`scheduler`，60 秒一輪、17 個任務）、Web Push 推播（`web_push`）、WireGuard 同步（`wireguard`）每次執行都會記錄：上次執行、上次成功、耗時、連續失敗次數、最近一次錯誤。資料寫在 Redis（`skylab:hb:*`，7 天過期），Redis 不可用時退回行程記憶體。
+The main scheduler (`scheduler`, one round every 60 seconds; the task list is the `tasks=[…]` registered in `services/scheduling/coordinator.py`), the Web Push notifier (`web_push`) and the WireGuard reconciler (`wireguard`) record on every run: last run, last success, duration, consecutive failure count and the most recent error. The data lives in Redis (`skylab:hb:*`, 7-day expiry) and falls back to process memory when Redis is unavailable.
 
-狀態判定（`services/monitoring/health_policy.py`）：
+Status rules (`services/monitoring/health_policy.py`):
 
-- **連續失敗**：連續失敗 ≥ 3 次
-- **偶發失敗**：失敗 1–2 次（卡片標紅，但不拉低整體狀態）
-- **停擺**：超過 `max(5 × 間隔, 10 分鐘)` 沒有執行
-- **尚未執行**：這次啟動後還沒輪到
+- **Failing**: ≥ 3 consecutive failures
+- **Occasional failure**: 1–2 failures (the card turns red but the overall status is not lowered)
+- **Stale**: no run for more than `max(5 × interval, 10 minutes)`
+- **Not yet run**: has not had its turn since this startup
 
-注意：部分任務在自己內部就把例外吞掉並回傳 0（例如 `process_pending_deletions`），這類任務失敗時心跳仍會顯示成功，要看後端日誌。
+Note: some tasks swallow exceptions internally and return 0 (for example `process_pending_deletions`); when such a task fails its heartbeat still shows success, so check the backend logs.
 
-### 系統告警
+### System alerts
 
-排程任務 `process_system_health_alerts` 每分鐘（依「治理設定 → 告警檢查間隔」，最少 60 秒）評估一次，發現下列問題時寫入 `scope=system` 的告警，出現在「資源監控 → 活動警告」，並依「告警 Email」開關寄信給所有管理員：
+The scheduler task `process_system_health_alerts` evaluates once a minute (per "Governance settings → alert check interval", minimum 60 seconds). When it finds any of the following it writes an alert with `scope=system`, which appears under "Resource Monitoring → Active alerts" and is emailed to all administrators according to the "Alert email" switch:
 
-- 排程任務連續失敗 ≥ 3 次，或停擺
-- 背景迴圈停擺（沒有任何行程拿到 leader）
-- worker 沒有心跳、Redis 連不上、某個 PVE 連線連不上
-- Gateway：SSH 連不上、nginx 或 WireGuard 沒在跑、`nginx -t` 失敗（狀態「無法連線」）；Let's Encrypt 憑證剩不到 14 天或已過期（狀態「需要處理」——certbot 會在剩 30 天時自動續期，還剩 14 天代表續期一直失敗）
+- A scheduler task has failed ≥ 3 times in a row, or is stale
+- A background loop is stale (no process holds the leader lock)
+- The worker has no heartbeat, Redis is unreachable, or one of the PVE connections is unreachable
+- Gateway: SSH unreachable, nginx or WireGuard not running, `nginx -t` failing (status "Unreachable"); HTTPS certificate expiring within 14 days or already expired (status "Needs attention" — the certificate is supplied and renewed by the administrator, see `deployment.md` under "Gateway HTTPS certificate")
 
-- AI：LiteLLM 連不上或它的資料庫斷線（`component:ai_gateway`，使用者 API 與內建 AI 功能都會失敗）；某個模型的上游推論服務（例如 DGX 上的 vLLM）健康檢查失敗（`component:ai_model:<alias>`，全部部署異常為「無法連線」、部分異常為「需要處理」）
+- AI: LiteLLM unreachable or its database disconnected (`component:ai_gateway`; both the user API and the built-in AI features fail); the upstream inference service of some model (for example vLLM on a DGX) failing its health check (`component:ai_model:<alias>`; "Unreachable" when every deployment is down, "Needs attention" when only some are)
 
-Gateway 的檢查是後端用 SSH 在 Gateway 上跑一條指令（`systemctl is-active`、`nginx -t`、讀 `/etc/letsencrypt/live/*` 到期日），結果快取 60 秒；Gateway 沒設定時卡片顯示「停用」。
+The Gateway check is one command the backend runs on the Gateway over SSH (`systemctl is-active`, `nginx -t`, reading the expiry date of the certificate referenced by `http.conf`; the self-signed fallback certificate does not count), with the result cached for 60 seconds. When no Gateway is configured the card shows "Disabled".
 
-AI 的檢查是後端用受限的 runtime key（`LITELLM_RUNTIME_API_KEY`，不需要 master key）問 LiteLLM：`/health/liveliness`、`/health/readiness`（DB 是否連線）、`/model/info`（公開模型名稱）與 `/health`（LiteLLM 每 60 秒背景健康檢查的結果，讀快取、不會為了探測去打推論服務），結果快取 60 秒。沒設 runtime key 時卡片顯示「停用」；LiteLLM 剛啟動、背景檢查還沒跑完的模型顯示「尚未執行」，不影響整體狀態也不發告警。
+The AI check asks LiteLLM using the restricted runtime key (`LITELLM_RUNTIME_API_KEY`; no master key required): `/health/liveliness`, `/health/readiness` (whether the DB is connected), `/model/info` (public model names) and `/health` (the result of LiteLLM's own background health check that runs every 60 seconds; it reads the cache and never hits an inference service just to probe), with the result cached for 60 seconds. When no runtime key is set the card shows "Disabled"; models whose background check has not completed yet right after LiteLLM starts show "Not yet run", which neither affects the overall status nor raises an alert.
 
-同一個問題要**連續兩輪**都出現才開告警（吸收部署時 worker 晚起、PVE 瞬斷）；問題消失就自動解除；冷卻時間沿用資源告警的設定。
+The same problem has to show up in **two consecutive rounds** before an alert is opened (this absorbs a worker starting late during deployment or a brief PVE blip); it resolves automatically once the problem disappears, and the cooldown reuses the resource-alert setting.
 
-**資料庫掛掉、或整個 backend 掛掉時，告警本身寫不進去也寄不出去**；這兩種情況在「系統健康」卡與 Grafana 的「SkyLab 平台」儀表板看得到，但不會主動通知。需要時可以在另一台機器用任何外部探測服務監看 `/api/v1/utils/health-check/ready`（非 200 即異常）。
+**When the database is down, or the whole backend is down, the alert itself can neither be written nor emailed**; both situations are visible on the "System health" card and on the Grafana "SkyLab Platform" dashboard, but no notification is sent. If you need one, point any external probing service on another machine at `/api/v1/utils/health-check/ready` (anything other than 200 means unhealthy).
 
 ### Request ID
 
-nginx 為每個請求產生 `$request_id`，以 `X-Request-ID` 轉給 backend 並寫進 nginx access log（`rid=...`）；backend 寫進 JSON 日誌的 `request_id` 欄位、Sentry 的 tag，並回傳在回應標頭 `X-Request-ID`。使用者回報錯誤時，從瀏覽器 DevTools 看到的這個 id 可以直接在 Grafana「SkyLab 日誌」儀表板的 Request ID 欄位查到整條路徑。
+nginx generates a `$request_id` for every request, forwards it to the backend as `X-Request-ID` and writes it into the nginx access log (`rid=...`); the backend puts it in the `request_id` field of its JSON logs and in the Sentry tag, and returns it in the `X-Request-ID` response header. When a user reports an error, the id they see in the browser DevTools can be looked up directly in the Request ID field of the Grafana "SkyLab Logs" dashboard to follow the whole path.
 
 ### Sentry
 
-- 後端與 worker：`.env` 設 `SENTRY_DSN`（可另設 `SENTRY_RELEASE`、`SENTRY_TRACES_SAMPLE_RATE`）。
-- 前端（瀏覽器）：`.env` 設 `VITE_SENTRY_DSN` 後**重新建置 frontend 映像**（`docker compose build frontend`）。沒設時 SDK 在建置階段就被移除，不增加 bundle。建議在 Sentry 另開一個 Browser 專案，和後端分開看。
-- 兩邊都不送個資（`send_default_pii=False`）。測試（pytest）一律停用 Sentry，不會把測試產生的例外送到正式專案。
+- Backend and worker: set `SENTRY_DSN` in `.env` (optionally `SENTRY_RELEASE` and `SENTRY_TRACES_SAMPLE_RATE`).
+- Frontend (browser): set `VITE_SENTRY_DSN` in `.env`, then **rebuild the frontend image** (`docker compose build frontend`). When it is unset the SDK is stripped at build time and adds nothing to the bundle. We recommend a separate Browser project in Sentry so it can be viewed apart from the backend.
+- Neither side sends personal data (`send_default_pii=False`). Tests (pytest) always disable Sentry, so exceptions raised by tests never reach the production project.
 
-### 容器日誌輪替
+### Container log rotation
 
-`docker-compose.yml` 所有服務都套用 `x-logging`：json-file、單檔 10 MB、保留 5 個（`DOCKER_LOG_MAX_SIZE`／`DOCKER_LOG_MAX_FILE` 可調）。應用程式自己的 `logs/app.log`（每日輪替、30 天）與 `logs/error.log` 不變。
+Every service in `docker-compose.yml` uses `x-logging`: json-file, 10 MB per file, 5 files kept (adjustable with `DOCKER_LOG_MAX_SIZE` / `DOCKER_LOG_MAX_FILE`). The application's own `logs/app.log` (daily rotation, 30 days) and `logs/error.log` are unchanged.
 
-### 容器 healthcheck
+### Container healthchecks
 
-db、pgbouncer、redis、backend 原本就有；新增：
+db, pgbouncer, redis and backend already had one; newly added:
 
-- **worker**：檢查 arq 每 60 秒寫進 Redis 的 `skylab:tasks:health-check`（TTL 61 秒）
-- **nginx**：`/nginx-health`
-- **frontend**：首頁 200
+- **worker**: checks the `skylab:tasks:health-check` key that arq writes into Redis every 60 seconds (TTL 61 seconds)
+- **nginx**: `/nginx-health`
+- **frontend**: home page returns 200
 
-`docker compose ps` 會顯示 `(healthy)`／`(unhealthy)`。注意 Docker Compose 本身**不會**自動重啟 unhealthy 的容器（程序直接結束時才會依 `restart` 政策重啟）。
+`docker compose ps` shows `(healthy)` / `(unhealthy)`. Note that Docker Compose itself **does not** restart unhealthy containers automatically (the `restart` policy only kicks in when the process exits).
 
 ---
 
-## 2. 監控 stack
+## 2. Monitoring stack
 
-### 啟動
+### Starting it
 
 ```bash
-# 先在 .env 設好（至少）：
-#   GRAFANA_ADMIN_PASSWORD、INFLUXDB_ADMIN_PASSWORD、INFLUXDB_ADMIN_TOKEN
+# First set (at least) these in .env:
+#   GRAFANA_ADMIN_PASSWORD, INFLUXDB_ADMIN_PASSWORD, INFLUXDB_ADMIN_TOKEN
 docker compose --profile monitoring up -d
 ```
 
-之後每次 `docker compose up -d` 都要帶 `--profile monitoring`（或在 `.env` 設 `COMPOSE_PROFILES=monitoring`），否則監控容器不會一起起來。
+From then on every `docker compose up -d` must include `--profile monitoring` (or set `COMPOSE_PROFILES=monitoring` in `.env`), otherwise the monitoring containers do not come up with the rest.
 
-**用 CI 部署（`Deploy to PVE Test` workflow）時**：workflow 只執行 `docker compose up -d`，並把部署機的 `/opt/skylab/.env` 複製進來，所以要在那份 `.env` 加上 `COMPOSE_PROFILES=monitoring`（連同上面的密碼／token），重新跑一次部署監控才會起來。
+**When deploying through CI (the `Deploy to PVE Test` workflow)**: the workflow only runs `docker compose up -d` and copies in the deployment host's `/opt/skylab/.env`, so add `COMPOSE_PROFILES=monitoring` (together with the passwords / token above) to that `.env` and run the deployment again before the monitoring stack starts.
 
-### rootless Docker
+### Rootless Docker
 
-先用 `docker info --format '{{.SecurityOptions}}'` 確認：輸出有 `name=rootless` 就是 rootless（self-hosted runner 的部署機是）。rootless 的 Docker socket 與資料目錄都在使用者自己的路徑下，要在 `.env` 補三行，否則 Alloy 收不到任何容器日誌、cAdvisor 抓不到容器：
+Check first with `docker info --format '{{.SecurityOptions}}'`: if the output contains `name=rootless` it is rootless (the self-hosted runner's deployment host is). Under rootless Docker the socket and data directory live under the user's own paths, so add three lines to `.env`, otherwise Alloy receives no container logs at all and cAdvisor sees no containers:
 
 ```bash
-# <uid> 用 `id -u` 查；Docker Root Dir 用 `docker info --format '{{.DockerRootDir}}'` 查
+# Find <uid> with `id -u`; find Docker Root Dir with `docker info --format '{{.DockerRootDir}}'`
 DOCKER_SOCKET=/run/user/<uid>/docker.sock
 CONTAINERD_SOCKET=/run/user/<uid>/docker/containerd/containerd.sock
 DOCKER_DATA_ROOT=/home/<user>/.local/share/docker
 ```
 
-cAdvisor 要看到逐一容器的 CPU／記憶體，還需要 cgroup v2 的委派：`docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}'` 應為 `systemd 2`。若是 `none`／`cgroupfs`，其他監控照常運作，只有「SkyLab 基礎設施」的容器面板會是空的；啟用方式見 Docker 官方 rootless 文件的 “Limiting resources”（`/etc/systemd/system/user@.service.d/delegate.conf` 設 `Delegate=cpu cpuset io memory pids` 後重新登入）。
+For cAdvisor to see per-container CPU / memory it also needs cgroup v2 delegation: `docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}'` should print `systemd 2`. If it prints `none` / `cgroupfs`, everything else keeps working and only the container panels of "SkyLab Infrastructure" stay empty; to enable it, see "Limiting resources" in Docker's official rootless documentation (set `Delegate=cpu cpuset io memory pids` in `/etc/systemd/system/user@.service.d/delegate.conf`, then log in again).
 
-node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟（rootlesskit 預設不建立 pid namespace）；網卡流量看到的是容器自己的網路。部署機若是 PVE 上的 VM，主機網卡流量可以看 Proxmox 儀表板裡該 VM 的網路（PVE Metric Server 回報）。
+node-exporter still reads the host's CPU, memory and disks under rootless (rootlesskit does not create a pid namespace by default); the network traffic it sees is the container's own network. If the deployment host is a VM on PVE, the host NIC traffic can be read from that VM's network panel on the Proxmox dashboard (reported by the PVE Metric Server).
 
-| 服務 | 用途 | 入口 |
+| Service | Purpose | Entry point |
 |---|---|---|
-| Grafana | 儀表板 | `http://<SkyLab>/grafana/`（經 nginx）；本機也可 `http://127.0.0.1:3000/grafana/` |
-| Prometheus | 指標收集（不設告警規則） | `http://127.0.0.1:9090`（只綁本機，SSH tunnel 使用） |
-| Loki + Alloy | 所有容器日誌，保留 14 天 | 在 Grafana 查 |
-| InfluxDB 2 | Proxmox Metric Server 推送目的地 | `:8086`（見下方設定） |
-| postgres-exporter／redis-exporter／cAdvisor／node-exporter | 資料庫、快取、容器、主機指標 | Prometheus 內部抓取 |
+| Grafana | Dashboards | `http://<SkyLab>/grafana/` (through nginx); locally also `http://127.0.0.1:3000/grafana/` |
+| Prometheus | Metric collection (no alert rules) | `http://127.0.0.1:9090` (bound to localhost only; use an SSH tunnel) |
+| Loki + Alloy | Logs of all containers, kept 14 days | Query in Grafana |
+| InfluxDB 2 | Destination for the Proxmox Metric Server push | `:8086` (see setup below) |
+| postgres-exporter / redis-exporter / cAdvisor / node-exporter | Database, cache, container and host metrics | Scraped internally by Prometheus |
 
-SkyLab「資源監控」頁右上角的「在 Grafana 查看詳細」按鈕只在監控 stack 有啟用時出現：後端（`POST /api/v1/monitoring/grafana/session`）探測 `GRAFANA_INTERNAL_URL`（預設 `http://grafana:3000/grafana`）的 `/api/health`，連得到才顯示，結果快取一分鐘；按鈕連到 `.env` 的 `GRAFANA_ROOT_URL`，沒設時連同網域的 `/grafana/`。
+The "View details in Grafana" button in the top-right corner of the SkyLab "Resource Monitoring" page only appears when the monitoring stack is enabled: the backend (`POST /api/v1/monitoring/grafana/session`) probes `/api/health` on `GRAFANA_INTERNAL_URL` (default `http://grafana:3000/grafana`) and shows the button only when reachable, caching the result for one minute; the button links to `GRAFANA_ROOT_URL` from `.env`, or to `/grafana/` on the same domain when unset.
 
-監控 stack 只負責**收集與呈現**，不發告警通知（沒有 Prometheus 告警規則、Alertmanager 或 Grafana alerting）。平台本身的異常由內建的「系統告警」處理（見上方，出現在「活動警告」並依「告警 Email」開關寄信）。
+The monitoring stack is only responsible for **collecting and displaying**; it sends no alert notifications (no Prometheus alert rules, Alertmanager or Grafana alerting). Problems with the platform itself are handled by the built-in "System alerts" (see above; they appear under "Active alerts" and are emailed according to the "Alert email" switch).
 
-### Grafana 儀表板（已自動匯入，資料夾「SkyLab」）
+### Grafana dashboards (imported automatically, folder "SkyLab")
 
-- **SkyLab 平台**（首頁）：backend 狀態、請求量、5xx 比例、p95 延遲、WebSocket 連線、佇列積壓、最慢／錯誤最多的路由、排程任務狀態表、任務失敗與耗時、背景任務紀錄、依賴元件狀態與延遲
-- **SkyLab 基礎設施**：各容器 CPU／記憶體／網路、PostgreSQL（連線、交易、cache 命中率、deadlock、大小）、Redis、SkyLab 主機 CPU／記憶體／磁碟（只看 `job="node"`，不含 Gateway）
-- **SkyLab 日誌**：依服務與關鍵字篩選、錯誤日誌、以 Request ID 追蹤
-- **Proxmox VE（Metric Server）**：節點 CPU／記憶體／IO wait／load、CPU 與記憶體最高的 VM／LXC、各儲存使用率；最下方「Gateway VM（PVE 回報）」一列看 Gateway 這台 VM 的 CPU、記憶體、網路與磁碟 IO（上方「Gateway VM」選單選擇，名稱含 gateway 的會自動排第一個）
-- **SkyLab Gateway**：Gateway 主機上 exporter 的資料——SkyLab 健康探測／exporter／nginx 狀態、nginx 活躍連線、開機時間、CPU／記憶體／磁碟、各網卡流量（`wg0` 是 WireGuard）、TCP 連線數、nginx 連線狀態與請求速率（見下方「Gateway 監控」）
-- **SkyLab AI**：AI Gateway／LiteLLM／推論引擎狀態、可用模型數、每分鐘請求與平台錯誤率；Campus 端（使用者 API 金鑰與內建 AI 功能）依模型的請求量、結果類別、端到端與首字延遲、token 吞吐、來源；vLLM 的執行中／排隊請求、KV cache 使用率、prefill／decode 吞吐、TTFT、token 間延遲、端到端延遲、結束原因、搶占次數；LiteLLM 的狀態碼、上游部署成功／失敗、上游與 gateway 自身延遲、部署狀態（見下方「AI 模組監控」）。「AI 用量監控」頁右上角的「在 Grafana 查看詳細」直接開這個儀表板（只有管理員、且監控 stack 啟用時顯示）
+- **SkyLab Platform** (home): backend status, request volume, 5xx ratio, p95 latency, WebSocket connections, queue backlog, slowest / most error-prone routes, scheduler task status table, task failures and duration, background task records, dependency status and latency
+- **SkyLab Infrastructure**: per-container CPU / memory / network, PostgreSQL (connections, transactions, cache hit ratio, deadlocks, size), Redis, SkyLab host CPU / memory / disk (only `job="node"`, excluding the Gateway)
+- **SkyLab Logs**: filter by service and keyword, error logs, tracing by Request ID
+- **Proxmox VE (Metric Server)**: node CPU / memory / IO wait / load, the VMs / LXCs with the highest CPU and memory, usage of each storage; the bottom row "Gateway VM (reported by PVE)" shows the CPU, memory, network and disk IO of the Gateway VM itself (choose it in the "Gateway VM" dropdown at the top; names containing gateway are sorted first automatically)
+- **SkyLab Gateway**: data from the exporters on the Gateway host — SkyLab health probe / exporter / nginx status, nginx active connections, uptime, CPU / memory / disk, traffic per NIC (`wg0` is WireGuard), TCP connection count, nginx connection states and request rate (see "Gateway monitoring" below)
+- **SkyLab AI**: AI Gateway / LiteLLM / inference engine status, number of available models, requests per minute and platform error rate; on the Campus side (user API keys and built-in AI features) request volume per model, outcome categories, end-to-end and time-to-first-token latency, token throughput, source; for vLLM, running / queued requests, KV cache usage, prefill / decode throughput, TTFT, inter-token latency, end-to-end latency, finish reasons, preemption count; for LiteLLM, status codes, upstream deployment successes / failures, upstream and gateway-side latency, deployment status (see "AI module monitoring" below). The "View details in Grafana" button in the top-right corner of the "AI Usage Monitoring" page opens this dashboard directly (shown only to admins and only when the monitoring stack is enabled)
 
-對外網址不是 `http://localhost` 時，設 `GRAFANA_ROOT_URL=https://你的網域/grafana/`。
+When the public URL is not `http://localhost`, set `GRAFANA_ROOT_URL=https://your-domain/grafana/`.
 
-### 登入 Grafana
+### Logging in to Grafana
 
-**SkyLab 管理員免密碼登入**：開過「資源監控」頁之後，點「在 Grafana 查看詳細」（或直接開 `/grafana/`）就會以自己的 SkyLab 帳號登入，Grafana 裡的角色是 Admin，帳號第一次進來時自動建立（登入名稱＝SkyLab email）。
+**Password-free login for SkyLab administrators**: after opening the "Resource Monitoring" page once, clicking "View details in Grafana" (or opening `/grafana/` directly) logs you in with your own SkyLab account; the role inside Grafana is Admin and the account is created automatically on first entry (login name = SkyLab email).
 
-1. 資源監控頁呼叫 `POST /monitoring/grafana/session`，後端發 `skylab_grafana` cookie：httponly、只在 `/grafana/` 路徑送出、效期 `GRAFANA_SESSION_EXPIRE_MINUTES`（預設 480 分鐘），頁面開著時每 30 分鐘續期；HTTPS 下加 Secure。
-2. nginx 對 `/grafana/` 的每個請求先 `auth_request` 到後端 `/monitoring/grafana/auth`（只給 nginx 內部呼叫，對外入口回 404）。後端驗 cookie 並重新檢查帳號：停用、改密碼／強制登出（`token_version`）、失去管理員權限、被要求綁定兩步驟驗證但還沒綁，都會在 10 秒內失效。通過時回 `X-WEBAUTH-USER`／`EMAIL`／`NAME`／`ROLE`（quoted-printable，中文姓名才放得進 HTTP 標頭）。
-3. nginx 一律以後端的回覆覆寫這四個標頭（瀏覽器自己帶的會被丟掉），Grafana `auth.proxy` 只信任 nginx 在 `grafana-authproxy` 網路上的固定 IP（`GF_AUTH_PROXY_WHITELIST`）。Grafana 不另外發 session，每個請求都重新驗證。
-4. 登出 SkyLab 時一併刪掉這個 cookie。
+1. The Resource Monitoring page calls `POST /monitoring/grafana/session`, and the backend issues the `skylab_grafana` cookie: httponly, sent only under the `/grafana/` path, lifetime `GRAFANA_SESSION_EXPIRE_MINUTES` (default 480 minutes), renewed every 30 minutes while the page stays open; `Secure` is added under HTTPS.
+2. For every request to `/grafana/`, nginx first does an `auth_request` to the backend's `/monitoring/grafana/auth` (reserved for nginx's internal calls; the public entry point returns 404). The backend validates the cookie and re-checks the account: being disabled, a password change / forced logout (`token_version`), loss of admin rights, or being required to enrol in two-factor authentication without having done so all invalidate it within 10 seconds. On success it returns `X-WEBAUTH-USER` / `EMAIL` / `NAME` / `ROLE` (quoted-printable, so Chinese names fit into HTTP headers).
+3. nginx always overwrites these four headers with the backend's reply (whatever the browser sends is discarded), and Grafana `auth.proxy` trusts only nginx's fixed IP on the `grafana-authproxy` network (`GF_AUTH_PROXY_WHITELIST`). Grafana issues no session of its own; every request is re-validated.
+4. Logging out of SkyLab deletes this cookie as well.
 
-**備用入口**：沒有 cookie（例如沒先開資源監控頁、cookie 過期）或後端掛掉時，`/grafana/` 顯示 Grafana 原本的登入頁，用 `admin`／`GRAFANA_ADMIN_PASSWORD` 登入。注意 Grafana 只在第一次啟動時寫入這個密碼，之後改 `.env` 不會生效，要用 `docker exec $(docker ps -qf name=grafana) grafana cli admin reset-admin-password '新密碼'` 重設。
+**Fallback entry**: with no cookie (for example the Resource Monitoring page was never opened, or the cookie expired) or when the backend is down, `/grafana/` shows Grafana's own login page; log in with `admin` / `GRAFANA_ADMIN_PASSWORD`. Note that Grafana writes this password only on its very first start; changing `.env` afterwards has no effect, and you have to reset it with `docker exec $(docker ps -qf name=grafana) grafana cli admin reset-admin-password '<new password>'`.
 
-**網段設定**：`grafana-authproxy` 是只有 nginx 與 Grafana 的 docker 網路，預設 `172.30.253.0/28`、nginx 固定 `172.30.253.2`（放在動態分配範圍 `172.30.253.8/29` 之外）。與主機或其他網路衝突時，在 `.env` 一起改 `GRAFANA_AUTHPROXY_SUBNET`、`GRAFANA_AUTHPROXY_IP_RANGE`、`GRAFANA_AUTHPROXY_NGINX_IP`。不想要免密碼登入時設 `GRAFANA_AUTH_PROXY_ENABLED=false`。
+**Network settings**: `grafana-authproxy` is a docker network containing only nginx and Grafana, default `172.30.253.0/28`, with nginx pinned to `172.30.253.2` (outside the dynamic allocation range `172.30.253.8/29`). If it collides with the host or another network, change `GRAFANA_AUTHPROXY_SUBNET`, `GRAFANA_AUTHPROXY_IP_RANGE` and `GRAFANA_AUTHPROXY_NGINX_IP` together in `.env`. To disable password-free login, set `GRAFANA_AUTH_PROXY_ENABLED=false`.
 
-### Proxmox VE Metric Server 設定
+### Proxmox VE Metric Server setup
 
-1. `.env` 設：
-   - `INFLUXDB_ADMIN_TOKEN`：換成隨機長字串（`openssl rand -hex 32`）
-   - `INFLUXDB_BIND_ADDRESS`：PVE 節點連得到的 SkyLab 主機 IP（或 `0.0.0.0`），預設只綁 127.0.0.1
+1. Set in `.env`:
+   - `INFLUXDB_ADMIN_TOKEN`: replace with a long random string (`openssl rand -hex 32`)
+   - `INFLUXDB_BIND_ADDRESS`: the SkyLab host IP reachable from the PVE nodes (or `0.0.0.0`); the default binds only 127.0.0.1
 2. `docker compose --profile monitoring up -d influxdb`
-3. **建立 PVE 專用、只能寫入的 token**（不要把 admin token 放到 PVE）：
+3. **Create a PVE-only, write-only token** (never put the admin token on PVE):
    ```bash
-   docker compose exec influxdb influx bucket list --org skylab   # 記下 proxmox 的 bucket ID
+   docker compose exec influxdb influx bucket list --org skylab   # note the bucket ID of proxmox
    docker compose exec influxdb influx auth create --org skylab \
      --write-bucket <bucket-id> --description "proxmox metric server"
    ```
-4. PVE 網頁：**Datacenter → Metric Server → Add → InfluxDB**
-   - Name：`skylab`
-   - Server：SkyLab 主機 IP，Port：`8086`
-   - Protocol：`HTTP`（InfluxDB 2 的 HTTP API）
-   - Organization：`skylab`，Bucket：`proxmox`
-   - Token：第 3 步產生的寫入 token
+4. In the PVE web UI: **Datacenter → Metric Server → Add → InfluxDB**
+   - Name: `skylab`
+   - Server: SkyLab host IP, Port: `8086`
+   - Protocol: `HTTP` (the InfluxDB 2 HTTP API)
+   - Organization: `skylab`, Bucket: `proxmox`
+   - Token: the write token created in step 3
 
-   或在任一節點下指令：
+   Or run on any node:
    ```bash
    pvesh create /cluster/metrics/server/skylab --type influxdb \
      --server <SkyLab IP> --port 8086 --influxdbproto http \
-     --organization skylab --bucket proxmox --token <寫入 token>
+     --organization skylab --bucket proxmox --token <write token>
    ```
-5. 設定是整個叢集共用；多個 PVE 連線（多個叢集）就在每個叢集各設一次。約 10 秒後 Grafana 的 Proxmox 儀表板就有資料。
+5. The setting is shared by the whole cluster; with several PVE connections (several clusters), configure it once per cluster. The Grafana Proxmox dashboard has data about 10 seconds later.
 
-有多組 SkyLab 或想用社群版儀表板時，也可以在 Grafana 匯入 ID `15356`（Proxmox [Flux]），資料來源選「InfluxDB (Proxmox)」。
+If you run several SkyLab instances or want the community dashboard, you can also import ID `15356` (Proxmox [Flux]) into Grafana with "InfluxDB (Proxmox)" as the data source.
 
-### Gateway 監控
+### Gateway monitoring
 
-Gateway 主機由 `gateway/install.sh` 安裝兩個 exporter（Debian 套件），Prometheus 透過 backend 的 `/metrics/gateway-targets`（http_sd）自動找到 Gateway 的位址，不必手動改 `prometheus.yml`：
+`gateway/install.sh` installs two exporters (Debian packages) on the Gateway host, and Prometheus discovers the Gateway's address automatically through the backend's `/metrics/gateway-targets` (http_sd), so `prometheus.yml` needs no manual edits:
 
-| exporter | port | 內容 |
+| exporter | port | Content |
 |---|---|---|
-| `prometheus-node-exporter` | 9100 | CPU、記憶體、磁碟、各網卡流量（含 `wg0`）、TCP 連線數 |
-| `prometheus-nginx-exporter` | 9113 | nginx 的 `stub_status`（活躍連線、請求數）；stub_status 只綁 `127.0.0.1:9180` |
+| `prometheus-node-exporter` | 9100 | CPU, memory, disks, traffic per NIC (including `wg0`), TCP connection count |
+| `prometheus-nginx-exporter` | 9113 | nginx `stub_status` (active connections, request count); stub_status binds only `127.0.0.1:9180` |
 
-安裝時要用 `MONITORING_ALLOW_FROM` 指定 Prometheus 所在主機（通常就是跑 SkyLab 的那台）的 IP，UFW 只對它開放這兩個 port：
+At install time, use `MONITORING_ALLOW_FROM` to specify the IP of the host running Prometheus (usually the one running SkyLab); UFW opens these two ports only to it:
 
 ```bash
 sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
 ```
 
-沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（「SkyLab Gateway」儀表板的 exporter 狀態顯示 DOWN）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。
+Without it the exporters are still installed but Prometheus cannot reach them, so the `gateway-node` / `gateway-nginx` jobs stay down (the exporter status on the "SkyLab Gateway" dashboard shows DOWN). On a Gateway that is already installed, just re-run `install.sh` with this variable to add it.
 
-`stub_status` 只涵蓋 http（對外網址）；Port 轉發（nginx stream）沒有對應的連線統計，請看「SkyLab Gateway」儀表板的 TCP 連線數與網卡流量。
+`stub_status` only covers http (the public URLs); port forwarding (nginx stream) has no corresponding connection statistics, so look at the TCP connection count and NIC traffic on the "SkyLab Gateway" dashboard instead.
 
-Gateway 服務異常、憑證快到期的通知由內建的系統告警負責（`component:gateway`），監控 stack 這邊只看圖。
+Notifications for Gateway service failures and certificates about to expire come from the built-in system alerts (`component:gateway`); the monitoring stack only shows the graphs.
 
-### AI 模組監控
+### AI module monitoring
 
-AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prometheus.yml`：
+AI data comes from three places, all scraped automatically by Prometheus without editing `prometheus.yml`:
 
-| job | 來源 | 內容 |
+| job | Source | Content |
 |---|---|---|
-| `skylab-backend` | backend `/metrics` 的 `skylab_ai_*` | Campus 這一側：每次使用者 API 金鑰（`source=api_key`）與內建 AI 功能（`source=platform`）呼叫的結果、延遲、首字延遲、token |
-| `litellm` | `litellm:4000/metrics`（Compose 內網） | LiteLLM 的 prometheus callback：請求與狀態碼、上游部署成功／失敗、上游延遲、gateway 自身開銷、部署狀態 |
-| `vllm` | 每台 vLLM 的 `/metrics` | 引擎本身：執行中／排隊請求、KV cache、prefill／decode 吞吐、TTFT、token 間延遲、搶占 |
+| `skylab-backend` | `skylab_ai_*` on the backend `/metrics` | The Campus side: the outcome, latency, time to first token and tokens of every call made with a user API key (`source=api_key`) or by a built-in AI feature (`source=platform`) |
+| `litellm` | `litellm:4000/metrics` (Compose internal network) | LiteLLM's prometheus callback: requests and status codes, upstream deployment successes / failures, upstream latency, the gateway's own overhead, deployment status |
+| `vllm` | `/metrics` of every vLLM instance | The engine itself: running / queued requests, KV cache, prefill / decode throughput, TTFT, inter-token latency, preemptions |
 
-- **vLLM 目標**由 `bash scripts/prepare-ai-stack.sh` 依 `vllm-service/models.json` 寫進 `monitoring/prometheus/targets/vllm.json`（Git 忽略），同一台上游只抓一次；改模型或 IP 後重新部署，Prometheus 一分鐘內自動換目標。local 模型經 `host.docker.internal` 連主機（與 LiteLLM 相同）。
-- **遠端推論主機（DGX 等）的防火牆**要放行 Prometheus 所在主機（通常就是 SkyLab 部署機）連推論埠；和 LiteLLM 需要的是同一條規則。vLLM 的 `/metrics` 不需要 API key（它只保護 `/v1`）。「SkyLab AI」儀表板的「推論引擎」顯示 DOWN 時，先在部署機 `curl http://<DGX_IP>:8103/metrics` 確認。
-- **LiteLLM `/metrics` 免驗證**：`config.template.yaml` 設了 `require_auth_for_metrics_endpoint: false`，否則只有 master key 讀得到（不能把 master key 放進 Prometheus）。LiteLLM 只在 Compose 內網與主機 `127.0.0.1:4000`，nginx 不轉發，所以不會對外公開。`litellm` job 會丟掉 `requested_model`、`client_ip`、`user_agent`、金鑰雜湊等無上限的 label，分模型改看部署層的 `litellm_model_name`／`model`。
-- **GPU 本身**（溫度、顯存、使用率）不在這裡；需要時在 DGX 上另外跑 NVIDIA DCGM exporter，再照 Gateway 的方式加一個 Prometheus job。
+- **vLLM targets** are written by `bash scripts/prepare-ai-stack.sh` into `monitoring/prometheus/targets/vllm.json` (ignored by Git) based on `vllm-service/models.json`; each upstream host is scraped only once. After changing a model or IP, redeploy and Prometheus switches targets within a minute. Local models reach the host through `host.docker.internal` (same as LiteLLM).
+- **Firewalls on remote inference hosts (DGX etc.)** must allow the host running Prometheus (usually the SkyLab deployment host) to reach the inference port; it is the same rule LiteLLM needs. vLLM's `/metrics` requires no API key (only `/v1` is protected). When the "Inference engine" panel on the "SkyLab AI" dashboard shows DOWN, first run `curl http://<DGX_IP>:8103/metrics` on the deployment host to confirm.
+- **LiteLLM `/metrics` is unauthenticated**: `config.template.yaml` sets `require_auth_for_metrics_endpoint: false`, otherwise only the master key could read it (and the master key must not go into Prometheus). LiteLLM is only on the Compose internal network and the host's `127.0.0.1:4000`, and nginx does not forward it, so it is not exposed publicly. The `litellm` job drops unbounded labels such as `requested_model`, `client_ip`, `user_agent` and key hashes; for a per-model view use the deployment-level `litellm_model_name` / `model` instead.
+- **The GPU itself** (temperature, VRAM, utilization) is not covered here; when needed, run the NVIDIA DCGM exporter on the DGX separately and add a Prometheus job the same way as for the Gateway.
 
-模型不健康、LiteLLM 或它的資料庫掛掉的通知由內建的系統告警負責（`component:ai_gateway`、`component:ai_model:<alias>`），監控 stack 這邊只看圖。
+Notifications for unhealthy models, or for LiteLLM or its database being down, come from the built-in system alerts (`component:ai_gateway`, `component:ai_model:<alias>`); the monitoring stack only shows the graphs.
 
-### /metrics 驗證（選用）
+### /metrics authentication (optional)
 
-`/metrics` 只在 compose 內網與 `127.0.0.1:8000` 開放，nginx 對 `/metrics` 回 404。若主機上還有其他不信任的程式，可以加上 token：
+`/metrics` is open only on the compose internal network and `127.0.0.1:8000`; nginx returns 404 for `/metrics`. If other untrusted programs run on the host, you can add a token:
 
-1. `.env` 設 `METRICS_TOKEN=<隨機字串>`
-2. 把同一個字串寫進 `monitoring/prometheus/metrics_token`（單行，勿提交到 git）
-3. 取消 `monitoring/prometheus/prometheus.yml` 中 `authorization` 三行的註解，重啟 prometheus
+1. Set `METRICS_TOKEN=<random string>` in `.env`
+2. Write the same string into `monitoring/prometheus/metrics_token` (single line; do not commit it to git)
+3. Uncomment the three `authorization` lines in `monitoring/prometheus/prometheus.yml` and restart prometheus
 
-### 指標一覽（backend `/metrics`）
+### Metric reference (backend `/metrics`)
 
-| 指標 | 說明 |
+| Metric | Description |
 |---|---|
-| `http_requests_total{method,path,status}`、`http_request_duration_seconds` | 以路由樣板為 label；對不到路由的請求一律 `path="<unmatched>"` |
-| `http_requests_in_progress` | 處理中的請求數 |
-| `skylab_websocket_connections{kind}` | vnc／terminal／jobs／classroom／classroom_watch／course_progress |
-| `skylab_scheduler_task_runs_total{loop,task,result}`、`skylab_scheduler_task_duration_seconds` | 排程任務執行次數與耗時 |
-| `skylab_scheduler_task_last_success_timestamp_seconds`、`skylab_scheduler_task_consecutive_failures` | 心跳 |
-| `skylab_scheduler_loop_last_tick_timestamp_seconds`、`skylab_scheduler_loop_is_leader` | 迴圈是否在跑、這個行程是不是 leader |
-| `skylab_dependency_up{component}`、`skylab_dependency_latency_seconds` | database／redis／worker／pve:&lt;id&gt;／gateway／ai_gateway／ai_model:&lt;alias&gt; |
-| `skylab_queue_jobs{queue}` | arq 佇列等待中的任務數 |
-| `skylab_task_records{status}` | queued／running（當下）、failed_24h／succeeded_24h |
-| `skylab_ai_requests_total{source,model,request_type,outcome}` | AI 呼叫次數；`outcome`＝success／client_error／rate_limited／unavailable／upstream_error／stream_error／cancelled／error |
-| `skylab_ai_request_duration_seconds{source,model,stream}`、`skylab_ai_time_to_first_token_seconds{source,model}` | 端到端延遲、串流首字延遲 |
-| `skylab_ai_tokens_total{source,model,direction}` | 模型回報的 input／output token |
+| `http_requests_total{method,path,status}`, `http_request_duration_seconds` | Labelled by route template; requests that match no route always get `path="<unmatched>"` |
+| `http_requests_in_progress` | Requests currently being handled |
+| `skylab_websocket_connections{kind}` | vnc / terminal / jobs / classroom / classroom_watch / course_progress |
+| `skylab_scheduler_task_runs_total{loop,task,result}`, `skylab_scheduler_task_duration_seconds` | Scheduler task run count and duration |
+| `skylab_scheduler_task_last_success_timestamp_seconds`, `skylab_scheduler_task_consecutive_failures` | Heartbeats |
+| `skylab_scheduler_loop_last_tick_timestamp_seconds`, `skylab_scheduler_loop_is_leader` | Whether the loop is running, and whether this process is the leader |
+| `skylab_dependency_up{component}`, `skylab_dependency_latency_seconds` | database / redis / worker / pve:&lt;id&gt; / gateway / ai_gateway / ai_model:&lt;alias&gt; |
+| `skylab_queue_jobs{queue}` | Number of tasks waiting in the arq queue |
+| `skylab_task_records{status}` | queued / running (current), failed_24h / succeeded_24h |
+| `skylab_ai_requests_total{source,model,request_type,outcome}` | AI call count; `outcome` = success / client_error / rate_limited / unavailable / upstream_error / stream_error / cancelled / error |
+| `skylab_ai_request_duration_seconds{source,model,stream}`, `skylab_ai_time_to_first_token_seconds{source,model}` | End-to-end latency, streaming time to first token |
+| `skylab_ai_tokens_total{source,model,direction}` | input / output tokens as reported by the model |
 
-依賴元件與佇列指標在 Prometheus 抓取時才更新（最多每 5 秒一次）；PVE 連線、Gateway 與 AI 狀態沿用最近一次系統健康檢查的結果，不會因為 Prometheus 抓取而去打 PVE／SSH／LiteLLM。
+Dependency and queue metrics are refreshed only when Prometheus scrapes (at most once every 5 seconds); PVE connection, Gateway and AI status reuse the result of the most recent system health check, so a Prometheus scrape never hits PVE / SSH / LiteLLM.
 
-`skylab_ai_*` 的 `model` 只保留 LiteLLM 成功服務過、或健康檢查查到的模型名稱（上限 100 個），呼叫端亂填的名稱一律歸為 `other`，時間序列數量才有上限。
+The `model` label of `skylab_ai_*` keeps only model names that LiteLLM has actually served or that the health check discovered (up to 100); arbitrary names sent by callers are folded into `other`, so the number of time series stays bounded.
 
-### 資源與保留期
+### Resources and retention
 
-| 元件 | 保留 | 調整 |
+| Component | Retention | Adjust with |
 |---|---|---|
-| Prometheus | 15 天 | `PROMETHEUS_RETENTION` |
-| Loki | 14 天 | `monitoring/loki/loki-config.yml` 的 `retention_period` |
-| InfluxDB（Proxmox） | 30 天 | `INFLUXDB_RETENTION`（只在第一次初始化時生效） |
+| Prometheus | 15 days | `PROMETHEUS_RETENTION` |
+| Loki | 14 days | `retention_period` in `monitoring/loki/loki-config.yml` |
+| InfluxDB (Proxmox) | 30 days | `INFLUXDB_RETENTION` (applied only on first initialization) |
 
-整套監控 stack 約需 1–1.5 GB 記憶體。cAdvisor 與 node-exporter 讀的是主機資訊，在 Docker Desktop（Windows／macOS）上看到的是 Docker VM 而不是實體主機。
+The whole monitoring stack needs roughly 1–1.5 GB of memory. cAdvisor and node-exporter read host information, so on Docker Desktop (Windows / macOS) they see the Docker VM rather than the physical machine.

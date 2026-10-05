@@ -16,15 +16,17 @@ import { focusInvalidField } from "../../../utils/focusField";
 import { isPasswordStrong } from "../../../utils/passwordPolicy";
 import { downscaleImage } from "../../../utils/image/downscaleImage";
 import AppearanceTab from "./AppearanceTab";
+import AboutTab from "./AboutTab";
 import { AppearanceResetButton } from "./AppearanceSettings";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
 /* 密碼與刪除帳號都屬「帳號本身」的事，跟個人資料同一個分頁直向堆疊
-   （危險區域照慣例壓底），分頁只留「個人資料／外觀」兩個 */
+   （危險區域照慣例壓底）；「關於」放版本、授權與開源元件清單 */
 const TABS = [
   { key: "profile",    labelKey: "AccountSettingsPage.tabProfile" },
   { key: "appearance", labelKey: "AccountSettingsPage.tabAppearance" },
+  { key: "about",      labelKey: "AccountSettingsPage.tabAbout" },
 ];
 
 /* ── 個人資料 ───────────────────────────────────────── */
@@ -572,6 +574,7 @@ export default function AccountSettingsPage() {
           </div>
         )}
         {activeTab === "appearance" && <AppearanceTab />}
+        {activeTab === "about" && <AboutTab />}
       </div>
     </div>
   );

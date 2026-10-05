@@ -479,7 +479,7 @@ def test_platform_entry_step_saves_and_reports_step(
 
     with (
         patch(
-            "app.services.network.platform_entry_service._gateway_client", fake_client
+            "app.services.network.gateway_service.gateway_client_or_502", fake_client
         ),
         patch(
             "app.services.network.nginx_gateway_service._exec",
@@ -519,6 +519,74 @@ def test_platform_entry_step_saves_and_reports_step(
     assert row.upstream_host == "10.77.0.20"
     assert _status(client)["steps"]["platform_entry"] is True
     assert client.get(f"{API}/platform-entry").json()["domain"] == "skylab.example.com"
+
+
+def test_platform_entry_step_https_saves_certificate_paths_first(
+    client: TestClient, db: Session, open_setup: SystemSetup, clean_gateway: None
+) -> None:
+    """精靈裡開 HTTPS：先存 Gateway 的憑證路徑（並檢查），再存平台入口。"""
+    client.put(f"{API}/gateway", json={"host": "10.77.0.2"})
+
+    @contextmanager
+    def fake_client(_session: object) -> Iterator[object]:
+        yield object()
+
+    inspect_output = (
+        "cert_readable=1\nkey_readable=1\ncert_valid=1\n"
+        "cert_end=Jan  5 12:00:00 2099 GMT\nkey_valid=1\nkey_match=1\n"
+        "san=example.com\nsan=*.example.com\n"
+    )
+
+    def fake_exec(_client: object, command: str, **_kwargs: object) -> tuple[int, str, str]:
+        if "Subject Alternative Name" in command:
+            return 0, inspect_output, ""
+        return 0, "", ""
+
+    with (
+        patch(
+            "app.services.network.gateway_service.gateway_client_or_502", fake_client
+        ),
+        patch("app.services.network.nginx_gateway_service._exec", side_effect=fake_exec),
+        patch("app.services.network.reverse_proxy_service.sync_to_gateway") as sync,
+    ):
+        saved = client.put(
+            f"{API}/platform-entry",
+            json={
+                "enabled": True,
+                "domain": "skylab.example.com",
+                "upstream_host": "10.77.0.20",
+                "upstream_port": 8082,
+                "enable_https": True,
+                "ssl_certificate_path": "/etc/ssl/skylab/fullchain.pem",
+                "ssl_certificate_key_path": "/etc/ssl/skylab/privkey.pem",
+            },
+        )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["certificate_configured"] is True
+    # 憑證一次、平台入口一次
+    assert sync.call_count == 2
+
+    db.expire_all()
+    gateway = db.get(GatewayConfig, 1)
+    assert gateway is not None
+    assert gateway.ssl_certificate_path == "/etc/ssl/skylab/fullchain.pem"
+    assert gateway.ssl_certificate_key_path == "/etc/ssl/skylab/privkey.pem"
+
+
+def test_platform_entry_step_https_without_certificate_is_rejected(
+    client: TestClient, open_setup: SystemSetup, clean_gateway: None
+) -> None:
+    client.put(f"{API}/gateway", json={"host": "10.77.0.2"})
+    r = client.put(
+        f"{API}/platform-entry",
+        json={
+            "enabled": True,
+            "domain": "skylab.example.com",
+            "upstream_host": "10.77.0.20",
+            "enable_https": True,
+        },
+    )
+    assert r.status_code == 400, r.text
 
 
 def test_platform_entry_step_rejects_bad_upstream(

@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { apiGetMock } = vi.hoisted(() => ({ apiGetMock: vi.fn() }));
+const { apiGetMock, apiPostMock } = vi.hoisted(() => ({
+  apiGetMock: vi.fn(),
+  apiPostMock: vi.fn(),
+}));
 
 vi.mock("./api", () => ({
   apiDelete: vi.fn(),
   apiGet: apiGetMock,
   apiPatch: vi.fn(),
-  apiPost: vi.fn(),
+  apiPost: apiPostMock,
 }));
 
 import { AiApiService } from "./aiApi";
@@ -71,6 +74,21 @@ describe("AiApiService.listAllRequests", () => {
     await AiApiService.listAllRequests({ status: "approved", skip: 100, limit: 50 });
     expect(apiGetMock).toHaveBeenCalledWith(
       "/api/v1/ai-api/requests?status=approved&skip=100&limit=50",
+    );
+  });
+});
+
+describe("AiApiService.bulkRejectRequests", () => {
+  beforeEach(() => {
+    apiPostMock.mockReset();
+    apiPostMock.mockResolvedValue({});
+  });
+
+  test("以同一理由送出選取的申請", async () => {
+    await AiApiService.bulkRejectRequests(["request-a", "request-b"], "用途不符");
+    expect(apiPostMock).toHaveBeenCalledWith(
+      "/api/v1/ai-api/requests/bulk-reject",
+      { request_ids: ["request-a", "request-b"], review_comment: "用途不符" },
     );
   });
 });

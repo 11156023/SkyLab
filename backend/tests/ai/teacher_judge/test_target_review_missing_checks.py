@@ -38,7 +38,6 @@ def _run_with_parsed_result(parsed_result: Any):
     db.commit()
     db.refresh(artifact)
     run = TeacherJudgeScriptRun(
-        teaching_class_id=class_id,
         artifact_id=artifact.id,
         status=TeacherJudgeScriptRunStatus.completed,
         target_results_json={

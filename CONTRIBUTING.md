@@ -1,65 +1,71 @@
-# Contributing
+# Contributing to SkyLab
 
-Thank you for your interest in contributing to the Full Stack FastAPI Template! 🙇
+> **English** | [繁體中文](./CONTRIBUTING.zh-TW.md)
 
-## Discussions First
+Thanks for taking the time to contribute. This page covers the house rules; the development setup lives in [`docs/development.md`](docs/development.md).
 
-For **big changes** (new features, architectural changes, significant refactoring), please start by opening a [GitHub Discussion](https://github.com/fastapi/full-stack-fastapi-template/discussions) first. This allows the community and maintainers to provide feedback on the approach before you invest significant time in implementation.
+## Before you start
 
-For small, straightforward changes, you can go directly to a Pull Request without starting a discussion first. This includes:
+- **Bug reports and small fixes** (typos, lint warnings, a reproducible bug with a test) can go straight to a pull request.
+- **Larger changes** (new features, schema changes, anything touching provisioning, networking or authentication) should start as a GitHub issue describing the problem and the intended approach, so we can agree on the design before you invest the time.
+- The platform is deployed in real classrooms. Changes that alter existing behaviour (default values, API responses, gateway rules) need a migration path and a note in the relevant document under `docs/`.
 
-- Typos and grammatical fixes
-- Small reproducible bug fixes
-- Fixing lint warnings or type errors
-- Minor code improvements (e.g., removing unused code)
+## Development workflow
 
-## Developing
+1. Fork the repository and create a branch from `main`.
+2. Set up the stack following [`docs/development.md`](docs/development.md).
+3. Make your change. Keep the architecture rules in mind:
+   - Backend follows **Routes → Services → Infrastructure**. Routes are thin controllers, business logic lives in `services/`, and external systems (Proxmox, SSH, Redis, LLM) are only called from `infrastructure/`.
+   - DB tables live in `backend/app/models/`, API schemas in `backend/app/schemas/`. Do not mix them.
+   - Every change to a model needs an Alembic migration (`alembic revision --autogenerate`).
+   - The frontend has no generated API client. Add or update the matching function in `frontend/src/services/*.js` together with its Vitest mock test.
+   - User-facing strings go through react-i18next (`frontend/src/locales/`): add the key to all three locales (zh-TW, en, ja).
+4. Run the checks before opening the PR:
 
-For detailed instructions on setting up your development environment, running the stack, linting, pre-commit hooks, and more, see the [Development Guide](docs/development.md).
+   ```bash
+   # backend
+   cd backend
+   uv run ruff check .
+   uv run ruff format --check .
+   bash ./scripts/test.sh
 
-## Pull Requests
+   # frontend
+   cd frontend
+   bun run test
+   bun run build
+   ```
 
-When submitting a pull request:
+   Pre-commit hooks are managed with prek: `uv run prek install -f` once, then they run on every commit.
 
-1. Make sure all tests pass before submitting.
-2. Keep PRs focused on a single change.
-3. Update tests if you're changing functionality.
-4. Reference any related issues in your PR description.
+## Pull requests
 
-## Automated Code and AI
+- Keep each PR focused on one change. Separate refactors from behaviour changes.
+- Describe what changed and why, and reference the related issue.
+- Add or update tests when behaviour changes. Backend tests are under `backend/tests/`, frontend service tests sit next to the service file.
+- Update the documentation under `docs/` when you change configuration, deployment steps or an operator-facing workflow. English documents are the primary version; keep the `*.zh-TW.md` counterpart in sync when one exists.
+- CI must pass (backend tests, frontend tests, migration check, CodeQL).
 
-You are encouraged to use all the tools you want to do your work and contribute as efficiently as possible, this includes AI (LLM) tools, etc. Nevertheless, contributions should have meaningful human intervention, judgement, context, etc.
+## Licensing of contributions
 
-If the **human effort** put in a PR, e.g. writing LLM prompts, is **less** than the **effort we would need to put** to **review it**, please **don't** submit the PR.
+SkyLab is licensed under the AGPL-3.0, and the maintainers also offer it under commercial terms. So that both remain possible, every contribution is accepted under the following terms:
 
-Think of it this way: we can already write LLM prompts or run automated tools ourselves, and that would be faster than reviewing external PRs.
+- You certify the [Developer Certificate of Origin](https://developercertificate.org/) for every commit by signing it off (`git commit -s`, which adds a `Signed-off-by: Your Name <email>` trailer). Pull requests with unsigned commits will be asked to be amended.
+- By submitting a contribution you license it to the project under the AGPL-3.0 **and** grant the SkyLab maintainers a perpetual, worldwide, royalty-free right to distribute it as part of SkyLab under other license terms, including commercial licenses. You keep the copyright to your work.
+- Only submit code you have the right to contribute. Code copied from elsewhere must carry a compatible license and be attributed in `NOTICE`.
+- When you add or upgrade a direct dependency, add it to [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) (and to `desktop-client/THIRD_PARTY_NOTICES.txt` for the desktop client). Avoid licenses that are incompatible with the AGPL-3.0.
 
-### Closing Automated and AI PRs
+## Commit messages
 
-If we see PRs that seem AI generated or automated in similar ways, we'll flag them and close them.
+- Use the conventional prefix already used in the history: `feat(scope): …`, `fix(scope): …`, `docs: …`, `refactor(scope): …`, `chore: …`.
+- Write the subject in the imperative and keep it under about 72 characters. Chinese or English are both fine.
+- Sign off every commit (`git commit -s`), see above.
+- **Do not add AI co-author trailers or generated-by markers** (`Co-Authored-By: …`, "Generated with …" and similar). Commits carrying them will be asked to be rewritten.
+- Never commit `.env` or any file containing credentials. Use `.env.example` as the template.
 
-The same applies to comments and descriptions, please don't copy paste the content generated by an LLM.
+## Automated and AI-assisted contributions
 
-### Human Effort Denial of Service
+You are welcome to use whatever tools help you work, including AI assistants. The contribution still has to reflect your own understanding: you should be able to explain every change in the PR and have run it locally. PRs that look auto-generated and have not been reviewed by their author will be closed.
 
-Using automated tools and AI to submit PRs or comments that we have to carefully review and handle would be the equivalent of a [Denial-of-service attack](https://en.wikipedia.org/wiki/Denial-of-service_attack) on our human effort.
+## Questions
 
-It would be very little effort from the person submitting the PR (an LLM prompt) that generates a large amount of effort on our side (carefully reviewing code).
-
-Please don't do that.
-
-We'll need to block accounts that spam us with repeated automated PRs or comments.
-
-### Use Tools Wisely
-
-As Uncle Ben said:
-
-> With great ~~power~~ **tools** comes great responsibility.
-
-Avoid inadvertently doing harm.
-
-You have amazing tools at hand, use them wisely to help effectively.
-
-## Questions?
-
-If you have questions about contributing, feel free to open a [GitHub Discussion](https://github.com/fastapi/full-stack-fastapi-template/discussions).
+Open a GitHub issue or discussion in this repository.

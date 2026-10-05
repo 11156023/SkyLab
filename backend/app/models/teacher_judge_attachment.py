@@ -18,7 +18,11 @@ class TeacherJudgeAttachmentStatus(str, enum.Enum):
 
 
 class TeacherJudgeSessionAttachment(SQLModel, table=True):
-    """A parsed, message-scoped document used as AI chat context."""
+    """A parsed document uploaded into a session and used as AI chat context.
+
+    Until it is sent it is pending; sending records the owning message in
+    ``teacher_judge_message_attachments`` (the message's session is not repeated).
+    """
 
     __tablename__ = "teacher_judge_session_attachments"
     __table_args__ = (
@@ -37,15 +41,6 @@ class TeacherJudgeSessionAttachment(SQLModel, table=True):
             nullable=False,
             index=True,
         )
-    )
-    message_id: uuid.UUID | None = Field(
-        default=None,
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("teacher_judge_session_messages.id", ondelete="CASCADE"),
-            nullable=True,
-            index=True,
-        ),
     )
     uploaded_by: uuid.UUID | None = Field(
         default=None,
@@ -73,4 +68,30 @@ class TeacherJudgeSessionAttachment(SQLModel, table=True):
     )
 
 
-__all__ = ["TeacherJudgeAttachmentStatus", "TeacherJudgeSessionAttachment"]
+class TeacherJudgeMessageAttachment(SQLModel, table=True):
+    """Which message a sent attachment belongs to (an attachment has at most one)."""
+
+    __tablename__ = "teacher_judge_message_attachments"
+
+    attachment_id: uuid.UUID = Field(
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("teacher_judge_session_attachments.id", ondelete="CASCADE"),
+            primary_key=True,
+        )
+    )
+    message_id: uuid.UUID = Field(
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("teacher_judge_session_messages.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+
+
+__all__ = [
+    "TeacherJudgeAttachmentStatus",
+    "TeacherJudgeMessageAttachment",
+    "TeacherJudgeSessionAttachment",
+]

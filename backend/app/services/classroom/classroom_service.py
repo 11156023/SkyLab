@@ -22,6 +22,7 @@ from app.core.permissions import is_admin
 from app.exceptions import BadRequestError, NotFoundError, PermissionDeniedError
 from app.models import (
     INSTRUCTOR_ENROLLMENT_STATUS,
+    BatchProvisionTask,
     Resource,
     TeachingClass,
     TeachingClassMachineNode,
@@ -86,9 +87,13 @@ def require_can_watch_class(
             TeachingClassStudent,
             TeachingClassStudentMachine.class_student_id == TeachingClassStudent.id,
         )
+        .join(
+            BatchProvisionTask,
+            col(BatchProvisionTask.id) == col(TeachingClassStudentMachine.batch_task_id),
+        )
         .where(
             TeachingClassStudent.class_id == class_id,
-            TeachingClassStudentMachine.vmid == vmid,
+            BatchProvisionTask.vmid == vmid,
         )
     ).first()
     if machine is None:

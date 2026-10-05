@@ -178,7 +178,6 @@ def _get_or_create_peer(
                 device_id=device_id,
                 public_key=public_key,
                 tunnel_ip=_allocate_tunnel_ip(session),
-                allowed_endpoints=[],
                 active=False,
             )
             return peer_repo.save(session=session, peer=peer)

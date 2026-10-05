@@ -31,6 +31,28 @@ class AIAPIRequestReview(BaseModel):
         return value
 
 
+class AIAPIRequestBulkReject(BaseModel):
+    """管理員一次駁回多筆待審 AI API 申請。"""
+
+    request_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+    review_comment: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("request_ids")
+    @classmethod
+    def _unique_request_ids(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("request_ids 不可重複")
+        return value
+
+    @field_validator("review_comment")
+    @classmethod
+    def _non_blank_comment(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("駁回理由不可為空白")
+        return value
+
+
 class AIAPIRequestPublic(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID

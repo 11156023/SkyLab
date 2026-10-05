@@ -31,7 +31,6 @@ const STATE_BADGES = {
 const COMPONENTS = [
   ["nginx", "nginx"],
   ["wireguard", "WireGuard"],
-  ["certbot", "certbot"],
   ["ufw", "UFW"],
 ];
 

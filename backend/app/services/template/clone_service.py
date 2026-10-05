@@ -40,7 +40,7 @@ from app.models import TaskRecord, User, VMTemplate, VMTemplateStatus
 from app.repositories import resource as resource_repo
 from app.schemas.template import TemplateCloneRequest
 from app.services.network import firewall_service, ip_management_service, nic_config
-from app.services.resource import quota_service
+from app.services.resource import guest_ssh_login, quota_service
 from app.services.template import template_service
 from app.utils.hostname import to_punycode_hostname
 from app.utils.login_password import (
@@ -411,11 +411,15 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
     故在此沿用 credentials_service 的 authorized_keys 寫法直接寫檔。
     已存在則不重複追加；回傳是否成功，失敗由呼叫端記 warning（DB 仍落庫，
     管理員可用 regenerate-ssh-key 補救）。
+
+    同一次 ``pct exec`` 也開放 sshd 的 root／密碼登入（見 guest_ssh_login），
+    那段一律以 0 結束，回傳值只反映公鑰有沒有寫成。
     """
     key = public_key.strip()
     if not key:
         return False
     script = (
+        f"{guest_ssh_login.ssh_login_script()}; "
         "mkdir -p /root/.ssh && chmod 700 /root/.ssh && "
         "touch /root/.ssh/authorized_keys && "
         f"grep -qxF {shlex.quote(key)} /root/.ssh/authorized_keys 2>/dev/null || "
@@ -590,6 +594,8 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 _inject_lxc_platform_key(
                     node, new_vmid, public_key
                 )
+            else:
+                guest_ssh_login.schedule_after_start(node, new_vmid, resource_type)
         elif resource_type == "lxc":
             logger.warning(
                 "CT %s not started at clone time; platform SSH key recorded in DB "

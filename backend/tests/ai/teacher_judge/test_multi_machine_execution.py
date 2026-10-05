@@ -532,7 +532,6 @@ def test_batch_student_node_projection_includes_child_run_id() -> None:
     session.commit()
     session.refresh(artifact)
     run = TeacherJudgeScriptRun(
-        teaching_class_id=class_id,
         artifact_id=artifact.id,
         run_batch_id=batch_id,
         status=TeacherJudgeScriptRunStatus.completed,

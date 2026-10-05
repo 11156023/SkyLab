@@ -866,7 +866,7 @@ def _batch_run_ids(run_batch_id: uuid.UUID) -> list[uuid.UUID]:
                 )
             ).all()
         )
-        class_ids = {run.teaching_class_id for run, _artifact in rows}
+        class_ids = {artifact.teaching_class_id for _run, artifact in rows}
         node_order: dict[tuple[uuid.UUID, str], tuple[int, str]] = {}
         for class_id in class_ids:
             nodes = session.exec(
@@ -883,7 +883,7 @@ def _batch_run_ids(run_batch_id: uuid.UUID) -> list[uuid.UUID]:
             key=lambda row: (
                 node_order.get(
                     (
-                        row[0].teaching_class_id,
+                        row[1].teaching_class_id,
                         str(row[1].target_node_key or ""),
                     ),
                     (10**9, str(row[1].target_node_key or "")),

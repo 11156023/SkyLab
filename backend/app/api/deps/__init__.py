@@ -29,6 +29,7 @@ from app.api.deps.proxmox import (
 from app.api.deps.rate_limit import (
     enforce_account_rate_limit,
     rate_limit_by_ip,
+    rate_limit_by_network_and_global,
     rate_limit_by_user,
 )
 from app.api.deps.turnstile import TURNSTILE_HEADER, require_turnstile
@@ -67,6 +68,7 @@ __all__ = [
     # Rate limiting
     "enforce_account_rate_limit",
     "rate_limit_by_ip",
+    "rate_limit_by_network_and_global",
     "rate_limit_by_user",
     # Bot protection
     "TURNSTILE_HEADER",
