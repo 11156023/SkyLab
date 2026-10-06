@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
+
+from app.ai.utils import clean_prompt_text
 
 
 def _clip(limit: int) -> BeforeValidator:
@@ -57,13 +59,23 @@ class DeviceNode(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    # role 不算在對話字數上限內，卻會原樣送進模型，所以要有自己的上限
-    role: str = Field(
+    # role 會原樣送進模型：收 "system" 就等於讓呼叫端自己寫 system prompt，
+    # 所以只接受對話中會出現的兩種角色。
+    role: Literal["user", "assistant"] = Field(
         ...,
-        max_length=32,
-        description="Role of the message sender, usually 'user' or 'assistant'.",
+        description="Role of the message sender: 'user' or 'assistant'.",
     )
     content: str = Field(..., description="Content of the message.")
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _normalize_role(cls, role: Any) -> Any:
+        return role.strip().lower() if isinstance(role, str) else role
+
+    @field_validator("content")
+    @classmethod
+    def _clean(cls, text: str) -> str:
+        return clean_prompt_text(text)
 
 
 class ChatResponse(BaseModel):
@@ -156,6 +168,14 @@ class ChatRequest(BaseModel):
         max_length=200,
         description="配置模式：這一輪只問這件事，其餘照原本的顧問語氣。",
     )
+
+    @field_validator("focus_hint")
+    @classmethod
+    def _flatten_focus(cls, text: str | None) -> str | None:
+        # 這段會接進 system prompt；壓成一行，才開不出新的段落或標題冒充指令
+        if text is None:
+            return None
+        return " ".join(clean_prompt_text(text).split()) or None
 
 
 class RecommendationRequest(BaseModel):

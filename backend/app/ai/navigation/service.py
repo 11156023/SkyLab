@@ -198,6 +198,15 @@ def _explicit_teaching_flow(query: str) -> str | None:
     return "prepare_environment" if "環境" in match[1] else "open_class"
 
 
+def _route_hints(current_user: User) -> dict[str, str]:
+    """各路徑的「什麼時候用」。同一路徑有多個畫面時取第一個（列表優先於表單）。"""
+    hints: dict[str, str] = {}
+    for surface in get_surfaces_for_user(current_user):
+        if surface.when_to_use and ":" not in surface.path:
+            hints.setdefault(surface.path, surface.when_to_use)
+    return hints
+
+
 def _screen_context(
     current_user: User,
     current_path: str | None,
@@ -566,7 +575,12 @@ async def resolve_navigation(
         )
         return fallback()
 
-    prompt = build_navigation_system_prompt(allowed_routes, allowed_flows, current_path)
+    prompt = build_navigation_system_prompt(
+        allowed_routes,
+        allowed_flows,
+        current_path,
+        when_to_use=_route_hints(current_user),
+    )
     prompt += "\nTeaching relationships (only for permitted teaching flows):\n" + (
         TEACHING_RELATIONSHIP
         if any(f.flow_id == "open_class" for f in allowed_flows)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -39,6 +40,36 @@ def ensure_form_context_within_limits(
     """表單快照過大一律 400，必須在呼叫模型之前檢查。"""
     if len(form_context_json) > max_chars:
         raise BadRequestError(t("ai_guard.form_context_too_long", limit=max_chars))
+
+
+# ── Prompt injection 的基本清理 ─────────────────────────────────────────
+# 擋的是「改變 prompt 結構」的東西，不是擋某些句子：
+#   - 聊天範本的控制 token（<|im_start|>、</think>、[INST]…）：vLLM 套範本時會把
+#     它們當成真的角色邊界，使用者就能在自己的訊息裡偽造一段 system 訊息。
+#   - 看不見的字元（零寬、雙向覆寫）：可以把指令藏在畫面上看起來正常的字裡。
+#   - 控制字元：沒有正當用途，只會讓模型或日誌出現怪東西。
+# 「忽略前面的指示」這類句子不在這裡擋：關鍵字黑名單一換說法就繞過，又會誤傷
+# 正常問題。那一層交給 prompt 裡「使用者內容是資料」的規則，以及輸出端的白名單。
+_TEMPLATE_TOKEN_RE = re.compile(
+    r"<\|[^|<>\n]{0,40}\|>"  # <|im_start|>、<|endoftext|>、<|system|>…
+    r"|</?think>"
+    r"|\[/?INST\]"
+    r"|<</?SYS>>",
+    re.IGNORECASE,
+)
+_INVISIBLE_RE = re.compile(
+    "[​-‏‪-‮⁠-⁤⁦-⁩﻿]"
+)
+_CONTROL_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def clean_prompt_text(text: str | None) -> str:
+    """使用者可控的文字送進 prompt 之前一律先過這裡。"""
+    if not text:
+        return text or ""
+    text = _TEMPLATE_TOKEN_RE.sub("", text)
+    text = _INVISIBLE_RE.sub("", text)
+    return _CONTROL_RE.sub("", text)
 
 
 def strip_think_tags(text: str) -> str:
