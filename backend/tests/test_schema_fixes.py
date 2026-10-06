@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+from fastapi import FastAPI
 from pydantic import ValidationError
 
 from app.core.i18n import t
@@ -203,6 +204,18 @@ def test_ai_api_review_rejects_pending() -> None:
         AIAPIRequestReview(status="pending")
     for status in (AIAPIRequestStatus.approved, AIAPIRequestStatus.rejected):
         assert AIAPIRequestReview(status=status.value).status == status
+
+
+def test_ai_api_review_openapi_only_advertises_decisions() -> None:
+    from app.api.routes import ai_api
+
+    app = FastAPI()
+    app.include_router(ai_api.router)
+    operation = app.openapi()["paths"]["/ai-api/requests/{request_id}/review"]["post"]
+    status_schema = operation["requestBody"]["content"]["application/json"]["schema"][
+        "properties"
+    ]["status"]
+    assert status_schema["enum"] == ["approved", "rejected"]
 
 
 def test_ai_api_bulk_reject_requires_unique_ids_and_a_reason() -> None:

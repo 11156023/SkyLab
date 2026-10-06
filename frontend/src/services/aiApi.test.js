@@ -1,18 +1,24 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { apiGetMock, apiPostMock } = vi.hoisted(() => ({
+const { apiDeleteMock, apiGetMock, apiPostMock } = vi.hoisted(() => ({
+  apiDeleteMock: vi.fn(),
   apiGetMock: vi.fn(),
   apiPostMock: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
-  apiDelete: vi.fn(),
+  apiDelete: apiDeleteMock,
   apiGet: apiGetMock,
   apiPatch: vi.fn(),
   apiPost: apiPostMock,
 }));
 
 import { AiApiService } from "./aiApi";
+
+test("deleteCredential 使用 DELETE 刪除指定金鑰", async () => {
+  await AiApiService.deleteCredential("key-id");
+  expect(apiDeleteMock).toHaveBeenCalledWith("/api/v1/ai-api/credentials/key-id");
+});
 
 test("getCredential 讀取單把金鑰詳細資料並支援取消請求", async () => {
   const controller = new AbortController();

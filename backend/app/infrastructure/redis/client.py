@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 try:
     from redis.asyncio import ConnectionPool, Redis
@@ -24,6 +25,32 @@ _redis_enabled: bool = core_settings.REDIS_ENABLED and _redis_backend_available
 # 回 None，讓限流／撤銷名單立刻依 scope 決定放行或拒絕。
 REINIT_COOLDOWN_SECONDS = 10.0
 _last_init_failure_at: float | None = None
+
+
+def redis_connection_label(dsn: str) -> str:
+    """Return non-sensitive Redis connection coordinates for diagnostics."""
+    try:
+        parsed = urlsplit(dsn)
+        host = parsed.hostname
+        port = parsed.port
+    except (TypeError, ValueError):
+        return "redis://<invalid>"
+
+    scheme = parsed.scheme or "redis"
+    if scheme == "unix":
+        return f"unix://{parsed.path or '<unknown>'}"
+    if not host:
+        return f"{scheme}://<unknown>"
+
+    path = parsed.path
+    if path in ("", "/"):
+        query_db = parse_qs(parsed.query).get("db", [])
+        if len(query_db) == 1 and query_db[0].isdigit():
+            path = f"/{query_db[0]}"
+
+    display_host = f"[{host}]" if ":" in host else host
+    display_port = f":{port}" if port is not None else ""
+    return f"{scheme}://{display_host}{display_port}{path}"
 
 
 def redis_failures_are_fatal() -> bool:
@@ -73,7 +100,10 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
         _redis_client = Redis(connection_pool=_redis_pool)
         await _redis_client.ping()
         _last_init_failure_at = None
-        logger.info("Redis connected successfully: %s", core_settings.REDIS_URL)
+        logger.info(
+            "Redis connected successfully: %s",
+            redis_connection_label(core_settings.REDIS_URL),
+        )
     except Exception as exc:
         _redis_client = None
         if _redis_pool:
@@ -82,15 +112,18 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
         _last_init_failure_at = time.monotonic()
         if fatal:
             raise RuntimeError(
-                f"Failed to connect to Redis ({core_settings.REDIS_URL}): {exc}. "
+                "Failed to connect to Redis "
+                f"({redis_connection_label(core_settings.REDIS_URL)}; "
+                f"error={type(exc).__name__}). "
                 f"ENVIRONMENT={core_settings.ENVIRONMENT} requires a working Redis; "
                 "fix REDIS_URL or set REDIS_ENABLED=false to run without it."
-            ) from exc
+            ) from None
         logger.error(
-            "Failed to connect to Redis: %s. "
+            "Failed to connect to Redis (%s; error=%s). "
             "Rate limiting will be disabled. "
             "To suppress this error, set REDIS_ENABLED=false in .env",
-            exc,
+            redis_connection_label(core_settings.REDIS_URL),
+            type(exc).__name__,
         )
 
 

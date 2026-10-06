@@ -799,7 +799,7 @@ _ACCOUNT_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(id="account.change_password", role="list", label="變更密碼", section="變更密碼"),
     ElementSpec(
         id="account.delete_account", role="list", label="刪除帳號", section="刪除帳號",
-        help="帳號與相關資料會永久刪除、無法復原；仍持有已開通的資源時系統會拒絕刪除。",
+        help="刪除後停止登入與服務、撤銷 AI API 金鑰，保留用量與稽核等紀錄，帳號無法恢復；仍持有已開通的資源時系統會拒絕刪除。",
     ),
     ElementSpec(
         id="account.tab_appearance", role="list", label="外觀", section="外觀",
@@ -819,7 +819,7 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="aiapi.duration", role="select", label="金鑰有效期限", section="申請",
-        help="可選 1 小時、1 天、1 週、1 個月或永不過期。",
+        help="學生可選 1 天、1 週、1 個月或 90 天；教師與管理員可選 1 天、1 週、1 個月或永不過期。",
     ),
     ElementSpec(
         id="aiapi.action_show", role="button", label="顯示", section="申請紀錄",
@@ -831,8 +831,8 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
         help="重新產生這把 API Key；舊的會失效。",
     ),
     ElementSpec(
-        id="aiapi.action_delete", role="button", label="刪除", section="申請紀錄",
-        help="刪除這把 API Key。",
+        id="aiapi.action_delete", role="button", label="停用", section="申請紀錄",
+        help="停用後不能發起新呼叫；金鑰與用量紀錄仍會保留。",
     ),
     ElementSpec(
         id="aiapi.usage_overview", role="chart", label="API 用量", section="我的用量",
@@ -1231,8 +1231,8 @@ _AI_API_KEYS_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(id="aikeys.status_active", role="readonly", label="啟用", section="啟用與失效"),
     ElementSpec(id="aikeys.status_inactive", role="readonly", label="失效", section="啟用與失效"),
     ElementSpec(
-        id="aikeys.delete", role="button", label="刪除", section="金鑰清單",
-        help="刪除這把金鑰，動作無法復原。",
+        id="aikeys.delete", role="button", label="停用", section="金鑰清單",
+        help="停用後不能發起新呼叫；金鑰與用量紀錄仍會保留。",
     ),
 )
 

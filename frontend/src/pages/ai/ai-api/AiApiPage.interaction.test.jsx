@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getMyUsage: vi.fn(),
   getMyUsageRecords: vi.fn(),
   rotateCredential: vi.fn(),
+  deleteCredential: vi.fn(),
   createRequest: vi.fn(),
   confirm: vi.fn(),
   copy: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../../../services/aiApi", () => ({
     getMyUsage: mocks.getMyUsage,
     getMyUsageRecords: mocks.getMyUsageRecords,
     rotateCredential: mocks.rotateCredential,
+    deleteCredential: mocks.deleteCredential,
     createRequest: mocks.createRequest,
   },
 }));
@@ -97,6 +99,7 @@ beforeEach(() => {
     ? newCredential
     : { ...oldCredential, api_key: "ccai_old_example_secret" });
   mocks.rotateCredential.mockResolvedValue(newCredential);
+  mocks.deleteCredential.mockResolvedValue({ message: "deleted" });
   mocks.confirm.mockResolvedValue(true);
   mocks.copy.mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -232,7 +235,7 @@ describe("AI API 金鑰詳細資料", () => {
 describe("AI API 金鑰狀態", () => {
   const base = { request_id: "req-1", expires_at: null, revoked_at: null };
 
-  test("重新產生的舊金鑰算已替換，刪除（有用量只停用）的算已停用", () => {
+  test("重新產生的舊金鑰算已替換，其他撤銷紀錄算已停用", () => {
     const old = { ...base, id: "old", created_at: "2026-09-01T00:00:00Z", revoked_at: "2026-09-20T00:00:00Z" };
     const rotated = { ...base, id: "new", created_at: "2026-09-20T00:00:00Z" };
     const deleted = { ...base, id: "gone", request_id: "req-2", created_at: "2026-09-01T00:00:00Z", revoked_at: "2026-09-21T00:00:00Z" };
@@ -241,6 +244,22 @@ describe("AI API 金鑰狀態", () => {
     expect(getCredentialState(deleted, all)).toBe("revoked");
     expect(getCredentialState(rotated, all)).toBe("active");
     expect(getCredentialState({ ...base, id: "exp", created_at: "2026-09-01T00:00:00Z", expires_at: "2026-09-02T00:00:00Z" }, all)).toBe("expired");
+  });
+
+  test("刪除成功後立即從使用者畫面移除，背景重載失敗也不恢復", async () => {
+    mocks.listMyCredentials
+      .mockResolvedValueOnce({ data: [oldCredential] })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    await renderPage();
+
+    await act(async () => document.querySelector('[aria-label="AiApiPage.moreActions"]').click());
+    await act(async () => {
+      [...document.querySelectorAll('[role="menuitem"]')]
+        .find((button) => button.textContent.includes("AiApiPage.actionDelete")).click();
+    });
+
+    expect(mocks.deleteCredential).toHaveBeenCalledWith("old-id");
+    expect(host.textContent).not.toContain("專案金鑰");
   });
 
   test("失效的金鑰預設收起來，按了才顯示", async () => {

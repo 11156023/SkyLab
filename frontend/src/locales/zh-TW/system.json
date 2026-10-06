@@ -5,7 +5,7 @@
   "AdminPage.delete": "刪除",
   "AdminPage.deleteSelfTitle": "不能刪除自己",
   "AdminPage.deleteTitle": "刪除",
-  "AdminPage.deleteUserConfirm": "確定要刪除 {{name}} 嗎？此操作會一併清理該使用者的申請紀錄；若仍持有已開通資源，後端會拒絕刪除。",
+  "AdminPage.deleteUserConfirm": "確定要刪除 {{name}} 嗎？刪除後帳號無法登入或使用服務，AI API 金鑰會失效，用量、申請與稽核等紀錄會保留，帳號無法恢復，原 Email 不可重新註冊。若仍持有已開通資源，後端會拒絕刪除。",
   "AdminPage.deleteUserTitle": "刪除使用者",
   "AdminPage.editTitle": "編輯",
   "AdminPage.emptyNoResult": "找不到使用者",

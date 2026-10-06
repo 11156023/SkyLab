@@ -125,6 +125,38 @@ server {
     }
 
     # 後端 REST API（含頭像 / 評分表 / 範本附件等上傳）
+    location = /api/v1/ai-api {
+        client_max_body_size 16k;
+        client_body_timeout 10s;
+        proxy_pass http://backend_pool;
+        proxy_read_timeout 130s;
+        proxy_send_timeout 130s;
+    }
+
+    location ^~ /api/v1/ai-api/ {
+        client_max_body_size 16k;
+        client_body_timeout 10s;
+        proxy_pass http://backend_pool;
+        proxy_read_timeout 130s;
+        proxy_send_timeout 130s;
+    }
+
+    location = /api/v1/ai-proxy {
+        client_max_body_size 1m;
+        client_body_timeout 10s;
+        proxy_pass http://backend_pool;
+        proxy_read_timeout 130s;
+        proxy_send_timeout 130s;
+    }
+
+    location ^~ /api/v1/ai-proxy/ {
+        client_max_body_size 1m;
+        client_body_timeout 10s;
+        proxy_pass http://backend_pool;
+        proxy_read_timeout 130s;
+        proxy_send_timeout 130s;
+    }
+
     location /api/ {
         client_max_body_size 256m;
         proxy_pass http://backend_pool;

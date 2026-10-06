@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 FAIL_CLOSED_SCOPES = frozenset(
     {
         "ai-proxy",
+        "ai-proxy-models",
         "ai-api-request",
         "ai-api-rotate",
         "login",
@@ -36,9 +37,26 @@ FAIL_CLOSED_SCOPES = frozenset(
 AI_PROXY_SCOPE = "ai-proxy"
 _KEY_PREFIX = "rate_limit:"
 
+# 合併部署前 credential buckets 的原 member／score；ZADD NX 使重複查詢與
+# 新舊 key 交錯遷移不會重複計數。保留舊 bucket，直到原 TTL 自然到期。
+_MERGE_LEGACY_WINDOW_SCRIPT = """
+for i = 2, #KEYS do
+    local entries = redis.call('ZRANGEBYSCORE', KEYS[i], '(' .. ARGV[2], '+inf', 'WITHSCORES')
+    for j = 1, #entries, 2 do
+        redis.call('ZADD', KEYS[1], 'NX', entries[j + 1], entries[j])
+    end
+end
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[2])
+if redis.call('EXISTS', KEYS[1]) == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[4])
+end
+"""
+
 # 滑動視窗：ZSET 以毫秒時間戳為 score，先淘汰視窗外成員再計數；
 # 整段在 Lua 內原子執行，避免「讀到 limit-1 後兩個請求同時寫入」。
-_SLIDING_WINDOW_SCRIPT = """
+_SLIDING_WINDOW_SCRIPT = (
+    _MERGE_LEGACY_WINDOW_SCRIPT
+    + """
 local key = KEYS[1]
 local now_ms = tonumber(ARGV[1])
 local window_start_ms = tonumber(ARGV[2])
@@ -58,11 +76,12 @@ redis.call('EXPIRE', key, ttl)
 
 return {1, current + 1}
 """
+)
 
 
-def ai_proxy_rate_limit_key(credential_id: str) -> str:
-    """AI Proxy 每把 credential 配額的 key（不含 ``rate_limit:`` 前綴）。"""
-    return f"credential:{credential_id}"
+def ai_proxy_rate_limit_key(request_id: str) -> str:
+    """核准申請的穩定配額 identity，輪替 credential 不重置額度。"""
+    return f"ai-request:{request_id}"
 
 
 def _require_redis_or_fail_closed(scope: str) -> None:
@@ -104,6 +123,7 @@ async def check_rate_limit_by_key(
     limit: int,
     window_seconds: int,
     scope: str = "",
+    legacy_keys: tuple[str, ...] = (),
 ) -> tuple[bool, dict[str, Any]]:
     """Sliding-window rate limit check keyed by an arbitrary string.
 
@@ -131,8 +151,9 @@ async def check_rate_limit_by_key(
     try:
         result = await redis.eval(
             _SLIDING_WINDOW_SCRIPT,
-            1,
+            1 + len(legacy_keys),
             redis_key,
+            *(f"{_KEY_PREFIX}{legacy_key}" for legacy_key in legacy_keys),
             now_ms,
             window_start_ms,
             limit,
@@ -171,20 +192,23 @@ async def check_rate_limit_by_key(
 
 async def check_rate_limit_sliding_window(
     redis: Redis | None,
-    credential_id: str,
+    request_id: str,
     limit: int = 20,
     window_seconds: int = 60,
+    *,
+    legacy_credential_ids: tuple[str, ...] = (),
 ) -> tuple[bool, dict[str, Any]]:
-    """AI Proxy 每 credential 配額：``check_rate_limit_by_key`` 的 fail-closed 特化。
+    """AI Proxy 每核准申請配額，原子合併舊 credential 窗口後判斷。
 
     非 local 少了 Redis 就是無上限用量，所以 scope 固定為 ``ai-proxy``。
     """
     return await check_rate_limit_by_key(
         redis,
-        key=ai_proxy_rate_limit_key(credential_id),
+        key=ai_proxy_rate_limit_key(request_id),
         limit=limit,
         window_seconds=window_seconds,
         scope=AI_PROXY_SCOPE,
+        legacy_keys=tuple(f"credential:{item}" for item in legacy_credential_ids),
     )
 
 
@@ -193,6 +217,7 @@ async def peek_rate_limit_by_key(
     *,
     key: str,
     window_seconds: int,
+    legacy_keys: tuple[str, ...] = (),
 ) -> int | None:
     """回傳 ``key`` 目前視窗內的計數，不佔用額度；Redis 不可用回 None。
 
@@ -204,8 +229,18 @@ async def peek_rate_limit_by_key(
     window_start_ms = now_ms - (window_seconds * 1000)
     redis_key = f"{_KEY_PREFIX}{key}"
     try:
-        await redis.zremrangebyscore(redis_key, "-inf", window_start_ms)
-        return int(await redis.zcard(redis_key))
+        return int(
+            await redis.eval(
+                _MERGE_LEGACY_WINDOW_SCRIPT + "return redis.call('ZCARD', KEYS[1])",
+                1 + len(legacy_keys),
+                redis_key,
+                *(f"{_KEY_PREFIX}{legacy_key}" for legacy_key in legacy_keys),
+                now_ms,
+                window_start_ms,
+                0,
+                window_seconds * 2,
+            )
+        )
     except Exception as exc:
         logger.error("Redis rate limit peek failed for key=%s: %s.", key, exc)
         return None
