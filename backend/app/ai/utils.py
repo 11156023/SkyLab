@@ -57,19 +57,33 @@ _TEMPLATE_TOKEN_RE = re.compile(
     r"|<</?SYS>>",
     re.IGNORECASE,
 )
-_INVISIBLE_RE = re.compile(
-    "[​-‏‪-‮⁠-⁤⁦-⁩﻿]"
+# 要刪掉的字元直接列碼位、用 str.translate 刪除，不寫成正規表示式的字元範圍：
+# 範圍兩端是看不見的控制字元，CodeQL（py/overly-large-range）會當成可疑範圍，
+# 人也很難一眼看出範圍到底涵蓋了什麼。
+_STRIPPED_CODEPOINTS = (
+    # 控制字元：保留 \t（0x09）、\n（0x0A）、\r（0x0D）
+    *range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20), 0x7F,
+    # 零寬字元與左右標記：U+200B–U+200F
+    *range(0x200B, 0x2010),
+    # 雙向嵌入與覆寫：U+202A–U+202E
+    *range(0x202A, 0x202F),
+    # 不可見運算子：U+2060–U+2064
+    *range(0x2060, 0x2065),
+    # 雙向隔離：U+2066–U+2069
+    *range(0x2066, 0x206A),
+    # BOM / 零寬不換行空格
+    0xFEFF,
 )
-_CONTROL_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_STRIP_TABLE = dict.fromkeys(_STRIPPED_CODEPOINTS)
 
 
 def clean_prompt_text(text: str | None) -> str:
     """使用者可控的文字送進 prompt 之前一律先過這裡。"""
     if not text:
         return text or ""
-    text = _TEMPLATE_TOKEN_RE.sub("", text)
-    text = _INVISIBLE_RE.sub("", text)
-    return _CONTROL_RE.sub("", text)
+    # 先刪隱形字元再找控制 token：<|im_​start|> 這種拆開寫的也抓得到
+    text = text.translate(_STRIP_TABLE)
+    return _TEMPLATE_TOKEN_RE.sub("", text)
 
 
 def strip_think_tags(text: str) -> str:
