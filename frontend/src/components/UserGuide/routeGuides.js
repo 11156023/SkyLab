@@ -50,8 +50,7 @@ const ROUTE_GUIDES = [
   { match: /^\/firewall$/, id: "firewall", icon: "security", profile: "workflow" },
   { match: /^\/domain$/, id: "domain", icon: "domain", profile: "configure" },
   { match: /^\/gateway$/, id: "gateway", icon: "dns", profile: "configure" },
-  /* /reverse-proxy、/dashboard/course/:id 只是轉址（見 App.jsx），不會停在那個路徑上；
-     反向代理導覽掛在 /domain?tab=reverse-proxy（UserGuide.getDetailedGuide） */
+  /* /dashboard/course/:id 只是轉址（見 App.jsx），不會停在那個路徑上 */
 ];
 
 export const GENERIC_TOUR_STEPS = [

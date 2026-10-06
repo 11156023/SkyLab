@@ -21,6 +21,7 @@ def upsert_platform_entry_config(
     upstream_host: str,
     upstream_port: int,
     enable_https: bool,
+    dns_proxied: bool,
 ) -> PlatformEntryConfig:
     config = session.get(PlatformEntryConfig, _SINGLETON_ID)
     if config is None:
@@ -30,6 +31,7 @@ def upsert_platform_entry_config(
     config.upstream_host = upstream_host
     config.upstream_port = upstream_port
     config.enable_https = enable_https
+    config.dns_proxied = dns_proxied
     config.updated_at = datetime.now(timezone.utc)
     session.add(config)
     session.commit()

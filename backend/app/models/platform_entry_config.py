@@ -23,6 +23,9 @@ class PlatformEntryConfig(SQLModel, table=True):
     # SkyLab 在 Cloudflare 建的平台網域 DNS 紀錄；空字串＝DNS 由管理員自己設定
     dns_zone_id: str = Field(default="", max_length=64)
     dns_record_id: str = Field(default="", max_length=64)
+    # 平台網域經 Cloudflare 代理（橘色雲）：SkyLab 建的紀錄設成 proxied，Gateway 的
+    # nginx 也改從 CF-Connecting-IP 取得使用者 IP
+    dns_proxied: bool = Field(default=False)
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),

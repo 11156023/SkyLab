@@ -81,12 +81,6 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         keywords=("防火牆", "firewall", "開埠", "port", "連線規則"),
     ),
     NavigationRoute(
-        path="/reverse-proxy",
-        title="反向代理",
-        summary="把機器上的服務對外公開成網址。",
-        keywords=("反向代理", "reverse proxy", "對外網址", "公開網站", "nginx", "https"),
-    ),
-    NavigationRoute(
         path="/ai-api",
         title="AI API",
         summary="申請 AI API 金鑰並查看個人用量。",
