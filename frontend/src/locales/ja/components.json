@@ -71,6 +71,8 @@
   "AiFloatingChat.pageDefaultSuggestion2": "マシンを申請したい",
   "AiFloatingChat.pageDefaultSuggestion3": "どんな機能が使えるの？",
   "AiFloatingChat.pageDefaultTitle": "SkyLab",
+  "AiFloatingChat.pageGuideButton": "ページガイド",
+  "AiFloatingChat.pageGuideQuestion": "このページの使い方は？",
   "AiFloatingChat.pageDomainSuggestion1": "Webサービスを公開するには？",
   "AiFloatingChat.pageDomainSuggestion2": "リバースプロキシへ移動して",
   "AiFloatingChat.pageDomainSuggestion3": "IP管理へ移動して",
