@@ -50,7 +50,7 @@
     <div class="brand"><img class="brandmark" src="./logo.png" alt="SkyLab"><div><strong>SkyLab</strong><small>CONNECT</small></div></div>
     <button class="navitem active" id="nav-resources"><svg class="icon"><use href="#i-grid"/></svg><span class="navtext">我的資源</span></button>
     <button class="navitem" id="nav-connection"><svg class="icon"><use href="#i-activity"/></svg><span class="navtext">連線資訊</span></button>
-    <a class="navitem" href="https://skylab.ntubimdbirc.tw" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg><span class="navtext">開啟 Web 平台</span></a>
+    <a class="navitem" href="https://skylab-tw.com" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg><span class="navtext">開啟 Web 平台</span></a>
     <div class="sidebarbottom"><button class="navitem" id="settings"><svg class="icon"><use href="#i-settings"/></svg><span class="navtext">偏好設定</span></button><div class="profile"><div class="avatar">R</div><div><strong>Ray</strong><small>示範帳號</small></div><svg class="icon"><use href="#i-shield"/></svg></div></div>
   </aside>
   <div class="workspace">
@@ -98,7 +98,7 @@
   $('#refresh').onclick=()=>{const button=$('#refresh');button.disabled=true;button.querySelector('.icon').classList.add('spin');setTimeout(()=>{button.disabled=false;button.querySelector('.icon').classList.remove('spin');$('#updated').textContent='剛剛更新';toast('示範資源已重新整理')},700)};
   $('#nav-resources').onclick=()=>{filter='all';$('#search').value='';document.querySelector('[data-filter="all"]').click()};
   $('#nav-connection').onclick=()=>modal('連線資訊',`<p>此處為設計預覽，以下數值皆為示範資料。</p><div class="detailrow"><span class="muted">連線狀態</span><span>${escapeHtml($('#connection-title').textContent)}</span></div><div class="detailrow"><span class="muted">通訊協定</span><span>WireGuard</span></div><div class="detailrow"><span class="muted">Tunnel IP</span><span class="mono">10.250.0.2</span></div><div class="detailrow"><span class="muted">Gateway</span><span class="mono">211.75.1.200:51821</span></div><div class="detailrow"><span class="muted">允許存取</span><span>2 台機器 · SSH</span></div>`,null,'shield');
-  $('#settings').onclick=()=>{modal('偏好設定',`<p>讓 SkyLab Connect 更貼近你的工作方式。</p><label for="theme-choice">外觀</label><select id="theme-choice"><option value="dark">深色</option><option value="light">亮色</option></select><label for="backend-url">後端網址</label><input id="backend-url" value="https://skylab.ntubimdbirc.tw" readonly><p>此提案僅供介面預覽，設定不會修改正式 APP。</p>`,`<button class="button primary" data-close>完成</button>`,'settings');$('#theme-choice').value=document.body.classList.contains('light')?'light':'dark';$('#theme-choice').onchange=e=>document.body.classList.toggle('light',e.target.value==='light')};
+  $('#settings').onclick=()=>{modal('偏好設定',`<p>讓 SkyLab Connect 更貼近你的工作方式。</p><label for="theme-choice">外觀</label><select id="theme-choice"><option value="dark">深色</option><option value="light">亮色</option></select><label for="backend-url">後端網址</label><input id="backend-url" value="https://skylab-tw.com" readonly><p>此提案僅供介面預覽，設定不會修改正式 APP。</p>`,`<button class="button primary" data-close>完成</button>`,'settings');$('#theme-choice').value=document.body.classList.contains('light')?'light':'dark';$('#theme-choice').onchange=e=>document.body.classList.toggle('light',e.target.value==='light')};
   $('#help').onclick=()=>modal('連線協助','<p>先確認安全連線已建立，再選擇執行中的機器。已停止或已到期的機器無法連線。</p><p>若 Gateway 沒有回應，可檢查目前網路並重試。正式版可在「連線資訊」檢視診斷紀錄。</p><p>這是互動設計提案，不會建立實際 VPN 或 SSH 連線。</p>');
   render();
 </script>

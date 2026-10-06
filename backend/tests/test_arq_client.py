@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -60,6 +61,48 @@ async def test_init_arq_pool_connects_when_redis_enabled(
 
     create_pool.assert_awaited_once()
     assert arq_client._pool is pool
+
+
+async def test_arq_success_log_redacts_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    dsn = "redis://alice:super-secret@redis.internal:6380/5?token=query-secret"
+    pool = AsyncMock()
+    monkeypatch.setattr(core_settings, "REDIS_ENABLED", True)
+    monkeypatch.setattr(core_settings, "REDIS_URL", dsn)
+    monkeypatch.setattr(arq_client, "create_pool", AsyncMock(return_value=pool))
+
+    with caplog.at_level(logging.INFO, logger=arq_client.logger.name):
+        await arq_client.init_arq_pool()
+
+    assert "redis://redis.internal:6380/5" in caplog.text
+    assert "alice" not in caplog.text
+    assert "super-secret" not in caplog.text
+    assert "query-secret" not in caplog.text
+
+
+async def test_arq_connection_log_redacts_dsn_and_driver_message(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    dsn = "redis://alice:super-secret@redis.internal:6380/5?token=query-secret"
+    monkeypatch.setattr(core_settings, "REDIS_ENABLED", True)
+    monkeypatch.setattr(core_settings, "REDIS_URL", dsn)
+    monkeypatch.setattr(
+        arq_client,
+        "create_pool",
+        AsyncMock(side_effect=ConnectionError(f"driver echoed {dsn}")),
+    )
+
+    with caplog.at_level(logging.ERROR, logger=arq_client.logger.name):
+        await arq_client.init_arq_pool()
+
+    assert "redis://redis.internal:6380/5" in caplog.text
+    assert "ConnectionError" in caplog.text
+    assert "alice" not in caplog.text
+    assert "super-secret" not in caplog.text
+    assert "query-secret" not in caplog.text
 
 
 async def test_enqueue_uses_local_runner_when_redis_disabled(

@@ -12,6 +12,7 @@ from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 
 from app.core.config import settings
+from app.infrastructure.redis.client import redis_connection_label
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,15 @@ async def init_arq_pool() -> None:
         return
     try:
         _pool = await create_pool(get_redis_settings())
-        logger.info("arq pool connected: %s", settings.REDIS_URL)
+        logger.info(
+            "arq pool connected: %s", redis_connection_label(settings.REDIS_URL)
+        )
     except Exception as exc:
-        logger.error("Failed to connect arq pool: %s", exc)
+        logger.error(
+            "Failed to connect arq pool (%s; error=%s)",
+            redis_connection_label(settings.REDIS_URL),
+            type(exc).__name__,
+        )
         _pool = None
 
 

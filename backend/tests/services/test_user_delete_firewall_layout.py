@@ -1,4 +1,4 @@
-"""存過防火牆拓樸版面的使用者要刪得掉，版面列一併清除。"""
+"""帳號刪除後停止服務，保留防火牆拓樸版面紀錄。"""
 
 import uuid
 from datetime import UTC, datetime
@@ -54,8 +54,10 @@ def test_admin_can_delete_a_user_who_saved_a_firewall_layout(db: Session) -> Non
     user_service.delete_user(session=db, user_id=user_id, current_user=admin)
 
     db.expire_all()
-    assert db.get(User, user_id) is None
-    assert _layouts(db, user_id) == []
+    stored = db.get(User, user_id)
+    assert stored is not None and stored.deleted_at is not None
+    assert stored.is_active is False
+    assert len(_layouts(db, user_id)) == 1
 
 
 def test_user_can_delete_own_account_after_saving_a_firewall_layout(
@@ -67,5 +69,7 @@ def test_user_can_delete_own_account_after_saving_a_firewall_layout(
     user_service.delete_me(session=db, current_user=user)
 
     db.expire_all()
-    assert db.get(User, user_id) is None
-    assert _layouts(db, user_id) == []
+    stored = db.get(User, user_id)
+    assert stored is not None and stored.deleted_at is not None
+    assert stored.is_active is False
+    assert len(_layouts(db, user_id)) == 1

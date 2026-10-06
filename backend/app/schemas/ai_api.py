@@ -8,6 +8,10 @@ from app.models.ai_api_request import AIAPIRequestStatus
 
 # 與 ai_gateway_service.review_request 換算 expires_at 的期限一一對應
 AIAPIKeyDuration = Literal["1d", "7d", "30d", "90d", "never"]
+AIAPIReviewDecision = Literal[
+    AIAPIRequestStatus.approved,
+    AIAPIRequestStatus.rejected,
+]
 
 
 class AIAPIRequestCreate(BaseModel):
@@ -20,15 +24,8 @@ class AIAPIRequestCreate(BaseModel):
 class AIAPIRequestReview(BaseModel):
     """審核 AI API 申請：結果只能是核准或駁回"""
 
-    status: AIAPIRequestStatus
+    status: AIAPIReviewDecision
     review_comment: str | None = Field(default=None, max_length=2000)
-
-    @field_validator("status")
-    @classmethod
-    def _decision_only(cls, value: AIAPIRequestStatus) -> AIAPIRequestStatus:
-        if value not in (AIAPIRequestStatus.approved, AIAPIRequestStatus.rejected):
-            raise ValueError("審核結果只能是 approved 或 rejected")
-        return value
 
 
 class AIAPIRequestBulkReject(BaseModel):
@@ -112,7 +109,7 @@ class AIAPICredentialsPublic(BaseModel):
 
 
 AIAPICredentialStatus = Literal["active", "inactive"]
-AIAPICredentialInactiveReason = Literal["revoked", "expired"]
+AIAPICredentialInactiveReason = Literal["deleted", "revoked", "expired"]
 
 
 class AIAPICredentialAdminPublic(BaseModel):
@@ -130,6 +127,7 @@ class AIAPICredentialAdminPublic(BaseModel):
     inactive_reason: AIAPICredentialInactiveReason | None = None
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
+    deleted_at: datetime | None = None
     created_at: datetime
     request_purpose: str | None = None
     reviewer_email: str | None = None

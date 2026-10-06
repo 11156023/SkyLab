@@ -13,18 +13,22 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 from app.api.deps import AIAPIUserDep, SessionDep
+from app.api.request_body import read_limited_body
 from app.core.i18n import t
 from app.features.ai.config import settings as ai_api_settings
 from app.infrastructure.redis import (
     ai_proxy_rate_limit_key,
+    check_rate_limit_by_key,
     check_rate_limit_sliding_window,
     get_redis,
     peek_rate_limit_by_key,
@@ -37,6 +41,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai-proxy", tags=["ai_proxy"])
 
 
+def _reject_non_finite_json_number(value: str) -> None:
+    raise ValueError(f"non-finite JSON number: {value}")
+
+
+def _parse_finite_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"JSON number exceeds finite float range: {value}")
+    return parsed
+
+
 def _credential_rate_limit(credential: Any) -> int:
     """每分鐘上限：金鑰自己的 rate_limit 優先，否則用全站預設（限流與狀態端點共用）。"""
     limit: int = (
@@ -47,18 +62,29 @@ def _credential_rate_limit(credential: Any) -> int:
     return limit
 
 
-async def _enforce_rate_limit(*, credential: Any) -> None:
-    limit = _credential_rate_limit(credential)
+async def _enforce_rate_limit(*, credential: Any, models: bool = False) -> None:
+    limit = 30 if models else _credential_rate_limit(credential)
     redis = await get_redis()
-    allowed, rate_info = await check_rate_limit_sliding_window(
-        redis=redis,
-        credential_id=str(credential.id),
-        limit=limit,
-        window_seconds=ai_api_settings.ai_api_rate_limit_window_seconds,
-    )
+    if models:
+        allowed, rate_info = await check_rate_limit_by_key(
+            redis,
+            key=f"ai-models:{credential.request_id}",
+            limit=limit,
+            window_seconds=60,
+            scope="ai-proxy-models",
+        )
+    else:
+        allowed, rate_info = await check_rate_limit_sliding_window(
+            redis=redis,
+            request_id=str(credential.request_id),
+            legacy_credential_ids=credential._rate_limit_legacy_ids,
+            limit=limit,
+            window_seconds=ai_api_settings.ai_api_rate_limit_window_seconds,
+        )
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(rate_info["window_seconds"])},
             detail={
                 "error": "rate_limit_exceeded",
                 "message": t(
@@ -74,8 +100,11 @@ async def _enforce_rate_limit(*, credential: Any) -> None:
 
 
 async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
-    content_type = request.headers.get("content-type", "").lower()
-    if "application/json" not in content_type:
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if not (
+        media_type == "application/json"
+        or (media_type.startswith("application/") and media_type.endswith("+json"))
+    ):
         return relay_service.openai_error(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Content-Type must be application/json.",
@@ -83,32 +112,25 @@ async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
             code="unsupported_media_type",
         )
 
-    declared_length = request.headers.get("content-length")
-    if declared_length:
-        try:
-            too_large = (
-                int(declared_length) > ai_api_settings.ai_api_max_request_body_bytes
-            )
-        except ValueError:
-            too_large = False
-        if too_large:
-            return relay_service.openai_error(
-                status.HTTP_413_CONTENT_TOO_LARGE,
-                "Request body exceeds the configured AI API limit.",
-                error_type="invalid_request_error",
-                code="request_too_large",
-            )
-
-    body = await request.body()
-    if len(body) > ai_api_settings.ai_api_max_request_body_bytes:
+    try:
+        body = await read_limited_body(
+            request, max_bytes=ai_api_settings.ai_api_max_request_body_bytes
+        )
+    except HTTPException as exc:
         return relay_service.openai_error(
-            status.HTTP_413_CONTENT_TOO_LARGE,
-            "Request body exceeds the configured AI API limit.",
+            exc.status_code,
+            "Request body exceeds the configured AI API limit."
+            if exc.status_code == 413
+            else "Request body upload timed out.",
             error_type="invalid_request_error",
-            code="request_too_large",
+            code="request_too_large" if exc.status_code == 413 else "request_timeout",
         )
     try:
-        payload = json.loads(body)
+        payload = json.loads(
+            body,
+            parse_constant=_reject_non_finite_json_number,
+            parse_float=_parse_finite_json_float,
+        )
     # JSONDecodeError 之外，非 UTF-8（UnicodeDecodeError）、超長整數（ValueError）
     # 與過深巢狀（RecursionError）也都是格式錯誤，一律回 invalid_json 400。
     except (ValueError, RecursionError):
@@ -220,7 +242,8 @@ async def responses(
     description="List the models available through the restricted LiteLLM identity.",
 )
 async def list_models(request: Request, user_and_credential: AIAPIUserDep) -> Response:
-    user, _credential = user_and_credential
+    user, credential = user_and_credential
+    await _enforce_rate_limit(credential=credential, models=True)
     return await relay_service.list_models(request, user=user)
 
 
@@ -239,8 +262,12 @@ async def get_my_usage_stats(
     start_date, end_date = ai_gateway_service.default_usage_window(
         start_date, end_date
     )
-    stats = ai_gateway_service.get_user_usage_stats(
-        session=session, user_id=user.id, start_date=start_date, end_date=end_date
+    stats = await run_in_threadpool(
+        ai_gateway_service.get_user_usage_stats,
+        session=session,
+        user_id=user.id,
+        start_date=start_date,
+        end_date=end_date,
     )
     logger.info("AI API usage requested by user=%s", user.id)
     return stats
@@ -270,8 +297,11 @@ async def get_rate_limit_status(
     now_ms = int(time.time() * 1000)
     current_usage = await peek_rate_limit_by_key(
         redis,
-        key=ai_proxy_rate_limit_key(str(credential.id)),
+        key=ai_proxy_rate_limit_key(str(credential.request_id)),
         window_seconds=window_seconds,
+        legacy_keys=tuple(
+            f"credential:{item}" for item in credential._rate_limit_legacy_ids
+        ),
     )
     if current_usage is None:
         return RateLimitStatusResponse(

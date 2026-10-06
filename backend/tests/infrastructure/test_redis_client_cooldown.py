@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import pytest
@@ -78,3 +79,95 @@ async def test_close_redis_clears_cooldown(monkeypatch: pytest.MonkeyPatch) -> N
     await client.close_redis()
 
     assert client._in_reinit_cooldown() is False
+
+
+def test_redis_connection_label_removes_userinfo_and_query_secrets() -> None:
+    label = client.redis_connection_label(
+        "rediss://alice:super-secret@redis.internal:6380/?db=4&password=query-secret"
+    )
+
+    assert label == "rediss://redis.internal:6380/4"
+    assert "alice" not in label
+    assert "super-secret" not in label
+    assert "query-secret" not in label
+
+
+async def test_successful_redis_log_uses_redacted_connection_label(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    dsn = "redis://alice:super-secret@redis.internal:6380/4?token=query-secret"
+
+    class _Pool:
+        @staticmethod
+        def from_url(*_args: object, **_kwargs: object) -> object:
+            return object()
+
+    class _Redis:
+        def __init__(self, *, connection_pool: object) -> None:
+            self.connection_pool = connection_pool
+
+        async def ping(self) -> None:
+            return None
+
+    monkeypatch.setattr(client.core_settings, "REDIS_URL", dsn)
+    monkeypatch.setattr(client, "ConnectionPool", _Pool)
+    monkeypatch.setattr(client, "Redis", _Redis)
+
+    with caplog.at_level(logging.INFO, logger=client.logger.name):
+        await client.init_redis()
+
+    assert "redis://redis.internal:6380/4" in caplog.text
+    assert "alice" not in caplog.text
+    assert "super-secret" not in caplog.text
+    assert "query-secret" not in caplog.text
+
+
+async def test_fatal_redis_error_does_not_expose_dsn_or_driver_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dsn = "redis://alice:super-secret@redis.internal:6380/4?token=query-secret"
+
+    class _BoomPool:
+        @staticmethod
+        def from_url(*_args: object, **_kwargs: object) -> None:
+            raise ConnectionError(f"driver echoed {dsn}")
+
+    monkeypatch.setattr(client.core_settings, "REDIS_URL", dsn)
+    monkeypatch.setattr(client, "ConnectionPool", _BoomPool)
+    monkeypatch.setattr(client, "redis_failures_are_fatal", lambda: True)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await client.init_redis()
+
+    message = str(exc_info.value)
+    assert "redis://redis.internal:6380/4" in message
+    assert "ConnectionError" in message
+    assert "alice" not in message
+    assert "super-secret" not in message
+    assert "query-secret" not in message
+
+
+async def test_nonfatal_redis_log_does_not_expose_driver_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    dsn = "redis://alice:super-secret@redis.internal:6380/4?token=query-secret"
+
+    class _BoomPool:
+        @staticmethod
+        def from_url(*_args: object, **_kwargs: object) -> None:
+            raise ConnectionError(f"driver echoed {dsn}")
+
+    monkeypatch.setattr(client.core_settings, "REDIS_URL", dsn)
+    monkeypatch.setattr(client, "ConnectionPool", _BoomPool)
+    monkeypatch.setattr(client, "redis_failures_are_fatal", lambda: False)
+
+    with caplog.at_level(logging.ERROR, logger=client.logger.name):
+        await client.init_redis(raise_on_failure=False)
+
+    assert "redis://redis.internal:6380/4" in caplog.text
+    assert "ConnectionError" in caplog.text
+    assert "alice" not in caplog.text
+    assert "super-secret" not in caplog.text
+    assert "query-secret" not in caplog.text

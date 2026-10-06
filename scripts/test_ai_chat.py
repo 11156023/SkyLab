@@ -16,7 +16,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-PUBLIC_BASE_URL = "https://skylab.ntubimdbirc.tw/api/v1"
+PUBLIC_BASE_URL = "https://skylab-tw.com/api/v1"
 API_BASE_URL = f"{PUBLIC_BASE_URL.rstrip('/')}/ai-proxy"
 REQUEST_TIMEOUT_SECONDS = 120
 EXIT_WORDS = {"q", "quit", "exit", "離開", "結束"}

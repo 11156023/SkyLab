@@ -1,5 +1,8 @@
 """說明助手的主流程：分類 → 取情境 → 能直接答就直接答 → 否則問模型。
 
+整頁導覽（page_guide）與彈出視窗說明（dialog_help）一律直接由畫面定義組成，
+見 :mod:`app.ai.contextual_help.guide`。
+
 有一條刻意的捷徑：情境已經足以拼出正確答案時（例如只有一個欄位有驗證錯誤），
 就直接組出那句話，不呼叫模型。這種答案更快、更便宜，而且不可能講錯。模型是
 用來把複雜情況講得順，不是用來複誦一行錯誤訊息。
@@ -18,9 +21,18 @@ from typing import Any
 
 from sqlmodel import Session
 
+from app.ai.contextual_help.guide import (
+    match_dialog,
+    related_targets,
+    render_dialog,
+    render_dialog_index,
+    render_page_guide,
+    visible_dialogs,
+)
 from app.ai.contextual_help.intent import classify
 from app.ai.contextual_help.prompt import build_messages
 from app.ai.contextual_help.resolver import (
+    LEVEL_SURFACE,
     blocked_elements,
     resolve_context,
     sanitize_state,
@@ -43,6 +55,7 @@ from app.ai.monitoring import (
     record_ai_template_call,
     usage_metrics,
 )
+from app.ai.navigation.catalog import get_routes_for_user, resolve_user_role
 from app.ai.system_config import system_ai_env
 from app.ai.utils import strip_think_tags
 from app.infrastructure.ai.contextual_help import client as help_client
@@ -54,7 +67,10 @@ _TIMEOUT_SECONDS = 15.0
 _MAX_TOKENS = 220
 _TEMPERATURE = 0.2
 # 說明就是說明，長了沒人看。超過就截斷，不讓模型把整頁教學倒出來。
+# 整頁導覽不經過模型，不受這個上限限制。
 _MAX_ANSWER_CHARS = 400
+# 整頁導覽引用了哪些定義，依輸出順序
+_GUIDE_PARTS = ("purpose", "when_to_use", "features", "dialogs", "related")
 
 
 # ------------------------------------------------------------ 確定性答案
@@ -125,7 +141,10 @@ def _fallback_answer(
         if labels:
             return "以下欄位還沒有通過驗證：" + "、".join(labels) + "。"
 
-    return f"「{surface.title}」：{surface.purpose.split('。', 1)[0]}。"
+    answer = f"「{surface.title}」：{surface.purpose.split('。', 1)[0]}。"
+    if surface.when_to_use:
+        answer += f"什麼時候用：{surface.when_to_use.split('。', 1)[0]}。"
+    return answer
 
 
 # ------------------------------------------------------------ 主流程
@@ -151,24 +170,64 @@ async def explain(
     active_target = request.active_target
     if active_target and find_element(surface, active_target) is None:
         active_target = None
+    named_element = False
     if active_target is None:
         # 前端還沒回報 focus，或使用者問的不是游標所在的欄位：
         # 問題裡指名了哪一個元素就用哪一個。
         named = match_element_by_label(surface, request.question)
         if named is not None:
             active_target = named.id
+            named_element = True
+    dialogs = visible_dialogs(surface, resolve_user_role(current_user))
+    dialog = match_dialog(dialogs, request.question)
 
     intent = classify(
         request.question,
         has_active_target=bool(active_target),
         has_blocked=bool(blocked),
+        named_element=named_element,
+        named_dialog=dialog is not None,
+        has_dialogs=bool(dialogs),
     )
+    related = related_targets(surface, get_routes_for_user(current_user))
+
+    # 導覽與視窗說明：定義裡就有完整答案，照排版輸出，不打模型。
+    if intent == "page_guide" or (intent == "dialog_help" and dialogs):
+        if intent == "page_guide":
+            answer = render_page_guide(surface, dialogs, related)
+            grounded = [f"{surface.id}.{key}" for key in _GUIDE_PARTS if getattr(surface, key)]
+        elif dialog is not None:
+            answer = render_dialog(dialog)
+            grounded = [f"{surface.id}.dialogs.{dialog.id}"]
+        else:
+            answer = render_dialog_index(surface, dialogs)
+            grounded = [f"{surface.id}.dialogs.{item.id}" for item in dialogs]
+        return ExplainResponse(
+            intent=intent,
+            answer=answer,
+            related=related if intent == "page_guide" else [],
+            grounded_in=grounded,
+            context_level=LEVEL_SURFACE,
+            context_version=request.context_version,
+            used_model=False,
+        )
+    if intent == "dialog_help":
+        intent = "page_overview"
+
     context, grounded, level = resolve_context(
         surface, intent, active_target=active_target, state=state
     )
     # resolve_context 在目標未知時會退回頁面概觀，這裡跟著回正。
     if intent == "field_help" and "target" not in context:
         intent = "page_overview"
+
+    # 頁面簡介可以順帶指路：「這頁不是你要的，改去 X」。只給有權限的頁面，
+    # 模型也只能從這份清單裡挑（見 prompt）。
+    page_related = related if intent == "page_overview" else []
+    if page_related:
+        context["related"] = [
+            {"title": item.title, "when": item.reason} for item in page_related
+        ]
 
     target = active_target or (blocked[0] if blocked else None)
 
@@ -180,6 +239,7 @@ async def explain(
             intent=intent,
             answer=direct,
             target=target,
+            related=page_related,
             grounded_in=grounded,
             context_level=level,
             context_version=request.context_version,
@@ -194,6 +254,7 @@ async def explain(
                 surface, intent, active_target=active_target, blocked=blocked
             ),
             target=target,
+            related=page_related,
             grounded_in=grounded,
             context_level=level,
             context_version=request.context_version,
@@ -244,6 +305,7 @@ async def explain(
             intent=intent,
             answer=answer[:_MAX_ANSWER_CHARS],
             target=target,
+            related=page_related,
             grounded_in=grounded,
             context_level=level,
             context_version=request.context_version,
@@ -267,6 +329,7 @@ async def explain(
                 surface, intent, active_target=active_target, blocked=blocked
             ),
             target=target,
+            related=page_related,
             grounded_in=grounded,
             context_level=level,
             context_version=request.context_version,

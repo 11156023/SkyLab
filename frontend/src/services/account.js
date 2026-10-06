@@ -9,6 +9,14 @@ export const AccountService = {
     return apiPatch(BASE, payload);
   },
 
+  requestEmailChange(email) {
+    return apiPost(`${BASE}/email-change`, { email });
+  },
+
+  confirmEmailChange(token) {
+    return apiPost("/api/v1/users/email-change/confirm", { token });
+  },
+
   /** 上傳頭像圖片（Blob / File），後端存檔並回傳更新後的使用者 */
   uploadAvatar(imageBlob) {
     const form = new FormData();

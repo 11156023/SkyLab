@@ -52,7 +52,9 @@ function StatusBadge({ item }) {
   return (
     <span className={`${styles.badge} ${isActive ? styles.badge_active : styles.badge_inactive}`}>
       <span className={styles.dot} />
-      {isActive ? t("AiApiKeysPage.statusActive") : t("AiApiKeysPage.statusInactive")}
+      {isActive
+        ? t("AiApiKeysPage.statusActive")
+        : t(item.inactive_reason === "deleted" ? "AiApiKeysPage.statusDeleted" : "AiApiKeysPage.statusInactive")}
     </span>
   );
 }
@@ -122,7 +124,7 @@ function RevokeDialog({ item, closing = false, onClose, onDone }) {
   const handleRevoke = async () => {
     setBusy(true);
     try {
-      await AiApiService.revokeCredential(item.id);
+      await AiApiService.deleteCredential(item.id);
       toast.success(t("AiApiKeysPage.revokeSuccess"));
       onClose();
       onDone();

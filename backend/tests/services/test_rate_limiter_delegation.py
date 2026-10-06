@@ -21,6 +21,8 @@ class _FakeRedis:
         self.eval_calls: list[tuple[str, int, int]] = []
 
     async def eval(self, _script: str, _numkeys: int, key: str, *argv):
+        if _script.endswith("return redis.call('ZCARD', KEYS[1])"):
+            return self.counts.get(key, 0)
         limit = int(argv[2])
         self.eval_calls.append((key, limit, int(argv[3])))
         current = self.counts.get(key, 0)
@@ -46,7 +48,7 @@ async def test_ai_proxy_limit_delegates_to_generic_key_limiter() -> None:
     assert allowed is True
     assert info["current"] == 1
     assert info["remaining"] == 1
-    assert redis.eval_calls == [("rate_limit:credential:credential-1", 2, 120)]
+    assert redis.eval_calls == [("rate_limit:ai-request:credential-1", 2, 120)]
 
 
 async def test_ai_proxy_limit_blocks_and_peek_does_not_consume() -> None:
@@ -68,7 +70,7 @@ async def test_ai_proxy_limit_blocks_and_peek_does_not_consume() -> None:
         window_seconds=60,
     )
     assert peeked == 2
-    assert redis.counts["rate_limit:credential:credential-2"] == 2
+    assert redis.counts["rate_limit:ai-request:credential-2"] == 2
 
 
 async def test_ai_proxy_credentials_have_independent_buckets() -> None:
