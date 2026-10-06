@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.domain.username_policy import LinuxUsername
 from app.utils.hostname import UnicodeHostname
 
 ResourceStatus = Literal[
@@ -105,7 +106,7 @@ class VMCreateRequest(BaseModel):
 
     hostname: UnicodeHostname = Field(..., min_length=1, max_length=63)
     template_id: int
-    username: str = Field(..., min_length=1, max_length=32)
+    username: LinuxUsername = Field(..., min_length=1, max_length=32)
     password: str = Field(..., min_length=6)
     cores: int = Field(2, ge=SPEC_CORES_MIN, le=SPEC_CORES_MAX)
     memory: int = Field(2048, ge=SPEC_MEMORY_MIN_MB, le=SPEC_MEMORY_MAX_MB)

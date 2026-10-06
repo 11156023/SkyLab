@@ -578,6 +578,7 @@
   "RequestFormPage.msgOsRequired": "オペレーティングシステムは必須です",
   "RequestFormPage.msgGpuRequired": "このOSはGPUが必要です。GPUを選択してください",
   "RequestFormPage.msgUsernameRequired": "ユーザー名は必須です",
+  "RequestFormPage.msgUsernamePolicy": "ユーザー名が命名規則を満たしていません。下の案内に従って修正してください",
   "RequestFormPage.msgStartRequired": "開始日時を選択してください",
   "RequestFormPage.msgEndRequired": "終了日時を選択してください",
   "RequestFormPage.msgEndBeforeStart": "終了日時は開始日時より後である必要があります",

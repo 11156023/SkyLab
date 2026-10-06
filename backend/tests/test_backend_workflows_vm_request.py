@@ -142,7 +142,7 @@ def test_admin_scheduled_request_stays_pending(
         storage="fast-ssd",
         template_id=9000,
         disk_size=32,
-        username="admin",
+        username="labuser",
         mode="scheduled",
         start_at=now + timedelta(hours=1),
         end_at=now + timedelta(hours=3),
@@ -195,7 +195,7 @@ def test_admin_immediate_request_is_auto_approved(
         storage="fast-ssd",
         template_id=9000,
         disk_size=32,
-        username="admin",
+        username="labuser",
         mode="immediate",
     )
 

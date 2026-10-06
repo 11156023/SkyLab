@@ -10,8 +10,9 @@ from sqlmodel import Session, select
 
 from app.core.i18n import t
 from app.core.security import decrypt_value, encrypt_value
+from app.domain import username_policy
 from app.domain.placement import advisor as placement_advisor
-from app.exceptions import ProxmoxError
+from app.exceptions import ProxmoxError, UsernamePolicyError
 from app.infrastructure.proxmox import (
     get_connection_id_for_node,
     get_proxmox_settings_for_node,
@@ -189,6 +190,21 @@ def _vm_net_config(net_cfg: dict, ip: str) -> dict[str, str]:
     if net_cfg.get("dns_servers"):
         config["nameserver"] = net_cfg["dns_servers"]
     return config
+
+
+def ensure_ciuser_allowed(username: str | None) -> None:
+    """寫進 cloud-init ``ciuser`` 前再驗一次命名政策，違規就在呼叫 PVE 前擋下。
+
+    API schema 已驗過，但 DB 裡政策上線前的舊申請單、內部建構的請求不會再經
+    schema；放行的話 VM 開得起來卻無法登入（例如 ``admin`` 撞到既有群組）。
+    """
+    if not username:
+        return
+    errors = username_policy.errors_of(username_policy.validate_username(username))
+    if errors:
+        raise UsernamePolicyError(
+            "；".join(v.message for v in errors), [v.code for v in errors]
+        )
 
 
 def _is_windows_ostype(ostype: str | None) -> bool:
@@ -656,6 +672,7 @@ def create_vm(
     batch_job_id: uuid.UUID | None = None,
     ip_reservation_key: str | None = None,
 ) -> VMCreateResponse:
+    ensure_ciuser_allowed(vm_data.username)
     target_node = get_vm_target_node(vm_data.template_id)
     target_storage = _resolve_managed_storage(
         session=session,
@@ -793,6 +810,8 @@ def plan_provision(*, session: Session, db_request) -> dict:
     must commit before releasing it: the IP allocation below is what other
     planners use to see that this VMID is already taken before PVE knows.
     """
+    if db_request.resource_type != "lxc":
+        ensure_ciuser_allowed(db_request.username)
     new_vmid = allocate_free_vmid(session)
     placement_request = vm_request_placement_service._to_placement_request(db_request)
     placement_strategy = str(
@@ -969,6 +988,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
     new_vmid = plan["vmid"]
     target_node = plan["target_node"]
     resource_type = plan["resource_type"]
+    if resource_type != "lxc":
+        ensure_ciuser_allowed(plan.get("username"))
     hostname = plan["hostname"]
     pool_name = get_proxmox_settings_for_node(target_node).pool_name
     created = False

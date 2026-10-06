@@ -578,6 +578,7 @@
   "RequestFormPage.msgOsRequired": "Operating system is required",
   "RequestFormPage.msgGpuRequired": "This operating system requires a GPU — please select one",
   "RequestFormPage.msgUsernameRequired": "Username is required",
+  "RequestFormPage.msgUsernamePolicy": "The username does not meet the naming rules; fix it as described below",
   "RequestFormPage.msgStartRequired": "Please select a start time",
   "RequestFormPage.msgEndRequired": "Please select an end time",
   "RequestFormPage.msgEndBeforeStart": "End time must be after the start time",

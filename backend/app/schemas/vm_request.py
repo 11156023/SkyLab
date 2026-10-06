@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.domain.username_policy import LinuxUsername
 from app.models.user import UserRole
 from app.models.vm_request import VMProvisioningStatus, VMRequestStatus
 from app.schemas.resource import (
@@ -47,7 +48,8 @@ class VMRequestCreate(BaseModel):
 
     template_id: int | None = None
     disk_size: int | None = Field(default=None, ge=SPEC_DISK_MIN_GB, le=SPEC_DISK_MAX_GB)
-    username: str | None = None
+    # 只有 Linux 範本會寫進 cloud-init ciuser；Windows 範本不送（cloudbase-init 固定帳號）
+    username: LinuxUsername | None = None
     gpu_mapping_id: str | None = None
     # vGPU 規格（mdev type，如 'nvidia-1436'）；僅對 has_mdev 的 GPU 有意義
     gpu_mdev_profile: str | None = Field(default=None, max_length=64)

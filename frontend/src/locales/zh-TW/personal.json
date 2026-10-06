@@ -578,6 +578,7 @@
   "RequestFormPage.msgOsRequired": "作業系統為必填項",
   "RequestFormPage.msgGpuRequired": "此作業系統需要 GPU，請選擇一張 GPU",
   "RequestFormPage.msgUsernameRequired": "使用者名稱為必填項",
+  "RequestFormPage.msgUsernamePolicy": "使用者名稱不符合命名規則，請依下方提示修改",
   "RequestFormPage.msgStartRequired": "請選擇開始時間",
   "RequestFormPage.msgEndRequired": "請選擇結束時間",
   "RequestFormPage.msgEndBeforeStart": "結束時間必須晚於開始時間",
