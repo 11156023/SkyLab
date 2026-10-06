@@ -4,7 +4,9 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
+import requests
 from proxmoxer import ProxmoxAPI
 
 from app.exceptions import ProxmoxError
@@ -52,6 +54,14 @@ _node_connection_map: dict[str, tuple[int | None, str]] = {}
 _node_connection_map_at = 0.0
 _node_connection_map_lock = threading.Lock()
 
+# 每次 invalidate_proxmox_client() 遞增；依連線設定建立的上層快取（例如 LXC
+# 範本清單）記下建立時的世代，世代不同就視為過期。
+_client_generation = 0
+
+
+def client_generation() -> int:
+    return _client_generation
+
 
 def _get_state(key: _ClientKey) -> _ProxmoxClientState:
     with _states_lock:
@@ -64,10 +74,11 @@ def _get_state(key: _ClientKey) -> _ProxmoxClientState:
 
 def invalidate_proxmox_client() -> None:
     """清除所有連線的 client 快取與節點映射（設定變更後所有連線都可能失效）。"""
-    global _node_connection_map_at
+    global _node_connection_map_at, _client_generation
     invalidate_proxmox_settings_cache()
     with _states_lock:
         _states.clear()
+        _client_generation += 1
     with _node_connection_map_lock:
         _node_connection_map.clear()
         _node_connection_map_at = 0.0
@@ -141,6 +152,46 @@ def get_nodes_for_connection(connection_id: int | None) -> set[str]:
         }
 
 
+def _drop_cached_client(connection_id: _ClientKey, client: ProxmoxAPI) -> None:
+    """快取中的 client 仍是 ``client`` 時丟掉它，下次呼叫重新做 HA 探測。"""
+    state = _get_state(connection_id)
+    with _states_lock:
+        if state.client is not client:
+            return
+        logger.warning(
+            "Proxmox host %s is unreachable; dropping cached client for "
+            "connection %s so the next call re-probes HA nodes",
+            state.active_host,
+            connection_id,
+        )
+        state.client = None
+        state.created_at = 0.0
+        state.active_host = None
+
+
+def _watch_connection_errors(connection_id: _ClientKey, client: ProxmoxAPI) -> None:
+    """入口節點連不上時讓快取的 client 失效，而不是沿用到 ticket 過期。
+
+    client 會快取 ``PROXMOX_TICKET_TTL``（近兩小時）；沒有這層的話入口節點
+    一斷，同連線的每個請求都要等滿 API timeout，即使叢集其他節點都正常。
+    只看連線層錯誤（含 ConnectTimeout、TLS 握手失敗）；讀取逾時代表連得上
+    只是慢，不換節點。原例外照常拋出，由呼叫端處理。
+    """
+    # proxmoxer 2.x 把所有請求都送進這個 requests.Session
+    session = client._store["session"]
+    send = session.request
+
+    def request(*args: Any, **kwargs: Any) -> requests.Response:
+        try:
+            response: requests.Response = send(*args, **kwargs)
+            return response
+        except requests.exceptions.ConnectionError:
+            _drop_cached_client(connection_id, client)
+            raise
+
+    session.request = request
+
+
 def _connect_proxmox(connection_id: _ClientKey) -> tuple[ProxmoxAPI, str]:
     """Probe the connection's nodes and return a validated client and active host.
 
@@ -176,6 +227,7 @@ def _connect_proxmox(connection_id: _ClientKey) -> tuple[ProxmoxAPI, str]:
                     node.host,
                     cfg.connection_name or "default",
                 )
+                _watch_connection_errors(connection_id, client)
                 return client, node.host
             except Exception as exc:
                 last_error = exc
@@ -196,7 +248,9 @@ def _connect_proxmox(connection_id: _ClientKey) -> tuple[ProxmoxAPI, str]:
         )
 
     logger.info("Using configured Proxmox host %s", cfg.host)
-    return try_connect(cfg.host, cfg), cfg.host
+    client = try_connect(cfg.host, cfg)
+    _watch_connection_errors(connection_id, client)
+    return client, cfg.host
 
 
 def get_proxmox_api(connection_id: _ClientKey = None) -> ProxmoxAPI:

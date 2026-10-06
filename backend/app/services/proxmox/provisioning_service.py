@@ -1210,18 +1210,9 @@ def pending_login_password_encrypted(plan: dict) -> str | None:
 
 
 def get_lxc_templates() -> list[TemplateSchema]:
+    # 兩者共用同一份節點快取，不會各自再逐節點打一輪 PVE
     node_map = proxmox_service.get_lxc_template_node_map()
-    templates: list[dict] = []
-    for node in proxmox_service.get_available_nodes():
-        node_name = node.get("node") or node.get("name")
-        if not node_name:
-            continue
-        try:
-            templates.extend(proxmox_service.get_lxc_templates(node_name))
-        except Exception:
-            logger.warning("Failed to load LXC templates from node %s", node_name)
-
-    templates = _dedupe_templates(templates)
+    templates = _dedupe_templates(proxmox_service.list_lxc_templates())
     return [
         TemplateSchema(
             volid=t["volid"],
