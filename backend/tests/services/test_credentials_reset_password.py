@@ -1,4 +1,7 @@
-"""重設登入密碼：QEMU 寫入 cipassword 後，執行中的 VM 自動重新開機套用。"""
+"""重設登入密碼：QEMU 寫入 cipassword 後，執行中的 VM 自動重新開機套用。
+
+自己指定的密碼只留雜湊；留空由系統產生的才加密存起來給擁有者看。
+"""
 
 from __future__ import annotations
 
@@ -11,11 +14,17 @@ import pytest
 
 from app.core.security import decrypt_value
 from app.services.resource import credentials_service
+from tests.utils.login_password import hash_matches
 
 
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    db_resource = SimpleNamespace(login_password_encrypted=None)
+    db_resource = SimpleNamespace(
+        login_password_encrypted="stale-encrypted",
+        login_password_pending_encrypted="stale-pending",
+        login_password_hash="stale-hash",
+        login_password_pending_hash="stale-pending-hash",
+    )
     update_config = Mock()
     control = Mock()
     exec_lxc = Mock(return_value=(0, "", ""))
@@ -55,7 +64,7 @@ def test_running_vm_reboots_after_password_reset(env: SimpleNamespace) -> None:
     env.control.assert_called_once_with("pve1", 101, "qemu", "reboot")
     assert res.rebooting is True
     assert res.applied_immediately is False
-    assert decrypt_value(env.db_resource.login_password_encrypted) == "NewPass123"
+    assert hash_matches("NewPass123", env.db_resource.login_password_hash)
 
 
 def test_stopped_vm_is_not_powered_on(env: SimpleNamespace) -> None:
@@ -64,7 +73,7 @@ def test_stopped_vm_is_not_powered_on(env: SimpleNamespace) -> None:
     env.update_config.assert_called_once()
     env.control.assert_not_called()
     assert res.rebooting is False
-    assert env.db_resource.login_password_encrypted is not None
+    assert env.db_resource.login_password_hash is not None
 
 
 def test_reboot_failure_still_saves_password(env: SimpleNamespace) -> None:
@@ -74,7 +83,7 @@ def test_reboot_failure_still_saves_password(env: SimpleNamespace) -> None:
 
     assert res.rebooting is False
     assert "VM is locked (backup)" in res.message
-    assert decrypt_value(env.db_resource.login_password_encrypted) == "NewPass123"
+    assert hash_matches("NewPass123", env.db_resource.login_password_hash)
 
 
 def test_lxc_changes_password_in_place_without_reboot(env: SimpleNamespace) -> None:
@@ -84,3 +93,24 @@ def test_lxc_changes_password_in_place_without_reboot(env: SimpleNamespace) -> N
     env.control.assert_not_called()
     assert res.applied_immediately is True
     assert res.rebooting is False
+
+
+def test_custom_password_is_never_stored_reversibly(env: SimpleNamespace) -> None:
+    """自己指定的密碼只留雜湊，連同之前留下的可還原副本與待套用值一起清掉。"""
+    _reset({"node": "pve1", "type": "lxc", "status": "running"})
+
+    assert env.db_resource.login_password_encrypted is None
+    assert env.db_resource.login_password_pending_encrypted is None
+    assert env.db_resource.login_password_pending_hash is None
+    assert hash_matches("NewPass123", env.db_resource.login_password_hash)
+    assert "NewPass123" not in env.db_resource.login_password_hash
+
+
+def test_generated_password_stays_visible_to_the_owner(env: SimpleNamespace) -> None:
+    """留空由系統產生的密碼照舊加密存起來，並取代先前的自訂密碼雜湊。"""
+    res = _reset({"node": "pve1", "type": "lxc", "status": "running"}, password=None)
+
+    assert decrypt_value(env.db_resource.login_password_encrypted) == res.password
+    assert env.db_resource.login_password_hash is None
+    assert env.db_resource.login_password_pending_encrypted is None
+    assert env.db_resource.login_password_pending_hash is None

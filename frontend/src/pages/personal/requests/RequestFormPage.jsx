@@ -461,9 +461,10 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   )) ?? null, [catalogChoices, selectedTplId, form.template_id]);
 
   /* 範本政策 requires_gpu：學生看目錄項目、老師看完整範本清單（以 PVE VMID 對應） */
-  /* 範本不勾「允許自訂登入密碼」：機器沿用範本內的密碼，表單不問、也不送密碼 */
+  /* 範本的密碼平台設不了（沒有 cloud-init）：機器沿用範本內的密碼，表單不問、也不送密碼。
+     其餘一律由申請人自訂；平台不保存這組密碼，忘記只能重設 */
   const keepsTemplatePassword =
-    (selectedCatalogItem ?? selectedTpl)?.allow_password_change === false;
+    (selectedCatalogItem ?? selectedTpl)?.password_settable === false;
 
   /* 配額：滑桿最多只能拉到剩餘配額，超出的值自動壓回上限。
      載入失敗就維持原本的上限，送單時後端仍會擋。 */
@@ -1297,7 +1298,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                     name="password"
                     hint={isWindowsVm
                       ? t("RequestFormPage.windowsPasswordHint")
-                      : undefined}
+                      : t("RequestFormPage.passwordNotStoredHint")}
                   >
                     <PasswordInput
                       className={styles.input}

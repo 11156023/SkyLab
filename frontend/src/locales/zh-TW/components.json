@@ -472,7 +472,6 @@
   "TemplateConvertDialog.visibilityLabel": "可見範圍",
   "TemplateConvertDialog.visibilityPrivate": "只有我看得到",
   "TemplateConvertDialog.visibilityGlobal": "所有人都能選用",
-  "TemplateConvertDialog.allowPasswordChange": "允許學生在建立時自訂登入密碼",
   "TemplateConvertDialog.confirmLabel": "請輸入機器名稱「{{name}}」以確認",
   "TemplateConvertDialog.cancel": "取消",
   "TemplateConvertDialog.converting": "轉換中…",

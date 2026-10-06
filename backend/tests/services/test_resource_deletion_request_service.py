@@ -137,4 +137,8 @@ def test_ssh_key_for_unknown_resource_stays_a_proxmox_error(
     )
 
     with pytest.raises(ProxmoxError):
-        credentials_service.get_ssh_key(session=object(), vmid=205)  # type: ignore[arg-type]
+        credentials_service.get_ssh_key(
+            session=object(),  # type: ignore[arg-type]
+            vmid=205,
+            resource_info={"node": "pve1", "type": "qemu"},
+        )

@@ -96,6 +96,23 @@ function InfoRow({ label, note, children }) {
  * 憑證列：secret=true 時預設遮罩、點「顯示」才展開；公鑰不遮罩，只是「展開」把整段秀出來。
  * 展開後完整內容放在下方的 pre，方便整段選取。
  */
+/* 平台沒有可顯示的密碼時，依原因挑說明文字。
+   使用者自訂的密碼平台只留雜湊，永遠顯示不出來，忘記只能重設。 */
+function passwordStateKeys(sshKey) {
+  if (sshKey.uses_template_credentials) {
+    return { label: "OverviewTab.passwordFromTemplate", hint: "OverviewTab.passwordFromTemplateHint" };
+  }
+  if (sshKey.login_password_custom) {
+    return sshKey.login_password_pending
+      ? { label: "OverviewTab.passwordCustomPending", hint: "OverviewTab.passwordCustomPendingHint" }
+      : { label: "OverviewTab.passwordCustom", hint: "OverviewTab.passwordCustomHint" };
+  }
+  if (sshKey.login_password_pending) {
+    return { label: "OverviewTab.passwordPending", hint: "OverviewTab.passwordPendingHint" };
+  }
+  return { label: "OverviewTab.passwordNotRecorded", hint: "OverviewTab.passwordNotRecordedHint" };
+}
+
 function SecretRow({ label, value, secret = false, note, copyId, copied, onCopy, downloadName, t }) {
   const [open, setOpen] = useState(false);
   const toggleLabel = secret
@@ -176,8 +193,9 @@ export default function OverviewTab({ vmid, access = null }) {
       .then((r) => {
         if (cancelled) return;
         setResource(r);
-        /* 被分享的使用者拿不到擁有者的憑證（端點只給擁有者），不要去抓，免得顯示成載入錯誤 */
-        if (r.access_role !== "shared" && (r.ssh_public_key || r.has_login_password)) {
+        /* 被分享的使用者拿不到擁有者的憑證（端點只給擁有者），不要去抓，免得顯示成載入錯誤。
+           擁有者一律抓：就算沒有代管的密碼或金鑰，也要顯示登入帳號與密碼的狀態 */
+        if (r.access_role !== "shared") {
           ResourcesService.getSshKey(vmid)
             .then((k) => !cancelled && setSshKey(k))
             .catch(() => !cancelled && setSshKeyError(true));
@@ -289,9 +307,9 @@ export default function OverviewTab({ vmid, access = null }) {
 
   const reasonKey = resource.auto_stop_reason ? AUTO_STOP_REASON_KEYS[resource.auto_stop_reason] : null;
   const roleKey = ROLE_KEYS[resource.access_role] ?? ROLE_KEYS.owner;
-  const hasCredentials = Boolean(sshKey?.login_password || resource.ssh_public_key);
-  /* 被分享者只看連線資訊，密碼／金鑰列與「無憑證」提示都不顯示 */
+  /* 被分享者只看連線資訊，帳號／密碼／金鑰列都不顯示 */
   const isShared = resource.access_role === "shared";
+  const passwordState = sshKey && !sshKey.login_password ? passwordStateKeys(sshKey) : null;
 
   return (
     <div className={styles.tabStack}>
@@ -606,6 +624,25 @@ export default function OverviewTab({ vmid, access = null }) {
                 </InfoRow>
               )}
               {!isShared && <>
+              {/* 登入帳號不是秘密，直接顯示；VM 沒設 ciuser 時由範本決定（Windows 範本就是這樣） */}
+              {sshKey && (
+                <InfoRow
+                  label={t("OverviewTab.usernameLabel")}
+                  note={sshKey.login_username ? null : t("OverviewTab.usernameFromTemplateHint")}
+                >
+                  {sshKey.login_username ? (
+                    <>
+                      <span className={ov.mono}>{sshKey.login_username}</span>
+                      <button type="button" className={styles.btnSecondary} onClick={() => copy(sshKey.login_username, "username")}>
+                        <MIcon name={copied === "username" ? "check" : "content_copy"} size={14} />
+                        {copied === "username" ? t("OverviewTab.copied") : t("OverviewTab.copy")}
+                      </button>
+                    </>
+                  ) : (
+                    <span className={ov.muted}>{t("OverviewTab.usernameFromTemplate")}</span>
+                  )}
+                </InfoRow>
+              )}
               {sshKey?.login_password ? (
                 <SecretRow
                   label={t("OverviewTab.passwordLabel")}
@@ -617,26 +654,14 @@ export default function OverviewTab({ vmid, access = null }) {
                   onCopy={copy}
                   t={t}
                 />
-              ) : sshKey && (
-                /* 功能上線前開通的機器沒有密碼記錄：留提示列指出補救路徑，不讓整列無聲消失 */
+              ) : passwordState && (
+                /* 沒有可顯示的密碼：說明原因與補救路徑，不讓整列無聲消失 */
                 <div className={ov.secret}>
                   <div className={ov.secretHead}>
                     <span className={ov.secretLabel}>{t("OverviewTab.passwordLabel")}</span>
-                    <span className={`${ov.secretValue} ${ov.secretEmpty}`}>
-                      {t(sshKey.uses_template_credentials
-                        ? "OverviewTab.passwordFromTemplate"
-                        : sshKey.login_password_pending
-                          ? "OverviewTab.passwordPending"
-                          : "OverviewTab.passwordNotRecorded")}
-                    </span>
+                    <span className={`${ov.secretValue} ${ov.secretEmpty}`}>{t(passwordState.label)}</span>
                   </div>
-                  <span className={`${ov.rowNote} ${ov.secretNote}`}>
-                    {t(sshKey.uses_template_credentials
-                      ? "OverviewTab.passwordFromTemplateHint"
-                      : sshKey.login_password_pending
-                        ? "OverviewTab.passwordPendingHint"
-                        : "OverviewTab.passwordNotRecordedHint")}
-                  </span>
+                  <span className={`${ov.rowNote} ${ov.secretNote}`}>{t(passwordState.hint)}</span>
                 </div>
               )}
               {resource.ssh_public_key && (
@@ -661,9 +686,7 @@ export default function OverviewTab({ vmid, access = null }) {
                   t={t}
                 />
               )}
-              {sshKeyError
-                ? <p className={ov.emptyNote}>{t("Error.generic", { ns: "common" })}</p>
-                : !hasCredentials && <p className={ov.emptyNote}>{t("OverviewTab.noCredentials")}</p>}
+              {sshKeyError && <p className={ov.emptyNote}>{t("Error.generic", { ns: "common" })}</p>}
               </>}
             </div>
           </div>

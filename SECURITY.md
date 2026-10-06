@@ -27,6 +27,7 @@ We aim to acknowledge reports within a week and to keep you informed while we wo
 
 - Secrets must never be committed. `SECRET_KEY` both signs tokens and derives the key that encrypts stored credentials; rotate it with `backend/scripts/rotate_secret_key.py`, never by editing `.env` alone.
 - Proxmox, LDAP and gateway credentials are stored encrypted in the database and are configured through the UI, not through `.env`.
+- A machine login password that a user chooses (request form, template clone, password reset) is kept only as a SHA-512 crypt hash, which is written straight into the guest; the API never returns it, and a forgotten password can only be reset. The one exception is Windows, whose cloudbase-init accepts plaintext only: that password is held encrypted until the machine is built and then cleared. Passwords the platform generates (class machines, quick practice) are stored encrypted and shown to the machine's owner.
 - Hardening guidance for operators (trusted proxy, rootless Docker source IPs, certificate handling) is in [`docs/deployment.md`](docs/deployment.md).
 
 Thank you for helping keep SkyLab and its users safe.

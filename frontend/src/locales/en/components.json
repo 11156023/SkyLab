@@ -472,7 +472,6 @@
   "TemplateConvertDialog.visibilityLabel": "Visibility",
   "TemplateConvertDialog.visibilityPrivate": "Only me",
   "TemplateConvertDialog.visibilityGlobal": "Everyone can use it",
-  "TemplateConvertDialog.allowPasswordChange": "Let students set their own login password when creating a machine",
   "TemplateConvertDialog.confirmLabel": "Type the machine name \"{{name}}\" to confirm",
   "TemplateConvertDialog.cancel": "Cancel",
   "TemplateConvertDialog.converting": "Converting…",

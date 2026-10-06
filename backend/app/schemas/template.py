@@ -27,9 +27,7 @@ class VMTemplateCreate(BaseModel):
     default_cores: int | None = Field(default=None, ge=1, le=64)
     default_memory: int | None = Field(default=None, ge=128, description="MB")
     # default_disk 不開放設定：轉換完成時自動偵測母機磁碟大小
-    allow_password_change: bool = Field(
-        default=True, description="克隆時允許使用者自訂/重設登入密碼"
-    )
+    # password_settable 也不開放設定：轉換時偵測母機有沒有 cloud-init
     requires_gpu: bool = Field(
         default=False, description="使用此範本需要 GPU（僅 qemu 範本可設）"
     )
@@ -38,7 +36,6 @@ class VMTemplateCreate(BaseModel):
 _UPDATE_NON_NULLABLE_FIELDS = (
     "name",
     "visibility",
-    "allow_password_change",
     "requires_gpu",
 )
 
@@ -51,8 +48,7 @@ class VMTemplateUpdate(BaseModel):
     visibility: VMTemplateVisibility | None = None
     default_cores: int | None = Field(default=None, ge=1, le=64)
     default_memory: int | None = Field(default=None, ge=128)
-    # default_disk 不開放更新：跟母機一致
-    allow_password_change: bool | None = None
+    # default_disk、password_settable 不開放更新：跟母機一致
     requires_gpu: bool | None = None
 
     @model_validator(mode="before")
@@ -87,7 +83,8 @@ class VMTemplatePublic(BaseModel):
     default_cores: int | None = None
     default_memory: int | None = None
     default_disk: int | None = None
-    allow_password_change: bool = True
+    # False：範本沒有 cloud-init，平台設不了密碼，克隆機沿用範本內的帳密
+    password_settable: bool = True
     requires_gpu: bool = False
     attachment_count: int = 0
     source_vmid: int | None = None
@@ -112,8 +109,8 @@ class TemplateCatalogItem(BaseModel):
     version: int
     is_windows: bool = False
     requires_gpu: bool = False
-    # False：開出來的機器沿用範本內的密碼，申請表單不必再問密碼
-    allow_password_change: bool = True
+    # False：平台設不了密碼，開出來的機器沿用範本內的密碼，申請表單不問密碼
+    password_settable: bool = True
     cores: int | None = None
     memory_mb: int | None = None
     disk_gb: int | None = None
@@ -184,7 +181,7 @@ class TemplateCloneRequest(BaseModel):
         default=None,
         min_length=8,
         max_length=64,
-        description="自訂登入密碼（範本 allow_password_change 時才接受）",
+        description="自訂登入密碼（範本 password_settable 時才接受）；留空由系統產生",
     )
     gpu_mapping_id: str | None = Field(
         default=None, description="GPU mapping（範本 requires_gpu 時必填）"

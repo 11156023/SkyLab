@@ -26,7 +26,7 @@
   "template.updateCloneNotReady": "更新循環的克隆機尚未就緒，請等待克隆任務完成",
   "clone.templateNotReady": "範本尚未就緒，無法克隆（目前狀態：{status}）",
   "clone.batchRequiresManager": "只有教師與管理員可以批次克隆",
-  "clone.passwordChangeNotAllowed": "此範本不允許自訂登入密碼",
+  "clone.passwordChangeNotAllowed": "此範本的登入密碼無法由平台設定，開出來的機器會沿用範本內的帳號密碼",
   "clone.gpuRequired": "此範本需要 GPU，請選擇要配置的 GPU",
   "clone.lxcGpuUnsupported": "LXC 範本不支援 GPU 直通",
   "clone.gpuNodeMismatch": "所選 GPU 不在範本所在節點 {node} 上，請改選其他 GPU",

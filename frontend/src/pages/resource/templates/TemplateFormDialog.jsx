@@ -60,9 +60,6 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   );
   const [defaultCores, setDefaultCores] = useState(template?.default_cores || 2);
   const [defaultMemory, setDefaultMemory] = useState(template?.default_memory || 2048);
-  const [allowPasswordChange, setAllowPasswordChange] = useState(
-    template ? template.allow_password_change !== false : true,
-  );
   const [requiresGpu, setRequiresGpu] = useState(Boolean(template?.requires_gpu));
   const [resources, setResources] = useState([]);
   const [resourcesLoading, setResourcesLoading] = useState(!isEdit);
@@ -205,7 +202,6 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
       visibility,
       default_cores: useCustomSpec ? Number(defaultCores) : null,
       default_memory: useCustomSpec ? Number(defaultMemory) : null,
-      allow_password_change: allowPasswordChange,
       requires_gpu: requiresGpu,
     };
 
@@ -355,17 +351,13 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
         </div>
       </div>
 
-      <label className={styles.checkLine}>
-        <input
-          type="checkbox"
-          checked={allowPasswordChange}
-          onChange={(e) => setAllowPasswordChange(e.target.checked)}
-        />
-        <span className={styles.checkText}>
-          <span>{t("TemplateFormDialog.allowPasswordChangeLabel")}</span>
-          <small>{t("TemplateFormDialog.allowPasswordChangeHint")}</small>
-        </span>
-      </label>
+      {/* 平台設不設得了密碼是轉範本時偵測出來的，不是選項；設不了才提示 */}
+      {isEdit && template?.password_settable === false && (
+        <div className={styles.policyNote}>
+          <MIcon name="lock" size={15} />
+          {t("TemplateFormDialog.passwordUnsettableNote")}
+        </div>
+      )}
 
       <label className={styles.checkLine} title={gpuSelectable ? undefined : t("TemplateFormDialog.gpuNotSupportedTitle")}>
         <input

@@ -37,6 +37,7 @@ from app.services.resource import guest_ssh_login
 from app.services.user import audit_service
 from app.services.vm import placement_support, vm_request_placement_service
 from app.utils.hostname import to_punycode_hostname
+from app.utils.login_password import hash_login_password
 
 logger = logging.getLogger(__name__)
 
@@ -801,6 +802,28 @@ def create_vm(
         raise ProxmoxError(f"Failed to create VM: {e}")
 
 
+# 這些申請單的密碼是系統代發的（快速練習）或根本沒有（Course Lab）；
+# 其餘申請單的密碼都是申請人自己填的
+_GENERATED_PASSWORD_REQUEST_KINDS = frozenset({"quick_template", "course"})
+
+
+def request_password_plan(db_request) -> dict:
+    """申請單上的登入密碼，整理成 plan 用的三個鍵。
+
+    兩個密碼鍵都 None（Course Lab、範本密碼平台設不了）→ 不覆寫範本憑證。
+    ``password`` 是明文（系統代發，或 Windows 的自訂密碼）；``password_hash``
+    是其餘自訂密碼的 SHA-512 crypt 雜湊，直接寫進機器。``password_custom``
+    決定建完後記成什麼：自訂的只留雜湊，系統代發的才存回資源給擁有者看。
+    """
+    encrypted = getattr(db_request, "password", None)
+    return {
+        "password": decrypt_value(encrypted) if encrypted else None,
+        "password_hash": getattr(db_request, "password_hash", None),
+        "password_custom": getattr(db_request, "request_kind", "")
+        not in _GENERATED_PASSWORD_REQUEST_KINDS,
+    }
+
+
 def plan_provision(*, session: Session, db_request) -> dict:
     """Plan a provisioning: resolve placement + storage. Returns a plan dict.
 
@@ -868,10 +891,7 @@ def plan_provision(*, session: Session, db_request) -> dict:
         "hostname": db_request.hostname,
         "cores": db_request.cores,
         "memory": db_request.memory,
-        # None（Course Lab）→ 不覆寫範本憑證；其餘來源都有值
-        "password": (
-            decrypt_value(db_request.password) if db_request.password else None
-        ),
+        **request_password_plan(db_request),
         "start_immediately": should_start_now(db_request),
         "user_id": db_request.user_id,
         "environment_type": db_request.environment_type,
@@ -996,9 +1016,12 @@ def execute_provision(plan: dict) -> tuple[int, str]:
     actual_node = target_node
     net_cfg = plan.get("net_cfg", {})
     allocated_ip = plan.get("allocated_ip")
-    # 各分支真的把密碼寫進機器後翻成 True；呼叫端據此決定要不要把密碼
-    # 存進 resources.login_password_encrypted 給憑證卡片顯示
+    # 各分支真的把密碼寫進機器後翻成 True；呼叫端據此決定密碼要記成
+    # 已生效還是待套用（見 applied_* / pending_* 四個 helper）
     plan["login_password_applied"] = False
+    # 要寫進機器的值：明文，或自訂密碼的雜湊（PVE 與 chpasswd -e 都收雜湊）
+    login_secret = plan.get("password") or plan.get("password_hash")
+    login_secret_hashed = not plan.get("password") and bool(plan.get("password_hash"))
 
     try:
         if resource_type == "lxc":
@@ -1016,8 +1039,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             if plan.get("lxc_clone"):
                 # LXC 範本克隆（linked 優先退 full），克隆後重配置。
                 # LXC 無 cloud-init：登入密碼須待啟動後以 pct exec 設定
-                # （set_lxc_root_password）；plan["password"] 為 None
-                # （Course Lab）時沿用範本內烘焙的憑證。
+                # （set_lxc_root_password）；沒有密碼（Course Lab）時沿用
+                # 範本內烘焙的憑證。
                 from app.services.template import clone_service
 
                 clone_service.clone_with_fallback(
@@ -1048,13 +1071,16 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                     int(plan.get("template_disk_gb") or 0),
                 )
                 firewall_service.setup_default_rules(actual_node, new_vmid, "lxc")
-                apply_password = bool(plan.get("password"))
+                apply_password = bool(login_secret)
                 if plan["start_immediately"]:
                     proxmox_service.control(actual_node, new_vmid, "lxc", "start")
                     if apply_password:
                         plan["login_password_applied"] = bool(
                             clone_service.set_lxc_root_password(
-                                actual_node, new_vmid, plan["password"]
+                                actual_node,
+                                new_vmid,
+                                login_secret,
+                                hashed=login_secret_hashed,
                             )
                         )
                     public_key = str(plan.get("ssh_public_key") or "").strip()
@@ -1064,8 +1090,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                         )
                 elif apply_password:
                     logger.warning(
-                        "CT %s not started at provision time; custom root "
-                        "password not applied (template credentials remain)",
+                        "CT %s not started at provision time; root password "
+                        "stays pending until the next managed start",
                         new_vmid,
                     )
                 logger.info("Provisioned lxc VMID %s on node %s", new_vmid, actual_node)
@@ -1088,8 +1114,9 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             }
             if net_cfg.get("dns_servers"):
                 config["nameserver"] = net_cfg["dns_servers"]
-            if plan.get("password"):
-                config["password"] = plan["password"]
+            if login_secret:
+                # PVE 把 $6$ 開頭的值當成已雜湊的密碼原樣寫進 /etc/shadow
+                config["password"] = login_secret
                 plan["login_password_applied"] = True
             proxmox_service.create_lxc(target_node, **config)
             created = True
@@ -1167,9 +1194,10 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 "sshkeys": quote(plan.get("ssh_public_key", ""), safe=""),
                 "ciupgrade": 0,
             }
-            if plan.get("password"):
-                # cloud-init 首次開機套用；None 時沿用範本內建帳密
-                config_updates["cipassword"] = plan["password"]
+            if login_secret:
+                # cloud-init 首次開機套用；沒有密碼時沿用範本內建帳密。
+                # Linux 範本給雜湊，PVE 原樣存；Windows 一定是明文
+                config_updates["cipassword"] = login_secret
                 plan["login_password_applied"] = True
             # Windows 範本不帶 username（帳號由 cloudbase-init 設定檔固定）
             if plan.get("username"):
@@ -1208,25 +1236,58 @@ def execute_provision(plan: dict) -> tuple[int, str]:
     return new_vmid, actual_node
 
 
+def _generated_plan_password(plan: dict) -> str | None:
+    """plan 裡系統代發的明文密碼；自訂密碼（含 Windows 的明文）一律回 None。"""
+    if plan.get("password") and not plan.get("password_custom"):
+        return str(plan["password"])
+    return None
+
+
+def _custom_plan_password_hash(plan: dict) -> str | None:
+    """plan 裡自訂密碼的雜湊；只拿到明文（Windows、改版前送出的申請單）就當場算。"""
+    if plan.get("password_hash"):
+        return str(plan["password_hash"])
+    if plan.get("password") and plan.get("password_custom"):
+        return hash_login_password(str(plan["password"]))
+    return None
+
+
 def applied_login_password_encrypted(plan: dict) -> str | None:
-    """execute_provision 已寫進機器的登入密碼（加密後），供寫入 resources。
+    """execute_provision 已寫進機器的系統代發密碼（加密後），供寫入 resources。
 
     沒套用（Course Lab 沿用範本憑證、LXC 未啟動無法 pct exec）時回 None，
-    憑證卡片就不會顯示一組其實登不進去的密碼。
+    憑證卡片就不會顯示一組其實登不進去的密碼。自訂密碼不走這裡，
+    平台不保存可還原的副本。
     """
-    if plan.get("login_password_applied") and plan.get("password"):
-        return encrypt_value(str(plan["password"]))
+    password = _generated_plan_password(plan)
+    if plan.get("login_password_applied") and password:
+        return encrypt_value(password)
     return None
 
 
 def pending_login_password_encrypted(plan: dict) -> str | None:
-    """已產生但還沒寫進機器的登入密碼（加密後），供下次受管開機補設。
+    """已產生但還沒寫進機器的系統代發密碼（加密後），供下次受管開機補設。
 
     只有 LXC 範本克隆會落到這裡（建立時未啟動、或 pct exec 失敗）。
-    Course Lab 的 plan["password"] 為 None，維持沿用範本憑證、不補設。
+    Course Lab 沒有密碼，維持沿用範本憑證、不補設。
     """
-    if plan.get("password") and not plan.get("login_password_applied"):
-        return encrypt_value(str(plan["password"]))
+    password = _generated_plan_password(plan)
+    if password and not plan.get("login_password_applied"):
+        return encrypt_value(password)
+    return None
+
+
+def applied_login_password_hash(plan: dict) -> str | None:
+    """已寫進機器的自訂密碼雜湊；LXC 一鍵重置後靠它把密碼補回去。"""
+    if plan.get("login_password_applied"):
+        return _custom_plan_password_hash(plan)
+    return None
+
+
+def pending_login_password_hash(plan: dict) -> str | None:
+    """還沒寫進機器的自訂密碼雜湊（LXC 建立時未啟動），下次受管開機補設。"""
+    if not plan.get("login_password_applied"):
+        return _custom_plan_password_hash(plan)
     return None
 
 
@@ -1380,6 +1441,20 @@ def is_windows_template(template_id: int) -> bool:
     except Exception:
         return False
     return _is_windows_ostype(_template_ostype(template))
+
+
+def template_is_windows(template_id: int) -> bool:
+    """同 ``is_windows_template``，但讀不到 ostype 時直接拋錯。
+
+    決定自訂密碼要存雜湊還是明文時用：猜錯會把雜湊字串當成 Windows 的明文
+    密碼寫進去，所以不能把「查不到」當成非 Windows。
+    """
+    template = proxmox_service.find_vm_template(template_id)
+    config = proxmox_service.get_config(
+        template["node"], int(template["vmid"]), "qemu"
+    )
+    ostype = config.get("ostype")
+    return _is_windows_ostype(str(ostype) if ostype else None)
 
 
 def get_vm_templates() -> list[VMTemplateSchema]:

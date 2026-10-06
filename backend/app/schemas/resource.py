@@ -250,12 +250,17 @@ class SSHKeyResponse(BaseModel):
     """SSH 金鑰與登入密碼回應"""
 
     vmid: int
+    # 登入帳號：VM 是 cloud-init 設定的使用者，容器是 root；
+    # None 代表由範本／映像決定（Windows 範本、沿用範本帳密的機器）
+    login_username: str | None = None
     ssh_public_key: str | None = None
     ssh_private_key: str | None = None
+    # 只有系統代發的密碼會回傳；使用者自訂的密碼平台沒有可還原的副本
     login_password: str | None = None
     # 沒有 login_password 時的原因，讓前端如實說明而不是一律顯示「未記錄」
-    login_password_pending: bool = False  # 已產生，下次開機後才會寫進機器並顯示
-    uses_template_credentials: bool = False  # 範本不勾「允許自訂」，沿用範本內的密碼
+    login_password_custom: bool = False  # 使用者自訂，平台不保存，忘記只能重設
+    login_password_pending: bool = False  # 下次開機後才會寫進機器
+    uses_template_credentials: bool = False  # 範本的密碼平台設不了，沿用範本內的密碼
 
 
 # ===== Monitoring Schemas =====

@@ -180,13 +180,16 @@ def ensure_lxc_login_password(
     vmid: int,
     reapply_recorded: bool = False,
 ) -> bool:
-    """Write the platform-generated root password into an LXC after it starts.
+    """Write the recorded root password into an LXC after it starts.
 
     An LXC cloned from a template only accepts a password through ``pct exec``
     once it is running. Machines created while stopped (class machines with a
-    schedule) keep the password in ``login_password_pending_encrypted``; the
-    first managed start applies it and promotes it to
-    ``login_password_encrypted`` so the credentials card can show it.
+    schedule) keep the password in a pending column; the first managed start
+    applies it and promotes it to the matching recorded column.
+
+    Two kinds of password are recorded: one the platform generated (encrypted,
+    shown on the credentials card) and one the user chose (SHA-512 crypt hash
+    only, written with ``chpasswd -e``). A resource holds at most one of them.
 
     ``reapply_recorded`` is for the reset path: a snapshot rollback restores the
     guest's ``/etc/shadow``, which may predate the applied password, so the
@@ -200,23 +203,35 @@ def ensure_lxc_login_password(
         resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
         if resource is None:
             return False
-        pending = resource.login_password_pending_encrypted
-        encrypted = pending or (
-            resource.login_password_encrypted if reapply_recorded else None
-        )
-        if not encrypted:
+        pending_plain = resource.login_password_pending_encrypted
+        pending_hash = resource.login_password_pending_hash
+        if pending_plain:
+            secret, hashed = decrypt_value(pending_plain), False
+        elif pending_hash:
+            secret, hashed = pending_hash, True
+        elif reapply_recorded and resource.login_password_encrypted:
+            secret, hashed = decrypt_value(resource.login_password_encrypted), False
+        elif reapply_recorded and resource.login_password_hash:
+            secret, hashed = resource.login_password_hash, True
+        else:
             return False
 
         from app.services.template.clone_service import (
             set_lxc_root_password,
         )
 
-        if not set_lxc_root_password(node, vmid, decrypt_value(encrypted)):
+        if not set_lxc_root_password(node, vmid, secret, hashed=hashed):
             logger.warning("Login password was not applied to LXC %s", vmid)
             return False
-        if pending:
-            resource.login_password_encrypted = pending
+        if pending_plain or pending_hash:
+            if pending_plain:
+                resource.login_password_encrypted = pending_plain
+                resource.login_password_hash = None
+            else:
+                resource.login_password_hash = pending_hash
+                resource.login_password_encrypted = None
             resource.login_password_pending_encrypted = None
+            resource.login_password_pending_hash = None
             session.add(resource)
             session.commit()
             logger.info("Applied pending login password to LXC %s", vmid)

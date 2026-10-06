@@ -472,7 +472,6 @@
   "TemplateConvertDialog.visibilityLabel": "公開範囲",
   "TemplateConvertDialog.visibilityPrivate": "自分のみ",
   "TemplateConvertDialog.visibilityGlobal": "全員が利用可能",
-  "TemplateConvertDialog.allowPasswordChange": "学生がマシン作成時にログインパスワードを設定できるようにする",
   "TemplateConvertDialog.confirmLabel": "確認のためマシン名「{{name}}」を入力してください",
   "TemplateConvertDialog.cancel": "キャンセル",
   "TemplateConvertDialog.converting": "変換中…",
