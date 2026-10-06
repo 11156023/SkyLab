@@ -964,6 +964,13 @@ async def until_receive_disconnect(
         done, _ = await asyncio.wait(
             (task, watcher), return_when=asyncio.FIRST_COMPLETED
         )
+        # Starlette's TestClient (and a real ASGI server after the final body)
+        # makes the next ``receive`` return ``http.disconnect`` immediately
+        # after ``send`` has completed the response.  Both tasks can therefore
+        # finish in the same scheduling turn; a successfully delivered response
+        # must win that race instead of being surfaced as CancelledError.
+        if task in done and not task.cancelled() and task.exception() is None:
+            return task.result()
         if watcher in done:
             watcher.result()
             raise asyncio.CancelledError

@@ -307,7 +307,7 @@ def create_request(
     applicant = session.exec(
         select(User)
         .where(User.id == user.id)
-        .with_for_update(key_share=True)
+        .with_for_update()
         .execution_options(populate_existing=True)
     ).one_or_none()
     if applicant is None or applicant.deleted_at is not None:

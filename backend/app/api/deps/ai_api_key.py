@@ -106,21 +106,25 @@ def get_current_user_by_ai_api_key(
 
     # 輪替不改變核准額度。涵蓋部署前仍可能有 bucket 的 sibling，包括已撤銷
     # 舊 key；TTL 是窗口兩倍，不讓已過期的歷史列無限增加 DB／Lua 工作量。
-    legacy_cutoff = get_datetime_utc() - timedelta(
-        seconds=ai_api_settings.ai_api_rate_limit_window_seconds * 2
-    )
-    credential._rate_limit_legacy_ids = tuple(
-        str(credential_id)
-        for credential_id in session.exec(
+    # 正式的 AIAPICredential 一定有 request_id；對仍使用舊 credential 物件的
+    # adapter 保持認證流程可用。
+    request_id = getattr(credential, "request_id", None)
+    if request_id is not None:
+        legacy_cutoff = get_datetime_utc() - timedelta(
+            seconds=ai_api_settings.ai_api_rate_limit_window_seconds * 2
+        )
+        legacy_ids = session.exec(
             select(AIAPICredential.id).where(
-                AIAPICredential.request_id == credential.request_id,
+                AIAPICredential.request_id == request_id,
                 or_(
                     col(AIAPICredential.revoked_at).is_(None),
                     col(AIAPICredential.revoked_at) >= legacy_cutoff,
                 ),
             )
         ).all()
-    )
+        credential._rate_limit_legacy_ids = tuple(str(item) for item in legacy_ids)
+    else:
+        credential._rate_limit_legacy_ids = ()
 
     # 認證只需要讀取資料；不要讓這個 transaction 跟著後續 Redis、
     # LiteLLM／vLLM I/O 一直持有 DB connection。

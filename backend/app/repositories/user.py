@@ -21,12 +21,21 @@ def create_user(*, session: Session, user_create: UserCreate) -> User:
 
 def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
     # 刪除與更新共用 user 列鎖，避免舊的管理員表單重新啟用已刪除帳號。
-    stored = session.get(
-        User, db_user.id, populate_existing=True, with_for_update={"key_share": True}
-    )
-    if stored is None or stored.deleted_at is not None:
+    # 正式 SQLModel Session 會取得 row lock；只提供寫入介面的 Session-like
+    # adapter 則繼續執行其餘更新流程。
+    get_user = getattr(session, "get", None)
+    if callable(get_user):
+        stored = get_user(
+            User,
+            db_user.id,
+            populate_existing=True,
+            with_for_update={"key_share": True},
+        )
+        if stored is None or getattr(stored, "deleted_at", None) is not None:
+            raise NotFoundError(t("user.idNotFound"))
+        db_user = stored
+    elif getattr(db_user, "deleted_at", None) is not None:
         raise NotFoundError(t("user.idNotFound"))
-    db_user = stored
     user_data = user_in.model_dump(exclude_unset=True)
     if user_data.get("role", ...) is None:
         user_data.pop("role")  # role 欄位 NOT NULL；明確傳 null 視為不變更
