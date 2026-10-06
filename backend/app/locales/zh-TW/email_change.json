@@ -1,0 +1,11 @@
+{
+  "user.emailChangeRequiresVerification": "請透過信箱驗證流程變更 Email",
+  "user.emailManaged": "此帳號的 Email 由登入服務管理",
+  "user.emailUnchanged": "請輸入不同的 Email",
+  "user.emailVerificationUnavailable": "目前無法寄送驗證信，請聯絡管理員",
+  "user.emailVerificationInvalid": "驗證連結無效或已過期",
+  "user.emailChangeMailSubject": "{project_name}－驗證新 Email",
+  "user.emailChangeMailBody": "請確認您在 {project_name} 的新 Email。",
+  "user.emailChangeMailLink": "確認 Email",
+  "user.emailChangeMailExpiry": "此連結將於 1 小時後失效。"
+}

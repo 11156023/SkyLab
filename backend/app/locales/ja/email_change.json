@@ -1,0 +1,11 @@
+{
+  "user.emailChangeRequiresVerification": "メールアドレスの変更には確認が必要です",
+  "user.emailManaged": "このアカウントのメールアドレスはログインサービスで管理されています",
+  "user.emailUnchanged": "別のメールアドレスを入力してください",
+  "user.emailVerificationUnavailable": "確認メールを送信できません。管理者にお問い合わせください",
+  "user.emailVerificationInvalid": "確認リンクが無効か期限切れです",
+  "user.emailChangeMailSubject": "{project_name} - 新しいメールアドレスの確認",
+  "user.emailChangeMailBody": "{project_name} の新しいメールアドレスを確認してください。",
+  "user.emailChangeMailLink": "メールアドレスを確認する",
+  "user.emailChangeMailExpiry": "このリンクは1時間で期限切れになります。"
+}

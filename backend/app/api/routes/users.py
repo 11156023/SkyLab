@@ -32,6 +32,7 @@ from app.schemas import (
     UserUpdateMe,
 )
 from app.schemas.monitoring import LoginPreflight
+from app.schemas.user import EmailChangeConfirm, EmailChangeRequest
 from app.services.monitoring import preflight_service
 from app.services.user import avatar_service, totp_service, user_service
 
@@ -52,6 +53,12 @@ _SIGNUP_CAPACITY_LIMIT = Depends(
         global_limit=settings.SIGNUP_RATE_LIMIT_GLOBAL,
         window_seconds=60,
     )
+)
+_EMAIL_CHANGE_RATE_LIMIT = Depends(
+    rate_limit_by_ip(scope="email-change", limit=5, window_seconds=3600)
+)
+_EMAIL_VERIFY_RATE_LIMIT = Depends(
+    rate_limit_by_ip(scope="email-verify", limit=30, window_seconds=60)
 )
 
 @router.get(
@@ -86,6 +93,26 @@ def update_user_me(
     return user_service.update_me(
         session=session, user_in=user_in, current_user=current_user
     )
+
+
+@router.post("/me/email-change", response_model=Message, dependencies=[_EMAIL_CHANGE_RATE_LIMIT])
+def request_email_change_me(
+    *, session: SessionDep, body: EmailChangeRequest, current_user: CurrentUser
+) -> Message:
+    user_service.request_email_change(
+        session=session, current_user=current_user, email=str(body.email)
+    )
+    return Message(message="Verification link sent")
+
+
+@router.post(
+    "/email-change/confirm", response_model=Message, dependencies=[_EMAIL_VERIFY_RATE_LIMIT]
+)
+def confirm_email_change_link(
+    *, session: SessionDep, body: EmailChangeConfirm
+) -> Message:
+    user_service.confirm_email_change_from_link(session=session, token=body.token)
+    return Message(message="Email verified")
 
 
 @router.patch("/me/password", response_model=Message)
