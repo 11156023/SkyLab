@@ -3,15 +3,17 @@ AI API Key 认证依赖
 """
 
 import secrets
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlmodel import col, select
+from sqlmodel import col, or_, select
 
 from app.api.deps.database import SessionDep
 from app.core.db import end_read_transaction
 from app.core.i18n import t
 from app.core.security import decrypt_value
+from app.features.ai.config import settings as ai_api_settings
 from app.models import (
     API_KEY_PREFIX_LENGTH,
     LEGACY_API_KEY_PREFIX_LENGTH,
@@ -101,6 +103,24 @@ def get_current_user_by_ai_api_key(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=t("ai_api_key.user_inactive"),
         )
+
+    # 輪替不改變核准額度。涵蓋部署前仍可能有 bucket 的 sibling，包括已撤銷
+    # 舊 key；TTL 是窗口兩倍，不讓已過期的歷史列無限增加 DB／Lua 工作量。
+    legacy_cutoff = get_datetime_utc() - timedelta(
+        seconds=ai_api_settings.ai_api_rate_limit_window_seconds * 2
+    )
+    credential._rate_limit_legacy_ids = tuple(
+        str(credential_id)
+        for credential_id in session.exec(
+            select(AIAPICredential.id).where(
+                AIAPICredential.request_id == credential.request_id,
+                or_(
+                    col(AIAPICredential.revoked_at).is_(None),
+                    col(AIAPICredential.revoked_at) >= legacy_cutoff,
+                ),
+            )
+        ).all()
+    )
 
     # 認證只需要讀取資料；不要讓這個 transaction 跟著後續 Redis、
     # LiteLLM／vLLM I/O 一直持有 DB connection。

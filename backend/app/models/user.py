@@ -49,6 +49,10 @@ class User(UserBase, table=True):
             "auth_source IN ('local', 'google', 'ldap')",
             name="ck_user_auth_source",
         ),
+        sa.CheckConstraint(
+            "deleted_at IS NULL OR is_active = false",
+            name="ck_user_deleted_inactive",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -57,6 +61,9 @@ class User(UserBase, table=True):
     # 舊帳號一律 local；LDAP 登入成功時會將 LDAP 設為權威來源。
     auth_source: str = Field(default="local", max_length=20)
     token_version: int = Field(default=0, description="令牌版本，修改密碼時遞增以失效舊令牌")
+    deleted_at: datetime | None = Field(
+        default=None, sa_type=sa.DateTime(timezone=True)
+    )
     # 兩步驟驗證（TOTP，可綁定 Google Authenticator）：
     # - secret 以 Fernet 加密存放；setup 後、confirm 前處於「待確認」狀態（enabled=False）
     # - last_used_step 記錄最後一次成功驗證的 time step，防止 30 秒內重放同一組驗證碼

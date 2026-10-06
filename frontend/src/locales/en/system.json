@@ -5,7 +5,7 @@
   "AdminPage.delete": "Delete",
   "AdminPage.deleteSelfTitle": "Cannot delete yourself",
   "AdminPage.deleteTitle": "Delete",
-  "AdminPage.deleteUserConfirm": "Are you sure you want to delete {{name}}? This will also clean up the user's request history; deletion will be rejected if they still hold provisioned resources.",
+  "AdminPage.deleteUserConfirm": "Delete {{name}}? Login and service access will stop, and AI API keys will be revoked. Usage, request and audit records will be retained. The account cannot be restored, and its email cannot be registered again. Deletion will be rejected while provisioned resources remain.",
   "AdminPage.deleteUserTitle": "Delete User",
   "AdminPage.editTitle": "Edit",
   "AdminPage.emptyNoResult": "No users found",

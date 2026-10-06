@@ -198,7 +198,8 @@ def get_user_avatar(user_id: uuid.UUID, session: SessionDep) -> FileResponse:
     user_id 由路由強制為 UUID，不會有路徑穿越問題。帳號已刪除時一律 404
     （涵蓋刪除前殘留的舊檔）。"""
     path = avatar_service.find_avatar(user_id)
-    if path is None or session.get(User, user_id) is None:
+    user = session.get(User, user_id)
+    if path is None or user is None or user.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Avatar not found")
     return FileResponse(path)
 

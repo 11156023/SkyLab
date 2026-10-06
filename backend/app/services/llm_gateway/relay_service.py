@@ -533,6 +533,13 @@ async def close_relay_runtime() -> None:
     if _catalogue_task is not None:
         _catalogue_task.cancel()
         await asyncio.gather(_catalogue_task, return_exceptions=True)
+    cache = _get_models_cache()
+    if cache.task is not None:
+        cache.task.cancel()
+        await asyncio.gather(cache.task, return_exceptions=True)
+    cache.response = None
+    cache.until = 0.0
+    cache.task = None
     pending_usage = {
         task
         for task in _usage_tasks
@@ -701,6 +708,80 @@ def update_stream_usage(
     if usage.get("first_token_ms") is None and stream_event_has_output(payload):
         if started_at is not None:
             usage["first_token_ms"] = int((time.monotonic() - started_at) * 1000)
+
+
+@dataclass
+class StreamTerminalState:
+    completed: bool = False
+    failed: bool = False
+    event_type: str = ""
+    data_lines: list[str] = field(default_factory=list)
+
+
+def update_stream_terminal(
+    line: str, state: StreamTerminalState, *, request_type: str
+) -> None:
+    """Collect one SSE line and commit terminal state only at an event boundary."""
+    if line == "":
+        event_type = state.event_type
+        data = "\n".join(state.data_lines).strip()
+        state.event_type = ""
+        state.data_lines.clear()
+        if event_type == "response.completed" and request_type == "response":
+            state.completed = True
+        elif event_type in {"error", "response.failed", "response.incomplete"}:
+            state.failed = True
+        if data == "[DONE]":
+            if request_type in {"chat_completion", "completion"}:
+                state.completed = True
+            return
+        if not data:
+            return
+        try:
+            payload = json.loads(data)
+        except (ValueError, RecursionError):
+            return
+        if not isinstance(payload, dict):
+            return
+        payload_event_type = payload.get("type")
+        if (
+            isinstance(payload_event_type, str)
+            and payload_event_type == "response.completed"
+            and request_type == "response"
+        ):
+            state.completed = True
+        elif isinstance(payload_event_type, str) and payload_event_type in {
+            "error",
+            "response.failed",
+            "response.incomplete",
+        }:
+            state.failed = True
+        elif payload.get("error") is not None:
+            state.failed = True
+        return
+    if line.startswith("event:"):
+        state.event_type = line[6:].strip()
+        return
+    if line.startswith("data:"):
+        state.data_lines.append(line[5:].lstrip())
+
+
+def pop_sse_line(buffer: str, *, final: bool = False) -> tuple[str, str] | None:
+    """Pop one SSE line while accepting CR, LF, and CRLF separators."""
+    for index, character in enumerate(buffer):
+        if character not in {"\r", "\n"}:
+            continue
+        if character == "\r" and index + 1 == len(buffer) and not final:
+            return None
+        separator_length = (
+            2
+            if character == "\r"
+            and index + 1 < len(buffer)
+            and buffer[index + 1] == "\n"
+            else 1
+        )
+        return buffer[:index], buffer[index + separator_length :]
+    return None
 
 
 def stream_event_has_output(payload: Any) -> bool:
@@ -1138,6 +1219,7 @@ async def stream_upstream_response(
     )
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
     line_buffer = ""
+    terminal = StreamTerminalState()
     try:
         iterator = upstream.aiter_raw().__aiter__()
         while True:
@@ -1146,21 +1228,34 @@ async def stream_upstream_response(
             except StopAsyncIteration:
                 break
             line_buffer += decoder.decode(chunk)
-            while "\n" in line_buffer:
-                line, line_buffer = line_buffer.split("\n", 1)
-                update_stream_usage(
-                    line.rstrip("\r"), observation.usage, started_at=started_at
-                )
+            while parsed_line := pop_sse_line(line_buffer):
+                line, line_buffer = parsed_line
+                update_stream_usage(line, observation.usage, started_at=started_at)
+                update_stream_terminal(line, terminal, request_type=request_type)
             # 限制未換行 SSE 的解析 buffer；原 bytes 仍照常 relay。
             if len(line_buffer) > 1_048_576:
                 line_buffer = ""
+                terminal.event_type = ""
+                terminal.data_lines.clear()
             yield chunk
         line_buffer += decoder.decode(b"", final=True)
+        while parsed_line := pop_sse_line(line_buffer, final=True):
+            line, line_buffer = parsed_line
+            update_stream_usage(line, observation.usage, started_at=started_at)
+            update_stream_terminal(line, terminal, request_type=request_type)
         if line_buffer:
-            update_stream_usage(
-                line_buffer.rstrip("\r"), observation.usage, started_at=started_at
+            update_stream_usage(line_buffer, observation.usage, started_at=started_at)
+            update_stream_terminal(
+                line_buffer, terminal, request_type=request_type
             )
-        observation.record_status = "success"
+        if terminal.failed:
+            observation.record_status = "error"
+            observation.error_message = "upstream_stream_error"
+        elif not terminal.completed:
+            observation.record_status = "error"
+            observation.error_message = "incomplete_stream"
+        else:
+            observation.record_status = "success"
         observation.final_status = upstream.status_code
     except (asyncio.CancelledError, GeneratorExit):
         observation.record_status = "cancelled"
@@ -1196,34 +1291,35 @@ _catalogue_waiters = 0
 async def fetch_public_models() -> set[str]:
     """Discover finite identities using only the restricted service identity."""
     try:
-        response = await await_before(
-            _get_relay_http_client().get(
-                upstream_url("models", ""),
-                headers={"Authorization": f"Bearer {ai_api_settings.ai_api_api_key}"},
-                timeout=10,
-            ),
-            time.monotonic() + 10.0,
-            "catalogue_timeout",
+        response = await _models_response(
+            Request(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "path": "/",
+                    "headers": [],
+                    "query_string": b"",
+                }
+            )
         )
-        try:
-            data = response.json().get("data") if response.is_success else None
-            if not isinstance(data, list):
-                return set()
-            names = {
-                item["id"]
-                for item in data
-                if isinstance(item, dict)
-                and isinstance(item.get("id"), str)
-                and 0 < len(item["id"]) <= 100
-            }
-            ai_metrics.remember_models(sorted(names))
-            return {
-                name
-                for name in names
-                if ai_metrics.model_label(name, served=False) == name
-            }
-        finally:
-            await response.aclose()
+        data = (
+            json.loads(bytes(response.body)).get("data")
+            if response.status_code == 200
+            else None
+        )
+        if not isinstance(data, list):
+            return set()
+        names = {
+            item["id"]
+            for item in data
+            if isinstance(item, dict)
+            and isinstance(item.get("id"), str)
+            and 0 < len(item["id"]) <= 100
+        }
+        ai_metrics.remember_models(sorted(names))
+        return {
+            name for name in names if ai_metrics.model_label(name, served=False) == name
+        }
     except (
         httpx.RequestError,
         RelayDeadline,
@@ -1550,16 +1646,129 @@ async def _relay_attempts(
         )
 
 
+@dataclass
+class ModelsCache:
+    # 只保留一組查詢結果／一個 fetch task；nonce query 不能增加 cache 或併發。
+    key: tuple[Any, ...] = ()
+    response: Response | None = None
+    until: float = 0.0
+    task_key: tuple[Any, ...] = ()
+    task: asyncio.Task[Response] | None = None
+    waiters: int = 0
+
+
+_models_cache: ModelsCache | None = None
+_models_cache_loop: asyncio.AbstractEventLoop | None = None
+AI_PROXY_MODELS_CACHE_SECONDS = 60.0
+AI_PROXY_MODELS_ERROR_CACHE_SECONDS = 5.0
+
+
+def _get_models_cache() -> ModelsCache:
+    global _models_cache, _models_cache_loop
+    loop = asyncio.get_running_loop()
+    if _models_cache is None or _models_cache_loop is not loop:
+        _models_cache = ModelsCache()
+        _models_cache_loop = loop
+    return _models_cache
+
+
+def _models_busy() -> Response:
+    return openai_error(
+        503,
+        "Model catalogue is busy. Please try again later.",
+        error_type="api_error",
+        code="models_busy",
+        headers={"Retry-After": "5"},
+    )
+
+
+def _clone_models_response(response: Response) -> Response:
+    """Return a caller-owned copy of a request-neutral models response."""
+    return Response(
+        content=response.body,
+        status_code=response.status_code,
+        headers={
+            name: value
+            for name, value in response.headers.items()
+            if name.lower() != "x-request-id"
+        },
+    )
+
+
+async def _models_response(request: Request) -> Response:
+    cache = _get_models_cache()
+    # query／OpenAI context 仍透傳，但不同變體不可共用 cache。request ID 不影響內容。
+    key = (
+        ai_api_settings.ai_api_base_url,
+        ai_api_settings.ai_api_api_key,
+        request.url.query,
+        tuple(
+            (name, request.headers.get(name))
+            for name in _REQUEST_HEADER_ALLOWLIST
+            if name != "x-request-id"
+        ),
+    )
+    if _relay_stopping:
+        return _models_busy()
+    if (
+        cache.key == key
+        and cache.response is not None
+        and time.monotonic() < cache.until
+    ):
+        return _clone_models_response(cache.response)
+    if cache.task is not None and cache.task.done():
+        cache.task = None
+    if cache.waiters >= AI_PROXY_MAX_WAITING or (
+        cache.task is not None and cache.task_key != key
+    ):
+        return _models_busy()
+    if cache.task is None:
+
+        async def fetch() -> Response:
+            response = await _fetch_models_response(request)
+            response = _clone_models_response(response)
+            cache.key = key
+            cache.response = response
+            ttl = (
+                AI_PROXY_MODELS_CACHE_SECONDS
+                if response.status_code == 200
+                else AI_PROXY_MODELS_ERROR_CACHE_SECONDS
+            )
+            cache.until = time.monotonic() + ttl
+            return response
+
+        cache.task_key = key
+        cache.task = asyncio.create_task(fetch())
+    cache.waiters += 1
+    try:
+        response = await asyncio.shield(cache.task)
+        return _clone_models_response(response)
+    finally:
+        cache.waiters -= 1
+
+
 async def list_models(request: Request, *, user: Any) -> Response:
+    response = await _models_response(request)
+    logger.info("AI API model list requested by user=%s", user.id)
+    return response
+
+
+async def _fetch_models_response(request: Request) -> Response:
     """列出受限 LiteLLM 身分可用的模型（補上缺漏的 created 時間戳）。"""
     target_url = upstream_url("models", request.url.query)
+    headers = service_headers(request)
+    # Request-context middleware owns the public request ID.  The shared models
+    # fetch must not inherit one caller's ID and expose it to coalesced callers.
+    headers.pop("x-request-id", None)
     try:
-        upstream = await _get_relay_http_client().get(
-            target_url,
-            headers=service_headers(request),
-            timeout=10,
+        upstream = await await_before(
+            _get_relay_http_client().get(
+                target_url, headers=headers, timeout=10
+            ),
+            time.monotonic() + 10.0,
+            "catalogue_timeout",
         )
-    except httpx.RequestError:
+    except (httpx.RequestError, RelayDeadline):
         logger.warning("AI API model list upstream unavailable")
         return openai_error(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1568,7 +1777,10 @@ async def list_models(request: Request, *, user: Any) -> Response:
             code="upstream_unavailable",
         )
 
+    # get() 已完整讀入 body；立即關閉 response，錯誤與 JSON 解析皆可用已讀 bytes。
+    await upstream.aclose()
     public_headers = response_headers(upstream.headers)
+    public_headers.pop("x-request-id", None)
     if not upstream.is_success:
         return upstream_failure(
             request=request,
@@ -1578,7 +1790,7 @@ async def list_models(request: Request, *, user: Any) -> Response:
 
     try:
         result = upstream.json()
-    except ValueError:
+    except (ValueError, RecursionError):
         return openai_error(
             status.HTTP_502_BAD_GATEWAY,
             "Model service returned an invalid response.",
@@ -1587,6 +1799,16 @@ async def list_models(request: Request, *, user: Any) -> Response:
         )
 
     if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+        return openai_error(
+            status.HTTP_502_BAD_GATEWAY,
+            "Model service returned an invalid response.",
+            error_type="api_error",
+            code="invalid_upstream_response",
+        )
+
+    try:
+        json.dumps(result, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
         return openai_error(
             status.HTTP_502_BAD_GATEWAY,
             "Model service returned an invalid response.",
@@ -1603,5 +1825,4 @@ async def list_models(request: Request, *, user: Any) -> Response:
             model = {**model, "created": now_ts}
         data.append(model)
     result["data"] = data
-    logger.info("AI API model list requested by user=%s", user.id)
     return JSONResponse(content=result, headers=public_headers)

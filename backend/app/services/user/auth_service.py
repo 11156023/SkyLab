@@ -313,7 +313,7 @@ def recover_password(*, session: Session, email: str) -> None:
             else ("" if user else " (no matching account)")
         ),
     )
-    if user and not is_ldap:
+    if user and user.deleted_at is None and not is_ldap:
         token = generate_password_reset_token(
             email=email, token_version=user.token_version
         )

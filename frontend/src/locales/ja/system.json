@@ -5,7 +5,7 @@
   "AdminPage.delete": "削除",
   "AdminPage.deleteSelfTitle": "自分自身は削除できません",
   "AdminPage.deleteTitle": "削除",
-  "AdminPage.deleteUserConfirm": "{{name}} を削除してもよろしいですか？この操作を行うと、このユーザーの申請履歴も併せて削除されます。すでに開通済みのリソースを保有している場合、削除は拒否されます。",
+  "AdminPage.deleteUserConfirm": "{{name}} を削除しますか？ログインとサービスの利用が停止され、AI API キーは無効になります。利用量、申請、監査などの記録は保持されます。アカウントは復元できず、同じメールアドレスでの再登録もできません。利用中のリソースがある場合、削除は拒否されます。",
   "AdminPage.deleteUserTitle": "ユーザーを削除",
   "AdminPage.editTitle": "編集",
   "AdminPage.emptyNoResult": "ユーザーが見つかりません",

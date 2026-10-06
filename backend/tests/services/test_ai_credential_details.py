@@ -1,6 +1,7 @@
 """金鑰詳細資料只對擁有者解密，清單仍不包含明文。"""
 
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -72,6 +73,24 @@ def test_unknown_key_is_not_found() -> None:
             credential_id=uuid.uuid4(),
             current_user=SimpleNamespace(id=uuid.uuid4()),
         )
+
+
+def test_deleted_key_is_not_returned_or_decrypted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credential = _credential()
+    credential.deleted_at = datetime.now(timezone.utc)
+    session = Mock(spec=Session)
+    session.get.return_value = credential
+    decrypt = Mock()
+    monkeypatch.setattr(ai_gateway_service, "decrypt_value", decrypt)
+    with pytest.raises(NotFoundError):
+        ai_gateway_service.get_credential(
+            session=session,
+            credential_id=credential.id,
+            current_user=SimpleNamespace(id=credential.user_id),
+        )
+    decrypt.assert_not_called()
 
 
 def test_detail_endpoint_returns_secret_with_no_store_header() -> None:

@@ -1,6 +1,7 @@
 ﻿import { on, onListener, send } from "@/utils/ipcUtils";
 import { defineStore } from "pinia";
 import { ipcRouters, listeners } from "../../electron/core/IpcRouter";
+import GlobalConstant from "../../electron/core/GlobalConstant";
 import router from "../router";
 
 interface AppState {
@@ -65,7 +66,7 @@ export const useAppStore = defineStore("app", {
     loginInProgress: false,
     language: "zh-TW",
     autoStart: false,
-    backendUrl: "https://skylab.ntubimdbirc.tw",
+    backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
     resourcesLoading: false,
     resourcesError: "",
     tunnelStatus: { ...DEFAULT_TUNNEL_STATUS },

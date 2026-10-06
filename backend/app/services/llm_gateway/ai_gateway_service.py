@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import Date, and_, case, cast, distinct, func, literal, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.authorizers import require_ai_api_access, require_ai_api_manage
 from app.core.i18n import t
@@ -40,6 +40,7 @@ from app.schemas import (
     AIAPIRequestsPublic,
     Message,
 )
+from app.schemas.ai_api import AIAPICredentialInactiveReason, AIAPICredentialStatus
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -120,11 +121,28 @@ def _get_manageable_credential(
     *,
     session: Session,
     credential_id: uuid.UUID,
-    current_user,
+    current_user: Any,
     for_update: bool = False,
 ) -> AIAPICredential:
     """取出金鑰並檢查「可寫」權限（擁有者，或具 AI_API_MANAGE_ALL 的管理員）。"""
     if for_update:
+        credential = session.get(AIAPICredential, credential_id)
+        if not credential:
+            raise NotFoundError(t("ai_gateway.credential_not_found"))
+        require_ai_api_manage(
+            current_user,
+            credential.user_id,
+            detail=t("ai_gateway.credential_manage_denied"),
+        )
+        # 與帳號刪除共用 owner 鎖，固定先 user 再 credential，避免漏撤銷輪替的新 key。
+        owner = session.get(
+            User,
+            credential.user_id,
+            populate_existing=True,
+            with_for_update={"key_share": True},
+        )
+        if owner is None or owner.deleted_at is not None:
+            raise NotFoundError(t("ai_gateway.credential_not_found"))
         credential = session.exec(
             select(AIAPICredential)
             .where(AIAPICredential.id == credential_id)
@@ -143,12 +161,12 @@ def _get_manageable_credential(
     return credential
 
 
-def _acting_on_behalf(credential: AIAPICredential, current_user) -> bool:
+def _acting_on_behalf(credential: AIAPICredential, current_user: Any) -> bool:
     """這次操作是不是管理員在動別人的金鑰（決定是否回明文、稽核怎麼寫）。"""
     return getattr(current_user, "id", None) != credential.user_id
 
 
-def _audit_suffix(credential: AIAPICredential, current_user) -> str:
+def _audit_suffix(credential: AIAPICredential, current_user: Any) -> str:
     if not _acting_on_behalf(credential, current_user):
         return ""
     return f" on behalf of user {credential.user_id}"
@@ -210,11 +228,15 @@ def _to_credential_with_secret(
 
 
 def get_credential(
-    *, session: Session, credential_id: uuid.UUID, current_user
+    *, session: Session, credential_id: uuid.UUID, current_user: Any
 ) -> AIAPICredentialWithSecret:
     """只有擁有者本人可以讀取完整金鑰，管理權限不授予明文讀取權限。"""
     credential = session.get(AIAPICredential, credential_id)
-    if not credential or _acting_on_behalf(credential, current_user):
+    if (
+        not credential
+        or credential.deleted_at is not None
+        or _acting_on_behalf(credential, current_user)
+    ):
         raise NotFoundError(t("ai_gateway.credential_not_found"))
     return _to_credential_with_secret(
         credential, api_key=decrypt_value(credential.api_key_encrypted)
@@ -223,7 +245,9 @@ def get_credential(
 
 def _resolve_credential_status(
     *, credential: AIAPICredential, now: datetime
-) -> tuple[str, str | None]:
+) -> tuple[AIAPICredentialStatus, AIAPICredentialInactiveReason | None]:
+    if credential.deleted_at is not None:
+        return "inactive", "deleted"
     if credential.revoked_at is not None:
         return "inactive", "revoked"
     if credential.expires_at is not None and credential.expires_at <= now:
@@ -256,6 +280,7 @@ def _to_credential_admin_public(
         inactive_reason=inactive_reason,
         expires_at=credential.expires_at,
         revoked_at=credential.revoked_at,
+        deleted_at=credential.deleted_at,
         created_at=credential.created_at,
         request_purpose=request.purpose if request else None,
         reviewer_email=reviewer.email if reviewer else None,
@@ -282,10 +307,10 @@ def create_request(
     applicant = session.exec(
         select(User)
         .where(User.id == user.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     ).one_or_none()
-    if applicant is None:
+    if applicant is None or applicant.deleted_at is not None:
         raise NotFoundError(t("auth.user_not_found"))
 
     _validate_request_duration(request_in.duration, applicant)
@@ -324,9 +349,7 @@ def create_request(
     )
     session.commit()
     session.refresh(db_request)
-    logger.info(
-        "User %s submitted AI API request %s", applicant.email, db_request.id
-    )
+    logger.info("User %s submitted AI API request %s", applicant.email, db_request.id)
     return _to_request_public(db_request)
 
 
@@ -341,7 +364,7 @@ def list_requests_by_user(
     data_query = (
         select(AIAPIRequest)
         .where(AIAPIRequest.user_id == user_id)
-        .order_by(AIAPIRequest.created_at.desc())
+        .order_by(col(AIAPIRequest.created_at).desc())
         .offset(skip)
         .limit(limit)
     )
@@ -364,7 +387,9 @@ def list_all_requests(
         count_query = count_query.where(AIAPIRequest.status == status)
         data_query = data_query.where(AIAPIRequest.status == status)
     data_query = (
-        data_query.order_by(AIAPIRequest.created_at.desc()).offset(skip).limit(limit)
+        data_query.order_by(col(AIAPIRequest.created_at).desc())
+        .offset(skip)
+        .limit(limit)
     )
     return AIAPIRequestsPublic(
         data=[_to_request_public(item) for item in session.exec(data_query).all()],
@@ -373,7 +398,7 @@ def list_all_requests(
 
 
 def get_request(
-    *, session: Session, request_id: uuid.UUID, current_user
+    *, session: Session, request_id: uuid.UUID, current_user: Any
 ) -> AIAPIRequestPublic:
     db_request = session.get(AIAPIRequest, request_id)
     if not db_request:
@@ -387,7 +412,7 @@ def review_request(
     session: Session,
     request_id: uuid.UUID,
     review_data: AIAPIRequestReview,
-    reviewer,
+    reviewer: Any,
 ) -> AIAPIRequestPublic:
     if review_data.status not in _REVIEW_DECISIONS:
         raise BadRequestError(t("ai_gateway.invalid_review_status"))
@@ -405,8 +430,13 @@ def review_request(
         raise BadRequestError(t("ai_gateway.request_already_reviewed"))
     if review_data.status == AIAPIRequestStatus.approved:
         # 舊待審申請也必須符合申請人目前身分的期限限制；駁回不受影響。
-        applicant = session.get(User, db_request.user_id)
-        if applicant is None:
+        applicant = session.get(
+            User,
+            db_request.user_id,
+            populate_existing=True,
+            with_for_update={"key_share": True},
+        )
+        if applicant is None or applicant.deleted_at is not None:
             raise NotFoundError(t("ai_gateway.request_not_found"))
         _validate_request_duration(db_request.duration, applicant)
 
@@ -465,7 +495,7 @@ def bulk_reject_requests(
     session: Session,
     request_ids: list[uuid.UUID],
     review_comment: str,
-    reviewer,
+    reviewer: Any,
 ) -> AIAPIRequestsPublic:
     """在單一交易內駁回一組仍待審核的申請。
 
@@ -483,8 +513,8 @@ def bulk_reject_requests(
     rows = list(
         session.exec(
             select(AIAPIRequest)
-            .where(AIAPIRequest.id.in_(request_ids))
-            .order_by(AIAPIRequest.id)
+            .where(col(AIAPIRequest.id).in_(request_ids))
+            .order_by(col(AIAPIRequest.id))
             .with_for_update()
             .execution_options(populate_existing=True)
         ).all()
@@ -530,11 +560,13 @@ def list_credentials_by_user(
         select(func.count())
         .select_from(AIAPICredential)
         .where(AIAPICredential.user_id == user_id)
+        .where(col(AIAPICredential.deleted_at).is_(None))
     )
     data_query = (
         select(AIAPICredential)
         .where(AIAPICredential.user_id == user_id)
-        .order_by(AIAPICredential.created_at.desc())
+        .where(col(AIAPICredential.deleted_at).is_(None))
+        .order_by(col(AIAPICredential.created_at).desc())
         .offset(skip)
         .limit(limit)
     )
@@ -565,24 +597,28 @@ def list_all_credentials(
             func.max(AIAPIUsage.created_at).label("last_used_at"),
         )
         .where(AIAPIUsage.source == USAGE_SOURCE_API_KEY)
-        .group_by(AIAPIUsage.credential_id)
+        .group_by(col(AIAPIUsage.credential_id))
         .subquery("credential_last_usage")
     )
     base_from = (
         select(AIAPICredential.id)
         .select_from(AIAPICredential)
-        .join(User, User.id == AIAPICredential.user_id)
+        .join(User, col(User.id) == col(AIAPICredential.user_id))
+    )
+    data_columns: tuple[Any, ...] = (
+        AIAPICredential,
+        User,
+        AIAPIRequest,
+        reviewer,
+        usage_subquery.c.last_used_at,
     )
     data_query = (
-        select(
-            AIAPICredential,
-            User,
+        select(*data_columns)
+        .join(User, col(User.id) == col(AIAPICredential.user_id))
+        .join(
             AIAPIRequest,
-            reviewer,
-            usage_subquery.c.last_used_at,
+            col(AIAPIRequest.id) == col(AIAPICredential.request_id),
         )
-        .join(User, User.id == AIAPICredential.user_id)
-        .join(AIAPIRequest, AIAPIRequest.id == AIAPICredential.request_id)
         .outerjoin(reviewer, reviewer.id == AIAPIRequest.reviewer_id)
         .outerjoin(
             usage_subquery,
@@ -596,25 +632,29 @@ def list_all_credentials(
         like_pattern = f"%{keyword}%"
         filters.append(
             or_(
-                User.email.ilike(like_pattern),
-                User.full_name.ilike(like_pattern),
-                AIAPICredential.api_key_name.ilike(like_pattern),
-                AIAPICredential.api_key_prefix.ilike(like_pattern),
+                col(User.email).ilike(like_pattern),
+                col(User.full_name).ilike(like_pattern),
+                col(AIAPICredential.api_key_name).ilike(like_pattern),
+                col(AIAPICredential.api_key_prefix).ilike(like_pattern),
             )
         )
     if user_roles:
-        filters.append(User.role.in_(user_roles))
+        filters.append(col(User.role).in_(user_roles))
     if created_after is not None:
-        filters.append(AIAPICredential.created_at >= created_after)
+        filters.append(col(AIAPICredential.created_at) >= created_after)
 
     active_clause = and_(
-        AIAPICredential.revoked_at.is_(None),
-        or_(AIAPICredential.expires_at.is_(None), AIAPICredential.expires_at > now),
+        col(AIAPICredential.revoked_at).is_(None),
+        or_(
+            col(AIAPICredential.expires_at).is_(None),
+            col(AIAPICredential.expires_at) > now,
+        ),
     )
     inactive_clause = or_(
-        AIAPICredential.revoked_at.is_not(None),
+        col(AIAPICredential.revoked_at).is_not(None),
         and_(
-            AIAPICredential.expires_at.is_not(None), AIAPICredential.expires_at <= now
+            col(AIAPICredential.expires_at).is_not(None),
+            col(AIAPICredential.expires_at) <= now,
         ),
     )
 
@@ -637,7 +677,7 @@ def list_all_credentials(
 
     data_query = (
         data_query.where(*filters)
-        .order_by(AIAPICredential.created_at.desc())
+        .order_by(col(AIAPICredential.created_at).desc())
         .offset(skip)
         .limit(limit)
     )
@@ -663,7 +703,7 @@ def list_all_credentials(
 
 
 def rotate_credential(
-    *, session: Session, credential_id: uuid.UUID, current_user
+    *, session: Session, credential_id: uuid.UUID, current_user: Any
 ) -> AIAPICredentialWithSecret:
     credential = _get_manageable_credential(
         session=session,
@@ -675,7 +715,10 @@ def rotate_credential(
     if credential.revoked_at is not None:
         raise BadRequestError(t("ai_gateway.credential_already_revoked"))
     # 新金鑰會沿用舊的到期日；已過期的金鑰輪替出來也是過期的，要重新申請
-    if credential.expires_at is not None and credential.expires_at <= get_datetime_utc():
+    if (
+        credential.expires_at is not None
+        and credential.expires_at <= get_datetime_utc()
+    ):
         raise BadRequestError(t("ai_gateway.credential_expired"))
 
     credential.revoked_at = get_datetime_utc()
@@ -725,26 +768,26 @@ def rotate_credential(
 
 
 def delete_credential(
-    *, session: Session, credential_id: uuid.UUID, current_user
+    *, session: Session, credential_id: uuid.UUID, current_user: Any
 ) -> Message:
     credential = _get_manageable_credential(
-        session=session, credential_id=credential_id, current_user=current_user
+        session=session,
+        credential_id=credential_id,
+        current_user=current_user,
+        for_update=True,
     )
 
-    # A credential referenced by AIAPIUsage is part of the audit trail and
-    # cannot be hard-deleted without violating its foreign key. Revoking it
-    # preserves accounting while immediately making the ccai_* key unusable.
-    usage_exists = session.exec(
-        select(AIAPIUsage.id).where(AIAPIUsage.credential_id == credential.id).limit(1)
-    ).first()
-    if usage_exists:
+    # 先撤銷，讓新的呼叫立即失敗；資料列保留供已接受的呼叫完成入帳，
+    # deleted_at 則讓一般使用者端點永久隱藏這把金鑰。
+    if credential.deleted_at is None:
+        deleted_at = get_datetime_utc()
+        credential.deleted_at = deleted_at
         if credential.revoked_at is None:
-            credential.revoked_at = get_datetime_utc()
-            session.add(credential)
-        operation = "revoked"
-    else:
-        session.delete(credential)
-        operation = "deleted"
+            credential.revoked_at = deleted_at
+        # 刪除後不再保留可還原的使用者 secret；前綴與其他中繼資料留給管理紀錄。
+        credential.api_key_encrypted = ""
+        session.add(credential)
+    operation = "deleted"
     audit_service.log_action(
         session=session,
         user_id=current_user.id,
@@ -760,11 +803,13 @@ def delete_credential(
 
 
 def update_credential_name(
-    *, session: Session, credential_id: uuid.UUID, name: str, current_user
+    *, session: Session, credential_id: uuid.UUID, name: str, current_user: Any
 ) -> AIAPICredentialPublic:
     credential = _get_manageable_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )
+    if credential.deleted_at is not None:
+        raise NotFoundError(t("ai_gateway.credential_not_found"))
 
     credential.api_key_name = name
     session.add(credential)
@@ -1033,7 +1078,7 @@ def _aggregate_user_usage(
         AIAPIUsage.created_at >= start_date,
         AIAPIUsage.created_at <= end_date,
     )
-    count = func.count(AIAPIUsage.id)
+    count = func.count(col(AIAPIUsage.id))
     input_sum = func.coalesce(func.sum(AIAPIUsage.input_tokens), 0)
     output_sum = func.coalesce(func.sum(AIAPIUsage.output_tokens), 0)
     grouped = session.exec(
@@ -1059,7 +1104,7 @@ def get_user_usage_stats(
     start_date: datetime,
     end_date: datetime,
     tz: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """
     查詢使用者的 Proxy 使用統計
 
@@ -1104,7 +1149,7 @@ def get_user_template_usage_stats(
     start_date: datetime,
     end_date: datetime,
     tz: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """
     查詢使用者的 Template 呼叫統計
     """
@@ -1171,9 +1216,12 @@ def list_user_usage_records(
     )
     rows = session.exec(
         select(AIAPIUsage, AIAPICredential)
-        .join(AIAPICredential, AIAPICredential.id == AIAPIUsage.credential_id)
+        .join(
+            AIAPICredential,
+            col(AIAPICredential.id) == col(AIAPIUsage.credential_id),
+        )
         .where(*filters)
-        .order_by(AIAPIUsage.created_at.desc())
+        .order_by(col(AIAPIUsage.created_at).desc())
         .offset(skip)
         .limit(limit)
     ).all()
@@ -1202,8 +1250,8 @@ def list_user_usage_records(
 
 def _monitoring_filters(
     source: str, start_date: datetime | None, end_date: datetime | None
-):
-    filters = [AIAPIUsage.source == source]
+) -> list[Any]:
+    filters: list[Any] = [AIAPIUsage.source == source]
     if start_date:
         filters.append(AIAPIUsage.created_at >= start_date)
     if end_date:
@@ -1229,13 +1277,15 @@ def _usage_aggregate_columns(prefix: str = "") -> list[Any]:
     要 join 在一起時用來區分）。來源由呼叫端以 ``_monitoring_filters`` 過濾。
     成功與否一律以 MONITORING_SUCCESS_STATUSES 判斷。
     """
-    success = case((AIAPIUsage.status.in_(MONITORING_SUCCESS_STATUSES), 1), else_=0)
-    columns = (
-        func.count(AIAPIUsage.id),
+    success = case(
+        (col(AIAPIUsage.status).in_(MONITORING_SUCCESS_STATUSES), 1), else_=0
+    )
+    columns: tuple[Any, ...] = (
+        func.count(col(AIAPIUsage.id)),
         func.coalesce(func.sum(success), 0),
         func.coalesce(func.sum(AIAPIUsage.input_tokens), 0),
         func.coalesce(func.sum(AIAPIUsage.output_tokens), 0),
-        func.count(AIAPIUsage.request_duration_ms),
+        func.count(col(AIAPIUsage.request_duration_ms)),
         func.coalesce(func.sum(AIAPIUsage.request_duration_ms), 0),
     )
     return [
@@ -1251,7 +1301,7 @@ def _monitoring_bucket_rows(
     bucket: str,
     start_date: datetime | None,
     end_date: datetime | None,
-):
+) -> list[Any]:
     """依時間 bucket 聚合單一 AI 使用表，避免前端用有限明細反推趨勢。"""
     dialect_name = session.get_bind().dialect.name
     if dialect_name == "sqlite":
@@ -1267,7 +1317,7 @@ def _monitoring_bucket_rows(
         *_monitoring_filters(source, start_date, end_date)
     )
     statement = statement.group_by(bucket_expr).order_by(bucket_expr)
-    return session.exec(statement).all()
+    return list(session.exec(statement).all())
 
 
 def _monitoring_bucket_datetime(value: object) -> datetime | None:
@@ -1288,15 +1338,15 @@ def _monitoring_model_rows(
     source: str,
     start_date: datetime | None,
     end_date: datetime | None,
-):
-    statement = select(AIAPIUsage.model_name, *_usage_aggregate_columns()).where(
+) -> list[Any]:
+    statement = select(col(AIAPIUsage.model_name), *_usage_aggregate_columns()).where(
         *_monitoring_filters(source, start_date, end_date)
     )
-    statement = statement.group_by(AIAPIUsage.model_name)
-    return session.exec(statement).all()
+    statement = statement.group_by(col(AIAPIUsage.model_name))
+    return list(session.exec(statement).all())
 
 
-def _monitoring_summary(stats: dict) -> dict:
+def _monitoring_summary(stats: dict[str, Any]) -> dict[str, Any]:
     total_calls = int(stats.get("proxy_total_calls", 0) or 0) + int(
         stats.get("template_total_calls", 0) or 0
     )
@@ -1342,7 +1392,7 @@ def get_monitoring_overview(
     bucket: str = "hour",
     compare: bool = True,
     include_template: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """回傳 AI 監控首頁使用的趨勢、比較與模型聚合資料。"""
     if bucket not in {"hour", "day"}:
         raise ValueError("bucket must be hour or day")
@@ -1355,7 +1405,7 @@ def get_monitoring_overview(
     )
     current_summary = _monitoring_summary(current_stats)
 
-    comparison = {
+    comparison: dict[str, int | float | None] = {
         "total_calls_delta": 0,
         "total_calls_percent": None,
         "failed_calls_delta": 0,
@@ -1401,7 +1451,7 @@ def get_monitoring_overview(
             ),
         }
 
-    series_by_bucket = {}
+    series_by_bucket: dict[datetime, dict[str, Any]] = {}
     source_models = [(USAGE_SOURCE_API_KEY, "proxy_calls")]
     if include_template:
         source_models.append((USAGE_SOURCE_PLATFORM, "template_calls"))
@@ -1468,7 +1518,7 @@ def get_monitoring_overview(
             }
         )
 
-    model_totals = {}
+    model_totals: dict[str, dict[str, Any]] = {}
     sources = [USAGE_SOURCE_API_KEY]
     if include_template:
         sources.append(USAGE_SOURCE_PLATFORM)
@@ -1541,12 +1591,12 @@ def get_monitoring_stats(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     include_template: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """全局 AI 監控統計卡片"""
     proxy_filters = _monitoring_filters(USAGE_SOURCE_API_KEY, start_date, end_date)
     template_filters = _monitoring_filters(USAGE_SOURCE_PLATFORM, start_date, end_date)
 
-    def _totals(filters) -> dict[str, int]:
+    def _totals(filters: list[Any]) -> dict[str, int]:
         row = session.exec(select(*_usage_aggregate_columns()).where(*filters)).one()
         return {name: int(row._mapping[name] or 0) for name in USAGE_AGGREGATE_NAMES}
 
@@ -1567,13 +1617,15 @@ def get_monitoring_stats(
     duration_sum = proxy_totals["duration_sum"] + template_totals["duration_sum"]
 
     # 活躍使用者（proxy + template 的 distinct user_id 合集）
-    proxy_user_ids = set(
-        session.exec(select(distinct(AIAPIUsage.user_id)).where(*proxy_filters)).all()
+    proxy_user_ids: set[uuid.UUID] = set(
+        session.exec(
+            select(distinct(col(AIAPIUsage.user_id))).where(*proxy_filters)
+        ).all()
     )
-    template_user_ids = (
+    template_user_ids: set[uuid.UUID] = (
         set(
             session.exec(
-                select(distinct(AIAPIUsage.user_id)).where(*template_filters)
+                select(distinct(col(AIAPIUsage.user_id))).where(*template_filters)
             ).all()
         )
         if include_template
@@ -1582,18 +1634,18 @@ def get_monitoring_stats(
     active_users = len(proxy_user_ids | template_user_ids)
 
     # 使用的模型列表
-    template_models = (
+    template_models: set[str] = (
         set(
             session.exec(
-                select(distinct(AIAPIUsage.model_name)).where(*template_filters)
+                select(distinct(col(AIAPIUsage.model_name))).where(*template_filters)
             ).all()
         )
         if include_template
         else set()
     )
-    proxy_models = set(
+    proxy_models: set[str] = set(
         session.exec(
-            select(distinct(AIAPIUsage.model_name)).where(*proxy_filters)
+            select(distinct(col(AIAPIUsage.model_name))).where(*proxy_filters)
         ).all()
     )
     models = sorted(proxy_models | template_models)
@@ -1628,16 +1680,18 @@ def list_proxy_calls(
     end_date: datetime | None = None,
     skip: int = 0,
     limit: int = 50,
-) -> dict:
+) -> dict[str, Any]:
     """Admin: 列出 Proxy 呼叫紀錄"""
     count_query = select(func.count()).select_from(AIAPIUsage)
-    data_query = select(AIAPIUsage, User).join(User, User.id == AIAPIUsage.user_id)
+    data_query = select(AIAPIUsage, User).join(
+        User, col(User.id) == col(AIAPIUsage.user_id)
+    )
 
-    filters = [AIAPIUsage.source == USAGE_SOURCE_API_KEY]
+    filters: list[Any] = [AIAPIUsage.source == USAGE_SOURCE_API_KEY]
     if user_id:
         filters.append(AIAPIUsage.user_id == user_id)
     if model_name:
-        filters.append(AIAPIUsage.model_name.ilike(f"%{model_name}%"))
+        filters.append(col(AIAPIUsage.model_name).ilike(f"%{model_name}%"))
     if call_status:
         filters.append(AIAPIUsage.status == call_status)
     if start_date:
@@ -1650,7 +1704,7 @@ def list_proxy_calls(
         data_query = data_query.where(f)
 
     data_query = (
-        data_query.order_by(AIAPIUsage.created_at.desc()).offset(skip).limit(limit)
+        data_query.order_by(col(AIAPIUsage.created_at).desc()).offset(skip).limit(limit)
     )
 
     total = int(session.exec(count_query).one() or 0)
@@ -1683,10 +1737,12 @@ def list_template_calls(
     end_date: datetime | None = None,
     skip: int = 0,
     limit: int = 50,
-) -> dict:
+) -> dict[str, Any]:
     """Admin: 列出 Template 呼叫紀錄"""
     count_query = select(func.count()).select_from(AIAPIUsage)
-    data_query = select(AIAPIUsage, User).join(User, User.id == AIAPIUsage.user_id)
+    data_query = select(AIAPIUsage, User).join(
+        User, col(User.id) == col(AIAPIUsage.user_id)
+    )
 
     filters = [AIAPIUsage.source == USAGE_SOURCE_PLATFORM]
     if user_id:
@@ -1707,7 +1763,7 @@ def list_template_calls(
         data_query = data_query.where(f)
 
     data_query = (
-        data_query.order_by(AIAPIUsage.created_at.desc()).offset(skip).limit(limit)
+        data_query.order_by(col(AIAPIUsage.created_at).desc()).offset(skip).limit(limit)
     )
 
     total = int(session.exec(count_query).one() or 0)
@@ -1737,31 +1793,32 @@ def list_users_usage(
     skip: int = 0,
     limit: int = 50,
     include_template: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Admin: 每個使用者的 AI 用量彙總"""
     # 先在資料庫完成兩個來源的 per-user 聚合，再一次 join 使用者資料。
     # 舊實作在分頁後對每位使用者執行 session.get + 2 次聚合查詢，
     # 100 位使用者就會產生 300+ 次 round-trip。
     proxy_sub = (
-        select(AIAPIUsage.user_id, *_usage_aggregate_columns("proxy_"))
+        select(col(AIAPIUsage.user_id), *_usage_aggregate_columns("proxy_"))
         .where(*_monitoring_filters(USAGE_SOURCE_API_KEY, start_date, end_date))
-        .group_by(AIAPIUsage.user_id)
+        .group_by(col(AIAPIUsage.user_id))
         .subquery("proxy_usage")
     )
 
     if not include_template:
+        usage_columns: tuple[Any, ...] = (
+            col(User.id),
+            col(User.email),
+            col(User.full_name),
+            proxy_sub.c.proxy_total_calls,
+            proxy_sub.c.proxy_input_tokens,
+            proxy_sub.c.proxy_output_tokens,
+            proxy_sub.c.proxy_successful_calls,
+            proxy_sub.c.proxy_duration_count,
+            proxy_sub.c.proxy_duration_sum,
+        )
         usage_query = (
-            select(
-                User.id,
-                User.email,
-                User.full_name,
-                proxy_sub.c.proxy_total_calls,
-                proxy_sub.c.proxy_input_tokens,
-                proxy_sub.c.proxy_output_tokens,
-                proxy_sub.c.proxy_successful_calls,
-                proxy_sub.c.proxy_duration_count,
-                proxy_sub.c.proxy_duration_sum,
-            )
+            select(*usage_columns)
             .select_from(User)
             .join(proxy_sub, proxy_sub.c.user_id == User.id)
         )
@@ -1771,7 +1828,9 @@ def list_users_usage(
         )
         total_tokens = proxy_sub.c.proxy_input_tokens + proxy_sub.c.proxy_output_tokens
         rows = session.exec(
-            usage_query.order_by(total_tokens.desc(), User.id).offset(skip).limit(limit)
+            usage_query.order_by(total_tokens.desc(), col(User.id))
+            .offset(skip)
+            .limit(limit)
         ).all()
         results = []
         for row in rows:
@@ -1806,9 +1865,9 @@ def list_users_usage(
 
     # Template 用量 per user
     tmpl_sub = (
-        select(AIAPIUsage.user_id, *_usage_aggregate_columns("tmpl_"))
+        select(col(AIAPIUsage.user_id), *_usage_aggregate_columns("tmpl_"))
         .where(*_monitoring_filters(USAGE_SOURCE_PLATFORM, start_date, end_date))
-        .group_by(AIAPIUsage.user_id)
+        .group_by(col(AIAPIUsage.user_id))
         .subquery("template_usage")
     )
 
@@ -1832,24 +1891,25 @@ def list_users_usage(
         .union(select(tmpl_sub.c.user_id.label("user_id")))
         .subquery("active_ai_users")
     )
+    combined_usage_columns: tuple[Any, ...] = (
+        col(User.id),
+        col(User.email),
+        col(User.full_name),
+        proxy_calls.label("proxy_calls"),
+        proxy_input.label("proxy_input"),
+        proxy_output.label("proxy_output"),
+        proxy_success.label("proxy_success"),
+        proxy_duration_count.label("proxy_duration_count"),
+        proxy_duration_sum.label("proxy_duration_sum"),
+        template_calls.label("template_calls"),
+        template_input.label("template_input"),
+        template_output.label("template_output"),
+        template_success.label("template_success"),
+        template_duration_count.label("template_duration_count"),
+        template_duration_sum.label("template_duration_sum"),
+    )
     usage_query = (
-        select(
-            User.id,
-            User.email,
-            User.full_name,
-            proxy_calls.label("proxy_calls"),
-            proxy_input.label("proxy_input"),
-            proxy_output.label("proxy_output"),
-            proxy_success.label("proxy_success"),
-            proxy_duration_count.label("proxy_duration_count"),
-            proxy_duration_sum.label("proxy_duration_sum"),
-            template_calls.label("template_calls"),
-            template_input.label("template_input"),
-            template_output.label("template_output"),
-            template_success.label("template_success"),
-            template_duration_count.label("template_duration_count"),
-            template_duration_sum.label("template_duration_sum"),
-        )
+        select(*combined_usage_columns)
         .select_from(User)
         .join(active_users, active_users.c.user_id == User.id)
         .outerjoin(proxy_sub, proxy_sub.c.user_id == User.id)
@@ -1861,7 +1921,9 @@ def list_users_usage(
         or 0
     )
     rows = session.exec(
-        usage_query.order_by(total_tokens.desc(), User.id).offset(skip).limit(limit)
+        usage_query.order_by(total_tokens.desc(), col(User.id))
+        .offset(skip)
+        .limit(limit)
     ).all()
 
     results = []

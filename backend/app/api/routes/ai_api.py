@@ -96,14 +96,20 @@ def list_all_ai_api_requests(
     )
 
 
-@router.post("/requests/bulk-reject", response_model=AIAPIRequestsPublic)
-def bulk_reject_ai_api_requests(
-    review: AIAPIRequestBulkReject,
+@router.post(
+    "/requests/bulk-reject",
+    response_model=AIAPIRequestsPublic,
+    openapi_extra=limited_json_openapi(AIAPIRequestBulkReject),
+)
+async def bulk_reject_ai_api_requests(
+    request: Request,
     session: SessionDep,
     current_user: AIAPIReviewerUser,
 ) -> Any:
     """以同一理由原子駁回多筆仍在待審核狀態的申請。"""
-    return ai_gateway_service.bulk_reject_requests(
+    review = await parse_limited_json(request, AIAPIRequestBulkReject)
+    return await run_in_threadpool(
+        ai_gateway_service.bulk_reject_requests,
         session=session,
         request_ids=review.request_ids,
         review_comment=review.review_comment,
@@ -122,14 +128,20 @@ def get_ai_api_request(
     )
 
 
-@router.post("/requests/{request_id}/review", response_model=AIAPIRequestPublic)
-def review_ai_api_request(
+@router.post(
+    "/requests/{request_id}/review",
+    response_model=AIAPIRequestPublic,
+    openapi_extra=limited_json_openapi(AIAPIRequestReview),
+)
+async def review_ai_api_request(
     request_id: uuid.UUID,
-    review: AIAPIRequestReview,
+    request: Request,
     session: SessionDep,
     current_user: AIAPIReviewerUser,
 ) -> Any:
-    return ai_gateway_service.review_request(
+    review = await parse_limited_json(request, AIAPIRequestReview)
+    return await run_in_threadpool(
+        ai_gateway_service.review_request,
         session=session,
         request_id=request_id,
         review_data=review,
@@ -238,10 +250,12 @@ def get_my_ai_api_credential(
 )
 def rotate_my_ai_api_credential(
     credential_id: uuid.UUID,
+    response: Response,
     session: SessionDep,
     current_user: CurrentUser,
 ) -> Any:
     """輪替金鑰；僅擁有者本人取得新金鑰明文。"""
+    response.headers["Cache-Control"] = "no-store"
     return ai_gateway_service.rotate_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )
@@ -258,14 +272,20 @@ def delete_my_ai_api_credential(
     )
 
 
-@router.patch("/credentials/{credential_id}", response_model=AIAPICredentialPublic)
-def update_my_ai_api_credential(
+@router.patch(
+    "/credentials/{credential_id}",
+    response_model=AIAPICredentialPublic,
+    openapi_extra=limited_json_openapi(AIAPICredentialUpdate),
+)
+async def update_my_ai_api_credential(
     credential_id: uuid.UUID,
-    update_data: AIAPICredentialUpdate,
+    request: Request,
     session: SessionDep,
     current_user: CurrentUser,
 ) -> Any:
-    return ai_gateway_service.update_credential_name(
+    update_data = await parse_limited_json(request, AIAPICredentialUpdate)
+    return await run_in_threadpool(
+        ai_gateway_service.update_credential_name,
         session=session,
         credential_id=credential_id,
         name=update_data.api_key_name,

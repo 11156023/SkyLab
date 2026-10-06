@@ -204,6 +204,8 @@ async def test_stream_probe_success_headers_release_other_model_slots_before_str
 
 
 async def test_catalogue_uses_service_identity_and_bounds_model_state(monkeypatch):
+    monkeypatch.setattr(relay, "_relay_stopping", False)
+    monkeypatch.setattr(relay, "_models_cache_loop", None)
     monkeypatch.setattr(ai_metrics, "_known_models", set())
     names = [f"trusted-{index}" for index in range(150)]
     calls = []

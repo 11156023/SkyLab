@@ -276,17 +276,18 @@ def test_ai_proxy_chat_enforces_the_credential_rate_limit(
     async def fake_check_rate_limit(
         *,
         redis: object,
-        credential_id: str,
+        request_id: str,
+        legacy_credential_ids: tuple[str, ...],
         limit: int,
         window_seconds: int,
     ) -> tuple[bool, dict[str, Any]]:
         del redis
-        checked_credentials.append((credential_id, limit))
-        current = counts.get(credential_id, 0)
+        checked_credentials.append((request_id, limit))
+        current = counts.get(request_id, 0)
         allowed = current < limit
         if allowed:
             current += 1
-            counts[credential_id] = current
+            counts[request_id] = current
         return allowed, {
             "limit": limit,
             "current": current,
@@ -326,4 +327,5 @@ def test_ai_proxy_chat_enforces_the_credential_rate_limit(
     assert second.status_code == 429
     assert second.json()["detail"]["error"] == "rate_limit_exceeded"
     assert len(captured["chat_requests"]) == 1
-    assert checked_credentials == [(str(credential_id), 1), (str(credential_id), 1)]
+    request_id = db.get(AIAPICredential, credential_id).request_id
+    assert checked_credentials == [(str(request_id), 1), (str(request_id), 1)]

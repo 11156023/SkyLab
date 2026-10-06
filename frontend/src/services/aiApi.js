@@ -60,7 +60,7 @@ export const AiApiService = {
   rotateCredential(credentialId) {
     return apiPost(`${BASE}/credentials/${credentialId}/rotate`, {});
   },
-  revokeCredential(credentialId) {
+  deleteCredential(credentialId) {
     return apiDelete(`${BASE}/credentials/${credentialId}`);
   },
   updateCredential(credentialId, body) {

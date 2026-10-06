@@ -1,6 +1,6 @@
 import uuid
 
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, func, select, update
 
 from app.core.authorizers import can_manage_users, require_user_manage
 from app.core.config import settings
@@ -14,19 +14,10 @@ from app.exceptions import (
 )
 from app.models import (
     AIAPICredential,
-    AIAPIRequest,
-    AIAPIUsage,
-    AlertEvent,
-    AuditLog,
-    DeletionRequest,
-    FirewallLayout,
-    MiningIncident,
-    ResourceQuota,
-    SpecChangeRequest,
     TeachingClass,
     User,
     UserRole,
-    VMRequest,
+    get_datetime_utc,
 )
 from app.repositories import resource as resource_repo
 from app.repositories import user as user_repo
@@ -43,9 +34,15 @@ from app.utils import generate_new_account_email, send_email
 
 
 def list_users(*, session: Session, skip: int = 0, limit: int = 100) -> UsersPublic:
-    count = session.exec(select(func.count()).select_from(User)).one()
+    count = session.exec(
+        select(func.count()).select_from(User).where(col(User.deleted_at).is_(None))
+    ).one()
     users = session.exec(
-        select(User).order_by(User.created_at.desc()).offset(skip).limit(limit)
+        select(User)
+        .where(col(User.deleted_at).is_(None))
+        .order_by(User.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     ).all()
     return UsersPublic(data=users, count=count)
 
@@ -65,95 +62,18 @@ def _prepare_user_delete(*, session: Session, user: User) -> None:
     if teaching_class is not None:
         raise ConflictError(t("user.deleteTeacherHasClasses"))
 
-    vm_requests = session.exec(
-        select(VMRequest).where(VMRequest.user_id == user.id)
-    ).all()
-    for request in vm_requests:
-        session.delete(request)
-
-    spec_change_requests = session.exec(
-        select(SpecChangeRequest).where(SpecChangeRequest.user_id == user.id)
-    ).all()
-    for request in spec_change_requests:
-        session.delete(request)
-
-    reviewed_vm_requests = session.exec(
-        select(VMRequest).where(VMRequest.reviewer_id == user.id)
-    ).all()
-    for request in reviewed_vm_requests:
-        request.reviewer_id = None
-        session.add(request)
-
-    reviewed_spec_requests = session.exec(
-        select(SpecChangeRequest).where(SpecChangeRequest.reviewer_id == user.id)
-    ).all()
-    for request in reviewed_spec_requests:
-        request.reviewer_id = None
-        session.add(request)
-
-    audit_logs = session.exec(
-        select(AuditLog).where(AuditLog.user_id == user.id)
-    ).all()
-    for log in audit_logs:
-        log.user_id = None
-        session.add(log)
-
-    # 以下幾張表都有指向 user.id 的外鍵，卻沒有對應的 ondelete 規則；
-    # 不先清掉，刪帳號會在 commit 時被資料庫的 FK 約束擋下（500）。
-    # 刪除順序照外鍵相依：usage → credential → request。
-    for usage in session.exec(
-        select(AIAPIUsage).where(AIAPIUsage.user_id == user.id)
-    ).all():
-        session.delete(usage)
-    for credential in session.exec(
-        select(AIAPICredential).where(AIAPICredential.user_id == user.id)
-    ).all():
-        session.delete(credential)
-    for ai_request in session.exec(
-        select(AIAPIRequest).where(AIAPIRequest.user_id == user.id)
-    ).all():
-        session.delete(ai_request)
-    # 審核過別人申請的紀錄要留著，只清掉審核人引用
-    for ai_request in session.exec(
-        select(AIAPIRequest).where(AIAPIRequest.reviewer_id == user.id)
-    ).all():
-        ai_request.reviewer_id = None
-        session.add(ai_request)
-
-    for quota in session.exec(
-        select(ResourceQuota).where(ResourceQuota.user_id == user.id)
-    ).all():
-        session.delete(quota)
-    for deletion_request in session.exec(
-        select(DeletionRequest).where(DeletionRequest.user_id == user.id)
-    ).all():
-        session.delete(deletion_request)
-    # 防火牆拓樸的節點位置是每位使用者的個人版面設定，在這裡明確整批清掉；
-    # 其中 Internet（gateway）節點的 vmid 為 NULL，不會被 resources 的
-    # CASCADE 帶走。
-    for layout in session.exec(
-        select(FirewallLayout).where(FirewallLayout.user_id == user.id)
-    ).all():
-        session.delete(layout)
-
-    # 告警事件本身與帳號無關，只清掉「誰確認的」
-    for alert in session.exec(
-        select(AlertEvent).where(AlertEvent.acknowledged_by == user.id)
-    ).all():
-        alert.acknowledged_by = None
-        session.add(alert)
-
-    # mining_incidents.user_id 不可為 NULL（事件本來就是綁當事人的存證），
-    # 帳號刪除時事件一併刪除；覆核者只清引用。
-    for incident in session.exec(
-        select(MiningIncident).where(MiningIncident.user_id == user.id)
-    ).all():
-        session.delete(incident)
-    for incident in session.exec(
-        select(MiningIncident).where(MiningIncident.reviewed_by == user.id)
-    ).all():
-        incident.reviewed_by = None
-        session.add(incident)
+    # 保留 user／credential 主鍵與所有紀錄，供已接受的 AI 呼叫收尾入帳。
+    deleted_at = get_datetime_utc()
+    user.deleted_at = deleted_at
+    user.is_active = False
+    user.token_version += 1
+    session.add(user)
+    session.exec(
+        update(AIAPICredential)
+        .where(col(AIAPICredential.user_id) == user.id)
+        .where(col(AIAPICredential.revoked_at).is_(None))
+        .values(revoked_at=deleted_at)
+    )
 
 
 def create_user(
@@ -211,7 +131,7 @@ def get_user_by_id(
     if user == current_user:
         return user
     require_user_manage(current_user)
-    if not user:
+    if not user or user.deleted_at is not None:
         raise NotFoundError(t("user.notFound"))
     return user
 
@@ -244,8 +164,10 @@ def update_user(
     user_in: UserUpdate,
     current_user_id: uuid.UUID,
 ) -> User:
-    db_user = session.get(User, user_id)
-    if not db_user:
+    db_user = session.get(
+        User, user_id, populate_existing=True, with_for_update={"key_share": True}
+    )
+    if not db_user or db_user.deleted_at is not None:
         raise NotFoundError(t("user.idNotFound"))
     # LDAP 帳號的密碼歸目錄管：設本地密碼登不進去，只會造成困惑（稽核 #9）
     if user_in.password and db_user.auth_source == "ldap":
@@ -291,11 +213,17 @@ def update_user(
 
 
 def delete_user(*, session: Session, user_id: uuid.UUID, current_user: User) -> None:
-    user = session.get(User, user_id)
+    # NO KEY UPDATE 與更新／核發金鑰互斥，但不擋住晚到 usage 的外鍵檢查。
+    user = session.get(
+        User, user_id, populate_existing=True, with_for_update={"key_share": True}
+    )
     if not user:
         raise NotFoundError(t("user.notFound"))
-    if user == current_user:
+    if user.id == current_user.id:
         raise PermissionDeniedError(t("user.selfDeleteForbidden"))
+
+    if user.deleted_at is not None:
+        return
 
     try:
         _prepare_user_delete(session=session, user=user)
@@ -303,10 +231,9 @@ def delete_user(*, session: Session, user_id: uuid.UUID, current_user: User) -> 
             session=session,
             user_id=current_user.id,
             action="user_delete",
-            details=f"Deleted user: {user.email}",
+            details=f"Deleted user (records retained): {user.email}",
             commit=False,
         )
-        session.delete(user)
         session.commit()
     except Exception:
         session.rollback()
@@ -374,16 +301,23 @@ def delete_me(*, session: Session, current_user: User) -> None:
     if can_manage_users(current_user):
         raise PermissionDeniedError(t("user.selfDeleteForbidden"))
 
+    user = session.get(
+        User, current_user.id, populate_existing=True, with_for_update={"key_share": True}
+    )
+    if user is None:
+        raise NotFoundError(t("user.notFound"))
+    if user.deleted_at is not None:
+        return
+
     try:
-        _prepare_user_delete(session=session, user=current_user)
+        _prepare_user_delete(session=session, user=user)
         audit_service.log_action(
             session=session,
-            user_id=None,
+            user_id=user.id,
             action="user_delete",
-            details=f"Deleted own account: {current_user.email}",
+            details=f"Deleted own account (records retained): {user.email}",
             commit=False,
         )
-        session.delete(current_user)
         session.commit()
     except Exception:
         session.rollback()

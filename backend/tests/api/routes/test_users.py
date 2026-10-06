@@ -492,12 +492,12 @@ def test_delete_user_me(client: TestClient, db: Session) -> None:
     assert r.status_code == 200
     deleted_user = r.json()
     assert deleted_user["message"] == "User deleted successfully"
+    db.expire_all()
     result = db.exec(select(User).where(User.id == user_id)).first()
-    assert result is None
-
-    user_query = select(User).where(User.id == user_id)
-    user_db = db.execute(user_query).first()
-    assert user_db is None
+    assert result is not None
+    assert result.deleted_at is not None
+    assert result.is_active is False
+    assert client.get(f"{settings.API_V1_STR}/users/me", headers=headers).status_code == 401
 
 
 def test_delete_user_me_as_superuser(
@@ -529,8 +529,11 @@ def test_delete_user_super_user(
     assert r.status_code == 200
     deleted_user = r.json()
     assert deleted_user["message"] == "User deleted successfully"
+    db.expire_all()
     result = db.exec(select(User).where(User.id == user_id)).first()
-    assert result is None
+    assert result is not None
+    assert result.deleted_at is not None
+    assert result.is_active is False
 
 
 def test_delete_user_not_found(

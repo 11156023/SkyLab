@@ -2,7 +2,9 @@ from typing import Any
 
 from sqlmodel import Session, func, select
 
+from app.core.i18n import t
 from app.core.security import get_password_hash, verify_password
+from app.exceptions import NotFoundError
 from app.models import User, UserRole
 from app.schemas import UserCreate, UserUpdate
 
@@ -18,6 +20,13 @@ def create_user(*, session: Session, user_create: UserCreate) -> User:
 
 
 def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
+    # 刪除與更新共用 user 列鎖，避免舊的管理員表單重新啟用已刪除帳號。
+    stored = session.get(
+        User, db_user.id, populate_existing=True, with_for_update={"key_share": True}
+    )
+    if stored is None or stored.deleted_at is not None:
+        raise NotFoundError(t("user.idNotFound"))
+    db_user = stored
     user_data = user_in.model_dump(exclude_unset=True)
     if user_data.get("role", ...) is None:
         user_data.pop("role")  # role 欄位 NOT NULL；明確傳 null 視為不變更

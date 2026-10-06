@@ -96,7 +96,7 @@ def test_model_is_forwarded_without_a_campus_allowlist() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ai_proxy_rate_limit_uses_credential_identity(monkeypatch) -> None:
+async def test_ai_proxy_rate_limit_uses_approved_request_identity(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     async def fake_redis() -> object:
@@ -110,21 +110,31 @@ async def test_ai_proxy_rate_limit_uses_credential_identity(monkeypatch) -> None
     monkeypatch.setattr(ai_proxy, "check_rate_limit_sliding_window", fake_check)
 
     await ai_proxy._enforce_rate_limit(
-        credential=SimpleNamespace(id="credential-1", rate_limit=7)
+        credential=SimpleNamespace(
+            id="credential-1",
+            request_id="request-1",
+            _rate_limit_legacy_ids=("credential-1",),
+            rate_limit=7,
+        )
     )
 
-    assert captured["credential_id"] == "credential-1"
+    assert captured["request_id"] == "request-1"
+    assert captured["legacy_credential_ids"] == ("credential-1",)
     assert captured["limit"] == 7
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_status_reads_the_same_credential_bucket(monkeypatch) -> None:
+async def test_rate_limit_status_reads_the_same_approved_request_bucket(
+    monkeypatch,
+) -> None:
     captured: dict[str, object] = {}
 
     async def fake_redis() -> object:
         return object()
 
-    async def fake_peek(_redis, *, key: str, window_seconds: int) -> int:
+    async def fake_peek(
+        _redis, *, key: str, window_seconds: int, legacy_keys: tuple[str, ...]
+    ) -> int:
         captured["key"] = key
         captured["window_seconds"] = window_seconds
         return 3
@@ -135,11 +145,16 @@ async def test_rate_limit_status_reads_the_same_credential_bucket(monkeypatch) -
     result = await ai_proxy.get_rate_limit_status(
         (
             SimpleNamespace(id="user-1"),
-            SimpleNamespace(id="credential-1", rate_limit=7),
+            SimpleNamespace(
+                id="credential-1",
+                request_id="request-1",
+                _rate_limit_legacy_ids=("credential-1",),
+                rate_limit=7,
+            ),
         )
     )
 
-    assert captured["key"] == "credential:credential-1"
+    assert captured["key"] == "ai-request:request-1"
     assert result.current_usage == 3
     assert result.remaining == 4
 
@@ -447,6 +462,103 @@ async def test_stream_completion_records_usage_and_first_token(monkeypatch) -> N
     assert queue.active == 0
 
 
+@pytest.mark.parametrize(
+    ("request_type", "chunks", "expected_status", "expected_error"),
+    [
+        (
+            "chat_completion",
+            [b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'],
+            "error",
+            "incomplete_stream",
+        ),
+        (
+            "response",
+            [b'data: {"type":"response.completed","response":{}}\n\n'],
+            "success",
+            None,
+        ),
+        (
+            "response",
+            [b'event: response.failed\ndata: {"type":"response.failed"}\n\n'],
+            "error",
+            "upstream_stream_error",
+        ),
+        (
+            "completion",
+            [b'data: {"error":{"message":"synthetic"}}\n\ndata: [DONE]\n\n'],
+            "error",
+            "upstream_stream_error",
+        ),
+        (
+            "completion",
+            [b'data: {"type":[],"choices":[]}\n\ndata: [DONE]\n\n'],
+            "success",
+            None,
+        ),
+        (
+            "chat_completion",
+            [b"data: [DONE]\r\r"],
+            "success",
+            None,
+        ),
+        (
+            "response",
+            [b"event: response.completed"],
+            "error",
+            "incomplete_stream",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_stream_terminal_accounting_preserves_upstream_bytes(
+    monkeypatch, request_type, chunks, expected_status, expected_error
+) -> None:
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for chunk in chunks:
+                yield chunk
+
+    recorded: dict[str, object] = {}
+    monkeypatch.setattr(
+        relay_service,
+        "record_usage_safely",
+        lambda **kwargs: recorded.update(kwargs),
+    )
+    upstream = httpx.Response(
+        200,
+        headers={"content-type": "text/event-stream"},
+        request=httpx.Request("POST", "http://upstream/v1/generation"),
+        stream=Stream(),
+    )
+    queue = relay_service.AdmissionQueue(
+        max_active=1, max_waiting=0, wait_timeout_seconds=1
+    )
+    lease = await queue.acquire()
+
+    relayed = b"".join(
+        [
+            chunk
+            async for chunk in relay_service.stream_upstream_response(
+                upstream=upstream,
+                admission_lease=lease,
+                user=SimpleNamespace(id="user-1"),
+                credential=SimpleNamespace(id="credential-1"),
+                model_name="requested",
+                request_type=request_type,
+                request_id="request-1",
+                upstream_request_id=None,
+                started_at=time.monotonic(),
+                started_at_utc=datetime.now(timezone.utc),
+            )
+        ]
+    )
+
+    assert relayed == b"".join(chunks)
+    assert recorded["record_status"] == expected_status
+    assert recorded["error_message"] == expected_error
+    assert lease.released is True
+
+
 @pytest.mark.asyncio
 async def test_cancelled_stream_still_records_partial_observation(monkeypatch) -> None:
     class Stream(httpx.AsyncByteStream):
@@ -497,6 +609,93 @@ async def test_cancelled_stream_still_records_partial_observation(monkeypatch) -
     assert isinstance(recorded["first_token_ms"], int)
     assert lease.released is True
     assert queue.active == 0
+
+
+@pytest.mark.asyncio
+async def test_models_singleflight_returns_neutral_caller_owned_responses(
+    monkeypatch,
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    upstream_requests: list[httpx.Request] = []
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        upstream_requests.append(request)
+        started.set()
+        await release.wait()
+        return httpx.Response(
+            200,
+            json={"data": [{"id": "model"}]},
+            headers={"x-request-id": "upstream-fetch-id"},
+        )
+
+    def models_request(request_id: str) -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "scheme": "http",
+                "path": "/api/v1/ai-proxy/models",
+                "query_string": b"",
+                "headers": [(b"x-request-id", request_id.encode())],
+                "server": ("test", 80),
+            }
+        )
+
+    monkeypatch.setattr(relay_service, "_models_cache_loop", None)
+    monkeypatch.setattr(relay_service, "_relay_stopping", False)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        monkeypatch.setattr(relay_service, "_get_relay_http_client", lambda: client)
+        first_task = asyncio.create_task(
+            relay_service.list_models(
+                models_request("caller-one"), user=SimpleNamespace(id="user-1")
+            )
+        )
+        await started.wait()
+        second_task = asyncio.create_task(
+            relay_service.list_models(
+                models_request("caller-two"), user=SimpleNamespace(id="user-2")
+            )
+        )
+        await asyncio.sleep(0)
+        release.set()
+        first, second = await asyncio.gather(first_task, second_task)
+        cached = await relay_service.list_models(
+            models_request("caller-three"), user=SimpleNamespace(id="user-3")
+        )
+
+    assert len(upstream_requests) == 1
+    assert "x-request-id" not in upstream_requests[0].headers
+    assert len({id(first), id(second), id(cached)}) == 3
+    assert all("x-request-id" not in response.headers for response in (first, second, cached))
+
+
+@pytest.mark.asyncio
+async def test_models_rejects_non_finite_upstream_json(monkeypatch) -> None:
+    async def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b'{"data":[{"id":"model","score":NaN}]}',
+            headers={"content-type": "application/json"},
+        )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/api/v1/ai-proxy/models",
+            "query_string": b"",
+            "headers": [],
+            "server": ("test", 80),
+        }
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        monkeypatch.setattr(relay_service, "_get_relay_http_client", lambda: client)
+        response = await relay_service._fetch_models_response(request)
+
+    assert response.status_code == 502
+    assert json.loads(response.body)["error"]["code"] == "invalid_upstream_response"
 
 
 def test_generation_relay_replaces_authorization_and_preserves_query(
@@ -558,7 +757,12 @@ def test_generation_relay_replaces_authorization_and_preserves_query(
         query=b"include=usage",
     )
     user = SimpleNamespace(id="user-1")
-    credential = SimpleNamespace(id="credential-1", rate_limit=None)
+    credential = SimpleNamespace(
+        id="credential-1",
+        request_id="request-1",
+        _rate_limit_legacy_ids=("credential-1",),
+        rate_limit=None,
+    )
 
     async def invoke():
         response = await ai_proxy._relay_generation(
@@ -640,7 +844,12 @@ def test_only_stream_responses_disable_proxy_buffering(
             request=request,
             user_and_credential=(
                 SimpleNamespace(id="user-1"),
-                SimpleNamespace(id="credential-1", rate_limit=None),
+                SimpleNamespace(
+                    id="credential-1",
+                    request_id="request-1",
+                    _rate_limit_legacy_ids=("credential-1",),
+                    rate_limit=None,
+                ),
             ),
         )
     )
