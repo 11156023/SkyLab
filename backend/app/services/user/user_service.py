@@ -404,7 +404,7 @@ def confirm_email_change(*, session: Session, current_user: User, token: str) ->
         audit_service.log_action(
             session=session,
             user_id=current_user.id,
-            action="user_email_change",
+            action="user_update",
             details=f"Changed own email to {new_email}",
             commit=False,
         )

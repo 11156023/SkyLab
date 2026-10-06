@@ -20,7 +20,7 @@ def test_email_change_updates_only_after_verification_and_rejects_replay() -> No
     with (
         patch("app.services.user.user_service.send_email", side_effect=lambda **kw: sent.append(kw)),
         patch("app.services.user.user_service.user_repo.get_user_by_email", return_value=None),
-        patch("app.services.user.user_service.audit_service.log_action"),
+        patch("app.services.user.user_service.audit_service.log_action") as log_action,
         patch.object(settings, "SMTP_HOST", "smtp.example.com"),
         patch.object(settings, "EMAILS_FROM_EMAIL", "sender@example.com"),
     ):
@@ -41,6 +41,7 @@ def test_email_change_updates_only_after_verification_and_rejects_replay() -> No
         user_service.confirm_email_change_from_link(session=session, token=token)
         assert user.email == "new@example.com"
         session.commit.assert_called_once()
+        assert log_action.call_args.kwargs["action"] == "user_update"
 
         with pytest.raises(BadRequestError):
             user_service.confirm_email_change_from_link(session=session, token=token)
