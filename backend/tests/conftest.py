@@ -71,6 +71,7 @@ def _isolate_system_ai_adherence_checks(monkeypatch: pytest.MonkeyPatch) -> None
         AdherenceVerdict,
     )
     from app.ai.teacher_judge import service as teacher_judge_service
+    from app.api.routes import ai_template_recommendation
 
     async def allow(*_args, **_kwargs) -> AdherenceResult:
         return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
@@ -78,6 +79,7 @@ def _isolate_system_ai_adherence_checks(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(pve_chat, "check_adherence", allow)
     if hasattr(teacher_judge_service, "check_adherence"):
         monkeypatch.setattr(teacher_judge_service, "check_adherence", allow)
+    monkeypatch.setattr(ai_template_recommendation, "check_adherence", allow)
 
 
 @pytest.fixture(autouse=True)

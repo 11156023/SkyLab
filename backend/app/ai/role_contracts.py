@@ -97,6 +97,12 @@ class CandidateDecision(BaseModel):
 class AdherenceResult:
     verdict: AdherenceVerdict
     reason_code: AdherenceReason
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    elapsed_seconds: float = 0.0
+    usage_reported: bool = False
+    response_model: str | None = None
 
     def __post_init__(self) -> None:
         if self.verdict is AdherenceVerdict.ALLOW:
@@ -114,6 +120,10 @@ class AdherenceResult:
             }
         if not valid:
             raise ValueError("verdict and reason_code do not form a valid pair")
+        if min(self.prompt_tokens, self.completion_tokens, self.total_tokens) < 0:
+            raise ValueError("token usage must not be negative")
+        if self.elapsed_seconds < 0:
+            raise ValueError("elapsed_seconds must not be negative")
 
     @property
     def allowed(self) -> bool:

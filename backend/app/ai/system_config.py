@@ -27,15 +27,15 @@ class SystemAIEnvSettings(BaseSettings):
 
 class SystemAIVLLMConfig(BaseModel):
     enable_thinking: bool = False
-    timeout: int = 30
+    timeout: int = Field(default=30, ge=1, le=300)
     temperature: float = 0.6
     chat_temperature: float | None = None
     top_p: float = 0.95
     top_k: int = 20
     min_p: float = 0.0
-    max_tokens: int = 1600
-    chat_max_tokens: int | None = None
-    chat_max_tool_rounds: int | None = None
+    max_tokens: int = Field(default=1600, ge=1, le=8192)
+    chat_max_tokens: int | None = Field(default=None, ge=1, le=8192)
+    chat_max_tool_rounds: int | None = Field(default=None, ge=1, le=6)
     presence_penalty: float | None = None
     repetition_penalty: float = 1.0
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from time import perf_counter
 from typing import Any, Protocol
 
 from app.ai.role_contracts import (
@@ -17,7 +18,7 @@ from app.ai.utils import apply_thinking_control, strip_think_tags
 
 logger = logging.getLogger(__name__)
 
-_MAX_TOKENS = 128
+ADHERENCE_MAX_TOKENS = 128
 _TIMEOUT_SECONDS = 20.0
 
 _SYSTEM_PROMPT = """你是 SkyLab 任務遵循檢查器，沒有工具權限，也不回答使用者問題。
@@ -58,14 +59,50 @@ class ChatCompletionClient(Protocol):
     ) -> dict[str, Any]: ...
 
 
-def _failed_result() -> AdherenceResult:
+def _usage_fields(
+    response: dict[str, Any], elapsed_seconds: float, *, conservative: bool
+) -> dict[str, Any]:
+    raw_usage = response.get("usage")
+    usage = raw_usage if isinstance(raw_usage, dict) else {}
+
+    def nonnegative_int(value: Any) -> int | None:
+        try:
+            return max(int(value), 0) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    prompt_tokens = nonnegative_int(usage.get("prompt_tokens")) or 0
+    reported_completion = nonnegative_int(usage.get("completion_tokens"))
+    usage_reported = isinstance(raw_usage, dict) and reported_completion is not None
+    completion_tokens = reported_completion or 0
+    if conservative and reported_completion is None:
+        completion_tokens = ADHERENCE_MAX_TOKENS
+    total_tokens = nonnegative_int(usage.get("total_tokens"))
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "elapsed_seconds": max(elapsed_seconds, 0.0),
+        "usage_reported": usage_reported,
+        "response_model": str(response.get("model") or "")[:255] or None,
+    }
+
+
+def _failed_result(
+    response: dict[str, Any] | None = None, elapsed_seconds: float = 0.0
+) -> AdherenceResult:
     return AdherenceResult(
         verdict=AdherenceVerdict.INSUFFICIENT_CONTEXT,
         reason_code=AdherenceReason.CHECK_FAILED,
+        **_usage_fields(response or {}, elapsed_seconds, conservative=True),
     )
 
 
-def _parse_result(response: dict[str, Any]) -> AdherenceResult:
+def _parse_result(
+    response: dict[str, Any], *, elapsed_seconds: float
+) -> AdherenceResult:
     choices = response.get("choices")
     if not isinstance(choices, list) or len(choices) != 1:
         raise ValueError("adherence response must contain exactly one choice")
@@ -82,6 +119,7 @@ def _parse_result(response: dict[str, Any]) -> AdherenceResult:
     return AdherenceResult(
         verdict=AdherenceVerdict(parsed["verdict"]),
         reason_code=AdherenceReason(parsed["reason_code"]),
+        **_usage_fields(response, elapsed_seconds, conservative=True),
     )
 
 
@@ -129,7 +167,7 @@ async def check_adherence(
         "temperature": 0.2,
         "top_p": 0.95,
         "top_k": 64,
-        "max_tokens": _MAX_TOKENS,
+        "max_tokens": ADHERENCE_MAX_TOKENS,
         "stream": False,
         "response_format": {
             "type": "json_schema",
@@ -140,13 +178,18 @@ async def check_adherence(
         },
     }
     apply_thinking_control(payload, enable_thinking=False)
+    response: dict[str, Any] = {}
+    started = perf_counter()
     try:
         response = await client.create_chat_completion(
             payload,
             timeout=_TIMEOUT_SECONDS,
             request_id=request_id,
         )
-        return _parse_result(response)
+        return _parse_result(
+            response,
+            elapsed_seconds=perf_counter() - started,
+        )
     except Exception as exc:  # pragma: no cover - caller behavior is deterministic
         logger.warning("Task-adherence check failed closed: %s", exc)
-        return _failed_result()
+        return _failed_result(response, perf_counter() - started)

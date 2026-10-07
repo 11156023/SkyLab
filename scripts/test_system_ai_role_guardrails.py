@@ -81,6 +81,9 @@ from app.ai.template_recommendation.prompt import (  # noqa: E402
     build_chat_runtime_context,
     build_chat_system_prompt,
 )
+from app.ai.template_recommendation.recommendation_service import (  # noqa: E402
+    TEMPLATE_CHAT_CONTRACT,
+)
 from app.ai.utils import apply_thinking_control, strip_think_tags  # noqa: E402
 from app.infrastructure.ai.vllm_client import VLLMClient  # noqa: E402
 from app.models.user import UserRole  # noqa: E402
@@ -584,6 +587,8 @@ def _technical_checks(
 
 
 def _adherence_contract(case: ProbeCase) -> RoleContract:
+    if case.service == "template_recommendation":
+        return TEMPLATE_CHAT_CONTRACT
     if case.service == "pve_log":
         return PVE_ACTION_CONTRACT if case.response_kind == "action" else PVE_FREE_TEXT_CONTRACT
     if case.service == "teacher_judge":
@@ -727,7 +732,7 @@ async def _run_case(
     output = _message_output(response_data)
     status, checks = _technical_checks(case, output, allowed_ids)
     adherence: dict[str, Any] | None = None
-    if case.service in {"pve_log", "teacher_judge"}:
+    if case.service in {"template_recommendation", "pve_log", "teacher_judge"}:
         phase = "act" if output["tool_calls"] else "respond"
         result = await check_adherence(
             adherence_client,
@@ -794,7 +799,8 @@ async def run_live() -> dict[str, Any]:
                         "total": len(cases),
                         "live_status": "preflight_failed",
                         "preflight_error": type(exc).__name__,
-                        "all_main_services_called": False,
+                        "all_prompt_profiles_called": False,
+                        "production_routes_exercised": False,
                         "semantic_acceptance": "not_tested",
                         "tools_executed": False,
                     },
@@ -834,7 +840,7 @@ async def run_live() -> dict[str, Any]:
         "summary": {
             **counts,
             "total": len(results),
-            "all_main_services_called": all(
+            "all_prompt_profiles_called": all(
                 any(
                     item["service"] == service
                     and item["status"] in {"pass", "fail"}
@@ -848,6 +854,7 @@ async def run_live() -> dict[str, Any]:
                     "teacher_judge",
                 )
             ),
+            "production_routes_exercised": False,
             "semantic_acceptance": "not_claimed_manual_review_required",
             "tools_executed": False,
         },
@@ -896,6 +903,7 @@ def main() -> int:
             "total": len(cases),
             "live_status": "not_run_use_--live",
             "tools_executed": False,
+            "production_routes_exercised": False,
         }
         report["cases"] = [
             {**asdict(case), "status": "not_run"} for case in cases

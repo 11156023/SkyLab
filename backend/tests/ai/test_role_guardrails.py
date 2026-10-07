@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
-from app.ai.adherence_check import check_adherence
+from app.ai.adherence_check import ADHERENCE_MAX_TOKENS, check_adherence
 from app.ai.role_contracts import (
     AdherenceReason,
     AdherenceVerdict,
@@ -15,6 +16,7 @@ from app.ai.role_contracts import (
     parse_candidate_decision,
     validate_candidate_ids,
 )
+from app.ai.system_config import SystemAIVLLMConfig
 
 
 class FakeClient:
@@ -67,6 +69,14 @@ def test_candidate_schema_is_closed_and_bounded() -> None:
     assert schema["properties"]["candidate_ids"]["items"]["enum"] == ["a", "b"]
 
 
+def test_system_ai_config_rejects_unsafe_generation_limits() -> None:
+    assert SystemAIVLLMConfig(max_tokens=8192, chat_max_tool_rounds=6)
+    with pytest.raises(ValidationError):
+        SystemAIVLLMConfig(max_tokens=8193)
+    with pytest.raises(ValidationError):
+        SystemAIVLLMConfig(chat_max_tool_rounds=7)
+
+
 @pytest.mark.asyncio
 async def test_server_rendered_never_calls_checker_model() -> None:
     client = FakeClient(RuntimeError("must not be called"))
@@ -86,7 +96,14 @@ async def test_server_rendered_never_calls_checker_model() -> None:
 
 @pytest.mark.asyncio
 async def test_free_text_allow_uses_closed_schema_without_tools() -> None:
-    client = FakeClient(_response('{"verdict":"allow","reason_code":"none"}'))
+    response = _response('{"verdict":"allow","reason_code":"none"}')
+    response["model"] = "guard-model"
+    response["usage"] = {
+        "prompt_tokens": 20,
+        "completion_tokens": 6,
+        "total_tokens": 26,
+    }
+    client = FakeClient(response)
     result = await check_adherence(
         client,
         _contract(OutputMode.MODEL_FREE_TEXT),
@@ -98,10 +115,58 @@ async def test_free_text_allow_uses_closed_schema_without_tools() -> None:
         phase="respond",
     )
     assert result.verdict is AdherenceVerdict.ALLOW
+    assert result.prompt_tokens == 20
+    assert result.completion_tokens == 6
+    assert result.total_tokens == 26
+    assert result.usage_reported is True
+    assert result.response_model == "guard-model"
     payload = client.payloads[0]
     assert "tools" not in payload
     assert payload["response_format"]["type"] == "json_schema"
     assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+@pytest.mark.asyncio
+async def test_missing_checker_usage_is_charged_conservatively() -> None:
+    result = await check_adherence(
+        FakeClient(_response('{"verdict":"allow","reason_code":"none"}')),
+        _contract(OutputMode.MODEL_FREE_TEXT),
+        "請說明欄位",
+        "這是欄位說明",
+        {},
+        "request-id",
+        model_name="model",
+        phase="respond",
+    )
+
+    assert result.completion_tokens == ADHERENCE_MAX_TOKENS
+    assert result.usage_reported is False
+
+
+@pytest.mark.asyncio
+async def test_malformed_checker_usage_is_charged_conservatively() -> None:
+    response = _response('{"verdict":"allow","reason_code":"none"}')
+    response["usage"] = {
+        "prompt_tokens": "invalid",
+        "completion_tokens": {"invalid": True},
+        "total_tokens": "invalid",
+    }
+
+    result = await check_adherence(
+        FakeClient(response),
+        _contract(OutputMode.MODEL_FREE_TEXT),
+        "請說明欄位",
+        "這是欄位說明",
+        {},
+        "request-id",
+        model_name="model",
+        phase="respond",
+    )
+
+    assert result.allowed is True
+    assert result.completion_tokens == ADHERENCE_MAX_TOKENS
+    assert result.total_tokens == ADHERENCE_MAX_TOKENS
+    assert result.usage_reported is False
 
 
 @pytest.mark.asyncio

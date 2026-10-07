@@ -11,11 +11,13 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
+from app.ai.adherence_check import check_adherence
 from app.ai.monitoring import (
     new_ai_request_id,
     record_ai_template_call,
     usage_metrics,
 )
+from app.ai.role_contracts import AdherenceResult
 from app.ai.template_recommendation import options_service
 from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.prompt import (
@@ -24,6 +26,9 @@ from app.ai.template_recommendation.prompt import (
     build_intake_focus_block,
 )
 from app.ai.template_recommendation.recommendation_service import (
+    TEMPLATE_ADHERENCE_FALLBACK,
+    TEMPLATE_CHAT_CONTRACT,
+    TEMPLATE_RECOMMENDATION_CONTRACT,
     ensure_recommendation_form_context_within_limits,
     generate_ai_plan,
     infer_intent_from_chat,
@@ -56,6 +61,41 @@ router = APIRouter(
 _MODEL_CALL_RATE_LIMIT = Depends(
     rate_limit_by_user(scope="ai-template", limit=30, window_seconds=60)
 )
+
+
+def _latest_user_request(request: ChatRequest) -> str:
+    for message in reversed(request.messages):
+        if str(message.role).strip().lower() == "user":
+            return str(message.content).strip()
+    return ""
+
+
+async def _record_adherence_call(
+    *,
+    session: Session,
+    user_id: Any,
+    call_type: str,
+    model_name: str,
+    request_id: str,
+    result: AdherenceResult,
+) -> None:
+    await _record_template_call(
+        session=session,
+        user_id=user_id,
+        call_type=call_type,
+        model_name=model_name,
+        metrics={
+            "request_id": request_id,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.total_tokens,
+            "elapsed_seconds": result.elapsed_seconds,
+            "usage_reported": result.usage_reported,
+            "response_model": result.response_model,
+        },
+        status="success" if result.allowed else "error",
+        error_message=None if result.allowed else result.reason_code.value,
+    )
 
 
 async def _record_template_call(**kwargs: Any) -> None:
@@ -200,6 +240,32 @@ async def chat(
             status="success",
         )
 
+        guard_request_id = new_ai_request_id()
+        guard_result = await check_adherence(
+            client,
+            TEMPLATE_CHAT_CONTRACT,
+            _latest_user_request(request),
+            content,
+            {
+                "resource_type": form_context.resource_type if form_context else None,
+                "focus_hint": request.focus_hint,
+                "available_gpu_count": len(gpu_options),
+            },
+            guard_request_id,
+            model_name=model_name,
+            phase="respond",
+        )
+        await _record_adherence_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="chat_adherence",
+            model_name=model_name,
+            request_id=guard_request_id,
+            result=guard_result,
+        )
+        if not guard_result.allowed:
+            content = TEMPLATE_ADHERENCE_FALLBACK
+
         elapsed_seconds = float(metrics["elapsed_seconds"])
         completion_tokens = int(metrics["completion_tokens"])
         return ChatResponse(
@@ -320,7 +386,52 @@ async def recommend(
             status="success",
         )
 
+        guard_request_id = new_ai_request_id()
+        guard_result = await check_adherence(
+            client,
+            TEMPLATE_RECOMMENDATION_CONTRACT,
+            _latest_user_request(request),
+            {
+                "summary": result.get("summary"),
+                "rule_basis": result.get("rule_basis"),
+                "recommended_path": result.get("recommended_path"),
+                "final_plan": result.get("final_plan"),
+            },
+            {
+                "goal": merged_request.goal,
+                "requires_gpu": merged_request.requires_gpu,
+                "needs_windows": merged_request.needs_windows,
+                "available_lxc_images": [
+                    item.get("value")
+                    for item in resource_options.get("lxc_os_images", [])[:20]
+                ],
+                "available_vm_template_ids": [
+                    item.get("template_id")
+                    for item in resource_options.get("vm_operating_systems", [])[:20]
+                ],
+                "available_gpu_mapping_ids": [
+                    item.get("mapping_id")
+                    for item in resource_options.get("gpu_options", [])[:20]
+                ],
+            },
+            guard_request_id,
+            model_name=model_name,
+            phase="propose",
+        )
+        await _record_adherence_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="recommend_adherence",
+            model_name=model_name,
+            request_id=guard_request_id,
+            result=guard_result,
+        )
+        if not guard_result.allowed:
+            raise HTTPException(status_code=422, detail=TEMPLATE_ADHERENCE_FALLBACK)
+
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         await _record_failed_template_call(
             session,

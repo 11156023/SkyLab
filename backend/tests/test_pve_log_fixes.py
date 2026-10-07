@@ -45,6 +45,7 @@ def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
         )
         if schema_name == "skylab_adherence_v1":
             return {
+                "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
                 "choices": [
                     {
                         "finish_reason": "stop",
@@ -55,7 +56,11 @@ def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
                 ]
             }
         payloads.append(copy.deepcopy(payload))
-        return responder(len(payloads) - 1)
+        response = responder(len(payloads) - 1)
+        response.setdefault(
+            "usage", {"prompt_tokens": 16, "completion_tokens": 8, "total_tokens": 24}
+        )
+        return response
 
     monkeypatch.setattr(
         pve_chat_module,
@@ -64,6 +69,7 @@ def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
             VLLM_BASE_URL="http://vllm/v1",
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
+            VLLM_CHAT_MAX_TOKENS=4096,
         ),
     )
     monkeypatch.setattr(
@@ -295,7 +301,7 @@ async def test_invalid_model_tool_calls_do_not_poison_history(
     responses = [
         _tool_call_message(
             ("bad-1", "get_vm_status", "{}"),
-            ("ok-1", "get_nodes", "{'node': 'pve1'}"),
+            ("ok-1", "get_nodes", '{"node":"pve1"}'),
         ),
         {"choices": [{"message": {"role": "assistant", "content": "完成"}}]},
     ]
@@ -331,8 +337,7 @@ def test_all_invalid_tool_calls_are_removed() -> None:
     assert result["content"] == "嗯"
 
 
-def test_non_json_literal_arguments_are_serialized() -> None:
-    """ast.literal_eval 退路產生 set 時不可讓 json.dumps 丟 TypeError。"""
+def test_non_json_literal_arguments_are_rejected() -> None:
     message = {
         "role": "assistant",
         "content": None,
@@ -345,9 +350,7 @@ def test_non_json_literal_arguments_are_serialized() -> None:
         ],
     }
     result = pve_chat_module._canonicalize_model_tool_calls(message, reserved_ids=set())
-    arguments = json.loads(result["tool_calls"][0]["function"]["arguments"])
-    assert isinstance(arguments, dict)
-    assert isinstance(arguments["a"], str)
+    assert "tool_calls" not in result
 
 
 def test_prose_tool_example_is_never_promoted_to_execution() -> None:
@@ -386,6 +389,44 @@ async def test_adherence_block_prevents_pve_tool_execution(
     assert response.tools_called == []
     assert executed == []
     assert not any(item.get("tool_calls") for item in response.messages)
+
+
+async def test_completion_budget_shrinks_last_pve_round_and_blocks_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def responder(index: int) -> dict[str, Any]:
+        response = _tool_call_message((f"nodes-{index}", "get_nodes", "{}"))
+        response["usage"] = {
+            "prompt_tokens": 16,
+            "completion_tokens": 4000,
+            "total_tokens": 4016,
+        }
+        return response
+
+    payloads = _patch_vllm(monkeypatch, responder)
+    executed: list[bool] = []
+
+    async def full_adherence_charge(*_args: Any, **_kwargs: Any) -> AdherenceResult:
+        return AdherenceResult(
+            AdherenceVerdict.ALLOW,
+            AdherenceReason.NONE,
+            completion_tokens=128,
+            total_tokens=128,
+            usage_reported=True,
+        )
+
+    monkeypatch.setattr(pve_chat_module, "check_adherence", full_adherence_charge)
+    monkeypatch.setattr(
+        collector.PveToolContext,
+        "execute",
+        lambda self, *_args, **_kwargs: executed.append(True) or [],
+    )
+
+    response = await pve_chat_module.chat(message="列出節點")
+
+    assert response.reply == pve_chat_module.PVE_ADHERENCE_FALLBACK
+    assert [payload["max_tokens"] for payload in payloads] == [4096, 4096, 4032]
+    assert len(executed) == 2
 
 
 # ---------------------------------------------------------------------------

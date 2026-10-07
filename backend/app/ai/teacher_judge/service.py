@@ -16,9 +16,14 @@ from typing import Any, Literal, cast
 import httpx
 from fastapi import HTTPException
 
-from app.ai.adherence_check import check_adherence
+from app.ai.adherence_check import ADHERENCE_MAX_TOKENS, check_adherence
 from app.ai.monitoring import new_ai_request_id
-from app.ai.role_contracts import OutputMode, RoleContract, TurnContext
+from app.ai.role_contracts import (
+    AdherenceResult,
+    OutputMode,
+    RoleContract,
+    TurnContext,
+)
 from app.ai.teacher_judge._types import VLLMMetrics
 from app.ai.teacher_judge.automation_support import (
     get_script_generation_blockers,
@@ -79,6 +84,8 @@ TEACHER_ACTION_CONTRACT = RoleContract(
 TEACHER_ADHERENCE_FALLBACK = (
     "我只能協助目前班級的評分檢查表、提案與執行結果；請指出要檢查或調整的項目。"
 )
+_MAX_CHAT_COMPLETION_TOKENS = 16_384
+_MAX_ATTACHMENT_BATCH_COMPLETION_TOKENS = 65_536
 
 
 @dataclass(frozen=True, slots=True)
@@ -1022,7 +1029,7 @@ async def _check_teacher_candidate(
     facts: Any,
     turn_context: TurnContext,
     phase: str,
-) -> bool:
+) -> AdherenceResult:
     result = await check_adherence(
         teacher_judge_client,
         contract,
@@ -1039,7 +1046,23 @@ async def _check_teacher_candidate(
             phase,
             result.reason_code.value,
         )
-    return result.allowed
+    return result
+
+
+def _adherence_metrics(result: AdherenceResult) -> VLLMMetrics:
+    completion_tokens = max(result.completion_tokens, 0)
+    elapsed_seconds = max(result.elapsed_seconds, 0.0)
+    return {
+        "prompt_tokens": max(result.prompt_tokens, 0),
+        "completion_tokens": completion_tokens,
+        "total_tokens": max(result.total_tokens, 0),
+        "elapsed_seconds": elapsed_seconds,
+        "tokens_per_second": (
+            completion_tokens / elapsed_seconds if elapsed_seconds > 0 else 0.0
+        ),
+        "usage_reported": result.usage_reported,
+        "response_model": result.response_model,
+    }
 
 
 def _finalizer_completion_blockers(
@@ -1686,6 +1709,25 @@ def _merge_vllm_metrics(first: VLLMMetrics, second: VLLMMetrics) -> VLLMMetrics:
     }
 
 
+def _charge_missing_completion_usage(
+    metrics: VLLMMetrics, reserved_tokens: int
+) -> VLLMMetrics:
+    if metrics.get("usage_reported", False):
+        return metrics
+    prompt_tokens = int(metrics.get("prompt_tokens") or 0)
+    charged = max(int(reserved_tokens), 0)
+    return {
+        **metrics,
+        "completion_tokens": charged,
+        "total_tokens": prompt_tokens + charged,
+        "tokens_per_second": (
+            charged / float(metrics.get("elapsed_seconds") or 0)
+            if float(metrics.get("elapsed_seconds") or 0) > 0
+            else 0.0
+        ),
+    }
+
+
 async def _call_vllm_message(
     payload: dict[str, Any], timeout: float = 120.0
 ) -> tuple[dict[str, Any], VLLMMetrics]:
@@ -2215,6 +2257,7 @@ async def _run_proposal_tool_loop(
     require_rubric: bool = False,
     ready_only: bool = True,
     finalizer: bool = False,
+    completion_token_budget: int = _MAX_CHAT_COMPLETION_TOKENS,
 ) -> tuple[
     str,
     VLLMMetrics,
@@ -2264,18 +2307,33 @@ async def _run_proposal_tool_loop(
     }
 
     max_rounds = max(int(settings.VLLM_CHAT_MAX_TOOL_ROUNDS), 1)
+    completion_token_budget = max(int(completion_token_budget), 0)
+    main_completion_budget = max(
+        completion_token_budget - ADHERENCE_MAX_TOKENS * 2,
+        0,
+    )
+    per_call_max_tokens = max(int(base_request.get("max_tokens") or 0), 1)
     final_content = ""
     reminder_count = 0
     forced_tool_choice: dict[str, Any] | None = None
     finalizer_repair_fingerprints: set[str] = set()
     for _ in range(max_rounds):
+        remaining_tokens = main_completion_budget - int(
+            metrics.get("completion_tokens") or 0
+        )
+        if remaining_tokens <= 0:
+            break
         round_payload = {**base_request, "messages": list(messages)}
+        round_payload["max_tokens"] = min(per_call_max_tokens, remaining_tokens)
         if forced_tool_choice is not None:
             round_payload["tool_choice"] = forced_tool_choice
             forced_tool_choice = None
         request = apply_thinking_control(round_payload, settings.VLLM_ENABLE_THINKING)
         raw_message, round_metrics = await _call_vllm_message(
             request, timeout=float(settings.VLLM_TIMEOUT)
+        )
+        round_metrics = _charge_missing_completion_usage(
+            round_metrics, int(round_payload["max_tokens"])
         )
         metrics = _merge_vllm_metrics(metrics, round_metrics)
         assistant = _assistant_message(raw_message)
@@ -2446,12 +2504,22 @@ async def _run_proposal_tool_loop(
         reply_payload = {**base_request, "messages": list(messages)}
         reply_payload.pop("tools", None)
         reply_payload.pop("tool_choice", None)
-        request = apply_thinking_control(reply_payload, settings.VLLM_ENABLE_THINKING)
-        raw_message, round_metrics = await _call_vllm_message(
-            request, timeout=float(settings.VLLM_TIMEOUT)
+        remaining_tokens = main_completion_budget - int(
+            metrics.get("completion_tokens") or 0
         )
-        metrics = _merge_vllm_metrics(metrics, round_metrics)
-        final_content = str(_assistant_message(raw_message).get("content") or "")
+        if remaining_tokens > 0:
+            reply_payload["max_tokens"] = min(per_call_max_tokens, remaining_tokens)
+            request = apply_thinking_control(
+                reply_payload, settings.VLLM_ENABLE_THINKING
+            )
+            raw_message, round_metrics = await _call_vllm_message(
+                request, timeout=float(settings.VLLM_TIMEOUT)
+            )
+            round_metrics = _charge_missing_completion_usage(
+                round_metrics, int(reply_payload["max_tokens"])
+            )
+            metrics = _merge_vllm_metrics(metrics, round_metrics)
+            final_content = str(_assistant_message(raw_message).get("content") or "")
 
     return final_content, metrics, staged_ops, rejected_ops, tool_outcomes
 
@@ -2520,6 +2588,7 @@ async def chat_with_rubric(
     attachment_context: str | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
+    completion_token_budget: int = _MAX_CHAT_COMPLETION_TOKENS,
 ) -> TeacherJudgeChatResult:
     """
     Multi-turn chat with a request-scoped rubric exposed through tools.
@@ -2633,6 +2702,7 @@ async def chat_with_rubric(
         require_rubric=is_refine,
         ready_only=not is_refine,
         finalizer=is_refine,
+        completion_token_budget=completion_token_budget,
     )
 
     turn_context = _teacher_turn_context(
@@ -2651,17 +2721,25 @@ async def chat_with_rubric(
             }
             for entry in staged_ops
         ]
-        action_allowed = await _check_teacher_candidate(
-            contract=TEACHER_ACTION_CONTRACT,
-            messages=messages,
-            candidate=action_candidate,
-            facts={"tool_outcomes": tool_outcomes},
-            turn_context=turn_context,
-            phase="act",
+        remaining_tokens = completion_token_budget - int(
+            metrics.get("completion_tokens") or 0
         )
-        if not action_allowed:
+        if remaining_tokens < ADHERENCE_MAX_TOKENS:
             staged_ops = []
             action_adherence_blocked = True
+        else:
+            action_result = await _check_teacher_candidate(
+                contract=TEACHER_ACTION_CONTRACT,
+                messages=messages,
+                candidate=action_candidate,
+                facts={"tool_outcomes": tool_outcomes},
+                turn_context=turn_context,
+                phase="act",
+            )
+            metrics = _merge_vllm_metrics(metrics, _adherence_metrics(action_result))
+            if not action_result.allowed:
+                staged_ops = []
+                action_adherence_blocked = True
 
     reply_text, proposal_status = _parse_chat_reply_payload(content)
 
@@ -2755,22 +2833,29 @@ async def chat_with_rubric(
         reply_text = TEACHER_ADHERENCE_FALLBACK
         proposal_status = "none"
     else:
-        reply_allowed = await _check_teacher_candidate(
-            contract=TEACHER_FREE_TEXT_CONTRACT,
-            messages=messages,
-            candidate=reply_text,
-            facts={
-                "proposal_status": proposal_status,
-                "staged_item_ids": [
-                    str(item.get("id") or "") for item in (updated_items or [])
-                ],
-                "tool_outcomes": tool_outcomes,
-            },
-            turn_context=turn_context,
-            phase="respond",
+        remaining_tokens = completion_token_budget - int(
+            metrics.get("completion_tokens") or 0
         )
-        if not reply_allowed:
+        if remaining_tokens < ADHERENCE_MAX_TOKENS:
             reply_text = TEACHER_ADHERENCE_FALLBACK
+        else:
+            reply_result = await _check_teacher_candidate(
+                contract=TEACHER_FREE_TEXT_CONTRACT,
+                messages=messages,
+                candidate=reply_text,
+                facts={
+                    "proposal_status": proposal_status,
+                    "staged_item_ids": [
+                        str(item.get("id") or "") for item in (updated_items or [])
+                    ],
+                    "tool_outcomes": tool_outcomes,
+                },
+                turn_context=turn_context,
+                phase="respond",
+            )
+            metrics = _merge_vllm_metrics(metrics, _adherence_metrics(reply_result))
+            if not reply_result.allowed:
+                reply_text = TEACHER_ADHERENCE_FALLBACK
 
     return TeacherJudgeChatResult(
         reply=reply_text,
@@ -2855,7 +2940,7 @@ async def extract_attachment_requirements(
                     ),
                 },
             ],
-            "max_tokens": settings.VLLM_CHAT_MAX_TOKENS,
+            "max_tokens": min(settings.VLLM_MAX_TOKENS, 8192),
             "temperature": 0.0,
             "top_p": settings.VLLM_TOP_P,
             "top_k": settings.VLLM_TOP_K,
@@ -2865,6 +2950,7 @@ async def extract_attachment_requirements(
         settings.VLLM_ENABLE_THINKING,
     )
     content, metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
+    metrics = _charge_missing_completion_usage(metrics, int(payload["max_tokens"]))
     sources, error = _parse_attachment_extraction(content)
     return sources, error, metrics
 
@@ -2881,6 +2967,7 @@ async def analyze_requirement_item(
     machine_entries: list[dict[str, Any]] | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
+    completion_token_budget: int = _MAX_CHAT_COMPLETION_TOKENS,
 ) -> TeacherJudgeChatResult:
     """Phase B core: reuse the single-requirement chat check for one source item."""
     parts = [
@@ -2905,6 +2992,7 @@ async def analyze_requirement_item(
         attachment_context=None,
         analysis_revision=analysis_revision,
         rubric_available=rubric_available,
+        completion_token_budget=completion_token_budget,
     )
 
 
@@ -3052,6 +3140,15 @@ async def analyze_attachments_itemwise(
             item_results=[],
         )
 
+    remaining_batch_tokens = max(
+        _MAX_ATTACHMENT_BATCH_COMPLETION_TOKENS
+        - int(metrics.get("completion_tokens") or 0),
+        0,
+    )
+    per_item_token_budget = max(
+        1024,
+        min(_MAX_CHAT_COMPLETION_TOKENS, remaining_batch_tokens // len(sources)),
+    )
     semaphore = asyncio.Semaphore(_ITEMWISE_CONCURRENCY)
 
     async def run_one(
@@ -3070,6 +3167,7 @@ async def analyze_attachments_itemwise(
                     machine_entries=machine_entries,
                     analysis_revision=analysis_revision,
                     rubric_available=rubric_available,
+                    completion_token_budget=per_item_token_budget,
                 )
             except Exception as exc:
                 logger.warning(

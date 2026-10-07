@@ -44,6 +44,7 @@
       "min_p": 0.0,
       "max_tokens": 8192,
       "chat_max_tokens": 4096,
+      "chat_max_tool_rounds": 6,
       "presence_penalty": 0.0,
       "repetition_penalty": 1.0
     }

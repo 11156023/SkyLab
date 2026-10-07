@@ -22,12 +22,10 @@
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import functools
 import json
 import logging
-import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -36,7 +34,7 @@ from typing import Any
 import httpx
 from sqlmodel import Session
 
-from app.ai.adherence_check import check_adherence
+from app.ai.adherence_check import ADHERENCE_MAX_TOKENS, check_adherence
 from app.ai.monitoring import new_ai_request_id, record_ai_template_call, usage_metrics
 from app.ai.pve_log.collector import PveToolContext
 from app.ai.pve_log.config import settings
@@ -45,13 +43,14 @@ from app.ai.pve_log.history import (
     merge_pve_messages,
 )
 from app.ai.pve_log.schemas import ChatResponse, SSHExecRequest, ToolCallRecord
-from app.ai.role_contracts import OutputMode, RoleContract, TurnContext
+from app.ai.role_contracts import AdherenceResult, OutputMode, RoleContract, TurnContext
 from app.ai.utils import strip_think_tags
 from app.core.i18n import t
 from app.infrastructure.ai.pve_log import client as vllm_client
 
 logger = logging.getLogger(__name__)
 _MAX_TOOL_ROUNDS = 6
+_MAX_REQUEST_COMPLETION_TOKENS = 12_288
 PVE_FREE_TEXT_CONTRACT = RoleContract(
     role_id="pve_log",
     output_mode=OutputMode.MODEL_FREE_TEXT,
@@ -611,7 +610,7 @@ def _next_deferred_ssh_call(
                 return (
                     message_index,
                     str(tool_call_id),
-                    _parse_tool_arguments(function.get("arguments") or "{}"),
+                    _parse_tool_arguments(function.get("arguments") or "{}") or {},
                 )
     return None
 
@@ -659,6 +658,10 @@ def _canonicalize_model_tool_calls(
         if not isinstance(name, str) or name not in allowed_names:
             logger.warning("模型呼叫不被允許的工具 %r，已忽略", name)
             continue
+        arguments = _parse_tool_arguments(function.get("arguments") or "{}")
+        if arguments is None:
+            logger.warning("模型工具 %s 的 arguments 不是嚴格 JSON object，已忽略", name)
+            continue
         call = dict(raw_call)
         raw_id = call.get("id")
         call_id = raw_id.strip() if isinstance(raw_id, str) else ""
@@ -670,11 +673,9 @@ def _canonicalize_model_tool_calls(
             **function,
             "name": name,
             "arguments": json.dumps(
-                _parse_tool_arguments(function.get("arguments") or "{}"),
+                arguments,
                 ensure_ascii=False,
                 separators=(",", ":"),
-                # ast.literal_eval 退路可能產生 set/bytes 等非 JSON 值
-                default=str,
             ),
         }
         used_ids.add(call_id)
@@ -711,7 +712,7 @@ def _validate_confirmation_history(
             if isinstance(call_id, str) and isinstance(function, dict):
                 tool_calls[call_id] = (
                     str(function.get("name") or ""),
-                    _parse_tool_arguments(function.get("arguments") or "{}"),
+                    _parse_tool_arguments(function.get("arguments") or "{}") or {},
                 )
 
     tokens: list[str] = []
@@ -864,32 +865,31 @@ def _validate_confirmation_history(
             raise PveHistoryValidationError("PVE confirmation result 已被其他請求使用")
 
 
-def _parse_tool_arguments(value: Any) -> dict[str, Any]:
+def _parse_tool_arguments(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         return value
     if not isinstance(value, str):
-        return {}
+        return None
 
     args_str = value.strip() or "{}"
     try:
         parsed = json.loads(args_str)
-        return parsed if isinstance(parsed, dict) else {}
+        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
-        args_str = args_str.replace('<|"|>', '"').replace("'", '"')
-        args_str = re.sub(
-            r"([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)",
-            r'\1"\2"\3',
-            args_str,
-        )
+        return None
 
+
+def _completion_tokens_used(response: dict[str, Any], reserved: int) -> int:
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return reserved
+    value = usage.get("completion_tokens")
+    if value is None:
+        return reserved
     try:
-        parsed = json.loads(args_str)
-    except json.JSONDecodeError:
-        try:
-            parsed = ast.literal_eval(args_str)
-        except (SyntaxError, ValueError):
-            return {}
-    return parsed if isinstance(parsed, dict) else {}
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return reserved
 
 
 # ---------------------------------------------------------------------------
@@ -962,20 +962,23 @@ async def _check_pve_candidate(
     scope_id: uuid.UUID | None,
     phase: str,
     facts: Any,
-) -> bool:
+    session: Session | None,
+    requester_id: uuid.UUID | None,
+) -> AdherenceResult:
     turn_context = _pve_turn_context(
         allowed_vmids=allowed_vmids,
         scope_type=scope_type,
         scope_id=scope_id,
         phase=phase,
     )
+    request_id = new_ai_request_id()
     result = await check_adherence(
         vllm_client,
         contract,
         _latest_user_request(messages),
         candidate,
         {"turn_context": turn_context.as_facts(), "evidence": facts},
-        new_ai_request_id(),
+        request_id,
         model_name=settings.VLLM_MODEL_NAME,
         phase=phase,
     )
@@ -985,7 +988,24 @@ async def _check_pve_candidate(
             phase,
             result.reason_code.value,
         )
-    return result.allowed
+    record_ai_template_call(
+        session=session,
+        user_id=requester_id,
+        call_type="pve_chat_adherence",
+        model_name=settings.VLLM_MODEL_NAME,
+        metrics={
+            "request_id": request_id,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.total_tokens,
+            "elapsed_seconds": result.elapsed_seconds,
+            "usage_reported": result.usage_reported,
+            "response_model": result.response_model,
+        },
+        status="success" if result.allowed else "error",
+        error_message=None if result.allowed else result.reason_code.value,
+    )
+    return result
 
 
 async def chat(
@@ -1075,17 +1095,24 @@ async def chat(
                     messages=messages,
                 )
     _tool_context: PveToolContext | None = None
+    completion_tokens_used = 0
 
     for tool_round in range(_MAX_TOOL_ROUNDS + 1):
+        remaining_tokens = _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+        if remaining_tokens <= 0:
+            return ChatResponse(
+                reply=PVE_ADHERENCE_FALLBACK,
+                tools_called=tools_called,
+                messages=messages,
+            )
+        max_tokens = min(settings.VLLM_CHAT_MAX_TOKENS, remaining_tokens)
         payload: dict[str, Any] = {
             "model": settings.VLLM_MODEL_NAME,
             "messages": messages,
             "tools": _TOOLS,
             "tool_choice": "auto",
-            # 刻意固定，不讀 settings.VLLM_CHAT_*：system-ai.example.json 沒有
-            # pve_log 區段，改讀設定會讓這類部署退回通用預設（0.6／1600）。
             "temperature": 0.1,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
         }
         request_id = new_ai_request_id()
         record_usage = functools.partial(
@@ -1139,6 +1166,7 @@ async def chat(
             )
 
         record_usage(data)
+        completion_tokens_used += _completion_tokens_used(data, max_tokens)
 
         if choices[0].get("finish_reason") == "length":
             return ChatResponse(
@@ -1161,7 +1189,16 @@ async def chat(
         tool_calls = assistant_msg.get("tool_calls") or []
         if not tool_calls:
             reply = str(assistant_msg.get("content") or "")
-            allowed = await _check_pve_candidate(
+            if (
+                _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+                < ADHERENCE_MAX_TOKENS
+            ):
+                return ChatResponse(
+                    reply=PVE_ADHERENCE_FALLBACK,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
+            adherence = await _check_pve_candidate(
                 contract=PVE_FREE_TEXT_CONTRACT,
                 messages=messages,
                 candidate=reply,
@@ -1170,8 +1207,11 @@ async def chat(
                 scope_id=scope_id,
                 phase="respond",
                 facts=[item.model_dump(mode="json") for item in tools_called],
+                session=session,
+                requester_id=requester_id,
             )
-            if not allowed:
+            completion_tokens_used += adherence.completion_tokens
+            if not adherence.allowed:
                 return ChatResponse(
                     reply=PVE_ADHERENCE_FALLBACK,
                     tools_called=tools_called,
@@ -1204,12 +1244,22 @@ async def chat(
                 str((tc.get("function") or {}).get("name") or ""),
                 _parse_tool_arguments(
                     (tc.get("function") or {}).get("arguments") or "{}"
-                ),
+                )
+                or {},
             )
             for tc in tool_calls
         ]
 
-        allowed = await _check_pve_candidate(
+        if (
+            _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+            < ADHERENCE_MAX_TOKENS
+        ):
+            return ChatResponse(
+                reply=PVE_ADHERENCE_FALLBACK,
+                tools_called=tools_called,
+                messages=messages,
+            )
+        adherence = await _check_pve_candidate(
             contract=PVE_ACTION_CONTRACT,
             messages=messages,
             candidate=[
@@ -1221,8 +1271,11 @@ async def chat(
             scope_id=scope_id,
             phase="act",
             facts={"completed_tools": [item.name for item in tools_called]},
+            session=session,
+            requester_id=requester_id,
         )
-        if not allowed:
+        completion_tokens_used += adherence.completion_tokens
+        if not adherence.allowed:
             return ChatResponse(
                 reply=PVE_ADHERENCE_FALLBACK,
                 tools_called=tools_called,

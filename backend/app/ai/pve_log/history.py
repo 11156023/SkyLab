@@ -13,6 +13,7 @@ class PveHistoryValidationError(ValueError):
 
 _VALID_ROLES = frozenset({"system", "user", "assistant", "tool"})
 _MAX_HISTORY_MESSAGES = 40
+_MAX_HISTORY_CHARS = 64 * 1024
 
 
 def _invalid(detail: str) -> PveHistoryValidationError:
@@ -92,6 +93,9 @@ def _validate_history(
 ) -> list[dict[str, Any]]:
     if len(history) > _MAX_HISTORY_MESSAGES:
         raise _invalid(f"history 最多只能包含 {_MAX_HISTORY_MESSAGES} 筆訊息")
+    serialized_history = json.dumps(history, ensure_ascii=False, default=str)
+    if len(serialized_history) > _MAX_HISTORY_CHARS:
+        raise _invalid(f"history 最多只能包含 {_MAX_HISTORY_CHARS} 個字元")
     normalized: list[dict[str, Any]] = []
     active_calls: dict[str, str] = {}
     seen_call_ids: set[str] = set()

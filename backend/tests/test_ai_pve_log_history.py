@@ -138,6 +138,14 @@ def test_history_rejects_final_assistant_replay_and_deferred_without_server_resu
     assert _merge(message=None, history=deferred, allow_deferred=True)[-1]["role"] == "tool"
 
 
+def test_history_rejects_oversized_serialized_content() -> None:
+    with pytest.raises(PveHistoryValidationError, match="65536"):
+        _merge(
+            message=None,
+            history=[{"role": "user", "content": "x" * (64 * 1024)}],
+        )
+
+
 @pytest.mark.asyncio
 async def test_chat_history_only_sends_rebuilt_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
     payloads: list[dict] = []
@@ -155,6 +163,7 @@ async def test_chat_history_only_sends_rebuilt_transcript(monkeypatch: pytest.Mo
             VLLM_BASE_URL="http://vllm/v1",
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
+            VLLM_CHAT_MAX_TOKENS=4096,
         ),
     )
     monkeypatch.setattr(

@@ -385,8 +385,7 @@ async def test_finalizer_repairs_legacy_plan_before_accepting_prose(
             }
         ],
     }
-    calls, fake_call_vllm = scripted_vllm(
-        [
+    scripted_responses = [
             tool_call_message("list_checklist", {}),
             tool_call_message("get_checklist_item", {"id": "item-legacy"}),
             reply_message("我已將 legacy step 轉成 typed proposal。", "ready"),
@@ -408,6 +407,22 @@ async def test_finalizer_repairs_legacy_plan_before_accepting_prose(
                 },
             ),
             reply_message("typed proposal 已建立。", "ready"),
+        ]
+    calls, fake_call_vllm = scripted_vllm(
+        [
+            (
+                response,
+                {
+                    "prompt_tokens": 20,
+                    "completion_tokens": 10,
+                    "total_tokens": 30,
+                    "elapsed_seconds": 0.1,
+                    "tokens_per_second": 100.0,
+                    "usage_reported": True,
+                    "response_model": "test-model",
+                },
+            )
+            for response in scripted_responses
         ]
     )
 

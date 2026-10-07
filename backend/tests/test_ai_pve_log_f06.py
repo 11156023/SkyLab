@@ -276,6 +276,7 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
             VLLM_BASE_URL="http://vllm/v1",
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
+            VLLM_CHAT_MAX_TOKENS=4096,
         ),
     )
     monkeypatch.setattr(

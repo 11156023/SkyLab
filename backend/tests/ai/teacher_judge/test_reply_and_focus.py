@@ -234,6 +234,47 @@ async def test_blocked_action_does_not_form_teacher_proposal(
     assert result.proposal is None
 
 
+@pytest.mark.asyncio
+async def test_proposal_loop_respects_cumulative_completion_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    max_tokens_seen: list[int] = []
+
+    async def fake_call(payload, timeout=60.0):
+        del timeout
+        max_tokens = int(payload["max_tokens"])
+        max_tokens_seen.append(max_tokens)
+        return tool_call_message(
+            teacher_judge_service._LIST_CHECKLIST_TOOL_NAME,
+            {},
+        ), {
+            "prompt_tokens": 1,
+            "completion_tokens": max_tokens,
+            "total_tokens": max_tokens + 1,
+            "elapsed_seconds": 0.1,
+            "tokens_per_second": float(max_tokens * 10),
+            "usage_reported": True,
+            "response_model": "test-model",
+        }
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _, metrics, _, _, _ = await teacher_judge_service._run_proposal_tool_loop(
+        {"messages": [], "max_tokens": 4096},
+        rubric_context='{"items":[]}',
+        template_key="linux",
+        template_commands=[],
+        machine_entries=[],
+        analysis_revision=1,
+        rubric_available=True,
+        completion_token_budget=5000,
+    )
+
+    assert max_tokens_seen == [4096, 648]
+    assert metrics["completion_tokens"] == 4744
+
+
 # --- conversation_focus type coercion --------------------------------
 
 
