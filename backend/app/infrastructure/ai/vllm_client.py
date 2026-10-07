@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import logging
 import weakref
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 _CLIENTS: weakref.WeakSet[VLLMClient] = weakref.WeakSet()
+logger = logging.getLogger(__name__)
+
+
+def _is_context_overflow(response: httpx.Response, requested: Any) -> bool:
+    """vLLM's 'at least' input count is a lower bound, not a usable budget."""
+    if response.status_code != 400 or type(requested) is not int:
+        return False
+    try:
+        error = response.json().get("error", {})
+        return error.get("param") == "input_tokens" and (
+            "maximum context length" in str(error.get("message") or "")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
 
 
 class VLLMClient:
@@ -55,8 +70,63 @@ class VLLMClient:
             headers=headers,
             timeout=effective_timeout,
         )
+        output_limit = None
+        if _is_context_overflow(response, payload.get("max_tokens")):
+            # Count the full prompt with the serving model's chat template/tools.
+            # The early-abort count in a 400 changes with max_tokens and cannot
+            # establish how much room the unchanged prompt actually leaves.
+            tokenize_payload = {
+                key: payload[key]
+                for key in (
+                    "model",
+                    "messages",
+                    "tools",
+                    "chat_template",
+                    "chat_template_kwargs",
+                    "add_generation_prompt",
+                    "continue_final_message",
+                    "add_special_tokens",
+                )
+                if key in payload
+            }
+            try:
+                token_response = await http_client.post(
+                    f"{self._base_url.removesuffix('/v1')}/tokenize",
+                    json=tokenize_payload,
+                    headers=headers,
+                    timeout=effective_timeout,
+                )
+                token_response.raise_for_status()
+                token_data = token_response.json()
+                prompt_tokens = token_data.get("count")
+                context_tokens = token_data.get("max_model_len")
+                if type(prompt_tokens) is int and type(context_tokens) is int:
+                    available = context_tokens - prompt_tokens - 32
+                    if prompt_tokens >= 0 and 128 <= available < payload["max_tokens"]:
+                        output_limit = available
+            except (httpx.HTTPError, AttributeError, TypeError, ValueError) as exc:
+                logger.warning(
+                    "vLLM context token count failed: request_id=%s error=%s",
+                    request_id,
+                    exc,
+                )
+        if output_limit is not None:
+            logger.warning(
+                "vLLM context overflow: request_id=%s max_tokens=%s adjusted_max_tokens=%s",
+                request_id,
+                payload["max_tokens"],
+                output_limit,
+            )
+            # A rejected generation executed no tools. Retry the exact same prompt
+            # once with a smaller output reservation; never trim safety/history.
+            response = await http_client.post(
+                f"{self._base_url}/chat/completions",
+                json={**payload, "max_tokens": output_limit},
+                headers=headers,
+                timeout=effective_timeout,
+            )
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     async def aclose(self) -> None:
         if self._http_client is not None and not self._http_client.is_closed:

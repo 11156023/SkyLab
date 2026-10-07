@@ -48,7 +48,7 @@ def _output(content: str, *, tool_calls: list | None = None):
 
 def test_all_request_profiles_build_without_network(runner):
     cases, allowed = runner._case_catalog()
-    assert len(cases) == 32
+    assert len(cases) == 35
     assert set(allowed) == {"navigation"}
     for case in cases:
         if case.response_kind.startswith("adherence_"):
@@ -78,6 +78,87 @@ def test_dry_run_validates_payloads_and_reports_no_inference(
     assert report["summary"]["pass"] == 0
     assert report["summary"]["tools_executed"] is False
     assert {case["status"] for case in report["cases"]} == {"not_run"}
+    assert report["report_version"] == "gemma4-role-guardrails-v4"
+    assert report["probe_request_adjustments"]["adherence_contract"] == (
+        "production_check_adherence_unmodified"
+    )
+
+
+def test_template_probe_uses_production_payload_and_facts(runner):
+    case = _help_case(runner, "template-form-memory")
+    request = runner._template_request(case)
+    payload = runner._payload_for_case(case, "offline", {})
+    assert payload == runner.build_chat_payload(
+        request, gpu_options=[], model_name="offline"
+    )
+    assert runner._probe_adherence_facts(case, phase="respond") == (
+        runner.build_chat_adherence_facts(request, gpu_options=[])
+    )
+    assert "使用者問題：" in payload["messages"][-1]["content"]
+    assert "4096" in payload["messages"][0]["content"]
+
+
+def test_pve_probe_uses_production_tools_budget_and_list_evidence(runner):
+    case = _help_case(runner, "pve-large-tool-result")
+    payload = runner._payload_for_case(case, "offline", {})
+    assert payload == runner.build_pve_chat_payload(
+        runner._pve_messages(case), model_name="offline"
+    )
+    assert payload["max_tokens"] == runner.pve_settings.VLLM_CHAT_MAX_TOKENS
+    assert payload["tool_choice"] == "auto"
+    assert {t["function"]["name"] for t in payload["tools"]} >= {
+        "get_nodes", "get_resources", "ssh_exec",
+    }
+    tool_result = json.loads(payload["messages"][-1]["content"])
+    assert tool_result["truncated"] is True
+    assert tool_result["original_chars"] > 64 * 1024
+    assert len(payload["messages"][-1]["content"]) <= 8192
+    facts = runner._probe_adherence_facts(case, phase="respond")
+    assert facts["turn_context"]["scope_ref"] == "admin:pve"
+    assert "get_nodes" in facts["turn_context"]["allowed_actions"]
+    assert facts["evidence"][0]["result"]["partial_result"][0]["node"] == "pve-probe"
+
+
+def test_pve_live_path_uses_production_client_context_retry(runner):
+    payloads: list[dict[str, Any]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 92000, "max_model_len": 96000})
+        payloads.append(payload)
+        if "response_format" in payload:
+            evidence = json.loads(payload["messages"][-1]["content"])["facts"]["evidence"]
+            assert evidence[0]["result"]["partial_result"][0]["status"] == "offline"
+            content = '{"verdict":"allow","reason_code":"none"}'
+        elif payload["max_tokens"] == 4096:
+            return httpx.Response(400, json={"error": {
+                "param": "input_tokens",
+                "message": "This model's maximum context length is 96000 tokens. However, you requested 4096 output tokens and your prompt contains at least 91905 input tokens, for a total of at least 96001 tokens.",
+            }})
+        else:
+            assert payload["max_tokens"] == 3968
+            assert payload["messages"][-1]["role"] == "tool"
+            content = "pve-probe 節點離線。"
+        return httpx.Response(200, json={
+            "choices": [{"finish_reason": "stop", "message": {"content": content}}],
+        })
+
+    async def run():
+        client = runner.VLLMClient("http://offline/v1", "dummy")
+        client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        try:
+            return await runner._run_case(
+                None, client, _help_case(runner, "pve-large-tool-result"),
+                base_url="http://offline/v1", api_key="dummy", model="offline", allowed_ids={},
+            )
+        finally:
+            await client.aclose()
+
+    result = asyncio.run(run())
+    assert result["status"] == "pass"
+    assert len(payloads) == 3
+    assert payloads[0]["messages"] == payloads[1]["messages"]
 
 
 @pytest.mark.parametrize("case_id", ["help-normal", "help-quoted", "help-multiturn"])
@@ -155,8 +236,8 @@ def test_help_live_path_checks_adherence_with_ui_evidence(runner, monkeypatch):
         seen.append(facts)
         return runner.SimpleNamespace(
             allowed=False,
-            verdict=runner.AdherenceVerdict.BLOCK,
-            reason_code=runner.AdherenceReason.ROLE_DRIFT,
+            verdict=runner.SimpleNamespace(value="block"),
+            reason_code=runner.SimpleNamespace(value="role_drift"),
         )
 
     monkeypatch.setattr(runner, "check_adherence", check)

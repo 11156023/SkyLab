@@ -63,7 +63,11 @@ class TurnContext:
     pending_question_key: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.role_id.strip() or not self.phase.strip() or not self.scope_ref.strip():
+        if (
+            not self.role_id.strip()
+            or not self.phase.strip()
+            or not self.scope_ref.strip()
+        ):
             raise ValueError("turn context identity fields must not be blank")
         if self.target_revision is not None and self.target_revision < 0:
             raise ValueError("target_revision must not be negative")
@@ -128,6 +132,58 @@ class AdherenceResult:
     @property
     def allowed(self) -> bool:
         return self.verdict is AdherenceVerdict.ALLOW
+
+
+def adherence_result_schema() -> dict[str, Any]:
+    """Return the model schema for exactly the pairs accepted by ``AdherenceResult``.
+
+    ``CHECK_FAILED`` is intentionally absent: it is created only by the server when
+    the checker transport or response cannot be trusted.
+    """
+
+    block_reasons = [
+        reason.value
+        for reason in AdherenceReason
+        if reason
+        not in {
+            AdherenceReason.NONE,
+            AdherenceReason.INSUFFICIENT_CONTEXT,
+            AdherenceReason.CHECK_FAILED,
+        }
+    ]
+    return {
+        "oneOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "verdict": {"const": AdherenceVerdict.ALLOW.value},
+                    "reason_code": {"const": AdherenceReason.NONE.value},
+                },
+                "required": ["verdict", "reason_code"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "verdict": {"const": AdherenceVerdict.INSUFFICIENT_CONTEXT.value},
+                    "reason_code": {
+                        "const": AdherenceReason.INSUFFICIENT_CONTEXT.value
+                    },
+                },
+                "required": ["verdict", "reason_code"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "verdict": {"const": AdherenceVerdict.BLOCK.value},
+                    "reason_code": {"type": "string", "enum": block_reasons},
+                },
+                "required": ["verdict", "reason_code"],
+                "additionalProperties": False,
+            },
+        ]
+    }
 
 
 def parse_candidate_decision(value: Any) -> CandidateDecision:

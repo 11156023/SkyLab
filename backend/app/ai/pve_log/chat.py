@@ -40,6 +40,7 @@ from app.ai.pve_log.collector import PveToolContext
 from app.ai.pve_log.config import settings
 from app.ai.pve_log.history import (
     PveHistoryValidationError,
+    compact_tool_result,
     merge_pve_messages,
 )
 from app.ai.pve_log.schemas import ChatResponse, SSHExecRequest, ToolCallRecord
@@ -100,6 +101,7 @@ _SYSTEM_PROMPT = """\
   或縮小原因；取得足夠證據後停止，不做無關或重複檢查。
 - 工具本身收集失敗或資料缺漏時，應說明無法完整判斷，不得把收集錯誤算成特定 VM/LXC
   的異常，也不得把缺少資料解讀為正常。
+- 工具結果 truncated=true 表示只取得部分內容；必須說明資料被截斷，不得據此宣稱完整清單或全部資源正常。
 - 只根據工具實際回傳內容下結論。沒有直接證據的原因一律標示為尚未確認，不得將可能原因
   寫成確定原因。
 - 異常判定規則是內部回答準則，不得在一般結果中解釋或附註，例如不要輸出「stopped 視為
@@ -652,7 +654,9 @@ def _canonicalize_model_tool_calls(
             continue
         function = raw_call.get("function")
         if not isinstance(function, dict):
-            logger.warning("模型回傳的 tool call 缺少 function object，已忽略：%r", raw_call)
+            logger.warning(
+                "模型回傳的 tool call 缺少 function object，已忽略：%r", raw_call
+            )
             continue
         name = function.get("name")
         if not isinstance(name, str) or name not in allowed_names:
@@ -660,7 +664,9 @@ def _canonicalize_model_tool_calls(
             continue
         arguments = _parse_tool_arguments(function.get("arguments") or "{}")
         if arguments is None:
-            logger.warning("模型工具 %s 的 arguments 不是嚴格 JSON object，已忽略", name)
+            logger.warning(
+                "模型工具 %s 的 arguments 不是嚴格 JSON object，已忽略", name
+            )
             continue
         call = dict(raw_call)
         raw_id = call.get("id")
@@ -940,9 +946,7 @@ def _pve_turn_context(
     phase: str,
 ) -> TurnContext:
     vmids = tuple(str(item) for item in sorted(allowed_vmids or set()))
-    scope_ref = (
-        f"{scope_type}:{scope_id}" if scope_type and scope_id else "admin:pve"
-    )
+    scope_ref = f"{scope_type}:{scope_id}" if scope_type and scope_id else "admin:pve"
     return TurnContext(
         role_id="pve_log",
         phase=phase,
@@ -950,6 +954,34 @@ def _pve_turn_context(
         candidate_target_ids=vmids,
         allowed_actions=tuple(sorted(_ALLOWED_TOOL_NAMES)),
     )
+
+
+def _pve_tool_evidence(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Use the same completed tool results as the answering model, including history."""
+    calls: dict[str, dict[str, Any]] = {}
+    evidence = []
+    for message in messages:
+        if message.get("role") == "assistant":
+            for call in message.get("tool_calls") or []:
+                calls[str(call.get("id"))] = call.get("function") or {}
+        elif message.get("role") == "tool":
+            call_id = str(message.get("tool_call_id"))
+            function = calls.get(call_id, {})
+            content = str(message.get("content") or "")
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError:
+                result = {"output": content}
+            evidence.append(
+                {
+                    "name": function.get("name"),
+                    "args": _parse_tool_arguments(function.get("arguments") or "{}")
+                    or {},
+                    "tool_call_id": call_id,
+                    "result": result if isinstance(result, dict) else {"items": result},
+                }
+            )
+    return evidence
 
 
 async def _check_pve_candidate(
@@ -1006,6 +1038,25 @@ async def _check_pve_candidate(
         error_message=None if result.allowed else result.reason_code.value,
     )
     return result
+
+
+def build_chat_payload(
+    messages: list[dict[str, Any]],
+    *,
+    model_name: str | None = None,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    """The production PVE agent request, also used by the live probe runner."""
+    return {
+        "model": model_name if model_name is not None else settings.VLLM_MODEL_NAME,
+        "messages": messages,
+        "tools": _TOOLS,
+        "tool_choice": "auto",
+        "temperature": 0.1,
+        "max_tokens": (
+            max_tokens if max_tokens is not None else settings.VLLM_CHAT_MAX_TOKENS
+        ),
+    }
 
 
 async def chat(
@@ -1106,14 +1157,7 @@ async def chat(
                 messages=messages,
             )
         max_tokens = min(settings.VLLM_CHAT_MAX_TOKENS, remaining_tokens)
-        payload: dict[str, Any] = {
-            "model": settings.VLLM_MODEL_NAME,
-            "messages": messages,
-            "tools": _TOOLS,
-            "tool_choice": "auto",
-            "temperature": 0.1,
-            "max_tokens": max_tokens,
-        }
+        payload = build_chat_payload(messages, max_tokens=max_tokens)
         request_id = new_ai_request_id()
         record_usage = functools.partial(
             _record_chat_usage,
@@ -1206,7 +1250,7 @@ async def chat(
                 scope_type=scope_type,
                 scope_id=scope_id,
                 phase="respond",
-                facts=[item.model_dump(mode="json") for item in tools_called],
+                facts=_pve_tool_evidence(messages),
                 session=session,
                 requester_id=requester_id,
             )
@@ -1270,7 +1314,11 @@ async def chat(
             scope_type=scope_type,
             scope_id=scope_id,
             phase="act",
-            facts={"completed_tools": [item.name for item in tools_called]},
+            facts={
+                "completed_tools": [
+                    item["name"] for item in _pve_tool_evidence(messages)
+                ]
+            },
             session=session,
             requester_id=requester_id,
         )
@@ -1327,7 +1375,15 @@ async def chat(
                         func_args,
                         allowed_vmids=allowed_vmids,
                     )
-                result_dict = result if isinstance(result, dict) else {}
+                if func_name != "ssh_exec":
+                    result = compact_tool_result(result)
+                result_dict = (
+                    result
+                    if isinstance(result, dict)
+                    else {"items": result}
+                    if isinstance(result, list)
+                    else {}
+                )
                 needs_confirmation = needs_confirmation or bool(
                     result_dict.get("pending")
                 )

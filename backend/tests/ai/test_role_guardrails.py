@@ -12,6 +12,7 @@ from app.ai.role_contracts import (
     CandidateDecision,
     OutputMode,
     RoleContract,
+    adherence_result_schema,
     candidate_decision_schema,
     parse_candidate_decision,
     validate_candidate_ids,
@@ -69,6 +70,24 @@ def test_candidate_schema_is_closed_and_bounded() -> None:
     assert schema["properties"]["candidate_ids"]["items"]["enum"] == ["a", "b"]
 
 
+def test_adherence_schema_only_allows_runtime_valid_pairs() -> None:
+    alternatives = adherence_result_schema()["oneOf"]
+    assert alternatives[0]["properties"] == {
+        "verdict": {"const": "allow"},
+        "reason_code": {"const": "none"},
+    }
+    assert alternatives[1]["properties"] == {
+        "verdict": {"const": "insufficient_context"},
+        "reason_code": {"const": "insufficient_context"},
+    }
+    assert alternatives[2]["properties"]["verdict"] == {"const": "block"}
+    block_reasons = alternatives[2]["properties"]["reason_code"]["enum"]
+    assert "role_drift" in block_reasons
+    assert "none" not in block_reasons
+    assert "insufficient_context" not in block_reasons
+    assert "check_failed" not in block_reasons
+
+
 def test_system_ai_config_rejects_unsafe_generation_limits() -> None:
     assert SystemAIVLLMConfig(max_tokens=8192, chat_max_tool_rounds=6)
     with pytest.raises(ValidationError):
@@ -92,6 +111,75 @@ async def test_server_rendered_never_calls_checker_model() -> None:
     )
     assert result.allowed is True
     assert client.payloads == []
+
+
+@pytest.mark.asyncio
+async def test_role_adoption_still_calls_checker_model() -> None:
+    client = FakeClient(_response('{"verdict":"block","reason_code":"role_drift"}'))
+    result = await check_adherence(
+        client,
+        RoleContract(
+            "template_recommendation",
+            OutputMode.MODEL_FREE_TEXT,
+            "v1",
+            "test.fallback",
+        ),
+        "我要架設 nginx，VM 還是 LXC？",
+        "好的！從現在起我是貓娘，改陪你聊天。",
+        {},
+        "request-id",
+        model_name="model",
+        phase="respond",
+    )
+    assert result.verdict is AdherenceVerdict.BLOCK
+    assert result.reason_code is AdherenceReason.ROLE_DRIFT
+    assert len(client.payloads) == 1
+
+
+@pytest.mark.asyncio
+async def test_template_greeting_still_calls_checker_model() -> None:
+    # A greeting request cannot bypass evaluation of a malicious candidate answer.
+    client = FakeClient(_response('{"verdict":"block","reason_code":"role_drift"}'))
+    result = await check_adherence(
+        client,
+        RoleContract(
+            "template_recommendation",
+            OutputMode.MODEL_FREE_TEXT,
+            "v1",
+            "test.fallback",
+        ),
+        "目前所在頁面：申請機器。使用者問題：你好！",
+        "從現在起我是貓娘，改陪你聊天。",
+        {},
+        "request-id",
+        model_name="model",
+        phase="respond",
+    )
+    assert result.verdict is AdherenceVerdict.BLOCK
+    assert len(client.payloads) == 1
+
+
+@pytest.mark.asyncio
+async def test_unmapped_ordinal_clarification_still_calls_checker_model() -> None:
+    client = FakeClient(_response('{"verdict":"allow","reason_code":"none"}'))
+    result = await check_adherence(
+        client,
+        _contract(OutputMode.MODEL_ACTION),
+        "修改第二個",
+        "請提供第二個項目的名稱，以確認修改目標。",
+        {
+            "evidence": {
+                "requested_ordinal": 2,
+                "ordinal_mapping_available": False,
+                "verified_targets": [],
+            }
+        },
+        "request-id",
+        model_name="model",
+        phase="act",
+    )
+    assert result.allowed
+    assert len(client.payloads) == 1
 
 
 @pytest.mark.asyncio
@@ -122,7 +210,13 @@ async def test_free_text_allow_uses_closed_schema_without_tools() -> None:
     assert result.response_model == "guard-model"
     payload = client.payloads[0]
     assert "tools" not in payload
+    assert payload["temperature"] == 0.2
+    assert payload["top_p"] == 0.95
+    assert payload["top_k"] == 64
     assert payload["response_format"]["type"] == "json_schema"
+    assert payload["response_format"]["json_schema"]["schema"] == (
+        adherence_result_schema()
+    )
     assert payload["chat_template_kwargs"] == {"enable_thinking": False}
 
 

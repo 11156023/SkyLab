@@ -104,7 +104,9 @@ def test_history_requires_complete_tool_call_round() -> None:
         _merge(message=None, history=pending)
 
 
-def test_history_rejects_final_assistant_replay_and_deferred_without_server_resume() -> None:
+def test_history_rejects_final_assistant_replay_and_deferred_without_server_resume() -> (
+    None
+):
     final = [
         {"role": "user", "content": "查詢"},
         {"role": "assistant", "content": "已完成"},
@@ -135,7 +137,10 @@ def test_history_rejects_final_assistant_replay_and_deferred_without_server_resu
     ]
     with pytest.raises(PveHistoryValidationError, match="deferred result"):
         _merge(message=None, history=deferred)
-    assert _merge(message=None, history=deferred, allow_deferred=True)[-1]["role"] == "tool"
+    assert (
+        _merge(message=None, history=deferred, allow_deferred=True)[-1]["role"]
+        == "tool"
+    )
 
 
 def test_history_rejects_oversized_serialized_content() -> None:
@@ -146,8 +151,71 @@ def test_history_rejects_oversized_serialized_content() -> None:
         )
 
 
+def test_oversized_read_tool_history_remains_valid_and_marked_partial() -> None:
+    history = [
+        {"role": "user", "content": "查詢節點"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "nodes-1",
+                    "type": "function",
+                    "function": {"name": "get_nodes", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "nodes-1",
+            "content": json.dumps(
+                [
+                    {"node": "pve-a", "status": "offline", "evidence": "x " * 88500},
+                ]
+            ),
+        },
+        {"role": "user", "content": "結果如何？"},
+    ]
+    original = copy.deepcopy(history)
+    messages = _merge(message=None, history=history)
+    result = json.loads(messages[-2]["content"])
+    assert result["truncated"] is True
+    assert result["partial_result"][0]["node"] == "pve-a"
+    assert result["partial_result"][0]["status"] == "offline"
+    assert len(messages[-2]["content"]) <= 8192
+    assert messages[-3]["tool_calls"][0]["id"] == messages[-2]["tool_call_id"]
+    assert messages[-1]["content"] == "結果如何？"
+    assert history == original
+
+
+def test_ssh_result_is_not_compacted_before_confirmation_validation() -> None:
+    result = {"stdout": "x" * 12000, "stderr": "", "exit_code": 0}
+    history = [
+        {"role": "user", "content": "查 nginx"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "ssh-1",
+                    "type": "function",
+                    "function": {
+                        "name": "ssh_exec",
+                        "arguments": '{"vmid":102,"command":"systemctl status nginx"}',
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "ssh-1", "content": json.dumps(result)},
+    ]
+    messages = _merge(message=None, history=history)
+    assert json.loads(messages[-1]["content"]) == result
+
+
 @pytest.mark.asyncio
-async def test_chat_history_only_sends_rebuilt_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_chat_history_only_sends_rebuilt_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     payloads: list[dict] = []
 
     async def fake_completion(payload, *, timeout, request_id=None):
@@ -204,7 +272,9 @@ async def test_confirmation_result_must_match_server_state_and_is_one_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = "user-1"
-    request = SSHExecRequest(vmid=102, command="systemctl status nginx", require_confirm=True)
+    request = SSHExecRequest(
+        vmid=102, command="systemctl status nginx", require_confirm=True
+    )
     token = ssh_exec_module._store_pending(
         request,
         requester_id=user_id,
@@ -212,7 +282,9 @@ async def test_confirmation_result_must_match_server_state_and_is_one_time(
     ssh_exec_module.bind_pending_tool_call(token, "ssh-1")
 
     async def fake_do_exec(*_args, **_kwargs):
-        return SSHExecResult(vmid=102, command=request.command, exit_code=0, stdout="ok")
+        return SSHExecResult(
+            vmid=102, command=request.command, exit_code=0, stdout="ok"
+        )
 
     monkeypatch.setattr(ssh_exec_module, "_do_exec", fake_do_exec)
     try:
@@ -251,7 +323,9 @@ async def test_confirmation_result_must_match_server_state_and_is_one_time(
         tokenless_content = json.loads(tokenless_messages[-2]["content"])
         tokenless_content.pop("confirmation_token")
         tokenless_messages[-2]["content"] = json.dumps(tokenless_content)
-        with pytest.raises(PveHistoryValidationError, match="必須帶 server confirmation token"):
+        with pytest.raises(
+            PveHistoryValidationError, match="必須帶 server confirmation token"
+        ):
             pve_chat_module._validate_confirmation_history(
                 tokenless_messages,
                 requester_id=user_id,

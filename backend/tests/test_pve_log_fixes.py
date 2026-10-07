@@ -19,8 +19,10 @@ import time
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
+from app.ai.adherence_check import check_adherence as real_check_adherence
 from app.ai.pve_log import chat as pve_chat_module
 from app.ai.pve_log import collector
 from app.ai.pve_log import ssh_exec as ssh_exec_module
@@ -31,6 +33,7 @@ from app.ai.role_contracts import (
     AdherenceResult,
     AdherenceVerdict,
 )
+from app.infrastructure.ai.vllm_client import VLLMClient
 
 
 def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
@@ -39,13 +42,15 @@ def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
     async def fake_completion(payload, *, timeout, request_id=None):
         del timeout, request_id
         schema_name = (
-            (payload.get("response_format") or {})
-            .get("json_schema", {})
-            .get("name")
+            (payload.get("response_format") or {}).get("json_schema", {}).get("name")
         )
         if schema_name == "skylab_adherence_v1":
             return {
-                "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+                "usage": {
+                    "prompt_tokens": 8,
+                    "completion_tokens": 4,
+                    "total_tokens": 12,
+                },
                 "choices": [
                     {
                         "finish_reason": "stop",
@@ -53,7 +58,7 @@ def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
                             "content": '{"verdict":"allow","reason_code":"none"}'
                         },
                     }
-                ]
+                ],
             }
         payloads.append(copy.deepcopy(payload))
         response = responder(len(payloads) - 1)
@@ -131,7 +136,9 @@ async def test_deferred_ssh_resumes_after_first_confirmation(
     )
 
     async def fake_do_exec(req, **_kwargs):
-        return SSHExecResult(vmid=req.vmid, command=req.command, exit_code=0, stdout="ok")
+        return SSHExecResult(
+            vmid=req.vmid, command=req.command, exit_code=0, stdout="ok"
+        )
 
     monkeypatch.setattr(ssh_exec_module, "_do_exec", fake_do_exec)
 
@@ -279,9 +286,7 @@ async def test_tool_round_limit_returns_resumable_history(
         monkeypatch,
         lambda index: _tool_call_message((f"nodes-{index}", "get_nodes", "{}")),
     )
-    monkeypatch.setattr(
-        collector.PveToolContext, "execute", lambda self, *_a, **_k: []
-    )
+    monkeypatch.setattr(collector.PveToolContext, "execute", lambda self, *_a, **_k: [])
 
     response = await pve_chat_module.chat(message="一直查節點")
 
@@ -306,17 +311,19 @@ async def test_invalid_model_tool_calls_do_not_poison_history(
         {"choices": [{"message": {"role": "assistant", "content": "完成"}}]},
     ]
     _patch_vllm(monkeypatch, lambda index: responses[index])
-    monkeypatch.setattr(
-        collector.PveToolContext, "execute", lambda self, *_a, **_k: []
-    )
+    monkeypatch.setattr(collector.PveToolContext, "execute", lambda self, *_a, **_k: [])
 
     response = await pve_chat_module.chat(message="查節點")
 
     assert response.reply == "完成"
     assistant = next(
-        m for m in response.messages if m.get("role") == "assistant" and m.get("tool_calls")
+        m
+        for m in response.messages
+        if m.get("role") == "assistant" and m.get("tool_calls")
     )
-    assert [call["function"]["name"] for call in assistant["tool_calls"]] == ["get_nodes"]
+    assert [call["function"]["name"] for call in assistant["tool_calls"]] == [
+        "get_nodes"
+    ]
     assert json.loads(assistant["tool_calls"][0]["function"]["arguments"]) == {
         "node": "pve1"
     }
@@ -427,6 +434,115 @@ async def test_completion_budget_shrinks_last_pve_round_and_blocks_execution(
     assert response.reply == pve_chat_module.PVE_ADHERENCE_FALLBACK
     assert [payload["max_tokens"] for payload in payloads] == [4096, 4096, 4032]
     assert len(executed) == 2
+
+
+async def test_large_tool_result_is_bounded_for_agent_checker_and_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise the production agent, checker/parser and resumable transcript."""
+    requests: list[dict[str, Any]] = []
+    executed: list[str] = []
+    records: list[dict[str, Any]] = []
+    large_result = [{"node": "pve-test", "status": "offline", "evidence": "x " * 88500}]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 92000, "max_model_len": 96000})
+        requests.append(payload)
+        if "response_format" in payload:
+            facts = json.loads(payload["messages"][-1]["content"])["facts"]["evidence"]
+            if isinstance(facts, list):
+                assert facts[0]["result"]["truncated"] is True
+                assert facts[0]["result"]["partial_result"][0]["status"] == "offline"
+            content = '{"verdict":"allow","reason_code":"none"}'
+        elif not any(m["role"] == "tool" for m in payload["messages"]):
+            return httpx.Response(
+                200, json=_tool_call_message(("nodes-1", "get_nodes", "{}"))
+            )
+        else:
+            content = "pve-test 節點離線。"
+        return httpx.Response(
+            200,
+            json={
+                "usage": {
+                    "prompt_tokens": 91905,
+                    "completion_tokens": 12,
+                    "total_tokens": 91917,
+                },
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": content},
+                    }
+                ],
+            },
+        )
+
+    client = VLLMClient("http://offline/v1", "dummy")
+    client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(pve_chat_module, "vllm_client", client)
+    monkeypatch.setattr(pve_chat_module, "check_adherence", real_check_adherence)
+    monkeypatch.setattr(
+        pve_chat_module, "record_ai_template_call", lambda **kw: records.append(kw)
+    )
+    monkeypatch.setattr(pve_chat_module, "PveToolContext", lambda: object())
+    monkeypatch.setattr(
+        pve_chat_module,
+        "_execute_tool_sync",
+        lambda _context, name, *_a, **_kw: executed.append(name) or large_result,
+    )
+    monkeypatch.setattr(
+        pve_chat_module,
+        "settings",
+        SimpleNamespace(
+            VLLM_BASE_URL="http://offline/v1",
+            VLLM_MODEL_NAME="test-model",
+            VLLM_TIMEOUT=30,
+            VLLM_CHAT_MAX_TOKENS=4096,
+        ),
+    )
+    try:
+        response = await pve_chat_module.chat(message="列出節點")
+        followup = await pve_chat_module.chat(
+            history=[
+                *response.messages,
+                {"role": "user", "content": "再說明剛才的結果，不要額外查詢"},
+            ]
+        )
+    finally:
+        await client.aclose()
+
+    assert response.error is None
+    assert response.reply == "pve-test 節點離線。"
+    assert followup.reply == response.reply
+    assert followup.error is None
+    assert executed == ["get_nodes"]
+    primary = [p for p in requests if "response_format" not in p]
+    assert [p["max_tokens"] for p in primary] == [4096, 4096, 4096]
+    tool_content = primary[1]["messages"][-1]["content"]
+    bounded_result = json.loads(tool_content)
+    assert len(tool_content) <= 8192
+    assert bounded_result["truncated"] is True
+    assert bounded_result["original_chars"] > 64 * 1024
+    assert bounded_result["partial_result"][0]["node"] == "pve-test"
+    assert response.tools_called[0].result == bounded_result
+    resumed = merge_pve_messages(
+        message=None,
+        history=[*response.messages, {"role": "user", "content": "繼續說明"}],
+        server_system_prompt=pve_chat_module._SYSTEM_PROMPT,
+        allowed_tool_names={"get_nodes"},
+    )
+    assert next(m["content"] for m in resumed if m["role"] == "tool") == tool_content
+    assert [r["call_type"] for r in records] == [
+        "pve_chat",
+        "pve_chat_adherence",
+        "pve_chat",
+        "pve_chat_adherence",
+        "pve_chat",
+        "pve_chat_adherence",
+    ]
+    assert all(r["status"] == "success" for r in records)
 
 
 # ---------------------------------------------------------------------------
@@ -636,7 +752,9 @@ async def test_string_vmid_confirmation_is_accepted(
     ssh_exec_module.bind_pending_tool_call(token, "ssh-str")
 
     async def fake_do_exec(req, **_kwargs):
-        return SSHExecResult(vmid=req.vmid, command=req.command, exit_code=0, stdout="ok")
+        return SSHExecResult(
+            vmid=req.vmid, command=req.command, exit_code=0, stdout="ok"
+        )
 
     monkeypatch.setattr(ssh_exec_module, "_do_exec", fake_do_exec)
     try:
