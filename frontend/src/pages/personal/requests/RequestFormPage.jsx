@@ -1296,9 +1296,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                     required
                     error={errors.password}
                     name="password"
-                    hint={isWindowsVm
-                      ? t("RequestFormPage.windowsPasswordHint")
-                      : t("RequestFormPage.passwordNotStoredHint")}
+                    hint={isWindowsVm ? t("RequestFormPage.windowsPasswordHint") : undefined}
                   >
                     <PasswordInput
                       className={styles.input}

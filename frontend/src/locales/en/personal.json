@@ -522,7 +522,6 @@
   "RequestFormPage.templatePasswordKept": "The platform cannot set a password for this template, so the machine keeps the template's built-in account and password. Ask the template's creator for them.",
   "RequestFormPage.passwordLabel": "Password",
   "RequestFormPage.windowsPasswordHint": "The Windows template login account is fixed as Admin; you only need to set a password. The platform does not keep this password, so if you forget it you can only reset it",
-  "RequestFormPage.passwordNotStoredHint": "The platform does not keep this password. If you forget it, reset it in the machine's Advanced Settings",
   "RequestFormPage.passwordPlaceholder": "At least 8 characters",
   "RequestFormPage.clonedPasswordHint": "The login account is root. The platform does not keep this password, so if you forget it you can only reset it.",
   "RequestFormPage.lxcPasswordHint": "The LXC container login account is fixed as root; you only need to set a password. The platform does not keep this password, so if you forget it you can only reset it",
