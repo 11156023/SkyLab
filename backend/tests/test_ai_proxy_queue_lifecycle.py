@@ -107,7 +107,7 @@ async def test_shutdown_cancels_nonstream_request_and_terminal_usage(
         await asyncio.wait_for(started.wait(), 1)
         await admission.close()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            await asyncio.gather(task)
     assert admission.active == admission.waiting == 0
     assert records[0]["error_message"] == "backend_shutdown" and len(records) == 1
 
@@ -199,13 +199,13 @@ async def test_stream_probe_success_headers_release_other_model_slots_before_str
         other = await generation(other_req)
         assert other.status_code == 200 and not stream_task.done()
         end_stream.set()
-        await stream_task
+        await asyncio.gather(stream_task)
     assert len(attempts) == 3 and len(records) == 2 and admission.active == 0
 
 
 async def test_catalogue_uses_service_identity_and_bounds_model_state(monkeypatch):
     monkeypatch.setattr(relay, "_relay_stopping", False)
-    monkeypatch.setattr(relay, "_models_cache_loop", None)
+    monkeypatch.setattr(relay, "_models_cache", relay._LoopBound())
     monkeypatch.setattr(ai_metrics, "_known_models", set())
     names = [f"trusted-{index}" for index in range(150)]
     calls = []
@@ -242,17 +242,17 @@ async def test_catalogue_single_flight_survives_one_waiter_cancel(monkeypatch):
         return {"A"}
 
     monkeypatch.setattr(relay, "fetch_public_models", fetch)
-    monkeypatch.setattr(relay, "_catalogue_loop", None)
+    monkeypatch.setattr(relay, "_catalogue", relay._CatalogueState())
     first = asyncio.create_task(relay.public_models())
     await started.wait()
     second = asyncio.create_task(relay.public_models())
     first.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await first
+        await asyncio.gather(first)
     release.set()
     assert await second == {"A"}
     assert await relay.public_models() == {"A"} and len(counts) == 1
-    assert relay._catalogue_waiters == 0
+    assert relay._catalogue.waiters == 0
 
 
 @pytest.mark.parametrize("stream", [False, True])

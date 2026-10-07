@@ -217,7 +217,9 @@ def get_ssh_key(
     vmid: int,
     session: SessionDep,
     _current_user: CurrentUser,
-    _resource_info: ResourceInfoDep,
+    resource_info: ResourceInfoDep,
 ):
-    """取得資源的登入憑證（SSH 私鑰與初始密碼，僅限資源擁有者或管理員）"""
-    return credentials_service.get_ssh_key(session=session, vmid=vmid)
+    """取得資源的登入憑證（帳號、SSH 私鑰與系統代發的密碼，僅限資源擁有者或管理員）"""
+    return credentials_service.get_ssh_key(
+        session=session, vmid=vmid, resource_info=resource_info
+    )

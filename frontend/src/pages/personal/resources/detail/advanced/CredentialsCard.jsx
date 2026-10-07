@@ -244,7 +244,11 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
               <div className={styles.fact}>
                 <span className={styles.factLabel}>{t("CredentialsCard.passwordLabel")}</span>
                 <span className={`${styles.factValue} ${styles.credentialValue}`}>
-                  {info.has_login_password ? t("CredentialsCard.passwordStored") : t("CredentialsCard.passwordUnknown")}
+                  {info.has_login_password
+                    ? t("CredentialsCard.passwordStored")
+                    : info.has_custom_login_password
+                      ? t("CredentialsCard.passwordCustom")
+                      : t("CredentialsCard.passwordUnknown")}
                 </span>
                 {/* 連結只承諾總覽真的查得到的東西：沒保管密碼就只提私鑰，兩者都沒有就不顯示 */}
                 {onShowOverview && overviewLinkKey && (

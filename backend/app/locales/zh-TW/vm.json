@@ -96,5 +96,10 @@
   "spec_change.expiry_must_be_future": "新的到期日必須在今天之後",
   "spec_change.expiry_must_extend": "新的到期日必須晚於目前的到期日 {current}",
   "spec_change.expiry_too_far": "一次最多只能延長到 {days} 天後，更長的期限請聯絡管理員",
-  "spec_change.expiry_gpu_reserved": "延長後的時段會與其他已核准、尚未開機的 GPU 申請重疊（對方時段到 {date}），請改選較早的日期或聯絡管理員"
+  "spec_change.expiry_gpu_reserved": "延長後的時段會與其他已核准、尚未開機的 GPU 申請重疊（對方時段到 {date}），請改選較早的日期或聯絡管理員",
+  "username_policy.LNX_FORMAT": "帳號必須以小寫英文字母開頭，只能包含小寫英文字母、數字、底線（_）與連字號（-），長度 1–{max_length} 字",
+  "username_policy.LNX_RESERVED": "「{name}」是 Linux 系統保留的帳號或群組名稱，無法使用",
+  "username_policy.LNX_RESERVED_PREFIX": "帳號不可以「{prefix}」開頭（系統服務保留）",
+  "username_policy.PLATFORM_RESERVED": "「{name}」是 SkyLab 平台保留的名稱，無法使用",
+  "username_policy.LNX_DEFAULT_USER": "「{name}」是發行版 cloud image 的預設帳號名稱，可以使用，但請確認範本內沒有同名的既有帳號"
 }

@@ -26,7 +26,7 @@
   "template.updateCloneNotReady": "更新サイクルのクローンはまだ準備できていません。クローン作業の完了をお待ちください",
   "clone.templateNotReady": "テンプレートはまだクローン可能な状態ではありません（現在の状態：{status}）",
   "clone.batchRequiresManager": "一括クローンは教員と管理者のみ実行できます",
-  "clone.passwordChangeNotAllowed": "このテンプレートではログインパスワードのカスタマイズは許可されていません",
+  "clone.passwordChangeNotAllowed": "このテンプレートのログインパスワードはプラットフォームから設定できません。作成したマシンはテンプレート内蔵のアカウントとパスワードをそのまま使います",
   "clone.gpuRequired": "このテンプレートには GPU が必要です。割り当てる GPU を選択してください",
   "clone.lxcGpuUnsupported": "LXC テンプレートは GPU パススルーに対応していません",
   "clone.gpuNodeMismatch": "選択した GPU はテンプレートのノード（{node}）上にありません。別の GPU を選択してください",

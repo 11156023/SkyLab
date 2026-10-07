@@ -15,7 +15,6 @@ nginx 同時扛兩件事，各自對應一份 SkyLab 完整持有的設定檔：
 
 from __future__ import annotations
 
-import logging
 import re
 import shlex
 import uuid
@@ -25,8 +24,6 @@ from typing import Any
 
 from app.core.i18n import t
 from app.exceptions import ProxmoxError
-
-logger = logging.getLogger(__name__)
 
 NGINX_CONF_PATH = "/etc/nginx/nginx.conf"
 NGINX_MANAGED_DIR = "/etc/nginx/skylab"

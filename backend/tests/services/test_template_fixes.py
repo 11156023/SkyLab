@@ -625,7 +625,7 @@ async def test_retry_shortcut_marks_ready_when_already_converted(
 
 
 @pytest.mark.parametrize(
-    "field", ["name", "visibility", "allow_password_change", "requires_gpu"]
+    "field", ["name", "visibility", "requires_gpu"]
 )
 def test_update_template_rejects_null_for_required_fields(
     db: Session, field: str

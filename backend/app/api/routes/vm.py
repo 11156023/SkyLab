@@ -14,6 +14,7 @@ from app.schemas import (
     VNCInfoSchema,
 )
 from app.services.proxmox import provisioning_service, proxmox_service
+from app.services.resource import console_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,16 @@ async def get_vm_console(vmid: int, vm_info: ControlVmInfoDep):
             csrf_token,
         )
         register_vnc_session_cookie(vmid, str(console_data["ticket"]), pve_auth_cookie)
+        clipboard = await asyncio.to_thread(
+            console_service.get_vnc_clipboard_enabled, node=node, vmid=vmid
+        )
 
         return {
             "vmid": vmid,
             "ws_url": f"/ws/vnc/{vmid}/",
             "ticket": console_data["ticket"],
             "port": str(console_data["port"]),
+            "clipboard": clipboard,
             "message": "Connect to this WebSocket URL to access the VM console",
         }
     except (BadRequestError, ConflictError, ProxmoxError):

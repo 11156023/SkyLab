@@ -18,12 +18,16 @@ def create_vm_request(
     vm_request_in: VMRequestCreate,
     user_id: uuid.UUID,
     encrypted_password: str | None,
+    password_hash: str | None = None,
     auto_decision_reason: str | None = None,
     request_kind: str | None = None,
     placement_group_id: uuid.UUID | None = None,
     commit: bool = True,
 ) -> VMRequest:
     """Create VM request. Password should be pre-encrypted by the service layer.
+
+    ``password_hash`` carries a user-chosen password as a SHA-512 crypt hash
+    instead; see ``services.template.password_policy`` for which one applies.
 
     Hostname is normalised to Punycode on creation so all downstream
     comparisons use a single canonical form.
@@ -45,6 +49,7 @@ def create_vm_request(
         cores=vm_request_in.cores,
         memory=vm_request_in.memory,
         password=encrypted_password,
+        password_hash=password_hash,
         storage=vm_request_in.storage,
         environment_type=vm_request_in.environment_type,
         os_info=vm_request_in.os_info,

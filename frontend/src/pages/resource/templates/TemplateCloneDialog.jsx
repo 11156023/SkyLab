@@ -48,7 +48,8 @@ export default function TemplateCloneDialog({ template, closing = false, onClose
   const [gpuMappingId, setGpuMappingId] = useState("");
   const [gpuProfile, setGpuProfile] = useState("");
 
-  const allowPassword = template?.allow_password_change !== false;
+  /* 範本沒有 cloud-init 時平台設不了密碼，克隆機沿用範本內的帳密 */
+  const allowPassword = template?.password_settable !== false;
   const coresMax = Math.max(8, template?.default_cores || 0);
   const memoryMax = Math.max(32768, template?.default_memory || 0);
   const coreTicks = [...new Set([1, 2, 4, 6, 8, coresMax])].sort((a, b) => a - b);
@@ -258,6 +259,10 @@ export default function TemplateCloneDialog({ template, closing = false, onClose
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          <div className={styles.policyNote}>
+            <MIcon name="info" size={15} />
+            {t("TemplateCloneDialog.passwordNotStoredNote")}
+          </div>
         </div>
       ) : (
         <div className={styles.policyNote}>

@@ -1,5 +1,6 @@
 from .client import (
     basic_blocking_task_status,
+    client_generation,
     get_active_host,
     get_connection_id_for_node,
     get_host_for_node,
@@ -28,6 +29,7 @@ __all__ = [
     "ProxmoxSettings",
     "basic_blocking_task_status",
     "build_ws_ssl_context",
+    "client_generation",
     "fetch_cluster_nodes",
     "get_active_host",
     "get_connection_id_for_node",

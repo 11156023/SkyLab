@@ -65,7 +65,7 @@ _REQUEST_FORM_ELEMENTS: tuple[ElementSpec, ...] = (
         id="request.password",
         role="text",
         label="密碼",
-        help="登入這台機器要用的密碼，一律由申請人自己輸入。",
+        help="登入這台機器要用的密碼，一律由申請人自己輸入；平台不會保存，忘記只能到機器的進階設定重設。",
         constraints=("必填", "至少 8 個字元"),
         sensitive=True,
     ),

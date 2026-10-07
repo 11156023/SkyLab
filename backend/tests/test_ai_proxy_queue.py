@@ -219,7 +219,7 @@ async def test_probe_cancel_returns_probe_right_and_handed_slot():
     admission.dispatch()
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await pending
+        await asyncio.gather(pending)
     assert admission.active == 0 and admission._models["A"].probe is None
     replacement = await admission.acquire(admission.ticket("A"))
     assert replacement.probe
@@ -244,7 +244,7 @@ async def test_queue_budget_not_reset_on_requeue_and_deadline_removes_waiter():
     clock.value = 13
     admission.dispatch()
     with pytest.raises(relay.AdmissionRejected):
-        await again
+        await asyncio.gather(again)
     assert admission.waiting == admission.active == 0
 
 
@@ -255,7 +255,7 @@ async def test_shutdown_wakes_waiters_and_refuses_new_admission():
     await settle(lambda: admission.waiting == 1)
     await admission.close()
     with pytest.raises(relay.AdmissionRejected, match="shutdown"):
-        await pending
+        await asyncio.gather(pending)
     with pytest.raises(relay.AdmissionRejected, match="shutdown"):
         await admission.acquire()
     first.release()
@@ -487,6 +487,7 @@ async def test_asgi_disconnect_cancels_waiter_or_upstream_and_records_once(
             await asyncio.Event().wait()
         finally:
             stopped.set()
+        raise AssertionError("upstream handler only ends by cancellation")
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         monkeypatch.setattr(relay, "_get_relay_http_client", lambda: client)

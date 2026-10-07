@@ -219,7 +219,9 @@ def test_create_vm_skips_vmid_reserved_by_scheduler(
     with pytest.raises(ProxmoxError):
         svc.create_vm(
             session=MagicMock(),
-            vm_data=SimpleNamespace(template_id=9000, storage=None, disk_size=20),  # type: ignore[arg-type]
+            vm_data=SimpleNamespace(  # type: ignore[arg-type]
+                template_id=9000, storage=None, disk_size=20, username="student"
+            ),
             user_id=uuid.uuid4(),
         )
 

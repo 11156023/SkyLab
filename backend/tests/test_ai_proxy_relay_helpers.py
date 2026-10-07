@@ -228,7 +228,7 @@ async def test_usage_recording_uses_independent_session_off_event_loop(
         assert not task.done()
     finally:
         release.set()
-        await task
+        await asyncio.gather(task)
 
     assert observed["session"] is usage_session
     assert observed["session_created_in"] != main_thread_id
@@ -281,7 +281,7 @@ async def test_admission_queue_does_not_let_new_requests_bypass_waiters() -> Non
     newcomer = await queue.acquire()
     order.append("newcomer")
     newcomer.release()
-    await waiter
+    await asyncio.gather(waiter)
 
     assert order == ["waiting", "newcomer"]
 
@@ -306,7 +306,7 @@ async def test_admission_queue_timeout_and_cancel_do_not_leak_waiters() -> None:
         await asyncio.sleep(0)
     waiter.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.gather(waiter)
     assert queue.waiting == 0
     first.release()
     assert queue.active == 0
@@ -328,7 +328,7 @@ async def test_admission_slot_handed_to_cancelled_waiter_is_returned() -> None:
     first.release()
     waiter.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.gather(waiter)
 
     assert queue.waiting == 0
     assert queue.active == 0
@@ -642,7 +642,7 @@ async def test_models_singleflight_returns_neutral_caller_owned_responses(
             }
         )
 
-    monkeypatch.setattr(relay_service, "_models_cache_loop", None)
+    monkeypatch.setattr(relay_service, "_models_cache", relay_service._LoopBound())
     monkeypatch.setattr(relay_service, "_relay_stopping", False)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         monkeypatch.setattr(relay_service, "_get_relay_http_client", lambda: client)

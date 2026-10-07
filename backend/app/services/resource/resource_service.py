@@ -3,7 +3,6 @@ import math
 import time
 import uuid
 from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -52,7 +51,7 @@ from app.schemas.resource import (
 from app.services.governance.lifecycle_policy import expiry_datetime
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
-from app.services.resource import guest_ssh_login
+from app.services.resource import guest_ssh_login, live_ip
 from app.services.resource import kind as resource_kind
 from app.services.resource.access import (
     list_owned_teaching_class_ids,
@@ -181,13 +180,16 @@ def ensure_lxc_login_password(
     vmid: int,
     reapply_recorded: bool = False,
 ) -> bool:
-    """Write the platform-generated root password into an LXC after it starts.
+    """Write the recorded root password into an LXC after it starts.
 
     An LXC cloned from a template only accepts a password through ``pct exec``
     once it is running. Machines created while stopped (class machines with a
-    schedule) keep the password in ``login_password_pending_encrypted``; the
-    first managed start applies it and promotes it to
-    ``login_password_encrypted`` so the credentials card can show it.
+    schedule) keep the password in a pending column; the first managed start
+    applies it and promotes it to the matching recorded column.
+
+    Two kinds of password are recorded: one the platform generated (encrypted,
+    shown on the credentials card) and one the user chose (SHA-512 crypt hash
+    only, written with ``chpasswd -e``). A resource holds at most one of them.
 
     ``reapply_recorded`` is for the reset path: a snapshot rollback restores the
     guest's ``/etc/shadow``, which may predate the applied password, so the
@@ -201,23 +203,35 @@ def ensure_lxc_login_password(
         resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
         if resource is None:
             return False
-        pending = resource.login_password_pending_encrypted
-        encrypted = pending or (
-            resource.login_password_encrypted if reapply_recorded else None
-        )
-        if not encrypted:
+        pending_plain = resource.login_password_pending_encrypted
+        pending_hash = resource.login_password_pending_hash
+        if pending_plain:
+            secret, hashed = decrypt_value(pending_plain), False
+        elif pending_hash:
+            secret, hashed = pending_hash, True
+        elif reapply_recorded and resource.login_password_encrypted:
+            secret, hashed = decrypt_value(resource.login_password_encrypted), False
+        elif reapply_recorded and resource.login_password_hash:
+            secret, hashed = resource.login_password_hash, True
+        else:
             return False
 
         from app.services.template.clone_service import (
             set_lxc_root_password,
         )
 
-        if not set_lxc_root_password(node, vmid, decrypt_value(encrypted)):
+        if not set_lxc_root_password(node, vmid, secret, hashed=hashed):
             logger.warning("Login password was not applied to LXC %s", vmid)
             return False
-        if pending:
-            resource.login_password_encrypted = pending
+        if pending_plain or pending_hash:
+            if pending_plain:
+                resource.login_password_encrypted = pending_plain
+                resource.login_password_hash = None
+            else:
+                resource.login_password_hash = pending_hash
+                resource.login_password_encrypted = None
             resource.login_password_pending_encrypted = None
+            resource.login_password_pending_hash = None
             session.add(resource)
             session.commit()
             logger.info("Applied pending login password to LXC %s", vmid)
@@ -456,10 +470,6 @@ def _teaching_display_names(
     return display
 
 
-# 清單頁同時查即時 IP 的數量（guest agent 一台可能卡好幾秒，串行時幾十台就逾時）
-_LIST_IP_WORKERS = 8
-
-
 @dataclass
 class _ListPrefetch:
     """清單頁一次批次查好的資料，_build_resource_public 逐台組裝時直接取用。"""
@@ -471,34 +481,12 @@ class _ListPrefetch:
     environment_names: dict[int, str] = field(default_factory=dict)
 
 
-def _live_ip(entry: dict) -> str | None:
-    # 關機的機器 guest agent／interfaces 一定查不到，省一次 PVE 呼叫
-    if entry.get("status") != "running":
-        return None
-    try:
-        return proxmox_service.get_ip_address(
-            entry.get("node", ""), entry.get("vmid"), entry.get("type", "")
-        )
-    except Exception as exc:
-        logger.debug("VMID=%s 即時 IP 查詢失敗（改用快取）: %s", entry.get("vmid"), exc)
-        return None
-
-
 def _prefetch_list(
     session: Session, pairs: list[tuple[dict, Any]]
 ) -> _ListPrefetch:
     entries = [entry for entry, _db in pairs if entry.get("vmid") is not None]
-    live: dict[int, str | None] = {}
-    if entries:
-        workers = min(_LIST_IP_WORKERS, len(entries))
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="res-ip") as pool:
-            live = dict(
-                zip(
-                    (entry["vmid"] for entry in entries),
-                    pool.map(_live_ip, entries),
-                    strict=True,
-                )
-            )
+    # guest agent 沒回應的機器一台要卡 3 秒，live_ip 限時查、來不及的用快取
+    live = live_ip.probe_live_ips(entries, proxmox_service.get_ip_address)
     db_rows = [db for _entry, db in pairs if db is not None]
     class_ids = {
         db.teaching_class_id

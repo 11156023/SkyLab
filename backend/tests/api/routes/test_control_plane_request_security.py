@@ -53,6 +53,10 @@ async def test_invalid_json_keeps_fastapi_body_validation_location() -> None:
     assert exc_info.value.errors()[0]["loc"][0] == "body"
 
 
+def _no_db() -> object:
+    return object()
+
+
 def _app() -> FastAPI:
     app = FastAPI()
     app.include_router(ai_api_routes.router)
@@ -89,7 +93,7 @@ def test_authenticated_oversized_body_returns_413_before_service(
         role=UserRole.student,
     )
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_db] = lambda: object()
+    app.dependency_overrides[get_db] = _no_db
     app.dependency_overrides[
         ai_api_routes._AI_API_REQUEST_RATE_LIMIT.dependency
     ] = lambda: None
@@ -124,7 +128,7 @@ def test_authenticated_non_utf8_json_returns_serializable_422() -> None:
         role=UserRole.student,
     )
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_db] = lambda: object()
+    app.dependency_overrides[get_db] = _no_db
     app.dependency_overrides[
         ai_api_routes._AI_API_REQUEST_RATE_LIMIT.dependency
     ] = lambda: None
@@ -237,7 +241,7 @@ def test_signup_oversized_body_returns_413_before_password_hashing(
 ) -> None:
     app = FastAPI()
     app.include_router(user_routes.router)
-    app.dependency_overrides[get_db] = lambda: object()
+    app.dependency_overrides[get_db] = _no_db
     app.dependency_overrides[user_routes._SIGNUP_RATE_LIMIT.dependency] = lambda: None
     app.dependency_overrides[user_routes._SIGNUP_TURNSTILE.dependency] = lambda: None
     app.dependency_overrides[

@@ -96,5 +96,10 @@
   "spec_change.expiry_must_be_future": "新しい有効期限は今日より後の日付にしてください",
   "spec_change.expiry_must_extend": "新しい有効期限は現在の有効期限 {current} より後の日付にしてください",
   "spec_change.expiry_too_far": "一度に延長できるのは今日から最大 {days} 日後までです。それ以上は管理者に連絡してください",
-  "spec_change.expiry_gpu_reserved": "延長後の期間が、承認済みでまだ起動していない別の GPU 申請と重なります（相手の期間は {date} まで）。より早い日付を選ぶか、管理者に連絡してください"
+  "spec_change.expiry_gpu_reserved": "延長後の期間が、承認済みでまだ起動していない別の GPU 申請と重なります（相手の期間は {date} まで）。より早い日付を選ぶか、管理者に連絡してください",
+  "username_policy.LNX_FORMAT": "ユーザー名は英小文字で始め、英小文字・数字・アンダースコア（_）・ハイフン（-）のみ、1～{max_length} 文字で指定してください",
+  "username_policy.LNX_RESERVED": "「{name}」は Linux システムで予約されたユーザー名またはグループ名のため使用できません",
+  "username_policy.LNX_RESERVED_PREFIX": "ユーザー名を「{prefix}」で始めることはできません（システムサービス用に予約）",
+  "username_policy.PLATFORM_RESERVED": "「{name}」は SkyLab プラットフォームで予約された名前のため使用できません",
+  "username_policy.LNX_DEFAULT_USER": "「{name}」はディストリビューションの cloud image の既定アカウント名です。使用できますが、テンプレート内に同名の既存アカウントがないことを確認してください"
 }

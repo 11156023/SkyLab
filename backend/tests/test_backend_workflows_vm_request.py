@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.core.security import encrypt_value
+from app.core.security import decrypt_value, encrypt_value
 from app.exceptions import (
     BadRequestError,
     ProvisioningError,
@@ -30,6 +30,7 @@ from app.schemas import (
 from app.services.vm import (
     vm_request_service,
 )
+from tests.utils.login_password import hash_matches
 
 
 @pytest.fixture()
@@ -41,6 +42,15 @@ def db() -> Session:
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+
+
+@pytest.fixture(autouse=True)
+def _linux_templates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """送單時要先知道範本是不是 Windows（決定密碼存雜湊還是明文）；這裡一律當 Linux。"""
+    monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.template_is_windows",
+        lambda template_id: False,
+    )
 
 
 def _create_user(
@@ -114,6 +124,48 @@ def test_vm_request_create_preserves_environment_type(
     assert result.environment_type == "ML Lab"
     assert saved.environment_type == "ML Lab"
     assert saved.storage == "fast-ssd"
+    # 申請人自訂的密碼只以雜湊留在申請單上，沒有可還原的副本
+    assert saved.password is None
+    assert hash_matches("strongpass123", saved.password_hash)
+
+
+def test_windows_vm_request_keeps_the_password_encrypted_until_provisioning(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """cloudbase-init 只收明文：Windows 是唯一在建機前暫存可還原密碼的申請單。"""
+    user = _create_user(db)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_availability_service.validate_request_window",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.template_is_windows",
+        lambda template_id: True,
+    )
+    request_in = VMRequestCreate(
+        reason="Need a Windows machine for the desktop support course",
+        resource_type="vm",
+        hostname="win-check",
+        cores=2,
+        memory=4096,
+        password="strongpass123",
+        storage="fast-ssd",
+        template_id=9000,
+        disk_size=64,
+        username="student",
+        start_at=now + timedelta(hours=1),
+        end_at=now + timedelta(hours=3),
+    )
+
+    result = vm_request_service.create(session=db, request_in=request_in, user=user)
+
+    db.expire_all()
+    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
+    assert saved is not None
+    assert saved.password_hash is None
+    assert saved.password is not None
+    assert decrypt_value(saved.password) == "strongpass123"
 
 
 def test_admin_scheduled_request_stays_pending(
@@ -142,7 +194,7 @@ def test_admin_scheduled_request_stays_pending(
         storage="fast-ssd",
         template_id=9000,
         disk_size=32,
-        username="admin",
+        username="labuser",
         mode="scheduled",
         start_at=now + timedelta(hours=1),
         end_at=now + timedelta(hours=3),
@@ -195,7 +247,7 @@ def test_admin_immediate_request_is_auto_approved(
         storage="fast-ssd",
         template_id=9000,
         disk_size=32,
-        username="admin",
+        username="labuser",
         mode="immediate",
     )
 
