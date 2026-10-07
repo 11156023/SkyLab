@@ -43,6 +43,8 @@ class VNCInfoSchema(BaseModel):
     ws_url: str
     ticket: str | None = None
     port: str | None = None
+    # VM 的 Display 是否開了 clipboard=vnc（noVNC 貼上要靠它才會進 guest）
+    clipboard: bool = False
     message: str
 
 

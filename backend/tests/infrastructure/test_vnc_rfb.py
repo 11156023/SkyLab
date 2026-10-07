@@ -20,6 +20,7 @@ from app.infrastructure.vnc.handshake import (
 )
 from app.infrastructure.vnc.messages import (
     CLIENT_INPUT_TYPES,
+    MAX_CLIENT_CUT_TEXT,
     PIXEL_BYTES,
     ClientMessageSplitter,
     FramebufferSize,
@@ -126,6 +127,13 @@ class TestServerMessageSplitter:
         msg = struct.pack(">BxxxI", 3, 5) + b"hello"
         assert s.feed(msg) == [msg]
 
+    def test_server_cut_text_extended_uses_negative_length(self) -> None:
+        """Extended Clipboard 偽編碼把長度欄位寫成負數，資料長度是絕對值。"""
+        s = ServerMessageSplitter(800, 600)
+        payload = struct.pack(">I", 0x1C000001) + b"\x00\x00\x00\x00"
+        msg = struct.pack(">Bxxxi", 3, -len(payload)) + payload
+        assert s.feed(msg) == [msg]
+
     def test_fragmented_byte_by_byte(self) -> None:
         s = ServerMessageSplitter(800, 600)
         m1 = _fb_update(_rect(0, 0, 20, 20, 5, _hextile_20x20_payload()))
@@ -183,6 +191,20 @@ class TestClientMessageSplitter:
         s = ClientMessageSplitter()
         msg = struct.pack(">BxxxI", 6, 4) + b"copy"
         assert s.feed(msg) == [(6, msg)]
+
+    def test_client_cut_text_extended_uses_negative_length(self) -> None:
+        """noVNC 貼上走 Extended Clipboard（notify/provide）時長度為負，不可視為超長。"""
+        s = ClientMessageSplitter()
+        payload = struct.pack(">I", 0x10000001) + b"zlib-data"
+        msg = struct.pack(">Bxxxi", 6, -len(payload)) + payload
+        key_event = struct.pack(">BBxxI", 4, 1, 0x41)
+        assert s.feed(msg + key_event) == [(6, msg), (4, key_event)]
+
+    def test_client_cut_text_extended_over_limit_raises(self) -> None:
+        s = ClientMessageSplitter()
+        msg = struct.pack(">Bxxxi", 6, -(MAX_CLIENT_CUT_TEXT + 1))
+        with pytest.raises(RfbStreamError):
+            s.feed(msg)
 
     def test_fragmented(self) -> None:
         s = ClientMessageSplitter()

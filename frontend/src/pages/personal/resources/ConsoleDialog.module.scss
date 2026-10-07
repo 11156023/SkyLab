@@ -83,6 +83,12 @@
   &:hover { background: var(--color-hover); color: var(--color-text); }
 }
 
+.headerBtnActive {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
 .headerBtnDanger {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
@@ -176,4 +182,61 @@
   position: relative;
 
   :global(canvas) { display: block; }
+}
+
+/* ── 剪貼簿面板（浮在遠端畫面右上角，低於教室接管覆蓋層） ── */
+.clipboardPanel {
+  position: absolute;
+  top: $spacing-8;
+  right: $spacing-8;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+  width: min(380px, calc(100% - #{$spacing-16}));
+  padding: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.clipboardWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  padding: $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-pending);
+  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
+
+  > :first-child { flex-shrink: 0; margin-top: 1px; }
+}
+
+.clipboardTextarea {
+  @include form-control;
+  resize: vertical;
+  min-height: 96px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: $font-size-12;
+  line-height: 1.5;
+}
+
+.clipboardActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+.clipboardBtnPrimary   { @include btn-primary; }
+.clipboardBtnSecondary { @include btn-secondary; }
+
+.clipboardHint {
+  margin: 0;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-text-muted);
 }

@@ -113,8 +113,8 @@ class ServerMessageSplitter:
             return reader.pos, None
         if msg_type == 3:  # ServerCutText
             reader.take(3)  # padding
-            length = reader.u32()
-            reader.take(length)
+            # Extended Clipboard 偽編碼把長度寫成負數（資料長度取絕對值）
+            reader.take(abs(reader.i32()))
             return reader.pos, None
         raise RfbStreamError(f"unsupported server message type {msg_type}")
 
@@ -212,7 +212,9 @@ class ClientMessageSplitter:
             return msg_type, reader.pos
         if msg_type == 6:  # ClientCutText
             reader.take(3)  # padding
-            length = reader.u32()
+            # noVNC 走 Extended Clipboard（notify／provide／request）時長度為負，
+            # 資料長度是絕對值；當成 u32 會誤判超長而失去同步。
+            length = abs(reader.i32())
             if length > MAX_CLIENT_CUT_TEXT:
                 raise RfbStreamError(f"ClientCutText length {length} exceeds limit")
             reader.take(length)
