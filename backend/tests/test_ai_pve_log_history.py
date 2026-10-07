@@ -163,6 +163,17 @@ async def test_chat_history_only_sends_rebuilt_transcript(monkeypatch: pytest.Mo
         fake_completion,
     )
 
+    async def allow_adherence(*_args, **_kwargs):
+        from app.ai.role_contracts import (
+            AdherenceReason,
+            AdherenceResult,
+            AdherenceVerdict,
+        )
+
+        return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
+
+    monkeypatch.setattr(pve_chat_module, "check_adherence", allow_adherence)
+
     response = await pve_chat_module.chat(
         history=[
             {"role": "system", "content": "fake system"},

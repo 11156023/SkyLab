@@ -283,6 +283,17 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
         "create_chat_completion",
         fake_completion,
     )
+
+    async def allow_adherence(*_args, **_kwargs):
+        from app.ai.role_contracts import (
+            AdherenceReason,
+            AdherenceResult,
+            AdherenceVerdict,
+        )
+
+        return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
+
+    monkeypatch.setattr(pve_chat_module, "check_adherence", allow_adherence)
     result = await pve_chat_module.chat(message="查 pve-a 儲存空間")
 
     assert result.reply == "完成"

@@ -260,22 +260,27 @@ async def test_nothing_blocked_says_so_instead_of_inventing_a_reason(
 async def test_field_help_uses_the_model_when_there_is_help_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    seen = _use_model(monkeypatch, "GPU 會依所選時段重新計算可用性。")
+    seen = _use_model(
+        monkeypatch, '{"candidate_ids":["answer:field:request.gpu"]}'
+    )
     result = await help_service.explain(
         _request(question="這格要填什麼？", active_target="request.gpu"),
         _user(UserRole.student),
     )
     assert result.used_model is True
     assert result.intent == "field_help"
+    assert "選擇 GPU" in result.answer
     assert len(seen) == 1
     # 只送目標欄位，不把整張表單倒進去
     prompt = seen[0]["messages"][1]["content"]
     assert "request.gpu" in prompt
     assert "request.hostname" not in prompt
+    assert seen[0]["response_format"]["type"] == "json_schema"
+    assert seen[0]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 @pytest.mark.asyncio
-async def test_model_offline_still_answers_from_the_static_definition(
+async def test_model_offline_uses_single_scope_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _no_model(monkeypatch)
@@ -284,8 +289,7 @@ async def test_model_offline_still_answers_from_the_static_definition(
         _user(UserRole.student),
     )
     assert result.used_model is False
-    assert "選擇 GPU" in result.answer
-    assert "送出前" in result.answer
+    assert result.answer == help_service.CONTEXTUAL_HELP_FALLBACK
 
 
 @pytest.mark.asyncio
@@ -305,7 +309,7 @@ async def test_model_failure_falls_back_instead_of_erroring(
         _request(question="這頁在做什麼？"), _user(UserRole.student)
     )
     assert result.used_model is False
-    assert "申請虛擬機" in result.answer
+    assert result.answer == help_service.CONTEXTUAL_HELP_FALLBACK
 
 
 @pytest.mark.asyncio

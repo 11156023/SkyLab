@@ -58,6 +58,29 @@ def _clear_proxmox_caches() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_system_ai_adherence_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """既有業務單元測試不額外消耗第二組模型回覆。
+
+    檢查器本身與各服務的 block/fail-closed 整合由 focused tests 覆蓋；個別測試仍可
+    在此 fixture 之後覆寫模組內的 ``check_adherence``。
+    """
+    from app.ai.pve_log import chat as pve_chat
+    from app.ai.role_contracts import (
+        AdherenceReason,
+        AdherenceResult,
+        AdherenceVerdict,
+    )
+    from app.ai.teacher_judge import service as teacher_judge_service
+
+    async def allow(*_args, **_kwargs) -> AdherenceResult:
+        return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
+
+    monkeypatch.setattr(pve_chat, "check_adherence", allow)
+    if hasattr(teacher_judge_service, "check_adherence"):
+        monkeypatch.setattr(teacher_judge_service, "check_adherence", allow)
+
+
+@pytest.fixture(autouse=True)
 def _no_backup_purge_on_delete(monkeypatch: pytest.MonkeyPatch) -> None:
     """resource_service.delete 成功後會順手清掉機器的備份（要查連線設定、打 PVE）。
 

@@ -26,6 +26,11 @@ from app.ai.pve_log import collector
 from app.ai.pve_log import ssh_exec as ssh_exec_module
 from app.ai.pve_log.history import merge_pve_messages
 from app.ai.pve_log.schemas import SSHConfirmRequest, SSHExecRequest, SSHExecResult
+from app.ai.role_contracts import (
+    AdherenceReason,
+    AdherenceResult,
+    AdherenceVerdict,
+)
 
 
 def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
@@ -33,6 +38,22 @@ def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
 
     async def fake_completion(payload, *, timeout, request_id=None):
         del timeout, request_id
+        schema_name = (
+            (payload.get("response_format") or {})
+            .get("json_schema", {})
+            .get("name")
+        )
+        if schema_name == "skylab_adherence_v1":
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": '{"verdict":"allow","reason_code":"none"}'
+                        },
+                    }
+                ]
+            }
         payloads.append(copy.deepcopy(payload))
         return responder(len(payloads) - 1)
 
@@ -327,6 +348,44 @@ def test_non_json_literal_arguments_are_serialized() -> None:
     arguments = json.loads(result["tool_calls"][0]["function"]["arguments"])
     assert isinstance(arguments, dict)
     assert isinstance(arguments["a"], str)
+
+
+def test_prose_tool_example_is_never_promoted_to_execution() -> None:
+    content = '<|tool_call|>call:get_nodes {"node":"pve1"}<|/tool_call|>'
+    result = pve_chat_module._normalize_assistant_message(
+        {"role": "assistant", "content": content}
+    )
+    assert "tool_calls" not in result
+    assert result["content"] == content
+
+
+async def test_adherence_block_prevents_pve_tool_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_vllm(
+        monkeypatch,
+        lambda _index: _tool_call_message(("nodes-1", "get_nodes", "{}")),
+    )
+
+    async def blocked(*_args: Any, **_kwargs: Any) -> AdherenceResult:
+        return AdherenceResult(
+            AdherenceVerdict.BLOCK, AdherenceReason.ACTION_NOT_REQUESTED
+        )
+
+    executed: list[bool] = []
+    monkeypatch.setattr(pve_chat_module, "check_adherence", blocked)
+    monkeypatch.setattr(
+        collector.PveToolContext,
+        "execute",
+        lambda self, *_args, **_kwargs: executed.append(True),
+    )
+
+    response = await pve_chat_module.chat(message="只解釋節點是什麼，不要查詢")
+
+    assert response.reply == pve_chat_module.PVE_ADHERENCE_FALLBACK
+    assert response.tools_called == []
+    assert executed == []
+    assert not any(item.get("tool_calls") for item in response.messages)
 
 
 # ---------------------------------------------------------------------------

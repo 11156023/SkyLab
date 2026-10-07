@@ -16,6 +16,9 @@ from typing import Any, Literal, cast
 import httpx
 from fastapi import HTTPException
 
+from app.ai.adherence_check import check_adherence
+from app.ai.monitoring import new_ai_request_id
+from app.ai.role_contracts import OutputMode, RoleContract, TurnContext
 from app.ai.teacher_judge._types import VLLMMetrics
 from app.ai.teacher_judge.automation_support import (
     get_script_generation_blockers,
@@ -60,6 +63,22 @@ from app.ai.utils import apply_thinking_control, safe_bool, strip_think_tags
 from app.core.i18n import t
 from app.infrastructure.ai.teacher_judge import client as teacher_judge_client
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
+
+TEACHER_FREE_TEXT_CONTRACT = RoleContract(
+    role_id="teacher_judge",
+    output_mode=OutputMode.MODEL_FREE_TEXT,
+    contract_version="teacher-judge-v1",
+    fallback_key="teacher_judge.scope_clarification",
+)
+TEACHER_ACTION_CONTRACT = RoleContract(
+    role_id="teacher_judge",
+    output_mode=OutputMode.MODEL_ACTION,
+    contract_version="teacher-judge-v1",
+    fallback_key="teacher_judge.scope_clarification",
+)
+TEACHER_ADHERENCE_FALLBACK = (
+    "我只能協助目前班級的評分檢查表、提案與執行結果；請指出要檢查或調整的項目。"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,23 +235,10 @@ _GET_CHECKLIST_ITEM_TOOL_NAME = "get_checklist_item"
 _CREATE_CHECKLIST_ITEM_TOOL_NAME = "create_checklist_item"
 _EDIT_CHECKLIST_ITEM_TOOL_NAME = "edit_checklist_item"
 
-_KNOWN_TOOL_NAMES = frozenset(
-    {
-        _LIST_CHECKLIST_TOOL_NAME,
-        _GET_CHECKLIST_ITEM_TOOL_NAME,
-        _CREATE_CHECKLIST_ITEM_TOOL_NAME,
-        _EDIT_CHECKLIST_ITEM_TOOL_NAME,
-    }
-)
-
-# One fenced-JSON matcher shared by tool-call recovery and reply-payload
-# extraction; group 1 is the object body.
+# Fenced JSON is accepted only for the non-executable reply payload. Tool calls
+# must arrive through the native ``tool_calls`` field.
 _JSON_FENCE_RE = re.compile(
     r"```(?:json|tool_code)?\s*(\{.*?\})\s*```",
-    re.DOTALL,
-)
-_TOOL_CALL_MARKER_RE = re.compile(
-    r"<\|?tool_call\|?>\s*(?:call:)?([a-zA-Z0-9_]+)\s*(\{.*?\})\s*<\|?/?tool_call\|?>",
     re.DOTALL,
 )
 
@@ -967,6 +973,73 @@ def _rubric_context_data(rubric_context: str) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _teacher_turn_context(
+    *,
+    rubric_context: str,
+    template_key: str,
+    analysis_revision: int | None,
+    is_refine: bool,
+    rubric_available: bool,
+) -> TurnContext:
+    data = _rubric_context_data(rubric_context)
+    raw_items = data.get("items")
+    item_ids = tuple(
+        str(item.get("id"))
+        for item in (raw_items if isinstance(raw_items, list) else [])
+        if isinstance(item, dict) and item.get("id")
+    )
+    allowed_actions = [_LIST_CHECKLIST_TOOL_NAME, _GET_CHECKLIST_ITEM_TOOL_NAME]
+    if rubric_available:
+        allowed_actions.extend(
+            [_CREATE_CHECKLIST_ITEM_TOOL_NAME, _EDIT_CHECKLIST_ITEM_TOOL_NAME]
+        )
+    return TurnContext(
+        role_id="teacher_judge",
+        phase="refine" if is_refine else "discuss",
+        scope_ref=f"rubric:{template_key}",
+        target_revision=analysis_revision,
+        candidate_target_ids=tuple(dict.fromkeys(item_ids)),
+        allowed_actions=tuple(allowed_actions),
+    )
+
+
+def _latest_teacher_request(
+    messages: list[TeacherJudgeRubricChatMessage],
+) -> str:
+    for message in reversed(messages):
+        if message.role == "user":
+            return message.content.strip()
+    return ""
+
+
+async def _check_teacher_candidate(
+    *,
+    contract: RoleContract,
+    messages: list[TeacherJudgeRubricChatMessage],
+    candidate: Any,
+    facts: Any,
+    turn_context: TurnContext,
+    phase: str,
+) -> bool:
+    result = await check_adherence(
+        teacher_judge_client,
+        contract,
+        _latest_teacher_request(messages),
+        candidate,
+        {"turn_context": turn_context.as_facts(), "evidence": facts},
+        new_ai_request_id(),
+        model_name=settings.VLLM_MODEL_NAME,
+        phase=phase,
+    )
+    if not result.allowed:
+        logger.warning(
+            "Teacher Judge candidate blocked by adherence check: phase=%s reason=%s",
+            phase,
+            result.reason_code.value,
+        )
+    return result.allowed
 
 
 def _finalizer_completion_blockers(
@@ -1712,91 +1785,37 @@ def _tool_arguments(value: Any) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _tool_call_from_payload(payload: Any) -> tuple[str, Any] | None:
-    """Accept Hermes/OpenAI/pve_log style tool-call JSON shapes."""
-    if not isinstance(payload, dict):
-        return None
-    if isinstance(payload.get("tool_call"), dict):
-        payload = payload["tool_call"]
-    if isinstance(payload.get("function"), dict):
-        payload = {**payload, **payload["function"]}
-    name = str(payload.get("name") or "").strip()
-    if name not in _KNOWN_TOOL_NAMES:
-        return None
-    return name, payload.get("arguments")
-
-
-def _fenced_tool_call(name: str, arguments: Any) -> dict[str, Any]:
-    return {
-        "id": f"call_{uuid.uuid4().hex[:8]}",
-        "type": "function",
-        "function": {
-            "name": name,
-            "arguments": (
-                arguments
-                if isinstance(arguments, str)
-                else json.dumps(arguments or {}, ensure_ascii=False)
-            ),
-        },
-    }
-
-
-def _extract_fenced_tool_calls(content: str) -> tuple[str, list[dict[str, Any]]]:
-    """Move tool calls the model wrote as fenced JSON into structured calls.
-
-    Qwen-family models sometimes emit checklist tool calls as ```json blocks
-    or <|tool_call|> markers inside ``content`` instead of the structured
-    ``tool_calls`` field (mirrors pve_log.chat._normalize_assistant_message).
-    Parse them back into structured calls and strip the leftovers so the raw
-    JSON never reaches the teacher-facing reply.
-    """
-    calls: list[dict[str, Any]] = []
-
-    def _from_fence(match: re.Match[str]) -> str:
-        try:
-            parsed = json.loads(match.group(1))
-        except json.JSONDecodeError:
-            return match.group(0)
-        extracted = _tool_call_from_payload(parsed)
-        if extracted is None:
-            return match.group(0)
-        name, arguments = extracted
-        calls.append(_fenced_tool_call(name, arguments))
-        return ""
-
-    def _from_marker(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if name not in _KNOWN_TOOL_NAMES:
-            return match.group(0)
-        args_fixed = match.group(2).replace('<|"|>', '"')
-        args_fixed = re.sub(
-            r"([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)",
-            r'\1"\2"\3',
-            args_fixed,
-        )
-        try:
-            arguments = json.dumps(json.loads(args_fixed), ensure_ascii=False)
-        except json.JSONDecodeError:
-            arguments = args_fixed
-        calls.append(_fenced_tool_call(name, arguments))
-        return ""
-
-    cleaned = _JSON_FENCE_RE.sub(_from_fence, content)
-    cleaned = _TOOL_CALL_MARKER_RE.sub(_from_marker, cleaned)
-    # Broken ```json {"tool_call" ...} blocks that failed to parse are still
-    # tool-call noise, not teacher-facing prose.
-    cleaned = re.sub(
-        r'```(?:json)?\s*\{\s*"tool_call".*?```', "", cleaned, flags=re.DOTALL
-    )
-    cleaned = re.sub(r"<\|/?tool_call\|?>", "", cleaned)
-    return cleaned.strip(), calls
-
-
 _PROPOSAL_STATUS_VALUES = {"ready", "needs_information", "unsupported", "none"}
 
 _REPLY_PAYLOAD_KEYS_RE = re.compile(
     r'"(?:reply|proposal_status|conversation_focus)"\s*:'
 )
+
+
+def _contains_embedded_tool_call(content: str) -> bool:
+    """辨識可執行協定外洩；只能拒絕，不能從 prose 恢復執行。"""
+
+    text = content or ""
+    if "<|tool_call|>" in text or "<tool_call>" in text:
+        return True
+    for match in _JSON_FENCE_RE.finditer(text):
+        try:
+            value = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        name = value.get("name")
+        if isinstance(value.get("tool_call"), dict):
+            name = value["tool_call"].get("name")
+        if name in {
+            _LIST_CHECKLIST_TOOL_NAME,
+            _GET_CHECKLIST_ITEM_TOOL_NAME,
+            _CREATE_CHECKLIST_ITEM_TOOL_NAME,
+            _EDIT_CHECKLIST_ITEM_TOOL_NAME,
+        }:
+            return True
+    return False
 
 
 def _is_reply_payload_object(value: Any) -> bool:
@@ -2260,14 +2279,17 @@ async def _run_proposal_tool_loop(
         )
         metrics = _merge_vllm_metrics(metrics, round_metrics)
         assistant = _assistant_message(raw_message)
-        cleaned_content, fenced_calls = _extract_fenced_tool_calls(
-            str(assistant.get("content") or "")
-        )
+        cleaned_content = str(assistant.get("content") or "")
         assistant = {**assistant, "content": cleaned_content or None}
         tool_calls = assistant.get("tool_calls")
-        if not isinstance(tool_calls, list) or not tool_calls:
-            tool_calls = fenced_calls
         if not tool_calls:
+            if _contains_embedded_tool_call(cleaned_content):
+                logger.warning(
+                    "Teacher Judge ignored a content-encoded tool call; native "
+                    "tool_calls is required"
+                )
+                final_content = ""
+                break
             final_content = cleaned_content
             _, proposal_status = _parse_chat_reply_payload(final_content)
             claims_ready = (
@@ -2429,9 +2451,7 @@ async def _run_proposal_tool_loop(
             request, timeout=float(settings.VLLM_TIMEOUT)
         )
         metrics = _merge_vllm_metrics(metrics, round_metrics)
-        final_content, _ = _extract_fenced_tool_calls(
-            str(_assistant_message(raw_message).get("content") or "")
-        )
+        final_content = str(_assistant_message(raw_message).get("content") or "")
 
     return final_content, metrics, staged_ops, rejected_ops, tool_outcomes
 
@@ -2615,6 +2635,34 @@ async def chat_with_rubric(
         finalizer=is_refine,
     )
 
+    turn_context = _teacher_turn_context(
+        rubric_context=rubric_context,
+        template_key=template_key,
+        analysis_revision=analysis_revision,
+        is_refine=is_refine,
+        rubric_available=rubric_available,
+    )
+    action_adherence_blocked = False
+    if staged_ops:
+        action_candidate = [
+            {
+                "operation": entry["operation"],
+                "item": entry["item"].model_dump(mode="json"),
+            }
+            for entry in staged_ops
+        ]
+        action_allowed = await _check_teacher_candidate(
+            contract=TEACHER_ACTION_CONTRACT,
+            messages=messages,
+            candidate=action_candidate,
+            facts={"tool_outcomes": tool_outcomes},
+            turn_context=turn_context,
+            phase="act",
+        )
+        if not action_allowed:
+            staged_ops = []
+            action_adherence_blocked = True
+
     reply_text, proposal_status = _parse_chat_reply_payload(content)
 
     # Proposals come exclusively from server-validated tool calls; any legacy
@@ -2702,6 +2750,27 @@ async def chat_with_rubric(
                 "Teacher Judge ready claim ignored: no rubric source selected"
             )
             reply_text = _NO_RUBRIC_READY_REPLY
+
+    if action_adherence_blocked:
+        reply_text = TEACHER_ADHERENCE_FALLBACK
+        proposal_status = "none"
+    else:
+        reply_allowed = await _check_teacher_candidate(
+            contract=TEACHER_FREE_TEXT_CONTRACT,
+            messages=messages,
+            candidate=reply_text,
+            facts={
+                "proposal_status": proposal_status,
+                "staged_item_ids": [
+                    str(item.get("id") or "") for item in (updated_items or [])
+                ],
+                "tool_outcomes": tool_outcomes,
+            },
+            turn_context=turn_context,
+            phase="respond",
+        )
+        if not reply_allowed:
+            reply_text = TEACHER_ADHERENCE_FALLBACK
 
     return TeacherJudgeChatResult(
         reply=reply_text,
