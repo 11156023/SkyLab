@@ -17,11 +17,24 @@ from app.services.proxmox import provisioning_service
 from app.services.resource import credentials_service
 from app.services.template import password_policy, template_service
 from app.services.vm import vm_request_service
+from app.utils import sha512_crypt as sha512_crypt_module
 from app.utils.login_password import hash_login_password, is_login_password_hash
 from app.utils.sha512_crypt import sha512_crypt
 from tests.utils.login_password import hash_matches
 
 # ─── SHA-512 crypt ───────────────────────────────────────────────────────────
+
+# 這個平台上可用的實作：hashlib 版到處都有，libcrypt 版只有 Linux（CI 與正式映像）
+BACKENDS: list[sha512_crypt_module.Backend] = [sha512_crypt_module.sha512_crypt_hashlib]
+BACKEND_IDS = ["hashlib"]
+if sha512_crypt_module.sha512_crypt_libcrypt is not None:
+    BACKENDS.append(sha512_crypt_module.sha512_crypt_libcrypt)
+    BACKEND_IDS.append("libcrypt")
+
+requires_libcrypt = pytest.mark.skipif(
+    sha512_crypt_module.sha512_crypt_libcrypt is None,
+    reason="system libcrypt with SHA-512 crypt is only available on Linux",
+)
 
 
 @pytest.mark.parametrize(
@@ -43,9 +56,11 @@ from tests.utils.login_password import hash_matches
         ),
     ],
 )
+@pytest.mark.parametrize("backend", BACKENDS, ids=BACKEND_IDS)
 def test_sha512_crypt_matches_reference_output(
-    password: str, salt: str, expected: str
+    backend: sha512_crypt_module.Backend, password: str, salt: str, expected: str
 ) -> None:
+    assert backend(password.encode("utf-8"), salt) == expected
     assert sha512_crypt(password, salt) == expected
 
 
@@ -53,6 +68,37 @@ def test_salt_longer_than_sixteen_characters_is_truncated() -> None:
     assert sha512_crypt("pw", "0123456789abcdefXYZ") == sha512_crypt(
         "pw", "0123456789abcdef"
     )
+
+
+@pytest.mark.parametrize("salt", ["", "has$dollar", "white space", "中文"])
+def test_salt_outside_the_crypt_alphabet_is_rejected(salt: str) -> None:
+    with pytest.raises(ValueError):
+        sha512_crypt("pw", salt)
+
+
+def test_password_with_nul_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        sha512_crypt("pw\x00tail")
+
+
+@requires_libcrypt
+def test_linux_uses_the_system_libcrypt() -> None:
+    """CI 與正式映像都是 Linux：雜湊走 C 實作且不佔 GIL，不能無聲退回純 Python。"""
+    assert sha512_crypt_module.ACTIVE_BACKEND_NAME == "libcrypt"
+
+
+@requires_libcrypt
+@pytest.mark.parametrize(
+    "password",
+    ["Typed12345", "P@ssw0rd!", "密碼測試🔐", "x", "a" * 120, "stress-test-pw-123"],
+)
+def test_libcrypt_and_hashlib_backends_agree(password: str) -> None:
+    assert sha512_crypt_module.sha512_crypt_libcrypt is not None
+    for _ in range(3):
+        salt = sha512_crypt_module.generate_salt()
+        assert sha512_crypt_module.sha512_crypt_libcrypt(
+            password.encode("utf-8"), salt
+        ) == sha512_crypt_module.sha512_crypt_hashlib(password.encode("utf-8"), salt)
 
 
 def test_login_password_hash_is_in_the_form_pve_passes_through() -> None:
