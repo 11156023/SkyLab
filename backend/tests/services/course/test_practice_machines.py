@@ -12,7 +12,6 @@ from app.models.teaching_class import (
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStudent,
-    TeachingClassStudentMachine,
 )
 from tests.utils.class_machines import add_student_machine
 

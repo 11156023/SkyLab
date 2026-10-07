@@ -566,7 +566,6 @@ def test_student_script_result_projection_uses_checks_and_coverage() -> None:
 
 def test_student_projection_hides_technical_validation_error() -> None:
     """輸出驗證失敗的原始錯誤（pydantic validation errors）只給老師看，學生看到一句說明。"""
-    teaching_class_id = uuid.uuid4()
     student_id = uuid.uuid4()
     raw_error = (
         "4 validation errors for ManagedScriptResult\n"

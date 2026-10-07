@@ -485,7 +485,6 @@ def test_executor_runtime_target_falls_back_to_live_ip_when_cache_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = make_session()
-    teaching_class_id = uuid.uuid4()
     user_id = uuid.uuid4()
     _add_resource(session, vmid=131, user_id=user_id, ip=None)
     session.commit()
