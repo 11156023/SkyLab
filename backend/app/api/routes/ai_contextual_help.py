@@ -28,9 +28,11 @@ async def explain_screen(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> ExplainResponse:
-    """解釋使用者目前看到的畫面：欄位用途、被擋的原因，或這一頁在做什麼。
+    """解釋使用者目前看到的畫面：欄位用途、被擋的原因、這一頁在做什麼、
+    整頁導覽，或某個彈出視窗怎麼填。
 
-    只回答畫面相關的問題，不導覽、不產生步驟、不回傳路徑。
+    只回答畫面相關的問題；``related`` 只會列出畫面定義裡寫好、且使用者有權限
+    的頁面，不會由模型產生路徑。
     """
     return await explain(request, current_user, session=session)
 
@@ -47,6 +49,7 @@ def list_surfaces(current_user: CurrentUser) -> list[SurfacePublic]:
             path=surface.path,
             title=surface.title,
             purpose=surface.purpose,
+            when_to_use=surface.when_to_use,
             has_fields=bool(surface.elements),
         )
         for surface in get_surfaces_for_user(current_user)

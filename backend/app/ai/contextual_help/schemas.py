@@ -11,12 +11,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.ai.navigation.catalog import RouteAccess
+from app.ai.utils import clean_prompt_text
 
-# 第一版只有三種：都靠文字情境就能回答。需要截圖或座標的視覺說明不在範圍內。
-HelpIntent = Literal["field_help", "validation_help", "page_overview"]
+# 都靠文字情境就能回答。需要截圖或座標的視覺說明不在範圍內。
+#   page_overview：一兩句話講這頁做什麼、什麼時候用（模型改寫）
+#   page_guide：完整導覽——用途、時機、功能用法、彈出視窗、相關頁面（直接組，不打模型）
+#   dialog_help：某個彈出視窗每一欄怎麼填（直接組，不打模型）
+HelpIntent = Literal[
+    "field_help", "validation_help", "page_overview", "page_guide", "dialog_help",
+]
 
 # element 的語意角色。用途是讓模型知道「這是可以填的還是只能看的」，
 # 不描述它長什麼樣子或在哪裡。
@@ -45,6 +51,42 @@ class ElementSpec:
 
 
 @dataclass(frozen=True)
+class DialogField:
+    """彈出視窗裡的一個欄位：叫什麼、怎麼填。"""
+
+    label: str
+    help: str = ""
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class DialogSpec:
+    """頁面上按了會跳出來的視窗（表單或需要輸入的確認框）。
+
+    ``title`` 與 ``opened_by`` 都是畫面上的原文：使用者照著字找得到，測試也
+    拿它們比對語系檔，UI 改字時會紅燈。``opened_by`` 只寫按鈕文字，不寫位置。
+    """
+
+    id: str
+    title: str
+    opened_by: str
+    purpose: str
+    fields: tuple[DialogField, ...] = ()
+    # 送出後會發生什麼、哪些事不可逆
+    notes: tuple[str, ...] = ()
+    # 同一頁上只有部分身分看得到的視窗（例如教師才有的「轉成範本」）
+    access: RouteAccess = "all"
+
+
+@dataclass(frozen=True)
+class RelatedPage:
+    """什麼情況下該改去另一頁。``path`` 必須在導覽目錄裡，助手才帶得過去。"""
+
+    path: str
+    when: str
+
+
+@dataclass(frozen=True)
 class SurfaceSpec:
     """一個可以被解釋的畫面。
 
@@ -59,18 +101,33 @@ class SurfaceSpec:
     sections: tuple[str, ...] = ()
     elements: tuple[ElementSpec, ...] = field(default=())
     access: RouteAccess = "all"
+    # 什麼情況下會需要這一頁（讓使用者判斷「我是不是來對地方」）
+    when_to_use: str = ""
+    # 這頁主要功能怎麼用，一行一項：「功能：按什麼、會怎樣」
+    features: tuple[str, ...] = ()
+    dialogs: tuple[DialogSpec, ...] = ()
+    related: tuple[RelatedPage, ...] = ()
 
 
 # ---------------------------------------------------------------- API
 
 
 class ElementState(BaseModel):
-    """前端送上來的動態狀態。只有瀏覽器知道這一半。"""
+    """前端送上來的動態狀態。只有瀏覽器知道這一半。
+
+    值會原樣進 prompt，而且可能是別人填的字（班級名稱、環境名稱），所以先清掉
+    能偽造角色邊界的控制 token 與隱形字元。
+    """
 
     value: str | None = Field(default=None, max_length=500)
     error: str | None = Field(default=None, max_length=300)
     disabled: bool | None = None
     disabled_reason: str | None = Field(default=None, max_length=300)
+
+    @field_validator("value", "error", "disabled_reason")
+    @classmethod
+    def _clean(cls, text: str | None) -> str | None:
+        return None if text is None else clean_prompt_text(text)
 
 
 class ExplainRequest(BaseModel):
@@ -84,11 +141,28 @@ class ExplainRequest(BaseModel):
         default_factory=dict, max_length=MAX_STATE_ELEMENTS
     )
 
+    @field_validator("question")
+    @classmethod
+    def _clean_question(cls, text: str) -> str:
+        cleaned = clean_prompt_text(text)
+        if not cleaned.strip():
+            raise ValueError("question is empty after removing control characters")
+        return cleaned
+
+
+class RelatedTarget(BaseModel):
+    """答案附帶的「可以改去這頁」按鈕；只列出使用者有權限的頁面。"""
+
+    title: str
+    path: str
+    reason: str = ""
+
 
 class ExplainResponse(BaseModel):
     intent: HelpIntent
     answer: str
     target: str | None = None
+    related: list[RelatedTarget] = Field(default_factory=list)
     # 這個答案用到了哪些情境欄位，讓回答可以被追溯與回歸測試
     grounded_in: list[str] = Field(default_factory=list)
     context_level: int = 0
@@ -106,5 +180,7 @@ class SurfacePublic(BaseModel):
     title: str
     # 一句話說明這個畫面在做什麼，功能索引直接用它，不必再問模型
     purpose: str = ""
+    # 什麼時候會需要這一頁；功能索引用它幫使用者挑對頁面
+    when_to_use: str = ""
     # 這個畫面有沒有宣告欄位；沒有的話前端不必註冊動態狀態
     has_fields: bool = False

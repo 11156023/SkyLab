@@ -465,3 +465,21 @@ def test_phrase_matching_stays_fast_on_adversarial_input() -> None:
     assert navigation_service._explicit_teaching_flow("請" * 100_000) is None
     assert navigation_service._explicit_teaching_flow("請" * 100_000 + "建立班級" + "！" * 100_000) == "open_class"
     assert time.perf_counter() - started < 1.0
+
+
+def test_navigation_prompt_carries_when_to_use_hints() -> None:
+    """導覽要依使用者的處境挑頁面，不只比對關鍵字。"""
+    from app.ai.navigation.catalog import get_routes_for_user
+    from app.ai.navigation.prompt import build_navigation_system_prompt
+
+    user = _user(UserRole.student)
+    hints = navigation_service._route_hints(user)
+    assert "/my-resources" in hints
+    # 帶參數的畫面導不過去，不該出現在目錄提示裡
+    assert all(":" not in path for path in hints)
+    candidates, _ = navigation_service._navigation_candidates(
+        list(get_routes_for_user(user)), [], when_to_use=hints
+    )
+    prompt = build_navigation_system_prompt(candidates)
+    assert f'"when_to_use":"{hints["/my-resources"]}"' in prompt
+    assert "candidate_ids" in prompt

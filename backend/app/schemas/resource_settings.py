@@ -105,7 +105,12 @@ class CredentialsPublic(BaseModel):
     username: str | None = Field(
         default=None, description="cloud-init 設定的使用者；None 代表沿用映像預設"
     )
-    has_login_password: bool = False
+    has_login_password: bool = Field(
+        default=False, description="平台保管著一組系統代發的密碼（總覽頁看得到）"
+    )
+    has_custom_login_password: bool = Field(
+        default=False, description="密碼是使用者自訂的：平台只有雜湊，無法顯示"
+    )
     supports_password_reset: bool = False
     supports_ssh_keys: bool = False
     requires_running: bool = Field(

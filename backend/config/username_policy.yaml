@@ -1,0 +1,139 @@
+# Linux VM login username policy (cloud-init `ciuser`).
+#
+# Single source of truth: the backend loads this file at import time
+# (app/domain/username_policy.py) and the frontend fetches the rules through
+# GET /api/v1/policies/username. Do not hard-code a second copy anywhere.
+#
+# Windows templates are not covered: PVE ignores `ciuser` for Windows guests and
+# the account is fixed by cloudbase-init.conf inside the template.
+#
+# Lists are de-duplicated on load. An invalid file fails startup instead of
+# silently loosening rules.
+
+platform_reserved:
+  - skylab
+  - ansible
+  - provision
+
+linux:
+  pattern: "^[a-z][a-z0-9_-]{0,31}$"
+  min_length: 1
+  max_length: 32
+  reserved_prefixes:
+    - systemd-
+    - libvirt
+    - polkit
+    - cloud-init
+  # user ∪ group names found on common distributions
+  reserved:
+    # core system accounts
+    - root
+    - daemon
+    - bin
+    - sys
+    - sync
+    - games
+    - man
+    - lp
+    - mail
+    - news
+    - uucp
+    - proxy
+    - www-data
+    - backup
+    - list
+    - irc
+    - gnats
+    - nobody
+    - nogroup
+    - nfsnobody
+    - operator
+    - halt
+    - shutdown
+    - ftp
+    - adm
+    # privilege groups
+    - admin
+    - sudo
+    - wheel
+    - shadow
+    - staff
+    - kmem
+    - mem
+    - lock
+    # device groups
+    - tty
+    - disk
+    - dialout
+    - fax
+    - voice
+    - cdrom
+    - floppy
+    - tape
+    - audio
+    - video
+    - render
+    - input
+    - kvm
+    - sgx
+    - plugdev
+    - netdev
+    - dip
+    - lpadmin
+    - scanner
+    - sambashare
+    - utmp
+    - utempter
+    - src
+    - crontab
+    - users
+    # common service accounts
+    - sshd
+    - _ssh
+    - ssh_keys
+    - messagebus
+    - dbus
+    - syslog
+    - ntp
+    - chrony
+    - _chrony
+    - polkitd
+    - tss
+    - uuidd
+    - tcpdump
+    - avahi
+    - dnsmasq
+    - landscape
+    - pollinate
+    - fwupd-refresh
+    - usbmux
+    - rpc
+    - rpcuser
+    - postfix
+    - apache
+    - nginx
+    - mysql
+    - postgres
+    - redis
+    - docker
+    - lxd
+    - incus
+    - libvirt
+    - libvirt-qemu
+    - qemu
+    - systemd-journal
+    - systemd-network
+    - systemd-resolve
+    - systemd-timesync
+  # Default accounts of distribution cloud images: allowed, but warned about.
+  default_user_warn:
+    - ubuntu
+    - debian
+    - centos
+    - cloud-user
+    - ec2-user
+    - fedora
+    - rocky
+    - almalinux
+    - arch
+    - alpine

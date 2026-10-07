@@ -638,7 +638,7 @@ def _machine_request(
         hostname=f"practice-{practice_session_id.hex[:6]}-{_hostname_label(node)}",
         cores=node.cpu,
         memory=node.memory_mb,
-        # 範本不勾「允許自訂登入密碼」就沿用範本內的密碼（None）；否則發隨機密碼，
+        # 範本的密碼平台設不了就沿用範本內的密碼（None）；否則發隨機密碼，
         # 會真的套用並存進 resources 憑證卡片
         password=password_policy.resolve_login_password(template=template),
         storage=storage,

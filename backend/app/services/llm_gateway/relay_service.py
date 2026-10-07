@@ -22,7 +22,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
 import anyio
 import httpx
@@ -473,10 +473,33 @@ def recoverable_model_limit(body: bytes) -> str | None:
     return None
 
 
-_relay_http_client: httpx.AsyncClient | None = None
-_relay_http_client_loop: asyncio.AbstractEventLoop | None = None
-_admission_queue: AdmissionQueue | None = None
-_admission_queue_loop: asyncio.AbstractEventLoop | None = None
+_LoopBoundT = TypeVar("_LoopBoundT")
+
+
+@dataclass
+class _LoopBound(Generic[_LoopBoundT]):
+    """只在建立它的事件迴圈內重用的單例；換迴圈（測試、重啟）時重建。"""
+
+    value: _LoopBoundT | None = None
+    loop: asyncio.AbstractEventLoop | None = None
+
+    def current(self) -> _LoopBoundT | None:
+        if self.loop is not asyncio.get_running_loop():
+            return None
+        return self.value
+
+    def bind(self, value: _LoopBoundT) -> _LoopBoundT:
+        self.value = value
+        self.loop = asyncio.get_running_loop()
+        return value
+
+    def clear(self) -> None:
+        self.value = None
+        self.loop = None
+
+
+_relay_http_client: _LoopBound[httpx.AsyncClient] = _LoopBound()
+_admission_queue: _LoopBound[AdmissionQueue] = _LoopBound()
 _relay_stopping = False
 _usage_tasks: set[asyncio.Task[None]] = set()
 
@@ -488,51 +511,44 @@ def start_relay_runtime() -> None:
 
 def _get_relay_http_client() -> httpx.AsyncClient:
     """Return the shared client for the current application event loop."""
-    global _relay_http_client, _relay_http_client_loop
-    loop = asyncio.get_running_loop()
-    if (
-        _relay_http_client is None
-        or getattr(_relay_http_client, "is_closed", False)
-        or _relay_http_client_loop is not loop
-    ):
-        _relay_http_client = httpx.AsyncClient(
-            timeout=ai_api_settings.ai_api_timeout,
-            limits=httpx.Limits(
-                max_connections=AI_PROXY_MAX_ACTIVE,
-                max_keepalive_connections=AI_PROXY_MAX_ACTIVE,
-            ),
+    client = _relay_http_client.current()
+    if client is None or getattr(client, "is_closed", False):
+        client = _relay_http_client.bind(
+            httpx.AsyncClient(
+                timeout=ai_api_settings.ai_api_timeout,
+                limits=httpx.Limits(
+                    max_connections=AI_PROXY_MAX_ACTIVE,
+                    max_keepalive_connections=AI_PROXY_MAX_ACTIVE,
+                ),
+            )
         )
-        _relay_http_client_loop = loop
-    return _relay_http_client
+    return client
 
 
 def _get_admission_queue() -> AdmissionQueue:
-    global _admission_queue, _admission_queue_loop
-    loop = asyncio.get_running_loop()
-    if _admission_queue is None or _admission_queue_loop is not loop:
-        _admission_queue = AdmissionQueue(
-            max_active=AI_PROXY_MAX_ACTIVE,
-            max_waiting=AI_PROXY_MAX_WAITING,
-            wait_timeout_seconds=AI_PROXY_QUEUE_TIMEOUT_SECONDS,
+    queue = _admission_queue.current()
+    if queue is None:
+        queue = _admission_queue.bind(
+            AdmissionQueue(
+                max_active=AI_PROXY_MAX_ACTIVE,
+                max_waiting=AI_PROXY_MAX_WAITING,
+                wait_timeout_seconds=AI_PROXY_QUEUE_TIMEOUT_SECONDS,
+            )
         )
-        _admission_queue_loop = loop
     if _relay_stopping:
-        _admission_queue.closed = True
-    return _admission_queue
+        queue.closed = True
+    return queue
 
 
 async def close_relay_runtime() -> None:
     """Close the shared relay client and clear process-local admission state."""
-    global _relay_http_client, _relay_http_client_loop
-    global _admission_queue, _admission_queue_loop
-    global _catalogue_task, _catalogue_models, _catalogue_until
     global _relay_stopping
     _relay_stopping = True
-    if _admission_queue is not None:
-        await _admission_queue.close()
-    if _catalogue_task is not None:
-        _catalogue_task.cancel()
-        await asyncio.gather(_catalogue_task, return_exceptions=True)
+    if _admission_queue.value is not None:
+        await _admission_queue.value.close()
+    if _catalogue.task is not None:
+        _catalogue.task.cancel()
+        await asyncio.gather(_catalogue.task, return_exceptions=True)
     cache = _get_models_cache()
     if cache.task is not None:
         cache.task.cancel()
@@ -550,14 +566,12 @@ async def close_relay_runtime() -> None:
         for task in pending_usage:
             task.cancel()
         await asyncio.gather(*pending_usage, return_exceptions=True)
-    _catalogue_task = None
-    _catalogue_models = set()
-    _catalogue_until = 0.0
-    client = _relay_http_client
-    _relay_http_client = None
-    _relay_http_client_loop = None
-    _admission_queue = None
-    _admission_queue_loop = None
+    _catalogue.task = None
+    _catalogue.models = set()
+    _catalogue.until = 0.0
+    client = _relay_http_client.value
+    _relay_http_client.clear()
+    _admission_queue.clear()
     ai_metrics.update_proxy_admission(active=0, waiting=0)
     if client is not None and not getattr(client, "is_closed", False):
         await client.aclose()
@@ -1288,11 +1302,18 @@ async def stream_upstream_response(
             await observation.finish()
 
 
-_catalogue_models: set[str] = set()
-_catalogue_until = 0.0
-_catalogue_task: asyncio.Task[set[str]] | None = None
-_catalogue_loop: asyncio.AbstractEventLoop | None = None
-_catalogue_waiters = 0
+@dataclass
+class _CatalogueState:
+    """公開模型目錄的 single-flight 狀態；換事件迴圈時整組重設。"""
+
+    models: set[str] = field(default_factory=set)
+    until: float = 0.0
+    task: asyncio.Task[set[str]] | None = None
+    loop: asyncio.AbstractEventLoop | None = None
+    waiters: int = 0
+
+
+_catalogue = _CatalogueState()
 
 
 async def fetch_public_models() -> set[str]:
@@ -1339,31 +1360,30 @@ async def fetch_public_models() -> set[str]:
 
 
 async def public_models() -> set[str]:
-    global _catalogue_models, _catalogue_until, _catalogue_task, _catalogue_loop
-    global _catalogue_waiters
+    state = _catalogue
     loop = asyncio.get_running_loop()
-    if _catalogue_loop is not loop:
-        _catalogue_models = set()
-        _catalogue_until = 0.0
-        _catalogue_task = None
-        _catalogue_waiters = 0
-        _catalogue_loop = loop
-    if time.monotonic() < _catalogue_until:
-        return _catalogue_models
-    if _catalogue_waiters >= AI_PROXY_MAX_WAITING:
+    if state.loop is not loop:
+        state.models = set()
+        state.until = 0.0
+        state.task = None
+        state.waiters = 0
+        state.loop = loop
+    if time.monotonic() < state.until:
+        return state.models
+    if state.waiters >= AI_PROXY_MAX_WAITING:
         raise AdmissionRejected("queue_full")
-    if _catalogue_task is None:
-        _catalogue_task = asyncio.create_task(fetch_public_models())
-    _catalogue_waiters += 1
+    if state.task is None:
+        state.task = asyncio.create_task(fetch_public_models())
+    state.waiters += 1
     try:
-        names = await asyncio.shield(_catalogue_task)
-        _catalogue_models = names
-        _catalogue_until = time.monotonic() + 60.0
+        names = await asyncio.shield(state.task)
+        state.models = names
+        state.until = time.monotonic() + 60.0
         return names
     finally:
-        _catalogue_waiters -= 1
-        if _catalogue_task is not None and _catalogue_task.done():
-            _catalogue_task = None
+        state.waiters -= 1
+        if state.task is not None and state.task.done():
+            state.task = None
 
 
 async def relay_generation(
@@ -1664,19 +1684,16 @@ class ModelsCache:
     waiters: int = 0
 
 
-_models_cache: ModelsCache | None = None
-_models_cache_loop: asyncio.AbstractEventLoop | None = None
+_models_cache: _LoopBound[ModelsCache] = _LoopBound()
 AI_PROXY_MODELS_CACHE_SECONDS = 60.0
 AI_PROXY_MODELS_ERROR_CACHE_SECONDS = 5.0
 
 
 def _get_models_cache() -> ModelsCache:
-    global _models_cache, _models_cache_loop
-    loop = asyncio.get_running_loop()
-    if _models_cache is None or _models_cache_loop is not loop:
-        _models_cache = ModelsCache()
-        _models_cache_loop = loop
-    return _models_cache
+    cache = _models_cache.current()
+    if cache is None:
+        cache = _models_cache.bind(ModelsCache())
+    return cache
 
 
 def _models_busy() -> Response:

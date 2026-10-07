@@ -39,19 +39,6 @@
 
 }
 
-.checkRow {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-height: 34px;
-  padding: 0 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  cursor: pointer;
-}
-
 %btn-base {
   display: inline-flex;
   align-items: center;

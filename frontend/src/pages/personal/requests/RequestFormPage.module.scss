@@ -460,6 +460,33 @@
   line-height: $line-height-base;
 }
 
+/* 帳號命名政策即時檢查：可以使用但要留意的項目（不擋送出） */
+.fieldWarning {
+  font-size: $font-size-12;
+  color: var(--color-pending);
+  line-height: $line-height-base;
+}
+
+.policyViolations {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-4;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: $spacing-4;
+
+    > span:first-child {
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+  }
+}
+
 /* 錯誤訊息裡的「重試」：行內文字按鈕，不搶版面 */
 .linkBtn {
   border: 0;

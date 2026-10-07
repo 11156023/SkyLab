@@ -791,8 +791,8 @@ def _provision_one(
     )
 
     if params.get("vm_template_id"):
-        # 少了這個 key，clone worker 會當成「允許」而一律發隨機密碼，
-        # 範本不勾也被覆寫
+        # 少了這個 key，clone worker 會當成「設得了」而一律發隨機密碼，
+        # 密碼平台設不了的範本也被當成有套用
         source_template = password_policy.find_template(
             session, template_id=params["vm_template_id"]
         )

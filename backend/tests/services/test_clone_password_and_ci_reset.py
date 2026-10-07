@@ -554,7 +554,19 @@ def _patched_lxc_clone_provision(
 ) -> dict[str, Any]:
     from app.services.proxmox import provisioning_service
 
-    calls: dict[str, Any] = {"set_password": [], "inject_key": [], "control": []}
+    calls: dict[str, Any] = {
+        "set_password": [],
+        "set_password_hashed": [],
+        "inject_key": [],
+        "control": [],
+    }
+
+    def _fake_set_password(
+        node: str, vmid: int, password: str, *, hashed: bool = False
+    ) -> bool:
+        calls["set_password"].append((node, vmid, password))
+        calls["set_password_hashed"].append(hashed)
+        return True
 
     monkeypatch.setattr(
         provisioning_service,
@@ -564,14 +576,7 @@ def _patched_lxc_clone_provision(
     monkeypatch.setattr(
         clone_service, "clone_with_fallback", lambda **kw: "linked"
     )
-    monkeypatch.setattr(
-        clone_service,
-        "_set_lxc_root_password",
-        lambda node, vmid, password: calls["set_password"].append(
-            (node, vmid, password)
-        )
-        or True,
-    )
+    monkeypatch.setattr(clone_service, "_set_lxc_root_password", _fake_set_password)
     monkeypatch.setattr(
         clone_service,
         "inject_lxc_platform_key",
@@ -615,6 +620,49 @@ def test_execute_provision_lxc_clone_applies_custom_password(
     assert _patched_lxc_clone_provision["inject_key"] == [
         ("pve1", 300, "ssh-ed25519 AAAA platform")
     ]
+
+
+def test_execute_provision_lxc_clone_writes_a_custom_password_as_a_hash(
+    _patched_lxc_clone_provision: dict[str, Any],
+) -> None:
+    """申請人自訂的密碼在 plan 裡只有雜湊：原樣寫進容器，建完也不留可還原的副本。"""
+    from app.services.proxmox import provisioning_service
+    from app.utils.login_password import hash_login_password
+
+    crypt_hash = hash_login_password("Typed12345")
+    plan = _lxc_clone_plan(
+        password=None, password_hash=crypt_hash, password_custom=True
+    )
+    provisioning_service.execute_provision(plan)
+
+    assert _patched_lxc_clone_provision["set_password"] == [
+        ("pve1", 300, crypt_hash)
+    ]
+    assert _patched_lxc_clone_provision["set_password_hashed"] == [True]
+    assert plan["login_password_applied"] is True
+    assert provisioning_service.applied_login_password_encrypted(plan) is None
+    assert provisioning_service.applied_login_password_hash(plan) == crypt_hash
+
+
+def test_execute_provision_lxc_clone_no_start_keeps_custom_hash_pending(
+    _patched_lxc_clone_provision: dict[str, Any],
+) -> None:
+    from app.services.proxmox import provisioning_service
+    from app.utils.login_password import hash_login_password
+
+    crypt_hash = hash_login_password("Typed12345")
+    plan = _lxc_clone_plan(
+        password=None,
+        password_hash=crypt_hash,
+        password_custom=True,
+        start_immediately=False,
+    )
+    provisioning_service.execute_provision(plan)
+
+    assert _patched_lxc_clone_provision["set_password"] == []
+    assert provisioning_service.applied_login_password_hash(plan) is None
+    assert provisioning_service.pending_login_password_hash(plan) == crypt_hash
+    assert provisioning_service.pending_login_password_encrypted(plan) is None
 
 
 def test_execute_provision_lxc_clone_course_keeps_template_credentials(

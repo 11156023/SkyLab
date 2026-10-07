@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.ai.contextual_help.schemas import ElementState
 from app.ai.role_contracts import CandidateDecision
+from app.ai.utils import clean_prompt_text
 
 # navigate: 直接帶去某頁；suggest: 給候選；clarify: 反問；
 # guide: 這是一段多步驟流程，回傳 steps 讓前端逐步帶著走。
@@ -17,6 +19,10 @@ StepStatus = Literal["done", "current", "todo"]
 MAX_HISTORY_MESSAGES = 12
 
 
+# current_path 會原樣寫進 system prompt；只收得下網址路徑的字元，免得被拿來塞指令。
+_PATH_RE = re.compile(r"/[A-Za-z0-9_\-./?=&%:+]*")
+
+
 class NavigationCandidateDecision(CandidateDecision):
     """內部模型決策；與 public NavigationResolveResponse 分離。"""
 
@@ -24,6 +30,11 @@ class NavigationCandidateDecision(CandidateDecision):
 class NavigationMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(default="", max_length=2000)
+
+    @field_validator("content")
+    @classmethod
+    def _clean(cls, text: str) -> str:
+        return clean_prompt_text(text)
 
 
 class NavigationResolveRequest(BaseModel):
@@ -39,6 +50,17 @@ class NavigationResolveRequest(BaseModel):
     screen_state: dict[str, ElementState] = Field(default_factory=dict, max_length=60)
     active_flow_id: str | None = Field(default=None, max_length=100)
     pending_flow_ids: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("query")
+    @classmethod
+    def _clean_query(cls, text: str) -> str:
+        return clean_prompt_text(text)
+
+    @field_validator("current_path")
+    @classmethod
+    def _path_only(cls, path: str | None) -> str | None:
+        # 不像路徑就當作沒給：路徑只是脈絡，丟掉不影響導覽。
+        return path if path and _PATH_RE.fullmatch(path) else None
 
 
 class NavigationStepPublic(BaseModel):

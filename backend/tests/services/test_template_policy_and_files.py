@@ -1,7 +1,7 @@
 """範本政策（密碼/GPU/磁碟鎖定）與附件檔案的單元測試。
 
 mock PVE operations 與 repo，無 DB / Redis：
-- request_clone：密碼政策、requires_gpu 強制、GPU 節點相容、payload 加密
+- request_clone：密碼政策、requires_gpu 強制、GPU 節點相容、payload 只放密碼雜湊
 - _reconfigure_qemu：login_password=None 時不得帶 cipassword
 - create/update template：LXC 不可設 requires_gpu
 - template_files：附件的實體檔案生命週期
@@ -30,6 +30,7 @@ from app.schemas.template import (
 )
 from app.services.proxmox import provisioning_service
 from app.services.template import clone_service, template_files, template_service
+from tests.utils.login_password import hash_matches
 
 
 def make_user(role: str) -> SimpleNamespace:
@@ -79,9 +80,9 @@ def clone_target(monkeypatch: pytest.MonkeyPatch) -> VMTemplate:
 async def test_request_clone_rejects_custom_password_when_locked(
     clone_target: VMTemplate,
 ) -> None:
-    clone_target.allow_password_change = False
+    clone_target.password_settable = False
 
-    with pytest.raises(BadRequestError, match="不允許自訂登入密碼"):
+    with pytest.raises(BadRequestError, match="無法由平台設定"):
         await clone_service.request_clone(
             session=None,  # type: ignore[arg-type]
             user=make_user("teacher"),
@@ -135,12 +136,15 @@ async def test_request_clone_rejects_gpu_not_on_template_node(
         )
 
 
-async def test_request_clone_payload_encrypts_password_and_locks_disk(
+async def test_request_clone_payload_hashes_password_and_locks_disk(
     clone_target: VMTemplate, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clone_target.requires_gpu = True
     monkeypatch.setattr(
         provisioning_service, "_gpu_mapping_nodes", lambda mapping_id: {"pve1"}
+    )
+    monkeypatch.setattr(
+        provisioning_service, "template_is_windows", lambda template_id: False
     )
     payloads: list[dict[str, Any]] = []
 
@@ -163,19 +167,67 @@ async def test_request_clone_payload_encrypts_password_and_locks_disk(
     )
 
     payload = payloads[0]
-    # payload 會落 DB：密碼必須是密文且可還原；磁碟不得出現在 payload
-    assert payload["login_password_enc"] != "Secret123"
-    assert decrypt_value(payload["login_password_enc"]) == "Secret123"
+    # payload 會落 DB：自訂密碼只能是不可還原的雜湊；磁碟不得出現在 payload
+    assert payload["login_password_enc"] is None
+    assert hash_matches("Secret123", payload["login_password_hash"])
+    assert "Secret123" not in str(payload)
     assert payload["allow_password_reset"] is True
     assert payload["gpu_mapping_id"] == "h200"
     assert payload["gpu_mdev_profile"] == "nvidia-1028"
     assert "disk" not in payload
 
 
-async def test_request_clone_locked_password_payload(
+async def test_request_clone_windows_payload_keeps_password_encrypted(
     clone_target: VMTemplate, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    clone_target.allow_password_change = False
+    """cloudbase-init 只收明文：Windows 範本的自訂密碼加密暫存，不轉雜湊。"""
+    monkeypatch.setattr(
+        provisioning_service, "template_is_windows", lambda template_id: True
+    )
+    payloads: list[dict[str, Any]] = []
+
+    async def fake_enqueue(**kwargs: Any) -> Any:
+        payloads.append(kwargs["payload"])
+        return SimpleNamespace(id=uuid.uuid4())
+
+    monkeypatch.setattr(clone_service, "enqueue_task", fake_enqueue)
+
+    await clone_service.request_clone(
+        session=None,  # type: ignore[arg-type]
+        user=make_user("teacher"),
+        template_id=clone_target.id,
+        data=TemplateCloneRequest(count=1, login_password="Secret123"),
+    )
+
+    payload = payloads[0]
+    assert payload["login_password_hash"] is None
+    assert payload["login_password_enc"] != "Secret123"
+    assert decrypt_value(payload["login_password_enc"]) == "Secret123"
+
+
+async def test_request_clone_fails_when_windows_cannot_be_determined(
+    clone_target: VMTemplate, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """查不到範本是不是 Windows 就不能猜：猜錯會把雜湊字串當明文密碼寫進去。"""
+
+    def _unreachable(template_id: int) -> bool:
+        raise RuntimeError("PVE unreachable")
+
+    monkeypatch.setattr(provisioning_service, "template_is_windows", _unreachable)
+
+    with pytest.raises(RuntimeError, match="PVE unreachable"):
+        await clone_service.request_clone(
+            session=None,  # type: ignore[arg-type]
+            user=make_user("teacher"),
+            template_id=clone_target.id,
+            data=TemplateCloneRequest(count=1, login_password="Secret123"),
+        )
+
+
+async def test_request_clone_unsettable_password_payload(
+    clone_target: VMTemplate, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clone_target.password_settable = False
     payloads: list[dict[str, Any]] = []
 
     async def fake_enqueue(**kwargs: Any) -> Any:
@@ -193,6 +245,7 @@ async def test_request_clone_locked_password_payload(
 
     assert payloads[0]["allow_password_reset"] is False
     assert payloads[0]["login_password_enc"] is None
+    assert payloads[0]["login_password_hash"] is None
 
 
 # ---------------------------------------------------------------------------

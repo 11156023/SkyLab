@@ -96,5 +96,10 @@
   "spec_change.expiry_must_be_future": "The new expiry date must be after today",
   "spec_change.expiry_must_extend": "The new expiry date must be later than the current expiry date {current}",
   "spec_change.expiry_too_far": "An extension can reach at most {days} days from today; contact an administrator for a longer period",
-  "spec_change.expiry_gpu_reserved": "The extended period overlaps another approved GPU request that has not started yet (its window ends {date}); choose an earlier date or contact an administrator"
+  "spec_change.expiry_gpu_reserved": "The extended period overlaps another approved GPU request that has not started yet (its window ends {date}); choose an earlier date or contact an administrator",
+  "username_policy.LNX_FORMAT": "The username must start with a lowercase letter and contain only lowercase letters, digits, underscores (_) and hyphens (-), 1–{max_length} characters long",
+  "username_policy.LNX_RESERVED": "\"{name}\" is a reserved Linux system user or group name and cannot be used",
+  "username_policy.LNX_RESERVED_PREFIX": "The username cannot start with \"{prefix}\" (reserved for system services)",
+  "username_policy.PLATFORM_RESERVED": "\"{name}\" is reserved by the SkyLab platform and cannot be used",
+  "username_policy.LNX_DEFAULT_USER": "\"{name}\" is the default account name of a distribution cloud image. You can use it, but make sure the template has no existing account with the same name"
 }

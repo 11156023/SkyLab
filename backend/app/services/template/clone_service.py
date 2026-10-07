@@ -41,10 +41,11 @@ from app.repositories import resource as resource_repo
 from app.schemas.template import TemplateCloneRequest
 from app.services.network import firewall_service, ip_management_service, nic_config
 from app.services.resource import guest_ssh_login, quota_service
-from app.services.template import template_service
+from app.services.template import password_policy, template_service
 from app.utils.hostname import to_punycode_hostname
 from app.utils.login_password import (
     generate_login_password,
+    hash_login_password,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,8 +141,22 @@ def _prepare_clone(
             t("clone.templateNotReady", status=template.status.value)
         )
 
-    if data.login_password and not template.allow_password_change:
+    if data.login_password and not template.password_settable:
         raise BadRequestError(t("clone.passwordChangeNotAllowed"))
+    # 自訂密碼只以不可還原的形式進 payload；Windows 例外（見 password_policy）。
+    # 判斷是不是 Windows 查不到就讓克隆失敗，不能猜
+    sealed_password = password_policy.SealedPassword()
+    if data.login_password:
+        windows = False
+        if template.resource_type != "lxc":
+            from app.services.proxmox.provisioning_service import (
+                template_is_windows,
+            )
+
+            windows = template_is_windows(template.pve_vmid)
+        sealed_password = password_policy.seal_custom_password(
+            data.login_password, windows=windows
+        )
     if template.requires_gpu and not data.gpu_mapping_id:
         raise BadRequestError(t("clone.gpuRequired"))
     if data.gpu_mapping_id:
@@ -181,11 +196,11 @@ def _prepare_clone(
             "memory": data.memory,
             # 磁碟不開放調整：固定沿用範本磁碟（batch 路徑仍可帶 disk）
             "start": data.start,
-            "allow_password_reset": template.allow_password_change,
-            # payload 會落 DB（TaskRecord.payload），密碼必須加密存放
-            "login_password_enc": (
-                encrypt_value(data.login_password) if data.login_password else None
-            ),
+            "allow_password_reset": template.password_settable,
+            # payload 會落 DB（TaskRecord.payload）：自訂密碼只放雜湊，
+            # 只有 Windows 放加密後的明文
+            "login_password_hash": sealed_password.crypt_hash,
+            "login_password_enc": sealed_password.encrypted,
             "gpu_mapping_id": data.gpu_mapping_id,
             "gpu_mdev_profile": data.gpu_mdev_profile,
         }
@@ -355,18 +370,22 @@ def _reconfigure_lxc(
     proxmox_ops.update_config(node, vmid, "lxc", **config_updates)
 
 
-def _set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
+def _set_lxc_root_password(
+    node: str, vmid: int, password: str, *, hashed: bool = False
+) -> bool:
     """開機後以 ``pct exec chpasswd`` 設定 root 密碼（容器啟動需時，重試等待）。
 
     LXC config API 不接受 password（僅限建立時），只能進容器內改。
     密碼由 stdin 餵給 ``chpasswd``，不放進指令列 —— 指令列會出現在節點的
     ps 與 shell 紀錄裡，同一台節點上的其他人看得到。
+    ``hashed``：``password`` 是 SHA-512 crypt 雜湊（使用者自訂的密碼平台只有
+    雜湊），改用 ``chpasswd -e`` 原樣寫進 ``/etc/shadow``。
     回傳是否成功；失敗方（呼叫端）不得記錄未生效的密碼。
     """
     return _exec_lxc_with_retry(
         node,
         vmid,
-        "chpasswd",
+        "chpasswd -e" if hashed else "chpasswd",
         stdin=f"root:{password}\n",
         what="set root password",
     )
@@ -431,9 +450,11 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
     )
 
 
-def set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
+def set_lxc_root_password(
+    node: str, vmid: int, password: str, *, hashed: bool = False
+) -> bool:
     """Public wrapper used by managed LXC start / reset paths."""
-    return _set_lxc_root_password(node, vmid, password)
+    return _set_lxc_root_password(node, vmid, password, hashed=hashed)
 
 
 def inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
@@ -465,6 +486,7 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
     start = bool(payload.get("start", True))
     allow_password_reset = bool(payload.get("allow_password_reset", True))
     login_password_enc = payload.get("login_password_enc")
+    login_password_hash = payload.get("login_password_hash")
     gpu_mapping_id = payload.get("gpu_mapping_id")
     gpu_mdev_profile = payload.get("gpu_mdev_profile")
     raw_batch = payload.get("batch_job_id")
@@ -528,15 +550,23 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
         report_progress(task_id, 60)
 
         private_key_pem, public_key = generate_ed25519_keypair()
-        # 範本禁止改密碼時完全不重設，沿用範本內建帳密；
-        # 允許時優先用使用者自訂密碼，未填才發隨機密碼
+        # 範本的密碼平台設不了時完全不重設，沿用範本內建帳密；
+        # 設得了時優先用使用者自訂密碼，未填才發隨機密碼。
+        # login_password 是要寫進機器的值：自訂密碼是雜湊（Windows 才是明文），
+        # 隨機密碼是明文
         login_password: str | None = None
+        password_hashed = False
+        password_custom = False
         if allow_password_reset:
-            login_password = (
-                decrypt_value(str(login_password_enc))
-                if login_password_enc
-                else generate_login_password()
-            )
+            if login_password_hash:
+                login_password = str(login_password_hash)
+                password_hashed = True
+                password_custom = True
+            elif login_password_enc:
+                login_password = decrypt_value(str(login_password_enc))
+                password_custom = True
+            else:
+                login_password = generate_login_password()
         password_applied = False
         if resource_type == "qemu":
             _reconfigure_qemu(
@@ -585,7 +615,7 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
             proxmox_ops.control(node, new_vmid, resource_type, "start")
             if resource_type == "lxc" and login_password is not None:
                 password_applied = _set_lxc_root_password(
-                    node, new_vmid, login_password
+                    node, new_vmid, login_password, hashed=password_hashed
                 )
             if resource_type == "lxc":
                 # 範本 LXC 無 cloud-init：開機後以 pct exec 注入平台公鑰。
@@ -604,6 +634,18 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
             )
         report_progress(task_id, 90)
 
+        # 系統代發的密碼加密後存起來給擁有者看；自訂密碼只留雜湊
+        # （LXC 一鍵重置後靠它補回去），平台沒有可還原的副本
+        generated_encrypted: str | None = None
+        custom_hash: str | None = None
+        if login_password is not None:
+            if not password_custom:
+                generated_encrypted = encrypt_value(login_password)
+            elif password_hashed:
+                custom_hash = login_password
+            else:
+                custom_hash = hash_login_password(login_password)
+
         with Session(engine) as session:
             resource_repo.create_resource(
                 session=session,
@@ -616,17 +658,17 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 ssh_private_key_encrypted=encrypt_value(private_key_pem),
                 ssh_public_key=public_key,
                 login_password_encrypted=(
-                    encrypt_value(login_password)
-                    if password_applied and login_password is not None
-                    else None
+                    generated_encrypted if password_applied else None
                 ),
                 # 沒寫進機器（LXC 建立時未開機、或 chpasswd 失敗）就留作待套用，
                 # 下次受管開機由 ensure_lxc_login_password 補設；不直接當成
                 # 已生效的密碼顯示，避免給出一組登不進去的密碼
                 login_password_pending_encrypted=(
-                    encrypt_value(login_password)
-                    if not password_applied and login_password is not None
-                    else None
+                    None if password_applied else generated_encrypted
+                ),
+                login_password_hash=custom_hash if password_applied else None,
+                login_password_pending_hash=(
+                    None if password_applied else custom_hash
                 ),
                 batch_job_id=batch_job_id,
                 commit=False,
@@ -686,6 +728,8 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 logger.warning("Failed to clean up half-cloned VMID %d", new_vmid)
         raise
 
+    if login_password_enc or login_password_hash:
+        _scrub_task_password(task_id)
     return {
         "vmid": new_vmid,
         "clone_mode": clone_mode,
@@ -693,6 +737,32 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
         "hostname": hostname,
         "login_password_set": password_applied,
     }
+
+
+def _scrub_task_password(task_id: uuid.UUID) -> None:
+    """機器建好後把任務 payload 裡的自訂密碼拿掉，不留在任務紀錄裡。
+
+    只在成功後清：失敗的任務留著，重送時才不會悄悄變成隨機密碼。
+    清不掉不影響已建好的機器，記 ERROR 讓人知道有殘留。
+    """
+    try:
+        with Session(engine) as session:
+            record = session.get(TaskRecord, task_id)
+            if record is None or not isinstance(record.payload, dict):
+                return
+            record.payload = {
+                **record.payload,
+                "login_password_enc": None,
+                "login_password_hash": None,
+            }
+            session.add(record)
+            session.commit()
+    except Exception:
+        logger.error(
+            "Failed to scrub login password from clone task %s",
+            task_id,
+            exc_info=True,
+        )
 
 
 __all__ = [

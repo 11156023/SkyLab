@@ -93,12 +93,15 @@ class VMTemplate(SQLModel, table=True):
         default=None,
         description="範本磁碟 GB（轉換完成時自動偵測，唯讀；克隆固定沿用）",
     )
-    allow_password_change: bool = Field(
+    password_settable: bool = Field(
         default=True,
         sa_column=Column(
             sa.Boolean, nullable=False, server_default=sa.true()
         ),
-        description="克隆時是否允許使用者自訂/重設登入密碼；否則沿用範本內建帳密",
+        description=(
+            "平台能否把登入密碼寫進克隆機（轉範本時偵測，非人工選項）；"
+            "False＝範本沒有 cloud-init，克隆機沿用範本內建帳密"
+        ),
     )
     requires_gpu: bool = Field(
         default=False,

@@ -95,13 +95,30 @@ class Resource(SQLModel, table=True):
     )
     login_password_encrypted: str | None = Field(
         default=None,
-        description="Encrypted per-clone login password",
+        description=(
+            "Encrypted platform-generated login password (shown to the owner); "
+            "never holds a password the user chose"
+        ),
     )
     login_password_pending_encrypted: str | None = Field(
         default=None,
         description=(
             "Generated login password not yet written into the guest (LXC clone "
             "created while stopped); applied on the next managed start"
+        ),
+    )
+    login_password_hash: str | None = Field(
+        default=None,
+        description=(
+            "SHA-512 crypt hash of the login password the user chose; kept only "
+            "to re-apply it after an LXC reset, never shown"
+        ),
+    )
+    login_password_pending_hash: str | None = Field(
+        default=None,
+        description=(
+            "Hash of a user-chosen login password not yet written into the "
+            "guest; applied on the next managed start"
         ),
     )
     created_at: datetime = Field(

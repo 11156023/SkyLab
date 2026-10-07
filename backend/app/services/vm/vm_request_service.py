@@ -61,8 +61,34 @@ logger = logging.getLogger(__name__)
 
 
 def _encrypt_login_password(password: str | None) -> str | None:
-    """None（範本不勾「允許自訂登入密碼」，沿用範本憑證）就不加密、直接存 None。"""
+    """系統代發的密碼加密後暫存；None（沿用範本憑證）就直接存 None。"""
     return encrypt_value(password) if password else None
+
+
+def _seal_request_password(
+    session: Session, request_in: VMRequestCreate
+) -> password_policy.SealedPassword:
+    """申請人自訂的密碼：必填，而且只以不可還原的形式留在申請單上。
+
+    範本的密碼平台設不了時回空的結果（沿用範本憑證）。Windows 是唯一要暫存
+    明文的情況，所以得先確定範本是不是 Windows —— 這裡查不到就讓申請失敗，
+    不能猜：猜錯會把雜湊字串當成明文密碼寫進 Windows。
+    """
+    password = password_policy.resolve_login_password(
+        template=password_policy.find_template(
+            session, pve_vmid=request_in.template_id
+        ),
+        custom=request_in.password,
+        require_custom=True,
+    )
+    if password is None:
+        return password_policy.SealedPassword()
+    windows = False
+    if request_in.resource_type == "vm" and request_in.template_id:
+        from app.services.proxmox import provisioning_service
+
+        windows = provisioning_service.template_is_windows(request_in.template_id)
+    return password_policy.seal_custom_password(password, windows=windows)
 
 
 def _utc_now() -> datetime:
@@ -453,19 +479,13 @@ def create(
             request_in=request_in,
         )
 
+    sealed_password = _seal_request_password(session, request_in)
     db_request = vm_request_repo.create_vm_request(
         session=session,
         vm_request_in=request_in,
         user_id=user.id,
-        encrypted_password=_encrypt_login_password(
-            password_policy.resolve_login_password(
-                template=password_policy.find_template(
-                    session, pve_vmid=request_in.template_id
-                ),
-                custom=request_in.password,
-                require_custom=True,
-            )
-        ),
+        encrypted_password=sealed_password.encrypted,
+        password_hash=sealed_password.crypt_hash,
         auto_decision_reason=auto_decision_reason,
         commit=False,
     )

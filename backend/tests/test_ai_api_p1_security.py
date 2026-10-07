@@ -44,10 +44,14 @@ _CONTROL_CASES = [
 ]
 
 
+def _no_db() -> object:
+    return object()
+
+
 def _app(role: UserRole | None = None) -> FastAPI:
     app = FastAPI()
     app.include_router(ai_api.router)
-    app.dependency_overrides[get_db] = lambda: object()
+    app.dependency_overrides[get_db] = _no_db
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError):
         return JSONResponse({"detail": exc.message}, status_code=exc.status_code)
@@ -228,7 +232,7 @@ def _models_request(query=b"", headers=()) -> Request:
 
 @pytest.fixture
 def models_cache(monkeypatch):
-    monkeypatch.setattr(relay, "_models_cache_loop", None)
+    monkeypatch.setattr(relay, "_models_cache", relay._LoopBound())
     monkeypatch.setattr(relay, "_relay_stopping", False)
 
 
@@ -395,9 +399,9 @@ async def test_shutdown_cancels_models_fetch_and_clears_cache(monkeypatch, model
         started.set()
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(relay, "_admission_queue", None)
-    monkeypatch.setattr(relay, "_catalogue_task", None)
-    monkeypatch.setattr(relay, "_relay_http_client", None)
+    monkeypatch.setattr(relay, "_admission_queue", relay._LoopBound())
+    monkeypatch.setattr(relay, "_catalogue", relay._CatalogueState())
+    monkeypatch.setattr(relay, "_relay_http_client", relay._LoopBound())
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         monkeypatch.setattr(relay, "_get_relay_http_client", lambda: client)
         waiting = asyncio.create_task(relay.list_models(_models_request(), user=SimpleNamespace(id="owner")))
@@ -405,7 +409,7 @@ async def test_shutdown_cancels_models_fetch_and_clears_cache(monkeypatch, model
         cache = relay._get_models_cache()
         await relay.close_relay_runtime()
         with pytest.raises(asyncio.CancelledError):
-            await waiting
+            await asyncio.gather(waiting)
         assert cache.task is None and cache.response is None and cache.waiters == 0
         response = await relay.list_models(_models_request(), user=SimpleNamespace(id="owner"))
         assert response.status_code == 503

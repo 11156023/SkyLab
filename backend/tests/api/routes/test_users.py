@@ -1,5 +1,7 @@
 ﻿import uuid
+from html import unescape
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -224,9 +226,8 @@ def test_update_user_me(
     client: TestClient, normal_user_token_headers: dict[str, str], db: Session
 ) -> None:
     full_name = "Updated Name"
-    email = random_email()
     avatar_url = "https://example.com/avatar.png"
-    data = {"full_name": full_name, "email": email, "avatar_url": avatar_url}
+    data = {"full_name": full_name, "avatar_url": avatar_url}
     r = client.patch(
         f"{settings.API_V1_STR}/users/me",
         headers=normal_user_token_headers,
@@ -234,16 +235,68 @@ def test_update_user_me(
     )
     assert r.status_code == 200
     updated_user = r.json()
-    assert updated_user["email"] == email
+    assert updated_user["email"] == settings.EMAIL_TEST_USER
     assert updated_user["full_name"] == full_name
     assert updated_user["avatar_url"] == avatar_url
 
-    user_query = select(User).where(User.email == email)
+    user_query = select(User).where(User.email == settings.EMAIL_TEST_USER)
     user_db = db.exec(user_query).first()
     assert user_db
-    assert user_db.email == email
+    assert user_db.email == settings.EMAIL_TEST_USER
     assert user_db.full_name == full_name
     assert user_db.avatar_url == avatar_url
+
+
+def test_email_change_requires_new_mailbox_verification(
+    client: TestClient, db: Session
+) -> None:
+    old_email = random_email()
+    password = random_password()
+    account = user_repo.create_user(
+        session=db, user_create=UserCreate(email=old_email, password=password)
+    )
+    db.commit()
+    db.refresh(account)
+    headers = user_authentication_headers(client=client, email=old_email, password=password)
+    new_email = random_email()
+    direct = client.patch(
+        f"{settings.API_V1_STR}/users/me",
+        headers=headers,
+        json={"email": new_email},
+    )
+    assert direct.status_code == 400
+    assert db.exec(select(User).where(User.email == old_email)).first()
+
+    sent: list[dict[str, str]] = []
+    with (
+        patch("app.services.user.user_service.send_email", side_effect=lambda **kw: sent.append(kw)),
+        patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
+        patch("app.core.config.settings.EMAILS_FROM_EMAIL", "sender@example.com"),
+    ):
+        request = client.post(
+            f"{settings.API_V1_STR}/users/me/email-change",
+            headers=headers,
+            json={"email": new_email},
+        )
+    assert request.status_code == 200
+    assert sent[0]["email_to"] == new_email
+    assert db.exec(select(User).where(User.email == old_email)).first()
+
+    link = unescape(sent[0]["html_content"].split('href="')[1].split('"')[0])
+    assert urlparse(link).path == "/verify-email-change"
+    token = parse_qs(urlparse(link).query)["token"][0]
+    confirmed = client.post(
+        f"{settings.API_V1_STR}/users/email-change/confirm",
+        json={"token": token},
+    )
+    assert confirmed.status_code == 200
+    assert db.exec(select(User).where(User.email == new_email)).first()
+
+    replay = client.post(
+        f"{settings.API_V1_STR}/users/email-change/confirm",
+        json={"token": token},
+    )
+    assert replay.status_code == 400
 
 
 def test_update_password_me(
@@ -315,8 +368,7 @@ def test_update_user_me_email_exists(
         headers=normal_user_token_headers,
         json=data,
     )
-    assert r.status_code == 409
-    assert r.json()["detail"] == "此電子郵件的使用者已存在"
+    assert r.status_code == 400
 
 
 def test_update_password_me_same_password_error(

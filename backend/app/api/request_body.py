@@ -76,6 +76,7 @@ async def read_limited_body(request: Request, *, max_bytes: int) -> bytes:
             if int(content_length) > max_bytes:
                 raise HTTPException(413, detail=t("error.request_body_too_large"))
         except ValueError:
+            # Content-Length 不是整數就不信它，交給下面逐塊讀取的上限把關。
             pass
 
     body = bytearray()

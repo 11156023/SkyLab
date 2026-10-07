@@ -111,6 +111,20 @@ export function isFeatureIndex(text) {
 /* 講到流程或步驟就是要被帶著走，不管句子裡還有什麼——導覽優先於說明。 */
 const FLOW_PATTERN = /(流程|步驟)/i;
 
+/* 要這一頁的完整導覽（用途、時機、功能、彈出視窗、相關頁面），或問跳出來的視窗
+   怎麼填。要指著畫面講才算：「介紹一下 GPU 管理」問的是別頁，交給導覽。 */
+const PAGE_GUIDE_PATTERN =
+  /(介紹|導覽|使用說明|怎麼用|如何使用|怎麼操作|教我|有哪些功能|有什麼功能|可以做什麼|能做什麼|什麼時候用|何時用|什麼時候需要)/i;
+const DIALOG_PATTERN = /(視窗|彈窗|對話框|跳出來|跳出的)/i;
+
+/** 要眼前這一頁的導覽，或問這一頁跳出來的視窗。要排在教學與導覽判斷之前：
+ *  在班級頁問「這頁怎麼用」，要的是這頁的說明，不是被帶去建立班級。 */
+export function isPageGuide(text) {
+  if (FLOW_PATTERN.test(text)) return false;
+  if (DIALOG_PATTERN.test(text)) return true;
+  return SCREEN_SCOPE_PATTERN.test(text) && PAGE_GUIDE_PATTERN.test(text);
+}
+
 /** 問的是眼前這個畫面。提到平台或系統而沒指著畫面，就不算。 */
 export function isScreenHelp(text) {
   if (FLOW_PATTERN.test(text)) return false;
@@ -128,6 +142,7 @@ export function routeQuestion(text, task = newTask(), flowId = null, hasForm = f
   const contextual = taskRoute(text, task, flowId, hasForm);
   if (contextual) return contextual;
   if (isFeatureIndex(text)) return "index";
+  if (isPageGuide(text)) return "help";
   // Teaching questions need the relationship between screens, not a machine recommendation.
   if (TEACHING_PATTERN.test(text)) return "navigate";
   if (FLOW_PATTERN.test(text)) return "navigate";
@@ -870,10 +885,11 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   /* 功能索引：使用者問「有哪些功能」。清單就是他權限內看得到的畫面，
      不呼叫模型——列清單不需要推論，也不該有幻覺的空間。 */
   function sendFeatureIndex() {
+    /* 說明寫「什麼時候用」：使用者挑頁面看的是自己的處境，不是頁面定義 */
     const targets = indexableSurfaces(surfaceList).map((surface) => ({
       path: surface.path,
       title: surface.title,
-      reason: surface.purpose ?? "",
+      reason: surface.when_to_use || surface.purpose || "",
     }));
     if (!targets.length) return false;
     const content = t("AiFloatingChat.featureIndexIntro", { count: targets.length });
@@ -903,10 +919,16 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     }
     const answer = data?.answer?.trim();
     if (!answer) return false;
-    const assistantMessage = { role: "assistant", content: answer };
-    setMessages((previous) => [...previous, assistantMessage]);
-    setHistory((previous) => [...previous, assistantMessage]);
+    /* 相關頁面由後端依權限挑好，附成可以直接點的按鈕：「要做的事不在這頁」時帶過去 */
+    const targets = (data.related ?? []).filter((target) => target?.path && target?.title);
+    setMessages((previous) => [...previous, { role: "assistant", content: answer, targets }]);
+    setHistory((previous) => [...previous, { role: "assistant", content: answer }]);
     return true;
+  }
+
+  /* 頁面導覽按鈕與建議晶片：一定走畫面說明，不經過問句分類 */
+  function sendPageGuide() {
+    send(t("AiFloatingChat.pageGuideQuestion"), "help");
   }
 
   async function sendChat(text, nextHistory) {
@@ -932,7 +954,8 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     setHistory((previous) => [...previous, assistantMessage]);
   }
 
-  async function send(value = input) {
+  /* forcedRoute：按鈕已經知道要哪個能力時直接指定，不靠問句分類猜 */
+  async function send(value = input, forcedRoute = null) {
     const text = value.trim();
     if (!text || loading) return;
 
@@ -945,7 +968,8 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
 
     try {
       // 每個能力答不出來就往下一個退，最後一定有一般問答接住。
-      const route = text === t("AiFloatingChat.checkRequestProgress") ? "continueTask"
+      const route = forcedRoute ? forcedRoute
+        : text === t("AiFloatingChat.checkRequestProgress") ? "continueTask"
         : text === t("AiFloatingChat.hasMachineChoice") ? "continueTask"
         : text === t("AiFloatingChat.noMachineChoice") ? "recommend"
         : routeQuestion(text, taskRef.current, flowRef.current?.id, Boolean(requestFormRef.current));
@@ -1033,6 +1057,13 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
               <>
                 <MIcon name="web_asset" size={16} />
                 <span>{t("AiFloatingChat.contextViewingPage", { page: currentPageName })}</span>
+                {/* 隨時可以叫出這一頁的完整導覽：用途、時機、功能、會跳出的視窗與相關頁面 */}
+                {activeSurfaceId && (
+                  <button type="button" className={styles.pageGuideBtn} onClick={sendPageGuide} disabled={loading}>
+                    <MIcon name="tour" size={15} />
+                    {t("AiFloatingChat.pageGuideButton")}
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1065,10 +1096,15 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
                     <li key={item.titleKey}>{t(item.titleKey)}</li>
                   ))}
                 </ul>
-                {pageContext.suggestionKeys.length > 0 && (
+                {(activeSurfaceId || pageContext.suggestionKeys.length > 0) && (
                   <p className={styles.suggestionsLead}>{t("AiFloatingChat.suggestionsLead")}</p>
                 )}
                 <div className={styles.suggestions}>
+                  {activeSurfaceId && (
+                    <button type="button" onClick={sendPageGuide}>
+                      {t("AiFloatingChat.pageGuideQuestion")}
+                    </button>
+                  )}
                   {pageContext.suggestionKeys.map((key) => (
                     <button key={key} type="button" onClick={() => send(t(key))}>
                       {t(key)}

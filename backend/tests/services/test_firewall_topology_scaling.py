@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -147,6 +148,33 @@ def test_per_vm_pve_queries_run_in_parallel(
     resp = _topology()
 
     assert all(n.firewall_enabled for n in resp.nodes if n.node_type == "vm")
+
+
+def test_unresponsive_guest_agent_does_not_hold_up_the_topology(
+    topology_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology_env(reachable=[100, 101], pve=[_vm(100), _vm(101)])
+    # 101 的 guest agent 沒回應：PVE 會卡滿 guest-ping 逾時才回錯誤
+    release = threading.Event()
+
+    def get_ip_address(node: str, vmid: int, rtype: str) -> str | None:
+        if vmid == 101:
+            release.wait(timeout=10)
+            return None
+        return f"10.0.1.{vmid}"
+
+    monkeypatch.setattr(fw.proxmox_service, "get_ip_address", get_ip_address)
+    monkeypatch.setattr(fw.live_ip, "WAIT_SECONDS", 0.2)
+
+    started = time.monotonic()
+    try:
+        resp = _topology()
+    finally:
+        release.set()
+
+    assert time.monotonic() - started < 2
+    ips = {n.vmid: n.ip_address for n in resp.nodes if n.node_type == "vm"}
+    assert ips == {100: "10.0.1.100", 101: "cached-101"}
 
 
 def test_edges_come_from_the_rules_read_in_parallel(

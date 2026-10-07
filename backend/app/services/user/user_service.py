@@ -1,7 +1,13 @@
 import uuid
+from datetime import datetime, timedelta, timezone
+from html import escape
+from urllib.parse import quote
 
+import jwt
+from jwt.exceptions import InvalidTokenError
 from sqlmodel import Session, col, func, select, update
 
+from app.core import security
 from app.core.authorizers import can_manage_users, require_user_manage
 from app.core.config import settings
 from app.core.i18n import t
@@ -31,6 +37,8 @@ from app.schemas import (
 from app.services.user import audit_service
 from app.services.user.password_policy import ensure_password_complexity
 from app.utils import generate_new_account_email, send_email
+
+_EMAIL_CHANGE_HOURS = 1
 
 
 def list_users(*, session: Session, skip: int = 0, limit: int = 100) -> UsersPublic:
@@ -241,12 +249,10 @@ def delete_user(*, session: Session, user_id: uuid.UUID, current_user: User) -> 
 
 
 def update_me(*, session: Session, user_in: UserUpdateMe, current_user: User) -> User:
-    if user_in.email:
-        existing = user_repo.get_user_by_email(session=session, email=user_in.email)
-        if existing and existing.id != current_user.id:
-            raise ConflictError(t("user.emailExistsShort"))
+    if "email" in user_in.model_fields_set and user_in.email != current_user.email:
+        raise BadRequestError(t("user.emailChangeRequiresVerification"))
 
-    user_data = user_in.model_dump(exclude_unset=True)
+    user_data = user_in.model_dump(exclude_unset=True, exclude={"email"})
     current_user.sqlmodel_update(user_data)
     session.add(current_user)
 
@@ -264,6 +270,89 @@ def update_me(*, session: Session, user_in: UserUpdateMe, current_user: User) ->
         session.rollback()
         raise
     return current_user
+
+
+def request_email_change(*, session: Session, current_user: User, email: str) -> None:
+    if current_user.auth_source != "local":
+        raise BadRequestError(t("user.emailManaged"))
+    if email.lower() == current_user.email.lower():
+        raise BadRequestError(t("user.emailUnchanged"))
+    if user_repo.get_user_by_email(session=session, email=email):
+        raise ConflictError(t("user.emailExistsShort"))
+    if not settings.emails_enabled:
+        raise BadRequestError(t("user.emailVerificationUnavailable"))
+
+    token = jwt.encode(
+        {
+            "sub": str(current_user.id),
+            "type": "email_change",
+            "old_email": current_user.email,
+            "new_email": email,
+            "ver": current_user.token_version,
+            "exp": datetime.now(timezone.utc) + timedelta(hours=_EMAIL_CHANGE_HOURS),
+            "jti": uuid.uuid4().hex,
+        },
+        settings.SECRET_KEY,
+        algorithm=security.ALGORITHM,
+    )
+    link = f"{settings.FRONTEND_HOST.rstrip('/')}/verify-email-change?token={quote(token)}"
+    safe_link = escape(link, quote=True)
+    send_email(
+        email_to=email,
+        subject=t("user.emailChangeMailSubject", project_name=settings.PROJECT_NAME),
+        html_content=(
+            f"<p>{escape(t('user.emailChangeMailBody', project_name=settings.PROJECT_NAME))}</p>"
+            f'<p><a href="{safe_link}">{escape(t("user.emailChangeMailLink"))}</a></p>'
+            f"<p>{escape(t('user.emailChangeMailExpiry'))}</p>"
+        ),
+    )
+
+
+def confirm_email_change(*, session: Session, current_user: User, token: str) -> User:
+    try:
+        claims = jwt.decode(token, settings.SECRET_KEY, algorithms=[security.ALGORITHM])
+    except InvalidTokenError as exc:
+        raise BadRequestError(t("user.emailVerificationInvalid")) from exc
+    new_email = claims.get("new_email")
+    if (
+        claims.get("type") != "email_change"
+        or claims.get("sub") != str(current_user.id)
+        or claims.get("old_email") != current_user.email
+        or claims.get("ver") != current_user.token_version
+        or not isinstance(new_email, str)
+        or current_user.auth_source != "local"
+    ):
+        raise BadRequestError(t("user.emailVerificationInvalid"))
+    if user_repo.get_user_by_email(session=session, email=new_email):
+        raise ConflictError(t("user.emailExistsShort"))
+    current_user.email = new_email
+    session.add(current_user)
+    try:
+        audit_service.log_action(
+            session=session,
+            user_id=current_user.id,
+            action="user_update",
+            details=f"Changed own email to {new_email}",
+            commit=False,
+        )
+        return _commit_and_refresh(session, current_user)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def confirm_email_change_from_link(*, session: Session, token: str) -> None:
+    try:
+        claims = jwt.decode(token, settings.SECRET_KEY, algorithms=[security.ALGORITHM])
+        if claims.get("type") != "email_change":
+            raise ValueError("wrong token type")
+        user_id = uuid.UUID(claims["sub"])
+    except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
+        raise BadRequestError(t("user.emailVerificationInvalid")) from exc
+    current_user = session.get(User, user_id)
+    if current_user is None or not current_user.is_active:
+        raise BadRequestError(t("user.emailVerificationInvalid"))
+    confirm_email_change(session=session, current_user=current_user, token=token)
 
 
 def complete_onboarding(*, session: Session, current_user: User) -> User:

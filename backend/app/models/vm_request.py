@@ -80,9 +80,12 @@ class VMRequest(SQLModel, table=True):
     hostname: str
     cores: int = Field(default=2)
     memory: int = Field(default=2048, description="MB")
-    # 加密後的登入密碼；provision 完成後清空（密碼改存 resources），
-    # Course Lab 一開始就是 None（沿用範本憑證）
+    # 建機前暫存的登入密碼，provision 完成後兩欄都清空。
+    # password：加密後的明文，只有系統代發（快速練習）與 Windows 自訂密碼
+    # 會用到（cloudbase-init 只收明文）；password_hash：其餘自訂密碼的
+    # SHA-512 crypt 雜湊。兩欄都是 None ＝ 沿用範本憑證（Course Lab）。
     password: str | None = Field(default=None)
+    password_hash: str | None = Field(default=None)
     storage: str = Field(default="local-lvm")
     environment_type: str = Field(default="Custom")
     os_info: str | None = Field(default=None)
