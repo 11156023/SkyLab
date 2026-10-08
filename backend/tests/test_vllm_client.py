@@ -71,6 +71,35 @@ async def test_vllm_client_forwards_request_id(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
+async def test_vllm_client_sends_bearer_when_key_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = VLLMClient(base_url="http://vllm.example/v1", api_key="secret")
+
+    await client.create_chat_completion({"model": "test"})
+
+    request = _FakeAsyncClient.instances[0].posts[0]
+    assert request["headers"]["Authorization"] == "Bearer secret"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("api_key", ["", "   "])
+async def test_vllm_client_omits_auth_header_without_key(
+    monkeypatch: pytest.MonkeyPatch, api_key: str
+) -> None:
+    # 沒設 --api-key 的 vLLM 不需要認證；送出 "Bearer " 會被 h11 判為非法標頭，
+    # 請求根本發不出去（Illegal header value b'Bearer '）
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = VLLMClient(base_url="http://vllm.example/v1", api_key=api_key)
+
+    await client.create_chat_completion({"model": "test"})
+
+    request = _FakeAsyncClient.instances[0].posts[0]
+    assert "Authorization" not in request["headers"]
+
+
+@pytest.mark.asyncio
 async def test_vllm_client_recreates_after_close(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
     client = VLLMClient(

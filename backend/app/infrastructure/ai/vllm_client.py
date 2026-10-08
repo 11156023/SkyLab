@@ -17,7 +17,7 @@ class VLLMClient:
         limits: httpx.Limits | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._api_key = api_key
+        self._api_key = api_key.strip()
         self._default_timeout = default_timeout
         self._limits = limits or httpx.Limits(
             max_connections=100,
@@ -41,10 +41,11 @@ class VLLMClient:
         timeout: float | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        # 沒設 --api-key 的 vLLM 不需要認證；VLLM_API_KEY 留空時送 "Bearer " 會被
+        # h11 判為非法標頭，請求根本發不出去
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
         if request_id:
             headers["X-Request-ID"] = request_id[:255]
         effective_timeout = timeout if timeout is not None else self._default_timeout
