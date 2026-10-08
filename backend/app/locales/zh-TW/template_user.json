@@ -77,5 +77,6 @@
   "auth.turnstileUnavailable": "機器人驗證服務暫時無法連線，請稍後再試",
   "template.sourceVmNotRegistered": "VM {vmid} 未登記在平台，無法轉換為範本",
   "template.fieldCannotBeNull": "欄位 {field} 不可設為空值",
-  "template.updateCloneMismatch": "VMID {vmid} 已不是這次更新循環的暫存母機，請取消更新後重新開始"
+  "template.updateCloneMismatch": "VMID {vmid} 已不是這次更新循環的暫存母機，請取消更新後重新開始",
+  "login_password.windowsComplexity": "Windows 機器的登入密碼必須符合 Windows 複雜度：大寫字母、小寫字母、數字、符號至少包含三類，且不可包含帳號名稱 {username}"
 }

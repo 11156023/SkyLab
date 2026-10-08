@@ -34,10 +34,11 @@ from app.services.os_identity_service import (
 )
 from app.services.proxmox import gpu_service, proxmox_service
 from app.services.resource import guest_ssh_login
+from app.services.template import password_policy
 from app.services.user import audit_service
 from app.services.vm import placement_support, vm_request_placement_service
 from app.utils.hostname import to_punycode_hostname
-from app.utils.login_password import hash_login_password
+from app.utils.login_password import hash_login_password, windows_password_issues
 
 logger = logging.getLogger(__name__)
 
@@ -674,6 +675,11 @@ def create_vm(
     ip_reservation_key: str | None = None,
 ) -> VMCreateResponse:
     ensure_ciuser_allowed(vm_data.username)
+    # 密碼不合 Windows 複雜度時才去查範本是不是 Windows（省一次 PVE 查詢）
+    if windows_password_issues(vm_data.password) and template_is_windows(
+        vm_data.template_id
+    ):
+        password_policy.require_windows_password(vm_data.password)
     target_node = get_vm_target_node(vm_data.template_id)
     target_storage = _resolve_managed_storage(
         session=session,

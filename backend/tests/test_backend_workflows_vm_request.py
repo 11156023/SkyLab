@@ -149,7 +149,8 @@ def test_windows_vm_request_keeps_the_password_encrypted_until_provisioning(
         hostname="win-check",
         cores=2,
         memory=4096,
-        password="strongpass123",
+        # Windows 會拒絕不合複雜度的密碼（見 test_windows_login_password）
+        password="StrongPass123",
         storage="fast-ssd",
         template_id=9000,
         disk_size=64,
@@ -165,7 +166,7 @@ def test_windows_vm_request_keeps_the_password_encrypted_until_provisioning(
     assert saved is not None
     assert saved.password_hash is None
     assert saved.password is not None
-    assert decrypt_value(saved.password) == "strongpass123"
+    assert decrypt_value(saved.password) == "StrongPass123"
 
 
 def test_admin_scheduled_request_stays_pending(
