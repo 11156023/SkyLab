@@ -58,6 +58,14 @@ def test_all_request_profiles_build_without_network(runner):
         assert payload["messages"][0]["role"] == "system"
         if case.service == "navigation":
             assert payload["response_format"]["type"] == "json_schema"
+            assert payload["response_format"]["json_schema"]["schema"] == (
+                runner.candidate_decision_schema(allowed[case.service], 4)
+            )
+            assert "uniqueItems" not in (
+                payload["response_format"]["json_schema"]["schema"]["properties"][
+                    "candidate_ids"
+                ]
+            )
         elif case.service == "contextual_help":
             assert case.response_kind == "free_text"
             assert "response_format" not in payload
@@ -78,9 +86,16 @@ def test_dry_run_validates_payloads_and_reports_no_inference(
     assert report["summary"]["pass"] == 0
     assert report["summary"]["tools_executed"] is False
     assert {case["status"] for case in report["cases"]} == {"not_run"}
-    assert report["report_version"] == "gemma4-role-guardrails-v4"
+    assert report["report_version"] == "gemma4-role-guardrails-v6"
+    assert report["probe_request_adjustments"]["system_ai_transport"] == (
+        "shared_vllm_profiles_enforced"
+    )
     assert report["probe_request_adjustments"]["adherence_contract"] == (
         "production_check_adherence_unmodified"
+    )
+    assert "candidate_unique_items" not in report["probe_request_adjustments"]
+    assert report["probe_request_adjustments"]["contextual_help_adherence"] == (
+        "production_check_before_display"
     )
 
 
@@ -149,8 +164,10 @@ def test_pve_live_path_uses_production_client_context_retry(runner):
         client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
         try:
             return await runner._run_case(
-                None, client, _help_case(runner, "pve-large-tool-result"),
-                base_url="http://offline/v1", api_key="dummy", model="offline", allowed_ids={},
+                client,
+                _help_case(runner, "pve-large-tool-result"),
+                model="offline",
+                allowed_ids={},
             )
         finally:
             await client.aclose()
@@ -164,7 +181,7 @@ def test_pve_live_path_uses_production_client_context_retry(runner):
 @pytest.mark.parametrize("case_id", ["help-normal", "help-quoted", "help-multiturn"])
 def test_help_uses_production_gpu_context(runner, case_id):
     case = _help_case(runner, case_id)
-    intent, context = runner._help_context_for_case(case)
+    intent, context, _grounded, _level = runner._help_context_for_case(case)
     assert intent == "field_help"
     assert context["target"]["id"] == "request.gpu"
     assert context["target"]["constraints"]
@@ -177,11 +194,15 @@ def test_help_uses_production_gpu_context(runner, case_id):
 
 
 def test_help_validation_and_unknown_ordinal_have_grounded_context(runner):
-    intent, context = runner._help_context_for_case(_help_case(runner, "help-protocol"))
+    intent, context, _grounded, _level = runner._help_context_for_case(
+        _help_case(runner, "help-protocol")
+    )
     assert intent == "validation_help"
     assert context["blocked"][0]["id"] == "request.reason"
     assert context["blocked"][0]["error"] == "申請原因為必填"
-    intent, context = runner._help_context_for_case(_help_case(runner, "help-index"))
+    intent, context, _grounded, _level = runner._help_context_for_case(
+        _help_case(runner, "help-index")
+    )
     assert intent == "page_overview"
     assert "target" not in context
     assert "ordinal_mapping" not in context
@@ -233,6 +254,7 @@ def test_help_live_path_checks_adherence_with_ui_evidence(runner, monkeypatch):
         _client, contract, _question, _candidate, facts, _request_id, **_kwargs
     ):
         assert contract.role_id == "contextual_help"
+        assert contract is runner.CONTEXTUAL_HELP_CONTRACT
         seen.append(facts)
         return runner.SimpleNamespace(
             allowed=False,
@@ -255,16 +277,17 @@ def test_help_live_path_checks_adherence_with_ui_evidence(runner, monkeypatch):
         )
 
     async def run():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        client = runner.VLLMClient("http://offline/v1", "dummy")
+        client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        try:
             return await runner._run_case(
                 client,
-                None,
                 _help_case(runner, "help-normal"),
-                base_url="http://offline/v1",
-                api_key="dummy",
                 model="offline",
                 allowed_ids={},
             )
+        finally:
+            await client.aclose()
 
     result = asyncio.run(run())
     assert result["status"] == "fail"

@@ -39,7 +39,8 @@ from app.infrastructure.ai.vllm_client import VLLMClient
 def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
     payloads: list[dict] = []
 
-    async def fake_completion(payload, *, timeout, request_id=None):
+    async def fake_completion(payload, *, profile, timeout, request_id=None):
+        assert profile.value in {"complex_agent", "adherence_check"}
         del timeout, request_id
         schema_name = (
             (payload.get("response_format") or {}).get("json_schema", {}).get("name")
@@ -75,6 +76,7 @@ def _patch_vllm(monkeypatch: pytest.MonkeyPatch, responder) -> list[dict]:
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
             VLLM_CHAT_MAX_TOKENS=4096,
+            VLLM_ENABLE_THINKING=False,
         ),
     )
     monkeypatch.setattr(
@@ -500,6 +502,7 @@ async def test_large_tool_result_is_bounded_for_agent_checker_and_resume(
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
             VLLM_CHAT_MAX_TOKENS=4096,
+            VLLM_ENABLE_THINKING=False,
         ),
     )
     try:

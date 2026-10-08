@@ -30,6 +30,7 @@ from app.ai.utils import (
 )
 from app.core.i18n import t
 from app.exceptions import AppError, UpstreamServiceError
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.template_recommendation import client
 
 logger = logging.getLogger(__name__)
@@ -414,7 +415,11 @@ async def generate_ai_plan(
     try:
         started_at = perf_counter()
         started_at_utc = datetime.now(timezone.utc)
-        data = await client.create_chat_completion(payload, request_id=request_id)
+        data = await client.create_chat_completion(
+            payload,
+            profile=VLLMRequestProfile.STRUCTURED_OBJECT,
+            request_id=request_id,
+        )
         metrics = usage_metrics(
             data,
             perf_counter() - started_at,

@@ -52,6 +52,7 @@ from app.ai.utils import (
 from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_user
 from app.core.i18n import t
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.template_recommendation import client
 from app.services.llm_gateway import ai_gateway_service
 
@@ -198,7 +199,11 @@ async def chat(
     started_at = perf_counter()
     started_at_utc = datetime.now(timezone.utc)
     try:
-        data = await client.create_chat_completion(payload, request_id=request_id)
+        data = await client.create_chat_completion(
+            payload,
+            profile=VLLMRequestProfile.CONFIGURED_TEXT,
+            request_id=request_id,
+        )
         metrics = usage_metrics(
             data,
             perf_counter() - started_at,

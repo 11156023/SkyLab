@@ -16,6 +16,7 @@ from app.ai.role_contracts import (
     adherence_result_schema,
 )
 from app.ai.utils import apply_thinking_control, strip_think_tags
+from app.infrastructure.ai import VLLMRequestProfile
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class ChatCompletionClient(Protocol):
         self,
         payload: dict[str, Any],
         *,
+        profile: VLLMRequestProfile,
         timeout: float | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]: ...
@@ -188,6 +190,7 @@ async def check_adherence(
     try:
         response = await client.create_chat_completion(
             payload,
+            profile=VLLMRequestProfile.ADHERENCE_CHECK,
             timeout=_TIMEOUT_SECONDS,
             request_id=request_id,
         )

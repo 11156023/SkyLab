@@ -6,7 +6,14 @@ import json
 import httpx
 import pytest
 
-from app.infrastructure.ai.vllm_client import VLLMClient, close_all_vllm_clients
+from app.infrastructure.ai.vllm_client import (
+    VLLMCapability,
+    VLLMClient,
+    VLLMProfileError,
+    VLLMRequestProfile,
+    close_all_vllm_clients,
+    required_capabilities,
+)
 
 
 class _FakeResponse:
@@ -42,6 +49,15 @@ async def _close_clients_after_test():
     _FakeAsyncClient.instances.clear()
 
 
+def _text_payload(*, max_tokens: int = 32) -> dict:
+    return {
+        "model": "test",
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": max_tokens,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
 @pytest.mark.asyncio
 async def test_vllm_client_reuses_async_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
@@ -51,8 +67,12 @@ async def test_vllm_client_reuses_async_client(monkeypatch: pytest.MonkeyPatch) 
         default_timeout=10.0,
     )
 
-    await client.create_chat_completion({"model": "test"})
-    await client.create_chat_completion({"model": "test"})
+    await client.create_chat_completion(
+        _text_payload(), profile=VLLMRequestProfile.CONFIGURED_TEXT
+    )
+    await client.create_chat_completion(
+        _text_payload(), profile=VLLMRequestProfile.CONFIGURED_TEXT
+    )
 
     assert len(_FakeAsyncClient.instances) == 1
     assert len(_FakeAsyncClient.instances[0].posts) == 2
@@ -68,7 +88,9 @@ async def test_vllm_client_forwards_request_id(monkeypatch: pytest.MonkeyPatch) 
     )
 
     await client.create_chat_completion(
-        {"model": "test"}, request_id="campus-request-123"
+        _text_payload(),
+        profile=VLLMRequestProfile.CONFIGURED_TEXT,
+        request_id="campus-request-123",
     )
 
     request = _FakeAsyncClient.instances[0].posts[0]
@@ -86,9 +108,13 @@ async def test_vllm_client_recreates_after_close(
         default_timeout=10.0,
     )
 
-    await client.create_chat_completion({"model": "test"})
+    await client.create_chat_completion(
+        _text_payload(), profile=VLLMRequestProfile.CONFIGURED_TEXT
+    )
     await client.aclose()
-    await client.create_chat_completion({"model": "test"})
+    await client.create_chat_completion(
+        _text_payload(), profile=VLLMRequestProfile.CONFIGURED_TEXT
+    )
 
     assert len(_FakeAsyncClient.instances) == 2
     assert _FakeAsyncClient.instances[0].is_closed is True
@@ -127,10 +153,16 @@ async def test_context_overflow_retries_same_prompt_with_output_room() -> None:
         "model": "test",
         "messages": [{"role": "system", "content": "safety"}],
         "tools": [{"type": "function", "function": {"name": "get_nodes"}}],
+        "tool_choice": "auto",
         "max_tokens": 4096,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     original = copy.deepcopy(payload)
-    result = await client.create_chat_completion(payload, request_id="context-1")
+    result = await client.create_chat_completion(
+        payload,
+        profile=VLLMRequestProfile.COMPLEX_AGENT,
+        request_id="context-1",
+    )
 
     assert result["choices"][0]["message"]["content"] == "ok"
     assert len(requests) == 3
@@ -141,6 +173,7 @@ async def test_context_overflow_retries_same_prompt_with_output_room() -> None:
         "model": original["model"],
         "messages": original["messages"],
         "tools": original["tools"],
+        "chat_template_kwargs": original["chat_template_kwargs"],
     }
     assert payload == original
     assert all(request.headers["X-Request-ID"] == "context-1" for request in requests)
@@ -168,7 +201,10 @@ async def test_other_errors_or_no_output_room_do_not_retry(error: dict) -> None:
     client = VLLMClient("http://vllm/v1", "secret")
     client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     with pytest.raises(httpx.HTTPStatusError):
-        await client.create_chat_completion({"max_tokens": 4096})
+        await client.create_chat_completion(
+            _text_payload(max_tokens=4096),
+            profile=VLLMRequestProfile.CONFIGURED_TEXT,
+        )
     assert len([r for r in requests if r.url.path == "/v1/chat/completions"]) == 1
     assert len(requests) <= 2
 
@@ -185,7 +221,10 @@ async def test_context_overflow_retry_is_bounded_to_once() -> None:
     client = VLLMClient("http://vllm/v1", "secret")
     client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     with pytest.raises(httpx.HTTPStatusError):
-        await client.create_chat_completion({"max_tokens": 4096})
+        await client.create_chat_completion(
+            _text_payload(max_tokens=4096),
+            profile=VLLMRequestProfile.CONFIGURED_TEXT,
+        )
     assert len(requests) == 3
 
 
@@ -213,6 +252,166 @@ async def test_unavailable_or_invalid_token_count_preserves_original_error(
     client = VLLMClient("http://vllm/v1", "secret")
     client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     with pytest.raises(httpx.HTTPStatusError) as caught:
-        await client.create_chat_completion({"max_tokens": 4096})
+        await client.create_chat_completion(
+            _text_payload(max_tokens=4096),
+            profile=VLLMRequestProfile.CONFIGURED_TEXT,
+        )
     assert caught.value.response.json() == _context_error()
     assert len(requests) == 2
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+        {"chat_template_kwargs": {}},
+        {"stream": True},
+        {"max_tokens": 0},
+    ],
+)
+async def test_profile_rejects_invalid_request_before_transport(
+    monkeypatch: pytest.MonkeyPatch, mutation: dict
+) -> None:
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = VLLMClient("http://vllm.example/v1", "secret")
+    payload = {**_text_payload(), **mutation}
+
+    with pytest.raises(VLLMProfileError):
+        await client.create_chat_completion(
+            payload, profile=VLLMRequestProfile.CONFIGURED_TEXT
+        )
+
+    assert not _FakeAsyncClient.instances
+
+
+async def test_json_schema_profile_rejects_wrong_request_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = VLLMClient("http://vllm.example/v1", "secret")
+
+    with pytest.raises(VLLMProfileError, match="named JSON Schema"):
+        await client.create_chat_completion(
+            _text_payload(), profile=VLLMRequestProfile.NAVIGATION_DECISION
+        )
+
+    assert not _FakeAsyncClient.instances
+
+
+async def test_fixed_profile_rejects_excess_output_budget_before_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = VLLMClient("http://vllm.example/v1", "secret")
+    payload = {
+        **_text_payload(max_tokens=385),
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "navigation-v1", "schema": {"type": "object"}},
+        },
+    }
+
+    with pytest.raises(VLLMProfileError, match="at most 384"):
+        await client.create_chat_completion(
+            payload, profile=VLLMRequestProfile.NAVIGATION_DECISION
+        )
+
+    assert not _FakeAsyncClient.instances
+
+
+async def test_structured_profile_rejects_non_json_response() -> None:
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "not-json"}}]},
+        )
+
+    client = VLLMClient("http://vllm/v1", "secret")
+    client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    payload = {
+        **_text_payload(),
+        "response_format": {"type": "json_object"},
+    }
+
+    with pytest.raises(VLLMProfileError, match="invalid JSON content"):
+        await client.create_chat_completion(
+            payload, profile=VLLMRequestProfile.STRUCTURED_OBJECT
+        )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"choices": []},
+        {
+            "choices": [
+                {"finish_reason": "length", "message": {"content": "partial"}}
+            ]
+        },
+        {"choices": [{"message": {"content": ""}}]},
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {"name": "get_nodes", "arguments": "[1]"},
+                            }
+                        ],
+                    }
+                }
+            ]
+        },
+    ],
+)
+async def test_profile_rejects_invalid_or_truncated_response(body: dict) -> None:
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    client = VLLMClient("http://vllm/v1", "secret")
+    client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    with pytest.raises(VLLMProfileError):
+        await client.create_chat_completion(
+            _text_payload(), profile=VLLMRequestProfile.CONFIGURED_TEXT
+        )
+
+
+async def test_complex_agent_accepts_native_tool_call() -> None:
+    body = {
+        "choices": [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "function": {"name": "get_nodes", "arguments": "{}"},
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    client = VLLMClient("http://vllm/v1", "secret")
+    client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    payload = {
+        **_text_payload(),
+        "tools": [{"type": "function", "function": {"name": "get_nodes"}}],
+        "tool_choice": "auto",
+    }
+
+    result = await client.create_chat_completion(
+        payload, profile=VLLMRequestProfile.COMPLEX_AGENT
+    )
+
+    assert result == body
+    assert required_capabilities(VLLMRequestProfile.COMPLEX_AGENT) == frozenset(
+        {VLLMCapability.THINKING_CONTROL, VLLMCapability.NATIVE_TOOL_CALLS}
+    )

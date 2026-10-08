@@ -66,6 +66,7 @@ def _isolate_system_ai_adherence_checks(monkeypatch: pytest.MonkeyPatch) -> None
     檢查器本身與各服務的 block/fail-closed 整合由 focused tests 覆蓋；個別測試仍可
     在此 fixture 之後覆寫模組內的 ``check_adherence``。
     """
+    from app.ai.contextual_help import service as contextual_help_service
     from app.ai.pve_log import chat as pve_chat
     from app.ai.role_contracts import (
         AdherenceReason,
@@ -78,6 +79,7 @@ def _isolate_system_ai_adherence_checks(monkeypatch: pytest.MonkeyPatch) -> None
     async def allow(*_args, **_kwargs) -> AdherenceResult:
         return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
 
+    monkeypatch.setattr(contextual_help_service, "check_adherence", allow)
     monkeypatch.setattr(pve_chat, "check_adherence", allow)
     if hasattr(teacher_judge_service, "check_adherence"):
         monkeypatch.setattr(teacher_judge_service, "check_adherence", allow)

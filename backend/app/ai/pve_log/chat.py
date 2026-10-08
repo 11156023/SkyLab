@@ -45,8 +45,9 @@ from app.ai.pve_log.history import (
 )
 from app.ai.pve_log.schemas import ChatResponse, SSHExecRequest, ToolCallRecord
 from app.ai.role_contracts import AdherenceResult, OutputMode, RoleContract, TurnContext
-from app.ai.utils import strip_think_tags
+from app.ai.utils import apply_thinking_control, strip_think_tags
 from app.core.i18n import t
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.pve_log import client as vllm_client
 
 logger = logging.getLogger(__name__)
@@ -1047,16 +1048,21 @@ def build_chat_payload(
     max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """The production PVE agent request, also used by the live probe runner."""
-    return {
-        "model": model_name if model_name is not None else settings.VLLM_MODEL_NAME,
-        "messages": messages,
-        "tools": _TOOLS,
-        "tool_choice": "auto",
-        "temperature": 0.1,
-        "max_tokens": (
-            max_tokens if max_tokens is not None else settings.VLLM_CHAT_MAX_TOKENS
-        ),
-    }
+    return apply_thinking_control(
+        {
+            "model": model_name if model_name is not None else settings.VLLM_MODEL_NAME,
+            "messages": messages,
+            "tools": _TOOLS,
+            "tool_choice": "auto",
+            "temperature": 0.1,
+            "max_tokens": (
+                max_tokens
+                if max_tokens is not None
+                else settings.VLLM_CHAT_MAX_TOKENS
+            ),
+        },
+        settings.VLLM_ENABLE_THINKING,
+    )
 
 
 async def chat(
@@ -1170,6 +1176,7 @@ async def chat(
         try:
             data = await vllm_client.create_chat_completion(
                 payload,
+                profile=VLLMRequestProfile.COMPLEX_AGENT,
                 timeout=float(settings.VLLM_TIMEOUT),
                 request_id=request_id,
             )

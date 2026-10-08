@@ -225,7 +225,6 @@ def candidate_decision_schema(allowed_ids: list[str], max_items: int) -> dict[st
                 "type": "array",
                 "items": {"type": "string", "enum": allowed_ids},
                 "maxItems": max_items,
-                "uniqueItems": True,
             }
         },
         "required": ["candidate_ids"],

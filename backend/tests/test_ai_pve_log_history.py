@@ -218,7 +218,8 @@ async def test_chat_history_only_sends_rebuilt_transcript(
 ) -> None:
     payloads: list[dict] = []
 
-    async def fake_completion(payload, *, timeout, request_id=None):
+    async def fake_completion(payload, *, profile, timeout, request_id=None):
+        assert profile.value in {"complex_agent", "adherence_check"}
         del timeout
         assert request_id
         payloads.append(copy.deepcopy(payload))
@@ -232,6 +233,7 @@ async def test_chat_history_only_sends_rebuilt_transcript(
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
             VLLM_CHAT_MAX_TOKENS=4096,
+            VLLM_ENABLE_THINKING=False,
         ),
     )
     monkeypatch.setattr(

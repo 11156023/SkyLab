@@ -66,6 +66,7 @@ from app.ai.teacher_judge.template_command_service import (
 )
 from app.ai.utils import apply_thinking_control, safe_bool, strip_think_tags
 from app.core.i18n import t
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.teacher_judge import client as teacher_judge_client
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
@@ -1728,6 +1729,16 @@ def _charge_missing_completion_usage(
     }
 
 
+def _request_profile(payload: dict[str, Any]) -> VLLMRequestProfile:
+    """Map Teacher Judge's current request shape to the shared vLLM contract."""
+    if payload.get("tools"):
+        return VLLMRequestProfile.COMPLEX_AGENT
+    response_format = payload.get("response_format")
+    if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+        return VLLMRequestProfile.STRUCTURED_OBJECT
+    return VLLMRequestProfile.CONFIGURED_TEXT
+
+
 async def _call_vllm_message(
     payload: dict[str, Any], timeout: float = 120.0
 ) -> tuple[dict[str, Any], VLLMMetrics]:
@@ -1740,6 +1751,7 @@ async def _call_vllm_message(
     try:
         data = await teacher_judge_client.create_chat_completion(
             payload,
+            profile=_request_profile(payload),
             timeout=timeout,
         )
 

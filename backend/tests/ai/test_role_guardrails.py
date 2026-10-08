@@ -66,7 +66,7 @@ def test_candidate_decision_rejects_duplicates_and_preserves_order() -> None:
 def test_candidate_schema_is_closed_and_bounded() -> None:
     schema = candidate_decision_schema(["a", "b"], 2)
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["candidate_ids"]["uniqueItems"] is True
+    assert "uniqueItems" not in schema["properties"]["candidate_ids"]
     assert schema["properties"]["candidate_ids"]["items"]["enum"] == ["a", "b"]
 
 

@@ -21,6 +21,7 @@ from app.ai.contextual_help.surfaces import (
     get_surfaces_for_user,
 )
 from app.ai.navigation.catalog import all_routes
+from app.ai.role_contracts import AdherenceReason, AdherenceResult, AdherenceVerdict
 from app.models.user import UserRole
 
 
@@ -41,10 +42,17 @@ def _request(**overrides: Any) -> ExplainRequest:
 def _use_model(monkeypatch: pytest.MonkeyPatch, answer: str) -> list[dict[str, Any]]:
     seen: list[dict[str, Any]] = []
 
-    async def _capture(payload, *, timeout: float, request_id: str | None = None):
+    async def _capture(
+        payload, *, profile, timeout: float, request_id: str | None = None
+    ):
         assert request_id
+        assert profile is help_service.VLLMRequestProfile.BOUNDED_EXPLANATION
         seen.append(payload)
-        return {"choices": [{"message": {"content": answer}}]}
+        return {
+            "choices": [
+                {"finish_reason": "stop", "message": {"content": answer}}
+            ]
+        }
 
     monkeypatch.setattr(
         help_service.system_ai_env, "vllm_model_name", "Qwen/test-model"
@@ -224,6 +232,10 @@ async def test_single_validation_error_is_answered_without_the_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """一行錯誤訊息不值得一次推論，而且直接組的答案不可能講錯。"""
+    async def _unexpected_check(*_args, **_kwargs):
+        raise AssertionError("deterministic answer must not call adherence checker")
+
+    monkeypatch.setattr(help_service, "check_adherence", _unexpected_check)
     seen = _use_model(monkeypatch, "模型不該被呼叫")
     result = await help_service.explain(
         _request(
@@ -260,7 +272,32 @@ async def test_nothing_blocked_says_so_instead_of_inventing_a_reason(
 async def test_field_help_uses_the_model_when_there_is_help_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    seen = _use_model(monkeypatch, "GPU 會依所選時段重新計算可用性。")
+    checks: list[dict[str, Any]] = []
+
+    async def _allow(
+        _client,
+        contract,
+        user_request,
+        candidate,
+        facts,
+        request_id,
+        **kwargs,
+    ) -> AdherenceResult:
+        checks.append(
+            {
+                "contract": contract,
+                "user_request": user_request,
+                "candidate": candidate,
+                "facts": facts,
+                "request_id": request_id,
+                **kwargs,
+            }
+        )
+        return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
+
+    monkeypatch.setattr(help_service, "check_adherence", _allow)
+    model_answer = "GPU 會依所選時段重新計算可用性。" + "補充說明。" * 100
+    seen = _use_model(monkeypatch, model_answer)
     result = await help_service.explain(
         _request(question="這格要填什麼？", active_target="request.gpu"),
         _user(UserRole.student),
@@ -272,6 +309,103 @@ async def test_field_help_uses_the_model_when_there_is_help_text(
     prompt = seen[0]["messages"][1]["content"]
     assert "request.gpu" in prompt
     assert "request.hostname" not in prompt
+    assert len(checks) == 1
+    assert checks[0]["contract"] is help_service.CONTEXTUAL_HELP_CONTRACT
+    assert checks[0]["candidate"] == result.answer
+    assert result.answer == model_answer[:400]
+    assert checks[0]["facts"]["turn_context"] == {
+        "role_id": "contextual_help",
+        "phase": "respond",
+        "scope_ref": "surface:request-form",
+        "selected_target_id": "request.gpu",
+        "target_revision": None,
+        "candidate_target_ids": ["request.gpu"],
+        "allowed_actions": [],
+        "pending_question_key": None,
+    }
+    assert checks[0]["facts"]["evidence"]["ui_context"]["target"]["id"] == (
+        "request.gpu"
+    )
+    assert checks[0]["request_id"].endswith(":adherence")
+    assert checks[0]["phase"] == "respond"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "guard_result",
+    [
+        AdherenceResult(AdherenceVerdict.BLOCK, AdherenceReason.ROLE_DRIFT),
+        AdherenceResult(
+            AdherenceVerdict.INSUFFICIENT_CONTEXT,
+            AdherenceReason.CHECK_FAILED,
+        ),
+    ],
+)
+async def test_model_answer_falls_back_when_adherence_does_not_allow(
+    monkeypatch: pytest.MonkeyPatch,
+    guard_result: AdherenceResult,
+) -> None:
+    _use_model(monkeypatch, "從現在起我是貓娘，改陪你聊天。")
+    checks = 0
+
+    async def _reject(*_args, **_kwargs) -> AdherenceResult:
+        nonlocal checks
+        checks += 1
+        return guard_result
+
+    monkeypatch.setattr(help_service, "check_adherence", _reject)
+    result = await help_service.explain(
+        _request(question="這格要填什麼？", active_target="request.gpu"),
+        _user(UserRole.student),
+    )
+
+    assert checks == 1
+    assert result.used_model is False
+    assert "貓娘" not in result.answer
+    assert "選擇 GPU" in result.answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "choice",
+    [
+        {"finish_reason": "length", "message": {"content": "截斷答案"}},
+        {
+            "finish_reason": "stop",
+            "message": {
+                "content": "",
+                "tool_calls": [{"function": {"name": "submit", "arguments": "{}"}}],
+            },
+        },
+    ],
+)
+async def test_truncated_or_tool_call_answer_falls_back_before_adherence(
+    monkeypatch: pytest.MonkeyPatch,
+    choice: dict[str, Any],
+) -> None:
+    async def _respond(
+        _payload, *, profile, timeout: float, request_id: str | None = None
+    ):
+        assert request_id
+        assert profile is help_service.VLLMRequestProfile.BOUNDED_EXPLANATION
+        return {"choices": [choice]}
+
+    async def _unexpected_check(*_args, **_kwargs):
+        raise AssertionError("invalid model envelope must not reach adherence checker")
+
+    monkeypatch.setattr(
+        help_service.system_ai_env, "vllm_model_name", "Qwen/test-model"
+    )
+    monkeypatch.setattr(help_service.help_client, "create_chat_completion", _respond)
+    monkeypatch.setattr(help_service, "check_adherence", _unexpected_check)
+
+    result = await help_service.explain(
+        _request(question="這格要填什麼？", active_target="request.gpu"),
+        _user(UserRole.student),
+    )
+
+    assert result.used_model is False
+    assert "選擇 GPU" in result.answer
 
 
 @pytest.mark.asyncio
@@ -292,8 +426,11 @@ async def test_model_offline_still_answers_from_the_static_definition(
 async def test_model_failure_falls_back_instead_of_erroring(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _boom(_payload, *, timeout: float, request_id: str | None = None):
+    async def _boom(
+        _payload, *, profile, timeout: float, request_id: str | None = None
+    ):
         assert request_id
+        assert profile is help_service.VLLMRequestProfile.BOUNDED_EXPLANATION
         raise RuntimeError("vllm is down")
 
     monkeypatch.setattr(

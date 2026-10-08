@@ -47,6 +47,7 @@ from app.ai.role_contracts import (
 )
 from app.ai.system_config import system_ai_env
 from app.ai.utils import apply_thinking_control, strip_think_tags
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.navigation import client as navigation_client
 from app.models import User
 
@@ -510,6 +511,7 @@ async def resolve_navigation(
     try:
         response_data = await navigation_client.create_chat_completion(
             payload,
+            profile=VLLMRequestProfile.NAVIGATION_DECISION,
             timeout=_DEFAULT_TIMEOUT_SECONDS,
             request_id=request_id,
         )

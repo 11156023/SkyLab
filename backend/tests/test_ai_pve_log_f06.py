@@ -257,7 +257,8 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
         {"choices": [{"message": {"role": "assistant", "content": "完成"}}]},
     ]
 
-    async def fake_completion(_payload, *, timeout, request_id=None):
+    async def fake_completion(_payload, *, profile, timeout, request_id=None):
+        assert profile.value in {"complex_agent", "adherence_check"}
         del timeout
         assert request_id
         return responses.pop(0)
@@ -277,6 +278,7 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
             VLLM_CHAT_MAX_TOKENS=4096,
+            VLLM_ENABLE_THINKING=False,
         ),
     )
     monkeypatch.setattr(
