@@ -13,6 +13,50 @@ class PveHistoryValidationError(ValueError):
 
 _VALID_ROLES = frozenset({"system", "user", "assistant", "tool"})
 _MAX_HISTORY_MESSAGES = 40
+_MAX_HISTORY_CHARS = 64 * 1024
+_MAX_TOOL_RESULT_CHARS = 8 * 1024
+
+
+def _bounded_value(value: Any, budget: int) -> Any:
+    if len(json.dumps(value, ensure_ascii=False)) <= budget:
+        return value
+    if isinstance(value, str):
+        # JSON escaping can use six characters per input character.
+        return value[: max(0, budget // 6 - 8)] + "…"
+    if isinstance(value, (dict, list)):
+        result: Any = {} if isinstance(value, dict) else []
+        remaining = budget - 2
+        entries = value.items() if isinstance(value, dict) else enumerate(value)
+        for key, item in entries:
+            overhead = (
+                len(json.dumps(str(key), ensure_ascii=False)) + 4
+                if isinstance(value, dict)
+                else 2
+            )
+            if remaining - overhead < 32:
+                break
+            bounded = _bounded_value(item, remaining - overhead)
+            if isinstance(result, dict):
+                result[key] = bounded
+            else:
+                result.append(bounded)
+            remaining -= len(json.dumps(bounded, ensure_ascii=False)) + overhead
+        return result
+    return None
+
+
+def compact_tool_result(result: Any) -> Any:
+    """Bound read-tool evidence for the model, checker and resumable transcript."""
+    serialized = json.dumps(result, ensure_ascii=False, default=str)
+    if len(serialized) <= _MAX_TOOL_RESULT_CHARS:
+        return result
+    return {
+        "truncated": True,
+        "original_chars": len(serialized),
+        "partial_result": _bounded_value(
+            json.loads(serialized), _MAX_TOOL_RESULT_CHARS - 256
+        ),
+    }
 
 
 def _invalid(detail: str) -> PveHistoryValidationError:
@@ -141,7 +185,9 @@ def _validate_history(
             tool_call_id = tool_call_id.strip()
             tool_name = active_calls.get(tool_call_id)
             if tool_name is None:
-                raise _invalid(f"tool_call_id={tool_call_id} 沒有對應的 assistant tool-call")
+                raise _invalid(
+                    f"tool_call_id={tool_call_id} 沒有對應的 assistant tool-call"
+                )
 
             content_text = content if isinstance(content, str) else ""
             try:
@@ -162,6 +208,18 @@ def _validate_history(
                         raise _invalid("只有 ssh_exec 可以有 deferred result")
                 if "confirmation_token" in tool_content and tool_name != "ssh_exec":
                     raise _invalid("confirmation_token 只能附在 ssh_exec tool result")
+            if tool_name != "ssh_exec":
+                normalized_message["content"] = (
+                    json.dumps(
+                        compact_tool_result(
+                            tool_content if tool_content is not None else content_text
+                        ),
+                        ensure_ascii=False,
+                        default=str,
+                    )
+                    if len(content_text) > _MAX_TOOL_RESULT_CHARS
+                    else content_text
+                )
             active_calls.pop(tool_call_id)
 
         normalized.append(normalized_message)
@@ -169,6 +227,11 @@ def _validate_history(
     if active_calls:
         ids = ", ".join(active_calls)
         raise _invalid(f"tool-call 尚未收到完整 result：{ids}")
+    if (
+        len(json.dumps(normalized, ensure_ascii=False, default=str))
+        > _MAX_HISTORY_CHARS
+    ):
+        raise _invalid(f"history 最多只能包含 {_MAX_HISTORY_CHARS} 個字元")
     if not has_user_turn:
         raise _invalid("history 必須至少包含一個 user turn")
 
@@ -178,7 +241,9 @@ def _validate_history(
         and last_message.get("role") == "assistant"
         and not last_message.get("tool_calls")
     ):
-        raise _invalid("history 不能以已完成的 assistant 回覆結尾，請提供新的 user turn")
+        raise _invalid(
+            "history 不能以已完成的 assistant 回覆結尾，請提供新的 user turn"
+        )
     return normalized
 
 
@@ -226,4 +291,4 @@ def merge_pve_messages(
     return messages
 
 
-__all__ = ["PveHistoryValidationError", "merge_pve_messages"]
+__all__ = ["PveHistoryValidationError", "compact_tool_result", "merge_pve_messages"]

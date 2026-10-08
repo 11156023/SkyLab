@@ -184,7 +184,7 @@ def test_finalizer_rejects_a_malformed_step_without_dropping_it() -> None:
     )
 
     assert error is not None
-    assert "typed contract 無效" in error
+    assert "typed contract invalid" in error
 
 
 def test_typed_plan_semantic_errors_block_readiness_before_script_creation() -> None:
@@ -244,7 +244,7 @@ def test_typed_readiness_does_not_silently_compile_legacy_flat_steps() -> None:
 
     assert blockers[0]["status"] == "analysis_error"
     assert blockers[0]["reason_code"] == "check_plan_contract_invalid"
-    assert "flat legacy" in blockers[0]["detail"]
+    assert "舊版檢查步驟" in blockers[0]["detail"]
 
 
 def test_peer_contract_requires_distinct_node_and_whole_argv_token() -> None:

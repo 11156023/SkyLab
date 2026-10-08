@@ -37,8 +37,14 @@ async def test_proposal_canonicalizes_executor_and_peer_p_labels(
                     "detection_method": "由 P2 執行 ping 觀察 P1。",
                     "check_steps": [
                         {
-                            "argv": ["ping", "-c", "4", "{{peer.ip}}"],
-                            "timeout_seconds": 30,
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["ping", "-c", "4", "{{peer.ip}}"],
+                                "timeout_seconds": 30,
+                            },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -65,7 +71,7 @@ async def test_proposal_canonicalizes_executor_and_peer_p_labels(
     assert proposal is not None
     assert proposal[0]["target_node_key"] == "db"
     assert proposal[0]["peer_node_key"] == "web"
-    assert proposal[0]["check_steps"][0]["argv"][-1] == "{{peer.ip}}"
+    assert proposal[0]["check_steps"][0]["collector"]["argv"][-1] == "{{peer.ip}}"
 
 
 @pytest.mark.asyncio
@@ -83,12 +89,13 @@ async def test_uncatalogued_tool_with_complete_argv_still_forms_proposal(
                     "detection_method": "執行版本查詢。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "jq.version",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["jq", "--version"],
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -114,8 +121,8 @@ async def test_uncatalogued_tool_with_complete_argv_still_forms_proposal(
     assert len(calls) == 2
     assert "整理成提案" in reply
     assert proposal is not None
-    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
-    assert proposal[0]["check_steps"][0]["parameters"]["argv"] == [
+    assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
+    assert proposal[0]["check_steps"][0]["collector"]["argv"] == [
         "jq",
         "--version",
     ]
@@ -136,12 +143,13 @@ async def test_tool_loop_requests_drop_json_response_format(
                     "detection_method": "執行版本查詢。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["jq", "--version"],
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -207,12 +215,13 @@ async def test_partial_success_reply_summarizes_rejected_items(
                     "detection_method": "執行版本查詢。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["jq", "--version"],
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -278,12 +287,10 @@ async def test_partial_failure_note_skips_titles_staged_after_retry(
                     "detection_method": "檢查連接埠。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
-                                "argv": ["ss", "-lntp"],
-                                "success_criteria": "exit code 為 0",
-                            },
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {"type": "command", "argv": ["ss", "-lntp"]},
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -322,12 +329,14 @@ async def test_missing_success_criteria_no_longer_rejects_auto_proposal(
                     "detection_method": "查詢套件安裝狀態。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["dpkg", "-l", "jq"],
                                 "timeout_seconds": 30,
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -350,7 +359,7 @@ async def test_missing_success_criteria_no_longer_rejects_auto_proposal(
     assert result.proposal is not None
     assert len(result.proposal) == 1
     assert result.proposal[0]["detectable"] == "auto"
-    assert "success_criteria" not in result.proposal[0]["check_steps"][0]["parameters"]
+    assert "success_criteria" not in result.proposal[0]["check_steps"][0]["collector"]
     tool_outcomes = result.tool_calls or []
     rejected = [entry for entry in tool_outcomes if entry.get("status") == "rejected"]
     staged = [entry for entry in tool_outcomes if entry.get("status") == "staged"]
@@ -414,12 +423,16 @@ async def test_explicit_env_assignment_forms_proposal_when_model_claims_missing_
                     "detection_method": "讀取指定檔案並比對設定行。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["cat", "--", "/home/student/.env"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "輸出含 web_url=True",
+                            },
+                            "assertion": {
+                                "type": "text_contains",
+                                "expected": "web_url=True",
                             },
                         }
                     ],
@@ -454,7 +467,7 @@ async def test_explicit_env_assignment_forms_proposal_when_model_claims_missing_
     assert "管理員" not in reply
     assert proposal is not None
     assert proposal[0]["operation"] == "add"
-    assert proposal[0]["check_steps"][0]["parameters"]["argv"] == [
+    assert proposal[0]["check_steps"][0]["collector"]["argv"] == [
         "cat",
         "--",
         "/home/student/.env",
@@ -562,13 +575,14 @@ async def test_new_item_proposal_does_not_load_current_rubric(
                     "detection_method": "讀取檔案並確認內容。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["cat", "/tmp/result.txt"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "stdout 包含 OK",
                             },
+                            "assertion": {"type": "text_contains", "expected": "OK"},
                         }
                     ],
                 },
@@ -616,12 +630,14 @@ async def test_existing_item_update_loads_current_rubric_tool(
                     "detection_method": "檢查指定 Port 8080。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["ss", "-ltn"],
                                 "timeout_seconds": 30,
                             },
+                            "assertion": {"type": "text_contains", "expected": ":8080"},
                         }
                     ],
                 },
@@ -692,13 +708,14 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["cat", "/tmp/result.txt"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -714,13 +731,14 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["cat", "/tmp/result.txt"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -753,13 +771,13 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
 
 
 @pytest.mark.asyncio
-async def test_boolean_detectable_and_flat_generic_argv_form_proposal(
+async def test_boolean_detectable_and_typed_command_form_proposal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls, fake_call_vllm = scripted_vllm(
         [
-            # Legacy-style tool arguments: boolean detectable and a flat
-            # check_step with argv directly on the step object.
+            # The outer detectable flag keeps legacy normalization, while
+            # executable steps use the single typed write contract.
             tool_call_message(
                 "create_checklist_item",
                 {
@@ -771,8 +789,12 @@ async def test_boolean_detectable_and_flat_generic_argv_form_proposal(
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "command_key": "system.run_command",
-                            "argv": ["python3", "--version"],
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["python3", "--version"],
+                            },
                         }
                     ],
                 },
@@ -794,8 +816,8 @@ async def test_boolean_detectable_and_flat_generic_argv_form_proposal(
     assert len(calls) == 2
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
-    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
-    assert proposal[0]["check_steps"][0]["parameters"]["argv"] == [
+    assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
+    assert proposal[0]["check_steps"][0]["collector"]["argv"] == [
         "python3",
         "--version",
     ]

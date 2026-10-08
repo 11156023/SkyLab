@@ -624,6 +624,19 @@ export function resolveDetectabilityNeedsReview({
   return (hasActualChange || lastSavedNeedsReview) && reviewItemIds.size > 0;
 }
 
+/** 只恢復最新一輪、仍符合目前來源版本且未被忽略的提案。 */
+export function recoverSessionProposal(messages, sourceFileId, analysisRevision) {
+  const latest = [...messages].reverse().find((message) => (
+    message.role === "user" || message.role === "assistant"
+  ));
+  const metadata = latest?.metadata_json;
+  if (!latest?.id || latest?.role !== "assistant" || metadata?.proposal_dismissed
+    || metadata?.source_file_id !== sourceFileId
+    || metadata?.analysis_revision !== analysisRevision
+    || !Array.isArray(metadata?.rubric_proposal) || !metadata.rubric_proposal.length) return null;
+  return { ...metadata, messageId: latest.id };
+}
+
 /**
  * 將 AI 回傳的完整項目清單轉成可逐項確認的差異；未出現在回應中的
  * 既有項目保留，只有 AI 明確標示 delete/remove 才會刪除。
@@ -1080,13 +1093,14 @@ export function proposalToolCallLines(message) {
   const lines = [];
   toolCalls.forEach((call) => {
     if (!call || typeof call !== "object") return;
+    if (call.resolved) return;
     if (call.status === "staged") {
       const label =
         call.operation === "update"
           ? jt("toolProposalUpdated")
           : jt("toolProposalCreated");
       lines.push({ icon: "check_circle", text: jt("labelValue", { label, value: call.title ?? "" }) });
-    } else if (call.status === "rejected") {
+    } else if (call.status === "rejected" || call.status === "error") {
       lines.push({
         icon: "cancel",
         text: jt("toolProposalRejected", { title: call.title ?? "" }),
@@ -1661,7 +1675,13 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const [messages, setMessages] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState([]);
-  const [isChatting, setIsChatting] = useState(false);
+  const [isSendingMessage, setIsChatting] = useState(false);
+  const latestMessage = messages.at(-1);
+  const processingMessage = latestMessage?.role === "user" && latestMessage.metadata_json?.processing
+    ? latestMessage : null;
+  const isServerProcessing = Boolean(processingMessage
+    && processingMessage.metadata_json.processing_deadline * 1000 > Date.now());
+  const isChatting = isSendingMessage || isServerProcessing;
   const [isClearingMessages, setIsClearingMessages] = useState(false);
   const [isCreatingScript, setIsCreatingScript] = useState(false);
   const [scriptGenerationStatus, setScriptGenerationStatus] = useState(null);
@@ -1675,6 +1695,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const [pendingItemResults, setPendingItemResults] = useState(null);
   const [isItemwiseAnalysis, setIsItemwiseAnalysis] = useState(false);
   const analysisRevisionsRef = useRef(new Map());
+  const recoveredProposalIdRef = useRef(null);
   const lastSavedValuesRef = useRef(new Map());
   const lastSavedItemsRef = useRef(new Map());
   const lastSavedNeedsReviewRef = useRef(new Map());
@@ -1682,6 +1703,8 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const [pendingReviewIds, setPendingReviewIds] = useState(() => new Set());
   const autosaveRef = useRef(null);
   const classIdRef = useRef(classId);
+  const activeContextRef = useRef(null);
+  activeContextRef.current = `${classId}:${judgeSession?.id}:${judgeSession?.selected_file_id}`;
   const toastRef = useRef(toast);
   const selectedSource = useMemo(
     () => files.find((file) => file.id === sourceFileId) ?? null,
@@ -1705,18 +1728,36 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
 
   // 忽略後提案就不見了，要再請 AI 產生一次，先確認
   async function skipPendingProposal() {
+    const context = activeContextRef.current;
     const ok = await confirm({
       title: t("AiJudgePanel.ignoreProposalTitle"),
       message: t("AiJudgePanel.ignoreProposalMessage"),
       confirmText: t("AiJudgePanel.ignoreBtn"),
     });
-    if (ok) clearPendingProposal();
+    if (!ok || !mountedRef.current || context !== activeContextRef.current) return;
+    try {
+      const messageId = pendingProposalMeta?.messageId;
+      if (messageId) {
+        await AiJudgeService.dismissSessionProposal(classId, judgeSession.id, messageId);
+        if (!mountedRef.current || context !== activeContextRef.current) return;
+        setMessages((current) => current.map((message) => message.id === messageId
+          ? { ...message, metadata_json: { ...message.metadata_json, proposal_dismissed: true } }
+          : message));
+      }
+      clearPendingProposal();
+    } catch {
+      if (mountedRef.current && context === activeContextRef.current) {
+        toast.error(t("AiJudgePanel.ignoreProposalFailed"));
+      }
+    }
   }
 
   async function refreshSessionMessages({ silent = false, replace = false } = {}) {
     if (!judgeSession?.id) return false;
+    const context = activeContextRef.current;
     try {
       const rows = await AiJudgeService.listSessionMessages(classId, judgeSession.id);
+      if (!mountedRef.current || context !== activeContextRef.current) return false;
       setMessages((current) => (replace ? rows : mergeSessionMessages(current, rows)));
       return true;
     } catch (err) {
@@ -1724,6 +1765,13 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       return false;
     }
   }
+
+  useAutoRefresh(() => {
+    if (processingMessage && !isSendingMessage) {
+      return refreshSessionMessages({ silent: true, replace: true });
+    }
+    return undefined;
+  });
 
   useEffect(() => {
     if (!sourcesOpen) return undefined;
@@ -1801,6 +1849,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   useEffect(() => {
     let cancelled = false;
     setMessages([]);
+    recoveredProposalIdRef.current = null;
     setPendingAttachments([]);
     clearPendingProposal();
     if (!judgeSession?.id) return undefined;
@@ -1847,6 +1896,28 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
     pendingReviewIdsByFileRef.current.set(file.id, savedReviewIds);
     setPendingReviewIds(savedReviewIds);
   }, [files, filesLoaded, judgeSession?.selected_file_id, sourceFileId]);
+
+  useEffect(() => {
+    const revision = analysisRevisionsRef.current.get(sourceFileId);
+    if (pendingProposalMeta && (
+      pendingProposalMeta.baseRevision !== revision
+      || pendingProposalMeta.sourceFileId !== sourceFileId
+    )) clearPendingProposal();
+    if (!analysis || !sourceFileId || isSendingMessage || isCreatingScript || autosaveRef.current?.isPending()) return;
+    const restored = recoverSessionProposal(messages, sourceFileId, revision);
+    if (!restored || restored.messageId === recoveredProposalIdRef.current) return;
+    recoveredProposalIdRef.current = restored.messageId;
+    // A live response already supplied these values; preserve checkbox choices.
+    if (pendingProposalMeta?.messageId === restored.messageId) return;
+    const proposal = buildProposalDiff(analysis.items ?? [], restored.rubric_proposal);
+    setPendingProposal(proposal.length ? proposal : null);
+    setPendingItemResults(restored.item_results ?? null);
+    setSelectedProposalIds(getSelectableProposalIds(proposal, restored.item_results));
+    setPendingProposalMeta(proposal.length ? {
+      messageId: restored.messageId, sourceFileId, baseRevision: revision,
+    } : null);
+    setPendingProposalIsRefine(Boolean(restored.is_refine));
+  }, [messages, analysis, sourceFileId, selectedSource?.analysis_revision, pendingProposalMeta, isSendingMessage, isCreatingScript]);
 
   /** 重算統計欄位後套用新的項目清單 */
   function applyItems(base, nextItems) {
@@ -1969,8 +2040,9 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
     }
   }
 
-  // 回傳 false 代表這則訊息沒有送出去，聊天輸入框會把內容還給老師，不會無聲消失
+  // 未取得成功回覆時保留輸入草稿；後端是否已收到須以同步後的訊息紀錄確認。
   async function handleSendMessage(content, isRefine = false, attachments = []) {
+    const context = activeContextRef.current;
     if (!judgeSession?.id) return false;
     if (!analysis) {
       toast.error(t("AiJudgePanel.rubricStillLoading"));
@@ -1978,6 +2050,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
     }
     // 自動儲存失敗時 autosave 已經用 toast 說明原因
     if (autosaveRef.current && !(await autosaveRef.current.flush())) return false;
+    if (!mountedRef.current || context !== activeContextRef.current) return false;
     const requestMessages = [...messages, { role: "user", content, attachments }];
     const newMessages = isRefine ? messages : requestMessages;
     setMessages(newMessages);
@@ -1992,6 +2065,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         analysisRevisionsRef.current.get(sourceFileId),
         { isRefine, attachmentIds: attachments.map((item) => item.id) },
       );
+      if (!mountedRef.current || context !== activeContextRef.current) return true;
       setMessages((current) => {
         const baseMessages = isRefine ? current : current.slice(0, -1);
         return mergeSessionMessages(
@@ -2005,7 +2079,11 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       setPendingItemResults(Array.isArray(itemResults) && itemResults.length ? itemResults : null);
       setPendingProposal(proposal.length ? proposal : null);
       setSelectedProposalIds(getSelectableProposalIds(proposal, itemResults));
-      setPendingProposalMeta(proposal.length ? { baseRevision: response.base_revision ?? analysisRevisionsRef.current.get(sourceFileId) } : null);
+      setPendingProposalMeta(proposal.length ? {
+        messageId: response.assistant_message?.id,
+        sourceFileId,
+        baseRevision: response.base_revision ?? analysisRevisionsRef.current.get(sourceFileId),
+      } : null);
       setPendingProposalIsRefine(Boolean(proposal.length && isRefine));
       if (isRefine && !Array.isArray(response.rubric_proposal)) {
         toast.error(t("AiJudgePanel.refineIncomplete"));
@@ -2024,6 +2102,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       }
       return true;
     } catch (err) {
+      if (!mountedRef.current || context !== activeContextRef.current) return false;
       const message = err?.message ?? t("AiJudgePanel.chatFailed");
       const synced = await refreshSessionMessages({ silent: true, replace: true });
       if (!synced) {
@@ -2140,6 +2219,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   }
 
   async function handleSaveAndCreate() {
+    const context = activeContextRef.current;
     if (!judgeSession?.id || !sourceFileId || !analysis || isCreatingScript) return;
     setIsCreatingScript(true);
     /* 製作中 ScriptGenerationNotice 只看 status 顯示進度，不看 notice；
@@ -2153,6 +2233,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         });
         return;
       }
+      if (!mountedRef.current || context !== activeContextRef.current) return;
       const baseRevision = analysisRevisionsRef.current.get(sourceFileId);
       setScriptGenerationStatus("reviewing");
       const response = await AiJudgeService.sendSessionMessage(
@@ -2162,6 +2243,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         baseRevision,
         { isRefine: true },
       );
+      if (!mountedRef.current || context !== activeContextRef.current) return;
       const assistantMessage = response?.assistant_message;
       setMessages((current) => mergeSessionMessages(
         current,
@@ -2178,13 +2260,17 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       const itemResults = assistantMetadata.item_results;
       const selectableIds = getSelectableProposalIds(proposal, itemResults);
       const hasSelectable = selectableIds.size > 0;
-      setPendingItemResults(
-        hasSelectable && Array.isArray(itemResults) && itemResults.length ? itemResults : null,
-      );
-      setPendingProposal(hasSelectable ? proposal : null);
-      setSelectedProposalIds(selectableIds);
-      setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
-      setPendingProposalIsRefine(hasSelectable);
+      if (assistantMetadata.script_ready !== true) {
+        setPendingItemResults(
+          hasSelectable && Array.isArray(itemResults) && itemResults.length ? itemResults : null,
+        );
+        setPendingProposal(hasSelectable ? proposal : null);
+        setSelectedProposalIds(selectableIds);
+        setPendingProposalMeta(hasSelectable ? {
+          messageId: assistantMessage?.id, sourceFileId, baseRevision,
+        } : null);
+        setPendingProposalIsRefine(hasSelectable);
+      }
       if (assistantMetadata.script_ready === false) {
         const message = compactAssistantSummary(assistantMessage) || (assistantMetadata.status === "unsupported"
           ? t("AiJudgePanel.buildUnsupported")
@@ -2202,18 +2288,27 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         toast.error(message);
         return;
       }
-      // AI 核對通過但還建議修改項目時，一律停下來讓老師確認：畫面承諾「同意提案後才會正式保存」，
-      // 不能由按鈕自動套用。老師同意套用後再按一次「儲存並製作」。
-      if (hasSelectable) {
-        setScriptGenerationNotice(null);
-        toast.info(t("AiJudgePanel.buildNeedsApply", { count: selectableIds.size }));
-        return;
+      if (
+        (response.base_revision ?? baseRevision) !== baseRevision
+        || analysisRevisionsRef.current.get(sourceFileId) !== baseRevision
+      ) {
+        throw new Error(t("AiJudgePanel.rubricConflict"));
       }
+      if (selectableIds.size !== proposal.length) {
+        throw new Error(t("AiJudgePanel.buildReviewMalformed"));
+      }
+      // 「儲存並製作」包含套用本輪核對結果；保存同一份候選內容後，才以新版本製作腳本。
+      const { items: candidateItems } = applyProposalOperations(
+        analysis.items ?? [],
+        proposal,
+        selectableIds,
+      );
       const candidateAnalysis = {
-        ...applyItems(analysis, analysis.items ?? []),
+        ...applyItems(analysis, candidateItems),
         detectability_needs_review: false,
         pending_review_item_ids: [],
       };
+      setScriptGenerationStatus("saving");
       const saved = await applyAnalysis(candidateAnalysis, {
         persist: true,
         immediate: true,
@@ -2223,6 +2318,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       if (!saved) {
         throw new Error(t("AiJudgePanel.buildReviewNotSaved"));
       }
+      if (!mountedRef.current || context !== activeContextRef.current) return;
       pendingReviewIdsByFileRef.current.set(sourceFileId, new Set());
       setPendingReviewIds(new Set());
       clearPendingProposal();
@@ -2233,6 +2329,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         judgeSession.id,
         savedRevision,
       );
+      if (!mountedRef.current || context !== activeContextRef.current) return;
       if (artifact.status === "approved") {
         const message = t("AiJudgePanel.buildApproved", { count: artifact.children?.length ?? 0 });
         setScriptGenerationNotice({ status: "success", message });
@@ -2257,6 +2354,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         toast.error(warning);
       }
     } catch (err) {
+      if (!mountedRef.current || context !== activeContextRef.current) return;
       const message = err?.message ?? t("AiJudgePanel.buildFailed");
       const synced = await refreshSessionMessages({ silent: true, replace: true });
       const syncNotice = synced ? "" : t("AiJudgePanel.chatSyncUnknown");
@@ -2288,7 +2386,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         : null;
   const saveAndCreateHint = isCreatingScript ? null : busyReason ?? scriptCreationBlocker;
 
-  // 這些只存在畫面上（提案、附件、打到一半的訊息），或 AI 還在處理：切走就沒了
+  // 尚未處理的提案、附件、草稿與進行中的操作仍需要離頁提醒。
   const dirty = Boolean(pendingProposal)
     || pendingAttachments.length > 0
     || chatHasDraft
@@ -2302,6 +2400,10 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
 
   return (
     <div className={styles.tabBody}>
+      {processingMessage && !isSendingMessage && (
+        <p role="status">{t(isServerProcessing
+          ? "AiJudgePanel.chatStillProcessing" : "AiJudgePanel.chatOutcomeUnknown")}</p>
+      )}
       <ScriptGenerationNotice
         isCreatingScript={isCreatingScript}
         status={scriptGenerationStatus}
@@ -3486,6 +3588,11 @@ function MachineReviewDetail({
                     <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
                   </div>
                 </div>
+                {Array.isArray(item?.missing_check_ids) && item.missing_check_ids.length > 0 && (
+                  <p className={styles.mutedText}>
+                    {t("AiJudgePanel.checkpointIncomplete", { count: item.missing_check_ids.length })}
+                  </p>
+                )}
                 {itemChecks.length === 0 ? (
                   <p className={styles.mutedText}>
                     {item?.reason_code === "peer_unavailable"

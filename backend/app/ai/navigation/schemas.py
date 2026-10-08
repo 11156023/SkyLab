@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.ai.contextual_help.schemas import ElementState
+from app.ai.role_contracts import CandidateDecision
 from app.ai.utils import clean_prompt_text
 
 # navigate: 直接帶去某頁；suggest: 給候選；clarify: 反問；
@@ -22,6 +23,10 @@ MAX_HISTORY_MESSAGES = 12
 _PATH_RE = re.compile(r"/[A-Za-z0-9_\-./?=&%:+]*")
 
 
+class NavigationCandidateDecision(CandidateDecision):
+    """內部模型決策；與 public NavigationResolveResponse 分離。"""
+
+
 class NavigationMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(default="", max_length=2000)
@@ -34,7 +39,8 @@ class NavigationMessage(BaseModel):
 
 class NavigationResolveRequest(BaseModel):
     query: str = Field(..., min_length=2, max_length=2000)
-    # 同一次對話的前文，由前端保存並回傳（導覽沒有伺服器端會話表）。
+    # 同一次對話的前文由前端回傳；後端只採用 user 訊息，因為 client 送來的
+    # assistant 角色無法證明是先前已接受的 server response。
     history: list[NavigationMessage] = Field(
         default_factory=list, max_length=MAX_HISTORY_MESSAGES
     )

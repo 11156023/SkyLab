@@ -500,7 +500,7 @@ async def test_message_can_send_parsed_attachment_without_text(
 
 
 @pytest.mark.asyncio
-async def test_attachment_proposal_is_ephemeral_until_explicit_apply(
+async def test_attachment_proposal_is_recoverable_but_not_applied_automatically(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = make_session()
@@ -560,7 +560,8 @@ async def test_attachment_proposal_is_ephemeral_until_explicit_apply(
     assert result.base_revision == original_revision
     assert captured_chat_kwargs["analysis_revision"] == original_revision
     assert captured_chat_kwargs["rubric_available"] is True
-    assert "rubric_proposal" not in result.assistant_message.metadata_json
+    assert result.assistant_message.metadata_json["rubric_proposal"] == proposal
+    assert result.assistant_message.metadata_json["analysis_revision"] == original_revision
     assert "base_revision" not in result.assistant_message.metadata_json
     assert result.assistant_message.message_type == "chat"
     db.refresh(rubric_file)
@@ -658,6 +659,7 @@ async def test_attachment_message_runs_itemwise_analysis_and_records_results(
     )
 
     assert captured_kwargs["rubric_available"] is True
+    assert captured_kwargs["teacher_message"] == "幫我增加這些項目"
     assert captured_kwargs["analysis_revision"] == rubric_file.analysis_revision
     assert result.rubric_proposal == [ready_operation]
     item_results = result.assistant_message.metadata_json["item_results"]
@@ -668,7 +670,7 @@ async def test_attachment_message_runs_itemwise_analysis_and_records_results(
     assert focus["analysis_revision"] == original_revision
     assert focus["requirements"][0]["target_item_id"] == "attachment-item-2"
     assert focus["requirements"][0]["missing_information"] == ["連接埠"]
-    assert "rubric_proposal" not in result.assistant_message.metadata_json
+    assert result.assistant_message.metadata_json["rubric_proposal"] == [ready_operation]
     assert result.assistant_message.message_type == "chat"
     db.refresh(rubric_file)
     assert rubric_file.analysis_revision == original_revision

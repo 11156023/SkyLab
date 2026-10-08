@@ -120,5 +120,5 @@ def test_help_prompt_fences_the_question_and_states_it_is_data() -> None:
 
 
 def test_navigation_prompt_states_user_content_is_data() -> None:
-    prompt = build_navigation_system_prompt([], [], None)
+    prompt = build_navigation_system_prompt([])
     assert "untrusted data" in prompt

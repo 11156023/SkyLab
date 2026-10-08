@@ -11,19 +11,30 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
+from app.ai.adherence_check import check_adherence
 from app.ai.monitoring import (
     new_ai_request_id,
     record_ai_template_call,
     usage_metrics,
 )
-from app.ai.template_recommendation import options_service
-from app.ai.template_recommendation.config import settings
-from app.ai.template_recommendation.prompt import (
-    build_chat_runtime_context,
-    build_chat_system_prompt,
-    build_intake_focus_block,
+from app.ai.role_contracts import (
+    AdherenceReason,
+    AdherenceResult,
+    AdherenceVerdict,
 )
+from app.ai.template_recommendation import options_service
+from app.ai.template_recommendation.chat_service import (
+    build_chat_adherence_facts,
+    build_chat_payload,
+    chat_form_snapshot,
+    latest_user_request,
+    template_adherence_facts,
+)
+from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.recommendation_service import (
+    TEMPLATE_ADHERENCE_FALLBACK,
+    TEMPLATE_CHAT_CONTRACT,
+    TEMPLATE_RECOMMENDATION_CONTRACT,
     ensure_recommendation_form_context_within_limits,
     generate_ai_plan,
     infer_intent_from_chat,
@@ -35,13 +46,13 @@ from app.ai.template_recommendation.schemas import (
     RecommendationRequest,
 )
 from app.ai.utils import (
-    apply_thinking_control,
     ensure_conversation_within_limits,
     strip_think_tags,
 )
 from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_user
 from app.core.i18n import t
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.template_recommendation import client
 from app.services.llm_gateway import ai_gateway_service
 
@@ -56,6 +67,59 @@ router = APIRouter(
 _MODEL_CALL_RATE_LIMIT = Depends(
     rate_limit_by_user(scope="ai-template", limit=30, window_seconds=60)
 )
+
+
+def _raise_guard_failure(result: AdherenceResult, *, request_id: str) -> None:
+    """Expose checker availability/context failures instead of pretending scope refusal."""
+
+    if result.reason_code is AdherenceReason.CHECK_FAILED:
+        raise HTTPException(
+            status_code=503,
+            detail=t("aiTemplateRecommendation.guardUnavailable"),
+            headers={"X-AI-Request-ID": request_id},
+        )
+    if result.verdict is AdherenceVerdict.INSUFFICIENT_CONTEXT:
+        raise HTTPException(
+            status_code=422,
+            detail=t("aiTemplateRecommendation.guardInsufficientContext"),
+            headers={"X-AI-Request-ID": request_id},
+        )
+
+
+async def _record_adherence_call(
+    *,
+    session: Session,
+    user_id: Any,
+    call_type: str,
+    model_name: str,
+    request_id: str,
+    result: AdherenceResult,
+) -> None:
+    if not result.allowed:
+        logger.warning(
+            "Template AI adherence rejected: request_id=%s call_type=%s verdict=%s reason=%s",
+            request_id,
+            call_type,
+            result.verdict.value,
+            result.reason_code.value,
+        )
+    await _record_template_call(
+        session=session,
+        user_id=user_id,
+        call_type=call_type,
+        model_name=model_name,
+        metrics={
+            "request_id": request_id,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.total_tokens,
+            "elapsed_seconds": result.elapsed_seconds,
+            "usage_reported": result.usage_reported,
+            "response_model": result.response_model,
+        },
+        status="success" if result.allowed else "error",
+        error_message=None if result.allowed else result.reason_code.value,
+    )
 
 
 async def _record_template_call(**kwargs: Any) -> None:
@@ -121,68 +185,25 @@ async def chat(
             detail=t("aiTemplateRecommendation.modelBindingMissing"),
         )
 
-    is_first_turn = len(request.messages) <= 1
-    form_context = request.form_context
     # 同步的 PVE／DB 呼叫一律丟到 worker thread：async 路由直接呼叫會在 PVE 慢或
     # 連線池耗盡時凍住整個 event loop（VNC／終端機／教室 WS 一起卡住）。
     # session 同一時間只交給一個 thread 依序使用，是安全的。
     gpu_options = await asyncio.to_thread(
         options_service.resolve_chat_gpu_options, request, session
     )
-    runtime_context = (
-        build_chat_runtime_context(
-            resource_type=(form_context.resource_type if form_context else None),
-            gpu_options=gpu_options,
-            form_context=(
-                form_context.model_dump(
-                    mode="json",
-                    exclude={
-                        "gpu_options",
-                        "lxc_os_options",
-                        "vm_os_options",
-                        "resource_options_from_client",
-                    },
-                )
-                if form_context
-                else None
-            ),
-        )
-        if gpu_options or form_context
-        else ""
-    )
-    system_prompt = build_chat_system_prompt(
-        is_first_turn=is_first_turn,
-        runtime_context=runtime_context,
-    )
-    # 配置模式：把這一輪的主題固定住，問句仍由顧問語氣產生
-    if request.focus_hint:
-        system_prompt = (
-            f"{system_prompt}\n\n{build_intake_focus_block(request.focus_hint.strip())}"
-        )
-
-    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    for msg in request.messages:
-        messages.append({"role": msg.role, "content": msg.content})
-
-    payload = apply_thinking_control(
-        {
-            "model": model_name,
-            "messages": messages,
-            "max_tokens": settings.VLLM_CHAT_MAX_TOKENS,
-            "temperature": settings.VLLM_CHAT_TEMPERATURE,
-            "top_p": settings.VLLM_TOP_P,
-            "top_k": settings.VLLM_TOP_K,
-            "min_p": settings.VLLM_MIN_P,
-            "repetition_penalty": settings.VLLM_REPETITION_PENALTY,
-        },
-        settings.VLLM_ENABLE_THINKING,
+    payload = build_chat_payload(
+        request, gpu_options=gpu_options, model_name=model_name
     )
 
     request_id = new_ai_request_id()
     started_at = perf_counter()
     started_at_utc = datetime.now(timezone.utc)
     try:
-        data = await client.create_chat_completion(payload, request_id=request_id)
+        data = await client.create_chat_completion(
+            payload,
+            profile=VLLMRequestProfile.CONFIGURED_TEXT,
+            request_id=request_id,
+        )
         metrics = usage_metrics(
             data,
             perf_counter() - started_at,
@@ -200,9 +221,33 @@ async def chat(
             status="success",
         )
 
+        guard_request_id = f"{request_id}:adherence"
+        guard_result = await check_adherence(
+            client,
+            TEMPLATE_CHAT_CONTRACT,
+            latest_user_request(request),
+            content,
+            build_chat_adherence_facts(request, gpu_options=gpu_options),
+            guard_request_id,
+            model_name=model_name,
+            phase="respond",
+        )
+        await _record_adherence_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="chat_adherence",
+            model_name=model_name,
+            request_id=guard_request_id,
+            result=guard_result,
+        )
+        _raise_guard_failure(guard_result, request_id=request_id)
+        if not guard_result.allowed:
+            content = TEMPLATE_ADHERENCE_FALLBACK
+
         elapsed_seconds = float(metrics["elapsed_seconds"])
         completion_tokens = int(metrics["completion_tokens"])
         return ChatResponse(
+            request_id=request_id,
             reply=content,
             prompt_tokens=int(metrics["prompt_tokens"]),
             completion_tokens=completion_tokens,
@@ -320,7 +365,72 @@ async def recommend(
             status="success",
         )
 
+        guard_request_id = f"{request_id}:adherence"
+        guard_result = await check_adherence(
+            client,
+            TEMPLATE_RECOMMENDATION_CONTRACT,
+            latest_user_request(request),
+            {
+                "summary": result.get("summary"),
+                "rule_basis": result.get("rule_basis"),
+                "recommended_path": result.get("recommended_path"),
+                "final_plan": result.get("final_plan"),
+            },
+            template_adherence_facts(
+                phase="propose",
+                scope_ref="template_recommendation:recommend",
+                allowed_actions=("propose_form_prefill",),
+                evidence={
+                    "conversation_history": [
+                        {"role": str(item.role), "content": str(item.content)}
+                        for item in request.messages[-12:]
+                    ],
+                    "goal": merged_request.goal,
+                    "form_context": chat_form_snapshot(request),
+                    "requires_gpu": merged_request.requires_gpu,
+                    "needs_windows": merged_request.needs_windows,
+                    "application_templates": resource_options.get(
+                        "application_templates", []
+                    )[:20],
+                    "available_lxc_images": [
+                        item.get("value")
+                        for item in resource_options.get("lxc_os_images", [])[:20]
+                    ],
+                    "available_vm_template_ids": [
+                        item.get("template_id")
+                        for item in resource_options.get("vm_operating_systems", [])[
+                            :20
+                        ]
+                    ],
+                    "available_gpu_mapping_ids": [
+                        item.get("mapping_id")
+                        for item in resource_options.get("gpu_options", [])[:20]
+                    ],
+                },
+            ),
+            guard_request_id,
+            model_name=model_name,
+            phase="propose",
+        )
+        await _record_adherence_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="recommend_adherence",
+            model_name=model_name,
+            request_id=guard_request_id,
+            result=guard_result,
+        )
+        _raise_guard_failure(guard_result, request_id=request_id)
+        if not guard_result.allowed:
+            raise HTTPException(
+                status_code=422,
+                detail=TEMPLATE_ADHERENCE_FALLBACK,
+                headers={"X-AI-Request-ID": request_id},
+            )
+
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         await _record_failed_template_call(
             session,
@@ -343,11 +453,9 @@ def get_my_template_usage(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     tz: str | None = Query(default=None, max_length=64),
-):
+) -> dict[str, Any]:
     """查看當前使用者的 Template 呼叫統計（最近 30 天）"""
-    start_date, end_date = ai_gateway_service.default_usage_window(
-        start_date, end_date
-    )
+    start_date, end_date = ai_gateway_service.default_usage_window(start_date, end_date)
     return ai_gateway_service.get_user_template_usage_stats(
         session=session,
         user_id=current_user.id,

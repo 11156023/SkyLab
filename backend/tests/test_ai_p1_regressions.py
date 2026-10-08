@@ -12,7 +12,6 @@ import pytest
 from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.ai.navigation.service import _extract_first_json_object
 from app.ai.pve_log import collector
 from app.ai.system_config import system_ai_env
 from app.ai.teacher_judge import script_executor_service as executor
@@ -34,13 +33,6 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
 )
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
-
-
-@pytest.mark.parametrize("value", ["a } brace", "a { brace", 'escaped \\" quote { }'])
-def test_navigation_json_handles_braces_inside_strings(value):
-    expected = {"intent": value, "action": "clarify"}
-    text = "```json\n" + json.dumps(expected) + "\n```"
-    assert json.loads(_extract_first_json_object(text)) == expected
 
 
 def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information():
@@ -398,10 +390,10 @@ async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_teacher_judge_parses_fenced_json_tool_call_and_hides_it_from_reply(
+async def test_teacher_judge_rejects_fenced_json_tool_call_without_executing_it(
     monkeypatch,
 ):
-    """Qwen-style ```json tool calls in content must execute and never leak."""
+    """普通 content 內的工具格式不得升格成可執行提案。"""
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
     fenced_call = (
         "```json\n"
@@ -435,10 +427,7 @@ async def test_teacher_judge_parses_fenced_json_tool_call_and_hides_it_from_repl
         + "\n```"
     )
     calls, fake_call = _scripted_vllm(
-        [
-            {"role": "assistant", "content": fenced_call},
-            _reply_message("已將 main.py 輸出 20 放入提案。", "ready"),
-        ],
+        [{"role": "assistant", "content": fenced_call}],
     )
 
     async def capture_call(payload, timeout=60.0):
@@ -470,18 +459,11 @@ async def test_teacher_judge_parses_fenced_json_tool_call_and_hides_it_from_repl
         rubric_available=True,
     )
 
-    assert proposal is not None
-    assert proposal[0]["operation"] == "add"
-    assert proposal[0]["title"] == "main.py 輸出 20"
+    assert proposal is None
     assert "```" not in reply
     assert "create_checklist_item" not in reply
-    assert "main.py 輸出 20" in reply
-    assistant_history = [
-        message
-        for message in calls[-1]["messages"]
-        if message.get("role") == "assistant"
-    ]
-    assert assistant_history and "```" not in str(assistant_history[-1]["content"])
+    assert "main.py 輸出 20" not in reply
+    assert calls
 
 
 @pytest.mark.asyncio

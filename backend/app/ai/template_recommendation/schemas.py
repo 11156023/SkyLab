@@ -79,6 +79,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    request_id: str | None = None
     reply: str = Field(..., description="AI text reply.")
     prompt_tokens: int = Field(default=0)
     completion_tokens: int = Field(default=0)
@@ -152,14 +153,20 @@ class RecommendationFormContext(BaseModel):
     immediate_no_end: bool | None = None
     selected_gpu_mapping_id: ShortText | None = None
     gpu_options: list[GPUOptionContext] = Field(default_factory=list, max_length=64)
-    schedule_options: list[ScheduleOptionContext] = Field(default_factory=list, max_length=12)
-    lxc_os_options: list[LXCOSOptionContext] = Field(default_factory=list, max_length=100)
+    schedule_options: list[ScheduleOptionContext] = Field(
+        default_factory=list, max_length=12
+    )
+    lxc_os_options: list[LXCOSOptionContext] = Field(
+        default_factory=list, max_length=100
+    )
     vm_os_options: list[VMOSOptionContext] = Field(default_factory=list, max_length=100)
     resource_options_from_client: bool = False
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage] = Field(..., min_length=1, description="List of previous chat messages.")
+    messages: list[ChatMessage] = Field(
+        ..., min_length=1, description="List of previous chat messages."
+    )
     top_k: int = Field(default=5, ge=1, le=10)
     device_nodes: list[DeviceNode] = Field(default_factory=list, max_length=128)
     form_context: RecommendationFormContext | None = None
@@ -208,4 +215,3 @@ class RecommendationRequest(BaseModel):
             self.resource_baseline = PRESET_RESOURCE_BASELINES[self.preset]
 
         return self
-

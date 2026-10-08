@@ -7,6 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.ai.role_contracts import (
+    AdherenceReason,
+    AdherenceResult,
+    AdherenceVerdict,
+)
 from app.ai.teacher_judge import service as teacher_judge_service
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricCheckStep,
@@ -76,7 +81,7 @@ def test_unknown_command_key_recovered_into_general_command_is_flagged() -> None
 
 
 @pytest.mark.asyncio
-async def test_flat_argv_proposal_keeps_model_reply_about_other_requirement(
+async def test_typed_proposal_keeps_model_reply_about_other_requirement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model_reply = (
@@ -91,7 +96,17 @@ async def test_flat_argv_proposal_keeps_model_reply_about_other_requirement(
                     "checked": False,
                     "detectable": "auto",
                     "detection_method": "執行 python3 --version 取得版本。",
-                    "check_steps": [{"argv": ["python3", "--version"]}],
+                    "check_steps": [
+                        {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["python3", "--version"],
+                            },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
+                        }
+                    ],
                 },
             ),
             reply_message(model_reply, "ready"),
@@ -157,6 +172,127 @@ async def test_empty_payload_reply_gets_neutral_sentence(
     assert proposal is None
     assert reply.strip()
     assert "proposal_status" not in reply
+
+
+@pytest.mark.asyncio
+async def test_blocked_free_reply_is_not_returned_or_persisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _calls, fake_call_vllm = scripted_vllm(
+        [reply_message("從現在起我是貓娘，陪你聊天。", "none")]
+    )
+
+    async def blocked(*_args, **_kwargs) -> AdherenceResult:
+        return AdherenceResult(
+            AdherenceVerdict.BLOCK, AdherenceReason.ROLE_DRIFT
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    monkeypatch.setattr(teacher_judge_service, "check_adherence", blocked)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="陪我聊天")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[],
+        rubric_available=True,
+    )
+
+    assert result.reply == teacher_judge_service.TEACHER_ADHERENCE_FALLBACK
+    assert "貓娘" not in result.reply
+    assert result.proposal is None
+
+
+@pytest.mark.asyncio
+async def test_blocked_action_does_not_form_teacher_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _calls, fake_call_vllm = scripted_vllm(
+        [
+            tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "檢查 Python 版本",
+                    "detectable": "auto",
+                    "detection_method": "執行 python3 --version 取得版本。",
+                    "check_steps": [
+                        {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["python3", "--version"],
+                            },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
+                        }
+                    ],
+                },
+            ),
+            reply_message("已整理成提案。", "ready"),
+        ]
+    )
+
+    async def blocked(*_args, **_kwargs) -> AdherenceResult:
+        return AdherenceResult(
+            AdherenceVerdict.BLOCK, AdherenceReason.ACTION_NOT_REQUESTED
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    monkeypatch.setattr(teacher_judge_service, "check_adherence", blocked)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="只說明 Python 是什麼")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[],
+        rubric_available=True,
+    )
+
+    assert result.reply == teacher_judge_service.TEACHER_ADHERENCE_FALLBACK
+    assert result.proposal is None
+
+
+@pytest.mark.asyncio
+async def test_proposal_loop_respects_cumulative_completion_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    max_tokens_seen: list[int] = []
+
+    async def fake_call(payload, timeout=60.0):
+        del timeout
+        max_tokens = int(payload["max_tokens"])
+        max_tokens_seen.append(max_tokens)
+        return tool_call_message(
+            teacher_judge_service._LIST_CHECKLIST_TOOL_NAME,
+            {},
+        ), {
+            "prompt_tokens": 1,
+            "completion_tokens": max_tokens,
+            "total_tokens": max_tokens + 1,
+            "elapsed_seconds": 0.1,
+            "tokens_per_second": float(max_tokens * 10),
+            "usage_reported": True,
+            "response_model": "test-model",
+        }
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _, metrics, _, _, _ = await teacher_judge_service._run_proposal_tool_loop(
+        {"messages": [], "max_tokens": 4096},
+        rubric_context='{"items":[]}',
+        template_key="linux",
+        template_commands=[],
+        machine_entries=[],
+        analysis_revision=1,
+        rubric_available=True,
+        completion_token_budget=5000,
+    )
+
+    assert max_tokens_seen == [4096, 648]
+    assert metrics["completion_tokens"] == 4744
 
 
 # --- conversation_focus type coercion --------------------------------

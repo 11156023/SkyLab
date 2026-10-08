@@ -27,8 +27,13 @@ class _FakeClient:
         self.calls = 0
 
     async def create_chat_completion(
-        self, payload: dict[str, Any], *, request_id: str | None = None
+        self,
+        payload: dict[str, Any],
+        *,
+        profile: Any,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
+        assert profile.value in {"structured_object", "adherence_check"}
         self.calls += 1
         return {"choices": [{"message": {"content": self.content}}], "usage": {}}
 
@@ -148,8 +153,13 @@ async def test_generate_ai_plan_lets_httpx_errors_reach_the_route(
 ) -> None:
     class _FailingClient:
         async def create_chat_completion(
-            self, payload: dict[str, Any], *, request_id: str | None = None
+            self,
+            payload: dict[str, Any],
+            *,
+            profile: Any,
+            request_id: str | None = None,
         ) -> dict[str, Any]:
+            assert profile.value == "structured_object"
             raise httpx.ConnectError("connect failed: http://litellm:4000/v1")
 
     monkeypatch.setattr(svc, "client", _FailingClient())
@@ -174,8 +184,13 @@ async def test_generate_ai_plan_metrics_fall_back_to_summed_total_tokens(
 ) -> None:
     class _UsageClient:
         async def create_chat_completion(
-            self, payload: dict[str, Any], *, request_id: str | None = None
+            self,
+            payload: dict[str, Any],
+            *,
+            profile: Any,
+            request_id: str | None = None,
         ) -> dict[str, Any]:
+            assert profile.value == "structured_object"
             return {
                 "choices": [{"message": {"content": "{}"}}],
                 "usage": {"prompt_tokens": 7, "completion_tokens": 5},

@@ -157,6 +157,14 @@ server {
         proxy_send_timeout 130s;
     }
 
+    # Teacher Judge 整輪分析 570s、瀏覽器等待 600s；僅此非串流路徑放寬代理。
+    location ~ ^/api/v1/teaching-classes/[^/]+/judge/sessions/[^/]+/messages$ {
+        client_max_body_size 256m;
+        proxy_pass http://backend_pool;
+        proxy_read_timeout 610s;
+        proxy_send_timeout 610s;
+    }
+
     location /api/ {
         client_max_body_size 256m;
         proxy_pass http://backend_pool;

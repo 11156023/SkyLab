@@ -12,8 +12,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from fastapi import HTTPException
-from sqlmodel import Session, desc, select
+from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
+from sqlmodel import Session, col, desc, select
 
+from app.ai.teacher_judge.check_plan_contract import analysis_write_issues
 from app.ai.teacher_judge.machine_context import (
     load_class_machine_nodes,
     peer_node_keys_from_snapshot,
@@ -237,10 +240,47 @@ def update_file_analysis(
                 "items": machine_contract_issues,
             },
         )
-    file.analysis_json = analysis_dump
-    file.analysis_revision = int(file.analysis_revision or 1) + 1
-    file.updated_at = _now()
-    session.add(file)
+    contract_issues = analysis_write_issues(analysis, file.analysis_json)
+    if contract_issues:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_check_plan_contract_invalid",
+                "message": "新增或修改的檢查步驟必須符合 typed Collector／Assertion 契約。",
+                "issues": contract_issues,
+            },
+        )
+    # The database comparison is essential: two requests can both have loaded
+    # the same revision before either request reaches this write.
+    current_revision = file.analysis_revision
+    result = session.execute(
+        update(TeacherJudgeFile)
+        .where(
+            col(TeacherJudgeFile.id) == file_id,
+            col(TeacherJudgeFile.teaching_class_id) == teaching_class_id,
+            col(TeacherJudgeFile.status) == TeacherJudgeFileStatus.active,
+            col(TeacherJudgeFile.analysis_revision) == current_revision,
+        )
+        .values(
+            analysis_json=analysis_dump,
+            analysis_revision=current_revision + 1,
+            updated_at=_now(),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if cast(CursorResult[Any], result).rowcount != 1:
+        session.rollback()
+        file = get_file(session=session, teaching_class_id=teaching_class_id, file_id=file_id)
+        if file.status != TeacherJudgeFileStatus.active:
+            raise HTTPException(status_code=409, detail=t("file.replaced_choose_active"))
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_analysis_revision_conflict",
+                "message": t("file.revision_conflict"),
+                "analysis_revision": file.analysis_revision,
+            },
+        )
     session.commit()
     session.refresh(file)
     return _file_to_public(file)

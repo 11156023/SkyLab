@@ -21,6 +21,7 @@ from typing import Any
 
 from sqlmodel import Session
 
+from app.ai.adherence_check import check_adherence
 from app.ai.contextual_help.guide import (
     match_dialog,
     related_targets,
@@ -56,8 +57,10 @@ from app.ai.monitoring import (
     usage_metrics,
 )
 from app.ai.navigation.catalog import get_routes_for_user, resolve_user_role
+from app.ai.role_contracts import OutputMode, RoleContract, TurnContext
 from app.ai.system_config import system_ai_env
-from app.ai.utils import strip_think_tags
+from app.ai.utils import apply_thinking_control, strip_think_tags
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.contextual_help import client as help_client
 from app.models import User
 
@@ -71,6 +74,98 @@ _TEMPERATURE = 0.2
 _MAX_ANSWER_CHARS = 400
 # 整頁導覽引用了哪些定義，依輸出順序
 _GUIDE_PARTS = ("purpose", "when_to_use", "features", "dialogs", "related")
+CONTEXTUAL_HELP_CONTRACT = RoleContract(
+    role_id="contextual_help",
+    output_mode=OutputMode.MODEL_FREE_TEXT,
+    contract_version="contextual-help-v1",
+    fallback_key="contextual_help.static_definition",
+)
+_ADHERENCE_ALLOWED_BEHAVIOR = (
+    "Explain only supplied UI context; refuse unrelated requests. Do not claim "
+    "navigation, submission, workflow execution, or unverified screen positions."
+)
+
+
+def build_help_payload(
+    intent: HelpIntent,
+    context: dict[str, Any],
+    question: str,
+    *,
+    model_name: str,
+) -> dict[str, Any]:
+    """建立 production 與 live probe 共用的 Contextual Help 請求。"""
+
+    return apply_thinking_control(
+        {
+            "model": model_name,
+            "messages": build_messages(intent, context, question.strip()),
+            "max_tokens": _MAX_TOKENS,
+            "temperature": _TEMPERATURE,
+            "top_p": 0.9,
+            "stream": False,
+        },
+        enable_thinking=False,
+    )
+
+
+def build_help_adherence_facts(
+    *,
+    surface_id: str,
+    intent: HelpIntent,
+    context: dict[str, Any],
+    grounded_in: list[str],
+    context_level: int,
+    context_version: int,
+    phase: str = "respond",
+) -> dict[str, Any]:
+    """以後端已驗證的畫面與目標建立單輪 adherence evidence。"""
+
+    candidate_target_ids: list[str] = []
+    target = context.get("target")
+    if isinstance(target, dict) and isinstance(target.get("id"), str):
+        candidate_target_ids.append(target["id"])
+    blocked = context.get("blocked")
+    if isinstance(blocked, list):
+        for item in blocked:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                continue
+            if item["id"] not in candidate_target_ids:
+                candidate_target_ids.append(item["id"])
+
+    turn_context = TurnContext(
+        role_id=CONTEXTUAL_HELP_CONTRACT.role_id,
+        phase=phase,
+        scope_ref=f"surface:{surface_id}",
+        selected_target_id=candidate_target_ids[0] if candidate_target_ids else None,
+        candidate_target_ids=tuple(candidate_target_ids),
+    )
+    return {
+        "turn_context": turn_context.as_facts(),
+        "evidence": {
+            "intent": intent,
+            "ui_context": context,
+            "grounded_in": grounded_in,
+            "context_level": context_level,
+            "context_version": context_version,
+            "allowed_behavior": _ADHERENCE_ALLOWED_BEHAVIOR,
+        },
+    }
+
+
+def _parse_model_answer(response_data: dict[str, Any]) -> str:
+    choices = response_data.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise ValueError("contextual help response must contain exactly one choice")
+    choice = choices[0]
+    if not isinstance(choice, dict) or choice.get("finish_reason") == "length":
+        raise ValueError("contextual help response was truncated")
+    message = choice.get("message")
+    if not isinstance(message, dict) or message.get("tool_calls"):
+        raise ValueError("contextual help response must not contain tool calls")
+    answer = strip_think_tags(str(message.get("content") or "")).strip()
+    if not answer:
+        raise ValueError("empty answer from contextual help model")
+    return answer
 
 
 # ------------------------------------------------------------ 確定性答案
@@ -269,20 +364,23 @@ async def explain(
         model_name=model_name,
     )
 
-    payload = {
-        "model": model_name,
-        "messages": build_messages(intent, context, request.question.strip()),
-        "max_tokens": _MAX_TOKENS,
-        "temperature": _TEMPERATURE,
-        "top_p": 0.9,
-    }
+    payload = build_help_payload(
+        intent,
+        context,
+        request.question,
+        model_name=model_name,
+    )
 
     request_id = new_ai_request_id()
     started = perf_counter()
     started_at = datetime.now(timezone.utc)
+    response_data: dict[str, Any] = {}
     try:
         response_data = await help_client.create_chat_completion(
-            payload, timeout=_TIMEOUT_SECONDS, request_id=request_id
+            payload,
+            profile=VLLMRequestProfile.BOUNDED_EXPLANATION,
+            timeout=_TIMEOUT_SECONDS,
+            request_id=request_id,
         )
         metrics = usage_metrics(
             response_data,
@@ -290,16 +388,56 @@ async def explain(
             request_id=request_id,
             started_at=started_at,
         )
-        content = str(response_data["choices"][0]["message"]["content"] or "")
-        answer = strip_think_tags(content).strip()
-        if not answer:
-            _log(metrics=metrics, status="error", error_message="Empty answer from model.")
+        # adherence 必須檢查實際會顯示的字串，而不是截斷前的另一個版本。
+        answer = _parse_model_answer(response_data)[:_MAX_ANSWER_CHARS]
+        _log(metrics=metrics)
+
+        guard_request_id = f"{request_id}:adherence"
+        guard_result = await check_adherence(
+            help_client,
+            CONTEXTUAL_HELP_CONTRACT,
+            request.question.strip(),
+            answer,
+            build_help_adherence_facts(
+                surface_id=surface.id,
+                intent=intent,
+                context=context,
+                grounded_in=grounded,
+                context_level=level,
+                context_version=request.context_version,
+            ),
+            guard_request_id,
+            model_name=model_name,
+            phase="respond",
+        )
+        record_ai_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="contextual_help_adherence",
+            model_name=model_name,
+            metrics={
+                "request_id": guard_request_id,
+                "prompt_tokens": guard_result.prompt_tokens,
+                "completion_tokens": guard_result.completion_tokens,
+                "total_tokens": guard_result.total_tokens,
+                "elapsed_seconds": guard_result.elapsed_seconds,
+                "usage_reported": guard_result.usage_reported,
+                "response_model": guard_result.response_model,
+            },
+            status="success" if guard_result.allowed else "error",
+            error_message=None if guard_result.allowed else guard_result.reason_code.value,
+        )
+        if not guard_result.allowed:
+            logger.warning(
+                "Contextual help answer blocked by adherence check: request_id=%s reason=%s",
+                request_id,
+                guard_result.reason_code.value,
+            )
             answer = _fallback_answer(
                 surface, intent, active_target=active_target, blocked=blocked
             )
             used_model = False
         else:
-            _log(metrics=metrics)
             used_model = True
         return ExplainResponse(
             intent=intent,
@@ -315,7 +453,7 @@ async def explain(
         logger.exception("Contextual help failed, using deterministic answer: %s", exc)
         _log(
             metrics=usage_metrics(
-                {},
+                response_data,
                 perf_counter() - started,
                 request_id=request_id,
                 started_at=started_at,

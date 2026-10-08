@@ -11,6 +11,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.ai.teacher_judge import service as teacher_judge_service
+from app.ai.teacher_judge.check_plan_contract import analysis_write_issues
+from app.ai.teacher_judge.schemas import TeacherJudgeRubricAnalysis
 from app.ai.teacher_judge.template_command_service import (
     GENERAL_COMMAND,
 )
@@ -42,8 +44,13 @@ def _itemwise_ready_tool_call(
         "argv": ["python3", "--version"],
         "timeout_seconds": 30,
     }
+    step = {
+        "id": "version",
+        "title": "取得版本",
+        "collector": {"type": "command", **parameters},
+    }
     if judgement_mode != "teacher":
-        parameters["success_criteria"] = "stdout 包含 Python 3"
+        step["assertion"] = {"type": "text_contains", "expected": "Python 3"}
     return tool_call_message(
         "create_checklist_item",
         {
@@ -52,13 +59,7 @@ def _itemwise_ready_tool_call(
             "detectable": "auto",
             "judgement_mode": judgement_mode,
             "detection_method": "執行唯讀指令並收集輸出。",
-            "check_steps": [
-                {
-                    "template_key": "linux",
-                    "command_key": "system.run_command",
-                    "parameters": parameters,
-                }
-            ],
+            "check_steps": [step],
         },
     )
 
@@ -329,6 +330,7 @@ async def test_attachment_itemwise_keeps_duplicate_titles_as_separate_items(
     duplicate_ids = [operation["id"] for operation in result.proposal]
     assert len(duplicate_ids) == 2
     assert len(set(duplicate_ids)) == 2
+    assert analysis_write_issues(TeacherJudgeRubricAnalysis(items=result.proposal), {"items": []}) == []
 
 
 @pytest.mark.asyncio

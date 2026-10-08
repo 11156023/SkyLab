@@ -31,16 +31,15 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
 
       - name: Install dependencies
-        # bun.lock is generated on Windows and may only lock win32 platform
-        # binaries for nested native deps. Removing all lockfiles (including
-        # package-lock.json that bun would otherwise migrate from) forces a
-        # clean resolution on this Linux runner.
-        run: |
-          rm -f ../bun.lock bun.lock ../package-lock.json package-lock.json
-          bun install
+        # Use the workspace-root lockfile so CI cannot resolve a newly
+        # published transitive version during a registry propagation window.
+        # Bun selects ../bun.lock when invoked from this workspace directory;
+        # it still installs the platform-specific optional packages needed on
+        # the Linux runner.
+        run: bun install --frozen-lockfile
 
       - name: Run vitest
         run: bunx vitest run
