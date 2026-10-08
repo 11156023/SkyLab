@@ -1080,13 +1080,14 @@ export function proposalToolCallLines(message) {
   const lines = [];
   toolCalls.forEach((call) => {
     if (!call || typeof call !== "object") return;
+    if (call.resolved) return;
     if (call.status === "staged") {
       const label =
         call.operation === "update"
           ? jt("toolProposalUpdated")
           : jt("toolProposalCreated");
       lines.push({ icon: "check_circle", text: jt("labelValue", { label, value: call.title ?? "" }) });
-    } else if (call.status === "rejected") {
+    } else if (call.status === "rejected" || call.status === "error") {
       lines.push({
         icon: "cancel",
         text: jt("toolProposalRejected", { title: call.title ?? "" }),
@@ -2162,6 +2163,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         baseRevision,
         { isRefine: true },
       );
+      if (!mountedRef.current) return;
       const assistantMessage = response?.assistant_message;
       setMessages((current) => mergeSessionMessages(
         current,
@@ -2178,13 +2180,15 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       const itemResults = assistantMetadata.item_results;
       const selectableIds = getSelectableProposalIds(proposal, itemResults);
       const hasSelectable = selectableIds.size > 0;
-      setPendingItemResults(
-        hasSelectable && Array.isArray(itemResults) && itemResults.length ? itemResults : null,
-      );
-      setPendingProposal(hasSelectable ? proposal : null);
-      setSelectedProposalIds(selectableIds);
-      setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
-      setPendingProposalIsRefine(hasSelectable);
+      if (assistantMetadata.script_ready !== true) {
+        setPendingItemResults(
+          hasSelectable && Array.isArray(itemResults) && itemResults.length ? itemResults : null,
+        );
+        setPendingProposal(hasSelectable ? proposal : null);
+        setSelectedProposalIds(selectableIds);
+        setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
+        setPendingProposalIsRefine(hasSelectable);
+      }
       if (assistantMetadata.script_ready === false) {
         const message = compactAssistantSummary(assistantMessage) || (assistantMetadata.status === "unsupported"
           ? t("AiJudgePanel.buildUnsupported")
@@ -2202,18 +2206,27 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         toast.error(message);
         return;
       }
-      // AI 核對通過但還建議修改項目時，一律停下來讓老師確認：畫面承諾「同意提案後才會正式保存」，
-      // 不能由按鈕自動套用。老師同意套用後再按一次「儲存並製作」。
-      if (hasSelectable) {
-        setScriptGenerationNotice(null);
-        toast.info(t("AiJudgePanel.buildNeedsApply", { count: selectableIds.size }));
-        return;
+      if (
+        (response.base_revision ?? baseRevision) !== baseRevision
+        || analysisRevisionsRef.current.get(sourceFileId) !== baseRevision
+      ) {
+        throw new Error(t("AiJudgePanel.rubricConflict"));
       }
+      if (selectableIds.size !== proposal.length) {
+        throw new Error(t("AiJudgePanel.buildReviewMalformed"));
+      }
+      // 「儲存並製作」包含套用本輪核對結果；保存同一份候選內容後，才以新版本製作腳本。
+      const { items: candidateItems } = applyProposalOperations(
+        analysis.items ?? [],
+        proposal,
+        selectableIds,
+      );
       const candidateAnalysis = {
-        ...applyItems(analysis, analysis.items ?? []),
+        ...applyItems(analysis, candidateItems),
         detectability_needs_review: false,
         pending_review_item_ids: [],
       };
+      setScriptGenerationStatus("saving");
       const saved = await applyAnalysis(candidateAnalysis, {
         persist: true,
         immediate: true,
@@ -2223,6 +2236,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       if (!saved) {
         throw new Error(t("AiJudgePanel.buildReviewNotSaved"));
       }
+      if (!mountedRef.current) return;
       pendingReviewIdsByFileRef.current.set(sourceFileId, new Set());
       setPendingReviewIds(new Set());
       clearPendingProposal();

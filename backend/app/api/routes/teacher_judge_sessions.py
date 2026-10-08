@@ -255,11 +255,31 @@ def _save_script_set_failure(
 ) -> None:
     """Persist a bounded script-set failure for Chat/history projection."""
     detail_dict = detail if isinstance(detail, dict) else {}
+    if detail_dict.get("code") == "teacher_judge_check_plan_invalid":
+        detail_dict = {
+            **detail_dict,
+            "items": [
+                {
+                    "item_id": issue.get("item_id"),
+                    "title": " / ".join(
+                        str(issue[key]) for key in ("item_id", "step_id") if issue.get(key)
+                    ) or "檢查計畫",
+                    "status": "analysis_error",
+                    "missing_information": [],
+                    "reason_code": "check_plan_contract_invalid",
+                    "detail": issue.get("message"),
+                }
+                for issue in detail_dict.get("issues", [])
+                if isinstance(issue, dict)
+            ],
+        }
     if isinstance(detail_dict.get("items"), list):
         outcome = script_blocker_workflow_message(
             detail_dict["items"],
             source_file_id=source_file_id,
             analysis_revision=analysis_revision,
+            stage=stage,
+            reason_code=str(detail_dict.get("code") or "teacher_judge_script_not_ready"),
         )
     else:
         reason_code = detail_dict.get("code")
@@ -783,6 +803,7 @@ async def create_message(
                 template_commands=template_commands,
                 reply=reply,
                 analysis_revision=base_revision,
+                tool_calls=tool_calls,
             )
             reply = workflow["content"]
         assistant = TeacherJudgeSessionMessage(

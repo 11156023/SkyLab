@@ -58,7 +58,9 @@ def test_missing_python_working_directory_blocks_script_generation() -> None:
     blockers = get_script_generation_blockers(analysis, [_command()])
 
     assert blockers[0]["status"] == "missing_info"
-    assert blockers[0]["missing_information"] == ["main.py 所在的工作目錄"]
+    assert blockers[0]["missing_information"] == [
+        "程式／檔案「main.py」的完整路徑，或所在工作目錄與相對路徑"
+    ]
 
 
 def test_empty_rubric_blocks_script_generation() -> None:

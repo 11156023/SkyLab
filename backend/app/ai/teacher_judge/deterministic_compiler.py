@@ -14,6 +14,12 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from app.ai.teacher_judge.execution_paths import (
+    CWD_LOCATION_GAP,
+    absolute_execution_path,
+    optional_cwd,
+    resolved_file_path,
+)
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricAnalysis
 from app.ai.teacher_judge.script_policy import (
     PEER_IP_TOKEN,
@@ -24,7 +30,7 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
-DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v2"
+DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v3"
 _ASSERTION_TYPES_BY_COLLECTOR = {
     "command": {"returncode_equals", "text_equals", "text_contains", "number_compare", "json_path_equals"},
     "file_text": {"text_equals", "text_contains", "number_compare", "json_path_equals"},
@@ -502,6 +508,168 @@ def _script_path_is_unsafe(operand: str, extensions: tuple[str, ...], cwd: str |
         or re.match(r"^[a-z]:/(?:windows|program files[^/]*|programdata)/", normalized)
         is not None
     )
+
+
+def _file_command_operands(command: str, args: list[str]) -> list[str]:
+    """Separate filenames from common read-command options and expressions.
+
+    This is a location check, not a command authorization parser. The command
+    policy below remains responsible for rejecting unsafe/unsupported options.
+    """
+    value_options = {
+        "head": ("nc", {"--lines", "--bytes"}),
+        "tail": ("nc", {"--lines", "--bytes"}),
+        "stat": ("c", {"--format", "--printf"}),
+        "file": ("FmePf", {"--separator", "--magic-file", "--exclude", "--parameter", "--files-from"}),
+        "wc": ("", set()),
+        "ls": ("Iw", {"--ignore", "--width", "--block-size", "--format", "--sort", "--time", "--time-style", "--color"}),
+        "du": ("d", {"--max-depth", "--block-size", "--exclude"}),
+        "grep": ("efmABC", {"--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--include", "--exclude"}),
+        "sed": ("e", {"--expression"}),
+        "jq": ("Lf", {"--indent", "--from-file"}),
+        "awk": ("vFf", {"--assign", "--field-separator", "--file"}),
+        "yq": ("Iop", {"--indent", "--output-format", "--input-format"}),
+        "xmllint": ("", {"--xpath", "--schema", "--dtdvalid", "--encoding"}),
+        "cut": ("bcdf", {"--bytes", "--characters", "--delimiter", "--fields", "--output-delimiter"}),
+        "sort": ("ktST", {"--key", "--field-separator", "--buffer-size", "--temporary-directory", "--parallel"}),
+        "uniq": ("fsw", {"--skip-fields", "--skip-chars", "--check-chars"}),
+        "diff": ("UC", {"--unified", "--context", "--label", "--exclude"}),
+        "cmp": ("in", {"--ignore-initial", "--bytes"}),
+        "base64": ("w", {"--wrap"}),
+    }
+    command = {"egrep": "grep", "fgrep": "grep"}.get(command, command)
+    short_values, long_values = value_options.get(command, ("", set()))
+    positionals: list[str] = []
+    file_values: list[str] = []
+    has_expression = False
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        index += 1
+        if arg == "--":
+            positionals.extend(args[index:])
+            break
+        option, _, inline = arg.partition("=")
+        value = None
+        if command == "jq" and option in {"--arg", "--argjson", "--slurpfile", "--rawfile"}:
+            if option in {"--slurpfile", "--rawfile"} and index + 1 < len(args):
+                file_values.append(args[index + 1])
+            index += 2
+            continue
+        if option in long_values:
+            if "=" in arg:
+                value = inline
+            elif option != "--color" and index < len(args):
+                value = args[index]
+                index += 1
+        elif arg.startswith("-") and not arg.startswith("--"):
+            for offset, letter in enumerate(arg[1:], 2):
+                if letter in short_values:
+                    option = f"-{letter}"
+                    value = arg[offset:]
+                    if not value and index < len(args):
+                        value = args[index]
+                        index += 1
+                    break
+        elif not arg.startswith("-") or arg == "-":
+            positionals.append(arg)
+        if command in {"grep", "sed"} and option in {"-e", "--regexp", "--expression", "-f", "--file"}:
+            has_expression = True
+        if command == "grep" and option in {"-f", "--file"} and value:
+            file_values.append(value)
+        if command == "jq" and option in {"-f", "--from-file"}:
+            has_expression = True
+            if value:
+                file_values.append(value)
+        if command == "awk" and option in {"-f", "--file"}:
+            has_expression = True
+            if value:
+                file_values.append(value)
+        if command == "file" and option in {"-f", "--files-from", "-m", "--magic-file"} and value:
+            file_values.append(value)
+    if command == "yq" and positionals[:1] in (["eval"], ["eval-all"], ["e"], ["ea"]):
+        positionals = positionals[1:]
+    if command in {"grep", "sed", "jq", "awk", "yq"} and not has_expression:
+        positionals = positionals[1:]
+    if command == "awk":
+        positionals = [arg for arg in positionals if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg)]
+    if command in {"ls", "du"} and not positionals:
+        positionals = ["."]
+    return file_values + positionals
+
+
+def missing_execution_location(collector: dict[str, Any]) -> list[str]:
+    """Shared proposal/preflight/compiler gate for unresolved execution paths.
+
+    No remote filesystem I/O is performed: existence is checked at execution.
+    A command may omit cwd only when its inputs can be located independently.
+    """
+    collector_type = collector.get("type")
+    if collector_type not in {"command", "file_text", "file_stat"}:
+        return []
+    cwd = optional_cwd(collector.get("cwd"))
+    if cwd is not None and not absolute_execution_path(cwd):
+        return [CWD_LOCATION_GAP]
+    if collector_type in {"file_text", "file_stat"}:
+        path = collector.get("path")
+        located = (
+            isinstance(path, str) and bool(path.strip())
+            and not path.startswith(("~", "$"))
+            and (absolute_execution_path(path) or absolute_execution_path(cwd))
+        )
+        return [] if located else [
+            f"檔案「{path or '未指定'}」的完整路徑（或提供工作目錄與相對路徑）"
+        ]
+    argv = collector.get("argv")
+    if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
+        return []
+    command = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    args = argv[1:]
+    paths: list[str] = []
+    if "/" in argv[0] or "\\" in argv[0]:
+        paths.append(argv[0])
+    if command in _INTERPRETER_SHORT_RULES:
+        denied, value_letters = _INTERPRETER_SHORT_RULES[command]
+        operand, _denied = _interpreter_operand(command, args)
+        if _cluster_has(args, denied, value_letters):
+            operand = None
+        if operand:
+            paths.append(operand)
+    elif command == "go" and args[:1] == ["run"]:
+        paths.extend(arg for arg in args[1:] if arg.endswith(".go"))
+    elif command == "find":
+        # Only the leading roots are paths; -name patterns and predicates are not.
+        roots = []
+        for arg in args:
+            if arg in {"-H", "-L", "-P"} and not roots:
+                continue
+            if arg.startswith("-") or arg in {"(", "!"}:
+                break
+            roots.append(arg)
+        paths.extend(roots or ["."])
+    elif command == "test":
+        paths.extend(
+            args[index + 1] for index, arg in enumerate(args[:-1])
+            if arg in {"-e", "-f", "-d", "-r", "-s", "-L", "-h", "-x", "-w"}
+        )
+    elif command in {
+        "cat", "head", "tail", "stat", "file", "wc", "ls", "du", "readlink", "realpath",
+        "md5sum", "sha1sum", "sha256sum", "sha512sum", "cksum", "diff", "cmp",
+        "grep", "egrep", "fgrep", "sed", "jq", "awk", "yq", "xmllint",
+        "cut", "sort", "uniq", "base64",
+    } and not any(arg in {"--version", "--help"} for arg in args):
+        paths.extend(_file_command_operands(command, args))
+    unresolved = [
+        path for path in paths
+        if path != "-" and (
+            path.startswith(("~", "$"))
+            or (not absolute_execution_path(path) and not absolute_execution_path(cwd))
+        )
+    ]
+    return [
+        f"程式／檔案「{path}」的完整路徑，或所在工作目錄與相對路徑"
+        for path in dict.fromkeys(unresolved)
+    ]
 
 
 def _interpreter_issue(command: str, args: list[str], cwd: str | None = None) -> str | None:
@@ -1003,9 +1171,8 @@ def canonicalize_check_plan(
 ) -> dict[str, Any]:
     """Validate and serialize a complete typed plan.
 
-    Flat legacy steps are intentionally rejected here. They remain readable by
-    Chat and old Artifact readers, but a new Save/Create must be finalized into
-    this typed contract before a script can be written.
+    Flat legacy steps remain readable by Chat and old Artifact readers, but
+    every new proposal and script uses this typed contract.
     """
 
     issues: list[dict[str, Any]] = []
@@ -1038,15 +1205,18 @@ def canonicalize_check_plan(
 
         steps: list[dict[str, Any]] = []
         seen_step_ids = seen_step_ids_by_node.setdefault(node_key, set())
-        for step in item.check_steps:
+        for step_index, step in enumerate(item.check_steps):
             step_id = str(step.id or "").strip()
             if step.collector is None:
                 issues.append(
-                    _issue(
-                        item_id,
-                        "check step 仍是 flat legacy shape，需由 Finalizer 轉成 collector",
-                        step_id=step_id or None,
-                    )
+                    {
+                        **_issue(
+                            item_id,
+                            "舊版檢查步驟尚未轉成 typed Collector／Assertion，需重新核對轉換",
+                            step_id=step_id or None,
+                        ),
+                        "step_index": step_index,
+                    }
                 )
                 continue
             if not step_id:
@@ -1057,6 +1227,8 @@ def canonicalize_check_plan(
                 continue
             seen_step_ids.add(step_id)
             collector = step.collector.model_dump(mode="json")
+            for gap in missing_execution_location(collector):
+                issues.append(_issue(item_id, gap, step_id=step_id))
             assertion = step.assertion.model_dump(mode="json") if step.assertion else None
             collector_type = str(collector.get("type") or "")
             if collector_type == "command":
@@ -1184,7 +1356,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
     elif collector_type == "file_text":
         lines.extend(
             [
-                f"        path = Path({_json_literal(collector['path'])})",
+                f"        path = Path({_json_literal(resolved_file_path(collector))})",
                 "        with path.open('rb') as handle:",
                 "            if handle.seekable():",
                 "                handle.seek(0, 2)",
@@ -1202,7 +1374,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
     elif collector_type == "file_stat":
         lines.extend(
             [
-                f"        path = Path({_json_literal(collector['path'])})",
+                f"        path = Path({_json_literal(resolved_file_path(collector))})",
                 "        exists = path.exists()",
                 "        collected = {'ok': True, 'value': exists, 'raw': {'exists': exists}}",
             ]
@@ -1374,13 +1546,14 @@ def _render_script(plan: dict[str, Any]) -> str:
 
 
 # Plan fields whose values shape the generated code or are policy-relevant
-# (URLs for the localhost check, argv); every other string is inert data.
+# (URLs for the localhost check). Command argv is already validated per step;
+# scanning it again as script-wide text can join unrelated commands into a
+# false deny match (e.g. find in one step and a -delete filename in another).
 _POLICY_VIEW_KEPT_KEYS = frozenset(
     {
         "type",
         "method",
         "url",
-        "argv",
         "read_mode",
         "normalize",
         "operator",
@@ -1395,10 +1568,15 @@ def _policy_view_plan(value: Any) -> Any:
     """Return the plan with inert data strings replaced by a neutral placeholder."""
 
     if isinstance(value, dict):
-        return {
-            key: item if key in _POLICY_VIEW_KEPT_KEYS else _policy_view_plan(item)
-            for key, item in value.items()
-        }
+        result = {}
+        for key, item in value.items():
+            if key in _POLICY_VIEW_KEPT_KEYS:
+                result[key] = item
+            elif key in {"path", "cwd"} and isinstance(item, str):
+                result[key] = "/policy-placeholder"
+            else:
+                result[key] = _policy_view_plan(item)
+        return result
     if isinstance(value, list):
         return [_policy_view_plan(item) for item in value]
     if isinstance(value, str):
@@ -1417,7 +1595,7 @@ def compile_check_plan(
     script_content = _render_script(plan)
     # 靜態契約只審編譯器產生的程式碼；標題、id、預期文字等資料字面值換成
     # 中性佔位字，免得「Git reset 練習」這類標題被 deny pattern 誤擋。
-    # argv 已由 _command_argv_issue 逐步驗過，URL 保留給網路檢查。
+    # argv 已由 _command_argv_issue 逐步驗過，也以中性資料取代；URL 保留給網路檢查。
     policy_view = _render_script(_policy_view_plan(plan))
     policy = dict(check_script_policy(policy_view))
     quality = dict(check_script_quality(policy_view))

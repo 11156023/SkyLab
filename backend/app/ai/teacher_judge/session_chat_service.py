@@ -141,6 +141,7 @@ def refine_readiness_workflow(
     template_commands: list[TeacherJudgeTemplateCommand],
     reply: str,
     analysis_revision: int | None,
+    tool_calls: list[dict[str, Any]] | None = None,
 ) -> WorkflowMessage:
     """refine 回合：以「套用提案後」的伺服器端檢查表判斷能否進入腳本製作。
 
@@ -155,6 +156,25 @@ def refine_readiness_workflow(
         require_target_node=bool(readiness_nodes),
         require_typed_plan=True,
     )
+    failed_tools = {
+        str(outcome.get("item_id") or outcome.get("title") or outcome.get("tool")): outcome
+        for outcome in (tool_calls or [])
+        if outcome.get("status") == "error" and not outcome.get("resolved")
+    }
+    for outcome in failed_tools.values():
+        blockers.append({
+            "item_id": outcome.get("item_id"),
+            "title": str(outcome.get("title") or "檢查項目"),
+            "status": "analysis_error",
+            "missing_information": [],
+            "reason_code": str(outcome.get("reason_code") or "tool_arguments_invalid"),
+            "detail": "本次修改未通過驗證，修正已停止；請調整檢查方式後重新提交",
+            "issues": [
+                {"step_id": issue.get("step_id"), "step_index": issue.get("step_index"),
+                 "detail": str(issue.get("message") or "檢查步驟驗證失敗")}
+                for issue in outcome.get("issues", []) if isinstance(issue, dict)
+            ][:16],
+        })
     if blockers:
         logger.warning(
             "Teacher Judge script readiness blocked: session=%s source_file=%s "
