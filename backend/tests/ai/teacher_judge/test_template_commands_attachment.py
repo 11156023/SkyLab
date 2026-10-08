@@ -42,8 +42,13 @@ def _itemwise_ready_tool_call(
         "argv": ["python3", "--version"],
         "timeout_seconds": 30,
     }
+    step = {
+        "id": "version",
+        "title": "取得版本",
+        "collector": {"type": "command", **parameters},
+    }
     if judgement_mode != "teacher":
-        parameters["success_criteria"] = "stdout 包含 Python 3"
+        step["assertion"] = {"type": "text_contains", "expected": "Python 3"}
     return tool_call_message(
         "create_checklist_item",
         {
@@ -52,13 +57,7 @@ def _itemwise_ready_tool_call(
             "detectable": "auto",
             "judgement_mode": judgement_mode,
             "detection_method": "執行唯讀指令並收集輸出。",
-            "check_steps": [
-                {
-                    "template_key": "linux",
-                    "command_key": "system.run_command",
-                    "parameters": parameters,
-                }
-            ],
+            "check_steps": [step],
         },
     )
 

@@ -307,7 +307,7 @@ def test_compiler_rejects_legacy_or_inconsistent_steps() -> None:
             )
         ]
     )
-    with pytest.raises(CheckPlanContractError, match="flat legacy"):
+    with pytest.raises(CheckPlanContractError, match="舊版檢查步驟"):
         canonicalize_check_plan(legacy, target_node_key="web")
 
     with pytest.raises(CheckPlanContractError, match="必須提供 assertion"):

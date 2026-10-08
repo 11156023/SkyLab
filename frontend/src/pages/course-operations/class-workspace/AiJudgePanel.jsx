@@ -1080,13 +1080,14 @@ export function proposalToolCallLines(message) {
   const lines = [];
   toolCalls.forEach((call) => {
     if (!call || typeof call !== "object") return;
+    if (call.resolved) return;
     if (call.status === "staged") {
       const label =
         call.operation === "update"
           ? jt("toolProposalUpdated")
           : jt("toolProposalCreated");
       lines.push({ icon: "check_circle", text: jt("labelValue", { label, value: call.title ?? "" }) });
-    } else if (call.status === "rejected") {
+    } else if (call.status === "rejected" || call.status === "error") {
       lines.push({
         icon: "cancel",
         text: jt("toolProposalRejected", { title: call.title ?? "" }),

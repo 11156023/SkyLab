@@ -803,6 +803,7 @@ async def create_message(
                 template_commands=template_commands,
                 reply=reply,
                 analysis_revision=base_revision,
+                tool_calls=tool_calls,
             )
             reply = workflow["content"]
         assistant = TeacherJudgeSessionMessage(

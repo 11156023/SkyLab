@@ -33,13 +33,14 @@ def _analysis(summary: str = "rubric") -> TeacherJudgeRubricAnalysis:
                 detection_method="檢查 listening sockets",
                 check_steps=[
                     {
-                        "template_key": "linux",
-                        "command_key": "system.run_command",
-                        "parameters": {
+                        "id": "sockets",
+                        "title": "Listening sockets",
+                        "collector": {
+                            "type": "command",
                             "argv": ["ss", "-lnt"],
                             "timeout_seconds": 10,
-                            "success_criteria": "命令成功並取得 listening sockets",
                         },
+                        "assertion": {"type": "returncode_equals", "expected": 0},
                     }
                 ],
             )
@@ -162,8 +163,14 @@ def test_analysis_update_accepts_multiple_class_machine_nodes(
                 target_node_key="web",
                 check_steps=[
                     {
-                        "argv": ["systemctl", "is-active", "nginx"],
-                        "timeout_seconds": 30,
+                        "id": "nginx",
+                        "title": "Nginx status",
+                        "collector": {
+                            "type": "command",
+                            "argv": ["systemctl", "is-active", "nginx"],
+                            "timeout_seconds": 30,
+                        },
+                        "assertion": {"type": "text_contains", "expected": "active"},
                     }
                 ],
             ),
@@ -175,8 +182,14 @@ def test_analysis_update_accepts_multiple_class_machine_nodes(
                 target_node_key="db",
                 check_steps=[
                     {
-                        "argv": ["systemctl", "is-active", "postgresql"],
-                        "timeout_seconds": 30,
+                        "id": "postgresql",
+                        "title": "PostgreSQL status",
+                        "collector": {
+                            "type": "command",
+                            "argv": ["systemctl", "is-active", "postgresql"],
+                            "timeout_seconds": 30,
+                        },
+                        "assertion": {"type": "text_contains", "expected": "active"},
                     }
                 ],
             ),

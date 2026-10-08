@@ -1168,9 +1168,8 @@ def canonicalize_check_plan(
 ) -> dict[str, Any]:
     """Validate and serialize a complete typed plan.
 
-    Flat legacy steps are intentionally rejected here. They remain readable by
-    Chat and old Artifact readers, but a new Save/Create must be finalized into
-    this typed contract before a script can be written.
+    Flat legacy steps remain readable by Chat and old Artifact readers, but
+    every new proposal and script uses this typed contract.
     """
 
     issues: list[dict[str, Any]] = []
@@ -1203,15 +1202,18 @@ def canonicalize_check_plan(
 
         steps: list[dict[str, Any]] = []
         seen_step_ids = seen_step_ids_by_node.setdefault(node_key, set())
-        for step in item.check_steps:
+        for step_index, step in enumerate(item.check_steps):
             step_id = str(step.id or "").strip()
             if step.collector is None:
                 issues.append(
-                    _issue(
-                        item_id,
-                        "check step 仍是 flat legacy shape，需由 Finalizer 轉成 collector",
-                        step_id=step_id or None,
-                    )
+                    {
+                        **_issue(
+                            item_id,
+                            "舊版檢查步驟尚未轉成 typed Collector／Assertion，需重新核對轉換",
+                            step_id=step_id or None,
+                        ),
+                        "step_index": step_index,
+                    }
                 )
                 continue
             if not step_id:

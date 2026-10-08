@@ -230,6 +230,20 @@ def _workflow_item_result(row: Any) -> dict[str, Any] | None:
         result["known_information"] = known_information
     if detail:
         result["detail"] = detail
+    if row.get("step_id"):
+        result["step_id"] = _workflow_text(row["step_id"], 120)
+    if isinstance(row.get("step_index"), int):
+        result["step_index"] = row["step_index"]
+    if isinstance(row.get("issues"), list):
+        result["issues"] = [
+            {
+                "step_id": _workflow_text(issue.get("step_id"), 120),
+                "step_index": issue.get("step_index"),
+                "detail": _workflow_issue_text(issue.get("detail")),
+            }
+            for issue in row["issues"][:16]
+            if isinstance(issue, dict)
+        ]
     # ProposalPanel uses the operation to match a row back to a staged item.
     # Keep only the normalized item identity and operation, never arbitrary model
     # payloads or raw attachment text in the compact workflow projection.
@@ -340,6 +354,13 @@ _WORKFLOW_RESOLVED_REPLY_MARKERS = (
     "狀態良好",
     "已通過",
     "ready",
+    "請稍候",
+    "请稍候",
+    "稍後重新提交",
+    "稍后重新提交",
+    "我會嘗試",
+    "我会尝试",
+    "背景重試",
 )
 
 
@@ -418,9 +439,43 @@ def reanalysis_workflow_message(
     assistant_reply: str | None = None,
 ) -> WorkflowMessage:
     """Build the single safe projection used by refine Chat and page notices."""
-    blocker_rows = normalize_workflow_item_results(
+    raw_blocker_rows = normalize_workflow_item_results(
         [dict(blocker) for blocker in (blockers or [])]
     )
+    grouped: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(raw_blocker_rows):
+        key = row.get("item_id") or f"blocker-{index}"
+        issue = {
+            "step_id": row.get("step_id"),
+            "step_index": row.get("step_index"),
+            "detail": row.get("detail", ""),
+        }
+        if key not in grouped:
+            grouped[key] = {**row, "issues": [*row.get("issues", []), issue]}
+            continue
+        existing = grouped[key]
+        if issue not in existing["issues"]:
+            existing["issues"].append(issue)
+        for nested in row.get("issues", []):
+            if nested not in existing["issues"]:
+                existing["issues"].append(nested)
+        existing["missing_information"] = list(
+            dict.fromkeys(
+                [
+                    *existing["missing_information"],
+                    *row["missing_information"],
+                ]
+            )
+        )
+        details = list(
+            dict.fromkeys(
+                issue["detail"] for issue in existing["issues"] if issue["detail"]
+            )
+        )
+        existing["detail"] = "；".join(details)[:WORKFLOW_TEXT_LIMIT]
+        if row["status"] == "analysis_error":
+            existing["status"] = "analysis_error"
+    blocker_rows = list(grouped.values())
     proposal_rows: list[dict[str, Any]] = []
     for raw in (proposal or [])[:WORKFLOW_ITEM_LIMIT]:
         if not isinstance(raw, dict):
@@ -464,6 +519,8 @@ def reanalysis_workflow_message(
             rows_by_item_id[item_id].update(blocker)
         else:
             proposal_rows.append(blocker)
+            if item_id:
+                rows_by_item_id[item_id] = blocker
     workflow_rows = proposal_rows
     focus = conversation_focus_from_item_results(
         workflow_rows,

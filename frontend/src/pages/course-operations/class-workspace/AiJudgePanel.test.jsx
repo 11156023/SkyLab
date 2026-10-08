@@ -1258,6 +1258,18 @@ describe("proposalToolCallLines", () => {
     expect(proposalToolCallLines({ metadata_json: {} })).toEqual([]);
     expect(proposalToolCallLines(null)).toEqual([]);
   });
+
+  test("格式錯誤顯示實際失敗，已修正的舊錯誤不再顯示", () => {
+    expect(proposalToolCallLines({ metadata_json: { tool_calls: [
+      { status: "error", title: "Python 版本", resolved: true },
+      { status: "staged", operation: "update", title: "Python 版本" },
+      { status: "error", title: "套件檢查" },
+      { status: "error", title: "套件檢查" },
+    ] } })).toEqual([
+      { icon: "check_circle", text: "已送出修改提案：Python 版本" },
+      { icon: "cancel", text: "提案未建立：套件檢查" },
+    ]);
+  });
 });
 
 describe("uploaded rubric naming", () => {

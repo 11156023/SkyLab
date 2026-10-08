@@ -243,9 +243,13 @@ async def test_python_version_lookup_proposal_preserves_model_contract(
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "template_key": "python",
-                            "command_key": "python.version",
-                            "parameters": {},
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["python3", "--version"],
+                            },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -273,7 +277,7 @@ async def test_python_version_lookup_proposal_preserves_model_contract(
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
     assert proposal[0]["judgement_mode"] == "ai"
-    assert proposal[0]["check_steps"][0]["command_key"] == "python.version"
+    assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
 
 
 @pytest.mark.asyncio
@@ -292,9 +296,12 @@ async def test_python_version_requirement_forms_proposal_when_model_marks_it_man
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "template_key": "python",
-                            "command_key": "python.version",
-                            "parameters": {},
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["python3", "--version"],
+                            },
                         }
                     ],
                 },
@@ -326,14 +333,9 @@ async def test_python_version_requirement_forms_proposal_when_model_marks_it_man
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
     assert proposal[0]["judgement_mode"] == "teacher"
-    assert proposal[0]["check_steps"] == [
-        {
-            "template_key": "python",
-            "command_key": "python.version",
-            "command_label": "Python 版本",
-            "parameters": {},
-        }
-    ]
+    step = proposal[0]["check_steps"][0]
+    assert step["collector"]["argv"] == ["python3", "--version"]
+    assert "assertion" not in step
 
 
 def test_normalize_rejects_unknown_python_package_command() -> None:
@@ -406,13 +408,14 @@ async def test_python_package_status_forms_proposal_instead_of_system_error(
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
-                                "argv": ["python3", "-m", "pip", "show", "torch"],
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["pip3", "show", "torch"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -440,11 +443,9 @@ async def test_python_package_status_forms_proposal_instead_of_system_error(
     assert "重新產生" not in reply
     assert "管理員" not in reply
     assert proposal is not None
-    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
-    assert proposal[0]["check_steps"][0]["parameters"]["argv"] == [
-        "python3",
-        "-m",
-        "pip",
+    assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
+    assert proposal[0]["check_steps"][0]["collector"]["argv"] == [
+        "pip3",
         "show",
         "torch",
     ]

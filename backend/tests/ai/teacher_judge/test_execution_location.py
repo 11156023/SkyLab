@@ -149,25 +149,13 @@ def test_option_values_are_not_mistaken_for_relative_files(argv) -> None:
     assert missing_execution_location({"type": "command", "argv": argv}) == []
 
 
-@pytest.mark.parametrize("shape", ["flat", "legacy", "typed"])
 @pytest.mark.parametrize("reply", ["已通過檢查。", "stdout: 42\nstderr: none", ""])
 async def test_missing_path_rejects_proposal_and_asks_even_when_model_does_not(
     monkeypatch,
-    shape,
     reply,
 ) -> None:
     command = {"argv": ["python3", "main.py"], "timeout_seconds": 30}
-    step = (
-        _typed({"type": "command", **command})
-        if shape == "typed"
-        else {
-            "template_key": "linux",
-            "command_key": "system.run_command",
-            "parameters": command,
-        }
-        if shape == "legacy"
-        else command
-    )
+    step = _typed({"type": "command", **command})
     candidate = _candidate(step)
     candidate.pop("id")
     calls, fake = scripted_vllm(
@@ -184,7 +172,7 @@ async def test_missing_path_rejects_proposal_and_asks_even_when_model_does_not(
         ],
         rubric_context='{"items": []}',
         template_key="linux",
-        template_commands=[GENERAL_COMMAND] if shape == "legacy" else None,
+        template_commands=None,
         rubric_available=True,
     )
     assert len(calls) == 2

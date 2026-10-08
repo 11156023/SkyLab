@@ -193,10 +193,28 @@ TeacherJudgeAssertion = Annotated[
 ]
 
 
+class TeacherJudgeTypedCheckStep(BaseModel):
+    """The single write contract; legacy steps are decoded separately."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=240)
+    collector: TeacherJudgeCollector
+    assertion: TeacherJudgeAssertion | None = None
+
+    @field_validator("id", "title")
+    @classmethod
+    def reject_blank_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("step id/title 不可空白")
+        return value
+
+
 class TeacherJudgeRubricCheckStep(BaseModel):
     """Canonical executable step with a read-compatible legacy shape.
 
-    New Save/Create data uses typed ``collector``/``assertion`` fields. The
+    All new proposal data uses typed ``collector``/``assertion`` fields. The
     flat and template/command fields remain optional so persisted rubrics can
     be read without making the retired keys part of new writes.
     """
@@ -230,17 +248,17 @@ class TeacherJudgeRubricCheckStep(BaseModel):
     argv: list[str] | None = Field(
         default=None,
         min_length=1,
-        description="單一受控命令的 argv；新 contract 的必要執行資料",
+        description="Legacy flat argv; read/convert only. New steps use collector.argv",
     )
     cwd: str | None = Field(
         default=None,
-        description="受控命令的工作目錄；需要時填寫",
+        description="Legacy flat cwd; read/convert only. New command steps use collector.cwd",
     )
     timeout_seconds: int | None = Field(
         default=None,
         ge=1,
         le=300,
-        description="受控命令逾時秒數",
+        description="Legacy flat timeout; read/convert only. New command steps use collector.timeout_seconds",
     )
 
     @model_validator(mode="before")
@@ -680,7 +698,9 @@ class TeacherJudgeFilePublic(BaseModel):
 
 
 class TeacherJudgeFileAnalysisUpdateRequest(BaseModel):
-    analysis: TeacherJudgeRubricAnalysis
+    analysis: TeacherJudgeRubricAnalysis = Field(
+        description="新增或異動步驟使用 typed Collector／Assertion；既有 legacy 執行計畫僅可原樣保留，由儲存服務比較目前版本後驗證。",
+    )
     expected_revision: int | None = Field(default=None, ge=1)
 
 

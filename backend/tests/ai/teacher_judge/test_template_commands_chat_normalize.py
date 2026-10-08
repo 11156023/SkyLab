@@ -81,9 +81,10 @@ async def test_teacher_judgement_requirement_can_form_proposal_without_objective
                     "detection_method": "讀取 main.py 內容供導師審核。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "cwd": "/home/student/project",
                                 "argv": ["cat", "main.py"],
                                 "timeout_seconds": 30,
@@ -118,7 +119,7 @@ async def test_teacher_judgement_requirement_can_form_proposal_without_objective
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
     assert proposal[0]["judgement_mode"] == "teacher"
-    assert "success_criteria" not in proposal[0]["check_steps"][0]["parameters"]
+    assert "success_criteria" not in proposal[0]["check_steps"][0]["collector"]
 
 
 def test_normalize_marks_auto_without_valid_check_steps_as_unsupported() -> None:
@@ -163,14 +164,15 @@ async def test_edit_patch_supplying_execution_info_clears_stale_missing_informat
                     "detection_method": "執行 main.py 並檢查 stdout",
                     "check_steps": [
                         {
-                            "template_key": "python",
-                            "command_key": "python.run_entrypoint",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "cwd": "/home/owo",
                                 "argv": ["python3", "main.py"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -234,12 +236,10 @@ async def test_edit_patch_with_incomplete_parameters_returns_retry_hint(
                     "detection_method": "讀取 .env 並比對內容",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
-                                "cwd": "/home/owo",
-                                "success_criteria": "exit code 為 0",
-                            },
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {"type": "command", "cwd": "/home/owo"},
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -253,14 +253,15 @@ async def test_edit_patch_with_incomplete_parameters_returns_retry_hint(
                     "detection_method": "讀取 .env 並比對內容",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "cwd": "/home/owo",
                                 "argv": ["cat", ".env"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "exit code 為 0",
                             },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -300,8 +301,8 @@ async def test_edit_patch_with_incomplete_parameters_returns_retry_hint(
 
     assert len(calls) == 4
     rejected_result = json.loads(calls[2]["messages"][-1]["content"])
-    assert "可由你自行補齊" in rejected_result["error"]
-    assert "argv" in rejected_result["error"]
+    assert rejected_result["reason_code"] == "check_plan_contract_invalid"
+    assert any("argv" in issue["field"] for issue in rejected_result["issues"])
     assert "請改在 reply 中說明缺少的內容" not in rejected_result["error"]
     staged_result = json.loads(calls[3]["messages"][-1]["content"])
     assert staged_result["staged"] == "update"
@@ -332,11 +333,15 @@ async def test_ready_claim_without_tool_call_is_repaired_by_forced_create(
                     "detection_method": "執行唯讀版本查詢。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
                                 "argv": ["python3", "--version"],
-                                "success_criteria": "stdout 包含 Python 3",
+                            },
+                            "assertion": {
+                                "type": "text_contains",
+                                "expected": "Python 3",
                             },
                         }
                     ],
@@ -444,7 +449,7 @@ async def test_finalizer_repairs_legacy_plan_before_accepting_prose(
     }
     repair_message = calls[3]["messages"][-1]["content"]
     assert "item-legacy" in repair_message
-    assert "flat legacy shape" in repair_message
+    assert "舊版檢查步驟" in repair_message
     assert proposal is not None
     assert proposal[0]["operation"] == "update"
     assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
@@ -585,12 +590,10 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
                     "detection_method": "執行唯讀指令並收集輸出。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
-                                "argv": ["uname", "-a"],
-                                "success_criteria": "exit code 為 0",
-                            },
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {"type": "command", "argv": ["uname", "-a"]},
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -617,8 +620,8 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
     assert proposal[0]["judgement_mode"] == "ai"
-    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
-    assert proposal[0]["check_steps"][0]["parameters"]["argv"] == ["uname", "-a"]
+    assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
+    assert proposal[0]["check_steps"][0]["collector"]["argv"] == ["uname", "-a"]
 
 
 @pytest.mark.asyncio
@@ -667,12 +670,10 @@ async def test_invalid_step_then_manual_uses_distinct_capability_repair(
                     "detection_method": "執行唯讀指令並收集輸出。",
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
-                                "argv": ["uname", "-a"],
-                                "success_criteria": "exit code 為 0",
-                            },
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {"type": "command", "argv": ["uname", "-a"]},
+                            "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
                 },
@@ -693,12 +694,12 @@ async def test_invalid_step_then_manual_uses_distinct_capability_repair(
 
     assert len(calls) == 4
     step_error = json.loads(calls[1]["messages"][-1]["content"])
-    assert "check_steps 沒有通過驗證" in step_error["error"]
+    assert step_error["reason_code"] == "check_plan_contract_invalid"
     capability_error = json.loads(calls[2]["messages"][-1]["content"])
     assert "已提供 system.run_command" in capability_error["error"]
     assert "整理成提案" in reply
     assert proposal is not None
-    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
+    assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
 
 
 @pytest.mark.asyncio

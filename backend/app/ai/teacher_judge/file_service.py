@@ -14,6 +14,7 @@ from typing import Any, cast
 from fastapi import HTTPException
 from sqlmodel import Session, desc, select
 
+from app.ai.teacher_judge.check_plan_contract import analysis_write_issues
 from app.ai.teacher_judge.machine_context import (
     load_class_machine_nodes,
     peer_node_keys_from_snapshot,
@@ -235,6 +236,16 @@ def update_file_analysis(
                 "code": "teacher_judge_machine_contract_invalid",
                 "message": "rubric 的執行節點、觀察節點或 peer token 不一致。",
                 "items": machine_contract_issues,
+            },
+        )
+    contract_issues = analysis_write_issues(analysis, file.analysis_json)
+    if contract_issues:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_check_plan_contract_invalid",
+                "message": "新增或修改的檢查步驟必須符合 typed Collector／Assertion 契約。",
+                "issues": contract_issues,
             },
         )
     file.analysis_json = analysis_dump

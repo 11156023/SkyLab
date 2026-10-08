@@ -81,7 +81,7 @@ def test_unknown_command_key_recovered_into_general_command_is_flagged() -> None
 
 
 @pytest.mark.asyncio
-async def test_flat_argv_proposal_keeps_model_reply_about_other_requirement(
+async def test_typed_proposal_keeps_model_reply_about_other_requirement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model_reply = (
@@ -96,7 +96,17 @@ async def test_flat_argv_proposal_keeps_model_reply_about_other_requirement(
                     "checked": False,
                     "detectable": "auto",
                     "detection_method": "執行 python3 --version 取得版本。",
-                    "check_steps": [{"argv": ["python3", "--version"]}],
+                    "check_steps": [
+                        {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["python3", "--version"],
+                            },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
+                        }
+                    ],
                 },
             ),
             reply_message(model_reply, "ready"),
@@ -206,7 +216,17 @@ async def test_blocked_action_does_not_form_teacher_proposal(
                     "title": "檢查 Python 版本",
                     "detectable": "auto",
                     "detection_method": "執行 python3 --version 取得版本。",
-                    "check_steps": [{"argv": ["python3", "--version"]}],
+                    "check_steps": [
+                        {
+                            "id": "check.1",
+                            "title": "唯讀取證",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["python3", "--version"],
+                            },
+                            "assertion": {"type": "returncode_equals", "expected": 0},
+                        }
+                    ],
                 },
             ),
             reply_message("已整理成提案。", "ready"),

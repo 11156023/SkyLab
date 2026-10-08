@@ -293,6 +293,7 @@ def get_script_generation_blockers(
                 require_target_node=require_target_node,
             )
         except CheckPlanContractError as exc:
+            titles = {item.id: item.title for item in analysis.items}
             for issue in exc.issues:
                 item_id = str(issue.get("item_id") or "").strip() or None
                 step_id = str(issue.get("step_id") or "").strip()
@@ -300,11 +301,9 @@ def get_script_generation_blockers(
                 blockers.append(
                     {
                         "item_id": item_id,
-                        "title": (
-                            f"{item_id} / {step_id}"
-                            if item_id and step_id
-                            else item_id or "檢查計畫契約"
-                        ),
+                        "title": titles.get(item_id, item_id or "檢查計畫契約"),
+                        "step_id": step_id or None,
+                        "step_index": issue.get("step_index"),
                         "status": "analysis_error",
                         "missing_information": [],
                         "reason_code": "check_plan_contract_invalid",
