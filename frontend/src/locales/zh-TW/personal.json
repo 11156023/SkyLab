@@ -522,7 +522,6 @@
   "RequestFormPage.templatePasswordKept": "此範本的密碼無法由平台設定，機器會沿用範本內建的帳號密碼；請向範本建立者取得",
   "RequestFormPage.passwordLabel": "密碼",
   "RequestFormPage.windowsPasswordHint": "Windows 範本登入帳號固定為 Admin，僅需設定密碼；平台不會保存這組密碼，忘記時只能重設",
-  "RequestFormPage.passwordNotStoredHint": "平台不會保存這組密碼，忘記時只能到機器的進階設定重設",
   "RequestFormPage.passwordPlaceholder": "至少 8 個字元",
   "RequestFormPage.clonedPasswordHint": "登入帳號為 root；平台不會保存這組密碼，忘記時只能重設",
   "RequestFormPage.lxcPasswordHint": "LXC 容器登入帳號固定為 root，僅需設定密碼；平台不會保存這組密碼，忘記時只能重設",

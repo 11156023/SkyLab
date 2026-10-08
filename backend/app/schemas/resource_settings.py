@@ -113,6 +113,9 @@ class CredentialsPublic(BaseModel):
     )
     supports_password_reset: bool = False
     supports_ssh_keys: bool = False
+    is_windows: bool = Field(
+        default=False, description="Windows VM：重設的自訂密碼要符合 Windows 複雜度"
+    )
     requires_running: bool = Field(
         default=False, description="LXC 要在執行中才能改密碼／金鑰（pct exec）"
     )

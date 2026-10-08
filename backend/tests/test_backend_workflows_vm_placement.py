@@ -558,6 +558,10 @@ def test_create_vm_prefers_admin_selected_storage(
         lambda template_id: {"vmid": template_id, "node": "node-d"},
     )
     monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.template_is_windows",
+        lambda template_id: False,
+    )
+    monkeypatch.setattr(
         "app.services.proxmox.provisioning_service.vm_request_placement_service.select_best_storage_name",
         lambda **kwargs: "data-nvme",
     )

@@ -21,6 +21,10 @@
 - 使用者自訂的密碼：只留 SHA-512 crypt 雜湊，平台解不回來，忘記只能重設。
   唯一例外是 Windows —— cloudbase-init 只收明文，所以建機前加密暫存在
   申請單／任務 payload，建完即清。
+
+Windows 另有密碼複雜度：cloudbase-init 寫入不合規的密碼會被系統拒絕，
+機器開得起來卻登不進去。所以寫進 Windows 的自訂密碼都要先過
+``require_windows_password``（系統代發的密碼產生時就已符合）。
 """
 
 from __future__ import annotations
@@ -34,7 +38,12 @@ from app.core.i18n import t
 from app.core.security import encrypt_value
 from app.exceptions import BadRequestError
 from app.models import VMTemplate, VMTemplateStatus
-from app.utils.login_password import generate_login_password, hash_login_password
+from app.utils.login_password import (
+    WINDOWS_LOGIN_USERNAME,
+    generate_login_password,
+    hash_login_password,
+    windows_password_issues,
+)
 
 
 def find_template(
@@ -90,11 +99,23 @@ class SealedPassword:
     crypt_hash: str | None = None  # SHA-512 crypt 雜湊（其餘）
 
 
+def require_windows_password(password: str) -> None:
+    """要寫進 Windows 的密碼不符合複雜度就擋下（400），不要等建好才登不進去。"""
+    if windows_password_issues(password):
+        raise BadRequestError(
+            t("login_password.windowsComplexity", username=WINDOWS_LOGIN_USERNAME)
+        )
+
+
 def seal_custom_password(password: str | None, *, windows: bool) -> SealedPassword:
-    """把使用者自訂的密碼轉成可以落 DB 的形式；``None`` 回空的結果。"""
+    """把使用者自訂的密碼轉成可以落 DB 的形式；``None`` 回空的結果。
+
+    Windows 的密碼在這裡順便驗複雜度：申請與克隆都經過這裡才落 DB。
+    """
     if not password:
         return SealedPassword()
     if windows:
+        require_windows_password(password)
         return SealedPassword(encrypted=encrypt_value(password))
     return SealedPassword(crypt_hash=hash_login_password(password))
 
@@ -103,6 +124,7 @@ __all__ = [
     "SealedPassword",
     "find_template",
     "keeps_template_credentials",
+    "require_windows_password",
     "resolve_login_password",
     "seal_custom_password",
 ]

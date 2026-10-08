@@ -220,7 +220,11 @@ def test_create_vm_skips_vmid_reserved_by_scheduler(
         svc.create_vm(
             session=MagicMock(),
             vm_data=SimpleNamespace(  # type: ignore[arg-type]
-                template_id=9000, storage=None, disk_size=20, username="student"
+                template_id=9000,
+                storage=None,
+                disk_size=20,
+                username="student",
+                password="Student123",
             ),
             user_id=uuid.uuid4(),
         )

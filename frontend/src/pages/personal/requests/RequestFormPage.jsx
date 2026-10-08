@@ -12,12 +12,14 @@ import { TemplatesService } from "../../../services/templates";
 import { ResourcesService } from "../../../services/resources";
 import { QuotasService } from "../../../services/quotas";
 import { PoliciesService } from "../../../services/policies";
-import { clampToRange, quotaRemaining, sliderRange, sliderTicks } from "../../../utils/quotaLimits";
+import { quotaRemaining, sliderRange, sliderTicks, snapToRange } from "../../../utils/quotaLimits";
 import NumberInput from "../../../components/NumberInput/NumberInput";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../../components/PasswordRules/PasswordRules";
+import { WINDOWS_PASSWORD_RULES, windowsPasswordIssues } from "../../../utils/windowsPassword";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatShortDateTime } from "../../../utils/formatDate";
 import { canTeachUser } from "../../../utils/roles";
@@ -506,19 +508,23 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     }
     return "";
   };
+  /* 欄位值進表單後統一定稿：配額壓低上限時往下壓，低於範本下限時抬上來，
+     並對齊步進——範本預設記憶體（例如 1000 MB）或 AI 帶入的值不一定是 512 的倍數，
+     不對齊的話 GB 數字框會顯示 0.9765625 之類的小數，被瀏覽器原生 step 檢查
+     判定無效，整張表單就送不出去。 */
   useEffect(() => {
     setForm((prev) => {
       const next = {
-        cores: clampToRange(prev.cores, coresRange),
-        memory: clampToRange(prev.memory, memoryRange),
-        [diskKey]: clampToRange(prev[diskKey], diskRange),
+        cores: snapToRange(prev.cores, { ...coresRange, step: 1 }),
+        memory: snapToRange(prev.memory, { ...memoryRange, step: 512 }),
+        [diskKey]: snapToRange(prev[diskKey], { ...diskRange, step: 1 }),
       };
       const changed = Object.keys(next).some((key) => next[key] !== prev[key]);
       return changed ? { ...prev, ...next } : prev;
     });
   }, [
     form.cores, form.memory, form[diskKey], diskKey,
-    coresRange.max, memoryRange.max, diskRange.max,
+    coresRange.min, coresRange.max, memoryRange.min, memoryRange.max, diskRange.min, diskRange.max,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedTemplateRequiresGpu = useMemo(() => {
@@ -901,6 +907,9 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     if (!keepsTemplatePassword) {
       if (!form.password)                 errs.password = t(MSG.passwordRequired);
       else if (form.password.length < 8)  errs.password = t(MSG.passwordMinLen);
+      /* Windows 會拒絕不合複雜度的密碼，機器開得起來卻登不進去 */
+      else if (isWindowsVm && windowsPasswordIssues(form.password).length > 0)
+        errs.password = t("PasswordRules.notMet", { ns: "common" });
     }
 
     if (!form.reason.trim())            errs.reason = t(MSG.reasonRequired);
@@ -1296,9 +1305,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                     required
                     error={errors.password}
                     name="password"
-                    hint={isWindowsVm
-                      ? t("RequestFormPage.windowsPasswordHint")
-                      : t("RequestFormPage.passwordNotStoredHint")}
+                    hint={isWindowsVm ? t("RequestFormPage.windowsPasswordHint") : undefined}
                   >
                     <PasswordInput
                       className={styles.input}
@@ -1306,6 +1313,13 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       value={form.password}
                       onChange={(e) => set("password", e.target.value)}
                     />
+                    {isWindowsVm && (
+                      <PasswordRules
+                        password={form.password}
+                        rules={WINDOWS_PASSWORD_RULES}
+                        invalid={Boolean(errors.password)}
+                      />
+                    )}
                   </FieldGroup>
                   )}
                 </div>
