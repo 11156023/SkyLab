@@ -522,7 +522,6 @@
   "RequestFormPage.templatePasswordKept": "このテンプレートのパスワードはプラットフォームから設定できないため、マシンはテンプレート内蔵のアカウントとパスワードをそのまま使います。テンプレート作成者に確認してください。",
   "RequestFormPage.passwordLabel": "パスワード",
   "RequestFormPage.windowsPasswordHint": "Windowsテンプレートのログインアカウントは固定でAdminです。パスワードのみ設定してください。このパスワードはプラットフォームに保存されないため、忘れた場合は再設定するしかありません",
-  "RequestFormPage.passwordNotStoredHint": "このパスワードはプラットフォームに保存されません。忘れた場合はマシンの詳細設定で再設定してください",
   "RequestFormPage.passwordPlaceholder": "8文字以上",
   "RequestFormPage.clonedPasswordHint": "ログインアカウントは root です。このパスワードはプラットフォームに保存されないため、忘れた場合は再設定するしかありません。",
   "RequestFormPage.lxcPasswordHint": "LXCコンテナのログインアカウントは固定でrootです。パスワードのみ設定してください。このパスワードはプラットフォームに保存されないため、忘れた場合は再設定するしかありません",
