@@ -510,7 +510,9 @@ def test_normalize_marks_missing_python_parameters_as_missing_information() -> N
     )
 
     assert items[0].detectable == "partial"
-    assert items[0].missing_information == ["main.py 所在的工作目錄"]
+    assert items[0].missing_information == [
+        "程式／檔案「main.py」的完整路徑，或所在工作目錄與相對路徑"
+    ]
 
 
 def test_normalize_python_code_quality_stays_manual() -> None:

@@ -310,7 +310,12 @@ def _workflow_blocker_line(row: dict[str, Any]) -> str:
     status = _workflow_status(row.get("status"))
     if status == "needs_information":
         missing = "、".join(row.get("missing_information") or [])
-        return f"「{title}」已確認檢查目標，但還缺少：{missing or '會影響檢查範圍或判定的資訊'}。"
+        question = (
+            "請提供該程式／檔案的完整路徑，或工作目錄與相對路徑。"
+            if any(marker in missing for marker in ("工作目錄", "完整路徑", "相對路徑"))
+            else ""
+        )
+        return f"「{title}」已確認檢查目標，但還缺少：{missing or '會影響檢查範圍或判定的資訊'}。{question}"
     if status == "unsupported":
         detail = _workflow_issue_text(row.get("detail"))
         if detail:
@@ -526,6 +531,8 @@ def script_blocker_workflow_message(
     *,
     source_file_id: uuid.UUID | str | None,
     analysis_revision: int | None,
+    stage: str = "script_preflight",
+    reason_code: str = "teacher_judge_script_not_ready",
 ) -> WorkflowMessage:
     """Format deterministic script preflight blockers for Chat persistence."""
     rows = [
@@ -547,7 +554,9 @@ def script_blocker_workflow_message(
         "檢查表已保留；請依上列缺口補充資訊或調整檢查方式後，再重新製作腳本。"
     )
     status = (
-        "needs_information"
+        "analysis_error"
+        if any(row["status"] == "analysis_error" for row in rows)
+        else "needs_information"
         if any(row["status"] == "needs_information" for row in rows)
         else "unsupported"
         if rows
@@ -557,12 +566,12 @@ def script_blocker_workflow_message(
         "content": "\n".join(lines)[:WORKFLOW_CONTENT_LIMIT],
         "metadata": _workflow_metadata(
             status=status,
-            stage="script_preflight",
+            stage=stage,
             source_file_id=source_file_id,
             analysis_revision=analysis_revision,
             item_results=rows,
             conversation_focus=focus,
-            reason_code="teacher_judge_script_not_ready",
+            reason_code=reason_code,
             script_ready=False,
         ),
     }

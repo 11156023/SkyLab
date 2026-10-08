@@ -287,7 +287,15 @@ describe("ChatPanel", () => {
 });
 
 describe("RubricsTab 儲存並製作流程", () => {
-  test("重新核對缺少資訊時把 server assistant 結果加入 Chat，且不啟動腳本", async () => {
+  test.each([
+    { title: "確認服務 Port", detectable: "partial", missing: "服務 Port", checkSteps: [] },
+    {
+      title: "收集 main.py 輸出",
+      detectable: "auto",
+      missing: "main.py 的完整路徑或工作目錄",
+      checkSteps: [{ id: "output", title: "收集輸出", collector: { type: "command", argv: ["python3", "main.py"] } }],
+    },
+  ])("$title：server 核對缺少資訊時顯示路徑／範圍詢問，且不啟動腳本", async ({ title, detectable, missing, checkSteps }) => {
     Element.prototype.scrollIntoView = vi.fn();
     const file = {
       id: "file-1",
@@ -301,19 +309,19 @@ describe("RubricsTab 儲存並製作流程", () => {
       analysis_json: {
         items: [{
           id: "item-port",
-          title: "確認服務 Port",
+          title,
           checked: false,
-          detectable: "partial",
+          detectable,
           judgement_mode: "ai",
           detection_method: "檢查服務",
-          missing_information: ["服務 Port"],
-          check_steps: [],
+          missing_information: detectable === "auto" ? [] : [missing],
+          check_steps: checkSteps,
           fallback: null,
         }],
         total_items: 1,
         checked_count: 0,
-        auto_count: 0,
-        partial_count: 1,
+        auto_count: detectable === "auto" ? 1 : 0,
+        partial_count: detectable === "partial" ? 1 : 0,
         manual_count: 0,
       },
     };
@@ -322,16 +330,16 @@ describe("RubricsTab 儲存並製作流程", () => {
       session_id: "session-1",
       role: "assistant",
       message_type: "chat",
-      content: "重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。",
+      content: `重新核對後，「${title}」已確認檢查目標，但還缺少：${missing}。請補充${missing}。`,
       metadata_json: {
         status: "needs_information",
         stage: "reanalysis",
         script_ready: false,
         item_results: [{
           item_id: "item-port",
-          title: "確認服務 Port",
+          title,
           status: "needs_information",
-          missing_information: ["服務 Port"],
+          missing_information: [missing],
         }],
       },
       created_at: "2026-09-15T00:00:02Z",
@@ -387,8 +395,8 @@ describe("RubricsTab 儲存並製作流程", () => {
       3,
       { isRefine: true },
     );
-    expect(container.textContent).toContain("確認服務 Port");
-    expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
+    expect(container.textContent).toContain(title);
+    expect(container.textContent).toContain(assistantMessage.content);
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();

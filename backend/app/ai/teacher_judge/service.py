@@ -257,7 +257,7 @@ _CHECKLIST_STEP_PARAMETERS_PROPERTIES: dict[str, Any] = {
     },
     "cwd": {
         "type": "string",
-        "description": "可選的受控工作目錄；若 rubric 未提供真實路徑則省略",
+        "description": "受控命令的完整工作目錄；相對程式／檔案路徑必須有已知工作目錄，缺少時詢問老師，不得猜測",
     },
     "timeout_seconds": {
         "type": "integer",
@@ -1181,7 +1181,10 @@ def _recoverable_parameter_gaps(item: TeacherJudgeRubricItem) -> list[str]:
     """Return step-parameter gaps the model can fix itself by re-calling the tool."""
     gaps: list[str] = []
     for step in item.check_steps:
-        gaps.extend(missing_step_information(step))
+        gaps.extend(
+            gap for gap in missing_step_information(step)
+            if not _has_gap_marker(gap, ("工作目錄", "完整路徑", "相對路徑"))
+        )
     return list(dict.fromkeys(gaps))
 
 
@@ -1236,7 +1239,9 @@ def _proposal_candidate_rejection(
         missing_text = "、".join(missing) or "缺少可自動取證的完整檢查步驟"
         return (
             f"「{normalized.title}」目前無法形成可套用的提案：{missing_text}。"
-            "不要為缺少資訊或不支援的項目建立提案；請改在 reply 中說明缺少的內容。"
+            "若上下文已有完整路徑或工作目錄，請據此修正步驟後重試；"
+            "否則不要猜測路徑或建立提案，請改在 reply 中說明缺少的內容並詢問老師，"
+            "並將 proposal_status 設為 needs_information。"
         )
     return None
 
@@ -2405,6 +2410,7 @@ async def _run_proposal_tool_loop(
             if (
                 claims_ready
                 and not staged_ops
+                and not rejected_ops
                 and rubric_available
                 and not require_rubric
                 and reminder_count < _MAX_READY_REMINDERS
@@ -2857,14 +2863,50 @@ async def chat_with_rubric(
             if not reply_result.allowed:
                 reply_text = TEACHER_ADHERENCE_FALLBACK
 
+    conversation_focus = _conversation_focus_from_content(
+        content, proposal=updated_items,
+    )
+    # Missing execution locations are server facts. Preserve their question
+    # even when the model returns logs, an empty reply, or an adherence fallback.
+    staged_titles = {entry["item"].title for entry in staged_ops}
+    location_rejections = [
+        item for item, _raw, _reason in _dedupe_rejected_ops_keep_latest(rejected_ops)
+        if item.title not in staged_titles
+        and any(_has_gap_marker(gap, ("工作目錄", "完整路徑", "相對路徑")) for gap in item.missing_information)
+    ]
+    if location_rejections:
+        questions = "\n".join(_teacher_missing_gap_reply(item) for item in location_rejections)
+        ready_summary = (
+            "已整理可套用的提案："
+            + "、".join(f"「{title}」" for title in dict.fromkeys(entry["item"].title for entry in staged_ops))
+            + "。請確認後套用。\n"
+            if staged_ops else ""
+        )
+        reply_text = ready_summary + questions
+        proposal_status = "needs_information"
+        conversation_focus = {
+            "turn_kind": "follow_up",
+            "requirements": [
+                {
+                    "focus_key": item.id,
+                    "status": "needs_information",
+                    "known_information": [item.title],
+                    "missing_information": item.missing_information,
+                    "target_item_id": item.id if any(
+                        str(raw.get("id")) == item.id
+                        for raw in (_rubric_context_data(rubric_context).get("items") or [])
+                        if isinstance(raw, dict)
+                    ) else None,
+                }
+                for item in location_rejections
+            ],
+        }
+
     return TeacherJudgeChatResult(
         reply=reply_text,
         proposal=updated_items,
         metrics=metrics,
-        conversation_focus=_conversation_focus_from_content(
-            content,
-            proposal=updated_items,
-        ),
+        conversation_focus=conversation_focus,
         proposal_status=proposal_status,
         tool_calls=_dedupe_tool_outcomes_keep_latest(tool_outcomes) or None,
     )

@@ -6,6 +6,7 @@ from typing import Any, NotRequired, TypedDict
 
 from fastapi import HTTPException
 
+from app.ai.teacher_judge.deterministic_compiler import missing_execution_location
 from app.ai.teacher_judge.machine_context import rubric_item_machine_issues
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
@@ -72,7 +73,7 @@ def missing_step_information(
     if step.collector is not None:
         collector = step.collector.model_dump(mode="json")
         collector_type = str(collector.get("type") or "")
-        typed_missing: list[str] = []
+        typed_missing: list[str] = missing_execution_location(collector)
         if collector_type == "command":
             if not non_empty_argv(collector.get("argv")):
                 typed_missing.append("collector.argv 必須是非空的字串陣列")
@@ -95,7 +96,9 @@ def missing_step_information(
 
     if step.command_key == "python.run_entrypoint":
         cwd = parameters.get("cwd")
-        if not isinstance(cwd, str) or not cwd.strip():
+        if not non_empty_argv(parameters.get("argv")) and (
+            not isinstance(cwd, str) or not cwd.strip()
+        ):
             missing.append(
                 _gap_text(
                     parameters,
@@ -149,7 +152,9 @@ def missing_step_information(
                 )
             )
 
-    return missing
+    if non_empty_argv(parameters.get("argv")):
+        missing.extend(missing_execution_location({**parameters, "type": "command"}))
+    return list(dict.fromkeys(missing))
 
 
 def _item_missing_information(
