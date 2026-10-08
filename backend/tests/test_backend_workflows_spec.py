@@ -452,6 +452,10 @@ def test_create_vm_uses_template_node_and_normalizes_disk_size(
         lambda template_id: {"vmid": template_id, "node": "node-b"},
     )
     monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.template_is_windows",
+        lambda template_id: False,
+    )
+    monkeypatch.setattr(
         "app.services.proxmox.provisioning_service.proxmox_service.resolve_target_storage",
         lambda node, requested_storage, required_content: requested_storage,
     )
@@ -548,6 +552,10 @@ def test_create_vm_falls_back_when_requested_storage_is_unavailable(
     monkeypatch.setattr(
         "app.services.proxmox.provisioning_service.proxmox_service.find_vm_template",
         lambda template_id: {"vmid": template_id, "node": "node-c"},
+    )
+    monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.template_is_windows",
+        lambda template_id: False,
     )
     monkeypatch.setattr(
         "app.services.proxmox.provisioning_service.proxmox_service.resolve_target_storage",

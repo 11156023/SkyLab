@@ -18,6 +18,8 @@ import AvailabilityPanel from "../../../components/AvailabilityPanel/Availabilit
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../../components/PasswordRules/PasswordRules";
+import { WINDOWS_PASSWORD_RULES, windowsPasswordIssues } from "../../../utils/windowsPassword";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatShortDateTime } from "../../../utils/formatDate";
 import { canTeachUser } from "../../../utils/roles";
@@ -905,6 +907,9 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     if (!keepsTemplatePassword) {
       if (!form.password)                 errs.password = t(MSG.passwordRequired);
       else if (form.password.length < 8)  errs.password = t(MSG.passwordMinLen);
+      /* Windows 會拒絕不合複雜度的密碼，機器開得起來卻登不進去 */
+      else if (isWindowsVm && windowsPasswordIssues(form.password).length > 0)
+        errs.password = t("PasswordRules.notMet", { ns: "common" });
     }
 
     if (!form.reason.trim())            errs.reason = t(MSG.reasonRequired);
@@ -1308,6 +1313,13 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       value={form.password}
                       onChange={(e) => set("password", e.target.value)}
                     />
+                    {isWindowsVm && (
+                      <PasswordRules
+                        password={form.password}
+                        rules={WINDOWS_PASSWORD_RULES}
+                        invalid={Boolean(errors.password)}
+                      />
+                    )}
                   </FieldGroup>
                   )}
                 </div>

@@ -38,7 +38,11 @@ from app.services.resource._guest_helpers import (
 )
 from app.services.template import password_policy
 from app.services.user import audit_service
-from app.utils.login_password import generate_login_password, hash_login_password
+from app.utils.login_password import (
+    generate_login_password,
+    hash_login_password,
+    windows_password_issues,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +88,11 @@ def _get_db_resource(session: Session, vmid: int):
 
 def _qemu_config(resource_info: dict[str, Any], vmid: int) -> dict[str, Any]:
     return read_config(resource_info, vmid, "qemu")
+
+
+def _is_windows_config(config: dict[str, Any]) -> bool:
+    """PVE 的 Windows ostype（wxp/w2k*/wvista/win7~11）皆以 w 開頭。"""
+    return str(config.get("ostype") or "").startswith("w")
 
 
 def _qemu_authorized_keys(config: dict[str, Any]) -> list[str]:
@@ -218,6 +227,7 @@ def get_credentials(
             has_custom_login_password=_has_custom_login_password(db_resource),
             supports_password_reset=True,
             supports_ssh_keys=True,
+            is_windows=_is_windows_config(config),
             requires_running=False,
             platform_public_key=db_resource.ssh_public_key,
             authorized_keys=_qemu_authorized_keys(config),
@@ -303,6 +313,14 @@ def reset_password(
     rebooting = False
     if rtype == "qemu":
         node = resource_info["node"]
+        # 系統產生的密碼本來就符合 Windows 複雜度；自訂的不合規時才查 ostype，
+        # 讀不到 config 直接失敗，不能當成 Linux 放行
+        if (
+            password
+            and windows_password_issues(password)
+            and _is_windows_config(_qemu_config(resource_info, vmid))
+        ):
+            password_policy.require_windows_password(password)
         try:
             proxmox_service.update_config(node, vmid, "qemu", cipassword=new_password)
         except Exception as exc:

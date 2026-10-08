@@ -9,6 +9,8 @@ import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
 import Modal from "../../../../../components/Modal/Modal";
+import PasswordRules from "../../../../../components/PasswordRules/PasswordRules";
+import { WINDOWS_PASSWORD_RULES, windowsPasswordIssues } from "../../../../../utils/windowsPassword";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../../components/ErrorState/NotFoundState";
@@ -23,11 +25,16 @@ function keyIdentity(key) {
   return parts.slice(0, 2).join(" ");
 }
 
-function PasswordModal({ closing, loading, willReboot, onClose, onSubmit }) {
+function PasswordModal({ closing, loading, willReboot, isWindows, onClose, onSubmit }) {
   const { t } = useTranslation("personal");
   const [custom, setCustom] = useState(false);
   const [password, setPassword] = useState("");
-  const invalid = custom && (password.length < 8 || /\s/.test(password));
+  /* Windows 會拒絕不合複雜度的密碼，重開機後就登不進去 */
+  const invalid =
+    custom &&
+    (password.length < 8 ||
+      /\s/.test(password) ||
+      (isWindows && windowsPasswordIssues(password).length > 0));
 
   function submit(e) {
     e.preventDefault();
@@ -65,6 +72,7 @@ function PasswordModal({ closing, loading, willReboot, onClose, onSubmit }) {
           <label htmlFor="cred-pw">{t("CredentialsCard.newPasswordLabel")}</label>
           <input id="cred-pw" type="text" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
           <span className={styles.fieldHint}>{t("CredentialsCard.newPasswordHint")}</span>
+          {isWindows && <PasswordRules password={password} rules={WINDOWS_PASSWORD_RULES} />}
         </div>
       )}
     </Modal>
@@ -346,6 +354,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
           closing={passwordPresence.closing}
           loading={busy}
           willReboot={info?.resource_type === "qemu" && info?.running}
+          isWindows={Boolean(info?.is_windows)}
           onClose={() => setShowPassword(false)}
           onSubmit={handleResetPassword}
         />

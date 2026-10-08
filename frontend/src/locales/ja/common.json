@@ -47,6 +47,8 @@
   "PasswordRules.lowercase": "英小文字",
   "PasswordRules.digit": "数字",
   "PasswordRules.symbol": "記号",
+  "PasswordRules.windowsCategories": "英大文字・英小文字・数字・記号のうち 3 種類以上",
+  "PasswordRules.windowsUsername": "アカウント名 {{username}} を含めない",
   "PasswordRules.met": "{{rule}}：満たしています",
   "PasswordRules.unmet": "{{rule}}：まだ満たしていません",
   "UsernamePolicy.LNX_FORMAT": "英小文字で始め、英小文字・数字・アンダースコア（_）・ハイフン（-）のみ、1～{{max_length}} 文字で指定してください",
