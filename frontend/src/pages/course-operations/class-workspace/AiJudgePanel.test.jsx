@@ -1656,6 +1656,34 @@ describe("teacher review run-once（整組檢查點）", () => {
     container.remove();
   });
 
+  test("部分步驟未回傳時會顯示不完整提示並保留已取得的證據", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    const incomplete = structuredClone(batchPayload);
+    incomplete.students[0].nodes[0].items[0].status = "unknown";
+    incomplete.students[0].nodes[0].items[0].missing_check_ids = ["missing-step"];
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(incomplete);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("王小明"));
+    await act(async () => {
+      toggle.click();
+    });
+    expect(container.textContent).toContain("檢查結果不完整：有 1 個步驟未回傳結果");
+    expect(container.textContent).toContain("pg_isready");
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   test("離開再回來時整批還在跑：接回進度，一次執行維持停用", async () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "running" },

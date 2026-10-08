@@ -51,6 +51,7 @@ class PVELogConfig(BaseModel):
 
 class TeacherJudgeConfig(BaseModel):
     max_upload_size_mb: int = 10
+    request_timeout_seconds: int = Field(default=570, ge=1, le=570)
     vllm: SystemAIVLLMConfig = Field(default_factory=SystemAIVLLMConfig)
 
 

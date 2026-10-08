@@ -11,6 +11,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.ai.teacher_judge import service as teacher_judge_service
+from app.ai.teacher_judge.check_plan_contract import analysis_write_issues
+from app.ai.teacher_judge.schemas import TeacherJudgeRubricAnalysis
 from app.ai.teacher_judge.template_command_service import (
     GENERAL_COMMAND,
 )
@@ -328,6 +330,7 @@ async def test_attachment_itemwise_keeps_duplicate_titles_as_separate_items(
     duplicate_ids = [operation["id"] for operation in result.proposal]
     assert len(duplicate_ids) == 2
     assert len(set(duplicate_ids)) == 2
+    assert analysis_write_issues(TeacherJudgeRubricAnalysis(items=result.proposal), {"items": []}) == []
 
 
 @pytest.mark.asyncio

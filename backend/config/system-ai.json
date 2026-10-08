@@ -34,6 +34,7 @@
   },
   "teacher_judge": {
     "max_upload_size_mb": 10,
+    "request_timeout_seconds": 570,
     "vllm": {
       "enable_thinking": false,
       "timeout": 120,

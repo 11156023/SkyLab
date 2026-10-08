@@ -8,11 +8,11 @@ import {
 } from "./api";
 import i18n from "../i18n";
 
-// 腳本產生會依序執行 generation、policy/quality 修正與 AI reviewer，
-// 不能沿用一般 API 的 15 秒 request budget。後端每次 vLLM 呼叫仍有自己的 timeout。
+// 腳本編譯使用獨立的等待上限；前置 AI 重新核對走 sendSessionMessage 的整輪期限。
 const SCRIPT_GENERATION_TIMEOUT_MS = 7 * 60 * 1000;
-// Teacher Judge 的 AI 分析／對話以 backend/config/system-ai.json 的 120 秒為準。
-export const TEACHER_JUDGE_REQUEST_TIMEOUT_MS = 120 * 1000;
+// 整輪 backend 570 秒、瀏覽器 600 秒、Teacher Judge nginx 610 秒。
+// 單次模型呼叫仍由 system-ai.json 的 vllm.timeout（120 秒）限制。
+export const TEACHER_JUDGE_REQUEST_TIMEOUT_MS = 600 * 1000;
 
 /** 評分環境模板選項 */
 export const TEMPLATE_OPTIONS = [
@@ -125,6 +125,12 @@ export const AiJudgeService = {
     );
   },
 
+  dismissSessionProposal(classId, sessionId, messageId) {
+    return apiDelete(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/messages/${messageId}/proposal`,
+    );
+  },
+
   sendSessionMessage(
     classId,
     sessionId,
@@ -142,7 +148,12 @@ export const AiJudgeService = {
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/messages`,
       payload,
       { timeoutMs: TEACHER_JUDGE_REQUEST_TIMEOUT_MS },
-    );
+    ).catch((error) => {
+      if (error?.timeout) {
+        throw { ...error, message: i18n.t("aiJudge.waitTimeout", { ns: "services" }) };
+      }
+      throw error;
+    });
   },
 
   uploadSessionAttachment(classId, sessionId, file) {
@@ -151,7 +162,7 @@ export const AiJudgeService = {
     return apiPostMultipart(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/attachments`,
       formData,
-      { timeoutMs: TEACHER_JUDGE_REQUEST_TIMEOUT_MS },
+      { timeoutMs: 120 * 1000 },
     );
   },
 

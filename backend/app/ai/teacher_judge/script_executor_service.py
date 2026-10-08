@@ -15,6 +15,7 @@ from typing import Any, TypeVar
 from sqlmodel import Session, col, select
 
 from app.ai.teacher_judge.script_policy import (
+    RAW_RESULT_LIMIT,
     normalize_managed_script_checks,
     validate_managed_script_output,
 )
@@ -46,7 +47,6 @@ _WorkerResult = TypeVar("_WorkerResult")
 MAX_SSH_CONCURRENCY = 5
 STDOUT_LIMIT = 16 * 1024
 STDERR_LIMIT = 16 * 1024
-RAW_RESULT_LIMIT = 256 * 1024
 SSH_TIMEOUT_SECONDS = 60
 REMOTE_ROOT = "/tmp/campus-cloud-judge"
 # 腳本執行的時間預算：依 Check Plan 各步驟的 collector timeout 加總，再加上

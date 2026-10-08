@@ -2,6 +2,7 @@
   "api.authRecoveryMessage": "ログイン認証サービスに一時的に接続できません。しばらくしてから再試行してください",
   "api.sessionChangedIgnored": "ログイン状態が変更されたため、古いセッションからの応答は無視されました",
   "api.requestTimeout": "リクエストがタイムアウトしました。しばらくしてから再度お試しください。",
+  "aiJudge.waitTimeout": "AI の応答待ちがタイムアウトしました。処理結果は未確認です。このチェックを再読み込みし、保存済みの応答や提案を確認してから再送してください。",
   "aiJudge.linuxTemplateLabel": "汎用 Linux/LXC",
   "aiJudge.defaultBlankSessionTitle": "無題のチェック",
   "aiJudge.defaultBlankRubricName": "空白の評価表",

@@ -219,6 +219,8 @@ def build_assistant_metadata(
     tool_calls: Any,
     source_file_id: uuid.UUID | None,
     analysis_revision: int | None,
+    proposal: list[dict[str, Any]] | None = None,
+    is_refine: bool = False,
 ) -> dict[str, Any]:
     """組出助理訊息的 metadata_json。
 
@@ -264,4 +266,11 @@ def build_assistant_metadata(
         }
     if tool_calls:
         metadata["tool_calls"] = tool_calls
+    if proposal and source_file_id is not None and analysis_revision is not None:
+        metadata.update(
+            rubric_proposal=proposal,
+            source_file_id=source_file,
+            analysis_revision=analysis_revision,
+            is_refine=is_refine,
+        )
     return metadata

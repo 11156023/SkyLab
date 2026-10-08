@@ -674,7 +674,12 @@ def workflow_error_message(
         analysis_revision=analysis_revision,
         turn_kind="follow_up",
     )
-    if code == "analysis_revision_conflict":
+    if code == "teacher_judge_workflow_timeout":
+        content = (
+            "這次 AI 分析已達整輪處理期限，已停止後續分析與提案保存。"
+            "目前檢查表已保留，這不是缺少你的資料；請稍後重新送出。"
+        )
+    elif code == "analysis_revision_conflict":
         content = (
             "目前檢查表已有較新的保存版本，這次結果沒有覆蓋它。"
             "現有檢查表已保留，未核准的腳本不會開放執行；請重新載入後再試一次。"

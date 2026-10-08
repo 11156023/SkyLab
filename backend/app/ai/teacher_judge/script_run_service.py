@@ -27,6 +27,7 @@ from app.ai.teacher_judge.script_artifact_service import (
     latest_set_children,
 )
 from app.ai.teacher_judge.script_executor_service import preflight_progress
+from app.ai.teacher_judge.script_policy import aggregate_check_status
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
 from app.core.i18n import t
@@ -1125,21 +1126,6 @@ def _coverage_check_ids_by_item(
     return result
 
 
-def _item_result_status(checks: list[dict[str, Any]]) -> str:
-    statuses = {str(check.get("status") or "unknown") for check in checks}
-    if "fail" in statuses:
-        return "fail"
-    if "warning" in statuses:
-        return "warning"
-    if not checks or "unknown" in statuses:
-        return "unknown"
-    if statuses == {"skipped"}:
-        return "skipped"
-    if "collected" in statuses:
-        return "collected"
-    return "pass"
-
-
 def project_run_items(
     *,
     artifact: TeacherJudgeScriptArtifact,
@@ -1174,6 +1160,10 @@ def project_run_items(
             for check_id in mapped_by_item.get(item_id, [])
             if check_id in checks_by_id
         ]
+        missing_check_ids = [
+            check_id for check_id in mapped_by_item.get(item_id, [])
+            if check_id not in checks_by_id
+        ]
         checks = cast(
             "list[dict[str, Any]]",
             _redact_peer_ips(checks, peer_ips or set()),
@@ -1187,7 +1177,10 @@ def project_run_items(
         item_status = (
             "unknown"
             if execution_failed or not peer_available
-            else _item_result_status(checks)
+            else aggregate_check_status(
+                [str(check.get("status") or "unknown") for check in checks],
+                incomplete=bool(missing_check_ids),
+            )
         )
         items.append(
             {
@@ -1202,18 +1195,19 @@ def project_run_items(
                     if isinstance(peer_state, dict)
                     else None
                 ),
-                "evidence_state": "unavailable" if not peer_available else "available",
+                "evidence_state": (
+                    "unavailable" if not peer_available
+                    else "incomplete" if missing_check_ids else "available"
+                ),
                 "checks": checks,
-                "missing_check_ids": [
-                    check_id
-                    for check_id in mapped_by_item.get(item_id, [])
-                    if check_id not in checks_by_id
-                ],
+                "missing_check_ids": missing_check_ids,
                 "reason_code": (
                     target_result.get("reason_code")
                     if execution_failed
                     else "peer_unavailable"
                     if not peer_available
+                    else "missing_checks"
+                    if missing_check_ids
                     else None
                 ),
             }

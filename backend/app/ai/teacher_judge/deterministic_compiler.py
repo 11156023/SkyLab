@@ -23,6 +23,7 @@ from app.ai.teacher_judge.execution_paths import (
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricAnalysis
 from app.ai.teacher_judge.script_policy import (
     PEER_IP_TOKEN,
+    RAW_RESULT_LIMIT,
     SHELL_LAUNCHERS,
     check_script_policy,
     dangerous_command_issue,
@@ -30,7 +31,7 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
-DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v3"
+DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v4"
 _ASSERTION_TYPES_BY_COLLECTOR = {
     "command": {"returncode_equals", "text_equals", "text_contains", "number_compare", "json_path_equals"},
     "file_text": {"text_equals", "text_contains", "number_compare", "json_path_equals"},
@@ -1357,18 +1358,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
         lines.extend(
             [
                 f"        path = Path({_json_literal(resolved_file_path(collector))})",
-                "        with path.open('rb') as handle:",
-                "            if handle.seekable():",
-                "                handle.seek(0, 2)",
-                "                size = handle.tell()",
-                f"                handle.seek(max(0, size - {int(collector.get('max_chars', 12000)) * 4}))",
-                f"            raw_bytes = handle.read({int(collector.get('max_chars', 12000)) * 4 + 1})",
-                "        text = raw_bytes.decode('utf-8', errors='replace')",
-                f"        if {_json_literal(collector.get('read_mode', 'full'))} == 'tail':",
-                f"            text = '\\n'.join(text.splitlines()[-{int(collector.get('lines') or 1):}])",
-                f"        elif {_json_literal(collector.get('read_mode', 'full'))} == 'head':",
-                f"            text = '\\n'.join(text.splitlines()[:{int(collector.get('lines') or 1):}])",
-                f"        collected = {{'ok': True, 'value': text[:{int(collector.get('max_chars', 12000))}], 'raw': {{'text': text[:{int(collector.get('max_chars', 12000))}]}}}}",
+                f"        collected = read_file_text(path, {_json_literal(collector.get('read_mode', 'full'))}, {int(collector.get('lines') or 1)}, {int(collector.get('max_chars', 12000))})",
             ]
         )
     elif collector_type == "file_stat":
@@ -1433,6 +1423,24 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
     return "\n".join(lines)
 
 
+def _result_text_limit(plan: dict[str, Any]) -> int:
+    """Fit every check in the executor's UTF-8 JSON budget, including escapes."""
+    headers = [
+        {"id": step["id"], "title": step["title"], "status": "collected", "evidence": "", "raw": ""}
+        for item in plan["items"] for step in item["check_steps"]
+    ]
+    count = max(1, len(headers))
+    # JSON can use six bytes per character (e.g. a control character). Reserve
+    # one bounded error per check and fixed metadata before splitting evidence/raw.
+    available = RAW_RESULT_LIMIT - 4096 - len(json.dumps(headers, ensure_ascii=False).encode("utf-8")) - count * (128 * 6 + 4)
+    limit = min(4000, available // (count * 12))
+    if limit < 64:
+        raise CheckPlanContractError([{
+            "message": "同一執行節點的檢查步驟過多，結果無法完整回傳；請拆分檢查表後再製作腳本。",
+        }])
+    return limit
+
+
 def _render_script(plan: dict[str, Any]) -> str:
     functions: list[str] = []
     calls: list[str] = []
@@ -1451,13 +1459,41 @@ def _render_script(plan: dict[str, Any]) -> str:
         "from datetime import datetime, timezone\n"
         "from pathlib import Path\n\n"
         f"PLAN = json.loads({plan_json!r})\n"
+        f"RESULT_TEXT_LIMIT = {_result_text_limit(plan)}\n"
         "errors: list[str] = []\n\n"
-        "def truncate_output(value, limit=4000):\n"
+        "def truncate_output(value, limit=RESULT_TEXT_LIMIT):\n"
         "    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)\n"
-        "    return text[:limit]\n\n"
+        "    marker = '…（內容過長，已截斷；請縮小收集範圍）'\n"
+        "    return text if len(text) <= limit else text[:max(0, limit - len(marker))] + marker\n\n"
         "def record_check(check_id, title, status, evidence, raw=''):\n"
         "    raw_text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False, default=str)\n"
         "    return {'id': check_id, 'title': title, 'status': status, 'evidence': truncate_output(evidence), 'raw': truncate_output(raw_text)}\n\n"
+        "def read_file_text(path, mode, line_count, max_chars):\n"
+        "    byte_limit = (max_chars + 1) * 4\n"
+        "    start = 0\n"
+        "    with path.open('rb') as handle:\n"
+        "        if mode == 'tail':\n"
+        "            handle.seek(0, 2)\n"
+        "            start = max(0, handle.tell() - byte_limit)\n"
+        "            handle.seek(start)\n"
+        "        raw_bytes = handle.read(byte_limit + 1)\n"
+        "    more = len(raw_bytes) > byte_limit\n"
+        "    text = raw_bytes[:byte_limit].decode('utf-8', errors='replace')\n"
+        "    rows = text.splitlines()\n"
+        "    if mode == 'head':\n"
+        "        incomplete = more and len(rows) <= line_count\n"
+        "        text = '\\n'.join(rows[:line_count])\n"
+        "    elif mode == 'tail':\n"
+        "        incomplete = more or (start > 0 and len(rows) <= line_count)\n"
+        "        text = '\\n'.join(rows[-line_count:])\n"
+        "    else:\n"
+        "        incomplete = more\n"
+        "    incomplete = incomplete or len(text) > max_chars\n"
+        "    text = text[-max_chars:] if mode == 'tail' else text[:max_chars]\n"
+        "    raw = {'text': text}\n"
+        "    if incomplete:\n"
+        "        raw.update({'error_code': 'content_truncated', 'error_message': '檔案內容超過收集上限，資料不完整；請縮小檢查範圍後重試。'})\n"
+        "    return {'ok': True, 'value': text, 'incomplete': incomplete, 'raw': raw}\n\n"
         "def command_available(command):\n"
         "    import shutil\n"
         "    return bool(shutil.which(command))\n\n"
@@ -1508,7 +1544,10 @@ def _render_script(plan: dict[str, Any]) -> str:
         "        raw.update({'error_code': 'command_failed', 'error_message': message})\n"
         "        return 'unknown', message, raw\n"
         "    if step.get('judgement_mode') == 'teacher':\n"
-        "        return 'collected', str(collected.get('value') or ''), dict(collected.get('raw') or collected)\n"
+        "        notice = str(collected['raw']['error_message']) + '\\n' if collected.get('incomplete') else ''\n"
+        "        return 'collected', notice + str(collected.get('value') or ''), dict(collected.get('raw') or collected)\n"
+        "    if collected.get('incomplete'):\n"
+        "        return 'unknown', str(collected['raw']['error_message']), dict(collected['raw'])\n"
         "    if kind == 'returncode_equals':\n"
         "        passed = collected.get('returncode') == expected\n"
         "    elif kind == 'text_equals':\n"
@@ -1541,7 +1580,7 @@ def _render_script(plan: dict[str, Any]) -> str:
         + "\n\n".join(functions)
         + "\n\ndef main():\n    checks = []\n"
         + "\n    " + "\n    ".join(calls)
-        + "\n    result = {\n        'schema_version': 'teacher_judge_result.v1',\n        'metadata': {'timestamp': datetime.now(timezone.utc).isoformat(), 'platform': platform.platform()},\n        'summary': f'{len(checks)} checks collected',\n        'checks': checks,\n        'errors': errors,\n    }\n    print(json.dumps(result, ensure_ascii=False))\n\nif __name__ == '__main__':\n    main()\n"
+        + "\n    result = {\n        'schema_version': 'teacher_judge_result.v1',\n        'metadata': {'timestamp': datetime.now(timezone.utc).isoformat(), 'platform': platform.platform()[:240]},\n        'summary': f'{len(checks)} checks collected',\n        'checks': checks,\n        'errors': [truncate_output(error, 128) for error in errors],\n    }\n    print(json.dumps(result, ensure_ascii=False))\n\nif __name__ == '__main__':\n    main()\n"
     )
 
 

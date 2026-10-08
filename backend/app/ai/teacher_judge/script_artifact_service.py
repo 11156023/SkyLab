@@ -533,15 +533,11 @@ def create_artifact_set(
                 previous.status = TeacherJudgeScriptStatus.archived
                 previous.updated_at = _now()
                 session.add(previous)
-    source_file, source_snapshot = source_file_snapshot(
+    _, source_snapshot = source_file_snapshot(
         session=session,
         teaching_class_id=teaching_class_id,
         file_id=source_file_id,
     )
-    if source_file is not None:
-        source_file.analysis_json = rubric_analysis.model_dump(mode="json")
-        source_file.updated_at = _now()
-        session.add(source_file)
     artifacts: list[TeacherJudgeScriptArtifact] = []
     for node_key, snapshot, content, policy, review in build_results:
         artifact = TeacherJudgeScriptArtifact(

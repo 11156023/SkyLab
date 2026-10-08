@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -15,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, desc, select
 
 from app.ai.monitoring import new_ai_request_id, record_ai_template_call, usage_metrics
+from app.ai.teacher_judge._types import VLLMMetrics
 from app.ai.teacher_judge.attachment_service import (
     MAX_ATTACHMENT_COUNT,
     attachment_context,
@@ -207,6 +209,7 @@ def _record_chat_failure(
     ai_started_at: datetime,
     status_code: int | None,
     error_message: str,
+    request_message_id: uuid.UUID | None = None,
 ) -> WorkflowMessage:
     """對話處理失敗時：留一則給老師看的失敗訊息，並記一筆失敗的 AI 呼叫。
 
@@ -217,14 +220,33 @@ def _record_chat_failure(
         status_code=status_code,
         source_file_id=source_file_id,
         analysis_revision=analysis_revision,
+        reason_code=(
+            "teacher_judge_workflow_timeout"
+            if error_message == "workflow_timeout"
+            else None
+        ),
     )
-    _save_workflow_message(
-        session,
-        item,
-        content=failure["content"],
-        metadata=failure["metadata"],
-        created_by=user_id,
+    # A cleared conversation must stay cleared even if its pending AI call fails.
+    origin = (
+        session.exec(
+            select(TeacherJudgeSessionMessage).where(
+                TeacherJudgeSessionMessage.id == request_message_id
+            )
+        ).first()
+        if request_message_id is not None
+        else None
     )
+    if origin is not None:
+        origin.metadata_json = {**(origin.metadata_json or {}), "processing": False}
+        session.add(origin)
+    if request_message_id is None or origin is not None:
+        _save_workflow_message(
+            session,
+            item,
+            content=failure["content"],
+            metadata=failure["metadata"],
+            created_by=user_id,
+        )
     record_ai_template_call(
         session=session,
         user_id=user_id,
@@ -646,6 +668,34 @@ def clear_messages(
     return session_public(session, item)
 
 
+@router.delete("/{session_id}/messages/{message_id}/proposal", status_code=204)
+def dismiss_message_proposal(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    message_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> None:
+    _access(session, teaching_class_id, current_user)
+    item = get_session(session, teaching_class_id, session_id)
+    ensure_active(item)
+    message = session.exec(
+        select(TeacherJudgeSessionMessage).where(
+            TeacherJudgeSessionMessage.id == message_id,
+            TeacherJudgeSessionMessage.session_id == item.id,
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.assistant,
+        )
+    ).first()
+    if message is None:
+        raise HTTPException(status_code=404, detail="Proposal message not found")
+    message.metadata_json = {
+        **(message.metadata_json or {}),
+        "proposal_dismissed": True,
+    }
+    session.add(message)
+    session.commit()
+
+
 @router.post("/{session_id}/messages", response_model=TeacherJudgeSessionChatResponse)
 async def create_message(
     teaching_class_id: uuid.UUID,
@@ -656,7 +706,39 @@ async def create_message(
 ) -> TeacherJudgeSessionChatResponse:
     _access(session, teaching_class_id, current_user)
     item = get_session(session, teaching_class_id, session_id)
+    # Serialize admission across backend workers, then release before model I/O.
+    session.exec(
+        select(TeacherJudgeSession.id)
+        .where(TeacherJudgeSession.id == item.id)
+        .with_for_update()
+    ).one()
+    session.refresh(item)
     ensure_active(item)
+    latest_user = session.exec(
+        select(TeacherJudgeSessionMessage)
+        .where(
+            TeacherJudgeSessionMessage.session_id == item.id,
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.user,
+        )
+        .order_by(
+            desc(TeacherJudgeSessionMessage.created_at),
+            desc(TeacherJudgeSessionMessage.id),
+        )
+        .limit(1)
+    ).first()
+    pending = (latest_user.metadata_json or {}) if latest_user else {}
+    if (
+        pending.get("processing")
+        and pending.get("processing_deadline", 0)
+        > datetime.now(timezone.utc).timestamp()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_request_in_progress",
+                "message": "這個檢查仍有 AI 分析進行中，請等待並重新整理回覆後再送出。",
+            },
+        )
     file = selected_file_for_chat(session, item)
     base_revision = file.analysis_revision if file else None
     if (
@@ -678,11 +760,19 @@ async def create_message(
             detail=t("teacherJudgeSessions.messageOrAttachmentRequired"),
         )
     attachments = get_pending_attachments(session, item.id, payload.attachment_ids)
+    ai_started = perf_counter()
+    ai_started_at = datetime.now(timezone.utc)
+    deadline = ai_started + teacher_judge_settings.REQUEST_TIMEOUT_SECONDS
     user_message = TeacherJudgeSessionMessage(
         session_id=item.id,
         role=TeacherJudgeMessageRole.user,
         content=redact_message_content(payload.content.strip()),
-        metadata_json={"ui_hidden": True} if payload.is_refine else {},
+        metadata_json={
+            **({"ui_hidden": True} if payload.is_refine else {}),
+            "processing": True,
+            "processing_deadline": ai_started_at.timestamp()
+            + teacher_judge_settings.REQUEST_TIMEOUT_SECONDS,
+        },
         created_by=current_user.id,
     )
     session.add(user_message)
@@ -690,9 +780,9 @@ async def create_message(
     bind_attachments_to_message(session, attachments, user_message.id)
     session.commit()
     session.refresh(user_message)
+    request_message_id = user_message.id
+    source_file_id = file.id if file else None
     ai_request_id = new_ai_request_id()
-    ai_started = perf_counter()
-    ai_started_at = datetime.now(timezone.utc)
     try:
         legacy_command_context = uses_legacy_command_context(
             file.analysis_json if file else None
@@ -722,6 +812,7 @@ async def create_message(
             file, legacy_command_context
         )
         prompt_attachment_context = attachment_context(attachments)
+        teacher_message_content = user_message.content
         use_itemwise = bool(attachments) and not payload.is_refine
         history = (
             None
@@ -729,59 +820,69 @@ async def create_message(
             else bounded_history(
                 session,
                 item.id,
-                exclude_attachments_for_message_id=user_message.id,
+                exclude_attachments_for_message_id=request_message_id,
                 summary=item.summary,
-                source_file_id=file.id if file else None,
+                source_file_id=source_file_id,
                 analysis_revision=base_revision,
                 summary_through_message_id=item.summary_through_message_id,
             )
         )
         end_read_transaction(session)
-        if use_itemwise:
-            # Attachment analysis runs itemwise: extract source rows first, then
-            # judge each row through the same isolated single-item chat core so
-            # one row's Ready reasoning cannot leak into the other rows.
-            itemwise = await analyze_attachments_itemwise(
-                rubric_context=rubric_context,
-                template_key=template_key,
-                template_commands=template_commands,
-                environment_keys=environment_keys,
-                machine_context=machine_context,
-                machine_entries=machine_entries,
-                attachment_context=prompt_attachment_context,
-                analysis_revision=base_revision,
-                rubric_available=file is not None,
-            )
-            reply, proposal, metrics = (
-                itemwise.reply,
-                itemwise.proposal,
-                itemwise.metrics,
-            )
-            item_results = itemwise.item_results
-            itemwise_error = getattr(itemwise, "error", None)
-            if itemwise_error:
-                reply = (
-                    "這次無法逐項核查附件，處理階段沒有完成；請確認附件內容後再試一次。"
+
+        async def generate() -> tuple[str, list[dict[str, Any]] | None, VLLMMetrics]:
+            nonlocal item_results, itemwise_error, conversation_focus, tool_calls
+            if use_itemwise:
+                # Attachment analysis runs itemwise: extract source rows first, then
+                # judge each row through the same isolated single-item chat core so
+                # one row's Ready reasoning cannot leak into the other rows.
+                itemwise = await analyze_attachments_itemwise(
+                    teacher_message=teacher_message_content,
+                    rubric_context=rubric_context,
+                    template_key=template_key,
+                    template_commands=template_commands,
+                    environment_keys=environment_keys,
+                    machine_context=machine_context,
+                    machine_entries=machine_entries,
+                    attachment_context=prompt_attachment_context,
+                    analysis_revision=base_revision,
+                    rubric_available=file is not None,
                 )
-        else:
-            chat_result = await chat_with_rubric(
-                history or [],
-                rubric_context,
-                is_refine=payload.is_refine,
-                template_key=template_key,
-                template_commands=template_commands,
-                environment_keys=environment_keys,
-                machine_context=machine_context,
-                machine_entries=machine_entries,
-                attachment_context=prompt_attachment_context,
-                analysis_revision=base_revision,
-                rubric_available=file is not None,
+                reply, proposal, metrics = (
+                    itemwise.reply,
+                    itemwise.proposal,
+                    itemwise.metrics,
+                )
+                item_results = itemwise.item_results
+                itemwise_error = getattr(itemwise, "error", None)
+            else:
+                chat_result = await chat_with_rubric(
+                    history or [],
+                    rubric_context,
+                    is_refine=payload.is_refine,
+                    template_key=template_key,
+                    template_commands=template_commands,
+                    environment_keys=environment_keys,
+                    machine_context=machine_context,
+                    machine_entries=machine_entries,
+                    attachment_context=prompt_attachment_context,
+                    analysis_revision=base_revision,
+                    rubric_available=file is not None,
+                )
+                reply, proposal, metrics = chat_result
+                focus = getattr(chat_result, "conversation_focus", None)
+                if isinstance(focus, dict):
+                    conversation_focus = focus
+                tool_calls = getattr(chat_result, "tool_calls", None)
+            return reply, proposal, metrics
+
+        try:
+            reply, proposal, metrics = await asyncio.wait_for(
+                generate(), timeout=max(0, deadline - perf_counter())
             )
-            reply, proposal, metrics = chat_result
-            focus = getattr(chat_result, "conversation_focus", None)
-            if isinstance(focus, dict):
-                conversation_focus = focus
-            tool_calls = getattr(chat_result, "tool_calls", None)
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(
+                status_code=504, detail="teacher_judge_workflow_timeout"
+            ) from exc
         # Without a selected rubric the conversation is general assistance only;
         # do not let an unconstrained model response create an unreviewed proposal.
         if file is None and proposal:
@@ -806,6 +907,10 @@ async def create_message(
                 tool_calls=tool_calls,
             )
             reply = workflow["content"]
+        if perf_counter() >= deadline:
+            raise HTTPException(
+                status_code=504, detail="teacher_judge_workflow_timeout"
+            )
         assistant = TeacherJudgeSessionMessage(
             session_id=item.id,
             role=TeacherJudgeMessageRole.assistant,
@@ -818,8 +923,10 @@ async def create_message(
                 itemwise_error=itemwise_error,
                 conversation_focus=conversation_focus,
                 tool_calls=tool_calls,
-                source_file_id=file.id if file else None,
+                source_file_id=source_file_id,
                 analysis_revision=base_revision,
+                proposal=proposal,
+                is_refine=payload.is_refine,
             ),
         )
     except HTTPException as exc:
@@ -827,13 +934,18 @@ async def create_message(
             session,
             item,
             user_id=current_user.id,
-            source_file_id=file.id if file else None,
+            source_file_id=source_file_id,
             analysis_revision=base_revision,
             ai_request_id=ai_request_id,
             ai_started=ai_started,
             ai_started_at=ai_started_at,
             status_code=exc.status_code,
-            error_message=f"http_{exc.status_code}",
+            error_message=(
+                "workflow_timeout"
+                if exc.detail == "teacher_judge_workflow_timeout"
+                else f"http_{exc.status_code}"
+            ),
+            request_message_id=request_message_id,
         )
         raise HTTPException(
             status_code=exc.status_code,
@@ -848,15 +960,79 @@ async def create_message(
             session,
             item,
             user_id=current_user.id,
-            source_file_id=file.id if file else None,
+            source_file_id=source_file_id,
             analysis_revision=base_revision,
             ai_request_id=ai_request_id,
             ai_started=ai_started,
             ai_started_at=ai_started_at,
             status_code=None,
             error_message=str(exc),
+            request_message_id=request_message_id,
         )
         raise
+    # Source changes clear the conversation while this request may still be
+    # waiting on the model.  Revalidate before saving the generated answer so
+    # an old response cannot be attached to the new rubric context.
+    session.refresh(item)
+    ensure_active(item)
+    current_file = selected_file_for_chat(session, item)
+    if current_file is not None:
+        session.refresh(current_file)
+        current_file = selected_file_for_chat(session, item)
+    request_exists = (
+        session.exec(
+            select(TeacherJudgeSessionMessage.id).where(
+                TeacherJudgeSessionMessage.id == request_message_id
+            )
+        ).first()
+        is not None
+    )
+    if (
+        not request_exists
+        or (current_file.id if current_file else None) != source_file_id
+        or (current_file.analysis_revision if current_file else None) != base_revision
+    ):
+        if request_exists:
+            user_message.metadata_json = {
+                **(user_message.metadata_json or {}),
+                "processing": False,
+            }
+            session.add(user_message)
+            session.commit()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_context_changed",
+                "message": t("teacherJudgeSessions.analysisRevisionConflict"),
+                "analysis_revision": current_file.analysis_revision
+                if current_file
+                else None,
+            },
+        )
+    if perf_counter() >= deadline:
+        failure = _record_chat_failure(
+            session,
+            item,
+            user_id=current_user.id,
+            source_file_id=source_file_id,
+            analysis_revision=base_revision,
+            ai_request_id=ai_request_id,
+            ai_started=ai_started,
+            ai_started_at=ai_started_at,
+            status_code=504,
+            error_message="workflow_timeout",
+            request_message_id=request_message_id,
+        )
+        raise HTTPException(status_code=504, detail=failure["content"])
+    item.last_activity_at = get_datetime_utc()
+    item.updated_at = item.last_activity_at
+    user_message.metadata_json = {
+        **(user_message.metadata_json or {}),
+        "processing": False,
+    }
+    session.add_all([assistant, item, user_message])
+    session.commit()
+    session.refresh(assistant)
     record_ai_template_call(
         session=session,
         user_id=current_user.id,
@@ -871,34 +1047,12 @@ async def create_message(
             "completed_at": datetime.now(timezone.utc),
         },
     )
-    # Source changes clear the conversation while this request may still be
-    # waiting on the model.  Revalidate before saving the generated answer so
-    # an old response cannot be attached to the new rubric context.
-    session.refresh(item)
-    ensure_active(item)
-    current_file = selected_file_for_chat(session, item)
-    if current_file is not None:
-        session.refresh(current_file)
-        current_file = selected_file_for_chat(session, item)
-    if (current_file.id if current_file else None) != (file.id if file else None) or (
-        current_file.analysis_revision if current_file else None
-    ) != base_revision:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "teacher_judge_context_changed",
-                "message": t("teacherJudgeSessions.analysisRevisionConflict"),
-                "analysis_revision": current_file.analysis_revision
-                if current_file
-                else None,
-            },
+    try:
+        schedule_summary(session, item, boundary_message_id=assistant.id)
+    except Exception:
+        logger.exception(
+            "Unable to schedule Teacher Judge summary for %s", assistant.id
         )
-    item.last_activity_at = get_datetime_utc()
-    item.updated_at = item.last_activity_at
-    session.add_all([assistant, item])
-    session.commit()
-    session.refresh(assistant)
-    schedule_summary(session, item, boundary_message_id=assistant.id)
     return TeacherJudgeSessionChatResponse(
         user_message=message_public(user_message, attachments),
         assistant_message=message_public(assistant),
