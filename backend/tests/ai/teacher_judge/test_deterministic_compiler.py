@@ -358,6 +358,71 @@ def test_typed_step_cannot_mix_flat_fields() -> None:
         )
 
 
+@pytest.mark.parametrize("kind", ["file_text", "file_stat"])
+@pytest.mark.parametrize("absolute_target", [False, True])
+def test_file_collector_reads_selected_project_not_script_directory(tmp_path, kind, absolute_target):
+    project = tmp_path / "student project"
+    project.mkdir()
+    target = project / ".env"
+    target.write_bytes(b"COURSE=demo\n")
+    if kind == "file_text":
+        (tmp_path / ".env").write_bytes(b"WRONG_PROJECT=true\n")
+    analysis = _analysis(
+        {
+            "type": kind,
+            "path": str(target) if absolute_target else ".env",
+            "cwd": str(tmp_path) if absolute_target else str(project),
+        },
+        None,
+        judgement_mode="teacher",
+    )
+    script, _, _, _ = compile_check_plan(analysis, target_node_key="web")
+    script_path = tmp_path / "check.py"
+    script_path.write_text(script, encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(script_path)], cwd=tmp_path,
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["errors"] == []
+    check = payload["checks"][0]
+    assert check["status"] == "collected"
+    raw = json.loads(check["raw"])
+    assert raw == ({"text": "COURSE=demo\n"} if kind == "file_text" else {"exists": True})
+
+
+@pytest.mark.parametrize("argv", [
+    ["find", "/srv/student", "-delete"],
+    ["rm", "-rf", "/srv/student"],
+    ["python3", "-c", "print(1)"],
+    ["systemctl", "restart", "nginx"],
+])
+def test_known_directory_never_bypasses_command_policy(argv):
+    with pytest.raises(CheckPlanContractError):
+        compile_check_plan(
+            _analysis(
+                {"type": "command", "argv": argv, "cwd": "/srv/student"},
+                None, judgement_mode="teacher",
+            ), target_node_key="web",
+        )
+
+
+def test_compiled_template_still_undergoes_static_safety_check(monkeypatch):
+    from app.ai.teacher_judge import deterministic_compiler as compiler
+
+    render = compiler._render_script
+    monkeypatch.setattr(
+        compiler, "_render_script",
+        lambda plan: render(plan) + "\nimport shutil\nshutil.rmtree('/tmp/example')\n",
+    )
+    with pytest.raises(CheckPlanContractError, match="靜態安全契約"):
+        compile_check_plan(
+            _analysis({"type": "command", "argv": ["python3", "--version"]}, None,
+                      judgement_mode="teacher"),
+            target_node_key="web",
+        )
+
+
 def test_step_ids_are_unique_within_a_node_plan() -> None:
     analysis = _analysis(
         {"type": "file_stat", "path": "/tmp/ready.marker"},

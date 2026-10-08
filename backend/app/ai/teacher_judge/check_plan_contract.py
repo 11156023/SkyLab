@@ -7,6 +7,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.ai.teacher_judge.execution_paths import (
+    absolute_execution_path,
+    is_generated_location_gap,
+    optional_cwd,
+)
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeRubricItem,
@@ -127,6 +132,67 @@ def typed_item_issues(
     except CheckPlanContractError as exc:
         return exc.issues
     return []
+
+
+def reconcile_finalizer_locations(
+    current: dict[str, Any], candidate: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Keep known locations when reviewing the same item/node/step/input.
+
+    This is only for Save/Create review, never an ordinary teacher edit. A
+    missing optional field in a regenerated step must not erase known execution
+    information. Explicit new absolute locations remain intentional changes.
+    """
+    from app.ai.teacher_judge.deterministic_compiler import missing_execution_location
+
+    try:
+        previous = TeacherJudgeRubricItem.model_validate(current)
+    except ValidationError:
+        return candidate, []
+    if previous.detectable != "auto" or typed_item_issues(previous):
+        return candidate, []
+    if any(current.get(key) != candidate.get(key) for key in ("id", "target_node_key", "peer_node_key")):
+        return candidate, []
+
+    result = deepcopy(candidate)
+    prior_steps = {step.id: step for step in previous.check_steps}
+    issues: list[dict[str, Any]] = []
+    for index, step in enumerate(result.get("check_steps") or []):
+        old_step = prior_steps.get(step.get("id"))
+        collector = step.get("collector")
+        if old_step is None or old_step.collector is None or not isinstance(collector, dict):
+            continue
+        old = old_step.collector.model_dump(mode="json")
+        kind = collector.get("type")
+        input_key = "argv" if kind == "command" else "path"
+        if kind not in {"command", "file_text", "file_stat"} or (
+            kind != old.get("type") or collector.get(input_key) != old.get(input_key)
+        ):
+            continue
+        if optional_cwd(collector.get("cwd")) is None:
+            collector["cwd"] = old.get("cwd")
+        elif not absolute_execution_path(collector["cwd"]):
+            issues.append({
+                "item_id": previous.id, "step_id": step.get("id"), "step_index": index,
+                "field": f"check_steps[{index}].collector.cwd",
+                "message": "核對修改把既有執行位置改成無效值；請保留目前項目的 collector.cwd，不需要老師補資料。",
+            })
+
+    steps = result.get("check_steps") or []
+    if steps and all(
+        isinstance(step.get("collector"), dict)
+        and not missing_execution_location(step["collector"])
+        for step in steps
+    ):
+        claimed = result.get("missing_information") or []
+        if not isinstance(claimed, list):
+            return result, issues
+        remaining = [gap for gap in claimed if not isinstance(gap, str) or not is_generated_location_gap(gap)]
+        if remaining != claimed:
+            result["missing_information"] = remaining
+            if result.get("detectable") == "partial" and not remaining:
+                result["detectable"] = "auto"
+    return result, issues
 
 
 def analysis_write_issues(

@@ -631,7 +631,7 @@ describe("SaveAndCreateAction", () => {
     const html = renderToStaticMarkup(<SaveAndCreateAction onClick={() => {}} />);
 
     expect(html).toContain("儲存並製作");
-    expect(html).toContain("AI 核對全部項目；全部通過就會直接製作腳本");
+    expect(html).toContain("通過後自動保存核對結果、製作腳本，並前往導師核查");
     expect(html).toContain("save");
   });
 
@@ -852,6 +852,28 @@ describe("RubricTable", () => {
     expect(html).toContain("http://localhost:3000/health");
     expect(html).toContain("由執行節點觀察");
     expect(html).not.toContain("peer-secret-key");
+  });
+
+  test("檔案項目標出目錄與相對路徑，版本項目可省略目錄", () => {
+    const renderItem = (collector) => renderToStaticMarkup(
+      <RubricTable
+        items={[{
+          id: "located-item", title: "檢查項目", detectable: "auto",
+          judgement_mode: "teacher", detection_method: "收集內容",
+          check_steps: [{ id: "collect", title: "收集", collector }],
+        }]}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const fileHtml = renderItem({ type: "file_text", path: ".env", cwd: "/srv/student project" });
+    expect(fileHtml).toContain("工作目錄");
+    expect(fileHtml).toContain("/srv/student project");
+    expect(fileHtml).toContain(".env");
+    const versionHtml = renderItem({ type: "command", argv: ["python3", "--version"], cwd: null });
+    expect(versionHtml).toContain("python3 --version");
+    expect(versionHtml).not.toContain("工作目錄");
+    expect(versionHtml).not.toContain("缺少資訊");
   });
 
   test("展開後顯示執行契約、判定模式與 assertion", async () => {

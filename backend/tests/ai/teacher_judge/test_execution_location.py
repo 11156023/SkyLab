@@ -15,6 +15,7 @@ from app.ai.teacher_judge.automation_support import get_script_generation_blocke
 from app.ai.teacher_judge.deterministic_compiler import (
     CheckPlanContractError,
     canonicalize_check_plan,
+    compile_check_plan,
     missing_execution_location,
 )
 from app.ai.teacher_judge.schemas import (
@@ -74,6 +75,14 @@ def _typed(collector: dict) -> dict:
         {"type": "command", "argv": ["cat", "~/result.txt"], "cwd": "/srv"},
         {"type": "file_text", "path": "result.txt"},
         {"type": "file_stat", "path": "./result.txt"},
+        {"type": "command", "argv": ["cat", ".env"], "cwd": ""},
+        {"type": "command", "argv": ["python3", "main.py"], "cwd": "  "},
+        {"type": "file_text", "path": ".env", "cwd": ""},
+        {"type": "file_stat", "path": ".env", "cwd": "  "},
+        {"type": "file_text", "path": ".env", "cwd": "~/project"},
+        {"type": "file_stat", "path": ".env", "cwd": "project"},
+        {"type": "file_text", "path": "~/.env", "cwd": "/srv/student"},
+        {"type": "file_stat", "path": "$HOME/.env", "cwd": "/srv/student"},
     ],
 )
 def test_proposal_readiness_and_compiler_agree_on_unresolved_paths(collector) -> None:
@@ -121,6 +130,79 @@ def test_proposal_readiness_and_compiler_agree_on_unresolved_paths(collector) ->
 def test_known_paths_and_location_independent_queries_remain_ready(collector) -> None:
     analysis = TeacherJudgeRubricAnalysis(items=[_candidate(_typed(collector))])
     assert get_script_generation_blockers(analysis, [], require_typed_plan=True) == []
+
+
+@pytest.mark.parametrize("cwd", [None, "", "  \t"])
+@pytest.mark.parametrize("argv", [
+    ["python3", "--version"],
+    ["systemctl", "is-active", "nginx"],
+    ["lscpu"],
+    ["cat", "/srv/student/.env"],
+])
+def test_optional_directory_survives_normalization_save_and_compile(cwd, argv, monkeypatch):
+    from app.ai.teacher_judge import file_service
+
+    raw = _candidate(_typed({"type": "command", "argv": argv, "cwd": cwd}))
+    item = service._normalize_rubric_items([raw])[0]
+    assert item.detectable == "auto"
+    assert item.missing_information == []
+    analysis = TeacherJudgeRubricAnalysis(items=[item])
+    with make_session() as db:
+        class_id = uuid.uuid4()
+        file = make_teacher_judge_file(db, class_id)
+        monkeypatch.setattr(file_service, "load_class_machine_nodes", lambda *_: [])
+        saved = file_service.update_file_analysis(
+            session=db, teaching_class_id=class_id, file_id=file.id, analysis=analysis,
+        )
+        restored = TeacherJudgeRubricAnalysis.model_validate(saved.analysis_json)
+    assert restored.items[0].check_steps[0].collector.cwd is None
+    assert get_script_generation_blockers(restored, [], require_typed_plan=True) == []
+    restored.items[0].target_node_key = "web"
+    _, policy, _, _ = compile_check_plan(restored, target_node_key="web")
+    assert policy["approved"] is True
+
+
+@pytest.mark.parametrize("kind", ["file_text", "file_stat"])
+def test_file_collectors_accept_explicit_directory(kind, monkeypatch):
+    from app.ai.teacher_judge import file_service
+
+    raw = _candidate(_typed({"type": kind, "path": ".env", "cwd": "/srv/student"}))
+    item = service._normalize_rubric_items([raw])[0]
+    assert item.detectable == "auto"
+    analysis = TeacherJudgeRubricAnalysis(items=[item])
+    with make_session() as db:
+        class_id = uuid.uuid4()
+        file = make_teacher_judge_file(db, class_id)
+        monkeypatch.setattr(file_service, "load_class_machine_nodes", lambda *_: [])
+        saved = file_service.update_file_analysis(
+            session=db, teaching_class_id=class_id, file_id=file.id, analysis=analysis,
+        )
+        analysis = TeacherJudgeRubricAnalysis.model_validate(saved.analysis_json)
+    assert get_script_generation_blockers(analysis, [], require_typed_plan=True) == []
+    analysis.items[0].target_node_key = "web"
+    script, policy, _, plan = compile_check_plan(analysis, target_node_key="web")
+    assert policy["approved"] is True
+    assert '/srv/student/.env' in script
+    assert plan["items"][0]["check_steps"][0]["collector"]["cwd"] == "/srv/student"
+
+
+def test_separately_valid_commands_do_not_trigger_cross_step_deny_pattern():
+    items = []
+    for index, argv in enumerate([
+        ["find", "/srv/student", "-name", "*.py"],
+        ["cat", "/srv/student/to-delete.txt"],
+    ]):
+        item = _candidate(_typed({"type": "command", "argv": argv}))
+        item.update(id=f"item-{index}", target_node_key="web")
+        item["check_steps"][0]["id"] = f"step-{index}"
+        analysis = TeacherJudgeRubricAnalysis(items=[item])
+        assert get_script_generation_blockers(analysis, [], require_typed_plan=True) == []
+        items.append(item)
+    script, policy, _, _ = compile_check_plan(
+        TeacherJudgeRubricAnalysis(items=items), target_node_key="web",
+    )
+    assert policy["approved"] is True
+    assert "to-delete.txt" in script
 
 
 def test_module_package_query_does_not_ask_for_student_directory() -> None:
@@ -226,6 +308,41 @@ async def test_followup_with_directory_clears_gap_and_stages_update(
     assert result.proposal[0]["detectable"] == "auto"
     assert result.proposal[0]["missing_information"] == []
     assert result.proposal[0]["check_steps"][0]["collector"]["cwd"] == "/srv/student"
+
+
+@pytest.mark.parametrize("refine", [False, True])
+async def test_file_directory_followup_clears_old_gap_in_chat_and_finalizer(monkeypatch, refine):
+    from app.ai.teacher_judge.session_service import (
+        apply_proposal_operations_to_analysis,
+    )
+
+    raw = _candidate(_typed({"type": "file_text", "path": ".env"}))
+    raw.update(detectable="partial", missing_information=[".env 所在的工作目錄"])
+    calls, fake = scripted_vllm([
+        tool_call_message("get_checklist_item", {"id": "program"}),
+        tool_call_message("edit_checklist_item", {
+            "id": "program", "detectable": "auto", "check_steps": [
+                _typed({"type": "file_text", "path": ".env", "cwd": "/srv/student"}),
+            ],
+        }),
+        reply_message("已補上工作目錄。", "ready"),
+    ])
+    monkeypatch.setattr(service, "_call_vllm_message", fake)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+    result = await service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content=".env 在 /srv/student，收集內容供我檢查")],
+        rubric_context=json.dumps({"items": [raw]}), template_key="linux",
+        rubric_available=True, is_refine=refine,
+    )
+    assert len(calls) == 3
+    assert result.proposal[0]["missing_information"] == []
+    candidate = apply_proposal_operations_to_analysis(
+        TeacherJudgeRubricAnalysis(items=[raw]), result.proposal,
+    )
+    assert get_script_generation_blockers(candidate, [], require_typed_plan=True) == []
+    candidate.items[0].target_node_key = "web"
+    _, policy, _, _ = compile_check_plan(candidate, target_node_key="web")
+    assert policy["approved"] is True
 
 
 @pytest.mark.parametrize("stage", ["refine", "create"])

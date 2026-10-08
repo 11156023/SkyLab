@@ -32,6 +32,7 @@ from app.ai.teacher_judge.automation_support import (
 )
 from app.ai.teacher_judge.check_plan_contract import (
     TYPED_STEP_REPAIR_HINT,
+    reconcile_finalizer_locations,
     typed_item_issues,
     typed_step_issues,
     typed_step_tool_schema,
@@ -1831,7 +1832,6 @@ def _execute_checklist_tool(
     tool_calls: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Record early schema/argument errors as well as normalized rejections."""
-    del finalizer  # Review mode does not change the write contract.
     before = len(tool_calls)
     result = _dispatch_checklist_tool(
         name,
@@ -1842,6 +1842,7 @@ def _execute_checklist_tool(
         template_commands=template_commands,
         machine_entries=machine_entries,
         ready_only=ready_only,
+        finalizer=finalizer,
         read_ids=read_ids,
         staged_ops=staged_ops,
         rejected_ops=rejected_ops,
@@ -1901,6 +1902,7 @@ def _dispatch_checklist_tool(
     template_commands: list[TeacherJudgeTemplateCommand] | None,
     machine_entries: list[dict[str, Any]] | None = None,
     ready_only: bool,
+    finalizer: bool = False,
     read_ids: set[str],
     staged_ops: list[dict[str, Any]],
     rejected_ops: list[tuple[TeacherJudgeRubricItem, dict[str, Any], str]],
@@ -1963,7 +1965,14 @@ def _dispatch_checklist_tool(
                 "title": str(current_raw.get("title") or ""),
             },
         )
-        return {"analysis_revision": analysis_revision, "item": current_raw}
+        blockers = _finalizer_completion_blockers(
+            [current_raw], [], template_commands=template_commands,
+            machine_entries=machine_entries,
+        )
+        return {
+            "analysis_revision": analysis_revision, "item": current_raw,
+            "execution_readiness": {"ready": not blockers, "blockers": blockers},
+        }
 
     if name == _CREATE_CHECKLIST_ITEM_TOOL_NAME:
         if set(arguments) - set(_PROPOSAL_FILL_PROPERTIES):
@@ -2109,6 +2118,15 @@ def _dispatch_checklist_tool(
             )
             if issues:
                 return _contract_tool_error(issues, item_id=item_id)
+        if finalizer:
+            raw_candidate, issues = reconcile_finalizer_locations(current_raw, raw_candidate)
+            if issues:
+                return {
+                    **_contract_tool_error(issues, item_id=item_id),
+                    "teacher_input_required": False,
+                    "repair_hint": "保留此項目既有的執行位置與全部步驟。若未改變檢查內容，可省略修改；cwd=null 表示不需要切換目錄。",
+                    "current_check_steps": current_raw.get("check_steps"),
+                }
         candidate_list = _normalize_rubric_items(
             [raw_candidate],
             template_key=template_key,
@@ -2136,6 +2154,9 @@ def _dispatch_checklist_tool(
         if current_normalized and _proposal_item_value(
             current_normalized[0].model_dump()
         ) == _proposal_item_value(candidate.model_dump()):
+            # Returning to the saved contract also supersedes an earlier
+            # staged edit for this item; otherwise an old downgrade survives.
+            staged_ops[:] = [entry for entry in staged_ops if entry["item"].id != item_id]
             tool_calls.append(
                 {
                     "tool": name,
@@ -2147,6 +2168,7 @@ def _dispatch_checklist_tool(
             return {
                 "staged": None,
                 "item_id": item_id,
+                "unchanged": True,
                 "note": "內容與目前檢查表相同，未建立修改提案。",
             }
         rejection = _proposal_candidate_rejection(
@@ -2542,10 +2564,11 @@ async def _run_proposal_tool_loop(
                     result["error"],
                 )
             else:
+                write_accepted = bool(result.get("staged") or result.get("unchanged"))
                 for key, error in list(pending_errors.items()):
                     read_repaired = tool_name in {_LIST_CHECKLIST_TOOL_NAME, _GET_CHECKLIST_ITEM_TOOL_NAME} and error.get("tool") == tool_name
                     anonymous_repaired = key == f"{tool_name}:" and error.get("reason_code") == "tool_arguments_invalid"
-                    if read_repaired or (result.get("staged") and (
+                    if read_repaired or (write_accepted and (
                         key == attempt_key
                         or anonymous_repaired
                         or (
@@ -2557,7 +2580,7 @@ async def _run_proposal_tool_loop(
                         for outcome in tool_outcomes:
                             if outcome.get("attempt_key") == key:
                                 outcome["resolved"] = True
-                if result.get("staged"):
+                if write_accepted:
                     for outcome in tool_outcomes:
                         if outcome.get("attempt_key") == attempt_key and outcome.get(
                             "reason"

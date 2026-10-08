@@ -19,6 +19,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.ai.teacher_judge.execution_paths import optional_cwd
 from app.ai.teacher_judge.template_command_service import (
     SUPPORTED_TEMPLATE_KEYS,
     sanitize_check_step_parameters,
@@ -50,12 +51,24 @@ def sanitize_rubric_missing_information(value: Any) -> Any:
     ]
 
 
-class TeacherJudgeCommandCollector(BaseModel):
+class TeacherJudgeLocatedCollector(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    cwd: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Optional absolute working directory; needed only to locate relative file inputs. Blank means omitted.",
+    )
+
+    @field_validator("cwd")
+    @classmethod
+    def normalize_cwd(cls, value: str | None) -> str | None:
+        return optional_cwd(value)
+
+
+class TeacherJudgeCommandCollector(TeacherJudgeLocatedCollector):
     type: Literal["command"]
     argv: list[str] = Field(..., min_length=1, max_length=32)
-    cwd: str | None = Field(default=None, max_length=1024)
     timeout_seconds: int = Field(default=30, ge=1, le=300)
 
     @field_validator("argv")
@@ -66,9 +79,7 @@ class TeacherJudgeCommandCollector(BaseModel):
         return value
 
 
-class TeacherJudgeFileTextCollector(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class TeacherJudgeFileTextCollector(TeacherJudgeLocatedCollector):
     type: Literal["file_text"]
     path: str = Field(..., min_length=1, max_length=1024)
     encoding: Literal["utf-8"] = "utf-8"
@@ -85,9 +96,7 @@ class TeacherJudgeFileTextCollector(BaseModel):
         return self
 
 
-class TeacherJudgeFileStatCollector(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class TeacherJudgeFileStatCollector(TeacherJudgeLocatedCollector):
     type: Literal["file_stat"]
     path: str = Field(..., min_length=1, max_length=1024)
 

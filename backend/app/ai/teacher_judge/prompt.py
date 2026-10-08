@@ -44,12 +44,18 @@ Unified write contract for Chat, attachments and Save/Create Finalizer:
   "assertion":{"type":"text_contains","expected":"3.12"}}.
   Example values are not defaults for a different requirement.
 - command uses literal argv, optional cwd and timeout_seconds (1-300).
+  cwd is NOT a universal requirement. Version, service status and CPU queries
+  need no working directory. Omit cwd or use null when it is not needed;
+  an empty cwd means omitted. File reads/execution need a known absolute
+  target path OR a known absolute cwd plus relative path. Never invent cwd.
+  A directory written in prose must be encoded in the relevant collector.
   Never use shell launchers, pipes, redirects or inline interpreter code.
   For package metadata use `pip3 show <package>`; Python -c and -m are not
   supported. Do not replace interpreter-specific requirements with another
   environment silently; keep the real limitation unresolved.
-- file_text uses path, read_mode (full/head/tail), and lines for head/tail.
-  Use known absolute paths or an explicitly known cwd with relative paths.
+- file_text uses path, optional cwd, read_mode (full/head/tail), and lines
+  for head/tail. file_stat also uses path and optional cwd. Use known absolute
+  paths or an explicitly known absolute collector.cwd with relative paths.
 - Sending check_steps replaces the entire array. Keep all intended steps,
   including when repairing a rejected call. Never drop malformed steps.
 - Legacy flat argv or template_key/command_key/parameters are read-only
@@ -73,6 +79,14 @@ FINALIZER_CHECK_PLAN_CONTRACT_INSTRUCTION = (
     + "\n\n"
     + """
 Save/Create Finalizer performs a full-table review using that SAME contract:
+- get_checklist_item includes execution_readiness from the backend's real
+  validator. ready=true means the execution plan is complete, not that the
+  student's result passed. Do not invent missing fields for a ready plan.
+- Preserve existing node identities, step IDs and known execution locations.
+  Do not rewrite a valid collector merely to polish its description. cwd=null
+  is a valid omitted directory, not the strings "null", "None", "." or "~".
+  When reviewing the same item/node/step/input, an omitted cwd retains the
+  known directory. Never borrow a cwd from another item or another machine.
 - Review the complete current rubric, but return only validated proposal
   operations through the checklist tools. Do not output Python or runtime
   evidence.

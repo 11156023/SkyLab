@@ -14,6 +14,12 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from app.ai.teacher_judge.execution_paths import (
+    CWD_LOCATION_GAP,
+    absolute_execution_path,
+    optional_cwd,
+    resolved_file_path,
+)
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricAnalysis
 from app.ai.teacher_judge.script_policy import (
     PEER_IP_TOKEN,
@@ -24,7 +30,7 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
-DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v2"
+DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v3"
 _ASSERTION_TYPES_BY_COLLECTOR = {
     "command": {"returncode_equals", "text_equals", "text_contains", "number_compare", "json_path_equals"},
     "file_text": {"text_equals", "text_contains", "number_compare", "json_path_equals"},
@@ -504,14 +510,6 @@ def _script_path_is_unsafe(operand: str, extensions: tuple[str, ...], cwd: str |
     )
 
 
-def _absolute_execution_path(value: Any) -> bool:
-    """Check path syntax without resolving a student's path on the API host."""
-    if not isinstance(value, str) or not value.strip():
-        return False
-    path = value.replace("\\", "/")
-    return path.startswith("/") or re.match(r"^[A-Za-z]:/", path) is not None
-
-
 def _file_command_operands(command: str, args: list[str]) -> list[str]:
     """Separate filenames from common read-command options and expressions.
 
@@ -607,19 +605,24 @@ def missing_execution_location(collector: dict[str, Any]) -> list[str]:
     A command may omit cwd only when its inputs can be located independently.
     """
     collector_type = collector.get("type")
+    if collector_type not in {"command", "file_text", "file_stat"}:
+        return []
+    cwd = optional_cwd(collector.get("cwd"))
+    if cwd is not None and not absolute_execution_path(cwd):
+        return [CWD_LOCATION_GAP]
     if collector_type in {"file_text", "file_stat"}:
         path = collector.get("path")
-        return [] if _absolute_execution_path(path) else [
+        located = (
+            isinstance(path, str) and bool(path.strip())
+            and not path.startswith(("~", "$"))
+            and (absolute_execution_path(path) or absolute_execution_path(cwd))
+        )
+        return [] if located else [
             f"檔案「{path or '未指定'}」的完整路徑（或提供工作目錄與相對路徑）"
         ]
-    if collector_type != "command":
-        return []
     argv = collector.get("argv")
     if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
         return []
-    cwd = collector.get("cwd")
-    if cwd is not None and not _absolute_execution_path(cwd):
-        return ["工作目錄的完整路徑（不可使用空白、相對路徑或 ~）"]
     command = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     args = argv[1:]
     paths: list[str] = []
@@ -660,7 +663,7 @@ def missing_execution_location(collector: dict[str, Any]) -> list[str]:
         path for path in paths
         if path != "-" and (
             path.startswith(("~", "$"))
-            or (not _absolute_execution_path(path) and not _absolute_execution_path(cwd))
+            or (not absolute_execution_path(path) and not absolute_execution_path(cwd))
         )
     ]
     return [
@@ -1353,7 +1356,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
     elif collector_type == "file_text":
         lines.extend(
             [
-                f"        path = Path({_json_literal(collector['path'])})",
+                f"        path = Path({_json_literal(resolved_file_path(collector))})",
                 "        with path.open('rb') as handle:",
                 "            if handle.seekable():",
                 "                handle.seek(0, 2)",
@@ -1371,7 +1374,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
     elif collector_type == "file_stat":
         lines.extend(
             [
-                f"        path = Path({_json_literal(collector['path'])})",
+                f"        path = Path({_json_literal(resolved_file_path(collector))})",
                 "        exists = path.exists()",
                 "        collected = {'ok': True, 'value': exists, 'raw': {'exists': exists}}",
             ]
@@ -1543,13 +1546,14 @@ def _render_script(plan: dict[str, Any]) -> str:
 
 
 # Plan fields whose values shape the generated code or are policy-relevant
-# (URLs for the localhost check, argv); every other string is inert data.
+# (URLs for the localhost check). Command argv is already validated per step;
+# scanning it again as script-wide text can join unrelated commands into a
+# false deny match (e.g. find in one step and a -delete filename in another).
 _POLICY_VIEW_KEPT_KEYS = frozenset(
     {
         "type",
         "method",
         "url",
-        "argv",
         "read_mode",
         "normalize",
         "operator",
@@ -1564,10 +1568,15 @@ def _policy_view_plan(value: Any) -> Any:
     """Return the plan with inert data strings replaced by a neutral placeholder."""
 
     if isinstance(value, dict):
-        return {
-            key: item if key in _POLICY_VIEW_KEPT_KEYS else _policy_view_plan(item)
-            for key, item in value.items()
-        }
+        result = {}
+        for key, item in value.items():
+            if key in _POLICY_VIEW_KEPT_KEYS:
+                result[key] = item
+            elif key in {"path", "cwd"} and isinstance(item, str):
+                result[key] = "/policy-placeholder"
+            else:
+                result[key] = _policy_view_plan(item)
+        return result
     if isinstance(value, list):
         return [_policy_view_plan(item) for item in value]
     if isinstance(value, str):
@@ -1586,7 +1595,7 @@ def compile_check_plan(
     script_content = _render_script(plan)
     # 靜態契約只審編譯器產生的程式碼；標題、id、預期文字等資料字面值換成
     # 中性佔位字，免得「Git reset 練習」這類標題被 deny pattern 誤擋。
-    # argv 已由 _command_argv_issue 逐步驗過，URL 保留給網路檢查。
+    # argv 已由 _command_argv_issue 逐步驗過，也以中性資料取代；URL 保留給網路檢查。
     policy_view = _render_script(_policy_view_plan(plan))
     policy = dict(check_script_policy(policy_view))
     quality = dict(check_script_quality(policy_view))
