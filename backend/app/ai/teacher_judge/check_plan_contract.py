@@ -95,12 +95,22 @@ def typed_item_issues(
     item: TeacherJudgeRubricItem,
     *,
     other_items: list[dict[str, Any]] | None = None,
+    allow_legacy: bool = False,
 ) -> list[dict[str, Any]]:
-    """Apply the compiler's semantic rules as soon as an auto item is written."""
-    issues = typed_step_issues(
-        [step.model_dump(mode="json") for step in item.check_steps],
-        item_id=item.id,
-    )
+    """Apply the compiler's semantic rules as soon as an auto item is written.
+
+    ``allow_legacy`` is limited to the chat proposal compatibility boundary:
+    older model adapters can still emit the read-compatible
+    ``template_key/command_key/parameters`` shape, which is normalized by the
+    chat service before staging. Persistence and finalization keep the default
+    strict typed contract.
+    """
+    steps_for_validation = [
+        step.model_dump(mode="json")
+        for step in item.check_steps
+        if not allow_legacy or step.collector is not None
+    ]
+    issues = typed_step_issues(steps_for_validation, item_id=item.id)
     occupied = {
         str(step.get("id") or "").strip()
         for other in (other_items or [])
@@ -119,6 +129,10 @@ def typed_item_issues(
         if step.id and step.id.strip() in occupied
     )
     if issues or item.detectable != "auto":
+        return issues
+    if allow_legacy and any(step.collector is None for step in item.check_steps):
+        # Legacy chat candidates are normalized against the command catalog and
+        # remain read-compatible until the caller replaces them with typed steps.
         return issues
     from app.ai.teacher_judge.deterministic_compiler import (
         CheckPlanContractError,

@@ -260,6 +260,25 @@ _JSON_FENCE_RE = re.compile(
 # All proposal modes use the same typed write schema.
 _CHECKLIST_STEP_TOOL_SCHEMA = typed_step_tool_schema()
 
+# Read-compatible legacy parameter shape. New tool calls use the typed schema
+# above; keep this small description available to compatibility callers without
+# reintroducing the retired ``success_criteria`` field.
+_CHECKLIST_STEP_PARAMETERS_PROPERTIES: dict[str, Any] = {
+    "argv": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "單一非空的命令字串 list",
+    },
+    "cwd": {
+        "type": "string",
+        "description": "選用的工作目錄",
+    },
+    "timeout_seconds": {
+        "type": "integer",
+        "description": "1 至 300 的整數",
+    },
+}
+
 
 _PROPOSAL_FILL_PROPERTIES: dict[str, Any] = {
     "title": {"type": "string", "description": "檢查項目名稱"},
@@ -1150,6 +1169,39 @@ def _recovered_catalog_item_titles(
     return recovered
 
 
+def _restore_legacy_alias_candidate_readiness(
+    normalized: TeacherJudgeRubricItem,
+    raw: dict[str, Any],
+) -> None:
+    """Keep the old alias-recovery chat path compatible until typed persistence.
+
+    Older model adapters used a catalog alias for generic file reads.  Once the
+    server has recovered that alias into ``system.run_command`` the old chat
+    contract treated the relative target as executable evidence; retain that
+    narrow behavior here.  The typed save/finalizer validators still require a
+    real execution location before the plan can run.
+    """
+    if normalized.detectable != "partial" or not normalized.missing_information:
+        return
+    raw_steps = raw.get("check_steps")
+    raw_command_keys = {
+        str(step.get("command_key") or "").strip()
+        for step in (raw_steps if isinstance(raw_steps, list) else [])
+        if isinstance(step, dict) and str(step.get("command_key") or "").strip()
+    }
+    normalized_command_keys = {
+        step.command_key for step in normalized.check_steps if step.command_key
+    }
+    if not normalized_command_keys - raw_command_keys:
+        return
+    if all(
+        _has_gap_marker(gap, _TEACHER_LOCATION_GAP_MARKERS)
+        for gap in normalized.missing_information
+    ):
+        normalized.detectable = "auto"
+        normalized.missing_information = []
+
+
 _TEACHER_LOCATION_GAP_MARKERS = (
     "位置",
     "路徑",
@@ -1834,6 +1886,33 @@ def _contract_tool_error(
     }
 
 
+def _uses_legacy_check_step_shape(raw_steps: Any) -> bool:
+    """Identify the read-compatible model payload handled by chat normalization.
+
+    The native tool schema advertises typed steps, but older model adapters can
+    still send catalog-backed steps.  Only a completely legacy array is allowed
+    through the compatibility path; mixed or malformed arrays remain strict so
+    a bad typed step is never silently dropped.
+    """
+    if not isinstance(raw_steps, list) or not raw_steps:
+        return False
+    legacy_keys = {
+        "template_key",
+        "command_key",
+        "command_label",
+        "parameters",
+        "argv",
+        "cwd",
+        "timeout_seconds",
+    }
+    return all(
+        isinstance(step, dict)
+        and not isinstance(step.get("collector"), dict)
+        and bool(set(step) & legacy_keys)
+        for step in raw_steps
+    )
+
+
 def _execute_checklist_tool(
     name: str,
     arguments: dict[str, Any],
@@ -2028,10 +2107,12 @@ def _dispatch_checklist_tool(
             )
         except ValueError as exc:
             return {"error": str(exc)}
+        legacy_check_steps = _uses_legacy_check_step_shape(raw_item.get("check_steps"))
         if "check_steps" in raw_item:
-            issues = typed_step_issues(raw_item["check_steps"], item_id=item_id)
-            if issues:
-                return _contract_tool_error(issues, item_id=item_id)
+            if not legacy_check_steps:
+                issues = typed_step_issues(raw_item["check_steps"], item_id=item_id)
+                if issues:
+                    return _contract_tool_error(issues, item_id=item_id)
         candidate_list = _normalize_rubric_items(
             [raw_item],
             template_key=template_key,
@@ -2043,9 +2124,12 @@ def _dispatch_checklist_tool(
         issues = typed_item_issues(
             candidate,
             other_items=list(candidate_items_by_id.values()),
+            allow_legacy=legacy_check_steps,
         )
         if issues:
             return _contract_tool_error(issues, item_id=item_id)
+        if legacy_check_steps:
+            _restore_legacy_alias_candidate_readiness(candidate, raw_item)
         rejection = _proposal_candidate_rejection(
             candidate,
             raw_item,
@@ -2054,6 +2138,11 @@ def _dispatch_checklist_tool(
             template_commands=template_commands,
         )
         if rejection is not None:
+            legacy_contract_invalid = (
+                legacy_check_steps
+                and str(raw_item.get("detectable") or "").strip().lower() == "auto"
+                and not candidate.check_steps
+            )
             rejected_ops.append((candidate, raw_item, rejection))
             tool_calls.append(
                 {
@@ -2066,9 +2155,25 @@ def _dispatch_checklist_tool(
             )
             return {
                 "error": rejection,
-                "reason_code": "information_missing"
+                "reason_code": "check_plan_contract_invalid"
+                if legacy_contract_invalid
+                else "information_missing"
                 if candidate.missing_information
                 else "proposal_rejected",
+                **(
+                    {
+                        "issues": [
+                            {
+                                "item_id": item_id,
+                                "field": "check_steps",
+                                "message": "舊版檢查步驟未解析為有效的執行步驟",
+                            }
+                        ],
+                        "repair_hint": TYPED_STEP_REPAIR_HINT,
+                    }
+                    if legacy_contract_invalid
+                    else {}
+                ),
                 "teacher_input_required": bool(candidate.missing_information),
                 "retryable": not bool(candidate.missing_information),
             }
@@ -2131,12 +2236,16 @@ def _dispatch_checklist_tool(
             )
         except ValueError as exc:
             return {"error": str(exc)}
+        legacy_check_steps = _uses_legacy_check_step_shape(
+            raw_candidate.get("check_steps")
+        )
         if "check_steps" in arguments:
-            issues = typed_step_issues(
-                raw_candidate.get("check_steps"), item_id=item_id
-            )
-            if issues:
-                return _contract_tool_error(issues, item_id=item_id)
+            if not legacy_check_steps:
+                issues = typed_step_issues(
+                    raw_candidate.get("check_steps"), item_id=item_id
+                )
+                if issues:
+                    return _contract_tool_error(issues, item_id=item_id)
         if finalizer:
             raw_candidate, issues = reconcile_finalizer_locations(current_raw, raw_candidate)
             if issues:
@@ -2161,9 +2270,12 @@ def _dispatch_checklist_tool(
         issues = typed_item_issues(
             candidate,
             other_items=list(candidate_items_by_id.values()),
+            allow_legacy=legacy_check_steps,
         )
         if issues:
             return _contract_tool_error(issues, item_id=item_id)
+        if legacy_check_steps:
+            _restore_legacy_alias_candidate_readiness(candidate, raw_candidate)
         current_normalized = _normalize_rubric_items(
             [current_raw_by_id[item_id]] if item_id in current_raw_by_id else [],
             template_key=template_key,
@@ -2198,6 +2310,12 @@ def _dispatch_checklist_tool(
             template_commands=template_commands,
         )
         if rejection is not None:
+            legacy_contract_invalid = (
+                legacy_check_steps
+                and str(raw_candidate.get("detectable") or "").strip().lower()
+                == "auto"
+                and not candidate.check_steps
+            )
             rejected_ops.append((candidate, raw_candidate, rejection))
             tool_calls.append(
                 {
@@ -2210,9 +2328,25 @@ def _dispatch_checklist_tool(
             )
             return {
                 "error": rejection,
-                "reason_code": "information_missing"
+                "reason_code": "check_plan_contract_invalid"
+                if legacy_contract_invalid
+                else "information_missing"
                 if candidate.missing_information
                 else "proposal_rejected",
+                **(
+                    {
+                        "issues": [
+                            {
+                                "item_id": item_id,
+                                "field": "check_steps",
+                                "message": "舊版檢查步驟未解析為有效的執行步驟",
+                            }
+                        ],
+                        "repair_hint": TYPED_STEP_REPAIR_HINT,
+                    }
+                    if legacy_contract_invalid
+                    else {}
+                ),
                 "teacher_input_required": bool(candidate.missing_information),
                 "retryable": not bool(candidate.missing_information),
             }
