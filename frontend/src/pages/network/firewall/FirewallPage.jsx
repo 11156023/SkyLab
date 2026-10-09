@@ -245,7 +245,9 @@ export default function FirewallPage() {
     });
     collapsedNowRef.current = new Map(view.groups.map((group) => [group.key, group.collapsed]));
     setViewSummary({ total: view.totalVms, visible: view.visibleVms });
-    const { nodes: nextNodes, edges: nextEdges } = view;
+    /* 一台機器都沒有時連網際網路節點也不畫：它會孤零零落在畫布正中央，跟空狀態疊在一起 */
+    const nextNodes = view.totalVms === 0 ? [] : view.nodes;
+    const nextEdges = view.totalVms === 0 ? [] : view.edges;
     /* 拓撲刷新時保留仍存在的選取節點：規則面板可就地操作後，
        不能被 30 秒自動刷新或連線變更關掉 */
     setSelectedNode((prev) =>
@@ -524,7 +526,7 @@ export default function FirewallPage() {
             >
               <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
               <Controls />
-              {showMiniMap && <MiniMap zoomable pannable />}
+              {showMiniMap && nodes.length > 0 && <MiniMap zoomable pannable />}
 
 
               <Panel position="top-left">
