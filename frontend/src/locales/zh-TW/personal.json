@@ -277,7 +277,7 @@
   "ResourcesPage.colIp": "IP 位址",
   "ResourcesPage.colExpiry": "到期日",
   "ResourcesPage.colNode": "節點",
-  "ResourcesPage.colActions": "動作",
+  "ResourcesPage.colActions": "操作",
   "ResourcesPage.emptyTitle": "尚無資源",
   "CreatingRow.statusPendingReview": "審核中",
   "CreatingRow.statusProvisionFailed": "開通失敗",

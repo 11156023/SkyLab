@@ -347,6 +347,7 @@
   "TemplatesPage.columnStatus": "状態",
   "TemplatesPage.columnVisibility": "公開範囲",
   "TemplatesPage.columnVersion": "バージョン",
+  "TemplatesPage.columnActions": "操作",
   "TemplatesPage.finishCycleConfirmTitle": "更新を完了して新バージョンのテンプレートにしますか？",
   "TemplatesPage.finishCycleConfirmMessage": "一時保存用マシンはシャットダウンされ、すべてのスナップショット（バックアップポイント）が削除された後、新しい読み取り専用テンプレートに変換され、旧バージョンと置き換わります。この操作は元に戻せません。",
   "TemplatesPage.shutdownAndConvert": "シャットダウンして変換",

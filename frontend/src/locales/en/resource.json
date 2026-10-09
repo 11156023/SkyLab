@@ -347,6 +347,7 @@
   "TemplatesPage.columnStatus": "Status",
   "TemplatesPage.columnVisibility": "Visibility",
   "TemplatesPage.columnVersion": "Version",
+  "TemplatesPage.columnActions": "Actions",
   "TemplatesPage.finishCycleConfirmTitle": "Finish update and promote to a new template version?",
   "TemplatesPage.finishCycleConfirmMessage": "The staging machine will be shut down and all its snapshots (backup points) removed, then converted into a new read-only template that replaces the old version. This action cannot be undone.",
   "TemplatesPage.shutdownAndConvert": "Shut Down and Convert",

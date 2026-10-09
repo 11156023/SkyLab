@@ -426,7 +426,7 @@ export default function TemplatesPage() {
                 <th className={styles.th}>{t("TemplatesPage.columnStatus")}</th>
                 <th className={styles.th}>{t("TemplatesPage.columnVisibility")}</th>
                 <th className={styles.th}>{t("TemplatesPage.columnVersion")}</th>
-                <th className={styles.th} />
+                <th className={styles.th}>{t("TemplatesPage.columnActions")}</th>
               </tr>
             </thead>
             <tbody>
