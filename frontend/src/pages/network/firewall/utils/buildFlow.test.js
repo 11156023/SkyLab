@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildFlow, isOutboundEdge } from "./buildFlow";
+import { buildFlow, focusEdges, isOutboundEdge } from "./buildFlow";
 
 /* 三台機器：一條對外開放、一條對外連線、一條內部互通 */
 const topology = {
@@ -72,5 +72,37 @@ describe("buildFlow 邊 id", () => {
     const dup = topology.edges[2];
     const { edges } = buildFlow({ ...topology, edges: [dup, { ...dup }] });
     expect(new Set(edges.map((e) => e.id)).size).toBe(2);
+  });
+});
+
+describe("focusEdges 選中機器只看相關連線", () => {
+  it("沒選機器時原樣回傳", () => {
+    const { edges } = buildFlow(topology);
+    expect(focusEdges(edges, null)).toBe(edges);
+  });
+
+  it("只留任一端是選中機器的線，其餘藏起來", () => {
+    const { edges } = buildFlow(topology);
+    const hiddenOf = (id) => focusEdges(edges, id).map((e) => e.hidden);
+    /* 101 三條都沾到；102 只有內部互通那條 */
+    expect(hiddenOf("101")).toEqual([false, false, false]);
+    expect(hiddenOf("102")).toEqual([true, true, false]);
+  });
+
+  it("上網線開關藏起來的線，選中它的機器也維持藏著", () => {
+    const { edges } = buildFlow(topology, { showInternet: false });
+    expect(focusEdges(edges, "101").map((e) => e.hidden)).toEqual([false, true, false]);
+  });
+
+  it("沒變的線沿用原物件，ReactFlow 不必重繪", () => {
+    const { edges } = buildFlow(topology);
+    const focused = focusEdges(edges, "102");
+    expect(focused[2]).toBe(edges[2]);
+  });
+
+  it("收合群組的合併線，另一端是選中機器時照畫", () => {
+    const agg = { id: "agg-group:x-102", source: "group:x", target: "102", hidden: false };
+    const other = { id: "agg-group:x-103", source: "group:x", target: "103", hidden: false };
+    expect(focusEdges([agg, other], "102").map((e) => e.hidden)).toEqual([false, true]);
   });
 });
