@@ -74,15 +74,26 @@ def test_all_request_profiles_build_without_network(runner):
             assert "<user_question>" in payload["messages"][-1]["content"]
 
 
+@pytest.mark.parametrize("configured_model", ["", "gemma4-26b-a4b-it"])
 def test_dry_run_validates_payloads_and_reports_no_inference(
-    runner, monkeypatch, tmp_path
+    runner, monkeypatch, tmp_path, configured_model
 ):
     report_path = tmp_path / "latest.json"
     monkeypatch.setattr(runner, "REPORT_PATH", report_path)
+    monkeypatch.setattr(
+        type(runner.pve_settings),
+        "VLLM_MODEL_NAME",
+        property(lambda _settings: configured_model),
+    )
     monkeypatch.setattr(sys, "argv", ["role_guardrails_runner"])
     assert runner.main() == 0
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["summary"]["payload_profiles_validated"] is True
+    assert report["summary"]["model_contracts_validated"] == (
+        [configured_model]
+        if configured_model
+        else list(runner.load_model_profiles().models)
+    )
     assert report["summary"]["pass"] == 0
     assert report["summary"]["tools_executed"] is False
     assert {case["status"] for case in report["cases"]} == {"not_run"}
@@ -166,7 +177,7 @@ def test_pve_live_path_uses_production_client_context_retry(runner):
             return await runner._run_case(
                 client,
                 _help_case(runner, "pve-large-tool-result"),
-                model="offline",
+                model="gemma4-26b-a4b-it",
                 allowed_ids={},
             )
         finally:
@@ -283,7 +294,7 @@ def test_help_live_path_checks_adherence_with_ui_evidence(runner, monkeypatch):
             return await runner._run_case(
                 client,
                 _help_case(runner, "help-normal"),
-                model="offline",
+                model="gemma4-26b-a4b-it",
                 allowed_ids={},
             )
         finally:

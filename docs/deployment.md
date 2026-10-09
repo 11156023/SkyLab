@@ -73,6 +73,22 @@ Inside the backend container the project `.env` is not mounted, so run it there 
 
 Proxmox connections are **not** environment variables. They are entered in the setup wizard or on the "PVE Connections" page and stored encrypted; the legacy `PROXMOX_*` variables are ignored.
 
+System AI model request contracts live in `backend/config/llm-model-profiles.yaml`,
+which is included in the backend image. Its model keys must exactly match
+`VLLM_MODEL_NAME` and the upstream served model ID; add or rename a contract key
+when your deployment uses another ID. Unknown models fail before inference rather
+than falling back to a guessed model family. Restart the backend after changing
+the file (rebuild the image when the file is baked into the image).
+
+The YAML owns effective thinking for every System AI call, including adherence:
+GPT-OSS uses `reasoning_effort=low`, while Gemma uses
+`chat_template_kwargs.enable_thinking=false`. Legacy `enable_thinking` settings
+remain readable but do not override the model contract. Sampling, token budgets,
+timeouts and checker policy retain their existing backend settings; low reasoning
+does not guarantee that the unchanged 128-token checker budget is sufficient.
+The contract also declares supported JSON formats and native tool-choice modes;
+it does not change schemas, tool permissions, or the public LiteLLM relay.
+
 ## 3. Start the stack
 
 ```bash

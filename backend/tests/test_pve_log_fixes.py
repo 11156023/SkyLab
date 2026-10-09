@@ -499,7 +499,7 @@ async def test_large_tool_result_is_bounded_for_agent_checker_and_resume(
         "settings",
         SimpleNamespace(
             VLLM_BASE_URL="http://offline/v1",
-            VLLM_MODEL_NAME="test-model",
+            VLLM_MODEL_NAME="gemma4-26b-a4b-it",
             VLLM_TIMEOUT=30,
             VLLM_CHAT_MAX_TOKENS=4096,
             VLLM_ENABLE_THINKING=False,

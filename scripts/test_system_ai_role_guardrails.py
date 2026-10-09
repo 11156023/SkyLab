@@ -101,6 +101,7 @@ from app.ai.template_recommendation.recommendation_service import (  # noqa: E40
 )
 from app.ai.template_recommendation.schemas import ChatRequest  # noqa: E402
 from app.ai.utils import apply_thinking_control, strip_think_tags  # noqa: E402
+from app.infrastructure.ai.model_adapter import load_model_profiles  # noqa: E402
 from app.infrastructure.ai.vllm_client import (  # noqa: E402
     VLLMClient,
     VLLMRequestProfile,
@@ -932,12 +933,17 @@ def main() -> int:
         report.update(asyncio.run(run_live()))
     else:
         cases, allowed = _case_catalog()
+        configured_model = pve_settings.VLLM_MODEL_NAME
+        model_names = (
+            [configured_model] if configured_model else list(load_model_profiles().models)
+        )
         # Build every request offline so a stale prompt signature fails before
         # a live run, rather than remaining hidden behind catalog-only checks.
         for case in cases:
             if not case.response_kind.startswith("adherence_"):
-                payload = _payload_for_case(case, "offline-probe", allowed)
-                validate_request_profile(payload, _profile_for_case(case))
+                for model in model_names:
+                    payload = _payload_for_case(case, model, allowed)
+                    validate_request_profile(payload, _profile_for_case(case))
             if case.service in {
                 "contextual_help",
                 "template_recommendation",
@@ -953,6 +959,7 @@ def main() -> int:
             "total": len(cases),
             "live_status": "not_run_use_--live",
             "payload_profiles_validated": True,
+            "model_contracts_validated": model_names,
             "tools_executed": False,
             "production_routes_exercised": False,
         }

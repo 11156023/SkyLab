@@ -9,6 +9,8 @@ from typing import Any, Final
 
 import httpx
 
+from app.infrastructure.ai.model_adapter import ModelAdapterError, adapt_chat_request
+
 _CLIENTS: weakref.WeakSet[VLLMClient] = weakref.WeakSet()
 logger = logging.getLogger(__name__)
 
@@ -39,45 +41,38 @@ class VLLMProfileError(ValueError):
 
 @dataclass(frozen=True)
 class _ProfilePolicy:
-    thinking_enabled: bool | None
     max_tokens: int | None
     capabilities: frozenset[VLLMCapability]
 
 
 _PROFILE_POLICIES: Final[dict[VLLMRequestProfile, _ProfilePolicy]] = {
     VLLMRequestProfile.NAVIGATION_DECISION: _ProfilePolicy(
-        thinking_enabled=False,
         max_tokens=384,
         capabilities=frozenset(
             {VLLMCapability.THINKING_CONTROL, VLLMCapability.JSON_SCHEMA}
         ),
     ),
     VLLMRequestProfile.BOUNDED_EXPLANATION: _ProfilePolicy(
-        thinking_enabled=False,
         max_tokens=384,
         capabilities=frozenset({VLLMCapability.THINKING_CONTROL}),
     ),
     VLLMRequestProfile.CONFIGURED_TEXT: _ProfilePolicy(
-        thinking_enabled=None,
         max_tokens=None,
         capabilities=frozenset({VLLMCapability.THINKING_CONTROL}),
     ),
     VLLMRequestProfile.STRUCTURED_OBJECT: _ProfilePolicy(
-        thinking_enabled=None,
         max_tokens=None,
         capabilities=frozenset(
             {VLLMCapability.THINKING_CONTROL, VLLMCapability.JSON_OBJECT}
         ),
     ),
     VLLMRequestProfile.COMPLEX_AGENT: _ProfilePolicy(
-        thinking_enabled=None,
         max_tokens=None,
         capabilities=frozenset(
             {VLLMCapability.THINKING_CONTROL, VLLMCapability.NATIVE_TOOL_CALLS}
         ),
     ),
     VLLMRequestProfile.ADHERENCE_CHECK: _ProfilePolicy(
-        thinking_enabled=False,
         max_tokens=128,
         capabilities=frozenset(
             {VLLMCapability.THINKING_CONTROL, VLLMCapability.JSON_SCHEMA}
@@ -159,27 +154,9 @@ def _validate_request(payload: dict[str, Any], profile: VLLMRequestProfile) -> N
             f"Profile {profile.value} allows at most {policy.max_tokens} output tokens"
         )
     if payload.get("stream", False) is not False:
-        raise VLLMProfileError("System AI VLLMClient only supports non-stream responses")
-
-    if VLLMCapability.THINKING_CONTROL in policy.capabilities:
-        template_kwargs = payload.get("chat_template_kwargs")
-        enable_thinking = (
-            template_kwargs.get("enable_thinking")
-            if isinstance(template_kwargs, dict)
-            else None
+        raise VLLMProfileError(
+            "System AI VLLMClient only supports non-stream responses"
         )
-        if type(enable_thinking) is not bool:
-            raise VLLMProfileError(
-                f"Profile {profile.value} requires explicit thinking control"
-            )
-        if (
-            policy.thinking_enabled is not None
-            and enable_thinking is not policy.thinking_enabled
-        ):
-            raise VLLMProfileError(
-                f"Profile {profile.value} requires enable_thinking="
-                f"{str(policy.thinking_enabled).lower()}"
-            )
 
     tools = payload.get("tools")
     if VLLMCapability.NATIVE_TOOL_CALLS not in policy.capabilities:
@@ -235,8 +212,18 @@ def _validate_request(payload: dict[str, Any], profile: VLLMRequestProfile) -> N
 def validate_request_profile(
     payload: dict[str, Any], profile: VLLMRequestProfile
 ) -> None:
-    """Validate a direct-vLLM payload without sending model traffic."""
+    """Validate the same adapted contract used for transport, without model traffic."""
+    _prepare_request(payload, profile)
+
+
+def _prepare_request(
+    payload: dict[str, Any], profile: VLLMRequestProfile
+) -> dict[str, Any]:
     _validate_request(payload, profile)
+    try:
+        return adapt_chat_request(payload)
+    except ModelAdapterError as exc:
+        raise VLLMProfileError(str(exc)) from exc
 
 
 def _validate_tool_calls(tool_calls: Any, profile: VLLMRequestProfile) -> bool:
@@ -271,9 +258,7 @@ def _validate_tool_calls(tool_calls: Any, profile: VLLMRequestProfile) -> bool:
     return True
 
 
-def _validate_response(
-    response: Any, profile: VLLMRequestProfile
-) -> dict[str, Any]:
+def _validate_response(response: Any, profile: VLLMRequestProfile) -> dict[str, Any]:
     policy = _profile_policy(profile)
     if not isinstance(response, dict):
         raise VLLMProfileError(
@@ -297,13 +282,8 @@ def _validate_response(
             f"Profile {profile.value} received an invalid assistant message"
         )
     has_tool_calls = _validate_tool_calls(message.get("tool_calls"), profile)
-    if (
-        has_tool_calls
-        and VLLMCapability.NATIVE_TOOL_CALLS not in policy.capabilities
-    ):
-        raise VLLMProfileError(
-            f"Profile {profile.value} received forbidden tool calls"
-        )
+    if has_tool_calls and VLLMCapability.NATIVE_TOOL_CALLS not in policy.capabilities:
+        raise VLLMProfileError(f"Profile {profile.value} received forbidden tool calls")
     content = message.get("content")
     if has_tool_calls:
         return response
@@ -374,7 +354,7 @@ class VLLMClient:
         timeout: float | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
-        validate_request_profile(payload, profile)
+        payload = _prepare_request(payload, profile)
         headers = {"Content-Type": "application/json"}
         # 沒設 --api-key 的 vLLM 不需要認證；VLLM_API_KEY 留空時送 "Bearer " 會被
         # h11 判為非法標頭，請求根本發不出去
@@ -409,6 +389,13 @@ class VLLMClient:
                 )
                 if key in payload
             }
+            if "reasoning_effort" in payload:
+                # TokenizeChatRequest accepts template kwargs, not a top-level
+                # reasoning_effort. Render with the same effort as generation.
+                tokenize_payload["chat_template_kwargs"] = {
+                    **dict(payload.get("chat_template_kwargs") or {}),
+                    "reasoning_effort": payload["reasoning_effort"],
+                }
             try:
                 token_response = await http_client.post(
                     f"{self._base_url.removesuffix('/v1')}/tokenize",
