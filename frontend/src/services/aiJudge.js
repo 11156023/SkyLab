@@ -267,7 +267,7 @@ export const AiJudgeService = {
     return apiGet(`/api/v1/teaching-classes/${classId}/judge/scripts/${query}`);
   },
 
-  /** 相容舊版待老師核准腳本；新流程通過靜態與 AI 檢查後會直接 approved。 */
+  /** 相容舊版待老師核准腳本；新流程通過靜態與 AI導師檢查後會直接 approved。 */
   approveScript(classId, scriptId) {
     return apiPost(`/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/approve`, {});
   },

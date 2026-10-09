@@ -28,7 +28,7 @@ export const CoursesService = {
     return apiGet(`/api/v1/courses/paths/${pathId}`);
   },
 
-  /** 取得老師已核准、可讓學生查看的 AI 評分任務。 */
+  /** 取得老師已核准、可讓學生查看的 AI導師檢查任務。 */
   getAiAssignments(pathId) {
     return apiGet(`/api/v1/courses/paths/${pathId}/ai-assignments`);
   },
@@ -50,7 +50,7 @@ export const CoursesService = {
     return apiGet(`/api/v1/courses/paths/${pathId}/practice-machines`);
   },
 
-  /** 學生以每週／整份任務為單位回報完成；AI 檢查由老師統一啟動。 */
+  /** 學生以每週／整份任務為單位回報完成；AI導師檢查由老師統一啟動。 */
   updateAssignmentCompletion(pathId, assignmentId, completed) {
     return apiPut(
       `/api/v1/courses/paths/${pathId}/ai-assignments/${assignmentId}/completion`,

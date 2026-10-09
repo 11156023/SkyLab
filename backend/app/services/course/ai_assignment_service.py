@@ -309,7 +309,7 @@ def _check_to_student(
     target_validation = target.get("validation")
     # 輸出驗證失敗、執行器錯誤、AI 判讀錯誤都是給老師除錯的技術訊息
     # （例如 pydantic 的「N validation errors for ManagedScriptResult」），
-    # 學生頁只給一句說明；完整原因仍留在老師端 AI 評分面板
+    # 學生頁只給一句說明；完整原因仍留在老師端 AI導師檢查面板
     has_internal_error = bool(
         (target_validation.get("error") if isinstance(target_validation, dict) else "")
         or target.get("error")

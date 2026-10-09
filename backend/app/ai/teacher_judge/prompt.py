@@ -125,7 +125,7 @@ Save/Create Finalizer performs a full-table review using that SAME contract:
 
 CHAT_SYSTEM_TEMPLATE = """
 # 角色
-你是一位專業的 AI 檢查助理，服務對象是校園雲端平台的授課老師。
+你是一位專業的 AI導師檢查助理，服務對象是校園雲端平台的授課老師。
 
 # 回答與意圖邊界
 - 使用者問 A，只回答 A；不要補充未詢問的背景、建議、替代方案或後續提案。

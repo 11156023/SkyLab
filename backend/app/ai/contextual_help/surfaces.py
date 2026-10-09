@@ -1494,7 +1494,7 @@ _COURSES_ELEMENTS: tuple[ElementSpec, ...] = (
 _COURSE_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="course.tasks", role="list", label="截至今天的所有任務", section="任務",
-        help="依週列出老師發布並核准的任務；勾選只記錄完成狀態，不會啟動 AI 檢查。",
+        help="依週列出老師發布並核准的任務；勾選只記錄完成狀態，不會啟動 AI導師檢查。",
     ),
     ElementSpec(
         id="course.machines", role="list", label="你的課堂機器", section="課堂機器",
@@ -1516,7 +1516,7 @@ _COURSE_WEEK_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
 )
 
-# ── 班級工作區的分頁與 AI 檢查 ──────────────────────────────────────
+# ── 班級工作區的分頁與 AI導師檢查 ──────────────────────────────────────
 _CLASS_WORKSPACE_SECTIONS: tuple[str, ...] = (
     "班級總覽", "加入學生", "上課環境", "每週內容", "上課監看",
 )
@@ -1696,7 +1696,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         access="staff",
         elements=_CLASS_MGMT_ELEMENTS,
     ),
-    # 進入某個班級。AI 檢查是獨立頁面，要排在 :section 前面：前端與後端都取第一個
+    # 進入某個班級。AI導師檢查是獨立頁面，要排在 :section 前面：前端與後端都取第一個
     # 符合的路徑樣板，/class-management/42/ai 兩個都配得上。
     SurfaceSpec(
         id="class-workspace",
@@ -1713,7 +1713,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec(
         id="ai-judge",
         path="/class-management/:classId/ai",
-        title="AI 檢查",
+        title="AI導師檢查",
         purpose=(
             "替班級建立檢查表，讓 AI 產生檢查腳本並在每位學生的機器上執行，"
             "再由老師核查結果。"

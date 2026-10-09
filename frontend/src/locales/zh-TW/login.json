@@ -288,7 +288,7 @@
   "LoginPreflight.hints.worker": "建立機器等背景工作",
   "LoginPreflight.hints.pve": "虛擬機與實驗環境",
   "LoginPreflight.hints.gateway": "用網址或 VPN 連進你的機器",
-  "LoginPreflight.hints.ai": "AI 助手與 AI 評分",
+  "LoginPreflight.hints.ai": "AI 助手與 AI導師檢查",
   "LoginPreflight.user.title": "正在準備你的冒險",
   "LoginPreflight.user.desc": "稍等一下，馬上就好",
   "LoginPreflight.user.passedTitle": "準備完成，出發！",
