@@ -176,6 +176,7 @@ async def test_cancellation_suppressed_by_model_cannot_publish_late_proposal(
             await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             return "晚到提案", [{"id": "late", "operation": "add"}], {}
+        raise AssertionError("request deadline should have cancelled the model call")
 
     monkeypatch.setattr(routes, "chat_with_rubric", chat)
     with pytest.raises(HTTPException) as error:
@@ -209,7 +210,7 @@ async def test_same_session_rejects_duplicate_while_previous_request_runs(
         assert error.value.detail["code"] == "teacher_judge_request_in_progress"
     finally:
         release.set()
-        await task
+        await asyncio.gather(task)
     db, *_ = context
     assert len(db.exec(select(TeacherJudgeSessionMessage)).all()) == 2
 
