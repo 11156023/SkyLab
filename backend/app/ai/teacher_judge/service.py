@@ -260,25 +260,6 @@ _JSON_FENCE_RE = re.compile(
 # All proposal modes use the same typed write schema.
 _CHECKLIST_STEP_TOOL_SCHEMA = typed_step_tool_schema()
 
-# Read-compatible legacy parameter shape. New tool calls use the typed schema
-# above; keep this small description available to compatibility callers without
-# reintroducing the retired ``success_criteria`` field.
-_CHECKLIST_STEP_PARAMETERS_PROPERTIES: dict[str, Any] = {
-    "argv": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": "單一非空的命令字串 list",
-    },
-    "cwd": {
-        "type": "string",
-        "description": "選用的工作目錄",
-    },
-    "timeout_seconds": {
-        "type": "integer",
-        "description": "1 至 300 的整數",
-    },
-}
-
 
 _PROPOSAL_FILL_PROPERTIES: dict[str, Any] = {
     "title": {"type": "string", "description": "檢查項目名稱"},

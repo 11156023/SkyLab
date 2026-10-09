@@ -62,7 +62,8 @@ class ChatCompletionClient(Protocol):
         profile: VLLMRequestProfile,
         timeout: float | None = None,
         request_id: str | None = None,
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, Any]:
+        """Send one chat-completion request and return the decoded response."""
 
 
 def _usage_fields(
