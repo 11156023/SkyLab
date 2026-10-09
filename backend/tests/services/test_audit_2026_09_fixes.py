@@ -219,7 +219,7 @@ def test_publish_without_allocation_falls_back_to_subnet_rules(publish_env: dict
         assert_publishable_vm_ip(_session(), "192.168.1.9", vmid=999)
 
 
-# ── 學生看 AI 檢查結果：target 以 user.id 比對 ────────────────────────────
+# ── 學生看 AI導師檢查結果：target 以 user.id 比對 ────────────────────────────
 
 
 def test_student_target_matches_generated_snapshot_shape() -> None:

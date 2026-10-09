@@ -1,4 +1,4 @@
-"""AI 評分表（teacher judge）套件。
+"""AI導師檢查表（teacher judge）套件。
 
 刻意不在套件層級 re-export 任何名稱：呼叫端一律直接 import 子模組
 （``service``、``session_service``、``config``…），避免 ``import`` 任一子模組

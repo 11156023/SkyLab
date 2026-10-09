@@ -786,7 +786,7 @@ describe("RubricTable", () => {
     );
 
     expect(html).toContain("缺少資訊");
-    expect(html).not.toContain("導師檢查");
+    expect(html).not.toContain(">導師檢查<");
   });
 
   test("收合時顯示 typed collector 的檢測目標，不暴露 peer key", () => {
@@ -1296,8 +1296,8 @@ describe("proposalToolCallLines", () => {
 
 describe("uploaded rubric naming", () => {
   test("匯入檔名移除副檔名", () => {
-    expect(getRubricDisplayName({ name: "AI檢查表審核系統_Python服務Running狀態檢測_簡短版.docx" }))
-      .toBe("AI檢查表審核系統_Python服務Running狀態檢測_簡短版");
+    expect(getRubricDisplayName({ name: "AI導師檢查表審核系統_Python服務Running狀態檢測_簡短版.docx" }))
+      .toBe("AI導師檢查表審核系統_Python服務Running狀態檢測_簡短版");
     expect(getRubricDisplayName({ display_name: "自訂檢查表", original_filename: "保存的檢查表.docx" })).toBe("自訂檢查表");
     expect(getRubricDisplayName({ name: "  " }, "未命名檢查表")).toBe("未命名檢查表");
   });
@@ -1319,10 +1319,10 @@ describe("session menu positioning", () => {
 
 describe("SessionTitle", () => {
   test("保留完整名稱作為 tooltip，並將可視區與文字分開以支援截斷動畫", () => {
-    const title = "這是一個很長的 AI 檢查 session 名稱";
+    const title = "這是一個很長的 AI導師檢查 session 名稱";
     const html = renderToStaticMarkup(<SessionTitle title={title}>{title}</SessionTitle>);
 
-    expect(html).toContain('title="這是一個很長的 AI 檢查 session 名稱"');
+    expect(html).toContain('title="這是一個很長的 AI導師檢查 session 名稱"');
     expect(html).toContain(title);
   });
 });

@@ -97,7 +97,7 @@ _ROUTES: tuple[NavigationRoute, ...] = (
     NavigationRoute(
         path="/class-management",
         title="班級管理",
-        summary="管理班級名單、每週內容、上課監看與 AI 檢查。",
+        summary="管理班級名單、每週內容、上課監看與 AI導師檢查。",
         keywords=("班級", "課堂", "學生名單", "每週", "上課", "class"),
         access="staff",
     ),

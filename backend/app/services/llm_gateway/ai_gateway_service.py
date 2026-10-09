@@ -48,8 +48,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_REQUEST_RATE_LIMIT = 20
 # 同一使用者可同時說明數個不同用途，但不能無上限堆積待審工作。
 MAX_PENDING_REQUESTS_PER_USER = 3
-# 清單端點最多一次呈現 100 筆；批量駁回沿用同一上限，避免一次鎖住過大的交易。
-MAX_BULK_REJECT_REQUESTS = 100
 #: 可換算的金鑰效期；never 只供教師／管理員申請。
 KEY_DURATIONS: dict[str, timedelta | None] = {
     "1d": timedelta(days=1),
@@ -488,69 +486,6 @@ def review_request(
     session.refresh(db_request)
     logger.info("Admin %s %s AI API request %s", reviewer.email, action, request_id)
     return _to_request_public(db_request)
-
-
-def bulk_reject_requests(
-    *,
-    session: Session,
-    request_ids: list[uuid.UUID],
-    review_comment: str,
-    reviewer: Any,
-) -> AIAPIRequestsPublic:
-    """在單一交易內駁回一組仍待審核的申請。
-
-    先以固定順序鎖定所有列並驗證完整集合，任一列已被處理或不存在時
-    都不會寫入任何一筆，避免前端批量操作只完成半組。
-    """
-    if not request_ids or len(request_ids) > MAX_BULK_REJECT_REQUESTS:
-        raise BadRequestError(t("ai_gateway.bulk_invalid_selection"))
-    if len(request_ids) != len(set(request_ids)):
-        raise BadRequestError(t("ai_gateway.bulk_invalid_selection"))
-    comment = review_comment.strip() if review_comment else ""
-    if not comment:
-        raise BadRequestError(t("ai_gateway.bulk_review_comment_required"))
-
-    rows = list(
-        session.exec(
-            select(AIAPIRequest)
-            .where(col(AIAPIRequest.id).in_(request_ids))
-            .order_by(col(AIAPIRequest.id))
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        ).all()
-    )
-    if len(rows) != len(request_ids):
-        raise NotFoundError(t("ai_gateway.bulk_request_not_found"))
-    if any(row.status != AIAPIRequestStatus.pending for row in rows):
-        raise BadRequestError(t("ai_gateway.bulk_request_already_reviewed"))
-
-    reviewed_at = get_datetime_utc()
-    for row in rows:
-        row.status = AIAPIRequestStatus.rejected
-        row.reviewer_id = reviewer.id
-        row.review_comment = comment
-        row.reviewed_at = reviewed_at
-        session.add(row)
-        audit_service.log_action(
-            session=session,
-            user_id=reviewer.id,
-            action="ai_api_request_review",
-            details=f"Reviewed AI API request {row.id}: rejected. Comment: {comment}",
-            commit=False,
-        )
-
-    session.commit()
-    for row in rows:
-        session.refresh(row)
-    logger.info(
-        "Admin %s bulk rejected %d AI API requests",
-        reviewer.email,
-        len(rows),
-    )
-    return AIAPIRequestsPublic(
-        data=[_to_request_public(row) for row in rows],
-        count=len(rows),
-    )
 
 
 def list_credentials_by_user(

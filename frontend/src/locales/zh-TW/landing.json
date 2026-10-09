@@ -28,7 +28,7 @@
     "desc": "班級名單、固定課表、多機環境,一次為全班準備好一樣的機器。",
     "monitor": "教室監看",
     "online": "{{online}} / {{seats}} 台在線",
-    "aiJudge": "AI 評分檢查"
+    "aiJudge": "AI導師檢查"
   },
   "network": {
     "title": "防火牆、NAT 與閘道,全部看得見",

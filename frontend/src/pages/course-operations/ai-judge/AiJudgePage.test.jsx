@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { normalizeAiJudgeClass, toAiJudgeMembers } from "./AiJudgePage";
 
 describe("AiJudgePage data boundary", () => {
-  test("保留班級標頭與 AI 檢查需要的週次資料", () => {
+  test("保留班級標頭與 AI導師檢查需要的週次資料", () => {
     const result = normalizeAiJudgeClass({
       id: 42,
       start_time: "09:30:00",

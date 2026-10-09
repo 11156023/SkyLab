@@ -87,7 +87,7 @@ backend/
 | 認證與使用者 | `login`、`users`、`setup`、`ldap_config`、`private`、`utils` | 密碼／Google／LDAP 登入、TOTP 挑戰、refresh、首次安裝精靈、健康檢查 |
 | 資源 | `resources`、`resource_details`、`resource_settings`、`vm`、`lxc`、`templates`、`gpu`、`quotas`、`jobs` | 清單、規格、RRD、快照、備份、建立（回 202，clone 在 worker 執行）、GPU 對應、配額用量、任務紀錄 |
 | 申請 | `vm_requests`、`spec_change_requests`、`batch_provision` | 申請流程、可用性與放置建議、規格變更審核、整班建置 |
-| 教學 | `teaching_classes`、`classroom`、`courses`、`course_admin`、`course_environments`、`quick_practice`、`rubric`、`teacher_judge_*` | 班級、課表、名單、教室監看與廣播、課程路徑、教學環境、快速練習、AI 評分 |
+| 教學 | `teaching_classes`、`classroom`、`courses`、`course_admin`、`course_environments`、`quick_practice`、`rubric`、`teacher_judge_*` | 班級、課表、名單、教室監看與廣播、課程路徑、教學環境、快速練習、AI導師檢查 |
 | 網路 | `firewall`、`gateway`、`reverse_proxy`、`ip_management`、`cloudflare`、`desktop_client` | 防火牆拓撲與規則、閘道（nginx、WireGuard、平台入口、憑證）、網域、網段、Cloudflare DNS、SkyLab Connect 裝置登入 |
 | 平台 | `proxmox_config`、`monitoring`、`governance`、`mining_incidents`、`audit_logs`、`push` | PVE 連線（CRUD、測試、同步）、概況與 RRD、系統健康、告警、治理設定、挖礦事件、稽核日誌、Web Push |
 | AI | `ai`、`ai_api`、`ai_proxy`、`ai_contextual_help`、`ai_monitoring`、`ai_navigation`、`ai_pve_log`、`ai_template_recommendation` | AI API 憑證與審核、OpenAI 相容代理、各種助手、用量監控 |

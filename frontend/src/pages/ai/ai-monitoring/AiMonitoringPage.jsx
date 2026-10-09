@@ -19,8 +19,12 @@ import { AiMonitoringService } from "../../../services/aiMonitoring";
 import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import useDialogPresence from "../../../hooks/useDialogPresence";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
+import Modal from "../../../components/Modal/Modal";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import { downloadBlob } from "../../../services/api";
 import {
   formatDuration,
   formatModelDisplay,
@@ -407,9 +411,75 @@ function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onMode
   );
 }
 
+function ExportDialog({
+  presence,
+  options,
+  onChange,
+  onClose,
+  onExport,
+  exporting,
+  t,
+}) {
+  if (!presence.open) return null;
+
+  return (
+    <Modal
+      closeButton
+      size="sm"
+      closing={presence.closing}
+      onClose={onClose}
+      busy={exporting}
+      title={t("AiMonitoringPage.exportDialogTitle")}
+      description={t("AiMonitoringPage.exportDialogDescription")}
+      actions={
+        <>
+          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={exporting}>
+            {t("AiMonitoringPage.exportCancel")}
+          </button>
+          <button type="button" className={styles.btnPrimary} onClick={onExport} disabled={exporting}>
+            <MIcon name="download" size={16} />
+            {exporting ? t("AiMonitoringPage.exporting") : t("AiMonitoringPage.exportConfirm")}
+          </button>
+        </>
+      }
+    >
+      <div className={styles.exportForm}>
+        <label className={styles.exportField}>
+          <span>{t("AiMonitoringPage.exportRangeLabel")}</span>
+          <select value={options.range} onChange={(event) => onChange("range", event.target.value)} disabled={exporting}>
+            <option value="7d">{t("AiMonitoringPage.preset7d")}</option>
+            <option value="30d">{t("AiMonitoringPage.preset30d")}</option>
+            <option value="90d">{t("AiMonitoringPage.preset90d")}</option>
+            <option value="all">{t("AiMonitoringPage.exportRangeAll")}</option>
+          </select>
+        </label>
+        <label className={styles.exportField}>
+          <span>{t("AiMonitoringPage.exportSourceLabel")}</span>
+          <select value={options.source} onChange={(event) => onChange("source", event.target.value)} disabled={exporting}>
+            <option value="all">{t("AiMonitoringPage.exportSourceAll")}</option>
+            <option value="api_key">{t("AiMonitoringPage.exportSourceApiKey")}</option>
+            <option value="platform">{t("AiMonitoringPage.exportSourcePlatform")}</option>
+          </select>
+        </label>
+        <label className={styles.exportField}>
+          <span>{t("AiMonitoringPage.exportStatusLabel")}</span>
+          <select value={options.status} onChange={(event) => onChange("status", event.target.value)} disabled={exporting}>
+            <option value="all">{t("AiMonitoringPage.statusFilterAll")}</option>
+            <option value="success">{t("AiMonitoringPage.statusSuccess")}</option>
+            <option value="error">{t("AiMonitoringPage.statusFail")}</option>
+            <option value="cancelled">{t("AiMonitoringPage.exportStatusCancelled")}</option>
+          </select>
+        </label>
+        <p className={styles.exportHint}>{t("AiMonitoringPage.exportScopeHint")}</p>
+      </div>
+    </Modal>
+  );
+}
+
 export default function AiMonitoringPage() {
   const { t } = useTranslation("ai");
   const toast = useToast();
+  const confirm = useConfirm();
   const [preset, setPreset] = useState("7d");
   const [trendMetric, setTrendMetric] = useState("calls");
   const [detailTab, setDetailTab] = useState("models");
@@ -428,6 +498,10 @@ export default function AiMonitoringPage() {
   const [runtimeError, setRuntimeError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [detailFocusRequest, setDetailFocusRequest] = useState(0);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportOptions, setExportOptions] = useState({ range: "7d", source: "all", status: "all" });
+  const exportDialog = useDialogPresence(exportOpen);
   /* 監控 stack 有啟用且目前是管理員才顯示「SkyLab AI」儀表板連結（查詢失敗或 403 就不顯示）；
      同一支 API 會設定 Grafana 免密碼登入的 cookie，頁面開著時定期續期 */
   const [grafanaUrl, setGrafanaUrl] = useState(null);
@@ -590,6 +664,51 @@ export default function AiMonitoringPage() {
     setDetailFocusRequest((current) => current + 1);
   };
 
+  const openExportDialog = () => {
+    setExportOptions({ range: preset, source: "all", status: "all" });
+    setExportOpen(true);
+  };
+
+  const setExportOption = (name, value) => {
+    setExportOptions((current) => ({ ...current, [name]: value }));
+  };
+
+  const exportErrorMessage = (error) => {
+    if (error?.timeout || error?.status === 408) return t("AiMonitoringPage.exportTimeout");
+    if (error?.status === 401) return t("AiMonitoringPage.exportUnauthorized");
+    if (error?.status === 403) return t("AiMonitoringPage.exportForbidden");
+    if (error?.status === 413) return t("AiMonitoringPage.exportTooMany");
+    if (error?.status === 422) return t("AiMonitoringPage.exportInvalid");
+    return error?.message ?? t("AiMonitoringPage.exportFailed");
+  };
+
+  const handleExport = async () => {
+    if (exporting) return;
+    if (exportOptions.range === "all") {
+      const confirmed = await confirm({
+        title: t("AiMonitoringPage.exportAllConfirmTitle"),
+        message: t("AiMonitoringPage.exportAllConfirmMessage"),
+        confirmText: t("AiMonitoringPage.exportConfirm"),
+      });
+      if (!confirmed) return;
+    }
+
+    const params = exportOptions.range === "all" ? {} : presetToRange(exportOptions.range);
+    params.source = exportOptions.source;
+    if (exportOptions.status !== "all") params.status = exportOptions.status;
+    setExporting(true);
+    try {
+      const blob = await AiMonitoringService.exportCsv(params);
+      downloadBlob(blob, `skylab-ai-usage-${new Date().toISOString().slice(0, 10)}.csv`);
+      toast.success(t("AiMonitoringPage.exportSuccess"));
+      setExportOpen(false);
+    } catch (error) {
+      toast.error(exportErrorMessage(error));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <PageHeader title={t("AiMonitoringPage.pageTitle")}>
@@ -604,6 +723,10 @@ export default function AiMonitoringPage() {
             onChange={setPreset}
             ariaLabel={t("AiMonitoringPage.rangeLabel")}
           />
+          <button type="button" className={styles.btnSecondary} onClick={openExportDialog} disabled={exporting}>
+            <MIcon name="download" size={16} />
+            {t("AiMonitoringPage.exportCsv")}
+          </button>
           {grafanaUrl && (
             <a className={styles.linkBtn} href={grafanaUrl} target="_blank" rel="noopener noreferrer">
               <MIcon name="open_in_new" size={16} />
@@ -612,6 +735,16 @@ export default function AiMonitoringPage() {
           )}
         </div>
       </PageHeader>
+
+      <ExportDialog
+        presence={exportDialog}
+        options={exportOptions}
+        onChange={setExportOption}
+        onClose={() => setExportOpen(false)}
+        onExport={handleExport}
+        exporting={exporting}
+        t={t}
+      />
 
       <section className={styles.metricRow} aria-label={t("AiMonitoringPage.summaryTitle")}>
         <MetricCard
