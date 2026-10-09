@@ -12,6 +12,7 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import AIAPIViewAllUser, SessionDep
 from app.core.i18n import t
@@ -24,11 +25,25 @@ from app.schemas.ai_monitoring import (
     AITemplateCallsResponse,
     AIUsersUsageResponse,
 )
-from app.services.llm_gateway import ai_gateway_service
+from app.services.llm_gateway import ai_gateway_service, ai_usage_export
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai-api/monitoring", tags=["ai-monitoring"])
+
+
+def _normalise_export_datetime(
+    value: datetime | None, parameter: str
+) -> datetime | None:
+    """Require an explicit timezone and normalise export boundaries to UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{parameter} must include a timezone offset",
+        )
+    return value.astimezone(timezone.utc)
 
 
 @router.get(
@@ -157,6 +172,93 @@ def list_users_usage(
         skip=skip,
         limit=limit,
         include_template=source == "all",
+    )
+
+
+@router.get(
+    "/export",
+    summary="匯出 AI 使用量 CSV",
+)
+def export_ai_usage(
+    session: SessionDep,
+    _current_user: AIAPIViewAllUser,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    source: Literal["all", "api_key", "platform"] = Query(default="all"),
+    status: Literal["success", "error", "cancelled"] | None = Query(default=None),
+    model_name: str | None = Query(default=None, max_length=255),
+    call_type: str | None = Query(default=None, max_length=50),
+    user_id: uuid.UUID | None = None,
+) -> StreamingResponse:
+    """Stream every matching ``ai_api_usage`` row for an authorised admin.
+
+    The cutoff is fixed before the count and reused by the keyset stream, so a
+    request cannot include records written after the export was accepted.
+    """
+    start = _normalise_export_datetime(start_date, "start_date")
+    requested_end = _normalise_export_datetime(end_date, "end_date")
+    cutoff = datetime.now(timezone.utc)
+    effective_end = min(requested_end, cutoff) if requested_end else cutoff
+    if start is not None and start > effective_end:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date must be earlier than or equal to the effective end date",
+        )
+
+    row_count = ai_usage_export.count_rows(
+        session=session,
+        start_date=start,
+        end_date=effective_end,
+        source=source,
+        status=status,
+        model_name=model_name,
+        call_type=call_type,
+        user_id=user_id,
+    )
+    if row_count > ai_usage_export.EXPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"匯出結果超過 {ai_usage_export.EXPORT_MAX_ROWS:,} 筆，"
+                "請縮小日期區間"
+            ),
+        )
+
+    logger.info(
+        "AI usage CSV export accepted",
+        extra={
+            "actor_user_id": str(_current_user.id),
+            "start_date": start.isoformat() if start else None,
+            "end_date": effective_end.isoformat(),
+            "source": source,
+            "status": status,
+            "model_name": model_name,
+            "call_type": call_type,
+            "user_id": str(user_id) if user_id else None,
+            "row_count": row_count,
+        },
+    )
+    chunks = ai_usage_export.export_csv_chunks(
+        session=session,
+        start_date=start,
+        end_date=effective_end,
+        source=source,
+        status=status,
+        model_name=model_name,
+        call_type=call_type,
+        user_id=user_id,
+    )
+    filename = (
+        "skylab-ai-usage-"
+        f"{cutoff.strftime('%Y%m%d-%H%M%S')}.csv"
+    )
+    return StreamingResponse(
+        chunks,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

@@ -1,10 +1,21 @@
-import { apiGet } from "./api";
+import { apiGet, apiGetBlob } from "./api";
 
 const BASE = "/api/v1/ai-api/monitoring";
 
 function buildRange(q, params) {
   if (params?.startDate) q.set("start_date", params.startDate);
   if (params?.endDate)   q.set("end_date",   params.endDate);
+}
+
+function buildExportQuery(params = {}) {
+  const q = new URLSearchParams();
+  buildRange(q, params);
+  if (params.source)    q.set("source",     params.source);
+  if (params.status)    q.set("status",     params.status);
+  if (params.modelName) q.set("model_name", params.modelName);
+  if (params.callType)  q.set("call_type",  params.callType);
+  if (params.userId)    q.set("user_id",    params.userId);
+  return q.toString();
 }
 
 export const AiMonitoringService = {
@@ -55,6 +66,12 @@ export const AiMonitoringService = {
     if (params?.source) q.set("source", params.source);
     const qs = q.toString();
     return apiGet(`${BASE}/users${qs ? `?${qs}` : ""}`);
+  },
+
+  /** 匯出指定條件下的完整 AI 使用量 CSV（不受明細 limit 影響） */
+  exportCsv(params = {}) {
+    const qs = buildExportQuery(params);
+    return apiGetBlob(`${BASE}/export${qs ? `?${qs}` : ""}`);
   },
 
   /** LiteLLM gateway 與目前模型健康摘要（Admin only） */
