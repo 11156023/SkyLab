@@ -25,12 +25,6 @@ _ID = str(uuid.uuid4())
 _CONTROL_CASES = [
     (
         "POST",
-        "/ai-api/requests/bulk-reject",
-        {"request_ids": [_ID], "review_comment": "reason"},
-        "bulk_reject_requests",
-    ),
-    (
-        "POST",
         f"/ai-api/requests/{_ID}/review",
         {"status": "rejected", "review_comment": "reason"},
         "review_request",
@@ -67,7 +61,7 @@ def _app(role: UserRole | None = None) -> FastAPI:
 @pytest.mark.parametrize(
     "method,path,payload,service_name,role,expected",
     [(*case, None, 401) for case in _CONTROL_CASES]
-    + [(*case, UserRole.student, 403) for case in _CONTROL_CASES[:2]],
+    + [(*case, UserRole.student, 403) for case in _CONTROL_CASES if case[0] == "POST"],
 )
 async def test_control_plane_rejects_before_asgi_receive(
     method, path, payload, service_name, role, expected

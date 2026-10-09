@@ -84,21 +84,6 @@ describe("AiApiService.listAllRequests", () => {
   });
 });
 
-describe("AiApiService.bulkRejectRequests", () => {
-  beforeEach(() => {
-    apiPostMock.mockReset();
-    apiPostMock.mockResolvedValue({});
-  });
-
-  test("以同一理由送出選取的申請", async () => {
-    await AiApiService.bulkRejectRequests(["request-a", "request-b"], "用途不符");
-    expect(apiPostMock).toHaveBeenCalledWith(
-      "/api/v1/ai-api/requests/bulk-reject",
-      { request_ids: ["request-a", "request-b"], review_comment: "用途不符" },
-    );
-  });
-});
-
 describe("AiApiService 金鑰 API 用量", () => {
   beforeEach(() => {
     apiGetMock.mockReset();

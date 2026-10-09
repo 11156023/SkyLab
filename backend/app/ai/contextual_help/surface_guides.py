@@ -1056,7 +1056,6 @@ _add("ai-api-review", SurfaceGuide(
     features=(
         "用狀態篩選待審核、已通過、已拒絕；「用途」欄是審核的主要依據。",
         "每筆申請按「通過」或「拒絕」，通過後系統會直接核發 base_url 與 api_key。",
-        "大量不合格的申請可以勾選後用「批量拒絕」，套用同一個理由。",
     ),
     dialogs=(
         DialogSpec(
@@ -1072,13 +1071,6 @@ _add("ai-api-review", SurfaceGuide(
             opened_by="拒絕",
             purpose="拒絕這筆申請。",
             fields=(_f("審核備註", "可留空，但寫上原因能讓申請者知道下一步。"),),
-        ),
-        DialogSpec(
-            id="bulk-reject",
-            title="批量拒絕 AI API 申請",
-            opened_by="批量拒絕",
-            purpose="一次拒絕勾選的待審核申請。",
-            fields=(_f("共用拒絕理由", "這批申請會套用同一個理由。", required=True),),
         ),
     ),
     related=(

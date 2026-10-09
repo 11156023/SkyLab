@@ -10,7 +10,6 @@ from app.core.i18n import t
 from app.exceptions import BadRequestError
 from app.models.ai_api_request import AIAPIRequestStatus
 from app.schemas.ai_api import (
-    AIAPIRequestBulkReject,
     AIAPIRequestCreate,
     AIAPIRequestReview,
 )
@@ -218,20 +217,13 @@ def test_ai_api_review_openapi_only_advertises_decisions() -> None:
     assert status_schema["enum"] == ["approved", "rejected"]
 
 
-def test_ai_api_bulk_reject_requires_unique_ids_and_a_reason() -> None:
-    request_id = uuid.uuid4()
-    payload = AIAPIRequestBulkReject(
-        request_ids=[request_id], review_comment="不符合申請規範"
-    )
-    assert payload.request_ids == [request_id]
-    assert payload.review_comment == "不符合申請規範"
+def test_ai_api_openapi_does_not_expose_bulk_reject() -> None:
+    from app.api.routes import ai_api
 
-    with pytest.raises(ValidationError):
-        AIAPIRequestBulkReject(
-            request_ids=[request_id, request_id], review_comment="批量理由"
-        )
-    with pytest.raises(ValidationError):
-        AIAPIRequestBulkReject(request_ids=[request_id], review_comment="   ")
+    app = FastAPI()
+    app.include_router(ai_api.router)
+
+    assert "/ai-api/requests/bulk-reject" not in app.openapi()["paths"]
 
 
 # ---- 不合法時區回 400，不是 500 ----

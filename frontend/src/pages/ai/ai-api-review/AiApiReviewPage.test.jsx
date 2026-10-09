@@ -8,7 +8,6 @@ import AiApiReviewPage from "./AiApiReviewPage";
 const mocks = vi.hoisted(() => ({
   listAllRequests: vi.fn(),
   reviewRequest: vi.fn(),
-  bulkRejectRequests: vi.fn(),
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -17,7 +16,6 @@ vi.mock("../../../services/aiApi", () => ({
   AiApiService: {
     listAllRequests: mocks.listAllRequests,
     reviewRequest: mocks.reviewRequest,
-    bulkRejectRequests: mocks.bulkRejectRequests,
   },
 }));
 vi.mock("react-i18next", async (importOriginal) => ({
@@ -174,48 +172,20 @@ describe("AiApiReviewPage", () => {
     expect(host.textContent).toContain("key-ok1");
   });
 
-  test("selects pending requests and submits one shared reason for bulk rejection", async () => {
-    const pendingRows = [
-      request("p1", "pending", "2026-09-01T00:00:00Z"),
-      request("p2", "pending", "2026-09-02T00:00:00Z"),
-    ];
+  test("does not render bulk rejection controls", async () => {
+    const pendingRows = [request("p1", "pending", "2026-09-01T00:00:00Z")];
     mocks.listAllRequests.mockImplementation(async ({ status } = {}) => {
       if (status === "pending") return { data: pendingRows, count: pendingRows.length };
       return { data: [], count: 0 };
     });
-    mocks.bulkRejectRequests.mockResolvedValue({ count: 2 });
 
     const flush = async () => {
       for (let i = 0; i < 8; i += 1) await Promise.resolve();
     };
 
     await act(async () => { root.render(<AiApiReviewPage />); await flush(); });
-    const selectAll = host.querySelector('input[aria-label="AiApiReviewPage.selectAll"]');
-    expect(selectAll).not.toBeNull();
 
-    await act(async () => { selectAll.click(); });
-    const bulkButton = [...host.querySelectorAll("button")]
-      .find((button) => button.textContent.includes("AiApiReviewPage.bulkReject"));
-    expect(bulkButton).not.toBeUndefined();
-
-    await act(async () => { bulkButton.click(); });
-    const textarea = host.querySelector("textarea");
-    expect(textarea).not.toBeNull();
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      ).set;
-      setter.call(textarea, "用途與申請內容不符");
-      textarea.dispatchEvent(new Event("input", { bubbles: true }));
-      textarea.dispatchEvent(new Event("change", { bubbles: true }));
-      await Promise.resolve();
-    });
-    const confirmButton = [...host.querySelectorAll("button")]
-      .find((button) => button.textContent.includes("AiApiReviewPage.bulkRejectConfirm"));
-    expect(confirmButton).not.toBeUndefined();
-
-    await act(async () => { confirmButton.click(); await flush(); });
-    expect(mocks.bulkRejectRequests).toHaveBeenCalledWith(["p1", "p2"], "用途與申請內容不符");
+    expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(host.textContent).not.toContain("AiApiReviewPage.bulkReject");
   });
 });
