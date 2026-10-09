@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 import requests
+import urllib3
 
 from app.infrastructure.proxmox import client as proxmox_client
 
@@ -21,13 +22,16 @@ NODES = [
 ]
 
 
-class _Session:
+class _Session(requests.Session):
     """假的 proxmoxer session：依 ``error`` 決定要不要丟例外。"""
 
     def __init__(self) -> None:
+        super().__init__()
         self.error: Exception | None = None
+        self.last_kwargs: dict[str, Any] = {}
 
-    def request(self, method: str, url: str, **_kwargs: Any) -> str:
+    def request(self, method: str, url: str, **kwargs: Any) -> str:  # type: ignore[override]
+        self.last_kwargs = kwargs
         if self.error is not None:
             raise self.error
         return f"{method} {url}"
@@ -60,7 +64,7 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         proxmox_client,
         "get_proxmox_settings",
         lambda _connection_id=None: SimpleNamespace(
-            connection_id=None, connection_name=None, host="10.0.0.1"
+            connection_id=None, connection_name=None, host="10.0.0.1", api_timeout=30
         ),
     )
     monkeypatch.setattr(proxmox_client, "get_nodes_for_ha", lambda _cid=None: NODES)
@@ -119,3 +123,52 @@ def test_successful_requests_pass_through(cluster: dict[str, Any]) -> None:
 
     assert client._store["session"].request("GET", "/version") == "GET /version"
     assert proxmox_client.get_proxmox_api() is client
+
+
+def test_pool_holds_concurrent_requests_and_retries_only_connects(
+    cluster: dict[str, Any],
+) -> None:
+    # 預設每個 host 只留 10 條連線；threadpool 40 條 thread 共用同一個 session
+    # 時多出來的連線用完就丟（日誌 "Connection pool is full, discarding"），
+    # 每次重開 TCP／TLS 都多一次撞上 SYN 黑洞的機會。
+    client = proxmox_client.get_proxmox_api()
+    adapter = client._store["session"].get_adapter("https://10.0.0.1:8006/api2/json")
+
+    assert adapter._pool_maxsize >= 40
+    assert adapter.max_retries.connect == proxmox_client.PROXMOX_CONNECT_RETRIES
+    # 讀取階段請求可能已送到 PVE，不可重送（POST 會建兩台機器）
+    assert adapter.max_retries.read is False
+    assert adapter.max_retries.status == 0
+
+
+def test_requests_use_short_connect_timeout(cluster: dict[str, Any]) -> None:
+    client = proxmox_client.get_proxmox_api()
+
+    client._store["session"].request("GET", "/version")
+    assert client.session.last_kwargs["timeout"] == (
+        proxmox_client.PROXMOX_CONNECT_TIMEOUT,
+        30,
+    )
+
+    # 呼叫端自己給的 timeout 不覆蓋
+    client._store["session"].request("GET", "/version", timeout=300)
+    assert client.session.last_kwargs["timeout"] == 300
+
+
+def test_connect_timeout_retries_on_fresh_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[Any] = []
+
+    def blackholed(self: Any) -> Any:
+        attempts.append(self.timeout)
+        raise urllib3.exceptions.ConnectTimeoutError(self, "timed out")
+
+    monkeypatch.setattr(urllib3.connection.HTTPConnection, "_new_conn", blackholed)
+    session = requests.Session()
+    proxmox_client._configure_session(session)
+
+    with pytest.raises(requests.exceptions.ConnectTimeout):
+        session.post("https://10.0.0.1:8006/api2/json/nodes", timeout=(5.0, 30))
+
+    assert len(attempts) == proxmox_client.PROXMOX_CONNECT_RETRIES + 1
