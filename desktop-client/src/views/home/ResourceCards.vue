@@ -118,6 +118,7 @@ const date = (value?: string | null) =>
                   ? 'terminal'
                   : 'monitor'
               "
+              :size="16"
             />{{
               t(
                 String(target.service).toLowerCase() === "ssh"

@@ -1,13 +1,11 @@
 <script lang="ts" setup>
-import Breadcrumb from "@/layout/compoenets/Breadcrumb.vue";
 import { send } from "@/utils/ipcUtils";
-import { defineComponent } from "vue";
 import { useI18n } from "vue-i18n";
 import { ipcRouters } from "../../../electron/core/IpcRouter";
 import pkg from "../../../package.json";
 import PixelOcto from "@/components/PixelOcto.vue";
 
-defineComponent({ name: "About" });
+defineOptions({ name: "About" });
 
 const { t } = useI18n();
 
@@ -27,130 +25,120 @@ const openThirdPartyNotices = () =>
 </script>
 
 <template>
-  <div class="main">
-    <breadcrumb />
-    <div class="app-container-breadcrumb">
-      <div class="page-surface about-surface">
-        <PixelOcto :scale="5" class="about-logo" />
-        <div class="about-name">{{ t("about.name") }}</div>
-        <div class="about-description">
-          {{ t("about.description") }}
-        </div>
-        <div class="about-tags">
-          <el-tag size="small" type="success">{{
-            t("about.features.oneClick")
-          }}</el-tag>
-          <el-tag size="small" type="primary">{{
-            t("about.features.bundled")
-          }}</el-tag>
-          <el-tag size="small" type="danger">{{
-            t("about.features.secure")
-          }}</el-tag>
-        </div>
-        <div class="about-version">
-          {{ t("about.version") }} v{{ pkg.version }}
-        </div>
+  <main class="workspace-page">
+    <header class="workspace-heading">
+      <h1>{{ t("router.about.title") }}</h1>
+    </header>
 
-        <dl class="about-meta">
-          <dt>{{ t("about.license") }}</dt>
-          <dd>
-            <el-link type="primary" :underline="false" @click="openLicense">
-              {{ t("about.licenseName") }}
-            </el-link>
-            <div class="about-hint">{{ t("about.licenseHint") }}</div>
-          </dd>
-          <dt>{{ t("about.repository") }}</dt>
-          <dd>
-            <el-link type="primary" :underline="false" @click="openRepository">
-              {{ repositoryHost }}
-            </el-link>
-          </dd>
-        </dl>
+    <section class="sl-card about-card">
+      <PixelOcto :scale="5" />
+      <div class="about-name">{{ t("about.name") }}</div>
+      <p class="about-description">{{ t("about.description") }}</p>
+      <div class="about-tags">
+        <el-tag size="small" type="primary">
+          {{ t("about.features.oneClick") }}
+        </el-tag>
+        <el-tag size="small" type="primary">
+          {{ t("about.features.bundled") }}
+        </el-tag>
+        <el-tag size="small" type="primary">
+          {{ t("about.features.secure") }}
+        </el-tag>
+      </div>
+      <div class="about-version">
+        {{ t("about.version") }} v{{ pkg.version }}
+      </div>
 
-        <div class="about-actions">
-          <el-button size="small" @click="openThirdPartyNotices">
-            {{ t("about.thirdPartyNotices") }}
-          </el-button>
-          <el-button size="small" @click="openAppData">
-            {{ t("about.openDataDir") }}
-          </el-button>
-        </div>
+      <dl class="about-meta">
+        <dt>{{ t("about.license") }}</dt>
+        <dd>
+          <el-link type="primary" :underline="false" @click="openLicense">
+            {{ t("about.licenseName") }}
+          </el-link>
+          <div class="about-hint">{{ t("about.licenseHint") }}</div>
+        </dd>
+        <dt>{{ t("about.repository") }}</dt>
+        <dd>
+          <el-link type="primary" :underline="false" @click="openRepository">
+            {{ repositoryHost }}
+          </el-link>
+        </dd>
+      </dl>
 
-        <div class="about-components">
-          <div class="about-components-title">
-            {{ t("about.components.title") }}
-          </div>
-          <div class="about-hint">
-            {{
-              t("about.components.hint", { count: about.dependencies.length })
-            }}
-          </div>
-          <el-table :data="about.dependencies" size="small" max-height="260">
-            <el-table-column
-              prop="name"
-              :label="t('about.components.package')"
-              min-width="160"
-            >
-              <template #default="{ row }">
-                <el-link
-                  v-if="row.repository"
-                  type="primary"
-                  :underline="false"
-                  @click="
-                    send(ipcRouters.SYSTEM.openUrl, { url: row.repository })
-                  "
-                >
-                  {{ row.name }}
-                </el-link>
-                <span v-else>{{ row.name }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="version"
-              :label="t('about.components.version')"
-              width="110"
-            />
-            <el-table-column
-              prop="license"
-              :label="t('about.components.license')"
-              width="110"
-            />
-          </el-table>
+      <div class="about-actions">
+        <button type="button" class="sl-button" @click="openThirdPartyNotices">
+          {{ t("about.thirdPartyNotices") }}
+        </button>
+        <button type="button" class="sl-button" @click="openAppData">
+          {{ t("about.openDataDir") }}
+        </button>
+      </div>
+    </section>
+
+    <section class="sl-card">
+      <div>
+        <div class="sl-card__title">{{ t("about.components.title") }}</div>
+        <div class="sl-card__hint">
+          {{ t("about.components.hint", { count: about.dependencies.length }) }}
         </div>
       </div>
-    </div>
-  </div>
+      <el-table :data="about.dependencies" size="small" max-height="260">
+        <el-table-column
+          prop="name"
+          :label="t('about.components.package')"
+          min-width="160"
+        >
+          <template #default="{ row }">
+            <el-link
+              v-if="row.repository"
+              type="primary"
+              :underline="false"
+              @click="send(ipcRouters.SYSTEM.openUrl, { url: row.repository })"
+            >
+              {{ row.name }}
+            </el-link>
+            <span v-else>{{ row.name }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="version"
+          :label="t('about.components.version')"
+          width="110"
+        />
+        <el-table-column
+          prop="license"
+          :label="t('about.components.license')"
+          width="110"
+        />
+      </el-table>
+    </section>
+  </main>
 </template>
 
 <style lang="scss" scoped>
-.about-surface {
+.about-card {
   align-items: center;
-  justify-content: center;
+  gap: 8px;
   text-align: center;
 }
 
-.about-logo {
-  margin-bottom: 8px;
-}
-
 .about-name {
-  margin-top: 10px;
+  margin-top: 8px;
   color: var(--color-text-primary);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
 }
 
 .about-description {
   max-width: 440px;
   color: var(--color-text-secondary);
-  font-size: 14px;
 }
 
 .about-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
   justify-content: center;
+  gap: 8px;
 }
 
 .about-version {
@@ -166,14 +154,12 @@ const openThirdPartyNotices = () =>
   max-width: 520px;
   margin: 8px 0 0;
   text-align: left;
-  font-size: 13px;
 
   dt {
     color: var(--color-text-secondary);
   }
 
   dd {
-    margin: 0;
     color: var(--color-text-primary);
   }
 }
@@ -188,20 +174,8 @@ const openThirdPartyNotices = () =>
 .about-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
   justify-content: center;
-}
-
-.about-components {
-  width: 100%;
-  max-width: 520px;
+  gap: 8px;
   margin-top: 8px;
-  text-align: left;
-}
-
-.about-components-title {
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-weight: 600;
 }
 </style>

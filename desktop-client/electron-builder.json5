@@ -42,6 +42,11 @@
     perMachine: true,
     allowToChangeInstallationDirectory: true,
     deleteAppDataOnUninstall: false,
-    include: "build/installer.nsh"
+    include: "build/installer.nsh",
+    // UpdateService 只認這個檔名，README 的「最新版」連結也指向它
+    artifactName: "SkyLab-Connect-Setup.exe"
+  },
+  portable: {
+    artifactName: "SkyLab-Connect-Portable.exe"
   }
 }

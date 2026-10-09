@@ -7,21 +7,14 @@ import {
   groupResourcesByCourse
 } from "@/utils/resourceGroups";
 import { ElMessage } from "element-plus";
-import {
-  computed,
-  defineComponent,
-  onMounted,
-  onUnmounted,
-  ref,
-  watch
-} from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ipcRouters } from "../../../electron/core/IpcRouter";
 import ResourceCards from "./ResourceCards.vue";
 import AppIcon from "@/components/AppIcon.vue";
-import { resourceView, toggleTheme } from "@/utils/appearance";
+import { resourceView, theme, toggleTheme } from "@/utils/appearance";
 
-defineComponent({ name: "Home" });
+defineOptions({ name: "Home" });
 
 const { t } = useI18n();
 const appStore = useAppStore();
@@ -398,6 +391,7 @@ onUnmounted(() => {
         >
           <AppIcon
             name="refresh"
+            :size="16"
             :class="{ 'sl-spin': refreshing || appStore.resourcesLoading }"
           />{{ t("common.refresh") }}</button
         ><button
@@ -406,7 +400,7 @@ onUnmounted(() => {
           :title="t('workspace.toggleTheme')"
           @click="toggleTheme"
         >
-          <AppIcon name="sun" />
+          <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" />
         </button>
       </div>
     </header>
@@ -417,7 +411,8 @@ onUnmounted(() => {
       aria-live="polite"
     >
       <AppIcon
-        :name="loading ? 'refresh' : 'shield'"
+        :name="loading ? 'spinner' : 'shield'"
+        :size="22"
         :class="{
           'sl-spin': loading,
           'is-running':
@@ -533,6 +528,7 @@ onUnmounted(() => {
         class="workspace-empty"
         role="status"
       >
+        <AppIcon name="spinner" class="sl-spin" :size="32" />
         {{ t("common.loading") }}
       </div>
       <template v-else>
@@ -549,7 +545,9 @@ onUnmounted(() => {
               @click="toggleCourse(group.id)"
             >
               <AppIcon name="folder" />
-              <span class="course-folder__name">{{ group.title }}</span>
+              <span class="course-folder__name">{{
+                group.title || t("workspace.unnamedCourse")
+              }}</span>
               <span class="course-folder__count">{{
                 t("workspace.machineCount", { count: group.resources.length })
               }}</span>
@@ -615,7 +613,7 @@ onUnmounted(() => {
       </template>
     </template>
     <div v-else class="workspace-empty">
-      <AppIcon name="monitor" />
+      <AppIcon name="cloud-off" :size="36" />
       <p>{{ t("home.empty.notLoggedIn") }}</p>
     </div>
   </main>

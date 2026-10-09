@@ -7,8 +7,9 @@ function saved(key: string, fallback: string) {
     return fallback;
   }
 }
+/* 預設亮色，與 web 端一致；使用者切過深色才記住 */
 export const theme = ref(
-  saved("skylab.theme", "dark") === "light" ? "light" : "dark"
+  saved("skylab.theme", "light") === "dark" ? "dark" : "light"
 );
 export const resourceView = ref(
   saved("skylab.resource-view", "grid") === "list" ? "list" : "grid"

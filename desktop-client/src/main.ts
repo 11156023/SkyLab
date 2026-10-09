@@ -1,18 +1,14 @@
-import "animate.css";
 import ElementPlus from "element-plus";
 import { createPinia } from "pinia";
 import { createApp, watch } from "vue";
 import App from "./App.vue";
-import {
-  IconifyIconOffline,
-  IconifyIconOnline
-} from "./components/IconifyIcon";
 import i18n from "./lang";
 import router from "./router";
 import { useAppStore } from "./store/app";
 import { ipcRouters } from "../electron/core/IpcRouter";
-import "./styles/index.scss";
+/* EP 的深色變數檔要排在自家樣式前面，index.scss 的深色區塊才能蓋過它 */
 import "element-plus/theme-chalk/dark/css-vars.css";
+import "./styles/index.scss";
 import "./styles/workspace.scss";
 
 function waitForInitialReply(path: string): Promise<void> {
@@ -32,9 +28,6 @@ function waitForInitialReply(path: string): Promise<void> {
 const pinia = createPinia();
 
 const app = createApp(App);
-app.component("IconifyIconOffline", IconifyIconOffline);
-app.component("IconifyIconOnline", IconifyIconOnline);
-
 app.use(i18n).use(router).use(ElementPlus).use(pinia);
 
 const appStore = useAppStore(pinia);

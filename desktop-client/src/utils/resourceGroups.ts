@@ -1,9 +1,9 @@
 export interface CourseResourceGroup {
   id: string;
+  /** 課程名稱；沒有任何可用名稱時為空字串，由畫面補「未命名課程」 */
   title: string;
   resources: SkyLabResource[];
   runningCount: number;
-  nodeLabel: string;
 }
 
 export interface GroupedResources {
@@ -21,17 +21,36 @@ function resourceSort(a: SkyLabResource, b: SkyLabResource): number {
   return Number(a.vmid ?? 0) - Number(b.vmid ?? 0);
 }
 
-function courseTitle(resources: SkyLabResource[], classId: string): string {
+function courseTitle(resources: SkyLabResource[]): string {
   return (
     resources.find(resource => resource.teaching_class_name)
       ?.teaching_class_name ||
     resources.find(resource => resource.course_environment_name)
       ?.course_environment_name ||
     resources.find(resource => resource.environment_type)?.environment_type ||
-    `課程 ${classId.slice(0, 8)}`
+    ""
   );
 }
 
+function toGroup(
+  id: string,
+  title: string,
+  rows: SkyLabResource[]
+): CourseResourceGroup {
+  const resources = [...rows].sort(resourceSort);
+  return {
+    id,
+    title,
+    resources,
+    runningCount: resources.filter(resource => resource.status === "running")
+      .length
+  };
+}
+
+/**
+ * 把機器分成三類：快速練習（依啟動的 session 一組一個資料夾）、課程（依班級）、個人。
+ * 同一個範本啟動兩次是兩個 session，各自一個資料夾；session 清單載入失敗時機器仍留在個人區。
+ */
 export function groupResourcesByCourse(
   resources: SkyLabResource[] = [],
   sessions: SkyLabQuickPracticeSession[] = []
@@ -68,47 +87,18 @@ export function groupResourcesByCourse(
   }
 
   const courseGroups = [...courseMap.entries()]
-    .map(([classId, rows]) => {
-      const sortedRows = [...rows].sort(resourceSort);
-      const nodes = new Set(
-        sortedRows.map(resource => resource.node).filter(Boolean)
-      );
-      return {
-        id: classId,
-        title: courseTitle(sortedRows, classId),
-        resources: sortedRows,
-        runningCount: sortedRows.filter(
-          resource => resource.status === "running"
-        ).length,
-        nodeLabel:
-          nodes.size === 1
-            ? String([...nodes][0])
-            : nodes.size > 1
-              ? "多節點"
-              : "配置中"
-      };
-    })
+    .map(([classId, rows]) => toGroup(classId, courseTitle(rows), rows))
     .sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
 
   const quickPracticeGroups = sessions
     .filter(session => quickPracticeMap.has(session.id))
-    .map(session => {
-      const sortedRows = [...quickPracticeMap.get(session.id)!].sort(
-        resourceSort
-      );
-      const nodes = new Set(
-        sortedRows.map(resource => resource.node).filter(Boolean)
-      );
-      return {
-        id: `practice-${session.id}`,
-        title: session.title || "Quick practice",
-        resources: sortedRows,
-        runningCount: sortedRows.filter(
-          resource => resource.status === "running"
-        ).length,
-        nodeLabel: nodes.size === 1 ? String([...nodes][0]) : ""
-      };
-    });
+    .map(session =>
+      toGroup(
+        `practice-${session.id}`,
+        session.title || "",
+        quickPracticeMap.get(session.id)!
+      )
+    );
 
   return {
     courseGroups,

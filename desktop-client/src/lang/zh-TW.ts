@@ -39,7 +39,8 @@
     resourceError: "無法更新資源，請重新整理",
     appearance: "外觀",
     dark: "深色",
-    light: "亮色"
+    light: "亮色",
+    unnamedCourse: "未命名課程"
   },
   update: {
     settingsTitle: "軟體更新",
@@ -57,32 +58,20 @@
     launching: "正在啟動安裝程式",
     installError: "更新失敗",
     title: "發現新版本",
-    message: "SkyLab Connect {version} 已發布，建議下載並安裝最新版。",
-    download: "下載更新",
     later: "稍後提醒"
   },
-  app: {
-    title: "SkyLab Connect",
-    description: "校園雲端虛擬機連線工具"
-  },
   router: {
-    home: { title: "主頁" },
-    resources: { title: "我的資源" },
-    logger: { title: "日誌" },
-    config: { title: "設定" },
-    about: { title: "關於" },
-    login: { title: "登入" }
+    config: {
+      title: "設定"
+    },
+    about: {
+      title: "關於"
+    }
   },
   common: {
     save: "儲存",
-    cancel: "取消",
-    confirm: "確定",
     refresh: "重新整理",
-    copy: "複製",
-    copied: "已複製",
-    loading: "載入中...",
-    yes: "是",
-    no: "否"
+    loading: "載入中..."
   },
   sessionWarning: {
     autoStopTitle: "VM 即將自動關機",
@@ -97,21 +86,8 @@
     doNotShow: "不再顯示此提醒"
   },
   login: {
-    title: "登入 SkyLab",
-    connectTitle: "一鍵連線到你的機器",
-    connectDescription:
-      "按下連線後，首次使用會開啟瀏覽器完成登入，接著自動建立安全連線。",
-    connect: "開始連線",
-    waitingShort: "驗證中",
-    firstUseHint: "首次使用需要在瀏覽器登入；完成後會自動回到這裡。",
-    description: "點擊下方按鈕，會開啟瀏覽器完成登入。完成後請回到此視窗。",
-    startButton: "開啟瀏覽器登入",
-    cancelButton: "取消登入",
-    logoutButton: "登出",
-    waiting: "等待瀏覽器完成驗證...",
     success: "登入成功",
-    failure: "登入失敗：{error}",
-    alreadyLoggedIn: "已登入"
+    failure: "登入失敗：{error}"
   },
   home: {
     status: {
@@ -119,13 +95,10 @@
         "連線授權更新失敗，將自動重試；授權到期後須重新連線。",
       running: "已連線",
       stopped: "未連線",
-      error: "連線錯誤",
-      uptime: "已連線 {time}"
+      error: "連線錯誤"
     },
     button: {
-      start: "啟動連線",
-      stop: "停止連線",
-      refresh: "重新整理"
+      stop: "停止連線"
     },
     connect: {
       title: "連線到 SkyLab",
@@ -133,69 +106,28 @@
       button: "開始連線",
       connecting: "正在建立安全連線",
       authenticating: "等待登入驗證",
-      secureHint: "WireGuard 加密 · 一鍵完成",
       authHint: "請在瀏覽器完成登入 · 完成後自動連線"
     },
     machines: {
-      summary: "連線已建立 · {machines} 台機器 · {courses} 個課程環境",
       unavailable: "無可用連線",
       noTargets:
         "安全連線已建立，但目前沒有可用的 SSH／RDP 目標。請確認機器已啟動並取得可連線的 IP；若仍無法使用，請聯絡管理員檢查 VPN 網段設定。"
     },
     empty: {
-      notLoggedIn: "尚未登入，請先登入 SkyLab 帳號。",
-      goLogin: "前往登入",
-      goResources: "查看我的資源"
+      notLoggedIn: "尚未登入，請先登入 SkyLab 帳號。"
     },
     tunnels: {
-      title: "可用的虛擬機連線",
-      empty: "連線啟動後會顯示虛擬機清單",
-      action: "操作",
-      service: "服務",
-      endpoint: "本機端點",
-      machines: "可連線機器",
-      ready: "可連線",
-      groupSummary: "{machines} 台機器 · {connections} 個連線",
       connectSsh: "SSH 連線",
-      connectRdp: "RDP 連線",
-      machineStopped: "機器尚未開機",
-      invalidPort: "此連線的本機 Port 設定無效"
+      connectRdp: "RDP 連線"
     }
   },
   resources: {
-    title: "我的虛擬機",
     webTitle: "我的資源",
-    webSubtitle: "查看並連接已配置的虛擬機和容器",
-    refresh: "重新整理",
-    summary: "共 {total} 台機器，分屬 {courses} 個課程環境",
-    connect: "連線",
-    customEnvironment: "自訂環境",
-    owner: "擁有者：{owner}",
-    kind: {
-      personal: "個人申請",
-      shared: "共享給我",
-      teaching_class: "班級機器",
-      quick_practice: "快速練習",
-      course: "課程實驗"
-    },
-    window: {
-      notStarted: "使用時段尚未開始（{time}）",
-      ended: "使用時段已結束（{time}）"
-    },
-    metrics: {
-      total: "機器總數",
-      courseGroups: "課程環境"
-    },
     course: {
-      kind: "課程",
-      title: "課程機器",
-      description: "依課程整組檢視，展開後可查看各台機器",
-      machineCount: "{count} 台機器 · 整組管理",
       runningCount: "{running}/{total} 執行中"
     },
     personal: {
-      title: "個人資源",
-      description: "由個人申請或單獨配置的機器"
+      title: "個人資源"
     },
     status: {
       running: "執行中",
@@ -212,7 +144,6 @@
     table: {
       name: "名稱",
       vmid: "VMID",
-      type: "類型",
       status: "狀態",
       node: "節點",
       ip: "內網 IP",
@@ -269,17 +200,5 @@
       version: "版本",
       license: "授權"
     }
-  },
-  logger: {
-    tab: { appLog: "應用日誌" },
-    message: {
-      openSuccess: "開啟日誌成功",
-      refreshSuccess: "重新整理成功"
-    },
-    autoRefresh: "自動重新整理",
-    autoRefreshTime: "{time} 秒後自動重新整理",
-    search: { placeholder: "搜尋日誌..." },
-    loading: { text: "載入中..." },
-    content: { empty: "目前沒有日誌" }
   }
 };

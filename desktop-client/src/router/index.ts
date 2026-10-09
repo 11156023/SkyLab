@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory, RouteRecordRaw } from "vue-router";
 
 const Layout = () => import("@/layout/index.vue");
 
+/* 三個頁面都在同一個外框裡；登入沒有獨立頁，首頁的「開始連線」會帶使用者走瀏覽器登入 */
 const routes: RouteRecordRaw[] = [
   {
     path: "/login",
@@ -16,33 +17,16 @@ const routes: RouteRecordRaw[] = [
       {
         path: "/home",
         name: "Home",
-        meta: {
-          title: "router.home.title",
-          icon: "rocket-launch-rounded",
-          keepAlive: false
-        },
         component: () => import("@/views/home/index.vue")
       },
       {
         path: "/config",
         name: "Config",
-        meta: {
-          title: "router.config.title",
-          icon: "settings",
-          keepAlive: false,
-          hidden: true
-        },
         component: () => import("@/views/config/index.vue")
       },
       {
         path: "/about",
         name: "About",
-        meta: {
-          title: "router.about.title",
-          icon: "info-sharp",
-          keepAlive: false,
-          hidden: true
-        },
         component: () => import("@/views/about/index.vue")
       }
     ]

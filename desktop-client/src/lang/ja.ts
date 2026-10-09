@@ -40,7 +40,8 @@ export default {
     resourceError: "リソースを更新できません。再読み込みしてください。",
     appearance: "外観",
     dark: "ダーク",
-    light: "ライト"
+    light: "ライト",
+    unnamedCourse: "名称未設定のコース"
   },
   update: {
     settingsTitle: "ソフトウェア更新",
@@ -58,33 +59,20 @@ export default {
     launching: "インストーラーを起動中",
     installError: "更新に失敗しました",
     title: "新しいバージョンがあります",
-    message:
-      "SkyLab Connect {version} が公開されました。最新版をダウンロードしてください。",
-    download: "更新をダウンロード",
     later: "後で通知"
   },
-  app: {
-    title: "SkyLab Connect",
-    description: "SkyLab の仮想マシンに接続します"
-  },
   router: {
-    home: { title: "ホーム" },
-    resources: { title: "リソース" },
-    logger: { title: "ログ" },
-    config: { title: "設定" },
-    about: { title: "このアプリについて" },
-    login: { title: "ログイン" }
+    config: {
+      title: "設定"
+    },
+    about: {
+      title: "このアプリについて"
+    }
   },
   common: {
     save: "保存",
-    cancel: "キャンセル",
-    confirm: "確認",
     refresh: "更新",
-    copy: "コピー",
-    copied: "コピーしました",
-    loading: "読み込み中...",
-    yes: "はい",
-    no: "いいえ"
+    loading: "読み込み中..."
   },
   sessionWarning: {
     autoStopTitle: "仮想マシンはまもなく自動停止します",
@@ -99,22 +87,8 @@ export default {
     doNotShow: "今後表示しない"
   },
   login: {
-    title: "SkyLab にログイン",
-    connectTitle: "マシンに接続",
-    connectDescription:
-      "接続を押し、ブラウザーでログインを完了すると安全な接続が自動的に開始されます。",
-    connect: "接続",
-    waitingShort: "確認中",
-    firstUseHint:
-      "初回はブラウザーでのログインが必要です。完了後、自動的に戻ります。",
-    description: "下のボタンを押すとブラウザーが開きます。",
-    startButton: "ブラウザーでログイン",
-    cancelButton: "キャンセル",
-    logoutButton: "ログアウト",
-    waiting: "ブラウザーでの確認を待っています...",
     success: "ログインしました",
-    failure: "ログインに失敗しました: {error}",
-    alreadyLoggedIn: "ログイン済み"
+    failure: "ログインに失敗しました: {error}"
   },
   home: {
     status: {
@@ -122,10 +96,11 @@ export default {
         "接続の認証更新に失敗しました。自動的に再試行します。有効期限が切れた場合は再接続してください。",
       running: "接続済み",
       stopped: "未接続",
-      error: "接続エラー",
-      uptime: "接続時間 {time}"
+      error: "接続エラー"
     },
-    button: { start: "接続", stop: "切断", refresh: "更新" },
+    button: {
+      stop: "切断"
+    },
     connect: {
       title: "SkyLab に接続",
       description:
@@ -133,66 +108,28 @@ export default {
       button: "接続",
       connecting: "安全な接続を作成中",
       authenticating: "ログイン待機中",
-      secureHint: "WireGuard 暗号化 · ワンクリック",
       authHint: "ブラウザーでログインを完了すると自動接続します"
     },
     machines: {
-      summary: "接続済み · {machines} 台 · {courses} コース環境",
       unavailable: "接続できません",
       noTargets:
         "安全な接続は有効ですが、SSH または RDP の接続先がありません。マシンの状態と IP アドレスを確認してください。"
     },
     empty: {
-      notLoggedIn: "ログインしていません。先に SkyLab にログインしてください。",
-      goLogin: "ログインへ",
-      goResources: "リソースを表示"
+      notLoggedIn: "ログインしていません。先に SkyLab にログインしてください。"
     },
     tunnels: {
-      title: "利用可能な接続",
-      empty: "接続後にトンネル情報が表示されます",
-      action: "操作",
-      service: "サービス",
-      endpoint: "ローカル接続先",
-      machines: "到達可能なマシン",
-      ready: "準備完了",
-      groupSummary: "{machines} 台 · {connections} 接続",
       connectSsh: "SSH 接続",
-      connectRdp: "RDP 接続",
-      machineStopped: "マシンは停止しています",
-      invalidPort: "ローカルポートの設定が無効です"
+      connectRdp: "RDP 接続"
     }
   },
   resources: {
-    title: "仮想マシン",
     webTitle: "マイリソース",
-    webSubtitle: "割り当てられた仮想マシンとコンテナーを表示して接続します",
-    refresh: "更新",
-    summary: "{courses} コース環境、合計 {total} 台",
-    connect: "接続",
-    customEnvironment: "カスタム環境",
-    owner: "所有者: {owner}",
-    kind: {
-      personal: "個人申請",
-      shared: "共有リソース",
-      teaching_class: "クラス用マシン",
-      quick_practice: "クイック練習",
-      course: "コース実習"
-    },
-    window: {
-      notStarted: "利用開始時刻: {time}",
-      ended: "利用期間は {time} に終了しました"
-    },
-    metrics: { total: "マシン数", courseGroups: "コース環境" },
     course: {
-      kind: "コース",
-      title: "コース用マシン",
-      description: "コース別にマシンを確認できます",
-      machineCount: "{count} 台 · グループ管理",
       runningCount: "{running}/{total} 実行中"
     },
     personal: {
-      title: "個人リソース",
-      description: "個別に申請または割り当てられたマシン"
+      title: "個人リソース"
     },
     status: {
       running: "実行中",
@@ -209,7 +146,6 @@ export default {
     table: {
       name: "名前",
       vmid: "VMID",
-      type: "種類",
       status: "状態",
       node: "ノード",
       ip: "プライベート IP",
@@ -267,17 +203,5 @@ export default {
       version: "バージョン",
       license: "ライセンス"
     }
-  },
-  logger: {
-    tab: { appLog: "アプリログ" },
-    message: {
-      openSuccess: "ログを開きました",
-      refreshSuccess: "更新しました"
-    },
-    autoRefresh: "自動更新",
-    autoRefreshTime: "{time} 秒後に更新",
-    search: { placeholder: "ログを検索..." },
-    loading: { text: "読み込み中..." },
-    content: { empty: "ログはありません" }
   }
 };

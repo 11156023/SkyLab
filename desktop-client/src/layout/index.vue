@@ -7,7 +7,6 @@ import { send } from "@/utils/ipcUtils";
 import { ipcRouters } from "../../electron/core/IpcRouter";
 import AppIcon from "@/components/AppIcon.vue";
 import PixelOcto from "@/components/PixelOcto.vue";
-import "@/components/IconifyIcon/src/offlineIcon";
 import "@/utils/appearance";
 
 const { t } = useI18n();

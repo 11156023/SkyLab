@@ -87,7 +87,7 @@ function useLoading() {
     radial-gradient(ellipse 100% 80% at 0% 90%, #feffed 0%, transparent 100%),
     radial-gradient(ellipse 150% 70% at 100% 100%, #edfff6 0%, transparent 100%),
     #e8f0fd;
-  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Segoe UI", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
   transition: opacity 220ms ease, visibility 220ms ease;
 }
 .app-loading-wrap.is-leaving {
@@ -136,15 +136,21 @@ function useLoading() {
   font-size: 12px;
   letter-spacing: .04em;
 }
-html:not([data-theme="light"]) .app-loading-wrap { background: #101722; }
-html:not([data-theme="light"]) .app-loading-card {
-  background: #1a2434;
-  border-color: #ffffff14;
-  box-shadow: none;
+html[data-theme="dark"] .app-loading-wrap {
+  background:
+    radial-gradient(ellipse 100% 60% at 100% 0%, #1a2a48 0%, transparent 100%),
+    radial-gradient(ellipse 100% 80% at 0% 90%, #2a2618 0%, transparent 100%),
+    radial-gradient(ellipse 150% 70% at 100% 100%, #0f2a22 0%, transparent 100%),
+    #0d1117;
 }
-html:not([data-theme="light"]) .app-loading-title { color: #edf2fa; }
-html:not([data-theme="light"]) .app-loading-description,
-html:not([data-theme="light"]) .app-loading-version { color: #a9b7ce; }
+html[data-theme="dark"] .app-loading-card {
+  background: rgba(22, 27, 38, .82);
+  border-color: rgba(255, 255, 255, .07);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .4);
+}
+html[data-theme="dark"] .app-loading-title { color: #f0f4ff; }
+html[data-theme="dark"] .app-loading-description,
+html[data-theme="dark"] .app-loading-version { color: #c6cddc; }
 @keyframes app-octo-bob {
   0%, 100% { transform: translateY(3px); }
   50% { transform: translateY(-5px); }
@@ -185,11 +191,12 @@ html:not([data-theme="light"]) .app-loading-version { color: #a9b7ce; }
   return {
     appendLoading() {
       if (removed) return;
+      /* 跟 utils/appearance.ts 同一條規則：預設亮色，存過 dark 才深色 */
       try {
         document.documentElement.dataset.theme =
-          localStorage.getItem("skylab.theme") === "light" ? "light" : "dark";
+          localStorage.getItem("skylab.theme") === "dark" ? "dark" : "light";
       } catch {
-        document.documentElement.dataset.theme = "dark";
+        document.documentElement.dataset.theme = "light";
       }
       safeDOM.append(document.head, oStyle);
       safeDOM.append(document.body, oDiv);

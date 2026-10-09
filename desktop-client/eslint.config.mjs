@@ -12,9 +12,7 @@ export default ts.config(
       "**/release/**",
       "**/*.js",
       "!eslint.config.js",
-      "!.prettierrc.js",
-      "!postcss.config.js",
-      "!tailwind.config.js"
+      "!.prettierrc.js"
     ]
   },
   js.configs.recommended,

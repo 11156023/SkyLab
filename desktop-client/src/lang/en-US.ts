@@ -40,7 +40,8 @@
     resourceError: "Could not update resources. Please refresh.",
     appearance: "Appearance",
     dark: "Dark",
-    light: "Light"
+    light: "Light",
+    unnamedCourse: "Untitled course"
   },
   update: {
     settingsTitle: "Software update",
@@ -58,33 +59,20 @@
     launching: "Opening installer",
     installError: "Update failed",
     title: "Update available",
-    message:
-      "SkyLab Connect {version} is available. Download the latest installer now.",
-    download: "Download update",
     later: "Remind me later"
   },
-  app: {
-    title: "SkyLab Connect",
-    description: "Connect to your SkyLab virtual machines"
-  },
   router: {
-    home: { title: "Home" },
-    resources: { title: "Resources" },
-    logger: { title: "Logs" },
-    config: { title: "Settings" },
-    about: { title: "About" },
-    login: { title: "Login" }
+    config: {
+      title: "Settings"
+    },
+    about: {
+      title: "About"
+    }
   },
   common: {
     save: "Save",
-    cancel: "Cancel",
-    confirm: "Confirm",
     refresh: "Refresh",
-    copy: "Copy",
-    copied: "Copied",
-    loading: "Loading...",
-    yes: "Yes",
-    no: "No"
+    loading: "Loading..."
   },
   sessionWarning: {
     autoStopTitle: "VM will auto-stop soon",
@@ -99,23 +87,8 @@
     doNotShow: "Don't show this again"
   },
   login: {
-    title: "Sign in to SkyLab",
-    connectTitle: "Connect to your machines",
-    connectDescription:
-      "Press connect. On first use, sign in in your browser and the secure connection will start automatically.",
-    connect: "Connect",
-    waitingShort: "Verifying",
-    firstUseHint:
-      "First use requires browser sign-in. You will return here automatically when it is complete.",
-    description:
-      "Click the button below; your browser will open to complete sign-in.",
-    startButton: "Open browser to sign in",
-    cancelButton: "Cancel",
-    logoutButton: "Sign out",
-    waiting: "Waiting for browser verification...",
     success: "Signed in",
-    failure: "Sign-in failed: {error}",
-    alreadyLoggedIn: "Signed in"
+    failure: "Sign-in failed: {error}"
   },
   home: {
     status: {
@@ -123,13 +96,10 @@
         "Session renewal failed and will retry automatically. Reconnect if the session expires.",
       running: "Connected",
       stopped: "Disconnected",
-      error: "Connection error",
-      uptime: "Connected {time}"
+      error: "Connection error"
     },
     button: {
-      start: "Connect",
-      stop: "Disconnect",
-      refresh: "Refresh"
+      stop: "Disconnect"
     },
     connect: {
       title: "Connect to SkyLab",
@@ -138,71 +108,28 @@
       button: "Connect",
       connecting: "Creating secure connection",
       authenticating: "Waiting for sign-in",
-      secureHint: "WireGuard encrypted · One click",
       authHint: "Complete sign-in in your browser · Connects automatically"
     },
     machines: {
-      summary:
-        "Connected · {machines} machines · {courses} course environments",
       unavailable: "No connection",
       noTargets:
         "The secure connection is active, but no SSH or RDP targets are available. Check that a machine is running and has a reachable IP. If the problem persists, ask an administrator to check the VPN subnet."
     },
     empty: {
-      notLoggedIn: "Not signed in. Please sign in to SkyLab first.",
-      goLogin: "Go to sign-in",
-      goResources: "View my resources"
+      notLoggedIn: "Not signed in. Please sign in to SkyLab first."
     },
     tunnels: {
-      title: "Available VM connections",
-      empty: "Tunnel details will appear once connected",
-      action: "Action",
-      service: "Service",
-      endpoint: "Local endpoint",
-      machines: "Reachable machines",
-      ready: "Ready",
-      groupSummary: "{machines} machines · {connections} connections",
       connectSsh: "SSH Connect",
-      connectRdp: "RDP Connect",
-      machineStopped: "The machine is not running",
-      invalidPort: "This connection has an invalid local port"
+      connectRdp: "RDP Connect"
     }
   },
   resources: {
-    title: "My Virtual Machines",
     webTitle: "My Resources",
-    webSubtitle:
-      "View and connect to your assigned virtual machines and containers",
-    refresh: "Refresh",
-    summary: "{total} machines across {courses} course environments",
-    connect: "Connect",
-    customEnvironment: "Custom environment",
-    owner: "Owner: {owner}",
-    kind: {
-      personal: "Personal request",
-      shared: "Shared with me",
-      teaching_class: "Class machine",
-      quick_practice: "Quick practice",
-      course: "Course lab"
-    },
-    window: {
-      notStarted: "Usage window starts at {time}",
-      ended: "Usage window ended at {time}"
-    },
-    metrics: {
-      total: "Machines",
-      courseGroups: "Course environments"
-    },
     course: {
-      kind: "Course",
-      title: "Course machines",
-      description: "Review machines by course and expand a group for details",
-      machineCount: "{count} machines · grouped management",
       runningCount: "{running}/{total} running"
     },
     personal: {
-      title: "Personal resources",
-      description: "Individually requested or assigned machines"
+      title: "Personal resources"
     },
     status: {
       running: "Running",
@@ -219,7 +146,6 @@
     table: {
       name: "Name",
       vmid: "VMID",
-      type: "Type",
       status: "Status",
       node: "Node",
       ip: "Private IP",
@@ -276,17 +202,5 @@
       version: "Version",
       license: "License"
     }
-  },
-  logger: {
-    tab: { appLog: "App log" },
-    message: {
-      openSuccess: "Log opened",
-      refreshSuccess: "Refreshed"
-    },
-    autoRefresh: "Auto refresh",
-    autoRefreshTime: "Refreshing in {time}s",
-    search: { placeholder: "Search logs..." },
-    loading: { text: "Loading..." },
-    content: { empty: "No logs" }
   }
 };

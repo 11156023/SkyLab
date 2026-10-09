@@ -13,9 +13,22 @@
 );
 
 @use "element-plus/theme-chalk/src/index.scss" as *;
+@use "mixins" as *;
+
+/* ── Element Plus 對齊 web 規範：控制項 36px、按鈕 14／500、徽章不加框、對話框玻璃卡 ── */
+
+:root {
+  --el-component-size: 36px;
+}
 
 .el-button {
-  font-weight: 700;
+  height: 36px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.el-button--small {
+  height: 28px;
 }
 
 .el-button--primary {
@@ -23,6 +36,111 @@
   --el-button-border-color: var(--color-primary);
   --el-button-hover-bg-color: var(--color-primary-dark);
   --el-button-hover-border-color: var(--color-primary-dark);
+  --el-button-active-bg-color: var(--color-primary-dark);
+  --el-button-active-border-color: var(--color-primary-dark);
+}
+
+/* 徽章：狀態色 12% 淡底＋狀態色文字，不加框 */
+.el-tag {
+  --el-tag-border-color: transparent;
+  border: 0;
+  font-weight: 500;
+}
+
+/* Element Plus 自己的規則是 .el-tag.el-tag--primary（兩層），這裡同權重才蓋得過 */
+.el-tag.el-tag--primary {
+  --el-tag-bg-color: color-mix(in srgb, var(--color-info) 12%, transparent);
+  --el-tag-text-color: var(--color-info);
+}
+
+.el-tag.el-tag--success {
+  --el-tag-bg-color: color-mix(in srgb, var(--color-success) 12%, transparent);
+  --el-tag-text-color: var(--color-success);
+}
+
+.el-tag.el-tag--warning {
+  --el-tag-bg-color: color-mix(in srgb, var(--color-pending) 12%, transparent);
+  --el-tag-text-color: var(--color-pending);
+}
+
+.el-tag.el-tag--danger {
+  --el-tag-bg-color: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  --el-tag-text-color: var(--color-danger);
+}
+
+.el-tag.el-tag--info {
+  --el-tag-bg-color: color-mix(
+    in srgb,
+    var(--color-status-neutral) 12%,
+    transparent
+  );
+  --el-tag-text-color: var(--color-status-neutral);
+}
+
+/* 對話框：遮罩 25% 深藍＋微模糊，卡片走玻璃卡 */
+.el-overlay {
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.el-dialog,
+.el-message-box {
+  @include glass-surface($shadow: var(--shadow-lg));
+  max-width: calc(100vw - 40px);
+  border-radius: 16px;
+}
+
+.el-dialog__title,
+.el-message-box__title {
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.el-dialog__body,
+.el-message-box__content {
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.el-message {
+  border-radius: 8px;
+}
+
+.el-alert {
+  border-radius: 8px;
+}
+
+.el-alert__title {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.el-alert__description {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* 表單欄位：同 form-control（淡底、聚焦主色框＋光暈） */
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-hover) 22%, var(--color-surface));
+  box-shadow: 0 0 0 1px var(--color-border) inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  background: var(--color-surface);
+  box-shadow:
+    0 0 0 1px var(--color-primary) inset,
+    0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.el-form-item__label {
+  color: var(--color-text-primary);
+  font-weight: 500;
 }
 
 .el-table {
@@ -40,14 +158,5 @@
 }
 
 .el-table th.el-table__cell {
-  font-weight: 700;
-}
-
-.el-input__wrapper,
-.el-textarea__inner {
-  box-shadow: 0 0 0 1px var(--color-border) inset;
-}
-
-.el-tabs__item {
   font-weight: 700;
 }
