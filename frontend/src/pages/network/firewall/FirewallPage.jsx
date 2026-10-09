@@ -31,7 +31,7 @@ import VMNode           from "./nodes/VMNode";
 import GroupNode        from "./nodes/GroupNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import ConnectionDetailPanel from "./ConnectionDetailPanel";
-import { GATEWAY_KEY, buildFlow, isOutboundEdge, portLabel, routeEdges } from "./utils/buildFlow";
+import { GATEWAY_KEY, buildFlow, focusEdges, isOutboundEdge, portLabel, routeEdges } from "./utils/buildFlow";
 import { mergePendingLayout, toLayoutEntry, topologyView } from "./utils/pageState";
 import {
   GROUP_THRESHOLD,
@@ -394,8 +394,12 @@ export default function FirewallPage() {
   /* ── VM 節點列表（供 ConnectionDialog 使用）：只有可管理的機器 ── */
   const vmNodes = toDialogNodes(topology?.nodes);
 
+  /* ── 選中單台機器時只畫跟它相關的線：在畫之前套，自動刷新重建邊時才不會被蓋回全部 ── */
+  const focusNodeId = selectedNode?.id ?? null;
+  const focusedEdges = useMemo(() => focusEdges(edges, focusNodeId), [edges, focusNodeId]);
+
   /* ── 依目前節點位置決定每條線走哪一側：拖動節點時線會即時改走最短路徑 ── */
-  const routedEdges = useMemo(() => routeEdges(edges, nodes), [edges, nodes]);
+  const routedEdges = useMemo(() => routeEdges(focusedEdges, nodes), [focusedEdges, nodes]);
 
   /* ── 連線面板顯示兩端名稱；vmid 為 null 代表網際網路 ── */
   const resolveName = useCallback(
@@ -628,10 +632,18 @@ export default function FirewallPage() {
                 <div className={styles.bottomStack}>
                   {/* 有機器被篩掉時講出台數，不然會以為機器不見了 */}
                   {filtersActive && viewSummary.visible > 0 && viewSummary.visible < viewSummary.total && (
-                    <div className={styles.filteredNote}>
+                    <div className={styles.canvasNote}>
                       <MIcon name="filter_alt" size={14} />
                       {t("FirewallPage.hiddenCount", { count: viewSummary.total - viewSummary.visible })}
                       <button type="button" onClick={clearFilters}>{t("FirewallPage.clearFilters")}</button>
+                    </div>
+                  )}
+                  {/* 選中機器時其他線被藏起來了，講明原因，不然會以為連線不見了 */}
+                  {selectedNode && (
+                    <div className={styles.canvasNote}>
+                      <MIcon name="filter_center_focus" size={14} />
+                      {t("FirewallPage.focusNote", { name: selectedNode.data.name })}
+                      <button type="button" onClick={() => setSelectedNode(null)}>{t("FirewallPage.clearFocus")}</button>
                     </div>
                   )}
                   {/* 線的顏色本來只寫在程式碼註解裡，圖上沒有任何地方解釋 */}
