@@ -62,8 +62,8 @@ strict = true
 exclude = ["venv", ".venv", "alembic"]
 
 [[tool.mypy.overrides]]
-# pywebpush 與 py_vapid 沒有型別標記（Web Push 推播）
-module = ["pywebpush", "py_vapid"]
+# pywebpush 與 py_vapid 沒有型別標記（Web Push 推播）；yaml 讀 VM 帳號命名政策設定檔
+module = ["pywebpush", "py_vapid", "yaml"]
 ignore_missing_imports = true
 
 [tool.ruff]

@@ -1,5 +1,6 @@
 ﻿import { spawn } from "child_process";
 import { app, shell } from "electron";
+import GlobalConstant from "../core/GlobalConstant";
 
 class SystemService {
   async openUrl(url: string) {
@@ -9,7 +10,7 @@ class SystemService {
       "github.com",
       "objects.githubusercontent.com",
       "github-releases.githubusercontent.com",
-      "skylab.ntubimdbirc.tw"
+      new URL(GlobalConstant.DEFAULT_BACKEND_URL).hostname
     ]);
     if (!allowedHosts.has(target.hostname))
       throw new Error("URL host is not allowed");

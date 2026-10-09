@@ -148,9 +148,8 @@ function statusStyle(status) {
   return "pending";
 }
 
-/* 金鑰狀態：後端刪除「有用量」的金鑰時不會真的刪掉（用量帳要留著），只設 revoked_at；
-   重新產生則是把舊的設 revoked_at，同一份申請再開一把新的。
-   所以同一份申請在失效之後還有新金鑰 → 被替換；沒有 → 被刪除（已停用） */
+/* 使用者刪除的金鑰由後端排除，不會再進入這份清單；revoked_at 在這裡代表
+   重新產生後被替換的舊金鑰或其他後端撤銷紀錄。 */
 export function getCredentialState(item, credentials = []) {
   if (item?.revoked_at) {
     const revokedAt = new Date(item.revoked_at).getTime();
@@ -368,7 +367,7 @@ function KeyDetailDialog({ credential, apiKey, state, closing = false, onClose }
 }
 
 /* ── Credential row：一把金鑰一列，名稱開詳細視窗，其餘動作收進 ⋮ ── */
-function CredentialRow({ item, state, onRefresh, onShowDetails, onRotated }) {
+function CredentialRow({ item, state, onRefresh, onDeleted, onShowDetails, onRotated }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const confirm = useConfirm();
@@ -380,7 +379,7 @@ function CredentialRow({ item, state, onRefresh, onShowDetails, onRotated }) {
   const menu = useDialogPresence(menuOpen, 130);
   const menuBtnRef = useRef(null);
   const deprecated = state !== "active";
-  // 被替換、已刪除的金鑰沒有任何可做的事；過期的只能刪除（重新產生會說明為什麼不行）
+  // 被替換的金鑰沒有任何可做的事；過期的仍可刪除（重新產生會說明為什麼不行）
   const hasMenu = state === "active" || state === "expired";
 
   function fmtExpiry(value) {
@@ -421,8 +420,9 @@ function CredentialRow({ item, state, onRefresh, onShowDetails, onRotated }) {
     if (!ok) return;
     setBusy(true);
     try {
-      await AiApiService.revokeCredential(item.id);
+      await AiApiService.deleteCredential(item.id);
       toast.success(t("AiApiPage.deleteSuccess"));
+      onDeleted(item.id);
       onRefresh();
     } catch (e) {
       toast.error(e?.message ?? t("AiApiPage.deleteError"));
@@ -1461,6 +1461,10 @@ export default function AiApiPage() {
                           item={item}
                           state={credentialStates.get(item.id)}
                           onRefresh={() => load({ silent: true })}
+                          onDeleted={(credentialId) => {
+                            setCredentials((current) => current.filter((credential) => credential.id !== credentialId));
+                            setKeyDetail((current) => current?.credential?.id === credentialId ? null : current);
+                          }}
                           onShowDetails={(credential) => setKeyDetail({ credential, apiKey: null })}
                           onRotated={(credential) => setKeyDetail({ credential, apiKey: credential.api_key || null })}
                         />

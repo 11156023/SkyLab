@@ -16,6 +16,7 @@ from app.schemas import (
     AuditLogStats,
     AuditUserOption,
 )
+from app.utils.csv import csv_safe as _csv_safe
 
 # Categorisation used by the admin UI to group actions in dropdowns and badges.
 ACTION_CATEGORY: dict[AuditAction, str] = {
@@ -192,25 +193,6 @@ def list_audit_users(*, session: Session) -> list[AuditUserOption]:
         AuditUserOption(id=u.id, email=u.email, full_name=u.full_name)
         for u in session.exec(stmt).all()
     ]
-
-
-#: 試算表會把以這些字元開頭的儲存格當成公式（含 CJK 輸入法常見的全形版本）
-_CSV_FORMULA_PREFIXES = (
-    "=", "+", "-", "@", "\t", "\r", "＝", "＋", "－", "＠",
-)
-
-
-def _csv_safe(value: str | None) -> str:
-    """Neutralise spreadsheet formula injection in a free-text CSV cell.
-
-    A leading formula trigger (after any leading spaces) gets a single-quote
-    prefix so Excel / LibreOffice show the text instead of evaluating it.
-    """
-    if not value:
-        return ""
-    if value.lstrip(" ").startswith(_CSV_FORMULA_PREFIXES):
-        return "'" + value
-    return value
 
 
 EXPORT_CSV_HEADER = [

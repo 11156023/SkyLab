@@ -20,7 +20,6 @@ export default function TemplateConvertDialog({ resource, closing = false, onClo
   const [name, setName] = useState(resource?.name ?? "");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState("private");
-  const [allowPasswordChange, setAllowPasswordChange] = useState(true);
   const [confirmName, setConfirmName] = useState("");
   const [busy, setBusy] = useState(false);
   const ready = name.trim().length > 0 && confirmName.trim() === resource?.name;
@@ -35,7 +34,6 @@ export default function TemplateConvertDialog({ resource, closing = false, onClo
         name: name.trim(),
         description: description.trim() || null,
         visibility,
-        allow_password_change: allowPasswordChange,
       });
       toast.success(t("TemplateConvertDialog.started"));
       onDone?.();
@@ -91,10 +89,6 @@ export default function TemplateConvertDialog({ resource, closing = false, onClo
           <option value="private">{t("TemplateConvertDialog.visibilityPrivate")}</option>
           <option value="global">{t("TemplateConvertDialog.visibilityGlobal")}</option>
         </select>
-      </label>
-      <label className={styles.checkRow}>
-        <input type="checkbox" checked={allowPasswordChange} onChange={(e) => setAllowPasswordChange(e.target.checked)} />
-        <span>{t("TemplateConvertDialog.allowPasswordChange")}</span>
       </label>
       <label className={styles.field}>
         <span>{t("TemplateConvertDialog.confirmLabel", { name: resource?.name })}</span>

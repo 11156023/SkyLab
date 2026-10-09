@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from app.ai.monitoring import usage_metrics
+from app.ai.role_contracts import OutputMode, RoleContract
 from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.node_service import summarize_device_nodes
 from app.ai.template_recommendation.prompt import (
@@ -29,9 +30,26 @@ from app.ai.utils import (
 )
 from app.core.i18n import t
 from app.exceptions import AppError, UpstreamServiceError
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.template_recommendation import client
 
 logger = logging.getLogger(__name__)
+
+TEMPLATE_CHAT_CONTRACT = RoleContract(
+    role_id="template_recommendation",
+    output_mode=OutputMode.MODEL_FREE_TEXT,
+    contract_version="template-recommendation-v1",
+    fallback_key="template_recommendation.scope_clarification",
+)
+TEMPLATE_RECOMMENDATION_CONTRACT = RoleContract(
+    role_id="template_recommendation",
+    output_mode=OutputMode.MODEL_ACTION,
+    contract_version="template-recommendation-v1",
+    fallback_key="template_recommendation.scope_clarification",
+)
+TEMPLATE_ADHERENCE_FALLBACK = (
+    "我只能協助規劃 SkyLab 的 VM、LXC 與硬體資源；請描述工作負載、作業系統與資源需求。"
+)
 
 MIN_VM_DISK_GB = 20
 MIN_LXC_DISK_GB = 8
@@ -397,7 +415,11 @@ async def generate_ai_plan(
     try:
         started_at = perf_counter()
         started_at_utc = datetime.now(timezone.utc)
-        data = await client.create_chat_completion(payload, request_id=request_id)
+        data = await client.create_chat_completion(
+            payload,
+            profile=VLLMRequestProfile.STRUCTURED_OBJECT,
+            request_id=request_id,
+        )
         metrics = usage_metrics(
             data,
             perf_counter() - started_at,

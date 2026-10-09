@@ -1,0 +1,11 @@
+{
+  "user.emailChangeRequiresVerification": "Use email verification to change your email address",
+  "user.emailManaged": "This account's email is managed by its sign-in provider",
+  "user.emailUnchanged": "Enter a different email address",
+  "user.emailVerificationUnavailable": "Email verification is unavailable; contact an administrator",
+  "user.emailVerificationInvalid": "Invalid or expired email verification link",
+  "user.emailChangeMailSubject": "{project_name} - Confirm your new email address",
+  "user.emailChangeMailBody": "Confirm your new email address for {project_name}.",
+  "user.emailChangeMailLink": "Confirm email address",
+  "user.emailChangeMailExpiry": "This link expires in 1 hour."
+}

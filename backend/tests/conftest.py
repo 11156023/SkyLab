@@ -46,15 +46,44 @@ from tests.utils.utils import get_superuser_token_headers
 
 @pytest.fixture(autouse=True)
 def _clear_proxmox_caches() -> Generator[None, None, None]:
-    """PVE 設定、叢集清單與近期任務是行程內 TTL 快取：每個測試各自 mock，不能吃到上一個測試的結果。"""
+    """PVE 設定、叢集清單、即時 IP 與近期任務是行程內 TTL 快取：每個測試各自 mock，不能吃到上一個測試的結果。"""
     from app.infrastructure.proxmox.operations import invalidate_cluster_resources_cache
     from app.infrastructure.proxmox.settings import invalidate_proxmox_settings_cache
     from app.services.jobs.jobs_service import clear_recent_jobs_cache
+    from app.services.resource.live_ip import clear_live_ip_cache
 
     invalidate_proxmox_settings_cache()
     invalidate_cluster_resources_cache()
     clear_recent_jobs_cache()
+    clear_live_ip_cache()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_system_ai_adherence_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """既有業務單元測試不額外消耗第二組模型回覆。
+
+    檢查器本身與各服務的 block/fail-closed 整合由 focused tests 覆蓋；個別測試仍可
+    在此 fixture 之後覆寫模組內的 ``check_adherence``。
+    """
+    from app.ai.contextual_help import service as contextual_help_service
+    from app.ai.pve_log import chat as pve_chat
+    from app.ai.role_contracts import (
+        AdherenceReason,
+        AdherenceResult,
+        AdherenceVerdict,
+    )
+    from app.ai.teacher_judge import service as teacher_judge_service
+    from app.api.routes import ai_template_recommendation
+
+    async def allow(*_args, **_kwargs) -> AdherenceResult:
+        return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
+
+    monkeypatch.setattr(contextual_help_service, "check_adherence", allow)
+    monkeypatch.setattr(pve_chat, "check_adherence", allow)
+    if hasattr(teacher_judge_service, "check_adherence"):
+        monkeypatch.setattr(teacher_judge_service, "check_adherence", allow)
+    monkeypatch.setattr(ai_template_recommendation, "check_adherence", allow)
 
 
 @pytest.fixture(autouse=True)

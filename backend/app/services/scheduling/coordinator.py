@@ -111,8 +111,12 @@ def _adopt_existing_resource(
     if not resource_repo.get_resource_by_vmid(session=session, vmid=vmid):
         # 原本的 plan（連同密碼）已隨中斷的 worker 消失。LXC 可於開機後補設：
         # 申請單上還留著的密碼先存成待套用，下方 _sync_lxc_platform_key 會套進去。
-        # 申請單密碼為 None ＝ 沿用範本密碼，不補。QEMU 開機後改不了 cipassword，不處理。
-        pending_password = request.password if resource_type == "lxc" else None
+        # 申請單沒有密碼 ＝ 沿用範本密碼，不補。QEMU 開機後改不了 cipassword，不處理。
+        password_plan = (
+            provisioning_service.request_password_plan(request)
+            if resource_type == "lxc"
+            else {}
+        )
         resource_repo.create_resource(
             session=session,
             vmid=vmid,
@@ -122,10 +126,19 @@ def _adopt_existing_resource(
             os_info=request.os_info,
             expiry_date=request.expiry_date,
             template_id=request.template_id,
-            login_password_pending_encrypted=pending_password,
+            login_password_pending_encrypted=(
+                provisioning_service.pending_login_password_encrypted(password_plan)
+            ),
+            login_password_pending_hash=(
+                provisioning_service.pending_login_password_hash(password_plan)
+            ),
             request_id=request.id,
             commit=False,
         )
+        # 密碼已交給資源（或這條路徑用不到），申請單不再留副本
+        request.password = None
+        request.password_hash = None
+        session.add(request)
     vm_request_repo.update_vm_request_provisioning(
         session=session,
         db_request=request,
@@ -323,6 +336,12 @@ def _provision_new_resource(
             login_password_pending_encrypted=(
                 provisioning_service.pending_login_password_encrypted(plan)
             ),
+            login_password_hash=(
+                provisioning_service.applied_login_password_hash(plan)
+            ),
+            login_password_pending_hash=(
+                provisioning_service.pending_login_password_hash(plan)
+            ),
             request_id=req.id,
             commit=False,
         )
@@ -343,9 +362,10 @@ def _provision_new_resource(
             provisioning_error=None,
             commit=False,
         )
-        # 密碼已隨機器存進 resources.login_password_encrypted，
-        # 申請單不再保留一份可逆加密的副本
+        # 密碼已寫進機器（該留的也已隨機器記在 resources），
+        # 申請單不再保留副本
         req.password = None
+        req.password_hash = None
         finish_session.add(req)
 
         audit_service.log_action(

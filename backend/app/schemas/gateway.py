@@ -161,6 +161,9 @@ class PlatformEntryUpdate(BaseModel):
     upstream_host: str = Field(default="", max_length=255)
     upstream_port: int = Field(default=8082, ge=1, le=65535)
     enable_https: bool = True
+    # 經 Cloudflare 代理（橘色雲）：SkyLab 建的 DNS 紀錄設成 proxied，Gateway 改從
+    # CF-Connecting-IP 取得使用者 IP；DNS 不歸 SkyLab 管時只影響後者
+    dns_proxied: bool = False
 
 
 class PlatformEntryPublic(BaseModel):
@@ -178,6 +181,7 @@ class PlatformEntryPublic(BaseModel):
     gateway_host: str
     # 平台網域的 DNS 紀錄由 SkyLab 在 Cloudflare 建立與維護；False＝管理員自己設定
     dns_managed: bool = False
+    dns_proxied: bool = False
 
 
 class GatewayCertificateUpdate(BaseModel):
@@ -242,7 +246,8 @@ class PlatformEntryStatus(BaseModel):
     # 位址或 http，代表主系統 nginx 還沒信任 Gateway（SKYLAB_TRUSTED_PROXY）
     observed_client_ip: str | None = None
     observed_scheme: str | None = None
-    # SkyLab 管理的 DNS 紀錄現況（"A 203.0.113.5"）；ok＝仍指向預設 DNS 目標且不經代理
+    # SkyLab 管理的 DNS 紀錄現況（"A 203.0.113.5"）；ok＝仍指向預設 DNS 目標，
+    # 而且代理狀態（橘色雲／DNS only）和設定一致
     dns_record: str | None = None
     dns_record_ok: bool | None = None
     dns_detail: str | None = None

@@ -21,6 +21,7 @@ from app.api.routes import (
     lxc,
     mining_incidents,
     monitoring,
+    policies,
     private,
     proxmox_config,
     push,
@@ -86,6 +87,7 @@ api_router.include_router(teacher_judge_scripts.router)
 api_router.include_router(teacher_judge_sessions.router)
 api_router.include_router(templates.router)
 api_router.include_router(desktop_client.router)
+api_router.include_router(policies.router)
 
 
 if settings.ENVIRONMENT == "local":

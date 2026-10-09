@@ -1,5 +1,5 @@
 /* 反向代理／對外連線共用的網域與連接埠小工具（純函式，無 React 依賴）。
-   ReverseProxyRuleModal、ConnectionDialog 與其 PortInput 共用。 */
+   ConnectionDialog 與其 PortInput 使用。 */
 
 /* label 是模組層級常數，無法呼叫 hook，改存 labelKey，實際 render 處再 t() */
 export const COMMON_PORTS = [

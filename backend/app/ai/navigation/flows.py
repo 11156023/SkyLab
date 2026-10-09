@@ -96,14 +96,9 @@ _FLOWS: tuple[NavigationFlow, ...] = (
                 detail="確認服務已啟動及使用的連接埠。",
             ),
             NavigationStep(
-                title="建立對外網址",
-                path="/reverse-proxy",
-                detail="新增反向代理，指向服務連接埠。",
-            ),
-            NavigationStep(
-                title="放行需要的埠",
+                title="發布對外網址",
                 path="/firewall",
-                detail="允許服務所需的防火牆連接埠。",
+                detail="把機器連到網際網路，選「用網址」並填服務連接埠。",
             ),
         ),
     ),

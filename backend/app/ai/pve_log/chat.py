@@ -22,12 +22,10 @@
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import functools
 import json
 import logging
-import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -36,19 +34,40 @@ from typing import Any
 import httpx
 from sqlmodel import Session
 
+from app.ai.adherence_check import ADHERENCE_MAX_TOKENS, check_adherence
 from app.ai.monitoring import new_ai_request_id, record_ai_template_call, usage_metrics
 from app.ai.pve_log.collector import PveToolContext
 from app.ai.pve_log.config import settings
 from app.ai.pve_log.history import (
     PveHistoryValidationError,
+    compact_tool_result,
     merge_pve_messages,
 )
 from app.ai.pve_log.schemas import ChatResponse, SSHExecRequest, ToolCallRecord
+from app.ai.role_contracts import AdherenceResult, OutputMode, RoleContract, TurnContext
+from app.ai.utils import apply_thinking_control, strip_think_tags
 from app.core.i18n import t
+from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.pve_log import client as vllm_client
 
 logger = logging.getLogger(__name__)
 _MAX_TOOL_ROUNDS = 6
+_MAX_REQUEST_COMPLETION_TOKENS = 12_288
+PVE_FREE_TEXT_CONTRACT = RoleContract(
+    role_id="pve_log",
+    output_mode=OutputMode.MODEL_FREE_TEXT,
+    contract_version="pve-log-v1",
+    fallback_key="pve_log.scope_clarification",
+)
+PVE_ACTION_CONTRACT = RoleContract(
+    role_id="pve_log",
+    output_mode=OutputMode.MODEL_ACTION,
+    contract_version="pve-log-v1",
+    fallback_key="pve_log.scope_clarification",
+)
+PVE_ADHERENCE_FALLBACK = (
+    "我只能協助 PVE 狀態、診斷與經確認的管理操作；請提供要處理的節點、VM 或問題。"
+)
 
 # ---------------------------------------------------------------------------
 # 系統提示詞
@@ -83,6 +102,7 @@ _SYSTEM_PROMPT = """\
   或縮小原因；取得足夠證據後停止，不做無關或重複檢查。
 - 工具本身收集失敗或資料缺漏時，應說明無法完整判斷，不得把收集錯誤算成特定 VM/LXC
   的異常，也不得把缺少資料解讀為正常。
+- 工具結果 truncated=true 表示只取得部分內容；必須說明資料被截斷，不得據此宣稱完整清單或全部資源正常。
 - 只根據工具實際回傳內容下結論。沒有直接證據的原因一律標示為尚未確認，不得將可能原因
   寫成確定原因。
 - 異常判定規則是內部回答準則，不得在一般結果中解釋或附註，例如不要輸出「stopped 視為
@@ -593,84 +613,16 @@ def _next_deferred_ssh_call(
                 return (
                     message_index,
                     str(tool_call_id),
-                    _parse_tool_arguments(function.get("arguments") or "{}"),
+                    _parse_tool_arguments(function.get("arguments") or "{}") or {},
                 )
     return None
 
 
 def _normalize_assistant_message(message: dict[str, Any]) -> dict[str, Any]:
-    """Normalize native and Qwen text-encoded tool calls into one message shape."""
+    """Normalize parsed assistant fields without promoting prose into a tool call."""
     assistant_msg = dict(message)
-    raw_content = assistant_msg.get("content") or ""
-
-    if not assistant_msg.get("tool_calls") and "call:" in raw_content:
-        match = re.search(
-            r"<\|?tool_call\|?>\s*call:([a-zA-Z0-9_]+)\s*(\{.+?\})\s*"
-            r"<\|?/?tool_call\|?>",
-            raw_content,
-            flags=re.DOTALL,
-        )
-        if not match:
-            match = re.search(
-                r"<\|?tool_call\|?>\s*call:([a-zA-Z0-9_]+)\s*(\{.+\})",
-                raw_content,
-                flags=re.DOTALL,
-            )
-        if match:
-            func_name = match.group(1)
-            args_fixed = match.group(2).replace('<|"|>', '"')
-            args_fixed = re.sub(
-                r"([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)",
-                r'\1"\2"\3',
-                args_fixed,
-            )
-            try:
-                parsed_args = json.loads(args_fixed)
-                assistant_msg["tool_calls"] = [
-                    {
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "type": "function",
-                        "function": {
-                            "name": func_name,
-                            "arguments": json.dumps(parsed_args, ensure_ascii=False),
-                        },
-                    }
-                ]
-                logger.info(
-                    "成功手動解析 Qwen tool call: %s(%s)", func_name, parsed_args
-                )
-            except (TypeError, json.JSONDecodeError) as exc:
-                logger.error(
-                    "手動解析 Qwen tool call 失敗: %s, 修正後: %s",
-                    exc,
-                    args_fixed,
-                )
-
-    if not assistant_msg.get("tool_calls"):
-        return assistant_msg
-
-    cleaned = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL)
-    cleaned = re.sub(
-        r"<\|?tool_call\|?>\s*call:[a-zA-Z0-9_]+\s*\{.+?\}\s*"
-        r"<\|?/?tool_call\|?>",
-        "",
-        cleaned,
-        flags=re.DOTALL,
-    )
-    cleaned = re.sub(
-        r"<\|?tool_call\|?>\s*call:[a-zA-Z0-9_]+\s*\{.+\}",
-        "",
-        cleaned,
-        flags=re.DOTALL,
-    )
-    cleaned = re.sub(
-        r"<\|tool_call\|>.*?<\|/tool_call\|>", "", cleaned, flags=re.DOTALL
-    )
-    cleaned = re.sub(r"<\|tool_call>.*?<tool_call\|>", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r'```json\s*\{\s*"tool_call".*?```', "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"<\|[^>]*\|>", "", cleaned)
-    return {**assistant_msg, "content": cleaned.strip() or None}
+    raw_content = str(assistant_msg.get("content") or "")
+    return {**assistant_msg, "content": strip_think_tags(raw_content) or None}
 
 
 def _canonicalize_model_tool_calls(
@@ -703,11 +655,19 @@ def _canonicalize_model_tool_calls(
             continue
         function = raw_call.get("function")
         if not isinstance(function, dict):
-            logger.warning("模型回傳的 tool call 缺少 function object，已忽略：%r", raw_call)
+            logger.warning(
+                "模型回傳的 tool call 缺少 function object，已忽略：%r", raw_call
+            )
             continue
         name = function.get("name")
         if not isinstance(name, str) or name not in allowed_names:
             logger.warning("模型呼叫不被允許的工具 %r，已忽略", name)
+            continue
+        arguments = _parse_tool_arguments(function.get("arguments") or "{}")
+        if arguments is None:
+            logger.warning(
+                "模型工具 %s 的 arguments 不是嚴格 JSON object，已忽略", name
+            )
             continue
         call = dict(raw_call)
         raw_id = call.get("id")
@@ -720,11 +680,9 @@ def _canonicalize_model_tool_calls(
             **function,
             "name": name,
             "arguments": json.dumps(
-                _parse_tool_arguments(function.get("arguments") or "{}"),
+                arguments,
                 ensure_ascii=False,
                 separators=(",", ":"),
-                # ast.literal_eval 退路可能產生 set/bytes 等非 JSON 值
-                default=str,
             ),
         }
         used_ids.add(call_id)
@@ -761,7 +719,7 @@ def _validate_confirmation_history(
             if isinstance(call_id, str) and isinstance(function, dict):
                 tool_calls[call_id] = (
                     str(function.get("name") or ""),
-                    _parse_tool_arguments(function.get("arguments") or "{}"),
+                    _parse_tool_arguments(function.get("arguments") or "{}") or {},
                 )
 
     tokens: list[str] = []
@@ -914,32 +872,31 @@ def _validate_confirmation_history(
             raise PveHistoryValidationError("PVE confirmation result 已被其他請求使用")
 
 
-def _parse_tool_arguments(value: Any) -> dict[str, Any]:
+def _parse_tool_arguments(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         return value
     if not isinstance(value, str):
-        return {}
+        return None
 
     args_str = value.strip() or "{}"
     try:
         parsed = json.loads(args_str)
-        return parsed if isinstance(parsed, dict) else {}
+        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
-        args_str = args_str.replace('<|"|>', '"').replace("'", '"')
-        args_str = re.sub(
-            r"([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)",
-            r'\1"\2"\3',
-            args_str,
-        )
+        return None
 
+
+def _completion_tokens_used(response: dict[str, Any], reserved: int) -> int:
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return reserved
+    value = usage.get("completion_tokens")
+    if value is None:
+        return reserved
     try:
-        parsed = json.loads(args_str)
-    except json.JSONDecodeError:
-        try:
-            parsed = ast.literal_eval(args_str)
-        except (SyntaxError, ValueError):
-            return {}
-    return parsed if isinstance(parsed, dict) else {}
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return reserved
 
 
 # ---------------------------------------------------------------------------
@@ -972,6 +929,139 @@ def _record_chat_usage(
         ),
         status=status,
         error_message=error_message,
+    )
+
+
+def _latest_user_request(messages: list[dict[str, Any]]) -> str:
+    for item in reversed(messages):
+        if item.get("role") == "user":
+            return str(item.get("content") or "").strip()
+    return ""
+
+
+def _pve_turn_context(
+    *,
+    allowed_vmids: set[int] | None,
+    scope_type: str | None,
+    scope_id: uuid.UUID | None,
+    phase: str,
+) -> TurnContext:
+    vmids = tuple(str(item) for item in sorted(allowed_vmids or set()))
+    scope_ref = f"{scope_type}:{scope_id}" if scope_type and scope_id else "admin:pve"
+    return TurnContext(
+        role_id="pve_log",
+        phase=phase,
+        scope_ref=scope_ref,
+        candidate_target_ids=vmids,
+        allowed_actions=tuple(sorted(_ALLOWED_TOOL_NAMES)),
+    )
+
+
+def _pve_tool_evidence(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Use the same completed tool results as the answering model, including history."""
+    calls: dict[str, dict[str, Any]] = {}
+    evidence = []
+    for message in messages:
+        if message.get("role") == "assistant":
+            for call in message.get("tool_calls") or []:
+                calls[str(call.get("id"))] = call.get("function") or {}
+        elif message.get("role") == "tool":
+            call_id = str(message.get("tool_call_id"))
+            function = calls.get(call_id, {})
+            content = str(message.get("content") or "")
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError:
+                result = {"output": content}
+            evidence.append(
+                {
+                    "name": function.get("name"),
+                    "args": _parse_tool_arguments(function.get("arguments") or "{}")
+                    or {},
+                    "tool_call_id": call_id,
+                    "result": result if isinstance(result, dict) else {"items": result},
+                }
+            )
+    return evidence
+
+
+async def _check_pve_candidate(
+    *,
+    contract: RoleContract,
+    messages: list[dict[str, Any]],
+    candidate: Any,
+    allowed_vmids: set[int] | None,
+    scope_type: str | None,
+    scope_id: uuid.UUID | None,
+    phase: str,
+    facts: Any,
+    session: Session | None,
+    requester_id: uuid.UUID | None,
+) -> AdherenceResult:
+    turn_context = _pve_turn_context(
+        allowed_vmids=allowed_vmids,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        phase=phase,
+    )
+    request_id = new_ai_request_id()
+    result = await check_adherence(
+        vllm_client,
+        contract,
+        _latest_user_request(messages),
+        candidate,
+        {"turn_context": turn_context.as_facts(), "evidence": facts},
+        request_id,
+        model_name=settings.VLLM_MODEL_NAME,
+        phase=phase,
+    )
+    if not result.allowed:
+        logger.warning(
+            "PVE candidate blocked by adherence check: phase=%s reason=%s",
+            phase,
+            result.reason_code.value,
+        )
+    record_ai_template_call(
+        session=session,
+        user_id=requester_id,
+        call_type="pve_chat_adherence",
+        model_name=settings.VLLM_MODEL_NAME,
+        metrics={
+            "request_id": request_id,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.total_tokens,
+            "elapsed_seconds": result.elapsed_seconds,
+            "usage_reported": result.usage_reported,
+            "response_model": result.response_model,
+        },
+        status="success" if result.allowed else "error",
+        error_message=None if result.allowed else result.reason_code.value,
+    )
+    return result
+
+
+def build_chat_payload(
+    messages: list[dict[str, Any]],
+    *,
+    model_name: str | None = None,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    """The production PVE agent request, also used by the live probe runner."""
+    return apply_thinking_control(
+        {
+            "model": model_name if model_name is not None else settings.VLLM_MODEL_NAME,
+            "messages": messages,
+            "tools": _TOOLS,
+            "tool_choice": "auto",
+            "temperature": 0.1,
+            "max_tokens": (
+                max_tokens
+                if max_tokens is not None
+                else settings.VLLM_CHAT_MAX_TOKENS
+            ),
+        },
+        settings.VLLM_ENABLE_THINKING,
     )
 
 
@@ -1062,18 +1152,18 @@ async def chat(
                     messages=messages,
                 )
     _tool_context: PveToolContext | None = None
+    completion_tokens_used = 0
 
     for tool_round in range(_MAX_TOOL_ROUNDS + 1):
-        payload: dict[str, Any] = {
-            "model": settings.VLLM_MODEL_NAME,
-            "messages": messages,
-            "tools": _TOOLS,
-            "tool_choice": "auto",
-            # 刻意固定，不讀 settings.VLLM_CHAT_*：system-ai.example.json 沒有
-            # pve_log 區段，改讀設定會讓這類部署退回通用預設（0.6／1600）。
-            "temperature": 0.1,
-            "max_tokens": 4096,
-        }
+        remaining_tokens = _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+        if remaining_tokens <= 0:
+            return ChatResponse(
+                reply=PVE_ADHERENCE_FALLBACK,
+                tools_called=tools_called,
+                messages=messages,
+            )
+        max_tokens = min(settings.VLLM_CHAT_MAX_TOKENS, remaining_tokens)
+        payload = build_chat_payload(messages, max_tokens=max_tokens)
         request_id = new_ai_request_id()
         record_usage = functools.partial(
             _record_chat_usage,
@@ -1086,6 +1176,7 @@ async def chat(
         try:
             data = await vllm_client.create_chat_completion(
                 payload,
+                profile=VLLMRequestProfile.COMPLEX_AGENT,
                 timeout=float(settings.VLLM_TIMEOUT),
                 request_id=request_id,
             )
@@ -1126,7 +1217,14 @@ async def chat(
             )
 
         record_usage(data)
+        completion_tokens_used += _completion_tokens_used(data, max_tokens)
 
+        if choices[0].get("finish_reason") == "length":
+            return ChatResponse(
+                reply=PVE_ADHERENCE_FALLBACK,
+                tools_called=tools_called,
+                messages=messages,
+            )
         assistant_msg = _normalize_assistant_message(choices[0].get("message") or {})
         reserved_tool_call_ids = {
             str(item.get("id"))
@@ -1141,9 +1239,38 @@ async def chat(
         )
         tool_calls = assistant_msg.get("tool_calls") or []
         if not tool_calls:
+            reply = str(assistant_msg.get("content") or "")
+            if (
+                _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+                < ADHERENCE_MAX_TOKENS
+            ):
+                return ChatResponse(
+                    reply=PVE_ADHERENCE_FALLBACK,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
+            adherence = await _check_pve_candidate(
+                contract=PVE_FREE_TEXT_CONTRACT,
+                messages=messages,
+                candidate=reply,
+                allowed_vmids=allowed_vmids,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                phase="respond",
+                facts=_pve_tool_evidence(messages),
+                session=session,
+                requester_id=requester_id,
+            )
+            completion_tokens_used += adherence.completion_tokens
+            if not adherence.allowed:
+                return ChatResponse(
+                    reply=PVE_ADHERENCE_FALLBACK,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
             messages.append(assistant_msg)
             return ChatResponse(
-                reply=assistant_msg.get("content") or "",
+                reply=reply,
                 tools_called=tools_called,
                 messages=messages,
             )
@@ -1159,26 +1286,61 @@ async def chat(
                 messages=messages,
                 error=t("pveLog.tooManyToolRounds"),
             )
-        messages.append(assistant_msg)
-
         needs_pve_tool = any(
             tc.get("function", {}).get("name") != "ssh_exec" for tc in tool_calls
         )
-        if needs_pve_tool and _tool_context is None:
-            # Context 只在本 request 第一次需要 PVE API tool 時建立；真正的
-            # network I/O 在 _execute_tool_sync 的 worker thread 內執行。
-            _tool_context = PveToolContext()
-
         parsed_calls = [
             (
                 tc,
                 str((tc.get("function") or {}).get("name") or ""),
                 _parse_tool_arguments(
                     (tc.get("function") or {}).get("arguments") or "{}"
-                ),
+                )
+                or {},
             )
             for tc in tool_calls
         ]
+
+        if (
+            _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+            < ADHERENCE_MAX_TOKENS
+        ):
+            return ChatResponse(
+                reply=PVE_ADHERENCE_FALLBACK,
+                tools_called=tools_called,
+                messages=messages,
+            )
+        adherence = await _check_pve_candidate(
+            contract=PVE_ACTION_CONTRACT,
+            messages=messages,
+            candidate=[
+                {"tool": func_name, "arguments": func_args}
+                for _tc, func_name, func_args in parsed_calls
+            ],
+            allowed_vmids=allowed_vmids,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            phase="act",
+            facts={
+                "completed_tools": [
+                    item["name"] for item in _pve_tool_evidence(messages)
+                ]
+            },
+            session=session,
+            requester_id=requester_id,
+        )
+        completion_tokens_used += adherence.completion_tokens
+        if not adherence.allowed:
+            return ChatResponse(
+                reply=PVE_ADHERENCE_FALLBACK,
+                tools_called=tools_called,
+                messages=messages,
+            )
+        if needs_pve_tool and _tool_context is None:
+            # Context 只在通過語意檢查後建立；真正的 network I/O 在
+            # _execute_tool_sync 的 worker thread 內執行。
+            _tool_context = PveToolContext()
+        messages.append(assistant_msg)
 
         # 同一輪只讓第一個 ssh_exec 進入 pending，之後的 ssh_exec 寫成
         # deferred，待使用者確認後由下一次 chat() 接續。
@@ -1220,7 +1382,15 @@ async def chat(
                         func_args,
                         allowed_vmids=allowed_vmids,
                     )
-                result_dict = result if isinstance(result, dict) else {}
+                if func_name != "ssh_exec":
+                    result = compact_tool_result(result)
+                result_dict = (
+                    result
+                    if isinstance(result, dict)
+                    else {"items": result}
+                    if isinstance(result, list)
+                    else {}
+                )
                 needs_confirmation = needs_confirmation or bool(
                     result_dict.get("pending")
                 )

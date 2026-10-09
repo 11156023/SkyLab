@@ -7,7 +7,7 @@ from app.schemas.template import VMTemplateUpdate
 
 
 @pytest.mark.parametrize(
-    "field", ["name", "visibility", "allow_password_change", "requires_gpu"]
+    "field", ["name", "visibility", "requires_gpu"]
 )
 def test_explicit_null_rejected_for_non_nullable_fields(field: str) -> None:
     with pytest.raises(ValidationError):

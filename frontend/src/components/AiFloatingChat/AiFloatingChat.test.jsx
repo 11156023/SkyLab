@@ -8,8 +8,8 @@ import { describePlan, routeQuestion, stepStatuses, indexableSurfaces } from "./
 
 const STEPS = [
   { path: "/my-resources", status: "current" },
-  { path: "/reverse-proxy", status: "todo" },
   { path: "/firewall", status: "todo" },
+  { path: "/jobs", status: "todo" },
 ];
 
 describe("routeQuestion", () => {
@@ -120,6 +120,29 @@ describe("全站問題與畫面問題要分得開", () => {
     expect(routeQuestion("我想開一個班級")).toBe("navigate");
     expect(routeQuestion("怎麼把服務公開出去")).toBe("navigate");
     expect(routeQuestion("帶我去防火牆")).toBe("navigate");
+  });
+});
+
+describe("頁面導覽與彈出視窗", () => {
+  test("指著這頁要介紹 → 畫面說明（後端回完整導覽）", () => {
+    expect(routeQuestion("介紹這個頁面")).toBe("help");
+    expect(routeQuestion("這頁怎麼用？")).toBe("help");
+    expect(routeQuestion("這裡可以做什麼")).toBe("help");
+    expect(routeQuestion("什麼時候會用到這頁")).toBe("help");
+  });
+
+  test("在教學頁問這頁怎麼用，不會被帶去建立班級", () => {
+    expect(routeQuestion("班級管理這頁怎麼用")).toBe("help");
+  });
+
+  test("問跳出來的視窗 → 畫面說明", () => {
+    expect(routeQuestion("這個視窗要怎麼填")).toBe("help");
+    expect(routeQuestion("跳出來的對話框是什麼")).toBe("help");
+  });
+
+  test("要介紹別頁或要走流程，仍交給導覽", () => {
+    expect(routeQuestion("介紹一下 GPU 管理")).not.toBe("help");
+    expect(routeQuestion("這頁的申請流程是什麼")).toBe("navigate");
   });
 });
 

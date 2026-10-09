@@ -81,12 +81,6 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         keywords=("防火牆", "firewall", "開埠", "port", "連線規則"),
     ),
     NavigationRoute(
-        path="/reverse-proxy",
-        title="反向代理",
-        summary="把機器上的服務對外公開成網址。",
-        keywords=("反向代理", "reverse proxy", "對外網址", "公開網站", "nginx", "https"),
-    ),
-    NavigationRoute(
         path="/ai-api",
         title="AI API",
         summary="申請 AI API 金鑰並查看個人用量。",
@@ -103,7 +97,7 @@ _ROUTES: tuple[NavigationRoute, ...] = (
     NavigationRoute(
         path="/class-management",
         title="班級管理",
-        summary="管理班級名單、每週內容、上課監看與 AI 檢查。",
+        summary="管理班級名單、每週內容、上課監看與 AI導師檢查。",
         keywords=("班級", "課堂", "學生名單", "每週", "上課", "class"),
         access="staff",
     ),

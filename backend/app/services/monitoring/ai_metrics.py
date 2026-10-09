@@ -83,6 +83,42 @@ def record_proxy_admission_rejection(reason: str) -> None:
         logger.debug("Updating AI proxy admission rejection failed", exc_info=True)
 
 
+def update_proxy_model_admission(model: str, *, active: int, waiting: int) -> None:
+    try:
+        label = model_label(model, served=False)
+        metrics.AI_PROXY_MODEL_INFLIGHT.labels(model=label).set(max(active, 0))
+        metrics.AI_PROXY_MODEL_WAITING.labels(model=label).set(max(waiting, 0))
+    except Exception:
+        logger.debug("Updating AI proxy model gauges failed", exc_info=True)
+
+
+def record_proxy_event(model: str, event: str) -> None:
+    try:
+        metrics.AI_PROXY_EVENTS.labels(
+            model=model_label(model, served=False), event=event
+        ).inc()
+    except Exception:
+        logger.debug("Updating AI proxy scheduler event failed", exc_info=True)
+
+
+def observe_proxy_cooldown(model: str, seconds: float) -> None:
+    try:
+        metrics.AI_PROXY_COOLDOWN.labels(
+            model=model_label(model, served=False)
+        ).observe(seconds)
+    except Exception:
+        logger.debug("Updating AI proxy cooldown failed", exc_info=True)
+
+
+def record_proxy_final_status(model: str, status: int) -> None:
+    try:
+        metrics.AI_PROXY_FINAL_STATUS.labels(
+            model=model_label(model, served=False), status=str(status)
+        ).inc()
+    except Exception:
+        logger.debug("Updating AI proxy terminal status failed", exc_info=True)
+
+
 def outcome(record_status: str | None, error_message: str | None) -> str:
     """用量紀錄的 status／error_message → 少數幾種結果類別。"""
     if record_status == "success":
@@ -152,8 +188,12 @@ __all__ = [
     "observe_call",
     "outcome",
     "observe_proxy_queue_wait",
+    "observe_proxy_cooldown",
+    "record_proxy_event",
+    "record_proxy_final_status",
     "record_proxy_admission_rejection",
     "remember_models",
     "reset_known_models",
     "update_proxy_admission",
+    "update_proxy_model_admission",
 ]

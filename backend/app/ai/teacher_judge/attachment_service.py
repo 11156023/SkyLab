@@ -147,7 +147,11 @@ def create_attachment(
         raise ValueError("附件解析失敗，請確認文件內容可讀取。") from exc
     if not extracted_text:
         raise ValueError("附件沒有可讀取的文字內容。")
-    extracted_text = extracted_text[:MAX_EXTRACTED_CHARS]
+    if len(extracted_text) > MAX_EXTRACTED_CHARS:
+        raise ValueError(
+            f"附件解析後超過 {MAX_EXTRACTED_CHARS:,} 字，無法完整分析；"
+            "請拆分文件後重新上傳。本次未儲存附件。"
+        )
 
     attachment = TeacherJudgeSessionAttachment(
         session_id=session_id,

@@ -247,7 +247,7 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
                 # 所以只對目錄裡的 VM 逐筆確認
                 is_windows=(not is_lxc) and is_windows_template(template.pve_vmid),
                 requires_gpu=bool(template.requires_gpu),
-                allow_password_change=bool(template.allow_password_change),
+                password_settable=bool(template.password_settable),
                 cores=template.default_cores or raw_cores,
                 memory_mb=template.default_memory or raw_memory,
                 disk_gb=template.default_disk or raw_disk,
@@ -404,7 +404,6 @@ def _prepare_create(
         visibility=data.visibility,
         default_cores=data.default_cores,
         default_memory=data.default_memory,
-        allow_password_change=data.allow_password_change,
         requires_gpu=data.requires_gpu,
         source_vmid=data.source_vmid,
     )
@@ -488,6 +487,15 @@ def _prepare_retry(
         # 轉換成功時母機的 Resource 已移除，因此這裡只擋「屬於別人」
         template.status = VMTemplateStatus.ready
         template.error_message = None
+        # 範本開不了機、問不到 guest，只能看 PVE 設定有沒有 cloud-init 碟
+        password_settable = _detect_password_settable(
+            str(pve_resource["node"]),
+            template.pve_vmid,
+            "lxc" if pve_resource.get("type") == "lxc" else "qemu",
+            None,
+        )
+        if password_settable is not None:
+            template.password_settable = password_settable
         template_repo.touch(session=session, template=template)
         record = task_record_repo.create_task_record(
             session=session,
@@ -528,7 +536,6 @@ def _prepare_retry(
 _NON_NULLABLE_UPDATE_FIELDS = (
     "name",
     "visibility",
-    "allow_password_change",
     "requires_gpu",
 )
 
@@ -1175,6 +1182,88 @@ def _reset_cloud_init_state(
         return False
 
 
+# 平台改 VM 的登入密碼完全靠 guest 裡的 cloud-init／Cloudbase-Init 讀
+# cipassword；guest 沒裝，或 VM 沒有 PVE 的 cloud-init 碟，密碼就寫不進去。
+_CLOUD_INIT_PROBE_SCRIPT = "command -v cloud-init >/dev/null 2>&1"
+_CLOUDBASE_INIT_PROBE_SCRIPT = (
+    "if (Get-Service -Name 'cloudbase-init' -ErrorAction SilentlyContinue) "
+    "{ exit 0 } else { exit 1 }"
+)
+_QEMU_DRIVE_KEY_RE = re.compile(r"(?:ide|sata|scsi|virtio)\d+")
+
+
+def _probe_guest_cloud_init(
+    node: str, vmid: int, resource_type: proxmox_ops.ResourceType
+) -> bool | None:
+    """母機 guest 內有沒有 cloud-init／Cloudbase-Init；問不到回 None。
+
+    接在 _reset_cloud_init_state 後面、關機之前呼叫：那時母機還開著。
+    agent 沒裝或沒起來就無從得知，交給 _detect_password_settable 只看
+    PVE 設定判斷。
+    """
+    if resource_type != "qemu":
+        return None
+    try:
+        from app.infrastructure.proxmox import guest
+
+        if not guest.ping_qemu_agent(node, vmid):
+            return None
+        osinfo = guest.get_osinfo_qemu(node, vmid) or {}
+        if str(osinfo.get("id") or "").lower() == "mswindows":
+            command = [
+                "powershell.exe",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                _CLOUDBASE_INIT_PROBE_SCRIPT,
+            ]
+        else:
+            command = ["/bin/sh", "-c", _CLOUD_INIT_PROBE_SCRIPT]
+        code, _out, _err = guest.exec_qemu(node, vmid, command)
+        return code == 0
+    except Exception as exc:
+        logger.error("cloud-init probe failed for VM %s: %s", vmid, exc)
+        return None
+
+
+def has_cloud_init_drive(config: dict[str, Any]) -> bool:
+    """qemu config 有沒有掛 PVE 的 cloud-init 碟（``…:vm-<id>-cloudinit``）。"""
+    return any(
+        "cloudinit" in str(value)
+        for key, value in config.items()
+        if _QEMU_DRIVE_KEY_RE.fullmatch(str(key))
+    )
+
+
+def _detect_password_settable(
+    node: str,
+    vmid: int,
+    resource_type: proxmox_ops.ResourceType,
+    guest_has_cloud_init: bool | None,
+) -> bool | None:
+    """平台能不能把登入密碼寫進這個範本的克隆機；判斷不了回 None（維持原值）。
+
+    LXC 一律可以（開機後 pct exec chpasswd）。VM 要同時有 PVE 的 cloud-init 碟
+    與 guest 內的 cloud-init／Cloudbase-Init，少一個 cipassword 都不會生效；
+    這種範本照樣能用，只是標成「密碼無法由平台設定」，克隆機沿用範本內的帳密。
+    """
+    if resource_type == "lxc":
+        return True
+    if guest_has_cloud_init is False:
+        return False
+    try:
+        config = proxmox_ops.get_config(node, vmid, resource_type)
+    except Exception as exc:
+        logger.error(
+            "Failed to read config of VM %s to detect cloud-init drive: %s",
+            vmid,
+            exc,
+        )
+        return None
+    return has_cloud_init_drive(config)
+
+
 def _remove_snapshots_for_convert(
     node: str, vmid: int, resource_type: proxmox_ops.ResourceType
 ) -> None:
@@ -1300,6 +1389,7 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
     try:
         report_progress(task_id, 10)
         cloud_init_reset = _reset_cloud_init_state(node, pve_vmid, resource_type)
+        guest_cloud_init = _probe_guest_cloud_init(node, pve_vmid, resource_type)
         report_progress(task_id, 25)
         _ensure_stopped(node, pve_vmid, resource_type)
         report_progress(task_id, 40)
@@ -1315,6 +1405,9 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
         )
         raise
     detected_disk = _detect_template_disk_gb(node, pve_vmid, resource_type)
+    password_settable = _detect_password_settable(
+        node, pve_vmid, resource_type, guest_cloud_init
+    )
     with Session(engine) as session:
         template = session.get(VMTemplate, template_id)
         if template is not None:
@@ -1322,6 +1415,8 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
             template.error_message = None
             if detected_disk is not None:
                 template.default_disk = detected_disk
+            if password_settable is not None:
+                template.password_settable = password_settable
             template_repo.touch(session=session, template=template, commit=False)
         # 母機已轉為唯讀範本，從資源列表移除（克隆端會重新配置 IP/防火牆）
         resource = session.get(Resource, pve_vmid)
@@ -1475,6 +1570,7 @@ def run_update_convert_task(
             raise RuntimeError(t("template.updateCloneMismatch", vmid=temp_vmid))
         report_progress(task_id, 10)
         cloud_init_reset = _reset_cloud_init_state(node, temp_vmid, resource_type)
+        guest_cloud_init = _probe_guest_cloud_init(node, temp_vmid, resource_type)
         report_progress(task_id, 25)
         _ensure_stopped(node, temp_vmid, resource_type)
         report_progress(task_id, 40)
@@ -1493,6 +1589,10 @@ def run_update_convert_task(
         warning = f"舊版範本 {old_pve_vmid} 刪除失敗: {exc}"
     report_progress(task_id, 90)
     detected_disk = _detect_template_disk_gb(node, temp_vmid, resource_type)
+    # 更新循環裡可能裝上或移除 cloud-init，重新偵測
+    password_settable = _detect_password_settable(
+        node, temp_vmid, resource_type, guest_cloud_init
+    )
     with Session(engine) as session:
         template = session.get(VMTemplate, template_id)
         if template is not None:
@@ -1503,6 +1603,8 @@ def run_update_convert_task(
             template.error_message = warning
             if detected_disk is not None:
                 template.default_disk = detected_disk
+            if password_settable is not None:
+                template.password_settable = password_settable
             template_repo.touch(session=session, template=template, commit=False)
         # 申請單以 PVE VMID 指向範本；還沒開出機器的單要跟著換到新版，
         # 否則舊版被刪後，開通時會找不到範本而失敗

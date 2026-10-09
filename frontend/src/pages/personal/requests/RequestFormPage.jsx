@@ -11,12 +11,15 @@ import { GpuService } from "../../../services/gpu";
 import { TemplatesService } from "../../../services/templates";
 import { ResourcesService } from "../../../services/resources";
 import { QuotasService } from "../../../services/quotas";
-import { clampToRange, quotaRemaining, sliderRange, sliderTicks } from "../../../utils/quotaLimits";
+import { PoliciesService } from "../../../services/policies";
+import { quotaRemaining, sliderRange, sliderTicks, snapToRange } from "../../../utils/quotaLimits";
 import NumberInput from "../../../components/NumberInput/NumberInput";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
+import PasswordRules from "../../../components/PasswordRules/PasswordRules";
+import { WINDOWS_PASSWORD_RULES, windowsPasswordIssues } from "../../../utils/windowsPassword";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatShortDateTime } from "../../../utils/formatDate";
 import { canTeachUser } from "../../../utils/roles";
@@ -37,9 +40,9 @@ function formatMemoryTick(mb) {
 }
 
 /* ── Form field primitives ── */
-function FieldGroup({ label, hint, required, error, children, labelRight, name }) {
+function FieldGroup({ label, hint, required, error, invalid, children, labelRight, name }) {
   return (
-    <div className={`${styles.formGroup} ${error ? styles.formGroupInvalid : ""}`} data-field={name}>
+    <div className={`${styles.formGroup} ${error || invalid ? styles.formGroupInvalid : ""}`} data-field={name}>
       <label className={styles.label}>
         <span>
           {label}
@@ -139,6 +142,8 @@ const fromDateInputValue = (value, endOfDay = false) => {
 };
 const GPU_OPTIONS_DEBOUNCE_MS = 300;
 const ADVISE_DEBOUNCE_MS = 500;
+/* 帳號命名政策即時檢查（後端 /policies/username/check）的輸入停頓時間 */
+const USERNAME_CHECK_DEBOUNCE_MS = 300;
 const formatVramMb = (mb) => (mb >= 1024 ? `${Number.isInteger(mb / 1024) ? mb / 1024 : (mb / 1024).toFixed(1)} GB` : `${mb} MB`);
 const gpuLabel = (gpu) => {
   const t = (key, opts) => i18n.t(key, { ns: "personal", ...opts });
@@ -405,6 +410,50 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     vmChoices.find((t) => String(t.vmid) === String(form.template_id)) || null;
   const isWindowsVm = resourceType === "vm" && Boolean(selectedVmTemplate?.is_windows);
 
+  /* Linux 帳號（cloud-init ciuser）命名政策：規則與檢查都來自後端，
+     error 擋送出、warning 只提示。檢查失敗不擋（送單時後端會再驗一次）。 */
+  const checksUsername = resourceType === "vm" && !isWindowsVm;
+  const [usernameRules, setUsernameRules] = useState(null);
+  const [usernameCheck, setUsernameCheck] = useState({ username: "", violations: [] });
+  useEffect(() => {
+    if (!checksUsername || usernameRules) return undefined;
+    const controller = new AbortController();
+    PoliciesService.getUsernameRules({ signal: controller.signal })
+      .then(setUsernameRules)
+      .catch(() => {});
+    return () => controller.abort();
+  }, [checksUsername, usernameRules]);
+  useEffect(() => {
+    const name = form.username;
+    if (!checksUsername || !name) {
+      setUsernameCheck({ username: name, violations: [] });
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      PoliciesService.checkUsername(name, { signal: controller.signal })
+        .then((res) => setUsernameCheck({ username: name, violations: res?.violations ?? [] }))
+        .catch(() => {});
+    }, USERNAME_CHECK_DEBOUNCE_MS);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [checksUsername, form.username]);
+  /* 結果對應的帳號已不是欄位目前的值（還在打字）就先不顯示 */
+  const usernameViolations =
+    checksUsername && usernameCheck.username === form.username ? usernameCheck.violations : [];
+  const usernameHasPolicyError = usernameViolations.some((v) => v.severity === "error");
+  function usernameViolationText(violation, name = form.username) {
+    const prefix = usernameRules?.reserved_prefixes?.find((p) => name.startsWith(p)) ?? "";
+    return t(`common:UsernamePolicy.${violation.code}`, {
+      name,
+      prefix,
+      max_length: usernameRules?.max_length ?? 32,
+      defaultValue: violation.message,
+    });
+  }
+
   /* 目前選到的應用範本：帶入建議規格並顯示說明；規格仍可調整，
      但磁碟不得小於範本本身（克隆只能放大，後端會再守一次） */
   const selectedCatalogItem = useMemo(() => catalogChoices.find((item) => (
@@ -414,9 +463,10 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   )) ?? null, [catalogChoices, selectedTplId, form.template_id]);
 
   /* 範本政策 requires_gpu：學生看目錄項目、老師看完整範本清單（以 PVE VMID 對應） */
-  /* 範本不勾「允許自訂登入密碼」：機器沿用範本內的密碼，表單不問、也不送密碼 */
+  /* 範本的密碼平台設不了（沒有 cloud-init）：機器沿用範本內的密碼，表單不問、也不送密碼。
+     其餘一律由申請人自訂；平台不保存這組密碼，忘記只能重設 */
   const keepsTemplatePassword =
-    (selectedCatalogItem ?? selectedTpl)?.allow_password_change === false;
+    (selectedCatalogItem ?? selectedTpl)?.password_settable === false;
 
   /* 配額：滑桿最多只能拉到剩餘配額，超出的值自動壓回上限。
      載入失敗就維持原本的上限，送單時後端仍會擋。 */
@@ -458,19 +508,23 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     }
     return "";
   };
+  /* 欄位值進表單後統一定稿：配額壓低上限時往下壓，低於範本下限時抬上來，
+     並對齊步進——範本預設記憶體（例如 1000 MB）或 AI 帶入的值不一定是 512 的倍數，
+     不對齊的話 GB 數字框會顯示 0.9765625 之類的小數，被瀏覽器原生 step 檢查
+     判定無效，整張表單就送不出去。 */
   useEffect(() => {
     setForm((prev) => {
       const next = {
-        cores: clampToRange(prev.cores, coresRange),
-        memory: clampToRange(prev.memory, memoryRange),
-        [diskKey]: clampToRange(prev[diskKey], diskRange),
+        cores: snapToRange(prev.cores, { ...coresRange, step: 1 }),
+        memory: snapToRange(prev.memory, { ...memoryRange, step: 512 }),
+        [diskKey]: snapToRange(prev[diskKey], { ...diskRange, step: 1 }),
       };
       const changed = Object.keys(next).some((key) => next[key] !== prev[key]);
       return changed ? { ...prev, ...next } : prev;
     });
   }, [
     form.cores, form.memory, form[diskKey], diskKey,
-    coresRange.max, memoryRange.max, diskRange.max,
+    coresRange.min, coresRange.max, memoryRange.min, memoryRange.max, diskRange.min, diskRange.max,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedTemplateRequiresGpu = useMemo(() => {
@@ -791,7 +845,14 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
       value: resourceType === "vm" ? form.template_id : (selectedTplId || form.ostemplate),
       error: errors.template_id ?? errors.ostemplate ?? null,
     },
-    "request.username": { value: form.username, error: errors.username ?? null },
+    "request.username": {
+      value: form.username,
+      error:
+        errors.username
+        ?? (usernameHasPolicyError
+          ? usernameViolationText(usernameViolations.find((v) => v.severity === "error"))
+          : null),
+    },
     "request.password": { value: form.password, error: errors.password ?? null },
     "request.cores": { value: String(form.cores ?? "") },
     "request.memory": { value: String(form.memory ?? "") },
@@ -836,7 +897,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   }
 
   /* ── Validation ── */
-  function validate() {
+  function validate(currentUsernameViolations = usernameViolations) {
     const errs = {};
     const hostnameRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
@@ -846,6 +907,9 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     if (!keepsTemplatePassword) {
       if (!form.password)                 errs.password = t(MSG.passwordRequired);
       else if (form.password.length < 8)  errs.password = t(MSG.passwordMinLen);
+      /* Windows 會拒絕不合複雜度的密碼，機器開得起來卻登不進去 */
+      else if (isWindowsVm && windowsPasswordIssues(form.password).length > 0)
+        errs.password = t("PasswordRules.notMet", { ns: "common" });
     }
 
     if (!form.reason.trim())            errs.reason = t(MSG.reasonRequired);
@@ -856,6 +920,8 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     if (resourceType === "vm") {
       if (!form.template_id)            errs.template_id = t(MSG.osRequired);
       if (!isWindowsVm && !form.username.trim()) errs.username = t(MSG.usernameRequired);
+      else if (!isWindowsVm && currentUsernameViolations.some((v) => v.severity === "error"))
+        errs.username = t("RequestFormPage.msgUsernamePolicy");
       if (gpuNeeded && !form.gpu_mapping_id) errs.gpu_mapping_id = t(MSG.gpuRequired);
     }
 
@@ -887,7 +953,18 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   async function handleSubmit(e) {
     e.preventDefault();
     const formEl = e.currentTarget;
-    const errs = validate();
+    /* 打完帳號立刻送出時即時檢查可能還沒回來：先補查一次再驗證 */
+    let currentUsernameViolations = usernameViolations;
+    if (checksUsername && form.username && usernameCheck.username !== form.username) {
+      try {
+        const res = await PoliciesService.checkUsername(form.username);
+        currentUsernameViolations = res?.violations ?? [];
+        setUsernameCheck({ username: form.username, violations: currentUsernameViolations });
+      } catch {
+        /* 查不到就交給後端：送單時 schema 會再驗一次 */
+      }
+    }
+    const errs = validate(currentUsernameViolations);
     if (Object.keys(errs).length > 0) { setErrors(errs); focusFirstError(formEl, errs); return; }
 
     setSubmitting(true);
@@ -1187,13 +1264,35 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
               {osChosen && resourceType === "vm" && (
                 <div className={styles.formGrid}>
                   {!isWindowsVm && (
-                    <FieldGroup label={t("RequestFormPage.usernameLabel")} required error={errors.username} name="username">
+                    <FieldGroup
+                      label={t("RequestFormPage.usernameLabel")}
+                      required
+                      error={errors.username}
+                      invalid={usernameHasPolicyError}
+                      name="username"
+                    >
                       <input
                         className={styles.input}
-                        placeholder="admin"
+                        placeholder="student"
                         value={form.username}
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-invalid={usernameHasPolicyError || undefined}
                         onChange={(e) => set("username", e.target.value)}
                       />
+                      {usernameViolations.length > 0 && (
+                        <ul className={styles.policyViolations} aria-live="polite">
+                          {usernameViolations.map((v) => (
+                            <li
+                              key={v.code}
+                              className={v.severity === "error" ? styles.fieldError : styles.fieldWarning}
+                            >
+                              <MIcon name={v.severity === "error" ? "error" : "warning"} size={14} />
+                              <span>{usernameViolationText(v)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </FieldGroup>
                   )}
                   {keepsTemplatePassword ? (
@@ -1206,9 +1305,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                     required
                     error={errors.password}
                     name="password"
-                    hint={isWindowsVm
-                      ? t("RequestFormPage.windowsPasswordHint")
-                      : undefined}
+                    hint={isWindowsVm ? t("RequestFormPage.windowsPasswordHint") : undefined}
                   >
                     <PasswordInput
                       className={styles.input}
@@ -1216,6 +1313,13 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       value={form.password}
                       onChange={(e) => set("password", e.target.value)}
                     />
+                    {isWindowsVm && (
+                      <PasswordRules
+                        password={form.password}
+                        rules={WINDOWS_PASSWORD_RULES}
+                        invalid={Boolean(errors.password)}
+                      />
+                    )}
                   </FieldGroup>
                   )}
                 </div>

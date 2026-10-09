@@ -239,7 +239,8 @@ describe("AiJudgeService persistent sessions", () => {
     });
   });
 
-  test("Teacher Judge session AI request 以後端 120 秒 timeout 為準", async () => {
+  test("Teacher Judge 整輪等待 600 秒，逾時提示先查已保存結果", async () => {
+    expect(TEACHER_JUDGE_REQUEST_TIMEOUT_MS).toBe(600_000);
     vi.useFakeTimers();
     let settled = false;
     try {
@@ -258,7 +259,9 @@ describe("AiJudgeService persistent sessions", () => {
       expect(settled).toBe(false);
 
       await vi.advanceTimersByTimeAsync(TEACHER_JUDGE_REQUEST_TIMEOUT_MS - 15_000);
-      await expect(pending).rejects.toMatchObject({ status: 408, timeout: true });
+      await expect(pending).rejects.toMatchObject({
+        status: 408, timeout: true, message: expect.stringContaining("已保存"),
+      });
     } finally {
       vi.useRealTimers();
     }

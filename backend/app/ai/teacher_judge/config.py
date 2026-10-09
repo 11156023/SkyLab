@@ -8,6 +8,10 @@ from app.ai.vllm_settings import VLLMSectionSettings
 
 class TeacherJudgeSettings(VLLMSectionSettings):
     @property
+    def REQUEST_TIMEOUT_SECONDS(self) -> int:
+        return int(self.section.request_timeout_seconds)
+
+    @property
     def section(self) -> Any:
         return system_ai_config.teacher_judge
 

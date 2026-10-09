@@ -1,18 +1,24 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { apiGetMock, apiPostMock } = vi.hoisted(() => ({
+const { apiDeleteMock, apiGetMock, apiPostMock } = vi.hoisted(() => ({
+  apiDeleteMock: vi.fn(),
   apiGetMock: vi.fn(),
   apiPostMock: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
-  apiDelete: vi.fn(),
+  apiDelete: apiDeleteMock,
   apiGet: apiGetMock,
   apiPatch: vi.fn(),
   apiPost: apiPostMock,
 }));
 
 import { AiApiService } from "./aiApi";
+
+test("deleteCredential 使用 DELETE 刪除指定金鑰", async () => {
+  await AiApiService.deleteCredential("key-id");
+  expect(apiDeleteMock).toHaveBeenCalledWith("/api/v1/ai-api/credentials/key-id");
+});
 
 test("getCredential 讀取單把金鑰詳細資料並支援取消請求", async () => {
   const controller = new AbortController();
@@ -74,21 +80,6 @@ describe("AiApiService.listAllRequests", () => {
     await AiApiService.listAllRequests({ status: "approved", skip: 100, limit: 50 });
     expect(apiGetMock).toHaveBeenCalledWith(
       "/api/v1/ai-api/requests?status=approved&skip=100&limit=50",
-    );
-  });
-});
-
-describe("AiApiService.bulkRejectRequests", () => {
-  beforeEach(() => {
-    apiPostMock.mockReset();
-    apiPostMock.mockResolvedValue({});
-  });
-
-  test("以同一理由送出選取的申請", async () => {
-    await AiApiService.bulkRejectRequests(["request-a", "request-b"], "用途不符");
-    expect(apiPostMock).toHaveBeenCalledWith(
-      "/api/v1/ai-api/requests/bulk-reject",
-      { request_ids: ["request-a", "request-b"], review_comment: "用途不符" },
     );
   });
 });

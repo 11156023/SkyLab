@@ -171,7 +171,9 @@ def rubric_item_machine_issues(item: dict[str, Any]) -> list[str]:
         collector = step.get("collector")
         if isinstance(collector, dict) and collector.get("type") == "peer_ping":
             has_typed_peer_collector = True
-        raw_argv = step.get("argv")
+        raw_argv = (
+            collector.get("argv") if isinstance(collector, dict) else step.get("argv")
+        )
         if not isinstance(raw_argv, list):
             parameters = step.get("parameters")
             raw_argv = parameters.get("argv") if isinstance(parameters, dict) else []

@@ -126,11 +126,12 @@ function PlatformStatusCard({ config, status, error, loading, onRefresh }) {
 }
 
 /* ── 啟用後還要手動完成的事 ─────────────────────────── */
-function PlatformTodoCard({ gatewayHost, domain, dnsManaged }) {
+function PlatformTodoCard({ gatewayHost, domain, dnsManaged, dnsProxied }) {
   const { t } = useTranslation("system");
   /* 網域在 Cloudflare 管理的 zone 內時，儲存就已經把 DNS 指過去了 */
+  const managedKey = dnsProxied ? "GatewayPage.platformTodoDnsManagedProxied" : "GatewayPage.platformTodoDnsManaged";
   const dnsItem = dnsManaged
-    ? ["dns", t("GatewayPage.platformTodoDnsManagedTitle"), t("GatewayPage.platformTodoDnsManaged", { domain })]
+    ? ["dns", t("GatewayPage.platformTodoDnsManagedTitle"), t(managedKey, { domain })]
     : ["dns", t("GatewayPage.platformTodoDnsTitle"), t("GatewayPage.platformTodoDns")];
   const items = [
     dnsItem,
@@ -373,6 +374,25 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
           <span>{t("GatewayPage.platformHttps")}</span>
         </label>
 
+        <label className={styles.checkRow}>
+          <input
+            type="checkbox"
+            checked={form.dns_proxied}
+            onChange={(e) => setField("dns_proxied", e.target.checked)}
+            disabled={saving}
+          />
+          <span>{t("GatewayPage.platformCloudflareProxy")}</span>
+        </label>
+
+        {form.dns_proxied && (
+          <div className={styles.securityNote}>
+            <MIcon name="cloud" size={20} />
+            <div>
+              <span>{t("GatewayPage.platformCloudflareProxyHint")}</span>
+            </div>
+          </div>
+        )}
+
         {formError && (
           <div className={styles.warningNote}>
             <MIcon name="error_outline" size={18} />
@@ -419,7 +439,7 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
         onRefresh={refreshStatus}
       />
 
-      <PlatformTodoCard gatewayHost={config.gateway_host} domain={config.domain} dnsManaged={config.dns_managed} />
+      <PlatformTodoCard gatewayHost={config.gateway_host} domain={config.domain} dnsManaged={config.dns_managed} dnsProxied={config.dns_proxied} />
     </div>
   );
 }

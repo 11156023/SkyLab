@@ -26,7 +26,7 @@
   "template.updateCloneNotReady": "Update-cycle clone is not ready yet; wait for the clone task to finish",
   "clone.templateNotReady": "Template is not ready to clone (now: {status})",
   "clone.batchRequiresManager": "Only teachers and admins can batch clone",
-  "clone.passwordChangeNotAllowed": "This template does not allow a custom login password",
+  "clone.passwordChangeNotAllowed": "The platform cannot set a login password for this template; machines created from it keep the template's own account and password",
   "clone.gpuRequired": "This template requires a GPU. Please select a GPU to allocate.",
   "clone.lxcGpuUnsupported": "LXC templates do not support GPU passthrough",
   "clone.gpuNodeMismatch": "The selected GPU is not on the template's node ({node}). Please choose a different GPU.",
@@ -77,5 +77,6 @@
   "auth.turnstileUnavailable": "The human verification service is temporarily unreachable. Please try again later",
   "template.sourceVmNotRegistered": "VM {vmid} is not registered on the platform and cannot be converted to a template",
   "template.fieldCannotBeNull": "Field {field} cannot be set to null",
-  "template.updateCloneMismatch": "VMID {vmid} is no longer the staging VM for this update cycle; cancel the update and start again"
+  "template.updateCloneMismatch": "VMID {vmid} is no longer the staging VM for this update cycle; cancel the update and start again",
+  "login_password.windowsComplexity": "The login password for a Windows machine must meet Windows complexity requirements: it must contain at least three of uppercase letters, lowercase letters, digits and symbols, and must not contain the account name {username}"
 }

@@ -8,11 +8,11 @@ import {
 } from "./api";
 import i18n from "../i18n";
 
-// 腳本產生會依序執行 generation、policy/quality 修正與 AI reviewer，
-// 不能沿用一般 API 的 15 秒 request budget。後端每次 vLLM 呼叫仍有自己的 timeout。
+// 腳本編譯使用獨立的等待上限；前置 AI 重新核對走 sendSessionMessage 的整輪期限。
 const SCRIPT_GENERATION_TIMEOUT_MS = 7 * 60 * 1000;
-// Teacher Judge 的 AI 分析／對話以 backend/config/system-ai.json 的 120 秒為準。
-export const TEACHER_JUDGE_REQUEST_TIMEOUT_MS = 120 * 1000;
+// 整輪 backend 570 秒、瀏覽器 600 秒、Teacher Judge nginx 610 秒。
+// 單次模型呼叫仍由 system-ai.json 的 vllm.timeout（120 秒）限制。
+export const TEACHER_JUDGE_REQUEST_TIMEOUT_MS = 600 * 1000;
 
 /** 評分環境模板選項 */
 export const TEMPLATE_OPTIONS = [
@@ -22,12 +22,17 @@ export const TEMPLATE_OPTIONS = [
   { key: "linux", label: i18n.t("aiJudge.linuxTemplateLabel", { ns: "services" }) },
 ];
 
+const EXECUTION_LOCATION_INSTRUCTION =
+  "工作目錄不是通用必填：版本、服務狀態、CPU 查詢可省略；讀取或執行檔案時，只要完整檔案路徑，或明確的 collector.cwd 與相對路徑即可。已知目錄須寫入對應步驟的 collector，不能只放在描述。不需要目錄時省略 cwd 或填 null；下述缺少資訊只適用於該項目真正必要的資訊。";
+
 /** 正式工作區與獨立編輯頁共用的整表潤飾動作。 */
 export const RUBRIC_POLISH_PROMPT =
-  "請在不改變原始評分目標的前提下，重新核對目前完整檢查表。這次是儲存並製作腳本前的 Finalizer：只透過工具送出需要變更的項目，完整 candidate 由後端套回目前檢查表；不要在 reply 重複整份項目列表。若既有可執行項目仍是 legacy flat/template check_steps，這本身就是需要修正的契約變更，必須一併送出該項目的完整 typed 轉換；只有已是有效 typed steps 且內容未變動的項目可以省略。每個送出的 check_steps 都必須是完整 typed collector/assertion 陣列（每步含 id、title、collector；system/ai 項目要有 assertion，teacher 項目省略 assertion），不要使用 flat argv、command_key 或輸出 Python。將自動檢測支援狀態判定為 auto、partial 或 manual，只有平台能安全取得證據且執行資訊完整時才標為 auto；缺少服務名稱、工作目錄、執行命令、Port 或資料範圍時標為 partial 並列出缺口；manual 項目要填寫 fallback，不要猜測或改變檢查目標。將目前評分環境視為主要情境，個別項目仍可使用其他已啟用的受控能力。";
+  EXECUTION_LOCATION_INSTRUCTION +
+  "請在不改變原始評分目標的前提下，重新核對目前完整檢查表。這次是儲存並製作腳本前的 Finalizer，與 Chat、附件提案共用同一 typed 契約：只透過工具送出需要變更的項目，完整 candidate 由後端套回目前檢查表；不要在 reply 重複整份項目列表。若既有可執行項目仍是 legacy flat/template check_steps，必須一併送出該項目的完整 typed 轉換；只有已是有效 typed steps 且內容未變動的項目可以省略。每個送出的 check_steps 都必須是完整 typed collector/assertion 陣列（每步含唯一穩定 id、title、collector；ai 項目要有 assertion，teacher 項目省略 assertion）。collector 與 assertion 的類型欄位都是 type，預期值欄位是 expected；不要使用 collector_type、assertion_type、expected_value、flat argv、command_key 或輸出 Python。工具失敗時依 issues 與 repair_hint 修正，只在 retryable=true 時重試；不得省略失敗步驟或承諾背景重試。將自動檢測支援狀態判定為 auto、partial 或 manual，只有平台能安全取得證據且執行資訊完整時才標為 auto；缺少服務名稱、工作目錄、執行命令、Port 或資料範圍時標為 partial 並列出缺口；manual 項目要填寫 fallback，不要猜測或改變檢查目標。將目前評分環境視為主要情境，個別項目仍可使用其他已啟用的受控能力。";
 
 /** 評分項目異動後，重新判斷目前環境能自動檢查到什麼程度。 */
 export const RUBRIC_REASSESS_PROMPT =
+  EXECUTION_LOCATION_INSTRUCTION +
   "請在不改變原始評分目標的前提下重新評估各項目的自動檢測支援狀態，更新檢測分類、檢測方式、缺少資訊、替代建議與評分計劃書。只有平台能安全取得證據且執行資訊完整時才能標為能自動檢測；若缺少服務名稱、工作目錄、執行命令、Port 或資料範圍，請只詢問真正缺少的內容，不要猜測或改變檢查目標。將目前評分環境視為主要情境，個別項目仍可使用其他已啟用的受控能力。";
 
 export function getTemplateLabel(templateKey) {
@@ -120,6 +125,12 @@ export const AiJudgeService = {
     );
   },
 
+  dismissSessionProposal(classId, sessionId, messageId) {
+    return apiDelete(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/messages/${messageId}/proposal`,
+    );
+  },
+
   sendSessionMessage(
     classId,
     sessionId,
@@ -137,7 +148,12 @@ export const AiJudgeService = {
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/messages`,
       payload,
       { timeoutMs: TEACHER_JUDGE_REQUEST_TIMEOUT_MS },
-    );
+    ).catch((error) => {
+      if (error?.timeout) {
+        throw { ...error, message: i18n.t("aiJudge.waitTimeout", { ns: "services" }) };
+      }
+      throw error;
+    });
   },
 
   uploadSessionAttachment(classId, sessionId, file) {
@@ -146,7 +162,7 @@ export const AiJudgeService = {
     return apiPostMultipart(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/attachments`,
       formData,
-      { timeoutMs: TEACHER_JUDGE_REQUEST_TIMEOUT_MS },
+      { timeoutMs: 120 * 1000 },
     );
   },
 
@@ -251,7 +267,7 @@ export const AiJudgeService = {
     return apiGet(`/api/v1/teaching-classes/${classId}/judge/scripts/${query}`);
   },
 
-  /** 相容舊版待老師核准腳本；新流程通過靜態與 AI 檢查後會直接 approved。 */
+  /** 相容舊版待老師核准腳本；新流程通過靜態與 AI導師檢查後會直接 approved。 */
   approveScript(classId, scriptId) {
     return apiPost(`/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/approve`, {});
   },

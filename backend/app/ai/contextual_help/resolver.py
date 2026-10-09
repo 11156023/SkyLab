@@ -158,7 +158,19 @@ def resolve_context(
     ]
     if labels:
         surface_context["elements"] = labels
+    if surface.when_to_use:
+        surface_context["when_to_use"] = surface.when_to_use
+    # 這裡不知道使用者身分（導覽助手也會呼叫），只放每個人都看得到的視窗
+    public_dialogs = [
+        {"title": dialog.title, "opened_by": dialog.opened_by, "purpose": dialog.purpose}
+        for dialog in surface.dialogs
+        if dialog.access == "all"
+    ]
+    if public_dialogs:
+        surface_context["dialogs"] = public_dialogs
     grounded.append(f"{surface.id}.purpose")
     if surface.sections:
         grounded.append(f"{surface.id}.sections")
+    if surface.when_to_use:
+        grounded.append(f"{surface.id}.when_to_use")
     return ({"surface": surface_context}, grounded, LEVEL_SURFACE)

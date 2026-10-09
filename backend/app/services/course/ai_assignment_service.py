@@ -17,6 +17,7 @@ from typing import Any
 from sqlmodel import Session, col, delete, desc, select
 
 from app.ai.teacher_judge import file_service
+from app.ai.teacher_judge.script_policy import aggregate_check_status
 from app.core.i18n import t
 from app.exceptions import NotFoundError
 from app.models.base import get_datetime_utc
@@ -202,8 +203,9 @@ def _script_checks(
             for check_id in mapped_ids
             if check_id in check_by_id
         ]
-        if not selected:
+        if not mapped_ids:
             return []
+        incomplete = len(selected) != len(mapped_ids)
         rubric_title = ""
         if artifact is not None:
             for rubric_item in (artifact.rubric_snapshot_json or {}).get("items", []):
@@ -216,24 +218,18 @@ def _script_checks(
             )
             for check in selected
         ]
-        status = "fail" if "fail" in statuses else (
-            "warning" if "warning" in statuses else (
-                "unknown" if "unknown" in statuses else (
-                    "skipped" if "skipped" in statuses else (
-                        "collected" if "collected" in statuses else "pass"
-                    )
-                )
-            )
-        )
+        status = aggregate_check_status(statuses, incomplete=incomplete)
         evidence = "\n".join(
             str(check.get("evidence") or "").strip()
             for check in selected
             if str(check.get("evidence") or "").strip()
         )
+        if incomplete:
+            evidence = "檢查結果不完整，部分步驟未回傳結果，請重新執行檢查。\n" + evidence
         return [
             CourseAICheckItemStudent(
                 item_id=item_id,
-                title=rubric_title or str(selected[0].get("title") or item_id),
+                title=rubric_title or (str(selected[0].get("title") or item_id) if selected else item_id),
                 status=status,
                 comment=evidence,
             )
@@ -313,7 +309,7 @@ def _check_to_student(
     target_validation = target.get("validation")
     # 輸出驗證失敗、執行器錯誤、AI 判讀錯誤都是給老師除錯的技術訊息
     # （例如 pydantic 的「N validation errors for ManagedScriptResult」），
-    # 學生頁只給一句說明；完整原因仍留在老師端 AI 評分面板
+    # 學生頁只給一句說明；完整原因仍留在老師端 AI導師檢查面板
     has_internal_error = bool(
         (target_validation.get("error") if isinstance(target_validation, dict) else "")
         or target.get("error")

@@ -38,12 +38,6 @@ export const AiApiService = {
   reviewRequest(requestId, body) {
     return apiPost(`${BASE}/requests/${requestId}/review`, body);
   },
-  bulkRejectRequests(requestIds, reviewComment) {
-    return apiPost(`${BASE}/requests/bulk-reject`, {
-      request_ids: requestIds,
-      review_comment: reviewComment,
-    });
-  },
 
   /* ── Admin: 憑證管理 ── */
   listAllCredentials({ status, user_email, query, user_role = [], created_after, skip = 0, limit = 100 } = {}) {
@@ -60,7 +54,7 @@ export const AiApiService = {
   rotateCredential(credentialId) {
     return apiPost(`${BASE}/credentials/${credentialId}/rotate`, {});
   },
-  revokeCredential(credentialId) {
+  deleteCredential(credentialId) {
     return apiDelete(`${BASE}/credentials/${credentialId}`);
   },
   updateCredential(credentialId, body) {

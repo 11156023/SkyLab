@@ -47,6 +47,14 @@ class BadRequestError(AppError):
         super().__init__(message, 400)
 
 
+class UsernamePolicyError(AppError):
+    """VM 登入帳號違反命名政策（app/domain/username_policy）；保留違規代碼供呼叫端判讀。"""
+
+    def __init__(self, message: str, codes: list[str]):
+        self.codes = codes
+        super().__init__(message, 422)
+
+
 class ProvisioningError(AppError):
     def __init__(self, message: str = "Provisioning failed"):
         super().__init__(message, 500)

@@ -124,7 +124,7 @@ SkyLab **不簽發憑證**（不跑 certbot、不做 ACME）。管理員自己�
 
 | 項目 | 做法 |
 |---|---|
-| DNS | 網域在 Cloudflare 管理的 zone 內、且「網域管理」已設定 API Token 與預設 DNS 目標時，儲存平台入口就會在 nginx 套用後把網域指到預設 DNS 目標（不經 Cloudflare 代理，才看得到使用者的真實 IP、上傳與長連線也不受 Cloudflare 限制）；換網域或停用時刪掉這筆紀錄。同名但型別不同的位址紀錄（例如舊入口的 AAAA）會擋下儲存，請先到 Cloudflare 處理。其他情況請自己把主系統網域指到 Gateway 的對外 IP。 |
+| DNS | 網域在 Cloudflare 管理的 zone 內、且「網域管理」已設定 API Token 與預設 DNS 目標時，儲存平台入口就會在 nginx 套用後把網域指到預設 DNS 目標；換網域或停用時刪掉這筆紀錄。同名但型別不同的位址紀錄（例如舊入口的 AAAA）會擋下儲存，請先到 Cloudflare 處理。其他情況請自己把主系統網域指到 Gateway 的對外 IP。 |
 | 信任 Gateway | 部署機 `.env` 設 `SKYLAB_TRUSTED_PROXY=<Gateway 連進來的來源 IP 或 CIDR>`，再 `docker compose up -d nginx`。沒設的話後端看到的來源 IP 全是 Gateway，依 IP 的限流與稽核日誌都會失準，Grafana 免密碼登入的 cookie 也不會帶 `Secure`。 |
 | 網址相關設定 | `.env` 的 `FRONTEND_HOST` 改成新的 https 網址；Google 登入的授權來源、Turnstile 的網域清單一併更新。 |
 
@@ -133,6 +133,18 @@ SkyLab **不簽發憑證**（不跑 certbot、不做 ACME）。管理員自己�
 - **保留直連備援。** 後端是經 SSH 管 Gateway 的 nginx；Gateway 掛掉時從網域進不來，也就沒辦法從介面修它。請保留從內網或 VPN 直連 `http://<部署機>:8082` 的路。
 - **rootless Docker** 不保留來源 IP，容器裡的 nginx 看到的來源一律是 Docker 的轉發位址。這時 `SKYLAB_TRUSTED_PROXY` 要填那個位址（在平台入口頁的「後端看到的來源 IP」可以看到），並且用防火牆把部署機的對外 port 限制成只有 Gateway 連得到，否則直連的人可以自帶 `X-Real-IP` 偽造來源。
 - 主系統網域會被保留：即使平台入口暫時停用，VM 擁有者也不能把這個網域發布到自己的機器上。
+
+**經由 Cloudflare 代理（橘色雲）**是平台入口上的一個勾選框，預設不勾：
+
+| | DNS only（預設） | 經 Cloudflare 代理 |
+|---|---|---|
+| SkyLab 建的 DNS 紀錄 | 灰色雲 | 橘色雲 |
+| Gateway 的對外 IP | 查 DNS 就看得到 | 藏在 Cloudflare 後面 |
+| 主系統看到的使用者 IP | 連線來源 | 取自 `CF-Connecting-IP`，只採信 [Cloudflare 公布的網段](https://www.cloudflare.com/ips/) |
+| 上傳 | 不受 Cloudflare 限制 | 受 Cloudflare 方案限制（免費方案每個請求 100 MB） |
+| Cloudflare 的 SSL/TLS 模式 | 不相關 | Gateway 開 HTTPS 時要設 **完整（嚴格）／Full (strict)**；設成彈性（Flexible）會讓 Gateway 的 HTTP 轉 HTTPS 無限轉址 |
+
+勾選後，Gateway 的 nginx 會在平台入口的 server 區塊加上每個 Cloudflare 網段的 `set_real_ip_from` 與 `real_ip_header CF-Connecting-IP`，所以 `SKYLAB_TRUSTED_PROXY` 仍然填 Gateway。網段清單寫在後端（`nginx_gateway_service.py` 的 `CLOUDFLARE_IP_RANGES`）；Cloudflare 新增網段時要跟著更新，否則從新網段來的使用者會被記成 Cloudflare 的位址。網域不在 Cloudflare 管理的 zone 內時，勾選只會加上 nginx 的設定，紀錄要自己到 Cloudflare 切成橘色雲。DNS 紀錄的代理狀態和勾選不一致時，狀態卡會提出警告。
 
 ## 6. LDAP / Active Directory over TLS
 

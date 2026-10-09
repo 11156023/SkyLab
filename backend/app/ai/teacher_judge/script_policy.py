@@ -18,9 +18,25 @@ if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint, ScriptValidationResult
 
 ALLOWED_RESULT_STATUSES = {"pass", "fail", "warning", "unknown", "collected", "skipped"}
+RAW_RESULT_LIMIT = 256 * 1024
 # Reserved argv element for a declared peer's runtime IP. Defined in this
 # dependency-free policy module so the compiler and machine_context share it.
 PEER_IP_TOKEN = "{{peer.ip}}"
+
+
+def aggregate_check_status(statuses: list[str], *, incomplete: bool = False) -> str:
+    """A rubric item passes only when all expected checks returned a pass."""
+    values = set(statuses)
+    if incomplete or not values or values - ALLOWED_RESULT_STATUSES:
+        return "unknown"
+    for status in ("fail", "warning", "unknown"):
+        if status in values:
+            return status
+    if values == {"skipped"}:
+        return "skipped"
+    if "skipped" in values:
+        return "unknown"
+    return "collected" if "collected" in values else "pass"
 
 
 def coerce_check_text(value: Any) -> Any:

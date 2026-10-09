@@ -5,8 +5,9 @@
 1. **不寫版面位置。** 沒有「右上角」「往下捲」「左側清單」。版面會調整，寫死的
    位置過期之後比沒有位置更糟——使用者會照著一個不存在的地方找。要指認元素就用
    ``id``，要描述分組就用 ``sections`` 的邏輯名稱。
-2. **不寫操作順序。** 「接著去防火牆開埠」屬於流程，不屬於畫面說明；那種知識要
-   寫在頁面本身的 inline hint 裡。
+2. **不寫跨頁流程。** 「接著去防火牆開埠」屬於導覽流程（``navigation/flows.py``）。
+   這一頁裡的功能怎麼用、彈出視窗怎麼填、什麼情況該改去哪一頁，寫在
+   ``surface_guides.py``，載入時依 surface id 併進來。
 3. **只寫查得到的事。** ``constraints`` 必須對得上前端真正的驗證規則，否則助手會
    理直氣壯地講錯。
 
@@ -17,8 +18,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 from app.ai.contextual_help.schemas import ElementSpec, SurfaceSpec
+from app.ai.contextual_help.surface_guides import GUIDES
 from app.ai.navigation.catalog import can_access, resolve_user_role
 from app.models import User
 
@@ -62,7 +65,7 @@ _REQUEST_FORM_ELEMENTS: tuple[ElementSpec, ...] = (
         id="request.password",
         role="text",
         label="密碼",
-        help="登入這台機器要用的密碼，一律由申請人自己輸入。",
+        help="登入這台機器要用的密碼，一律由申請人自己輸入；平台不會保存，忘記只能到機器的進階設定重設。",
         constraints=("必填", "至少 8 個字元"),
         sensitive=True,
     ),
@@ -166,44 +169,6 @@ _SPEC_CHANGE_ELEMENTS: tuple[ElementSpec, ...] = (
         constraints=("必填", "至少 10 個字元"),
     ),
 )
-
-# ── 反向代理 ─────────────────────────────────────────────────────────
-_REVERSE_PROXY_ELEMENTS: tuple[ElementSpec, ...] = (
-    ElementSpec(
-        id="proxy.subdomain",
-        role="text",
-        label="網址開頭",
-        help="自訂的名稱，會接在所選的網址結尾前面。",
-    ),
-    ElementSpec(
-        id="proxy.zone",
-        role="select",
-        label="網址結尾",
-        help="可選的網域由管理員在網域管理設定，這裡只能從已開放的清單挑。",
-    ),
-    ElementSpec(
-        id="proxy.vm",
-        role="select",
-        label="綁定的 VM",
-        help="這個網址要把流量送到哪一台機器。",
-    ),
-    ElementSpec(
-        id="proxy.port",
-        role="number",
-        label="服務 Port",
-        help=(
-            "服務在機器裡跑在哪個 Port。常見預設值：Node.js 3000、Flask 5000、"
-            "Nginx 80。"
-        ),
-    ),
-    ElementSpec(
-        id="proxy.https",
-        role="toggle",
-        label="安全連線 (https)",
-        help="開啟時使用管理員在 Gateway 上設定的憑證；網域不在憑證涵蓋範圍內時瀏覽器會出現警告。",
-    ),
-)
-
 
 # ── 系統管理底下的七個設定頁 ───────────────────────────────────────
 # 原「系統設定」的分頁，2026-09 各自升格為獨立頁面。label 一律沿用畫面上的文字，
@@ -837,7 +802,7 @@ _ACCOUNT_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(id="account.change_password", role="list", label="變更密碼", section="變更密碼"),
     ElementSpec(
         id="account.delete_account", role="list", label="刪除帳號", section="刪除帳號",
-        help="帳號與相關資料會永久刪除、無法復原；仍持有已開通的資源時系統會拒絕刪除。",
+        help="刪除後停止登入與服務、撤銷 AI API 金鑰，保留用量與稽核等紀錄，帳號無法恢復；仍持有已開通的資源時系統會拒絕刪除。",
     ),
     ElementSpec(
         id="account.tab_appearance", role="list", label="外觀", section="外觀",
@@ -847,30 +812,36 @@ _ACCOUNT_ELEMENTS: tuple[ElementSpec, ...] = (
 
 # ── AI API ──────────────────────────────────────────────────────────
 _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
+    # 申請金鑰視窗的欄位
     ElementSpec(
-        id="aiapi.key_name", role="text", label="金鑰名稱", section="申請",
+        id="aiapi.key_name", role="text", label="金鑰名稱", section="API 金鑰",
         help="給自己辨認用的名稱，例如：課程專案用、測試用、我的 App。",
+        constraints=("必填", "最多 20 字"),
     ),
     ElementSpec(
-        id="aiapi.purpose", role="textarea", label="申請目的", section="申請",
+        id="aiapi.purpose", role="textarea", label="申請目的", section="API 金鑰",
         help="說明要拿這把金鑰做什麼，審核時會看這一欄。",
+        constraints=("至少 10 字",),
     ),
     ElementSpec(
-        id="aiapi.duration", role="select", label="金鑰有效期限", section="申請",
-        help="可選 1 小時、1 天、1 週、1 個月或永不過期。",
+        id="aiapi.duration", role="select", label="金鑰有效期限", section="API 金鑰",
+        help="學生可選 1 天、1 週、1 個月或 90 天；教師與管理員可選 1 天、1 週、1 個月或永不過期。",
+    ),
+    # 金鑰清單上的動作（2026-10 起「顯示／隱藏」改為點金鑰名稱開詳細資料）
+    ElementSpec(
+        id="aiapi.key_detail", role="button", label="API Key 詳細資料", section="API 金鑰",
+        help="點金鑰名稱開啟，可查看及複製完整 API Key、Base URL 與 cURL 指令。",
     ),
     ElementSpec(
-        id="aiapi.action_show", role="button", label="顯示", section="申請紀錄",
-        help="顯示這把金鑰的完整內容。",
-    ),
-    ElementSpec(id="aiapi.action_hide", role="button", label="隱藏", section="申請紀錄"),
-    ElementSpec(
-        id="aiapi.action_refresh", role="button", label="重新產生金鑰", section="申請紀錄",
-        help="重新產生這把 API Key；舊的會失效。",
+        id="aiapi.action_rename", role="button", label="重新命名", section="API 金鑰",
     ),
     ElementSpec(
-        id="aiapi.action_delete", role="button", label="刪除", section="申請紀錄",
-        help="刪除這把 API Key。",
+        id="aiapi.action_refresh", role="button", label="重新產生金鑰", section="API 金鑰",
+        help="重新產生這把 API Key；舊的會立即失效。已過期的金鑰不能重新產生，要重新申請。",
+    ),
+    ElementSpec(
+        id="aiapi.action_delete", role="button", label="刪除", section="API 金鑰",
+        help="刪除後，正在使用這把金鑰的程式會立刻連不上，無法復原。",
     ),
     ElementSpec(
         id="aiapi.usage_overview", role="chart", label="API 用量", section="我的用量",
@@ -878,8 +849,8 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
              "不包含平台 Template 功能用量。",
     ),
     ElementSpec(
-        id="aiapi.docs", role="button", label="API 快速開始", section="申請",
-        help="在「申請金鑰」旁邊，點開會跳出視窗，提供 Base URL、Responses API 的 POST 端點，"
+        id="aiapi.docs", role="button", label="API 快速開始", section="API 金鑰",
+        help="點開會跳出視窗，提供 Base URL、Responses API 的 POST 端點，"
              "以及 JavaScript、Python、CMD / cURL 範例。",
     ),
 )
@@ -939,16 +910,61 @@ _TEMPLATES_ELEMENTS: tuple[ElementSpec, ...] = (
 )
 
 
-# ── 班級管理 ────────────────────────────────────────────────────────
+# ── 班級管理（清單）──────────────────────────────────────────────────
 _CLASS_MGMT_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="classmgmt.status_planning", role="readonly", label="準備中",
-        section="班級總覽", help="還在準備，尚未送出機器配置。",
+        section="班級清單", help="還在準備，尚未送出機器配置。",
     ),
     ElementSpec(
         id="classmgmt.status_pending_review", role="readonly", label="等待審核",
-        section="班級總覽", help="機器配置已送出，等管理員審核。",
+        section="班級清單", help="機器配置已送出，等管理員審核。",
     ),
+    ElementSpec(
+        id="classmgmt.status_provisioning", role="readonly", label="正在建立",
+        section="班級清單",
+    ),
+    ElementSpec(
+        id="classmgmt.status_partial_failed", role="readonly", label="需要處理",
+        section="班級清單", help="有機器沒有成功建立，要處理過才能正常上課。",
+    ),
+    ElementSpec(
+        id="classmgmt.status_active", role="readonly", label="可以上課",
+        section="班級清單",
+    ),
+    ElementSpec(
+        id="classmgmt.status_archived", role="readonly", label="已結束",
+        section="班級清單",
+    ),
+    ElementSpec(
+        id="classmgmt.filter_planning", role="button", label="準備中",
+        section="班級清單", help="篩選還沒送出機器配置的班級。",
+    ),
+    ElementSpec(
+        id="classmgmt.filter_building", role="button", label="建置中",
+        section="班級清單",
+        help="篩選已送出、正在等待審核或正在建立機器的班級；"
+             "這段期間老師不需要做任何事。",
+    ),
+    ElementSpec(
+        id="classmgmt.filter_partial_failed", role="button", label="需要處理",
+        section="班級清單",
+        help="只有在真的有班級建機失敗時才會出現；點進去可以重試或退回編輯。",
+    ),
+    ElementSpec(
+        id="classmgmt.filter_active", role="button", label="可以上課",
+        section="班級清單", help="篩選機器都建好、可以開始上課的班級。",
+    ),
+    ElementSpec(
+        id="classmgmt.show_archived", role="button", label="顯示已結束",
+        section="班級清單",
+        help="已結束的班級預設不列出，也不計入其他分頁的數字。",
+    ),
+)
+
+# ── 班級工作區（/class-management/:classId）─────────────────────────
+# 進入某個班級後的分頁：班級總覽、加入學生、上課環境、每週內容、上課監看。
+_CLASS_WORKSPACE_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="classmgmt.status_provisioning", role="readonly", label="正在建立",
         section="上課環境",
@@ -956,38 +972,6 @@ _CLASS_MGMT_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="classmgmt.status_partial_failed", role="readonly", label="需要處理",
         section="上課環境", help="有機器沒有成功建立，要處理過才能正常上課。",
-    ),
-    ElementSpec(
-        id="classmgmt.status_active", role="readonly", label="可以上課",
-        section="班級總覽",
-    ),
-    ElementSpec(
-        id="classmgmt.status_archived", role="readonly", label="已結束",
-        section="班級總覽",
-    ),
-    ElementSpec(
-        id="classmgmt.filter_planning", role="button", label="準備中",
-        section="班級總覽", help="篩選還沒送出機器配置的班級。",
-    ),
-    ElementSpec(
-        id="classmgmt.filter_building", role="button", label="建置中",
-        section="班級總覽",
-        help="篩選已送出、正在等待審核或正在建立機器的班級；"
-             "這段期間老師不需要做任何事。",
-    ),
-    ElementSpec(
-        id="classmgmt.filter_partial_failed", role="button", label="需要處理",
-        section="班級總覽",
-        help="只有在真的有班級建機失敗時才會出現；點進去可以重試或退回編輯。",
-    ),
-    ElementSpec(
-        id="classmgmt.filter_active", role="button", label="可以上課",
-        section="班級總覽", help="篩選機器都建好、可以開始上課的班級。",
-    ),
-    ElementSpec(
-        id="classmgmt.show_archived", role="button", label="顯示已結束",
-        section="班級總覽",
-        help="已結束的班級預設不列出，也不計入其他分頁的數字。",
     ),
     ElementSpec(
         id="classmgmt.boot_lead", role="readonly", label="提前開機",
@@ -1020,6 +1004,35 @@ _CLASS_MGMT_ELEMENTS: tuple[ElementSpec, ...] = (
         section="班級總覽",
         help="在 ⋯ 選單裡，動作不可逆：班級會結束，班上的機器會被刪除。"
              "回收失敗時可以從班級總覽的狀態面板重試。",
+    ),
+    ElementSpec(
+        id="classmgmt.submit_provision", role="button", label="確認並送出建機",
+        section="班級總覽",
+        help="學生名單與上課環境都完成、容量預檢通過後才能按；送出後設定鎖定並等待管理員審核。",
+    ),
+    ElementSpec(
+        id="classmgmt.add_students", role="button", label="加入學生", section="加入學生",
+        help="貼上學生 Email 加入班級；送出建機後名單會鎖定。",
+    ),
+    ElementSpec(
+        id="classmgmt.import_csv", role="button", label="匯入 CSV", section="加入學生",
+        help="一次匯入多位學生；找不到或不是學生身分的帳號會列出來。",
+    ),
+    ElementSpec(
+        id="classmgmt.save_weekly", role="button", label="儲存每週內容", section="每週內容",
+        help="每週主題、本週機器、任務檔案與學生可見設定都要按這顆才會保存。",
+    ),
+    ElementSpec(
+        id="classmgmt.class_power_on", role="button", label="全班開機", section="上課監看",
+        help="對全班機器送出開機指令。",
+    ),
+    ElementSpec(
+        id="classmgmt.class_power_off", role="button", label="全班關機", section="上課監看",
+        help="對全班機器送出關機指令，學生尚未存檔的工作可能遺失。",
+    ),
+    ElementSpec(
+        id="classmgmt.broadcast", role="button", label="直播示範", section="上課監看",
+        help="選一台 VM，把它的畫面直播給全班看；按「結束直播」停止。",
     ),
 )
 
@@ -1210,6 +1223,17 @@ _GATEWAY_ELEMENTS: tuple[ElementSpec, ...] = (
             "讓 SkyLab 主系統自己也經 Gateway 的 nginx，以網域和 HTTPS 對外。"
             "填主系統網域與 Gateway 連得到的部署機位址；儲存時會先從 Gateway 測試連線，連不到就不套用。"
             "開 HTTPS 前要先在「HTTPS 憑證」分頁設定好涵蓋這個網域的憑證。"
+            "網域在 Cloudflare 管理的 zone 內時，儲存後會自動把 DNS 指到 Gateway。"
+        ),
+    ),
+    ElementSpec(
+        id="gateway.platform_entry_proxied", role="toggle", label="經由 Cloudflare Proxy（橘色雲）",
+        section="平台入口",
+        help=(
+            "勾選後 SkyLab 建的 DNS 紀錄會設成橘色雲，使用者先連到 Cloudflare 再轉到 Gateway，"
+            "Gateway 的 IP 不會公開，並改從 CF-Connecting-IP 取得使用者 IP。"
+            "Gateway 開 HTTPS 時，Cloudflare 的 SSL/TLS 模式要設成「完整（嚴格）」；免費方案單次上傳上限 100 MB。"
+            "不勾就是 DNS only（灰色雲）。"
         ),
     ),
     ElementSpec(
@@ -1259,7 +1283,7 @@ _AI_API_KEYS_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(id="aikeys.status_inactive", role="readonly", label="失效", section="啟用與失效"),
     ElementSpec(
         id="aikeys.delete", role="button", label="刪除", section="金鑰清單",
-        help="刪除這把金鑰，動作無法復原。",
+        help="刪除後使用者不再看到這把金鑰，也無法發起新的呼叫；管理與用量紀錄會保留。",
     ),
 )
 
@@ -1459,6 +1483,63 @@ _DASHBOARD_ELEMENTS: tuple[ElementSpec, ...] = (
 )
 
 
+# ── 學生課程 ────────────────────────────────────────────────────────
+_COURSES_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(
+        id="courses.list", role="list", label="我的課程", section="課程列表",
+        help="每張卡片是一門課，點進去看任務與課堂機器。",
+    ),
+)
+
+_COURSE_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(
+        id="course.tasks", role="list", label="截至今天的所有任務", section="任務",
+        help="依週列出老師發布並核准的任務；勾選只記錄完成狀態，不會啟動 AI導師檢查。",
+    ),
+    ElementSpec(
+        id="course.machines", role="list", label="你的課堂機器", section="課堂機器",
+        help="直接點機器就能進入桌面或終端機。",
+    ),
+)
+
+_COURSE_WEEK_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(
+        id="courseweek.feedback", role="list", label="檢查回饋", section="檢查回饋",
+        help="只顯示你最新的檢查結果與老師可公開的評語。",
+    ),
+    ElementSpec(
+        id="courseweek.machines", role="list", label="本週機器", section="本週機器",
+    ),
+    ElementSpec(
+        id="courseweek.open_machine", role="button", label="機器與主控台",
+        section="本週機器", help="進入這台機器的詳細頁與主控台。",
+    ),
+)
+
+# ── 班級工作區的分頁與 AI導師檢查 ──────────────────────────────────────
+_CLASS_WORKSPACE_SECTIONS: tuple[str, ...] = (
+    "班級總覽", "加入學生", "上課環境", "每週內容", "上課監看",
+)
+
+_AI_JUDGE_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(
+        id="aijudge.new_check", role="button", label="新增檢查", section="檢查清單",
+        help="輸入名稱後，會直接建立一份空白檢查表。",
+    ),
+    ElementSpec(
+        id="aijudge.run_all", role="button", label="一次執行", section="檢查清單",
+        help="在每位學生的對應機器上執行整組已審查的檢查腳本；機器要開著才能檢查。",
+    ),
+    ElementSpec(
+        id="aijudge.move_week", role="button", label="調整週次", section="檢查清單",
+        help="讓這份檢查只出現在所選週次。",
+    ),
+    ElementSpec(id="aijudge.tab_rubrics", role="list", label="檢查設定", section="檢查設定"),
+    ElementSpec(id="aijudge.tab_scripts", role="list", label="腳本總覽", section="腳本總覽"),
+    ElementSpec(id="aijudge.tab_review", role="list", label="導師核查", section="導師核查"),
+)
+
+
 _SURFACES: tuple[SurfaceSpec, ...] = (
     # ── 所有登入者 ──
     SurfaceSpec(
@@ -1471,6 +1552,30 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         ),
         sections=("總覽卡片", "快速入口"),
         elements=_DASHBOARD_ELEMENTS,
+    ),
+    SurfaceSpec(
+        id="courses",
+        path="/courses",
+        title="我的課程",
+        purpose="學生修的課程清單，老師發布課程後會出現在這裡。",
+        sections=("課程列表",),
+        elements=_COURSES_ELEMENTS,
+    ),
+    SurfaceSpec(
+        id="course",
+        path="/courses/:pathId",
+        title="課程",
+        purpose="單一課程的任務、目前進度與課堂機器入口。",
+        sections=("任務", "課堂機器"),
+        elements=_COURSE_ELEMENTS,
+    ),
+    SurfaceSpec(
+        id="course-week",
+        path="/courses/:pathId/weeks/:weekId",
+        title="本週內容",
+        purpose="某一週的檢查回饋、老師評語與這週指定使用的機器。",
+        sections=("檢查回饋", "本週機器"),
+        elements=_COURSE_WEEK_ELEMENTS,
     ),
     SurfaceSpec(
         id="my-resources",
@@ -1488,7 +1593,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
             "單一台機器的完整資訊與操作，也是提出規格調整申請的地方。"
             "規格調整送出後要等管理員審核；管理員可以直接調整，不必送申請。"
         ),
-        sections=("總覽", "監控", "規格", "快照", "操作紀錄", "進階設定"),
+        sections=("總覽", "監控", "規格", "快照", "備份", "操作紀錄", "進階設定"),
         elements=_SPEC_CHANGE_ELEMENTS,
     ),
     SurfaceSpec(
@@ -1535,8 +1640,8 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         id="account",
         path="/account",
         title="帳號設定",
-        purpose="修改個人資料與密碼，調整介面外觀。",
-        sections=("個人資料", "變更密碼", "刪除帳號", "外觀"),
+        purpose="修改個人資料與密碼、設定兩步驟驗證，調整介面外觀，查看版本與授權資訊。",
+        sections=("個人資料", "變更密碼", "兩步驟驗證", "刪除帳號", "外觀", "關於"),
         elements=_ACCOUNT_ELEMENTS,
     ),
     SurfaceSpec(
@@ -1559,23 +1664,14 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         elements=_FIREWALL_ELEMENTS,
     ),
     SurfaceSpec(
-        id="reverse-proxy",
-        path="/reverse-proxy",
-        title="反向代理",
-        purpose=(
-            "讓別人透過一個好記的網址訪問你機器裡的網站或服務。"
-            "前提是服務已經在機器裡跑起來，而且你知道它在哪個 Port；"
-            "可用的網址結尾由管理員先在網域管理設定。"
-        ),
-        sections=("網址清單", "新增網址"),
-        elements=_REVERSE_PROXY_ELEMENTS,
-    ),
-    SurfaceSpec(
         id="ai-api",
         path="/ai-api",
         title="AI API",
-        purpose="申請 AI API 金鑰、查詢申請紀錄、開啟 API 快速開始看串接範例，以及查看個人 token 用量。",
-        sections=("申請", "申請紀錄", "我的用量"),
+        purpose=(
+            "申請與管理 AI API 金鑰、直接跟模型聊天、查詢申請紀錄，"
+            "開啟 API 快速開始看串接範例，以及查看個人 token 用量。"
+        ),
+        sections=("API 金鑰", "API 聊天", "申請紀錄", "我的用量"),
         elements=_AI_API_ELEMENTS,
     ),
     # ── 教師與管理者 ──
@@ -1595,13 +1691,48 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         id="class-management",
         path="/class-management",
         title="班級管理",
-        purpose="從尚未完成的班級繼續準備，或進入已就緒的班級開始上課。",
-        sections=(
-            "班級總覽", "加入學生", "上課環境", "每週內容",
-            "上課監看", "資源熱力圖", "AI 檢查",
-        ),
+        purpose="列出你的班級，從尚未完成的班級繼續準備，或進入已就緒的班級開始上課。",
+        sections=("班級清單",),
         access="staff",
         elements=_CLASS_MGMT_ELEMENTS,
+    ),
+    # 進入某個班級。AI導師檢查是獨立頁面，要排在 :section 前面：前端與後端都取第一個
+    # 符合的路徑樣板，/class-management/42/ai 兩個都配得上。
+    SurfaceSpec(
+        id="class-workspace",
+        path="/class-management/:classId",
+        title="班級",
+        purpose=(
+            "單一班級的工作區：建機準備、學生名單、上課環境、每週內容，"
+            "以及上課時的監看與全班電源。"
+        ),
+        sections=_CLASS_WORKSPACE_SECTIONS,
+        access="staff",
+        elements=_CLASS_WORKSPACE_ELEMENTS,
+    ),
+    SurfaceSpec(
+        id="ai-judge",
+        path="/class-management/:classId/ai",
+        title="AI導師檢查",
+        purpose=(
+            "替班級建立檢查表，讓 AI 產生檢查腳本並在每位學生的機器上執行，"
+            "再由老師核查結果。"
+        ),
+        sections=("檢查清單", "檢查設定", "腳本總覽", "導師核查"),
+        access="staff",
+        elements=_AI_JUDGE_ELEMENTS,
+    ),
+    SurfaceSpec(
+        id="class-workspace-section",
+        path="/class-management/:classId/:section",
+        title="班級",
+        purpose=(
+            "單一班級的工作區：建機準備、學生名單、上課環境、每週內容，"
+            "以及上課時的監看與全班電源。"
+        ),
+        sections=_CLASS_WORKSPACE_SECTIONS,
+        access="staff",
+        elements=_CLASS_WORKSPACE_ELEMENTS,
     ),
     SurfaceSpec(
         id="class-setup",
@@ -1647,8 +1778,8 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         path="/course-cms",
         title="課程管理",
         purpose=(
-            "建立學習路徑、房間（綁定實驗模板）與任務 Flag 題目；"
-            "發布之後學生才看得到。"
+            "編輯學習路徑、房間、任務與題目，並查看學生作答進度；"
+            "學習路徑發布之後學生才看得到。"
         ),
         sections=("內容編輯", "學生進度"),
         access="staff",
@@ -1662,6 +1793,15 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         purpose="查看與管理系統中所有的虛擬機與 LXC 容器。",
         sections=("資源清單", "電源操作", "到期與節點", "批次操作"),
         elements=_RESOURCE_MGMT_ELEMENTS,
+        access="admin",
+    ),
+    SurfaceSpec(
+        id="managed-resource-detail",
+        path="/resource-mgmt/:vmid",
+        title="資源詳細",
+        purpose="管理員檢視與操作單一台機器；調整規格可以直接套用，不必送申請。",
+        sections=("總覽", "監控", "規格", "快照", "備份", "操作紀錄", "進階設定"),
+        elements=_SPEC_CHANGE_ELEMENTS,
         access="admin",
     ),
     SurfaceSpec(
@@ -1836,6 +1976,24 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         elements=_AI_MONITORING_ELEMENTS,
     ),
 )
+
+
+def _with_guide(surface: SurfaceSpec) -> SurfaceSpec:
+    """把 surface_guides 裡的導覽內容併進畫面定義。"""
+    guide = GUIDES.get(surface.id)
+    if guide is None:
+        return surface
+    return replace(
+        surface,
+        when_to_use=guide.when_to_use,
+        features=guide.features,
+        dialogs=guide.dialogs,
+        related=guide.related,
+    )
+
+
+_SURFACES = tuple(_with_guide(surface) for surface in _SURFACES)
+
 
 def all_surfaces() -> tuple[SurfaceSpec, ...]:
     return _SURFACES

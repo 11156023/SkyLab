@@ -216,6 +216,15 @@ function ManagementRow({ template, cycleBusy, onClone, onEdit, onManual, onRetry
               {t("TemplatesPage.pveMissingLabel")}
             </span>
           )}
+          {template.password_settable === false && (
+            <span
+              className={`${styles.badge} ${styles.badge_muted}`}
+              title={t("TemplatesPage.passwordUnsettableTitle")}
+            >
+              <MIcon name="lock" size={13} />
+              {t("TemplatesPage.passwordUnsettableLabel")}
+            </span>
+          )}
         </div>
         {template.description && (
           <p className={styles.nameDesc}>{template.description}</p>

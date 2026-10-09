@@ -6,6 +6,7 @@ from typing import Any, NotRequired, TypedDict
 
 from fastapi import HTTPException
 
+from app.ai.teacher_judge.deterministic_compiler import missing_execution_location
 from app.ai.teacher_judge.machine_context import rubric_item_machine_issues
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
@@ -72,7 +73,7 @@ def missing_step_information(
     if step.collector is not None:
         collector = step.collector.model_dump(mode="json")
         collector_type = str(collector.get("type") or "")
-        typed_missing: list[str] = []
+        typed_missing: list[str] = missing_execution_location(collector)
         if collector_type == "command":
             if not non_empty_argv(collector.get("argv")):
                 typed_missing.append("collector.argv 必須是非空的字串陣列")
@@ -95,7 +96,9 @@ def missing_step_information(
 
     if step.command_key == "python.run_entrypoint":
         cwd = parameters.get("cwd")
-        if not isinstance(cwd, str) or not cwd.strip():
+        if not non_empty_argv(parameters.get("argv")) and (
+            not isinstance(cwd, str) or not cwd.strip()
+        ):
             missing.append(
                 _gap_text(
                     parameters,
@@ -149,7 +152,9 @@ def missing_step_information(
                 )
             )
 
-    return missing
+    if non_empty_argv(parameters.get("argv")):
+        missing.extend(missing_execution_location({**parameters, "type": "command"}))
+    return list(dict.fromkeys(missing))
 
 
 def _item_missing_information(
@@ -288,6 +293,7 @@ def get_script_generation_blockers(
                 require_target_node=require_target_node,
             )
         except CheckPlanContractError as exc:
+            titles = {item.id: item.title for item in analysis.items}
             for issue in exc.issues:
                 item_id = str(issue.get("item_id") or "").strip() or None
                 step_id = str(issue.get("step_id") or "").strip()
@@ -295,11 +301,9 @@ def get_script_generation_blockers(
                 blockers.append(
                     {
                         "item_id": item_id,
-                        "title": (
-                            f"{item_id} / {step_id}"
-                            if item_id and step_id
-                            else item_id or "檢查計畫契約"
-                        ),
+                        "title": titles.get(item_id, item_id or "檢查計畫契約"),
+                        "step_id": step_id or None,
+                        "step_index": issue.get("step_index"),
                         "status": "analysis_error",
                         "missing_information": [],
                         "reason_code": "check_plan_contract_invalid",

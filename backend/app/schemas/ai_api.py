@@ -2,12 +2,16 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.models.ai_api_request import AIAPIRequestStatus
 
 # 與 ai_gateway_service.review_request 換算 expires_at 的期限一一對應
 AIAPIKeyDuration = Literal["1d", "7d", "30d", "90d", "never"]
+AIAPIReviewDecision = Literal[
+    AIAPIRequestStatus.approved,
+    AIAPIRequestStatus.rejected,
+]
 
 
 class AIAPIRequestCreate(BaseModel):
@@ -20,37 +24,8 @@ class AIAPIRequestCreate(BaseModel):
 class AIAPIRequestReview(BaseModel):
     """審核 AI API 申請：結果只能是核准或駁回"""
 
-    status: AIAPIRequestStatus
+    status: AIAPIReviewDecision
     review_comment: str | None = Field(default=None, max_length=2000)
-
-    @field_validator("status")
-    @classmethod
-    def _decision_only(cls, value: AIAPIRequestStatus) -> AIAPIRequestStatus:
-        if value not in (AIAPIRequestStatus.approved, AIAPIRequestStatus.rejected):
-            raise ValueError("審核結果只能是 approved 或 rejected")
-        return value
-
-
-class AIAPIRequestBulkReject(BaseModel):
-    """管理員一次駁回多筆待審 AI API 申請。"""
-
-    request_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
-    review_comment: str = Field(min_length=1, max_length=2000)
-
-    @field_validator("request_ids")
-    @classmethod
-    def _unique_request_ids(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
-        if len(value) != len(set(value)):
-            raise ValueError("request_ids 不可重複")
-        return value
-
-    @field_validator("review_comment")
-    @classmethod
-    def _non_blank_comment(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("駁回理由不可為空白")
-        return value
 
 
 class AIAPIRequestPublic(BaseModel):
@@ -112,7 +87,7 @@ class AIAPICredentialsPublic(BaseModel):
 
 
 AIAPICredentialStatus = Literal["active", "inactive"]
-AIAPICredentialInactiveReason = Literal["revoked", "expired"]
+AIAPICredentialInactiveReason = Literal["deleted", "revoked", "expired"]
 
 
 class AIAPICredentialAdminPublic(BaseModel):
@@ -130,6 +105,7 @@ class AIAPICredentialAdminPublic(BaseModel):
     inactive_reason: AIAPICredentialInactiveReason | None = None
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
+    deleted_at: datetime | None = None
     created_at: datetime
     request_purpose: str | None = None
     reviewer_email: str | None = None

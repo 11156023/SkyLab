@@ -19,6 +19,7 @@ import SystemController from "../controller/SystemController";
 import TunnelController from "../controller/TunnelController";
 import UpdateController from "../controller/UpdateController";
 import BeanFactory from "../core/BeanFactory";
+import GlobalConstant from "../core/GlobalConstant";
 import { ipcRouters, listeners } from "../core/IpcRouter";
 import Logger from "../core/Logger";
 import SettingsRepository from "../repository/SettingsRepository";
@@ -103,7 +104,10 @@ class SkyLabApp {
     this._win.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url);
-        const allowedHosts = new Set(["github.com", "skylab.ntubimdbirc.tw"]);
+        const allowedHosts = new Set([
+          "github.com",
+          new URL(GlobalConstant.DEFAULT_BACKEND_URL).hostname
+        ]);
         if (target.protocol === "https:" && allowedHosts.has(target.hostname)) {
           void shell.openExternal(target.toString());
         }

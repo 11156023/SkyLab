@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -93,83 +93,6 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
   );
 }
 
-/* ── Bulk reject dialog ── */
-function BulkRejectDialog({ open, onClose, requestIds, onDone }) {
-  const { t } = useTranslation("ai");
-  const toast = useToast();
-  const reasonId = useId();
-  const [comment, setComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const presence = useDialogPresence(open);
-
-  useEffect(() => {
-    if (!open) setComment("");
-  }, [open]);
-
-  if (!presence.open || requestIds.length === 0) return null;
-
-  const handleSubmit = async () => {
-    const reason = comment.trim();
-    if (!reason) return;
-
-    setSubmitting(true);
-    try {
-      const result = await AiApiService.bulkRejectRequests(requestIds, reason);
-      toast.success(t("AiApiReviewPage.bulkRejectSuccess", { count: result?.count ?? requestIds.length }));
-      onClose();
-      onDone();
-    } catch (e) {
-      toast.error(e?.message ?? t("AiApiReviewPage.bulkRejectError"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Modal
-      closing={presence.closing}
-      onClose={onClose}
-      busy={submitting}
-      role="alertdialog"
-      size="md"
-      title={t("AiApiReviewPage.bulkRejectDialogTitle")}
-      description={t("AiApiReviewPage.bulkRejectSummary", { count: requestIds.length })}
-      actions={
-        <>
-          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={submitting}>
-            {t("AiApiReviewPage.cancel")}
-          </button>
-          <button
-            type="button"
-            className={styles.btnDanger}
-            onClick={handleSubmit}
-            disabled={submitting || !comment.trim()}
-          >
-            {submitting ? t("AiApiReviewPage.processing") : t("AiApiReviewPage.bulkRejectConfirm")}
-          </button>
-        </>
-      }
-    >
-      <div className={styles.dialogBody}>
-        <label className={styles.dialogFieldLabel} htmlFor={reasonId}>
-          {t("AiApiReviewPage.bulkRejectReasonLabel")}
-        </label>
-        <textarea
-          id={reasonId}
-          className={styles.dialogTextarea}
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder={t("AiApiReviewPage.bulkRejectReasonPlaceholder")}
-          maxLength={2000}
-          rows={5}
-          required
-          aria-required="true"
-        />
-      </div>
-    </Modal>
-  );
-}
-
 /* ── ReviewActions in table row ── */
 function ReviewActions({ item, onDone }) {
   const { t } = useTranslation("ai");
@@ -236,8 +159,6 @@ export default function AiApiReviewPage() {
   const [requests, setRequests] = useState([]);
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
-  const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
   /* 切換分頁時舊請求可能較晚回來，只讓最新一次載入寫入畫面 */
   const loadSeqRef = useRef(0);
 
@@ -291,46 +212,6 @@ export default function AiApiReviewPage() {
     return requests.filter((r) => r.status === activeTab);
   }, [requests, activeTab]);
 
-  const selectableRequests = useMemo(
-    () => filtered.filter((request) => request.status === "pending"),
-    [filtered],
-  );
-  const selectableIds = useMemo(
-    () => new Set(selectableRequests.map((request) => String(request.id))),
-    [selectableRequests],
-  );
-  const selectedCount = selectedIds.size;
-  const allSelected = selectableRequests.length > 0
-    && selectableRequests.every((request) => selectedIds.has(String(request.id)));
-
-  /* 自動刷新／分頁切換後，剛被其他人審核的列不能繼續留在選取集合。 */
-  useEffect(() => {
-    setSelectedIds((current) => {
-      const next = new Set([...current].filter((id) => selectableIds.has(id)));
-      if (next.size === current.size && [...next].every((id) => current.has(id))) return current;
-      return next;
-    });
-  }, [selectableIds]);
-
-  const handleToggleRequest = useCallback((requestId, checked) => {
-    const id = String(requestId);
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }, []);
-
-  const handleToggleAll = useCallback((checked) => {
-    setSelectedIds(checked ? new Set(selectableRequests.map((request) => String(request.id))) : new Set());
-  }, [selectableRequests]);
-
-  const handleBulkDone = useCallback(() => {
-    setSelectedIds(new Set());
-    load();
-  }, [load]);
-
   const COLS = [
     t("AiApiReviewPage.colApplicant"),
     t("AiApiReviewPage.colKeyName"),
@@ -369,47 +250,14 @@ export default function AiApiReviewPage() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  {COLS.slice(0, -1).map((col) => (
+                  {COLS.map((col) => (
                     <th key={col} className={styles.th}>{col}</th>
                   ))}
-                  <th className={styles.th}>{COLS[COLS.length - 1]}</th>
-                  <th className={`${styles.th} ${styles.bulkSelectionHeader}`}>
-                    <span>{t("AiApiReviewPage.bulkRejectColumn")}</span>
-                    {selectableRequests.length > 0 && (
-                      <div className={styles.bulkControls}>
-                        <label className={styles.selectAllControl}>
-                          <input
-                            type="checkbox"
-                            checked={allSelected}
-                            ref={(element) => {
-                              if (element) element.indeterminate = selectedCount > 0 && !allSelected;
-                            }}
-                            onChange={(event) => handleToggleAll(event.target.checked)}
-                            aria-label={t("AiApiReviewPage.selectAll")}
-                          />
-                          <span>{t("AiApiReviewPage.selectAll")}</span>
-                        </label>
-                        {selectedCount > 0 && (
-                          <button
-                            type="button"
-                            className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
-                            onClick={() => setBulkRejectOpen(true)}
-                          >
-                            <MIcon name="close" size={16} />
-                            {t("AiApiReviewPage.bulkReject", { count: selectedCount })}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={`${styles.tr} ${selectedIds.has(String(r.id)) ? styles.trSelected : ""}`}
-                  >
+                  <tr key={r.id} className={styles.tr}>
                     <td className={styles.td}>
                       <div className={styles.userCell}>
                         <span className={styles.userName}>{r.user_full_name || r.user_email}</span>
@@ -435,19 +283,6 @@ export default function AiApiReviewPage() {
                     <td className={styles.td}>
                       <ReviewActions item={r} onDone={() => load()} />
                     </td>
-                    <td className={`${styles.td} ${styles.bulkSelectionCell}`}>
-                      {r.status === "pending" && (
-                        <input
-                          className={styles.selectCheckbox}
-                          type="checkbox"
-                          checked={selectedIds.has(String(r.id))}
-                          onChange={(event) => handleToggleRequest(r.id, event.target.checked)}
-                          aria-label={t("AiApiReviewPage.selectRequest", {
-                            value: r.user_full_name || r.user_email || r.api_key_name,
-                          })}
-                        />
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -455,12 +290,6 @@ export default function AiApiReviewPage() {
           </div>
         )}
       </div>
-      <BulkRejectDialog
-        open={bulkRejectOpen}
-        onClose={() => setBulkRejectOpen(false)}
-        requestIds={[...selectedIds]}
-        onDone={handleBulkDone}
-      />
     </div>
   );
 }

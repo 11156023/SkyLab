@@ -73,6 +73,22 @@ Inside the backend container the project `.env` is not mounted, so run it there 
 
 Proxmox connections are **not** environment variables. They are entered in the setup wizard or on the "PVE Connections" page and stored encrypted; the legacy `PROXMOX_*` variables are ignored.
 
+System AI model request contracts live in `backend/config/llm-model-profiles.yaml`,
+which is included in the backend image. Its model keys must exactly match
+`VLLM_MODEL_NAME` and the upstream served model ID; add or rename a contract key
+when your deployment uses another ID. Unknown models fail before inference rather
+than falling back to a guessed model family. Restart the backend after changing
+the file (rebuild the image when the file is baked into the image).
+
+The YAML owns effective thinking for every System AI call, including adherence:
+GPT-OSS uses `reasoning_effort=low`, while Gemma uses
+`chat_template_kwargs.enable_thinking=false`. Legacy `enable_thinking` settings
+remain readable but do not override the model contract. Sampling, token budgets,
+timeouts and checker policy retain their existing backend settings; low reasoning
+does not guarantee that the unchanged 128-token checker budget is sufficient.
+The contract also declares supported JSON formats and native tool-choice modes;
+it does not change schemas, tool permissions, or the public LiteLLM relay.
+
 ## 3. Start the stack
 
 ```bash
@@ -124,7 +140,7 @@ SkyLab **does not issue certificates** (no certbot, no ACME). The administrator 
 
 | Item | What to do |
 |---|---|
-| DNS | If the domain is in a zone managed in Cloudflare and domain management has an API token and a default DNS target, saving the platform entry points the domain at the default DNS target once nginx is applied (not proxied through Cloudflare, so the real client IP is visible and uploads and long-lived connections are not subject to Cloudflare's limits); changing the domain or disabling the entry deletes that record. An address record of a different type with the same name (for example an AAAA record for the old entry point) blocks the save, so deal with it in Cloudflare first. Otherwise, point the platform domain at the gateway's public IP yourself. |
+| DNS | If the domain is in a zone managed in Cloudflare and domain management has an API token and a default DNS target, saving the platform entry points the domain at the default DNS target once nginx is applied; changing the domain or disabling the entry deletes that record. An address record of a different type with the same name (for example an AAAA record for the old entry point) blocks the save, so deal with it in Cloudflare first. Otherwise, point the platform domain at the gateway's public IP yourself. |
 | Trust the gateway | Set `SKYLAB_TRUSTED_PROXY=<source IP or CIDR the gateway connects from>` in the deployment host's `.env`, then `docker compose up -d nginx`. Without it every request appears to come from the gateway: IP-based rate limiting and audit logs are wrong, and the Grafana single-sign-on cookie is not marked `Secure`. |
 | URL-related settings | Change `FRONTEND_HOST` in `.env` to the new https URL; update the authorised origins of Google login and the domain list of Turnstile. |
 
@@ -133,6 +149,18 @@ SkyLab **does not issue certificates** (no certbot, no ACME). The administrator 
 - **Keep a direct path as a fallback.** The backend manages the gateway's nginx over SSH; if the gateway is down, the domain is unreachable and so is the page you would use to fix it. Keep a way to reach `http://<deployment host>:8082` directly from the internal network or a VPN.
 - **Rootless Docker** does not preserve source IPs: nginx inside the container sees Docker's forwarding address for every connection. In that case set `SKYLAB_TRUSTED_PROXY` to that address (shown as "source IP seen by the backend" on the platform-entry page) and firewall the deployment host's public port so that only the gateway can connect; otherwise anyone connecting directly could forge `X-Real-IP`.
 - The platform domain is reserved: even while the platform entry is disabled, VM owners cannot publish that domain on their own machines.
+
+**Proxying through Cloudflare (orange cloud)** is a checkbox on the platform entry, off by default:
+
+| | DNS only (default) | Proxied through Cloudflare |
+|---|---|---|
+| DNS record SkyLab creates | grey cloud | orange cloud |
+| Gateway's public IP | visible in DNS | hidden behind Cloudflare |
+| User IP seen by the platform | the connection source | taken from `CF-Connecting-IP`, trusted only from [Cloudflare's published ranges](https://www.cloudflare.com/ips/) |
+| Uploads | no Cloudflare limit | limited by the Cloudflare plan (100 MB per request on Free) |
+| Cloudflare SSL/TLS mode | not involved | **Full (strict)** when HTTPS is enabled on the gateway; Flexible makes the gateway's HTTP-to-HTTPS redirect loop |
+
+When the box is ticked, the gateway's nginx adds `set_real_ip_from` for each Cloudflare range plus `real_ip_header CF-Connecting-IP` to the platform server blocks, so `SKYLAB_TRUSTED_PROXY` still points at the gateway. The ranges are built into the backend (`CLOUDFLARE_IP_RANGES` in `nginx_gateway_service.py`); if Cloudflare adds a range, update the list, or users arriving from it are recorded with Cloudflare's address. If the domain is not in a zone managed in Cloudflare, the box only adds the nginx settings and you switch the record to the orange cloud yourself. The status card flags the DNS record when its proxy status no longer matches the checkbox.
 
 ## 6. LDAP / Active Directory over TLS
 

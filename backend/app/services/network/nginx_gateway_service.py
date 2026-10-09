@@ -15,7 +15,6 @@ nginx 同時扛兩件事，各自對應一份 SkyLab 完整持有的設定檔：
 
 from __future__ import annotations
 
-import logging
 import re
 import shlex
 import uuid
@@ -25,8 +24,6 @@ from typing import Any
 
 from app.core.i18n import t
 from app.exceptions import ProxmoxError
-
-logger = logging.getLogger(__name__)
 
 NGINX_CONF_PATH = "/etc/nginx/nginx.conf"
 NGINX_MANAGED_DIR = "/etc/nginx/skylab"
@@ -109,10 +106,50 @@ class PlatformEntry:
     upstream_host: str
     upstream_port: int
     enable_https: bool
+    # 網域經 Cloudflare 代理（橘色雲）：連線來源是 Cloudflare，使用者 IP 在 CF-Connecting-IP
+    cloudflare_proxy: bool = False
 
     @property
     def upstream(self) -> str:
         return f"{self.upstream_host}:{self.upstream_port}"
+
+
+# Cloudflare 代理的出口網段（https://www.cloudflare.com/ips/，2026-10 版）。只有從這些
+# 位址連進來的請求才採信 CF-Connecting-IP，直連 Gateway 的人沒辦法自己帶標頭冒充 IP。
+# Cloudflare 增加網段時要跟著更新，否則從新網段來的使用者會被記成 Cloudflare 的位址。
+CLOUDFLARE_IP_RANGES: tuple[str, ...] = (
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+    "2400:cb00::/32",
+    "2606:4700::/32",
+    "2803:f800::/32",
+    "2405:b500::/32",
+    "2405:8100::/32",
+    "2a06:98c0::/29",
+    "2c0f:f248::/32",
+)
+_CLOUDFLARE_REAL_IP_HEADER = "    real_ip_header CF-Connecting-IP;"
+
+
+def _cloudflare_real_ip_lines() -> list[str]:
+    return [
+        "    # 經 Cloudflare 代理：從 Cloudflare 來的連線改用 CF-Connecting-IP 當使用者 IP",
+        *(f"    set_real_ip_from {cidr};" for cidr in CLOUDFLARE_IP_RANGES),
+        _CLOUDFLARE_REAL_IP_HEADER,
+    ]
 
 
 @dataclass(frozen=True)
@@ -149,7 +186,10 @@ def build_platform_servers(
     - 上傳與串流回應都不在 Gateway 緩衝：大檔不落地、AI 對話逐字送出
     - ``X-Forwarded-For`` 一律覆寫成連線來源，主系統的 nginx 才能放心拿它還原
       使用者 IP（客戶端自帶的同名標頭不往後傳）
+    - 經 Cloudflare 代理時，每個 server 先用 realip 把連線來源換回使用者 IP，
+      上面那條規則送出去的才不會是 Cloudflare 的位址
     """
+    real_ip = _cloudflare_real_ip_lines() if entry.cloudflare_proxy else []
     proxy_server = [
         "    proxy_request_buffering off;",
         "    proxy_buffering off;",
@@ -182,6 +222,7 @@ def build_platform_servers(
         "server {",
         "    listen 80;",
         f"    server_name {entry.domain};",
+        *real_ip,
     ]
     if entry.enable_https:
         lines += [
@@ -191,6 +232,7 @@ def build_platform_servers(
             "    listen 443 ssl;",
             f"    server_name {entry.domain};",
             *_ssl_certificate_lines(certificate),
+            *real_ip,
             *proxy_server,
         ]
     else:
@@ -546,6 +588,7 @@ def parse_platform_entry(content: str) -> dict[str, Any] | None:
         "certificate": certificate,
         "certificate_key": certificate_key,
         "fallback": fallback,
+        "cloudflare_proxy": _CLOUDFLARE_REAL_IP_HEADER.strip() in body,
     }
 
 
@@ -673,6 +716,7 @@ def collect_runtime(client: Any) -> dict[str, Any]:
 
 
 __all__ = [
+    "CLOUDFLARE_IP_RANGES",
     "NGINX_CONF_PATH",
     "NGINX_FALLBACK_CERT_PATH",
     "NGINX_FALLBACK_KEY_PATH",

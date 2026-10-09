@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
+from pydantic import PrivateAttr
 from sqlmodel import Field, Relationship, SQLModel
 
 from .base import get_datetime_utc
@@ -20,9 +21,16 @@ LEGACY_API_KEY_PREFIX_LENGTH = 8
 
 
 class AIAPICredential(SQLModel, table=True):
+    # 認證時載入的舊限流 identity；僅供窗口遷移，不進 DB／公開 schema。
+    _rate_limit_legacy_ids: tuple[str, ...] = PrivateAttr(default=())
+
     __tablename__ = "ai_api_credentials"
     __table_args__ = (
         sa.UniqueConstraint("id", "user_id", name="uq_ai_api_credentials_id_user"),
+        sa.CheckConstraint(
+            "deleted_at IS NULL OR revoked_at IS NOT NULL",
+            name="ck_ai_api_credentials_deleted_revoked",
+        ),
         sa.Index("ix_ai_api_credentials_user_id", "user_id"),
         sa.Index("ix_ai_api_credentials_request_id", "request_id"),
         sa.Index("ix_ai_api_credentials_user_revoked", "user_id", "revoked_at"),
@@ -48,6 +56,9 @@ class AIAPICredential(SQLModel, table=True):
     )
     expires_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
     revoked_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
+    # 使用者刪除後保留主鍵與管理紀錄，讓已接受的呼叫仍能完成入帳；
+    # 一般使用者端點會排除這些列。
+    deleted_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),

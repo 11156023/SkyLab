@@ -257,7 +257,8 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
         {"choices": [{"message": {"role": "assistant", "content": "完成"}}]},
     ]
 
-    async def fake_completion(_payload, *, timeout, request_id=None):
+    async def fake_completion(_payload, *, profile, timeout, request_id=None):
+        assert profile.value in {"complex_agent", "adherence_check"}
         del timeout
         assert request_id
         return responses.pop(0)
@@ -276,6 +277,8 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
             VLLM_BASE_URL="http://vllm/v1",
             VLLM_MODEL_NAME="test-model",
             VLLM_TIMEOUT=30,
+            VLLM_CHAT_MAX_TOKENS=4096,
+            VLLM_ENABLE_THINKING=False,
         ),
     )
     monkeypatch.setattr(
@@ -283,6 +286,17 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
         "create_chat_completion",
         fake_completion,
     )
+
+    async def allow_adherence(*_args, **_kwargs):
+        from app.ai.role_contracts import (
+            AdherenceReason,
+            AdherenceResult,
+            AdherenceVerdict,
+        )
+
+        return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
+
+    monkeypatch.setattr(pve_chat_module, "check_adherence", allow_adherence)
     result = await pve_chat_module.chat(message="查 pve-a 儲存空間")
 
     assert result.reply == "完成"

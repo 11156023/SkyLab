@@ -26,7 +26,7 @@
   "template.updateCloneNotReady": "更新循環的克隆機尚未就緒，請等待克隆任務完成",
   "clone.templateNotReady": "範本尚未就緒，無法克隆（目前狀態：{status}）",
   "clone.batchRequiresManager": "只有教師與管理員可以批次克隆",
-  "clone.passwordChangeNotAllowed": "此範本不允許自訂登入密碼",
+  "clone.passwordChangeNotAllowed": "此範本的登入密碼無法由平台設定，開出來的機器會沿用範本內的帳號密碼",
   "clone.gpuRequired": "此範本需要 GPU，請選擇要配置的 GPU",
   "clone.lxcGpuUnsupported": "LXC 範本不支援 GPU 直通",
   "clone.gpuNodeMismatch": "所選 GPU 不在範本所在節點 {node} 上，請改選其他 GPU",
@@ -77,5 +77,6 @@
   "auth.turnstileUnavailable": "機器人驗證服務暫時無法連線，請稍後再試",
   "template.sourceVmNotRegistered": "VM {vmid} 未登記在平台，無法轉換為範本",
   "template.fieldCannotBeNull": "欄位 {field} 不可設為空值",
-  "template.updateCloneMismatch": "VMID {vmid} 已不是這次更新循環的暫存母機，請取消更新後重新開始"
+  "template.updateCloneMismatch": "VMID {vmid} 已不是這次更新循環的暫存母機，請取消更新後重新開始",
+  "login_password.windowsComplexity": "Windows 機器的登入密碼必須符合 Windows 複雜度：大寫字母、小寫字母、數字、符號至少包含三類，且不可包含帳號名稱 {username}"
 }

@@ -24,6 +24,44 @@
 
 /* 空狀態的「清除搜尋／清除篩選」 */
 .btnSecondary { @include btn-secondary; }
+.btnPrimary { @include btn-primary; }
+
+.exportForm {
+  display: grid;
+  gap: $spacing-16;
+}
+
+.exportField {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+}
+
+.exportField select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  font: inherit;
+}
+
+.exportField select:focus-visible {
+  border-color: var(--color-primary);
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
+  outline-offset: 1px;
+}
+
+.exportHint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.5;
+}
 
 /* 管理員且監控 stack 啟用時，開 Grafana「SkyLab AI」儀表板 */
 .linkBtn {

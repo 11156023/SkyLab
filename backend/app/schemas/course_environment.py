@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.core.i18n import t
+from app.domain.username_policy import LinuxUsername
 from app.schemas.resource import (
     SPEC_CORES_MAX,
     SPEC_CORES_MIN,
@@ -24,7 +25,7 @@ class EnvironmentNodeIn(BaseModel):
     source_type: Literal["template", "custom"] = "template"
     source_template_id: uuid.UUID | None = None
     custom_image_ref: str | None = Field(default=None, max_length=500)
-    custom_username: str | None = Field(default=None, max_length=32)
+    custom_username: LinuxUsername | None = Field(default=None, max_length=32)
     custom_unprivileged: bool = True
     name: str = Field(min_length=1, max_length=255)
     role: str = Field(min_length=1, max_length=120)

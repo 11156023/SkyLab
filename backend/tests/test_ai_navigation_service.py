@@ -17,8 +17,9 @@ def _user(role: UserRole, *, is_superuser: bool = False) -> SimpleNamespace:
 
 def _model_reply(payload_json: str):
     async def _fake_create_chat_completion(
-        _payload, *, timeout: float, request_id: str | None = None
+        _payload, *, profile, timeout: float, request_id: str | None = None
     ):
+        assert profile is navigation_service.VLLMRequestProfile.NAVIGATION_DECISION
         assert request_id
         return {"choices": [{"message": {"content": payload_json}}]}
 
@@ -29,7 +30,10 @@ def _use_model(monkeypatch: pytest.MonkeyPatch, payload_json: str) -> list[dict[
     """Point the service at a stub model and capture the payloads it sends."""
     seen: list[dict[str, Any]] = []
 
-    async def _capture(payload, *, timeout: float, request_id: str | None = None):
+    async def _capture(
+        payload, *, profile, timeout: float, request_id: str | None = None
+    ):
+        assert profile is navigation_service.VLLMRequestProfile.NAVIGATION_DECISION
         assert request_id
         seen.append(payload)
         return {"choices": [{"message": {"content": payload_json}}]}
@@ -47,7 +51,7 @@ def _use_model(monkeypatch: pytest.MonkeyPatch, payload_json: str) -> list[dict[
 
 
 @pytest.mark.asyncio
-async def test_resolve_navigation_uses_keyword_fallback_when_model_missing(
+async def test_resolve_navigation_uses_fixed_fallback_when_model_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(navigation_service.system_ai_env, "vllm_model_name", "")
@@ -57,9 +61,9 @@ async def test_resolve_navigation_uses_keyword_fallback_when_model_missing(
         _user(UserRole.student),
     )
 
-    assert result.primary is not None
-    assert result.primary.path == "/ai-api"
-    assert result.action in {"navigate", "suggest"}
+    assert result.primary is None
+    assert result.action == "clarify"
+    assert result.clarification_question == navigation_service.NAVIGATION_FALLBACK
 
 
 @pytest.mark.asyncio
@@ -68,10 +72,7 @@ async def test_resolve_navigation_filters_out_inaccessible_paths(
 ) -> None:
     _use_model(
         monkeypatch,
-        '{"intent":"看管理頁","confidence":0.91,'
-        '"action":"navigate","primary_path":"/audit",'
-        '"suggested_paths":["/my-resources"],'
-        '"reason":"看管理設定","clarification_question":""}',
+        '{"candidate_ids":["route:/audit","route:/my-resources"]}',
     )
 
     result = await navigation_service.resolve_navigation(
@@ -79,21 +80,20 @@ async def test_resolve_navigation_filters_out_inaccessible_paths(
         _user(UserRole.student),
     )
 
-    assert result.action == "suggest"
-    assert result.primary is not None
-    assert result.primary.path == "/my-resources"
-    assert all(not item.path == "/audit" for item in result.suggestions)
+    assert result.action == "clarify"
+    assert result.primary is None
+    assert result.clarification_question == navigation_service.NAVIGATION_FALLBACK
 
 
 # ------------------------------------------------------------- 流程導覽
 
 
 @pytest.mark.asyncio
-async def test_whole_task_falls_back_to_a_step_by_step_flow(
+async def test_model_candidate_expands_to_a_step_by_step_flow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """模型不在時，整件事的描述仍要走完整流程，而不是丟一個頁面。"""
-    monkeypatch.setattr(navigation_service.system_ai_env, "vllm_model_name", "")
+    """模型只能選 ID，步驟內容仍由後端 flow 定義。"""
+    _use_model(monkeypatch, '{"candidate_ids":["flow:request_machine"]}')
 
     result = await navigation_service.resolve_navigation(
         "我要申請一台機器",
@@ -116,18 +116,18 @@ async def test_whole_task_falls_back_to_a_step_by_step_flow(
 async def test_visiting_a_page_does_not_complete_previous_steps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(navigation_service.system_ai_env, "vllm_model_name", "")
+    _use_model(monkeypatch, '{"candidate_ids":["flow:publish_service"]}')
 
     result = await navigation_service.resolve_navigation(
         "我想把網站公開出去",
         _user(UserRole.student),
-        current_path="/reverse-proxy",
+        current_path="/firewall",
     )
 
     assert result.action == "guide"
     assert result.flow_id == "publish_service"
     assert result.active_step == 0
-    assert [step.status for step in result.steps] == ["current", "todo", "todo"]
+    assert [step.status for step in result.steps] == ["current", "todo"]
 
 
 @pytest.mark.asyncio
@@ -136,9 +136,7 @@ async def test_model_selected_flow_is_expanded_from_the_server_definition(
 ) -> None:
     _use_model(
         monkeypatch,
-        '{"intent":"開班","confidence":0.93,"action":"guide",'
-        '"flow_id":"open_class","primary_path":"","suggested_paths":[],'
-        '"reason":"要走完整開班流程","clarification_question":""}',
+        '{"candidate_ids":["flow:open_class"]}',
     )
 
     result = await navigation_service.resolve_navigation(
@@ -166,9 +164,7 @@ async def test_flow_the_user_may_not_use_is_not_returned(
     """學生問到教師流程時退回單頁判斷，不能拿到教師的步驟清單。"""
     _use_model(
         monkeypatch,
-        '{"intent":"開班","confidence":0.93,"action":"guide",'
-        '"flow_id":"open_class","primary_path":"/courses",'
-        '"suggested_paths":[],"reason":"","clarification_question":""}',
+        '{"candidate_ids":["flow:open_class","route:/courses"]}',
     )
 
     result = await navigation_service.resolve_navigation(
@@ -201,9 +197,7 @@ async def test_unknown_flow_id_does_not_invent_steps(
 ) -> None:
     _use_model(
         monkeypatch,
-        '{"intent":"做某件事","confidence":0.9,"action":"guide",'
-        '"flow_id":"totally_made_up","primary_path":"/my-resources",'
-        '"suggested_paths":[],"reason":"","clarification_question":""}',
+        '{"candidate_ids":["flow:totally_made_up","route:/my-resources"]}',
     )
 
     result = await navigation_service.resolve_navigation(
@@ -211,24 +205,21 @@ async def test_unknown_flow_id_does_not_invent_steps(
         _user(UserRole.student),
     )
 
-    assert result.action == "suggest"
+    assert result.action == "clarify"
     assert not result.steps
-    assert result.primary is not None
-    assert result.primary.path == "/my-resources"
+    assert result.primary is None
 
 
 # --------------------------------------------------------------- 記憶
 
 
 @pytest.mark.asyncio
-async def test_history_is_forwarded_to_the_model(
+async def test_only_user_history_is_forwarded_to_the_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     seen = _use_model(
         monkeypatch,
-        '{"intent":"下一步","confidence":0.9,"action":"navigate",'
-        '"primary_path":"/my-resources","suggested_paths":[],'
-        '"reason":"","clarification_question":""}',
+        '{"candidate_ids":["route:/my-resources"]}',
     )
 
     await navigation_service.resolve_navigation(
@@ -241,12 +232,7 @@ async def test_history_is_forwarded_to_the_model(
     )
 
     messages = seen[0]["messages"]
-    assert [message["role"] for message in messages] == [
-        "system",
-        "user",
-        "assistant",
-        "user",
-    ]
+    assert [message["role"] for message in messages] == ["system", "user", "user"]
     assert messages[1]["content"] == "我要申請一台機器"
     assert messages[-1]["content"] == "然後呢？"
 
@@ -257,9 +243,7 @@ async def test_blank_history_entries_are_dropped(
 ) -> None:
     seen = _use_model(
         monkeypatch,
-        '{"intent":"x","confidence":0.9,"action":"navigate",'
-        '"primary_path":"/my-resources","suggested_paths":[],'
-        '"reason":"","clarification_question":""}',
+        '{"candidate_ids":["route:/my-resources"]}',
     )
 
     await navigation_service.resolve_navigation(
@@ -277,9 +261,7 @@ async def test_current_path_is_given_to_the_model(
 ) -> None:
     seen = _use_model(
         monkeypatch,
-        '{"intent":"x","confidence":0.9,"action":"navigate",'
-        '"primary_path":"/my-resources","suggested_paths":[],'
-        '"reason":"","clarification_question":""}',
+        '{"candidate_ids":["route:/my-resources"]}',
     )
 
     await navigation_service.resolve_navigation(
@@ -293,16 +275,16 @@ async def test_current_path_is_given_to_the_model(
 
 @pytest.mark.asyncio
 async def test_multiple_flows_and_side_answer_are_preserved_and_validated(monkeypatch):
-    _use_model(monkeypatch, '{"action":"guide","flow_ids":["share_template","prepare_environment","open_class","open_class","fake","review_requests"],"answer":"可以重用已發布環境。"}')
+    _use_model(monkeypatch, '{"candidate_ids":["flow:share_template","flow:prepare_environment","flow:open_class","answer:teaching_relationship"]}')
     result = await navigation_service.resolve_navigation("先做範本、建立教學環境再開班，可以重用嗎？", _user(UserRole.teacher))
     assert [f.flow_id for f in result.flows] == ["share_template", "prepare_environment", "open_class"]
-    assert result.answer == "可以重用已發布環境。"
+    assert result.answer == navigation_service.TEACHING_RELATIONSHIP_BRIEF
     assert result.flow_id == "share_template"
 
 
 @pytest.mark.asyncio
 async def test_explanation_does_not_restart_active_flow(monkeypatch):
-    _use_model(monkeypatch, '{"action":"answer","flow_ids":["open_class"],"answer":"機器範本是教學環境的來源之一。"}')
+    _use_model(monkeypatch, '{"candidate_ids":["answer:teaching_relationship"]}')
     result = await navigation_service.resolve_navigation("機器範本跟班級的關係？", _user(UserRole.teacher), active_flow_id="open_class")
     assert result.action == "answer"
     assert not result.flows
@@ -310,18 +292,18 @@ async def test_explanation_does_not_restart_active_flow(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_offline_multiple_teaching_tasks_keep_requested_order(monkeypatch):
+async def test_offline_multiple_teaching_tasks_fail_closed(monkeypatch):
     monkeypatch.setattr(navigation_service.system_ai_env, "vllm_model_name", "")
     result = await navigation_service.resolve_navigation("先建立範本，再建立教學環境，最後開班", _user(UserRole.teacher))
-    assert [f.flow_id for f in result.flows] == ["share_template", "prepare_environment", "open_class"]
-    assert result.answer is None  # No unsolicited relationship essay before the steps.
+    assert result.action == "clarify"
+    assert result.clarification_question == navigation_service.NAVIGATION_FALLBACK
 
 
 @pytest.mark.asyncio
 async def test_screen_context_keeps_wizard_state_and_drops_unknown_fields(monkeypatch):
     from app.ai.contextual_help.schemas import ElementState
 
-    seen = _use_model(monkeypatch, '{"action":"answer","answer":"在第 3 步選教學環境。"}')
+    seen = _use_model(monkeypatch, '{"candidate_ids":[]}')
     await navigation_service.resolve_navigation("下一步", _user(UserRole.teacher),
         current_path="/class-setup?classId=42&step=3", surface_id="class-setup",
         screen_state={"classsetup.current_step": ElementState(value="3. 教學環境"), "secret": ElementState(value="never-send-this")},
@@ -329,7 +311,7 @@ async def test_screen_context_keeps_wizard_state_and_drops_unknown_fields(monkey
     prompt = seen[0]["messages"][0]["content"]
     assert "3. 教學環境" in prompt
     assert "never-send-this" not in prompt
-    assert '"pending_flow_ids": ["share_template"]' in prompt
+    assert '"pending_flow_ids":["share_template"]' in prompt
 
 
 def test_screen_context_rejects_wrong_page_and_sensitive_values():
@@ -474,25 +456,6 @@ def test_explicit_teaching_flow_now_ignores_whitespace_anywhere() -> None:
         assert navigation_service._explicit_teaching_flow(query) is not None
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("要先建範本還是先開班", True),
-        ("先還是", True),
-        ("還是先開班", False),          # 「還是」在「先」前面
-        ("先建範本", False),
-        ("先建範本\n還是開班", False),  # 跨行不算，跟原本 . 不吃換行一致
-        ("開班\n先建範本還是環境", True),
-        ("", False),
-    ],
-)
-def test_asks_which_comes_first_matches_the_old_pattern(text: str, expected: bool) -> None:
-    import re
-
-    assert navigation_service._asks_which_comes_first(text) is expected
-    assert bool(re.search(r"先.*還是", text)) is expected
-
-
 def test_phrase_matching_stays_fast_on_adversarial_input() -> None:
     """CodeQL py/polynomial-redos 指出的兩種輸入：開頭字後面接一大串重複字元。
 
@@ -505,5 +468,22 @@ def test_phrase_matching_stays_fast_on_adversarial_input() -> None:
     assert navigation_service._explicit_teaching_flow("開" + " " * 100_000 + "x") is None
     assert navigation_service._explicit_teaching_flow("請" * 100_000) is None
     assert navigation_service._explicit_teaching_flow("請" * 100_000 + "建立班級" + "！" * 100_000) == "open_class"
-    assert navigation_service._asks_which_comes_first("先" * 100_000) is False
     assert time.perf_counter() - started < 1.0
+
+
+def test_navigation_prompt_carries_when_to_use_hints() -> None:
+    """導覽要依使用者的處境挑頁面，不只比對關鍵字。"""
+    from app.ai.navigation.catalog import get_routes_for_user
+    from app.ai.navigation.prompt import build_navigation_system_prompt
+
+    user = _user(UserRole.student)
+    hints = navigation_service._route_hints(user)
+    assert "/my-resources" in hints
+    # 帶參數的畫面導不過去，不該出現在目錄提示裡
+    assert all(":" not in path for path in hints)
+    candidates, _ = navigation_service._navigation_candidates(
+        list(get_routes_for_user(user)), [], when_to_use=hints
+    )
+    prompt = build_navigation_system_prompt(candidates)
+    assert f'"when_to_use":"{hints["/my-resources"]}"' in prompt
+    assert "candidate_ids" in prompt

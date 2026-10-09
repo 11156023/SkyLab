@@ -24,6 +24,7 @@ from app.infrastructure.proxmox import (
     ProxmoxSettings,
     basic_blocking_task_status,
     build_ws_ssl_context,
+    client_generation,
     get_active_host,
     get_connection_id_for_node,
     get_proxmox_api,
@@ -1183,57 +1184,101 @@ def get_vm_templates() -> list[dict]:
     return [vm for vm in _pool_vms() if vm.get("template") == 1]
 
 
-_TEMPLATE_NODE_MAP_TTL_SECONDS = 60.0
-_template_node_map: dict[str, set[str]] = {}
-_template_node_map_lock = threading.Lock()
+# OS 範本（vztmpl）是管理員在 PVE 上手動放的，很少變動，快取久一點，
+# 避免每次開申請表單都逐節點打一輪 PVE。連線設定變更時隨 client 世代失效。
+_LXC_TEMPLATE_CACHE_TTL_SECONDS = 15 * 60.0
+_lxc_template_cache_lock = threading.Lock()
 
 
-class _TemplateNodeMapCacheMeta:
-    """快取最後刷新時間（集中在物件上，避免 global 重新指派）。"""
+class _LxcTemplateCache:
+    """節點 → 該節點 iso_storage 上的 vztmpl 項目（集中在物件上，避免 global 重新指派）。"""
 
-    refreshed_at: float = 0.0
+    def __init__(self) -> None:
+        self.contents: dict[str, list[dict[str, Any]]] = {}
+        self.refreshed_at = 0.0
+        self.generation = -1
 
 
-_template_node_map_meta = _TemplateNodeMapCacheMeta()
+_lxc_template_cache = _LxcTemplateCache()
 
 
-def get_lxc_template_node_map() -> dict[str, set[str]]:
-    """volid → 看得到該 vztmpl 的節點集合（跨連線彙總，TTL 快取）。
+def _copy_template_contents(
+    contents: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    return {node: [dict(item) for item in items] for node, items in contents.items()}
 
-    vztmpl 存在與否是節點層事實（各連線 iso_storage 未必共享到每個節點），
-    placement 與模板清單都以此判斷。個別節點查詢失敗視為該節點沒有模板。
+
+def _lxc_template_contents() -> dict[str, list[dict[str, Any]]]:
+    """節點 → vztmpl 項目（TTL 快取）。
+
+    個別節點查詢失敗時沿用該節點上一輪的結果並記 warning；從沒查到過的
+    節點才視為沒有範本。範本很少變動，暫時連不到不該讓節點從清單上消失
+    一整個快取週期。
     """
+    generation = client_generation()
     now = time.monotonic()
-    with _template_node_map_lock:
+    with _lxc_template_cache_lock:
         if (
-            now - _template_node_map_meta.refreshed_at
-        ) < _TEMPLATE_NODE_MAP_TTL_SECONDS:
-            return {volid: set(nodes) for volid, nodes in _template_node_map.items()}
+            _lxc_template_cache.generation == generation
+            and now - _lxc_template_cache.refreshed_at < _LXC_TEMPLATE_CACHE_TTL_SECONDS
+        ):
+            return _copy_template_contents(_lxc_template_cache.contents)
+        previous = (
+            _lxc_template_cache.contents
+            if _lxc_template_cache.generation == generation
+            else {}
+        )
 
-    mapping: dict[str, set[str]] = {}
+    contents: dict[str, list[dict[str, Any]]] = {}
     for node in get_available_nodes():
         node_name = str(node.get("node") or node.get("name") or "")
         if not node_name:
             continue
         try:
-            contents = get_lxc_templates(node_name)
+            items = get_lxc_templates(node_name)
         except Exception as exc:
-            logger.warning(
-                "Failed to list LXC templates on node %s: %s", node_name, exc
-            )
+            if node_name in previous:
+                logger.warning(
+                    "Failed to list LXC templates on node %s; keeping the "
+                    "previously listed templates: %s",
+                    node_name,
+                    exc,
+                )
+                contents[node_name] = previous[node_name]
+            else:
+                logger.warning(
+                    "Failed to list LXC templates on node %s: %s", node_name, exc
+                )
             continue
-        for item in contents:
-            if item.get("content") != "vztmpl":
-                continue
+        contents[node_name] = [
+            item for item in items if item.get("content") == "vztmpl"
+        ]
+
+    with _lxc_template_cache_lock:
+        _lxc_template_cache.contents = contents
+        _lxc_template_cache.refreshed_at = time.monotonic()
+        _lxc_template_cache.generation = generation
+    return _copy_template_contents(contents)
+
+
+def list_lxc_templates() -> list[dict[str, Any]]:
+    """所有節點看得到的 vztmpl 項目（同一 volid 可能出現多次，呼叫端自行去重）。"""
+    return [item for items in _lxc_template_contents().values() for item in items]
+
+
+def get_lxc_template_node_map() -> dict[str, set[str]]:
+    """volid → 看得到該 vztmpl 的節點集合（跨連線彙總，與 ``list_lxc_templates`` 共用快取）。
+
+    vztmpl 存在與否是節點層事實（各連線 iso_storage 未必共享到每個節點），
+    placement 與模板清單都以此判斷。
+    """
+    mapping: dict[str, set[str]] = {}
+    for node_name, items in _lxc_template_contents().items():
+        for item in items:
             volid = item.get("volid")
             if volid:
                 mapping.setdefault(str(volid), set()).add(node_name)
-
-    with _template_node_map_lock:
-        _template_node_map.clear()
-        _template_node_map.update(mapping)
-        _template_node_map_meta.refreshed_at = time.monotonic()
-    return {volid: set(nodes) for volid, nodes in mapping.items()}
+    return mapping
 
 
 # ---------------------------------------------------------------------------

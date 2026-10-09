@@ -240,13 +240,15 @@ def upsert_platform_dns_record(
     session: Session,
     zone_id: str,
     domain: str,
+    proxied: bool,
     managed_record_id: str = "",
 ) -> CloudflareDNSRecordPublic:
     """把主系統（平台入口）的網域指到預設 DNS 目標（Gateway）；同名同型別的紀錄就地更新。
 
-    不經 Cloudflare 代理（DNS only）：平台入口要讓 Gateway 看到使用者的真實
-    IP、上傳不受 Cloudflare 的大小限制、VNC／終端機長連線不被 100 秒逾時切斷，
-    HTTPS 也是 Gateway 上管理員自備的那張憑證。
+    ``proxied`` 由管理員在平台入口選：DNS only 時 Gateway 直接看到使用者 IP、
+    上傳不受 Cloudflare 的大小限制、長連線不經 Cloudflare；經代理（橘色雲）時
+    換得 Cloudflare 的防護與隱藏 Gateway IP，Gateway 改從 CF-Connecting-IP 還原
+    使用者 IP（見 ``nginx_gateway_service.build_platform_servers``）。
     同名但型別不同的位址紀錄（例如舊入口的 AAAA 或 CNAME）會讓一部分使用者
     繼續連到舊位址，所以直接擋下，請管理員自己決定怎麼處理。
     例外是 ``managed_record_id``（SkyLab 先前建的那筆）：預設 DNS 目標換了型別
@@ -256,7 +258,7 @@ def upsert_platform_dns_record(
         session=session,
         zone_id=zone_id,
         domain=domain,
-        proxied=False,
+        proxied=proxied,
         comment="SkyLab platform entry",
         reject_other_types=True,
         managed_record_id=managed_record_id,

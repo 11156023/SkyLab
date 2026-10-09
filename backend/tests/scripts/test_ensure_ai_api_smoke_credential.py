@@ -16,6 +16,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.api.deps import ai_api_key
 from app.api.deps.ai_api_key import get_current_user_by_ai_api_key
+from app.exceptions import NotFoundError
 from app.models import (
     AIAPICredential,
     AIAPIRequest,
@@ -122,7 +123,8 @@ def test_smoke_credential_is_temporary_and_replaced_for_each_deployment(
     assert first_key.startswith("ccai_")
     assert second_key != first_key
     assert len(requests) == 2
-    assert len(credentials) == 1
+    assert len(credentials) == 2
+    assert sum(item.revoked_at is None for item in credentials) == 1
     assert requests[0].rate_limit == SMOKE_KEY_RATE_LIMIT
     assert credentials[0].rate_limit == SMOKE_KEY_RATE_LIMIT
     assert all(request.duration == "1d" for request in requests)
@@ -162,11 +164,9 @@ def test_cleanup_invalidates_key_and_preserves_usage(
     cleanup_ai_api_smoke_credentials(isolated_session)
 
     stored = isolated_session.get(AIAPICredential, credential_id)
+    assert stored is not None and stored.revoked_at is not None
     if with_usage:
-        assert stored is not None and stored.revoked_at is not None
         assert isolated_session.get(AIAPIUsage, usage.id) is not None
-    else:
-        assert stored is None
     _assert_invalid_key(isolated_session, key)
 
     next_key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
@@ -201,9 +201,89 @@ def test_cleanup_finds_legacy_renamed_rotated_keys_of_inactive_owner(
 
     cleanup_ai_api_smoke_credentials(isolated_session)
 
-    assert isolated_session.get(AIAPICredential, rotated.id) is None
+    assert isolated_session.get(AIAPICredential, rotated.id).revoked_at is not None
     _assert_invalid_key(isolated_session, key)
     _assert_invalid_key(isolated_session, rotated.api_key)
+
+
+def test_deleted_credential_is_hidden_but_first_call_can_finish_accounting(
+    isolated_session: Session, owner: User
+) -> None:
+    key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    _, credential = get_current_user_by_ai_api_key(
+        session=isolated_session, authorization=f"Bearer {key}"
+    )
+    credential_id = credential.id
+    ai_gateway_service.delete_credential(
+        session=isolated_session, credential_id=credential_id, current_user=owner
+    )
+    stored = isolated_session.get(AIAPICredential, credential_id)
+    assert stored is not None
+    revoked_at = stored.revoked_at
+    assert revoked_at is not None
+    assert stored.deleted_at == revoked_at
+    assert stored.api_key_encrypted == ""
+    assert ai_gateway_service.list_credentials_by_user(
+        session=isolated_session, user_id=owner.id
+    ).data == []
+    with pytest.raises(NotFoundError):
+        ai_gateway_service.get_credential(
+            session=isolated_session,
+            credential_id=credential_id,
+            current_user=owner,
+        )
+    admin_record = next(
+        item
+        for item in ai_gateway_service.list_all_credentials(
+            session=isolated_session
+        ).data
+        if item.id == credential_id
+    )
+    assert admin_record.inactive_reason == "deleted"
+    assert admin_record.deleted_at == revoked_at
+    _assert_invalid_key(isolated_session, key)
+    ai_gateway_service.record_usage(
+        session=isolated_session,
+        user_id=owner.id,
+        credential_id=credential_id,
+        model_name="smoke-model",
+        request_type="chat_completion",
+        input_tokens=3,
+    )
+    usage = isolated_session.exec(select(AIAPIUsage)).one()
+    assert usage.credential_id == credential_id and usage.input_tokens == 3
+    ai_gateway_service.delete_credential(
+        session=isolated_session, credential_id=credential_id, current_user=owner
+    )
+    stored = isolated_session.get(AIAPICredential, credential_id)
+    assert stored.revoked_at == revoked_at
+    assert stored.deleted_at == revoked_at
+
+
+def test_auth_only_loads_legacy_ids_that_can_still_have_rate_limit_buckets(
+    isolated_session: Session, owner: User,
+) -> None:
+    key = ensure_ai_api_smoke_credential(isolated_session, owner=owner)
+    current = isolated_session.exec(select(AIAPICredential)).one()
+    current_id = current.id
+    recent = AIAPICredential(
+        user_id=owner.id, request_id=current.request_id, base_url=current.base_url,
+        api_key_encrypted="unused", api_key_prefix="recent-legacy", revoked_at=get_datetime_utc(),
+    )
+    recent_id = recent.id
+    isolated_session.add(recent)
+    for index in range(50):
+        isolated_session.add(AIAPICredential(
+            user_id=owner.id, request_id=current.request_id, base_url=current.base_url,
+            api_key_encrypted="unused", api_key_prefix=f"old-legacy-{index}",
+            revoked_at=get_datetime_utc() - timedelta(days=1),
+        ))
+    isolated_session.commit()
+    _, authenticated = get_current_user_by_ai_api_key(
+        session=isolated_session, authorization=f"Bearer {key}",
+    )
+    assert set(authenticated._rate_limit_legacy_ids) == {str(current_id), str(recent_id)}
+    assert "_rate_limit_legacy_ids" not in authenticated.model_dump()
 
 
 @pytest.mark.parametrize(
@@ -335,7 +415,8 @@ def test_cleanup_after_key_recovery_failure(
 
     cleanup_ai_api_smoke_credentials(isolated_session)
 
-    assert isolated_session.exec(select(AIAPICredential)).all() == []
+    stored = isolated_session.exec(select(AIAPICredential)).one()
+    assert stored.revoked_at is not None
 
 
 def test_creation_cli_writes_private_file_without_logging_secret(
@@ -418,7 +499,10 @@ def test_workflow_cleans_up_even_after_failed_or_cancelled_smoke() -> None:
     )
     smoke_run = steps[smoke_index]["run"]
     assert '--output "$container_smoke_dir/key"' in smoke_run
-    assert 'docker compose cp "backend:$container_smoke_dir/key" "$smoke_dir/key"' in smoke_run
+    assert (
+        'docker compose cp "backend:$container_smoke_dir/key" "$smoke_dir/key"'
+        in smoke_run
+    )
     assert "trap cleanup_smoke_files EXIT" in smoke_run
     assert smoke_run.index("set +x") < smoke_run.index('AI_API_SMOKE_KEY="')
     assert smoke_run.index("umask 077") < smoke_run.index("mktemp -d")

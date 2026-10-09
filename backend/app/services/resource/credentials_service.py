@@ -38,7 +38,11 @@ from app.services.resource._guest_helpers import (
 )
 from app.services.template import password_policy
 from app.services.user import audit_service
-from app.utils.login_password import generate_login_password
+from app.utils.login_password import (
+    generate_login_password,
+    hash_login_password,
+    windows_password_issues,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +88,11 @@ def _get_db_resource(session: Session, vmid: int):
 
 def _qemu_config(resource_info: dict[str, Any], vmid: int) -> dict[str, Any]:
     return read_config(resource_info, vmid, "qemu")
+
+
+def _is_windows_config(config: dict[str, Any]) -> bool:
+    """PVE 的 Windows ostype（wxp/w2k*/wvista/win7~11）皆以 w 開頭。"""
+    return str(config.get("ostype") or "").startswith("w")
 
 
 def _qemu_authorized_keys(config: dict[str, Any]) -> list[str]:
@@ -193,6 +202,13 @@ def _lxc_write_keys(resource_info: dict[str, Any], vmid: int, keys: list[str]) -
 # ─── 公開操作 ─────────────────────────────────────────────────────────────────
 
 
+def _has_custom_login_password(db_resource: Any) -> bool:
+    """密碼是使用者自訂的（平台只有雜湊）；系統代發的密碼優先，兩者不並存。"""
+    return not db_resource.login_password_encrypted and bool(
+        db_resource.login_password_hash or db_resource.login_password_pending_hash
+    )
+
+
 def get_credentials(
     *, session: Session, vmid: int, resource_info: dict[str, Any]
 ) -> CredentialsPublic:
@@ -208,8 +224,10 @@ def get_credentials(
             running=running,
             username=str(ciuser) if ciuser else None,
             has_login_password=bool(db_resource.login_password_encrypted),
+            has_custom_login_password=_has_custom_login_password(db_resource),
             supports_password_reset=True,
             supports_ssh_keys=True,
+            is_windows=_is_windows_config(config),
             requires_running=False,
             platform_public_key=db_resource.ssh_public_key,
             authorized_keys=_qemu_authorized_keys(config),
@@ -220,6 +238,7 @@ def get_credentials(
         running=running,
         username="root",
         has_login_password=bool(db_resource.login_password_encrypted),
+        has_custom_login_password=_has_custom_login_password(db_resource),
         supports_password_reset=True,
         supports_ssh_keys=True,
         requires_running=True,
@@ -228,9 +247,20 @@ def get_credentials(
     )
 
 
-def get_ssh_key(*, session: Session, vmid: int) -> SSHKeyResponse:
-    """資源的登入憑證（SSH 私鑰與初始密碼）；權限由呼叫端的 ResourceInfoDep 把關。
+def _login_username(resource_info: dict[str, Any], vmid: int) -> str | None:
+    """登入帳號：容器固定 root，VM 讀 cloud-init 的 ciuser（沒設回 None）。"""
+    if resource_type(resource_info) == "lxc":
+        return "root"
+    ciuser = _qemu_config(resource_info, vmid).get("ciuser")
+    return str(ciuser) if ciuser else None
 
+
+def get_ssh_key(
+    *, session: Session, vmid: int, resource_info: dict[str, Any]
+) -> SSHKeyResponse:
+    """資源的登入憑證（帳號、SSH 私鑰與系統代發的密碼）；權限由呼叫端的 ResourceInfoDep 把關。
+
+    使用者自訂的密碼不在回應裡 —— 平台只留雜湊，忘記只能重設。
     DB 沒有這台機器時沿用既有行為拋 ProxmoxError（不是 404）。
     """
     db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
@@ -243,20 +273,25 @@ def get_ssh_key(*, session: Session, vmid: int) -> SSHKeyResponse:
     login_password: str | None = None
     if db_resource.login_password_encrypted:
         login_password = decrypt_value(db_resource.login_password_encrypted)
+    custom = _has_custom_login_password(db_resource)
+    pending = login_password is None and bool(
+        db_resource.login_password_pending_encrypted
+        or db_resource.login_password_pending_hash
+    )
 
     source_template = (
         password_policy.find_template(session, pve_vmid=db_resource.template_id)
-        if login_password is None
+        if login_password is None and not custom and not pending
         else None
     )
     return SSHKeyResponse(
         vmid=vmid,
+        login_username=_login_username(resource_info, vmid),
         ssh_public_key=db_resource.ssh_public_key,
         ssh_private_key=private_key,
         login_password=login_password,
-        login_password_pending=bool(
-            login_password is None and db_resource.login_password_pending_encrypted
-        ),
+        login_password_custom=custom,
+        login_password_pending=pending,
         uses_template_credentials=password_policy.keeps_template_credentials(
             source_template
         ),
@@ -278,6 +313,14 @@ def reset_password(
     rebooting = False
     if rtype == "qemu":
         node = resource_info["node"]
+        # 系統產生的密碼本來就符合 Windows 複雜度；自訂的不合規時才查 ostype，
+        # 讀不到 config 直接失敗，不能當成 Linux 放行
+        if (
+            password
+            and windows_password_issues(password)
+            and _is_windows_config(_qemu_config(resource_info, vmid))
+        ):
+            password_policy.require_windows_password(password)
         try:
             proxmox_service.update_config(node, vmid, "qemu", cipassword=new_password)
         except Exception as exc:
@@ -308,7 +351,16 @@ def reset_password(
         applied = True
         message = t("resource_settings.passwordAppliedNow")
 
-    db_resource.login_password_encrypted = encrypt_value(new_password)
+    # 自訂的密碼只留雜湊（LXC 一鍵重置後補回去用），平台解不回來；
+    # 系統代發的才加密存起來給擁有者看。重設會取代任何還沒套用的舊密碼
+    if password:
+        db_resource.login_password_hash = hash_login_password(new_password)
+        db_resource.login_password_encrypted = None
+    else:
+        db_resource.login_password_encrypted = encrypt_value(new_password)
+        db_resource.login_password_hash = None
+    db_resource.login_password_pending_encrypted = None
+    db_resource.login_password_pending_hash = None
     session.add(db_resource)
     audit_service.log_action(
         session=session,

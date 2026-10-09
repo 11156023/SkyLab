@@ -217,7 +217,7 @@ class CourseTaskStudent(BaseModel):
 
 
 class CourseAITaskItemStudent(BaseModel):
-    """學生可見的 AI 評分要求；不包含命令、腳本與內部判分提示。"""
+    """學生可見的 AI導師檢查要求；不包含命令、腳本與內部判分提示。"""
 
     id: str
     title: str
@@ -227,7 +227,7 @@ class CourseAITaskItemStudent(BaseModel):
 
 
 class CourseAICheckItemStudent(BaseModel):
-    """AI Check 單一評分項目，僅包含學生需要的回饋。"""
+    """AI導師檢查單一評分項目，僅包含學生需要的回饋。"""
 
     item_id: str = ""
     title: str = ""
@@ -238,7 +238,7 @@ class CourseAICheckItemStudent(BaseModel):
 
 
 class CourseAICheckStudent(BaseModel):
-    """學生自己送出的 AI Check 狀態與安全化回饋。"""
+    """學生自己送出的 AI導師檢查狀態與安全化回饋。"""
 
     run_id: uuid.UUID
     status: Literal["pending", "running", "completed", "failed", "cancelled"]
@@ -253,7 +253,7 @@ class CourseAICheckStudent(BaseModel):
 
 
 class CourseAICompletionUpdate(BaseModel):
-    """學生只回報作業是否已完成，不會觸發 AI 檢查。
+    """學生只回報作業是否已完成，不會觸發 AI導師檢查。
 
     ``item_id`` 留空時代表一次切換整份每週任務；保留單項模式供舊版
     用戶端相容使用。
@@ -278,7 +278,7 @@ class CourseAISourceDocumentStudent(BaseModel):
 
 
 class CourseAIAssignmentStudent(BaseModel):
-    """老師核准後，公開給所屬學生的 AI 評分任務。"""
+    """老師核准後，公開給所屬學生的 AI導師檢查任務。"""
 
     id: uuid.UUID
     teaching_class_id: uuid.UUID

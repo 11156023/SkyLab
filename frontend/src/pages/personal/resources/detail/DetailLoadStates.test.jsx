@@ -87,7 +87,8 @@ describe("shared viewers", () => {
     expect(host.textContent).toContain("shared-vm");
     expect(service.getSshKey).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain("Error.generic");
-    expect(host.textContent).not.toContain("OverviewTab.noCredentials");
+    expect(host.textContent).not.toContain("OverviewTab.usernameLabel");
+    expect(host.textContent).not.toContain("OverviewTab.passwordLabel");
   });
 
   it("keeps fetching credentials for class members who own the machine", async () => {
@@ -96,6 +97,60 @@ describe("shared viewers", () => {
     service.getCurrentStats.mockResolvedValue({});
     await render(<OverviewTab vmid={120} />);
     expect(service.getSshKey).toHaveBeenCalledWith(120);
+  });
+});
+
+describe("login account and password on the overview tab", () => {
+  const owned = {
+    vmid: 121, name: "my-vm", type: "qemu", status: "running", node: "pve1",
+    access_role: "owner", can_manage: true, has_login_password: false,
+    ssh_public_key: null, public_urls: [],
+  };
+
+  async function renderOverview(sshKey) {
+    service.get.mockResolvedValue(owned);
+    service.getSshKey.mockResolvedValue(sshKey);
+    service.getCurrentStats.mockResolvedValue({});
+    await render(<OverviewTab vmid={121} />);
+  }
+
+  it("shows the login account even when no password or key is on record", async () => {
+    await renderOverview({ login_username: "student" });
+    expect(service.getSshKey).toHaveBeenCalledWith(121);
+    expect(host.textContent).toContain("OverviewTab.usernameLabel");
+    expect(host.textContent).toContain("student");
+  });
+
+  it("says the account comes from the template when cloud-init sets none", async () => {
+    await renderOverview({ login_username: null });
+    expect(host.textContent).toContain("OverviewTab.usernameFromTemplate");
+    expect(host.textContent).toContain("OverviewTab.usernameFromTemplateHint");
+  });
+
+  it("explains that a password the user chose cannot be shown", async () => {
+    await renderOverview({ login_username: "student", login_password: null, login_password_custom: true });
+    expect(host.textContent).toContain("OverviewTab.passwordCustom");
+    expect(host.textContent).toContain("OverviewTab.passwordCustomHint");
+    /* 沒有可顯示的值，就不該有「顯示」按鈕 */
+    expect(host.textContent).not.toContain("OverviewTab.show");
+  });
+
+  it("tells a pending custom password apart from an applied one", async () => {
+    await renderOverview({ login_password: null, login_password_custom: true, login_password_pending: true });
+    expect(host.textContent).toContain("OverviewTab.passwordCustomPending");
+    expect(host.textContent).toContain("OverviewTab.passwordCustomPendingHint");
+  });
+
+  it("keeps a platform-generated password behind the mask until asked", async () => {
+    await renderOverview({ login_username: "root", login_password: "Rand0mPass12" });
+    expect(host.textContent).toContain("OverviewTab.show");
+    expect(host.textContent).not.toContain("Rand0mPass12");
+  });
+
+  it("falls back to the reset hint when nothing is on record", async () => {
+    await renderOverview({ login_username: "student", login_password: null });
+    expect(host.textContent).toContain("OverviewTab.passwordNotRecorded");
+    expect(host.textContent).toContain("OverviewTab.passwordNotRecordedHint");
   });
 });
 

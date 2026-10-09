@@ -43,6 +43,7 @@ function ProfileTab() {
     avatar_url: user?.avatar_url ?? "",
   });
   const [uploading, setUploading] = useState(false);
+  const [emailPending, setEmailPending] = useState("");
 
   function set(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -86,19 +87,27 @@ function ProfileTab() {
     e.preventDefault();
     const payload = {};
     if (form.full_name !== (user?.full_name ?? "")) payload.full_name = form.full_name || null;
-    if (form.email !== (user?.email ?? "")) payload.email = form.email;
     if (form.avatar_url !== (user?.avatar_url ?? "")) payload.avatar_url = form.avatar_url || null;
+    const nextEmail = form.email.trim();
+    const emailChanged = nextEmail !== (user?.email ?? "");
 
-    if (Object.keys(payload).length === 0) {
+    if (Object.keys(payload).length === 0 && !emailChanged) {
       setEditMode(false);
       return;
     }
 
     setSaving(true);
     try {
-      const updated = await AccountService.update(payload);
-      updateUser(updated);
-      toast.success(t("ProfileTab.profileUpdated"));
+      if (Object.keys(payload).length) {
+        const updated = await AccountService.update(payload);
+        updateUser(updated);
+        toast.success(t("ProfileTab.profileUpdated"));
+      }
+      if (emailChanged) {
+        await AccountService.requestEmailChange(nextEmail);
+        setEmailPending(nextEmail);
+        toast.success(t("ProfileTab.emailVerificationSent"));
+      }
       setEditMode(false);
     } catch (err) {
       toast.error(err?.message ?? t("ProfileTab.updateFailed"));
@@ -141,7 +150,7 @@ function ProfileTab() {
 
         <label className={styles.field}>
           <span>{t("ProfileTab.emailLabel")}</span>
-          {editMode ? (
+          {editMode && user?.auth_source === "local" ? (
             <input
               type="email"
               value={form.email}
@@ -151,13 +160,16 @@ function ProfileTab() {
           ) : (
             <p className={styles.readValue}>{user?.email}</p>
           )}
+          {emailPending && <small className={styles.rowMeta}>{t("ProfileTab.emailPending", { email: emailPending })}</small>}
+          {user?.auth_source !== "local" && <small className={styles.rowMeta}>{t("ProfileTab.emailManaged")}</small>}
         </label>
 
         <label className={styles.field}>
           <span>{t("ProfileTab.avatarUrlLabel")}</span>
           {editMode ? (
             <input
-              type="url"
+              type="text"
+              pattern="https?://.+|/.*"
               value={form.avatar_url}
               onChange={(e) => set("avatar_url", e.target.value)}
               placeholder="https://example.com/avatar.png"

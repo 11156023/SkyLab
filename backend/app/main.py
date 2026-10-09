@@ -51,7 +51,10 @@ from app.infrastructure.ai import close_ai_clients
 from app.infrastructure.queue import close_arq_pool, init_arq_pool
 from app.infrastructure.redis import close_redis, init_redis
 from app.infrastructure.worker import init_background_runner, shutdown_background_runner
-from app.services.llm_gateway.relay_service import close_relay_runtime
+from app.services.llm_gateway.relay_service import (
+    close_relay_runtime,
+    start_relay_runtime,
+)
 from app.services.monitoring import system_health_service
 from app.services.network import wireguard_service
 from app.services.notification import web_push_service
@@ -131,6 +134,7 @@ async def _cancel_and_wait(task: asyncio.Task[None] | None) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    start_relay_runtime()
     configure_logging(
         level=settings.LOG_LEVEL,
         json_output=settings.LOG_JSON,

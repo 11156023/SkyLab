@@ -12,6 +12,7 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import AIAPIViewAllUser, SessionDep
 from app.core.i18n import t
@@ -24,11 +25,25 @@ from app.schemas.ai_monitoring import (
     AITemplateCallsResponse,
     AIUsersUsageResponse,
 )
-from app.services.llm_gateway import ai_gateway_service
+from app.services.llm_gateway import ai_gateway_service, ai_usage_export
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai-api/monitoring", tags=["ai-monitoring"])
+
+
+def _normalise_export_datetime(
+    value: datetime | None, parameter: str
+) -> datetime | None:
+    """Require an explicit timezone and normalise export boundaries to UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{parameter} must include a timezone offset",
+        )
+    return value.astimezone(timezone.utc)
 
 
 @router.get(
@@ -161,6 +176,93 @@ def list_users_usage(
 
 
 @router.get(
+    "/export",
+    summary="匯出 AI 使用量 CSV",
+)
+def export_ai_usage(
+    session: SessionDep,
+    _current_user: AIAPIViewAllUser,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    source: Literal["all", "api_key", "platform"] = Query(default="all"),
+    status: Literal["success", "error", "cancelled"] | None = Query(default=None),
+    model_name: str | None = Query(default=None, max_length=255),
+    call_type: str | None = Query(default=None, max_length=50),
+    user_id: uuid.UUID | None = None,
+) -> StreamingResponse:
+    """Stream every matching ``ai_api_usage`` row for an authorised admin.
+
+    The cutoff is fixed before the count and reused by the keyset stream, so a
+    request cannot include records written after the export was accepted.
+    """
+    start = _normalise_export_datetime(start_date, "start_date")
+    requested_end = _normalise_export_datetime(end_date, "end_date")
+    cutoff = datetime.now(timezone.utc)
+    effective_end = min(requested_end, cutoff) if requested_end else cutoff
+    if start is not None and start > effective_end:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date must be earlier than or equal to the effective end date",
+        )
+
+    row_count = ai_usage_export.count_rows(
+        session=session,
+        start_date=start,
+        end_date=effective_end,
+        source=source,
+        status=status,
+        model_name=model_name,
+        call_type=call_type,
+        user_id=user_id,
+    )
+    if row_count > ai_usage_export.EXPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"匯出結果超過 {ai_usage_export.EXPORT_MAX_ROWS:,} 筆，"
+                "請縮小日期區間"
+            ),
+        )
+
+    logger.info(
+        "AI usage CSV export accepted",
+        extra={
+            "actor_user_id": str(_current_user.id),
+            "start_date": start.isoformat() if start else None,
+            "end_date": effective_end.isoformat(),
+            "source": source,
+            "status": status,
+            "model_name": model_name,
+            "call_type": call_type,
+            "user_id": str(user_id) if user_id else None,
+            "row_count": row_count,
+        },
+    )
+    chunks = ai_usage_export.export_csv_chunks(
+        session=session,
+        start_date=start,
+        end_date=effective_end,
+        source=source,
+        status=status,
+        model_name=model_name,
+        call_type=call_type,
+        user_id=user_id,
+    )
+    filename = (
+        "skylab-ai-usage-"
+        f"{cutoff.strftime('%Y%m%d-%H%M%S')}.csv"
+    )
+    return StreamingResponse(
+        chunks,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get(
     "/litellm-runtime",
     response_model=AILiteLLMRuntimeSnapshot,
     summary="LiteLLM runtime snapshot",
@@ -195,10 +297,17 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
 
         # All runtime probes are independent.  Keep model discovery from
         # adding a second network round-trip after the health probes.
-        liveliness, readiness, deployments, models_response = await asyncio.gather(
+        (
+            liveliness,
+            readiness,
+            deployments,
+            model_info_response,
+            models_response,
+        ) = await asyncio.gather(
             _get_probe("/health/liveliness"),
             _get_probe("/health/readiness"),
             _get_probe("/health", authenticated=True),
+            _get_probe("/model/info", authenticated=True),
             _get_probe("/v1/models", authenticated=True),
         )
 
@@ -225,73 +334,84 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
     if not isinstance(unhealthy, list):
         unhealthy = []
 
-    def _model_name(value: object, *, include_id: bool = False) -> str | None:
-        if isinstance(value, str):
-            cleaned = value.strip()
-            if cleaned and not cleaned.startswith(("http://", "https://")):
-                return cleaned
+    def _clean_name(value: object) -> str | None:
+        if not isinstance(value, str):
             return None
-        if not isinstance(value, dict):
-            return None
-        keys: tuple[str, ...] = (
-            "id",
-            "model_name",
-            "model_id",
-            "public_model_name",
-            "model",
-        )
-        if not include_id:
-            keys = keys[1:]
-        for key in keys:
-            candidate = value.get(key)
-            resolved = _model_name(candidate)
-            if resolved:
-                return resolved
-        model_info = value.get("model_info")
-        if isinstance(model_info, dict):
-            for key in ("id", "model_name", "model_id"):
-                candidate = model_info.get(key)
-                resolved = _model_name(candidate)
-                if resolved:
-                    return resolved
-        litellm_params = value.get("litellm_params")
-        if isinstance(litellm_params, dict):
-            candidate = litellm_params.get("model")
-            if isinstance(candidate, str):
-                return _model_name(candidate)
+        cleaned = value.strip()
+        if cleaned and not cleaned.startswith(("http://", "https://")):
+            return cleaned
         return None
 
-    healthy_names: set[str] = set()
-    for entry in healthy:
-        name = _model_name(entry)
-        if name:
-            healthy_names.add(name)
-    unhealthy_names: set[str] = set()
-    for entry in unhealthy:
-        name = _model_name(entry)
-        if name:
-            unhealthy_names.add(name)
-    advertised_names: set[str] = set()
-    if models_response is not None and models_response.is_success:
+    def _data_entries(response: httpx.Response | None) -> list[dict[str, object]]:
+        if response is None or not response.is_success:
+            return []
         try:
-            models_payload = models_response.json()
+            payload = response.json()
         except ValueError:
-            models_payload = {}
-        model_entries = (
-            models_payload.get("data", []) if isinstance(models_payload, dict) else []
-        )
-        if not isinstance(model_entries, list):
-            model_entries = []
-        for entry in model_entries:
-            name = _model_name(entry, include_id=True)
-            if name:
-                advertised_names.add(name)
+            return []
+        entries = payload.get("data", []) if isinstance(payload, dict) else []
+        if not isinstance(entries, list):
+            return []
+        return [entry for entry in entries if isinstance(entry, dict)]
 
-    discovered_names = advertised_names | healthy_names | unhealthy_names
+    # `/health` entries only carry the upstream `model` and the deployment hash
+    # (`model_id`); `/model/info` maps that hash back to the public alias.
+    alias_by_deployment_id: dict[str, str] = {}
+    advertised_names: set[str] = set()
+    for entry in _data_entries(model_info_response):
+        alias = _clean_name(entry.get("model_name"))
+        if not alias:
+            continue
+        advertised_names.add(alias)
+        model_info = entry.get("model_info")
+        deployment_id = model_info.get("id") if isinstance(model_info, dict) else None
+        if isinstance(deployment_id, str) and deployment_id:
+            alias_by_deployment_id[deployment_id] = alias
+    if model_info_response is None or not model_info_response.is_success:
+        logger.error(
+            "LiteLLM /model/info probe failed (status=%s); deployment health "
+            "cannot be mapped to public model names",
+            getattr(model_info_response, "status_code", None),
+        )
+    for entry in _data_entries(models_response):
+        alias = _clean_name(entry.get("id"))
+        if alias:
+            advertised_names.add(alias)
+
+    def _deployment_alias(entry: object) -> str | None:
+        if not isinstance(entry, dict):
+            return None
+        deployment_id = entry.get("model_id")
+        if not deployment_id:
+            model_info = entry.get("model_info")
+            if isinstance(model_info, dict):
+                deployment_id = model_info.get("id")
+        if isinstance(deployment_id, str) and deployment_id:
+            alias = alias_by_deployment_id.get(deployment_id)
+            if alias:
+                return alias
+        # Never fall back to `model` or the deployment hash: those are the
+        # upstream name and an internal id, not something to display.
+        return _clean_name(entry.get("model_name"))
+
+    healthy_aliases = [_deployment_alias(entry) for entry in healthy]
+    unhealthy_aliases = [_deployment_alias(entry) for entry in unhealthy]
+    unmapped = healthy_aliases.count(None) + unhealthy_aliases.count(None)
+    if unmapped:
+        logger.warning(
+            "LiteLLM /health reported %s deployment(s) without a public model alias",
+            unmapped,
+        )
+
+    discovered_names = (
+        advertised_names
+        | {name for name in healthy_aliases if name}
+        | {name for name in unhealthy_aliases if name}
+    )
     models = []
     for name in sorted(discovered_names):
-        healthy_count = sum(1 for entry in healthy if _model_name(entry) == name)
-        unhealthy_count = sum(1 for entry in unhealthy if _model_name(entry) == name)
+        healthy_count = healthy_aliases.count(name)
+        unhealthy_count = unhealthy_aliases.count(name)
         if healthy_count and unhealthy_count:
             status = "degraded"
         elif healthy_count:

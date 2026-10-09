@@ -5,7 +5,7 @@ let surfacesPromise = null;
 
 export const AiContextualHelpService = {
   /**
-   * 目前身分看得到的畫面清單（id / path / title / has_fields）。
+   * 目前身分看得到的畫面清單（id / path / title / purpose / when_to_use / has_fields）。
    * 用來把 react-router 的路徑對應成 surface_id。
    */
   surfaces() {
@@ -24,14 +24,17 @@ export const AiContextualHelpService = {
   },
 
   /**
-   * 解釋目前畫面：欄位用途、被擋的原因，或這一頁在做什麼。
+   * 解釋目前畫面：欄位用途、被擋的原因、這一頁在做什麼、整頁導覽
+   * （page_guide），或某個彈出視窗怎麼填（dialog_help）。
    *
    * @param {{question: string, surfaceId: string, activeTarget?: string|null,
    *          contextVersion?: number, state?: Record<string, object>}} input
    *   state 只帶與問題相關的欄位，不是整張表單；後端還會依 surface 再過濾一次。
    * @returns {Promise<{intent: string, answer: string, target: string|null,
+   *   related: {title: string, path: string, reason: string}[],
    *   grounded_in: string[], context_level: number, context_version: number,
    *   used_model: boolean}>}
+   *   related 是「要做的事不在這頁時可以改去哪」，後端已依權限過濾。
    */
   explain({ question, surfaceId, activeTarget = null, contextVersion = 0, state = {} }) {
     return apiPost("/api/v1/ai/contextual-help/explain", {

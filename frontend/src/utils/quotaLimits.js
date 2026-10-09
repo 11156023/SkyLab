@@ -41,13 +41,11 @@ export function growthRange({ min, max, step = 1, current, remaining = null }) {
   return { min, max: capped, quotaCapped: true, exhausted: grow === 0 };
 }
 
-/** 把值夾進範圍內（只往下壓超出上限的部分，低於下限的交給原本的邏輯）。 */
-export function clampToRange(value, range) {
-  return Math.min(Number(value), range.max);
-}
-
-/** 鍵入的數字定稿：夾進 min～max，再以 min 為基準對齊步進（對齊後若超出上限仍壓回上限）。
- *  給數字框在 blur 時用——編輯中不夾值，否則全選重打會被下限插隊。 */
+/** 數值定稿：夾進 min～max，再以 min 為基準對齊步進（對齊後若超出上限仍壓回上限）。
+ *  給數字框在 blur 時用——編輯中不夾值，否則全選重打會被下限插隊。
+ *  表單把範本預設值／AI 建議值收進欄位時也走這裡：那些值不一定對齊步進
+ *  （範本記憶體 1000 MB 換成 GB 是 0.9765625），沒對齊的話數字框會被瀏覽器
+ *  原生的 step 檢查判定無效，整張表單按送出都沒反應。 */
 export function snapToRange(value, { min, max, step = 1 }) {
   const clamped = Math.min(max, Math.max(min, Number(value)));
   const aligned = min + Math.round((clamped - min) / step) * step;

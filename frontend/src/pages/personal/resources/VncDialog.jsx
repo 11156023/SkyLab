@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { VncScreen } from "react-vnc";
 import { AuthStorage } from "../../../services/auth";
@@ -9,15 +9,22 @@ import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import { useClassroomTakeover } from "../../../components/Classroom/ClassroomStudentLayer";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import { useToast } from "../../../hooks/useToast";
 import TakeoverOverlay from "../../../components/Classroom/TakeoverOverlay";
 import { wsBaseUrl } from "../../../utils/wsUrl";
 import styles from "./ConsoleDialog.module.scss";
 
 const CONSOLE_INFO_TIMEOUT_MS = 15000;
 
+/* 瀏覽器剪貼簿只在 https／localhost 且使用者允許時讀得到；讀不到就只留文字框讓使用者自己貼 */
+function canReadBrowserClipboard() {
+  return typeof navigator !== "undefined" && typeof navigator.clipboard?.readText === "function";
+}
+
 export default function VncDialog({ resource, onClose }) {
   const { user } = useAuth();
   const { t } = useTranslation("personal");
+  const toast = useToast();
   const vncRef      = useRef(null);
   const dialogRef   = useRef(null);
   const mountedRef  = useRef(true);
@@ -27,6 +34,12 @@ export default function VncDialog({ resource, onClose }) {
   const [vncTicket, setVncTicket]       = useState("");
   const [error, setError]               = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  /* 剪貼簿面板：文字經 RFB ClientCutText 送進機器剪貼簿（與 PVE noVNC 同一套做法），
+     機器內複製的文字也會回填到同一個文字框 */
+  const [clipboardOpen, setClipboardOpen]       = useState(false);
+  const [clipboardText, setClipboardText]       = useState("");
+  const [clipboardSent, setClipboardSent]       = useState(false);
+  const [clipboardEnabled, setClipboardEnabled] = useState(true);
   const underTakeover = useClassroomTakeover(resource?.vmid);
   // 接管覆蓋層的進出場
   const takeover = useDialogPresence(underTakeover);
@@ -53,6 +66,8 @@ export default function VncDialog({ resource, onClose }) {
     setWsUrl("");
     setVncTicket("");
     setError("");
+    setClipboardOpen(false);
+    setClipboardSent(false);
 
     const timeoutId = window.setTimeout(() => {
       if (cancelled) return;
@@ -75,6 +90,8 @@ export default function VncDialog({ resource, onClose }) {
         /* 慢的請求可能在逾時提示出現後才成功：拿到連線資訊就清掉提示，不讓紅字壓在可用的畫面上 */
         setError("");
         setVncTicket(ticket);
+        /* 後端由 VM 的 Display 設定（clipboard=vnc）判定；沒開時貼上會無聲無效，面板要提醒 */
+        setClipboardEnabled(data.clipboard !== false);
         setWsUrl(url);
       })
       .catch((e) => {
@@ -102,11 +119,29 @@ export default function VncDialog({ resource, onClose }) {
     closeTimerRef.current = window.setTimeout(onClose, 150);
   }
 
-  async function handleClipboard() {
+  /* noVNC 在連線時就把監聽器抓走，之後不會再更新，所以這個回呼必須是穩定的 */
+  const handleGuestClipboard = useCallback((event) => {
+    const text = event?.detail?.text;
+    if (typeof text !== "string") return;
+    setClipboardText(text);
+    setClipboardSent(false);
+  }, []);
+
+  async function readBrowserClipboard() {
     try {
       const text = await navigator.clipboard.readText();
-      vncRef.current?.clipboardPaste?.(text);
-    } catch {}
+      setClipboardText(text);
+      setClipboardSent(false);
+    } catch {
+      /* 權限被拒或非安全來源：明講讀不到，讓使用者直接貼進文字框 */
+      toast.error(t("VncDialog.clipboardReadFailed"));
+    }
+  }
+
+  function sendClipboard() {
+    if (!clipboardText) return;
+    vncRef.current?.clipboardPaste?.(clipboardText);
+    setClipboardSent(true);
   }
 
   function toggleFullscreen(containerEl) {
@@ -139,8 +174,16 @@ export default function VncDialog({ resource, onClose }) {
               <MIcon name="keyboard" size={16} />
               <span style={{ fontSize: 11 }}>Ctrl+Alt+Del</span>
             </button>
-            <button type="button" className={styles.headerBtn} title={t("VncDialog.pasteClipboard")} onClick={handleClipboard}>
+            <button
+              type="button"
+              data-testid="vnc-clipboard-toggle"
+              className={`${styles.headerBtn} ${clipboardOpen ? styles.headerBtnActive : ""}`}
+              title={t("VncDialog.clipboard")}
+              aria-expanded={clipboardOpen}
+              onClick={() => setClipboardOpen((open) => !open)}
+            >
               <MIcon name="content_paste" size={16} />
+              <span>{t("VncDialog.clipboard")}</span>
             </button>
           </>
         )}
@@ -167,6 +210,39 @@ export default function VncDialog({ resource, onClose }) {
       {wsUrl && (
         <div className={styles.vncWrap}>
           {takeover.open && <TakeoverOverlay closing={takeover.closing} />}
+          {connected && clipboardOpen && (
+            <div className={styles.clipboardPanel} role="region" aria-label={t("VncDialog.clipboard")}>
+              {!clipboardEnabled && (
+                <div className={styles.clipboardWarning}>
+                  <MIcon name="warning" size={16} />
+                  <span>{t("VncDialog.clipboardDisabled")}</span>
+                </div>
+              )}
+              <textarea
+                className={styles.clipboardTextarea}
+                value={clipboardText}
+                rows={5}
+                spellCheck={false}
+                placeholder={t("VncDialog.clipboardPlaceholder")}
+                onChange={(e) => { setClipboardText(e.target.value); setClipboardSent(false); }}
+              />
+              <div className={styles.clipboardActions}>
+                {canReadBrowserClipboard() && (
+                  <button type="button" data-testid="vnc-clipboard-read" className={styles.clipboardBtnSecondary} onClick={readBrowserClipboard}>
+                    <MIcon name="content_paste_go" size={16} />
+                    {t("VncDialog.clipboardReadBrowser")}
+                  </button>
+                )}
+                <button type="button" data-testid="vnc-clipboard-send" className={styles.clipboardBtnPrimary} disabled={!clipboardText} onClick={sendClipboard}>
+                  <MIcon name="send" size={16} />
+                  {t("VncDialog.clipboardSend")}
+                </button>
+              </div>
+              <p className={styles.clipboardHint}>
+                {clipboardSent ? t("VncDialog.clipboardSent") : t("VncDialog.clipboardHint")}
+              </p>
+            </div>
+          )}
           <VncScreen
             ref={vncRef}
             url={wsUrl}
@@ -184,6 +260,7 @@ export default function VncDialog({ resource, onClose }) {
               recordMachineUse(user?.id, resource.vmid);
             }}
             onDisconnect={() => mountedRef.current && setConnected(false)}
+            onClipboard={handleGuestClipboard}
             scaleViewport
             background="#1e1e1e"
           />

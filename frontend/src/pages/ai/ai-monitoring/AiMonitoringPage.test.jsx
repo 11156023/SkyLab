@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
   listProxyCalls: vi.fn(),
   listTemplateCalls: vi.fn(),
   listUsersUsage: vi.fn(),
+  exportCsv: vi.fn(),
   createGrafanaSession: vi.fn(),
+  confirm: vi.fn(),
+  downloadBlob: vi.fn(),
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -23,17 +26,20 @@ vi.mock("../../../services/aiMonitoring", () => ({
     listProxyCalls: mocks.listProxyCalls,
     listTemplateCalls: mocks.listTemplateCalls,
     listUsersUsage: mocks.listUsersUsage,
+    exportCsv: mocks.exportCsv,
   },
 }));
 vi.mock("../../../services/monitoring", () => ({
   MonitoringService: { createGrafanaSession: mocks.createGrafanaSession },
 }));
+vi.mock("../../../services/api", () => ({ downloadBlob: mocks.downloadBlob }));
 vi.mock("../../../i18n", () => ({ default: { language: "en" } }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
+vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: ({ children }) => <div>{children}</div> }));
@@ -85,6 +91,8 @@ beforeEach(() => {
   mocks.listProxyCalls.mockResolvedValue({ data: [], count: 0 });
   mocks.listTemplateCalls.mockResolvedValue({ data: [], count: 0 });
   mocks.listUsersUsage.mockResolvedValue({ data: [], count: 0 });
+  mocks.exportCsv.mockResolvedValue(new Blob());
+  mocks.confirm.mockResolvedValue(true);
   mocks.createGrafanaSession.mockResolvedValue({ enabled: false });
   host = document.createElement("div");
   document.body.append(host);
@@ -137,5 +145,85 @@ describe("AiMonitoringPage", () => {
 
     const modelsTab = [...host.querySelectorAll('[role="tab"]')].find((b) => b.textContent.includes("AiMonitoringPage.tabModels"));
     expect(modelsTab.getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("export dialog sends selected range, source and status and downloads the blob", async () => {
+    mocks.overview.mockResolvedValue(overviewWith(1));
+
+    await act(async () => { root.render(<AiMonitoringPage />); });
+    await flush();
+
+    const open = [...host.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiMonitoringPage.exportCsv"));
+    await act(async () => { open.click(); });
+    await flush();
+
+    const selects = [...document.body.querySelectorAll("select")];
+    expect(selects).toHaveLength(3);
+    await act(async () => {
+      selects[0].value = "30d";
+      selects[0].dispatchEvent(new Event("change", { bubbles: true }));
+      selects[1].value = "platform";
+      selects[1].dispatchEvent(new Event("change", { bubbles: true }));
+      selects[2].value = "error";
+      selects[2].dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const submit = [...document.body.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiMonitoringPage.exportConfirm"));
+    await act(async () => { submit.click(); });
+    await flush();
+
+    expect(mocks.exportCsv).toHaveBeenCalledTimes(1);
+    const params = mocks.exportCsv.mock.calls[0][0];
+    expect(params.source).toBe("platform");
+    expect(params.status).toBe("error");
+    expect(params.startDate).toMatch(/Z$/);
+    expect(params.endDate).toMatch(/Z$/);
+    expect(mocks.downloadBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.success).toHaveBeenCalledWith("AiMonitoringPage.exportSuccess");
+  });
+
+  test("all-history export requires confirmation and can be cancelled", async () => {
+    mocks.overview.mockResolvedValue(overviewWith(1));
+    mocks.confirm.mockResolvedValueOnce(false);
+
+    await act(async () => { root.render(<AiMonitoringPage />); });
+    await flush();
+    const open = [...host.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiMonitoringPage.exportCsv"));
+    await act(async () => { open.click(); });
+    await flush();
+    const range = document.body.querySelector("select");
+    await act(async () => {
+      range.value = "all";
+      range.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const submit = [...document.body.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiMonitoringPage.exportConfirm"));
+    await act(async () => { submit.click(); });
+    await flush();
+
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+    expect(mocks.exportCsv).not.toHaveBeenCalled();
+  });
+
+  test("export failure shows a status-specific toast and re-enables the action", async () => {
+    mocks.overview.mockResolvedValue(overviewWith(1));
+    mocks.exportCsv.mockRejectedValueOnce({ status: 413 });
+
+    await act(async () => { root.render(<AiMonitoringPage />); });
+    await flush();
+    const open = [...host.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiMonitoringPage.exportCsv"));
+    await act(async () => { open.click(); });
+    await flush();
+    const submit = [...document.body.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("AiMonitoringPage.exportConfirm"));
+    await act(async () => { submit.click(); });
+    await flush();
+
+    expect(mocks.toast.error).toHaveBeenCalledWith("AiMonitoringPage.exportTooMany");
+    expect(submit.disabled).toBe(false);
   });
 });

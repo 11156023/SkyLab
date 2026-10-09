@@ -36,6 +36,7 @@ from app.services.network.publish_target_policy import assert_publishable_vm_ip
 from app.services.proxmox import proxmox_service
 from app.services.resource import access as resource_access
 from app.services.resource import kind as resource_kind
+from app.services.resource import live_ip
 from app.utils.hostname import from_punycode_hostname
 
 logger = logging.getLogger(__name__)
@@ -44,8 +45,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_GATEWAY_X = 800.0
 _DEFAULT_GATEWAY_Y = 300.0
 
-# 拓撲圖同時對 PVE 發出的查詢數（proxmoxer 的 requests 連線池預設 10 條）
-_TOPOLOGY_PVE_WORKERS = 8
+# 拓撲圖同時對 PVE 發出的防火牆查詢數；即時 IP 另由 live_ip 的執行緒池查，
+# 兩邊加起來不超過 proxmoxer 的 requests 連線池（預設 10 條）
+_TOPOLOGY_PVE_WORKERS = 6
 
 # SkyLab 管理規則的 comment 前綴
 _CC_PREFIX = "SkyLab:"
@@ -1310,24 +1312,15 @@ def _pve_resources_for(vmids: list[int]) -> dict[int, dict]:
     return found
 
 
-def _probe_topology_vm(resource: dict) -> tuple[str | None, bool, list[dict]]:
-    """查一台 VM 的即時 IP、防火牆是否啟用與規則；失敗一律降級不拋。
+def _probe_topology_vm(resource: dict) -> tuple[bool, list[dict]]:
+    """查一台 VM 的防火牆是否啟用與規則；失敗一律降級不拋。
 
-    只碰 PVE、不碰 DB session，才能丟到執行緒池平行跑。
+    只碰 PVE、不碰 DB session，才能丟到執行緒池平行跑。即時 IP 不在這裡查：
+    guest agent 沒回應的機器一台要卡 3 秒，交給 live_ip 限時處理。
     """
     vmid = int(resource["vmid"])
     node = resource["node"]
     resource_type = resource["type"]
-
-    live_ip = None
-    # 關機的機器 guest agent／interfaces 一定查不到，省一次 PVE 呼叫
-    if resource.get("status") == "running":
-        try:
-            live_ip = proxmox_service.get_ip_address(node, vmid, resource_type)
-        except Exception as e:
-            logger.debug(
-                "拓撲圖 VMID=%s 即時 IP 查詢失敗（改查 DB 快取）: %s", vmid, e
-            )
 
     firewall_enabled = False
     try:
@@ -1338,13 +1331,13 @@ def _probe_topology_vm(resource: dict) -> tuple[str | None, bool, list[dict]]:
             "拓撲圖 VMID=%s 防火牆狀態查詢失敗（將顯示為 disabled）: %s", vmid, e
         )
 
-    return live_ip, firewall_enabled, get_vm_firewall_rules(node, vmid, resource_type)
+    return firewall_enabled, get_vm_firewall_rules(node, vmid, resource_type)
 
 
 def _probe_topology_vms(
     resources: list[dict],
-) -> dict[int, tuple[str | None, bool, list[dict]]]:
-    """平行查多台 VM 的即時狀態（每台 3 次 PVE 呼叫，串行時幾十台就會逾時）。"""
+) -> dict[int, tuple[bool, list[dict]]]:
+    """平行查多台 VM 的防火牆狀態（每台 2 次 PVE 呼叫，串行時幾十台就會逾時）。"""
     if not resources:
         return {}
     workers = min(_TOPOLOGY_PVE_WORKERS, len(resources))
@@ -1393,10 +1386,16 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     # /cluster/resources，機器一多光這步就要上百次 PVE 呼叫
     pve_resources = _pve_resources_for(target_vmids)
     present = [vmid for vmid in target_vmids if vmid in pve_resources]
-    probes = _probe_topology_vms([pve_resources[vmid] for vmid in present])
+    present_resources = [pve_resources[vmid] for vmid in present]
+    # 即時 IP 先送出去查，讀防火牆的同時在背景跑，期限內沒回的這次用快取
+    live_ip_batch = live_ip.start_live_ip_probes(
+        present_resources, proxmox_service.get_ip_address
+    )
+    probes = _probe_topology_vms(present_resources)
+    live_ips = live_ip_batch.collect()
     # 有即時 IP 就寫回快取（獨立短交易），否則回退 DB 快取或分配紀錄
     ips = resource_repo.sync_ip_cache_many(
-        session=session, live_ips={vmid: probes[vmid][0] for vmid in present}
+        session=session, live_ips={vmid: live_ips.get(vmid) for vmid in present}
     )
     rules_by_vmid: dict[int, list[dict]] = {}
 
@@ -1404,7 +1403,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
         resource = pve_resources.get(vmid)
         if resource is None:
             continue
-        _live_ip, firewall_enabled, rules_by_vmid[vmid] = probes[vmid]
+        firewall_enabled, rules_by_vmid[vmid] = probes[vmid]
 
         node_name = from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
         status = resource.get("status", "unknown")

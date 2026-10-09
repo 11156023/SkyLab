@@ -66,6 +66,8 @@
 
   "aiTemplateRecommendation.modelBindingMissing": "config/system-ai.json 缺少 AI 模型綁定設定",
   "aiTemplateRecommendation.upstreamError": "上游 AI 服務錯誤，請確認 vLLM 伺服器與模型設定（VLLM_BASE_URL / VLLM_MODEL_NAME）。",
+  "aiTemplateRecommendation.guardUnavailable": "AI 回答安全檢查暫時失敗，請稍後重試。",
+  "aiTemplateRecommendation.guardInsufficientContext": "目前資訊不足，無法安全確認 AI 回答；請補充目標或表單內容後再試。",
 
   "auditLogs.invalidUserIdFormat": "user_id 格式錯誤",
 

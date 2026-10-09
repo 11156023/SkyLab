@@ -66,6 +66,8 @@
 
   "aiTemplateRecommendation.modelBindingMissing": "AI model binding is missing in config/system-ai.json.",
   "aiTemplateRecommendation.upstreamError": "Upstream AI service error. Please check the vLLM server and model settings (VLLM_BASE_URL / VLLM_MODEL_NAME).",
+  "aiTemplateRecommendation.guardUnavailable": "The AI response safety check is temporarily unavailable. Please try again later.",
+  "aiTemplateRecommendation.guardInsufficientContext": "There is not enough information to verify the AI response safely. Add the goal or form details and try again.",
 
   "auditLogs.invalidUserIdFormat": "Invalid user_id format.",
 

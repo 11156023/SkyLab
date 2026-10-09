@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampToRange, growthRange, quotaRemaining, sliderRange, sliderTicks, snapToRange } from "./quotaLimits";
+import { growthRange, quotaRemaining, sliderRange, sliderTicks, snapToRange } from "./quotaLimits";
 
 const usage = (quota, used = {}) => ({
   used_cpu_cores: used.cores ?? 0,
@@ -86,14 +86,6 @@ describe("growthRange", () => {
   });
 });
 
-describe("clampToRange", () => {
-  it("超出上限的值往下壓，範圍內的值不動", () => {
-    const range = { min: 1, max: 3 };
-    expect(clampToRange(8, range)).toBe(3);
-    expect(clampToRange(2, range)).toBe(2);
-  });
-});
-
 describe("sliderTicks", () => {
   it("沒被配額壓縮時刻度跟原本一樣", () => {
     const ticks = sliderTicks([1, 2, 4, 6, 8], { min: 1, max: 8 });
@@ -133,5 +125,21 @@ describe("snapToRange", () => {
   it("上限沒對齊步進時，對齊後超過上限仍停在上限", () => {
     expect(snapToRange(10, { min: 1, max: 7.3, step: 2 })).toBe(7);
     expect(snapToRange(6.3, { min: 1, max: 6.3, step: 2 })).toBe(6.3);
+  });
+  it("範本預設記憶體不是 512 MB 的倍數時對齊到最近的步進，GB 數字框才不會出現小數", () => {
+    const memory = { min: 512, max: 32768, step: 512 };
+    expect(snapToRange(1000, memory)).toBe(1024);
+    expect(snapToRange(3000, memory)).toBe(3072);
+    expect(snapToRange(1000, memory) / 1024).toBe(1);
+    /* 配額把上限壓到 2560 時，3000 不是只壓回上限，而是落在範圍內最近的步進 */
+    expect(snapToRange(3000, { ...memory, max: 2560 })).toBe(2560);
+  });
+  it("帶入的磁碟低於範本下限時抬到下限（克隆只能放大），超過上限壓回上限", () => {
+    expect(snapToRange(20, { min: 32, max: 500, step: 1 })).toBe(32);
+    expect(snapToRange(20.5, { min: 20, max: 500, step: 1 })).toBe(21);
+    expect(snapToRange(600, { min: 20, max: 500, step: 1 })).toBe(500);
+  });
+  it("配額不足時上限等於下限，任何值都停在下限", () => {
+    expect(snapToRange(2048, { min: 512, max: 512, step: 512 })).toBe(512);
   });
 });

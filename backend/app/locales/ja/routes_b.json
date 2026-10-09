@@ -66,6 +66,8 @@
 
   "aiTemplateRecommendation.modelBindingMissing": "config/system-ai.json に AI モデルのバインディング設定がありません。",
   "aiTemplateRecommendation.upstreamError": "上流の AI サービスでエラーが発生しました。vLLM サーバーとモデル設定（VLLM_BASE_URL / VLLM_MODEL_NAME）をご確認ください。",
+  "aiTemplateRecommendation.guardUnavailable": "AI 応答の安全性チェックが一時的に利用できません。しばらくしてから再試行してください。",
+  "aiTemplateRecommendation.guardInsufficientContext": "AI 応答を安全に確認するための情報が不足しています。目的またはフォーム内容を追加して再試行してください。",
 
   "auditLogs.invalidUserIdFormat": "user_id の形式が無効です。",
 

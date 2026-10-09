@@ -105,9 +105,17 @@ class CredentialsPublic(BaseModel):
     username: str | None = Field(
         default=None, description="cloud-init 設定的使用者；None 代表沿用映像預設"
     )
-    has_login_password: bool = False
+    has_login_password: bool = Field(
+        default=False, description="平台保管著一組系統代發的密碼（總覽頁看得到）"
+    )
+    has_custom_login_password: bool = Field(
+        default=False, description="密碼是使用者自訂的：平台只有雜湊，無法顯示"
+    )
     supports_password_reset: bool = False
     supports_ssh_keys: bool = False
+    is_windows: bool = Field(
+        default=False, description="Windows VM：重設的自訂密碼要符合 Windows 複雜度"
+    )
     requires_running: bool = Field(
         default=False, description="LXC 要在執行中才能改密碼／金鑰（pct exec）"
     )

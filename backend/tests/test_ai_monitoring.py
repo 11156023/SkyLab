@@ -1,4 +1,6 @@
 import asyncio
+import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import httpx
@@ -55,6 +57,72 @@ def test_monitoring_summary_does_not_treat_empty_range_as_success() -> None:
     assert summary["total_calls"] == 0
     assert summary["failed_calls"] == 0
     assert summary["error_rate"] is None
+
+
+def test_ai_usage_export_requires_timezone() -> None:
+    with pytest.raises(HTTPException) as error:
+        ai_monitoring.export_ai_usage(
+            session=None,  # type: ignore[arg-type]
+            _current_user=SimpleNamespace(id=uuid.uuid4()),
+            start_date=datetime(2026, 9, 1),
+        )
+
+    assert error.value.status_code == 422
+    assert "timezone" in str(error.value.detail)
+
+
+def test_ai_usage_export_rejects_over_limit_before_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ai_monitoring.ai_usage_export,
+        "count_rows",
+        lambda **_kwargs: ai_monitoring.ai_usage_export.EXPORT_MAX_ROWS + 1,
+    )
+    monkeypatch.setattr(
+        ai_monitoring.ai_usage_export,
+        "export_csv_chunks",
+        lambda **_kwargs: pytest.fail("stream must not start when count exceeds limit"),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        ai_monitoring.export_ai_usage(
+            session=None,  # type: ignore[arg-type]
+            _current_user=SimpleNamespace(id=uuid.uuid4()),
+            start_date=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+
+    assert error.value.status_code == 413
+    assert "請縮小日期區間" in str(error.value.detail)
+
+
+def test_ai_usage_export_clamps_future_end_and_sets_download_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        ai_monitoring.ai_usage_export,
+        "count_rows",
+        lambda **kwargs: captured.update(kwargs) or 0,
+    )
+    monkeypatch.setattr(
+        ai_monitoring.ai_usage_export,
+        "export_csv_chunks",
+        lambda **_kwargs: iter(["\ufeffid\r\n"]),
+    )
+
+    response = ai_monitoring.export_ai_usage(
+        session=None,  # type: ignore[arg-type]
+        _current_user=SimpleNamespace(id=uuid.uuid4()),
+        end_date=datetime(2099, 1, 1, tzinfo=UTC),
+    )
+
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["content-type"] == "text/csv; charset=utf-8"
+    assert response.headers["content-disposition"].startswith(
+        'attachment; filename="skylab-ai-usage-'
+    )
+    assert captured["end_date"] <= datetime.now(UTC)
 
 
 def test_monitoring_overview_aggregates_total_tokens_per_model(
@@ -190,11 +258,30 @@ async def test_runtime_snapshot_normalizes_model_health_without_leaking_upstream
     responses = {
         "/health/liveliness": httpx.Response(200, json="I'm alive!"),
         "/health/readiness": httpx.Response(200, json={"status": "healthy"}),
+        # LiteLLM /health entries carry the upstream model and the deployment
+        # hash in `model_id`, never the public alias.
         "/health": httpx.Response(
             200,
             json={
-                "healthy_endpoints": [{"model_name": "public-model"}],
-                "unhealthy_endpoints": [{"model_info": {"id": "broken-model"}}],
+                "healthy_endpoints": [
+                    {"model": "hosted_vllm/served-a", "model_id": "a" * 64},
+                    {"model": "hosted_vllm/served-a", "model_id": "c" * 64},
+                ],
+                "unhealthy_endpoints": [
+                    {"model": "hosted_vllm/served-b", "model_id": "b" * 64},
+                    {"model": "hosted_vllm/secret-upstream", "model_id": "d" * 64},
+                ],
+            },
+        ),
+        "/model/info": httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"model_name": "public-model", "model_info": {"id": "a" * 64}},
+                    {"model_name": "public-model", "model_info": {"id": "c" * 64}},
+                    {"model_name": "broken-model", "model_info": {"id": "b" * 64}},
+                    {"model_name": "unknown-model", "model_info": {"id": "e" * 64}},
+                ]
             },
         ),
         "/v1/models": httpx.Response(
@@ -241,12 +328,17 @@ async def test_runtime_snapshot_normalizes_model_health_without_leaking_upstream
         "offline": 1,
         "unknown": 1,
     }
-    assert [(model["name"], model["status"]) for model in snapshot["models"]] == [
-        ("broken-model", "offline"),
-        ("public-model", "online"),
-        ("unknown-model", "unknown"),
+    assert [
+        (model["name"], model["status"], model["healthy_deployments"])
+        for model in snapshot["models"]
+    ] == [
+        ("broken-model", "offline", 0),
+        ("public-model", "online", 2),
+        ("unknown-model", "unknown", 0),
     ]
     assert "test-observation-key" not in str(snapshot)
+    assert "secret-upstream" not in str(snapshot)
+    assert "d" * 64 not in str(snapshot)
 
 
 @pytest.mark.asyncio
@@ -279,6 +371,7 @@ async def test_runtime_snapshot_runs_independent_probes_concurrently(
         "/health/liveliness": httpx.Response(200, json="I'm alive!"),
         "/health/readiness": httpx.Response(200, json={"status": "healthy"}),
         "/health": httpx.Response(200, json={"healthy_endpoints": []}),
+        "/model/info": httpx.Response(200, json={"data": []}),
         "/v1/models": httpx.Response(200, json={"data": []}),
     }
 
@@ -314,4 +407,4 @@ async def test_runtime_snapshot_runs_independent_probes_concurrently(
     snapshot = await ai_monitoring.get_litellm_runtime_snapshot(object())
 
     assert snapshot["gateway"]["status"] == "available"
-    assert max_active == 4
+    assert max_active == 5

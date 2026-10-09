@@ -19,7 +19,6 @@ from app.models import (
     TeachingClassMachineNode,
     TeachingClassStatus,
     TeachingClassStudent,
-    TeachingClassStudentMachine,
     TeachingClassWeek,
 )
 from tests.utils.class_machines import add_student_machine
