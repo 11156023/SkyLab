@@ -122,7 +122,7 @@ src/pages/personal/resources/
 
 危險操作的 hover 加深色用 `--color-danger-dark`（`#b91c1c`）。
 
-> **例外**：終端機式的內容面固定深色、不隨主題切換——VNC / xterm 畫面底（ConsoleDialog、Classroom 的 `#1e1e1e`）、任務 log 輸出區（Jobs `dialogOutput`），以及需要白底墊圖的透明 logo（`tplLogo` 的 `#fff`）、PDF 檢視器的 iframe 底（`StudentHomePage` 的 `#fff`——PDF 頁面本身即白底，跟著主題轉深會有黑框）、錯誤頁插圖的白底（`NotFoundPage` 的雲朵、`CrashState` 的應用程式視窗皆為 `#fff`，內部色塊也跟 `#fff` 混色——插圖在亮暗主題是同一張圖，亮色模式靠 drop-shadow 描輪廓）。
+> **例外**：終端機式的內容面固定深色、不隨主題切換——VNC / xterm 畫面底（ConsoleDialog、Classroom 的 `#1e1e1e`）、任務 log 輸出區（Jobs `dialogOutput`），以及需要白底墊圖的透明 logo（`tplLogo` 的 `#fff`）、PDF 檢視器的 iframe 底（`StudentHomePage` 的 `#fff`——PDF 頁面本身即白底，跟著主題轉深會有黑框）、錯誤頁插圖的白底（`NotFoundPage` 的雲朵、`CrashState` 的應用程式視窗、`ConnectionLostState` 的雲與視窗皆為 `#fff`，內部色塊也跟 `#fff` 混色——插圖在亮暗主題是同一張圖，亮色模式靠 drop-shadow 描輪廓）。
 >
 > **例外**：範例程式碼區塊（AI API 快速開始的程式碼範例、API 聊天回覆裡的程式碼區塊）固定深底、不隨主題切換，比照 VS Code 深色編輯器；色票統一用 `_themes.scss` 的 `--color-code-*`（bg／header／border／hover／text／muted），不要在頁面裡另寫一組深色。
 >
