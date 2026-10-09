@@ -19,6 +19,8 @@
   "FirewallPage.onlyExposed": "公開中のみ",
   "FirewallPage.hiddenCount": "ほか {{count}} 台を非表示",
   "FirewallPage.clearFilters": "絞り込みを解除",
+  "FirewallPage.focusNote": "「{{name}}」の接続のみ表示中",
+  "FirewallPage.clearFocus": "選択を解除",
   "FirewallPage.noMatch": "条件に合うマシンがありません",
   "FirewallPage.internetLines": "インターネット回線",
   "FirewallPage.hint": "ノードをドラッグして移動、ノード右側から別のノードへドラッグして接続を作成、ノードをクリックしてファイアウォールルールを表示、接続をクリックして公開内容を表示",

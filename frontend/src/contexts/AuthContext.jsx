@@ -375,6 +375,8 @@ export function AuthProvider({ children }) {
     user: session.user,
     loading: session.status === AuthSessionStatus.CHECKING,
     authStatus: session.status,
+    /* 上一次驗證連不上的錯誤；按「重新連線」重新驗證（checking）期間仍留著，畫面才知道這是在重試 */
+    authError: session.error,
     login,
     googleLogin,
     ldapLogin,
@@ -387,6 +389,7 @@ export function AuthProvider({ children }) {
   }), [
     session.user,
     session.status,
+    session.error,
     login,
     googleLogin,
     ldapLogin,
