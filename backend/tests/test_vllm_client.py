@@ -51,7 +51,7 @@ async def _close_clients_after_test():
 
 def _text_payload(*, max_tokens: int = 32) -> dict:
     return {
-        "model": "test",
+        "model": "gemma4-26b-a4b-it",
         "messages": [{"role": "user", "content": "hello"}],
         "max_tokens": max_tokens,
         "chat_template_kwargs": {"enable_thinking": False},
@@ -184,7 +184,7 @@ async def test_context_overflow_retries_same_prompt_with_output_room() -> None:
     client = VLLMClient("http://vllm/v1", "secret")
     client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     payload = {
-        "model": "test",
+        "model": "gemma4-26b-a4b-it",
         "messages": [{"role": "system", "content": "safety"}],
         "tools": [{"type": "function", "function": {"name": "get_nodes"}}],
         "tool_choice": "auto",
@@ -298,9 +298,11 @@ async def test_unavailable_or_invalid_token_count_preserves_original_error(
     "mutation",
     [
         {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
-        {"chat_template_kwargs": {}},
+        {"chat_template_kwargs": []},
         {"stream": True},
         {"max_tokens": 0},
+        {"model": "unknown-model"},
+        {"reasoning_effort": {"unexpected": "object"}},
     ],
 )
 async def test_profile_rejects_invalid_request_before_transport(
@@ -332,23 +334,28 @@ async def test_json_schema_profile_rejects_wrong_request_shape(
     assert not _FakeAsyncClient.instances
 
 
+@pytest.mark.parametrize(
+    ("profile", "limit"),
+    [
+        (VLLMRequestProfile.NAVIGATION_DECISION, 384),
+        (VLLMRequestProfile.BOUNDED_EXPLANATION, 384),
+        (VLLMRequestProfile.ADHERENCE_CHECK, 128),
+    ],
+)
 async def test_fixed_profile_rejects_excess_output_budget_before_transport(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, profile: VLLMRequestProfile, limit: int
 ) -> None:
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
     client = VLLMClient("http://vllm.example/v1", "secret")
-    payload = {
-        **_text_payload(max_tokens=385),
-        "response_format": {
+    payload = _text_payload(max_tokens=limit + 1)
+    if VLLMCapability.JSON_SCHEMA in required_capabilities(profile):
+        payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {"name": "navigation-v1", "schema": {"type": "object"}},
-        },
-    }
+        }
 
-    with pytest.raises(VLLMProfileError, match="at most 384"):
-        await client.create_chat_completion(
-            payload, profile=VLLMRequestProfile.NAVIGATION_DECISION
-        )
+    with pytest.raises(VLLMProfileError, match=f"at most {limit}"):
+        await client.create_chat_completion(payload, profile=profile)
 
     assert not _FakeAsyncClient.instances
 
@@ -377,11 +384,7 @@ async def test_structured_profile_rejects_non_json_response() -> None:
     "body",
     [
         {"choices": []},
-        {
-            "choices": [
-                {"finish_reason": "length", "message": {"content": "partial"}}
-            ]
-        },
+        {"choices": [{"finish_reason": "length", "message": {"content": "partial"}}]},
         {"choices": [{"message": {"content": ""}}]},
         {
             "choices": [
@@ -449,3 +452,162 @@ async def test_complex_agent_accepts_native_tool_call() -> None:
     assert required_capabilities(VLLMRequestProfile.COMPLEX_AGENT) == frozenset(
         {VLLMCapability.THINKING_CONTROL, VLLMCapability.NATIVE_TOOL_CALLS}
     )
+
+
+@pytest.mark.parametrize("profile", list(VLLMRequestProfile))
+@pytest.mark.parametrize(
+    ("model", "thinking"),
+    [
+        ("openai/gpt-oss-120b", "low"),
+        ("gemma4-26b-a4b-it", "none"),
+        ("gemma4-26b-a4b-it", "low"),
+    ],
+)
+async def test_all_request_profiles_use_model_contract_on_the_wire(
+    profile, model, thinking, monkeypatch
+):
+    from app.ai.role_contracts import adherence_result_schema
+    from app.infrastructure.ai import model_adapter
+    from app.infrastructure.ai.vllm_client import validate_request_profile
+
+    config = model_adapter.load_model_profiles().model_dump()
+    config["models"][model]["thinking"] = thinking
+    profiles = model_adapter.ModelProfiles.model_validate(config)
+    monkeypatch.setattr(model_adapter, "load_model_profiles", lambda: profiles)
+    seen = []
+    body = {
+        "choices": [{"finish_reason": "stop", "message": {"content": '{"ok":true}'}}]
+    }
+
+    def respond(request):
+        seen.append(request)
+        return httpx.Response(200, json=body)
+
+    payload = {
+        **_text_payload(max_tokens=128),
+        "model": model,
+        "reasoning_effort": "none",
+    }
+    caps = required_capabilities(profile)
+    if VLLMCapability.JSON_SCHEMA in caps:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "production-schema",
+                "schema": adherence_result_schema(),
+            },
+        }
+    elif VLLMCapability.JSON_OBJECT in caps:
+        payload["response_format"] = {"type": "json_object"}
+    elif VLLMCapability.NATIVE_TOOL_CALLS in caps:
+        payload.update(
+            tools=[{"type": "function", "function": {"name": "get_nodes"}}],
+            tool_choice="auto",
+        )
+    original = copy.deepcopy(payload)
+    validate_request_profile(payload, profile)
+    assert seen == []
+    client = VLLMClient("http://offline/v1", "", default_timeout=20.0)
+    client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    assert await client.create_chat_completion(payload, profile=profile) == body
+    wire = json.loads(seen[0].content)
+    if model == "openai/gpt-oss-120b":
+        assert wire["reasoning_effort"] == "low"
+        assert "chat_template_kwargs" not in wire
+    else:
+        assert "reasoning_effort" not in wire
+        assert wire["chat_template_kwargs"] == {"enable_thinking": thinking == "low"}
+    for key in original.keys() - {"reasoning_effort", "chat_template_kwargs"}:
+        assert wire[key] == original[key]
+    assert payload == original
+    assert seen[0].extensions["timeout"]["read"] == 20.0
+
+
+@pytest.mark.parametrize(
+    ("content", "finish", "status", "expected_reason"),
+    [
+        ('{"verdict":"allow","reason_code":"none"}', "stop", 200, "none"),
+        ('{"verdict":"block","reason_code":"role_drift"}', "stop", 200, "role_drift"),
+        ('{"verdict":"allow","reason_code":"role_drift"}', "stop", 200, "check_failed"),
+        ('{"verdict":"allow","reason_code":"none"}', "length", 200, "check_failed"),
+        (None, "stop", 200, "check_failed"),
+        ("not-json", "stop", 200, "check_failed"),
+        ("bad request", "stop", 400, "check_failed"),
+    ],
+)
+async def test_real_checker_uses_gpt_low_with_unchanged_schema_and_budget(
+    content, finish, status, expected_reason
+):
+    from app.ai.adherence_check import check_adherence
+    from app.ai.role_contracts import OutputMode, RoleContract, adherence_result_schema
+
+    seen = []
+
+    def respond(request):
+        seen.append(request)
+        return httpx.Response(
+            status,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": finish,
+                        "message": {"content": content, "reasoning": "reasoning only"},
+                    }
+                ]
+            },
+        )
+
+    client = VLLMClient("http://offline/v1", "", default_timeout=99.0)
+    client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    result = await check_adherence(
+        client,
+        RoleContract("pve_log", OutputMode.MODEL_FREE_TEXT, "v1", "fallback"),
+        "hello",
+        "hello",
+        {},
+        "real-checker-adapter",
+        model_name="openai/gpt-oss-120b",
+        phase="respond",
+    )
+    assert result.reason_code.value == expected_reason
+    assert result.allowed is (expected_reason == "none")
+    assert len(seen) == 1
+    wire = json.loads(seen[0].content)
+    assert wire["max_tokens"] == 128
+    assert wire["reasoning_effort"] == "low"
+    assert "chat_template_kwargs" not in wire
+    assert wire["response_format"]["json_schema"]["schema"] == adherence_result_schema()
+    assert seen[0].extensions["timeout"]["read"] == 20.0
+    if expected_reason == "check_failed":
+        assert result.completion_tokens == 128
+
+
+async def test_gpt_context_retry_tokenizes_with_the_same_effective_effort():
+    seen = []
+
+    def respond(request):
+        seen.append(request)
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 92000, "max_model_len": 96000})
+        if len(seen) == 1:
+            return httpx.Response(400, json=_context_error())
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    client = VLLMClient("http://offline/v1", "")
+    client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    payload = {**_text_payload(max_tokens=4096), "model": "openai/gpt-oss-120b"}
+    payload["chat_template_kwargs"]["reasoning_effort"] = "high"
+    original = copy.deepcopy(payload)
+    await client.create_chat_completion(
+        payload, profile=VLLMRequestProfile.CONFIGURED_TEXT
+    )
+    first, counted, retry = [json.loads(request.content) for request in seen]
+    assert first["reasoning_effort"] == "low"
+    assert "chat_template_kwargs" not in first
+    assert counted == {
+        "model": first["model"],
+        "messages": first["messages"],
+        "chat_template_kwargs": {"reasoning_effort": "low"},
+    }
+    assert retry == {**first, "max_tokens": 3968}
+    assert payload == original

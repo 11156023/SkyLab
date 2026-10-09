@@ -1,0 +1,20 @@
+# System AI request contracts, keyed by the exact VLLM_MODEL_NAME / served-model-name.
+# Thinking is model-wide and overrides legacy enable_thinking/reasoning_effort inputs.
+# Sampling, token budgets, timeouts and checker policy remain in the existing backend.
+# Restart the backend after editing this file; no automatic model-family fallback.
+schema_version: 1
+
+models:
+  "openai/gpt-oss-120b":
+    thinking: "low"
+    thinking_parameter: reasoning_effort
+    response_formats: ["json_object", "json_schema"]
+    native_tool_calls: true
+    tool_choice_modes: ["auto", "none", "required", "named"]
+
+  "gemma4-26b-a4b-it":
+    thinking: "none"
+    thinking_parameter: enable_thinking
+    response_formats: ["json_object", "json_schema"]
+    native_tool_calls: true
+    tool_choice_modes: ["auto", "none", "required", "named"]
