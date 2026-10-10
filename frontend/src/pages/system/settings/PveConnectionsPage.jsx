@@ -350,10 +350,13 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
           </>
         )}
       >
-        <button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")}>
-          <MIcon name="add" size={16} />
-          {t("SettingsPage.addConnection")}
-        </button>
+        {/* 有連線才在頁首放「新增連線」；沒有時下方空狀態那顆就是唯一入口，載入中也先不放 */}
+        {!loading && connections.length > 0 && (
+          <button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")}>
+            <MIcon name="add" size={16} />
+            {t("SettingsPage.addConnection")}
+          </button>
+        )}
       </PageHeader>
 
       <section className={styles.pageSection} aria-labelledby="pve-connections-title">
