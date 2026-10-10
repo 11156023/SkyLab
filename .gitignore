@@ -52,6 +52,10 @@ data/template_files/
 .codebase-memory/
 ai-template-recommendation/
 AI_PVE_template/
+# Local-only exploratory AI service tests; keep the files on the workstation,
+# but do not include them in repository tracking.
+/scripts/test_ai_services.py
+/backend/tests/scripts/test_ai_services.py
 # 監控 stack：Prometheus 抓 /metrics 用的 token（見 docs/monitoring.md）
 monitoring/prometheus/metrics_token
 # 由 scripts/prepare-ai-stack.sh 依 vllm-service/models.json 產生的 vLLM 抓取目標
