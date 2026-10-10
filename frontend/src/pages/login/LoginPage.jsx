@@ -502,25 +502,35 @@ function DeviceApprovalView({ status, error, user, onApprove, onDecline }) {
   if (status === "idle") {
     return (
       <>
+        <span className={styles.deviceHero} aria-hidden="true">
+          <MIcon name="devices" size={28} />
+        </span>
         <h1 className={styles.title}>{t("LoginPage.deviceConsentTitle")}</h1>
         <p className={styles.subtitle}>
           {t("LoginPage.deviceConsentSubtitle")}
         </p>
-        <div className={styles.deviceNotice}>
-          <MIcon name="devices" size={20} />
-          <span>
-            {t("LoginPage.deviceConsentIdentity", {
-              email: user?.email ?? t("LoginPage.deviceConsentCurrentAccount"),
-            })}
-          </span>
+        {/* 要授權的是哪個帳號：獨立一塊、email 單獨一行，一眼看得到 */}
+        <div className={styles.deviceAccount}>
+          <MIcon name="account_circle" size={32} />
+          <div className={styles.deviceAccountText}>
+            <span>{t("LoginPage.deviceConsentAccountLabel")}</span>
+            <strong>{user?.email ?? t("LoginPage.deviceConsentCurrentAccount")}</strong>
+          </div>
         </div>
-        <p className={styles.deviceHelp}>{t("LoginPage.deviceConsentHelp")}</p>
-        <button type="button" className={styles.btn} onClick={onApprove}>
-          {t("LoginPage.deviceConsentApprove")}
-        </button>
-        <button type="button" className={styles.backBtn} onClick={onDecline}>
-          {t("LoginPage.deviceConsentDecline")}
-        </button>
+        <p className={styles.deviceScope}>{t("LoginPage.deviceConsentScope")}</p>
+        {/* 防釣魚提醒：別人傳來的連結不要按授權 */}
+        <p className={styles.deviceWarning}>
+          <MIcon name="gpp_maybe" size={18} />
+          <span>{t("LoginPage.deviceConsentHelp")}</span>
+        </p>
+        <div className={styles.deviceActions}>
+          <button type="button" className={styles.btn} onClick={onApprove}>
+            {t("LoginPage.deviceConsentApprove")}
+          </button>
+          <button type="button" className={styles.btnSecondary} onClick={onDecline}>
+            {t("LoginPage.deviceConsentDecline")}
+          </button>
+        </div>
       </>
     );
   }
