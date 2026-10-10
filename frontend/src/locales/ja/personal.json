@@ -1215,6 +1215,7 @@
   "BootOptionsCard.onbootAutoNote": "ホストの再起動後、システムは起動していたマシンだけを自動的に立ち上げ直します。停止していたマシンは起動しません。これは自動で管理されるため、設定は不要です。",
   "BootOptionsCard.bootOrderLabel": "起動順序",
   "BootOptionsCard.bootOrderDefault": "現在は Proxmox の既定の順序を使用しています",
+  "BootOptionsCard.dragToReorder": "ドラッグして並べ替え",
   "BootOptionsCard.moveUp": "上へ",
   "BootOptionsCard.moveDown": "下へ",
   "BootOptionsCard.removeFromOrder": "順序から外す",

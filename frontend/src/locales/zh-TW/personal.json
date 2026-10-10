@@ -1215,6 +1215,7 @@
   "BootOptionsCard.onbootAutoNote": "主機重開後，系統只會自動把原本開著的機器重新開起來；關著的機器不會被啟動。這項由系統自動管理，不需要另外設定。",
   "BootOptionsCard.bootOrderLabel": "開機順序",
   "BootOptionsCard.bootOrderDefault": "目前使用 Proxmox 預設順序",
+  "BootOptionsCard.dragToReorder": "拖移調整順序",
   "BootOptionsCard.moveUp": "往上移",
   "BootOptionsCard.moveDown": "往下移",
   "BootOptionsCard.removeFromOrder": "從順序移除",

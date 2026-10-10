@@ -1219,6 +1219,7 @@
   "BootOptionsCard.onbootAutoNote": "After the host restarts, the system automatically brings back only the machines that were running; stopped machines stay off. This is managed automatically and needs no configuration.",
   "BootOptionsCard.bootOrderLabel": "Boot order",
   "BootOptionsCard.bootOrderDefault": "Using the Proxmox default order",
+  "BootOptionsCard.dragToReorder": "Drag to reorder",
   "BootOptionsCard.moveUp": "Move up",
   "BootOptionsCard.moveDown": "Move down",
   "BootOptionsCard.removeFromOrder": "Remove from order",

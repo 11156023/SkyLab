@@ -13,11 +13,12 @@ import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../../components/ErrorState/NotFoundState";
 import { useToast } from "../../../../../hooks/useToast";
+import useDragReorder from "../../../../../hooks/useDragReorder";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { ResourcesService } from "../../../../../services/resources";
 import { isNotFound } from "../../../../../services/api";
 
-const KIND_ICON = { disk: "hard_drive", cdrom: "album", network: "lan", other: "memory" };
+const KIND_ICON = { disk: "storage", cdrom: "album", network: "lan", other: "memory" };
 
 function formatSize(bytes) {
   if (!bytes) return "";
@@ -109,6 +110,17 @@ export default function BootOptionsCard({ vmid, canManage }) {
     setOrder((prev) => prev.filter((k) => k !== key));
   }
 
+  /* 按住整列拖到想要的位置（觸控按住左側把手）；上下移按鈕留給鍵盤 */
+  const drag = useDragReorder({
+    disabled: busy || !canManage,
+    onMove: (from, to) => setOrder((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    }),
+  });
+
   const orderChanged = options && JSON.stringify(order) !== JSON.stringify(options.boot_order ?? []);
   const deviceMap = Object.fromEntries((options?.boot_devices ?? []).map((d) => [d.key, d]));
   const unusedDevices = (options?.boot_devices ?? []).filter((d) => !order.includes(d.key));
@@ -139,11 +151,24 @@ export default function BootOptionsCard({ vmid, canManage }) {
                 {order.length === 0 ? (
                   <p className={styles.mutedText}>{t("BootOptionsCard.bootOrderDefault")}</p>
                 ) : (
-                  <div className={styles.orderList}>
+                  <div className={styles.orderList} ref={drag.listRef}>
                     {order.map((key, index) => {
                       const dev = deviceMap[key];
                       return (
-                        <div key={key} className={styles.orderItem}>
+                        <div
+                          key={key}
+                          {...drag.getItemProps(key)}
+                          className={`${styles.orderItem} ${canManage && !busy ? styles.orderItemDraggable : ""} ${drag.draggingKey === key ? styles.orderItemDragging : ""}`}
+                        >
+                          {canManage && (
+                            <span
+                              {...drag.getHandleProps()}
+                              className={`${styles.dragHandle} ${busy ? styles.dragHandleDisabled : ""}`}
+                              title={t("BootOptionsCard.dragToReorder")}
+                            >
+                              <MIcon name="drag_indicator" size={18} />
+                            </span>
+                          )}
                           <span className={styles.orderIndex}>{index + 1}</span>
                           <span className={styles.orderMain}>
                             <MIcon name={KIND_ICON[dev?.kind ?? "other"]} size={16} />
@@ -179,7 +204,9 @@ export default function BootOptionsCard({ vmid, canManage }) {
                   </div>
                 )}
                 {canManage && (
-                  <div className={styles.fieldRow}>
+                  /* 儲存鈕靠右、對齊上方清單的右緣，說明放在按鈕左邊 */
+                  <div className={`${styles.fieldRow} ${styles.fieldRowEnd}`}>
+                    <span className={styles.fieldHint}>{t("BootOptionsCard.bootOrderHint")}</span>
                     <button
                       type="button"
                       className={styles.btnPrimary}
@@ -188,7 +215,6 @@ export default function BootOptionsCard({ vmid, canManage }) {
                     >
                       {t("BootOptionsCard.saveBootOrder")}
                     </button>
-                    <span className={styles.fieldHint}>{t("BootOptionsCard.bootOrderHint")}</span>
                   </div>
                 )}
               </div>
