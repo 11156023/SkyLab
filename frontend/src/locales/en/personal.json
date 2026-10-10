@@ -1360,15 +1360,8 @@
   "ResourcesPage.guideDemoShutdown": "Shut down",
   "ResourceDetailPage.guideDemoTitle": "Simulated machine details",
   "ResourceDetailPage.guideDemoDesc": "Every tab and setting is a teaching example and writes no data.",
-  "ResourceDetailPage.guideDemoAccessTitle": "Connection methods",
-  "ResourceDetailPage.guideDemoLifecycle": "Lifecycle",
-  "ResourceDetailPage.guideDemoLifecycleDesc": "Expires 2026/12/31 · No automatic shutdown",
-  "ResourceDetailPage.guideDemoFirewall": "Firewall rules",
-  "ResourceDetailPage.guideDemoBoot": "Boot order",
-  "ResourceDetailPage.guideDemoCredentials": "Credentials and SSH keys",
-  "ResourceDetailPage.guideDemoCredentialsDesc": "Change the password or manage SSH public keys",
-  "ResourceDetailPage.guideDemoSharing": "Sharing and ownership",
-  "ResourceDetailPage.guideDemoSharingDesc": "Only you can currently access this machine",
+  "ResourceDetailPage.guideDemoSnapshotInitDesc": "Initial state",
+  "ResourceDetailPage.guideDemoSnapshotDesc": "Before package upgrade",
   "EnvironmentGroupRows.toggleAria": "Expand or collapse {{name}}",
   "EnvironmentGroupRows.groupPowerTitle": "Group power"
 }

@@ -80,7 +80,7 @@ function formatUptime(seconds, t) {
 
 /* ── sub-components ── */
 
-function InfoRow({ label, note, children }) {
+export function InfoRow({ label, note, children }) {
   return (
     <div className={ov.row}>
       <span className={ov.rowLabel}>{label}</span>
@@ -113,7 +113,7 @@ function passwordStateKeys(sshKey) {
   return { label: "OverviewTab.passwordNotRecorded", hint: "OverviewTab.passwordNotRecordedHint" };
 }
 
-function SecretRow({ label, value, secret = false, note, copyId, copied, onCopy, downloadName, t }) {
+export function SecretRow({ label, value, secret = false, note, copyId, copied, onCopy, downloadName, t }) {
   const [open, setOpen] = useState(false);
   const toggleLabel = secret
     ? (open ? t("OverviewTab.hide") : t("OverviewTab.show"))

@@ -34,7 +34,7 @@ function formatBytes(bytes) {
   return `${mb.toFixed(2)} MB`;
 }
 
-function StatCard({ title, pct, detail, icon }) {
+export function StatCard({ title, pct, detail, icon }) {
   const num = Number.parseFloat(pct);
   return (
     <div className={styles.statCard}>

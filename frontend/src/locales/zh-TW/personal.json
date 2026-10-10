@@ -1355,15 +1355,8 @@
   "ResourcesPage.guideDemoShutdown": "關機",
   "ResourceDetailPage.guideDemoTitle": "模擬機器詳情",
   "ResourceDetailPage.guideDemoDesc": "所有分頁與設定都是教學範例，不會寫入任何資料。",
-  "ResourceDetailPage.guideDemoAccessTitle": "連線方式",
-  "ResourceDetailPage.guideDemoLifecycle": "生命週期",
-  "ResourceDetailPage.guideDemoLifecycleDesc": "到期日 2026/12/31 · 未設定自動關機",
-  "ResourceDetailPage.guideDemoFirewall": "防火牆規則",
-  "ResourceDetailPage.guideDemoBoot": "開機順序",
-  "ResourceDetailPage.guideDemoCredentials": "登入憑證與 SSH 金鑰",
-  "ResourceDetailPage.guideDemoCredentialsDesc": "變更密碼、更新或新增 SSH 公鑰",
-  "ResourceDetailPage.guideDemoSharing": "共享與所有權",
-  "ResourceDetailPage.guideDemoSharingDesc": "目前只有你可以存取這台機器",
+  "ResourceDetailPage.guideDemoSnapshotInitDesc": "初始狀態",
+  "ResourceDetailPage.guideDemoSnapshotDesc": "升級套件前",
   "EnvironmentGroupRows.toggleAria": "展開或收合 {{name}}",
   "EnvironmentGroupRows.groupPowerTitle": "整組電源"
 }

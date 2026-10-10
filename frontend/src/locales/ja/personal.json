@@ -1355,15 +1355,8 @@
   "ResourcesPage.guideDemoShutdown": "シャットダウン",
   "ResourceDetailPage.guideDemoTitle": "マシン詳細のシミュレーション",
   "ResourceDetailPage.guideDemoDesc": "すべてのタブと設定は学習用で、データを書き込みません。",
-  "ResourceDetailPage.guideDemoAccessTitle": "接続方法",
-  "ResourceDetailPage.guideDemoLifecycle": "ライフサイクル",
-  "ResourceDetailPage.guideDemoLifecycleDesc": "期限 2026/12/31・自動停止なし",
-  "ResourceDetailPage.guideDemoFirewall": "ファイアウォールルール",
-  "ResourceDetailPage.guideDemoBoot": "起動順序",
-  "ResourceDetailPage.guideDemoCredentials": "認証情報と SSH キー",
-  "ResourceDetailPage.guideDemoCredentialsDesc": "パスワード変更と SSH 公開鍵の管理",
-  "ResourceDetailPage.guideDemoSharing": "共有と所有権",
-  "ResourceDetailPage.guideDemoSharingDesc": "現在このマシンにアクセスできるのはあなただけです",
+  "ResourceDetailPage.guideDemoSnapshotInitDesc": "初期状態",
+  "ResourceDetailPage.guideDemoSnapshotDesc": "パッケージ更新前",
   "EnvironmentGroupRows.toggleAria": "{{name}} を展開または折りたたむ",
   "EnvironmentGroupRows.groupPowerTitle": "グループ電源"
 }
