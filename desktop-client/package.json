@@ -23,6 +23,7 @@
     "test:tunnel": "node scripts/test-tunnel.mjs",
     "test:resources": "node scripts/test-resource-access.mjs",
     "test:resource-groups": "node scripts/test-resource-groups.mjs",
+    "test:http-error": "node scripts/test-http-error.mjs",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "build:electron": "npm run build && electron-builder -p never",
