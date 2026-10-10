@@ -558,11 +558,13 @@
   @include text-truncate;
 }
 
+/* 名稱與「受保護」徽章不斷行：窄寬度時表格本來就能橫向捲動，斷行反而把徽章拆成兩行 */
 .snapName {
   display: inline-flex;
   align-items: center;
   gap: $spacing-8;
   font-weight: $font-weight-500;
+  white-space: nowrap;
 }
 
 .userCell {

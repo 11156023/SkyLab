@@ -542,13 +542,12 @@ export default function SpecificationsTab({ vmid }) {
                 id="spec-reason"
                 ref={reasonRef}
                 rows={4}
-                placeholder={t("SpecificationsTab.reasonPlaceholder")}
+                placeholder={t("SpecificationsTab.reasonHint")}
                 aria-invalid={reasonInvalid}
                 value={reason}
                 disabled={formLocked}
                 onChange={(e) => { setReason(e.target.value); setReasonInvalid(false); }}
               />
-              <span className={styles.fieldHint}>{t("SpecificationsTab.reasonHint")}</span>
             </div>
           )}
 

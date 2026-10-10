@@ -980,7 +980,6 @@
   "SpecificationsTab.quotaExhausted": "剩餘配額已用完，只能維持或調小。",
   "SpecificationsTab.quotaExhaustedDisk": "剩餘配額已用完，硬碟無法再放大。",
   "SpecificationsTab.reasonLabel": "申請原因 *",
-  "SpecificationsTab.reasonPlaceholder": "請說明為什麼需要調整規格（課程需求、負載狀況等）",
   "SpecificationsTab.reasonHint": "至少 10 個字",
   "SpecificationsTab.processing": "處理中…",
   "SpecificationsTab.applyChanges": "套用變更",

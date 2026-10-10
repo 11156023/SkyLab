@@ -980,7 +980,6 @@
   "SpecificationsTab.quotaExhausted": "クォータを使い切っているため、現状維持か縮小のみ可能です。",
   "SpecificationsTab.quotaExhaustedDisk": "クォータを使い切っているため、ディスクは拡張できません。",
   "SpecificationsTab.reasonLabel": "申請理由 *",
-  "SpecificationsTab.reasonPlaceholder": "スペック調整が必要な理由を説明してください（授業の必要性、負荷状況など）",
   "SpecificationsTab.reasonHint": "10文字以上",
   "SpecificationsTab.processing": "処理中…",
   "SpecificationsTab.applyChanges": "変更を適用",

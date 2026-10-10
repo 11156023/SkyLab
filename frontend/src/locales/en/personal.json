@@ -980,7 +980,6 @@
   "SpecificationsTab.quotaExhausted": "Your quota is used up, so you can only keep or lower this value.",
   "SpecificationsTab.quotaExhaustedDisk": "Your quota is used up, so the disk cannot be enlarged.",
   "SpecificationsTab.reasonLabel": "Reason for Request *",
-  "SpecificationsTab.reasonPlaceholder": "Please explain why the spec change is needed (course requirements, load conditions, etc.)",
   "SpecificationsTab.reasonHint": "At least 10 characters",
   "SpecificationsTab.processing": "Processing…",
   "SpecificationsTab.applyChanges": "Apply Changes",
