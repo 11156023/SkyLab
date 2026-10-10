@@ -773,8 +773,9 @@ export default function ResourcesPage() {
         </div>
       </PageHeader>
 
-      {/* 我的配額用量（模組 E） */}
-      <QuotaUsageBar />
+      {/* 我的配額用量（模組 E）。清單整頁出錯時不放：兩支 API 通常一起失敗，下方已有錯誤畫面＋重試，
+          配額卡再寫一次同樣的錯誤只是重複；只有配額抓不到時，卡片照常顯示自己的佔位 */}
+      {!error && <QuotaUsageBar />}
 
       <div className={styles.content}>
         {error ? (
