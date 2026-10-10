@@ -19,11 +19,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
+from sqlmodel import Session
 
-from app.api.deps import AIAPIUserDep, SessionDep
+from app.api.ai_capacity import run_ai_db
+from app.api.deps import AIAPIUserDep
 from app.api.request_body import read_limited_body
+from app.core.db import engine
 from app.core.i18n import t
 from app.features.ai.config import settings as ai_api_settings
 from app.infrastructure.redis import (
@@ -254,21 +256,22 @@ async def list_models(request: Request, user_and_credential: AIAPIUserDep) -> Re
 )
 async def get_my_usage_stats(
     user_and_credential: AIAPIUserDep,
-    session: SessionDep,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
 ) -> dict[str, Any]:
     user, _credential = user_and_credential
-    start_date, end_date = ai_gateway_service.default_usage_window(
-        start_date, end_date
-    )
-    stats = await run_in_threadpool(
-        ai_gateway_service.get_user_usage_stats,
-        session=session,
-        user_id=user.id,
-        start_date=start_date,
-        end_date=end_date,
-    )
+    start_date, end_date = ai_gateway_service.default_usage_window(start_date, end_date)
+
+    def load_stats() -> dict[str, Any]:
+        with Session(engine) as session:
+            return ai_gateway_service.get_user_usage_stats(
+                session=session,
+                user_id=user.id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+    stats = await run_ai_db(load_stats)
     logger.info("AI API usage requested by user=%s", user.id)
     return stats
 

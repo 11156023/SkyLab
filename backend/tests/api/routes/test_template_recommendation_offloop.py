@@ -7,6 +7,7 @@ async 路由直接呼叫同步的 PVE／DB 程式碼，PVE 一慢整個 worker �
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from types import SimpleNamespace
 from typing import Any
@@ -19,6 +20,7 @@ from app.ai.role_contracts import AdherenceReason, AdherenceResult, AdherenceVer
 from app.ai.template_recommendation import options_service
 from app.ai.template_recommendation.schemas import ChatMessage, ChatRequest
 from app.api.routes import ai_template_recommendation as route
+from app.services.llm_gateway.usage_writer import get_usage_writer
 
 
 class _Stop(Exception):
@@ -116,6 +118,11 @@ async def test_recommend_runs_sync_work_off_the_event_loop(
     with pytest.raises(_Stop):
         await route.recommend(request=_request(), current_user=_USER, session=object())
 
+    writer = get_usage_writer()
+    with writer.lock:
+        pending = list(writer.pending)
+    if pending:
+        await asyncio.gather(*(asyncio.wrap_future(future) for future in pending))
     assert set(thread_log) == {"gpu", "resources", "record"}
     assert loop_thread not in thread_log.values()
 
@@ -128,8 +135,114 @@ async def test_chat_runs_sync_work_off_the_event_loop(
     with pytest.raises(_Stop):
         await route.chat(request=_request(), current_user=_USER, session=object())
 
+    writer = get_usage_writer()
+    with writer.lock:
+        pending = list(writer.pending)
+    if pending:
+        await asyncio.gather(*(asyncio.wrap_future(future) for future in pending))
     assert set(thread_log) == {"chat_gpu", "record"}
     assert loop_thread not in thread_log.values()
+
+
+async def test_resource_options_return_connection_before_model_wait(monkeypatch):
+    import uuid
+
+    from sqlalchemy import text
+    from sqlalchemy.pool import QueuePool
+    from sqlmodel import Session, create_engine
+
+    isolated = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=QueuePool,
+        pool_size=1,
+    )
+    monkeypatch.setattr(route, "engine", isolated)
+    monkeypatch.setattr(route, "settings", _SettingsWithModel(route.settings))
+    monkeypatch.setattr(
+        options_service, "resolve_recommend_gpu_options", lambda *_a, **_k: []
+    )
+    monkeypatch.setattr(
+        options_service, "get_application_templates_cached", lambda *_: []
+    )
+    monkeypatch.setattr(options_service, "get_live_device_nodes_cached", lambda: [])
+    monkeypatch.setattr(
+        options_service,
+        "build_resource_options_with_gpu",
+        lambda *_: {"vm_operating_systems": []},
+    )
+
+    def registered(*, session):
+        session.exec(text("SELECT 1"))
+        assert isolated.pool.checkedout() == 1
+        return set()
+
+    monkeypatch.setattr(
+        options_service.vm_template_repo, "registered_pve_vmids", registered
+    )
+
+    async def model(*_args, **_kwargs):
+        assert isolated.pool.checkedout() == 0
+        await asyncio.sleep(0)
+        assert isolated.pool.checkedout() == 0
+        raise _Stop
+
+    monkeypatch.setattr(route, "generate_ai_plan", model)
+    with Session(isolated) as session:
+        with pytest.raises(_Stop):
+            await route.recommend(
+                request=_request(),
+                current_user=SimpleNamespace(id=uuid.uuid4(), role="student"),
+                session=session,
+            )
+        assert not session.in_transaction()
+    isolated.dispose()
+
+
+async def test_chat_reservation_returns_connection_before_model_wait(monkeypatch):
+    from sqlalchemy import text
+    from sqlalchemy.pool import QueuePool
+    from sqlmodel import Session, create_engine
+
+    isolated = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=QueuePool
+    )
+    monkeypatch.setattr(route, "engine", isolated)
+    monkeypatch.setattr(route, "settings", _SettingsWithModel(route.settings))
+    monkeypatch.setattr(route, "record_ai_template_call", lambda **_: None)
+    monkeypatch.setattr(options_service, "get_base_gpu_options_cached", lambda: [])
+    monkeypatch.setattr(
+        options_service, "should_include_gpu_runtime_context", lambda _: True
+    )
+
+    def reservations(session, options, **_):
+        session.exec(text("SELECT 1"))
+        assert isolated.pool.checkedout() == 1
+        return options
+
+    monkeypatch.setattr(
+        options_service.gpu_service, "apply_reservation_window", reservations
+    )
+
+    async def model(*_, **__):
+        assert isolated.pool.checkedout() == 0
+        raise _Stop
+
+    monkeypatch.setattr(route.client, "create_chat_completion", model)
+    request = ChatRequest(
+        messages=[ChatMessage(role="user", content="需要 GPU")],
+        form_context={
+            "start_at": "2026-10-10T01:00:00Z",
+            "end_at": "2026-10-10T02:00:00Z",
+        },
+    )
+    try:
+        with Session(isolated) as session:
+            with pytest.raises(_Stop):
+                await route.chat(request=request, current_user=_USER, session=session)
+            assert not session.in_transaction()
+    finally:
+        isolated.dispose()
 
 
 def test_application_template_failure_is_cached_briefly(

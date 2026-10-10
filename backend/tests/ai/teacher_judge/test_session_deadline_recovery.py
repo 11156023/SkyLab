@@ -1,9 +1,11 @@
 """Teacher-facing request deadlines and durable proposal recovery."""
 
 import asyncio
+import threading
 import uuid
 from types import SimpleNamespace
 
+import anyio
 import pytest
 from fastapi import HTTPException
 from sqlmodel import select
@@ -340,3 +342,133 @@ async def test_revision_changed_during_ai_clears_processing_without_saving_propo
     rows = db.exec(select(TeacherJudgeSessionMessage)).all()
     assert len(rows) == 1
     assert rows[0].metadata_json["processing"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["admission", "success"])
+async def test_cancel_during_commit_recovers_only_pending_admission(
+    context, monkeypatch, phase
+):
+    db, *_ = context
+    entered, release = threading.Event(), threading.Event()
+    original_commit = db.commit
+    calls = 0
+    gated = False
+
+    def commit():
+        nonlocal calls, gated
+        calls += 1
+        saving_answer = any(
+            isinstance(row, TeacherJudgeSessionMessage)
+            and row.role == TeacherJudgeMessageRole.assistant
+            for row in db.new
+        )
+        original_commit()
+        if not gated and (
+            (phase == "admission" and calls == 1)
+            or (phase == "success" and saving_answer)
+        ):
+            gated = True
+            entered.set()
+            assert release.wait(2)
+
+    async def chat(*args, **kwargs):
+        return "completed", None, {}
+
+    monkeypatch.setattr(db, "commit", commit)
+    monkeypatch.setattr(routes, "chat_with_rubric", chat)
+    task = asyncio.create_task(send(context))
+    try:
+        async with asyncio.timeout(1):
+            while not entered.is_set():
+                await asyncio.sleep(0.001)
+        task.cancel()
+        await asyncio.sleep(0.01)
+        assert not task.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    rows = db.exec(select(TeacherJudgeSessionMessage)).all()
+    assert len(rows) == 2
+    assert (
+        next(
+            row for row in rows if row.role == TeacherJudgeMessageRole.user
+        ).metadata_json["processing"]
+        is False
+    )
+    answer = next(row for row in rows if row.role == TeacherJudgeMessageRole.assistant)
+    if phase == "success":
+        assert answer.content == "completed"
+    assert (await send(context)).assistant_message.content == "completed"
+
+
+@pytest.mark.asyncio
+async def test_persist_db_error_rolls_back_and_clears_pending_guard(
+    context, monkeypatch
+):
+    db, *_ = context
+    original_refresh = db.refresh
+    item_refreshes = 0
+
+    def refresh(row, *args, **kwargs):
+        nonlocal item_refreshes
+        if isinstance(row, TeacherJudgeSession):
+            item_refreshes += 1
+            if item_refreshes == 2:
+                raise RuntimeError("persist read failed")
+        return original_refresh(row, *args, **kwargs)
+
+    async def chat(*args, **kwargs):
+        return "completed", None, {}
+
+    monkeypatch.setattr(db, "refresh", refresh)
+    monkeypatch.setattr(routes, "chat_with_rubric", chat)
+    with pytest.raises(RuntimeError, match="persist read failed"):
+        await send(context)
+    rows = db.exec(select(TeacherJudgeSessionMessage)).all()
+    assert len(rows) == 2
+    assert (
+        next(
+            row for row in rows if row.role == TeacherJudgeMessageRole.user
+        ).metadata_json["processing"]
+        is False
+    )
+    assert (await send(context)).assistant_message.content == "completed"
+
+
+@pytest.mark.asyncio
+async def test_failed_admission_does_not_commit_partial_message_or_failure(
+    context, monkeypatch
+):
+    db, *_ = context
+
+    def commit():
+        raise RuntimeError("admission failed")
+
+    monkeypatch.setattr(db, "commit", commit)
+    with pytest.raises(RuntimeError, match="admission failed"):
+        await send(context)
+    assert not db.exec(select(TeacherJudgeSessionMessage)).all()
+
+
+@pytest.mark.asyncio
+async def test_level_cancellation_recovers_admitted_message(context, monkeypatch):
+    async def chat(*args, **kwargs):
+        scope.cancel()
+        await asyncio.sleep(1)
+        return "unexpected", None, {}
+
+    monkeypatch.setattr(routes, "chat_with_rubric", chat)
+    with anyio.CancelScope() as scope:
+        await send(context)
+    assert scope.cancelled_caught
+    db, *_ = context
+    rows = db.exec(select(TeacherJudgeSessionMessage)).all()
+    assert len(rows) == 2
+    assert (
+        next(
+            row for row in rows if row.role == TeacherJudgeMessageRole.user
+        ).metadata_json["processing"]
+        is False
+    )

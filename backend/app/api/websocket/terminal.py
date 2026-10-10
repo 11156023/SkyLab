@@ -11,6 +11,7 @@ from app.api.websocket.utils import (
     run_until_first_done,
     safe_close_websocket,
 )
+from app.core.db import run_db_in_threadpool
 from app.exceptions import NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
     get_connection_id_for_node,
@@ -27,18 +28,18 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
     """WebSocket proxy for LXC container terminal access."""
     # Authenticate user and check ownership before accepting
     user, session = await get_ws_current_user(websocket, token=token)
+
+    def authorize() -> None:
+        try:
+            require_resource_console_access(session=session, user=user, vmid=vmid)
+        finally:
+            session.close()
+
     try:
-        # 同步 DB 查詢丟到 worker thread，連線池耗盡時才不會凍住 event loop
-        await asyncio.to_thread(
-            require_resource_console_access, session=session, user=user, vmid=vmid
-        )
+        await run_db_in_threadpool(authorize)
     except Exception:
         await safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
-    finally:
-        # 權限檢查之後不再需要 DB；立刻關閉，避免整個終端機生命週期
-        # 佔住一條 idle-in-transaction 連線（比照 classroom.py）。
-        session.close()
 
     await websocket.accept()
     logger.info(f"Terminal proxy connection for LXC {vmid} by user {user.email}")
@@ -52,7 +53,9 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
             container_info = await asyncio.to_thread(proxmox_service.find_lxc, vmid)
         except NotFoundError:
             logger.error(f"LXC container {vmid} not found in cluster")
-            await safe_close_websocket(websocket, code=1008, reason="LXC container not found")
+            await safe_close_websocket(
+                websocket, code=1008, reason="LXC container not found"
+            )
             return
 
         node = container_info["node"]
@@ -62,7 +65,9 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
             pve_auth_cookie, _ = await proxmox_service.get_session_ticket(node)
         except ProxmoxError:
             logger.error("Proxmox session authentication failed")
-            await safe_close_websocket(websocket, code=1008, reason="Authentication failed")
+            await safe_close_websocket(
+                websocket, code=1008, reason="Authentication failed"
+            )
             return
 
         logger.info("Retrieved session ticket for WebSocket authentication")
@@ -80,9 +85,13 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
         terminal_ticket = console_data["ticket"]
 
         # termproxy 的認證訊息要用節點所屬連線的 PVE 帳號
-        _cfg = get_proxmox_settings(get_connection_id_for_node(node))
+        _cfg = await asyncio.to_thread(
+            lambda: get_proxmox_settings(get_connection_id_for_node(node))
+        )
 
-        logger.debug(f"Connecting to Proxmox terminal WebSocket for LXC {vmid} on {node}")
+        logger.debug(
+            f"Connecting to Proxmox terminal WebSocket for LXC {vmid} on {node}"
+        )
         try:
             pve_websocket = await open_vncwebsocket(
                 node, "lxc", vmid, terminal_port, terminal_ticket, pve_auth_cookie
@@ -99,11 +108,17 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
             logger.error(
                 f"Proxmox WebSocket rejected: HTTP {e.response.status_code} — {e.response.headers}"
             )
-            await safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
+            await safe_close_websocket(
+                websocket, code=1008, reason="Proxmox connection failed"
+            )
             return
         except Exception as e:
-            logger.error(f"Proxmox WebSocket connection failed ({type(e).__name__}): {e}")
-            await safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
+            logger.error(
+                f"Proxmox WebSocket connection failed ({type(e).__name__}): {e}"
+            )
+            await safe_close_websocket(
+                websocket, code=1008, reason="Proxmox connection failed"
+            )
             return
 
         logger.info(f"WebSocket proxy established for LXC {vmid}")
