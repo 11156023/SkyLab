@@ -91,7 +91,6 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
 
 
 def test_retired_success_criteria_is_not_in_new_step_contract() -> None:
-    assert "success_criteria" not in service._CHECKLIST_STEP_PARAMETERS_PROPERTIES
     assert "success_criteria" not in json.dumps(
         service._CHECKLIST_STEP_TOOL_SCHEMA,
         ensure_ascii=False,

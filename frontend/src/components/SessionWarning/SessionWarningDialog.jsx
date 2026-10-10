@@ -45,6 +45,7 @@ export default function SessionWarningDialog({ status, onClose }) {
       closing={presence.closing}
       onClose={onClose}
       closeButton
+      dividers={false}
       icon={
         <span className={isExpiry ? styles.iconExpiry : styles.iconAutoStop}>
           <MIcon name={isExpiry ? "event_busy" : "schedule"} size={20} />

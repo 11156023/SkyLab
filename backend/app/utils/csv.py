@@ -25,8 +25,4 @@ def csv_safe(value: str | None) -> str:
     return value
 
 
-# 保留內部測試與舊呼叫端可使用的名稱；新程式碼優先使用 public helper。
-_csv_safe = csv_safe
-
-
 __all__ = ["CSV_FORMULA_PREFIXES", "csv_safe"]

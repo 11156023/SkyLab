@@ -190,6 +190,18 @@ export function isOutboundEdge(edge) {
     && edge?.target_vmid === null;
 }
 
+/**
+ * 選中單台機器時只留跟它相關的線（任一端是它），其餘藏起來：機器一多，不藏就看不出它跟誰連。
+ * 本來就藏著的（上網線開關）維持藏著；收合群組的合併線若另一端是這台，端點就是它，同樣算相關。
+ * 沒變的線原物件照回，ReactFlow 不必重繪它們。
+ */
+export function focusEdges(edges, nodeId) {
+  if (!nodeId) return edges;
+  return edges.map((edge) => (edge.hidden || edge.source === nodeId || edge.target === nodeId
+    ? edge
+    : { ...edge, hidden: true }));
+}
+
 /** 每台 VM 的對外暴露量：以網際網路為來源、指向該 VM 的 port 數 */
 function exposureByVmid(edges) {
   const counts = new Map();

@@ -22,10 +22,6 @@
   backdrop-filter: blur(12px);
 }
 
-.authStateIcon {
-  color: var(--color-danger);
-}
-
 .authStateTitle {
   margin: 0;
   font-size: $font-size-24;
@@ -38,35 +34,4 @@
   font-size: $font-size-14;
   line-height: 1.65;
   color: var(--color-text-secondary);
-}
-
-.retryButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-8;
-  margin-top: $spacing-8;
-  padding: $spacing-8 $spacing-16;
-  border: 0;
-  border-radius: $radius-8;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base, opacity $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 3px;
-  }
-
-  &:disabled {
-    cursor: wait;
-    opacity: 0.65;
-  }
 }

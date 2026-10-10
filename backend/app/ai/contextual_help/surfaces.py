@@ -755,7 +755,7 @@ _MY_RESOURCES_ELEMENTS: tuple[ElementSpec, ...] = (
         id="myres.status_unknown", role="readonly", label="狀態未知",
         section="機器清單", help="平台目前讀不到這台機器在 PVE 上的狀態。",
     ),
-    ElementSpec(id="myres.actions", role="button", label="動作", section="電源操作"),
+    ElementSpec(id="myres.actions", role="button", label="操作", section="電源操作"),
 )
 
 # ── 我的申請 ────────────────────────────────────────────────────────

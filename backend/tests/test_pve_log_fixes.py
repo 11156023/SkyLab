@@ -488,7 +488,7 @@ async def test_large_tool_result_is_bounded_for_agent_checker_and_resume(
     monkeypatch.setattr(
         pve_chat_module, "record_ai_template_call", lambda **kw: records.append(kw)
     )
-    monkeypatch.setattr(pve_chat_module, "PveToolContext", lambda: object())
+    monkeypatch.setattr(pve_chat_module, "PveToolContext", object)
     monkeypatch.setattr(
         pve_chat_module,
         "_execute_tool_sync",
