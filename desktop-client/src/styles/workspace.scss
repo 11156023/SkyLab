@@ -1,84 +1,188 @@
-@use "mixins" as *;
+/* 桌面端的版面與共用 class。變數與 mixin 由 vite.config.mts 注入 web 的
+   _variables.scss／_mixins.scss，規格以 docs/frontend-style-guide.zh-TW.md 為準，不在這裡另立一套。
+   側欄、頁首、分段切換、空狀態、載入中直接用 web 元件的樣式檔（見 src/components） */
 
-/* ── 共用元件：按鈕、圖示、玻璃卡（規格見 _mixins.scss，與 web 端一致） ── */
-.sl-icon {
-  flex-shrink: 0;
-}
-
-.sl-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.sl-button {
-  @include btn-secondary;
-}
-
-.sl-button--primary {
+/* ── 按鈕：web 的六款 mixin ── */
+.sl-btn-primary {
   @include btn-primary;
 }
 
-.sl-button--ghost {
+.sl-btn-secondary {
+  @include btn-secondary;
+}
+
+.sl-btn-ghost {
   @include btn-ghost;
 }
 
-.sl-icon-button {
+.sl-btn-danger-outline {
+  @include btn-danger-outline;
+}
+
+/* 圖示鈕：web 的 btn-icon 是 32px（給表格列用）；桌面端的圖示鈕都跟 36px 按鈕排同一列
+   （頁首的重新整理、機器卡片的 SSH／RDP），放大到同高才對得齊 */
+.sl-btn-icon {
   @include btn-icon;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
 }
 
-.sl-spin {
-  animation: sl-spin 1s linear infinite;
+/* 白底細框的圖示鈕（web 的 btn-icon-secondary）：跟旁邊的次要按鈕同款，例如頁首的明暗切換 */
+.sl-btn-icon-secondary {
+  @include btn-icon-secondary;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
 }
 
-@keyframes sl-spin {
-  to {
-    transform: rotate(360deg);
+/* 文字連結（關於頁的授權、原始碼、套件名稱） */
+.sl-link {
+  padding: 0;
+  color: var(--color-primary-on-surface);
+  font-weight: $font-weight-500;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
   }
 }
 
-/* 玻璃卡：頁面上的一個區塊（設定、關於頁的面板） */
+/* ── 狀態徽章：12% 淡底＋狀態色文字、不加框（樣式規範「狀態 Badge」） ── */
+.sl-badge {
+  @include badge-base;
+  padding: 4px 10px;
+}
+
+@each $tone, $token in (success: success, info: info, pending: pending, danger: danger, muted: status-neutral) {
+  .sl-badge--#{$tone} {
+    background: color-mix(in srgb, var(--color-#{$token}) 12%, transparent);
+    color: var(--color-#{$token});
+  }
+}
+
+/* ── 頁內提示條：連線錯誤、授權更新失敗等常駐狀態；色票同 web 的 toast（語意色字、10% 底、30% 框） ── */
+.sl-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  padding: 12px $spacing-16;
+  border: 1px solid;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  overflow-wrap: anywhere;
+  user-select: text;
+
+  .material-icons-outlined {
+    margin-top: 2px;
+  }
+
+  small {
+    display: block;
+    opacity: 0.85;
+    font-size: $font-size-12;
+  }
+}
+
+@each $tone, $token in (danger: danger, pending: pending) {
+  .sl-notice--#{$tone} {
+    border-color: color-mix(in srgb, var(--color-#{$token}) 30%, var(--color-surface));
+    background: color-mix(in srgb, var(--color-#{$token}) 10%, var(--color-surface));
+    color: var(--color-#{$token});
+  }
+}
+
+/* ── 玻璃卡（同 web 設定頁的 .card） ── */
 .sl-card {
   @include glass-surface;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 20px 24px;
-  border-radius: 16px;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  border-radius: $radius-16;
 }
 
 .sl-card__header {
-  display: flex;
+  @include flex-between;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  gap: $spacing-16;
 }
 
 .sl-card__title {
   color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
 }
 
 .sl-card__hint {
-  margin-top: 4px;
+  margin-top: $spacing-4;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: $font-size-14;
+}
+
+/* ── 表單欄位：標籤在上、控制項 36px（form-field／form-control） ── */
+.sl-field {
+  @include form-field;
+
+  /* 分段切換維持自己的寬度，不要被直式欄位撐滿 */
+  > [role="group"] {
+    align-self: flex-start;
+  }
+}
+
+.sl-input {
+  @include form-control;
+}
+
+.sl-field__hint {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: $font-weight-400;
+}
+
+/* 格式不對的欄位：紅框＋提示改紅字（雙類名才壓得過 form-control 的 :focus） */
+.sl-input.sl-input--invalid {
+  @include form-control-invalid;
+}
+
+.sl-field__hint--error {
+  color: var(--color-danger);
+}
+
+/* ── 表格（關於頁的開源元件清單） ── */
+.sl-table {
+  @include table-base;
+
+  th {
+    @include table-th;
+    position: sticky;
+    top: 0;
+  }
+
+  tr {
+    @include table-tr;
+  }
+
+  td {
+    @include table-td;
+  }
 }
 
 /* 對話框裡的「標籤：值」清單 */
 .sl-details {
-  margin: 0 0 16px;
+  margin: 0;
 }
 
 .sl-details > div {
-  display: flex;
-  justify-content: space-between;
+  @include flex-between;
   gap: 20px;
   padding: 10px 0;
-  border-bottom: 1px solid var(--color-divider);
-  font-size: 14px;
+  font-size: $font-size-14;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-divider);
+  }
 }
 
 .sl-details dt {
@@ -94,82 +198,49 @@
   user-select: text;
 }
 
-/* ── 外框：左側玻璃側欄＋右側捲動內容 ── */
+/* ── 外框：浮動的玻璃側欄（同 web 側欄的圓角卡）＋右側捲動內容 ── */
 .desktop-shell {
+  position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: $spacing-24;
   width: 100%;
   height: 100vh;
+  padding: $spacing-16;
   overflow: hidden;
 }
 
 .desktop-sidebar {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
+  @include flex-column;
   min-height: 0;
-  padding: 20px 12px 16px;
+  padding: 0 0 $spacing-8;
   overflow-y: auto;
+  border: 1px solid var(--color-sidebar-glass-border);
+  border-radius: $radius-16;
   background: var(--color-sidebar-glass);
-  border-right: 1px solid var(--color-sidebar-glass-border);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
   -webkit-backdrop-filter: var(--sidebar-backdrop-filter);
   backdrop-filter: var(--sidebar-backdrop-filter);
+  scrollbar-width: none;
 }
 
-.desktop-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 8px 24px;
-  color: var(--color-text-primary);
-}
-
-.desktop-brand strong {
+.desktop-brand-sub {
   display: block;
-  font-size: 18px;
-  line-height: 1.3;
-}
-
-.desktop-brand small {
   color: var(--color-text-muted);
   font-size: 11px;
+  font-weight: $font-weight-500;
   letter-spacing: 0.12em;
 }
 
-.desktop-nav {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 36px;
-  padding: 6px 10px;
-  margin: 2px 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  font-weight: 500;
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    color 0.2s ease;
+.desktop-nav-list {
+  @include flex-column;
+  gap: $spacing-4;
+  padding: $spacing-8 12px;
 }
 
-.desktop-nav:hover {
-  background: var(--color-hover);
-  color: var(--color-text-primary);
-}
-
-.desktop-nav.active {
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary-on-surface);
-}
-
-.desktop-nav .update-dot {
+.desktop-nav-list .update-dot {
   flex: none;
   width: 8px;
   height: 8px;
@@ -180,54 +251,35 @@
 
 .desktop-sidebar-bottom {
   margin-top: auto;
-  padding-top: 16px;
 }
 
 .desktop-account {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 8px;
-  padding: 14px 10px 0;
-  border-top: 1px solid var(--color-divider);
+  padding: 12px 20px 4px;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: $font-size-14;
 }
 
+/* 內容區是 container：各頁依「內容區寬度」（不是視窗寬度）決定分不分欄 */
 .desktop-main {
-  position: relative;
-  z-index: 1;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  container-type: inline-size;
 }
 
-/* ── 頁面：滿寬、區塊間距 16（同 web 的 .page） ── */
+/* ── 頁面：滿寬，區塊間距 24（同 web 的 .page） ── */
 .workspace-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 24px;
+  @include flex-column;
+  gap: $spacing-24;
+  padding: $spacing-8 $spacing-8 $spacing-24 0;
 }
 
-.workspace-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.workspace-heading h1 {
-  color: var(--color-text-primary);
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.workspace-heading-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.workspace-section {
+  @include flex-column;
+  gap: $spacing-16;
 }
 
 /* ── 連線狀態橫幅 ── */
@@ -235,52 +287,51 @@
   @include glass-surface;
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 68px;
-  padding: 14px 18px;
-  border-radius: 16px;
-  transition: border-color 0.2s ease;
-}
+  gap: $spacing-16;
+  padding: $spacing-16 $spacing-24;
+  border-radius: $radius-16;
+  transition: border-color $transition-base;
 
-.connection-banner > .sl-icon {
-  color: var(--color-primary);
-}
+  > .material-icons-outlined {
+    color: var(--color-primary-on-surface);
+  }
 
-.connection-banner > .is-running {
-  color: var(--color-success);
+  > .is-running {
+    color: var(--color-success);
+  }
 }
 
 .connection-banner--error {
   border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
-}
 
-.connection-banner--error > .sl-icon {
-  color: var(--color-danger);
+  > .material-icons-outlined {
+    color: var(--color-danger);
+  }
 }
 
 .connection-copy {
   min-width: 0;
+
+  h2 {
+    color: var(--color-text-primary);
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
+  }
+
+  p {
+    margin-top: 2px;
+    color: var(--color-text-muted);
+    font-size: $font-size-14;
+  }
 }
 
-.connection-copy h2 {
-  color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.connection-copy p {
-  margin: 2px 0 0;
-  color: var(--color-text-muted);
-  font-size: 13px;
-}
-
-.connection-banner > .sl-button,
-.connection-banner > .sl-button--primary {
+.connection-banner > button {
   flex-shrink: 0;
   margin-left: auto;
 }
 
-/* ── 資源工具列：分頁篩選＋搜尋＋檢視切換，三者同為 36px ── */
+/* ── 資源工具列：分類（SegmentedControl）＋［搜尋＋檢視切換］，三者同為 36px ──
+   視窗窄時右邊那組整組換到第二列，搜尋框吃滿該列 */
 .resource-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -288,118 +339,58 @@
   gap: 12px;
 }
 
-.resource-filters {
+.resource-toolbar__end {
   display: flex;
-  gap: 4px;
-}
-
-.resource-filters button {
-  min-height: 36px;
-  padding: 6px 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    color 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.resource-filters button:hover {
-  color: var(--color-text-primary);
-}
-
-.resource-filters button.active {
-  border-bottom-color: var(--color-primary);
-  color: var(--color-primary-on-surface);
-}
-
-.resource-filters span {
-  margin-left: 4px;
-  color: var(--color-text-muted);
-  font-size: 12px;
+  flex: 1 1 320px;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .resource-search {
   @include form-control;
   display: flex;
+  flex: 1;
   align-items: center;
-  gap: 8px;
-  width: 200px;
-  margin-left: auto;
+  gap: $spacing-8;
   color: var(--color-text-muted);
-}
 
-.resource-search input {
-  width: 100%;
-  min-width: 0;
-  color: var(--color-text);
-  background: transparent;
-  outline: none;
-}
+  &:focus-within {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary-on-surface);
+  }
 
-.resource-search input::placeholder {
-  color: var(--color-text-muted);
-}
+  input {
+    width: 100%;
+    min-width: 0;
+    color: var(--color-text);
 
-/* 檢視切換：分段控制，整組 36px */
-.resource-views {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface);
-}
-
-.resource-views .sl-icon-button {
-  width: 30px;
-  height: 30px;
-  min-height: 30px;
-  border-radius: 6px;
-  color: var(--color-text-muted);
-  background: transparent;
-}
-
-.resource-views .sl-icon-button:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  background: var(--color-hover);
-}
-
-.resource-views .active,
-.resource-views .active:hover:not(:disabled) {
-  color: var(--color-primary-on-surface);
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    &::placeholder {
+      color: var(--color-text-muted);
+    }
+  }
 }
 
 /* ── 資源分組 ── */
-.resource-group {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .resource-group > header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
+
+  h2 {
+    color: var(--color-text-primary);
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
+  }
+
+  span {
+    color: var(--color-text-muted);
+    font-size: $font-size-14;
+  }
 }
 
-.resource-group h2 {
-  color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.resource-group > header > span {
-  color: var(--color-text-muted);
-  font-size: 13px;
-}
-
-/* 課程／快速練習資料夾：可點展開，hover 只加陰影不改框色 */
+/* 課程／快速練習資料夾：可點展開，hover 只加陰影、不改框色 */
 .course-folder__toggle {
   @include glass-surface($shadow: var(--shadow-sm));
   display: flex;
@@ -407,101 +398,84 @@
   gap: 12px;
   width: 100%;
   min-height: 56px;
-  padding: 12px 16px;
-  border-radius: 12px;
+  padding: 12px $spacing-16;
+  border-radius: $radius-12;
   color: var(--color-text-primary);
   text-align: left;
-  cursor: pointer;
-  transition: box-shadow 0.2s ease;
-}
+  transition: box-shadow $transition-base;
 
-.course-folder__toggle:hover {
-  box-shadow: var(--shadow-md);
-}
+  &:hover {
+    box-shadow: var(--shadow-md);
+  }
 
-.course-folder__toggle > .sl-icon:first-child {
-  color: var(--color-primary-on-surface);
+  > .material-icons-outlined:first-child {
+    color: var(--color-primary-on-surface);
+  }
 }
 
 .course-folder__name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  @include text-truncate;
 }
 
-.course-folder__count,
-.course-folder__status {
+.course-folder__meta {
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: $font-size-14;
   white-space: nowrap;
 }
 
 .course-folder__chevron {
   color: var(--color-text-muted);
-  transition: transform 0.2s ease;
-}
+  transition: transform $transition-base;
 
-.course-folder__chevron.is-open {
-  transform: rotate(180deg);
+  &.is-open {
+    transform: rotate(180deg);
+  }
 }
 
 /* ── 機器卡片 ── */
 .resource-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: $spacing-16;
 }
 
 .resource-card {
   @include glass-surface;
-  display: flex;
-  flex-direction: column;
+  @include flex-column;
+  gap: 12px;
   min-width: 0;
   padding: 20px;
-  border-radius: 16px;
+  border-radius: $radius-16;
 }
 
-.resource-status {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 6px;
-  color: var(--color-status-neutral);
-  font-size: 13px;
-}
+.resource-card-heading {
+  @include flex-column;
+  align-items: flex-start;
+  gap: $spacing-8;
 
-.resource-status.is-running {
-  color: var(--color-success);
-}
-
-.resource-status.is-failed {
-  color: var(--color-danger);
-}
-
-.resource-card h3 {
-  color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+  h3 {
+    color: var(--color-text-primary);
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* 內網 IP：玻璃卡裡的內容區塊一律白底細框 */
 .resource-address {
   width: fit-content;
   max-width: 100%;
-  margin: 8px 0 16px;
   padding: 4px 10px;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: $radius-8;
   background: var(--color-surface);
   color: var(--color-text-secondary);
   font:
-    13px/1.6 ui-monospace,
+    13px / 1.6 ui-monospace,
     Consolas,
     monospace;
   user-select: text;
@@ -511,20 +485,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: $spacing-8;
   margin-top: auto;
 }
 
 .resource-launch {
-  @include btn-ghost;
+  @include btn-secondary;
   flex: 1;
-  color: var(--color-primary-on-surface);
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-}
-
-.resource-launch:hover:not(:disabled) {
-  color: var(--color-primary-on-surface);
-  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
 .resource-info {
@@ -534,11 +501,11 @@
 .resource-unavailable {
   flex: 1;
   color: var(--color-text-muted);
-  font-size: 13px;
-}
+  font-size: $font-size-14;
 
-.is-expired {
-  color: var(--color-danger);
+  &.is-expired {
+    color: var(--color-danger);
+  }
 }
 
 /* 列表檢視：一列一台，名稱／IP／動作三欄 */
@@ -549,46 +516,25 @@
 .resource-grid--list .resource-card,
 .resource-card--blocked {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px 200px;
+  grid-template-columns: minmax(0, 1fr) 150px 220px;
   align-items: center;
-  gap: 16px;
-  padding: 14px 18px;
-}
-
-.resource-grid--list .resource-address {
-  margin: 0;
+  gap: $spacing-16;
+  padding: 14px 20px;
 }
 
 .resource-card--blocked {
   grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) 240px;
+  grid-template-columns: minmax(0, 1fr) 260px;
+
+  .resource-address {
+    display: none;
+  }
 }
 
-.resource-card--blocked .resource-address {
-  display: none;
-}
-
-/* ── 空狀態 ── */
-.workspace-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 48px 24px;
-  color: var(--color-text-muted);
-  font-size: 14px;
-  text-align: center;
-}
-
-.workspace-empty > .sl-icon {
-  color: var(--color-text-muted);
-}
-
-/* ── 視窗較窄時的收斂 ── */
+/* ── 視窗較窄時的收斂（視窗最小 900px） ── */
 @media (max-width: 1100px) {
   .resource-grid--list .resource-card {
-    grid-template-columns: minmax(0, 1fr) 200px;
+    grid-template-columns: minmax(0, 1fr) 220px;
     gap: 10px;
   }
 
@@ -600,50 +546,5 @@
   .resource-grid--list .resource-card-actions {
     grid-column: 2;
     grid-row: 1 / span 2;
-  }
-}
-
-@media (max-width: 800px) {
-  .desktop-shell {
-    grid-template-columns: 64px minmax(0, 1fr);
-  }
-
-  .desktop-sidebar {
-    padding-inline: 8px;
-  }
-
-  .desktop-brand {
-    padding: 0 4px 24px;
-  }
-
-  .desktop-brand div,
-  .desktop-nav span,
-  .desktop-account span {
-    display: none;
-  }
-
-  .desktop-nav {
-    position: relative;
-    justify-content: center;
-  }
-
-  .desktop-nav .update-dot {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-  }
-
-  .resource-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .resource-search {
-    flex: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sl-spin {
-    animation: none;
   }
 }

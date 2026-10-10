@@ -15,9 +15,10 @@ class AuthController extends BaseController {
     this._authService = authService;
   }
 
+  /** 登入結果另走事件推給畫面；失敗只帶錯誤碼，畫面自己翻譯（英文訊息留在記錄檔） */
   private _emitAuthEvent(payload: {
     type: "login-success" | "login-failure";
-    error?: string;
+    errorCode?: string;
   }) {
     const win: BrowserWindow = BeanFactory.getBean("win");
     if (win && !win.isDestroyed()) {
@@ -31,7 +32,11 @@ class AuthController extends BaseController {
         if (success) {
           this._emitAuthEvent({ type: "login-success" });
         } else {
-          this._emitAuthEvent({ type: "login-failure", error });
+          Logger.warn("AuthController.startLogin.result", error?.message ?? "");
+          this._emitAuthEvent({
+            type: "login-failure",
+            errorCode: error?.bizCode
+          });
         }
       })
       .then(() => {

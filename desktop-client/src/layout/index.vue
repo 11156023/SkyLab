@@ -2,10 +2,13 @@
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
+import sb from "@web/components/Sidebar/Sidebar.module.scss";
 import { useAppStore } from "@/store/app";
+import { describeError } from "@/utils/errors";
 import { send } from "@/utils/ipcUtils";
 import { ipcRouters } from "../../electron/core/IpcRouter";
-import AppIcon from "@/components/AppIcon.vue";
+import AppDialog from "@/components/AppDialog.vue";
+import MIcon from "@/components/MIcon.vue";
 import PixelOcto from "@/components/PixelOcto.vue";
 import "@/utils/appearance";
 
@@ -27,62 +30,65 @@ const connectionLabel = computed(() =>
 );
 const openWeb = () =>
   send(ipcRouters.SYSTEM.openUrl, { url: store.backendUrl });
+/* 側欄項目直接套 web Sidebar 的 .navItem／.active，選中＝主色實底白字 */
+const navClass = (name: string) => [
+  sb.navItem,
+  { [sb.active]: route.name === name }
+];
 </script>
 <template>
   <div class="desktop-shell">
     <aside class="desktop-sidebar" :aria-label="t('workspace.navigation')">
-      <div class="desktop-brand">
+      <div :class="sb.brand">
         <PixelOcto :scale="2" />
-        <div><strong>SkyLab</strong><small>CONNECT</small></div>
+        <div :class="sb.brandText">
+          SkyLab<small class="desktop-brand-sub">CONNECT</small>
+        </div>
       </div>
-      <router-link
-        class="desktop-nav"
-        :class="{ active: route.name === 'Home' }"
-        :to="{ name: 'Home' }"
-        ><AppIcon name="grid" /><span>{{
-          t("resources.webTitle")
-        }}</span></router-link
-      >
-      <button class="desktop-nav" @click="detailsOpen = true">
-        <AppIcon name="activity" /><span>{{
-          t("workspace.connectionInfo")
-        }}</span>
-      </button>
-      <button class="desktop-nav" @click="openWeb">
-        <AppIcon name="external" /><span>{{ t("workspace.openWeb") }}</span>
-      </button>
+      <div :class="sb.divider" />
+      <nav class="desktop-nav-list">
+        <router-link :class="navClass('Home')" :to="{ name: 'Home' }">
+          <MIcon name="dns" />{{ t("resources.webTitle") }}
+        </router-link>
+        <button type="button" :class="sb.navItem" @click="detailsOpen = true">
+          <MIcon name="network_check" />{{ t("workspace.connectionInfo") }}
+        </button>
+        <button type="button" :class="sb.navItem" @click="openWeb">
+          <MIcon name="open_in_new" />{{ t("workspace.openWeb") }}
+        </button>
+      </nav>
       <div class="desktop-sidebar-bottom">
-        <router-link
-          class="desktop-nav"
-          :class="{ active: route.name === 'Config' }"
-          :to="{ name: 'Config' }"
-          ><AppIcon name="settings" /><span>{{ t("router.config.title") }}</span
-          ><i
-            v-if="store.updateInfo?.updateAvailable"
-            class="update-dot"
-            :aria-label="t('update.available')"
-        /></router-link>
-        <router-link
-          class="desktop-nav"
-          :class="{ active: route.name === 'About' }"
-          :to="{ name: 'About' }"
-          ><AppIcon name="info" /><span>{{
-            t("router.about.title")
-          }}</span></router-link
-        >
+        <div :class="sb.divider" />
+        <nav class="desktop-nav-list">
+          <router-link :class="navClass('Config')" :to="{ name: 'Config' }">
+            <MIcon name="settings" />{{ t("router.config.title") }}
+            <i
+              v-if="store.updateInfo?.updateAvailable"
+              class="update-dot"
+              :aria-label="t('update.available')"
+            />
+          </router-link>
+          <router-link :class="navClass('About')" :to="{ name: 'About' }">
+            <MIcon name="info" />{{ t("router.about.title") }}
+          </router-link>
+        </nav>
         <div class="desktop-account">
-          <AppIcon name="shield" /><span>{{
+          <MIcon
+            :name="store.loggedIn ? 'verified_user' : 'shield'"
+            :size="18"
+          />
+          {{
             t(
               store.loggedIn
                 ? "config.account.loggedIn"
                 : "config.account.notLoggedIn"
             )
-          }}</span>
+          }}
         </div>
       </div>
     </aside>
     <div class="desktop-main"><router-view /></div>
-    <el-dialog
+    <AppDialog
       v-model="detailsOpen"
       :title="t('workspace.connectionInfo')"
       width="520px"
@@ -119,17 +125,32 @@ const openWeb = () =>
           </dd>
         </div>
       </dl>
-      <el-alert
+      <p
         v-if="tunnel.connectionError || tunnel.leaseRefreshError"
-        :title="tunnel.connectionError || tunnel.leaseRefreshError || ''"
-        type="warning"
-        :closable="false"
-      />
-      <template #footer
-        ><el-button @click="detailsOpen = false">{{
-          t("workspace.close")
-        }}</el-button></template
+        class="sl-notice sl-notice--pending connection-dialog-notice"
       >
-    </el-dialog>
+        <MIcon name="warning_amber" :size="18" />
+        {{
+          tunnel.connectionError
+            ? describeError(tunnel.connectionErrorCode)
+            : t("home.status.leaseRefreshFailed")
+        }}
+      </p>
+      <template #footer>
+        <button
+          type="button"
+          class="sl-btn-primary"
+          @click="detailsOpen = false"
+        >
+          {{ t("workspace.close") }}
+        </button>
+      </template>
+    </AppDialog>
   </div>
 </template>
+
+<style scoped lang="scss">
+.connection-dialog-notice {
+  margin-top: $spacing-16;
+}
+</style>

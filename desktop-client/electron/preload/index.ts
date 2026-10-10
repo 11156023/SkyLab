@@ -191,13 +191,19 @@ html[data-theme="dark"] .app-loading-version { color: #c6cddc; }
   return {
     appendLoading() {
       if (removed) return;
-      /* 跟 utils/appearance.ts 同一條規則：預設亮色，存過 dark 才深色 */
+      /* 跟 utils/appearance.ts 同一條規則：存了淺色／深色就照存的，沒存或選「系統」就跟隨 Windows */
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
+        .matches
+        ? "dark"
+        : "light";
+      let stored: string | null;
       try {
-        document.documentElement.dataset.theme =
-          localStorage.getItem("skylab.theme") === "dark" ? "dark" : "light";
+        stored = localStorage.getItem("skylab.theme");
       } catch {
-        document.documentElement.dataset.theme = "light";
+        stored = null;
       }
+      document.documentElement.dataset.theme =
+        stored === "light" || stored === "dark" ? stored : systemTheme;
       safeDOM.append(document.head, oStyle);
       safeDOM.append(document.body, oDiv);
     },

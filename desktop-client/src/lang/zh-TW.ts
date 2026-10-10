@@ -3,16 +3,17 @@
     navigation: "主要導覽",
     connectionInfo: "連線資訊",
     openWeb: "開啟 Web 平台",
-    waitingGateway: "等待 Gateway 回應",
+    waitingGateway: "等待伺服器回應",
     waitingGatewayHint:
-      "通道已啟動，尚未收到 WireGuard 握手。若持續無回應，請檢查網路或聯絡管理員。",
+      "通道已啟動，但伺服器還沒有回應。若持續沒有回應，請檢查網路或聯絡管理員。",
     tunnelActive: "通道已啟動",
-    tunnelActiveHint: "目前無法讀取 WireGuard 握手資訊，正在確認機器連通性。",
+    tunnelActiveHint:
+      "無法取得伺服器回應時間，正在改用連線測試確認機器連得到。",
     protocol: "通訊協定",
     interface: "網路介面",
-    handshake: "最近一次握手",
-    noHandshake: "尚未收到",
-    handshakeUnavailable: "無權限讀取",
+    handshake: "伺服器最後回應",
+    noHandshake: "尚未回應",
+    handshakeUnavailable: "無法取得",
     close: "關閉",
     details: "機器詳情",
     detailsFor: "{name} 詳情",
@@ -35,11 +36,14 @@
     list: "列表檢視",
     toggleTheme: "切換明暗主題",
     machineCount: "{count} 台",
-    noMatches: "找不到符合條件的機器",
-    resourceError: "無法更新資源，請重新整理",
+    noMatches: "沒有符合條件的機器",
+    view: "檢視方式",
+    clearFilters: "清除篩選",
+    resourceError: "無法更新資源",
     appearance: "外觀",
     dark: "深色",
-    light: "亮色",
+    light: "淺色",
+    system: "系統",
     unnamedCourse: "未命名課程"
   },
   update: {
@@ -56,7 +60,6 @@
     downloading: "正在下載更新",
     verifying: "正在驗證安裝程式",
     launching: "正在啟動安裝程式",
-    installError: "更新失敗",
     title: "發現新版本",
     later: "稍後提醒"
   },
@@ -69,9 +72,17 @@
     }
   },
   common: {
+    cancel: "取消",
     save: "儲存",
     refresh: "重新整理",
-    loading: "載入中..."
+    loading: "載入中…",
+    on: "開啟",
+    off: "關閉"
+  },
+  unsavedGuard: {
+    title: "尚未儲存的變更",
+    message: "這一頁還有尚未儲存的變更，離開後修改將會遺失。",
+    leave: "捨棄變更並離開"
   },
   sessionWarning: {
     autoStopTitle: "VM 即將自動關機",
@@ -98,7 +109,7 @@
       error: "連線錯誤"
     },
     button: {
-      stop: "停止連線"
+      stop: "中斷連線"
     },
     connect: {
       title: "連線到 SkyLab",
@@ -153,8 +164,11 @@
     empty: "目前沒有任何虛擬機，請至 SkyLab 網頁申請。"
   },
   config: {
+    general: "一般",
+    server: "伺服器",
+    discard: "還原",
+    saveFailed: "儲存失敗：{error}",
     title: "設定",
-    back: "返回連線畫面",
     language: {
       label: "介面語言",
       zhTW: "繁體中文",
@@ -167,17 +181,30 @@
     },
     backend: {
       label: "後端網址",
-      tips: "SkyLab 伺服器根網址，不包含 /login。"
+      tips: "SkyLab 伺服器根網址，不包含 /login。",
+      logoutNotice: "儲存後會先登出並中斷目前的連線，再到新的伺服器重新登入。",
+      confirmTitle: "變更後端網址？",
+      confirmMessage:
+        "SkyLab Connect 會先登出並中斷目前的安全連線，再改用新的伺服器，之後需要重新登入。",
+      confirmButton: "登出並變更",
+      error: {
+        required: "請輸入後端網址。",
+        invalid: "網址格式不正確，例如 https://skylab-tw.com。",
+        insecure: "必須使用 https://（本機測試可用 http://localhost）。",
+        extra: "網址不能包含帳號密碼、查詢參數（?）或 #。"
+      }
     },
     account: {
       label: "帳號",
       loggedIn: "已登入",
       notLoggedIn: "尚未登入",
-      logout: "登出"
+      logout: "登出",
+      loginHint: "在「我的資源」按「開始連線」，會開啟瀏覽器登入 SkyLab。"
     },
     saveSuccess: "儲存成功"
   },
   about: {
+    licenseTitle: "授權與原始碼",
     name: "SkyLab Connect",
     description: "透過 WireGuard 加密網路安全連線至您的 SkyLab 虛擬機。",
     features: {
@@ -200,5 +227,29 @@
       version: "版本",
       license: "授權"
     }
+  },
+  errors: {
+    /* 主程序錯誤碼的說明（electron/core/BusinessError.ts）；support 是共用的回報方式 */
+    support:
+      "若持續發生，請到「關於」按「開啟資料目錄」，把 logs 資料夾裡的記錄檔交給管理員。",
+    B1000: "發生未預期的錯誤。@:errors.support",
+    B1001: "登入狀態已過期，請重新登入。",
+    B1002: "等候太久沒有完成登入，請按「開始連線」再試一次。",
+    B1005: "伺服器暫時無法處理這個要求，請稍後再試。若持續發生，請聯絡管理員。",
+    B1006: "找不到連線所需的 WireGuard 元件，請重新安裝 SkyLab Connect。",
+    B1007: "無法讀取這台電腦上的連線金鑰。@:errors.support",
+    B1008: "無法建立安全連線，請再試一次。@:errors.support",
+    B1009: "無法安裝連線所需的 WireGuard 元件，請再試一次。@:errors.support",
+    B1010:
+      "無法下載或安裝更新，請稍後再試，也可以到 SkyLab 網頁下載最新版安裝程式。",
+    B1011:
+      "需要系統管理員權限才能變更安全連線。請再試一次，並在 Windows 詢問是否允許變更時選「是」。",
+    B1012: "Windows 沒有完成安全連線的設定，請再試一次。@:errors.support",
+    B1013: "安全連線的授權已到期，請按「開始連線」重新連線。",
+    B1014: "偵測到上次留下的安全連線，請按「開始連線」重新建立。",
+    B1015: "伺服器的網路設定已更新，請按「開始連線」重新套用。",
+    B1016: "無法中斷安全連線，請再試一次。@:errors.support",
+    B1017: "連不到 SkyLab 伺服器。請確認網路連線，或到「設定」檢查後端網址。",
+    B1018: "無法開啟，請再試一次。@:errors.support"
   }
 };

@@ -2,17 +2,26 @@
 import { app, shell } from "electron";
 
 class SystemService {
-  async openUrl(url: string) {
+  /**
+   * 只開允許的網址：固定的 GitHub／SkyLab 網域，加上設定頁填的後端網址
+   * （「開啟 Web 平台」用它；可能是自架網域或本機測試的 http://localhost）
+   */
+  async openUrl(url: string, backendUrl?: string) {
     const target = new URL(url);
-    if (target.protocol !== "https:") throw new Error("URL must use HTTPS");
     const allowedHosts = new Set([
       "github.com",
       "objects.githubusercontent.com",
       "github-releases.githubusercontent.com",
       "skylab-tw.com"
     ]);
-    if (!allowedHosts.has(target.hostname))
-      throw new Error("URL host is not allowed");
+    const isBackend =
+      !!backendUrl && target.origin === new URL(backendUrl).origin;
+    if (
+      !isBackend &&
+      (target.protocol !== "https:" || !allowedHosts.has(target.hostname))
+    ) {
+      throw new Error(`URL is not allowed: ${target.origin}`);
+    }
     await shell.openExternal(target.toString());
   }
 

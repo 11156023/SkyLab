@@ -13,71 +13,15 @@
 );
 
 @use "element-plus/theme-chalk/src/index.scss" as *;
-@use "mixins" as *;
+@use "@web/assets/styles/variables" as *;
+@use "@web/assets/styles/mixins" as *;
 
-/* ── Element Plus 對齊 web 規範：控制項 36px、按鈕 14／500、徽章不加框、對話框玻璃卡 ── */
+/* 桌面端只剩對話框、確認框、toast、勾選框、進度條還用 Element Plus；
+   按鈕、表單、徽章、表格都改用 web 的 mixin（見 workspace.scss），這裡只把剩下的對齊 web */
 
-:root {
-  --el-component-size: 36px;
-}
-
-.el-button {
-  height: 36px;
-  border-radius: 8px;
-  font-weight: 500;
-}
-
-.el-button--small {
-  height: 28px;
-}
-
-.el-button--primary {
-  --el-button-bg-color: var(--color-primary);
-  --el-button-border-color: var(--color-primary);
-  --el-button-hover-bg-color: var(--color-primary-dark);
-  --el-button-hover-border-color: var(--color-primary-dark);
-  --el-button-active-bg-color: var(--color-primary-dark);
-  --el-button-active-border-color: var(--color-primary-dark);
-}
-
-/* 徽章：狀態色 12% 淡底＋狀態色文字，不加框 */
-.el-tag {
-  --el-tag-border-color: transparent;
-  border: 0;
-  font-weight: 500;
-}
-
-/* Element Plus 自己的規則是 .el-tag.el-tag--primary（兩層），這裡同權重才蓋得過 */
-.el-tag.el-tag--primary {
-  --el-tag-bg-color: color-mix(in srgb, var(--color-info) 12%, transparent);
-  --el-tag-text-color: var(--color-info);
-}
-
-.el-tag.el-tag--success {
-  --el-tag-bg-color: color-mix(in srgb, var(--color-success) 12%, transparent);
-  --el-tag-text-color: var(--color-success);
-}
-
-.el-tag.el-tag--warning {
-  --el-tag-bg-color: color-mix(in srgb, var(--color-pending) 12%, transparent);
-  --el-tag-text-color: var(--color-pending);
-}
-
-.el-tag.el-tag--danger {
-  --el-tag-bg-color: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  --el-tag-text-color: var(--color-danger);
-}
-
-.el-tag.el-tag--info {
-  --el-tag-bg-color: color-mix(
-    in srgb,
-    var(--color-status-neutral) 12%,
-    transparent
-  );
-  --el-tag-text-color: var(--color-status-neutral);
-}
-
-/* 對話框：遮罩 25% 深藍＋微模糊，卡片走玻璃卡 */
+/* ── 對話框（components/AppDialog.vue）與確認框：比照 web 共用 Modal 的精簡卡，置於畫面正中 ──
+   遮罩 25% 深藍＋微模糊、玻璃卡圓角 16、內距 24、區塊間距 16、標題 16／700、× 用 btn-dialog-close；
+   標題、內容、按鈕列之間不畫分隔線（內容裡的清單自己有列線） */
 .el-overlay {
   background: var(--color-overlay);
   backdrop-filter: blur(4px);
@@ -86,77 +30,139 @@
 .el-dialog,
 .el-message-box {
   @include glass-surface($shadow: var(--shadow-lg));
+  padding: 0;
+  border-radius: $radius-16;
+  overflow: hidden;
+}
+
+.el-dialog {
   max-width: calc(100vw - 40px);
-  border-radius: 16px;
+}
+
+/* 確認框：同 web 確認彈窗的窄卡（EP 本身是 width: 100% 配 max-width，蓋掉 max-width 會撐滿） */
+.el-message-box {
+  --el-messagebox-width: 420px;
+  max-width: min(var(--el-messagebox-width), calc(100vw - 40px));
+}
+
+/* 置於畫面正中：跟 web Modal 遮罩一樣用 flex 置中（EP 原本是 inline-block＋::after 基線對齊） */
+.is-message-box .el-overlay-message-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &::after {
+    display: none;
+  }
+}
+
+.el-dialog__header,
+.el-message-box__header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin: 0;
+  padding: $spacing-24 $spacing-24 0;
+}
+
+/* AppDialog 的標題列：狀態圖示＋標題＋×（同 web Modal：× 用 close 圖示 20px、btn-dialog-close） */
+.el-dialog__header .el-dialog__title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sl-dialog__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.sl-dialog__close {
+  @include btn-dialog-close;
+  flex-shrink: 0;
+  /* 32px 的鈕比標題行高，往上下各吃一點，標題列不被撐高 */
+  margin-block: -4px;
 }
 
 .el-dialog__title,
 .el-message-box__title {
   color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  line-height: $line-height-base;
 }
 
 .el-dialog__body,
 .el-message-box__content {
+  padding: $spacing-16 $spacing-24 0;
   color: var(--color-text);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
 }
 
+.el-dialog__footer,
+.el-message-box__btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+  padding: $spacing-24;
+}
+
+/* 確認框的按鈕：EP 自己的按鈕換成 web 的 btn-secondary／btn-primary 外觀 */
+.el-message-box__btns .el-button {
+  @include btn-secondary;
+  height: auto;
+  margin: 0;
+}
+
+.el-message-box__btns .el-button--primary {
+  @include btn-primary;
+  height: auto;
+}
+
+/* 會丟掉東西或登出的確認（捨棄變更、換伺服器）：確認鈕用紅色，同 web useConfirm 的 danger */
+.el-message-box__btns .el-button.sl-confirm-danger {
+  @include btn-danger;
+  height: auto;
+}
+
+/* ── toast：比照 web 的 sonner 色票（語意色文字、10% 淡底、30% 邊框），右上角出現 ── */
 .el-message {
-  border-radius: 8px;
-}
-
-.el-alert {
-  border-radius: 8px;
-}
-
-.el-alert__title {
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.el-alert__description {
+  --el-message-bg-color: color-mix(in srgb, var(--color-info) 10%, var(--color-surface));
+  --el-message-border-color: color-mix(in srgb, var(--color-info) 30%, var(--color-surface));
+  --el-message-text-color: var(--color-info);
+  /* 同 sonner 的固定寬度；過長的錯誤訊息最多三行，不再橫跨整個視窗 */
+  width: 356px;
+  max-width: calc(100vw - 32px);
+  padding: $spacing-16;
+  border-radius: $radius-8;
+  box-shadow: var(--shadow-md);
   font-size: 13px;
-  overflow-wrap: anywhere;
+
+  /* 長訊息時圖示不被擠扁 */
+  .el-message__icon {
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .el-message__content {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-height: 1.5;
+  }
 }
 
-/* 表單欄位：同 form-control（淡底、聚焦主色框＋光暈） */
-.el-input__wrapper,
-.el-textarea__inner {
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-hover) 22%, var(--color-surface));
-  box-shadow: 0 0 0 1px var(--color-border) inset;
-}
+@each $type, $token in (success: success, error: danger, warning: pending, info: info) {
+  .el-message--#{$type} {
+    --el-message-bg-color: color-mix(in srgb, var(--color-#{$token}) 10%, var(--color-surface));
+    --el-message-border-color: color-mix(in srgb, var(--color-#{$token}) 30%, var(--color-surface));
+    --el-message-text-color: var(--color-#{$token});
 
-.el-input__wrapper.is-focus,
-.el-textarea__inner:focus {
-  background: var(--color-surface);
-  box-shadow:
-    0 0 0 1px var(--color-primary) inset,
-    0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-}
-
-.el-form-item__label {
-  color: var(--color-text-primary);
-  font-weight: 500;
-}
-
-.el-table {
-  overflow: hidden;
-  border-radius: 8px;
-  --el-table-header-bg-color: color-mix(
-    in srgb,
-    var(--color-hover) 50%,
-    var(--color-surface)
-  );
-  --el-table-header-text-color: var(--color-text-primary);
-  --el-table-text-color: var(--color-text);
-  --el-table-row-hover-bg-color: var(--color-hover);
-  --el-table-border-color: var(--color-divider);
-}
-
-.el-table th.el-table__cell {
-  font-weight: 700;
+    .el-message__content,
+    .el-message__icon {
+      color: var(--color-#{$token});
+    }
+  }
 }

@@ -18,6 +18,7 @@
   "scripts": {
     "test:update": "node scripts/test-update.mjs",
     "test:settings": "node scripts/test-settings.mjs",
+    "test:backend-url": "node scripts/test-backend-url.mjs",
     "test:auth": "node scripts/test-auth-login-url.mjs",
     "test:tunnel": "node scripts/test-tunnel.mjs",
     "test:resources": "node scripts/test-resource-access.mjs",
@@ -35,8 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@iconify-icons/material-symbols": "^2.0.5",
-    "@iconify/vue": "^5.0.0",
+    "@material-design-icons/font": "^0.14.15",
     "@types/node": "^26.6.4",
     "@typescript-eslint/eslint-plugin": "^8.46.2",
     "@typescript-eslint/parser": "^8.46.2",

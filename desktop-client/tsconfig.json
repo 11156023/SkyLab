@@ -19,6 +19,9 @@
     "paths": {
       "@/*": [
         "src/*"
+      ],
+      "@web/*": [
+        "../frontend/src/*"
       ]
     },
     "types": [

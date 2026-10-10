@@ -29,6 +29,7 @@ import SettingsService from "../service/SettingsService";
 import SystemService from "../service/SystemService";
 import WireGuardTunnelService from "../service/WireGuardTunnelService";
 import UpdateService from "../service/UpdateService";
+import { localize } from "../utils/LocaleUtils";
 
 process.env.DIST_ELECTRON = join(__dirname, "..");
 process.env.DIST = join(process.env.DIST_ELECTRON, "../dist");
@@ -139,21 +140,23 @@ class SkyLabApp {
     const settingsService: SettingsService =
       BeanFactory.getBean("settingsService");
     const language = await settingsService.getLanguage();
-    const labels =
-      language === "ja"
-        ? { show: "表示", quit: "終了" }
-        : language === "zh-TW"
-          ? { show: "顯示", quit: "結束" }
-          : { show: "Show", quit: "Quit" };
     const menu: Array<MenuItemConstructorOptions | MenuItem> = [
       {
-        label: labels.show,
+        label: localize(language, {
+          "zh-TW": "顯示",
+          "en-US": "Show",
+          ja: "表示"
+        }),
         click: () => {
           this._win?.show();
         }
       },
       {
-        label: labels.quit,
+        label: localize(language, {
+          "zh-TW": "結束",
+          "en-US": "Quit",
+          ja: "終了"
+        }),
         click: () => {
           this.quitSafely();
         }

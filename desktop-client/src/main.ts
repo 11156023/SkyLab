@@ -6,7 +6,11 @@ import i18n from "./lang";
 import router from "./router";
 import { useAppStore } from "./store/app";
 import { ipcRouters } from "../electron/core/IpcRouter";
-/* EP 的深色變數檔要排在自家樣式前面，index.scss 的深色區塊才能蓋過它 */
+/* 圖示字型與全站樣式（色票、reset、背景）直接用 web 端的同一份；
+   EP 的深色變數檔要排在自家樣式前面，index.scss 才蓋得過它 */
+import "@material-design-icons/font/outlined.css";
+import "@material-design-icons/font/filled.css";
+import "@web/assets/styles/global.scss";
 import "element-plus/theme-chalk/dark/css-vars.css";
 import "./styles/index.scss";
 import "./styles/workspace.scss";

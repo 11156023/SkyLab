@@ -29,7 +29,12 @@ const bundle = await build({
     }
   ]
 });
-const { default: Tunnel } = await import(
+const {
+  default: Tunnel,
+  elevatedCommand,
+  elevatedExitError,
+  windowsArgument
+} = await import(
   `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`
 );
 const deferred = () => {
@@ -122,7 +127,9 @@ test("renewal failure warns while lease is valid; expiry still blocks", async ()
   assert.equal(status.connectionError, null);
   assert.equal(status.leaseRefreshError, "HTTP 502");
   tunnel._expiresAt = Date.now() - 1;
-  assert.equal((await tunnel.getStatus()).running, false);
+  const expired = await tunnel.getStatus();
+  assert.equal(expired.running, false);
+  assert.equal(expired.connectionErrorCode, "B1013");
 });
 
 test("a genuinely orphaned service still requires reconnecting", async () => {
@@ -132,6 +139,57 @@ test("a genuinely orphaned service still requires reconnecting", async () => {
   const status = await tunnel.getStatus();
   assert.equal(status.running, false);
   assert.match(status.connectionError, /earlier app session/);
+  assert.equal(status.connectionErrorCode, "B1014");
+});
+
+test("declining UAC is reported separately from a failed admin action", () => {
+  assert.equal(elevatedExitError(0), null);
+  assert.equal(elevatedExitError(1223).bizCode, "B1011");
+  const failed = elevatedExitError(1603);
+  assert.equal(failed.bizCode, "B1012");
+  assert.match(failed.message, /exit code 1603/);
+  assert.equal(elevatedExitError(null).bizCode, "B1012");
+});
+
+test("arguments with spaces or quotes follow Windows command-line quoting", () => {
+  assert.equal(windowsArgument("/qn"), "/qn");
+  assert.equal(
+    windowsArgument(String.raw`C:\Program Files\SkyLab Connect\w.msi`),
+    String.raw`"C:\Program Files\SkyLab Connect\w.msi"`
+  );
+  assert.equal(windowsArgument('say "hi"'), String.raw`"say \"hi\""`);
+  assert.equal(windowsArgument("C:\\trailing dir\\"), String.raw`"C:\trailing dir\\"`);
+  assert.equal(windowsArgument(""), '""');
+});
+
+test("elevated command runs as admin and maps the UAC cancel to exit 1223", () => {
+  const command = elevatedCommand(String.raw`C:\Program Files\WireGuard\wireguard.exe`, [
+    "/installtunnelservice",
+    String.raw`C:\Users\O'Brien Lee\SkyLab.conf`
+  ]);
+  assert.ok(command.includes(String.raw`$psi.FileName = 'C:\Program Files\WireGuard\wireguard.exe';`));
+  assert.ok(
+    command.includes(String.raw`$psi.Arguments = '/installtunnelservice "C:\Users\O''Brien Lee\SkyLab.conf"';`)
+  );
+  assert.ok(command.includes("$psi.Verb = 'runas';"));
+  assert.match(command, /NativeErrorCode -eq 1223\) \{ exit 1223 \}/);
+  assert.match(command, /exit \$p\.ExitCode$/);
+});
+
+test("a changed network configuration asks for a reconnect with its own code", async () => {
+  const tunnel = new Tunnel();
+  tunnel._lastStartTime = Date.now();
+  tunnel._expiresAt = Date.now() + 60_000;
+  tunnel._activeConfigFingerprint = "before";
+  tunnel.isRunning = async () => true;
+  tunnel._readLatestHandshake = async () => ({ at: null, unavailable: true });
+  tunnel._probeAuthorizedTargets = async () => false;
+  tunnel._loadIdentity = () => ({ deviceId: "device-1" });
+  tunnel._SkyLabService = { refreshWireGuard: async () => ({}) };
+  tunnel._configFingerprint = () => "after";
+  await assert.rejects(tunnel.refreshTunnel(), error => error.bizCode === "B1015");
+  const status = await tunnel.getStatus();
+  assert.equal(status.connectionErrorCode, "B1015");
 });
 
 test("reachable authorized SSH target confirms the tunnel when wg inspection is denied", async () => {

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { theme } from "@/utils/appearance";
-import { LAYOUT } from "../../../frontend/src/components/OctoPet/octoBrain.js";
-import { mountOctoPet } from "../../../frontend/src/components/OctoPet/octoController.js";
+import { resolvedTheme } from "@/utils/appearance";
+import { LAYOUT } from "@web/components/OctoPet/octoBrain.js";
+import { mountOctoPet } from "@web/components/OctoPet/octoController.js";
 
 const props = withDefaults(
   defineProps<{
@@ -33,7 +33,7 @@ watch(
   () => props.activity,
   activity => controller?.setActivity(activity)
 );
-watch([() => props.scale, () => props.quiet, theme], mount);
+watch([() => props.scale, () => props.quiet, resolvedTheme], mount);
 </script>
 
 <template>

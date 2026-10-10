@@ -1,53 +1,23 @@
-@use "reset";
 @use "element";
 @use "scrollbar";
 
-/* ── 色票：與 web 端 frontend/src/assets/styles/_themes.scss 同一組，亮色為預設。
-   深色由 utils/appearance.ts 在 <html> 掛 data-theme="dark"（同時掛 .dark，Element Plus 的深色變數才會生效） ── */
-:root {
-  color-scheme: light;
-  --color-bg-base: #e8f0fd;
-  --color-bg-gradient-blue: #c1daff;
-  --color-bg-gradient-yellow: #feffed;
-  --color-bg-gradient-green: #edfff6;
-  --color-surface: #ffffff;
-  --color-surface-glass: rgba(255, 255, 255, 0.62);
-  --color-surface-glass-border: rgba(255, 255, 255, 0.5);
-  --color-sidebar-glass: rgba(255, 255, 255, 0.58);
-  --color-sidebar-glass-border: rgba(255, 255, 255, 0.42);
-  --color-primary: #5471bf;
-  --color-primary-dark: #2b4d98;
-  --color-primary-light: #6a7fb3;
-  /* 品牌色文字／邊框用：亮暗兩色都達 AA */
-  --color-primary-on-surface: #2b4d98;
-  --color-text: #5471bf;
-  --color-text-primary: #3a549d;
-  --color-text-secondary: #617dc8;
-  --color-text-muted: #8291aa;
-  --color-text-on-primary: #ffffff;
-  --color-border: #e5eaf3;
-  --color-divider: #eef2f9;
-  --color-hover: #e8efff;
-  --color-row-hover: #dde7fd;
-  --color-overlay: rgba(20, 30, 60, 0.25);
-  /* 狀態色：黃橙只給「待處理」語意，警示一律紅 */
-  --color-success: #28a745;
-  --color-danger: #dc3545;
-  --color-danger-dark: #b91c1c;
-  --color-info: #2b4d98;
-  --color-pending: #d97706;
-  --color-status-neutral: #6b7280;
-  --shadow-sm: 0 1px 3px rgba(67, 90, 149, 0.08);
-  --shadow-md: 0 4px 12px rgba(67, 90, 149, 0.08);
-  --shadow-lg: 0 8px 24px rgba(67, 90, 149, 0.12);
-  --shadow-glass:
-    0 4px 16px rgba(67, 90, 149, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.7);
-  --glass-backdrop-filter: blur(12px) saturate(1.4);
-  --sidebar-backdrop-filter: blur(16px) saturate(1.6);
+/* 色票、reset、背景暈染、MIcon 旋轉都直接用 web 的 global.scss（main.ts 先 import 它），
+   這裡只放桌面端自己的：Element Plus 變數對應、整個視窗當 App 用的設定 */
 
-  /* Element Plus 的文字、框線、狀態色跟著同一組色票走
-     （main.ts 先載入 EP 的深色變數檔，這裡與深色區塊才蓋得過它） */
+/* ── Element Plus 跟著同一組色票走 ──
+   設在 body（不是 :root）：web 的深色色票掛在 body.dark，
+   EP 變數要在同一層代入才會吃到深色值；EP 自己的深色檔掛在 html.dark，這裡較近、蓋得過它 */
+body {
   --el-color-primary: var(--color-primary);
+  --el-color-success: var(--color-success);
+  --el-color-danger: var(--color-danger);
+  --el-color-error: var(--color-danger);
+  --el-color-warning: var(--color-pending);
+  --el-color-info: var(--color-status-neutral);
+  --el-bg-color: var(--color-surface);
+  --el-bg-color-overlay: var(--color-surface);
+  --el-fill-color-blank: var(--color-surface);
+  --el-fill-color-light: var(--color-hover);
   --el-text-color-primary: var(--color-text-primary);
   --el-text-color-regular: var(--color-text);
   --el-text-color-secondary: var(--color-text-secondary);
@@ -55,48 +25,12 @@
   --el-border-color: var(--color-border);
   --el-border-color-light: var(--color-border);
   --el-border-color-lighter: var(--color-divider);
-  --el-fill-color-light: var(--color-hover);
-  --el-color-success: var(--color-success);
-  --el-color-danger: var(--color-danger);
-  --el-color-error: var(--color-danger);
-  --el-color-warning: var(--color-pending);
-  --el-color-info: var(--color-status-neutral);
   --el-overlay-color-lighter: var(--color-overlay);
 }
 
-html[data-theme="dark"] {
-  color-scheme: dark;
-  --color-bg-base: #0d1117;
-  --color-bg-gradient-blue: #1a2a48;
-  --color-bg-gradient-yellow: #2a2618;
-  --color-bg-gradient-green: #0f2a22;
-  --color-surface: #161b26;
-  --color-surface-glass: rgba(22, 27, 38, 0.58);
-  --color-surface-glass-border: rgba(255, 255, 255, 0.07);
-  --color-sidebar-glass: rgba(22, 27, 38, 0.72);
-  --color-sidebar-glass-border: rgba(255, 255, 255, 0.07);
-  --color-primary: #4361a2;
-  --color-primary-dark: #2f4e8c;
-  --color-primary-light: #89a5e0;
-  --color-primary-on-surface: #89a5e0;
-  --color-text: #d4deef;
-  --color-text-primary: #f0f4ff;
-  --color-text-secondary: #d9e8ff;
-  --color-text-muted: #c6cddc;
-  --color-border: #2a3142;
-  --color-divider: #1f2636;
-  --color-hover: #1f2636;
-  --color-row-hover: #273044;
-  --color-overlay: rgba(0, 0, 0, 0.6);
-  --color-info: #89a5e0;
-  --color-pending: #f59e0b;
-  --color-status-neutral: #9ca3af;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-glass:
-    0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  /* 深色模式 EP 的主色改用在深底上看得清的 on-surface 藍，淡色階以表面色混出 */
+/* 深色：EP 主色改用深底上看得清的 on-surface 藍，淡色階以表面色混出
+   （EP 的深色檔是拿它預設的 #409eff 算的，不蓋掉會冒出另一種藍） */
+body.dark {
   --el-color-primary: var(--color-primary-on-surface);
   --el-color-primary-light-3: color-mix(in srgb, var(--color-primary-on-surface) 70%, var(--color-surface));
   --el-color-primary-light-5: color-mix(in srgb, var(--color-primary-on-surface) 50%, var(--color-surface));
@@ -104,70 +38,23 @@ html[data-theme="dark"] {
   --el-color-primary-light-8: color-mix(in srgb, var(--color-primary-on-surface) 20%, var(--color-surface));
   --el-color-primary-light-9: color-mix(in srgb, var(--color-primary-on-surface) 10%, var(--color-surface));
   --el-color-primary-dark-2: var(--color-primary-light);
-  --el-bg-color: var(--color-surface);
-  --el-bg-color-page: var(--color-bg-base);
-  --el-bg-color-overlay: var(--color-surface);
-  --el-fill-color-blank: var(--color-surface);
-  --el-text-color-primary: var(--color-text-primary);
-  --el-text-color-regular: var(--color-text);
-  --el-text-color-secondary: var(--color-text-secondary);
-  --el-text-color-placeholder: var(--color-text-muted);
-  --el-border-color: var(--color-border);
-  --el-border-color-light: var(--color-border);
-  --el-border-color-lighter: var(--color-divider);
-  --el-fill-color-light: var(--color-hover);
 }
 
-html {
-  background: var(--color-bg-base);
+/* ── 整個視窗是一個 App：撐滿、不讓文字被當網頁選取（輸入框與可複製的值例外） ── */
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
 }
 
 body {
-  position: relative;
-  color: var(--color-text);
-  background: var(--color-bg-base);
-  font:
-    14px/1.6 "Segoe UI",
-    "Microsoft JhengHei",
-    "Noto Sans TC",
-    sans-serif;
+  overflow: hidden;
+  user-select: none;
 }
 
-/* 背景漸層光暈：同 web 端 body::before */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(
-      ellipse 100% 60% at 100% 0%,
-      var(--color-bg-gradient-blue) 0%,
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse 100% 80% at 0% 90%,
-      var(--color-bg-gradient-yellow) 0%,
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse 150% 70% at 100% 100%,
-      var(--color-bg-gradient-green) 0%,
-      transparent 100%
-    );
-}
-
-button,
 input,
-select {
-  font: inherit;
-}
-
-/* 滑鼠點擊不留框，鍵盤導覽才顯示焦點 */
-button:focus-visible,
-a:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+textarea,
+[data-selectable] {
+  user-select: text;
 }

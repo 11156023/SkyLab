@@ -51,12 +51,17 @@ class SkyLabService {
             });
             response.on("error", (err: Error) => {
               clearRequestTimeout();
-              reject(err);
+              reject(
+                new BusinessError(ResponseCode.BACKEND_UNREACHABLE, err.message)
+              );
             });
           });
+          // 連不上（離線、DNS、憑證、逾時）跟伺服器回錯誤分開，畫面才能給對的建議
           req.on("error", (err: Error) => {
             clearRequestTimeout();
-            reject(new BusinessError(ResponseCode.BACKEND_ERROR, err.message));
+            reject(
+              new BusinessError(ResponseCode.BACKEND_UNREACHABLE, err.message)
+            );
           });
           if (options.body !== undefined) {
             req.write(JSON.stringify(options.body));
@@ -64,7 +69,7 @@ class SkyLabService {
           timeout = setTimeout(() => {
             reject(
               new BusinessError(
-                ResponseCode.BACKEND_ERROR,
+                ResponseCode.BACKEND_UNREACHABLE,
                 "Request timed out."
               )
             );

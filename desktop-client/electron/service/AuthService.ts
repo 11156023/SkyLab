@@ -64,7 +64,7 @@ class AuthService {
    * finishes (success or failure).
    */
   async startLogin(
-    onResult: (success: boolean, error?: string) => void
+    onResult: (success: boolean, error?: BusinessError) => void
   ): Promise<void> {
     if (this._loginInProgress) {
       throw new BusinessError(
@@ -96,7 +96,7 @@ class AuthService {
         if (Date.now() > expiresAt) {
           this._loginInProgress = false;
           this._pollTimer = null;
-          onResult(false, "login timed out");
+          onResult(false, new BusinessError(ResponseCode.LOGIN_TIMEOUT));
           return;
         }
         try {
@@ -118,7 +118,15 @@ class AuthService {
           Logger.warn("AuthService.startLogin.poll", (err as Error).message);
           this._loginInProgress = false;
           this._pollTimer = null;
-          onResult(false, (err as Error).message);
+          onResult(
+            false,
+            err instanceof BusinessError
+              ? err
+              : new BusinessError(
+                  ResponseCode.INTERNAL_ERROR,
+                  (err as Error).message
+                )
+          );
         }
       };
 

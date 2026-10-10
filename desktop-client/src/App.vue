@@ -6,12 +6,17 @@ import zhTw from "element-plus/dist/locale/zh-tw.mjs";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "./store/app";
+import AppDialog from "./components/AppDialog.vue";
+import MIcon from "./components/MIcon.vue";
 
 const ELEMENT_LOCALES: Record<string, typeof en> = {
   "zh-TW": zhTw,
   "en-US": en,
   ja
 };
+
+/* toast 跟 web 的 sonner 一樣出現在右上角（色票在 styles/element.scss） */
+const MESSAGE_CONFIG = { placement: "top-right" };
 
 const appStore = useAppStore();
 const { t } = useI18n();
@@ -90,49 +95,60 @@ const handleConfirm = () => {
 </script>
 
 <template>
-  <el-config-provider :locale="elementLocale">
+  <el-config-provider :locale="elementLocale" :message="MESSAGE_CONFIG">
     <router-view />
 
-    <el-dialog
+    <!-- 同 web 的 SessionWarningDialog：標題前的狀態圖示（自動關機琥珀、到期紅）、
+         ×／Esc／點遮罩等同「稍後再說」 -->
+    <AppDialog
       v-model="warningVisible"
       :title="warningTitle"
       width="420px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :show-close="false"
+      :before-close="handleLater"
     >
+      <template #icon>
+        <MIcon
+          :name="isExpiry ? 'event_busy' : 'schedule'"
+          :class="
+            isExpiry ? 'session-warning__icon--expiry' : 'session-warning__icon'
+          "
+        />
+      </template>
       <p class="session-warning__message">{{ warningMessage }}</p>
       <el-checkbox v-model="doNotShow">
         {{ t("sessionWarning.doNotShow") }}
       </el-checkbox>
 
       <template #footer>
-        <div class="session-warning__footer">
-          <el-button v-if="showExtend" @click="handleLater">
-            {{ t("sessionWarning.later") }}
-          </el-button>
-          <el-button type="primary" @click="handleConfirm">
-            {{
-              showExtend
-                ? t("sessionWarning.extend")
-                : t("sessionWarning.gotIt")
-            }}
-          </el-button>
-        </div>
+        <button
+          v-if="showExtend"
+          type="button"
+          class="sl-btn-secondary"
+          @click="handleLater"
+        >
+          {{ t("sessionWarning.later") }}
+        </button>
+        <button type="button" class="sl-btn-primary" @click="handleConfirm">
+          <MIcon v-if="showExtend" name="autorenew" :size="16" />{{
+            showExtend ? t("sessionWarning.extend") : t("sessionWarning.gotIt")
+          }}
+        </button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </el-config-provider>
 </template>
 
 <style scoped lang="scss">
-.session-warning__message {
-  margin-bottom: 16px;
-  color: var(--color-text);
+.session-warning__icon {
+  color: var(--color-pending);
 }
 
-.session-warning__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.session-warning__icon--expiry {
+  color: var(--color-danger);
+}
+
+.session-warning__message {
+  margin-bottom: 12px;
+  color: var(--color-text-secondary);
 }
 </style>
