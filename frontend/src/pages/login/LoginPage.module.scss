@@ -197,16 +197,16 @@
   }
 }
 
+/* 登入前的桌面 App 提示：玻璃卡裡的內容區塊一律白底細框，不鋪主色淡底（換主色或背景時會糊） */
 .deviceNotice {
   display: flex;
   align-items: flex-start;
   gap: $spacing-8;
   margin-bottom: $spacing-16;
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid
-    color-mix(in srgb, var(--color-primary) 25%, var(--color-border));
+  padding: 12px $spacing-16;
+  border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  background: var(--color-surface);
   color: var(--color-text-secondary);
   font-size: $font-size-14;
   line-height: 1.5;
@@ -214,7 +214,7 @@
 
   > span:first-child {
     flex: 0 0 auto;
-    color: var(--color-primary);
+    color: var(--color-primary-on-surface);
   }
 }
 
