@@ -10,8 +10,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  /* 動作鈕貼著標題，寬螢幕上不會漂到最右端、與卡片脫節 */
-  justify-content: flex-start;
+  /* 動作鈕（查看所有課程）靠右，跟頁首右上角的「我的資源」對齊同一條右緣 */
+  justify-content: space-between;
   gap: $spacing-8 $spacing-16;
 
   h2 {

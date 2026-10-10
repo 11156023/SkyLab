@@ -68,8 +68,9 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
     </section>
 
     <section className={styles.section} aria-labelledby="joined-courses-title" data-guide="home-schedule">
+      {/* 沒有課程時「查看所有課程」只會點到同樣是空的列表，先不放；讀取失敗時留著當作另一條路 */}
       <SectionHeading id="joined-courses-title" title={t("HomeOverview.joinedCourses")}
-        action={t("HomeOverview.allCourses")} onAction={goToCourses} />
+        action={paths.length || coursesError ? t("HomeOverview.allCourses") : null} onAction={goToCourses} />
       {coursesError ? <EmptyPanel icon="cloud_off" title={t("StudentHomePage.errorTitle")} />
         : paths.length ? <div className={styles.courseGrid}>
           {paths.map((path) => <CourseTicket key={path.id} path={path}
