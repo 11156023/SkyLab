@@ -364,6 +364,128 @@ with urlopen(request, timeout=120) as response:
 print(payload["choices"][0]["message"])
 ```
 
+### 官網 AI 服務檢查（PowerShell，一次輸入憑證）
+
+在 repository 根目錄執行：
+
+```powershell
+uv run --no-project --with httpx python scripts/test_ai_services.py
+```
+
+終端會隱藏輸入一次官網登入 **JWT access token**，不需加 `Bearer `。
+在官網登入後按 F12 → Network → Fetch/XHR，找到 `/api/v1/users/me` 等已登入請求，
+從 Request Headers 的 `Authorization: Bearer ...` 複製 `Bearer ` 後面的 token。
+只輸入 access token，不使用 refresh token；401 時需重新登入取得有效 token。
+不要把 token 貼到聊天、指令參數或檔案。終端無法提供隱藏輸入時直接停止。
+
+登入 token 用於內建服務；公開模型使用 `ccai_*`，兩者不能互換。工具會先驗證 `/users/me`，
+再從 `/ai-api/credentials/my` 選擇本人最新、未撤銷且未過期的既有金鑰，經擁有者專用的
+`/ai-api/credentials/{id}` 讀取明文。只有本人可讀，管理員也不能用此入口取得他人的金鑰。
+沒有可用金鑰時公開模型列為未完成，仍繼續測試導覽與有權限的 PVE 助手。
+工具不申請、核准、輪替或撤銷金鑰；登入 token 與 AI 金鑰都只存在程序記憶體，
+不從 `.env` 讀取、不寫入報告。一次輸入代表本次程序重複使用憑證，不會把它變成一次性憑證。
+
+工具固定連線 `https://skylab-tw.com/api/v1`，公開模型的 base URL 為 `/ai-proxy`。
+通過登入驗證並取得本人既有金鑰後，公開模型測試依序執行：
+
+1. 查詢 `/rate-limit/status`，取得這把憑證實際的 limit、remaining、disabled。
+2. 從 `/models` 取得並去重目前受限 service identity 可見的全部 public model ID。
+3. 查詢 `/usage/my`，保存執行前的帳號用量快照。
+4. 每個模型測試兩題：繁體中文解釋 RPM／併發／429、將固定機器需求擷取為 JSON。
+   每題一般與串流各重複 3 次，每次最多 512 tokens；N 個模型共 12N 次生成。
+   依重複輪次、題目與模型順序執行，同時只有一個生成請求，不做併發壓測。
+5. 查詢執行後的限流與用量，保存於報告的 `public_models`。
+
+內建服務接著執行下列六個唯讀情境，每題重複 3 次，共 18 次流程請求：
+
+| 服務 | 測試情境 | 驗證與保存內容 |
+| --- | --- | --- |
+| 導覽 `/ai/navigation/resolve` | 找自己的 API 金鑰、找自己的機器、取得機器申請完整流程 | 分別驗證 `/ai-api`、`/my-resources`、`request_machine` 與四個步驟路徑；只驗證導覽輸出，不送出機器申請 |
+| PVE 助手 `/ai/pve-log/chat` | 節點 CPU／記憶體、儲存容量、叢集狀態 | 分別要求 `get_nodes`、`get_storage`、`get_cluster`；驗證工具與資料欄位，保存回覆及去敏資料；不把 quorum=false 或高使用率當成 API 故障 |
+
+PVE 問題明確要求不查詢 VM、不執行 SSH、不修改設定；工具不呼叫 `/ssh/confirm`。
+若助手提出確認，報告標記 `needs_confirmation` 並停止該情境，不保存確認 token、
+完整 messages、工具參數或 SSH 結果。非管理員直接標記 `permission_denied`，不冒用其他帳號。
+執行前後另外透過 `/ai/template-recommendation/usage/my` 取得平台用量快照；此 GET 的
+來源是全部 `platform` 用量，包含導覽與 PVE，不會呼叫範本推薦模型。
+教師檢查、情境說明與範本推薦生成不在此工具的測試範圍。
+
+全部結果覆寫 `test-results/ai-services/latest.json`（Git 忽略），不建立歷史目錄。
+
+報告的 `public_models` 包含每個模型的文字回覆、HTTP status、request ID、response model、finish reason、
+token 用量與完整耗時；串流另外保存首段／末段可見文字耗時、文字接收區間與 `[DONE]` 狀態。
+`first_content_ms` 是客戶端收到可見文字的時間，包含網路與排隊，不是引擎首 token 時間。
+正常回覆及 token 欄位完整才算 `ok`；串流另外要求 SSE content type 與 `[DONE]`。
+`semantic_check` 與請求成功分開：JSON 擷取檢查欄位、型別與值；導覽檢查目的地及步驟。
+繁體中文說明與 PVE 數據整理標記 `needs_review`，需人工閱讀回答與工具證據。
+`finish_reason=length` 另標記語意未完整；格式正確不等於語意正確。
+空文字會標記失敗；若 `finish_reason=length`，可能是推理模型用完 token 預算，需另行診斷。
+
+每次生成前會查詢剩餘額度，用盡時每 5 秒查詢，最多等待 70 秒；生成不自動重送，
+避免重複用量。HTTP 429 會保留 `Retry-After`，401／403 會停止後續生成。
+報告列出已測、失敗與未完成數量；程序中斷時會保存已完成結果。exit code 0 表示所有
+公開模型一般／串流及全部內建情境的自動檢查通過，1 表示請求／自動檢查失敗、權限不足或未完成，
+2 表示本機憑證輸入問題，130 表示取消。
+待人工核對的說明文字不使 exit code 變成 1，但也不代表已完成人工語意驗收。
+用量快照是帳號最近 30 天的彙總，可能包含其他同時呼叫與延後入帳；不能直接把前後差值
+當成本次精確用量，本次收到的 token 應以逐筆 results 為準。
+
+此工具涵蓋所有可見模型的文字 chat，不驗證 `/completions`、`/responses`、tools、影像、
+embedding 或模型容量。模型出現在清單不表示支援全部格式。內建服務固定使用 System AI 綁定
+模型，不能透過呼叫 body 任選公開模型；不做「每項服務 × 每個模型」。
+導覽可能在模型失敗時回傳固定 fallback；它與 PVE 的 public response 沒有提供可直接驗證
+完整生成用量的欄位，報告標記 `model_execution=not_exposed`。HTTP 200、導覽路徑正確或平台
+用量快照增加，都不能單獨證明當次完整推論鏈正常；不把此工具當成語意品質或部署容量驗收。
+
+#### token/s 與失敗統計
+
+公開模型逐筆 `e2e_output_tokens_per_second` 使用回應的 `completion_tokens ÷ 客戶端整次請求秒數`。
+包含 HTTP、上游排隊、prefill、生成及回傳；不包含工具送出請求前的本機配額等待。
+completion tokens 可能包含推理 tokens，因此此值不是可見文字的純 decode 速度。
+`stream_content_duration_ms` 只記錄首段到末段文字的接收時間，不把 chunk 數當成 token 數。
+缺少有效用量、請求失敗或耗時無效時，速度為 `null`，不使用 0 假裝有量測。
+每個模型／題目／一般或串流的彙總速度使用成功請求的總 completion tokens 除以總耗時。
+
+管理員另查詢 `/ai-api/monitoring/template-calls`，用本人 user ID 與該情境的起訖時間，
+取得 `ai_nav` 或 `pve_chat`／`pve_chat_adherence` 的逐筆模型紀錄。
+只保存 model、call type、record/request ID、status、token、耗時與 usage_reported 等指標；
+不保存其他使用者、email、姓名或原始錯誤文字。只有 `usage_reported=true` 才計算該筆模型的 token/s。
+這是模型呼叫耗時，不是整個導覽／PVE 流程耗時。相同題目多輪紀錄以 record ID 去重後彙總。
+
+`observed_model_calls.association=time_window` 表示以時間區間關聯：內建 API 沒有提供可用來
+精確對應模型紀錄的完整 request ID，若同帳號同時在官網使用助手，紀錄可能混入其他問題。
+測試期間宜暫停同帳號其他 AI 操作；即使紀錄只有一筆，也不把時間區間匹配冒充精確因果關聯。
+無權限、監控查詢失敗、沒有紀錄或未回報用量時保留 unavailable／no_records／null。
+最多讀取 200 筆；超過時標記 partial，不把部分紀錄當成完整用量。
+
+`public_models.summary` 依模型、題目及串流模式提供失敗次數、失敗比例、語意不符、
+待人工核對、平均耗時與 token/s；`system_summary` 依情境提供流程失敗、權限／確認阻塞、
+語意不符，以及觀測模型呼叫失敗數與 token/s。HTTP／串流錯誤、回答不符與模型內部呼叫失敗
+是不同統計，不混成同一個分母。每題三次只供功能穩定性抽查，沒有冷 cache 控制，也不證明容量。
+
+### 限流如何判讀
+
+| 層級 | 程式預設／契約 | 實際含義 |
+| --- | --- | --- |
+| Campus 生成 | 每個核准申請 20 次／60 秒滑動視窗 | 金鑰的 `rate_limit` 優先，未設定才用全站預設；所有模型與三種生成 endpoint 共用 |
+| 模型清單 | 每個核准申請 30 次／60 秒 | `/models` 獨立額度，不消耗生成配額 |
+| 限流狀態 | 不消耗生成配額 | `/rate-limit/status` 回報憑證當下額度；`disabled=true` 或 `error` 需分別判讀 |
+| Backend admission | 每個 process 全域 active 20、每個模型 active 10、等待 40 | 併發與排隊限制，不是 RPM；等待／cooldown 預算 70 秒、整次請求 deadline 115 秒 |
+| LiteLLM deployment | generator 的每個 deployment `rpm` 預設 10 | source of truth 是 `vllm-service/models.json` 的 `litellm.rpm`；生成設定只供 runtime 使用 |
+| AI 導覽 | 每個登入帳號 30 次／60 秒 | `/resolve`、`/intake` 共用 `ai-navigation` scope；intake 不打模型，但也占額度 |
+| AI PVE 助手 | chat route 沒有另外設定 RPM dependency | 不表示無限容量；仍受登入權限、System AI transport 與上游限制，不能套用公開 API 的 20 RPM |
+
+生成配額 identity 是核准申請 `request_id`，同一申請輪替金鑰不會重置；不同模型也不會
+各自獲得 20 次。一般與串流各占一次；限流檢查在 body／model 驗證前，所以部分無效請求
+也會占用額度。上游重試由 relay 處理，同一 logical request 不再次消耗 Campus RPM。
+滑動視窗不是整點重置；目前 status 的 `reset_at` 是查詢時間加上一個視窗，不是精確的
+下一個 slot 釋放時間，工具因此重新查詢剩餘值。
+
+`20/60`、`30/60` 與 LiteLLM `10 RPM` 是目前原始碼的預設／設定來源，不能替代部署實測。
+官網憑證值以 status 回應為準；status 沒有暴露 generation window 秒數，若部署調整了
+`AI_API_RATE_LIMIT_WINDOW_SECONDS`，需由部署端確認。LiteLLM RPM 不由公開 status 暴露，
+同樣需要部署端確認。backend 多 process 的總併發相加，單次順序檢查不能證明容量。
+
 ### 維運驗證
 
 ```bash
