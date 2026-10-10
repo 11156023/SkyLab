@@ -12,7 +12,7 @@
   "App.retryConnect": "重新連線",
   "Error.title": "發生錯誤",
   "Error.desc": "請再試一次，如果此錯誤持續發生請聯繫管理員。",
-  "Error.generic": "發生錯誤，請再試一次；如果此錯誤持續發生請聯繫管理員",
+  "Error.generic": "發生錯誤，請再試一次，如果此錯誤持續發生請聯繫管理員。",
   "Error.retry": "重試",
   "EmptyState.clearFilters": "清除篩選",
   "EmptyState.clearSearch": "清除搜尋",

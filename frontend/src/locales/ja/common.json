@@ -12,7 +12,7 @@
   "App.retryConnect": "再接続",
   "Error.title": "エラーが発生しました",
   "Error.desc": "もう一度お試しください。このエラーが続く場合は管理者にお問い合わせください。",
-  "Error.generic": "エラーが発生しました。もう一度お試しください。このエラーが続く場合は管理者にお問い合わせください",
+  "Error.generic": "エラーが発生しました。もう一度お試しください。このエラーが続く場合は管理者にお問い合わせください。",
   "Error.retry": "再試行",
   "EmptyState.clearFilters": "フィルターをクリア",
   "EmptyState.clearSearch": "検索をクリア",

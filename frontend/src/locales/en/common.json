@@ -12,7 +12,7 @@
   "App.retryConnect": "Reconnect",
   "Error.title": "An error occurred",
   "Error.desc": "Please try again. If this error persists, contact your administrator.",
-  "Error.generic": "An error occurred. Please try again — if this error persists, contact your administrator.",
+  "Error.generic": "An error occurred. Please try again. If this error persists, contact your administrator.",
   "Error.retry": "Retry",
   "EmptyState.clearFilters": "Clear filters",
   "EmptyState.clearSearch": "Clear search",
