@@ -324,7 +324,9 @@ def client() -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture(scope="module")
-def superuser_token_headers(client: TestClient) -> dict[str, str]:
+def superuser_token_headers(client: TestClient, db: Session) -> dict[str, str]:
+    # 取得 superuser token 會實際呼叫登入路由並讀取 application DB；
+    # 明確宣告 guarded fixture，避免測試被 DB guard 誤判為純單元測試。
     return get_superuser_token_headers(client)
 
 

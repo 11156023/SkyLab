@@ -14,7 +14,7 @@ from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string, random_password
 
 
-def test_get_access_token(client: TestClient) -> None:
+def test_get_access_token(client: TestClient, db: Session) -> None:
     login_data = {
         "username": settings.FIRST_SUPERUSER,
         "password": settings.FIRST_SUPERUSER_PASSWORD,
@@ -26,7 +26,7 @@ def test_get_access_token(client: TestClient) -> None:
     assert tokens["access_token"]
 
 
-def test_get_access_token_incorrect_password(client: TestClient) -> None:
+def test_get_access_token_incorrect_password(client: TestClient, db: Session) -> None:
     login_data = {
         "username": settings.FIRST_SUPERUSER,
         "password": "incorrect",
@@ -224,7 +224,7 @@ def test_google_login_is_case_insensitive_for_existing_user(
 
 
 def test_google_login_unregistered_email_has_clear_error(
-    client: TestClient, monkeypatch
+    client: TestClient, db: Session, monkeypatch
 ) -> None:
     with (
         patch(
