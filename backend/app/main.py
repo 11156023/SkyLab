@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 from contextlib import asynccontextmanager, suppress
 
 # uvicorn 0.36+ 使用 loop_factory 參數直接建立 event loop，繞過 asyncio policy。
@@ -24,6 +25,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.api.ai_capacity import (
+    AIIngressMiddleware,
+    close_ai_capacity,
+    start_ai_capacity,
+)
 from app.api.deps.turnstile import TURNSTILE_HEADER
 from app.api.main import api_router
 from app.api.prometheus_sd import gateway_targets_endpoint
@@ -35,7 +41,9 @@ from app.api.websocket.classroom import (
 from app.api.websocket.course_progress import course_progress_proxy
 from app.api.websocket.jobs import jobs_ws_proxy
 from app.api.websocket.terminal import terminal_proxy
+from app.core import metrics
 from app.core.config import settings
+from app.core.db import engine
 from app.core.i18n import resolve_language, t, translate
 from app.core.logging import configure_logging
 from app.core.metrics import (
@@ -132,8 +140,28 @@ async def _cancel_and_wait(task: asyncio.Task[None] | None) -> None:
         await asyncio.gather(task)
 
 
+async def _observe_runtime() -> None:
+    import anyio
+
+    from app.services.llm_gateway.usage_writer import get_usage_writer
+
+    while True:
+        expected = time.monotonic() + 1.0
+        await asyncio.sleep(1.0)
+        metrics.EVENT_LOOP_LAG.set(max(0.0, time.monotonic() - expected))
+        statistics = anyio.to_thread.current_default_thread_limiter().statistics()
+        metrics.AUTH_WORKERS.labels(state="borrowed").set(statistics.borrowed_tokens)
+        metrics.AUTH_WORKERS.labels(state="waiting").set(statistics.tasks_waiting)
+        metrics.AUTH_WORKERS.labels(state="total").set(statistics.total_tokens)
+        metrics.DB_CHECKED_OUT.set(engine.pool.checkedout())
+        writer = get_usage_writer()
+        with writer.lock:
+            writer._update()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    start_ai_capacity()
     start_relay_runtime()
     configure_logging(
         level=settings.LOG_LEVEL,
@@ -146,6 +174,7 @@ async def lifespan(app: FastAPI):
     await init_redis()
     await init_arq_pool()
     init_background_runner()
+    observation_task = asyncio.create_task(_observe_runtime())
     stop_event = asyncio.Event()
     scheduler_task: asyncio.Task[None] | None = None
     wireguard_task: asyncio.Task[None] | None = None
@@ -165,9 +194,11 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         stop_event.set()
+        await _cancel_and_wait(observation_task)
         for task in (scheduler_task, wireguard_task, push_task):
             await _cancel_and_wait(task)
         await shutdown_background_runner()
+        await close_ai_capacity()
         await close_relay_runtime()
         await close_ai_clients()
         await close_arq_pool()
@@ -193,6 +224,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(AIIngressMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(RequestContextMiddleware)

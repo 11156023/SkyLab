@@ -1,3 +1,9 @@
+import asyncio
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
+
+import anyio
+from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session, create_engine, select
 
 from app.core.config import settings
@@ -5,6 +11,34 @@ from app.models import SystemSetup, User
 from app.repositories import user as user_repo
 from app.repositories.system_setup import SYSTEM_SETUP_ID
 from app.schemas import UserCreate
+
+_T = TypeVar("_T")
+
+
+async def run_db_in_threadpool(
+    operation: Callable[..., _T], *args: Any, **kwargs: Any
+) -> _T:
+    """Offload a Session operation; do not let cancellation close it mid-query."""
+    task = asyncio.create_task(run_in_threadpool(operation, *args, **kwargs))
+    cancellation: asyncio.CancelledError | None = None
+    while True:
+        try:
+            with anyio.CancelScope(shield=cancellation is not None):
+                result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError as exc:
+            if task.cancelled():
+                raise
+            if cancellation is None:
+                cancellation = exc
+        except Exception:
+            if cancellation is not None:
+                raise cancellation from None
+            raise
+    if cancellation is not None:
+        raise cancellation
+    return cast(_T, result)
+
 
 engine = create_engine(
     str(settings.SQLALCHEMY_DATABASE_URI),

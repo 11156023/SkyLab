@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -30,21 +31,27 @@ async def open_vncwebsocket(
     ``open_timeout`` 為 None 時沿用 websockets 預設（10 秒），不可把 None 傳下去，
     那會變成無限等待。
     """
-    cfg = get_proxmox_settings(get_connection_id_for_node(node))
-    host = get_host_for_node(node)
+
+    def prepare():
+        cfg = get_proxmox_settings(get_connection_id_for_node(node))
+        return cfg, get_host_for_node(node), build_ws_ssl_context(cfg)
+
+    cfg, host, ssl_context = await asyncio.to_thread(prepare)
     url = (
         f"wss://{host}:{cfg.port}"
         f"/api2/json/nodes/{node}/{kind}/{vmid}/vncwebsocket"
         f"?port={port}&vncticket={quote(ticket, safe='')}"
     )
-    kwargs: dict[str, Any] = {} if open_timeout is None else {"open_timeout": open_timeout}
+    kwargs: dict[str, Any] = (
+        {} if open_timeout is None else {"open_timeout": open_timeout}
+    )
     # Cookie header must NOT be URL-encoded; Proxmox rejects percent-encoded cookies.
     # Proxmox vncwebsocket requires Sec-WebSocket-Protocol: binary (same as noVNC client).
     # proxy=None: disable system proxy — Proxmox is on a private network and
     # going through a proxy (websockets 16 default: proxy=True) breaks the connection.
     return await websockets.connect(
         url,
-        ssl=build_ws_ssl_context(cfg),
+        ssl=ssl_context,
         additional_headers={"Cookie": f"PVEAuthCookie={pve_auth_cookie}"},
         subprotocols=[Subprotocol("binary")],
         max_size=2**20,

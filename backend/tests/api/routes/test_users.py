@@ -420,7 +420,9 @@ def test_register_user(client: TestClient, db: Session) -> None:
     assert verified
 
 
-def test_register_user_already_exists_error(client: TestClient) -> None:
+def test_register_user_already_exists_error(
+    client: TestClient, db: Session
+) -> None:
     password = random_password()
     full_name = random_lower_string()
     data = {
