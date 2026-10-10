@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
+import Switch from "../../../../../components/Switch/Switch";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import ConnectionDialog from "../../../../../components/ConnectionDialog/ConnectionDialog";
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
@@ -213,7 +214,10 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                   </thead>
                   <tbody>
                     {rules.map((rule) => (
-                      <tr key={rule.pos} className={`${styles.tr} ${rule.is_managed ? styles.lockedRow : ""}`}>
+                      <tr
+                        key={rule.pos}
+                        className={`${styles.tr} ${rule.is_managed ? styles.lockedRow : ""} ${rule.enable === 0 ? styles.ruleOffRow : ""}`}
+                      >
                         {/* rule.pos 是 Proxmox 的 0 起算位置，顯示給人看從 1 開始 */}
                         <td className={`${styles.td} ${styles.mutedCell}`}>{rule.pos + 1}</td>
                         <td className={styles.td}>
@@ -227,11 +231,13 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                           {(rule.type === "in" ? rule.source : rule.dest) ?? t("FirewallCard.any")}
                         </td>
                         <td className={styles.td}>
-                          <span className={`${styles.badge} ${rule.action === "ACCEPT" ? styles.badge_success : styles.badge_danger}`}>
-                            {policyLabel(rule.action, t)}
-                          </span>
-                          {rule.enable === 0 && (
-                            <span className={`${styles.badge} ${styles.badge_muted}`}>{t("FirewallCard.ruleDisabled")}</span>
+                          {/* 停用的規則不生效，動作欄直接換成紅色「停用」，不再並排「允許」＋「已停用」兩顆徽章 */}
+                          {rule.enable === 0 ? (
+                            <span className={`${styles.badge} ${styles.badge_danger}`}>{t("FirewallCard.ruleDisabled")}</span>
+                          ) : (
+                            <span className={`${styles.badge} ${rule.action === "ACCEPT" ? styles.badge_success : styles.badge_danger}`}>
+                              {policyLabel(rule.action, t)}
+                            </span>
                           )}
                         </td>
                         <td className={`${styles.td} ${styles.detailCell}`}>
@@ -249,15 +255,13 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                             {/* 鎖定規則的備註欄已標「由連線管理」，操作欄留空不再重複 */}
                             {rule.is_managed ? null : (
                               <>
-                                <button
-                                  type="button"
-                                  className={styles.rpIconBtn}
+                                <Switch
+                                  checked={rule.enable !== 0}
+                                  onChange={() => handleToggle(rule)}
                                   disabled={busy}
-                                  title={rule.enable === 0 ? t("FirewallCard.enableRule") : t("FirewallCard.disableRule")}
-                                  onClick={() => handleToggle(rule)}
-                                >
-                                  <MIcon name={rule.enable === 0 ? "toggle_off" : "toggle_on"} size={18} />
-                                </button>
+                                  ariaLabel={t("FirewallCard.enableSwitch")}
+                                  title={t("FirewallCard.enableSwitch")}
+                                />
                                 <button
                                   type="button"
                                   className={`${styles.rpIconBtn} ${styles.rpIconBtnDanger}`}

@@ -17,6 +17,7 @@ import {
 } from "../../services/firewall";
 import styles from "./RulesPanel.module.scss";
 import MIcon from "../MIcon";
+import Switch from "../Switch/Switch";
 import LoadingState from "../LoadingState/LoadingState";
 import ConnectionDialog from "../ConnectionDialog/ConnectionDialog";
 import useDialogPresence from "../../hooks/useDialogPresence";
@@ -190,7 +191,9 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
                   >
                     <span className={styles.rulePos}>#{rule.pos}</span>
                     <Badge label={rule.type?.toUpperCase() ?? "—"} variant={rule.type === "in" ? "blue" : "orange"} />
-                    <Badge label={rule.action ?? "—"} variant={rule.action === "ACCEPT" ? "success" : "danger"} />
+                    {rule.enable === 0
+                      ? <Badge label={t("RulesPanel.ruleDisabled")} variant="danger" />
+                      : <Badge label={rule.action ?? "—"} variant={rule.action === "ACCEPT" ? "success" : "danger"} />}
                     <div className={styles.ruleDetail}>
                       {rule.source && <span>{rule.source}</span>}
                       {rule.source && rule.dest && <MIcon name="arrow_forward" size={12} />}
@@ -207,15 +210,13 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
                         </span>
                       ) : (
                         <>
-                          <button
-                            type="button"
-                            className={styles.ruleBtn}
+                          <Switch
+                            checked={rule.enable !== 0}
+                            onChange={() => handleToggle(rule)}
                             disabled={busy}
-                            title={rule.enable === 0 ? t("RulesPanel.enableRule") : t("RulesPanel.disableRule")}
-                            onClick={() => handleToggle(rule)}
-                          >
-                            <MIcon name={rule.enable === 0 ? "toggle_off" : "toggle_on"} size={16} />
-                          </button>
+                            ariaLabel={t("RulesPanel.enableSwitch")}
+                            title={t("RulesPanel.enableSwitch")}
+                          />
                           <button
                             type="button"
                             className={`${styles.ruleBtn} ${styles.ruleBtnDanger}`}

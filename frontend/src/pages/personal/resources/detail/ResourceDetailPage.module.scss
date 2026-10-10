@@ -781,6 +781,11 @@
   opacity: 0.75;
 }
 
+/* 停用的防火牆規則：內容淡化，操作欄的開關維持清楚，才看得出能再打開 */
+.ruleOffRow > td:not(.tdActions) {
+  opacity: 0.55;
+}
+
 /* 底色與防火牆頁畫布同一組 flow token（藍色淡染＋玻璃濾鏡） */
 .flowMini {
   position: relative;

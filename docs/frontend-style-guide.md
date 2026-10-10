@@ -448,6 +448,21 @@ Form fields always use the form mixin family from `_mixins.scss`; **do not inven
 > `resize` again** inside a component. Only in special cases (a long-text editor that genuinely needs to be user-resizable) should a page explicitly set
 > `resize: vertical` back, so that the exception is visible.
 
+### Switch and checkbox
+
+Enable/disable toggles that **take effect immediately always use the shared `Switch`** (`components/Switch/Switch`); do not use a toggle-icon button (`toggle_on` / `toggle_off`) or a checkbox in their place:
+
+```jsx
+<Switch checked={rule.enable !== 0} onChange={(next) => toggle(rule, next)} disabled={busy} ariaLabel={t("…enableSwitch")} title={t("…enableSwitch")} />
+```
+
+- **Division of labour**: sends as soon as it flips → `Switch`; a form field that only takes effect after pressing "Save" → checkbox (`.checkRow`). A switch tells users the change is immediate, so do not mix the two
+- Look: a 36×20 pill track with a 16px white knob, on = `--color-primary`, off = grey; it is a single `button role="switch"`
+- In tables and list rows **show the switch alone, without an "Enabled" caption** (the column header or the row already says what it controls), and pass `ariaLabel` + `title` instead; only pass a visible `label` when it is genuinely needed, saying what the switch controls and not changing with the state
+- The current state is shown by the knob position and colour; in a list, a disabled row **swaps its status badge for a red "Disabled"** (e.g. a firewall rule's "Allow" becomes "Disabled") instead of adding a separate "Disabled" badge next to it
+- A disabled row dims only its content; **the actions cell holding the switch is not dimmed**, so it is clear it can be turned back on
+- Currently used by: the firewall rules in resource details › advanced settings, the rules panel on the firewall page, and the node list in PVE management
+
 ### Tables
 
 List-page tables always use the table mixin family from `_mixins.scss`; **do not copy the whole set of styles into a page**:

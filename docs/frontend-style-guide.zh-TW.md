@@ -448,6 +448,21 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 > `resize`**。特殊情況（真的需要讓使用者拖高的長文編輯區）才在該頁明確寫回
 > `resize: vertical`，讓例外看得見。
 
+### 開關（Switch）與勾選框
+
+「立刻生效」的啟用／停用**一律用共用的 `Switch`**（`components/Switch/Switch`），不要再用開關圖示按鈕（`toggle_on` / `toggle_off`）或勾選框代替：
+
+```jsx
+<Switch checked={rule.enable !== 0} onChange={(next) => toggle(rule, next)} disabled={busy} ariaLabel={t("…enableSwitch")} title={t("…enableSwitch")} />
+```
+
+- **分工**：一切換就送出 → `Switch`；要按「儲存」才生效的表單欄位 → 勾選框（`.checkRow`）。看到開關就知道會立刻生效，兩者別混用
+- 外觀：36×20 膠囊軌道＋16px 白色圓鈕，開＝`--color-primary`、關＝灰，是一個 `button role="switch"`
+- 表格、清單列裡**只放開關本體，不寫「啟用」字樣**（欄名或列內容已交代控制什麼），改用 `ariaLabel`＋`title`；真的需要可見文字才給 `label`，寫「控制什麼」、不隨狀態改字
+- 目前狀態由軌道位置與顏色表達；列表上停用的那一列，**狀態徽章直接換成紅色「停用」**（例如防火牆規則的「允許」換成「停用」），不另外並排「已停用」徽章
+- 停用的那一列只淡化內容，**開關所在的操作欄不淡化**，才看得出能再打開
+- 目前用在：資源詳情進階設定的防火牆規則、防火牆頁規則面板、PVE 管理的節點列表
+
 ### 表格（Table）
 
 列表頁表格一律使用 `_mixins.scss` 的表格 mixin 組，**不要在頁面內重抄整組樣式**：
