@@ -35,6 +35,12 @@ class _Session:
     def rollback(self) -> None:
         self.calls.append("rollback")
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
     def close(self) -> None:
         self.closed = True
 
@@ -105,6 +111,7 @@ def _patch_auth(monkeypatch: pytest.MonkeyPatch, session: _Session) -> None:
 
     monkeypatch.setattr(jobs_ws, "get_ws_current_user", fake_get_ws_current_user)
     monkeypatch.setattr(jobs_ws, "_SNAPSHOT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(jobs_ws, "Session", lambda engine: session)
 
 
 async def test_closes_with_1008_once_user_is_no_longer_authorized(

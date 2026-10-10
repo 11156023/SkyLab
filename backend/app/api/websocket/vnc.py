@@ -11,6 +11,7 @@ from app.api.websocket.utils import (
     run_until_first_done,
 )
 from app.api.websocket.utils import safe_close_websocket as _safe_close_websocket
+from app.core.db import run_db_in_threadpool
 from app.exceptions import NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import open_vncwebsocket
 from app.infrastructure.vnc.messages import (
@@ -64,18 +65,18 @@ async def vnc_proxy(
     """
     # Authenticate user and check ownership before accepting
     user, session = await get_ws_current_user(websocket, token=token)
+
+    def authorize() -> None:
+        try:
+            require_resource_console_access(session=session, user=user, vmid=vmid)
+        finally:
+            session.close()
+
     try:
-        # 同步 DB 查詢丟到 worker thread，連線池耗盡時才不會凍住 event loop
-        await asyncio.to_thread(
-            require_resource_console_access, session=session, user=user, vmid=vmid
-        )
+        await run_db_in_threadpool(authorize)
     except Exception:
         await _safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
-    finally:
-        # 權限檢查之後不再需要 DB；立刻關閉，避免整個主控台生命週期
-        # 佔住一條 idle-in-transaction 連線（比照 classroom.py）。
-        session.close()
 
     await websocket.accept()
     logger.info(f"VNC proxy connection for VM {vmid} by user {user.email}")
@@ -104,14 +105,20 @@ async def vnc_proxy(
                     pve_auth_cookie, _ = await proxmox_service.get_session_ticket(node)
                 except ProxmoxError:
                     logger.error("Proxmox session authentication failed")
-                    await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
+                    await _safe_close_websocket(
+                        websocket, code=1008, reason="Authentication failed"
+                    )
                     return
         else:
             try:
-                pve_auth_cookie, csrf_token = await proxmox_service.get_session_ticket(node)
+                pve_auth_cookie, csrf_token = await proxmox_service.get_session_ticket(
+                    node
+                )
             except ProxmoxError:
                 logger.error("Proxmox session authentication failed")
-                await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
+                await _safe_close_websocket(
+                    websocket, code=1008, reason="Authentication failed"
+                )
                 return
             console_data = await proxmox_service.get_vnc_ticket_with_session(
                 node,
@@ -127,14 +134,18 @@ async def vnc_proxy(
                 node, "qemu", vmid, vnc_port, vnc_ticket, pve_auth_cookie
             )
         except websockets.exceptions.InvalidStatus as e:
-            logger.error(
-                f"Proxmox WebSocket rejected: HTTP {e.response.status_code}"
+            logger.error(f"Proxmox WebSocket rejected: HTTP {e.response.status_code}")
+            await _safe_close_websocket(
+                websocket, code=1008, reason="Proxmox connection failed"
             )
-            await _safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
             return
         except Exception as e:
-            logger.error(f"Proxmox WebSocket connection failed ({type(e).__name__}): {e}")
-            await _safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
+            logger.error(
+                f"Proxmox WebSocket connection failed ({type(e).__name__}): {e}"
+            )
+            await _safe_close_websocket(
+                websocket, code=1008, reason="Proxmox connection failed"
+            )
             return
 
         logger.info(f"WebSocket proxy established for VM {vmid}")
@@ -191,7 +202,9 @@ async def vnc_proxy(
 
     except Exception as e:
         logger.error(f"Failed to establish WebSocket proxy: {e}", exc_info=True)
-        await _safe_close_websocket(websocket, code=1011, reason="Internal server error")
+        await _safe_close_websocket(
+            websocket, code=1011, reason="Internal server error"
+        )
     finally:
         if pve_websocket:
             await pve_websocket.close()

@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
+import anyio
 import jwt
 import pytest
 from fastapi import WebSocketException
@@ -52,6 +53,9 @@ class _FakeSession:
     def get(self, model: Any, key: Any) -> Any:
         return self._user
 
+    def in_transaction(self) -> bool:
+        return False
+
     def close(self) -> None:
         self.closed = True
 
@@ -77,6 +81,32 @@ def _patch_session(monkeypatch: pytest.MonkeyPatch, session: _FakeSession) -> No
 
 
 _WS = SimpleNamespace()  # get_ws_current_user only reads the token
+
+
+async def test_ws_level_cancellation_closes_only_after_query_finishes(monkeypatch):
+    import time
+
+    order = []
+    _patch_redis(monkeypatch, revoked=False)
+
+    class SlowSession(_FakeSession):
+        def get(self, *args):
+            time.sleep(0.06)
+            order.append("query_done")
+            return self._user
+
+        def close(self):
+            time.sleep(0.01)
+            order.append("close_done")
+            super().close()
+
+    session = SlowSession(SimpleNamespace())
+    _patch_session(monkeypatch, session)
+    with anyio.move_on_after(0.01) as scope:
+        await auth_module.get_ws_current_user(_WS, token=_make_token())
+    assert scope.cancelled_caught
+    assert session.closed
+    assert order == ["query_done", "close_done"]
 
 
 async def test_ws_rejects_refresh_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,9 +157,7 @@ async def test_ws_accepts_valid_access_token(
     fake_session = _FakeSession(fake_user)
     _patch_session(monkeypatch, fake_session)
 
-    user, session = await auth_module.get_ws_current_user(
-        _WS, token=_make_token(ver=0)
-    )
+    user, session = await auth_module.get_ws_current_user(_WS, token=_make_token(ver=0))
 
     assert user is fake_user
     assert session is fake_session

@@ -7,6 +7,7 @@ import ErrorState from "../../../components/ErrorState/ErrorState";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
 import { AuthStorage } from "../../../services/auth";
+import { connectReconnectingWebSocket } from "../../../utils/reconnectingWebSocket";
 import {
   CourseAdminService,
   courseProgressWsUrl,
@@ -24,6 +25,8 @@ function ProgressPanel({ paths, initialPathId = "" }) {
   const [failed, setFailed] = useState(false);
   const [live, setLive] = useState(false);
   const refetchTimer = useRef(null);
+  const reportRequestRef = useRef(0);
+  const appliedReportRequestRef = useRef(0);
   /* 目前顯示的是哪條路徑：慢回來的舊請求不可以蓋掉新路徑的報表 */
   const activePathIdRef = useRef("");
   activePathIdRef.current = pathId;
@@ -33,20 +36,26 @@ function ProgressPanel({ paths, initialPathId = "" }) {
   }, [initialPathId]);
 
   const fetchReport = useCallback((id) => {
+    const requestId = ++reportRequestRef.current;
     CourseAdminService.getPathProgress(id)
       .then((data) => {
-        if (activePathIdRef.current === id) {
+        if (activePathIdRef.current === id && requestId > appliedReportRequestRef.current) {
+          appliedReportRequestRef.current = requestId;
           setReport(data);
           setFailed(false);
         }
       })
       /* 第一次就讀不到才顯示錯誤；已有報表時即時更新失敗就沿用舊報表 */
       .catch(() => {
-        if (activePathIdRef.current === id) setFailed(true);
+        if (activePathIdRef.current === id && requestId > appliedReportRequestRef.current) {
+          appliedReportRequestRef.current = requestId;
+          setFailed(true);
+        }
       });
   }, []);
 
   useEffect(() => {
+    setLive(false);
     if (!pathId) {
       setReport(null);
       return undefined;
@@ -56,20 +65,32 @@ function ProgressPanel({ paths, initialPathId = "" }) {
     setFailed(false);
     fetchReport(pathId);
 
-    // WS 即時推播：收到事件後 debounce 重拉快照
-    const token = AuthStorage.getAccessToken() ?? "";
-    const ws = new WebSocket(courseProgressWsUrl(pathId, token));
-    ws.onopen = () => setLive(true);
-    ws.onmessage = () => {
-      clearTimeout(refetchTimer.current);
-      refetchTimer.current = setTimeout(() => fetchReport(pathId), 800);
-    };
-    ws.onclose = () => setLive(false);
-    ws.onerror = () => setLive(false);
+    // 合併 800 ms 內的事件；持續推播不能無限延後快照更新。
+    const stop = connectReconnectingWebSocket(() => {
+      const token = AuthStorage.getAccessToken();
+      return token ? courseProgressWsUrl(pathId, token) : null;
+    }, {
+      onOpen: () => {
+        clearTimeout(refetchTimer.current);
+        refetchTimer.current = null;
+        setLive(true);
+        fetchReport(pathId);
+      },
+      onMessage: () => {
+        if (refetchTimer.current !== null) return;
+        refetchTimer.current = setTimeout(() => {
+          refetchTimer.current = null;
+          fetchReport(pathId);
+        }, 800);
+      },
+      onClose: () => setLive(false),
+    });
 
     return () => {
+      appliedReportRequestRef.current = ++reportRequestRef.current;
       clearTimeout(refetchTimer.current);
-      ws.close();
+      refetchTimer.current = null;
+      stop();
     };
   }, [pathId, fetchReport]);
 

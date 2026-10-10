@@ -51,10 +51,14 @@ if (( ${#models[@]} == 0 )); then
 fi
 
 total="${#models[@]}"
-for index in "${!models[@]}"; do
-  model="${models[$index]}"
-  result_file="$workdir/chat-$index.json"
-  payload="$(
+failed_models=()
+
+check_model() {
+  local model="$1"
+  local result_file="$2"
+  local payload
+
+  if ! payload="$(
     "$python_bin" - "$model" <<'PY'
 import json
 import sys
@@ -66,13 +70,19 @@ print(json.dumps({
     "stream": False,
 }))
 PY
-  )"
+  )"; then
+    printf 'Unable to build the smoke request for model: %s\n' "$model" >&2
+    return 1
+  fi
 
-  printf '[%d/%d] Checking chat/completions: %s\n' "$((index + 1))" "$total" "$model"
-  curl_api -H 'Content-Type: application/json' \
+  if ! curl_api -H 'Content-Type: application/json' \
     --data "$payload" \
-    "$base_url/ai-proxy/chat/completions" >"$result_file"
-  "$python_bin" - "$result_file" <<'PY'
+    "$base_url/ai-proxy/chat/completions" >"$result_file"; then
+    printf 'Chat completion request failed for model: %s\n' "$model" >&2
+    return 1
+  fi
+
+  if ! "$python_bin" - "$result_file" <<'PY'
 import json
 import sys
 
@@ -88,6 +98,28 @@ if not isinstance(choices[0], dict) or not isinstance(choices[0].get("message"),
 if not isinstance(usage, dict):
     raise SystemExit("chat response usage is missing")
 PY
+  then
+    printf 'Chat completion response validation failed for model: %s\n' "$model" >&2
+    return 1
+  fi
+}
+
+for index in "${!models[@]}"; do
+  model="${models[$index]}"
+  result_file="$workdir/chat-$index.json"
+  printf '[%d/%d] Checking chat/completions: %s\n' "$((index + 1))" "$total" "$model"
+  if check_model "$model" "$result_file"; then
+    printf '[%d/%d] Passed: %s\n' "$((index + 1))" "$total" "$model"
+  else
+    failed_models+=("$model")
+    printf '[%d/%d] Failed: %s\n' "$((index + 1))" "$total" "$model" >&2
+  fi
 done
+
+if (( ${#failed_models[@]} > 0 )); then
+  printf 'AI API smoke test failed for %d/%d public models: %s\n' \
+    "${#failed_models[@]}" "$total" "${failed_models[*]}" >&2
+  exit 1
+fi
 
 printf 'AI API smoke test passed for all %d public models.\n' "$total"
