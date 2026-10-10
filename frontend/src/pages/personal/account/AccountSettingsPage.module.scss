@@ -520,7 +520,26 @@
   align-items: start;
 
   @container (min-width: 1000px) {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+/* 右欄：「關於」與其下方的區塊一起堆疊。DOM 上排在前面，窄螢幕上下排時「關於」在最上面 */
+.aboutSide {
+  @include flex-column;
+  gap: $spacing-24;
+
+  @container (min-width: 1000px) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+/* 左欄：開源元件表 */
+.aboutMain {
+  @container (min-width: 1000px) {
+    grid-column: 1;
+    grid-row: 1;
   }
 }
 

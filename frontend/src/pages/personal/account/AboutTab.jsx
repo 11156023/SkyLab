@@ -52,6 +52,7 @@ export default function AboutTab() {
     <div className={styles.aboutWrap}>
     <div className={styles.aboutGrid}>
       {/* 標題下一行小字交代版本；授權說明獨立成段；三個外部連結做成同一款連結列，不再字級、圖示混在一起 */}
+      <div className={styles.aboutSide}>
       <div className={styles.card}>
         <div className={styles.aboutHead}>
           <h2 className={styles.cardTitle}>{t("AboutTab.title")}</h2>
@@ -79,8 +80,9 @@ export default function AboutTab() {
           </LinkRow>
         </div>
       </div>
+      </div>
 
-      <div className={styles.card}>
+      <div className={`${styles.card} ${styles.aboutMain}`}>
         <h2 className={styles.cardTitle}>{t("AboutTab.componentsTitle")}</h2>
         <p className={styles.aboutHint}>{t("AboutTab.componentsHint", { count: info.dependencies.length })}</p>
         {info.dependencies.length > 0 && (
