@@ -324,7 +324,10 @@ def test_self_delete_removes_avatar(
 
 
 def test_orphaned_avatar_of_missing_user_is_not_served(
-    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client: TestClient,
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(avatar_service, "AVATAR_DIR", tmp_path)
     orphan_id = uuid.uuid4()
