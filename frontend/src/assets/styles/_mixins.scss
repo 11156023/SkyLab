@@ -206,6 +206,13 @@
   vertical-align: middle;
 }
 
+/* 勾選中的列（批量操作，見 components/DataToolbar）：淡淡的主色底，掃一眼看得出選了哪些。
+   表格的 td 疊在表格卡片上用預設的透明底；自己就是一張卡片的清單列傳 var(--color-surface)，
+   免得蓋掉原本的底色變透明 */
+@mixin row-selected($base: transparent) {
+  background: color-mix(in srgb, var(--color-primary) 7%, #{$base});
+}
+
 /* ── 標準按鈕（六款）──
    全站按鈕一律用這組 mixin，不要在頁面內重抄整組樣式：
    .btnPrimary       { @include btn-primary; }        每畫面至多一顆的主要動作
