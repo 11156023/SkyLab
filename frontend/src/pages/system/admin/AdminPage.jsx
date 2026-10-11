@@ -14,9 +14,16 @@ import { UsersService } from "../../../services/users";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import PasswordRules from "../../../components/PasswordRules/PasswordRules";
+import DataToolbar from "../../../components/DataToolbar/DataToolbar";
+import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
+import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
+import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
+import useRowSelection from "../../../hooks/useRowSelection";
 import Pagination from "../shared/Pagination";
 import { formatDate } from "../../../utils/formatDate";
+import { joinList } from "../../../utils/joinList";
 import { isPasswordStrong } from "../../../utils/passwordPolicy";
+import { runBatch } from "../../../utils/runBatch";
 
 const ROLE_ICONS = {
   student: "school",
@@ -25,6 +32,8 @@ const ROLE_ICONS = {
 };
 
 const PAGE_SIZE = 50;
+/* 批量確認框裡最多列出幾位的名字，其餘寫「等 N 位」 */
+const BATCH_NAME_PREVIEW = 5;
 
 function initialForm(user = null) {
   return {
@@ -246,7 +255,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
   );
 }
 
-function UserRow({ user, currentUserId, onEdit, onDelete }) {
+function UserRow({ user, currentUserId, selected = false, selecting = false, onToggleSelect, onRowClick, onEdit, onDelete }) {
   const { t } = useTranslation("system");
   const ROLE_META = {
     student: { label: t("AdminPage.roleStudent"), icon: ROLE_ICONS.student },
@@ -257,7 +266,21 @@ function UserRow({ user, currentUserId, onEdit, onDelete }) {
   const isSelf = user.id === currentUserId;
 
   return (
-    <div className={styles.row}>
+    /* 勾選狀態下點整列也是勾選（編輯、刪除鈕照舊） */
+    <div
+      className={`${styles.row} ${selected ? styles.rowSelected : ""} ${selecting && !isSelf ? styles.rowSelectMode : ""}`}
+      onClick={(event) => onRowClick?.(user.id, event)}
+    >
+      {/* 自己不能勾（不能停用自己），格子照留，頭像才對得齊 */}
+      <div className={styles.rowCheck}>
+        {!isSelf && (
+          <SelectCheckbox
+            checked={selected}
+            onToggle={(shiftKey) => onToggleSelect(user.id, shiftKey)}
+            ariaLabel={t("AdminPage.selectRowAria", { name: userDisplayName(user) })}
+          />
+        )}
+      </div>
       <div className={styles.rowAvatar}>{userDisplayName(user).slice(0, 1).toUpperCase()}</div>
       <div className={styles.rowMain}>
         <span className={styles.rowName}>
@@ -358,6 +381,56 @@ export default function AdminPage() {
     teachers: users.filter((item) => item.role === "teacher").length,
   }), [users]);
 
+  /* 批量停用／啟用：只勾得到這一頁、不是自己的帳號；翻頁或搜尋換了，看不到的自動取消勾選 */
+  const selection = useRowSelection(
+    pagedUsers.filter((item) => item.id !== currentUser?.id).map((item) => item.id),
+  );
+  const selectedUsers = pagedUsers.filter((item) => selection.isSelected(item.id));
+  const [batchProgress, setBatchProgress] = useState(null); // { label, done, total }
+
+  /* 停用只送啟用中的、啟用只送停用中的；不適用的略過 */
+  const batchTargets = (active) => selectedUsers.filter((item) => item.is_active !== active);
+
+  function batchHint(active) {
+    const n = batchTargets(active).length;
+    if (n === 0) return t("AdminPage.batchNotApplicable");
+    return n < selectedUsers.length
+      ? t("AdminPage.batchApplicableHint", { count: n, skipped: selectedUsers.length - n })
+      : undefined;
+  }
+
+  async function runBatchActive(active) {
+    const targets = batchTargets(active);
+    if (!targets.length || batchProgress) return;
+    const label = active ? t("AdminPage.batchEnable") : t("AdminPage.batchDisable");
+    /* 停用會讓對方登不進來：先確認並列出名字（最多 5 位） */
+    if (!active) {
+      const names = targets.map(userDisplayName);
+      const rest = names.length - BATCH_NAME_PREVIEW;
+      const ok = await confirm({
+        title: t("AdminPage.batchDisableTitle", { count: targets.length }),
+        message: `${t("AdminPage.batchDisableDesc")}\n${joinList(names.slice(0, BATCH_NAME_PREVIEW))}${rest > 0 ? ` ${t("AdminPage.batchNamesMore", { count: rest })}` : ""}`,
+        confirmText: label,
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setBatchProgress({ label, done: 0, total: targets.length });
+    const res = await runBatch(targets, (item) => UsersService.update(item.id, { is_active: active }), {
+      onProgress: ({ done, total }) => setBatchProgress((prev) => prev && { ...prev, done, total }),
+    });
+    const updated = new Map(res.results.filter((r) => r.ok && r.value).map((r) => [r.value.id, r.value]));
+    setUsers((prev) => prev.map((item) => updated.get(item.id) ?? item));
+    if (res.failed === 0) {
+      toast.success(t("AdminPage.batchDoneToast", { count: res.succeeded, label }));
+    } else {
+      toast.error(t("AdminPage.batchFailedKeptToast", { label, succeeded: res.succeeded, failed: res.failed }));
+    }
+    /* 成功的取消勾選，失敗的留著可以直接再試 */
+    selection.replace(res.results.filter((r) => !r.ok).map((r) => r.item.id));
+    setBatchProgress(null);
+  }
+
   async function handleSubmit(payload) {
     setSaving(true);
     try {
@@ -448,16 +521,43 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className={styles.toolbar}>
-        <div className={styles.searchBox}>
-          <MIcon name="search" size={16} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("AdminPage.searchPlaceholder")}
-          />
-        </div>
-      </div>
+      {/* 平常是搜尋；勾選後原地換成批量停用／啟用（同一個高度，清單不會跳） */}
+      <DataToolbar
+        selecting={selectedUsers.length > 0}
+        batch={(
+          <BatchBar
+            countLabel={t("AdminPage.selectedCount", { count: selectedUsers.length })}
+            onClear={selection.clear}
+            selectAll={{
+              checked: selection.allSelected,
+              indeterminate: selection.someSelected,
+              onToggle: selection.toggleAll,
+            }}
+            progress={batchProgress && {
+              text: t("AdminPage.batchRunning", batchProgress),
+              done: batchProgress.done,
+              total: batchProgress.total,
+            }}
+          >
+            <BatchAction
+              icon="check_circle"
+              label={t("AdminPage.batchEnable")}
+              disabled={batchTargets(true).length === 0}
+              title={batchHint(true)}
+              onClick={() => runBatchActive(true)}
+            />
+            <BatchAction
+              icon="block"
+              label={t("AdminPage.batchDisable")}
+              disabled={batchTargets(false).length === 0}
+              title={batchHint(false)}
+              onClick={() => runBatchActive(false)}
+            />
+          </BatchBar>
+        )}
+      >
+        <ToolbarSearch value={query} onChange={setQuery} placeholder={t("AdminPage.searchPlaceholder")} />
+      </DataToolbar>
 
       <div className={styles.content}>
         {loading ? (
@@ -472,6 +572,10 @@ export default function AdminPage() {
                   key={item.id}
                   user={item}
                   currentUserId={currentUser?.id}
+                  selected={selection.isSelected(item.id)}
+                  selecting={selection.selecting}
+                  onToggleSelect={selection.toggle}
+                  onRowClick={selection.rowClick}
                   onEdit={(target) => setModal({ mode: "edit", user: target })}
                   onDelete={handleDelete}
                 />
