@@ -1,22 +1,22 @@
 import logging
+import time
 from typing import Annotated
 
 import jwt
 from fastapi import Depends, Query, Request, WebSocket, WebSocketException, status
-from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.api.deps.database import SessionDep
-from app.core import security
+from app.core import metrics, security
 from app.core.authorizers import (
     require_admin_access,
     require_instructor_or_admin_access,
 )
 from app.core.config import settings
-from app.core.db import end_read_transaction, engine
+from app.core.db import end_read_transaction, engine, run_db_in_threadpool
 from app.core.i18n import t
 from app.core.permissions import Permission, require_permission
 from app.exceptions import AuthenticationError, PermissionDeniedError
@@ -46,6 +46,14 @@ def _totp_enrollment_allowed(path: str) -> bool:
 
 
 async def _validate_access_token(token: str) -> TokenPayload:
+    started = time.monotonic()
+    try:
+        return await _decode_access_token(token)
+    finally:
+        metrics.AUTH_SECONDS.labels(transport="shared", stage="token").observe(time.monotonic() - started)
+
+
+async def _decode_access_token(token: str) -> TokenPayload:
     """Decode a JWT and check that it is a live access token.
 
     HTTP 與 WebSocket 認證共用這一段：簽章／格式、只收 access token、
@@ -91,9 +99,15 @@ def _load_user_and_release(session: Session, user_id: str | None) -> User | None
     整班同時登入就會把連線池耗盡（QueuePool limit ... reached）。端點之後需要
     DB 時會自動再取一條。
     """
-    user = session.get(User, user_id)
-    end_read_transaction(session)
-    return user
+    started = time.monotonic()
+    try:
+        user = session.get(User, user_id)
+        end_read_transaction(session)
+        return user
+    finally:
+        metrics.AUTH_SECONDS.labels(transport="shared", stage="db").observe(
+            time.monotonic() - started
+        )
 
 
 async def get_current_user(
@@ -109,7 +123,7 @@ async def get_current_user(
     # 同步 DB 查詢不可直接在 event loop 上執行：連線池耗盡時會凍結整個
     # loop，使已完成的請求無法歸還連線而形成死結（見 tests/performance）。
     user = _check_token_user(
-        await run_in_threadpool(_load_user_and_release, session, token_data.sub),
+        await run_db_in_threadpool(_load_user_and_release, session, token_data.sub),
         token_data,
     )
     # 管理員在使用者資料勾了「強制兩步驟驗證」：尚未綁定前只能走綁定相關端點
@@ -184,7 +198,9 @@ async def get_ws_current_user(
     try:
         try:
             user = _check_token_user(
-                await run_in_threadpool(session.get, User, token_data.sub),
+                await run_db_in_threadpool(
+                    _load_user_and_release, session, token_data.sub
+                ),
                 token_data,
             )
         except AuthenticationError as exc:
@@ -201,6 +217,6 @@ async def get_ws_current_user(
             )
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
         return user, session
-    except Exception:
-        session.close()
+    except BaseException:
+        await run_db_in_threadpool(session.close)
         raise

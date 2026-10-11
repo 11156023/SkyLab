@@ -153,7 +153,9 @@ def _fake_upstream_client(captured: dict[str, Any]) -> type:
     return FakeClient
 
 
-def test_ai_proxy_rejects_an_invalid_user_key(client: TestClient) -> None:
+def test_ai_proxy_rejects_an_invalid_user_key(
+    client: TestClient, db: Session
+) -> None:
     response = client.get(
         f"{settings.API_V1_STR}/ai-proxy/models",
         headers={"Authorization": "Bearer ccai_invalid"},

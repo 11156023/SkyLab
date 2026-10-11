@@ -1301,6 +1301,14 @@ export default function AiApiPage() {
   const inactiveCredentials = credentials.filter((item) => credentialStates.get(item.id) !== "active");
   // 失效的金鑰預設收起來：每重新產生一次就多一列同名的舊金鑰
   const visibleCredentials = showInactive ? [...activeCredentials, ...inactiveCredentials] : activeCredentials;
+  /* 目前分頁正顯示帶「新增金鑰」的空狀態時，頁首那顆先藏起來，不要上下兩顆一樣的鈕；
+     導覽的 ai-add-key 標記改掛在空狀態那顆上。金鑰／紀錄分頁載入中也先不放，免得閃一下 */
+  const listTab = activeTab === "keys" || activeTab === "records";
+  const emptyWithAddKey = !loading && !loadError && (
+    (activeTab === "keys" && (credentials.length === 0 ? pendingCount === 0 : visibleCredentials.length === 0))
+    || (activeTab === "records" && requests.length === 0)
+  );
+  const showHeaderAddKey = !(listTab && (loading || emptyWithAddKey));
 
   /* ── Submit request ── */
   const handleSubmit = async () => {
@@ -1383,15 +1391,17 @@ export default function AiApiPage() {
             <MIcon name="rocket_launch" size={16} />
             {t("AiApiPage.quickStartButton")}
           </button>
-          <button
-            type="button"
-            className={styles.btnPrimary}
-            onClick={() => setShowApplyModal(true)}
-            data-guide="ai-add-key"
-          >
-            <MIcon name="add" size={16} />
-            {t("AiApiPage.addKeyButton")}
-          </button>
+          {showHeaderAddKey && (
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => setShowApplyModal(true)}
+              data-guide="ai-add-key"
+            >
+              <MIcon name="add" size={16} />
+              {t("AiApiPage.addKeyButton")}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1422,7 +1432,7 @@ export default function AiApiPage() {
                 title={t("AiApiPage.keysEmptyTitle")}
                 description={t("AiApiPage.keysEmptyDesc")}
                 action={(
-                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)}>
+                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)} data-guide="ai-add-key">
                     <MIcon name="add" size={16} />{t("AiApiPage.addKeyButton")}
                   </button>
                 )}
@@ -1437,7 +1447,7 @@ export default function AiApiPage() {
                   title={t("AiApiPage.keysNoActiveTitle")}
                   description={t("AiApiPage.keysNoActiveDesc")}
                   action={(
-                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)}>
+                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)} data-guide="ai-add-key">
                     <MIcon name="add" size={16} />{t("AiApiPage.addKeyButton")}
                   </button>
                 )}
@@ -1502,7 +1512,7 @@ export default function AiApiPage() {
               title={t("AiApiPage.recordsEmptyTitle")}
               description={t("AiApiPage.recordsEmptyDesc")}
               action={(
-                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)}>
+                  <button type="button" className={styles.btnPrimary} onClick={() => setShowApplyModal(true)} data-guide="ai-add-key">
                     <MIcon name="add" size={16} />{t("AiApiPage.addKeyButton")}
                   </button>
                 )}

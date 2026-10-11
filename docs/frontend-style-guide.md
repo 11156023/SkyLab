@@ -122,7 +122,7 @@ The frontend uses the following five semantic colours. **Amber is reserved for t
 
 For the darker hover state of destructive actions use `--color-danger-dark` (`#b91c1c`).
 
-> **Exception**: terminal-style content areas stay dark and do not follow the theme — the VNC / xterm screen background (ConsoleDialog and Classroom's `#1e1e1e`), the task log output area (Jobs `dialogOutput`), transparent logos that need a white backing (`tplLogo`'s `#fff`), the PDF viewer iframe background (`StudentHomePage`'s `#fff` — the PDF page itself is white, so turning it dark with the theme would leave a black frame), and the white backgrounds of the error-page illustrations (`NotFoundPage`'s cloud and `CrashState`'s application window are both `#fff`, and their inner colour blocks are also mixed against `#fff` — the illustration is the same image in both themes; in light mode the outline comes from a drop-shadow).
+> **Exception**: terminal-style content areas stay dark and do not follow the theme — the VNC / xterm screen background (ConsoleDialog and Classroom's `#1e1e1e`), the task log output area (Jobs `dialogOutput`), transparent logos that need a white backing (`tplLogo`'s `#fff`), the PDF viewer iframe background (`StudentHomePage`'s `#fff` — the PDF page itself is white, so turning it dark with the theme would leave a black frame), and the white backgrounds of the error-page illustrations (`NotFoundPage`'s cloud, `CrashState`'s application window and `ConnectionLostState`'s cloud and window are all `#fff`, and their inner colour blocks are also mixed against `#fff` — the illustration is the same image in both themes; in light mode the outline comes from a drop-shadow).
 >
 > **Exception**: sample code blocks (the code samples in the AI API quick start and the code blocks inside API chat replies) keep a fixed dark background and do not follow the theme, mirroring a dark VS Code editor; use the `--color-code-*` palette from `_themes.scss` (bg / header / border / hover / text / muted) and do not define another dark palette inside a page.
 >
@@ -347,7 +347,7 @@ const presence = useDialogPresence(show);
 )}
 ```
 
-- Compact card (default): confirmation boxes, naming boxes, small forms; the `closeButton` variant: forms with many fields (such as the connection dialog); `bare`: only the outer frame, you lay out the title bar and body yourself
+- Compact card (default): confirmation boxes, naming boxes, small forms; the `closeButton` variant: forms with many fields (such as the connection dialog) — a reminder whose body is only a sentence or two (such as the session warning) can add `dividers={false}` to drop the rules under the title bar and above the button row; `bare`: only the outer frame, you lay out the title bar and body yourself
 - Screens the AI cannot read, such as terminals and VNC, use `layer="screen"` (usually together with `bare`): they cover the AI assistant instead of making room for it; the keyboard is handed entirely to the screen, Esc does not close and Tab is not trapped (so Tab completion and vim's Esc work). Grab the dialog body with a `ref` when you need fullscreen
 - Guide attributes such as `data-guide` are passed straight to `Modal` (attached to the dialog body); for the × and the button row use `closeProps` and `actionsProps` respectively
 - Migrated in batches since 2026-09-26: the dialogs on the resource details page, `useConfirm`, `ConnectionDialog`, terminal / VNC, convert to template, request error log, session reminder, background task details, the system administration side (users, nodes, PVE connections, quotas, domains, subnets, mining incidents), template management (create / edit, clone, user manual), reverse proxy rules, classroom watch, AI services (one-time key, quick start, request a key, disable a key, request review), AI checks (delete script, add check, run once, adjust weeks) and the timetable editor have been converted; the remaining dialogs still use the old approach — convert them when you touch them
@@ -448,6 +448,21 @@ Form fields always use the form mixin family from `_mixins.scss`; **do not inven
 > `resize` again** inside a component. Only in special cases (a long-text editor that genuinely needs to be user-resizable) should a page explicitly set
 > `resize: vertical` back, so that the exception is visible.
 
+### Switch and checkbox
+
+Enable/disable toggles that **take effect immediately always use the shared `Switch`** (`components/Switch/Switch`); do not use a toggle-icon button (`toggle_on` / `toggle_off`) or a checkbox in their place:
+
+```jsx
+<Switch checked={rule.enable !== 0} onChange={(next) => toggle(rule, next)} disabled={busy} ariaLabel={t("…enableSwitch")} title={t("…enableSwitch")} />
+```
+
+- **Division of labour**: sends as soon as it flips → `Switch`; a form field that only takes effect after pressing "Save" → checkbox (`.checkRow`). A switch tells users the change is immediate, so do not mix the two
+- Look: a 36×20 pill track with a 16px white knob, on = `--color-primary`, off = grey; it is a single `button role="switch"`
+- In tables and list rows **show the switch alone, without an "Enabled" caption** (the column header or the row already says what it controls), and pass `ariaLabel` + `title` instead; only pass a visible `label` when it is genuinely needed, saying what the switch controls and not changing with the state
+- The current state is shown by the knob position and colour; in a list, a disabled row **swaps its status badge for a red "Disabled"** (e.g. a firewall rule's "Allow" becomes "Disabled") instead of adding a separate "Disabled" badge next to it
+- A disabled row dims only its content; **the actions cell holding the switch is not dimmed**, so it is clear it can be turned back on
+- Currently used by: the firewall rules in resource details › advanced settings, the rules panel on the firewall page, and the node list in PVE management
+
 ### Tables
 
 List-page tables always use the table mixin family from `_mixins.scss`; **do not copy the whole set of styles into a page**:
@@ -500,6 +515,43 @@ The default `table-layout: auto` computes column widths from **the content of ev
 
 `MIcon` is always `aria-hidden`, so screen readers cannot read it. If the information the icon encodes
 is already written in the adjacent text (type, category), it is just layout habit — remove it and let the text speak.
+
+### List toolbar and batch actions (DataToolbar)
+
+The "filters + search" bar above a list or table and the "batch actions after ticking rows" **always use the `components/DataToolbar` set**. Don't build a separate floating action bar or your own checkboxes in a page:
+
+```jsx
+const selection = useRowSelection(shown.filter(canSelect).map((r) => r.id)); // in on-screen order
+const selected = shown.filter((r) => selection.isSelected(r.id));
+
+<DataToolbar
+  selecting={selected.length > 0}
+  batch={(
+    <BatchBar countLabel={t("…selectedCount", { count: selected.length })} onClear={selection.clear} progress={progress}>
+      <BatchAction icon="block" label={t("…disable")} onClick={…} />
+      <BatchDivider />
+      <BatchAction icon="delete" label={t("…delete")} danger onClick={…} />
+    </BatchBar>
+  )}
+>
+  <SegmentedControl … />
+  <ToolbarSearch value={query} onChange={setQuery} placeholder={t("…searchPlaceholder")} />
+</DataToolbar>
+
+<SelectCheckbox checked={selection.isSelected(r.id)} onToggle={(shift) => selection.toggle(r.id, shift)} ariaLabel={…} />
+```
+
+- **The toolbar is always there**: normally it has no background and holds the status switch and search, aligned with the list's left and right edges; once something is ticked it **switches in place to the batch bar** (a raised card with a light primary tint that sticks to the top). It is at least 56px tall, and when the filters wrap onto two lines on a narrow screen the batch bar keeps that height — the list never jumps when it switches
+- **Select all**: in a table it goes in the first header cell (`SelectCheckbox cell`); lists without a header row (users, requests, class cards) pass `selectAll` to `BatchBar`, which puts it before "N selected"
+- **Checkboxes**: the whole cell (or the area around the box) is clickable; when the row itself is clickable, its `onClick` must ignore clicks on the `label`. Shift-click selects a range, Esc clears the selection, and the select-all box shows "partial" when only some rows are ticked
+- **While selecting, the whole row is clickable**: once at least one row is ticked, clicking anywhere on a row ticks it too (`onClick={(e) => selection.rowClick(id, e)}`; when it returns `true`, don't open the detail view). Other buttons and links in the row keep working. Rows that normally open a detail view (table rows, review rows, class tickets) tick instead while selecting, and go back to opening the detail once nothing is ticked
+- **Only visible rows can be ticked**: `useRowSelection` only knows the ids you pass in; rows that disappear after a filter change, a page change or a refresh are unticked automatically, so nobody switches back later and finds a hidden row still ticked and acted on
+- **Actions**: send them only to the rows they apply to (disable only goes to enabled accounts…); if none apply, disable the button and use `title` to say how many will be skipped. While sending, `progress` turns the bar into "…ing 3 / 10"; afterwards refresh silently, untick the rows that succeeded and **keep the failed ones ticked** (`selection.replace`) so they can be retried straight away
+- **Irreversible actions** (delete, remove, archive, reject) use `danger`, sit at the far right after a `BatchDivider`, and confirm first with the names listed (up to 5, then "and N more")
+- When there is no batch API on the backend, use `utils/runBatch` to call the single-item API one by one (4 at a time by default; one failure doesn't stop the rest)
+- Ticked rows get `@include row-selected;` for their background (list rows that are cards themselves pass `var(--color-surface)`)
+- **Re-check widths after adding a checkbox column**: when list rows use grid, decide between one line and two lines by the **container width** (`container-type: inline-size` + `@container`), not the viewport — once the sidebar appears (≥1024) the content area is narrower than at 992, so a viewport switch overflows sideways between 1024 and 1180
+- Currently used on: resource management, user management (batch disable/enable), request review (batch reject), class management (batch archive and reclaim), and the class workspace student roster (batch remove)
 
 ### Dropdown menus
 

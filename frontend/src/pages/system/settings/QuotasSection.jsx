@@ -446,14 +446,17 @@ export default function QuotasSection() {
               {t("QuotasTab.overridesTitle")}
             </span>
           </div>
-          <button
-            type="button"
-            className={styles.btnPrimary}
-            onClick={() => setDialog({ mode: "create" })}
-          >
-            <MIcon name="add" size={16} />
-            {t("QuotasTab.addQuota")}
-          </button>
+          {/* 有覆寫才在卡片標題列放「新增」；沒有時空狀態那顆就是唯一入口，載入中也先不放 */}
+          {quotas?.length > 0 && (
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => setDialog({ mode: "create" })}
+            >
+              <MIcon name="add" size={16} />
+              {t("QuotasTab.addQuota")}
+            </button>
+          )}
         </header>
 
         {quotas === null ? (

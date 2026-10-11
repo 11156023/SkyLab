@@ -122,7 +122,7 @@ src/pages/personal/resources/
 
 危險操作的 hover 加深色用 `--color-danger-dark`（`#b91c1c`）。
 
-> **例外**：終端機式的內容面固定深色、不隨主題切換——VNC / xterm 畫面底（ConsoleDialog、Classroom 的 `#1e1e1e`）、任務 log 輸出區（Jobs `dialogOutput`），以及需要白底墊圖的透明 logo（`tplLogo` 的 `#fff`）、PDF 檢視器的 iframe 底（`StudentHomePage` 的 `#fff`——PDF 頁面本身即白底，跟著主題轉深會有黑框）、錯誤頁插圖的白底（`NotFoundPage` 的雲朵、`CrashState` 的應用程式視窗皆為 `#fff`，內部色塊也跟 `#fff` 混色——插圖在亮暗主題是同一張圖，亮色模式靠 drop-shadow 描輪廓）。
+> **例外**：終端機式的內容面固定深色、不隨主題切換——VNC / xterm 畫面底（ConsoleDialog、Classroom 的 `#1e1e1e`）、任務 log 輸出區（Jobs `dialogOutput`），以及需要白底墊圖的透明 logo（`tplLogo` 的 `#fff`）、PDF 檢視器的 iframe 底（`StudentHomePage` 的 `#fff`——PDF 頁面本身即白底，跟著主題轉深會有黑框）、錯誤頁插圖的白底（`NotFoundPage` 的雲朵、`CrashState` 的應用程式視窗、`ConnectionLostState` 的雲與視窗皆為 `#fff`，內部色塊也跟 `#fff` 混色——插圖在亮暗主題是同一張圖，亮色模式靠 drop-shadow 描輪廓）。
 >
 > **例外**：範例程式碼區塊（AI API 快速開始的程式碼範例、API 聊天回覆裡的程式碼區塊）固定深底、不隨主題切換，比照 VS Code 深色編輯器；色票統一用 `_themes.scss` 的 `--color-code-*`（bg／header／border／hover／text／muted），不要在頁面裡另寫一組深色。
 >
@@ -347,7 +347,7 @@ const presence = useDialogPresence(show);
 )}
 ```
 
-- 精簡卡（預設）：確認框、命名框、小表單；`closeButton` 版：欄位多的表單（如連線對話框）；`bare`：只給外框，標題列與內容自己排
+- 精簡卡（預設）：確認框、命名框、小表單；`closeButton` 版：欄位多的表單（如連線對話框），內容只有一兩句的提醒（如工作階段提醒）可加 `dividers={false}` 拿掉標題列與按鈕列的分隔線；`bare`：只給外框，標題列與內容自己排
 - 終端機、VNC 這類 AI 讀不到的畫面用 `layer="screen"`（通常搭 `bare`）：蓋過 AI 助手、不讓位；鍵盤全部交給畫面，Esc 不關、Tab 不鎖（Tab 補全、vim 的 Esc 才能用）。全螢幕要的對話框本體用 `ref` 拿
 - 導覽用的 `data-guide` 等屬性直接傳給 `Modal`（掛在對話框本體），×、按鈕列分別用 `closeProps`、`actionsProps`
 - 2026-09-26 起逐批換上：資源詳情頁的對話框、`useConfirm`、`ConnectionDialog`、終端機／VNC、轉成範本、申請錯誤記錄、工作階段提醒、背景任務詳情、系統管理端（使用者、節點、PVE 連線、配額、網域、子網路、挖礦事件）、範本管理（建立／編輯、克隆、使用手冊）、反向代理規則、課堂觀看、AI 服務（一次性金鑰、快速開始、申請金鑰、停用金鑰、申請審核）、AI導師檢查（刪除腳本、新增檢查、一次執行、調整週次）、編輯課表已換；其餘仍是舊寫法的對話框，改到時順手換
@@ -448,6 +448,21 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 > `resize`**。特殊情況（真的需要讓使用者拖高的長文編輯區）才在該頁明確寫回
 > `resize: vertical`，讓例外看得見。
 
+### 開關（Switch）與勾選框
+
+「立刻生效」的啟用／停用**一律用共用的 `Switch`**（`components/Switch/Switch`），不要再用開關圖示按鈕（`toggle_on` / `toggle_off`）或勾選框代替：
+
+```jsx
+<Switch checked={rule.enable !== 0} onChange={(next) => toggle(rule, next)} disabled={busy} ariaLabel={t("…enableSwitch")} title={t("…enableSwitch")} />
+```
+
+- **分工**：一切換就送出 → `Switch`；要按「儲存」才生效的表單欄位 → 勾選框（`.checkRow`）。看到開關就知道會立刻生效，兩者別混用
+- 外觀：36×20 膠囊軌道＋16px 白色圓鈕，開＝`--color-primary`、關＝灰，是一個 `button role="switch"`
+- 表格、清單列裡**只放開關本體，不寫「啟用」字樣**（欄名或列內容已交代控制什麼），改用 `ariaLabel`＋`title`；真的需要可見文字才給 `label`，寫「控制什麼」、不隨狀態改字
+- 目前狀態由軌道位置與顏色表達；列表上停用的那一列，**狀態徽章直接換成紅色「停用」**（例如防火牆規則的「允許」換成「停用」），不另外並排「已停用」徽章
+- 停用的那一列只淡化內容，**開關所在的操作欄不淡化**，才看得出能再打開
+- 目前用在：資源詳情進階設定的防火牆規則、防火牆頁規則面板、PVE 管理的節點列表
+
 ### 表格（Table）
 
 列表頁表格一律使用 `_mixins.scss` 的表格 mixin 組，**不要在頁面內重抄整組樣式**：
@@ -500,6 +515,43 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 
 `MIcon` 一律 `aria-hidden`，螢幕閱讀器讀不到。若圖示編碼的資訊
 就寫在緊鄰的文字裡（型別、分類），它只是版面慣性，拿掉讓文字說話即可。
+
+### 清單工具列與批量操作（DataToolbar）
+
+清單或表格上方的「篩選＋搜尋」與「勾選後的批量操作」**一律用 `components/DataToolbar` 這一組**，不要在頁面裡另做浮動操作列或自己的勾選框：
+
+```jsx
+const selection = useRowSelection(shown.filter(canSelect).map((r) => r.id)); // 依畫面順序
+const selected = shown.filter((r) => selection.isSelected(r.id));
+
+<DataToolbar
+  selecting={selected.length > 0}
+  batch={(
+    <BatchBar countLabel={t("…selectedCount", { count: selected.length })} onClear={selection.clear} progress={progress}>
+      <BatchAction icon="block" label={t("…disable")} onClick={…} />
+      <BatchDivider />
+      <BatchAction icon="delete" label={t("…delete")} danger onClick={…} />
+    </BatchBar>
+  )}
+>
+  <SegmentedControl … />
+  <ToolbarSearch value={query} onChange={setQuery} placeholder={t("…searchPlaceholder")} />
+</DataToolbar>
+
+<SelectCheckbox checked={selection.isSelected(r.id)} onToggle={(shift) => selection.toggle(r.id, shift)} ariaLabel={…} />
+```
+
+- **工具列一直都在**：平常沒有底色，放狀態切換與搜尋，控制項對齊清單左右緣；有勾選時**原地換成批量列**（淡主色底的浮起卡片，黏在頂端）。至少 56px 高，篩選在窄螢幕排成兩行時批量列沿用同一個高度——切換時清單不會跳
+- **全選**：表格放在表頭第一欄（`SelectCheckbox cell`）；沒有表頭的清單（使用者、申請、班級卡片）傳 `BatchBar` 的 `selectAll`，放在「已選 N」前面
+- **勾選框**：整格或四周都是點擊範圍；列本身可點時，列的 `onClick` 要略過 `label`。Shift＋點連選一段、Esc 清除選取、只勾一部分時全選框顯示「部分」
+- **勾選狀態下整列都能點**：已勾了至少一筆後，點整列也是勾選（`onClick={(e) => selection.rowClick(id, e)}`，回傳 `true` 就不要再開詳情）；列裡其他按鈕、連結照舊。原本點了會進詳情的列（表格列、審核列、班級票券）在勾選狀態下改成勾選，取消全部勾選後恢復
+- **只勾得到看得見的**：`useRowSelection` 只認傳進去的那些 id；換篩選、翻頁、刷新後消失的自動取消勾選，免得切回來才發現它還勾著、被一起操作
+- **動作**：只送給適用的那幾筆（停用只送啟用中的…），全都不適用就停用按鈕，`title` 說明會略過幾筆；送出時 `progress` 讓整條換成「正在…  3 / 10」；做完靜默刷新，成功的取消勾選、**失敗的保留勾選**（`selection.replace`）可以直接再試
+- **回不去的動作**（刪除、移除、封存、拒絕）用 `danger`，放在 `BatchDivider` 後面的最右邊，先確認並列出名稱（最多 5 個，其餘「等 N」）
+- 沒有後端批量 API 時用 `utils/runBatch` 逐筆呼叫單筆 API（預設同時 4 筆，一筆失敗不影響其他筆）
+- 勾選中的列底色用 `@include row-selected;`（自己就是卡片的清單列傳 `var(--color-surface)`）
+- **加了勾選欄要重算寬度**：清單列用 grid 時，一行排完或分兩行要看**容器寬度**（`container-type: inline-size`＋`@container`），不要看視窗——側邊欄出現（≥1024）後內容比 992 時還窄，用視窗切會在 1024～1180 之間撐出橫向捲動
+- 目前用在：資源管理、使用者管理（批量停用／啟用）、申請審核（批量拒絕）、班級管理（批量封存並回收）、班級工作區學生名單（批量移除）
 
 ### Dropdown 選單
 

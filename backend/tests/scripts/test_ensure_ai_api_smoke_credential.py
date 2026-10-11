@@ -497,7 +497,9 @@ def test_workflow_cleans_up_even_after_failed_or_cancelled_smoke() -> None:
     smoke_index = next(
         index for index, step in enumerate(steps) if step.get("id") == "ai_api_smoke"
     )
+    smoke_step = steps[smoke_index]
     smoke_run = steps[smoke_index]["run"]
+    assert smoke_step["continue-on-error"] is True
     assert '--output "$container_smoke_dir/key"' in smoke_run
     assert (
         'docker compose cp "backend:$container_smoke_dir/key" "$smoke_dir/key"'
@@ -507,7 +509,12 @@ def test_workflow_cleans_up_even_after_failed_or_cancelled_smoke() -> None:
     assert smoke_run.index("set +x") < smoke_run.index('AI_API_SMOKE_KEY="')
     assert smoke_run.index("umask 077") < smoke_run.index("mktemp -d")
     assert smoke_run.index("::add-mask::") < smoke_run.index("export AI_API_SMOKE_KEY")
-    cleanup_step = steps[smoke_index + 1]
+    assert "::warning::Unable to create or recover" in smoke_run
+    assert "::error::" not in smoke_run
+    warning_step = steps[smoke_index + 1]
+    assert warning_step["if"] == "${{ steps.ai_api_smoke.outcome == 'failure' }}"
+    assert "::warning" in warning_step["run"]
+    cleanup_step = steps[smoke_index + 2]
     assert cleanup_step["if"] == (
         "${{ always() && steps.ai_api_smoke.outcome != 'skipped' }}"
     )

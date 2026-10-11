@@ -6,16 +6,15 @@ import styles from "./CrashState.module.scss";
 /**
  * 畫面當掉（ErrorBoundary 攔到 render 錯誤）時的狀態畫面。
  * 插圖是一個應用程式視窗：其中一塊介面脫落掉下、留下紅色虛線缺口，接著彈回原位（6 秒一輪），
- * 對應「這一塊畫面壞了，重試會把它重新裝回去」。動畫全是 CSS，prefers-reduced-motion 時停在脫落的樣子。
+ * 對應「這一塊畫面壞了，重新整理會把它重新裝回去」。動畫全是 CSS，prefers-reduced-motion 時停在脫落的樣子。
  *
  * 錯誤訊息預設收合；展開後可以複製（含網址、時間與堆疊），方便回報給管理員。
  *
  * @param {Error}  error     攔到的錯誤
  * @param {string} [componentStack] React 提供的元件堆疊，只放進複製內容
- * @param {func}   onRetry   重新掛載出錯的畫面
  * @param {boolean} [fullPage] 根層 boundary 用：撐滿整個視窗（此時沒有側邊欄等外框）
  */
-export default function CrashState({ error, componentStack, onRetry, fullPage = false }) {
+export default function CrashState({ error, componentStack, fullPage = false }) {
   const { t } = useTranslation("common");
   /* idle／copied（已寫進剪貼簿）／selected（瀏覽器不給寫，改成選取文字讓使用者自己複製） */
   const [copyState, setCopyState] = useState("idle");
@@ -97,10 +96,10 @@ export default function CrashState({ error, componentStack, onRetry, fullPage = 
         <p className={styles.desc}>{t("ErrorBoundary.desc")}</p>
 
         <div className={styles.actions}>
-          {/* 只留一顆：重試先重新掛載畫面，還是不行才整頁重新整理（ErrorBoundary.reset） */}
-          <button type="button" className={styles.btnPrimary} onClick={onRetry}>
+          {/* 只留重新整理：重新掛載救不回程式 bug 與改版後的頁面載入失敗（見 ErrorBoundary） */}
+          <button type="button" className={styles.btnPrimary} onClick={() => window.location.reload()}>
             <MIcon name="refresh" size={16} />
-            {t("Error.retry")}
+            {t("ErrorBoundary.reload")}
           </button>
         </div>
 

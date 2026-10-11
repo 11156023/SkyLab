@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import uuid
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
@@ -10,10 +9,10 @@ from typing import Any
 
 from sqlmodel import Session
 
+from app.core.db import engine
 from app.services.llm_gateway import ai_gateway_service
+from app.services.llm_gateway.usage_writer import get_usage_writer
 from app.services.monitoring import ai_metrics
-
-logger = logging.getLogger(__name__)
 
 CALL_AI_NAVIGATION = "ai_nav"
 CALL_AI_CONTEXTUAL_HELP = "ai_help"
@@ -103,32 +102,28 @@ def record_ai_template_call(
     )
     if session is None or user_id is None:
         return
-    try:
-        ai_gateway_service.record_template_call(
-            session=session,
-            user_id=user_id,
-            call_type=call_type,
-            model_name=(model_name or "unknown")[:255],
-            preset=preset,
-            request_id=str((metrics or {}).get("request_id") or new_ai_request_id())[
-                :255
-            ],
-            input_tokens=_token_count(metrics or {}, "prompt_tokens"),
-            output_tokens=_token_count(metrics or {}, "completion_tokens"),
-            request_duration_ms=_duration_ms(metrics),
-            stream=bool((metrics or {}).get("stream", False)),
-            usage_reported=bool((metrics or {}).get("usage_reported", False)),
-            response_model=str((metrics or {}).get("response_model") or "")[:255]
-            or None,
-            status=status,
-            error_message=_truncate_error(error_message),
-            started_at=(metrics or {}).get("started_at"),
-            completed_at=(metrics or {}).get("completed_at"),
-        )
-    except Exception:
-        logger.warning(
-            "Failed to record AI template call usage: call_type=%s user_id=%s",
-            call_type,
-            user_id,
-            exc_info=True,
-        )
+    # Snapshot all inputs before leaving the caller. Never capture its Session.
+    values = dict(metrics or {})
+    kwargs = {
+        "user_id": user_id,
+        "call_type": call_type,
+        "model_name": (model_name or "unknown")[:255],
+        "preset": preset,
+        "request_id": str(values.get("request_id") or new_ai_request_id())[:255],
+        "input_tokens": _token_count(values, "prompt_tokens"),
+        "output_tokens": _token_count(values, "completion_tokens"),
+        "request_duration_ms": _duration_ms(values),
+        "stream": bool(values.get("stream", False)),
+        "usage_reported": bool(values.get("usage_reported", False)),
+        "response_model": str(values.get("response_model") or "")[:255] or None,
+        "status": status,
+        "error_message": _truncate_error(error_message),
+        "started_at": values.get("started_at"),
+        "completed_at": values.get("completed_at"),
+    }
+
+    def write() -> None:
+        with Session(engine) as usage_session:
+            ai_gateway_service.record_template_call(session=usage_session, **kwargs)
+
+    get_usage_writer().submit(write, source="platform")

@@ -20,6 +20,7 @@ from app.services.llm_gateway import relay_service
 
 @pytest.fixture(autouse=True)
 def _mock_model_catalogue(monkeypatch) -> None:
+    relay_service.start_relay_runtime()
     async def catalogue():
         return {"m", "model", "gpt-oss-20B"}
 

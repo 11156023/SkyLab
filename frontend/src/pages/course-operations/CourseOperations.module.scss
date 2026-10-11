@@ -97,34 +97,6 @@
   gap: 16px;
 }
 
-.searchInput {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: min(360px, 100%);
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
-}
-
-.searchInput:focus-within {
-  border-color: var(--color-primary);
-}
-
-/* 外框在 .searchInput（上下 1px），輸入框 34px，整體跟按鈕同為 36px */
-.searchInput input {
-  width: 100%;
-  height: 34px;
-  border: 0;
-  outline: 0;
-  color: var(--color-text);
-  background: transparent;
-  font: inherit;
-  font-size: $font-size-14;
-}
-
 .statusBadge,
 .lockBadge {
   @include badge-base;
@@ -312,11 +284,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 欄位怎麼排看的是名單本身有多寬（容器查詢）而不是視窗：側邊欄出現（≥1024）後內容比 992 時還窄，
+   用視窗寬度切會在 1024～1140 之間把列撐出面板外被裁掉。門檻見下方 @container */
 .memberList {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px 20px 18px;
+  container-type: inline-size;
 }
 
 /* 欄位標題：跟每列同一組欄寬；左右內距 = 列的內距 14 + 邊框 1，字才對得齊 */
@@ -340,6 +315,84 @@
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   background: var(--color-surface);
+}
+
+.memberRowSelected {
+  @include row-selected(var(--color-surface));
+}
+
+/* 勾選狀態下整列都能點來勾選 */
+.memberRowSelectMode {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 可以批量移除（準備中的班級）：最前面多一欄勾選框，欄寬見下方 @container */
+.memberSelectable .memberColumns,
+.memberSelectable .memberRow {
+  grid-template-columns: 16px minmax(220px, 1.5fr) minmax(120px, .8fr) 110px 110px 34px;
+}
+
+/* 一行排完的最小寬度：220＋120＋110＋110＋34＋間距 16×4＋列內距 28＋框 2 = 688，有勾選欄再加 32 = 720。
+   放不下就先收起加入日期，再放不下（勾選欄版 544）改成上下疊排 */
+@container (max-width: 719px) {
+  .memberRow,
+  .memberColumns {
+    grid-template-columns: minmax(200px, 1.3fr) minmax(100px, .7fr) 100px 34px;
+  }
+
+  .memberSelectable .memberRow,
+  .memberSelectable .memberColumns {
+    grid-template-columns: 16px minmax(200px, 1.3fr) minmax(100px, .7fr) 100px 34px;
+  }
+
+  /* 加入日期收起：列裡是第 3 個 span，欄位標題裡是第 4 個 */
+  .memberRow>span:nth-of-type(3),
+  .memberColumns>span:nth-of-type(4) {
+    display: none;
+  }
+}
+
+/* 疊排：每列上下兩行，欄位對不起來，標題列收起 */
+@container (max-width: 543px) {
+  .memberColumns {
+    display: none;
+  }
+
+  .memberRow,
+  .memberSelectable .memberRow {
+    grid-template-columns: minmax(0, 1fr) auto 30px;
+    gap: 8px 12px;
+  }
+
+  .memberIdentity {
+    grid-column: 1 / -1;
+  }
+
+  .memberRow>span:first-of-type {
+    display: none;
+  }
+
+  .memberRow>span:nth-of-type(3) {
+    display: block;
+  }
+
+  /* 有勾選框：勾選框跨兩行置中在最左，其餘往右挪一欄 */
+  .memberSelectable .memberRow {
+    grid-template-columns: 16px minmax(0, 1fr) auto 30px;
+  }
+
+  .memberSelectable .memberRow>label {
+    grid-row: 1 / span 2;
+  }
+
+  .memberSelectable .memberIdentity {
+    grid-column: 2 / -1;
+  }
+
+  .memberSelectable .memberRow>span:nth-of-type(2) {
+    grid-column: 2;
+  }
 }
 
 .memberIdentity {
@@ -467,15 +520,6 @@
 }
 
 /* ── 班級管理列表：卡片牆與熱力圖 ── */
-.classToolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 18px;
-  flex-wrap: wrap;
-  padding: 2px 0;
-}
-
 .archivedToggle {
   display: inline-flex;
   align-items: center;
@@ -495,11 +539,34 @@
   cursor: pointer;
 }
 
-.classToolbar .searchInput {
-  flex: 0 1 320px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
+/* 票券外層：右上角疊批量勾選框（票券本身是按鈕，勾選框不能包進去） */
+.ticketSlot {
+  position: relative;
+  min-width: 0;
+}
+
+.ticketCheck {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  transition: transform $transition-base;
+}
+
+/* 滑到勾選框上時票券本身不算 hover，浮起改由外層觸發（同 ClassTicket 的 :hover），勾選框跟著一起動 */
+.ticketSlot:hover > button {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 0 0.5px var(--edge)) drop-shadow(var(--shadow-md));
+}
+
+.ticketSlot:hover .ticketCheck {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticketSlot:hover > button,
+  .ticketSlot:hover .ticketCheck {
+    transform: none;
+  }
 }
 
 /* 班級票券：寬度比照學生端的課程票券格線（最窄 280） */
@@ -2356,17 +2423,6 @@
   .weekRows article>.weekFileList {
     grid-area: 2 / 2 / auto / -1;
   }
-
-  .memberRow,
-  .memberColumns {
-    grid-template-columns: minmax(200px, 1.3fr) minmax(100px, .7fr) 100px 34px;
-  }
-
-  /* 加入日期收起：列裡是第 3 個 span，欄位標題裡是第 4 個 */
-  .memberRow>span:nth-of-type(3),
-  .memberColumns>span:nth-of-type(4) {
-    display: none;
-  }
 }
 
 @include respond-below(md) {
@@ -2460,39 +2516,6 @@
 
   .memberList {
     padding: 10px 12px 14px;
-  }
-
-  /* 手機版每列改成上下疊排，欄位對不起來，標題列收起 */
-  .memberColumns {
-    display: none;
-  }
-
-  .memberRow {
-    grid-template-columns: minmax(0, 1fr) auto 30px;
-    gap: 8px 12px;
-  }
-
-  .memberIdentity {
-    grid-column: 1 / -1;
-  }
-
-  .memberRow>span:first-of-type {
-    display: none;
-  }
-
-  .memberRow>span:nth-of-type(3) {
-    display: block;
-  }
-
-  .classToolbar {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .classToolbar .searchInput {
-    flex-basis: auto;
-    width: 100%;
   }
 
   .classFacts {

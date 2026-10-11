@@ -1,5 +1,6 @@
 import { apiGet } from "./api";
 import { wsBaseUrl } from "../utils/wsUrl";
+import { connectReconnectingWebSocket, RECONNECT_BASE_MS, RECONNECT_MAX_MS } from "../utils/reconnectingWebSocket";
 
 export const JobsService = {
   /** 列出統一背景任務,支援篩選 */
@@ -21,8 +22,8 @@ export const JobsService = {
   },
 };
 
-export const JOBS_WS_RECONNECT_BASE_MS = 5_000;
-export const JOBS_WS_RECONNECT_MAX_MS = 60_000;
+export const JOBS_WS_RECONNECT_BASE_MS = RECONNECT_BASE_MS;
+export const JOBS_WS_RECONNECT_MAX_MS = RECONNECT_MAX_MS;
 
 /**
  * 建立 /ws/jobs 即時推送連線，每次收到後端 snapshot 時呼叫 onSnapshot。
@@ -42,64 +43,12 @@ export function connectJobsWebSocket(token, onSnapshot, { onStatusChange } = {})
     return `${wsBaseUrl()}/ws/jobs?token=${encodeURIComponent(value)}`;
   };
 
-  let ws = null;
-  let stopped = false;
-  let reconnectTimer = null;
-  let retryDelay = JOBS_WS_RECONNECT_BASE_MS;
-
-  const schedule = () => {
-    if (stopped || reconnectTimer !== null) return;
-    const delay = retryDelay;
-    retryDelay = Math.min(retryDelay * 2, JOBS_WS_RECONNECT_MAX_MS);
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      open();
-    }, delay);
-  };
-
-  const open = () => {
-    if (stopped) return;
-    const url = resolveUrl();
-    // 尚未登入／token 剛被清掉：稍後再試，不要拿空 token 去撞後端
-    if (!url) {
-      schedule();
-      return;
-    }
-    try {
-      ws = new WebSocket(url);
-    } catch {
-      schedule();
-      return;
-    }
-    ws.onopen = () => {
-      retryDelay = JOBS_WS_RECONNECT_BASE_MS;
-      onStatusChange?.(true);
-    };
-    ws.onmessage = (evt) => {
-      try {
-        onSnapshot(JSON.parse(evt.data));
-      } catch {
-        // 非 JSON 訊息直接忽略
-      }
-    };
-    ws.onclose = () => {
-      ws = null;
-      if (!stopped) onStatusChange?.(false);
-      schedule();
-    };
-  };
-
-  open();
-
-  return () => {
-    stopped = true;
-    if (reconnectTimer !== null) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    if (ws) {
-      try { ws.close(); } catch { /* noop */ }
-      ws = null;
-    }
-  };
+  return connectReconnectingWebSocket(resolveUrl, {
+    retryPolicyClose: true,
+    onOpen: () => onStatusChange?.(true),
+    onClose: () => onStatusChange?.(false),
+    onMessage: (event) => {
+      try { onSnapshot(JSON.parse(event.data)); } catch { /* Ignore invalid JSON. */ }
+    },
+  });
 }

@@ -37,6 +37,12 @@ import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
 import { routeEdges } from "../../network/firewall/utils/buildFlow";
 import { joinList } from "../../../utils/joinList";
+import { runBatch } from "../../../utils/runBatch";
+import DataToolbar from "../../../components/DataToolbar/DataToolbar";
+import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
+import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
+import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
+import useRowSelection from "../../../hooks/useRowSelection";
 import ClassWorkflowStepper from "./ClassWorkflowStepper";
 import { CLASS_WORKFLOW_TABS as TABS, POST_ACTIVE_TABS } from "./classWorkflowTabs";
 import { uploadSequentially } from "../../../utils/uploadSequentially";
@@ -252,6 +258,9 @@ function Overview({
   </div>;
 }
 
+/* 批量移除的確認框裡最多列出幾位的名字，其餘寫「等 N 位」 */
+const BATCH_NAME_PREVIEW = 5;
+
 function Students({ item, onRefresh }) {
   const { t } = useTranslation("teaching");
   const confirm = useConfirm();
@@ -264,6 +273,46 @@ function Students({ item, onRefresh }) {
   const [emailsInvalid, setEmailsInvalid] = useState(false);
   const emailsInputRef = useRef(null);
   const locked = item.status !== "planning";
+  const [query, setQuery] = useState("");
+  const keyword = query.trim().toLowerCase();
+  const visibleStudents = keyword
+    ? item.students.filter((student) => [student.full_name, student.email]
+      .some((value) => String(value ?? "").toLowerCase().includes(keyword)))
+    : item.students;
+  /* 批量移除：只有準備中的班級能移除學生；只勾得到搜尋後看得見的那幾位 */
+  const selection = useRowSelection(locked ? [] : visibleStudents.map((student) => student.id));
+  const selectedStudents = visibleStudents.filter((student) => selection.isSelected(student.id));
+  const [batchProgress, setBatchProgress] = useState(null); // { done, total }
+
+  async function removeSelected() {
+    const targets = selectedStudents;
+    if (!targets.length || batchProgress) return;
+    const names = targets.map((student) => student.full_name || student.email);
+    const rest = names.length - BATCH_NAME_PREVIEW;
+    const ok = await confirm({
+      title: t("ClassWorkspacePage.batchRemoveTitle", { count: targets.length }),
+      message: `${t("ClassWorkspacePage.batchRemoveDesc")}\n${joinList(names.slice(0, BATCH_NAME_PREVIEW))}${rest > 0 ? ` ${t("ClassWorkspacePage.batchNamesMore", { count: rest })}` : ""}`,
+      confirmText: t("ClassWorkspacePage.removeLabel"),
+      danger: true,
+    });
+    if (!ok) return;
+    setBatchProgress({ done: 0, total: targets.length });
+    /* 一次一位：每次移除都回傳整個班級，依序做完最後一份就是最新的名單 */
+    const res = await runBatch(targets, (student) => TeachingClassesService.removeStudent(item.id, student.id), {
+      concurrency: 1,
+      onProgress: ({ done, total }) => setBatchProgress({ done, total }),
+    });
+    const latest = [...res.results].reverse().find((result) => result.ok)?.value;
+    if (latest) onRefresh(latest);
+    if (res.failed === 0) {
+      toast.success(t("ClassWorkspacePage.batchRemovedToast", { count: res.succeeded }));
+    } else {
+      toast.error(t("ClassWorkspacePage.batchRemoveFailedKeptToast", { succeeded: res.succeeded, failed: res.failed }));
+    }
+    selection.replace(res.results.filter((result) => !result.ok).map((result) => result.item.id));
+    setBatchProgress(null);
+  }
+
   async function add(event) {
     event.preventDefault();
     const values = parseStudentEmails(emails);
@@ -316,24 +365,58 @@ function Students({ item, onRefresh }) {
       <div className={styles.memberActions}>
         <input ref={fileRef} className={styles.hiddenFileInput} disabled={locked} type="file" accept=".csv,text/csv" onChange={importCsv} />
         <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => fileRef.current?.click()}><MIcon name="upload" size={16} />{t("ClassWorkspacePage.importCsvBtn")}</button>
-        <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => setShowAdd(true)}><MIcon name="person_add" size={16} />{t("ClassWorkspacePage.addStudentsBtn")}</button>
+        {/* 還沒有學生時，下方空狀態的「新增學生」就是入口，這裡不再放一顆 */}
+        {item.students.length > 0 && <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => setShowAdd(true)}><MIcon name="person_add" size={16} />{t("ClassWorkspacePage.addStudentsBtn")}</button>}
       </div>
     </div>
 
+    {/* 平常是搜尋；勾選學生後原地換成批量移除（同一個高度，名單不會跳）。只有準備中的班級能移除 */}
+    {item.students.length > 0 && <DataToolbar
+      selecting={selectedStudents.length > 0}
+      batch={(
+        <BatchBar
+          countLabel={t("ClassWorkspacePage.selectedCount", { count: selectedStudents.length })}
+          onClear={selection.clear}
+          progress={batchProgress && {
+            text: t("ClassWorkspacePage.batchRemoving", batchProgress),
+            done: batchProgress.done,
+            total: batchProgress.total,
+          }}
+        >
+          <BatchAction icon="person_remove" label={t("ClassWorkspacePage.removeLabel")} danger onClick={removeSelected} />
+        </BatchBar>
+      )}
+    >
+      <ToolbarSearch value={query} onChange={setQuery} placeholder={t("ClassWorkspacePage.searchStudentsPlaceholder")} />
+    </DataToolbar>}
+
     <section className={styles.memberPanel}>
       <div className={styles.memberPanelHead}><strong>{t("ClassWorkspacePage.memberListHeader", { count: item.students.length })}</strong><span>{t("ClassWorkspacePage.machinesReadyShort", { ready: item.readyMachines, total: item.totalMachines || 0 })}</span></div>
-      {item.students.length ? <div className={styles.memberList}>
+      {item.students.length && !visibleStudents.length ? <EmptyState icon="search_off" title={t("ClassWorkspacePage.emptySearchTitle")} action={<button type="button" className={styles.btnSecondary} onClick={() => setQuery("")}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} /> : item.students.length ? <div className={`${styles.memberList} ${locked ? "" : styles.memberSelectable}`}>
         {/* 欄位標題：和下方每列用同一組欄寬，VMID、日期這些數字才看得出是什麼 */}
         <div className={styles.memberColumns}>
+          {!locked && <SelectCheckbox
+            checked={selection.allSelected}
+            indeterminate={selection.someSelected}
+            onToggle={selection.toggleAll}
+            ariaLabel={t("DataToolbar.selectAll", { ns: "common" })}
+          />}
           <span>{t("ClassWorkspacePage.memberColStudent")}</span>
           <span>{t("ClassWorkspacePage.memberColVmid")}</span>
           <span>{t("ClassWorkspacePage.memberColMachines")}</span>
           <span>{t("ClassWorkspacePage.memberColJoined")}</span>
           <span />
         </div>
-        {item.students.map((student) => {
+        {visibleStudents.map((student) => {
         const ready = student.machines.filter((machine) => machine.status === "completed").length;
-        return <article className={styles.memberRow} key={student.id}>
+        const checked = selection.isSelected(student.id);
+        /* 勾選狀態下點整列也是勾選（移除鈕照舊） */
+        return <article className={`${styles.memberRow} ${checked ? styles.memberRowSelected : ""} ${selection.selecting ? styles.memberRowSelectMode : ""}`} key={student.id} onClick={(event) => selection.rowClick(student.id, event)}>
+          {!locked && <SelectCheckbox
+            checked={checked}
+            onToggle={(shiftKey) => selection.toggle(student.id, shiftKey)}
+            ariaLabel={t("ClassWorkspacePage.selectStudentAria", { name: student.full_name || student.email })}
+          />}
           <div className={styles.memberIdentity}><strong>{student.full_name || student.email}</strong><span>{student.email}</span></div>
           <span>{student.machines.length ? joinList(student.machines.map((machine) => machine.vmid ?? "—")) : "—"}</span>
           <span className={`${styles.memberMachineState} ${ready === item.nodes.length && item.nodes.length ? styles.memberReady : ""}`}>{item.nodes.length ? t("ClassWorkspacePage.readyCountLabel", { ready, total: item.nodes.length }) : t("ClassWorkspacePage.notBuiltLabel")}</span>

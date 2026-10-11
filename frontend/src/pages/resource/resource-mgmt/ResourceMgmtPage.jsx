@@ -22,6 +22,13 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
 import { formatDate } from "../../../utils/formatDate";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import DataToolbar from "../../../components/DataToolbar/DataToolbar";
+import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
+import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
+import useRowSelection from "../../../hooks/useRowSelection";
+import BatchActionBar from "./BatchActionBar";
+import { filterGroups, filterResources, statusCounts } from "./resourceFilters";
 
 /* ── Constants ── */
 function useStatusMap() {
@@ -69,17 +76,6 @@ function useColumns() {
     t("ResourceMgmtPage.columnExpiry"),
     t("ResourceMgmtPage.columnNode"),
     t("ResourceMgmtPage.columnActions"),
-  ];
-}
-
-function useBatchActions() {
-  const { t } = useTranslation("resource");
-  return [
-    { action: "start",    label: t("ResourceMgmtPage.actionStart"),    icon: "play_arrow" },
-    { action: "shutdown", label: t("ResourceMgmtPage.actionShutdown"), icon: "power_settings_new" },
-    { action: "reboot",   label: t("ResourceMgmtPage.actionReboot"),   icon: "restart_alt" },
-    { action: "stop",     label: t("ResourceMgmtPage.actionStop"),     icon: "stop" },
-    { action: "reset",    label: t("ResourceMgmtPage.actionReset"),    icon: "cancel" },
   ];
 }
 
@@ -183,7 +179,8 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
   </>;
 }
 
-function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
+/* machines：篩選後要列出的機器（預設整組）；群組列的台數與整組開關機仍看整組 */
+function EnvironmentGroupRows({ group, machines = group.machines, onUpdated, onRefresh }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const actionLabel = useActionLabel();
@@ -245,7 +242,11 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
           <div className={styles.nameCell}>
             <div>
               <div className={styles.namePrimary}>{group.title}</div>
-              <div className={styles.nameSub}>{t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}</div>
+              <div className={styles.nameSub}>
+                {machines.length < group.machines.length
+                  ? t("ResourceMgmtPage.groupMatchCount", { shown: machines.length, count: group.machines.length })
+                  : t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}
+              </div>
             </div>
           </div>
         </td>
@@ -283,109 +284,14 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
             </div>
           : <span className={styles.noAction}>—</span>}</td>
       </tr>
-      {expanded && group.machines.map((machine) => (
+      {expanded && machines.map((machine) => (
         <EnvironmentMachineRow key={machine.id} machine={machine} onUpdated={onUpdated} />
       ))}
     </>
   );
 }
 
-/* ── 批次操作列（有勾選才顯示） ── */
-function BatchActionBar({ selectedVmids, onDone, onClear }) {
-  const { t } = useTranslation("resource");
-  const toast = useToast();
-  const confirm = useConfirm();
-  const actionLabel = useActionLabel();
-  const batchActions = useBatchActions();
-  const [pending, setPending] = useState(null); // 進行中的 action
-  const count = selectedVmids.length;
-
-  async function run(action) {
-    setPending(action);
-    try {
-      const res = await ResourcesService.batchActionInChunks(selectedVmids, action);
-      const label = action === "delete" ? t("ResourceMgmtPage.delete") : actionLabel[action];
-      if ((res?.failed ?? 0) === 0) {
-        toast.success(t("ResourceMgmtPage.batchSuccessToast", { count: res?.succeeded ?? count, label }));
-      } else {
-        toast.error(t("ResourceMgmtPage.batchPartialFailToast", { label, succeeded: res?.succeeded ?? 0, failed: res?.failed }));
-      }
-      onDone();
-    } catch (err) {
-      toast.error(err?.message ?? t("ResourceMgmtPage.batchActionFailed"));
-    } finally {
-      setPending(null);
-    }
-  }
-
-  /* 強制停止／強制重置等同直接拔電，未存檔的資料會遺失：這兩個先確認，其餘照舊 */
-  async function runWithConfirm(action, label) {
-    if (action === "stop" || action === "reset") {
-      const ok = await confirm({
-        title: t("ResourceMgmtPage.batchForceTitle", { count, label }),
-        message: action === "stop"
-          ? t("ResourceMgmtPage.batchForceStopDesc")
-          : t("ResourceMgmtPage.batchForceResetDesc"),
-        confirmText: label,
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    await run(action);
-  }
-
-  async function confirmBatchDelete() {
-    const ok = await confirm({
-      title: t("ResourceMgmtPage.batchDeleteTitle", { count }),
-      message: t("ResourceMgmtPage.batchDeleteDesc"),
-      confirmText: t("ResourceMgmtPage.confirmDelete"),
-      danger: true,
-    });
-    if (ok) run("delete");
-  }
-
-  if (count === 0) return null;
-
-  return (
-    <div className={styles.batchBar}>
-      <span className={styles.batchCount}>{t("ResourceMgmtPage.selectedCount", { count })}</span>
-      <span className={styles.batchDivider} />
-      {batchActions.map(({ action, label, icon }) => (
-        <button
-          key={action}
-          type="button"
-          className={styles.btnSecondary}
-          disabled={pending !== null}
-          onClick={() => runWithConfirm(action, label)}
-        >
-          <MIcon name={icon} size={14} />
-          {label}
-        </button>
-      ))}
-      <span className={styles.batchDivider} />
-      <button
-        type="button"
-        className={styles.btnDangerOutline}
-        disabled={pending !== null}
-        onClick={confirmBatchDelete}
-      >
-        <MIcon name="delete" size={14} />
-        {t("ResourceMgmtPage.delete")}
-      </button>
-      <button
-        type="button"
-        className={styles.btnGhost}
-        disabled={pending !== null}
-        onClick={onClear}
-      >
-        {t("ResourceMgmtPage.clearSelection")}
-      </button>
-
-    </div>
-  );
-}
-
-function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggleSelect = null }) {
+function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecting = false, onToggleSelect = null, onRowClick = null }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const navigate = useNavigate();
@@ -447,27 +353,28 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
   }
 
   const canOpenDetail = resource.vmid > 0;
-  /* 整列可點進詳情；勾選、主控台與電源選單的點擊不觸發導頁 */
-  const openDetail = (event) => {
-    if (event.target.closest("button, a, input, select, label")) return;
+  /* 整列可點進詳情；勾選、主控台與電源選單的點擊不觸發導頁。
+     勾選狀態下（已勾了至少一台）點整列改成勾選，不進詳情 */
+  const handleRowClick = (event) => {
+    if (onRowClick?.(resource.vmid, event)) return;
+    if (!canOpenDetail || event.target.closest("button, a, input, select, label")) return;
     navigate(`/resource-mgmt/${resource.vmid}`);
   };
 
   return (
     <>
       <tr
-        className={`${styles.tr} ${canOpenDetail ? styles.trClickable : ""}`}
-        onClick={canOpenDetail ? openDetail : undefined}
+        className={`${styles.tr} ${canOpenDetail || selecting ? styles.trClickable : ""} ${selected ? styles.trSelected : ""}`}
+        onClick={handleRowClick}
       >
-        {/* 勾選 */}
+        {/* 勾選：整格都是點擊範圍，點偏了不會變成點進詳情頁；Shift 點選連選一段 */}
         <td className={`${styles.td} ${styles.checkCell}`}>
           {onToggleSelect && canControl ? (
-            <input
-              type="checkbox"
-              className={styles.checkbox}
+            <SelectCheckbox
+              cell
               checked={selected}
-              onChange={() => onToggleSelect(resource.vmid)}
-              aria-label={t("ResourceMgmtPage.selectRowAria", { name: resource.name })}
+              onToggle={(shiftKey) => onToggleSelect(resource.vmid, shiftKey)}
+              ariaLabel={t("ResourceMgmtPage.selectRowAria", { name: resource.name })}
             />
           ) : null}
         </td>
@@ -614,7 +521,8 @@ export default function ResourceMgmtPage() {
   const [quickSessions, setQuickSessions] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
-  const [selectedVmids, setSelectedVmids] = useState(() => new Set());
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const environmentGroups = buildEnvironmentGroups(resources, quickSessions);
   const grouped = groupedResourceKeys(environmentGroups);
@@ -622,23 +530,21 @@ export default function ResourceMgmtPage() {
     !grouped.vmids.has(resource.vmid)
     && !grouped.requestIds.has(String(resource.request_id))
   ));
-  const selectableVmids = visibleResources
+  /* 搜尋／狀態篩過後實際列在表格上的；勾選、全選、批量都只看這些 */
+  const filters = { query, status: statusFilter };
+  const shownGroups = filterGroups(environmentGroups, filters);
+  const shownResources = filterResources(visibleResources, filters);
+  const counts = statusCounts(resources);
+  const selectableVmids = shownResources
     .filter((r) => r.can_control !== false && r.vmid != null && r.vmid > 0)
     .map((r) => r.vmid);
-  const allSelected = selectableVmids.length > 0 && selectableVmids.every((v) => selectedVmids.has(v));
-
-  function toggleSelect(vmid) {
-    setSelectedVmids((prev) => {
-      const next = new Set(prev);
-      if (next.has(vmid)) next.delete(vmid);
-      else next.add(vmid);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    setSelectedVmids(allSelected ? new Set() : new Set(selectableVmids));
-  }
+  /* 看不到的機器（篩掉了、刷新後消失）自動取消勾選；交給批量列的是還在清單上的那些 */
+  const selection = useRowSelection(selectableVmids);
+  const selectedResources = shownResources.filter((r) => selection.isSelected(r.vmid));
+  const clearFilters = () => {
+    setQuery("");
+    setStatusFilter("all");
+  };
 
   /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
   const fetchResources = useCallback(async (silent = false, signal) => {
@@ -674,14 +580,9 @@ export default function ResourceMgmtPage() {
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
   }
 
+  /* 刪掉的那台若勾著，從清單消失時 useRowSelection 會自動取消勾選 */
   function handleDeleted(vmid) {
     setResources((prev) => prev.filter((r) => r.vmid !== vmid));
-    setSelectedVmids((prev) => {
-      if (!prev.has(vmid)) return prev;
-      const next = new Set(prev);
-      next.delete(vmid);
-      return next;
-    });
   }
 
   const columns = useColumns();
@@ -698,16 +599,6 @@ export default function ResourceMgmtPage() {
         </div>
       </PageHeader>
 
-      {/* ── 批次操作 ── */}
-      <BatchActionBar
-        selectedVmids={[...selectedVmids]}
-        onDone={() => {
-          setSelectedVmids(new Set());
-          fetchResources();
-        }}
-        onClear={() => setSelectedVmids(new Set())}
-      />
-
       {/* ── 內容 ── */}
       <div className={styles.content}>
         {error ? (
@@ -717,6 +608,53 @@ export default function ResourceMgmtPage() {
         ) : visibleResources.length === 0 && environmentGroups.length === 0 ? (
           <EmptyState />
         ) : (
+          <>
+          {/* ── 表格工具列：平常是狀態切換＋搜尋，勾選後原地換成批量操作（同一個高度，表格不會跳）；黏在頂端，捲到哪都按得到 ── */}
+          <DataToolbar
+            className={styles.toolbar}
+            selecting={selectedResources.length > 0}
+            batch={(
+              <BatchActionBar
+                selected={selectedResources}
+                onDone={(failedVmids) => {
+                  if (failedVmids) selection.replace(failedVmids);
+                  fetchResources(true);
+                }}
+                onClear={selection.clear}
+              />
+            )}
+          >
+            <SegmentedControl
+              options={[
+                { value: "all", label: t("ResourceMgmtPage.filterAll"), badge: counts.all },
+                { value: "running", label: t("ResourceMgmtPage.statusRunning"), badge: counts.running },
+                { value: "stopped", label: t("ResourceMgmtPage.statusStopped"), badge: counts.stopped },
+              ]}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              ariaLabel={t("ResourceMgmtPage.statusFilterAria")}
+            />
+            <ToolbarSearch
+              value={query}
+              onChange={setQuery}
+              placeholder={t("ResourceMgmtPage.searchPlaceholder")}
+            />
+          </DataToolbar>
+          {shownGroups.length === 0 && shownResources.length === 0 ? (
+            /* 有機器但篩不到：工具列留著讓人改條件，下面給清除鈕 */
+            <SharedEmptyState
+              icon="search_off"
+              title={t("ResourceMgmtPage.emptyFilteredTitle")}
+              action={(
+                <button type="button" className={styles.btnSecondary} onClick={clearFilters}>
+                  <MIcon name={statusFilter === "all" ? "search_off" : "filter_alt_off"} size={16} />
+                  {statusFilter === "all"
+                    ? t("EmptyState.clearSearch", { ns: "common" })
+                    : t("EmptyState.clearFilters", { ns: "common" })}
+                </button>
+              )}
+            />
+          ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <colgroup>
@@ -733,13 +671,13 @@ export default function ResourceMgmtPage() {
               <thead>
                 <tr>
                   <th className={`${styles.th} ${styles.checkCell}`}>
-                    <input
-                      type="checkbox"
-                      className={styles.checkbox}
-                      checked={allSelected}
+                    <SelectCheckbox
+                      cell
+                      checked={selection.allSelected}
+                      indeterminate={selection.someSelected}
                       disabled={selectableVmids.length === 0}
-                      onChange={toggleSelectAll}
-                      aria-label={t("ResourceMgmtPage.selectAllAria")}
+                      onToggle={selection.toggleAll}
+                      ariaLabel={t("ResourceMgmtPage.selectAllAria")}
                     />
                   </th>
                   {columns.map((col) => (
@@ -748,20 +686,24 @@ export default function ResourceMgmtPage() {
                 </tr>
               </thead>
               <tbody>
-                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onRefresh={() => fetchResources(true)} />)}
-                {visibleResources.map((r, index) => (
+                {shownGroups.map(({ group, machines }) => <EnvironmentGroupRows key={group.id} group={group} machines={machines} onUpdated={handleUpdated} onRefresh={() => fetchResources(true)} />)}
+                {shownResources.map((r, index) => (
                   <ResourceRow
                     key={resourceRowKey(r, index)}
                     resource={r}
                     onUpdated={handleUpdated}
                     onDeleted={handleDeleted}
-                    selected={selectedVmids.has(r.vmid)}
-                    onToggleSelect={toggleSelect}
+                    selected={selection.isSelected(r.vmid)}
+                    selecting={selection.selecting && r.can_control !== false && r.vmid > 0}
+                    onToggleSelect={selection.toggle}
+                    onRowClick={selection.rowClick}
                   />
                 ))}
               </tbody>
             </table>
           </div>
+          )}
+          </>
         )}
       </div>
     </div>

@@ -14,16 +14,12 @@
 import { useEffect, useRef, useState } from "react";
 import { AuthStorage } from "../services/auth";
 import { wsBaseUrl } from "../utils/wsUrl";
+import { connectReconnectingWebSocket } from "../utils/reconnectingWebSocket";
 
 /* 相容舊的匯入路徑；新程式請直接從 utils/wsUrl 匯入 */
 export { wsBaseUrl };
 
 /** 重連退避：起始 5 秒、上限 60 秒 */
-const RECONNECT_BASE_MS = 5_000;
-const RECONNECT_MAX_MS = 60_000;
-/** WebSocket close code 1008：後端以政策理由拒絕（token 無效／過期） */
-const WS_POLICY_VIOLATION = 1008;
-
 export function useClassroomSocket(onEvent, { enabled = true } = {}) {
   const handlerRef = useRef(onEvent);
   handlerRef.current = onEvent;
@@ -32,79 +28,17 @@ export function useClassroomSocket(onEvent, { enabled = true } = {}) {
   useEffect(() => {
     if (!enabled) return undefined;
 
-    let ws = null;
-    let stopped = false;
-    let reconnectTimer = null;
-    /* 退避：第一次 5 秒，之後每次加倍到 60 秒封頂；連上就歸零 */
-    let retryDelay = RECONNECT_BASE_MS;
-
-    const schedule = () => {
-      if (stopped || reconnectTimer !== null) return;
-      const delay = retryDelay;
-      retryDelay = Math.min(retryDelay * 2, RECONNECT_MAX_MS);
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = null;
-        open();
-      }, delay);
-    };
-
-    const open = () => {
-      if (stopped) return;
-      const token = AuthStorage.getAccessToken() || "";
-      if (!token) {
-        schedule();
-        return;
-      }
-      const url = `${wsBaseUrl()}/ws/classroom?token=${encodeURIComponent(token)}`;
-      try {
-        ws = new WebSocket(url);
-      } catch {
-        schedule();
-        return;
-      }
-      ws.onopen = () => {
-        retryDelay = RECONNECT_BASE_MS;
-        setConnected(true);
-      };
-      ws.onmessage = (evt) => {
-        try {
-          handlerRef.current(JSON.parse(evt.data));
-        } catch {
-          // 忽略非 JSON frame
-        }
-      };
-      ws.onclose = (evt) => {
-        setConnected(false);
-        ws = null;
-        /* 1008 = policy violation：後端拒絕這張 token，再連也沒用 */
-        if (evt?.code === WS_POLICY_VIOLATION) {
-          stopped = true;
-          return;
-        }
-        schedule();
-      };
-      ws.onerror = () => {
-        ws?.close();
-      };
-    };
-
-    open();
-
-    return () => {
-      stopped = true;
-      if (reconnectTimer !== null) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      if (ws) {
-        try {
-          ws.close();
-        } catch {
-          // noop
-        }
-        ws = null;
-      }
-    };
+    setConnected(false);
+    return connectReconnectingWebSocket(() => {
+      const token = AuthStorage.getAccessToken();
+      return token ? `${wsBaseUrl()}/ws/classroom?token=${encodeURIComponent(token)}` : null;
+    }, {
+      onOpen: () => setConnected(true),
+      onClose: () => setConnected(false),
+      onMessage: (event) => {
+        try { handlerRef.current(JSON.parse(event.data)); } catch { /* Ignore invalid JSON. */ }
+      },
+    });
   }, [enabled]);
 
   return { connected };

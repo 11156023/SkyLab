@@ -7,10 +7,11 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlmodel import col, or_, select
+from sqlmodel import Session, col, or_, select
 
+from app.api.ai_capacity import run_ai_db
 from app.api.deps.database import SessionDep
-from app.core.db import end_read_transaction
+from app.core.db import end_read_transaction, engine
 from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.features.ai.config import settings as ai_api_settings
@@ -133,9 +134,20 @@ def get_current_user_by_ai_api_key(
 
 
 # 类型标注（用于依赖注入）
-AIAPIUserDep = Annotated[
-    tuple[User, AIAPICredential], Depends(get_current_user_by_ai_api_key)
-]
+def _authenticate(authorization: str) -> tuple[User, AIAPICredential]:
+    with Session(engine) as session:
+        return get_current_user_by_ai_api_key(
+            session=session, authorization=authorization
+        )
+
+
+async def authenticate_ai_api_key(
+    authorization: str = Header(..., description="Bearer ccai_xxx"),
+) -> tuple[User, AIAPICredential]:
+    return await run_ai_db(_authenticate, authorization)
+
+
+AIAPIUserDep = Annotated[tuple[User, AIAPICredential], Depends(authenticate_ai_api_key)]
 
 
 __all__ = ["get_current_user_by_ai_api_key", "AIAPIUserDep"]

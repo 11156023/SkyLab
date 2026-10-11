@@ -219,8 +219,8 @@
   cursor: pointer;
 }
 
-/* 被篩掉的台數＋清除篩選（畫布左下，跟圖例同一套浮層樣式） */
-.filteredNote {
+/* 畫布左下的狀態提示（被篩掉的台數＋清除篩選、只顯示選中機器的連線＋取消選取），跟圖例同一套浮層樣式 */
+.canvasNote {
   display: inline-flex;
   align-items: center;
   gap: 6px;

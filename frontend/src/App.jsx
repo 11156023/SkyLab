@@ -6,8 +6,8 @@ import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
 import ResetPasswordRedirect, { hasResetToken } from "./pages/login/ResetPasswordRedirect";
 import LoginPreflightPage from "./pages/login/LoginPreflightPage";
-import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
+import ConnectionLostState from "./components/ErrorState/ConnectionLostState";
 import { AuthSessionStatus } from "./services/authSession";
 import { useSetupStatus } from "./pages/setup/useSetupStatus";
 import { useModalScrollLock } from "./hooks/useBodyScrollLock";
@@ -80,37 +80,14 @@ const GatewayPage = lazy(() => import("./pages/system/gateway/GatewayPage"));
 
 function AuthBootstrapState({ unavailable = false, retrying = false, onRetry }) {
   const { t } = useTranslation("common");
+  /* 連不上：用設計過的斷線插圖（同 CrashState／404 的插圖語言），不再是一張只有圖示的卡片 */
+  if (unavailable) return <ConnectionLostState fullPage retrying={retrying} onRetry={onRetry} />;
   return (
     <main className={styles.authStatePage}>
-      <section className={styles.authStateCard} role={unavailable ? "alert" : "status"}>
-        {unavailable ? (
-          <span className={styles.authStateIcon} aria-hidden="true">
-            <MIcon name="cloud_off" size={42} />
-          </span>
-        ) : (
-          <LoadingSpinner size={42} />
-        )}
-        <h1 className={styles.authStateTitle}>
-          {unavailable ? t("App.connectionUnavailable") : t("App.verifyingLogin")}
-        </h1>
-        <p className={styles.authStateDescription}>
-          {unavailable
-            ? t("App.connectionUnavailableDesc")
-            : t("App.verifyingLoginDesc")}
-        </p>
-        {unavailable && (
-          <button
-            type="button"
-            className={styles.retryButton}
-            disabled={retrying}
-            onClick={onRetry}
-          >
-            <span aria-hidden="true">
-              <MIcon name="refresh" size={18} spin={retrying} />
-            </span>
-            {retrying ? t("App.retrying") : t("App.retryConnect")}
-          </button>
-        )}
+      <section className={styles.authStateCard} role="status">
+        <LoadingSpinner size={42} />
+        <h1 className={styles.authStateTitle}>{t("App.verifyingLogin")}</h1>
+        <p className={styles.authStateDescription}>{t("App.verifyingLoginDesc")}</p>
       </section>
     </main>
   );
@@ -153,8 +130,11 @@ function LegacySettingsRedirect() {
 }
 
 function App() {
-  const { user, loading, authStatus, retrySession, loginPreflightPending } = useAuth();
+  const { user, loading, authStatus, authError, retrySession, loginPreflightPending } = useAuth();
   useModalScrollLock();
+  /* 連不上後按「重新連線」：重新驗證期間 authStatus 回到 checking，但上一輪的錯誤還留著。
+     這段期間畫面留在斷線頁播「接上」的動畫，不要閃回「正在驗證登入狀態」卡再閃回來 */
+  const reconnecting = loading && Boolean(authError);
   const isAdmin = isAdminUser(user);
   const canTeach = canTeachUser(user);
   const isDeviceApproval = Boolean(
@@ -176,7 +156,7 @@ function App() {
     return <Suspense fallback={<AuthBootstrapState />}><VerifyEmailChangePage /></Suspense>;
   }
 
-  if (authStatus === AuthSessionStatus.UNAVAILABLE && !user) {
+  if (!user && (authStatus === AuthSessionStatus.UNAVAILABLE || reconnecting)) {
     return (
       <Routes>
         <Route path="/" element={landingElement} />
@@ -185,7 +165,7 @@ function App() {
           element={
             <AuthBootstrapState
               unavailable
-              retrying={loading}
+              retrying={reconnecting}
               onRetry={retrySession}
             />
           }

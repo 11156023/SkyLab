@@ -92,6 +92,12 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* 不畫分隔線（dividers={false}）：放在 .withHeader 後面，同權重才蓋得過按鈕列的 border-top */
+.noDividers {
+  .header { border-bottom: 0; }
+  .actions { border-top: 0; }
+}
+
 .closeBtn {
   @include btn-dialog-close;
   flex-shrink: 0;

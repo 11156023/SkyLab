@@ -586,7 +586,7 @@ function EmptyState() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   return <SharedEmptyState icon="dns" title={t("ResourcesPage.emptyTitle")}
-    action={<button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests", { state: { create: true } })}><MIcon name="add" size={16} />{t("ResourcesPage.requestResource")}</button>} />;
+    action={<button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests", { state: { create: true } })} data-guide="resource-request"><MIcon name="add" size={16} />{t("ResourcesPage.requestResource")}</button>} />;
 }
 
 function ResourceGuideDemoRow() {
@@ -743,6 +743,10 @@ export default function ResourcesPage() {
   ));
   const visiblePending = pending.filter((request) => !grouped.requestIds.has(String(request.id)));
   const resourceListEmpty = visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0;
+  /* 頁首的「申請資源」等清單有東西才出現：空狀態那顆就是唯一入口，不要上下兩顆一樣的鈕。
+     導覽示範列顯示時照常放（導覽要指它）；載入中也先不放，免得空清單的人看到它閃一下 */
+  const showEmptyState = !error && !loading && resourceListEmpty && !guideDemo;
+  const showHeaderRequest = !loading && !showEmptyState;
 
   return (
     <div className={styles.page}>
@@ -755,20 +759,23 @@ export default function ResourcesPage() {
             <MIcon name="download" size={16} />
             {t("ResourcesPage.downloadDesktopClient")}
           </a>
-          <button
-            type="button"
-            className={styles.btnPrimary}
-            onClick={() => navigate("/my-requests", { state: { create: true } })}
-            data-guide="resource-request"
-          >
-            <MIcon name="add" size={16} />
-            {t("ResourcesPage.requestResource")}
-          </button>
+          {showHeaderRequest && (
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => navigate("/my-requests", { state: { create: true } })}
+              data-guide="resource-request"
+            >
+              <MIcon name="add" size={16} />
+              {t("ResourcesPage.requestResource")}
+            </button>
+          )}
         </div>
       </PageHeader>
 
-      {/* 我的配額用量（模組 E） */}
-      <QuotaUsageBar />
+      {/* 我的配額用量（模組 E）。清單整頁出錯時不放：兩支 API 通常一起失敗，下方已有錯誤畫面＋重試，
+          配額卡再寫一次同樣的錯誤只是重複；只有配額抓不到時，卡片照常顯示自己的佔位 */}
+      {!error && <QuotaUsageBar />}
 
       <div className={styles.content}>
         {error ? (

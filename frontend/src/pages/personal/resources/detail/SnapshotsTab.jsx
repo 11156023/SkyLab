@@ -197,7 +197,7 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
                   <td className={`${styles.td} ${styles.mutedCell}`}>
                     {snap.description || "—"}
                   </td>
-                  <td className={`${styles.td} ${styles.mutedCell}`}>
+                  <td className={`${styles.td} ${styles.mutedCell} ${styles.nowrapCell}`}>
                     {snap.snaptime ? formatDateTime(snap.snaptime * 1000) : "—"}
                   </td>
                   <td className={`${styles.td} ${styles.tdActions}`}>

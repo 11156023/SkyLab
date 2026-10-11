@@ -497,7 +497,8 @@ function EmptyState({ onCreateClick }) {
       icon="description"
       title={t("RequestsPage.emptyTitle")}
       action={
-        <button type="button" className={styles.btnPrimary} onClick={onCreateClick}>
+        /* 沒有紀錄時頁首不放申請鈕，這顆就是唯一入口，導覽的「進入申請表單」也點它 */
+        <button type="button" className={styles.btnPrimary} onClick={onCreateClick} data-guide="request-create">
           <MIcon name="add" size={16} />
           {t("RequestsPage.createNow")}
         </button>
@@ -590,16 +591,23 @@ export default function RequestsPage() {
     );
   }
 
+  const isEmpty = !error && !loading && requests.length === 0 && specRequests.length === 0;
+  /* 頁首的申請鈕等有紀錄才出現：沒資料時只留中間空狀態那一顆，不要上下兩顆一樣的鈕；
+     載入中也先不放，免得空清單的人看到它閃一下又消失 */
+  const showHeaderCreate = !loading && !isEmpty;
+
   return (
     <div
       className={`${styles.page} ${returning ? styles.animSlideInLeft : ""}`}
       onAnimationEnd={returning ? () => setReturning(false) : undefined}
     >
       <PageHeader title={t("RequestsPage.title")}>
-        <button type="button" className={styles.btnPrimary} onClick={() => setView(VIEW_CREATE)} data-guide="request-create">
-          <MIcon name="add" size={16} />
-          {t("RequestsPage.requestResource")}
-        </button>
+        {showHeaderCreate && (
+          <button type="button" className={styles.btnPrimary} onClick={() => setView(VIEW_CREATE)} data-guide="request-create">
+            <MIcon name="add" size={16} />
+            {t("RequestsPage.requestResource")}
+          </button>
+        )}
       </PageHeader>
 
       <div className={styles.content} data-guide="request-list">
@@ -607,7 +615,7 @@ export default function RequestsPage() {
           <ErrorState onRetry={() => fetchRequests()} />
         ) : loading ? (
           <LoadingState fullPage />
-        ) : requests.length === 0 && specRequests.length === 0 ? (
+        ) : isEmpty ? (
           <EmptyState onCreateClick={() => setView(VIEW_CREATE)} />
         ) : (
           <>

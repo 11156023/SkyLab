@@ -40,7 +40,7 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionPublic,
 )
 from app.ai.teacher_judge.service import summarize_conversation
-from app.core.db import engine
+from app.core.db import engine, run_db_in_threadpool
 from app.core.i18n import t
 from app.infrastructure.worker import submit
 from app.models.teacher_judge_attachment import (
@@ -1564,15 +1564,19 @@ async def run_summary_job(
     analysis_revision: int | None,
 ) -> None:
     """Summarize a captured boundary without retaining the request Session."""
-    with Session(engine) as db:
-        snapshot = _prepare_summary_job(
-            db,
-            session_id=session_id,
-            boundary_message_id=boundary_message_id,
-            assistant_count=assistant_count,
-            selected_file_id=selected_file_id,
-            analysis_revision=analysis_revision,
-        )
+
+    def prepare():
+        with Session(engine) as db:
+            return _prepare_summary_job(
+                db,
+                session_id=session_id,
+                boundary_message_id=boundary_message_id,
+                assistant_count=assistant_count,
+                selected_file_id=selected_file_id,
+                analysis_revision=analysis_revision,
+            )
+
+    snapshot = await run_db_in_threadpool(prepare)
     if snapshot is None:
         return
 
@@ -1588,9 +1592,12 @@ async def run_summary_job(
         )
         return
 
-    try:
+    def persist() -> None:
         with Session(engine) as db:
             _persist_summary_if_current(db, snapshot, summary)
+
+    try:
+        await run_db_in_threadpool(persist)
     except Exception:
         logger.exception(
             "Teacher Judge summary persistence failed for session %s through message %s",

@@ -97,7 +97,9 @@ def test_upload_rejects_unsupported_type_and_oversize(
     assert list(avatar_dir.iterdir()) == []
 
 
-def test_unknown_user_avatar_is_404(client: TestClient, avatar_dir: Path) -> None:
+def test_unknown_user_avatar_is_404(
+    client: TestClient, db: Session, avatar_dir: Path
+) -> None:
     orphan_id = uuid.uuid4()
     (avatar_dir / f"{orphan_id}.png").write_bytes(_PNG)
     assert client.get(f"{API}/users/{orphan_id}/avatar").status_code == 404

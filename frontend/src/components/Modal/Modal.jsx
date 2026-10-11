@@ -13,6 +13,7 @@
  * 版型：
  *   - 預設精簡卡：標題、說明、內容、按鈕列排成一欄（確認框、命名框、小表單）
  *   - closeButton：標題列帶 ×，內容區獨立捲動，按鈕列固定在底部（欄位多的表單）
+ *     內容只有一兩句的提醒可傳 dividers={false}，拿掉標題列與按鈕列的分隔線
  *   - bare：只給毛玻璃外框，標題列與內容全部自己排（終端機、VNC 這類畫面）
  *
  * @param {boolean} closing 離場動畫中（useDialogPresence 的 closing）
@@ -63,6 +64,7 @@ export default function Modal({
   description,
   actions,
   closeButton = false,
+  dividers = true,
   bare = false,
   size = "sm",
   layer = "dialog",
@@ -165,7 +167,8 @@ export default function Modal({
   );
 
   const layoutClass = bare ? styles.bare : closeButton ? styles.withHeader : styles.compact;
-  const dialogClass = [styles.dialog, SIZE_CLASS[size] ?? styles.sizeSm, layoutClass, className]
+  const dividerClass = closeButton && !bare && !dividers ? styles.noDividers : "";
+  const dialogClass = [styles.dialog, SIZE_CLASS[size] ?? styles.sizeSm, layoutClass, dividerClass, className]
     .filter(Boolean)
     .join(" ");
 

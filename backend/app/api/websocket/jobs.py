@@ -15,6 +15,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
 from app.api.deps.auth import get_ws_current_user
+from app.core.db import engine, run_db_in_threadpool
 from app.models import User
 from app.schemas.jobs import JobsListResponse
 from app.services.course import reminder_service
@@ -87,6 +88,15 @@ def _poll(
     return _fetch_snapshot(session, user, 20, include_reminders=include_reminders)
 
 
+def _poll_once(
+    user_id: uuid.UUID, token_version: int, *, include_reminders: bool
+) -> JobsListResponse | None:
+    with Session(engine) as session:
+        return _poll(
+            session, user_id, token_version, include_reminders=include_reminders
+        )
+
+
 async def _wait_for_client(websocket: WebSocket) -> None:
     """等一個輪詢間隔，期間偵測 client 主動 close（收到就拋 WebSocketDisconnect）。
 
@@ -106,11 +116,12 @@ async def _wait_for_client(websocket: WebSocket) -> None:
 
 async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
     user, session = await get_ws_current_user(websocket, token=token)
-    await websocket.accept()
     # eagerly load before entering the loop：之後每輪只用 id 重新查使用者
     user_email = user.email
     user_id = user.id
     token_version = user.token_version
+    await run_db_in_threadpool(session.close)
+    await websocket.accept()
     logger.debug("Jobs WS connected: user=%s", user_email)
 
     last_payload: str | None = None
@@ -124,8 +135,7 @@ async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
             round_index += 1
             try:
                 snapshot = await asyncio.to_thread(
-                    _poll,
-                    session,
+                    _poll_once,
                     user_id,
                     token_version,
                     include_reminders=include_reminders,
@@ -171,12 +181,6 @@ async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
             await websocket.close(code=1011)
         except Exception:
             # 連線可能已關閉，關閉失敗可忽略
-            pass
-    finally:
-        try:
-            session.close()
-        except Exception:
-            # session 清理失敗可忽略
             pass
 
 

@@ -15,15 +15,7 @@
   gap: $spacing-16;
   padding: $spacing-32 $spacing-24;
   text-align: center;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-16;
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(12px);
-}
-
-.authStateIcon {
-  color: var(--color-danger);
+  /* 不包卡片：載入圖示＋兩行字直接放在漸層背景上，跟斷線頁、錯誤頁一樣不加白底 */
 }
 
 .authStateTitle {
@@ -38,35 +30,4 @@
   font-size: $font-size-14;
   line-height: 1.65;
   color: var(--color-text-secondary);
-}
-
-.retryButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-8;
-  margin-top: $spacing-8;
-  padding: $spacing-8 $spacing-16;
-  border: 0;
-  border-radius: $radius-8;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base, opacity $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 3px;
-  }
-
-  &:disabled {
-    cursor: wait;
-    opacity: 0.65;
-  }
 }

@@ -43,19 +43,30 @@ def test_rotate_secret_response_is_not_cacheable(
 
 
 @pytest.mark.asyncio
-async def test_public_usage_aggregation_runs_in_threadpool(
+async def test_public_usage_aggregation_runs_in_db_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = uuid.uuid4()
     expected = {"total_requests": 3}
-    calls: list[tuple[object, dict[str, object]]] = []
+    runner_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+    aggregate_calls: list[dict[str, object]] = []
 
     def aggregate(**_kwargs: object) -> dict[str, int]:
-        raise AssertionError("aggregation must be delegated to the threadpool")
-
-    async def run_in_threadpool(function: object, **kwargs: object) -> dict[str, int]:
-        calls.append((function, kwargs))
+        aggregate_calls.append(_kwargs)
         return expected
+
+    async def run_ai_db(
+        function: object, *args: object, **kwargs: object
+    ) -> dict[str, int]:
+        runner_calls.append((function, args, kwargs))
+        return function(*args, **kwargs)  # type: ignore[operator]
+
+    class FakeSession:
+        def __enter__(self) -> object:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
 
     monkeypatch.setattr(ai_gateway_service, "get_user_usage_stats", aggregate)
     monkeypatch.setattr(
@@ -63,24 +74,24 @@ async def test_public_usage_aggregation_runs_in_threadpool(
         "default_usage_window",
         lambda start, end: (start, end),
     )
-    monkeypatch.setattr(ai_proxy, "run_in_threadpool", run_in_threadpool)
+    monkeypatch.setattr(ai_proxy, "run_ai_db", run_ai_db)
+    monkeypatch.setattr(ai_proxy, "Session", lambda _engine: FakeSession())
 
     result = await ai_proxy.get_my_usage_stats(
         user_and_credential=cast(Any, (SimpleNamespace(id=user_id), object())),
-        session=object(),  # type: ignore[arg-type]
     )
 
     assert result == expected
-    assert calls == [
-        (
-            aggregate,
-            {
-                "session": ANY,
-                "user_id": user_id,
-                "start_date": None,
-                "end_date": None,
-            },
-        )
+    assert len(runner_calls) == 1
+    assert callable(runner_calls[0][0])
+    assert runner_calls[0][1:] == ((), {})
+    assert aggregate_calls == [
+        {
+            "session": ANY,
+            "user_id": user_id,
+            "start_date": None,
+            "end_date": None,
+        }
     ]
 
 

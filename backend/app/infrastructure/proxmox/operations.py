@@ -5,6 +5,7 @@ control, resize, specs, session ticket, etc.) so that callers no longer
 duplicate the same cluster.resources iteration or qemu/lxc dispatch logic.
 """
 
+import asyncio
 import ipaddress
 import logging
 import re
@@ -45,6 +46,7 @@ class ProxmoxConnectionUnavailableError(ProxmoxError):
     ``find_resource(strict=True)`` 專用。呼叫端（排程器）把它當成「略過這一輪、
     等連線恢復再判斷」，與 VMID 重複等其他 ``ProxmoxError`` 區分開來。
     """
+
 
 # ``cluster.nextid`` is a hint, not a reservation.  Every backend worker can
 # observe the same hint before the first worker's clone is visible in PVE, so
@@ -141,6 +143,7 @@ def iter_connection_clients():
 # ---------------------------------------------------------------------------
 # Resource lookup
 # ---------------------------------------------------------------------------
+
 
 def _gather_per_connection(
     fetch: Callable[[Any], Iterable[dict]], *, what: str
@@ -583,6 +586,7 @@ def find_vm_template(template_id: int) -> dict:
 # Node helper — dispatches qemu / lxc transparently
 # ---------------------------------------------------------------------------
 
+
 def _resource_api(node: str, vmid: int, resource_type: ResourceType):
     """Return the proxmoxer node resource handle (qemu or lxc)."""
     proxmox = get_proxmox_api_for_node(node)
@@ -594,6 +598,7 @@ def _resource_api(node: str, vmid: int, resource_type: ResourceType):
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
+
 
 def get_config(
     node: str, vmid: int, resource_type: ResourceType, *, current: bool = False
@@ -738,6 +743,7 @@ def list_booting_vmids(nodes: Iterable[str]) -> set[int]:
 # ---------------------------------------------------------------------------
 # Disk resize
 # ---------------------------------------------------------------------------
+
 
 def resize_disk(
     node: str,
@@ -948,6 +954,7 @@ def delete_backup(
 # RRD stats
 # ---------------------------------------------------------------------------
 
+
 def get_rrd_data(
     node: str, vmid: int, resource_type: ResourceType, timeframe: str
 ) -> list[dict]:
@@ -964,6 +971,7 @@ def get_node_rrd_data(node: str, timeframe: str) -> list[dict]:
 # Delete resource
 # ---------------------------------------------------------------------------
 
+
 def delete_resource(
     node: str, vmid: int, resource_type: ResourceType, **params
 ) -> str:
@@ -978,6 +986,7 @@ def delete_resource(
 # ---------------------------------------------------------------------------
 # IP address
 # ---------------------------------------------------------------------------
+
 
 def _is_usable_ipv4(ip: str) -> bool:
     """過濾 loopback、link-local、multicast 等不可用的 IPv4 位址。
@@ -1039,6 +1048,7 @@ def get_ip_address(node: str, vmid: int, resource_type: ResourceType) -> str | N
 # Current specs (parsed from config)
 # ---------------------------------------------------------------------------
 
+
 def get_current_specs(node: str, vmid: int, resource_type: ResourceType) -> dict:
     """Returns {"cpu": int|None, "memory": int|None, "disk": int|None}.
 
@@ -1071,6 +1081,7 @@ def get_current_specs(node: str, vmid: int, resource_type: ResourceType) -> dict
 # LXC creation
 # ---------------------------------------------------------------------------
 
+
 def create_lxc(node: str, **config) -> str:
     """Create an LXC container and wait for the task to finish. Returns UPID."""
     proxmox = get_proxmox_api_for_node(node)
@@ -1085,6 +1096,7 @@ def create_lxc(node: str, **config) -> str:
 # ---------------------------------------------------------------------------
 # VM clone + configure
 # ---------------------------------------------------------------------------
+
 
 def clone_vm(node: str, template_id: int, **clone_config) -> str:
     """Clone a VM template and wait. Returns UPID."""
@@ -1172,6 +1184,7 @@ def next_vmid() -> int:
 # ---------------------------------------------------------------------------
 # Templates
 # ---------------------------------------------------------------------------
+
 
 def get_lxc_templates(node: str) -> list[dict]:
     proxmox = get_proxmox_api_for_node(node)
@@ -1285,6 +1298,7 @@ def get_lxc_template_node_map() -> dict[str, set[str]]:
 # Session ticket (for WebSocket auth — password-based, not API token)
 # ---------------------------------------------------------------------------
 
+
 def _ws_verify(cfg: ProxmoxSettings) -> ssl.SSLContext | bool:
     """httpx 的 ``verify`` 參數：ticket／vncproxy 請求與後續 WebSocket 同一套 TLS 規則。
 
@@ -1304,13 +1318,17 @@ async def get_session_ticket(node: str | None = None) -> tuple[str, str]:
 
     ``node`` 有值時對該節點所屬的連線認證（session ticket 不可跨連線）。
     """
-    connection_id = get_connection_id_for_node(node) if node else None
-    cfg = get_proxmox_settings(connection_id)
 
-    async with httpx.AsyncClient(verify=_ws_verify(cfg)) as client:
+    def prepare() -> tuple:
+        connection_id = get_connection_id_for_node(node) if node else None
+        cfg = get_proxmox_settings(connection_id)
+        return cfg, get_active_host(connection_id), _ws_verify(cfg)
+
+    cfg, host, verify = await asyncio.to_thread(prepare)
+
+    async with httpx.AsyncClient(verify=verify) as client:
         resp = await client.post(
-            f"https://{get_active_host(connection_id)}:{cfg.port}"
-            "/api2/json/access/ticket",
+            f"https://{host}:{cfg.port}/api2/json/access/ticket",
             data={
                 "username": cfg.user,
                 "password": cfg.password,
@@ -1331,17 +1349,21 @@ async def get_vnc_ticket_with_session(
     csrf_token: str,
 ) -> dict:
     """Get a VM VNC proxy ticket using the same PVE session used for websocket auth."""
-    connection_id = get_connection_id_for_node(node)
-    cfg = get_proxmox_settings(connection_id)
+
+    def prepare() -> tuple:
+        connection_id = get_connection_id_for_node(node) if node else None
+        cfg = get_proxmox_settings(connection_id)
+        return cfg, get_active_host(connection_id), _ws_verify(cfg)
+
+    cfg, host, verify = await asyncio.to_thread(prepare)
 
     headers = {"Cookie": f"PVEAuthCookie={pve_auth_cookie}"}
     if csrf_token:
         headers["CSRFPreventionToken"] = csrf_token
 
-    async with httpx.AsyncClient(verify=_ws_verify(cfg)) as client:
+    async with httpx.AsyncClient(verify=verify) as client:
         resp = await client.post(
-            f"https://{get_active_host(connection_id)}:{cfg.port}"
-            f"/api2/json/nodes/{node}/qemu/{vmid}/vncproxy",
+            f"https://{host}:{cfg.port}/api2/json/nodes/{node}/qemu/{vmid}/vncproxy",
             data={"websocket": 1},
             headers=headers,
         )
@@ -1356,6 +1378,7 @@ async def get_vnc_ticket_with_session(
 # Console tickets
 # ---------------------------------------------------------------------------
 
+
 def get_terminal_ticket(node: str, vmid: int) -> dict:
     """Get termproxy ticket for an LXC container (port + ticket)."""
     proxmox = get_proxmox_api_for_node(node)
@@ -1368,6 +1391,7 @@ def get_terminal_ticket(node: str, vmid: int) -> dict:
 # mapping id 只在單一叢集內唯一，呼叫端（gpu_service）要自己決定對哪個連線
 # 查詢／刪除，所以這些函式直接收 ``iter_connection_clients`` 給的 client。
 # ---------------------------------------------------------------------------
+
 
 def list_pci_mappings(proxmox: Any) -> list[dict]:
     """GET /cluster/mapping/pci：該連線上所有 PCI mapping。"""
@@ -1407,4 +1431,3 @@ def list_cluster_vm_resources(proxmox: Any) -> list[dict]:
 def get_qemu_config_via(proxmox: Any, node: str, vmid: int) -> dict:
     """用指定連線的 client 讀 VM 設定（批次掃描時沿用已取得的 client）。"""
     return proxmox.nodes(node).qemu(vmid).config.get()
-

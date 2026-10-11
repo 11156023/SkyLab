@@ -26,14 +26,23 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
-it("shows real empty states and keeps all courses reachable", async () => {
+const allCoursesButton = () => [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.allCourses"));
+
+it("shows real empty states and hides all courses when there is no course", async () => {
   await render();
   expect(host.textContent).toContain("HomeOverview.noMachines");
   expect(host.textContent).toContain("StudentHomePage.noPublishedCoursesTitle");
   expect(host.textContent).toContain("StudentHomePage.noQuickTemplatesTitle");
-  const allCourses = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.allCourses"));
-  await act(async () => allCourses.click());
+  expect(allCoursesButton()).toBeUndefined();
+});
+
+it("keeps all courses reachable once there are courses or the schedule failed to load", async () => {
+  await render({ paths: [{ id: "c1", title: "Linux 101", state: "upcoming", completed_questions: 0, total_questions: 3 }] });
+  await act(async () => allCoursesButton().click());
   expect(host.querySelector("output").textContent).toBe("/courses");
+
+  await render({ coursesError: true });
+  expect(allCoursesButton()).toBeDefined();
 });
 
 it("shows existing machines without connection history and launches the selected resource", async () => {

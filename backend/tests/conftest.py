@@ -160,6 +160,13 @@ def _is_test_user_email(email: str) -> bool:
     return lowered.startswith(("test-", "pytest-", "ai-api-", "user-", "admin-"))
 
 
+def _uses_application_db(item) -> bool:
+    definitions = getattr(
+        getattr(item, "_fixtureinfo", None), "name2fixturedefs", {}
+    ).get("db", ())
+    return bool(definitions and definitions[-1].func is db.__wrapped__)
+
+
 @pytest.fixture(scope="session")
 def db() -> Generator[Session, None, None]:
     """
@@ -176,8 +183,8 @@ def db() -> Generator[Session, None, None]:
     - Cleanup is opt-in via PYTEST_ENABLE_DB_CLEANUP=1.
     - FIRST_SUPERUSER account is always preserved.
     """
+    _assert_safe_pytest_database_target()
     with Session(engine) as session:
-        _assert_safe_pytest_database_target()
         init_db(session)
         ensure_first_superuser(session)
         yield session
@@ -241,14 +248,19 @@ def _cleanup_test_data(session: Session) -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _seed_first_superuser() -> None:
+def _seed_first_superuser(request: pytest.FixtureRequest) -> None:
     """Ensure FIRST_SUPERUSER exists and its password matches settings.
 
-    Runs once per session regardless of whether a test uses the `db` fixture.
+    Runs only when a collected test resolves the guarded application DB fixture.
     If the superuser already exists but the stored password doesn't verify
     against FIRST_SUPERUSER_PASSWORD (e.g. a shared dev DB), the hash is
     refreshed so auth-dependent tests can log in deterministically.
     """
+    # Pure unit suites must never seed the configured application database.
+    # Check the target before the first Session, including this autouse path.
+    if not any(_uses_application_db(item) for item in request.session.items):
+        return
+    _assert_safe_pytest_database_target()
     from app.core.security import get_password_hash, verify_password
 
     with Session(engine) as session:
@@ -269,6 +281,42 @@ def _seed_first_superuser() -> None:
                 session.commit()
 
 
+@pytest.fixture(autouse=True)
+def _block_unrequested_application_db(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None, None, None]:
+    if _uses_application_db(request.node):
+        yield
+        return
+
+    def blocked_connect(*_args, **_kwargs):
+        raise RuntimeError(
+            "Unit tests must use an isolated engine; application DB access requires the guarded db fixture"
+        )
+
+    monkeypatch.setattr(engine, "connect", blocked_connect)
+    from app.api import ai_capacity
+    from app.services.llm_gateway import usage_writer
+
+    writer = usage_writer.UsageWriter()
+    monkeypatch.setattr(usage_writer, "_writer", writer)
+    monkeypatch.setattr(ai_capacity, "_executor", None)
+    monkeypatch.setattr(ai_capacity, "_pending", set())
+    monkeypatch.setattr(ai_capacity, "_closed", False)
+    try:
+        yield
+    finally:
+        # Drain before monkeypatch restores engine.connect or mocked recorders.
+        # No detached accounting work may escape a unit test's DB guard.
+        current = usage_writer.get_usage_writer()
+        current.executor.shutdown(wait=True, cancel_futures=True)
+        if current is not writer:
+            writer.executor.shutdown(wait=True, cancel_futures=True)
+        if ai_capacity._executor is not None:
+            ai_capacity._executor.shutdown(wait=True, cancel_futures=True)
+
+
 @pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
@@ -276,7 +324,9 @@ def client() -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture(scope="module")
-def superuser_token_headers(client: TestClient) -> dict[str, str]:
+def superuser_token_headers(client: TestClient, db: Session) -> dict[str, str]:
+    # 取得 superuser token 會實際呼叫登入路由並讀取 application DB；
+    # 明確宣告 guarded fixture，避免測試被 DB guard 誤判為純單元測試。
     return get_superuser_token_headers(client)
 
 

@@ -76,6 +76,58 @@ except ImportError:  # pragma: no cover - optional dep
 
 REGISTRY = CollectorRegistry() if _AVAILABLE else None
 
+AI_USAGE_ACTIVE = Gauge(
+    "skylab_ai_usage_active", "Executing AI usage writes", registry=REGISTRY
+)
+AI_USAGE_PENDING = Gauge(
+    "skylab_ai_usage_pending",
+    "AI usage writes including active work",
+    registry=REGISTRY,
+)
+AI_USAGE_OLDEST = Gauge(
+    "skylab_ai_usage_oldest_seconds", "Age of oldest AI usage write", registry=REGISTRY
+)
+AI_USAGE_WRITES = Counter(
+    "skylab_ai_usage_writes_total",
+    "AI usage persistence results",
+    ("source", "result"),
+    registry=REGISTRY,
+)
+AI_USAGE_SECONDS = Histogram(
+    "skylab_ai_usage_duration_seconds",
+    "AI usage queue and write duration",
+    ("stage",),
+    registry=REGISTRY,
+)
+AI_INGRESS_ACTIVE = Gauge(
+    "skylab_ai_ingress_active",
+    "Public AI HTTP requests before model admission",
+    registry=REGISTRY,
+)
+AI_INGRESS_REJECTED = Counter(
+    "skylab_ai_ingress_rejections_total", "Public AI ingress full", registry=REGISTRY
+)
+AUTH_SECONDS = Histogram(
+    "skylab_auth_duration_seconds",
+    "Authentication stages",
+    ("transport", "stage"),
+    registry=REGISTRY,
+)
+EVENT_LOOP_LAG = Gauge(
+    "skylab_event_loop_lag_seconds",
+    "Latest event loop scheduling delay",
+    registry=REGISTRY,
+)
+DB_CHECKED_OUT = Gauge(
+    "skylab_db_checked_out", "Application DB connections checked out", registry=REGISTRY
+)
+AUTH_WORKERS = Gauge(
+    "skylab_auth_workers",
+    "Default AnyIO authentication worker capacity",
+    ("state",),
+    registry=REGISTRY,
+)
+
 # 沒對到任何路由的請求（掃描器亂打的路徑）一律歸成同一個 label，
 # 否則每個隨機路徑都會變成一條新的時間序列，Prometheus 記憶體會被吃光。
 UNMATCHED_PATH = "<unmatched>"

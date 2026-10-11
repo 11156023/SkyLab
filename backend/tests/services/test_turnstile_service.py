@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 from app.api.deps import TURNSTILE_HEADER
 from app.core.config import settings
@@ -158,7 +159,7 @@ def _superuser_form() -> dict[str, str]:
 
 @pytest.mark.usefixtures("enable_turnstile")
 def test_password_login_requires_token(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = _FakeSiteverify()
     _install(monkeypatch, fake)
@@ -229,7 +230,7 @@ def test_signup_requires_signup_action_token(
 
 
 def test_login_methods_exposes_site_key_only_when_enabled(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "TURNSTILE_SITE_KEY", None)
     monkeypatch.setattr(settings, "TURNSTILE_SECRET_KEY", None)

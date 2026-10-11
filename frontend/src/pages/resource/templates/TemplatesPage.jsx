@@ -402,16 +402,19 @@ export default function TemplatesPage() {
   return (
     <div className={styles.page}>
       <PageHeader title={t("TemplatesPage.pageTitle")}>
-        <div className={styles.pageActions}>
-          <button
-            type="button"
-            className={styles.btnPrimary}
-            onClick={() => setCreateOpen(true)}
-          >
-            <MIcon name="add" size={16} />
-            {t("TemplatesPage.createFromVm")}
-          </button>
-        </div>
+        {/* 有範本才在頁首放「從 VM 建立」；沒有時空狀態那顆就是唯一入口，載入中也先不放 */}
+        {list.length > 0 && (
+          <div className={styles.pageActions}>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => setCreateOpen(true)}
+            >
+              <MIcon name="add" size={16} />
+              {t("TemplatesPage.createFromVm")}
+            </button>
+          </div>
+        )}
       </PageHeader>
 
       {templates === null ? (
@@ -435,7 +438,7 @@ export default function TemplatesPage() {
                 <th className={styles.th}>{t("TemplatesPage.columnStatus")}</th>
                 <th className={styles.th}>{t("TemplatesPage.columnVisibility")}</th>
                 <th className={styles.th}>{t("TemplatesPage.columnVersion")}</th>
-                <th className={styles.th} />
+                <th className={styles.th}>{t("TemplatesPage.columnActions")}</th>
               </tr>
             </thead>
             <tbody>

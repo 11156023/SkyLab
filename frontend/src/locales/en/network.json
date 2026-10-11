@@ -19,6 +19,8 @@
   "FirewallPage.onlyExposed": "Exposed only",
   "FirewallPage.hiddenCount": "{{count}} more hidden",
   "FirewallPage.clearFilters": "Clear filters",
+  "FirewallPage.focusNote": "Showing connections of \"{{name}}\" only",
+  "FirewallPage.clearFocus": "Deselect",
   "FirewallPage.noMatch": "No machines match",
   "FirewallPage.internetLines": "Internet Lines",
   "FirewallPage.hint": "Drag a node to move it; drag from the right side of a node to another node to create a connection; click a node to see its firewall rules; click a connection to see what it opens",

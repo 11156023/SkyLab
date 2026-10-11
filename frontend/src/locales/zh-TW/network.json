@@ -19,6 +19,8 @@
   "FirewallPage.onlyExposed": "只看對外開放",
   "FirewallPage.hiddenCount": "另有 {{count}} 台未顯示",
   "FirewallPage.clearFilters": "清除篩選",
+  "FirewallPage.focusNote": "只顯示「{{name}}」的連線",
+  "FirewallPage.clearFocus": "取消選取",
   "FirewallPage.noMatch": "沒有符合條件的機器",
   "FirewallPage.internetLines": "上網線",
   "FirewallPage.hint": "拖拉節點移動位置；從節點右側拖拉到另一個節點建立連線；點擊節點查看防火牆規則；點擊連線查看開放內容",

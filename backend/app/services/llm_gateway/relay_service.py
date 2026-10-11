@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import functools
 import json
 import logging
 import math
@@ -27,14 +28,19 @@ from typing import Any, Generic, TypeVar
 import anyio
 import httpx
 from fastapi import Request, status
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlmodel import Session
 from starlette.requests import ClientDisconnect
 
+from app.core import metrics
 from app.core.db import engine
 from app.features.ai.config import settings as ai_api_settings
 from app.services.llm_gateway import ai_gateway_service
+from app.services.llm_gateway.usage_writer import (
+    close_usage_writer,
+    start_usage_writer,
+    write_usage,
+)
 from app.services.monitoring import ai_metrics
 
 logger = logging.getLogger(__name__)
@@ -507,6 +513,7 @@ _usage_tasks: set[asyncio.Task[None]] = set()
 def start_relay_runtime() -> None:
     global _relay_stopping
     _relay_stopping = False
+    start_usage_writer()
 
 
 def _get_relay_http_client() -> httpx.AsyncClient:
@@ -561,6 +568,7 @@ async def close_relay_runtime() -> None:
         for task in _usage_tasks
         if not task.done() and task.get_loop() is asyncio.get_running_loop()
     }
+    await close_usage_writer()
     if pending_usage:
         _, pending_usage = await asyncio.wait(pending_usage, timeout=2.0)
         for task in pending_usage:
@@ -840,19 +848,21 @@ def record_usage_safely(
     error_message: str | None = None,
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
-) -> None:
-    ai_metrics.observe_call(
-        source="api_key",
-        model=model_name,
-        request_type=request_type,
-        record_status=record_status,
-        error_message=error_message,
-        duration_ms=duration_ms,
-        first_token_ms=first_token_ms,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        stream=stream,
-    )
+    observe: bool = True,
+) -> bool:
+    if observe:
+        ai_metrics.observe_call(
+            source="api_key",
+            model=model_name,
+            request_type=request_type,
+            record_status=record_status,
+            error_message=error_message,
+            duration_ms=duration_ms,
+            first_token_ms=first_token_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            stream=stream,
+        )
     try:
         with Session(engine) as usage_session:
             ai_gateway_service.record_usage(
@@ -878,11 +888,13 @@ def record_usage_safely(
     except Exception:
         # Accounting must not turn a completed model response into an error.
         logger.exception("Failed to record AI API usage")
+        return False
+    return True
 
 
 async def record_usage_in_threadpool(**kwargs: Any) -> None:
     """Write one usage row without blocking the FastAPI event loop."""
-    await run_in_threadpool(record_usage_safely, **kwargs)
+    await write_usage(functools.partial(record_usage_safely, **kwargs), source="api_key")
 
 
 def usage_task_done(task: asyncio.Task[None]) -> None:
@@ -1044,7 +1056,16 @@ class RelayObservation:
             except Exception:
                 logger.warning("Failed to close AI relay attempt", exc_info=True)
             ai_metrics.record_proxy_final_status(self.model_name, self.final_status)
+            ai_metrics.observe_call(
+                source="api_key", model=self.model_name, request_type=self.request_type,
+                record_status=self.record_status, error_message=self.error_message,
+                duration_ms=int((time.monotonic() - self.started_at) * 1000),
+                first_token_ms=self.usage.get("first_token_ms"),
+                input_tokens=self.usage.get("input_tokens", 0),
+                output_tokens=self.usage.get("output_tokens", 0), stream=self.stream,
+            )
             if len(_usage_tasks) >= AI_PROXY_MAX_WAITING:
+                metrics.AI_USAGE_WRITES.labels(source="api_key", result="dropped").inc()
                 ai_metrics.record_proxy_event(self.model_name, "usage_backlog_full")
                 logger.warning(
                     "AI relay usage backlog full: request_id=%s", self.request_id
@@ -1065,6 +1086,7 @@ class RelayObservation:
                         error_message=self.error_message,
                         started_at=self.started_at_utc,
                         completed_at=datetime.now(timezone.utc),
+                        observe=False,
                         **self.usage,
                     )
                 )

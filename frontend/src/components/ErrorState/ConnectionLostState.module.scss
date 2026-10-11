@@ -1,0 +1,241 @@
+/* 連不到伺服器的狀態畫面：比照 CrashState／404 頁的插圖語言
+   （純白物件、淡主色場景，只在出事的地方點一點紅；6 秒一輪的 CSS 動畫） */
+
+.page {
+  @include flex-column;
+  flex: 1;
+  min-height: 60vh;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-48 $spacing-16;
+}
+
+/* 登入前沒有側邊欄等外框，撐滿整個視窗 */
+.fullPage {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.scene {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-8;
+  width: min(480px, 100%);
+  text-align: center;
+  animation: rise 0.6s ease-out both;
+}
+
+.art {
+  width: min(340px, 100%);
+  height: auto;
+  margin-bottom: $spacing-8;
+  overflow: visible;
+}
+
+/* ── 插圖：雲與視窗 ──
+   雲和視窗固定純白、不隨主題切換（style guide 顏色系統明列的插圖例外，同 404 的雲、CrashState 的視窗）：
+   亮色模式靠 drop-shadow 描出輪廓，深色模式白色本身就跳得出來；裡面的區塊一律跟 #fff 混色 */
+
+.cloud {
+  fill: #fff;
+  filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--color-primary) 20%, transparent));
+}
+
+.light {
+  fill: color-mix(in srgb, var(--color-primary) 38%, #fff);
+}
+
+/* 雲上最後一顆燈：斷線時熄成淡紅，重試中恢復主色 */
+.lightOff {
+  fill: color-mix(in srgb, var(--color-danger) 45%, #fff);
+  transition: fill 0.3s ease;
+}
+
+.window {
+  fill: #fff;
+  filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--color-primary) 20%, transparent));
+}
+
+.titleRule {
+  stroke: color-mix(in srgb, var(--color-primary) 14%, #fff);
+  stroke-width: 1.5;
+}
+
+.dot {
+  fill: color-mix(in srgb, var(--color-primary) 22%, #fff);
+}
+
+/* 視窗標題列的第三顆燈：斷線時紅色，重試中恢復 */
+.dotAlert {
+  fill: color-mix(in srgb, var(--color-danger) 60%, #fff);
+  transition: fill 0.3s ease;
+}
+
+.block {
+  fill: color-mix(in srgb, var(--color-primary) 10%, #fff);
+}
+
+.line {
+  fill: color-mix(in srgb, var(--color-primary) 24%, #fff);
+}
+
+/* ── 插圖：線、插座、插頭 ── */
+
+.cable {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-primary) 45%, #fff);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.socket,
+.plugBody {
+  fill: #fff;
+  stroke: color-mix(in srgb, var(--color-primary) 45%, #fff);
+  stroke-width: 2;
+}
+
+.socketHole {
+  fill: color-mix(in srgb, var(--color-primary) 55%, #fff);
+}
+
+.prong {
+  fill: color-mix(in srgb, var(--color-primary) 55%, #fff);
+}
+
+.plugGrip {
+  stroke: color-mix(in srgb, var(--color-primary) 30%, #fff);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* 6 秒一輪：拔開 → 往插座推 → 碰到閃火花 → 彈回、晃一下 → 停著 */
+.plug {
+  animation: try-connect 6s ease-in-out infinite;
+}
+
+.gap {
+  fill: color-mix(in srgb, var(--color-danger) 5%, transparent);
+  stroke: color-mix(in srgb, var(--color-danger) 50%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  animation: gap-while-apart 6s ease-in-out infinite;
+}
+
+.sparks {
+  stroke: color-mix(in srgb, var(--color-danger) 55%, transparent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0;
+  animation: spark 6s ease-out infinite;
+}
+
+/* 重試中才出現：插頭接上後線上跑的流動虛線 */
+.flow {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 2 10;
+  opacity: 0;
+}
+
+@keyframes try-connect {
+  0%, 14% { transform: none; }
+  26% { transform: translateX(-15px); }
+  30% { transform: translateX(-15px); }
+  38% { transform: translateX(3px); }
+  44% { transform: translateX(-1px); }
+  50%, 100% { transform: none; }
+}
+
+@keyframes gap-while-apart {
+  0%, 16% { opacity: 1; }
+  24%, 32% { opacity: 0; }
+  40%, 100% { opacity: 1; }
+}
+
+@keyframes spark {
+  0%, 27% { opacity: 0; }
+  30% { opacity: 1; }
+  38%, 100% { opacity: 0; }
+}
+
+@keyframes flowing {
+  to { stroke-dashoffset: -24; }
+}
+
+/* ── 重試中：插頭接上、缺口與火花消失、燈恢復主色、線上跑流動虛線 ── */
+
+.retrying {
+  .plug {
+    animation: none;
+    transform: translateX(-15px);
+    transition: transform 0.25s ease-out;
+  }
+
+  .gap,
+  .sparks {
+    animation: none;
+    opacity: 0;
+  }
+
+  .lightOff,
+  .dotAlert {
+    fill: color-mix(in srgb, var(--color-primary) 38%, #fff);
+  }
+
+  .flow {
+    opacity: 1;
+    animation: flowing 0.8s linear infinite;
+  }
+}
+
+/* 減少動態：停在拔開的樣子（故事一眼看得懂，只是不動）；重試中只接上、不跑虛線 */
+@media (prefers-reduced-motion: reduce) {
+  .scene { animation: none; }
+
+  .plug,
+  .gap,
+  .sparks {
+    animation: none;
+  }
+
+  .retrying .flow {
+    animation: none;
+    stroke-dasharray: none;
+    opacity: 0.6;
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 文字與動作（同 CrashState） ── */
+
+.title {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.desc {
+  max-width: 44ch;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+}
+
+.btnPrimary {
+  @include btn-primary;
+}
