@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -30,7 +32,7 @@ import tempfile
 import time
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -81,12 +83,24 @@ class RequestResult:
     ok: bool
     error: str | None
     error_detail: str | None
-    duration_ms: int
+    duration_ms: int | None
     ttft_ms: int | None
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
     request_id: str | None
+    scheduled_ms: int | None = None
+    sent_ms: int | None = None
+    finish_reason: str | None = None
+    truncated: bool = False
+
+
+class RequestCancelled(asyncio.CancelledError):
+    """Propagate cancellation while retaining partial request evidence."""
+
+    def __init__(self, result: RequestResult) -> None:
+        super().__init__()
+        self.result = result
 
 
 def _unquote_dotenv(value: str, *, path: Path, line_number: int) -> str:
@@ -128,9 +142,7 @@ def parse_dotenv(path: Path) -> dict[str, str]:
         if line.startswith("export "):
             line = line[7:].lstrip()
         if "=" not in line:
-            raise LoadConfigurationError(
-                f"{path}:{line_number}: expected KEY=value"
-            )
+            raise LoadConfigurationError(f"{path}:{line_number}: expected KEY=value")
         raw_name, raw_value = line.split("=", 1)
         name = raw_name.strip()
         if not ENV_NAME_RE.fullmatch(name):
@@ -141,9 +153,7 @@ def parse_dotenv(path: Path) -> dict[str, str]:
             raise LoadConfigurationError(
                 f"{path}:{line_number}: duplicate environment variable {name}"
             )
-        values[name] = _unquote_dotenv(
-            raw_value, path=path, line_number=line_number
-        )
+        values[name] = _unquote_dotenv(raw_value, path=path, line_number=line_number)
     return values
 
 
@@ -154,7 +164,9 @@ def load_local_values(
     values = parse_dotenv(env_file) if env_file.is_file() else {}
     process_values = os.environ if environ is None else environ
     for name, value in process_values.items():
-        if (name == "AI_API_PUBLIC_BASE_URL" or CCAI_KEY_NAME_RE.fullmatch(name)) and value.strip():
+        if (
+            name == "AI_API_PUBLIC_BASE_URL" or CCAI_KEY_NAME_RE.fullmatch(name)
+        ) and value.strip():
             values[name] = value.strip()
     return values
 
@@ -176,9 +188,7 @@ def load_credentials(values: Mapping[str, str]) -> tuple[Credential, ...]:
             )
         value = raw_value.strip()
         if index in seen_indexes:
-            raise LoadConfigurationError(
-                f"duplicate numeric key index: {index:02d}"
-            )
+            raise LoadConfigurationError(f"duplicate numeric key index: {index:02d}")
         if not CCAI_KEY_VALUE_RE.fullmatch(value):
             raise LoadConfigurationError(
                 f"{name} must contain a valid ccai_* credential"
@@ -214,9 +224,7 @@ def public_proxy_url(base_url: str) -> str:
     if candidate.endswith("/ai-proxy"):
         return candidate
     if not candidate.endswith("/api/v1"):
-        raise LoadConfigurationError(
-            "AI_API_PUBLIC_BASE_URL must end with /api/v1"
-        )
+        raise LoadConfigurationError("AI_API_PUBLIC_BASE_URL must end with /api/v1")
     return f"{candidate}/ai-proxy"
 
 
@@ -229,25 +237,9 @@ def _positive_int(value: str) -> int:
 
 def _positive_float(value: str) -> float:
     parsed = float(value)
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         raise argparse.ArgumentTypeError("must be greater than 0")
     return parsed
-
-
-def _content_text(value: Any) -> str:
-    """Extract text from common OpenAI content shapes without logging it."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        parts: list[str] = []
-        for item in value:
-            if not isinstance(item, dict):
-                continue
-            text = item.get("text")
-            if isinstance(text, str):
-                parts.append(text)
-        return "".join(parts)
-    return ""
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -270,6 +262,36 @@ def _usage_fields(usage: Any) -> tuple[int | None, int | None, int | None]:
     )
 
 
+def _finish_reason(value: Any) -> str | None:
+    if value is None:
+        return None
+    return (
+        value
+        if value in ("stop", "length", "tool_calls", "function_call", "content_filter")
+        else "other"
+    )
+
+
+def _not_sent(case: LoadCase, index: int, arrival_rpm: float) -> RequestResult:
+    return RequestResult(
+        sequence=case.sequence,
+        model=case.model,
+        stream=case.stream,
+        key_index=case.credential.index,
+        status_code=None,
+        ok=False,
+        error="not_sent",
+        error_detail=None,
+        duration_ms=None,
+        ttft_ms=None,
+        prompt_tokens=None,
+        completion_tokens=None,
+        total_tokens=None,
+        request_id=None,
+        scheduled_ms=round(index * 60000 / arrival_rpm),
+    )
+
+
 def _result(
     *,
     case: LoadCase,
@@ -281,6 +303,7 @@ def _result(
     ttft_ms: int | None = None,
     usage: Any = None,
     request_id: str | None = None,
+    finish_reason: str | None = None,
 ) -> RequestResult:
     prompt_tokens, completion_tokens, total_tokens = _usage_fields(usage)
     return RequestResult(
@@ -298,14 +321,19 @@ def _result(
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
         request_id=request_id,
+        finish_reason=finish_reason,
+        truncated=finish_reason == "length",
     )
 
 
-def _request_payload(model: str, *, stream: bool, max_tokens: int) -> dict[str, Any]:
+def _request_payload(
+    model: str, *, stream: bool, max_tokens: int, prompt: str = DEFAULT_PROMPT
+) -> dict[str, Any]:
     return {
         "model": model,
-        "messages": [{"role": "user", "content": DEFAULT_PROMPT}],
+        "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
+        "temperature": 0.0,
         "stream": stream,
     }
 
@@ -317,6 +345,7 @@ async def _request_one(
     *,
     max_tokens: int,
     secrets: Sequence[str],
+    prompt: str = DEFAULT_PROMPT,
 ) -> RequestResult:
     started_at = time.perf_counter()
     headers = {
@@ -324,7 +353,15 @@ async def _request_one(
         "Authorization": f"Bearer {case.credential.value}",
         "Content-Type": "application/json",
     }
-    payload = _request_payload(case.model, stream=case.stream, max_tokens=max_tokens)
+    payload = _request_payload(
+        case.model, stream=case.stream, max_tokens=max_tokens, prompt=prompt
+    )
+    # Keep partial stream evidence even when transport fails after first output.
+    first_token_ms: int | None = None
+    usage: Any = None
+    request_id: str | None = None
+    finish_reason: str | None = None
+    status_code: int | None = None
 
     try:
         if not case.stream:
@@ -334,6 +371,7 @@ async def _request_one(
                 json=payload,
             )
             request_id = response.headers.get("x-request-id")
+            status_code = response.status_code
             if response.status_code != 200:
                 return _result(
                     case=case,
@@ -343,6 +381,7 @@ async def _request_one(
                     error_detail=None,
                     started_at=started_at,
                     request_id=request_id,
+                    finish_reason=finish_reason,
                 )
             try:
                 body = response.json()
@@ -355,14 +394,21 @@ async def _request_one(
                     error_detail="response_not_json",
                     started_at=started_at,
                     request_id=request_id,
+                    finish_reason=finish_reason,
                 )
             choices = body.get("choices") if isinstance(body, dict) else None
             usage = body.get("usage") if isinstance(body, dict) else None
             first_choice = choices[0] if isinstance(choices, list) and choices else None
+            if isinstance(first_choice, dict):
+                finish_reason = _finish_reason(first_choice.get("finish_reason"))
             if (
                 not isinstance(first_choice, dict)
                 or not isinstance(first_choice.get("message"), dict)
                 or not isinstance(usage, dict)
+                or not any(
+                    first_choice["message"].get(key) not in (None, "", [])
+                    for key in ("content", "tool_calls", "function_call")
+                )
             ):
                 return _result(
                     case=case,
@@ -372,6 +418,7 @@ async def _request_one(
                     error_detail="choices_or_usage_missing",
                     started_at=started_at,
                     request_id=request_id,
+                    finish_reason=finish_reason,
                 )
             return _result(
                 case=case,
@@ -382,12 +429,11 @@ async def _request_one(
                 started_at=started_at,
                 usage=usage,
                 request_id=request_id,
+                finish_reason=finish_reason,
             )
 
         saw_done = False
         saw_content = False
-        usage: Any = None
-        first_token_ms: int | None = None
         async with client.stream(
             "POST",
             f"{proxy_url}/chat/completions",
@@ -395,6 +441,7 @@ async def _request_one(
             json=payload,
         ) as response:
             request_id = response.headers.get("x-request-id")
+            status_code = response.status_code
             if response.status_code != 200:
                 return _result(
                     case=case,
@@ -404,6 +451,7 @@ async def _request_one(
                     error_detail=None,
                     started_at=started_at,
                     request_id=request_id,
+                    finish_reason=finish_reason,
                 )
 
             async for line in response.aiter_lines():
@@ -427,6 +475,7 @@ async def _request_one(
                         ttft_ms=first_token_ms,
                         usage=usage,
                         request_id=request_id,
+                        finish_reason=finish_reason,
                     )
                 if not isinstance(event, dict):
                     continue
@@ -438,9 +487,14 @@ async def _request_one(
                 first_choice = choices[0]
                 if not isinstance(first_choice, dict):
                     continue
+                finish_reason = (
+                    _finish_reason(first_choice.get("finish_reason")) or finish_reason
+                )
                 delta = first_choice.get("delta")
-                content = _content_text(delta.get("content") if isinstance(delta, dict) else None)
-                if content:
+                if isinstance(delta, dict) and any(
+                    delta.get(key) not in (None, "", [])
+                    for key in ("content", "tool_calls", "function_call")
+                ):
                     saw_content = True
                     if first_token_ms is None:
                         first_token_ms = max(
@@ -458,6 +512,7 @@ async def _request_one(
                     ttft_ms=first_token_ms,
                     usage=usage,
                     request_id=request_id,
+                    finish_reason=finish_reason,
                 )
             if not saw_content or not isinstance(usage, dict):
                 return _result(
@@ -470,6 +525,7 @@ async def _request_one(
                     ttft_ms=first_token_ms,
                     usage=usage,
                     request_id=request_id,
+                    finish_reason=finish_reason,
                 )
             return _result(
                 case=case,
@@ -481,9 +537,23 @@ async def _request_one(
                 ttft_ms=first_token_ms,
                 usage=usage,
                 request_id=request_id,
+                finish_reason=finish_reason,
             )
     except asyncio.CancelledError:
-        raise
+        raise RequestCancelled(
+            _result(
+                case=case,
+                status_code=status_code,
+                ok=False,
+                error="cancelled",
+                error_detail=None,
+                started_at=started_at,
+                ttft_ms=first_token_ms,
+                usage=usage,
+                request_id=request_id,
+                finish_reason=finish_reason,
+            )
+        ) from None
     except httpx.TimeoutException:
         return _result(
             case=case,
@@ -492,6 +562,10 @@ async def _request_one(
             error="timeout",
             error_detail="request_timeout",
             started_at=started_at,
+            ttft_ms=first_token_ms,
+            usage=usage,
+            request_id=request_id,
+            finish_reason=finish_reason,
         )
     except httpx.HTTPError as exc:
         detail = type(exc).__name__
@@ -504,6 +578,10 @@ async def _request_one(
             error="transport_error",
             error_detail=detail,
             started_at=started_at,
+            ttft_ms=first_token_ms,
+            usage=usage,
+            request_id=request_id,
+            finish_reason=finish_reason,
         )
     except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
         detail = type(exc).__name__
@@ -516,6 +594,10 @@ async def _request_one(
             error="client_error",
             error_detail=detail,
             started_at=started_at,
+            ttft_ms=first_token_ms,
+            usage=usage,
+            request_id=request_id,
+            finish_reason=finish_reason,
         )
 
 
@@ -527,7 +609,10 @@ async def _fetch_models(
     try:
         response = await client.get(
             f"{proxy_url}/models",
-            headers={"Accept": "application/json", "Authorization": f"Bearer {credential.value}"},
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {credential.value}",
+            },
         )
     except httpx.TimeoutException as exc:
         raise RemoteAPIError(
@@ -588,14 +673,18 @@ async def preflight_models(
     return expected
 
 
-def choose_models(available: Sequence[str], requested: Sequence[str]) -> tuple[str, ...]:
+def choose_models(
+    available: Sequence[str], requested: Sequence[str]
+) -> tuple[str, ...]:
     if not requested:
         return tuple(available)
     selected: list[str] = []
     available_set = set(available)
     for model in requested:
         if model not in available_set:
-            raise LoadConfigurationError(f"model is not available through public API: {model}")
+            raise LoadConfigurationError(
+                f"model is not available through public API: {model}"
+            )
         if model not in selected:
             selected.append(model)
     return tuple(selected)
@@ -633,12 +722,23 @@ async def run_cases(
     concurrency: int,
     max_tokens: int,
     secrets: Sequence[str],
+    arrival_rpm: float = 6.0,
+    prompt: str = DEFAULT_PROMPT,
+    result_slots: list[RequestResult | None] | None = None,
+    started: float | None = None,
 ) -> tuple[RequestResult, ...]:
-    """Run cases with a bounded worker pool instead of creating one task/case."""
-    results: list[RequestResult | None] = [None] * len(cases)
+    """Fixed arrivals with bounded workers; delayed sends remain observable."""
+    if concurrency < 1 or not 0 < arrival_rpm < float("inf"):
+        raise LoadConfigurationError(
+            "concurrency and finite arrival RPM must be positive"
+        )
+    results = result_slots if result_slots is not None else [None] * len(cases)
+    if len(results) != len(cases):
+        raise LoadConfigurationError("result slots must match planned cases")
     queue: asyncio.Queue[int] = asyncio.Queue()
     for index in range(len(cases)):
         queue.put_nowait(index)
+    started = time.perf_counter() if started is None else started
 
     async def worker() -> None:
         while True:
@@ -647,18 +747,42 @@ async def run_cases(
             except asyncio.QueueEmpty:
                 return
             try:
-                results[case_index] = await _request_one(
-                    client,
-                    proxy_url,
-                    cases[case_index],
-                    max_tokens=max_tokens,
-                    secrets=secrets,
+                scheduled = case_index * 60.0 / arrival_rpm
+                await asyncio.sleep(max(0.0, started + scheduled - time.perf_counter()))
+                sent_ms = max(0, round((time.perf_counter() - started) * 1000))
+                try:
+                    results[case_index] = await _request_one(
+                        client,
+                        proxy_url,
+                        cases[case_index],
+                        max_tokens=max_tokens,
+                        secrets=secrets,
+                        prompt=prompt,
+                    )
+                except RequestCancelled as exc:
+                    results[case_index] = replace(
+                        exc.result,
+                        scheduled_ms=round(scheduled * 1000),
+                        sent_ms=sent_ms,
+                    )
+                    raise
+                results[case_index] = replace(
+                    results[case_index],
+                    scheduled_ms=round(scheduled * 1000),
+                    sent_ms=sent_ms,
                 )
             finally:
                 queue.task_done()
 
     worker_count = min(concurrency, len(cases))
-    await asyncio.gather(*(worker() for _ in range(worker_count)))
+    workers = [asyncio.create_task(worker()) for _ in range(worker_count)]
+    try:
+        await asyncio.gather(*workers)
+    except BaseException:
+        for task in workers:
+            task.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        raise
     if any(result is None for result in results):
         raise RuntimeError("load workers completed without a result")
     return tuple(result for result in results if result is not None)
@@ -676,10 +800,13 @@ def percentile(values: Sequence[int], ratio: float) -> float | None:
     return round(ordered[lower] + (ordered[upper] - ordered[lower]) * fraction, 2)
 
 
-def _latency_summary(results: Sequence[RequestResult], field: str) -> dict[str, float | None]:
+def _latency_summary(
+    results: Sequence[RequestResult], field: str
+) -> dict[str, float | int | None]:
     values = [getattr(result, field) for result in results]
     numeric_values = [value for value in values if isinstance(value, int)]
     return {
+        "samples": len(numeric_values),
         "p50": percentile(numeric_values, 0.50),
         "p95": percentile(numeric_values, 0.95),
         "p99": percentile(numeric_values, 0.99),
@@ -688,7 +815,11 @@ def _latency_summary(results: Sequence[RequestResult], field: str) -> dict[str, 
 
 def summarize_results(results: Sequence[RequestResult]) -> dict[str, Any]:
     status_counts = Counter(
-        str(result.status_code) if result.status_code is not None else "transport"
+        str(result.status_code)
+        if result.status_code is not None
+        else (
+            result.error if result.error in {"cancelled", "not_sent"} else "transport"
+        )
         for result in results
     )
     success_count = sum(result.ok for result in results)
@@ -696,9 +827,7 @@ def summarize_results(results: Sequence[RequestResult]) -> dict[str, Any]:
         not result.ok and result.status_code is not None for result in results
     )
     error_count = len(results) - success_count - http_failure_count
-    usage_total = sum(
-        result.total_tokens or 0 for result in results if result.ok
-    )
+    usage_total = sum(result.total_tokens or 0 for result in results if result.ok)
 
     scenarios: dict[tuple[str, bool], list[RequestResult]] = defaultdict(list)
     for result in results:
@@ -716,8 +845,25 @@ def summarize_results(results: Sequence[RequestResult]) -> dict[str, Any]:
                 "failed": len(scenario_results) - scenario_success,
                 "latency_ms": _latency_summary(scenario_results, "duration_ms"),
                 "ttft_ms": _latency_summary(scenario_results, "ttft_ms"),
+                "success_latency_ms": _latency_summary(
+                    [r for r in scenario_results if r.ok], "duration_ms"
+                ),
+                "failed_latency_ms": _latency_summary(
+                    [r for r in scenario_results if not r.ok], "duration_ms"
+                ),
+                "missing_ttft": sum(
+                    r.stream and r.ttft_ms is None for r in scenario_results
+                ),
             }
         )
+    scheduled = [
+        r for r in results if r.sent_ms is not None and r.scheduled_ms is not None
+    ]
+    delays = [max(0, r.sent_ms - r.scheduled_ms) for r in scheduled]
+    last_finish = max((r.sent_ms + (r.duration_ms or 0) for r in scheduled), default=0)
+    send_span = max((r.sent_ms for r in scheduled), default=0) - min(
+        (r.sent_ms for r in scheduled), default=0
+    )
     return {
         "total": len(results),
         "success": success_count,
@@ -728,9 +874,107 @@ def summarize_results(results: Sequence[RequestResult]) -> dict[str, Any]:
         "status_counts": dict(sorted(status_counts.items())),
         "latency_ms": _latency_summary(results, "duration_ms"),
         "ttft_ms": _latency_summary(results, "ttft_ms"),
+        "success_latency_ms": _latency_summary(
+            [r for r in results if r.ok], "duration_ms"
+        ),
+        "failed_latency_ms": _latency_summary(
+            [r for r in results if not r.ok], "duration_ms"
+        ),
+        "missing_ttft": sum(r.stream and r.ttft_ms is None for r in results),
+        "error_counts": dict(Counter(r.error for r in results if r.error)),
+        "not_sent": sum(r.error == "not_sent" for r in results),
+        "cancelled": sum(r.error == "cancelled" for r in results),
+        "truncated": sum(r.truncated for r in results),
+        "finish_reason_counts": dict(
+            Counter(r.finish_reason for r in results if r.finish_reason)
+        ),
+        # ok means transport/parser success; length is not transport failure.
+        "complete_success": sum(
+            r.ok and r.finish_reason in {"stop", "tool_calls", "function_call"}
+            for r in results
+        ),
+        "complete_success_latency_ms": _latency_summary(
+            [
+                r
+                for r in results
+                if r.ok and r.finish_reason in {"stop", "tool_calls", "function_call"}
+            ],
+            "duration_ms",
+        ),
+        "unknown_finish_reason": sum(
+            r.ok and r.finish_reason in {None, "other"} for r in results
+        ),
+        "filtered_output": sum(r.finish_reason == "content_filter" for r in results),
+        "scheduled_samples": len(scheduled),
+        "send_delay_ms": {
+            "p50": percentile(delays, 0.5),
+            "p95": percentile(delays, 0.95),
+            "max": max(delays, default=None),
+        },
+        "delayed_over_100ms": sum(delay > 100 for delay in delays),
+        "actual_arrival_rpm": round((len(scheduled) - 1) * 60000 / send_span, 3)
+        if send_span > 0
+        else None,
+        "completed_requests_per_second": round(
+            sum(r.error != "cancelled" for r in scheduled) * 1000 / last_finish, 3
+        )
+        if last_finish > 0
+        else None,
+        "load_duration_ms": last_finish if scheduled else None,
+        "prompt_tokens": sum(r.prompt_tokens or 0 for r in results if r.ok),
+        "completion_tokens": sum(r.completion_tokens or 0 for r in results if r.ok),
         "total_tokens": usage_total,
+        "token_scope": "successful_transport_rows",
+        "all_reported_tokens": {
+            "prompt": sum(r.prompt_tokens or 0 for r in results),
+            "completion": sum(r.completion_tokens or 0 for r in results),
+            "total": sum(r.total_tokens or 0 for r in results),
+            "missing_usage": sum(
+                r.duration_ms is not None and r.total_tokens is None for r in results
+            ),
+        },
         "scenarios": scenario_summaries,
     }
+
+
+async def probe_general_api(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    requests: int,
+    arrival_rpm: float,
+    rows: list[dict[str, Any]] | None = None,
+    started: float | None = None,
+) -> list[dict[str, Any]]:
+    """Fixed read-only liveness workload; this does not prove auth/DB health."""
+    rows = [] if rows is None else rows
+    started = time.perf_counter() if started is None else started
+    for sequence in range(requests):
+        scheduled = sequence * 60.0 / arrival_rpm
+        await asyncio.sleep(max(0.0, started + scheduled - time.perf_counter()))
+        sent = time.perf_counter()
+        status = None
+        error = None
+        try:
+            response = await client.get(url)
+            status = response.status_code
+        except httpx.HTTPError as exc:
+            error = type(exc).__name__
+        except asyncio.CancelledError:
+            error = "cancelled"
+            raise
+        finally:
+            rows.append(
+                {
+                    "sequence": sequence,
+                    "scheduled_ms": round(scheduled * 1000),
+                    "sent_ms": round((sent - started) * 1000),
+                    "duration_ms": round((time.perf_counter() - sent) * 1000),
+                    "status_code": status,
+                    "error": error,
+                }
+            )
+    return rows
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -761,10 +1005,20 @@ def build_report(
     max_tokens: int,
     stream_modes: Sequence[bool],
     results: Sequence[RequestResult],
+    arrival_rpm: float = 6.0,
+    prompt: str = DEFAULT_PROMPT,
+    general_api_results: Sequence[Mapping[str, Any]] = (),
+    timeout_seconds: float = 120.0,
+    interrupted: bool = False,
 ) -> dict[str, Any]:
     summary = summarize_results(results)
+    probe_end = max(
+        (r["sent_ms"] + r["duration_ms"] for r in general_api_results), default=None
+    )
+    ai_end = summary["load_duration_ms"]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "interrupted": interrupted,
         "started_at": started_at.isoformat(),
         "completed_at": completed_at.isoformat(),
         "public_proxy_url": proxy_url,
@@ -776,10 +1030,37 @@ def build_report(
             "requests_per_scenario": requests_per_scenario,
             "concurrency": concurrency,
             "max_tokens": max_tokens,
+            "temperature": 0.0,
+            "timeout_seconds": timeout_seconds,
             "stream_modes": list(stream_modes),
+            "arrival_rpm": arrival_rpm,
+            # A fingerprint fixes workload identity without storing prompt text.
+            "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
         },
         "summary": summary,
         "results": [asdict(result) for result in results],
+        "general_api": {
+            "endpoint": proxy_url.removesuffix("/ai-proxy") + "/utils/health-check/",
+            "scope": "liveness_only_not_authenticated_db",
+            "results": list(general_api_results),
+            "samples": len(general_api_results),
+            "planned_samples": len(results),
+            "not_sent": max(0, len(results) - len(general_api_results)),
+            "first_sent_ms": min(
+                (r["sent_ms"] for r in general_api_results), default=None
+            ),
+            "last_finished_ms": probe_end,
+            "ai_last_finished_ms": ai_end,
+            "covers_ai_completion": probe_end >= ai_end
+            if probe_end is not None and ai_end is not None
+            else None,
+            "tail_unobserved_ms": max(0, ai_end - probe_end)
+            if probe_end is not None and ai_end is not None
+            else None,
+            "p50_ms": percentile([r["duration_ms"] for r in general_api_results], 0.5),
+            "p95_ms": percentile([r["duration_ms"] for r in general_api_results], 0.95),
+            "failed": sum(r["status_code"] != 200 for r in general_api_results),
+        },
     }
 
 
@@ -814,6 +1095,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         default=2,
         help="本機同時發出的請求數，預設 2",
+    )
+    parser.add_argument(
+        "--arrival-rpm",
+        type=_positive_float,
+        default=6.0,
+        help="固定總到達 RPM，預設 6；併發上限造成的延後會記入報告",
+    )
+    parser.add_argument(
+        "--prompt",
+        default=DEFAULT_PROMPT,
+        help="固定測試 prompt；比較長輸出時明確指定，報告只保留指紋",
     )
     parser.add_argument(
         "--stream",
@@ -864,7 +1156,12 @@ async def async_main(args: argparse.Namespace) -> int:
     )
     secrets = tuple(credential.value for credential in credentials)
     started_at = datetime.now(timezone.utc)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+    async with (
+        httpx.AsyncClient(timeout=timeout, limits=limits) as client,
+        httpx.AsyncClient(
+            timeout=timeout, limits=httpx.Limits(max_connections=1)
+        ) as general_client,
+    ):
         available_models = await preflight_models(client, proxy_url, credentials)
         selected_models = choose_models(available_models, args.model)
         cases = build_cases(
@@ -881,13 +1178,46 @@ async def async_main(args: argparse.Namespace) -> int:
             f"[PASS] scenario: {len(cases)} requests, "
             f"concurrency={args.concurrency}, modes={','.join('stream' if item else 'non-stream' for item in stream_modes)}"
         )
-        results = await run_cases(
-            client,
-            proxy_url,
-            cases,
-            concurrency=args.concurrency,
-            max_tokens=args.max_tokens,
-            secrets=secrets,
+        result_slots: list[RequestResult | None] = [None] * len(cases)
+        general_results: list[dict[str, Any]] = []
+        workload_started = time.perf_counter()
+        interrupted = False
+        workloads = [
+            asyncio.create_task(
+                run_cases(
+                    client,
+                    proxy_url,
+                    cases,
+                    concurrency=args.concurrency,
+                    max_tokens=args.max_tokens,
+                    secrets=secrets,
+                    arrival_rpm=args.arrival_rpm,
+                    prompt=args.prompt,
+                    result_slots=result_slots,
+                    started=workload_started,
+                )
+            ),
+            asyncio.create_task(
+                probe_general_api(
+                    general_client,
+                    proxy_url.removesuffix("/ai-proxy") + "/utils/health-check/",
+                    requests=len(cases),
+                    arrival_rpm=args.arrival_rpm,
+                    rows=general_results,
+                    started=workload_started,
+                )
+            ),
+        ]
+        try:
+            await asyncio.gather(*workloads)
+        except asyncio.CancelledError:
+            interrupted = True
+            for task in workloads:
+                task.cancel()
+            await asyncio.gather(*workloads, return_exceptions=True)
+        results = tuple(
+            row if row is not None else _not_sent(case, index, args.arrival_rpm)
+            for index, (case, row) in enumerate(zip(cases, result_slots, strict=True))
         )
     completed_at = datetime.now(timezone.utc)
 
@@ -903,6 +1233,11 @@ async def async_main(args: argparse.Namespace) -> int:
         max_tokens=args.max_tokens,
         stream_modes=stream_modes,
         results=results,
+        arrival_rpm=args.arrival_rpm,
+        prompt=args.prompt,
+        general_api_results=general_results,
+        timeout_seconds=args.timeout,
+        interrupted=interrupted,
     )
     _atomic_write_json(args.report_file, report)
 
@@ -913,6 +1248,9 @@ async def async_main(args: argparse.Namespace) -> int:
         f"TOTAL={summary['total']}"
     )
     print(f"Report: {args.report_file}")
+    if interrupted:
+        print("[ERROR] interrupted; partial results saved", file=sys.stderr)
+        return 130
     return 0 if summary["failed"] == 0 else 1
 
 

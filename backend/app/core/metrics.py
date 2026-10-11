@@ -137,15 +137,15 @@ UNMATCHED_PATH = "<unmatched>"
 REQUEST_COUNT = Counter(
     "http_requests_total",
     "Total HTTP requests",
-    labelnames=("method", "path", "status"),
+    labelnames=("method", "path", "status", "workload"),
     registry=REGISTRY,
 )
 REQUEST_LATENCY = Histogram(
     "http_request_duration_seconds",
     "HTTP request latency in seconds",
-    labelnames=("method", "path"),
+    labelnames=("method", "path", "workload"),
     registry=REGISTRY,
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20, 30, 60, 90, 120, 300, 600),
 )
 REQUESTS_IN_PROGRESS = Gauge(
     "http_requests_in_progress",
@@ -229,20 +229,26 @@ TASK_RECORDS = Gauge(
     registry=REGISTRY,
 )
 
-# ─── AI（使用者 API 金鑰與內建 AI 功能經 LiteLLM 的呼叫）────────────────────
+# ─── AI（公開 relay 與直連 System AI 的模型呼叫）───────────────────────────
 # model 標籤由 services/monitoring/ai_metrics 限縮成 LiteLLM 認得的模型，
 # 其餘一律 "other"，避免使用者亂填 model 造成時間序列爆量。
 
 AI_REQUESTS = Counter(
     "skylab_ai_requests_total",
-    "AI model calls relayed to LiteLLM by source (api_key/platform), model and outcome",
+    "AI model calls by source (api_key/platform), model, request type and outcome",
     labelnames=("source", "model", "request_type", "outcome"),
+    registry=REGISTRY,
+)
+AI_WORKFLOWS = Counter(
+    "skylab_ai_workflows_total",
+    "Terminated System AI workflows, separate from individual model calls",
+    labelnames=("route", "outcome", "terminal_reason"),
     registry=REGISTRY,
 )
 AI_REQUEST_DURATION = Histogram(
     "skylab_ai_request_duration_seconds",
-    "End-to-end duration of AI model calls as seen by SkyLab",
-    labelnames=("source", "model", "stream"),
+    "Duration of public logical requests and individual System AI model calls",
+    labelnames=("source", "model", "stream", "request_type", "outcome"),
     registry=REGISTRY,
     buckets=(0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0),
 )
@@ -251,7 +257,7 @@ AI_TIME_TO_FIRST_TOKEN = Histogram(
     "Time until the first streamed output token of AI model calls",
     labelnames=("source", "model"),
     registry=REGISTRY,
-    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60, 90, 120),
 )
 AI_TOKENS = Counter(
     "skylab_ai_tokens_total",
@@ -271,9 +277,10 @@ AI_PROXY_WAITING = Gauge(
 )
 AI_PROXY_QUEUE_WAIT = Histogram(
     "skylab_ai_proxy_queue_wait_seconds",
-    "Time Campus AI proxy generation requests wait for an admission slot",
+    "Cumulative admission wait per terminated logical Campus AI proxy request",
+    labelnames=("model",),
     registry=REGISTRY,
-    buckets=(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+    buckets=(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 45, 60, 70, 75),
 )
 AI_PROXY_ADMISSION_REJECTIONS = Counter(
     "skylab_ai_proxy_admission_rejections_total",
@@ -333,6 +340,26 @@ def _route_template(scope: Scope) -> str:
     return UNMATCHED_PATH
 
 
+_AI_GENERATION_POST_PATHS = frozenset({
+    "/ai-proxy/chat/completions", "/ai-proxy/completions", "/ai-proxy/responses",
+    "/ai/navigation/resolve", "/ai/contextual-help/explain", "/ai/pve-log/chat",
+    "/ai/template-recommendation/chat", "/ai/template-recommendation/recommend",
+    "/teaching-classes/{teaching_class_id}/judge/sessions/{session_id}/messages",
+})
+
+
+def _http_workload(scope: Scope, path: str) -> str:
+    """Classify intent using finite templates; raw paths never become labels."""
+    prefix = settings.API_V1_STR.rstrip("/")
+    candidate = path if path != UNMATCHED_PATH else scope.get("path", "")
+    relative = candidate.removeprefix(prefix) if candidate.startswith(prefix + "/") else ""
+    if scope.get("method") == "POST" and relative in _AI_GENERATION_POST_PATHS:
+        return "ai_generation"
+    if path != UNMATCHED_PATH and path.startswith(prefix + "/"):
+        return "general_api"
+    return "other"
+
+
 class PrometheusMiddleware:
     """ASGI middleware that records request count + latency per route."""
 
@@ -360,8 +387,9 @@ class PrometheusMiddleware:
             REQUESTS_IN_PROGRESS.dec()
             duration = time.perf_counter() - start
             path = _route_template(scope)
-            REQUEST_COUNT.labels(method=method, path=path, status=str(status_holder["code"])).inc()
-            REQUEST_LATENCY.labels(method=method, path=path).observe(duration)
+            workload = _http_workload(scope, path)
+            REQUEST_COUNT.labels(method=method, path=path, status=str(status_holder["code"]), workload=workload).inc()
+            REQUEST_LATENCY.labels(method=method, path=path, workload=workload).observe(duration)
 
 
 # ─── /metrics ─────────────────────────────────────────────────────────────
