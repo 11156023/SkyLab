@@ -49,6 +49,11 @@
   --edge: color-mix(in srgb, var(--color-danger) 55%, transparent);
 }
 
+/* 批量勾選中：票面換淡主色底（外框照舊，不靠藍框表達狀態） */
+.ticket[data-selected] .paper {
+  @include row-selected(var(--color-surface));
+}
+
 .paper {
   display: flex;
   flex-direction: column;
@@ -75,6 +80,11 @@
   align-items: center;
   justify-content: space-between;
   gap: $spacing-8;
+}
+
+/* 右上角疊著勾選框（16px＋間距）：學期往左讓開 */
+.selectable .top {
+  padding-right: 28px;
 }
 
 .status {

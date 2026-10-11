@@ -97,34 +97,6 @@
   gap: 16px;
 }
 
-.searchInput {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: min(360px, 100%);
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
-}
-
-.searchInput:focus-within {
-  border-color: var(--color-primary);
-}
-
-/* 外框在 .searchInput（上下 1px），輸入框 34px，整體跟按鈕同為 36px */
-.searchInput input {
-  width: 100%;
-  height: 34px;
-  border: 0;
-  outline: 0;
-  color: var(--color-text);
-  background: transparent;
-  font: inherit;
-  font-size: $font-size-14;
-}
-
 .statusBadge,
 .lockBadge {
   @include badge-base;
@@ -467,15 +439,6 @@
 }
 
 /* ── 班級管理列表：卡片牆與熱力圖 ── */
-.classToolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 18px;
-  flex-wrap: wrap;
-  padding: 2px 0;
-}
-
 .archivedToggle {
   display: inline-flex;
   align-items: center;
@@ -495,11 +458,34 @@
   cursor: pointer;
 }
 
-.classToolbar .searchInput {
-  flex: 0 1 320px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
+/* 票券外層：右上角疊批量勾選框（票券本身是按鈕，勾選框不能包進去） */
+.ticketSlot {
+  position: relative;
+  min-width: 0;
+}
+
+.ticketCheck {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  transition: transform $transition-base;
+}
+
+/* 滑到勾選框上時票券本身不算 hover，浮起改由外層觸發（同 ClassTicket 的 :hover），勾選框跟著一起動 */
+.ticketSlot:hover > button {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 0 0.5px var(--edge)) drop-shadow(var(--shadow-md));
+}
+
+.ticketSlot:hover .ticketCheck {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticketSlot:hover > button,
+  .ticketSlot:hover .ticketCheck {
+    transform: none;
+  }
 }
 
 /* 班級票券：寬度比照學生端的課程票券格線（最窄 280） */
@@ -2482,17 +2468,6 @@
 
   .memberRow>span:nth-of-type(3) {
     display: block;
-  }
-
-  .classToolbar {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .classToolbar .searchInput {
-    flex-basis: auto;
-    width: 100%;
   }
 
   .classFacts {
