@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -6,10 +6,21 @@ import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import DataToolbar from "../../../components/DataToolbar/DataToolbar";
+import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
+import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
+import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
+import useRowSelection from "../../../hooks/useRowSelection";
+import { joinList } from "../../../utils/joinList";
+import { runBatch } from "../../../utils/runBatch";
 import ClassTicket from "./ClassTicket";
+
+/* 批量封存的確認框裡最多列出幾班的名字，其餘寫「等 N 班」 */
+const BATCH_NAME_PREVIEW = 5;
 
 const STATUS_KEYS = {
   planning: "ClassManagementPage.statusPlanning",
@@ -88,20 +99,26 @@ export default function ClassManagementPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const confirm = useConfirm();
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
 
+  const loadClasses = useCallback(
+    () => TeachingClassesService.list().then((rows) => (rows?.data ?? rows ?? []).map(normalizeClass)),
+    [],
+  );
+
   useEffect(() => {
     let active = true;
-    TeachingClassesService.list()
-      .then((rows) => active && setClasses((rows?.data ?? rows ?? []).map(normalizeClass)))
+    loadClasses()
+      .then((rows) => active && setClasses(rows))
       .catch((reason) => active && toast.error(reason?.message ?? t("Error.generic", { ns: "common" })))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [toast, t]);
+  }, [loadClasses, toast, t]);
 
   // 導頁帶來的一次性成功訊息改用 toast，吐完即清掉 state 免得重整重播。
   useEffect(() => {
@@ -139,6 +156,45 @@ export default function ClassManagementPage() {
       && item.name.toLowerCase().includes(query.toLowerCase()));
   }, [visible, query, status]);
 
+  /* 批量封存並回收：已封存的不能再勾；換篩選或搜尋後看不到的自動取消勾選 */
+  const selection = useRowSelection(rows.filter((item) => item.status !== "archived").map((item) => item.id));
+  const selectedClasses = rows.filter((item) => selection.isSelected(item.id));
+  const [batchProgress, setBatchProgress] = useState(null); // { done, total }
+
+  async function archiveSelected() {
+    const targets = selectedClasses;
+    if (!targets.length || batchProgress) return;
+    const names = targets.map((item) => item.name);
+    const rest = names.length - BATCH_NAME_PREVIEW;
+    const machines = targets.reduce((sum, item) => sum + (item.totalMachines || 0), 0);
+    const ok = await confirm({
+      title: t("ClassManagementPage.batchArchiveTitle", { count: targets.length }),
+      message: `${t("ClassManagementPage.batchArchiveDesc", { machines })}\n${joinList(names.slice(0, BATCH_NAME_PREVIEW))}${rest > 0 ? ` ${t("ClassManagementPage.batchNamesMore", { count: rest })}` : ""}`,
+      confirmText: t("ClassManagementPage.batchArchive"),
+      danger: true,
+    });
+    if (!ok) return;
+    setBatchProgress({ done: 0, total: targets.length });
+    const res = await runBatch(targets, (item) => TeachingClassesService.archive(item.id), {
+      concurrency: 2,
+      onProgress: ({ done, total }) => setBatchProgress({ done, total }),
+    });
+    /* 封存成功但有機器沒送出回收：跟單班一樣提醒到班級裡按「重試回收」 */
+    const reclaimFailed = res.results
+      .filter((result) => result.ok)
+      .reduce((sum, result) => sum + (result.value?.reclaim?.failed?.length ?? 0), 0);
+    if (res.failed > 0) {
+      toast.error(t("ClassManagementPage.batchArchiveFailedKeptToast", { succeeded: res.succeeded, failed: res.failed }));
+    } else if (reclaimFailed > 0) {
+      toast.error(t("ClassManagementPage.batchArchivedReclaimFailedToast", { count: res.succeeded, machines: reclaimFailed }));
+    } else {
+      toast.success(t("ClassManagementPage.batchArchivedToast", { count: res.succeeded }));
+    }
+    selection.replace(res.results.filter((result) => !result.ok).map((result) => result.item.id));
+    setBatchProgress(null);
+    try { setClasses(await loadClasses()); } catch { /* 下次進頁面再載入 */ }
+  }
+
   return <div className={`${styles.page} ${styles.listPage}`}>
     <PageHeader title={t("ClassManagementPage.title")}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}>
@@ -146,7 +202,28 @@ export default function ClassManagementPage() {
       </button>
     </PageHeader>
 
-    <div className={styles.classToolbar}>
+    {/* 平常是狀態切換＋搜尋；勾選班級後原地換成批量封存（同一個高度，票券不會跳） */}
+    <DataToolbar
+      selecting={selectedClasses.length > 0}
+      batch={(
+        <BatchBar
+          countLabel={t("ClassManagementPage.selectedCount", { count: selectedClasses.length })}
+          onClear={selection.clear}
+          selectAll={{
+            checked: selection.allSelected,
+            indeterminate: selection.someSelected,
+            onToggle: selection.toggleAll,
+          }}
+          progress={batchProgress && {
+            text: t("ClassManagementPage.batchArchiving", batchProgress),
+            done: batchProgress.done,
+            total: batchProgress.total,
+          }}
+        >
+          <BatchAction icon="archive" label={t("ClassManagementPage.batchArchive")} danger onClick={archiveSelected} />
+        </BatchBar>
+      )}
+    >
       <SegmentedControl
         options={tabs.map((group) => ({
           value: group.key,
@@ -158,15 +235,20 @@ export default function ClassManagementPage() {
         onChange={setStatus}
         ariaLabel={t("ClassManagementPage.filterAriaLabel")}
       />
-      <label className={styles.searchInput}><MIcon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("ClassManagementPage.searchPlaceholder")} /></label>
+      <ToolbarSearch value={query} onChange={setQuery} placeholder={t("ClassManagementPage.searchPlaceholder")} />
       {archivedCount > 0 && <label className={styles.archivedToggle}><input type="checkbox" checked={showArchived} onChange={(event) => { setShowArchived(event.target.checked); if (!event.target.checked) setStatus("all"); }} />{t("ClassManagementPage.showArchived", { count: archivedCount })}</label>}
-    </div>
+    </DataToolbar>
 
     {loading ? <LoadingState fullPage text={t("ClassManagementPage.loadingText")} /> : rows.length ? <section className={styles.classCardGrid}>
       {rows.map((item) => {
         const setupReady = setupChecklist(item).filter(Boolean).length;
-        return <ClassTicket
-          key={item.id}
+        const selectable = item.status !== "archived";
+        const checked = selection.isSelected(item.id);
+        /* 票券本身是一顆按鈕（點了進班級），勾選框疊在右上角、不能包進按鈕裡 */
+        return <div key={item.id} className={styles.ticketSlot}>
+        <ClassTicket
+          selectable={selectable}
+          selected={checked}
           id={item.id}
           status={item.status}
           statusLabel={STATUS_KEYS[item.status] ? t(STATUS_KEYS[item.status]) : item.status}
@@ -186,8 +268,16 @@ export default function ClassManagementPage() {
           progress={item.status === "planning"
             ? { label: t("ClassManagementPage.progressSetup"), done: setupReady, total: SETUP_STEP_COUNT }
             : { label: t("ClassManagementPage.progressBuild"), done: item.readyMachines, total: item.totalMachines }}
-          onOpen={() => navigate(ticketTarget(item))}
-        />;
+          /* 勾選狀態下點整張票改成勾選，不進班級 */
+          onOpen={(event) => { if (!selection.rowClick(item.id, event)) navigate(ticketTarget(item)); }}
+        />
+        {selectable && <SelectCheckbox
+          className={styles.ticketCheck}
+          checked={checked}
+          onToggle={(shiftKey) => selection.toggle(item.id, shiftKey)}
+          ariaLabel={t("ClassManagementPage.selectClassAria", { name: item.name })}
+        />}
+        </div>;
       })}
     </section> : <EmptyState
       icon="school"

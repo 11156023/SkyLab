@@ -13,14 +13,22 @@ const BARS = 24;
  * @param {string} status   班級狀態，決定狀態點與條碼的顏色
  * @param {{ key: string, label: string, value: string, note?: string }[]} fields 票面欄位（note 接在標籤後面、用點隔開）
  * @param {{ label: string, done: number, total: number }} progress 票根的進度
- * @param {() => void} onOpen 點票券：準備中回到設定步驟，其餘進入班級
+ * @param {(event) => void} onOpen 點票券：準備中回到設定步驟，其餘進入班級（列表在勾選狀態下改成勾選）
+ * @param {boolean} selectable 右上角疊著批量勾選框（由列表放），學期往左讓出位置
+ * @param {boolean} selected   批量勾選中：票面換淡主色底
  */
-export default function ClassTicket({ id, status, statusLabel, term, title, hint, fields, progress, onOpen }) {
+export default function ClassTicket({ id, status, statusLabel, term, title, hint, fields, progress, onOpen, selectable = false, selected = false }) {
   const ratio = progress.total > 0 ? Math.min(progress.done / progress.total, 1) : 0;
   const bars = ticketBarcode(id, BARS, Math.round(ratio * BARS));
 
   return (
-    <button type="button" className={styles.ticket} data-status={status} onClick={onOpen}>
+    <button
+      type="button"
+      className={`${styles.ticket}${selectable ? ` ${styles.selectable}` : ""}`}
+      data-status={status}
+      data-selected={selected || undefined}
+      onClick={onOpen}
+    >
       <span className={styles.paper}>
         <span className={styles.main}>
           <span className={styles.top}>

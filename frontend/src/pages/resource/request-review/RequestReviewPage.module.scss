@@ -56,52 +56,84 @@
   @include btn-secondary;
 }
 
-/* ── Tabs ── */
-/* 分段切換器與搜尋擺同一排，省下的垂直空間留給右側詳情表單與審核按鈕 */
-.tabsRow {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  flex-wrap: wrap;
+.btnDanger {
+  @include btn-danger;
 }
 
-/* 窄螢幕選項放不下時讓切換器自己橫向捲動；高度鎖 38px 與搜尋框對齊 */
+/* ── 批量拒絕對話框：比照共用確認框的危險款 ── */
+.dialogIconDanger {
+  @include flex-center;
+  color: var(--color-danger);
+}
+
+/* 要拒絕的申請：白底細框清單（玻璃卡內的資訊區塊一律白底），最多列 5 筆 */
+.rejectList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.rejectItem,
+.rejectMore {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 40px;
+  padding: $spacing-8 12px;
+  font-size: $font-size-14;
+
+  & + & {
+    border-top: 1px solid var(--color-divider);
+  }
+}
+
+.rejectItem {
+  color: var(--color-text-muted);
+}
+
+.rejectItemName {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+  @include text-truncate;
+}
+
+.rejectItemUser {
+  flex-shrink: 0;
+  max-width: 40%;
+  font-size: $font-size-12;
+  @include text-truncate;
+}
+
+.rejectMore {
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
+
+/* 對話框裡的欄位走表單 mixin（標籤 14/500、控制項同全站），備註固定高 */
+.dialogField {
+  @include form-field;
+
+  textarea {
+    @include form-control;
+    height: 88px;
+  }
+}
+
+/* ── Tabs ── */
+/* 分段切換器與搜尋擺在共用工具列（DataToolbar）同一排；窄螢幕選項放不下時讓切換器自己橫向捲動 */
 .tabsControl {
-  height: 38px;
   max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
     display: none;
-  }
-}
-
-.search {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 0 $spacing-8 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  flex: 0 1 280px;
-  min-width: 200px;
-  box-shadow: var(--shadow-sm);
-}
-
-.searchInput {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: $font-size-14;
-  color: var(--color-text-primary);
-
-  &::placeholder {
-    color: var(--color-text-muted);
   }
 }
 
@@ -191,19 +223,54 @@
   }
 }
 
+/* 一列＝勾選框（待審才有）＋開詳情的按鈕；卡片外觀在外層，整列除了勾選框都是按鈕的點擊範圍 */
 .row {
   width: 100%;
   display: flex;
-  align-items: center;
-  text-align: left;
-  gap: $spacing-16;
-  padding: 12px $spacing-16;
+  align-items: stretch;
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-12;
-  cursor: pointer;
   transition: background $transition-base, border-color $transition-base, box-shadow $transition-base;
 
   &:hover { background: var(--color-hover); }
+}
+
+.rowSelected {
+  @include row-selected(var(--color-surface));
+}
+
+.rowCheck {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  margin-left: $spacing-16;
+}
+
+.rowButton {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: $spacing-16;
+  min-width: 0;
+  padding: 12px $spacing-16;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+}
+
+/* 有勾選框時按鈕左邊不必再留滿 16，跟勾選框之間 12 就好 */
+.rowCheck + .rowButton {
+  padding-left: 12px;
 }
 
 .rowActive {
