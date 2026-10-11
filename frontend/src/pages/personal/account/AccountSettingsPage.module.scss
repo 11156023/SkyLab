@@ -508,44 +508,137 @@
 
 /* ── 關於 ── */
 /* 左卡版本／授權／連結，右卡開源元件表；窄螢幕直向堆疊 */
+/* 看內容區本身的寬度（扣掉側邊欄後）決定欄數：夠寬才左右並排，
+   筆電寬度下「關於」卡只剩 330px、連結名稱會被擠成兩行，就改上下排 */
+.aboutWrap {
+  container-type: inline-size;
+}
+
 .aboutGrid {
   display: grid;
   gap: $spacing-24;
   align-items: start;
 
-  @include respond-to(lg) {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  @container (min-width: 1000px) {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   }
 }
 
-.aboutRows {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: $spacing-8 $spacing-16;
-  margin: 0;
+/* 右欄：「關於」與其下方的區塊一起堆疊。DOM 上排在前面，窄螢幕上下排時「關於」在最上面 */
+.aboutSide {
+  @include flex-column;
+  gap: $spacing-24;
 
-  dt {
-    font-size: $font-size-12;
-    font-weight: $font-weight-500;
-    color: var(--color-text-secondary);
-    padding-top: 2px;
+  @container (min-width: 1000px) {
+    grid-column: 2;
+    grid-row: 1;
   }
+}
 
-  dd {
-    margin: 0;
-    font-size: $font-size-14;
-    color: var(--color-text-primary);
-    overflow-wrap: anywhere;
+/* 左欄：開源元件表 */
+.aboutMain {
+  @container (min-width: 1000px) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
+
+/* 標題＋版本小字一組，組內間距小 */
+.aboutHead {
+  @include flex-column;
+  gap: 4px;
+}
+
+/* 版本 · commit · 建置時間：一行灰字，用中點隔開 */
+.aboutMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  > * + *::before {
+    content: "·";
+    margin: 0 $spacing-8;
+    color: var(--color-text-muted);
   }
 }
 
 .aboutCommit {
-  margin-left: $spacing-8;
-  padding: 1px 6px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: $font-size-12;
   color: var(--color-text-secondary);
+}
+
+.aboutLead {
+  margin: 0;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+}
+
+.aboutLinks {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+/* 連結列：玻璃卡內的內容區塊一律白底細框；hover 只給淡底，不改框色 */
+.aboutLinkRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  text-decoration: none;
+  transition: background $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+.aboutLinkIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+}
+
+.aboutLinkText {
+  @include flex-column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.aboutLinkLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.aboutLinkValue {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  overflow-wrap: break-word;
+}
+
+.aboutLinkGo {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
 }
 
 .aboutHint {

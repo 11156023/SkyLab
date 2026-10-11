@@ -205,15 +205,16 @@ export default function IpManagementPage() {
   return (
     <div className={styles.page}>
       <PageHeader title={t("IpManagementPage.pageTitle")}>
-        {isAdmin && (
+        {/* 還沒設定子網路時，下方空狀態的「建立子網路設定」就是入口；頁首只在設定好後放「編輯」 */}
+        {isAdmin && configured && (
           <div className={styles.pageActions}>
             <button
               type="button"
               className={styles.btnPrimary}
               onClick={() => setEditing({ config: subnet })}
             >
-              <MIcon name={configured ? "edit" : "add"} size={18} />
-              {configured ? t("IpManagementPage.editSubnetConfig") : t("IpManagementPage.createSubnetConfig")}
+              <MIcon name="edit" size={18} />
+              {t("IpManagementPage.editSubnetConfig")}
             </button>
           </div>
         )}

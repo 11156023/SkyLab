@@ -197,16 +197,16 @@
   }
 }
 
+/* 登入前的桌面 App 提示：玻璃卡裡的內容區塊一律白底細框，不鋪主色淡底（換主色或背景時會糊） */
 .deviceNotice {
   display: flex;
   align-items: flex-start;
   gap: $spacing-8;
   margin-bottom: $spacing-16;
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid
-    color-mix(in srgb, var(--color-primary) 25%, var(--color-border));
+  padding: 12px $spacing-16;
+  border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  background: var(--color-surface);
   color: var(--color-text-secondary);
   font-size: $font-size-14;
   line-height: 1.5;
@@ -214,8 +214,105 @@
 
   > span:first-child {
     flex: 0 0 auto;
-    color: var(--color-primary);
+    color: var(--color-primary-on-surface);
   }
+}
+
+/* ── 授權桌面 App 登入（同意頁） ── */
+
+/* 頂部圖示：讓這頁一眼看出跟一般登入不同 */
+.deviceHero {
+  @include flex-center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto $spacing-16;
+  border-radius: $radius-16;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary-on-surface);
+}
+
+/* 要授權的帳號：白底細框，email 單獨一行 */
+.deviceAccount {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  text-align: left;
+
+  > span:first-child {
+    flex-shrink: 0;
+    color: var(--color-primary-on-surface);
+  }
+}
+
+.deviceAccountText {
+  @include flex-column;
+  min-width: 0;
+
+  span {
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+  }
+
+  strong {
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* 授權後會發生什麼：靠左的一般說明 */
+.deviceScope {
+  margin-top: 12px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  text-align: left;
+}
+
+/* 防釣魚提醒：琥珀提示條（同 toast 的 pending 色票），靠左好讀 */
+.deviceWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  margin-top: $spacing-16;
+  padding: 12px $spacing-16;
+  border: 1px solid color-mix(in srgb, var(--color-pending) 30%, var(--color-surface));
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-pending) 10%, var(--color-surface));
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  text-align: left;
+
+  > span:first-child {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-pending);
+  }
+}
+
+/* 授權／取消：兩顆滿版直排，主要在上 */
+.deviceActions {
+  @include flex-column;
+  gap: $spacing-8;
+  margin-top: $spacing-24;
+
+  .btn {
+    margin-top: 0;
+  }
+}
+
+/* 次要動作（取消）：btn-secondary，高度跟登入頁主按鈕一樣 44px（登入頁例外） */
+.btnSecondary {
+  @include btn-secondary;
+  width: 100%;
+  min-height: 44px;
+  font-size: $font-size-16;
 }
 
 .deviceProgress {

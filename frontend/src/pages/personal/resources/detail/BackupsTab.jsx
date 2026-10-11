@@ -204,7 +204,7 @@ export default function BackupsTab({ vmid, toolbar, capability, onOperationFaile
               <tbody>
                 {backups.map((backup) => (
                   <tr key={backup.volid} className={styles.tr}>
-                    <td className={styles.td}>
+                    <td className={`${styles.td} ${styles.nowrapCell}`}>
                       {backup.created_at ? formatDateTime(backup.created_at * 1000) : "—"}
                     </td>
                     <td className={`${styles.td} ${styles.mutedCell}`}>{backup.description || "—"}</td>

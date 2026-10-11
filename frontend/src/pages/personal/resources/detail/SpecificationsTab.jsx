@@ -143,7 +143,7 @@ function OpenRequestNotice({ request, busy, onApply, onCancel }) {
  * value／min／max／step 是拉桿的原始單位；數字框可用另一個單位（記憶體用 GB）。
  * 數字框在離開欄位時才定稿（夾範圍、對齊步進）再呼叫 onInput，編輯中不干涉。
  */
-function SliderField({
+export function SliderField({
   id, label, unit, wide, disabled,
   min, max, step, value, current, ticks, onChange,
   inputValue, inputMin, inputMax, inputStep, onInput,
@@ -542,13 +542,12 @@ export default function SpecificationsTab({ vmid }) {
                 id="spec-reason"
                 ref={reasonRef}
                 rows={4}
-                placeholder={t("SpecificationsTab.reasonPlaceholder")}
+                placeholder={t("SpecificationsTab.reasonHint")}
                 aria-invalid={reasonInvalid}
                 value={reason}
                 disabled={formLocked}
                 onChange={(e) => { setReason(e.target.value); setReasonInvalid(false); }}
               />
-              <span className={styles.fieldHint}>{t("SpecificationsTab.reasonHint")}</span>
             </div>
           )}
 

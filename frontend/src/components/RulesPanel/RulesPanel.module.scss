@@ -158,7 +158,8 @@
   background: var(--color-surface);
   font-size: $font-size-12;
 
-  &.disabled {
+  /* 停用的規則只淡化內容；開關與刪除鈕維持清楚，才看得出能再打開 */
+  &.disabled > :not(.ruleActions) {
     opacity: 0.4;
   }
 }
@@ -195,7 +196,7 @@
 .ruleActions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: $spacing-8;
   margin-left: auto;
   flex-shrink: 0;
 }

@@ -36,6 +36,7 @@ vi.mock("./MonitoringTab", () => ({ default: () => <p data-testid="monitoring-ta
 vi.mock("./SpecificationsTab", () => ({ default: () => <p data-testid="specifications-tab" /> }));
 vi.mock("./AuditLogsTab", () => ({ default: () => <p data-testid="audit-tab" /> }));
 vi.mock("./AdvancedSettingsTab", () => ({ default: () => <p data-testid="advanced-tab" /> }));
+vi.mock("./ResourceDetailGuideDemo", () => ({ default: ({ tab }) => <p data-testid={`guide-demo-${tab}`} /> }));
 vi.mock("./SnapshotsTab", () => ({
   default: ({ onOperationFailed }) => (
     <button type="button" data-testid="snapshots-tab" onClick={onOperationFailed}>fail</button>

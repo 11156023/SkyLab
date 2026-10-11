@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
+import Switch from "../../../components/Switch/Switch";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -349,10 +350,13 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
           </>
         )}
       >
-        <button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")}>
-          <MIcon name="add" size={16} />
-          {t("SettingsPage.addConnection")}
-        </button>
+        {/* 有連線才在頁首放「新增連線」；沒有時下方空狀態那顆就是唯一入口，載入中也先不放 */}
+        {!loading && connections.length > 0 && (
+          <button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")}>
+            <MIcon name="add" size={16} />
+            {t("SettingsPage.addConnection")}
+          </button>
+        )}
       </PageHeader>
 
       <section className={styles.pageSection} aria-labelledby="pve-connections-title">
@@ -583,15 +587,15 @@ function NodesSection({ nodes, loading, onNodeUpdated }) {
                 <span className={`${styles.badge} ${styles.listStatus} ${node.is_online ? styles.badge_success : styles.badge_danger}`}>
                   {node.is_online ? t("SettingsPage.online") : t("SettingsPage.offline")}
                 </span>
-                <label className={`${styles.checkRow} ${styles.listExtra}`} title={t("SettingsPage.disableNodeHint")}>
-                  <input
-                    type="checkbox"
-                    checked={node.enabled !== false}
-                    disabled={saving || node.id == null}
-                    onChange={(e) => toggleEnabled(node, e.target.checked)}
-                  />
-                  <span>{t("SettingsPage.enable")}</span>
-                </label>
+                {/* 切換立刻送出：用開關，不用要按儲存的勾選框 */}
+                <Switch
+                  className={styles.listExtra}
+                  checked={node.enabled !== false}
+                  onChange={(next) => toggleEnabled(node, next)}
+                  disabled={saving || node.id == null}
+                  ariaLabel={t("SettingsPage.enable")}
+                  title={t("SettingsPage.disableNodeHint")}
+                />
               </div>
               <div className={styles.rowActions}>
                 <button
