@@ -307,6 +307,7 @@
 }
 
 /* 編輯視窗的兩步驟驗證列：狀態文字靠左、重設按鈕靠右 */
+/* 玻璃卡（對話框）裡的資訊區塊一律白底細框，不透出底下的玻璃 */
 .totpRow {
   display: flex;
   align-items: center;
@@ -315,6 +316,7 @@
   padding: $spacing-8 $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
+  background: var(--color-surface);
 }
 
 .totpRowText {
