@@ -8,13 +8,7 @@ import NotFoundState from "../../../../components/ErrorState/NotFoundState";
 import { isNotFound } from "../../../../services/api";
 import { AuditLogsService } from "../../../../services/auditLogs";
 import { formatDateTime } from "../../../../utils/formatDate";
-
-/** 依動作類型決定 badge 色系（僅使用四種語意色） */
-function actionBadgeClass(action) {
-  if (action.includes("create")) return "badge_success";
-  if (action.includes("delete")) return "badge_danger";
-  return "badge_info";
-}
+import { actionBadgeClass, actionLabel } from "./auditActions";
 
 export default function AuditLogsTab({ vmid }) {
   const { t } = useTranslation("personal");
@@ -66,7 +60,7 @@ export default function AuditLogsTab({ vmid }) {
                   </td>
                   <td className={styles.td}>
                     <span className={`${styles.badge} ${styles[actionBadgeClass(log.action)]}`}>
-                      {log.action}
+                      {actionLabel(log.action, t)}
                     </span>
                   </td>
                   <td className={`${styles.td} ${styles.detailCell}`} title={log.details}>

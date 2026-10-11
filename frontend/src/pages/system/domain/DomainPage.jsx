@@ -458,10 +458,13 @@ export default function DomainPage() {
             <MIcon name="wifi_tethering" size={16} />
             {testing ? t("DomainPage.testing") : t("DomainPage.testConnection")}
           </button>
-          <button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })} data-guide="domain-settings-open">
-            <MIcon name="settings" size={16} />
-            {t("DomainPage.connectionSettings")}
-          </button>
+          {/* 已連線才在頁首放「連線設定」；還沒連線時下方空狀態那顆就是入口（導覽也改點它） */}
+          {isConfigured && (
+            <button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })} data-guide="domain-settings-open">
+              <MIcon name="settings" size={16} />
+              {t("DomainPage.connectionSettings")}
+            </button>
+          )}
         </div>
       </PageHeader>
 
@@ -481,7 +484,7 @@ export default function DomainPage() {
         <EmptyState
           icon="domain"
           title={t("DomainPage.emptyNotConnected")}
-          action={<button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })}><MIcon name="settings" size={16} />{t("DomainPage.connectionSettings")}</button>}
+          action={<button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })} data-guide="domain-settings-open"><MIcon name="settings" size={16} />{t("DomainPage.connectionSettings")}</button>}
         />
       ) : (
         <div className={styles.workbench}>
