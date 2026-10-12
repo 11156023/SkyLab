@@ -139,13 +139,16 @@ export default function AuditPage() {
   }, [fetchLogs]);
 
   useEffect(() => {
+    /* 日期連續改動（手動打年份會逐位觸發）時，較晚回來的舊區間摘要不能蓋掉新區間的 */
+    let cancelled = false;
     AuditLogsService.stats({
       startTime: toIso(filters.startDate) || undefined,
       endTime: toIso(filters.endDate, true) || undefined,
     })
-      .then(setStats)
+      .then((next) => { if (!cancelled) setStats(next); })
       /* 摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
-      .catch(() => setStats(null));
+      .catch(() => { if (!cancelled) setStats(null); });
+    return () => { cancelled = true; };
   }, [filters.startDate, filters.endDate]);
 
   useEffect(() => {

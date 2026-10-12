@@ -43,7 +43,10 @@ export function mergeModelRows(usageModels = [], runtimeModels = []) {
   const rows = new Map();
 
   usageModels.forEach((model) => {
-    rows.set(modelKey(model.model_name), {
+    const key = modelKey(model.model_name);
+    /* 後端依原始名稱分組：路徑與 org/name、大小寫不同的名稱會對到同一個顯示 key，
+       後面那筆不能蓋掉前面的用量（清單已依呼叫數排序，執行狀態併到第一筆） */
+    rows.set(rows.has(key) ? `raw:${model.model_name}` : key, {
       ...model,
       runtime_name: null,
       runtime_status: null,
