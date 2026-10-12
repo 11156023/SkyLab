@@ -14,6 +14,11 @@ from app.repositories import proxmox_config as proxmox_config_repo
 from app.repositories import proxmox_node as proxmox_node_repo
 
 
+def _configured(value: float | None, default: float) -> float:
+    """設定值為 None 才退回預設；0 是合法設定（例如把某項權重關掉），不能被 `or` 吃掉。"""
+    return default if value is None else float(value)
+
+
 def get_placement_tuning(*, session: Session) -> PlacementTuning:
     config = proxmox_config_repo.get_proxmox_config(session)
     if config is None:
@@ -29,40 +34,40 @@ def get_placement_tuning(*, session: Session) -> PlacementTuning:
             disk_penalty_weight=0.75,
         )
     return PlacementTuning(
-        reassignment_cost=max(float(config.placement_reassignment_cost or 0.15), 0.0),
-        peak_cpu_margin=max(float(config.placement_peak_cpu_margin or 1.1), 1.0),
-        peak_memory_margin=max(float(config.placement_peak_memory_margin or 1.05), 1.0),
-        loadavg_warn_per_core=max(float(config.placement_loadavg_warn_per_core or 0.8), 0.0),
-        loadavg_max_per_core=max(float(config.placement_loadavg_max_per_core or 1.5), 0.01),
-        loadavg_penalty_weight=max(float(config.placement_loadavg_penalty_weight or 0.9), 0.0),
+        reassignment_cost=max(_configured(config.placement_reassignment_cost, 0.15), 0.0),
+        peak_cpu_margin=max(_configured(config.placement_peak_cpu_margin, 1.1), 1.0),
+        peak_memory_margin=max(_configured(config.placement_peak_memory_margin, 1.05), 1.0),
+        loadavg_warn_per_core=max(_configured(config.placement_loadavg_warn_per_core, 0.8), 0.0),
+        loadavg_max_per_core=max(_configured(config.placement_loadavg_max_per_core, 1.5), 0.01),
+        loadavg_penalty_weight=max(_configured(config.placement_loadavg_penalty_weight, 0.9), 0.0),
         disk_contention_warn_share=max(
-            float(config.placement_disk_contention_warn_share or 0.7),
+            _configured(config.placement_disk_contention_warn_share, 0.7),
             0.0,
         ),
         disk_contention_high_share=max(
-            float(config.placement_disk_contention_high_share or 0.9),
+            _configured(config.placement_disk_contention_high_share, 0.9),
             0.01,
         ),
-        disk_penalty_weight=max(float(config.placement_disk_penalty_weight or 0.75), 0.0),
+        disk_penalty_weight=max(_configured(config.placement_disk_penalty_weight, 0.75), 0.0),
         cpu_peak_warn_share=max(
-            float(config.placement_cpu_peak_warn_share or DEFAULT_CPU_PEAK_WARN_SHARE),
+            _configured(config.placement_cpu_peak_warn_share, DEFAULT_CPU_PEAK_WARN_SHARE),
             0.0,
         ),
         cpu_peak_high_share=max(
-            float(config.placement_cpu_peak_high_share or DEFAULT_CPU_PEAK_HIGH_SHARE),
+            _configured(config.placement_cpu_peak_high_share, DEFAULT_CPU_PEAK_HIGH_SHARE),
             0.01,
         ),
         memory_peak_warn_share=max(
-            float(config.placement_memory_peak_warn_share or DEFAULT_RAM_PEAK_WARN_SHARE),
+            _configured(config.placement_memory_peak_warn_share, DEFAULT_RAM_PEAK_WARN_SHARE),
             0.0,
         ),
         memory_peak_high_share=max(
-            float(config.placement_memory_peak_high_share or DEFAULT_RAM_PEAK_HIGH_SHARE),
+            _configured(config.placement_memory_peak_high_share, DEFAULT_RAM_PEAK_HIGH_SHARE),
             0.01,
         ),
-        resource_weight_cpu=max(float(config.placement_resource_weight_cpu or 1.0), 0.0),
-        resource_weight_memory=max(float(config.placement_resource_weight_memory or 1.0), 0.0),
-        resource_weight_disk=max(float(config.placement_resource_weight_disk or 1.0), 0.0),
+        resource_weight_cpu=max(_configured(config.placement_resource_weight_cpu, 1.0), 0.0),
+        resource_weight_memory=max(_configured(config.placement_resource_weight_memory, 1.0), 0.0),
+        resource_weight_disk=max(_configured(config.placement_resource_weight_disk, 1.0), 0.0),
     )
 
 
