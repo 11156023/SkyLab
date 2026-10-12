@@ -132,3 +132,61 @@ test("a genuinely orphaned service still requires reconnecting", async () => {
   assert.equal(status.running, false);
   assert.match(status.connectionError, /earlier app session/);
 });
+
+// Start-Process 以空白串接 -ArgumentList；用 CommandLineToArgvW 的規則拆回來，
+// 確認含空白的安裝路徑／設定檔路徑仍是一個完整參數。
+const parseWindowsCommandLine = line => {
+  const args = [];
+  let current = "";
+  let quoted = false;
+  let started = false;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (char === "\\") {
+      let count = 0;
+      while (line[index] === "\\") {
+        count++;
+        index++;
+      }
+      if (line[index] === '"') {
+        current += "\\".repeat(count >> 1);
+        if (count % 2) current += '"';
+        else quoted = !quoted;
+      } else {
+        current += "\\".repeat(count);
+        index--;
+      }
+      started = true;
+    } else if (char === '"') {
+      quoted = !quoted;
+      started = true;
+    } else if (/\s/.test(char) && !quoted) {
+      if (started) args.push(current);
+      current = "";
+      started = false;
+    } else {
+      current += char;
+      started = true;
+    }
+  }
+  if (started) args.push(current);
+  return args;
+};
+
+test("elevated arguments with spaces survive Start-Process joining", () => {
+  const tunnel = new Tunnel();
+  const args = [
+    "/i",
+    "C:\\Program Files\\SkyLab Connect\\resources\\wireguard\\wireguard-amd64-1.1.msi",
+    "/qn",
+    "DO_NOT_LAUNCH=1",
+    "C:\\Users\\Jane Doe\\AppData\\Roaming\\SkyLab Connect\\config\\",
+    'say "hi"'
+  ];
+  const joined = args.map(value => tunnel._windowsArgument(value)).join(" ");
+  assert.deepEqual(parseWindowsCommandLine(joined), args);
+  assert.equal(
+    tunnel._windowsArgument("/installtunnelservice"),
+    "/installtunnelservice"
+  );
+});

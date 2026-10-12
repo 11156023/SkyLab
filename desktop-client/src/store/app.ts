@@ -226,13 +226,16 @@ export const useAppStore = defineStore("app", {
       this.dismissedWarnings = [];
     },
     handleSessionExpired() {
+      // 只在這次過期時停一次通道：token 已清掉後 tunnel/stop 向後端 disconnect
+      // 也會回 B1001，若每次都再送 stop 就會無限循環打後端、狂跳錯誤訊息。
+      const wasLoggedIn = this.loggedIn;
       this.loggedIn = false;
       this.loginInProgress = false;
       this.resources = [];
       this.resourcesLoading = false;
       this.resourcesError = "";
       this.stopSessionPolling();
-      send(ipcRouters.TUNNEL.stop);
+      if (wasLoggedIn) send(ipcRouters.TUNNEL.stop);
       if (router.currentRoute.value.name !== "Home") {
         void router.replace({ name: "Home" });
       }
