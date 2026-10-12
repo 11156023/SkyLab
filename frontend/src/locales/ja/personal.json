@@ -1110,6 +1110,8 @@
   "SnapshotsTab.colCreatedAt": "作成日時",
   "SnapshotsTab.colActions": "操作",
   "SnapshotsTab.protected": "保護中",
+  "SnapshotsTab.evidence": "証拠",
+  "SnapshotsTab.evidenceHint": "マイニングの疑いを検知したときに自動作成された証拠スナップショットです。管理者のみ削除でき、スナップショット数の上限には含まれません",
   "SnapshotsTab.restore": "復元",
   "SnapshotsTab.delete": "削除",
   "SnapshotsTab.createSnapshotTitle": "スナップショットを作成",

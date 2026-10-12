@@ -1110,6 +1110,8 @@
   "SnapshotsTab.colCreatedAt": "建立時間",
   "SnapshotsTab.colActions": "操作",
   "SnapshotsTab.protected": "受保護",
+  "SnapshotsTab.evidence": "存證",
+  "SnapshotsTab.evidenceHint": "系統偵測到疑似挖礦時自動建立的存證快照，只有管理員能刪除，也不計入快照數量上限",
   "SnapshotsTab.restore": "還原",
   "SnapshotsTab.delete": "刪除",
   "SnapshotsTab.createSnapshotTitle": "建立快照",

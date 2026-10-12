@@ -1112,6 +1112,8 @@
   "SnapshotsTab.colCreatedAt": "Created At",
   "SnapshotsTab.colActions": "Actions",
   "SnapshotsTab.protected": "Protected",
+  "SnapshotsTab.evidence": "Evidence",
+  "SnapshotsTab.evidenceHint": "Evidence snapshot taken automatically when suspected mining was detected. Only an administrator can delete it, and it does not count toward the snapshot limit",
   "SnapshotsTab.restore": "Restore",
   "SnapshotsTab.delete": "Delete",
   "SnapshotsTab.createSnapshotTitle": "Create Snapshot",

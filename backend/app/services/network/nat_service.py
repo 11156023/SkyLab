@@ -8,12 +8,16 @@
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import IntegrityError
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ProxmoxError
 from app.services.network.publish_target_policy import assert_publishable_vm_ip
+
+if TYPE_CHECKING:
+    from app.models.nat_rule import NatRule
 
 logger = logging.getLogger(__name__)
 
@@ -174,8 +178,8 @@ def apply_nat_rule(
     external_port: int,
     internal_port: int,
     protocol: str,
-) -> None:
-    """建立 NAT 規則：寫入 DB + 同步 nginx。"""
+) -> "NatRule":
+    """建立 NAT 規則：寫入 DB + 同步 nginx，回傳建好的規則（供呼叫端整批回滾）。"""
     from app.models.nat_rule import NatRule
     from app.repositories import nat_rule as nat_repo
 
@@ -217,6 +221,7 @@ def apply_nat_rule(
                 created.id,
             )
         raise
+    return created
 
 
 def _sync_then_delete(session: object, doomed: list) -> None:
@@ -249,6 +254,15 @@ def sync_to_gateway(session: object) -> None:
     stream.conf 是空的，平常只有規則異動才會重建，不手動同步就一直沒有轉發。
     """
     _sync_nginx_stream(session)
+
+
+def remove_nat_rules(session: object, rules: list) -> None:
+    """撤掉指定的幾條 NAT 規則（先同步 nginx，成功才刪 DB）。
+
+    給「同一次建立多個 port、後面失敗」的整批回滾用：只撤這次建的，
+    不能用 vmid／內部 port 去刪，否則會連帶刪掉這台機器原本就有的轉發。
+    """
+    _sync_then_delete(session, rules)
 
 
 def remove_nat_rules_for_vmid(session: object, vmid: int) -> None:

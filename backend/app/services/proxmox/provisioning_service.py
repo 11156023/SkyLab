@@ -594,7 +594,8 @@ def create_lxc(
                 "password": lxc_data.password,
                 "net0": _lxc_net0(net_cfg, allocated_ip),
                 "unprivileged": int(lxc_data.unprivileged),
-                "start": int(lxc_data.start),
+                # 一律先建成關機狀態：套完預設防火牆才開機（見下方）
+                "start": 0,
                 "pool": get_proxmox_settings_for_node(target_node).pool_name,
                 "features": "nesting=1",
                 "ssh-public-keys": public_key,
@@ -607,6 +608,8 @@ def create_lxc(
 
         firewall_service.setup_default_rules(target_node, vmid, "lxc")
         if lxc_data.start:
+            # 開機失敗走下方 except 整台回滾，與範本克隆路徑一致
+            proxmox_service.control(target_node, vmid, "lxc", "start")
             _open_lxc_ssh_login(target_node, vmid, public_key)
 
         db_lxc_resource = resource_repo.create_resource(
@@ -1113,7 +1116,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 "rootfs": f"{plan['target_storage']}:{plan['rootfs_size']}",
                 "net0": net0_parts,
                 "unprivileged": int(plan["unprivileged"]),
-                "start": int(plan["start_immediately"]),
+                # 先建成關機狀態，套完預設防火牆才開機，不留沒有防火牆的開機空窗
+                "start": 0,
                 "pool": pool_name,
                 "features": "nesting=1",
                 "ssh-public-keys": plan.get("ssh_public_key", ""),
@@ -1128,6 +1132,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             created = True
             firewall_service.setup_default_rules(target_node, new_vmid, "lxc")
             if plan["start_immediately"]:
+                # 開機失敗由下方 except 整台回滾（與 LXC 範本克隆路徑一致）
+                proxmox_service.control(target_node, new_vmid, "lxc", "start")
                 _open_lxc_ssh_login(target_node, new_vmid, config["ssh-public-keys"])
         else:
             template_node = plan["template_node"]

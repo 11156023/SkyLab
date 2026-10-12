@@ -8,6 +8,7 @@ from app.core.i18n import t
 from app.core.permissions import is_admin as _is_admin
 from app.exceptions import BadRequestError, ConflictError, PermissionDeniedError
 from app.repositories import governance as governance_repo
+from app.services.governance.snapshot_cleanup_policy import MINING_SNAPSHOT_PREFIX
 from app.services.proxmox import proxmox_service
 
 # 受保護的初始快照名稱由 reset_service（負責建立／還原它）統一定義
@@ -20,6 +21,11 @@ from app.services.resource.snapshot_capability import (
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
+
+
+def _is_mining_evidence(snapname: str | None) -> bool:
+    """反挖礦存證快照（``mining-*``）：只有管理員能建／刪，也不佔使用者的快照配額。"""
+    return bool(snapname) and str(snapname).startswith(MINING_SNAPSHOT_PREFIX)
 
 
 def _snapshot_max_count(session: Session) -> int:
@@ -71,12 +77,15 @@ def create_snapshot(
     require_snapshot_available(node, vmid, resource_type)
     if snapname == INIT_SNAPSHOT_NAME and not _is_admin(user):
         raise BadRequestError(t("snapshot.reservedName"))
+    if _is_mining_evidence(snapname) and not _is_admin(user):
+        raise BadRequestError(t("snapshot.miningReservedName"))
     if not _is_admin(user):
         existing = proxmox_service.list_snapshots(node, vmid, resource_type)
         countable = [
             s
             for s in existing
             if s.get("name") not in ("current", INIT_SNAPSHOT_NAME)
+            and not _is_mining_evidence(s.get("name"))
         ]
         limit = _snapshot_max_count(session)
         if len(countable) >= limit:
@@ -121,6 +130,8 @@ def delete_snapshot(
     require_snapshot_available(node, vmid, resource_type)
     if snapname == INIT_SNAPSHOT_NAME and not _is_admin(user):
         raise PermissionDeniedError(t("snapshot.initProtected"))
+    if _is_mining_evidence(snapname) and not _is_admin(user):
+        raise PermissionDeniedError(t("snapshot.miningEvidenceProtected"))
 
     task = proxmox_service.delete_snapshot(node, vmid, resource_type, snapname)
 

@@ -213,3 +213,77 @@ def test_rollback_ok_when_supported(pve: dict) -> None:
         resource_info=INFO, user_id=STUDENT.id,
     )
     assert pve["rolled_back"] == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# 挖礦存證快照（mining-*）：只有管理員能建／刪，也不佔使用者的快照配額
+# ---------------------------------------------------------------------------
+
+
+def test_non_admin_cannot_create_mining_named_snapshot(pve: dict) -> None:
+    with pytest.raises(BadRequestError):
+        snapshot_service.create_snapshot(
+            session=_FakeSession(), vmid=101, snapname="mining-202610120900",
+            description=None, vmstate=False, resource_info=INFO,
+            user=STUDENT,
+        )
+    assert pve["created"] == []
+
+
+def test_admin_can_create_mining_named_snapshot(
+    pve: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(snapshot_service, "_is_admin", lambda user: True)
+    snapshot_service.create_snapshot(
+        session=_FakeSession(), vmid=101, snapname="mining-202610120900",
+        description=None, vmstate=False, resource_info=INFO,
+        user=STUDENT,
+    )
+    assert pve["created"] == ["mining-202610120900"]
+
+
+def test_non_admin_cannot_delete_mining_evidence_snapshot(pve: dict) -> None:
+    pve["snapshots"] = [{"name": "mining-202610120900"}]
+    with pytest.raises(PermissionDeniedError):
+        snapshot_service.delete_snapshot(
+            session=_FakeSession(), vmid=101, snapname="mining-202610120900",
+            resource_info=INFO, user=STUDENT,
+        )
+    assert pve["deleted"] == []
+
+
+def test_admin_can_delete_mining_evidence_snapshot(
+    pve: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(snapshot_service, "_is_admin", lambda user: True)
+    snapshot_service.delete_snapshot(
+        session=_FakeSession(), vmid=101, snapname="mining-202610120900",
+        resource_info=INFO, user=STUDENT,
+    )
+    assert pve["deleted"] == ["mining-202610120900"]
+
+
+def test_mining_evidence_snapshots_do_not_count_toward_quota(pve: dict) -> None:
+    # 上限 3：a、b 兩張自己的快照，加上兩張存證快照，仍可再建一張
+    pve["snapshots"] = [
+        {"name": "a"}, {"name": "b"},
+        {"name": "mining-202610010000"}, {"name": "mining-202610050000"},
+        {"name": "skylab-init"}, {"name": "current"},
+    ]
+    snapshot_service.create_snapshot(
+        session=_FakeSession(), vmid=101, snapname="c",
+        description=None, vmstate=False, resource_info=INFO,
+        user=STUDENT,
+    )
+    assert pve["created"] == ["c"]
+
+
+def test_quota_still_counts_snapshots_that_only_contain_mining(pve: dict) -> None:
+    """只有開頭是 mining- 才算存證；名字中間帶 mining 的一般快照照常計入。"""
+    pve["snapshots"] = [{"name": "a"}, {"name": "b"}, {"name": "pre-mining-check"}]
+    with pytest.raises(ConflictError):
+        snapshot_service.create_snapshot(
+            session=_FakeSession(), vmid=101, snapname="c",
+            description=None, vmstate=False, resource_info=INFO,
+            user=STUDENT,
+        )
