@@ -47,6 +47,9 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
       return undefined;
     }
     let cancelled = false;
+    /* 同一頁直接換到另一台（例如 AI 助手導過來）時元件不會重掛：先清掉上一台的身分，
+       不拿上一台的權限決定這台要顯示哪些分頁 */
+    setAccess(null);
     ResourcesService.get(vmid)
       .then((r) => !cancelled && setAccess({
         access_role: r?.access_role ?? "owner",
@@ -109,6 +112,10 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   /* 操作紀錄分頁的筆數 badge；count 是後端獨立的總數查詢，limit 1 只為省流量。
      被分享的使用者看不到這個分頁，等 access 回來確認身分後才抓 */
   const [auditCount, setAuditCount] = useState(null);
+  /* 換機器時先清掉上一台的筆數；這台的查詢失敗也不會留著別台的數字 */
+  useEffect(() => {
+    setAuditCount(null);
+  }, [vmid]);
   useEffect(() => {
     if (isGuideDemo || !access || isShared) return undefined;
     let cancelled = false;
@@ -166,7 +173,9 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         <div className={styles.tabsToolbar} ref={setTabToolbar} />
       </div>
 
-      <div className={styles.content} data-guide={`resource-detail-${activeTab}`}>
+      {/* key 綁 vmid：換到另一台時各分頁整個重掛，上一台還在路上的回應（多數載入沒有取消機制）
+          寫回的是已卸載的元件，不會蓋掉這台的資料；錯誤、表單等狀態也不會沿用到這台 */}
+      <div key={vmid} className={styles.content} data-guide={`resource-detail-${activeTab}`}>
         {isGuideDemo ? <ResourceDetailGuideDemo tab={activeTab} /> : (
           <>
             {activeTab === "overview"       && <OverviewTab vmid={vmid} access={access} />}

@@ -661,6 +661,8 @@ export default function ResourcesPage() {
       ]);
       setResources(data ?? []);
       setQuickSessions(sessions ?? []);
+      /* 背景刷新成功也要離開錯誤畫面：首次載入失敗後資料其實已回來，不能一直卡在錯誤狀態 */
+      setError(false);
     } catch (err) {
       if (!silent && !err?.cancelled) setError(true);
     } finally {

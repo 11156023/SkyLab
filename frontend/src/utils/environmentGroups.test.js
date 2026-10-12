@@ -39,3 +39,26 @@ describe("environment group builders", () => {
     expect(groups[0].machines[0].name).toBe("cls-d54cc788-1-1");
   });
 });
+
+describe("groupedResourceKeys", () => {
+  it("does not treat machines without a request as grouped", () => {
+    /* 班級機是批次佈建、沒有 request_id；直接建立／範本克隆的個人機器也沒有。
+       String(null) 進到 requestIds 的話，所有沒有申請單的個人機器都會被當成已分組而從列表消失 */
+    const classMachine = { vmid: 301, request_id: null, teaching_class_id: "k1", status: "running" };
+    const personal = { vmid: 120, request_id: null, status: "running" };
+    const grouped = groupedResourceKeys(buildEnvironmentGroups([classMachine, personal], []));
+
+    expect(grouped.vmids.has(301)).toBe(true);
+    expect(grouped.vmids.has(120)).toBe(false);
+    expect(grouped.requestIds.has(String(personal.request_id))).toBe(false);
+  });
+
+  it("does not drop class machines when a quick-practice machine has no request yet", () => {
+    const classMachine = { vmid: 301, request_id: null, teaching_class_id: "k1", status: "running" };
+    const groups = buildEnvironmentGroups([classMachine], [
+      { id: "s1", title: "DB", status: "running", expiresAt: null, machines: [{ id: "m1", requestId: null }] },
+    ]);
+
+    expect(groups.find((group) => group.kind === "course")?.machines.map((machine) => machine.vmid)).toEqual([301]);
+  });
+});

@@ -5,7 +5,7 @@
  */
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import ResourceDetailPage from "./ResourceDetailPage";
 
@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getSnapshotCapability: vi.fn(),
   getBackupCapability: vi.fn(),
   listForResource: vi.fn(),
+  overviewMounts: [],
   t: (key) => key,
 }));
 vi.mock("../../../../services/resources", () => ({
@@ -31,7 +32,16 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: mocks.t }),
 }));
 /* 各分頁內容與本測試無關，換成只留識別字的替身；快照分頁多一顆鈕模擬「操作失敗」 */
-vi.mock("./OverviewTab", () => ({ default: () => <p data-testid="overview-tab" /> }));
+vi.mock("./OverviewTab", async () => {
+  const { useEffect } = await import("react");
+  return {
+    default: function FakeOverview({ vmid }) {
+      /* 記下每次「掛載」：換機器時要整個重掛，不能沿用上一台的狀態 */
+      useEffect(() => { mocks.overviewMounts.push(vmid); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return <p data-testid="overview-tab" />;
+    },
+  };
+});
 vi.mock("./MonitoringTab", () => ({ default: () => <p data-testid="monitoring-tab" /> }));
 vi.mock("./SpecificationsTab", () => ({ default: () => <p data-testid="specifications-tab" /> }));
 vi.mock("./AuditLogsTab", () => ({ default: () => <p data-testid="audit-tab" /> }));
@@ -61,6 +71,7 @@ let root;
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.overviewMounts.length = 0;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -236,5 +247,38 @@ describe("ResourceDetailPage 備份分頁", () => {
     expect(mocks.getBackupCapability).toHaveBeenCalledTimes(2);
     expect(backupTabButton()).toBeNull();
     expect(host.querySelector('[data-testid="overview-tab"]')).not.toBeNull();
+  });
+});
+
+describe("ResourceDetailPage 同一頁換到另一台", () => {
+  function GoTo({ path }) {
+    const navigate = useNavigate();
+    return <button type="button" data-testid="go" onClick={() => navigate(path)}>go</button>;
+  }
+
+  test("分頁整個重掛，也不沿用上一台的操作紀錄筆數", async () => {
+    mocks.getSnapshotCapability.mockResolvedValue({ available: true, reason: null });
+    mocks.listForResource.mockResolvedValueOnce({ count: 7 });
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/my-resources/105"]}>
+          <Routes>
+            <Route path="/my-resources/:vmid" element={<ResourceDetailPage />} />
+          </Routes>
+          <GoTo path="/my-resources/106" />
+        </MemoryRouter>,
+      );
+    });
+    const auditBadge = () => host.querySelector('[data-guide-tab="resource-auditLogs"]').textContent;
+    expect(auditBadge()).toContain("7");
+    expect(mocks.overviewMounts).toEqual([105]);
+
+    /* 新的這台查筆數失敗：不能還掛著上一台的 7 */
+    mocks.listForResource.mockRejectedValue(new Error("boom"));
+    await act(async () => host.querySelector('[data-testid="go"]').click());
+
+    expect(mocks.get).toHaveBeenLastCalledWith(106);
+    expect(mocks.overviewMounts).toEqual([105, 106]);
+    expect(auditBadge()).not.toContain("7");
   });
 });
