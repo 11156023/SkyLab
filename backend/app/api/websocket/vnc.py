@@ -11,7 +11,7 @@ from app.api.websocket.utils import (
     run_until_first_done,
 )
 from app.api.websocket.utils import safe_close_websocket as _safe_close_websocket
-from app.exceptions import NotFoundError, ProxmoxError
+from app.exceptions import AppError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import open_vncwebsocket
 from app.infrastructure.vnc.messages import (
     ClientMessageSplitter,
@@ -69,7 +69,11 @@ async def vnc_proxy(
         await asyncio.to_thread(
             require_resource_console_access, session=session, user=user, vmid=vmid
         )
-    except Exception:
+    except Exception as exc:
+        # 沒有權限是預期結果；DB 斷線等其他例外一樣拒絕連線，但要留紀錄，
+        # 不能讓真正的故障看起來只是「沒有權限」
+        if not isinstance(exc, AppError):
+            logger.exception("VNC permission check failed for vmid %s", vmid)
         await _safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
     finally:

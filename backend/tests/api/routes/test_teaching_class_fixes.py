@@ -292,6 +292,31 @@ async def test_big5_csv_still_decodes_and_skips_the_header(captured_import) -> N
 
 
 @pytest.mark.asyncio
+async def test_csv_import_runs_db_work_off_the_event_loop(monkeypatch) -> None:
+    """名單每筆都要查一次帳號：權限檢查與加入學生都不能在 event loop 上跑。"""
+    import threading
+
+    threads: list[threading.Thread] = []
+    item = SimpleNamespace(status=TeachingClassStatus.planning)
+
+    def fake_get_class(*_args):
+        threads.append(threading.current_thread())
+        return item
+
+    def fake_add_students(_cid, _body, _session, _user):
+        threads.append(threading.current_thread())
+        return {}
+
+    monkeypatch.setattr(routes, "_get_class", fake_get_class)
+    monkeypatch.setattr(routes, "add_students", fake_add_students)
+
+    await routes.import_students(uuid.uuid4(), None, TEACHER, _upload(b"a@x.edu\n"))
+
+    assert len(threads) == 2
+    assert all(th is not threading.main_thread() for th in threads)
+
+
+@pytest.mark.asyncio
 async def test_oversized_csv_is_rejected(captured_import) -> None:
     raw = b"a@x.edu\n" * (routes.MAX_STUDENT_CSV_BYTES // 8 + 1)
     with pytest.raises(BadRequestError) as caught:

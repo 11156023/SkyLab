@@ -5,6 +5,7 @@ import io
 import uuid
 
 from fastapi import APIRouter, File, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlmodel import col, func, select
 
 from app.api.deps import InstructorUser, SessionDep
@@ -633,7 +634,9 @@ async def import_students(
     current_user: InstructorUser,
     file: UploadFile = File(...),
 ):
-    item = _get_class(session, current_user, class_id)
+    # 同步 DB 查詢丟到 worker thread：名單每一筆都要查一次帳號，上千筆在
+    # event loop 上跑會凍住整個 loop（VNC／終端機／其他請求一起卡住）
+    item = await run_in_threadpool(_get_class, session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.studentsLocked"))
     try:
@@ -669,7 +672,9 @@ async def import_students(
             continue
         if value:
             emails.append(value if "@" in value else f"{value}@ntub.edu.tw")
-    return add_students(class_id, StudentAdd(emails=emails), session, current_user)
+    return await run_in_threadpool(
+        add_students, class_id, StudentAdd(emails=emails), session, current_user
+    )
 
 
 @router.post("/{class_id}/generate-weeks")
