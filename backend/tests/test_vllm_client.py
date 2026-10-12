@@ -461,6 +461,7 @@ async def test_complex_agent_accepts_native_tool_call() -> None:
         ("openai/gpt-oss-120b", "low"),
         ("gemma4-26b-a4b-it", "none"),
         ("gemma4-26b-a4b-it", "low"),
+        ("Qwen/Qwen3.8-27B", "low"),
     ],
 )
 async def test_all_request_profiles_use_model_contract_on_the_wire(
@@ -514,6 +515,12 @@ async def test_all_request_profiles_use_model_contract_on_the_wire(
     if model == "openai/gpt-oss-120b":
         assert wire["reasoning_effort"] == "low"
         assert "chat_template_kwargs" not in wire
+    elif model == "Qwen/Qwen3.8-27B":
+        assert "reasoning_effort" not in wire
+        assert wire["chat_template_kwargs"] == {
+            "enable_thinking": True,
+            "reasoning_effort": "low",
+        }
     else:
         assert "reasoning_effort" not in wire
         assert wire["chat_template_kwargs"] == {"enable_thinking": thinking == "low"}
@@ -535,8 +542,9 @@ async def test_all_request_profiles_use_model_contract_on_the_wire(
         ("bad request", "stop", 400, "check_failed"),
     ],
 )
-async def test_real_checker_uses_gpt_low_with_unchanged_schema_and_budget(
-    content, finish, status, expected_reason
+@pytest.mark.parametrize("model", ["openai/gpt-oss-120b", "Qwen/Qwen3.8-27B"])
+async def test_real_checker_uses_model_low_with_unchanged_schema_and_budget(
+    content, finish, status, expected_reason, model
 ):
     from app.ai.adherence_check import check_adherence
     from app.ai.role_contracts import OutputMode, RoleContract, adherence_result_schema
@@ -566,7 +574,7 @@ async def test_real_checker_uses_gpt_low_with_unchanged_schema_and_budget(
         "hello",
         {},
         "real-checker-adapter",
-        model_name="openai/gpt-oss-120b",
+        model_name=model,
         phase="respond",
     )
     assert result.reason_code.value == expected_reason
@@ -574,15 +582,24 @@ async def test_real_checker_uses_gpt_low_with_unchanged_schema_and_budget(
     assert len(seen) == 1
     wire = json.loads(seen[0].content)
     assert wire["max_tokens"] == 128
-    assert wire["reasoning_effort"] == "low"
-    assert "chat_template_kwargs" not in wire
+    assert wire["model"] == model
+    if model == "openai/gpt-oss-120b":
+        assert wire["reasoning_effort"] == "low"
+        assert "chat_template_kwargs" not in wire
+    else:
+        assert "reasoning_effort" not in wire
+        assert wire["chat_template_kwargs"] == {
+            "enable_thinking": True,
+            "reasoning_effort": "low",
+        }
     assert wire["response_format"]["json_schema"]["schema"] == adherence_result_schema()
     assert seen[0].extensions["timeout"]["read"] == 20.0
     if expected_reason == "check_failed":
         assert result.completion_tokens == 128
 
 
-async def test_gpt_context_retry_tokenizes_with_the_same_effective_effort():
+@pytest.mark.parametrize("model", ["openai/gpt-oss-120b", "Qwen/Qwen3.8-27B"])
+async def test_context_retry_tokenizes_with_the_same_effective_thinking(model):
     seen = []
 
     def respond(request):
@@ -595,19 +612,28 @@ async def test_gpt_context_retry_tokenizes_with_the_same_effective_effort():
 
     client = VLLMClient("http://offline/v1", "")
     client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
-    payload = {**_text_payload(max_tokens=4096), "model": "openai/gpt-oss-120b"}
+    payload = {**_text_payload(max_tokens=4096), "model": model}
     payload["chat_template_kwargs"]["reasoning_effort"] = "high"
     original = copy.deepcopy(payload)
     await client.create_chat_completion(
         payload, profile=VLLMRequestProfile.CONFIGURED_TEXT
     )
     first, counted, retry = [json.loads(request.content) for request in seen]
-    assert first["reasoning_effort"] == "low"
-    assert "chat_template_kwargs" not in first
+    if model == "openai/gpt-oss-120b":
+        assert first["reasoning_effort"] == "low"
+        assert "chat_template_kwargs" not in first
+        template_kwargs = {"reasoning_effort": "low"}
+    else:
+        assert "reasoning_effort" not in first
+        assert first["chat_template_kwargs"] == {
+            "enable_thinking": True,
+            "reasoning_effort": "low",
+        }
+        template_kwargs = first["chat_template_kwargs"]
     assert counted == {
         "model": first["model"],
         "messages": first["messages"],
-        "chat_template_kwargs": {"reasoning_effort": "low"},
+        "chat_template_kwargs": template_kwargs,
     }
     assert retry == {**first, "max_tokens": 3968}
     assert payload == original
