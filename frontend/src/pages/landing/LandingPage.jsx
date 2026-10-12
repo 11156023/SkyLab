@@ -429,18 +429,6 @@ export default function LandingPage() {
         });
       });
 
-      /* S4:教室座位隨滾動逐排點亮(=整班機器上線) */
-      const classroomSec = rootRef.current.querySelector('section[data-section="classroom"]');
-      const seats = rootRef.current.querySelectorAll("[data-seat]");
-      if (classroomSec && seats.length) {
-        gsap.to(seats, {
-          fill: "#b7d3ff",
-          ease: "none",
-          stagger: 0.02,
-          scrollTrigger: { trigger: classroomSec, start: "top 65%", end: "center 40%", scrub: true },
-        });
-      }
-
       /* 各段 HUD 卡進場 */
       rootRef.current.querySelectorAll("section[data-section]").forEach((sec) => {
         if (sec === outroSec) return; // 收尾由上面的 timeline 在雲海合攏後才浮出
@@ -459,6 +447,25 @@ export default function LandingPage() {
 
     return () => ctx.revert();
   }, [motionEnabled, viewportTick]);
+
+  /* S4:教室座位隨滾動逐排點亮(=整班機器上線)。
+     亮的座位(data-seat)數量來自 stats.json,掛載時還沒回來、一個都沒有,
+     所以獨立成一段、資料到了再重建,不然座位永遠不會亮 */
+  useEffect(() => {
+    if (!motionEnabled) return undefined;
+    const ctx = gsap.context(() => {
+      const classroomSec = rootRef.current.querySelector('section[data-section="classroom"]');
+      const seats = rootRef.current.querySelectorAll("[data-seat]");
+      if (!classroomSec || !seats.length) return;
+      gsap.to(seats, {
+        fill: "#b7d3ff",
+        ease: "none",
+        stagger: 0.02,
+        scrollTrigger: { trigger: classroomSec, start: "top 65%", end: "center 40%", scrub: true },
+      });
+    }, rootRef);
+    return () => ctx.revert();
+  }, [motionEnabled, viewportTick, stats]);
 
   const contentFor = (id) => {
     switch (id) {

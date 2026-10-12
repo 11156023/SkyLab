@@ -13,9 +13,9 @@ const MEMORY_MIN = 512;
 const CLONE_COUNT_MIN = 1;
 const CLONE_COUNT_MAX = 50;
 
-/** 把輸入框的字串夾回 1–50；空白或非數字一律當成 1 */
+/** 把輸入框的字串夾回 1–50；空白或非數字一律當成 1，小數捨去（後端 count 是整數，2.5 會 422） */
 function clampCloneCount(value) {
-  return Math.min(CLONE_COUNT_MAX, Math.max(CLONE_COUNT_MIN, Number(value) || CLONE_COUNT_MIN));
+  return Math.min(CLONE_COUNT_MAX, Math.max(CLONE_COUNT_MIN, Math.trunc(Number(value)) || CLONE_COUNT_MIN));
 }
 
 const formatVram = (mb) =>
