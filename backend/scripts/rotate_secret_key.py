@@ -201,7 +201,9 @@ def write_secret_key(env_path: Path, new_key: str) -> None:
     backup = env_path.with_suffix(env_path.suffix + ".bak")
     backup.write_text(original, encoding="utf-8")
     # A callable replacement: a user-supplied key may contain backslashes.
-    updated = _SECRET_KEY_LINE.sub(lambda _: f"SECRET_KEY={new_key}", original, count=1)
+    # Replace every SECRET_KEY line: dotenv and Compose use the last one, so
+    # updating only the first would leave the old key in effect.
+    updated = _SECRET_KEY_LINE.sub(lambda _: f"SECRET_KEY={new_key}", original)
     env_path.write_text(updated, encoding="utf-8")
     logger.info("已更新 %s（原檔備份於 %s）", env_path.name, backup.name)
 

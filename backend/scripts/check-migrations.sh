@@ -35,8 +35,11 @@ docker run --rm -d \
   postgres:16-alpine >/dev/null
 
 echo "[2/4] waiting for postgres to accept connections"
+# Probe over TCP: during first-run init the image's temporary server listens on
+# the unix socket only, so a socket probe reports ready before the real server
+# (the one alembic reaches over TCP) is up.
 for _ in {1..30}; do
-  if docker exec "$CONTAINER_NAME" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+  if docker exec "$CONTAINER_NAME" pg_isready -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
     break
   fi
   sleep 1
