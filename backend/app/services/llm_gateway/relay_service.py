@@ -524,8 +524,8 @@ def start_relay_runtime() -> None:
 def _warn_ai_api_not_configured() -> None:
     logger.warning(
         "AI_API_API_KEY is empty or still the template value; the AI API is disabled "
-        "(requests get ai_api_not_configured). Set the restricted LiteLLM service key "
-        "(scripts/prepare-ai-stack.sh --init-env) and restart the backend."
+        "(requests get ai_api_not_configured). Set AI_API_API_KEY in .env to the "
+        "upstream service key and restart the backend."
     )
 
 

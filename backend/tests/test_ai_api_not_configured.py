@@ -59,7 +59,7 @@ def test_shipped_default_is_the_placeholder() -> None:
         ("staging", PLACEHOLDER, False),
         ("production", "", False),
         ("production", "   ", False),
-        ("production", "replace-with-the-campus-service-key", False),
+        ("production", "replace-with-the-campus-service-key", True),
         ("production", "sk-real-restricted-key", True),
         ("local", PLACEHOLDER, True),
         ("local", "", True),

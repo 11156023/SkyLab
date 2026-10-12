@@ -73,12 +73,12 @@ create a Virtual Key in LiteLLM with this value (alias `campus-ai-api-service`);
 model allowlist is synced to the aliases currently in `models.json`. When reusing an existing LiteLLM
 database, simply fill in the key that was originally issued to Campus.
 
-Outside `ENVIRONMENT=local`, an empty `AI_API_API_KEY` or one still holding a template value
-(`ai-api-secret-*`, `replace-with-*`) disables the AI API instead of sending that value to LiteLLM: the
+Outside `ENVIRONMENT=local`, an empty `AI_API_API_KEY` or one still holding the `.env.example` template
+value (`ai-api-secret-key-change-me`) disables the AI API instead of sending that value upstream: the
 backend still starts but logs a warning, every `/api/v1/ai-proxy/*` request gets HTTP 503 with error code
 `ai_api_not_configured`, and the "System health" card on the Resource Monitoring page lists "AI API" as
-not configured (it does not lower the overall status or raise alerts). Run `--init-env` (or set the real
-service key) and restart the backend to enable it.
+not configured (it does not lower the overall status or raise alerts). Set `AI_API_API_KEY` in `.env` to the
+real service key and restart the backend to enable it.
 
 The LiteLLM `.env`:
 
@@ -451,7 +451,7 @@ support every format. Run `unset CAMPUS_AI_API_KEY` when you are done.
 | Key issuance returns HTTP 400 | Another key already uses the alias `campus-ai-api-service`: put that key into `AI_API_API_KEY`, or revoke it in LiteLLM and rerun |
 | 429 | Campus rate limit or LiteLLM RPM limit; retry after the `Retry-After` delay |
 | 413 / 415 | Request exceeds `AI_API_MAX_REQUEST_BODY_BYTES`, or Content-Type is not JSON |
-| 503 `ai_api_not_configured` | `AI_API_API_KEY` is empty or still a template value; run `--init-env` and restart the backend |
+| 503 `ai_api_not_configured` | `AI_API_API_KEY` is empty or still the `.env.example` template value; set the real key in `.env` and restart the backend |
 | 502 / 503 | Check whether the gateway, upstream and DB are available, then read the backend/LiteLLM logs |
 | DB authentication / migration failure | Check the dedicated role, URL-encoded password, DB host and port; do not switch to the Campus DB |
 | Cannot decrypt after changing the salt | Restore the original salt and the matching DB backup; old ciphertext cannot be repaired with a new salt |

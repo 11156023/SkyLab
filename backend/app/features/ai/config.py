@@ -9,9 +9,8 @@ from app.core.config import settings as core_settings
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 ENV_FILE = PROJECT_ROOT / ".env"
 
-# .env.example 的範本值（ai-api-secret-key-change-me）與 prepare_ai_stack.py
-# 認定的範本記號；含這些字的都不是真的 LiteLLM service key。
-AI_API_KEY_PLACEHOLDER_MARKERS = ("ai-api-secret-", "replace-with-")
+# .env.example 出貨的 AI_API_API_KEY 範本值；仍是它（或空白）代表還沒設定真正的 key。
+AI_API_KEY_TEMPLATE_VALUE = "ai-api-secret-key-change-me"
 
 
 class AIAPIEnvSettings(BaseSettings):
@@ -23,7 +22,7 @@ class AIAPIEnvSettings(BaseSettings):
     )
 
     ai_api_base_url: str = "http://litellm:4000"
-    ai_api_api_key: str = "ai-api-secret-key-change-me"
+    ai_api_api_key: str = AI_API_KEY_TEMPLATE_VALUE
     ai_api_timeout: int = 120
     ai_api_max_request_body_bytes: int = 1_048_576
 
@@ -50,7 +49,7 @@ class AIAPIEnvSettings(BaseSettings):
     @property
     def ai_api_key_is_placeholder(self) -> bool:
         key = self.ai_api_api_key.strip()
-        return not key or any(marker in key for marker in AI_API_KEY_PLACEHOLDER_MARKERS)
+        return not key or key == AI_API_KEY_TEMPLATE_VALUE
 
     @property
     def ai_api_enabled(self) -> bool:
