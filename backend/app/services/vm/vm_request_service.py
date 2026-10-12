@@ -264,6 +264,18 @@ def _approve_and_place(
             raise BadRequestError(
                 t("vm_request.no_node_after_reservations")
             )
+        next_status = (
+            VMProvisioningStatus.pending
+            if request.vmid is not None
+            and request.actual_node
+            and request.actual_node != selection.node
+            else VMProvisioningStatus.idle
+        )
+        if request.provisioning_status == VMProvisioningStatus.running:
+            # 其他已核准、正在 worker 上 clone 的申請：重排只更新預留節點。
+            # 改回 idle 會讓取消檢查（cancel_provisioning_in_progress）與排程的
+            # 「clone 進行中」判斷失效
+            next_status = VMProvisioningStatus.running
         vm_request_repo.update_vm_request_provisioning(
             session=session,
             db_request=request,
@@ -272,13 +284,7 @@ def _approve_and_place(
             desired_node=selection.node,
             actual_node=request.actual_node,
             placement_strategy_used=selection.strategy,
-            provisioning_status=(
-                VMProvisioningStatus.pending
-                if request.vmid is not None
-                and request.actual_node
-                and request.actual_node != selection.node
-                else VMProvisioningStatus.idle
-            ),
+            provisioning_status=next_status,
             provisioning_error=None,
             commit=False,
         )

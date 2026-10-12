@@ -21,6 +21,7 @@ from app.core.authorizers import (
     require_resource_access,
 )
 from app.core.i18n import t
+from app.domain.resource_markers import RESOURCE_DELETED_MARKERS
 from app.exceptions import (
     AppError,
     BadRequestError,
@@ -268,6 +269,9 @@ def _window_request(session: Session, vmid: int) -> Any | None:
         session=session, vmid=vmid
     )
     if request is None or request.end_at is None:
+        return None
+    # 已結案（機器刪除／轉範本）的申請保留 vmid，VMID 被新機器回收後不屬於它
+    if getattr(request, "resource_warning", None) in RESOURCE_DELETED_MARKERS:
         return None
     return request
 

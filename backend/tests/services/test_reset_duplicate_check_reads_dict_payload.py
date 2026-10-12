@@ -102,3 +102,37 @@ def test_start_reset_rejects_second_request_for_same_vmid(
 
     assert enqueued == []
     assert session.rolled_back is True
+
+
+@pytest.mark.parametrize("task_type", ["resource.backup", "resource.restore"])
+def test_start_reset_rejected_while_backup_or_restore_active(
+    monkeypatch: pytest.MonkeyPatch, task_type: str
+) -> None:
+    """備份／還原進行中也不能重置：兩者並行會讀到錯的電源狀態或 rollback 失敗。"""
+    monkeypatch.setattr(reset_service, "require_snapshot_available", lambda *_: None)
+    monkeypatch.setattr(reset_service, "_has_init_snapshot", lambda *_: True)
+    # 替身 session 不套 WHERE，這裡明確表示「沒有進行中的重置」
+    monkeypatch.setattr(reset_service, "_has_active_reset", lambda *_: False)
+    monkeypatch.setattr(reset_service.audit_service, "log_action", lambda **_: None)
+    enqueued: list[Any] = []
+    monkeypatch.setattr(
+        reset_service, "enqueue_task_sync", lambda **kw: enqueued.append(kw)
+    )
+    active = TaskRecord(
+        task_type=task_type,
+        user_id=uuid.uuid4(),
+        payload={"vmid": 101},
+        status=TaskRecordStatus.running,
+    )
+    session = _Session([active])
+
+    with pytest.raises(ConflictError):
+        reset_service.start_reset(
+            session,  # type: ignore[arg-type]
+            vmid=101,
+            resource_info={"node": "pve1", "type": "qemu"},
+            user=SimpleNamespace(id=uuid.uuid4()),
+        )
+
+    assert enqueued == []
+    assert session.rolled_back is True

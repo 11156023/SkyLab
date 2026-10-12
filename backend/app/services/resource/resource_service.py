@@ -126,6 +126,10 @@ def start_window_state(
         if latest_request is _UNSET
         else latest_request
     )
+    # 機器刪除／轉範本後申請單仍是 approved、也保留 vmid（稽核用）；PVE 會把同一個
+    # VMID 配給下一台新機器，不能拿已結案申請的時段去擋那台新機器開機與主控台
+    if getattr(request, "resource_warning", None) in RESOURCE_DELETED_MARKERS:
+        return None, None, None
     if not request or not request.start_at or not request.end_at:
         return None, None, None
 

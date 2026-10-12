@@ -303,3 +303,22 @@ def test_non_gpu_window_skips_gpu_check(
         vmid=150,
         request_in=_request_in(date.today() + timedelta(days=7)),
     )
+
+
+def test_window_of_deleted_machine_is_ignored(
+    resource: SimpleNamespace, window
+) -> None:
+    """舊機器刪除後申請單保留 vmid；VMID 被新機器回收時不能拿它的時段當目前到期。"""
+    from app.domain.resource_markers import RESOURCE_DELETED_BY_USER_MARKER
+
+    resource.expiry_date = None
+    consumed = _window(date.today() + timedelta(days=20))
+    consumed.resource_warning = RESOURCE_DELETED_BY_USER_MARKER
+    window["request"] = consumed
+
+    current = scs._validate_expiry_request(
+        session=None,
+        vmid=150,
+        request_in=_request_in(date.today() + timedelta(days=7)),
+    )
+    assert current is None

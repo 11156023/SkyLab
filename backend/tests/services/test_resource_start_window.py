@@ -128,3 +128,21 @@ def test_user_stop_keeps_expired_window_auto_stop(monkeypatch, action) -> None:
     )
 
     assert cleared == []
+
+
+def test_start_window_state_ignores_request_of_deleted_machine(monkeypatch) -> None:
+    """機器刪除後申請單仍保留 vmid；VMID 被新機器回收時不能沿用舊時段擋開機。"""
+    from app.domain.resource_markers import RESOURCE_DELETED_BY_USER_MARKER
+
+    consumed = SimpleNamespace(
+        start_at=WINDOW_START,
+        end_at=WINDOW_END,
+        resource_warning=RESOURCE_DELETED_BY_USER_MARKER,
+    )
+    _patch(monkeypatch, now=datetime(2026, 9, 26, tzinfo=UTC), request=consumed)
+
+    assert resource_service.start_window_state(session=object(), vmid=484) == (
+        None,
+        None,
+        None,
+    )
