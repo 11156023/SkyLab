@@ -904,7 +904,7 @@ def _completion_tokens_used(response: dict[str, Any], reserved: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _record_chat_usage(
+async def _record_chat_usage(
     response_data: dict[str, Any],
     *,
     session: Session | None,
@@ -915,8 +915,12 @@ def _record_chat_usage(
     status: str = "success",
     error_message: str | None = None,
 ) -> None:
-    """記錄一次 vLLM agent step 的用量（成功、上游錯誤或空回應都走這裡）。"""
-    record_ai_template_call(
+    """記錄一次 vLLM agent step 的用量（成功、上游錯誤或空回應都走這裡）。
+
+    寫 DB 是同步 I/O，丟到 worker thread，不在 event loop 上等資料庫。
+    """
+    await asyncio.to_thread(
+        record_ai_template_call,
         session=session,
         user_id=requester_id,
         call_type="pve_chat",
@@ -1021,7 +1025,8 @@ async def _check_pve_candidate(
             phase,
             result.reason_code.value,
         )
-    record_ai_template_call(
+    await asyncio.to_thread(
+        record_ai_template_call,
         session=session,
         user_id=requester_id,
         call_type="pve_chat_adherence",
@@ -1181,7 +1186,7 @@ async def chat(
                 request_id=request_id,
             )
         except httpx.HTTPStatusError as exc:
-            record_usage(
+            await record_usage(
                 {},
                 status="error",
                 error_message=f"upstream_http_{exc.response.status_code}",
@@ -1196,7 +1201,7 @@ async def chat(
                 error=t("pveLog.llmHttpError", status=exc.response.status_code),
             )
         except Exception as exc:
-            record_usage({}, status="error", error_message=str(exc))
+            await record_usage({}, status="error", error_message=str(exc))
             logger.error("vLLM 連線失敗：%s", exc)
             return ChatResponse(
                 reply="",
@@ -1207,7 +1212,7 @@ async def chat(
 
         choices = data.get("choices") or []
         if not choices:
-            record_usage(data, status="error", error_message="empty_choices")
+            await record_usage(data, status="error", error_message="empty_choices")
             logger.error("vLLM agent step %d 回應 choices 為空：%s", tool_round, data)
             return ChatResponse(
                 reply="",
@@ -1216,7 +1221,7 @@ async def chat(
                 error=t("pveLog.llmEmptyResponse"),
             )
 
-        record_usage(data)
+        await record_usage(data)
         completion_tokens_used += _completion_tokens_used(data, max_tokens)
 
         if choices[0].get("finish_reason") == "length":

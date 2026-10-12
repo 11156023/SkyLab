@@ -155,8 +155,13 @@ def list_class_students(
     user: User,
     *,
     cluster_resources: list[dict[str, Any]],
+    online_user_ids: set[uuid.UUID] | None = None,
 ) -> list[ClassroomStudent]:
-    """班級學生及其固定多機器，供班級內的上課監看使用。"""
+    """班級學生及其固定多機器，供班級內的上課監看使用。
+
+    ``online_user_ids`` 由呼叫端在 event loop 上先讀好（presence hub 不是
+    thread-safe），這樣其餘的 DB 查詢可以整段丟到 worker thread；沒給時就地讀取。
+    """
     _require_active_class(session, user, class_id)
     enrollments = list(
         session.exec(
@@ -207,7 +212,11 @@ def list_class_students(
         for row in cluster_resources
         if row.get("vmid") is not None
     }
-    online = classroom_presence_hub.online_user_ids_for_class(class_id)
+    online = (
+        online_user_ids
+        if online_user_ids is not None
+        else classroom_presence_hub.online_user_ids_for_class(class_id)
+    )
 
     result: list[ClassroomStudent] = []
     for enrollment in enrollments:
