@@ -41,7 +41,9 @@ from app.models import (
     Resource,
     TeachingClass,
     TeachingClassStatus,
+    VMProvisioningStatus,
     VMRequest,
+    VMRequestStatus,
 )
 from app.repositories import resource as resource_repo
 from app.services.proxmox import proxmox_service
@@ -187,6 +189,11 @@ def process_scheduled_boot() -> None:
             VMRequest.next_window_start <= now + lead,
             VMRequest.next_window_start > now - timedelta(minutes=1),
             VMRequest.vmid.isnot(None),  # type: ignore[union-attr]
+            # 已消耗（使用者刪機／轉範本）的單仍留著舊 vmid 供稽核；PVE 會把
+            # 釋出的 VMID 配給別人的新機器，不排除就會照這張單的時段把別人的
+            # 機器開起來、再排自動關機。與其他排程任務一樣，failed 不再接管。
+            VMRequest.status == VMRequestStatus.approved,
+            VMRequest.provisioning_status != VMProvisioningStatus.failed,
         )
         candidates = list(session.exec(stmt).all())
         targets = _filter_due_for_boot(

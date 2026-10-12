@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from sqlmodel import Session, select
 
+from app.exceptions import NotFoundError
 from app.infrastructure.proxmox.operations import ResourceType
 from app.models import (
     CourseEnvironmentEdge,
@@ -130,9 +131,16 @@ def sync_scope_rules(
     errors: list[str] = []
     for vmid, wanted in desired.items():
         try:
-            info = proxmox_service.find_resource(vmid)
-        except Exception:
+            # strict：有連線列不出清單時不能把那邊的機器當成已刪除
+            info = proxmox_service.find_resource(vmid, strict=True)
+        except NotFoundError:
             # 機器已經不在了，規則跟著它一起消失，不是問題。
+            continue
+        except Exception:
+            # 連線問題不等於機器不在：略過不報錯的話，班級會被當成拓樸已套用
+            # 而轉為可上課，這台的白名單與孤兒規則就一直沒人處理。
+            logger.exception("Failed to look up resource vmid=%s", vmid)
+            errors.append(f"{vmid}: resource lookup failed")
             continue
         node = info["node"]
         resource_type = cast(ResourceType, info["type"])

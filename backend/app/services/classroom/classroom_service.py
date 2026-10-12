@@ -6,6 +6,7 @@
   且直播源 VM 是自己的（admin bypass）。
 """
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Protocol
@@ -467,7 +468,8 @@ async def _on_session_end(session: ClassroomSession, _reason: str) -> None:
             and session.controller_user_id is not None
         ):
             # 接管中結束 → 解除學生端的「老師接管中」覆蓋
-            owner_id = _lookup_resource_owner(session.vmid)
+            # 同步 DB 查詢丟到執行緒：DB 慢或連不上時不能把整個 event loop 凍住
+            owner_id = await asyncio.to_thread(_lookup_resource_owner, session.vmid)
             if owner_id is not None:
                 await classroom_presence_hub.send_to_user(
                     owner_id, _event("takeover_stopped", session)
@@ -479,7 +481,7 @@ async def _on_session_end(session: ClassroomSession, _reason: str) -> None:
 async def _on_controller_released(session: ClassroomSession) -> None:
     """控制者離線被自動收回控制權 → 解除學生端的「老師接管中」覆蓋。"""
     try:
-        owner_id = _lookup_resource_owner(session.vmid)
+        owner_id = await asyncio.to_thread(_lookup_resource_owner, session.vmid)
         if owner_id is not None:
             await classroom_presence_hub.send_to_user(
                 owner_id, _event("takeover_stopped", session)
