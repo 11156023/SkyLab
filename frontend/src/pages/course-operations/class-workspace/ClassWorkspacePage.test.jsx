@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { StudentMachines, WeeklyContent } from "./ClassWorkspacePage";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { ClassroomService } from "../../../services/classroom";
+import { ResourcesService } from "../../../services/resources";
 import i18n from "../../../i18n";
 
 // en／ja 語系檔改為用到才載入；這裡要檢查三語都有 key，先全部載入
@@ -141,6 +142,25 @@ describe("StudentMachines 教室 session 不留孤兒", () => {
 
     cleanup();
     expect(stopSession).toHaveBeenCalledWith("m1");
+  });
+
+  test("整班開機會分批送出並回報結果（不會因殘留的 setMessage 而丟 ReferenceError）", async () => {
+    mockServices([]);
+    const batch = vi.spyOn(ResourcesService, "batchActionInChunks")
+      .mockResolvedValue({ total: 1, succeeded: 1, failed: 0, results: [{ vmid: 101, success: true }] });
+    const { container, cleanup } = mount(<StudentMachines item={{ ...classItem, status: "active" }} />);
+    await act(async () => { await flush(); });
+
+    const startLabel = i18n.t("ClassWorkspacePage.classPowerStartBtn", { ns: "teaching" });
+    const startButton = [...container.querySelectorAll("button")].find((button) => button.textContent.endsWith(startLabel));
+    expect(startButton.disabled).toBe(false);
+    await act(async () => {
+      startButton.click();
+      await flush();
+    });
+    expect(batch).toHaveBeenCalledWith([101], "start", expect.any(Object));
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    cleanup();
   });
 
   test("觀看 session 還在建立中就卸載時，建好後立刻收掉", async () => {

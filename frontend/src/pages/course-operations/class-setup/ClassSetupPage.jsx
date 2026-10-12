@@ -200,6 +200,7 @@ export default function ClassSetupPage() {
     setForm(createClassScheduleForm(normalized));
   }
 
+  const createdTemplateId = location.state?.createdTemplateId;
   useEffect(() => {
     let active = true;
     CourseEnvironmentsService.listPublished()
@@ -207,15 +208,22 @@ export default function ClassSetupPage() {
         if (!active) return;
         setTemplates(rows);
         setTemplatesLoaded(true);
-        const created = location.state?.createdTemplateId;
-        if (created && rows.some((row) => String(row.id) === String(created))) {
-          setTemplateId(String(rows.find((row) => String(row.id) === String(created)).versionId));
-          toast.success(t("ClassSetupPage.templatePublishedMsg"));
-        }
       })
       .catch((reason) => active && toast.error(reason?.message ?? t("ClassSetupPage.loadTemplatesFailed")));
     return () => { active = false; };
-  }, [location.state?.createdTemplateId, t, toast]);
+  }, [createdTemplateId, t, toast]);
+
+  // 剛建好的環境要等班級載完才幫忙選：班級載入（applyClass）會把選擇重設成已存的環境，
+  // 環境清單先回來時先選的會被蓋掉
+  const appliedCreatedTemplateRef = useRef(null);
+  useEffect(() => {
+    if (!createdTemplateId || !templatesLoaded || loading || appliedCreatedTemplateRef.current === createdTemplateId) return;
+    const created = templates.find((row) => String(row.id) === String(createdTemplateId));
+    if (!created) return;
+    appliedCreatedTemplateRef.current = createdTemplateId;
+    setTemplateId(String(created.versionId));
+    toast.success(t("ClassSetupPage.templatePublishedMsg"));
+  }, [createdTemplateId, templates, templatesLoaded, loading, t, toast]);
 
   useEffect(() => {
     if (!classId) { setLoading(false); return undefined; }
@@ -310,7 +318,12 @@ export default function ClassSetupPage() {
     const payload = classSchedulePayload(form);
     const saved = classId ? await TeachingClassesService.update(classId, payload) : await TeachingClassesService.create(payload);
     applyClass(saved);
-    if (!classId) setParams({ classId: String(saved.id), step: "2" });
+    if (!classId) {
+      // 沒有 classId 的這筆歷史先換成新班級的第一步再前往第二步：按上一頁回到的是這個班級，
+      // 不是網址沒有 classId、畫面卻還是這個班級的表單（那裡按儲存會再建一個重複的班級）
+      setParams({ classId: String(saved.id), step: "1" }, { replace: true });
+      setParams({ classId: String(saved.id), step: "2" });
+    }
     return true;
   }
 

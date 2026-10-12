@@ -1598,7 +1598,12 @@ function WeekSelectField({ weeks, value, onChange, disabled = false, optional = 
 
 /** 新增檢查時預設帶入「最近已上過的一週」，都還沒開始就不指定 */
 export function getDefaultWeekId(weeks, today = new Date()) {
-  const todayKey = today.toISOString().slice(0, 10);
+  // 上課日期是當地日曆日；toISOString 是 UTC，台灣早上八點前會算成前一天而漏掉當天那一週
+  const todayKey = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("-");
   const past = weeks
     .filter((week) => week.session_date && String(week.session_date).slice(0, 10) <= todayKey)
     .sort((a, b) => String(b.session_date).localeCompare(String(a.session_date)));
@@ -1654,6 +1659,18 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
       </div>
     </aside>
   );
+}
+
+/**
+ * 背景重抓的清單可能在自動儲存回應之前就產生：同一份檢查表保留 analysis_revision 較新的那筆，
+ * 否則舊清單會把畫面上的修改與版本號一起退回，下一次儲存就撞 409。
+ */
+export function keepNewerRubricFiles(current, rows) {
+  const currentById = new Map((Array.isArray(current) ? current : []).map((entry) => [entry.id, entry]));
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const existing = currentById.get(row.id);
+    return existing && Number(existing.analysis_revision) > Number(row.analysis_revision) ? existing : row;
+  });
 }
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
@@ -1834,7 +1851,8 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
   const fetchFiles = useCallback(async (silent = false) => {
     try {
-      setFiles(await AiJudgeService.listFiles(classId));
+      const rows = await AiJudgeService.listFiles(classId);
+      setFiles((current) => keepNewerRubricFiles(current, rows));
       setFilesLoaded(true);
     } catch {
       if (!silent) toast.error(t("AiJudgePanel.loadSourcesFailed"));

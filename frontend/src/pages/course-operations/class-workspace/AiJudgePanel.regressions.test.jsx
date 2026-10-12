@@ -146,3 +146,65 @@ describe("RubricsTab 檢查表尚未載入時停用聊天", () => {
     cleanup();
   });
 });
+
+describe("RubricsTab 背景重抓清單與自動儲存交錯", () => {
+  test("自動儲存已寫回新版本後，較早送出的清單回應不會把編輯退回舊內容", async () => {
+    const file = (title, revision) => ({
+      id: "file-1",
+      template_key: "linux",
+      environment_keys: ["linux"],
+      analysis_revision: revision,
+      source_type: "created",
+      display_name: "測試檢查表",
+      updated_at: "2026-09-15T00:00:00Z",
+      analysis_json: {
+        items: [{ id: "item-1", title, checked: false, detectable: "manual", judgement_mode: "ai", check_steps: [] }],
+        total_items: 1,
+      },
+    });
+    const listFiles = vi.spyOn(AiJudgeService, "listFiles").mockResolvedValueOnce([file("舊標題", 3)]);
+    vi.spyOn(AiJudgeService, "listSessionMessages").mockResolvedValue([]);
+    const updateFileAnalysis = vi.spyOn(AiJudgeService, "updateFileAnalysis")
+      .mockImplementation(async (_classId, _fileId, analysis, expected) => ({
+        ...file(analysis.items[0].title, expected + 1),
+        analysis_json: analysis,
+      }));
+
+    const { container, cleanup } = mount(
+      <ConfirmProvider>
+        <RubricsTab classId="class-1" judgeSession={{ id: "session-1", selected_file_id: "file-1" }} />
+      </ConfirmProvider>,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const titleInput = () => container.querySelector("td input");
+    expect(titleInput().value).toBe("舊標題");
+
+    /* 切回視窗觸發背景重抓：這次清單回應拖到自動儲存完成之後才回來 */
+    let resolveStaleList;
+    listFiles.mockReturnValueOnce(new Promise((resolve) => { resolveStaleList = resolve; }));
+    const realNow = Date.now;
+    vi.spyOn(Date, "now").mockImplementation(() => realNow.call(Date) + 60_000);
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    expect(listFiles).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(titleInput(), "新標題");
+      titleInput().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    });
+    expect(updateFileAnalysis).toHaveBeenCalledTimes(1);
+    expect(updateFileAnalysis.mock.calls[0][3]).toBe(3);
+
+    await act(async () => {
+      resolveStaleList([file("舊標題", 3)]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(titleInput().value).toBe("新標題");
+    cleanup();
+  });
+});
