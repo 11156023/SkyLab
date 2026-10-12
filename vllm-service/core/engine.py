@@ -43,6 +43,7 @@ class VLLMEngine:
             self._http_client = httpx.Client(
                 timeout=5.0,
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                trust_env=False,
             )
         return self._http_client
 
@@ -129,15 +130,18 @@ class VLLMEngine:
                 raise RuntimeError(error_msg)
             
             try:
-                # 先檢查 health 端點
-                resp = httpx.get(self.health_url, timeout=5)
+                # 先檢查 health 端點。探測的是本機的 vLLM，不可走 HTTP_PROXY：
+                # 為了下載模型而設了代理（沒設 NO_PROXY）的主機上，httpx 會把
+                # 127.0.0.1 也送去代理，永遠等不到就緒，逾時後反而把正常的服務停掉。
+                resp = httpx.get(self.health_url, timeout=5, trust_env=False)
                 if resp.status_code == 200:
                     # 再檢查 models 端點確認模型已載入
                     try:
                         models_resp = httpx.get(
                             self.models_url,
                             headers={"Authorization": f"Bearer {self.settings.api_key}"},
-                            timeout=5
+                            timeout=5,
+                            trust_env=False,
                         )
                         if models_resp.status_code == 200:
                             elapsed = time.time() - start

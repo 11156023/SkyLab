@@ -263,6 +263,11 @@ def check_port_available(host: str, port: int, logger) -> bool:
         # 嘗試綁定端口
         with socket.socket(family, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
+            # 跟 vLLM（uvicorn）一樣設 SO_REUSEADDR：剛停掉的服務留下 TIME_WAIT 連線時
+            # vLLM 綁得上，不設的話這裡會誤判佔用、約一分鐘內重啟都被擋下。
+            # Linux 上仍有程序在 listen 時照樣綁不上，真正的佔用還是抓得到。
+            if os.name != "nt":
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((host.strip("[]"), port))
         logger.success(f"✓ 端口 {host}:{port} 可用")
         return True

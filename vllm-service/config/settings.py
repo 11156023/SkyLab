@@ -205,6 +205,15 @@ class Settings(BaseSettings):
         """去除選用字串 CLI 參數的前後空白；未設定（None／空值）一律視為空字串＝不帶該參數。"""
         return v.strip() if v else ""
 
+    @field_validator("long_prefill_token_threshold", mode="before")
+    @classmethod
+    def blank_threshold_is_unset(cls, v: object) -> object:
+        """.env.example 預設寫 ``LONG_PREFILL_TOKEN_THRESHOLD=``；空值代表不帶該參數，
+        不能當成整數解析失敗而讓整份設定載入不了。"""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @field_validator("max_model_len")
     @classmethod
     def warn_large_max_model_len(cls, v: int) -> int:
