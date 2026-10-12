@@ -115,7 +115,7 @@
   "gateway.installStatusFailed": "Gateway のインストール状態の取得に失敗しました：{error}",
   "gateway.installRootRequired": "サービスのインストールには root 権限が必要です。root で接続するか、現在の SSH アカウントでパスワードなしの sudo を使えるようにしてください",
   "gateway.installAlreadyRunning": "Gateway ではすでにインストールが実行中です。完了してから再度お試しください",
-  "gateway.installSystemdMissing": "Gateway に systemd-run が見つかりません。ワンクリックインストールは systemd を使う Debian 12／13 のみ対応しています",
+  "gateway.installSystemdMissing": "Gateway に systemd-run が見つかりません。ワンクリックインストールは systemd を使う Debian 13 のみ対応しています",
   "gateway.installStartFailed": "Gateway のインストールを開始できませんでした：{error}",
   "gateway.connectionOk": "接続に成功しました",
   "gateway.unexpectedEchoResponse": "コマンドの応答が想定と異なります：{output}",

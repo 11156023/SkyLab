@@ -115,7 +115,7 @@
   "gateway.installStatusFailed": "讀取 Gateway 安裝狀態失敗：{error}",
   "gateway.installRootRequired": "安裝服務需要 root 權限：請改用 root 連線，或讓目前的 SSH 帳號可免密碼 sudo",
   "gateway.installAlreadyRunning": "Gateway 上已有安裝正在進行，請等它結束後再試",
-  "gateway.installSystemdMissing": "Gateway 上找不到 systemd-run，一鍵安裝只支援使用 systemd 的 Debian 12／13",
+  "gateway.installSystemdMissing": "Gateway 上找不到 systemd-run，一鍵安裝只支援使用 systemd 的 Debian 13",
   "gateway.installStartFailed": "啟動 Gateway 安裝失敗：{error}",
   "gateway.connectionOk": "連線成功",
   "gateway.unexpectedEchoResponse": "指令回應異常：{output}",

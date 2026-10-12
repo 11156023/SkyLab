@@ -115,7 +115,7 @@
   "gateway.installStatusFailed": "Failed to read the Gateway install status: {error}",
   "gateway.installRootRequired": "Installing services requires root: connect as root, or allow the current SSH account to use sudo without a password",
   "gateway.installAlreadyRunning": "An installation is already running on the Gateway; please wait for it to finish and try again",
-  "gateway.installSystemdMissing": "systemd-run was not found on the Gateway; one-click install only supports Debian 12/13 with systemd",
+  "gateway.installSystemdMissing": "systemd-run was not found on the Gateway; one-click install only supports Debian 13 with systemd",
   "gateway.installStartFailed": "Failed to start the Gateway installation: {error}",
   "gateway.connectionOk": "Connection successful",
   "gateway.unexpectedEchoResponse": "Unexpected command response: {output}",

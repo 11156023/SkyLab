@@ -89,7 +89,8 @@ db、pgbouncer、redis、backend 原本就有；新增：
 
 ```bash
 # 先在 .env 設好（至少）：
-#   GRAFANA_ADMIN_PASSWORD、INFLUXDB_ADMIN_PASSWORD、INFLUXDB_ADMIN_TOKEN
+#   INFLUXDB_ADMIN_PASSWORD、INFLUXDB_ADMIN_TOKEN
+#（GRAFANA_ADMIN_PASSWORD 可以留空：Grafana 自己的帳密登入已關閉，見「登入 Grafana」）
 docker compose --profile monitoring up -d
 ```
 
@@ -144,9 +145,24 @@ SkyLab「資源監控」頁右上角的「在 Grafana 查看詳細」按鈕只�
 3. nginx 一律以後端的回覆覆寫這四個標頭（瀏覽器自己帶的會被丟掉），Grafana `auth.proxy` 只信任 nginx 在 `grafana-authproxy` 網路上的固定 IP（`GF_AUTH_PROXY_WHITELIST`）。Grafana 不另外發 session，每個請求都重新驗證。
 4. 登出 SkyLab 時一併刪掉這個 cookie。
 
-**備用入口**：沒有 cookie（例如沒先開資源監控頁、cookie 過期）或後端掛掉時，`/grafana/` 顯示 Grafana 原本的登入頁，用 `admin`／`GRAFANA_ADMIN_PASSWORD` 登入。注意 Grafana 只在第一次啟動時寫入這個密碼，之後改 `.env` 不會生效，要用 `docker exec $(docker ps -qf name=grafana) grafana cli admin reset-admin-password '新密碼'` 重設。
+**Grafana 自己的帳密登入已關閉**：登入表單與 HTTP API 的 basic auth 都關掉了（`docker-compose.yml` 的 `GF_AUTH_DISABLE_LOGIN_FORM=true`、`GF_AUTH_BASIC_ENABLED=false`），對外的 `/grafana/` 只能經上面的 SkyLab 管理員免密碼登入進入。沒有有效 cookie（例如沒先開資源監控頁、cookie 過期）或後端掛掉時，`/grafana/` 只會顯示沒有帳號／密碼欄位的 Grafana 登入頁，請先在 SkyLab 開「資源監控」頁。
 
-**網段設定**：`grafana-authproxy` 是只有 nginx 與 Grafana 的 docker 網路，預設 `172.30.253.0/28`、nginx 固定 `172.30.253.2`（放在動態分配範圍 `172.30.253.8/29` 之外）。與主機或其他網路衝突時，在 `.env` 一起改 `GRAFANA_AUTHPROXY_SUBNET`、`GRAFANA_AUTHPROXY_IP_RANGE`、`GRAFANA_AUTHPROXY_NGINX_IP`。不想要免密碼登入時設 `GRAFANA_AUTH_PROXY_ENABLED=false`。
+SkyLab 管理員在 Grafana 主組織裡的角色是 Admin，儀表板、資料來源、使用者與 service account 都能管理。Grafana 內建的 `admin` 帳號（server admin）仍然存在，只是無法登入；它的密碼是 `GRAFANA_ADMIN_PASSWORD`，留空（或仍是範本的 `changethis`／`admin`）時容器改用隨機密碼，不再落回 Grafana 預設的 `admin`。Grafana 只在第一次啟動時寫入這個密碼，所以既有安裝的舊密碼仍留在 Grafana 資料庫裡（只是不能再拿來登入），之後改 `.env` 也不會生效。
+
+**需要用內建 admin 時**（SkyLab 登入壞掉，或要改 Grafana 全站設定），在 SkyLab 主機上：
+
+1. 在容器裡設新密碼：`docker compose exec grafana grafana cli admin reset-admin-password '新密碼'`。
+2. 在 `docker-compose.yml` 旁邊放一個 `docker-compose.override.yml` 暫時打開登入表單，再執行 `docker compose --profile monitoring up -d grafana`：
+   ```yaml
+   services:
+     grafana:
+       environment:
+         GF_AUTH_DISABLE_LOGIN_FORM: "false"
+   ```
+   這段期間對外的 `/grafana/` 也看得到登入表單，建議經 SSH tunnel 連 `http://127.0.0.1:3000/grafana/` 登入，並盡快結束。
+3. 用完刪掉 override 檔，再跑一次同樣的 `up -d grafana`，並把密碼再重設成隨機值。
+
+**網段設定**：`grafana-authproxy` 是只有 nginx 與 Grafana 的 docker 網路，預設 `172.30.253.0/28`、nginx 固定 `172.30.253.2`（放在動態分配範圍 `172.30.253.8/29` 之外）。與主機或其他網路衝突時，在 `.env` 一起改 `GRAFANA_AUTHPROXY_SUBNET`、`GRAFANA_AUTHPROXY_IP_RANGE`、`GRAFANA_AUTHPROXY_NGINX_IP`。設 `GRAFANA_AUTH_PROXY_ENABLED=false` 會關掉免密碼登入，也就沒有任何從網頁進入 Grafana 的方式（上面的緊急程序除外）。
 
 ### Proxmox VE Metric Server 設定
 
@@ -193,6 +209,8 @@ sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
 ```
 
 沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（「SkyLab Gateway」儀表板的 exporter 狀態顯示 DOWN）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。
+
+exporter 裝不起來或啟動失敗（例如 port 被占用）時，安裝腳本只會警告並繼續，nginx 與 WireGuard 照樣裝好；用 `journalctl -u prometheus-node-exporter -u prometheus-nginx-exporter` 查原因，修好後重跑 `install.sh`。
 
 `stub_status` 只涵蓋 http（對外網址）；Port 轉發（nginx stream）沒有對應的連線統計，請看「SkyLab Gateway」儀表板的 TCP 連線數與網卡流量。
 

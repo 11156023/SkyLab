@@ -73,6 +73,13 @@ create a Virtual Key in LiteLLM with this value (alias `campus-ai-api-service`);
 model allowlist is synced to the aliases currently in `models.json`. When reusing an existing LiteLLM
 database, simply fill in the key that was originally issued to Campus.
 
+Outside `ENVIRONMENT=local`, an empty `AI_API_API_KEY` or one still holding a template value
+(`ai-api-secret-*`, `replace-with-*`) disables the AI API instead of sending that value to LiteLLM: the
+backend still starts but logs a warning, every `/api/v1/ai-proxy/*` request gets HTTP 503 with error code
+`ai_api_not_configured`, and the "System health" card on the Resource Monitoring page lists "AI API" as
+not configured (it does not lower the overall status or raise alerts). Run `--init-env` (or set the real
+service key) and restart the backend to enable it.
+
 The LiteLLM `.env`:
 
 ```dotenv
@@ -186,7 +193,8 @@ gateway's source address; confirm that its `/v1/models` really serves `lab-chat-
 from the LiteLLM `.env`, and with `apikeys` it is written straight into the generated
 `litellm/config.yaml`. `apikeys` and `api_key_env` cannot be set at the same time. Because `apikeys` is
 plaintext, neither `models.json` nor the generated `config.yaml` may be committed or copied to an
-untrusted location.
+untrusted location. The generators always write `config.yaml` with mode `0600` (owner read/write only);
+keep `models.json` the same way (`chmod 600 vllm-service/models.json`).
 
 `alias` is the name callers put in the `model` field and must be unique across all entries; local
 `served_model_name` and `api_port` must be unique as well. Different remote hosts may use the same upstream
@@ -443,6 +451,7 @@ support every format. Run `unset CAMPUS_AI_API_KEY` when you are done.
 | Key issuance returns HTTP 400 | Another key already uses the alias `campus-ai-api-service`: put that key into `AI_API_API_KEY`, or revoke it in LiteLLM and rerun |
 | 429 | Campus rate limit or LiteLLM RPM limit; retry after the `Retry-After` delay |
 | 413 / 415 | Request exceeds `AI_API_MAX_REQUEST_BODY_BYTES`, or Content-Type is not JSON |
+| 503 `ai_api_not_configured` | `AI_API_API_KEY` is empty or still a template value; run `--init-env` and restart the backend |
 | 502 / 503 | Check whether the gateway, upstream and DB are available, then read the backend/LiteLLM logs |
 | DB authentication / migration failure | Check the dedicated role, URL-encoded password, DB host and port; do not switch to the Campus DB |
 | Cannot decrypt after changing the salt | Restore the original salt and the matching DB backup; old ciphertext cannot be repaired with a new salt |

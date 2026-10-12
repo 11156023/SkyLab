@@ -33,6 +33,7 @@ from sqlmodel import Session
 from starlette.requests import ClientDisconnect
 
 from app.core.db import engine
+from app.core.i18n import t
 from app.features.ai.config import settings as ai_api_settings
 from app.services.llm_gateway import ai_gateway_service
 from app.services.monitoring import ai_metrics
@@ -516,6 +517,35 @@ _usage_tasks: set[asyncio.Task[None]] = set()
 def start_relay_runtime() -> None:
     global _relay_stopping
     _relay_stopping = False
+    if not ai_api_settings.ai_api_enabled:
+        _schedule_not_configured_warning()
+
+
+def _warn_ai_api_not_configured() -> None:
+    logger.warning(
+        "AI_API_API_KEY is empty or still the template value; the AI API is disabled "
+        "(requests get ai_api_not_configured). Set the restricted LiteLLM service key "
+        "(scripts/prepare-ai-stack.sh --init-env) and restart the backend."
+    )
+
+
+def _schedule_not_configured_warning() -> None:
+    # lifespan 先呼叫這裡、之後才設定 logging；排到下一輪 event loop 再記，
+    # 警告才會走正式的 handler（JSON log、app.log）。
+    try:
+        asyncio.get_running_loop().call_soon(_warn_ai_api_not_configured)
+    except RuntimeError:
+        _warn_ai_api_not_configured()
+
+
+def ai_api_not_configured() -> JSONResponse:
+    """AI_API_API_KEY 未設定時的回應：不送去 LiteLLM，明確告訴呼叫端是未設定。"""
+    return openai_error(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        t("aiProxy.notConfigured"),
+        error_type="api_error",
+        code="ai_api_not_configured",
+    )
 
 
 def _get_relay_http_client() -> httpx.AsyncClient:
@@ -1404,6 +1434,8 @@ async def relay_generation(
     user: Any,
     credential: Any,
 ) -> Response:
+    if not ai_api_settings.ai_api_enabled:
+        return ai_api_not_configured()
     observation = RelayObservation(
         user,
         credential,
@@ -1781,6 +1813,8 @@ async def _models_response(request: Request) -> Response:
 
 
 async def list_models(request: Request, *, user: Any) -> Response:
+    if not ai_api_settings.ai_api_enabled:
+        return ai_api_not_configured()
     response = await _models_response(request)
     logger.info("AI API model list requested by user=%s", user.id)
     return response

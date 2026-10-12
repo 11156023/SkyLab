@@ -109,6 +109,10 @@ def gateway_status(
 AI_GATEWAY_COMPONENT = "ai_gateway"
 AI_GATEWAY_LABEL = "AI Gateway (LiteLLM)"
 AI_MODEL_PREFIX = "ai_model:"
+# 只在 AI_API_API_KEY 未設定（local 以外仍是空白或範本值）時出現；disabled 不拉低整體、不發告警
+AI_API_COMPONENT = "ai_api"
+AI_API_LABEL = "AI API"
+AI_API_NOT_CONFIGURED_DETAIL = "未設定：AI_API_API_KEY 是空白或範本值，AI API 已停用"
 
 
 def ai_components(probe: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -384,6 +388,7 @@ def evaluate_system_alerts(
 
 
 __all__ = [
+    "AI_API_COMPONENT",
     "AI_GATEWAY_COMPONENT",
     "AI_MODEL_PREFIX",
     "CRITICAL_COMPONENTS",

@@ -212,9 +212,9 @@ server {
         auth_request_set $grafana_email $upstream_http_x_webauth_email;
         auth_request_set $grafana_name  $upstream_http_x_webauth_name;
         auth_request_set $grafana_role  $upstream_http_x_webauth_role;
-        # 後端掛掉時 auth_request 會變成 500：改走不帶身分的 Grafana，原本的
-        # 帳密登入頁仍可當備用入口（proxy_intercept_errors 預設關閉，Grafana
-        # 自己回的 5xx 不會進到這裡）
+        # 後端掛掉時 auth_request 會變成 500：改走不帶身分的 Grafana，使用者看到的
+        # 是 Grafana 的登入頁（帳密登入已關閉，只是不讓整頁變成 nginx 500）
+        # （proxy_intercept_errors 預設關閉，Grafana 自己回的 5xx 不會進到這裡）
         error_page 500 502 503 504 = @grafana_anonymous;
         proxy_pass http://grafana_pool;
         proxy_set_header Upgrade $http_upgrade;

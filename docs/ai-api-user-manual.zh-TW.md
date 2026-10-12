@@ -66,6 +66,11 @@ REDIS_HOST_PORT=6379
 以這個值建立 Virtual Key（別名 `campus-ai-api-service`），已存在時則把模型白名單同步成
 `models.json` 目前的 alias。沿用既有 LiteLLM 資料庫時，把當初核發給 Campus 的那把 key 填進來即可。
 
+`ENVIRONMENT=local` 以外，`AI_API_API_KEY` 空白或仍是範本值（`ai-api-secret-*`、`replace-with-*`）時，
+不會拿這個值去連 LiteLLM，而是停用 AI API：backend 照常啟動但記一筆警告，所有 `/api/v1/ai-proxy/*`
+請求回 HTTP 503、錯誤代碼 `ai_api_not_configured`，資源監控頁的「系統健康」卡列出「AI API」未設定
+（不拉低整體狀態、不發告警）。執行 `--init-env`（或填入真正的 service key）後重啟 backend 即可啟用。
+
 LiteLLM `.env`：
 
 ```dotenv
@@ -167,7 +172,9 @@ JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 `lab-chat-model`。未指定 `apikeys` 或 `api_key_env` 時沿用 `VLLM_UPSTREAM_API_KEY`；
 指定 `api_key_env` 時從 LiteLLM `.env` 讀取，指定 `apikeys` 時則直接寫入生成的
 `litellm/config.yaml`。`apikeys` 與 `api_key_env` 不可同時設定。因 `apikeys` 是明文，
-`models.json` 與生成後的 `config.yaml` 都不可提交或複製到不受信任的位置。
+`models.json` 與生成後的 `config.yaml` 都不可提交或複製到不受信任的位置。產生器寫出
+`config.yaml` 時一律設為 `0600`（只有擁有者可讀寫）；`models.json` 也請比照
+（`chmod 600 vllm-service/models.json`）。
 
 `alias` 是呼叫端 `model` 欄位使用的名稱，所有項目都必須唯一；本機
 `served_model_name`、`api_port` 也要唯一。不同遠端主機可使用相同上游模型名稱／埠，
@@ -402,6 +409,7 @@ unset AI_API_SMOKE_KEY
 | key 核發回 HTTP 400 | 已有別把 key 用了別名 `campus-ai-api-service`：把那把 key 填進 `AI_API_API_KEY`，或在 LiteLLM 撤銷後重跑 |
 | 429 | Campus 限流或 LiteLLM RPM 限制；依 `Retry-After` 延後重試 |
 | 413／415 | 請求超過 `AI_API_MAX_REQUEST_BODY_BYTES`，或 Content-Type 不是 JSON |
+| 503 `ai_api_not_configured` | `AI_API_API_KEY` 空白或仍是範本值；執行 `--init-env` 後重啟 backend |
 | 502／503 | 檢查 gateway、上游與 DB 是否可用，再看 backend／LiteLLM 日誌 |
 | DB 認證／migration 失敗 | 核對專用角色、密碼 URL 編碼、DB 主機與埠；不要改用 Campus DB |
 | salt 更換後不能解密 | 還原原 salt 與對應 DB 備份，不能以新 salt 修復舊密文 |

@@ -191,7 +191,7 @@ Leaving `LDAP_CA_CERT_FILE` empty uses the system trust store, which is enough w
 
 ## 7. Gateway VM
 
-The gateway is a separate Linux VM installed with `gateway/install.sh` (nginx stream + http, WireGuard, nftables ACL, SNAT, optional Prometheus exporters). SkyLab manages it over SSH from the "Gateway VM" page, which can also run the installer for you. Details: [`wireguard-desktop-architecture.md`](wireguard-desktop-architecture.md) and the "Gateway monitoring" section of [`monitoring.md`](monitoring.md).
+The gateway is a separate Linux VM installed with `gateway/install.sh` (nginx stream + http, WireGuard, nftables ACL, SNAT, optional Prometheus exporters). The installer supports **Debian 13 (trixie) only** and stops before changing anything on other systems: its nftables rules use `nft destroy table`, which needs nftables 1.0.8 or later, and Debian 12 ships 1.0.6. Upgrade or rebuild a Debian 12 gateway on Debian 13 before (re)running the installer. SkyLab manages it over SSH from the "Gateway VM" page, which can also run the installer for you. Details: [`wireguard-desktop-architecture.md`](wireguard-desktop-architecture.md) and the "Gateway monitoring" section of [`monitoring.md`](monitoring.md).
 
 ## 8. Continuous deployment (test environment)
 

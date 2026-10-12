@@ -8,6 +8,7 @@ This guide covers running SkyLab locally. For production see [`deployment.md`](d
 
 - Docker Engine with Compose ≥ 2.20 (the root compose file uses `include`)
 - [uv](https://docs.astral.sh/uv/) for Python, [Bun](https://bun.sh/) for the frontend
+- Python **3.11 or newer** for the backend (`requires-python = ">=3.11"`; the code uses `datetime.UTC`, which 3.10 lacks). CI tests on 3.11 and the production image runs 3.14; `uv sync` downloads a suitable interpreter if the system one is too old
 - A reachable Proxmox VE node or cluster if you want to provision anything; the UI, auth, docs and most tests work without one
 
 ## Docker Compose
