@@ -91,6 +91,22 @@ vLLM instance 的啟動、ready check 與優雅關閉；模型 alias／路由由
 `served_model_name` 會傳入 vLLM 的 `--served-model-name`，所以各 instance 的
 `/v1/models` 不會暴露主機模型路徑。
 
+### 崩潰自動重啟
+
+兩種模式下，launcher 在啟動完成後都會持續監看 vLLM 程序。某個程序意外結束時，記錄退出碼、
+清掉它程序群組裡殘留的 worker（釋放 GPU 記憶體與 port），然後**只重啟那個模型**，其他模型照常
+服務。重啟時不等待就緒；該模型的 `logs/<alias>.log` 會接續寫入，保留崩潰前的輸出。重啟次數有
+上限並逐次拉長等待，在 `.env.API`／`.env.interface` 設定：
+
+| 變數 | 預設 | 說明 |
+| --- | --- | --- |
+| `ENGINE_RESTART_MAX_ATTEMPTS` | `3` | 每個模型放棄前最多重啟幾次；`0`＝不自動重啟 |
+| `ENGINE_RESTART_BACKOFF_SECONDS` | `10` | 第一次重啟前等待的秒數，之後每次加倍（上限 300 秒） |
+| `ENGINE_RESTART_RESET_SECONDS` | `600` | 連續運行這麼久才崩潰的模型，重啟次數重新計算 |
+
+超過上限後 launcher 放棄該模型並記錄錯誤（`logs/cluster.log` 或 `logs/main.log`）。單模型模式，
+或 cluster 的所有模型都已放棄時，launcher 會以非 0 狀態結束；排除原因後重新執行啟動腳本。
+
 從 Hugging Face 下載模型時請固定 revision，避免上游檔案更新造成不可重現的部署，例如：
 
 ```bash
@@ -100,6 +116,9 @@ vLLM instance 的啟動、ready check 與優雅關閉；模型 alias／路由由
 `generate_litellm_config.py` 讀取 `models.json` 與 `litellm/config.template.yaml`，產出
 `litellm/config.yaml`。產物已由 Git 忽略；一般模型使用 `os.environ/...` secret reference，
 遠端模型若設定 `apikeys`，該值會直接寫入這份本機 runtime 產物。
+因此 `generate_litellm_config.py` 與 `scripts/prepare-ai-stack.sh` 每次寫出時都把權限設為 `0600`
+（只有擁有者可讀寫），舊的、其他人可讀的檔案也會就地收緊。請以執行 Docker 的帳號產生：LiteLLM
+容器以 root 讀取，rootless Docker 下就是該帳號。
 `integration` 模式不含資料庫設定；`production` 模式要求部署程序先注入
 `LITELLM_SERVICE_API_KEY`，並產生 `DATABASE_URL` reference。
 
@@ -145,7 +164,8 @@ vLLM instance。完整說明見 [docs/SHAREGPT_QUICKSTART.zh-TW.md](docs/SHAREGP
 | --- | --- |
 | `main.py` | CLI 入口，支援 `single` / `cluster` |
 | `core/engine.py` | 單一 vLLM instance 啟停、health check、日誌 |
-| `core/cluster.py` | 多模型 instance 生命週期 |
+| `core/cluster.py` | 多模型 instance 生命週期，含重啟崩潰的模型 |
+| `core/supervisor.py` | 兩種模式共用的崩潰重啟策略（次數上限、退避） |
 | `config/settings.py` | 共用 vLLM 設定 |
 | `config/multi_model.py` | `models.json` 載入與 cluster 資源檢查 |
 | `litellm/` | Git-managed LiteLLM 靜態 routing policy template |

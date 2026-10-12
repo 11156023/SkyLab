@@ -29,6 +29,7 @@ from config.multi_model import (
 from config.settings import SERVICE_ENV_FILE_VAR, get_settings, resolve_env_file
 from core.cluster import MultiModelEngineManager
 from core.engine import VLLMEngine
+from core.supervisor import RestartPolicy, RestartTracker
 from utils.health_utils import check_system_health
 from utils.logging_utils import get_logger
 
@@ -505,13 +506,47 @@ def _run_single_mode(args) -> None:
     if engine is None:
         sys.exit(1)
 
+    exit_code = 0
     try:
-        if engine._process:
-            engine._process.wait()
+        exit_code = _supervise_single(engine, logger)
     except KeyboardInterrupt:
         logger.info("收到中斷信號，正在停止單模型服務...")
     finally:
         engine.stop()
+    if exit_code:
+        sys.exit(exit_code)
+
+
+def _supervise_single(engine: VLLMEngine, logger) -> int:
+    """阻塞等待 vLLM 子程序；崩潰時依重啟策略重啟，超過上限回傳 1。"""
+    tracker = RestartTracker(RestartPolicy.from_settings(engine.settings))
+    started = time.monotonic()
+    while engine._process is not None:
+        code = engine._process.wait()
+        uptime = time.monotonic() - started
+        logger.error(f"vLLM 程序意外結束（退出碼 {code}，已運行 {uptime:.0f}s）")
+        while True:
+            # 清掉殘留的 worker 子程序；主程序已結束，stop() 不會再等 30 秒
+            engine.stop()
+            delay = tracker.next_delay(uptime)
+            if delay is None:
+                logger.error(
+                    f"已自動重啟 {tracker.policy.max_attempts} 次仍失敗，放棄並結束 launcher；"
+                    "請檢查上方日誌、GPU 記憶體與模型設定"
+                )
+                return 1
+            logger.warning(
+                f"{delay:.0f}s 後重新啟動 vLLM（第 {tracker.attempts}/{tracker.policy.max_attempts} 次）"
+            )
+            time.sleep(delay)
+            started = time.monotonic()
+            try:
+                engine.start(wait_ready=False)
+                break
+            except Exception as exc:
+                logger.error(f"重新啟動 vLLM 失敗: {exc}")
+                uptime = 0.0
+    return 0
 
 
 def _run_cluster_mode(args) -> None:
@@ -551,8 +586,15 @@ def _run_cluster_mode(args) -> None:
         sys.exit(1)
 
     # SIGTERM／SIGINT 由 main() 開頭安裝的 _request_shutdown 轉成 KeyboardInterrupt。
+    # 主迴圈同時監看各模型：崩潰的只重啟那一個（見 MultiModelEngineManager.check_engines）。
+    exit_code = 0
     try:
         while not _shutdown.requested:
+            manager.check_engines()
+            if manager.all_given_up:
+                logger.error("所有模型都已放棄重啟，結束 launcher")
+                exit_code = 1
+                break
             time.sleep(2)
     except KeyboardInterrupt:
         logger.info("收到中斷信號，正在停止集群...")
@@ -560,6 +602,8 @@ def _run_cluster_mode(args) -> None:
         logger.info("清理資源中...")
         manager.stop_all()
         logger.info("所有服務已停止")
+    if exit_code:
+        sys.exit(exit_code)
 
 
 def main() -> None:

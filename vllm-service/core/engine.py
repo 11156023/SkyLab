@@ -25,6 +25,9 @@ _VLLM_ENV_VARS_TO_STRIP = {
     # 舊版私有命名；vLLM 0.22.1 會將其視為未知變數。
     "VLLM_USAGE_STATS_ENABLED",
 }
+LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
+# 主程序已結束後，清理同一程序群組殘留子程序時等它們自行結束的秒數
+_LEFTOVER_GRACE_SECONDS = 10.0
 
 
 class VLLMEngine:
@@ -36,6 +39,7 @@ class VLLMEngine:
         self._process: subprocess.Popen | None = None
         self._http_client: httpx.Client | None = None
         self._log_handle: IO[str] | None = None  # 日誌檔案句柄
+        self._log_started = False  # 崩潰後重啟時接續寫同一個日誌檔，保留崩潰前的訊息
 
     def _get_http_client(self) -> httpx.Client:
         """取得或建立 HTTP 客戶端（連線池）"""
@@ -80,13 +84,18 @@ class VLLMEngine:
         
         # 建立日誌目錄和日誌檔案
         if self.alias:
-            logs_dir = Path(__file__).resolve().parent.parent / "logs"
-            logs_dir.mkdir(parents=True, exist_ok=True)
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
             # 將 alias 中的斜線替換為底線，避免被解釋為目錄分隔符
             safe_alias = self.alias.replace("/", "_").replace("\\", "_")
-            log_file_path = logs_dir / f"{safe_alias}.log"
+            log_file_path = LOGS_DIR / f"{safe_alias}.log"
             print(f"[Engine] 日誌檔案: {log_file_path}")
-            self._log_handle = open(log_file_path, "w", encoding="utf-8", buffering=1)
+            mode = "a" if self._log_started else "w"
+            self._log_handle = open(log_file_path, mode, encoding="utf-8", buffering=1)
+            if self._log_started:
+                self._log_handle.write(
+                    f"\n===== [launcher] {time.strftime('%Y-%m-%d %H:%M:%S')} 重新啟動 vLLM =====\n"
+                )
+            self._log_started = True
             stdout_target = self._log_handle
             stderr_target = self._log_handle
         else:
@@ -234,6 +243,11 @@ class VLLMEngine:
                 except subprocess.TimeoutExpired:
                     print("[Engine] 警告: 無法停止進程，可能成為僵屍進程")
 
+        elif self._process is not None and os.name != "nt":
+            # 主程序已自行結束（例如崩潰）：同一程序群組裡可能還留著 vLLM 的 worker，
+            # 佔著 GPU 記憶體或 port，重啟前要一併清掉。
+            print(f"[Engine] vLLM 主程序已結束（退出碼 {self._process.returncode}），清理殘留子程序")
+            self._kill_leftover_group(self._process.pid)
         else:
             print("[Engine] 伺服器未運行或已停止")
         
@@ -247,6 +261,32 @@ class VLLMEngine:
                 # 日誌檔關閉失敗可忽略
                 pass
             self._log_handle = None
+
+    @staticmethod
+    def _kill_leftover_group(pgid: int) -> None:
+        """終止已結束主程序留下的程序群組（start_new_session 讓群組 ID 等於主程序 PID）。"""
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + _LEFTOVER_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(0.2)
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return
+        print("[Engine] 殘留子程序未在期限內結束，強制終止")
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    def returncode(self) -> int | None:
+        """vLLM 子程序已結束時回傳退出碼；仍在執行（或尚未啟動）回傳 None。"""
+        if self._process is None:
+            return None
+        return self._process.poll()
 
     def is_running(self) -> bool:
         """檢查伺服器是否運行中"""
