@@ -516,6 +516,43 @@ The default `table-layout: auto` computes column widths from **the content of ev
 `MIcon` is always `aria-hidden`, so screen readers cannot read it. If the information the icon encodes
 is already written in the adjacent text (type, category), it is just layout habit — remove it and let the text speak.
 
+### List toolbar and batch actions (DataToolbar)
+
+The "filters + search" bar above a list or table and the "batch actions after ticking rows" **always use the `components/DataToolbar` set**. Don't build a separate floating action bar or your own checkboxes in a page:
+
+```jsx
+const selection = useRowSelection(shown.filter(canSelect).map((r) => r.id)); // in on-screen order
+const selected = shown.filter((r) => selection.isSelected(r.id));
+
+<DataToolbar
+  selecting={selected.length > 0}
+  batch={(
+    <BatchBar countLabel={t("…selectedCount", { count: selected.length })} onClear={selection.clear} progress={progress}>
+      <BatchAction icon="block" label={t("…disable")} onClick={…} />
+      <BatchDivider />
+      <BatchAction icon="delete" label={t("…delete")} danger onClick={…} />
+    </BatchBar>
+  )}
+>
+  <SegmentedControl … />
+  <ToolbarSearch value={query} onChange={setQuery} placeholder={t("…searchPlaceholder")} />
+</DataToolbar>
+
+<SelectCheckbox checked={selection.isSelected(r.id)} onToggle={(shift) => selection.toggle(r.id, shift)} ariaLabel={…} />
+```
+
+- **The toolbar is always there**: normally it has no background and holds the status switch and search, aligned with the list's left and right edges; once something is ticked it **switches in place to the batch bar** (a raised card with a light primary tint that sticks to the top). It is at least 56px tall, and when the filters wrap onto two lines on a narrow screen the batch bar keeps that height — the list never jumps when it switches
+- **Select all**: in a table it goes in the first header cell (`SelectCheckbox cell`); lists without a header row (users, requests, class cards) pass `selectAll` to `BatchBar`, which puts it before "N selected"
+- **Checkboxes**: the whole cell (or the area around the box) is clickable; when the row itself is clickable, its `onClick` must ignore clicks on the `label`. Shift-click selects a range, Esc clears the selection, and the select-all box shows "partial" when only some rows are ticked
+- **While selecting, the whole row is clickable**: once at least one row is ticked, clicking anywhere on a row ticks it too (`onClick={(e) => selection.rowClick(id, e)}`; when it returns `true`, don't open the detail view). Other buttons and links in the row keep working. Rows that normally open a detail view (table rows, review rows, class tickets) tick instead while selecting, and go back to opening the detail once nothing is ticked
+- **Only visible rows can be ticked**: `useRowSelection` only knows the ids you pass in; rows that disappear after a filter change, a page change or a refresh are unticked automatically, so nobody switches back later and finds a hidden row still ticked and acted on
+- **Actions**: send them only to the rows they apply to (disable only goes to enabled accounts…); if none apply, disable the button and use `title` to say how many will be skipped. While sending, `progress` turns the bar into "…ing 3 / 10"; afterwards refresh silently, untick the rows that succeeded and **keep the failed ones ticked** (`selection.replace`) so they can be retried straight away
+- **Irreversible actions** (delete, remove, archive, reject) use `danger`, sit at the far right after a `BatchDivider`, and confirm first with the names listed (up to 5, then "and N more")
+- When there is no batch API on the backend, use `utils/runBatch` to call the single-item API one by one (4 at a time by default; one failure doesn't stop the rest)
+- Ticked rows get `@include row-selected;` for their background (list rows that are cards themselves pass `var(--color-surface)`)
+- **Re-check widths after adding a checkbox column**: when list rows use grid, decide between one line and two lines by the **container width** (`container-type: inline-size` + `@container`), not the viewport — once the sidebar appears (≥1024) the content area is narrower than at 992, so a viewport switch overflows sideways between 1024 and 1180
+- Currently used on: resource management, user management (batch disable/enable), request review (batch reject), class management (batch archive and reclaim), and the class workspace student roster (batch remove)
+
 ### Dropdown menus
 
 - `position: absolute; bottom: calc(100% + 6px); right: 0` (opens upward)

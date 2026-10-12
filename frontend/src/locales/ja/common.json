@@ -16,6 +16,8 @@
   "Error.retry": "再試行",
   "EmptyState.clearFilters": "フィルターをクリア",
   "EmptyState.clearSearch": "検索をクリア",
+  "DataToolbar.selectAll": "すべて選択",
+  "DataToolbar.clearSelection": "選択解除",
   "Error.notFoundTitle": "リソースが見つかりません",
   "Error.notFoundDesc": "削除されたか、URL が間違っている可能性があります。",
   "Error.backToList": "一覧に戻る",

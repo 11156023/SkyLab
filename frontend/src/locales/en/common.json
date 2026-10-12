@@ -16,6 +16,8 @@
   "Error.retry": "Retry",
   "EmptyState.clearFilters": "Clear filters",
   "EmptyState.clearSearch": "Clear search",
+  "DataToolbar.selectAll": "Select all",
+  "DataToolbar.clearSelection": "Clear selection",
   "Error.notFoundTitle": "Resource not found",
   "Error.notFoundDesc": "It may have been deleted, or the address is incorrect.",
   "Error.backToList": "Back to list",
