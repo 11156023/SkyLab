@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 import logging
@@ -508,6 +509,7 @@ async def resolve_navigation(
     request_id = new_ai_request_id()
     started = perf_counter()
     started_at = datetime.now(timezone.utc)
+    response_data: dict[str, Any] = {}
     try:
         response_data = await navigation_client.create_chat_completion(
             payload,
@@ -537,15 +539,18 @@ async def resolve_navigation(
         result = _render_candidates(
             candidate_ids, candidate_map, query=clean_query
         )
-        _log(metrics=metrics)
+        # 用量寫入是同步 DB commit，丟到 worker thread，不卡住 event loop
+        await asyncio.to_thread(_log, metrics=metrics)
         return result
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.exception(
             "Navigation resolve failed, using fixed fallback: %s", exc
         )
-        _log(
+        # 模型已回應但決策不合法時，token 已經用掉了，照實記錄
+        await asyncio.to_thread(
+            _log,
             metrics=usage_metrics(
-                {},
+                response_data,
                 perf_counter() - started,
                 request_id=request_id,
                 started_at=started_at,
