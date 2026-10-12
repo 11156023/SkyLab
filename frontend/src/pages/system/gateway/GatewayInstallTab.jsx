@@ -72,6 +72,9 @@ export default function GatewayInstallTab({ gatewayReady, onGoToConnection }) {
   const [syncing, setSyncing] = useState(false);
   const prevStateRef = useRef(null);
   const inFlightRef = useRef(false);
+  /* 狀態讀取的世代：開始安裝會遞增，之前送出、晚回來的重新整理結果（還是上次的 succeeded）
+     不能套用，否則會誤報安裝成功／失敗、在安裝中同步規則，並因狀態不是 running 而停止輪詢 */
+  const statusSeqRef = useRef(0);
   const logRef = useRef(null);
 
   const syncRules = useCallback(async () => {
@@ -106,12 +109,15 @@ export default function GatewayInstallTab({ gatewayReady, onGoToConnection }) {
   const refresh = useCallback(async ({ silent = false } = {}) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
+    const seq = ++statusSeqRef.current;
+    const isLatest = () => seq === statusSeqRef.current;
     if (!silent) setLoading(true);
     try {
-      applyStatus(await GatewayService.getInstallStatus());
+      const next = await GatewayService.getInstallStatus();
+      if (isLatest()) applyStatus(next);
     } catch (err) {
       // 輪詢時偶發的 SSH 失敗不蓋掉畫面，只有手動載入才顯示錯誤
-      if (!silent) setLoadError(err?.message ?? t("Error.generic", { ns: "common" }));
+      if (!silent && isLatest()) setLoadError(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       inFlightRef.current = false;
       if (!silent) setLoading(false);
@@ -154,6 +160,8 @@ export default function GatewayInstallTab({ gatewayReady, onGoToConnection }) {
     setStarting(true);
     try {
       const next = await GatewayService.startInstall(toInstallPayload(form));
+      // 開始安裝前後送出、還沒回來的重新整理都作廢
+      statusSeqRef.current += 1;
       prevStateRef.current = "running";
       applyStatus(next);
       toast.success(t("GatewayPage.toastInstallStarted"));

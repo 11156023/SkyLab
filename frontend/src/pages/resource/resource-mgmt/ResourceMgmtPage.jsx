@@ -21,7 +21,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
-import { formatDate } from "../../../utils/formatDate";
+import { formatExpiryDate } from "../../../utils/formatDate";
 
 /* ── Constants ── */
 function useStatusMap() {
@@ -84,6 +84,17 @@ function useBatchActions() {
 }
 
 /* ── Primitive sub-components ── */
+function ExpiryDateValue({ value }) {
+  const expiry = formatExpiryDate(value);
+  if (!expiry) return "—";
+  return (
+    <>
+      {expiry.date}
+      {expiry.cutoff && <div className={styles.envSub} title={expiry.title}>{expiry.cutoff}</div>}
+    </>
+  );
+}
+
 function StatusBadge({ status }) {
   const statusMap = useStatusMap();
   const s = statusMap[status] ?? { label: status, color: "muted" };
@@ -299,14 +310,19 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
   const batchActions = useBatchActions();
   const [pending, setPending] = useState(null); // 進行中的 action
   const count = selectedVmids.length;
+  /* 確認對話框開著時清單可能已刷新、勾選被清掉：送出時以當下仍勾選且看得到的機器為準 */
+  const latestVmidsRef = useRef(selectedVmids);
+  latestVmidsRef.current = selectedVmids;
 
   async function run(action) {
+    const vmids = latestVmidsRef.current;
+    if (vmids.length === 0) return;
     setPending(action);
     try {
-      const res = await ResourcesService.batchActionInChunks(selectedVmids, action);
+      const res = await ResourcesService.batchActionInChunks(vmids, action);
       const label = action === "delete" ? t("ResourceMgmtPage.delete") : actionLabel[action];
       if ((res?.failed ?? 0) === 0) {
-        toast.success(t("ResourceMgmtPage.batchSuccessToast", { count: res?.succeeded ?? count, label }));
+        toast.success(t("ResourceMgmtPage.batchSuccessToast", { count: res?.succeeded ?? vmids.length, label }));
       } else {
         toast.error(t("ResourceMgmtPage.batchPartialFailToast", { label, succeeded: res?.succeeded ?? 0, failed: res?.failed }));
       }
@@ -520,10 +536,10 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
           )}
         </td>
 
-        {/* 到期日 */}
+        {/* 到期日：日期照字面，小字附本地時間的實際截止時刻（後端以到期日 00:00 UTC 為界） */}
         <td className={styles.td}>
           {resource.expiry_date
-            ? formatDate(resource.expiry_date)
+            ? <ExpiryDateValue value={resource.expiry_date} />
             : <span className={styles.noExpiry}>{t("ResourceMgmtPage.noExpiry")}</span>
           }
         </td>
@@ -626,6 +642,20 @@ export default function ResourceMgmtPage() {
     .filter((r) => r.can_control !== false && r.vmid != null && r.vmid > 0)
     .map((r) => r.vmid);
   const allSelected = selectableVmids.length > 0 && selectableVmids.every((v) => selectedVmids.has(v));
+  /* 批次操作只作用在看得到、還勾著的列；清單刷新後到下面的 effect 清掉勾選之前的那一次 render 也不例外 */
+  const checkedVmids = selectableVmids.filter((v) => selectedVmids.has(v));
+
+  /* 刷新後消失、或被併進環境群組（列上沒有勾選框）的機器默默取消勾選，已選數量跟著更新；
+     不能留著，否則它們會被後續的批次刪除／電源操作帶到。
+     selectableVmids 每次 render 都是新陣列，以內容當相依，集合真的變了才清 */
+  const selectableKey = selectableVmids.join(",");
+  useEffect(() => {
+    const selectable = new Set(selectableVmids);
+    setSelectedVmids((prev) => {
+      const next = new Set([...prev].filter((v) => selectable.has(v)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [selectableKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleSelect(vmid) {
     setSelectedVmids((prev) => {
@@ -640,9 +670,18 @@ export default function ResourceMgmtPage() {
     setSelectedVmids(allSelected ? new Set() : new Set(selectableVmids));
   }
 
+  /* 只採用最後一次發出的清單請求：清單經 PVE 要好幾秒，操作前送出的背景刷新可能比
+     操作後的重新載入晚回來，舊快照不能蓋掉新清單。前景載入被背景刷新超車時，
+     由最新那次接手收掉 loading／顯示錯誤，首次載入失敗不會被吞掉 */
+  const fetchSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
   const fetchResources = useCallback(async (silent = false, signal) => {
+    const seq = ++fetchSeqRef.current;
+    const isLatest = () => seq === fetchSeqRef.current;
     if (!silent) {
+      foregroundPendingRef.current = true;
       setLoading(true);
       setError(false);
     }
@@ -651,15 +690,24 @@ export default function ResourceMgmtPage() {
         ResourcesService.listAll({ signal }),
         QuickPracticeService.listAllSessions({ signal }).catch(() => []),
       ]);
+      if (!isLatest()) return;
       setResources(data ?? []);
       setQuickSessions(sessions ?? []);
       /* 背景刷新成功也要能把先前的錯誤畫面收掉 */
       setError(false);
     } catch (err) {
-      if (!silent && !err?.cancelled) setError(true);
+      if (isLatest() && foregroundPendingRef.current && !err?.cancelled) setError(true);
     } finally {
-      if (!silent && !signal?.aborted) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
+  }, []);
+
+  /* 單列操作後就地更新了清單：操作前送出、還在路上的背景刷新回來時不能把它蓋回去 */
+  const discardInFlightRefresh = useCallback(() => {
+    if (!foregroundPendingRef.current) fetchSeqRef.current += 1;
   }, []);
 
   useEffect(() => {
@@ -671,10 +719,12 @@ export default function ResourceMgmtPage() {
   useAutoRefresh(() => fetchResources(true), anyBooting ? BOOTING_POLL_INTERVAL : undefined);
 
   function handleUpdated(updated) {
+    discardInFlightRefresh();
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
   }
 
   function handleDeleted(vmid) {
+    discardInFlightRefresh();
     setResources((prev) => prev.filter((r) => r.vmid !== vmid));
     setSelectedVmids((prev) => {
       if (!prev.has(vmid)) return prev;
@@ -700,7 +750,7 @@ export default function ResourceMgmtPage() {
 
       {/* ── 批次操作 ── */}
       <BatchActionBar
-        selectedVmids={[...selectedVmids]}
+        selectedVmids={checkedVmids}
         onDone={() => {
           setSelectedVmids(new Set());
           fetchResources();

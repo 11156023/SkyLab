@@ -1251,10 +1251,19 @@ export default function AiApiPage() {
   const [loadError, setLoadError] = useState(false);
   const requestStatusRef = useRef(null);
 
+  /* 只採用最後一次發出的請求：自動更新與操作後的重抓交錯時，較早送出卻較晚回來的舊清單
+     不能蓋掉新的（也不能讓已提醒過的審核結果再跳一次）。前景載入被背景重抓超車時，
+     由最新那次接手收 loading／顯示錯誤 */
+  const loadSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /* silent：操作後、自動更新時在背景重抓，不讓整張表閃成載入動畫，失敗時保留畫面上的資料；
      quiet：自動更新失敗不跳 toast（網路斷線時每 30 秒一則會轟炸） */
   const load = useCallback(async ({ silent = false, quiet = false } = {}) => {
+    const seq = ++loadSeqRef.current;
+    const isLatest = () => seq === loadSeqRef.current;
     if (!silent) {
+      foregroundPendingRef.current = true;
       setLoading(true);
       setLoadError(false);
     }
@@ -1263,6 +1272,7 @@ export default function AiApiPage() {
         AiApiService.listMyCredentials(),
         AiApiService.listMyRequests(),
       ]);
+      if (!isLatest()) return;
       const nextRequests = reqRes?.data ?? [];
       // 待審的申請有了結果就提醒：學生常開著這頁等審核
       const previous = requestStatusRef.current;
@@ -1278,10 +1288,14 @@ export default function AiApiPage() {
       setPublicBaseUrl(credRes?.public_base_url ?? "");
       setRequests(nextRequests);
     } catch (e) {
-      if (!silent) setLoadError(true);
+      if (!isLatest()) return;
+      if (foregroundPendingRef.current) setLoadError(true);
       else if (!quiet) toast.error(e?.message ?? t("AiApiPage.loadError"));
     } finally {
-      if (!silent) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [toast, t]);
 

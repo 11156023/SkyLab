@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AdminPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -311,20 +311,40 @@ export default function AdminPage() {
   const [modal, setModal] = useState(null);
   const modalPresence  = useDialogPresence(modal);
 
+  /* 只採用最後一次發出的請求：較早送出卻較晚回來的舊清單不能蓋掉新的。
+     前景載入被背景刷新超車時，由最新那次接手收 loading、提示錯誤 */
+  const fetchSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用。
       逐頁取回全部使用者（原本寫死 limit 100，第 101 位之後在這頁根本管不到）；
       清單改由前端分頁呈現，搜尋因此能掃到全部帳號。 */
   const fetchUsers = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    const seq = ++fetchSeqRef.current;
+    const isLatest = () => seq === fetchSeqRef.current;
+    if (!silent) {
+      foregroundPendingRef.current = true;
+      setLoading(true);
+    }
     try {
       const data = await UsersService.listAll();
-      setUsers(data);
+      if (isLatest()) setUsers(data);
     } catch (err) {
-      if (!silent) toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+      if (isLatest() && foregroundPendingRef.current) toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
-      if (!silent) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [toast, t]);
+
+  /* 本地套用了增刪改：改動前送出、還在路上的清單回應回來時不能把它蓋回去。
+     前景載入中就改發一次背景重抓接手（舊的作廢，loading 交給新的收） */
+  const discardInFlightFetch = useCallback(() => {
+    if (foregroundPendingRef.current) fetchUsers(true);
+    else fetchSeqRef.current += 1;
+  }, [fetchUsers]);
 
   useEffect(() => {
     fetchUsers();
@@ -363,10 +383,12 @@ export default function AdminPage() {
     try {
       if (modal?.mode === "edit") {
         const updated = await UsersService.update(modal.user.id, payload);
+        discardInFlightFetch();
         setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
         toast.success(t("AdminPage.toastUpdated"));
       } else {
         const created = await UsersService.create(payload);
+        discardInFlightFetch();
         setUsers((prev) => [created, ...prev]);
         toast.success(t("AdminPage.toastCreated"));
       }
@@ -390,6 +412,7 @@ export default function AdminPage() {
     if (!ok) return;
     try {
       await UsersService.delete(user.id);
+      discardInFlightFetch();
       setUsers((prev) => prev.filter((item) => item.id !== user.id));
       toast.success(t("AdminPage.toastDeleted"));
     } catch (err) {
@@ -408,6 +431,7 @@ export default function AdminPage() {
     if (!ok) return;
     try {
       await UsersService.resetTotp(user.id);
+      discardInFlightFetch();
       setUsers((prev) =>
         prev.map((item) => (item.id === user.id ? { ...item, totp_enabled: false } : item)),
       );

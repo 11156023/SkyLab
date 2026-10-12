@@ -70,6 +70,18 @@ function formatDatetime(isoStr) {
   return fmt.formatDateTime(isoStr, null);
 }
 
+/* 到期日照字面顯示，小字附本地時間的實際截止時刻（後端以到期日 00:00 UTC 為界） */
+function ExpiryDateValue({ value }) {
+  const expiry = fmt.formatExpiryDate(value);
+  if (!expiry) return null;
+  return (
+    <>
+      {expiry.date}
+      {expiry.cutoff && <div className={styles.envSub} title={expiry.title}>{expiry.cutoff}</div>}
+    </>
+  );
+}
+
 /* ── Primitive sub-components ── */
 function StatusBadge({ status }) {
   const { t } = useTranslation("personal");
@@ -334,7 +346,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
       </td>
       {/* 期限：有到期日照舊；沒有到期日但有申請的使用時段，顯示時段結束日（已結束標紅），不再誤寫「無期限」 */}
       <td className={styles.td}>
-        {resource.expiry_date ? formatDate(resource.expiry_date)
+        {resource.expiry_date ? <ExpiryDateValue value={resource.expiry_date} />
           : resource.window_end_at ? (
             <span className={resource.start_blocked_reason === "window_ended" ? styles.periodEnded : undefined}>
               {formatDate(resource.window_end_at)}
