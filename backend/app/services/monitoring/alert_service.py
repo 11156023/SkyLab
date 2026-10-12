@@ -75,6 +75,10 @@ def collect_samples(
         target = str(n.get("node") or "")
         if not target:
             continue
+        # 離線／unknown 節點 PVE 不回 cpu 等欄位：補 0 會變成假的 0% 樣本，
+        # 把仍未恢復的 CPU 警告誤判 resolve；當成樣本缺漏處理
+        if str(n.get("status") or "online") != "online":
+            continue
         cpu = float(n.get("cpu") or 0.0) * 100.0
         samples.append(
             MetricSample(scope="node", target=target, metric="cpu", value=cpu)

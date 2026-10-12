@@ -130,3 +130,19 @@ def test_evaluate_missing_sample_does_not_resolve() -> None:
     decision = evaluate([], [open_alert], FakeConfig(), NOW)
     assert decision.resolved_targets == []
     assert decision.new_alerts == []
+
+
+def test_collect_samples_skips_offline_node() -> None:
+    """離線節點沒有 cpu 欄位，不能補成 0% 樣本把開著的 CPU 警告收掉。"""
+    nodes = [
+        {"node": "pve1", "status": "offline"},
+        {"node": "pve2", "status": "online", "cpu": 0.2, "maxcpu": 4},
+    ]
+    samples = collect_samples(nodes, [])
+    assert {(s.target, s.metric) for s in samples} == {("pve2", "cpu")}
+
+    open_alert = FakeAlert(
+        target="pve1", metric="cpu", created_at=NOW - timedelta(hours=1)
+    )
+    decision = evaluate(samples, [open_alert], FakeConfig(), NOW)
+    assert decision.resolved_targets == []
