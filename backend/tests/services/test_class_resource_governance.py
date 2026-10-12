@@ -721,3 +721,75 @@ def test_retry_of_dead_running_job_keeps_completed_machines_scheduled(monkeypatc
     assert node.batch_job_id == new_job_id
     assert job.done == 1 and job.failed_count == 1
     assert job.status == BatchProvisionJobStatus.completed
+
+
+def test_reaped_stale_job_keeps_completed_machines_scheduled(monkeypatch):
+    """worker 卡死被回收的 running 工作，只要有建好的機器就標 completed。
+
+    與 worker 收尾、班級重試同一條規則：全部失敗才標 failed，否則排程器只認
+    completed，已建好的機器整學期都不會再自動開機。
+    """
+    from app.models import BatchProvisionJobStatus
+
+    long_ago = datetime.now(UTC) - timedelta(days=2)
+
+    def stale_job(task_statuses):
+        job = SimpleNamespace(
+            id=uuid.uuid4(),
+            teaching_class_id=None,
+            status=BatchProvisionJobStatus.running,
+            done=0,
+            total=len(task_statuses),
+            failed_count=0,
+            finished_at=None,
+            reviewed_at=None,
+            created_at=long_ago,
+        )
+        tasks = [
+            SimpleNamespace(
+                status=status,
+                started_at=long_ago,
+                finished_at=None,
+                error=None,
+            )
+            for status in task_statuses
+        ]
+        return job, tasks
+
+    partial_job, partial_tasks = stale_job(
+        [BatchProvisionTaskStatus.completed, BatchProvisionTaskStatus.running]
+    )
+    empty_job, empty_tasks = stale_job(
+        [BatchProvisionTaskStatus.pending, BatchProvisionTaskStatus.running]
+    )
+    tasks_by_job = {partial_job.id: partial_tasks, empty_job.id: empty_tasks}
+
+    class _ReapSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def exec(self, _statement):
+            return _Result([partial_job, empty_job])
+
+        def add(self, _value):
+            return None
+
+        def commit(self):
+            return None
+
+    monkeypatch.setattr(batch_provision_service, "Session", lambda _engine: _ReapSession())
+    monkeypatch.setattr(
+        batch_provision_service.bp_repo,
+        "get_job_tasks",
+        lambda *, session, job_id: tasks_by_job[job_id],
+    )
+
+    assert batch_provision_service.reap_stale_batch_jobs() == 2
+
+    assert (partial_job.done, partial_job.failed_count) == (1, 1)
+    assert partial_job.status == BatchProvisionJobStatus.completed
+    assert (empty_job.done, empty_job.failed_count) == (0, 2)
+    assert empty_job.status == BatchProvisionJobStatus.failed
