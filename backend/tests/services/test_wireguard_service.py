@@ -144,6 +144,52 @@ def test_resource_targets_use_configured_platform_subnet(monkeypatch) -> None:
     ]
 
 
+def test_resource_targets_prefer_allocated_ip_over_guest_reported_ip(
+    monkeypatch,
+) -> None:
+    """guest agent 回報的 IP 可被 VM 擁有者改成同學的位址；有配發紀錄就以它為準。"""
+    resources = [
+        ResourcePublic(
+            vmid=301,
+            name="spoofed",
+            status="running",
+            node="pve1",
+            type="lxc",
+            # 擁有者在機器裡把位址改成同學那台
+            ip_address="10.10.1.57",
+        ),
+        ResourcePublic(
+            vmid=302,
+            name="manual",
+            status="running",
+            node="pve1",
+            type="lxc",
+            ip_address="10.10.1.80",
+        ),
+    ]
+    monkeypatch.setattr(
+        wireguard_service.resource_service,
+        "list_by_user",
+        lambda **_: resources,
+    )
+    allocations = {301: "10.10.1.21"}
+    monkeypatch.setattr(
+        wireguard_service.resource_repo,
+        "get_allocated_ip_address",
+        lambda *, session, vmid: allocations.get(vmid),
+    )
+
+    targets = wireguard_service._resource_targets(
+        session=object(), user_id=uuid.uuid4()
+    )
+
+    assert [(item.vmid, item.host) for item in targets] == [
+        (301, "10.10.1.21"),
+        # 沒有配發紀錄（手動建的機器）才沿用回報值
+        (302, "10.10.1.80"),
+    ]
+
+
 def test_gateway_acl_uses_configured_subnet_and_removes_stale_targets(
     monkeypatch,
 ) -> None:

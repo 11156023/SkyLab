@@ -9,6 +9,8 @@
 
 import logging
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ProxmoxError
 from app.services.network.publish_target_policy import assert_publishable_vm_ip
@@ -190,7 +192,18 @@ def apply_nat_rule(
         internal_port=internal_port,
         protocol=protocol,
     )
-    created = nat_repo.create_rule(session, rule)  # type: ignore[arg-type]
+    try:
+        created = nat_repo.create_rule(session, rule)  # type: ignore[arg-type]
+    except IntegrityError as exc:
+        # 上面的檢查與寫入之間有時間差：兩個請求同時配到同一個對外 port 時只有
+        # 唯一約束擋得住。轉成 BadRequestError 讓呼叫端（課程發布）換號重試，
+        # 並先 rollback，否則同一個 session 之後的查詢都會 PendingRollbackError。
+        rollback = getattr(session, "rollback", None)
+        if rollback is not None:
+            rollback()
+        raise BadRequestError(
+            t("nat.externalPortTaken", port=external_port, protocol=protocol)
+        ) from exc
     try:
         _sync_nginx_stream(session)
     except Exception:

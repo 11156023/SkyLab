@@ -1379,7 +1379,30 @@ def _resize_clone_disk_if_needed(
             template_gb,
         )
         return
-    proxmox_service.resize_disk(node, vmid, "qemu", "scsi0", f"{int(disk_size)}G")
+    proxmox_service.resize_disk(
+        node, vmid, "qemu", _clone_boot_disk_key(node, vmid), f"{int(disk_size)}G"
+    )
+
+
+def _clone_boot_disk_key(node: str, vmid: int) -> str:
+    """克隆機的開機磁碟 key（與 clone_service._grow_qemu_boot_disk 同一套判斷）。
+
+    開機磁碟不一定是 scsi0（virtio0／sata0／ide0 的範本也存在），寫死 scsi0
+    會讓 PVE 找不到磁碟而整台回滾。讀不到 config 時照舊用 scsi0：猜錯 PVE
+    會直接報錯，不會悄悄略過放大。
+    """
+    from app.services.template import template_service
+
+    try:
+        boot_disk = template_service.qemu_boot_disk(
+            proxmox_service.get_config(node, vmid, "qemu")
+        )
+    except Exception:
+        logger.warning(
+            "Unable to read boot disk of VM %s; assuming scsi0", vmid, exc_info=True
+        )
+        return "scsi0"
+    return boot_disk[0] if boot_disk else "scsi0"
 
 
 _LXC_ROOTFS_SIZE_UNITS = {"K": 1 / 1024**2, "M": 1 / 1024, "G": 1.0, "T": 1024.0}
