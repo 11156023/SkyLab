@@ -387,7 +387,6 @@ def check_ai(*, use_cache: bool = True) -> list[dict[str, Any]]:
     """AI Gateway（LiteLLM）與各模型（name = ``ai_gateway``／``ai_model:<alias>``）。
 
     沒設定 LITELLM_RUNTIME_API_KEY 時視為未啟用（與 AI 監控頁的 runtime 快照一致）。
-    AI_API_API_KEY 未設定而停用 AI API 時，另外列一個 ``ai_api`` 元件顯示「未設定」。
     """
     now = time.monotonic()
     with _AiCache.lock:
@@ -430,16 +429,6 @@ def check_ai(*, use_cache: bool = True) -> list[dict[str, Any]]:
             if item.get("alert_message"):
                 component["alert_message"] = item["alert_message"]
             components.append(component)
-
-    if not ai_settings.ai_api_enabled:
-        components.append(
-            _component(
-                health_policy.AI_API_COMPONENT,
-                health_policy.AI_API_LABEL,
-                "disabled",
-                detail=health_policy.AI_API_NOT_CONFIGURED_DETAIL,
-            )
-        )
 
     with _AiCache.lock:
         _AiCache.components = [dict(c) for c in components]

@@ -31,7 +31,6 @@ const COMPONENT_ICONS = {
   worker: "engineering",
   gateway: "router",
   ai_gateway: "smart_toy",
-  ai_api: "api",
 };
 
 /* 這些元件的名稱帶有部署資訊（PVE 連線名稱、Gateway 位址、AI 模型名稱），直接用後端給的 label */

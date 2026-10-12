@@ -81,6 +81,5 @@
   "aiMonitoring.runtimeNotConfigured": "LiteLLM runtime monitoring is not configured.",
   "aiMonitoring.runtimeUnavailable": "LiteLLM runtime is unavailable.",
 
-  "aiProxy.rateLimitExceeded": "Rate limit exceeded. Limit: {limit} requests per {window_seconds} seconds.",
-  "aiProxy.notConfigured": "The AI API is not configured and is currently unavailable. Please contact the system administrator."
+  "aiProxy.rateLimitExceeded": "Rate limit exceeded. Limit: {limit} requests per {window_seconds} seconds."
 }

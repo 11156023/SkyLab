@@ -9,9 +9,6 @@ from app.core.config import settings as core_settings
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 ENV_FILE = PROJECT_ROOT / ".env"
 
-# .env.example 出貨的 AI_API_API_KEY 範本值；仍是它（或空白）代表還沒設定真正的 key。
-AI_API_KEY_TEMPLATE_VALUE = "ai-api-secret-key-change-me"
-
 
 class AIAPIEnvSettings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -22,7 +19,7 @@ class AIAPIEnvSettings(BaseSettings):
     )
 
     ai_api_base_url: str = "http://litellm:4000"
-    ai_api_api_key: str = AI_API_KEY_TEMPLATE_VALUE
+    ai_api_api_key: str = "ai-api-secret-key-change-me"
     ai_api_timeout: int = 120
     ai_api_max_request_body_bytes: int = 1_048_576
 
@@ -45,20 +42,6 @@ class AIAPIEnvSettings(BaseSettings):
     @property
     def redis_url(self) -> str:
         return core_settings.REDIS_URL
-
-    @property
-    def ai_api_key_is_placeholder(self) -> bool:
-        key = self.ai_api_api_key.strip()
-        return not key or key == AI_API_KEY_TEMPLATE_VALUE
-
-    @property
-    def ai_api_enabled(self) -> bool:
-        """local 以外的環境，AI_API_API_KEY 仍是空白或範本值時停用 AI API。
-
-        只停用 AI API（回「未設定」錯誤、不送去 LiteLLM），backend 照常啟動；
-        系統健康卡與啟動日誌會提示。local 開發照舊放行。
-        """
-        return core_settings.ENVIRONMENT == "local" or not self.ai_api_key_is_placeholder
 
     @property
     def resolved_public_base_url(self) -> str:

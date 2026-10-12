@@ -66,11 +66,6 @@ REDIS_HOST_PORT=6379
 以這個值建立 Virtual Key（別名 `campus-ai-api-service`），已存在時則把模型白名單同步成
 `models.json` 目前的 alias。沿用既有 LiteLLM 資料庫時，把當初核發給 Campus 的那把 key 填進來即可。
 
-`ENVIRONMENT=local` 以外，`AI_API_API_KEY` 空白或仍是 `.env.example` 的範本值（`ai-api-secret-key-change-me`）時，
-不會拿這個值去連上游，而是停用 AI API：backend 照常啟動但記一筆警告，所有 `/api/v1/ai-proxy/*`
-請求回 HTTP 503、錯誤代碼 `ai_api_not_configured`，資源監控頁的「系統健康」卡列出「AI API」未設定
-（不拉低整體狀態、不發告警）。在 `.env` 填入真正的 `AI_API_API_KEY` 後重啟 backend 即可啟用。
-
 LiteLLM `.env`：
 
 ```dotenv
@@ -409,7 +404,6 @@ unset AI_API_SMOKE_KEY
 | key 核發回 HTTP 400 | 已有別把 key 用了別名 `campus-ai-api-service`：把那把 key 填進 `AI_API_API_KEY`，或在 LiteLLM 撤銷後重跑 |
 | 429 | Campus 限流或 LiteLLM RPM 限制；依 `Retry-After` 延後重試 |
 | 413／415 | 請求超過 `AI_API_MAX_REQUEST_BODY_BYTES`，或 Content-Type 不是 JSON |
-| 503 `ai_api_not_configured` | `AI_API_API_KEY` 空白或仍是 `.env.example` 的範本值；在 `.env` 填入真正的 key 後重啟 backend |
 | 502／503 | 檢查 gateway、上游與 DB 是否可用，再看 backend／LiteLLM 日誌 |
 | DB 認證／migration 失敗 | 核對專用角色、密碼 URL 編碼、DB 主機與埠；不要改用 Campus DB |
 | salt 更換後不能解密 | 還原原 salt 與對應 DB 備份，不能以新 salt 修復舊密文 |

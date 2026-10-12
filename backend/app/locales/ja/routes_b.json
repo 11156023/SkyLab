@@ -81,6 +81,5 @@
   "aiMonitoring.runtimeNotConfigured": "LiteLLM ランタイム監視が設定されていません。",
   "aiMonitoring.runtimeUnavailable": "LiteLLM ランタイムは現在利用できません。",
 
-  "aiProxy.rateLimitExceeded": "レート制限を超えました。制限：{window_seconds} 秒あたり {limit} 回のリクエスト。",
-  "aiProxy.notConfigured": "AI API が未設定のため、現在利用できません。システム管理者に連絡してください。"
+  "aiProxy.rateLimitExceeded": "レート制限を超えました。制限：{window_seconds} 秒あたり {limit} 回のリクエスト。"
 }

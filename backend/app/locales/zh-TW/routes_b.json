@@ -81,6 +81,5 @@
   "aiMonitoring.runtimeNotConfigured": "LiteLLM 執行環境監控尚未設定",
   "aiMonitoring.runtimeUnavailable": "LiteLLM 執行環境目前無法使用",
 
-  "aiProxy.rateLimitExceeded": "已超過速率限制。限制：每 {window_seconds} 秒 {limit} 次請求。",
-  "aiProxy.notConfigured": "AI API 未設定，目前無法使用，請聯絡系統管理員。"
+  "aiProxy.rateLimitExceeded": "已超過速率限制。限制：每 {window_seconds} 秒 {limit} 次請求。"
 }
