@@ -28,7 +28,6 @@ settings.SENTRY_DSN = None
 # 測試預設關閉；要測驗證本身的案例自己用 monkeypatch 開（test_turnstile_service）。
 settings.TURNSTILE_SITE_KEY = None
 settings.TURNSTILE_SECRET_KEY = None
-
 from app.core.db import engine, ensure_first_superuser, init_db
 from app.main import app
 from app.models import (

@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from html import escape
@@ -36,9 +37,11 @@ from app.schemas import (
 )
 from app.services.user import audit_service
 from app.services.user.password_policy import ensure_password_complexity
+from app.services.user.registration_policy_service import get_policy
 from app.utils import generate_new_account_email, send_email
 
 _EMAIL_CHANGE_HOURS = 1
+_SIGNUP_VERIFICATION_HOURS = 24
 
 
 def list_users(*, session: Session, skip: int = 0, limit: int = 100) -> UsersPublic:
@@ -53,6 +56,55 @@ def list_users(*, session: Session, skip: int = 0, limit: int = 100) -> UsersPub
         .limit(limit)
     ).all()
     return UsersPublic(data=users, count=count)
+
+
+def list_pending_registrations(*, session: Session) -> UsersPublic:
+    users = session.exec(
+        select(User)
+        .where(
+            User.registration_status == "pending_review", col(User.deleted_at).is_(None)
+        )
+        .order_by(User.created_at.asc())
+    ).all()
+    return UsersPublic(data=users, count=len(users))
+
+
+def review_registration(
+    *, session: Session, user_id: uuid.UUID, actor: User, approve: bool
+) -> User:
+    user = session.get(User, user_id)
+    if (
+        user is None
+        or user.deleted_at is not None
+        or user.registration_status != "pending_review"
+    ):
+        raise BadRequestError(t("user.registrationNotPending"))
+    result = session.execute(
+        update(User)
+        .where(
+            User.id == user_id,
+            User.registration_status == "pending_review",
+            col(User.deleted_at).is_(None),
+        )
+        .values(
+            registration_status="approved" if approve else "rejected",
+            is_active=approve,
+            token_version=User.token_version + 1,
+        )
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        raise BadRequestError(t("user.registrationNotPending"))
+    audit_service.log_action(
+        session=session,
+        user_id=actor.id,
+        action="user_update",
+        details=f"{'Approved' if approve else 'Rejected'} registration: {user.email}",
+        commit=False,
+    )
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 def _commit_and_refresh(session: Session, user: User) -> User:
@@ -120,21 +172,106 @@ def create_user(
 
 
 def register_user(*, session: Session, user_in: UserRegister) -> User:
-    if not settings.ENABLE_SIGNUP:
+    if not get_policy(session).signup_enabled:
         raise BadRequestError(t("user.registrationDisabled"))
-    ensure_password_complexity(user_in.password)
-
     existing = user_repo.get_user_by_email(session=session, email=user_in.email)
-    if existing:
+    if existing and (
+        existing.registration_status != "pending_email"
+        or existing.auth_source != "local"
+    ):
         raise ConflictError(t("user.emailExists"))
-    user_create = UserCreate.model_validate(user_in.model_dump())
-    user = user_repo.create_user(session=session, user_create=user_create)
-    return _commit_and_refresh(session, user)
+    if not settings.emails_enabled:
+        raise BadRequestError(t("user.emailVerificationUnavailable"))
+    if existing:
+        user = existing
+        user.token_version += 1
+        session.add(user)
+    else:
+        user_create = UserCreate.model_validate(
+            {
+                **user_in.model_dump(),
+                "password": secrets.token_urlsafe(32),
+                "is_active": False,
+            }
+        )
+        user = user_repo.create_user(session=session, user_create=user_create)
+        user.registration_status = "pending_email"
+        session.add(user)
+    token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "type": "signup_verify",
+            "email": str(user.email),
+            "ver": user.token_version,
+            "exp": datetime.now(timezone.utc)
+            + timedelta(hours=_SIGNUP_VERIFICATION_HOURS),
+        },
+        settings.SECRET_KEY,
+        algorithm=security.ALGORITHM,
+    )
+    link = f"{settings.FRONTEND_HOST.rstrip('/')}/verify-signup#token={quote(token)}"
+    try:
+        send_email(
+            email_to=str(user.email),
+            subject=t("user.signupMailSubject", project_name=settings.PROJECT_NAME),
+            html_content=(
+                f"<p>{escape(t('user.signupMailBody'))}</p>"
+                f'<p><a href="{escape(link, quote=True)}">{escape(t("user.signupMailLink"))}</a></p>'
+                f"<p>{escape(t('user.signupMailExpiry'))}</p>"
+            ),
+        )
+        return _commit_and_refresh(session, user)
+    except Exception:
+        session.rollback()
+        raise
 
 
-def get_user_by_id(
-    *, session: Session, user_id: uuid.UUID, current_user: User
-) -> User:
+def confirm_signup(*, session: Session, token: str, password: str) -> str:
+    try:
+        claims = jwt.decode(token, settings.SECRET_KEY, algorithms=[security.ALGORITHM])
+        if claims.get("type") != "signup_verify":
+            raise ValueError("wrong token type")
+        user_id = uuid.UUID(claims["sub"])
+    except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
+        raise BadRequestError(t("user.emailVerificationInvalid")) from exc
+    user = session.get(User, user_id)
+    if (
+        user is None
+        or user.deleted_at is not None
+        or user.registration_status != "pending_email"
+        or user.auth_source != "local"
+        or str(user.email) != claims.get("email")
+        or user.token_version != claims.get("ver")
+    ):
+        raise BadRequestError(t("user.emailVerificationInvalid"))
+    ensure_password_complexity(password)
+    approval_required = get_policy(session).approval_required
+    result = session.execute(
+        update(User)
+        .where(
+            User.id == user.id,
+            col(User.deleted_at).is_(None),
+            User.email == user.email,
+            User.auth_source == "local",
+            User.is_active.is_(False),
+            User.registration_status == "pending_email",
+            User.token_version == claims["ver"],
+        )
+        .values(
+            hashed_password=get_password_hash(password),
+            is_active=not approval_required,
+            registration_status=("pending_review" if approval_required else "approved"),
+            token_version=user.token_version + 1,
+        )
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        raise BadRequestError(t("user.emailVerificationInvalid"))
+    session.commit()
+    return "pending_review" if approval_required else "approved"
+
+
+def get_user_by_id(*, session: Session, user_id: uuid.UUID, current_user: User) -> User:
     user = session.get(User, user_id)
     if user == current_user:
         return user
@@ -177,6 +314,8 @@ def update_user(
     )
     if not db_user or db_user.deleted_at is not None:
         raise NotFoundError(t("user.idNotFound"))
+    if user_in.is_active is True and db_user.registration_status != "approved":
+        raise BadRequestError(t("user.registrationApprovalRequired"))
     # LDAP 帳號的密碼歸目錄管：設本地密碼登不進去，只會造成困惑（稽核 #9）
     if user_in.password and db_user.auth_source == "ldap":
         raise BadRequestError(t("user.ldapPasswordLocked"))
@@ -194,6 +333,8 @@ def update_user(
         role_changed=role_changed,
     )
     if user_in.email:
+        if db_user.registration_status != "approved" and user_in.email != db_user.email:
+            raise BadRequestError(t("user.registrationApprovalRequired"))
         existing = user_repo.get_user_by_email(session=session, email=user_in.email)
         if existing and existing.id != user_id:
             raise ConflictError(t("user.emailExistsShort"))
@@ -295,7 +436,9 @@ def request_email_change(*, session: Session, current_user: User, email: str) ->
         settings.SECRET_KEY,
         algorithm=security.ALGORITHM,
     )
-    link = f"{settings.FRONTEND_HOST.rstrip('/')}/verify-email-change?token={quote(token)}"
+    link = (
+        f"{settings.FRONTEND_HOST.rstrip('/')}/verify-email-change?token={quote(token)}"
+    )
     safe_link = escape(link, quote=True)
     send_email(
         email_to=email,
@@ -391,7 +534,10 @@ def delete_me(*, session: Session, current_user: User) -> None:
         raise PermissionDeniedError(t("user.selfDeleteForbidden"))
 
     user = session.get(
-        User, current_user.id, populate_existing=True, with_for_update={"key_share": True}
+        User,
+        current_user.id,
+        populate_existing=True,
+        with_for_update={"key_share": True},
     )
     if user is None:
         raise NotFoundError(t("user.notFound"))

@@ -230,7 +230,7 @@ def test_google_login_unregistered_email_has_clear_error(
         patch(
             "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
         ),
-        patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", True),
+        patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", False),
     ):
         _mock_google_tokeninfo(
             monkeypatch,
@@ -249,15 +249,17 @@ def test_google_login_unregistered_email_has_clear_error(
     assert r.json()["detail"] == "此 Google 帳號尚未註冊"
 
 
-def test_google_login_auto_registers_edu_tw_student(
+def test_google_login_auto_registers_any_verified_email(
     client: TestClient, db: Session, monkeypatch
 ) -> None:
-    email = f"{random_lower_string()}@campus.edu.tw"
+    email = f"{random_lower_string()}@gmail.com"
     with (
         patch(
             "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
         ),
         patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", True),
+        patch("app.services.user.auth_service.settings.SMTP_HOST", "smtp.example.test"),
+        patch("app.services.user.auth_service.settings.EMAILS_FROM_EMAIL", "noreply@example.test"),
     ):
         _mock_google_tokeninfo(
             monkeypatch,
