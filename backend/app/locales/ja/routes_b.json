@@ -5,6 +5,7 @@
   "teachingClasses.archivedCannotExtend": "アーカイブ済みのクラスは延長できません。",
   "teachingClasses.extendDateMustBeLater": "新しい終了日は現在の終了日より後である必要があります。",
   "teachingClasses.mustBeArchivedBeforeReclaim": "リソースを回収する前に、クラスをアーカイブする必要があります。",
+  "teachingClasses.archiveAlwaysReclaims": "クラスをアーカイブすると学生のマシンは必ず回収され、残すことはできません。学生にマシンを使い続けてもらう場合は「延長」を使用してください。",
   "teachingClasses.studentsLocked": "マシン作成を送信した後は、学生名簿を変更できません。",
   "teachingClasses.studentNotFound": "クラスの学生が見つかりません。",
   "teachingClasses.csvDecodeFailed": "CSV ファイルの文字コードを解析できません。",

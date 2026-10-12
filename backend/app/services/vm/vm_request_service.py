@@ -259,6 +259,10 @@ def _approve_and_place(
                 commit=False,
             )
             continue
+        if vm_request_placement_service.provisioning_pinned_node(request):
+            # 正在 clone 的申請釘在開始 clone 的節點（rebuild 已固定），
+            # 預留節點、策略與 running 狀態都不動
+            continue
         selection = selections.get(request.id)
         if not selection or not selection.node:
             raise BadRequestError(
@@ -742,7 +746,13 @@ def get_review_context(
     projected_by_node: dict[str, list[str]] = {}
     for request in projected_requests:
         selection = selections.get(request.id)
-        projected_node = selection.node if selection else None
+        # 正在 clone 的申請不重新選點（見 rebuild_reserved_assignments），
+        # 落點就是它開始 clone 的節點
+        projected_node = (
+            selection.node
+            if selection
+            else vm_request_placement_service.provisioning_pinned_node(request)
+        )
         if projected_node:
             projected_by_node.setdefault(projected_node, []).append(request.hostname)
         overlap_items.append(

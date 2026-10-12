@@ -346,7 +346,6 @@ def _process_expired_class_lifecycle(*, now: datetime) -> None:
                     item=item,
                     requested_by=item.owner_id,
                     force=True,
-                    reclaim_resources=True,
                 )
                 logger.info(
                     "Expired teaching class %s archived; queued=%d failed=%d",

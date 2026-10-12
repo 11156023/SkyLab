@@ -20,7 +20,7 @@ def _patch(monkeypatch, *, now, request, resource=None):
     monkeypatch.setattr(resource_service, "_utc_now", lambda: now)
     monkeypatch.setattr(
         resource_service.vm_request_repo,
-        "get_latest_approved_vm_request_by_vmid",
+        "get_window_request_for_vmid",
         lambda **_kwargs: request,
     )
     monkeypatch.setattr(

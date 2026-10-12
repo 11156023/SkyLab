@@ -5,6 +5,7 @@
   "teachingClasses.archivedCannotExtend": "Archived teaching classes cannot be extended.",
   "teachingClasses.extendDateMustBeLater": "The new end date must be later than the current end date.",
   "teachingClasses.mustBeArchivedBeforeReclaim": "Teaching class must be archived before reclaim.",
+  "teachingClasses.archiveAlwaysReclaims": "Archiving a class always reclaims the student machines; they cannot be kept. To let students keep using their machines, extend the class instead.",
   "teachingClasses.studentsLocked": "The student list cannot be changed after provisioning has been submitted.",
   "teachingClasses.studentNotFound": "Class student not found.",
   "teachingClasses.csvDecodeFailed": "Unable to decode the CSV file encoding.",

@@ -133,6 +133,8 @@ def test_approve_batch_job_enqueues_instead_of_threading(
             "task_type": batch_provision_service.TASK_RUN_BATCH_JOB,
             "user_id": reviewer,
             "payload": {"job_id": str(job_id)},
+            # 固定 arq job id：核准入列與排程補入列互相去重
+            "job_id": f"batch_provision:{job_id}",
         }
     ]
 

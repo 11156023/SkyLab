@@ -265,8 +265,12 @@ def _window_request(session: Session, vmid: int) -> Any | None:
     自己申請的機器通常沒有 ``resources.expiry_date``，真正讓它「過期」的是
     這張申請的 ``end_at``（時段結束後 start_window_state 會擋開機）。
     """
-    request = vm_request_repo.get_latest_approved_vm_request_by_vmid(
-        session=session, vmid=vmid
+    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    # 與 start_window_state 同一套規則：機器自己的來源申請優先
+    request = vm_request_repo.get_window_request_for_vmid(
+        session=session,
+        vmid=vmid,
+        source_request_id=getattr(resource, "request_id", None),
     )
     if request is None or request.end_at is None:
         return None

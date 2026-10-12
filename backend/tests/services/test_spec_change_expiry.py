@@ -57,8 +57,8 @@ def window(monkeypatch: pytest.MonkeyPatch) -> dict[str, SimpleNamespace | None]
     holder: dict[str, SimpleNamespace | None] = {"request": None}
     monkeypatch.setattr(
         scs.vm_request_repo,
-        "get_latest_approved_vm_request_by_vmid",
-        lambda *, session, vmid: holder["request"],
+        "get_window_request_for_vmid",
+        lambda *, session, vmid, source_request_id=None: holder["request"],
     )
     monkeypatch.setattr(
         scs.vm_request_repo,

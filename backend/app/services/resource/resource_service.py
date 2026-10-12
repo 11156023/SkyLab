@@ -118,10 +118,13 @@ def start_window_state(
         db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
     if db_resource is not None and getattr(db_resource, "teaching_class_id", None):
         return None, None, None
+    # 時段看機器自己的來源申請（resources.request_id）；沒有才找同 VMID 尚未
+    # 結案的 approved 申請（見 vm_request_repo.get_window_request_for_vmid）
     request = (
-        vm_request_repo.get_latest_approved_vm_request_by_vmid(
+        vm_request_repo.get_window_request_for_vmid(
             session=session,
             vmid=vmid,
+            source_request_id=getattr(db_resource, "request_id", None),
         )
         if latest_request is _UNSET
         else latest_request
@@ -228,16 +231,10 @@ def ensure_lxc_login_password(
             logger.warning("Login password was not applied to LXC %s", vmid)
             return False
         if pending_plain or pending_hash:
-            if pending_plain:
-                resource.login_password_encrypted = pending_plain
-                resource.login_password_hash = None
-            else:
-                resource.login_password_hash = pending_hash
-                resource.login_password_encrypted = None
-            resource.login_password_pending_encrypted = None
-            resource.login_password_pending_hash = None
-            session.add(resource)
-            session.commit()
+            if not _promote_pending_login_password(
+                session=session, resource=resource, vmid=vmid
+            ):
+                return False
             logger.info("Applied pending login password to LXC %s", vmid)
         return True
     except Exception:
@@ -245,6 +242,53 @@ def ensure_lxc_login_password(
             "Login password sync failed for LXC %s", vmid, exc_info=True
         )
         return False
+
+
+def _promote_pending_login_password(
+    *, session: Session, resource: Any, vmid: int
+) -> bool:
+    """已寫進機器的待套用密碼轉成正式欄位並 commit；失敗只撤銷自己這一步。
+
+    寫入包在 savepoint 裡：flush 失敗只回滾這段，呼叫端的 session 與它之前的
+    變更都還能用（開機流程後面還要寫 auto-stop 與稽核）。COMMIT 本身失敗時
+    整個交易已作廢，只能回滾讓 session 回到可用狀態。兩種情況 DB 的待套用
+    密碼都還在，下次受管開機會再套用一次（同一組密碼，重寫無害）。
+    """
+    try:
+        with _savepoint(session):
+            if resource.login_password_pending_encrypted:
+                resource.login_password_encrypted = (
+                    resource.login_password_pending_encrypted
+                )
+                resource.login_password_hash = None
+            else:
+                resource.login_password_hash = resource.login_password_pending_hash
+                resource.login_password_encrypted = None
+            resource.login_password_pending_encrypted = None
+            resource.login_password_pending_hash = None
+            session.add(resource)
+    except Exception:
+        if not getattr(session, "is_active", True):
+            session.rollback()
+        logger.error(
+            "Failed to record the applied login password for LXC %s; keeping it "
+            "pending for the next start",
+            vmid,
+            exc_info=True,
+        )
+        return False
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.error(
+            "Failed to commit the applied login password for LXC %s; keeping it "
+            "pending for the next start",
+            vmid,
+            exc_info=True,
+        )
+        return False
+    return True
 
 
 def _ensure_utc(value: datetime | None) -> datetime | None:
@@ -498,8 +542,8 @@ def _prefetch_list(
         if db.allocation_scope == "teaching_class" and db.teaching_class_id
     }
     request_ids = {db.request_id for db in db_rows if db.request_id}
-    window_vmids = [
-        db.vmid for db in db_rows if not getattr(db, "teaching_class_id", None)
+    window_rows = [
+        db for db in db_rows if not getattr(db, "teaching_class_id", None)
     ]
     teaching_classes = (
         {
@@ -511,22 +555,35 @@ def _prefetch_list(
         if class_ids
         else {}
     )
+    source_requests = (
+        {
+            req.id: req
+            for req in session.exec(
+                select(VMRequest).where(col(VMRequest.id).in_(request_ids))
+            ).all()
+        }
+        if request_ids
+        else {}
+    )
+    # 使用時段與 start_window_state 同一套規則：有來源申請就用它，其餘才依
+    # VMID 找尚未結案的 approved 申請
+    window_requests: dict[int, VMRequest] = {}
+    for db in window_rows:
+        source = source_requests.get(db.request_id) if db.request_id else None
+        if source is not None and source.vmid == db.vmid:
+            window_requests[db.vmid] = source
+    window_requests.update(
+        vm_request_repo.get_latest_approved_vm_requests_by_vmids(
+            session=session,
+            vmids=[db.vmid for db in window_rows if db.vmid not in window_requests],
+            skip_closed=True,
+        )
+    )
     return _ListPrefetch(
         ips=resource_repo.sync_ip_cache_many(session=session, live_ips=live),
         teaching_classes=teaching_classes,
-        source_requests=(
-            {
-                req.id: req
-                for req in session.exec(
-                    select(VMRequest).where(col(VMRequest.id).in_(request_ids))
-                ).all()
-            }
-            if request_ids
-            else {}
-        ),
-        window_requests=vm_request_repo.get_latest_approved_vm_requests_by_vmids(
-            session=session, vmids=window_vmids
-        ),
+        source_requests=source_requests,
+        window_requests=window_requests,
         environment_names=_course_environment_names(session, db_rows, teaching_classes),
     )
 
@@ -1731,8 +1788,10 @@ def _set_auto_stop_for_user_start(*, session: Session, vmid: int) -> None:
             )
             return
 
-    request = vm_request_repo.get_latest_approved_vm_request_by_vmid(
-        session=session, vmid=vmid
+    request = vm_request_repo.get_window_request_for_vmid(
+        session=session,
+        vmid=vmid,
+        source_request_id=getattr(resource, "request_id", None),
     )
     if request and is_in_window(
         request.next_window_start, request.next_window_end, now

@@ -30,7 +30,7 @@ from app.domain.placement.schemas import (
 from app.domain.placement.storage import (
     select_best_storage_for_request as _select_best_storage_for_request,
 )
-from app.models import VMRequest
+from app.models import VMProvisioningStatus, VMRequest
 from app.repositories import vm_request as vm_request_repo
 from app.services.vm import placement_support
 
@@ -404,12 +404,31 @@ def select_reserved_target_node_for_request(
     )
 
 
+def provisioning_pinned_node(request: VMRequest) -> str | None:
+    """正在 clone（provisioning running、還沒有 vmid）的申請所在節點。
+
+    clone 一開始就以當時的 ``desired_node``／``assigned_node`` 為目標節點
+    （provisioning_service._select_request_placement），機器一定落在那裡；
+    重排若改掉它，DB 的預留就和機器實際位置對不上，其他申請的容量也跟著算錯。
+    """
+    if request.vmid is not None:
+        return None
+    if getattr(request, "provisioning_status", None) != VMProvisioningStatus.running:
+        return None
+    node = str(request.desired_node or request.assigned_node or "").strip()
+    return node or None
+
+
 def rebuild_reserved_assignments(
     *,
     session: Session,
     requests: list[VMRequest],
 ) -> dict[uuid.UUID, CurrentPlacementSelection]:
-    """Rebuild node reservations for all approved requests in chronological order."""
+    """Rebuild node reservations for all approved requests in chronological order.
+
+    Requests whose clone is already running stay pinned to that node and get
+    no new selection; they still count as reservations for later requests.
+    """
     ordered_requests = sorted(
         requests,
         key=lambda item: (
@@ -429,6 +448,14 @@ def rebuild_reserved_assignments(
         if request.vmid is not None and current_node:
             request.assigned_node = current_node
             request.desired_node = current_node
+            continue
+        pinned_node = provisioning_pinned_node(request)
+        if pinned_node:
+            # clone 正在跑：釘在原節點，但仍要佔住預留，後面的申請才不會
+            # 把同一份容量再分出去
+            request.assigned_node = pinned_node
+            request.desired_node = pinned_node
+            reserved_so_far.append(request)
             continue
         selection = select_reserved_target_node(
             session=session,

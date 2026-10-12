@@ -87,7 +87,11 @@ def env(monkeypatch: pytest.MonkeyPatch):
             },
         )
 
-        def windows(*, session: Any, vmids: Any) -> dict[int, Any]:
+        def windows(
+            *, session: Any, vmids: Any, skip_closed: bool = False
+        ) -> dict[int, Any]:
+            # 查使用時段：已結案（機器刪除／轉範本）的申請不能算
+            assert skip_closed is True
             calls["windows"].append(sorted(vmids))
             return {}
 

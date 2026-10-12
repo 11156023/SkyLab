@@ -39,7 +39,17 @@ async def provision_vm_request(
 async def run_batch_provision_job(
     task_id: uuid.UUID, payload: dict[str, Any]
 ) -> dict[str, Any]:
-    """班級／批次佈建：逐一建立 job 內每位成員的機器。"""
-    return await asyncio.to_thread(
-        batch_provision_service.run_batch_job_task, task_id, payload
+    """班級／批次佈建：逐一建立 job 內每位成員的機器。
+
+    建機期間另起心跳，讓單台 clone 等很久也不會被回收器當成 worker 已死；
+    心跳跟著這個 coroutine 走，6 小時上限到了被 arq 取消時一起停。
+    """
+    heartbeat = asyncio.create_task(
+        batch_provision_service.heartbeat_loop(uuid.UUID(str(payload["job_id"])))
     )
+    try:
+        return await asyncio.to_thread(
+            batch_provision_service.run_batch_job_task, task_id, payload
+        )
+    finally:
+        heartbeat.cancel()
