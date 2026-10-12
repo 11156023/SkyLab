@@ -142,16 +142,17 @@ function OpenRequestNotice({ request, busy, onApply, onCancel }) {
  * 最底下顯示目前值與相對於目前的變化量。
  * value／min／max／step 是拉桿的原始單位；數字框可用另一個單位（記憶體用 GB）。
  * 數字框在離開欄位時才定稿（夾範圍、對齊步進）再呼叫 onInput，編輯中不干涉。
+ * 目前值不是數字（例如 LXC 沒設核心上限）時 current 給 null，由 changed 決定要不要顯示變化標籤。
  */
 function SliderField({
   id, label, unit, wide, disabled,
   min, max, step, value, current, ticks, onChange,
-  inputValue, inputMin, inputMax, inputStep, onInput,
-  currentText, deltaText, limitText,
+  inputValue, inputMin, inputMax, inputStep, inputPlaceholder, onInput,
+  currentText, deltaText, limitText, changed: changedProp,
 }) {
   const { t } = useTranslation("personal");
   const pct = (v) => `${((v - min) / (max - min || 1)) * 100}%`;
-  const changed = current != null && value !== current;
+  const changed = changedProp ?? (current != null && value !== current);
   const showMark = current != null && current > min && current < max;
 
   return (
@@ -165,6 +166,7 @@ function SliderField({
             max={inputMax}
             step={inputStep}
             value={inputValue}
+            placeholder={inputPlaceholder}
             disabled={disabled}
             aria-label={label}
             onCommit={onInput}
@@ -201,7 +203,7 @@ function SliderField({
       <div className={sl.meta}>
         <span>{currentText}</span>
         {changed && (
-          <span className={`${sl.delta} ${value > current ? sl.deltaUp : sl.deltaDown}`}>{deltaText}</span>
+          <span className={`${sl.delta} ${current != null && value > current ? sl.deltaUp : sl.deltaDown}`}>{deltaText}</span>
         )}
       </div>
       {limitText && <p className={sl.limit}>{limitText}</p>}
@@ -220,7 +222,8 @@ export default function SpecificationsTab({ vmid }) {
   // 課堂與快速練習的機器照課程環境版本建立，規格不接受個別調整；
   // 資源的 can_request_spec_change 為 false 時鎖住整張調整表單。
   const [specFixed, setSpecFixed] = useState(false);
-  const [cores, setCores] = useState(1);
+  // null＝沒有設定核心上限（LXC 不設 cores 時可用整台主機的 CPU），使用者動過拉桿才會變成數字
+  const [cores, setCores] = useState(null);
   const [memory, setMemory] = useState(512);
   const [disk, setDisk] = useState(0);
   const [reason, setReason] = useState("");
@@ -236,7 +239,7 @@ export default function SpecificationsTab({ vmid }) {
       /* /specs 回的是實際生效值（cpu_cores / memory_mb / disk_gb），不是 Proxmox 原始 config */
       const c = await ResourcesService.getSpecs(vmid);
       setConfig(c);
-      setCores(c.cpu_cores || 1);
+      setCores(c.cpu_cores || null);
       setMemory(c.memory_mb || 512);
       setDisk(c.disk_gb || 0);
     } catch (e) {
@@ -325,6 +328,9 @@ export default function SpecificationsTab({ vmid }) {
 
   const currentDisk = config?.disk_gb ?? 0;
   const diskChanged = currentDisk > 0 && disk !== currentDisk;
+  /* 沒設核心上限時顯示「不限」；只有使用者真的動過 CPU 拉桿／數字框才送核心數 */
+  const coresUnlimited = !config?.cpu_cores;
+  const coresChanged = config != null && cores != null && cores !== config.cpu_cores;
 
   /* 配額：後端送單、核准、套用都會對「調大的部分」檢查剩餘配額，
      所以拉桿上限＝目前規格＋剩餘配額。管理員直接改規格不走申請、不扣自己的配額。
@@ -339,9 +345,10 @@ export default function SpecificationsTab({ vmid }) {
     return () => controller.abort();
   }, [isAdmin, openRequest?.id, openRequest?.apply_status, config]);
   const quotaLeft = quotaRemaining(quotaUsage);
+  /* 不限 → 設上限時後端把目前值當 0 計算配額（spec_change_delta），拉桿上限跟著一致 */
   const coresRange = growthRange({
     min: CORE_MIN, max: CORE_MAX,
-    current: config?.cpu_cores || CORE_MIN, remaining: quotaLeft.cores,
+    current: config?.cpu_cores || 0, remaining: quotaLeft.cores,
   });
   const memoryRange = growthRange({
     min: MEM_MIN, max: MEM_MAX, step: MEM_STEP,
@@ -355,7 +362,7 @@ export default function SpecificationsTab({ vmid }) {
   });
   /* 配額晚一步載入時，已經拉高的值要壓回上限 */
   useEffect(() => {
-    setCores((v) => Math.min(v, coresRange.max));
+    setCores((v) => (v == null ? v : Math.min(v, coresRange.max)));
     setMemory((v) => Math.min(v, memoryRange.max));
     setDisk((v) => Math.min(v, diskRange.max));
   }, [coresRange.max, memoryRange.max, diskRange.max]);
@@ -365,7 +372,7 @@ export default function SpecificationsTab({ vmid }) {
   };
 
   const handleSubmit = async () => {
-    const hasChanges = cores !== config.cpu_cores || memory !== config.memory_mb || diskChanged;
+    const hasChanges = coresChanged || memory !== config.memory_mb || diskChanged;
 
     /* 磁碟只能放大：Proxmox resize 只接受增量，縮小會弄壞檔案系統 */
     if (diskChanged && disk < currentDisk) {
@@ -381,7 +388,7 @@ export default function SpecificationsTab({ vmid }) {
       setBusy(true);
       try {
         await ResourcesService.updateSpecDirect(vmid, {
-          cores: cores !== config.cpu_cores ? cores : undefined,
+          cores: coresChanged ? cores : undefined,
           memory: memory !== config.memory_mb ? memory : undefined,
           disk_size: diskChanged ? `+${disk - currentDisk}G` : undefined,
         });
@@ -411,7 +418,7 @@ export default function SpecificationsTab({ vmid }) {
         vmid,
         change_type: "combined",
         reason,
-        requested_cpu: cores !== config.cpu_cores ? cores : undefined,
+        requested_cpu: coresChanged ? cores : undefined,
         requested_memory: memory !== config.memory_mb ? memory : undefined,
         requested_disk: diskChanged ? disk : undefined,
       });
@@ -474,17 +481,24 @@ export default function SpecificationsTab({ vmid }) {
               min={CORE_MIN}
               max={coresRange.max}
               step={1}
-              value={cores}
-              current={config.cpu_cores}
+              /* 不限時拉桿停在最右端；一拉動就變成設定核心上限 */
+              value={cores ?? coresRange.max}
+              current={coresUnlimited ? null : config.cpu_cores}
+              changed={coresChanged}
               ticks={sliderTicks(CORE_TICKS, coresRange).map(({ value, label }) => ({ value, label }))}
               onChange={setCores}
-              inputValue={cores}
+              inputValue={cores ?? ""}
               inputMin={CORE_MIN}
               inputMax={coresRange.max}
               inputStep={1}
+              inputPlaceholder={coresUnlimited ? t("SpecificationsTab.coresUnlimited") : undefined}
               onInput={setCores}
-              currentText={t("SpecificationsTab.currentLabel", { value: config.cpu_cores })}
-              deltaText={t("SpecificationsTab.deltaCores", { delta: signed(cores - config.cpu_cores) })}
+              currentText={coresUnlimited
+                ? t("SpecificationsTab.currentCoresUnlimited")
+                : t("SpecificationsTab.currentLabel", { value: config.cpu_cores })}
+              deltaText={coresUnlimited
+                ? t("SpecificationsTab.newCoresCap", { value: cores })
+                : t("SpecificationsTab.deltaCores", { delta: signed(cores - config.cpu_cores) })}
               limitText={limitText(coresRange, "SpecificationsTab.quotaCapCores", coresRange.max)}
             />
             <SliderField

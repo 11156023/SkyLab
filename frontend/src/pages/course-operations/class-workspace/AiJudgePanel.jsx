@@ -1719,6 +1719,10 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const pendingReviewIdsByFileRef = useRef(new Map());
   const [pendingReviewIds, setPendingReviewIds] = useState(() => new Set());
   const autosaveRef = useRef(null);
+  // 自動儲存的狀態：unsaved＝最近一次儲存失敗（409 以外），畫面上的修改還沒存到伺服器
+  const [autosaveStatus, setAutosaveStatus] = useState({
+    unsaved: false, saving: false, error: null, autoRetryScheduled: false,
+  });
   const classIdRef = useRef(classId);
   const activeContextRef = useRef(null);
   activeContextRef.current = `${classId}:${judgeSession?.id}:${judgeSession?.selected_file_id}`;
@@ -1822,8 +1826,8 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           entry.id === updated.id ? updated : entry
         )));
       },
-      onError(error) {
-        if (error?.status === 409) {
+      onError(error, { conflict, announce }) {
+        if (conflict) {
           clearPendingProposal();
           toastRef.current.error(jt("rubricConflict"));
           void AiJudgeService.listFiles(classIdRef.current)
@@ -1834,8 +1838,10 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
             .catch(() => {});
           return;
         }
-        toastRef.current.error(error?.message ?? jt("updateRubricFailed"));
+        // 其他失敗：修改保留在畫面上並標成未儲存（見上方提示），自動重試的失敗不再逐次跳通知
+        if (announce) toastRef.current.error(error?.message ?? jt("updateRubricFailed"));
       },
+      onStatusChange: setAutosaveStatus,
     });
     autosaveRef.current = autosave;
     return () => {
@@ -2066,8 +2072,13 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       toast.error(t("AiJudgePanel.rubricStillLoading"));
       return false;
     }
-    // 自動儲存失敗時 autosave 已經用 toast 說明原因
-    if (autosaveRef.current && !(await autosaveRef.current.flush())) return false;
+    // 檢查表還有沒存成的修改就不送給助理：助理看到的是伺服器上的版本，會跟畫面對不起來。
+    // 409 時 autosave 已經用 toast 說明原因
+    const autosave = autosaveRef.current;
+    if (autosave && !(await autosave.flush({ quiet: true }))) {
+      if (autosave.hasUnsaved() && mountedRef.current) toast.error(t("AiJudgePanel.unsavedBlocksChat"));
+      return false;
+    }
     if (!mountedRef.current || context !== activeContextRef.current) return false;
     const requestMessages = [...messages, { role: "user", content, attachments }];
     const newMessages = isRefine ? messages : requestMessages;
@@ -2169,14 +2180,16 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       detectabilityNeedsReview: pendingIdsAfterApply.size > 0,
       reviewItemIds: pendingIdsAfterApply,
     });
-    if (!saved) {
+    // 409 才退回：其他失敗時 autosave 會保留套用後的內容並重試，畫面要跟著留住，提案也不能再套一次
+    const keptUnsaved = !saved && Boolean(autosaveRef.current?.hasUnsaved());
+    if (!saved && !keptUnsaved) {
       setAnalysis(previousAnalysis);
       return;
     }
     if (sourceFileId) pendingReviewIdsByFileRef.current.set(sourceFileId, pendingIdsAfterApply);
     setPendingReviewIds(pendingIdsAfterApply);
     clearPendingProposal();
-    toast.success(t("AiJudgePanel.proposalApplied"));
+    if (saved) toast.success(t("AiJudgePanel.proposalApplied"));
   }
 
   function handleItemChange(index, updatedItem) {
@@ -2244,7 +2257,16 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
        notice 只在結束時（成功／失敗）寫入，所以進行中不必另外設定 */
     setScriptGenerationStatus("saving");
     try {
-      if (autosaveRef.current && !(await autosaveRef.current.flush())) {
+      const autosave = autosaveRef.current;
+      if (autosave && !(await autosave.flush({ quiet: true }))) {
+        if (!mountedRef.current || context !== activeContextRef.current) return;
+        // 未儲存的修改再試一次仍存不進去：不製作，說明要先讓檢查表存好
+        if (autosave.hasUnsaved()) {
+          const message = t("AiJudgePanel.unsavedBlocksBuild");
+          setScriptGenerationNotice({ status: "error", message });
+          toast.error(message);
+          return;
+        }
         setScriptGenerationNotice({
           status: "error",
           message: t("AiJudgePanel.buildNotSaved"),
@@ -2402,10 +2424,21 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       : isClearingMessages
         ? t("AiJudgePanel.busyClearing")
         : null;
-  const saveAndCreateHint = isCreatingScript ? null : busyReason ?? scriptCreationBlocker;
+  const saveAndCreateHint = isCreatingScript
+    ? null
+    : busyReason ?? (autosaveStatus.unsaved ? t("AiJudgePanel.unsavedBuildHint") : scriptCreationBlocker);
 
-  // 尚未處理的提案、附件、草稿與進行中的操作仍需要離頁提醒。
+  async function retryUnsavedSave() {
+    const autosave = autosaveRef.current;
+    if (!autosave) return;
+    if (await autosave.retry()) {
+      if (mountedRef.current) toast.success(t("AiJudgePanel.unsavedRetrySucceeded"));
+    }
+  }
+
+  // 尚未處理的提案、附件、草稿、沒存成的檢查表修改與進行中的操作仍需要離頁提醒。
   const dirty = Boolean(pendingProposal)
+    || autosaveStatus.unsaved
     || pendingAttachments.length > 0
     || chatHasDraft
     || isChatting
@@ -2421,6 +2454,30 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       {processingMessage && !isSendingMessage && (
         <p role="status">{t(isServerProcessing
           ? "AiJudgePanel.chatStillProcessing" : "AiJudgePanel.chatOutcomeUnknown")}</p>
+      )}
+      {autosaveStatus.unsaved && (
+        <div
+          className={`${styles.noticeInfo} ${styles.noticeWorkflowError} ${styles.noticeWithAction}`}
+          role="alert"
+          data-autosave-status="unsaved"
+        >
+          <p>
+            <strong>{t("AiJudgePanel.unsavedTitle")}</strong>{" "}
+            {t("AiJudgePanel.unsavedMessage", {
+              reason: autosaveStatus.error?.message ?? t("AiJudgePanel.updateRubricFailed"),
+            })}
+            {autosaveStatus.autoRetryScheduled && ` ${t("AiJudgePanel.unsavedAutoRetry")}`}
+          </p>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            disabled={autosaveStatus.saving}
+            onClick={retryUnsavedSave}
+          >
+            {autosaveStatus.saving ? <Spinner size={14} /> : <MIcon name="refresh" size={14} />}
+            {t("AiJudgePanel.unsavedRetryBtn")}
+          </button>
+        </div>
       )}
       <ScriptGenerationNotice
         isCreatingScript={isCreatingScript}
