@@ -1,7 +1,9 @@
 ﻿import { app } from "electron";
 import GlobalConstant from "../core/GlobalConstant";
 import Logger from "../core/Logger";
-import SettingsRepository from "../repository/SettingsRepository";
+import SettingsRepository, {
+  type SettingsPatch
+} from "../repository/SettingsRepository";
 
 class SettingsService {
   private readonly _repo: SettingsRepository;
@@ -14,26 +16,21 @@ class SettingsService {
     return this._repo.get();
   }
 
+  /**
+   * 存一般設定（語言、後端網址、開機啟動）。token 不經過這裡，一律走
+   * setTokens／clearTokens：兩邊各自只改自己的欄位，同時進行也不會互相蓋掉。
+   * 後端網址改變時由 repository 在同一次寫入中清掉 token。
+   */
   async save(patch: Partial<SkyLabSettings>): Promise<SkyLabSettings> {
-    const current = await this._repo.get();
-    const safePatch: Partial<SkyLabSettings> = {};
+    const safePatch: SettingsPatch = {};
     if (typeof patch.language === "string") safePatch.language = patch.language;
     if (typeof patch.launchAtStartup === "boolean") {
       safePatch.launchAtStartup = patch.launchAtStartup;
     }
-    if (typeof patch.token === "string") safePatch.token = patch.token;
-    if (typeof patch.refreshToken === "string") {
-      safePatch.refreshToken = patch.refreshToken;
-    }
     if (typeof patch.backendUrl === "string") {
-      const backendUrl = this.normalizeBackendUrl(patch.backendUrl);
-      safePatch.backendUrl = backendUrl;
-      if (backendUrl !== current.backendUrl?.replace(/\/$/, "")) {
-        safePatch.token = "";
-        safePatch.refreshToken = "";
-      }
+      safePatch.backendUrl = this.normalizeBackendUrl(patch.backendUrl);
     }
-    const next = await this._repo.save(safePatch);
+    const next = await this._repo.saveSettings(safePatch);
     try {
       // Electron 44 移除了 openAsHidden（原本就只有 macOS 認得）；Windows 的
       // 開機啟動只需要 openAtLogin。
@@ -60,7 +57,7 @@ class SettingsService {
   }
 
   async setToken(token: string): Promise<void> {
-    await this.save({ token });
+    await this._repo.saveTokens({ token });
   }
 
   async getRefreshToken(): Promise<string> {
@@ -68,7 +65,7 @@ class SettingsService {
   }
 
   async setTokens(token: string, refreshToken: string): Promise<void> {
-    await this.save({ token, refreshToken });
+    await this._repo.saveTokens({ token, refreshToken });
   }
 
   async clearTokens(): Promise<void> {

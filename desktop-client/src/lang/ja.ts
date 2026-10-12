@@ -33,6 +33,9 @@ export default {
     machineCount: "{count} 台",
     noMatches: "一致するマシンがありません",
     resourceError: "リソースを更新できません。再読み込みしてください。",
+    serverUnreachable: "サーバーに一時的に接続できません",
+    serverUnreachableHint:
+      "バックグラウンドで自動的に再試行しています。接続が回復するとこの表示は消えます。",
     appearance: "外観",
     dark: "ダーク",
     light: "ライト"

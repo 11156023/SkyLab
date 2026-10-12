@@ -45,5 +45,7 @@
   "guest.pathNoDotDot": "対象パスに .. を含めることはできません",
   "guest.agentNotResponding": "VM {vmid} の QEMU guest agent が応答しません（agent が未インストールか、VM が起動していない可能性があります）",
   "guest.execTimeout": "VM {vmid} の guest コマンド実行がタイムアウトしました（{timeout}秒）",
+  "ssh.commandTimeout": "リモートコマンドがタイムアウトしました（{timeout} 秒以内に終了しませんでした）",
+  "ssh.outputTooLarge": "リモートコマンドの {stream} 出力が上限（{limit}）を超えました",
   "guest.pctPushFailed": "pct push に失敗しました（VMID {vmid}）：{detail}"
 }

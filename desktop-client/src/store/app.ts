@@ -12,6 +12,8 @@ interface AppState {
   backendUrl: string;
   resourcesLoading: boolean;
   resourcesError: string;
+  /** 背景輪詢連不上後端；顯示常駐提示，下次成功就清掉（不跳錯誤訊息）。 */
+  serverUnreachable: boolean;
   tunnelStatus: TunnelStatusInfo;
   resources: SkyLabResource[];
   sessionStatuses: SkyLabSessionStatus[];
@@ -69,6 +71,7 @@ export const useAppStore = defineStore("app", {
     backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
     resourcesLoading: false,
     resourcesError: "",
+    serverUnreachable: false,
     tunnelStatus: { ...DEFAULT_TUNNEL_STATUS },
     resources: [],
     sessionStatuses: [],
@@ -132,6 +135,7 @@ export const useAppStore = defineStore("app", {
         data => {
           this.resourcesLoading = false;
           this.resourcesError = "";
+          this.serverUnreachable = false;
           if (!this.loggedIn) return;
           this.resources = Array.isArray(data) ? data : [];
           lastResourceRefreshAt = Date.now();
@@ -141,34 +145,43 @@ export const useAppStore = defineStore("app", {
           this.resourcesError = message;
         }
       );
-      on(ipcRouters.SESSION.getSessionStatuses, data => {
-        const next: SkyLabSessionStatus[] = Array.isArray(data) ? data : [];
-        this.sessionStatuses = next;
-        // Forget in-memory dismissals once should_warn goes false.
-        this.dismissedWarnings = this.dismissedWarnings.filter(vmid => {
-          const status = next.find(s => s.vmid === vmid);
-          return status && status.should_warn;
-        });
-        // Clear stale permanent dismissals when the warning key changes.
-        let changed = false;
-        const updated = { ...this.permanentDismissals };
-        for (const s of next) {
-          if (s.vmid in updated && updated[s.vmid] !== warningKey(s)) {
-            delete updated[s.vmid];
-            changed = true;
+      on(
+        ipcRouters.SESSION.getSessionStatuses,
+        data => {
+          this.serverUnreachable = false;
+          const next: SkyLabSessionStatus[] = Array.isArray(data) ? data : [];
+          this.sessionStatuses = next;
+          // Forget in-memory dismissals once should_warn goes false.
+          this.dismissedWarnings = this.dismissedWarnings.filter(vmid => {
+            const status = next.find(s => s.vmid === vmid);
+            return status && status.should_warn;
+          });
+          // Clear stale permanent dismissals when the warning key changes.
+          let changed = false;
+          const updated = { ...this.permanentDismissals };
+          for (const s of next) {
+            if (s.vmid in updated && updated[s.vmid] !== warningKey(s)) {
+              delete updated[s.vmid];
+              changed = true;
+            }
           }
+          if (changed) {
+            this.permanentDismissals = updated;
+            savePermanentDismissals(updated);
+          }
+          if (
+            Date.now() - lastResourceRefreshAt >=
+            RESOURCE_REFRESH_INTERVAL_MS
+          ) {
+            this.refreshResources();
+          }
+        },
+        bizCode => {
+          // 背景輪詢每 30 秒一次：後端暫時連不上時不跳錯誤訊息（否則每 30 秒
+          // 一則），改成常駐提示並照常重試。登入過期另由 skylab:auth-expired 處理。
+          if (bizCode !== "B1001") this.serverUnreachable = true;
         }
-        if (changed) {
-          this.permanentDismissals = updated;
-          savePermanentDismissals(updated);
-        }
-        if (
-          Date.now() - lastResourceRefreshAt >=
-          RESOURCE_REFRESH_INTERVAL_MS
-        ) {
-          this.refreshResources();
-        }
-      });
+      );
       on(ipcRouters.SESSION.extendSession, () => {
         // Refresh statuses immediately so the dialog dismisses naturally.
         this.refreshSessionStatuses();
@@ -224,6 +237,7 @@ export const useAppStore = defineStore("app", {
       }
       this.sessionStatuses = [];
       this.dismissedWarnings = [];
+      this.serverUnreachable = false;
     },
     handleSessionExpired() {
       // 只在這次過期時停一次通道：token 已清掉後 tunnel/stop 向後端 disconnect
