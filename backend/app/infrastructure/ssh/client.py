@@ -122,6 +122,20 @@ def forget_host_key(host: str) -> None:
         keys.save(path)
 
 
+def _connect_or_close(client: Any, **kwargs: Any) -> None:
+    """connect 失敗時關掉 client。
+
+    paramiko 在認證失敗、host key 不符時不會自己收掉已啟動的 Transport，
+    背景執行緒與 socket 會掛到遠端 LoginGraceTime 逾時才斷；呼叫端拿不到
+    client 物件，沒有機會 close。
+    """
+    try:
+        client.connect(**kwargs)
+    except BaseException:
+        client.close()
+        raise
+
+
 def create_key_client(
     host: str,
     port: int,
@@ -134,7 +148,8 @@ def create_key_client(
     client = paramiko.SSHClient()
     _configure_host_key_verification(client)
     pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_pem))
-    client.connect(
+    _connect_or_close(
+        client,
         hostname=host,
         port=port,
         username=username,
@@ -157,7 +172,8 @@ def create_password_client(
     ensure_ssh_backend()
     client = paramiko.SSHClient()
     _configure_host_key_verification(client)
-    client.connect(
+    _connect_or_close(
+        client,
         hostname=host,
         port=port,
         username=username,

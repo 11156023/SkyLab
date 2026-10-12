@@ -80,7 +80,10 @@ def ca_bundle_path(ca_cert_pem: str) -> str:
     path = _CA_BUNDLE_DIR / f"{digest}.pem"
     if not path.exists():
         _CA_BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        # 暫存檔名要每個寫入者各自一份：共用 .tmp 時，兩個執行緒同時首次
+        # 落地同一把 CA，先 replace 的會把檔案搬走，後到的 os.replace 就
+        # FileNotFoundError，整個連線探測跟著失敗
+        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(ca_cert_pem)

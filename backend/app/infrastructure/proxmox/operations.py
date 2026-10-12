@@ -433,6 +433,11 @@ def admin_disabled_node_names() -> set[str]:
         with Session(engine) as session:
             return get_disabled_node_names(session)
     except Exception:
+        # fail-open 是刻意的，但必須留下痕跡：這段期間停用中的節點也會被挑去建機
+        logger.error(
+            "Unable to read admin-disabled Proxmox nodes; not filtering any node",
+            exc_info=True,
+        )
         return set()
 
 

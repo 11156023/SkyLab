@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from concurrent.futures import TimeoutError as FutureTimeout
 from typing import Any
 
 from sqlmodel import Session
@@ -111,7 +112,8 @@ def enqueue_task_sync(
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         try:
             return future.result(timeout=ENQUEUE_SYNC_TIMEOUT_SECONDS)
-        except TimeoutError:
+        except (TimeoutError, FutureTimeout):
+            # Python 3.10 的 concurrent.futures.TimeoutError 不是內建 TimeoutError
             # 逾時後 coroutine 可能還會跑完並真的入列；取消它，避免 API 已回
             # 500、job 卻在背景默默送出
             future.cancel()

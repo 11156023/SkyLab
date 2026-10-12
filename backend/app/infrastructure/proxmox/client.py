@@ -420,6 +420,16 @@ def basic_blocking_task_status(
                 unreachable_for,
             )
             time.sleep(check_interval)
+            # 入口節點斷線時 _watch_connection_errors 已丟掉快取的 client；
+            # 一直拿舊 client 重試就切不到同叢集其他 HA 節點，只能等滿容忍時間。
+            try:
+                proxmox = get_proxmox_api_for_node(node_name)
+            except Exception as reconnect_exc:
+                logger.warning(
+                    "Re-acquiring Proxmox client for %s failed (%s); keep retrying",
+                    node_name,
+                    reconnect_exc,
+                )
             continue
         outage_started = None
 
