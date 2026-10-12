@@ -66,6 +66,11 @@ _EMAIL_VERIFY_RATE_LIMIT = Depends(
 _TOTP_DISABLE_RATE_LIMIT = Depends(
     rate_limit_by_user(scope="totp-disable", limit=5, window_seconds=15 * 60)
 )
+# 改密碼要先驗目前密碼：不節流的話，拿到登入狀態（例如沒登出的教室電腦）的人
+# 就能暴力猜出原密碼。依帳號計次，不受同一個校園 NAT 出口的其他人影響
+_PASSWORD_CHANGE_RATE_LIMIT = Depends(
+    rate_limit_by_user(scope="password-change", limit=5, window_seconds=15 * 60)
+)
 
 @router.get(
     "/",
@@ -121,7 +126,11 @@ def confirm_email_change_link(
     return Message(message="Email verified")
 
 
-@router.patch("/me/password", response_model=Message)
+@router.patch(
+    "/me/password",
+    response_model=Message,
+    dependencies=[_PASSWORD_CHANGE_RATE_LIMIT],
+)
 def update_password_me(
     *, session: SessionDep, body: UpdatePassword, current_user: CurrentUser
 ) -> Any:

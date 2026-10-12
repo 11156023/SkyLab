@@ -283,6 +283,16 @@ def _brute_force_active_sets(start_at, end_at, reserved):
     return checkpoints, _active_sets(checkpoints, reserved)
 
 
+def _every_minute_active_sets(start_at, end_at, reserved):
+    """逐分鐘掃整段時段（測試資料都落在整分鐘上）。"""
+    points = []
+    cursor = start_at
+    while cursor < end_at:
+        points.append(cursor)
+        cursor += timedelta(minutes=1)
+    return _active_sets(points, reserved)
+
+
 def _active_sets(checkpoints, reserved):
     return {
         frozenset(
@@ -296,18 +306,28 @@ def _active_sets(checkpoints, reserved):
     }
 
 
+def _covered(sets, by):
+    """sets 裡每個生效集合都被 by 裡某個集合包含（佔用不會高過檢查點）。"""
+    return all(any(item <= cover for cover in by) for item in sets)
+
+
+def _random_reservations(rng, base, *, step_minutes):
+    reserved = []
+    for _ in range(rng.randint(0, 6)):
+        r_start = base + timedelta(minutes=step_minutes * rng.randint(-10, 60))
+        r_end = r_start + timedelta(minutes=step_minutes * rng.randint(1, 25))
+        reserved.append(SimpleNamespace(start_at=r_start, end_at=r_end))
+    return reserved
+
+
 def test_window_checkpoints_cover_every_reservation_state() -> None:
+    """非整點的重疊也要檢查到：任一時刻的佔用都不高於某個檢查點。"""
     rng = random.Random(20260927)
     base = datetime(2026, 10, 1, 0, 0, tzinfo=UTC)
     for _ in range(200):
         start_at = base + timedelta(minutes=rng.randint(0, 600))
-        end_at = start_at + timedelta(minutes=rng.randint(1, 3000))
-        reserved = []
-        for _ in range(rng.randint(0, 6)):
-            r_start = base + timedelta(minutes=rng.randint(-600, 3600))
-            r_end = r_start + timedelta(minutes=rng.randint(1, 1500))
-            reserved.append(SimpleNamespace(start_at=r_start, end_at=r_end))
-        brute_points, brute_sets = _brute_force_active_sets(start_at, end_at, reserved)
+        end_at = start_at + timedelta(minutes=rng.randint(1, 1500))
+        reserved = _random_reservations(rng, base, step_minutes=rng.choice([1, 7, 15]))
         points = placement_support.window_checkpoints(
             start_at=start_at,
             end_at=end_at,
@@ -315,8 +335,92 @@ def test_window_checkpoints_cover_every_reservation_state() -> None:
             normalize_datetime_fn=normalize_datetime,
         )
         assert points[0] == start_at
+        assert all(start_at <= point < end_at for point in points)
+        assert _covered(
+            _every_minute_active_sets(start_at, end_at, reserved),
+            _active_sets(points, reserved),
+        )
+
+
+def test_window_checkpoints_match_hourly_grid_for_whole_hour_requests() -> None:
+    """整點對齊的申請與預約，檢查結果與舊的逐整點掃描完全相同。"""
+    rng = random.Random(20261012)
+    base = datetime(2026, 10, 1, 0, 0, tzinfo=UTC)
+    for _ in range(200):
+        start_at = base + timedelta(hours=rng.randint(0, 10))
+        end_at = start_at + timedelta(hours=rng.randint(1, 50))
+        reserved = _random_reservations(rng, base, step_minutes=60)
+        brute_points, brute_sets = _brute_force_active_sets(start_at, end_at, reserved)
+        points = placement_support.window_checkpoints(
+            start_at=start_at,
+            end_at=end_at,
+            reserved_requests=reserved,  # type: ignore[arg-type]
+            normalize_datetime_fn=normalize_datetime,
+        )
+        new_sets = _active_sets(points, reserved)
+        # 新檢查點都是舊網格上的點，且舊網格上的每個狀態都被涵蓋：
+        # 每個節點「所有檢查點都放得下」的判斷結果因此一致
         assert set(points) <= set(brute_points)
-        assert _active_sets(points, reserved) == brute_sets
+        assert new_sets <= brute_sets
+        assert _covered(brute_sets, new_sets)
+
+
+def test_window_checkpoints_check_sub_hour_overlap() -> None:
+    """10:15–10:45 的預約與 10:00–11:00 的申請重疊，舊的整點檢查看不到。"""
+    start_at = datetime(2026, 10, 1, 10, 0, tzinfo=UTC)
+    reserved = SimpleNamespace(
+        start_at=start_at + timedelta(minutes=15),
+        end_at=start_at + timedelta(minutes=45),
+    )
+    points = placement_support.window_checkpoints(
+        start_at=start_at,
+        end_at=start_at + timedelta(hours=1),
+        reserved_requests=[reserved],  # type: ignore[arg-type]
+        normalize_datetime_fn=normalize_datetime,
+    )
+    assert points == [start_at, start_at + timedelta(minutes=15)]
+
+
+def test_sub_hour_gpu_reservation_blocks_window() -> None:
+    """GPU 槽也在非整點的預約開始時間被扣到。"""
+    start_at = datetime(2026, 10, 1, 10, 0, tzinfo=UTC)
+    reserved = SimpleNamespace(
+        vmid=None,
+        start_at=start_at + timedelta(minutes=20),
+        end_at=start_at + timedelta(minutes=50),
+        assigned_node="pve-gpu",
+        gpu_mapping_id="h100",
+    )
+    baseline = [
+        NodeCapacity(
+            node="pve-gpu",
+            status="online",
+            gpu_count=1,
+            total_cpu_cores=32,
+            allocatable_cpu_cores=32,
+            total_memory_bytes=128 * GIB,
+            allocatable_memory_bytes=128 * GIB,
+            total_disk_bytes=1000 * GIB,
+            allocatable_disk_bytes=1000 * GIB,
+        )
+    ]
+    points = placement_support.window_checkpoints(
+        start_at=start_at,
+        end_at=start_at + timedelta(hours=1),
+        reserved_requests=[reserved],  # type: ignore[arg-type]
+        normalize_datetime_fn=normalize_datetime,
+    )
+    slots = [
+        placement_support.apply_reserved_requests_to_capacities(
+            baseline_capacities=baseline,
+            reserved_requests=[reserved],  # type: ignore[list-item]
+            at_time=point,
+            normalize_datetime_fn=normalize_datetime,
+            request_capacity_tuple_fn=lambda _r: (2.0, 4 * GIB, 20 * GIB),
+        )[0].allocatable_gpu_slots
+        for point in points
+    ]
+    assert min(slots) == 0
 
 
 def test_window_checkpoints_do_not_scale_with_window_length() -> None:

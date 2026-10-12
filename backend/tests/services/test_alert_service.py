@@ -119,9 +119,9 @@ def test_evaluate_hysteresis_resolve() -> None:
     decision = evaluate([_sample(87.0)], [open_alert], FakeConfig(), NOW)
     assert decision.resolved_targets == []
 
-    # 回落 84% → resolve
+    # 回落 84% → resolve（鍵為 (connection_id, target, metric)）
     decision = evaluate([_sample(84.0)], [open_alert], FakeConfig(), NOW)
-    assert decision.resolved_targets == [("pve1", "cpu")]
+    assert decision.resolved_targets == [(None, "pve1", "cpu")]
 
 
 def test_evaluate_missing_sample_does_not_resolve() -> None:
@@ -146,3 +146,128 @@ def test_collect_samples_skips_offline_node() -> None:
     )
     decision = evaluate(samples, [open_alert], FakeConfig(), NOW)
     assert decision.resolved_targets == []
+
+
+# ─── 多叢集：告警以 (連線, 目標, 指標) 為鍵 ───────────────────────────
+
+
+class ConnAlert(FakeAlert):
+    def __init__(self, *, connection_id: int | None, scope: str = "vm", **kw) -> None:
+        super().__init__(**kw)
+        self.connection_id = connection_id
+        self.scope = scope
+
+
+def _vm(value: float, connection_id: int | None, vmid: str = "100") -> MetricSample:
+    return MetricSample(
+        scope="vm", target=vmid, metric="cpu", value=value, connection_id=connection_id
+    )
+
+
+def test_collect_samples_tags_connection_by_node() -> None:
+    nodes = [
+        {"node": "a1", "cpu": 0.5, "maxcpu": 4},
+        {"node": "orphan", "cpu": 0.5, "maxcpu": 4},
+    ]
+    resources = [
+        {"vmid": 100, "node": "a1", "status": "running", "cpu": 0.9},
+        {"vmid": 100, "node": "b1", "status": "running", "cpu": 0.1},
+    ]
+    samples = collect_samples(nodes, resources, {"a1": 1, "b1": 2, "orphan": None})
+    keyed = {(s.connection_id, s.scope, s.target, s.metric) for s in samples}
+    assert (1, "node", "a1", "cpu") in keyed
+    assert (None, "node", "orphan", "cpu") in keyed
+    # 同號 VM 在兩個叢集各自成一個樣本
+    assert (1, "vm", "100", "cpu") in keyed
+    assert (2, "vm", "100", "cpu") in keyed
+
+
+def test_same_vmid_in_other_cluster_does_not_resolve_or_suppress() -> None:
+    open_alert = ConnAlert(
+        connection_id=1, target="100", metric="cpu", created_at=NOW - timedelta(hours=1)
+    )
+    # 叢集 2 的 100 號低用量：不能把叢集 1 的告警解除
+    decision = evaluate([_vm(95.0, 1), _vm(10.0, 2)], [open_alert], FakeConfig(), NOW)
+    assert decision.resolved_targets == []
+    assert decision.new_alerts == []
+
+    # 叢集 2 的 100 號也爆了：要另開一筆，不能被叢集 1 的告警擋掉
+    decision = evaluate([_vm(95.0, 1), _vm(96.0, 2)], [open_alert], FakeConfig(), NOW)
+    assert [(s.connection_id, s.target) for s in decision.new_alerts] == [(2, "100")]
+
+    # 叢集 1 回落：只解除叢集 1 那一筆
+    decision = evaluate([_vm(10.0, 1), _vm(96.0, 2)], [open_alert], FakeConfig(), NOW)
+    assert decision.resolved_targets == [(1, "100", "cpu")]
+
+
+def test_cooldown_is_per_connection() -> None:
+    recent = ConnAlert(
+        connection_id=1,
+        target="100",
+        metric="cpu",
+        created_at=NOW - timedelta(minutes=10),
+        resolved_at=NOW - timedelta(minutes=5),
+    )
+    decision = evaluate([_vm(95.0, 1), _vm(95.0, 2)], [recent], FakeConfig(), NOW)
+    assert [s.connection_id for s in decision.new_alerts] == [2]
+
+
+def test_null_connection_alert_matches_null_connection_sample() -> None:
+    legacy = ConnAlert(
+        connection_id=None,
+        scope="node",
+        target="pve1",
+        metric="cpu",
+        created_at=NOW - timedelta(hours=1),
+    )
+    decision = evaluate([_sample(95.0)], [legacy], FakeConfig(), NOW)
+    assert decision.new_alerts == []
+    decision = evaluate([_sample(10.0)], [legacy], FakeConfig(), NOW)
+    assert decision.resolved_targets == [(None, "pve1", "cpu")]
+
+
+def test_legacy_null_alert_still_resolves_once_samples_carry_connection() -> None:
+    """升級前對不到連線的告警：樣本帶了連線後仍會解除，也不會再開重複的一筆。"""
+    legacy = ConnAlert(
+        connection_id=None, target="100", metric="cpu", created_at=NOW - timedelta(hours=1)
+    )
+    decision = evaluate([_vm(95.0, 1)], [legacy], FakeConfig(), NOW)
+    assert decision.new_alerts == []
+    assert decision.resolved_targets == []
+
+    decision = evaluate([_vm(10.0, 1)], [legacy], FakeConfig(), NOW)
+    assert decision.resolved_targets == [(None, "100", "cpu")]
+
+    # 同號 VM 在另一個叢集仍超標：舊告警分不出是哪一台，先不解除
+    decision = evaluate([_vm(10.0, 1), _vm(95.0, 2)], [legacy], FakeConfig(), NOW)
+    assert decision.resolved_targets == []
+    assert decision.new_alerts == []
+
+
+def test_inactive_vm_targets_are_per_connection() -> None:
+    from app.services.monitoring.alert_service import inactive_vm_targets
+
+    resources = [
+        {"vmid": 100, "node": "a1", "status": "running"},
+        {"vmid": 100, "node": "b1", "status": "stopped"},
+    ]
+    node_connections = {"a1": 1, "b1": 2}
+    open_targets = {(1, "100"), (2, "100"), (3, "100"), (None, "100")}
+    assert inactive_vm_targets(
+        resources,
+        open_targets,
+        complete=True,
+        node_connections=node_connections,
+    ) == {(2, "100"), (3, "100")}
+
+    decision = evaluate(
+        [],
+        [
+            ConnAlert(connection_id=1, target="100", metric="cpu", created_at=NOW),
+            ConnAlert(connection_id=2, target="100", metric="cpu", created_at=NOW),
+        ],
+        FakeConfig(),
+        NOW,
+        inactive_targets={(2, "100")},
+    )
+    assert decision.resolved_targets == [(2, "100", "cpu")]

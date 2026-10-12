@@ -11,7 +11,7 @@ Grafana 屬於選用的 ``monitoring`` compose profile，沒開時容器根本�
    檢查帳號（停用、改密碼／強制登出、失去管理員權限都會立刻失效），回傳身分標頭；
    nginx 以這組標頭覆寫請求，瀏覽器自己帶的同名標頭一律被蓋掉。
 3. Grafana 只信任 nginx 那個固定 IP 送來的標頭（``GF_AUTH_PROXY_WHITELIST``）。
-cookie 無效時回空標頭，Grafana 顯示原本的帳密登入頁（備用入口）。
+cookie 無效時回空標頭，Grafana 顯示沒有帳密欄位的登入頁（自己的帳密登入已關閉）。
 """
 
 import logging

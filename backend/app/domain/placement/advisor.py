@@ -128,6 +128,7 @@ def build_node_capacities(
                 cpu_ratio=node.cpu_ratio,
                 memory_ratio=_ratio(node.mem_bytes, node.maxmem_bytes),
                 disk_ratio=_ratio(node.disk_bytes, node.maxdisk_bytes),
+                physical_cpu_cores=node.maxcpu,
                 total_cpu_cores=round(effective_total_cpu, 2),
                 allocatable_cpu_cores=allocatable_cpu,
                 total_memory_bytes=node.maxmem_bytes,
