@@ -227,7 +227,7 @@ Notifications for unhealthy models, or for LiteLLM or its database being down, c
 
 | Metric | Description |
 |---|---|
-| `http_requests_total{method,path,status}`, `http_request_duration_seconds` | Labelled by route template; requests that match no route always get `path="<unmatched>"` |
+| `http_requests_total{method,path,status,workload}`, `http_request_duration_seconds{method,path,workload}` | Method/template classification: general API, AI generation, other; unmatched paths remain `<unmatched>`. Includes ASGI cleanup; the 600s bucket is not a timeout. |
 | `http_requests_in_progress` | Requests currently being handled |
 | `skylab_websocket_connections{kind}` | vnc / terminal / jobs / classroom / classroom_watch / course_progress |
 | `skylab_scheduler_task_runs_total{loop,task,result}`, `skylab_scheduler_task_duration_seconds` | Scheduler task run count and duration |
@@ -237,12 +237,18 @@ Notifications for unhealthy models, or for LiteLLM or its database being down, c
 | `skylab_queue_jobs{queue}` | Number of tasks waiting in the arq queue |
 | `skylab_task_records{status}` | queued / running (current), failed_24h / succeeded_24h |
 | `skylab_ai_requests_total{source,model,request_type,outcome}` | AI call count; `outcome` = success / client_error / rate_limited / unavailable / upstream_error / stream_error / cancelled / error |
-| `skylab_ai_request_duration_seconds{source,model,stream}`, `skylab_ai_time_to_first_token_seconds{source,model}` | End-to-end latency, streaming time to first token |
+| `skylab_ai_request_duration_seconds{source,model,stream,request_type,outcome}`, `skylab_ai_time_to_first_token_seconds{source,model}` | Per logical public request / per System model call; TTFT is public streaming first output. Cancelled calls do not enter duration; non-stream System AI has no TTFT samples. |
+| `skylab_ai_proxy_queue_wait_seconds{model}` | One cumulative admission/retry-cooldown sample per terminated public logical request, including cancellation/failure; excludes catalogue and generation. |
+| `skylab_ai_workflows_total{route,outcome,terminal_reason}` | Navigation/PVE workflow outcomes, separating HTTP 200 fallback, adherence failure and policy rejection; not model-call counts. |
 | `skylab_ai_tokens_total{source,model,direction}` | input / output tokens as reported by the model |
 
 Dependency and queue metrics are refreshed only when Prometheus scrapes (at most once every 5 seconds); PVE connection, Gateway and AI status reuse the result of the most recent system health check, so a Prometheus scrape never hits PVE / SSH / LiteLLM.
 
 The `model` label of `skylab_ai_*` keeps only model names that LiteLLM has actually served or that the health check discovered (up to 100); arbitrary names sent by callers are folded into `other`, so the number of time series stays bounded.
+
+Deploy metric schema/bucket changes together with dashboards across all backend instances. After the last old instance exits, wait at least the longest query window (currently 15 minutes) before comparing. Queue samples changed from each acquire to each logical request's cumulative wait; do not splice their P95 trends. Empty samples mean no data. A quantile in `+Inf` clips at the largest finite bucket; inspect the >600s ratio, sample counts and waiting too.
+
+Structured `ai_relay_finished` and `ai_workflow_finished` logs link root/child request IDs to bounded terminal reasons and phase timings without prompts, answers or tool payloads. IDs are not metric labels. One PVE HTTP request can contain several generation/adherence calls and tools; do not add their P95 values. Auth/DB/usage backlog, retry and latest event-loop lag panels support same-window diagnosis; scrapes can miss brief lag spikes.
 
 ### Resources and retention
 

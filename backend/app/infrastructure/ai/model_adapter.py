@@ -27,7 +27,9 @@ class ModelProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
     thinking: Literal["none", "low"]
-    thinking_parameter: Literal["reasoning_effort", "enable_thinking"]
+    thinking_parameter: Literal[
+        "reasoning_effort", "enable_thinking", "chat_template_reasoning_effort"
+    ]
     response_formats: tuple[ResponseFormat, ...]
     native_tool_calls: bool
     tool_choice_modes: tuple[ToolChoiceMode, ...]
@@ -39,7 +41,11 @@ class ModelProfile(BaseModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> ModelProfile:
-        if self.thinking_parameter == "reasoning_effort" and self.thinking != "low":
+        if (
+            self.thinking_parameter
+            in {"reasoning_effort", "chat_template_reasoning_effort"}
+            and self.thinking != "low"
+        ):
             raise ValueError("reasoning_effort requires thinking='low'")
         if not self.native_tool_calls and self.tool_choice_modes:
             raise ValueError("tool_choice_modes require native_tool_calls")
@@ -126,10 +132,13 @@ def adapt_chat_request(payload: dict[str, Any]) -> dict[str, Any]:
         and type(template_kwargs["enable_thinking"]) is not bool
     ):
         raise ModelAdapterError("Legacy enable_thinking must be a boolean")
+    valid_efforts = _LEGACY_THINKING
+    if profile.thinking_parameter == "chat_template_reasoning_effort":
+        valid_efforts = valid_efforts | {"xhigh"}
     for source in (payload, template_kwargs):
         if "reasoning_effort" in source:
             effort = source["reasoning_effort"]
-            if not isinstance(effort, str) or effort not in _LEGACY_THINKING:
+            if not isinstance(effort, str) or effort not in valid_efforts:
                 raise ModelAdapterError("Invalid legacy reasoning_effort")
 
     response_format = payload.get("response_format")
@@ -163,6 +172,12 @@ def adapt_chat_request(payload: dict[str, Any]) -> dict[str, Any]:
             wire["chat_template_kwargs"] = template_kwargs
         else:
             wire.pop("chat_template_kwargs", None)
+    elif profile.thinking_parameter == "chat_template_reasoning_effort":
+        wire["chat_template_kwargs"] = {
+            **template_kwargs,
+            "enable_thinking": True,
+            "reasoning_effort": profile.thinking,
+        }
     else:
         enabled = profile.thinking == "low"
         wire["chat_template_kwargs"] = {**template_kwargs, "enable_thinking": enabled}

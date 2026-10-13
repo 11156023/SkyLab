@@ -18,3 +18,12 @@ models:
     response_formats: ["json_object", "json_schema"]
     native_tool_calls: true
     tool_choice_modes: ["auto", "none", "required", "named"]
+
+  # Qwen3.8's template needs both thinking enabled and an explicit low effort.
+  # Otherwise its default reasoning_effort is xhigh.
+  "Qwen/Qwen3.8-27B":
+    thinking: "low"
+    thinking_parameter: chat_template_reasoning_effort
+    response_formats: ["json_object", "json_schema"]
+    native_tool_calls: true
+    tool_choice_modes: ["auto", "none", "required", "named"]
