@@ -4,8 +4,10 @@
  * 把後端推播的 live/takeover 事件轉給 handler。
  * handler 以 ref 保存，避免每次 render 重建連線。
  *
- * token 被拒（close code 1008）不重連：重試再多次也一樣會被拒，
- * 只會一直對後端敲門；等使用者重新登入後元件重掛載自然會再連。
+ * token 被拒（close code 1008）也照一般退避重連：多半是 access token 過期，
+ * 期間 api 層的 refresh 會換上新 token，每次重連都重新讀最新的 token
+ * （與 services/jobs.js 的 connectJobsWebSocket 相同做法），
+ * 不必等元件重掛載才恢復推播；退避上限 60 秒，不會一直敲後端。
  *
  * 事件型別：live_started | live_stopped | takeover_started |
  *          takeover_stopped | watch_force_closed
@@ -21,8 +23,6 @@ export { wsBaseUrl };
 /** 重連退避：起始 5 秒、上限 60 秒 */
 const RECONNECT_BASE_MS = 5_000;
 const RECONNECT_MAX_MS = 60_000;
-/** WebSocket close code 1008：後端以政策理由拒絕（token 無效／過期） */
-const WS_POLICY_VIOLATION = 1008;
 
 export function useClassroomSocket(onEvent, { enabled = true } = {}) {
   const handlerRef = useRef(onEvent);
@@ -50,6 +50,7 @@ export function useClassroomSocket(onEvent, { enabled = true } = {}) {
 
     const open = () => {
       if (stopped) return;
+      /* 每次連線都讀最新 token：1008 被拒後 refresh 可能已換上新 token */
       const token = AuthStorage.getAccessToken() || "";
       if (!token) {
         schedule();
@@ -73,14 +74,9 @@ export function useClassroomSocket(onEvent, { enabled = true } = {}) {
           // 忽略非 JSON frame
         }
       };
-      ws.onclose = (evt) => {
+      ws.onclose = () => {
         setConnected(false);
         ws = null;
-        /* 1008 = policy violation：後端拒絕這張 token，再連也沒用 */
-        if (evt?.code === WS_POLICY_VIOLATION) {
-          stopped = true;
-          return;
-        }
         schedule();
       };
       ws.onerror = () => {

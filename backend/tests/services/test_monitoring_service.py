@@ -302,9 +302,12 @@ def test_get_vm_rrd_checks_ownership(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class FakeResource:
         user_id = owner_id
+        teaching_class_id = None
+        allocation_scope = "personal"
 
     class FakeUser:
         id = other_id
+        email = "other@example.com"
         is_superuser = False
         role = "student"
 
@@ -312,6 +315,12 @@ def test_get_vm_rrd_checks_ownership(monkeypatch: pytest.MonkeyPatch) -> None:
         monitoring_service.resource_repo,
         "get_resource_by_vmid",
         lambda *, session, vmid: FakeResource(),
+    )
+    # 權限改走 require_resource_use：沒被分享的其他人仍然擋下
+    from app.services.resource import sharing_service
+
+    monkeypatch.setattr(
+        sharing_service, "user_has_share", lambda *, session, vmid, user_id: False
     )
     with pytest.raises(PermissionDeniedError):
         monitoring_service.get_vm_rrd(

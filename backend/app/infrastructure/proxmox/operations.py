@@ -180,6 +180,29 @@ class _ClusterResourcesCache:
     listed: list[tuple[int | None, list[dict]]] = []
 
 
+class _LastSeenVmids:
+    """每個連線最近一次成功列出的 VMID（含範本）。
+
+    不隨 ``invalidate_cluster_resources_cache`` 清掉：某個連線暫時連不上時，
+    next_vmid 仍照常配號，但要避開它上次列到的號碼，免得在別的叢集建出
+    同號機器（之後兩邊都會因「VMID 出現在多個連線」而無法操作）。
+    """
+
+    by_connection: dict[int | None, frozenset[int]] = {}
+
+
+def _remember_listed_vmids(listed: list[tuple[int | None, list[dict]]]) -> None:
+    """呼叫端須持有 ``_cluster_resources_lock``。"""
+    for key, vms in listed:
+        vmids: set[int] = set()
+        for vm in vms:
+            try:
+                vmids.add(int(vm["vmid"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        _LastSeenVmids.by_connection[key] = frozenset(vmids)
+
+
 def invalidate_cluster_resources_cache() -> None:
     with _cluster_resources_lock:
         _ClusterResourcesCache.refreshed_at = 0.0
@@ -202,6 +225,7 @@ def _raw_vms_by_connection(
                 what="resources",
             )
             _ClusterResourcesCache.refreshed_at = time.monotonic()
+            _remember_listed_vmids(_ClusterResourcesCache.listed)
         listed = _ClusterResourcesCache.listed
     return [(key, [dict(vm) for vm in vms]) for key, vms in listed]
 
@@ -433,6 +457,11 @@ def admin_disabled_node_names() -> set[str]:
         with Session(engine) as session:
             return get_disabled_node_names(session)
     except Exception:
+        # fail-open 是刻意的，但必須留下痕跡：這段期間停用中的節點也會被挑去建機
+        logger.error(
+            "Unable to read admin-disabled Proxmox nodes; not filtering any node",
+            exc_info=True,
+        )
         return set()
 
 
@@ -1141,19 +1170,79 @@ def _db_claimed_vmids() -> set[int]:
     return {int(vmid) for vmid in claimed}
 
 
+def _db_template_vmids() -> set[int]:
+    """DB 登記中、尚未刪除的範本 VMID（範本系統 2.0 的 vm_templates）。"""
+    from sqlmodel import Session, select
+
+    from app.core.db import engine
+    from app.models import VMTemplate, VMTemplateStatus
+
+    with Session(engine) as session:
+        rows = session.exec(
+            select(VMTemplate.pve_vmid).where(
+                VMTemplate.status != VMTemplateStatus.deleted
+            )
+        ).all()
+    return {int(vmid) for vmid in rows}
+
+
+def _unlisted_connections_since(
+    started_at: float, keys: Iterable[int | None]
+) -> set[int | None]:
+    """``started_at`` 之後那次重抓清單裡沒答上的連線；期間沒重抓過就回空集合。"""
+    with _cluster_resources_lock:
+        if _ClusterResourcesCache.refreshed_at < started_at:
+            return set()
+        answered = {key for key, _vms in _ClusterResourcesCache.listed}
+    return {key for key in keys if key not in answered}
+
+
+def _vmids_on_unreachable_connections(unreachable: set[int | None]) -> set[int]:
+    """連不上的連線：避開它上次成功列到的 VMID，以及 DB 登記的範本 VMID。
+
+    範本 VMID 不分連線全部避開（只多跳過幾個號碼），程序重啟後還沒列到
+    過這個連線時也至少擋得住範本。
+    """
+    with _cluster_resources_lock:
+        last_seen = {
+            key: _LastSeenVmids.by_connection.get(key) for key in unreachable
+        }
+    avoided = _db_template_vmids()
+    for key, seen in last_seen.items():
+        if seen is None:
+            logger.warning(
+                "Proxmox connection %s is unreachable and has never been listed "
+                "by this process; allocating a VMID that avoids only DB-known "
+                "VMIDs and template VMIDs",
+                key,
+            )
+            continue
+        logger.warning(
+            "Proxmox connection %s is unreachable; allocating a VMID that also "
+            "avoids the %s VMIDs from its last successful listing",
+            key,
+            len(seen),
+        )
+        avoided |= seen
+    return avoided
+
+
 def next_vmid() -> int:
     """回傳一個在所有連線上、以及 DB 登記中都未使用的 VMID。
 
     多連線架構下各入口的 ``cluster.nextid`` 彼此獨立，可能互相碰撞，
     因此取所有連線 nextid 的最大值，再對彙總的既有 VMID 遞增避讓。
+    某個連線連不上時照常配號，但另外避開該連線上次列到的 VMID 與範本 VMID。
     """
     keys = _connection_keys()
     candidates: list[int] = []
+    unreachable: set[int | None] = set()
     for key in keys:
         try:
             proxmox = get_proxmox_api(key)
             candidates.append(int(proxmox.cluster.nextid.get()))
         except Exception as exc:
+            unreachable.add(key)
             logger.warning(
                 "Failed to fetch nextid for Proxmox connection %s: %s", key, exc
             )
@@ -1162,7 +1251,11 @@ def next_vmid() -> int:
 
     # nextid 回的是最小空號；被 DB 擋下往上遞增時可能踩到 PVE 已用的 VMID，
     # 所以單連線也要一併避開 PVE 現有機器
+    listing_started_at = time.monotonic()
     used = {int(r["vmid"]) for r in _raw_vms(fresh=True)} | _db_claimed_vmids()
+    unreachable |= _unlisted_connections_since(listing_started_at, keys)
+    if unreachable:
+        used |= _vmids_on_unreachable_connections(unreachable)
     candidate = max(candidates)
     while candidate in used:
         candidate += 1

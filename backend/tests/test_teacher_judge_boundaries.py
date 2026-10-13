@@ -37,3 +37,27 @@ def test_teacher_judge_normalizes_ai_returned_items() -> None:
             fallback=None,
         ),
     ]
+
+
+def test_teacher_judge_export_strips_control_characters() -> None:
+    """終端輸出的 ANSI 色碼或 PDF 換頁符不可讓整份 Excel 匯出失敗。"""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    from app.ai.teacher_judge.export import export_to_excel
+
+    content = export_to_excel(
+        [
+            TeacherJudgeRubricItem(
+                id="item-1",
+                title="log\x1b[31m red",
+                detection_method="=cmd|' /C calc'!A0\x0c",
+            )
+        ],
+        summary="page\x0cbreak",
+    )
+
+    sheet = load_workbook(BytesIO(content)).active
+    assert sheet.cell(row=2, column=2).value == "log[31m red"
+    assert sheet.cell(row=2, column=6).value == "'=cmd|' /C calc'!A0"

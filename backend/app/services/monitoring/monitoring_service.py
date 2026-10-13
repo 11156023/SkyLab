@@ -17,7 +17,6 @@ from typing import Any, Literal
 
 from sqlmodel import Session
 
-from app.core.authorizers import require_resource_access
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import User
@@ -33,6 +32,7 @@ from app.schemas.monitoring import (
     VMTopEntry,
 )
 from app.services.proxmox import proxmox_service
+from app.services.resource.access import require_resource_use
 
 logger = logging.getLogger(__name__)
 
@@ -601,7 +601,8 @@ def get_vm_rrd(
     resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
     if resource is None:
         raise NotFoundError(t("monitoring.resource_not_found", vmid=vmid))
-    require_resource_access(user, resource.user_id)
+    # 與 /resources/{vmid}/stats 同一套使用層級權限（擁有者、班級老師、被分享者、管理員）
+    require_resource_use(session=session, user=user, vmid=vmid)
     info = proxmox_service.find_resource(vmid)
     resource_type: Literal["qemu", "lxc"] = (
         "lxc" if str(info.get("type") or "") == "lxc" else "qemu"

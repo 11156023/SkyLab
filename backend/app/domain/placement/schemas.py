@@ -105,6 +105,9 @@ class NodeCapacity(BaseModel):
     cpu_ratio: float = Field(default=0.0, ge=0.0)
     memory_ratio: float = Field(default=0.0, ge=0.0)
     disk_ratio: float = Field(default=0.0, ge=0.0)
+    # total_cpu_cores 已乘上 CPU 超配倍率；loadavg 換算每核負載要用節點實際的
+    # CPU 數（PVE maxcpu）。0 表示呼叫端沒提供，scorer 退回 total_cpu_cores
+    physical_cpu_cores: int = Field(default=0, ge=0)
     total_cpu_cores: float = Field(default=0.0, ge=0.0)
     allocatable_cpu_cores: float = Field(default=0.0, ge=0.0)
     total_memory_bytes: int = Field(default=0, ge=0)

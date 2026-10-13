@@ -132,3 +132,13 @@ def record_ai_template_call(
             user_id,
             exc_info=True,
         )
+        # commit 失敗會讓 session 停在必須 rollback 的狀態；不還原的話，呼叫端同一個
+        # request 後續的查詢與寫入（例如下一筆 adherence 用量）都會被 PendingRollbackError
+        # 連帶打壞，「盡力記錄」就變成把整個請求拖垮。
+        try:
+            session.rollback()
+        except Exception:
+            logger.error(
+                "Failed to roll back session after AI usage recording error",
+                exc_info=True,
+            )

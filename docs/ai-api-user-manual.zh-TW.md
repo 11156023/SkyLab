@@ -167,7 +167,9 @@ JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 `lab-chat-model`。未指定 `apikeys` 或 `api_key_env` 時沿用 `VLLM_UPSTREAM_API_KEY`；
 指定 `api_key_env` 時從 LiteLLM `.env` 讀取，指定 `apikeys` 時則直接寫入生成的
 `litellm/config.yaml`。`apikeys` 與 `api_key_env` 不可同時設定。因 `apikeys` 是明文，
-`models.json` 與生成後的 `config.yaml` 都不可提交或複製到不受信任的位置。
+`models.json` 與生成後的 `config.yaml` 都不可提交或複製到不受信任的位置。產生器寫出
+`config.yaml` 時一律設為 `0600`（只有擁有者可讀寫）；`models.json` 也請比照
+（`chmod 600 vllm-service/models.json`）。
 
 `alias` 是呼叫端 `model` 欄位使用的名稱，所有項目都必須唯一；本機
 `served_model_name`、`api_port` 也要唯一。不同遠端主機可使用相同上游模型名稱／埠，

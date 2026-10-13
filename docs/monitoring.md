@@ -89,7 +89,8 @@ db, pgbouncer, redis and backend already had one; newly added:
 
 ```bash
 # First set (at least) these in .env:
-#   GRAFANA_ADMIN_PASSWORD, INFLUXDB_ADMIN_PASSWORD, INFLUXDB_ADMIN_TOKEN
+#   INFLUXDB_ADMIN_PASSWORD, INFLUXDB_ADMIN_TOKEN
+# (GRAFANA_ADMIN_PASSWORD can stay empty: Grafana's own login is disabled, see "Logging in to Grafana")
 docker compose --profile monitoring up -d
 ```
 
@@ -144,9 +145,24 @@ When the public URL is not `http://localhost`, set `GRAFANA_ROOT_URL=https://you
 3. nginx always overwrites these four headers with the backend's reply (whatever the browser sends is discarded), and Grafana `auth.proxy` trusts only nginx's fixed IP on the `grafana-authproxy` network (`GF_AUTH_PROXY_WHITELIST`). Grafana issues no session of its own; every request is re-validated.
 4. Logging out of SkyLab deletes this cookie as well.
 
-**Fallback entry**: with no cookie (for example the Resource Monitoring page was never opened, or the cookie expired) or when the backend is down, `/grafana/` shows Grafana's own login page; log in with `admin` / `GRAFANA_ADMIN_PASSWORD`. Note that Grafana writes this password only on its very first start; changing `.env` afterwards has no effect, and you have to reset it with `docker exec $(docker ps -qf name=grafana) grafana cli admin reset-admin-password '<new password>'`.
+**Grafana's own login is disabled**: the login form and HTTP API basic auth are turned off (`GF_AUTH_DISABLE_LOGIN_FORM=true`, `GF_AUTH_BASIC_ENABLED=false` in `docker-compose.yml`), so the public `/grafana/` can only be entered through the SkyLab administrator login above. With no valid cookie (for example the Resource Monitoring page was never opened, or the cookie expired) or while the backend is down, `/grafana/` shows a Grafana login page without username / password fields; open the "Resource Monitoring" page in SkyLab first.
 
-**Network settings**: `grafana-authproxy` is a docker network containing only nginx and Grafana, default `172.30.253.0/28`, with nginx pinned to `172.30.253.2` (outside the dynamic allocation range `172.30.253.8/29`). If it collides with the host or another network, change `GRAFANA_AUTHPROXY_SUBNET`, `GRAFANA_AUTHPROXY_IP_RANGE` and `GRAFANA_AUTHPROXY_NGINX_IP` together in `.env`. To disable password-free login, set `GRAFANA_AUTH_PROXY_ENABLED=false`.
+SkyLab administrators get the Admin role of Grafana's main organization, which covers dashboards, data sources, users and service accounts. Grafana's built-in `admin` account (the server admin) still exists but cannot log in. Its password is `GRAFANA_ADMIN_PASSWORD`; when that is empty (or still the template value `changethis` / `admin`) the container generates a random one instead of Grafana's default `admin`. Grafana writes this password only on its very first start, so on existing installations the old password stays in Grafana's database (it just can no longer be used to log in), and changing `.env` afterwards has no effect.
+
+**When you need the built-in admin** (SkyLab login is broken, or a server-wide Grafana setting needs changing), on the SkyLab host:
+
+1. Set a new password inside the container: `docker compose exec grafana grafana cli admin reset-admin-password '<new password>'`.
+2. Temporarily turn the login form back on with a `docker-compose.override.yml` next to `docker-compose.yml`, then run `docker compose --profile monitoring up -d grafana`:
+   ```yaml
+   services:
+     grafana:
+       environment:
+         GF_AUTH_DISABLE_LOGIN_FORM: "false"
+   ```
+   While it is in place the form is also reachable through the public `/grafana/`, so prefer logging in through an SSH tunnel to `http://127.0.0.1:3000/grafana/` and keep the window short.
+3. When you are done, delete the override file, run the same `up -d grafana` again, and reset the password once more to a random value.
+
+**Network settings**: `grafana-authproxy` is a docker network containing only nginx and Grafana, default `172.30.253.0/28`, with nginx pinned to `172.30.253.2` (outside the dynamic allocation range `172.30.253.8/29`). If it collides with the host or another network, change `GRAFANA_AUTHPROXY_SUBNET`, `GRAFANA_AUTHPROXY_IP_RANGE` and `GRAFANA_AUTHPROXY_NGINX_IP` together in `.env`. Setting `GRAFANA_AUTH_PROXY_ENABLED=false` turns off password-free login and with it the only way into Grafana through the web (apart from the procedure above).
 
 ### Proxmox VE Metric Server setup
 
@@ -193,6 +209,8 @@ sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
 ```
 
 Without it the exporters are still installed but Prometheus cannot reach them, so the `gateway-node` / `gateway-nginx` jobs stay down (the exporter status on the "SkyLab Gateway" dashboard shows DOWN). On a Gateway that is already installed, just re-run `install.sh` with this variable to add it.
+
+If the exporters fail to install or start (for example a port is already in use), the installer only prints a warning and carries on, so nginx and WireGuard are still installed; check `journalctl -u prometheus-node-exporter -u prometheus-nginx-exporter` and re-run `install.sh` once fixed.
 
 `stub_status` only covers http (the public URLs); port forwarding (nginx stream) has no corresponding connection statistics, so look at the TCP connection count and NIC traffic on the "SkyLab Gateway" dashboard instead.
 

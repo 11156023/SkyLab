@@ -207,21 +207,36 @@ export default function FirewallPage() {
     }
   }, [showInternet]);
 
+  /* 只採用最後一次發出的拓撲請求：刪除連線、改規則前送出的背景刷新若比之後的重新載入晚回來，
+     舊拓撲（例如已刪的線）不能蓋回去。前景載入被背景刷新超車時，由最新那次接手收 loading／
+     顯示錯誤，首次載入失敗不會被吞掉 */
+  const fetchSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /* ── 載入拓撲（silent = true 時不觸發 loading、失敗也不設 error，供背景自動刷新使用） ── */
   const fetchTopology = useCallback(async (silent = false, signal) => {
+    const seq = ++fetchSeqRef.current;
+    const isLatest = () => seq === fetchSeqRef.current;
     if (!silent) {
+      foregroundPendingRef.current = true;
       setLoading(true);
       setError("");
     }
     try {
       const data = await getTopology({ signal });
+      if (!isLatest()) return;
       setTopology(data ?? { nodes: [], edges: [] });
       /* 背景刷新成功也要清掉先前的錯誤，否則首次載入失敗後錯誤畫面會一直留著 */
       setError("");
     } catch (err) {
-      if (!silent) setError(err?.message ?? t("FirewallPage.loadTopologyFailed"));
+      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
+        setError(err?.message ?? t("FirewallPage.loadTopologyFailed"));
+      }
     } finally {
-      if (!silent && !signal?.aborted) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [t]);
 

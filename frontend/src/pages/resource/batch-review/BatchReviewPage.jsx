@@ -230,9 +230,17 @@ export default function BatchReviewPage() {
   /* 開合與資料分開存：收合時保留已抓的時段，收合動畫才有內容可收、再展開也不用重抓 */
   const [openPreviews, setOpenPreviews] = useState({});
 
+  /* 只採用最後一次發出的請求：審核前送出的背景刷新若比審核後的重新載入晚回來，
+     舊快照（還是待審核）不能蓋掉新清單。前景載入被背景刷新超車時由最新那次接手收 loading／顯示錯誤 */
+  const loadSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
   const load = useCallback(async (silent = false) => {
+    const seq = ++loadSeqRef.current;
+    const isLatest = () => seq === loadSeqRef.current;
     if (!silent) {
+      foregroundPendingRef.current = true;
       setLoading(true);
       setError("");
     }
@@ -243,6 +251,7 @@ export default function BatchReviewPage() {
         BatchProvisionService.listAll({ limit: BATCH_LIST_LIMIT }),
         BatchProvisionService.listAll({ status: "pending_review", limit: BATCH_LIST_LIMIT }),
       ]);
+      if (!isLatest()) return;
       const byId = new Map();
       for (const job of [
         ...(Array.isArray(pending) ? pending : []),
@@ -252,12 +261,15 @@ export default function BatchReviewPage() {
       }
       setBatches([...byId.values()]);
     } catch (e) {
-      if (!silent) {
+      if (isLatest() && foregroundPendingRef.current) {
         setBatches([]);
         setError(e?.message ?? t("Error.generic", { ns: "common" }));
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [t]);
 

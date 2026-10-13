@@ -149,3 +149,31 @@ def test_build_weekly_rule_rejects_invalid_time() -> None:
         build_weekly_rule(["MO"], 25, 0)
     with pytest.raises(ValueError):
         build_weekly_rule(["MO"], 9, 60)
+
+
+# ─── get_schedule_policy ─────────────────────────────────────────────────────
+
+
+def test_schedule_policy_keeps_explicit_zero_grace_and_interval(monkeypatch) -> None:
+    """0 是合法設定（ge=0），不能被 ``or`` 換回預設的 30 分鐘／10 秒。"""
+    from types import SimpleNamespace
+
+    from app.services.scheduling import recurrence
+
+    config = SimpleNamespace(
+        scheduled_boot_batch_size=5,
+        scheduled_boot_batch_interval_seconds=0,
+        scheduled_boot_lead_time_minutes=5,
+        window_grace_period_minutes=0,
+        practice_session_hours=3,
+        practice_warning_minutes=30,
+        expiry_warning_hours=24,
+    )
+    monkeypatch.setattr(
+        recurrence.proxmox_config_repo, "get_proxmox_config", lambda _session: config
+    )
+
+    policy = recurrence.get_schedule_policy(session=None)  # type: ignore[arg-type]
+
+    assert policy.window_grace_minutes == 0
+    assert policy.boot_batch_interval_seconds == 0

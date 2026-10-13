@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
+from sqlalchemy import inspect as sa_inspect
 from sqlmodel import Session
 
 from app.core.db import engine
@@ -210,6 +211,10 @@ def send_messages(
     dead: list[uuid.UUID] = []
 
     for subscription in subscriptions:
+        # 同一輪 tick 會拿同一份清單連送多則；前一則已刪掉的失效訂閱不能再送、
+        # 也不能把 failure_count 寫回已刪除的列（session.add 會直接丟例外）
+        if sa_inspect(subscription).was_deleted:
+            continue
         # 訂閱當下已檢查過白名單，但修正前就存好的訂閱沒有；送出前一律重判，
         # 不在白名單內（任意公網主機、非 443 埠、格式殘缺）直接刪除不送。
         if not is_allowed_push_endpoint(subscription.endpoint):

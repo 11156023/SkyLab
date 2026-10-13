@@ -120,17 +120,33 @@ export default function GatewayCertificateTab({ gatewayReady, onGoToConnection, 
   const [statusError, setStatusError] = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const statusInFlightRef = useRef(false);
+  const statusRerunRef = useRef(false);
 
+  /* 檢查進行中又被要求刷新（例如儲存後）時不能丟掉，否則卡片停在儲存前的狀態：
+     排一次重跑，進行中那次的結果已經過時就不顯示，直接再查一次（連按多次也只多跑一次） */
   const refreshStatus = useCallback(async () => {
-    if (statusInFlightRef.current) return;
+    if (statusInFlightRef.current) {
+      statusRerunRef.current = true;
+      return;
+    }
     statusInFlightRef.current = true;
     setStatusLoading(true);
     try {
-      setStatus(await GatewayService.getCertificateStatus());
-      setStatusError(null);
-    } catch (err) {
-      setStatus(null);
-      setStatusError(err?.message ?? t("Error.generic", { ns: "common" }));
+      do {
+        statusRerunRef.current = false;
+        try {
+          const next = await GatewayService.getCertificateStatus();
+          if (!statusRerunRef.current) {
+            setStatus(next);
+            setStatusError(null);
+          }
+        } catch (err) {
+          if (!statusRerunRef.current) {
+            setStatus(null);
+            setStatusError(err?.message ?? t("Error.generic", { ns: "common" }));
+          }
+        }
+      } while (statusRerunRef.current);
     } finally {
       statusInFlightRef.current = false;
       setStatusLoading(false);

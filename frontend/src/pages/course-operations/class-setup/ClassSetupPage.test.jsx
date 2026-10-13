@@ -4,7 +4,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() }));
@@ -192,5 +192,86 @@ describe("ClassSetupPage 確認建立", () => {
     expect(container.textContent).not.toContain(tt("ClassSetupPage.capacityChecking"));
     expect(container.textContent).toContain(tt("ClassSetupPage.step3Title"));
     cleanup();
+  });
+});
+
+describe("ClassSetupPage 建好課程環境回到第三步", () => {
+  test("班級比環境清單晚載入時，剛建立的環境仍保持選取，不被班級已存的選擇蓋掉", async () => {
+    vi.spyOn(CourseEnvironmentsService, "listPublished").mockResolvedValue([
+      { id: "env-1", versionId: "v1", name: "舊環境", version: 1, nodes: [] },
+      { id: "env-9", versionId: "v9", name: "新環境", version: 1, nodes: [] },
+    ]);
+    let resolveClass;
+    vi.spyOn(TeachingClassesService, "get").mockImplementation(() => new Promise((resolve) => { resolveClass = resolve; }));
+
+    const { container, cleanup } = await mount({ pathname: "/class-setup", search: "?classId=c1&step=3", state: { createdTemplateId: "env-9" } });
+    await act(async () => {
+      resolveClass(baseClass({ students: [{ id: "s1", email: "s1@example.edu" }] }));
+      await flush();
+      await flush();
+    });
+
+    const choice = (name) => [...container.querySelectorAll("button[aria-pressed]")].find((button) => button.textContent.includes(name));
+    expect(choice("新環境").getAttribute("aria-pressed")).toBe("true");
+    expect(choice("舊環境").getAttribute("aria-pressed")).toBe("false");
+    expect(toast.success).toHaveBeenCalledWith(tt("ClassSetupPage.templatePublishedMsg"));
+    cleanup();
+  });
+});
+
+describe("ClassSetupPage 第一步建立班級後按上一頁", () => {
+  test("回到的是同一個班級的第一步，再按儲存是更新而不是多建一個班級", async () => {
+    vi.spyOn(CourseEnvironmentsService, "listPublished").mockResolvedValue([]);
+    const create = vi.spyOn(TeachingClassesService, "create").mockResolvedValue(baseClass());
+    const update = vi.spyOn(TeachingClassesService, "update").mockResolvedValue(baseClass({ name: "網路實務 B" }));
+    let navigate;
+    function NavigateProbe() {
+      navigate = useNavigate();
+      return null;
+    }
+    window.scrollTo = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/class-management", "/class-setup"]} initialIndex={1}>
+          <ClassSetupPage />
+          <LocationProbe />
+          <NavigateProbe />
+        </MemoryRouter>,
+      );
+      await flush();
+    });
+    const saveAndNext = async () => {
+      const button = [...container.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent.includes(tt("ClassSetupPage.saveAndNextBtn")));
+      await act(async () => {
+        button.click();
+        await flush();
+        await flush();
+      });
+    };
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    act(() => {
+      const name = container.querySelector("input");
+      setter.call(name, "網路實務");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await saveAndNext();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(currentSearch).toBe("?classId=c1&step=2");
+
+    await act(async () => {
+      navigate(-1);
+      await flush();
+    });
+    expect(currentSearch).toBe("?classId=c1&step=1");
+
+    await saveAndNext();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith("c1", expect.objectContaining({ name: "網路實務" }));
+    act(() => root.unmount());
+    container.remove();
   });
 });

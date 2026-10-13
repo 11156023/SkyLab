@@ -8,15 +8,29 @@ from app.services.network import nginx_gateway_service
 
 
 class _Channel:
+    """exec_command 直接在 channel 上輪流讀 stdout／stderr；這裡沒有輸出、立即結束。"""
+
+    eof_received = True
+    closed = False
+
     def __init__(self, data: bytes = b"") -> None:
         self._data = data
         self.channel = self
 
-    def read(self) -> bytes:
-        return self._data
+    def recv_ready(self) -> bool:
+        return False
+
+    def recv_stderr_ready(self) -> bool:
+        return False
+
+    def exit_status_ready(self) -> bool:
+        return True
 
     def recv_exit_status(self) -> int:
         return 0
+
+    def close(self) -> None:  # pragma: no cover - 只在逾時／輸出過大時呼叫
+        pass
 
     def write(self, _data: str) -> None:  # pragma: no cover - 不走 stdin
         pass

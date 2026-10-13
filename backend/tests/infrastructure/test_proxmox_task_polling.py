@@ -142,3 +142,23 @@ def test_overall_timeout_still_applies_during_outage(monkeypatch, clock) -> None
         client.basic_blocking_task_status(
             "pve19", "UPID:x", check_interval=5, timeout_seconds=60
         )
+
+
+def test_outage_switches_to_reacquired_client(monkeypatch, clock) -> None:
+    """入口節點斷線、快取 client 被丟掉後，輪詢要改用重新取得的 client（HA 切換）。"""
+    dead = _FakeApi([RUNNING], clock, call_cost=30.0)
+    dead.results_tail = ConnectTimeout("connect timeout=30")
+    alive = _FakeApi([RUNNING, DONE], clock)
+
+    def get_api(_node: str) -> _FakeApi:
+        # 入口斷線（第二次輪詢失敗）後，快取已被丟掉、重新探測會拿到其他節點
+        return alive if dead.calls >= 2 else dead
+
+    monkeypatch.setattr(client, "get_proxmox_api_for_node", get_api)
+
+    result = client.basic_blocking_task_status("pve19", "UPID:x", check_interval=5)
+
+    assert result == DONE
+    assert dead.calls == 2
+    waited = clock.now - 1000.0
+    assert waited < client.TASK_STATUS_OUTAGE_TOLERANCE_SECONDS

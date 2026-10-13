@@ -136,6 +136,59 @@ def test_sync_connection_inventory_stores_connection_port(monkeypatch) -> None:
     assert [n["port"] for n in seen["node_dicts"]] == [443]
 
 
+def test_sync_connection_inventory_keeps_storages_of_unreachable_node(
+    monkeypatch,
+) -> None:
+    """某節點讀不到 storage（離線／維護）時不可把它既有的 storage 列刪掉。"""
+    seen: dict[str, Any] = {}
+    nodes = [SimpleNamespace(name="pve1"), SimpleNamespace(name="pve2")]
+
+    def fake_list_storages(client, node_name):
+        if node_name == "pve2":
+            raise RuntimeError("595 No route to host")
+        return [{"storage": "local-lvm", "content": "images,rootdir"}]
+
+    def fake_upsert_storages(session, storages, scope_node_names=None):
+        seen["storages"] = storages
+        seen["scope"] = scope_node_names
+        return storages
+
+    monkeypatch.setattr(
+        connection_sync_service, "resolve_verify", lambda *a, **k: True
+    )
+    monkeypatch.setattr(
+        connection_sync_service, "fetch_cluster_nodes", lambda **k: []
+    )
+    monkeypatch.setattr(
+        connection_sync_service.proxmox_connection_repo,
+        "get_decrypted_password", lambda conn: "x",
+    )
+    monkeypatch.setattr(
+        connection_sync_service.proxmox_node_repo,
+        "upsert_nodes", lambda *a, **k: nodes,
+    )
+    monkeypatch.setattr(
+        connection_sync_service, "list_node_storages", fake_list_storages
+    )
+    monkeypatch.setattr(
+        connection_sync_service.proxmox_storage_repo,
+        "upsert_storages", fake_upsert_storages,
+    )
+    conn = SimpleNamespace(
+        id=1, host="pve.example", port=8006, user="root@pam", verify_ssl=True,
+        ca_cert=None, api_timeout=5,
+    )
+
+    with patch.object(connection_sync_service, "open_client", MagicMock()):
+        _, count = connection_sync_service.sync_connection_inventory(
+            MagicMock(), conn  # type: ignore[arg-type]
+        )
+
+    assert seen["scope"] == {"pve1"}
+    assert [s["node_name"] for s in seen["storages"]] == ["pve1"]
+    assert count == 1
+
+
 # ---------------------------------------------------------------------------
 # create_lxc／create_vm 必須避開 DB 已預留但 PVE 還看不到的 VMID
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import Session, select
@@ -563,41 +563,25 @@ def window_checkpoints(
     reserved_requests: list[VMRequest],
     normalize_datetime_fn,
 ) -> list[datetime]:
-    """時段內需要檢查容量的時間點：start_at 加上「預約組合可能改變」的整點。
+    """時段內需要檢查容量的時間點：start_at 加上時段內每筆預約的開始時間。
 
-    語意等同逐小時掃描（start_at 之後每個整點直到 end_at）：某個整點的容量
-    只取決於當下生效的預約（reserved_start <= t < reserved_end），而生效集合
-    只會在每筆預約開始／結束後的第一個整點改變，其餘整點的結果必然與前一個
-    相同。只評估這些點，成本只跟預約筆數有關、不再跟時段長度成正比 ——
-    逐小時全掃時，一個跨數百年的時段就能把單一 worker 的 CPU／記憶體吃光。
+    某個時間點 t 的佔用只取決於當下生效的預約（reserved_start <= t < reserved_end）。
+    生效集合只在預約開始時變大、結束時變小，所以 [start_at, end_at) 內佔用
+    最高的時刻一定落在 start_at 或某筆預約的開始時間：任一時刻的生效集合，
+    都包含在它之前最近的那個開始點（或 start_at）的生效集合裡。只檢查這些點
+    就涵蓋整段時段（含不在整點的重疊，例如 10:30–10:45 的預約），成本只跟
+    預約筆數有關、不跟時段長度成正比。GPU 槽與 CPU／記憶體／磁碟走同一組點。
     """
     if end_at <= start_at:
         return [start_at]
-    hour = timedelta(hours=1)
-    first = start_at.replace(minute=0, second=0, microsecond=0)
-    if first < start_at:
-        first += hour
-    if first >= end_at:
-        return [start_at]
-
-    def first_hour_at_or_after(moment: datetime) -> datetime:
-        if moment <= first:
-            return first
-        steps = -(-(moment - first) // hour)
-        return first + steps * hour
-
-    points = {first}
+    points: set[datetime] = set()
     for reserved in reserved_requests:
-        for boundary in (
-            normalize_datetime_fn(getattr(reserved, "start_at", None)),
-            normalize_datetime_fn(getattr(reserved, "end_at", None)),
-        ):
-            if boundary is None:
-                continue
-            candidate = first_hour_at_or_after(boundary)
-            if candidate < end_at:
-                points.add(candidate)
-    return [start_at] + sorted(point for point in points if point != start_at)
+        reserved_start = normalize_datetime_fn(getattr(reserved, "start_at", None))
+        if reserved_start is None:
+            continue
+        if start_at < reserved_start < end_at:
+            points.add(reserved_start)
+    return [start_at] + sorted(points)
 
 
 def apply_reserved_requests_to_capacities(

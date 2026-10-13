@@ -23,6 +23,7 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricCheckStep,
     TeacherJudgeRubricItem,
 )
+from app.infrastructure.ssh import SSHCommandTimeoutError, SSHOutputTooLargeError
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptSource,
@@ -435,6 +436,7 @@ class _FakeSFTP:
 class _FakeClient:
     def __init__(self) -> None:
         self.sftp = _FakeSFTP()
+        self.output_limits: list[int | None] = []
 
     def open_sftp(self) -> _FakeSFTP:
         return self.sftp
@@ -463,8 +465,15 @@ def _run_fake_target(
     client = _FakeClient()
     commands: list[tuple[str, int | None]] = []
 
-    def fake_exec(_client: Any, command: str, *, timeout: int | None = None) -> tuple[int, str, str]:
+    def fake_exec(
+        _client: Any,
+        command: str,
+        *,
+        timeout: int | None = None,
+        max_output_bytes: int | None = None,
+    ) -> tuple[int, str, str]:
         commands.append((command, timeout))
+        client.output_limits.append(max_output_bytes)
         return (exit_code if "script.py" in command and "rm -f" not in command else 0), "", ""
 
     monkeypatch.setattr(executor, "create_key_client", lambda *a, **k: client)
@@ -545,6 +554,92 @@ def test_remote_execution_uses_run_budget_and_kills_on_timeout(
     )
     assert target_result["reason_code"] == "execution_timeout"
     assert result.exit_code == executor.TIMEOUT_EXIT_CODE
+
+
+# ── 每條 SSH 指令都有總時限與輸出上限，超過只讓該台失敗 ─────────────
+
+
+def test_every_remote_command_is_bounded_in_time_and_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, commands, _ = _run_fake_target(monkeypatch)
+
+    # mkdir、執行腳本、清理
+    assert len(commands) == 3
+    assert all(timeout is not None for _, timeout in commands)
+    assert client.output_limits == [executor.SSH_OUTPUT_LIMIT_BYTES] * 3
+
+
+def test_target_over_ssh_limits_fails_alone_with_clear_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    db_engine = create_engine(f"sqlite:///{tmp_path / 'executor.sqlite'}")
+    SQLModel.metadata.create_all(db_engine)
+    with Session(db_engine) as session:
+        artifact = TeacherJudgeScriptArtifact(
+            teaching_class_id=uuid.uuid4(),
+            name="test",
+            template_key="linux",
+            rubric_snapshot_json={},
+            script_content="print('x')",
+            status=TeacherJudgeScriptStatus.approved,
+        )
+        session.add(artifact)
+        session.flush()
+        run = TeacherJudgeScriptRun(
+            artifact_id=artifact.id,
+            target_snapshot_json={
+                "targets": [{"vmid": 101}, {"vmid": 102}, {"vmid": 103}]
+            },
+        )
+        session.add(run)
+        session.commit()
+        run_id = run.id
+
+    def fake_ssh(*, target: dict[str, Any], script_content: str) -> executor.RemoteScriptResult:
+        if target["vmid"] == 101:
+            raise SSHCommandTimeoutError(75)
+        if target["vmid"] == 102:
+            raise SSHOutputTooLargeError("stderr", executor.SSH_OUTPUT_LIMIT_BYTES)
+        return executor.RemoteScriptResult(
+            0,
+            json.dumps(
+                {
+                    "schema_version": "teacher_judge_result.v1",
+                    "metadata": {"timestamp": "2026-10-12T00:00:00Z", "platform": "linux"},
+                    "summary": "done",
+                    "checks": [],
+                    "errors": [],
+                }
+            ),
+            "",
+        )
+
+    monkeypatch.setattr(executor, "engine", db_engine)
+    monkeypatch.setattr(executor, "_live_running_by_vmid", lambda: {})
+    monkeypatch.setattr(
+        executor, "_resolve_runtime_target", lambda **kwargs: dict(kwargs["target"])
+    )
+    monkeypatch.setattr(executor, "_execute_target_script", fake_ssh)
+
+    collected = executor._execute_targets(run_id)
+    assert collected is not None
+    executor._save_results(run_id, collected.results)
+
+    with Session(db_engine) as session:
+        stored = session.get(TeacherJudgeScriptRun, run_id)
+        assert stored is not None
+        assert stored.status == TeacherJudgeScriptRunStatus.completed
+        by_vmid = {item["vmid"]: item for item in stored.target_results_json["targets"]}
+        assert by_vmid[101]["status"] == "failed"
+        assert by_vmid[101]["reason_code"] == "execution_timeout"
+        assert "75" in by_vmid[101]["validation"]["error"]
+        assert by_vmid[102]["status"] == "failed"
+        assert by_vmid[102]["reason_code"] == "output_too_large"
+        assert "1 MB" in by_vmid[102]["validation"]["error"]
+        assert by_vmid[103]["status"] == "completed"
+        assert stored.result_summary_json["completed"] == 1
+        assert stored.result_summary_json["failed"] == 2
 
 
 # ── SSH fan-out 期間不可佔著 DB 交易 ──────────────────────────────

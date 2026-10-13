@@ -151,6 +151,33 @@ async def test_short_completion_immediately_replaces_slot_without_waiting_for_lo
     assert admission.active == 0
 
 
+async def test_model_gauges_reset_after_ticket_is_resolved_to_a_model():
+    """入口 reserve 時 ticket 還沒對到模型（算在 other），對到模型後 other 的
+    waiting gauge 要歸零，不能永遠停在舊值。"""
+    from app.core import metrics
+
+    ai_metrics.reset_known_models()
+    ai_metrics.remember_models(["gauge-model"])
+
+    def gauge(metric, label):
+        return metric.labels(model=label)._value.get()
+
+    admission = queue()
+    ticket = admission.ticket(deadline=float("inf"))
+    admission.reserve(ticket)
+    assert gauge(metrics.AI_PROXY_MODEL_WAITING, "other") == 1
+    ticket.model = "gauge-model"
+    admission._update_metrics()
+    lease = await admission.acquire(ticket)
+    assert gauge(metrics.AI_PROXY_MODEL_WAITING, "other") == 0
+    assert gauge(metrics.AI_PROXY_MODEL_INFLIGHT, "gauge-model") == 1
+    lease.release()
+    admission.discard(ticket)
+    assert gauge(metrics.AI_PROXY_MODEL_WAITING, "other") == 0
+    assert gauge(metrics.AI_PROXY_MODEL_INFLIGHT, "gauge-model") == 0
+    ai_metrics.reset_known_models()
+
+
 async def test_model_cap_and_fifo_allow_other_models_to_bypass_blocked_head():
     admission = queue(active=3, model_active=1)
     first = await admission.acquire(admission.ticket("A"))

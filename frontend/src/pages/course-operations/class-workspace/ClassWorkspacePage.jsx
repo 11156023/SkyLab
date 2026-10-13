@@ -1003,7 +1003,6 @@ export function StudentMachines({ item }) {
       });
       if (!ok) return;
     }
-    setMessage("");
     setPower({ action, done: 0, total: classVmids.length });
     try {
       const result = await ResourcesService.batchActionInChunks(classVmids, action, {

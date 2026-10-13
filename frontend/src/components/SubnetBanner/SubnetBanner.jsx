@@ -26,20 +26,29 @@ export default function SubnetBanner() {
   const [status, setStatus] = useState(null);
   const isAdmin = isAdminUser(user);
   const lastFetchedAtRef = useRef(0);
+  /* 序號與掛載狀態放元件層：換頁時進行中的查詢仍要收下（60 秒內換頁不會重查，
+     丟掉的話橫幅要等下一次換頁才出現，例如 / 立刻轉址到 /dashboard），只讓較新的查詢蓋過舊的 */
+  const seqRef = useRef(0);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   /* 橫幅掛在 DashboardLayout、跨頁不重掛；只在掛載時查一次的話，
      管理員設定或刪除子網後要整頁重新整理才會更新。
      因此換頁時重查（距上次不足 60 秒則略過；其他人改了子網也跟得上），
      另外收到 SUBNET_CHANGED_EVENT 時立即重查（管理員在設定頁存檔／刪除當下）。 */
   useEffect(() => {
-    let cancelled = false;
-    let seq = 0;
     const refresh = () => {
       lastFetchedAtRef.current = Date.now();
-      const current = ++seq;
+      const current = ++seqRef.current;
       IpManagementService.getStatus()
         .then((res) => {
-          if (!cancelled && current === seq) setStatus(res);
+          if (mountedRef.current && current === seqRef.current) setStatus(res);
         })
         .catch(() => {
           // 取不到狀態就不顯示，避免誤報
@@ -47,10 +56,7 @@ export default function SubnetBanner() {
     };
     if (Date.now() - lastFetchedAtRef.current >= ROUTE_REFRESH_MIN_GAP_MS) refresh();
     window.addEventListener(SUBNET_CHANGED_EVENT, refresh);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(SUBNET_CHANGED_EVENT, refresh);
-    };
+    return () => window.removeEventListener(SUBNET_CHANGED_EVENT, refresh);
   }, [pathname]);
 
   if (!status || status.configured) return null;

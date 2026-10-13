@@ -282,7 +282,8 @@ class BackgroundTaskRunner:
                 asyncio.gather(*list(self._tasks.values()), return_exceptions=True),
                 timeout=timeout,
             )
-        except TimeoutError:
+        except (TimeoutError, asyncio.TimeoutError):
+            # Python 3.10 的 asyncio.TimeoutError 不是內建 TimeoutError
             logger.warning(
                 "Timed out waiting for %d background task(s); cancelling",
                 len(self._tasks),

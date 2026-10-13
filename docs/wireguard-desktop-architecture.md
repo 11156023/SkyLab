@@ -26,7 +26,7 @@ The current configuration uses:
 - nftables table: `inet skylab_wg`
 - systemd units: `wg-quick@wg0`, `skylab-wg-firewall.service`
 
-On a new Gateway, first confirm that the interface, addresses and UDP port do not conflict with anything, then run as root:
+The Gateway must run Debian 13 (trixie); the installer refuses any other system (including Debian 12, whose nftables is too old for `nft destroy table`) before changing anything. On a new Gateway, first confirm that the interface, addresses and UDP port do not conflict with anything, then run as root:
 
 ```bash
 sudo ./gateway/install.sh

@@ -307,8 +307,12 @@ def _append_review_note(note: str | None, extra: str) -> str:
 def _create_alert_event(
     session: Session, incident: MiningIncident, config: Any
 ) -> None:
+    from app.services.monitoring.alert_service import connection_id_for_node
+
     event = AlertEvent(
         scope=AlertScope.vm,
+        # 與資源告警同一套鍵：VM 所在節點的連線，多叢集下同號 VM 才不會混在一起
+        connection_id=connection_id_for_node(session, incident.node),
         target=str(incident.vmid),
         metric=AlertMetric.cpu,
         value=incident.avg_cpu,

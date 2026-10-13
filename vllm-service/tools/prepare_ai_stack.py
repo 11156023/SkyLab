@@ -30,6 +30,7 @@ from generate_litellm_config import (
     render_config,
     validate_generated_config,
     vllm_scrape_targets,
+    write_private_text,
 )
 
 REPO_ROOT = PROJECT_ROOT.parent
@@ -421,8 +422,8 @@ def main() -> int:
             if not DEFAULT_OUTPUT.is_file() or yaml.safe_load(DEFAULT_OUTPUT.read_text()) != config:
                 raise ValueError("config.yaml 缺少或與模型／template 不一致；請執行 prepare-ai-stack.sh 重新產生")
         else:
-            DEFAULT_OUTPUT.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-            print("已產生 production 設定：vllm-service/litellm/config.yaml")
+            write_private_text(DEFAULT_OUTPUT, yaml.safe_dump(config, sort_keys=False))
+            print("已產生 production 設定：vllm-service/litellm/config.yaml（權限 0600）")
             write_vllm_targets(models)
         print(f"主 Compose 與金鑰邊界檢查通過；本機 {sum(m['deployment'] == 'local' for m in models)} 個、遠端 {sum(m['deployment'] == 'remote' for m in models)} 個模型")
 

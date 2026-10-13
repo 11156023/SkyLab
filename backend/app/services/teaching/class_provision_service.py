@@ -274,7 +274,14 @@ def _retry_node(
     if not retry_user_ids:
         return False, recovered
     if job.status == BatchProvisionJobStatus.running:
-        job.status = BatchProvisionJobStatus.failed
+        # 與 worker 收尾同一條規則：全部失敗才標 failed。這份被取代的舊工作
+        # 已建好的機器仍屬於班級，排程器的週期開關機只認 completed，標成
+        # failed 會讓這些學生整學期都不再自動開機。
+        job.status = (
+            BatchProvisionJobStatus.completed
+            if job.done > 0
+            else BatchProvisionJobStatus.failed
+        )
         job.finished_at = get_datetime_utc()
         session.add(job)
         session.commit()

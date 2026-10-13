@@ -6,6 +6,7 @@
   且直播源 VM 是自己的（admin bypass）。
 """
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Protocol
@@ -154,8 +155,13 @@ def list_class_students(
     user: User,
     *,
     cluster_resources: list[dict[str, Any]],
+    online_user_ids: set[uuid.UUID] | None = None,
 ) -> list[ClassroomStudent]:
-    """班級學生及其固定多機器，供班級內的上課監看使用。"""
+    """班級學生及其固定多機器，供班級內的上課監看使用。
+
+    ``online_user_ids`` 由呼叫端在 event loop 上先讀好（presence hub 不是
+    thread-safe），這樣其餘的 DB 查詢可以整段丟到 worker thread；沒給時就地讀取。
+    """
     _require_active_class(session, user, class_id)
     enrollments = list(
         session.exec(
@@ -206,7 +212,11 @@ def list_class_students(
         for row in cluster_resources
         if row.get("vmid") is not None
     }
-    online = classroom_presence_hub.online_user_ids_for_class(class_id)
+    online = (
+        online_user_ids
+        if online_user_ids is not None
+        else classroom_presence_hub.online_user_ids_for_class(class_id)
+    )
 
     result: list[ClassroomStudent] = []
     for enrollment in enrollments:
@@ -467,7 +477,8 @@ async def _on_session_end(session: ClassroomSession, _reason: str) -> None:
             and session.controller_user_id is not None
         ):
             # 接管中結束 → 解除學生端的「老師接管中」覆蓋
-            owner_id = _lookup_resource_owner(session.vmid)
+            # 同步 DB 查詢丟到執行緒：DB 慢或連不上時不能把整個 event loop 凍住
+            owner_id = await asyncio.to_thread(_lookup_resource_owner, session.vmid)
             if owner_id is not None:
                 await classroom_presence_hub.send_to_user(
                     owner_id, _event("takeover_stopped", session)
@@ -479,7 +490,7 @@ async def _on_session_end(session: ClassroomSession, _reason: str) -> None:
 async def _on_controller_released(session: ClassroomSession) -> None:
     """控制者離線被自動收回控制權 → 解除學生端的「老師接管中」覆蓋。"""
     try:
-        owner_id = _lookup_resource_owner(session.vmid)
+        owner_id = await asyncio.to_thread(_lookup_resource_owner, session.vmid)
         if owner_id is not None:
             await classroom_presence_hub.send_to_user(
                 owner_id, _event("takeover_stopped", session)

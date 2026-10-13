@@ -175,7 +175,7 @@ SkyLab **不簽發憑證**（不跑 certbot、不做 ACME）。管理員自己�
 
 ## 7. Gateway VM
 
-Gateway 是另一台 Linux VM，用 `gateway/install.sh` 安裝（nginx stream + http、WireGuard、nftables ACL、SNAT、選用的 Prometheus exporter）。SkyLab 從「閘道 VM」頁經 SSH 管理它，也能從該頁代跑安裝腳本。細節見 [`wireguard-desktop-architecture.zh-TW.md`](wireguard-desktop-architecture.zh-TW.md) 與 [`monitoring.zh-TW.md`](monitoring.zh-TW.md) 的「Gateway 監控」。
+Gateway 是另一台 Linux VM，用 `gateway/install.sh` 安裝（nginx stream + http、WireGuard、nftables ACL、SNAT、選用的 Prometheus exporter）。安裝腳本**只支援 Debian 13（trixie）**，其他系統在動到任何設定前就會停止：它的 nftables 規則用到 `nft destroy table`，需要 nftables 1.0.8 以上，而 Debian 12 附的是 1.0.6。Debian 12 的 Gateway 請先升級或改用 Debian 13 重建，再（重新）執行安裝腳本。SkyLab 從「閘道 VM」頁經 SSH 管理它，也能從該頁代跑安裝腳本。細節見 [`wireguard-desktop-architecture.zh-TW.md`](wireguard-desktop-architecture.zh-TW.md) 與 [`monitoring.zh-TW.md`](monitoring.zh-TW.md) 的「Gateway 監控」。
 
 ## 8. 持續部署（測試環境）
 

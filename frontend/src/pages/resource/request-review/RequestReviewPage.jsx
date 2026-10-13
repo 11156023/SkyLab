@@ -276,9 +276,19 @@ export default function RequestReviewPage() {
     [requests, selectedId],
   );
 
+  /* 只採用最後一次發出的請求：切分頁、審核後重新載入時，較早送出卻較晚回來的
+     舊回應（別的分頁、審核前的快照）不能蓋掉新清單 */
+  const fetchSeqRef = useRef(0);
+  const foregroundLoadingRef = useRef(false);
+
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
   const fetchRequests = useCallback(async (tab = activeTab, silent = false) => {
+    // 前景載入進行中就不另發背景刷新，否則前景那次會被當成舊回應丟掉、loading 收不掉
+    if (silent && foregroundLoadingRef.current) return;
+    const seq = ++fetchSeqRef.current;
+    const isLatest = () => seq === fetchSeqRef.current;
     if (!silent) {
+      foregroundLoadingRef.current = true;
       setLoading(true);
       setError("");
     }
@@ -286,6 +296,7 @@ export default function RequestReviewPage() {
       const pages = await Promise.all(
         TAB_KEYS.map((key) => fetchTabPage(key, key === tab ? (key === "pending" ? PENDING_LIST_LIMIT : LIST_LIMIT) : 1)),
       );
+      if (!isLatest()) return;
       const active = pages[TAB_KEYS.indexOf(tab)] ?? { vm: EMPTY_PAGE, spec: EMPTY_PAGE };
       const items = [
         ...(active.vm?.data ?? []).map((r) => normalizeVmRequest(r, t)),
@@ -301,14 +312,17 @@ export default function RequestReviewPage() {
         current && items.some((item) => item.id === current) ? current : null,
       );
     } catch (err) {
-      if (!silent) {
+      if (!silent && isLatest()) {
         setRequests([]);
         setTabCounts({});
         setSelectedId(null);
         setError(err?.message ?? t("RequestReviewPage.loadRequestsFailed"));
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && isLatest()) {
+        foregroundLoadingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [activeTab, t]);
 

@@ -274,6 +274,12 @@ def _reconcile_failed_template_tasks(
     session: Session,
     templates: list[VMTemplate],
 ) -> None:
+    """背景任務已失敗、範本狀態卻沒收尾（例如 worker 中斷）時對帳。
+
+    只有建立（轉範本）失敗會標成 failed。更新循環的任務失敗一律保持
+    updating：擁有者可以重試「完成更新」，或「取消更新循環」刪掉暫存母機
+    回到 ready（failed 狀態下這兩個動作都做不了）；這裡只補上錯誤訊息。
+    """
     changed = False
     for template in templates:
         if template.status not in {
@@ -287,8 +293,12 @@ def _reconcile_failed_template_tasks(
         )
         if task is None or task.status != TaskRecordStatus.failed:
             continue
-        template.status = VMTemplateStatus.failed
-        template.error_message = task.error or "背景任務執行失敗"
+        if template.status == VMTemplateStatus.updating:
+            if template.error_message:
+                continue
+        else:
+            template.status = VMTemplateStatus.failed
+        template.error_message = (task.error or "背景任務執行失敗")[:1000]
         template_repo.touch(session=session, template=template, commit=False)
         changed = True
     if changed:
@@ -993,7 +1003,15 @@ def _prepare_update_finish(
         temp_vmid=temp_vmid,
     ):
         raise ConflictError(t("template.updateCloneMismatch", vmid=temp_vmid))
+    _clear_retry_error(session, template)
     return template, temp_vmid
+
+
+def _clear_retry_error(session: Session, template: VMTemplate) -> None:
+    """重試收尾前清掉上一次失敗的訊息，免得與這次的進度混在一起。"""
+    if template.error_message:
+        template.error_message = None
+        template_repo.touch(session=session, template=template)
 
 
 async def cancel_update_cycle(
@@ -1024,6 +1042,7 @@ def _prepare_update_cancel(
     _require_owner(user, template)
     if template.status != VMTemplateStatus.updating:
         raise ConflictError(t("template.notInUpdateCycle"))
+    _clear_retry_error(session, template)
     return template
 
 

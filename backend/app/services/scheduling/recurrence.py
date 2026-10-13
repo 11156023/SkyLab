@@ -52,6 +52,15 @@ _DEFAULT_POLICY = SchedulePolicy(
 )
 
 
+def _configured(value: int | None, default: int) -> int:
+    """設定值；只有沒填（None）才用預設。
+
+    批次間隔與寬限期的合法範圍包含 0，用 ``value or default`` 會把管理員
+    明確設定的 0 悄悄換回預設值（例如寬限 0 分鐘實際仍多跑 30 分鐘）。
+    """
+    return default if value is None else int(value)
+
+
 def get_schedule_policy(*, session: Session) -> SchedulePolicy:
     config = proxmox_config_repo.get_proxmox_config(session)
     if config is None:
@@ -59,12 +68,14 @@ def get_schedule_policy(*, session: Session) -> SchedulePolicy:
     return SchedulePolicy(
         boot_batch_size=max(int(config.scheduled_boot_batch_size or 5), 1),
         boot_batch_interval_seconds=max(
-            int(config.scheduled_boot_batch_interval_seconds or 10), 0
+            _configured(config.scheduled_boot_batch_interval_seconds, 10), 0
         ),
         boot_lead_time_minutes=max(
             int(config.scheduled_boot_lead_time_minutes or 5), 0
         ),
-        window_grace_minutes=max(int(config.window_grace_period_minutes or 30), 0),
+        window_grace_minutes=max(
+            _configured(config.window_grace_period_minutes, 30), 0
+        ),
         practice_session_hours=max(int(config.practice_session_hours or 3), 1),
         practice_warning_minutes=max(int(config.practice_warning_minutes or 30), 1),
         expiry_warning_hours=max(int(config.expiry_warning_hours or 24), 1),

@@ -5,6 +5,7 @@
   "teachingClasses.archivedCannotExtend": "已封存的班級無法展延",
   "teachingClasses.extendDateMustBeLater": "新結束日期必須晚於目前的結束日期",
   "teachingClasses.mustBeArchivedBeforeReclaim": "班級必須先封存才能回收資源",
+  "teachingClasses.archiveAlwaysReclaims": "封存班級一律會回收學生機器，無法保留；若要讓學生繼續使用機器，請改用「延長」",
   "teachingClasses.studentsLocked": "已送出建機後不可變更學生名單",
   "teachingClasses.studentNotFound": "找不到班級學生",
   "teachingClasses.csvDecodeFailed": "無法解析 CSV 檔案編碼",

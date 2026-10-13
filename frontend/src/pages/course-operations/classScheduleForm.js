@@ -6,16 +6,33 @@ function localDate(date) {
   return value.toISOString().slice(0, 10);
 }
 
+/** 加幾個月；目標月份沒有這一天時停在該月最後一天（10/31 + 4 個月 → 2/28，不會溢位到 3 月） */
+function addMonthsClamped(date, months) {
+  const result = new Date(date);
+  const day = result.getDate();
+  result.setDate(1);
+  result.setMonth(result.getMonth() + months);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDay));
+  return result;
+}
+
+/** 民國學年度學期：學年度從 8/1 開始，8～1 月是第一學期、2～7 月是第二學期 */
+export function rocTermOf(date) {
+  const month = date.getMonth() + 1;
+  const academicYear = month >= 8 ? date.getFullYear() : date.getFullYear() - 1;
+  const semester = month >= 8 || month === 1 ? 1 : 2;
+  return `${academicYear - 1911}-${semester}`;
+}
+
 export function createClassScheduleForm(item = null, today = new Date()) {
   const start = new Date(today);
   start.setDate(start.getDate() + ((8 - start.getDay()) % 7));
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 4);
-  const rocYear = start.getFullYear() - 1911;
+  const end = addMonthsClamped(start, 4);
 
   return {
     name: item?.name ?? "",
-    term: item?.term ?? `${rocYear}-1`,
+    term: item?.term ?? rocTermOf(start),
     location: item?.location ?? "",
     startDate: item?.startDate ?? item?.start_date ?? localDate(start),
     endDate: item?.endDate ?? item?.end_date ?? localDate(end),

@@ -23,6 +23,7 @@ import { uploadSequentially } from "../../../utils/uploadSequentially";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
@@ -588,6 +589,8 @@ export default function CourseTemplateEditorPage() {
   const [zones, setZones] = useState([]);
   const [sourceNotice, setSourceNotice] = useState("");
   const [loading, setLoading] = useState(Boolean(templateId));
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [saveError, setSaveError] = useState("");
@@ -678,6 +681,7 @@ export default function CourseTemplateEditorPage() {
       setLoading(false);
     }
     const existingId = templateId || (draft?.id !== "new" && draft?.id);
+    setLoadFailed(false);
     if (!existingId) {
       initialize(draft ?? makeEmptyTemplate(), Boolean(draft));
     } else {
@@ -693,7 +697,11 @@ export default function CourseTemplateEditorPage() {
           initialize(result, false);
         }
       })
-      .catch((reason) => active && toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadTemplateFailed")))
+      .catch((reason) => {
+        if (!active) return;
+        setLoadFailed(true);
+        toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadTemplateFailed"));
+      })
       .finally(() => active && setLoading(false));
     }
     return () => {
@@ -705,7 +713,7 @@ export default function CourseTemplateEditorPage() {
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId]);
+  }, [templateId, reloadKey]);
   useEffect(() => {
     let active = true;
     TemplatesService.list()
@@ -904,6 +912,12 @@ export default function CourseTemplateEditorPage() {
     finally { publishingRef.current = false; setSaving(false); }
   }
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
+  /* 讀不到既有環境時不畫空白編輯器：在空白表單上打的字會寫進這個環境的暫存草稿，
+     下次進來還原時會連同空的機器清單一起自動儲存，蓋掉伺服器上的草稿 */
+  if (loadFailed) return <div className={styles.page}>
+    <PageHeader title={t("CourseTemplateEditorPage.loadTemplateFailed")}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
+    <section className={styles.card}><ErrorState onRetry={() => setReloadKey((key) => key + 1)} /></section>
+  </div>;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
     <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : (template.name.trim() || t("CourseTemplateEditorPage.unnamedEnv"))} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
     {template.status === "draft" && saveState === "error" && <p className={styles.persistentFeedback} role="alert">

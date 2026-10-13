@@ -33,6 +33,9 @@
     machineCount: "{count} machines",
     noMatches: "No machines match your search",
     resourceError: "Could not update resources. Please refresh.",
+    serverUnreachable: "Server temporarily unreachable",
+    serverUnreachableHint:
+      "Retrying automatically in the background. This notice disappears once the connection is back.",
     appearance: "Appearance",
     dark: "Dark",
     light: "Light"
