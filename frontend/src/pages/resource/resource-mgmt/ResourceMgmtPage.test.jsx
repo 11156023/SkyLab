@@ -295,7 +295,8 @@ describe("ResourceMgmtPage", () => {
       const text = rowOf("vm-101").textContent;
       expect(text).toContain("2026/10/15");
       // 到期界線是 10/15 00:00 UTC，紐約是 10/14 20:00
-      expect(text).toContain("10/14 20:00");
+      /* 日期與時間間的空白依 ICU 版本可能是 U+202F，比對前統一成一般空白 */
+      expect(text.replace(/\s/g, " ")).toContain("10/14 20:00");
       expect(text).not.toContain("2026/10/14");
     } finally {
       if (previousTz === undefined) delete process.env.TZ;

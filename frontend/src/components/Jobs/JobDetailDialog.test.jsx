@@ -82,7 +82,8 @@ test("a machine expiry date shows its calendar day plus the local cutoff time", 
     });
     await render("a");
     // 到期界線是 00:00 UTC，台灣是當天 08:00
-    expect(document.body.textContent).toContain("2026/10/15（08:00 截止）");
+    /* 日期與時間間的空白依 ICU 版本可能是 U+202F，比對前統一成一般空白 */
+    expect(document.body.textContent.replace(/\s/g, " ")).toContain("2026/10/15（08:00 截止）");
   } finally {
     if (previousTz === undefined) delete process.env.TZ;
     else process.env.TZ = previousTz;

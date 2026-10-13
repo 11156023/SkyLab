@@ -2,6 +2,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import i18n from "../i18n";
 import { formatDate, formatDateTime, formatExpiryDate, formatMonthDay } from "./formatDate";
 
+/* 不同 Node／ICU 版本在日期與時間之間可能放一般空白或窄不換行空白（U+202F），比對前統一成一般空白 */
+const plain = (value) => value?.replace(/\s/g, " ");
+
 /* 純日期字串不能被當成 UTC 午夜：負時區（美洲）會差一天，正時區（台灣）看不出來 */
 const ORIGINAL_TZ = process.env.TZ;
 
@@ -38,7 +41,7 @@ describe("formatDate utilities", () => {
     inTimeZone("America/New_York");
     // 2026-10-15 02:00 UTC 是紐約的 10/14 晚上
     expect(formatDate("2026-10-15T02:00:00Z")).toBe("2026/10/14");
-    expect(formatDateTime("2026-10-15T02:00:00Z")).toBe("2026/10/14 22:00:00");
+    expect(plain(formatDateTime("2026-10-15T02:00:00Z"))).toBe("2026/10/14 22:00:00");
   });
 
   it("returns the fallback for empty or impossible date-only strings", () => {
@@ -52,9 +55,9 @@ describe("formatDate utilities", () => {
       inTimeZone("Asia/Taipei");
       const expiry = formatExpiryDate("2026-10-15");
       expect(expiry.date).toBe("2026/10/15");
-      expect(expiry.cutoff).toBe("08:00 截止");
-      expect(expiry.title).toContain("2026/10/15 08:00");
-      expect(expiry.text).toBe("2026/10/15（08:00 截止）");
+      expect(plain(expiry.cutoff)).toBe("08:00 截止");
+      expect(plain(expiry.title)).toContain("2026/10/15 08:00");
+      expect(plain(expiry.text)).toBe("2026/10/15（08:00 截止）");
     });
 
     it("negative offset: keeps the calendar date and labels the cutoff with its earlier local day", () => {
@@ -62,8 +65,8 @@ describe("formatDate utilities", () => {
       const expiry = formatExpiryDate("2026-10-15");
       expect(expiry.date).toBe("2026/10/15");
       // 00:00 UTC 在紐約（EDT, UTC-4）是前一天 20:00
-      expect(expiry.cutoff).toBe("10/14 20:00 截止");
-      expect(expiry.title).toContain("2026/10/14 20:00");
+      expect(plain(expiry.cutoff)).toBe("10/14 20:00 截止");
+      expect(plain(expiry.title)).toContain("2026/10/14 20:00");
     });
 
     it("follows the UI language", async () => {

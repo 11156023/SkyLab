@@ -73,7 +73,8 @@ describe("ResourcesPage expiry column", () => {
       // 當成 UTC 午夜的話洛杉磯會顯示 10/14；實際截止是 10/14 17:00（PDT）
       expect(row.textContent).toContain("2026/10/15");
       expect(row.textContent).not.toContain("2026/10/14");
-      expect(row.textContent).toContain("10/14 17:00 截止");
+      /* 日期與時間間的空白依 ICU 版本可能是 U+202F，比對前統一成一般空白 */
+      expect(row.textContent.replace(/\s/g, " ")).toContain("10/14 17:00 截止");
     } finally {
       if (previousTz === undefined) delete process.env.TZ;
       else process.env.TZ = previousTz;
