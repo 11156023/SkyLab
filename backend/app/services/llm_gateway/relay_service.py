@@ -97,6 +97,7 @@ class AdmissionTicket:
     sequence: int
     deadline: float
     wait_remaining: float
+    waited_seconds: float = 0.0
 
 
 @dataclass
@@ -224,7 +225,6 @@ class AdmissionQueue:
             for t, f in self._waiters
         )
         if not earlier_waiting and not same_model_waiting and self._eligible(state):
-            ai_metrics.observe_proxy_queue_wait(0.0)
             return self._grant(ticket, state)
         if self.waiting >= self.max_waiting:
             self.dispatch()
@@ -266,7 +266,7 @@ class AdmissionQueue:
                 self._waiters.remove((ticket, waiter))
             elapsed = max(0.0, self.clock() - started)
             ticket.wait_remaining -= elapsed
-            ai_metrics.observe_proxy_queue_wait(elapsed)
+            ticket.waited_seconds += elapsed
             self.dispatch()
 
     def _eligible(self, state: ModelAdmission) -> bool:
@@ -1025,6 +1025,9 @@ class RelayObservation:
     error_message: str | None = None
     final_status: int = 503
     finished: bool = False
+    ticket: AdmissionTicket | None = None
+    catalogue_ms: float = 0.0
+    attempts: int = 0
     usage: dict[str, Any] = field(
         default_factory=lambda: {
             "input_tokens": 0,
@@ -1056,14 +1059,32 @@ class RelayObservation:
             except Exception:
                 logger.warning("Failed to close AI relay attempt", exc_info=True)
             ai_metrics.record_proxy_final_status(self.model_name, self.final_status)
+            duration_ms = int((time.monotonic() - self.started_at) * 1000)
             ai_metrics.observe_call(
                 source="api_key", model=self.model_name, request_type=self.request_type,
                 record_status=self.record_status, error_message=self.error_message,
-                duration_ms=int((time.monotonic() - self.started_at) * 1000),
+                duration_ms=duration_ms,
                 first_token_ms=self.usage.get("first_token_ms"),
                 input_tokens=self.usage.get("input_tokens", 0),
                 output_tokens=self.usage.get("output_tokens", 0), stream=self.stream,
             )
+            queue_seconds = self.ticket.waited_seconds if self.ticket else 0.0
+            ai_metrics.observe_proxy_queue_wait(queue_seconds, model=self.model_name)
+            try:
+                logger.info("AI relay finished", extra={
+        "route": "/ai-proxy/" + next((endpoint for endpoint, kind in GENERATION_ENDPOINTS.items() if kind == self.request_type), "unknown"),
+                    "event": "ai_relay_finished", "relay_request_id": self.request_id,
+                    "source": "api_key", "model": ai_metrics.model_label(self.model_name, served=False),
+                    "request_type": self.request_type, "stream": self.stream,
+                    "outcome": ai_metrics.outcome(self.record_status, self.error_message),
+                    "terminal_reason": self.error_message or self.record_status,
+                    "catalogue_ms": round(self.catalogue_ms, 3),
+                    "queue_ms": round(queue_seconds * 1000, 3), "attempts": self.attempts,
+                    "relay_duration_ms": duration_ms,
+                    "first_output_ms": self.usage.get("first_token_ms"),
+                })
+            except Exception:
+                pass
             if len(_usage_tasks) >= AI_PROXY_MAX_WAITING:
                 metrics.AI_USAGE_WRITES.labels(source="api_key", result="dropped").inc()
                 ai_metrics.record_proxy_event(self.model_name, "usage_backlog_full")
@@ -1080,7 +1101,7 @@ class RelayObservation:
                         request_type=self.request_type,
                         request_id=self.request_id,
                         upstream_request_id=self.upstream_request_id,
-                        duration_ms=int((time.monotonic() - self.started_at) * 1000),
+                        duration_ms=duration_ms,
                         stream=self.stream,
                         record_status=self.record_status,
                         error_message=self.error_message,
@@ -1433,6 +1454,7 @@ async def relay_generation(
     deadline = response_deadline - min(2.0, AI_PROXY_REQUEST_TIMEOUT_SECONDS * 0.05)
     # 序號、等待預算與期限在入口建立，所有重排共用。
     ticket = queue.ticket(deadline=deadline)
+    observation.ticket = ticket
     owner = asyncio.current_task()
     handed_off = False
     if owner is not None:
@@ -1504,7 +1526,9 @@ async def _relay_attempts(
                 "catalogue_timeout",
             )
         finally:
-            ticket.wait_remaining -= time.monotonic() - discovery_started
+            discovery_elapsed = time.monotonic() - discovery_started
+            ticket.wait_remaining -= discovery_elapsed
+            observation.catalogue_ms = discovery_elapsed * 1000
         ticket.model = (
             observation.model_name if observation.model_name in names else None
         )
@@ -1540,6 +1564,7 @@ async def _relay_attempts(
                 else "generation_timeout"
             )
             attempt += 1
+            observation.attempts = attempt
             ai_metrics.record_proxy_event(
                 ticket.model or "other", "attempt" if attempt == 1 else "retry"
             )

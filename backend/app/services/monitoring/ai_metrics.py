@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 MAX_MODEL_LABELS = 100
 OTHER_MODEL = "other"
 UNKNOWN_MODEL = "unknown"
+REQUEST_TYPES = frozenset({
+    "chat_completion", "completion", "response", "ai_nav", "ai_help",
+    "pve_chat", "pve_chat_adherence", "contextual_help_adherence",
+    "chat", "chat_adherence", "recommend", "recommend_adherence",
+    "teacher_judge_chat",
+})
 
 _lock = threading.Lock()
 _known_models: set[str] = set()
@@ -69,9 +75,9 @@ def update_proxy_admission(*, active: int, waiting: int) -> None:
         logger.debug("Updating AI proxy admission gauges failed", exc_info=True)
 
 
-def observe_proxy_queue_wait(seconds: float) -> None:
+def observe_proxy_queue_wait(seconds: float, *, model: str | None = None) -> None:
     try:
-        metrics.AI_PROXY_QUEUE_WAIT.observe(max(seconds, 0.0))
+        metrics.AI_PROXY_QUEUE_WAIT.labels(model=model_label(model, served=False)).observe(max(seconds, 0.0))
     except Exception:
         logger.debug("Updating AI proxy queue wait metric failed", exc_info=True)
 
@@ -158,12 +164,14 @@ def observe_call(
     try:
         result = outcome(record_status, error_message)
         label = model_label(model, served=result == "success")
+        call_type = request_type if request_type in REQUEST_TYPES else "other"
         metrics.AI_REQUESTS.labels(
-            source=source, model=label, request_type=request_type, outcome=result
+            source=source, model=label, request_type=call_type, outcome=result
         ).inc()
         if duration_ms is not None and result != "cancelled":
             metrics.AI_REQUEST_DURATION.labels(
-                source=source, model=label, stream="true" if stream else "false"
+                source=source, model=label, stream="true" if stream else "false",
+                request_type=call_type, outcome=result,
             ).observe(max(duration_ms, 0) / 1000)
         if first_token_ms is not None:
             metrics.AI_TIME_TO_FIRST_TOKEN.labels(source=source, model=label).observe(

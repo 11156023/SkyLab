@@ -227,7 +227,7 @@ AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prom
 
 | 指標 | 說明 |
 |---|---|
-| `http_requests_total{method,path,status}`、`http_request_duration_seconds` | 以路由樣板為 label；對不到路由的請求一律 `path="<unmatched>"` |
+| `http_requests_total{method,path,status,workload}`、`http_request_duration_seconds{method,path,workload}` | 以 method／路由樣板分一般 API、AI 生成與 other；對不到路由仍為 `path="<unmatched>"`；HTTP duration 含 ASGI 收尾，上界 600 秒不是 timeout。 |
 | `http_requests_in_progress` | 處理中的請求數 |
 | `skylab_websocket_connections{kind}` | vnc／terminal／jobs／classroom／classroom_watch／course_progress |
 | `skylab_scheduler_task_runs_total{loop,task,result}`、`skylab_scheduler_task_duration_seconds` | 排程任務執行次數與耗時 |
@@ -237,12 +237,18 @@ AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prom
 | `skylab_queue_jobs{queue}` | arq 佇列等待中的任務數 |
 | `skylab_task_records{status}` | queued／running（當下）、failed_24h／succeeded_24h |
 | `skylab_ai_requests_total{source,model,request_type,outcome}` | AI 呼叫次數；`outcome`＝success／client_error／rate_limited／unavailable／upstream_error／stream_error／cancelled／error |
-| `skylab_ai_request_duration_seconds{source,model,stream}`、`skylab_ai_time_to_first_token_seconds{source,model}` | 端到端延遲、串流首字延遲 |
+| `skylab_ai_request_duration_seconds{source,model,stream,request_type,outcome}`、`skylab_ai_time_to_first_token_seconds{source,model}` | Public 每筆 logical request／System 每次模型呼叫的耗時；TTFT 僅 public 串流首字。取消不進 duration，System 非串流沒有 TTFT 樣本。 |
+| `skylab_ai_proxy_queue_wait_seconds{model}` | 每筆公開 logical request 終止時記一次累積 admission／retry cooldown 等待；排除 catalogue／生成；取消／失敗也記錄。 |
+| `skylab_ai_workflows_total{route,outcome,terminal_reason}` | Navigation／PVE 流程終止結果；HTTP 200 fallback、adherence 失敗與政策拒絕分開，不等於模型呼叫數。 |
 | `skylab_ai_tokens_total{source,model,direction}` | 模型回報的 input／output token |
 
 依賴元件與佇列指標在 Prometheus 抓取時才更新（最多每 5 秒一次）；PVE 連線、Gateway 與 AI 狀態沿用最近一次系統健康檢查的結果，不會因為 Prometheus 抓取而去打 PVE／SSH／LiteLLM。
 
 `skylab_ai_*` 的 `model` 只保留 LiteLLM 成功服務過、或健康檢查查到的模型名稱（上限 100 個），呼叫端亂填的名稱一律歸為 `other`，時間序列數量才有上限。
+
+更新 metrics schema／buckets 時，backend instances 與 dashboards 必須同步；最後一個舊 instance 退出後，至少等待最長查詢窗（目前 15 分鐘）再比較。Queue 舊版是每次 acquire 樣本，新版是每筆 logical request 累積，不能直接拼接 P95 趨勢。空樣本顯示無資料；P95 落入 `+Inf` 會截在最大有限上界，應並看 >600 秒比例、樣本數與 waiting。
+
+`ai_relay_finished` 與 `ai_workflow_finished` structured logs 保留 root／child request IDs、有限終止原因與階段時間，沒有 prompt／回答／工具 payload。這些 ID 只用於 logs，不放進 metric labels。PVE 一筆 HTTP 可能含多次生成／adherence 與工具；不要相加各階段的 P95。Auth／DB／usage backlog、retry 與 event-loop lag panel 可協助對照同一時間窗；最新 lag 沒尖峰不能排除 scrape 間的短暫阻塞。
 
 ### 資源與保留期
 

@@ -73,6 +73,23 @@ backend 容器內沒有掛專案 `.env`，在容器內跑要加 `--skip-env-upda
 
 Proxmox 連線**不是**環境變數：在初始化精靈或「PVE 連線」頁填入並加密存放；舊的 `PROXMOX_*` 變數會被忽略。
 
+System AI 的模型請求契約在 `backend/config/llm-model-profiles.yaml`，會一併包進
+backend 映像。模型 key、`VLLM_MODEL_NAME` 與上游 served model ID 必須完全相同；
+使用自訂 ID 時請新增或改名對應的 key。未知模型會在送出推論前拒絕。修改後須
+重新啟動 backend；若設定包在映像內，須重新建置映像。
+
+YAML 統一決定每次 System AI 呼叫的 thinking，包含 adherence checker。
+`Qwen/Qwen3.8-27B` 使用 `thinking: low` 與
+`thinking_parameter: chat_template_reasoning_effort`，轉成
+`chat_template_kwargs={"enable_thinking": true, "reasoning_effort": "low"}`。
+[Qwen3.8 官方模板](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/chat_template.jinja)
+支援 `low`、`medium` 與預設的 `xhigh`；明確送出兩個控制值，確保不受上游
+停用思考的預設值或預設 `xhigh` 影響。其他 template kwargs（包含明確設定的
+`preserve_thinking`）保留，推論、token 計算與 context 重試使用相同的 thinking 設定。
+既有 `enable_thinking` 不會覆蓋模型契約；取樣參數、token 上限、逾時、checker
+政策與對外 LiteLLM 轉發維持現有設定。啟用思考不保證現有 128-token checker
+預算足夠，切換模型後仍須驗證實際推論結果。
+
 ## 3. 啟動 stack
 
 ```bash
