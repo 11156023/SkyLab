@@ -56,7 +56,7 @@ def test_create_user_new_email(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
     with (
-        patch("app.utils.send_email", return_value=None),
+        patch("app.services.user.user_service.send_email", return_value=None),
         patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
         patch("app.core.config.settings.SMTP_USER", "admin@example.com"),
     ):
@@ -289,7 +289,7 @@ def test_email_change_requires_new_mailbox_verification(
 
     link = unescape(sent[0]["html_content"].split('href="')[1].split('"')[0])
     assert urlparse(link).path == "/verify-email-change"
-    token = parse_qs(urlparse(link).fragment)["token"][0]
+    token = parse_qs(urlparse(link).query)["token"][0]
     confirmed = client.post(
         f"{settings.API_V1_STR}/users/email-change/confirm",
         json={"token": token},
@@ -456,7 +456,11 @@ def test_register_user_already_exists_error(
         "password": password,
         "full_name": full_name,
     }
-    with patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True):
+    with (
+        patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True),
+        patch("app.core.config.settings.SMTP_HOST", "smtp.example.test"),
+        patch("app.core.config.settings.EMAILS_FROM_EMAIL", "noreply@example.test"),
+    ):
         r = client.post(
             f"{settings.API_V1_STR}/users/signup",
             json=data,
@@ -465,7 +469,7 @@ def test_register_user_already_exists_error(
     assert r.json()["detail"] == "此電子郵件已經有使用者存在於系統中。"
 
 
-def test_register_user_disabled(client: TestClient) -> None:
+def test_register_user_disabled(client: TestClient, db: Session) -> None:
     data = {
         "email": random_email(),
         "password": random_lower_string(),
