@@ -260,7 +260,7 @@ export default function AiApiKeysPage() {
       <PageHeader title={t("AiApiKeysPage.pageTitle")} />
 
       <div className={styles.controlsRow}>
-        <div className={styles.segmentGroup}>
+        <div className={styles.segmentGroup} data-guide="ai-keys-admin-status">
           <SegmentedControl
             className={styles.statusTabs}
             options={tabs.map(({ key, label, count }) => ({ value: key, label, badge: count }))}
@@ -268,7 +268,7 @@ export default function AiApiKeysPage() {
             onChange={(value) => { setStatusFilter(value); setPage(0); }}
             ariaLabel={t("AiApiKeysPage.statusTabsLabel")}
           />
-          <div ref={filterAreaRef} className={styles.filterArea}>
+          <div ref={filterAreaRef} className={styles.filterArea} data-guide="ai-keys-admin-filter">
             <button type="button" className={`${styles.filterButton} ${activeFilterCount ? styles.filterButtonActive : ""}`} aria-haspopup="dialog" aria-expanded={filterOpen} onClick={() => setFilterOpen((current) => !current)}>
               <MIcon name="filter_alt" size={16} />{activeFilterCount ? t("AiApiKeysPage.filterActiveCount", { count: activeFilterCount }) : t("AiApiKeysPage.filterButton")}
             </button>
@@ -276,7 +276,7 @@ export default function AiApiKeysPage() {
           </div>
         </div>
 
-        <div className={styles.searchBox}>
+        <div className={styles.searchBox} data-guide="ai-keys-admin-search">
           <MIcon name="search" size={17} />
           <input type="search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t("AiApiKeysPage.searchPlaceholder")} aria-label={t("AiApiKeysPage.searchPlaceholder")} />
           {searchInput && <button type="button" className={styles.clearSearch} onClick={() => setSearchInput("")} aria-label={t("AiApiKeysPage.clearSearch")}><MIcon name="close" size={15} /></button>}
@@ -292,7 +292,7 @@ export default function AiApiKeysPage() {
             clearFilters();
           }} /> : (
             <>
-              <div className={styles.tableWrap}>
+              <div className={styles.tableWrap} data-guide="ai-keys-admin-table">
                 <table className={styles.table}>
                   <thead>
                     <tr>
@@ -325,7 +325,7 @@ export default function AiApiKeysPage() {
                         <td className={styles.td}>
                           <span className={styles.cellText} title={item.request_purpose || undefined}>{item.request_purpose || "—"}</span>
                         </td>
-                        <td className={styles.td}>
+                        <td className={styles.td} data-guide="ai-keys-admin-activity">
                           {item.last_used_at ? formatDateTime(item.last_used_at) : <span className={styles.cellMuted}>{t("AiApiKeysPage.detailNeverUsed")}</span>}
                         </td>
                         <td className={styles.td}><StatusBadge item={item} /></td>
@@ -335,6 +335,7 @@ export default function AiApiKeysPage() {
                             <button
                               type="button"
                               className={styles.rowRevokeBtn}
+                              data-guide="ai-keys-admin-revoke"
                               onClick={() => setDeletingItem(item)}
                             >
                               <MIcon name="block" size={16} />

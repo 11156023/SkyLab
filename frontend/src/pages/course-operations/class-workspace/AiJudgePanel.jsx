@@ -1458,7 +1458,7 @@ export function SaveAndCreateAction({
     generating: t("AiJudgePanel.saveStatusGenerating"),
   }[status] ?? t("AiJudgePanel.saveAndBuildBtn");
   return (
-    <div className={styles.rubricActionBar}>
+    <div className={styles.rubricActionBar} data-guide="ai-judge-save-build">
       <p className={hint || blocker ? styles.rubricActionHintBlocked : undefined}>
         {(hint || blocker) && <MIcon name="info" size={15} aria-hidden="true" />}
         {hint || blocker || t("AiJudgePanel.saveAndBuildHint")}
@@ -2486,7 +2486,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       />
 
       <div className={styles.rubricsGrid}>
-        <div className={`${styles.card} ${styles.rubricTableCard} ${styles.checkRubricCard}`}>
+        <div className={`${styles.card} ${styles.rubricTableCard} ${styles.checkRubricCard}`} data-guide="ai-judge-rubric-items">
           <div className={`${styles.cardHead} ${styles.checkHead}`}>
             <h4 className={styles.cardTitle}>{analysis ? t("AiJudgePanel.itemsTitleCount", { count: items.length }) : t("AiJudgePanel.itemsTitle")}</h4>
             {items.length > 0 && (isChatting || isCreatingScript) && (
@@ -2543,7 +2543,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           )}
         </div>
 
-        <div ref={chatColRef} className={`${styles.card} ${styles.checkChatCol}`}>
+        <div ref={chatColRef} className={`${styles.card} ${styles.checkChatCol}`} data-guide="ai-judge-assistant">
           <div className={styles.checkChatInner}>
             <div className={styles.checkHead}>
               <h4 className={styles.cardTitle}>
@@ -2854,7 +2854,7 @@ function ScriptsTab({
   }
 
   return (
-    <div className={styles.tabBody}>
+    <div className={styles.tabBody} data-guide="ai-judge-scripts">
       {loading ? (
         <LoadingState text={t("AiJudgePanel.loadingScripts")} />
       ) : error ? (
@@ -4109,7 +4109,7 @@ export function TeacherReviewTab({
   if (loadError) return <ErrorState onRetry={() => loadReview()} />;
   if (!reviewState) {
     return (
-      <div className={styles.tabBody}>
+      <div className={styles.tabBody} data-guide="ai-judge-review">
         <div className={styles.card}>
           {approvedSets.length > 0 ? (
             <EmptyState
@@ -4147,7 +4147,7 @@ export function TeacherReviewTab({
   }
 
   return (
-    <div className={styles.tabBody}>
+    <div className={styles.tabBody} data-guide="ai-judge-review">
       <div className={`${styles.card} ${styles.reviewOverview}`}>
         <div className={styles.reviewOverviewHead}>
           <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />{t("AiJudgePanel.tabReview")}</h4>
@@ -4281,9 +4281,9 @@ export function TeacherReviewTab({
 
 // 依實際流程排序：設定檢查表 → 核准腳本 → 執行並核查
 const TEACHER_JUDGE_TABS = [
-  { key: "rubrics", icon: "description", get label() { return jt("tabRubrics"); } },
-  { key: "scripts", icon: "terminal", get label() { return jt("tabScripts"); } },
-  { key: "review", icon: "rate_review", get label() { return jt("tabReview"); } },
+  { key: "rubrics", icon: "description", buttonProps: { "data-guide-tab": "ai-judge-tab-rubrics" }, get label() { return jt("tabRubrics"); } },
+  { key: "scripts", icon: "terminal", buttonProps: { "data-guide-tab": "ai-judge-tab-scripts" }, get label() { return jt("tabScripts"); } },
+  { key: "review", icon: "rate_review", buttonProps: { "data-guide-tab": "ai-judge-tab-review" }, get label() { return jt("tabReview"); } },
 ];
 
 const NO_VISITED_TABS = new Set();
@@ -4750,7 +4750,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     <div className={styles.panel}>
       {/* 檢查清單與分頁列固定在同一個位置，三個分頁只換下方內容 */}
       <section className={styles.checkWorkspaceTwo} aria-label={t("AiJudgePanel.workspaceAria")}>
-        <aside className={`${styles.card} ${styles.checkSessionCol}`} aria-label={t("AiJudgePanel.checkListAria")}>
+        <aside className={`${styles.card} ${styles.checkSessionCol}`} data-guide="ai-judge-sessions" aria-label={t("AiJudgePanel.checkListAria")}>
           {sessionSidebarInner}
         </aside>
         <div className={styles.checkContentCol}>
@@ -4760,7 +4760,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
               <SegmentedControl
                 ariaLabel={t("AiJudgePanel.tabsAria")}
                 className={styles.checkTabs}
-                options={TEACHER_JUDGE_TABS.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon }))}
+                options={TEACHER_JUDGE_TABS.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon, buttonProps: tab.buttonProps }))}
                 value={activeTab}
                 onChange={selectTab}
               />
@@ -4809,7 +4809,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
               <LoadingState text={t("AiJudgePanel.loadingChecks")} />
             </div>
           ) : (
-            <div className={styles.card}>
+            <div className={styles.card} data-guide="ai-judge-empty">
               <EmptyCheckHero onCreate={openCreateCheckDialog} />
             </div>
           )}

@@ -65,7 +65,7 @@ export function toAiJudgeMembers(students) {
 function LockedFeature() {
   const { t } = useTranslation("teaching");
   return (
-    <section className={styles.lockedFeature}>
+    <section className={styles.lockedFeature} data-guide="ai-judge-locked">
       <span><MIcon name="lock" size={22} /></span>
       <div>
         <h2>{t("ClassWorkspacePage.notYetAvailableTitle", { label: t("ClassWorkspacePage.tabAiLabel") })}</h2>

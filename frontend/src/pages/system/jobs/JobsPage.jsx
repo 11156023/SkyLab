@@ -133,7 +133,7 @@ export default function JobsPage() {
       <PageHeader title={t("JobsPage.pageTitle")} />
 
       {/* 三個數字都是這份清單算出來的，卡片上用同一個副標說明範圍 */}
-      <div className={styles.statRow}>
+      <div className={styles.statRow} data-guide="jobs-stats">
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.statIconBusy}`}>
             <MIcon name="autorenew" size={20} />
@@ -167,7 +167,7 @@ export default function JobsPage() {
       </div>
 
       <div className={styles.toolbar}>
-        <div className={styles.filterGroup}>
+        <div className={styles.filterGroup} data-guide="jobs-kind-filter">
           <SegmentedControl
             className={styles.filterTabs}
             options={KIND_OPTIONS}
@@ -176,7 +176,7 @@ export default function JobsPage() {
             ariaLabel={t("JobsPage.filterKind")}
           />
         </div>
-        <div className={styles.filterGroup}>
+        <div className={styles.filterGroup} data-guide="jobs-status-filter">
           <SegmentedControl
             className={styles.filterTabs}
             options={STATUS_OPTIONS}
@@ -193,7 +193,7 @@ export default function JobsPage() {
         ) : jobs.length === 0 ? (
           <EmptyState onClear={kind !== "all" || status !== "all" ? () => { setKind("all"); setStatus("all"); } : undefined} />
         ) : (
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} data-guide="jobs-table">
             <table className={styles.table}>
               <thead>
                 <tr>

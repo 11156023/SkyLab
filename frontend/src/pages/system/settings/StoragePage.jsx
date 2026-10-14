@@ -112,7 +112,7 @@ function StorageList() {
   return (
     <>
       {/* 篩選同需求審核頁：分段切換（附數量）＋搜尋框同一列 */}
-      <div className={styles.toolbar}>
+      <div className={styles.toolbar} data-guide="storage-filters">
         <SegmentedControl
           className={styles.filterControl}
           options={["all", "enabled", "disabled"].map((key) => ({
@@ -150,7 +150,7 @@ function StorageList() {
         ) : (
           <div className={styles.list}>
             {visibleStorages.map((storage) => (
-              <div key={storage.id} className={styles.storageRow}>
+              <div key={storage.id} className={styles.storageRow} data-guide="storage-row">
                 <span className={styles.listAvatar} aria-hidden="true">
                   <MIcon name="storage" size={20} />
                 </span>
@@ -176,7 +176,7 @@ function StorageList() {
                     {" "}{[storage.can_vm && "VM", storage.can_lxc && "LXC", storage.can_iso && "ISO", storage.can_backup && "Backup"].filter(Boolean).join(" / ") || t("SettingsPage.noPurpose")}
                   </span>
                 </div>
-                <label className={styles.inlineField}>
+                <label className={styles.inlineField} data-guide="storage-speed-tier">
                   <span>{t("SettingsPage.speedTierTitle")}</span>
                   <select
                     value={storage.speed_tier}
@@ -190,7 +190,7 @@ function StorageList() {
                     <option value="unknown">{t("SettingsPage.unknown")}</option>
                   </select>
                 </label>
-                <label className={styles.inlineField}>
+                <label className={styles.inlineField} data-guide="storage-priority">
                   <span>{t("SettingsPage.userPriorityTitle")}</span>
                   {/* 非受控＋key 帶已存值：存檔成功後以新值重建，輸入中不受 re-render 影響；
                       存檔中不 disabled（會失焦吃掉後續按鍵），只設 readOnly */}
@@ -212,7 +212,7 @@ function StorageList() {
                     }}
                   />
                 </label>
-                <label className={styles.checkRow}>
+                <label className={styles.checkRow} data-guide="storage-enabled">
                   <input
                     type="checkbox"
                     checked={storage.enabled}

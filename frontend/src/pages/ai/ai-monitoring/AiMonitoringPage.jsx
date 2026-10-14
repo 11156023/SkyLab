@@ -228,7 +228,7 @@ function TrendChart({ series, bucket, loading, metric, t }) {
 
 function CompactHealthPanel({ items, loading, t, onOpen }) {
   return (
-    <section className={`${styles.panel} ${styles.healthPanel}`} aria-labelledby="runtime-heading">
+    <section className={`${styles.panel} ${styles.healthPanel}`} aria-labelledby="runtime-heading" data-guide="ai-monitoring-health">
       <div className={styles.panelHeader}>
         <div>
           <h2 id="runtime-heading" className={styles.panelTitle}>
@@ -521,10 +521,10 @@ export default function AiMonitoringPage() {
     { value: "90d", label: t("AiMonitoringPage.preset90d") },
   ];
   const DETAIL_TABS = [
-    { key: "models", label: t("AiMonitoringPage.tabModels"), icon: "model_training", count: modelRows.length },
-    { key: "proxy", label: t("AiMonitoringPage.tabProxy"), icon: "swap_horiz", count: counts.proxy },
-    { key: "template", label: t("AiMonitoringPage.tabTemplate"), icon: "smart_toy", count: counts.template },
-    { key: "users", label: t("AiMonitoringPage.tabUsers"), icon: "groups", count: counts.users },
+    { key: "models", label: t("AiMonitoringPage.tabModels"), icon: "model_training", count: modelRows.length, buttonProps: { "data-guide-tab": "ai-monitoring-models" } },
+    { key: "proxy", label: t("AiMonitoringPage.tabProxy"), icon: "swap_horiz", count: counts.proxy, buttonProps: { "data-guide-tab": "ai-monitoring-proxy" } },
+    { key: "template", label: t("AiMonitoringPage.tabTemplate"), icon: "smart_toy", count: counts.template, buttonProps: { "data-guide-tab": "ai-monitoring-template" } },
+    { key: "users", label: t("AiMonitoringPage.tabUsers"), icon: "groups", count: counts.users, buttonProps: { "data-guide-tab": "ai-monitoring-users" } },
   ];
   const STATUS_FILTERS = [
     { value: "all", label: t("AiMonitoringPage.statusFilterAll") },
@@ -749,7 +749,7 @@ export default function AiMonitoringPage() {
         t={t}
       />
 
-      <section className={styles.metricRow} aria-label={t("AiMonitoringPage.summaryTitle")}>
+      <section className={styles.metricRow} data-guide="ai-monitoring-metrics" aria-label={t("AiMonitoringPage.summaryTitle")}>
         <MetricCard
           icon="swap_calls"
           tone="primary"
@@ -778,7 +778,7 @@ export default function AiMonitoringPage() {
       </section>
 
       <section className={`${styles.primaryGrid} ${!overviewLoading && !runtimeLoading && attentionItems.length === 0 ? styles.primaryGridSingle : ""}`}>
-        <div className={`${styles.panel} ${styles.trendPanel}`}>
+        <div className={`${styles.panel} ${styles.trendPanel}`} data-guide="ai-monitoring-trend">
           <div className={styles.panelHeader}>
             <div>
               <h2 className={styles.panelTitle}><MIcon name="timeline" size={18} />{t("AiMonitoringPage.trendTitle")}</h2>
@@ -794,7 +794,7 @@ export default function AiMonitoringPage() {
         )}
       </section>
 
-      <section ref={detailSectionRef} id="monitoring-details" className={styles.detailSection} aria-labelledby="detail-heading">
+      <section ref={detailSectionRef} id="monitoring-details" className={styles.detailSection} data-guide="ai-monitoring-detail" aria-labelledby="detail-heading">
         <div className={styles.detailHeader}>
           <div>
             <h2 id="detail-heading" className={styles.detailTitle}>{t("AiMonitoringPage.detailTitle")}</h2>
@@ -825,7 +825,7 @@ export default function AiMonitoringPage() {
         <DetailSummary summary={summary} t={t} />
         <div className={styles.detailTabs} role="tablist" aria-label={t("AiMonitoringPage.detailTitle")}>
           {DETAIL_TABS.map((item) => (
-            <button key={item.key} type="button" role="tab" aria-selected={detailTab === item.key} className={`${styles.detailTab} ${detailTab === item.key ? styles.detailTabActive : ""}`} onClick={() => { setDetailTab(item.key); setQuery(""); }}>
+            <button key={item.key} type="button" {...item.buttonProps} role="tab" aria-selected={detailTab === item.key} className={`${styles.detailTab} ${detailTab === item.key ? styles.detailTabActive : ""}`} onClick={() => { setDetailTab(item.key); setQuery(""); }}>
               <MIcon name={item.icon} size={16} />{item.label}<span className={styles.tabCount}>{formatNumber(item.count)}</span>
             </button>
           ))}

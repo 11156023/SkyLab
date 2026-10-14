@@ -232,6 +232,7 @@ function EnvironmentGroupRows({ group, machines = group.machines, onUpdated, onR
     <>
       <tr
         className={`${styles.tr} ${styles.environmentGroupRow}`}
+        data-guide="resource-mgmt-env-group"
         onClick={(event) => {
           /* 整列都可以開合，但列內的按鈕與勾選框各自處理自己的點擊 */
           if (event.target.closest("button, input, label")) return;
@@ -376,10 +377,11 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
     <>
       <tr
         className={`${styles.tr} ${canOpenDetail || selecting ? styles.trClickable : ""} ${selected ? styles.trSelected : ""}`}
+        data-guide="resource-mgmt-row"
         onClick={handleRowClick}
       >
         {/* 勾選：整格都是點擊範圍，點偏了不會變成點進詳情頁；Shift 點選連選一段 */}
-        <td className={`${styles.td} ${styles.checkCell}`}>
+        <td className={`${styles.td} ${styles.checkCell}`} data-guide="resource-mgmt-row-select">
           {onToggleSelect && canControl ? (
             <SelectCheckbox
               cell
@@ -450,7 +452,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
         <td className={styles.td}>{resource.node ?? "—"}</td>
 
         {/* 動作 */}
-        <td className={styles.td}>
+        <td className={styles.td} data-guide="resource-mgmt-row-actions">
           {isLive ? (
             <div className={styles.actions}>
               <button
@@ -642,6 +644,7 @@ export default function ResourceMgmtPage() {
           <>
           {/* ── 表格工具列：平常是狀態切換＋搜尋，勾選後原地換成批量操作（同一個高度，表格不會跳）；黏在頂端，捲到哪都按得到 ── */}
           <DataToolbar
+            data-guide="resource-mgmt-toolbar"
             className={styles.toolbar}
             selecting={selectedResources.length > 0}
             batch={(
@@ -686,7 +689,7 @@ export default function ResourceMgmtPage() {
               )}
             />
           ) : (
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} data-guide="resource-mgmt-table">
             <table className={styles.table}>
               <colgroup>
                 <col className={styles.colCheck} />

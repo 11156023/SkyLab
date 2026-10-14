@@ -550,6 +550,7 @@ const selected = shown.filter((r) => selection.isSelected(r.id));
 - **回不去的動作**（刪除、移除、封存、拒絕）用 `danger`，放在 `BatchDivider` 後面的最右邊，先確認並列出名稱（最多 5 個，其餘「等 N」）
 - 沒有後端批量 API 時用 `utils/runBatch` 逐筆呼叫單筆 API（預設同時 4 筆，一筆失敗不影響其他筆）
 - 勾選中的列底色用 `@include row-selected;`（自己就是卡片的清單列傳 `var(--color-surface)`）
+- 導覽用的 `data-guide` 等屬性可以直接傳給 `DataToolbar`（掛在工具列外框），讓導覽步驟框住整條「篩選＋搜尋」
 - **加了勾選欄要重算寬度**：清單列用 grid 時，一行排完或分兩行要看**容器寬度**（`container-type: inline-size`＋`@container`），不要看視窗——側邊欄出現（≥1024）後內容比 992 時還窄，用視窗切會在 1024～1180 之間撐出橫向捲動
 - 目前用在：資源管理、使用者管理（批量停用／啟用）、申請審核（批量拒絕）、班級管理（批量封存並回收）、班級工作區學生名單（批量移除）
 

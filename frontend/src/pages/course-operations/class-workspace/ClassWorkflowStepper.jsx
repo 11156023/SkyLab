@@ -25,7 +25,12 @@ export default function ClassWorkflowStepper({ item, activeKey, onSelect }) {
         ariaLabel={ariaLabel}
         value={activeKey}
         onChange={onSelect}
-        options={CLASS_WORKFLOW_TABS.map(([key, , labelKey]) => ({ value: key, label: t(labelKey) }))}
+        options={CLASS_WORKFLOW_TABS.map(([key, , labelKey]) => ({
+          value: key,
+          label: t(labelKey),
+          /* 導覽錨點：目前所在的分頁用 [aria-pressed="true"] 再篩 */
+          buttonProps: { "data-guide-tab": "class-section" },
+        }))}
       />
     );
   }

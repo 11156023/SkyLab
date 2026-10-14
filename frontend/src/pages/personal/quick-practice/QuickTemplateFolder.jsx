@@ -44,7 +44,7 @@ export default function QuickTemplateFolder({ template, onOpen }) {
   ].filter(Boolean);
 
   return (
-    <button ref={folderRef} type="button" className={styles.folder} onClick={onOpen}
+    <button ref={folderRef} type="button" className={styles.folder} onClick={onOpen} data-guide="quick-template-folder"
       aria-label={t("QuickTemplateFolder.aria", { name: template.name, count: nodes.length, machines })}
       aria-describedby={template.description ? `${uid}-desc` : undefined}>
       <svg className={styles.back} aria-hidden="true" viewBox={`0 0 ${folder.width || 1} ${folder.height || 1}`}>
@@ -59,7 +59,7 @@ export default function QuickTemplateFolder({ template, onOpen }) {
 
       {sheets.map((sheet) => (
         <span key={sheet.key} className={`${styles.sheet} ${sheet.more ? styles.sheetMore : ""}`}
-          style={{ "--depth": sheet.depth }} aria-hidden="true">
+          style={{ "--depth": sheet.depth }} aria-hidden="true" data-guide="quick-template-sheet">
           {sheet.more ? `+${t("HomeOverview.machineCount", { count: sheet.more })}` : <>
             <MIcon name={sheet.node.type === "lxc" || sheet.node.resource_type === "lxc" ? "terminal" : "desktop_windows"} size={15} />
             <span className={styles.sheetName} title={sheet.node.name}>{sheet.node.name}</span>
@@ -90,7 +90,7 @@ export default function QuickTemplateFolder({ template, onOpen }) {
         <span className={styles.label}>
           <strong className={styles.name}>{template.name}</strong>
           {template.description && <span id={`${uid}-desc`} className={styles.description}>{template.description}</span>}
-          {meta.length > 0 && <span className={styles.meta}>
+          {meta.length > 0 && <span className={styles.meta} data-guide="quick-template-meta">
             {meta.map((item) => <span key={item.icon}><MIcon name={item.icon} size={15} />{item.text}</span>)}
           </span>}
         </span>

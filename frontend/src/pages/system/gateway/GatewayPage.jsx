@@ -44,6 +44,16 @@ const SERVICE_FILES = {
   nginx: { path: "/etc/nginx/nginx.conf", language: "nginx" },
 };
 
+/* 頁面導覽（UserGuide）切換分頁用的錨點 */
+const GUIDE_TAB_PROPS = {
+  connection:  { "data-guide-tab": "gateway-connection" },
+  install:     { "data-guide-tab": "gateway-install" },
+  certificate: { "data-guide-tab": "gateway-certificate" },
+  platform:    { "data-guide-tab": "gateway-platform" },
+  nginx:       { "data-guide-tab": "gateway-nginx" },
+  wireguard:   { "data-guide-tab": "gateway-wireguard" },
+};
+
 function formatBytes(value) {
   const bytes = Number(value) || 0;
   if (bytes < 1024) return `${bytes} B`;
@@ -171,7 +181,7 @@ function ConnectionTab({ config, onConfigChange }) {
 
   return (
     <div className={styles.panelStack}>
-      <form className={styles.card} onSubmit={handleSave}>
+      <form className={styles.card} onSubmit={handleSave} data-guide="gateway-ssh-form">
         {/* 動作鈕放標題列右側，跟下方「SSH 公鑰」卡片同一套排法 */}
         <div className={styles.cardHead}>
           <h2 className={styles.cardTitle}>{t("GatewayPage.sshConnectionTitle")}</h2>
@@ -226,7 +236,7 @@ function ConnectionTab({ config, onConfigChange }) {
         </div>
       </form>
 
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="gateway-ssh-key">
         <div className={styles.cardHead}>
           <h2 className={styles.cardTitle}>{t("GatewayPage.sshPublicKeyTitle")}</h2>
           <div className={styles.cardHeadActions}>
@@ -671,11 +681,15 @@ export default function GatewayPage() {
           ariaLabel={t("GatewayPage.tabsAriaLabel")}
           value={activeTab}
           onChange={handleTabSelect}
-          options={TABS.map((tab) => ({ value: tab.key, label: tab.label }))}
+          options={TABS.map((tab) => ({
+            value: tab.key,
+            label: tab.label,
+            buttonProps: GUIDE_TAB_PROPS[tab.key],
+          }))}
         />
       </PageHeader>
 
-      <div className={styles.content}>
+      <div className={styles.content} data-guide="gateway-content">
         {loading ? (
           <LoadingState fullPage text={t("GatewayPage.loadingConfig")} />
         ) : activeTab === "connection" ? (

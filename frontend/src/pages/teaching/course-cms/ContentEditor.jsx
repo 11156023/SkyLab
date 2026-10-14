@@ -814,12 +814,13 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
 
   return (
     <div className={styles.editorLayout}>
-      <nav className={styles.navPanel} aria-label={t("CourseCmsPage.contentTreeTitle")}>
+      <nav className={styles.navPanel} aria-label={t("CourseCmsPage.contentTreeTitle")} data-guide="course-cms-tree">
         <div className={styles.navHeader}>
           <h2>{t("CourseCmsPage.contentTreeTitle")}</h2>
           <button
             type="button"
             className={styles.navAddBtn}
+            data-guide="course-cms-add-path"
             aria-label={t("CourseCmsPage.addPathLabel")}
             title={t("CourseCmsPage.addPathLabel")}
             onClick={() => setNewPathOpen(true)}
@@ -909,7 +910,7 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
         </div>
       </nav>
 
-      <section className={styles.workspace}>{workspace}</section>
+      <section className={styles.workspace} data-guide="course-cms-workspace">{workspace}</section>
 
       {newPathDialog.open && (
         <NewPathDialog

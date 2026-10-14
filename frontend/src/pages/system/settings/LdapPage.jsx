@@ -127,7 +127,7 @@ function LdapForm() {
 
   return (
     <form className={styles.panelStack} onSubmit={handleSave}>
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="ldap-login">
         <h2 className={styles.cardTitle}>{t("LdapTab.loginSectionTitle")}</h2>
         <p className={styles.cardDesc}>
           {t("LdapTab.loginSectionDesc")}
@@ -175,7 +175,7 @@ function LdapForm() {
         </label>
       </div>
 
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="ldap-service-account">
         <h2 className={styles.cardTitle}>{t("LdapTab.serviceAccountSectionTitle")}</h2>
         <p className={styles.cardDesc}>{t("LdapTab.serviceAccountSectionDesc")}</p>
         <div className={styles.formGrid}>
@@ -232,7 +232,7 @@ function LdapForm() {
         </div>
       </div>
 
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="ldap-role-mapping">
         <h2 className={styles.cardTitle}>{t("LdapTab.roleMappingSectionTitle")}</h2>
         <p className={styles.cardDesc}>
           {t("LdapTab.roleMappingSectionDesc")}
@@ -268,7 +268,7 @@ function LdapForm() {
         </div>
       </div>
 
-      <div className={styles.saveBar}>
+      <div className={styles.saveBar} data-guide="ldap-actions">
         {dirty && (
           <button
             type="button"

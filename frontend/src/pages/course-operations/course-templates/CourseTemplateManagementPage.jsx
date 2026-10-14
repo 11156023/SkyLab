@@ -76,7 +76,7 @@ export default function CourseTemplateManagementPage() {
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/course-template-management/new")}><MIcon name="add" size={16} />{t("CourseTemplateManagementPage.createEnvBtn")}</button>
     </PageHeader>
 
-    <div className={styles.envControls}>
+    <div className={styles.envControls} data-guide="course-tpl-controls">
       <SegmentedControl
         className={styles.envTabs}
         options={[["all", "CourseTemplateManagementPage.filterAll"], ["published", "CourseTemplateManagementPage.statusPublished"], ["draft", "CourseTemplateManagementPage.statusDraft"]].map(([key, labelKey]) => ({ value: key, label: t(labelKey), badge: statusCounts[key] ?? 0 }))}
@@ -91,12 +91,12 @@ export default function CourseTemplateManagementPage() {
       {loading ? <LoadingState /> : !rows.length ? <EmptyState icon="view_quilt" title={t("CourseTemplateManagementPage.emptyTitle")}
         action={templates.length
           ? <button type="button" className={styles.btnSecondary} onClick={() => { setQuery(""); setStatus("all"); }}><MIcon name="filter_alt_off" size={16} />{t("EmptyState.clearFilters", { ns: "common" })}</button>
-          : <button type="button" className={styles.btnPrimary} onClick={() => navigate("/course-template-management/new")}><MIcon name="add" size={16} />{t("CourseTemplateManagementPage.createEnvBtn")}</button>} /> : <div className={styles.envTableWrap}><table className={styles.envTable}><thead><tr><th>{t("CourseTemplateManagementPage.thName")}</th><th>{t("CourseTemplateManagementPage.thMachinesPerStudent")}</th><th>{t("CourseTemplateManagementPage.thResourceTotal")}</th><th>{t("CourseTemplateManagementPage.thVersion")}</th><th>{t("CourseTemplateManagementPage.thProvideMode")}</th><th>{t("CourseTemplateManagementPage.thUsingClasses")}</th><th>{t("CourseTemplateManagementPage.thStatus")}</th><th>{t("CourseTemplateManagementPage.thActions")}</th></tr></thead><tbody>{rows.map((template) => <tr key={template.id} onClick={() => navigate(`/course-template-management/${template.id}`)}>
+          : <button type="button" className={styles.btnPrimary} onClick={() => navigate("/course-template-management/new")}><MIcon name="add" size={16} />{t("CourseTemplateManagementPage.createEnvBtn")}</button>} /> : <div className={styles.envTableWrap} data-guide="course-tpl-table"><table className={styles.envTable}><thead><tr><th>{t("CourseTemplateManagementPage.thName")}</th><th>{t("CourseTemplateManagementPage.thMachinesPerStudent")}</th><th>{t("CourseTemplateManagementPage.thResourceTotal")}</th><th>{t("CourseTemplateManagementPage.thVersion")}</th><th>{t("CourseTemplateManagementPage.thProvideMode")}</th><th>{t("CourseTemplateManagementPage.thUsingClasses")}</th><th>{t("CourseTemplateManagementPage.thStatus")}</th><th>{t("CourseTemplateManagementPage.thActions")}</th></tr></thead><tbody>{rows.map((template) => <tr key={template.id} onClick={() => navigate(`/course-template-management/${template.id}`)}>
         <td><strong className={template.name?.trim() ? undefined : styles.envUnnamed}>{displayName(template)}</strong></td>
         <td><strong>{t("CourseTemplateManagementPage.machinesPerStudentUnit", { count: template.nodes.length })}</strong></td>
         <td>{t("CourseTemplateManagementPage.resourceSummary", environmentSpecs(template.nodes))}</td><td>v{template.version}</td><td><strong>{t(USAGE_LABEL_KEYS[template.usageScope] ?? USAGE_LABEL_KEYS.course)}</strong></td><td>{t("CourseTemplateManagementPage.classesCount", { count: template.classes })}</td>
         <td><span className={`${styles.statusBadge} ${styles[`status_${template.status}`]}`}>{t(STATUS_LABEL_KEYS[template.status])}</span></td>
-        <td onClick={(event) => event.stopPropagation()}><div className={styles.rowActions}>
+        <td onClick={(event) => event.stopPropagation()}><div className={styles.rowActions} data-guide="course-tpl-row-actions">
           <button type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`} title={t("CourseTemplateManagementPage.deleteLabel")} aria-label={t("CourseTemplateManagementPage.deleteLabel")} disabled={busyId === template.id} onClick={() => remove(template)}><MIcon name="delete" size={18} /></button>
           <button type="button" className={styles.iconBtn} aria-label={t("CourseTemplateManagementPage.openTemplateAria")} onClick={() => navigate(`/course-template-management/${template.id}`)}><MIcon name="chevron_right" size={19} /></button>
         </div></td>

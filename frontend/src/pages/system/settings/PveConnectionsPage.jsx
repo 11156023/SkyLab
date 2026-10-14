@@ -112,6 +112,7 @@ function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, on
       busy={saving}
       closeButton
       size="md"
+      closeProps={{ "data-guide": "pve-connection-form-close" }}
       title={isEdit ? t("SettingsPage.editConnection") : t("SettingsPage.addConnection")}
       actions={
         <>
@@ -176,7 +177,7 @@ function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, on
       <p className={styles.cardDesc}>
         {t("SettingsPage.clusterResourceSettingsDesc")}
       </p>
-      <div className={styles.modalFormGrid}>
+      <div className={styles.modalFormGrid} data-guide="pve-connection-resources">
         <label className={styles.field}>
           <span>{t("SettingsPage.poolName")}</span>
           <input value={form.pool_name} onChange={(e) => set("pool_name", e.target.value)} placeholder="SkyLab" />
@@ -352,7 +353,7 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
       >
         {/* 有連線才在頁首放「新增連線」；沒有時下方空狀態那顆就是唯一入口，載入中也先不放 */}
         {!loading && connections.length > 0 && (
-          <button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")}>
+          <button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")} data-guide="pve-add-connection">
             <MIcon name="add" size={16} />
             {t("SettingsPage.addConnection")}
           </button>
@@ -365,14 +366,14 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
           <LoadingState text={t("SettingsPage.loadingConnections")} />
         ) : connections.length === 0 ? (
           <EmptyState icon="device_hub" title={t("SettingsPage.noConnectionsYet")}
-            action={<button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")}><MIcon name="add" size={16} />{t("SettingsPage.addConnection")}</button>} />
+            action={<button type="button" className={styles.btnPrimary} onClick={() => setEditing("new")} data-guide="pve-add-connection"><MIcon name="add" size={16} />{t("SettingsPage.addConnection")}</button>} />
         ) : (
           /* 清單形式同使用者管理：每列一張玻璃列卡，寬螢幕攤成一行（狀態、節點數各一欄） */
           <div className={styles.list}>
             {connections.map((conn) => {
               const rowBusy = busy?.id === conn.id ? busy.action : null;
               return (
-                <div key={conn.id} className={styles.listRow}>
+                <div key={conn.id} className={styles.listRow} data-guide="pve-connection-row">
                   <span className={styles.listAvatar} aria-hidden="true">
                     <MIcon name="device_hub" size={20} />
                   </span>
@@ -390,7 +391,7 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
                     <span className={`${styles.listExtra} ${styles.listCount}`}>{t("SettingsPage.nodeCount", { count: conn.node_count })}</span>
                   </div>
                   {/* 常用的測試／同步留文字鈕；編輯／刪除改圖示鈕（同網域管理 DNS 紀錄列），刪除用危險色 */}
-                  <div className={styles.rowActions}>
+                  <div className={styles.rowActions} data-guide="pve-connection-actions">
                     <button type="button" className={styles.btnSecondary} disabled={Boolean(rowBusy)} onClick={() => handleTest(conn)}>
                       <MIcon name="wifi_tethering" size={16} />
                       {rowBusy === "test" ? t("SettingsPage.testing") : t("SettingsPage.test")}
@@ -556,7 +557,7 @@ function NodesSection({ nodes, loading, onNodeUpdated }) {
   }
 
   return (
-    <section className={styles.pageSection} aria-labelledby="pve-nodes-title">
+    <section className={styles.pageSection} aria-labelledby="pve-nodes-title" data-guide="pve-nodes">
       <h2 id="pve-nodes-title" className={styles.sectionHeading}>{t("SettingsPage.nodesTitle")}</h2>
       {loading ? (
         <LoadingState text={t("SettingsPage.loadingNodes")} />

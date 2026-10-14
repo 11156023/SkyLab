@@ -132,6 +132,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
       busy={loading}
       closeButton
       size="md"
+      closeProps={{ "data-guide": "admin-user-modal-close" }}
       title={isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}
       actions={
         <>
@@ -201,7 +202,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
         </label>
       </div>
 
-      <div className={styles.toggleGrid}>
+      <div className={styles.toggleGrid} data-guide="admin-user-security">
         <label
           className={styles.checkRow}
           title={isEdit && isSelf ? t("AdminPage.selfEditLockedHint") : undefined}
@@ -273,6 +274,7 @@ function UserRow({ user, currentUserId, selected = false, selecting = false, onT
     <div
       className={`${styles.row} ${selected ? styles.rowSelected : ""} ${selecting && !isSelf ? styles.rowSelectMode : ""}`}
       onClick={(event) => onRowClick?.(user.id, event)}
+      data-guide="admin-user-row"
     >
       {/* 自己不能勾（不能停用自己），格子照留，頭像才對得齊 */}
       <div className={styles.rowCheck}>
@@ -314,7 +316,7 @@ function UserRow({ user, currentUserId, selected = false, selecting = false, onT
       </div>
       <span className={styles.createdAt}>{formatDate(user.created_at)}</span>
       <div className={styles.rowActions}>
-        <button type="button" className={styles.actionBtn} title={t("AdminPage.editTitle")} onClick={() => onEdit(user)}>
+        <button type="button" className={styles.actionBtn} title={t("AdminPage.editTitle")} onClick={() => onEdit(user)} data-guide="admin-user-edit">
           <MIcon name="edit" size={16} />
         </button>
         <button
@@ -586,7 +588,7 @@ export default function AdminPage() {
         </button>
       </PageHeader>
 
-      <section className={styles.registrationPanel} aria-label={t("AdminPage.registrationSettingsTitle")}>
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.registrationSettingsTitle")} data-guide="admin-registration">
         <h2>{t("AdminPage.registrationSettingsTitle")}</h2>
         <label className={styles.registrationOption}>
           <span>
@@ -608,7 +610,7 @@ export default function AdminPage() {
         </label>
       </section>
 
-      <section className={styles.registrationPanel} aria-label={t("AdminPage.pendingRegistrationsTitle")}>
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.pendingRegistrationsTitle")} data-guide="admin-pending">
         <h2>{t("AdminPage.pendingRegistrationsTitle")} ({pendingRegistrations.length})</h2>
         {pendingRegistrations.length === 0 ? (
           <p className={styles.registrationEmpty}>{t("AdminPage.noPendingRegistrations")}</p>
@@ -629,7 +631,7 @@ export default function AdminPage() {
         ))}
       </section>
 
-      <div className={styles.summaryGrid}>
+      <div className={styles.summaryGrid} data-guide="admin-summary">
         <div className={styles.summaryItem}>
           <span>{t("AdminPage.statTotal")}</span>
           <strong>{users.length}</strong>

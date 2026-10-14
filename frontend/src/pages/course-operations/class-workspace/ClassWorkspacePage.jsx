@@ -220,7 +220,7 @@ function Overview({
     actionDisabled = lifecycleBusy;
   }
   return <div className={styles.stack}>
-    <section className={styles.readinessPanel}>
+    <section className={styles.readinessPanel} data-guide="class-overview-status">
       <div className={styles.setupSummary}>
         <span className={styles.setupSummaryIcon}><MIcon name={item.status === "active" ? "check" : item.status === "partial_failed" ? "error_outline" : "assignment"} size={22} /></span>
         <div>{!settled && <span>{t("ClassWorkspacePage.setupProgressLabel", { completed })}</span>}<h2>{title}</h2>{description && <p>{description}</p>}</div>
@@ -230,18 +230,18 @@ function Overview({
       {showJobs && <div className={styles.jobGrid}>{item.jobs.map((job, index) => <article key={job.id}><span>{t("ClassWorkspacePage.nodeIndexLabel", { index: index + 1 })}</span><strong>{JOB_STATUS_KEYS[job.status] ? t(JOB_STATUS_KEYS[job.status]) : job.status}</strong><small>{t("ClassWorkspacePage.jobResultSummary", { done: job.done, total: job.total, failed: job.failed_count })}</small></article>)}</div>}
     </section>
     <div className={styles.overviewDetailGrid}>
-      <section className={styles.overviewInfoCard}>
+      <section className={styles.overviewInfoCard} data-guide="class-overview-week">
         <div className={styles.overviewCardHeader}><h2>{weekLabel}</h2><button type="button" onClick={() => onNavigate("weekly")}>{t("ClassWorkspacePage.viewAllWeeksBtn")}<MIcon name="arrow_forward" size={15} /></button></div>
         {currentWeek ? <div className={styles.currentWeekSummary}><div><span>{t("ClassWorkspacePage.weekNumberLabel", { week: currentWeek.week })}</span><strong>{currentWeek.title || t("ClassWorkspacePage.noTopicSet")}</strong><small>{formatDate(`${currentWeek.date}T00:00:00`)}</small></div><span className={styles.weekFileCount}><MIcon name="attach_file" size={15} />{t("ClassWorkspacePage.fileCountUnit", { count: currentWeek.files.length })}</span></div> : <EmptyState icon="event" title={t("ClassWorkspacePage.noWeeksTitle")} action={<button type="button" className={styles.btnSecondary} onClick={() => onNavigate("weekly")}><MIcon name="calendar_view_week" size={16} />{t("ClassWorkspacePage.tabWeeklyLabel")}</button>} />}
       </section>
       <div className={styles.stack}>
-        <section className={styles.overviewInfoCard}>
+        <section className={styles.overviewInfoCard} data-guide="class-overview-machines">
           <button type="button" className={styles.summaryRow} onClick={() => onNavigate("machines")}>
             <span><MIcon name="dns" size={17} />{machineSummary(item, t)}</span>
             <em>{t("ClassWorkspacePage.tabMachinesLabel")}<MIcon name="arrow_forward" size={15} /></em>
           </button>
         </section>
-        <details className={`${styles.overviewInfoCard} ${styles.classInfoFold}`}>
+        <details className={`${styles.overviewInfoCard} ${styles.classInfoFold}`} data-guide="class-overview-info">
           <summary>
             <b>{t("ClassWorkspacePage.classInfoTitle")}</b>
             <span>{formatDate(`${item.startDate}T00:00:00`)}–{formatDate(`${item.endDate}T00:00:00`)} · {t("ClassWorkspacePage.bootLeadShort", { minutes: item.bootLeadMinutes })}</span>
@@ -362,7 +362,7 @@ function Students({ item, onRefresh }) {
   return <div className={styles.stack}>
     <div className={styles.memberPageHeader}>
       <div><h2>{t("ClassWorkspacePage.studentsTitle")}</h2><span>{t("ClassWorkspacePage.peopleCountUnit", { count: item.students.length })}</span></div>
-      <div className={styles.memberActions}>
+      <div className={styles.memberActions} data-guide="class-students-actions">
         <input ref={fileRef} className={styles.hiddenFileInput} disabled={locked} type="file" accept=".csv,text/csv" onChange={importCsv} />
         <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => fileRef.current?.click()}><MIcon name="upload" size={16} />{t("ClassWorkspacePage.importCsvBtn")}</button>
         {/* 還沒有學生時，下方空狀態的「新增學生」就是入口，這裡不再放一顆 */}
@@ -390,7 +390,7 @@ function Students({ item, onRefresh }) {
       <ToolbarSearch value={query} onChange={setQuery} placeholder={t("ClassWorkspacePage.searchStudentsPlaceholder")} />
     </DataToolbar>}
 
-    <section className={styles.memberPanel}>
+    <section className={styles.memberPanel} data-guide="class-students-list">
       <div className={styles.memberPanelHead}><strong>{t("ClassWorkspacePage.memberListHeader", { count: item.students.length })}</strong><span>{t("ClassWorkspacePage.machinesReadyShort", { ready: item.readyMachines, total: item.totalMachines || 0 })}</span></div>
       {item.students.length && !visibleStudents.length ? <EmptyState icon="search_off" title={t("ClassWorkspacePage.emptySearchTitle")} action={<button type="button" className={styles.btnSecondary} onClick={() => setQuery("")}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} /> : item.students.length ? <div className={`${styles.memberList} ${locked ? "" : styles.memberSelectable}`}>
         {/* 欄位標題：和下方每列用同一組欄寬，VMID、日期這些數字才看得出是什麼 */}
@@ -421,7 +421,7 @@ function Students({ item, onRefresh }) {
           <span>{student.machines.length ? joinList(student.machines.map((machine) => machine.vmid ?? "—")) : "—"}</span>
           <span className={`${styles.memberMachineState} ${ready === item.nodes.length && item.nodes.length ? styles.memberReady : ""}`}>{item.nodes.length ? t("ClassWorkspacePage.readyCountLabel", { ready, total: item.nodes.length }) : t("ClassWorkspacePage.notBuiltLabel")}</span>
           <span>{formatDate(student.joined_at)}</span>
-          {!locked ? <button type="button" className={styles.memberRemove} aria-label={t("ClassWorkspacePage.removeStudentAriaLabel")} onClick={() => remove(student.id)}><MIcon name="person_remove" size={17} /></button> : <span />}
+          {!locked ? <button type="button" className={styles.memberRemove} data-guide="class-students-remove" aria-label={t("ClassWorkspacePage.removeStudentAriaLabel")} onClick={() => remove(student.id)}><MIcon name="person_remove" size={17} /></button> : <span />}
         </article>;
       })}</div> : <EmptyState icon="group_add" title={t("ClassWorkspacePage.emptyStudentsTitle")} action={!locked && <button type="button" className={styles.btnPrimary} disabled={busy} onClick={() => setShowAdd(true)}><MIcon name="person_add" size={16} />{t("ClassWorkspacePage.addStudentsBtn")}</button>} />}
     </section>
@@ -499,13 +499,13 @@ export function WeeklyContent({ item, onRefresh }) {
     finally { setSaving(false); }
   }
   return <div className={styles.stack}>
-    <section className={styles.card}>
+    <section className={styles.card} data-guide="class-weekly-list">
       <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.weeklyContentHeader", { count: weeks.length })}</h2><p>{t("ClassWorkspacePage.weeklyPublishHint")}</p></div><span className={styles.weekVisibleCount}>{t("ClassWorkspacePage.weeksVisibleCount", { count: visibleWeekCount(weeks) })}</span></div>
       <div className={styles.weekRows}>
         <div className={styles.weekRowsHead}><span>{t("ClassWorkspacePage.weekColWeek")}</span><span>{t("ClassWorkspacePage.topicTaskLabel")}</span><span>{t("ClassWorkspacePage.weekColMachine")}</span><span>{t("ClassWorkspacePage.taskFilesLabel")}</span><span>{t("ClassWorkspacePage.weekColVisible")}</span></div>
         {weeks.map((week) => {
           const published = isWeekVisible(week);
-          return <article key={week.id}>
+          return <article key={week.id} data-guide="class-weekly-row">
             <div className={styles.weekDate}><strong>{t("ClassWorkspacePage.weekNumberLabel", { week: week.week })}</strong><span>{week.date}</span></div>
             <input
               ref={(node) => { titleInputRefs.current[week.id] = node; }}
@@ -523,13 +523,13 @@ export function WeeklyContent({ item, onRefresh }) {
               <option value="">{t("ClassWorkspacePage.weekMachineAll")}</option>
               {item.nodes.map((node) => <option key={node.node_key} value={node.node_key}>{node.name}</option>)}
             </select>
-            <div className={styles.weekFileList}>
+            <div className={styles.weekFileList} data-guide="class-weekly-files">
               {week.files.map((file) => <span className={styles.weekFileChip} key={file.id ?? file.filename}><MIcon name="description" size={15} /><b>{file.filename}</b>{!locked && file.id && <button type="button" disabled={uploadingWeek === week.id} aria-label={t("ClassWorkspacePage.removeFileAria", { filename: file.filename })} onClick={() => removeFile(week.id, file)}><MIcon name="close" size={14} /></button>}</span>)}
               {!locked && <FileDropzone compact multiple title={t("common:FileDropzone.titleShort")} uploading={uploadingWeek === week.id} onFiles={(files) => upload(week.id, files)} />}
             </div>
             {/* 草稿｜發布 二選一：兩個選項都看得到，這週目前是哪個就亮哪個。
                 沒填主題時「發布」看起來淡一點但點得下去，點了由 setWeekStatus 說明缺什麼 */}
-            <div className={styles.weekVisible}>
+            <div className={styles.weekVisible} data-guide="class-weekly-visibility">
               <SegmentedControl
                 className={styles.weekStatusControl}
                 ariaLabel={t("ClassWorkspacePage.weekVisibleAria", { week: week.week })}
@@ -548,7 +548,7 @@ export function WeeklyContent({ item, onRefresh }) {
           </article>;
         })}
       </div>
-      {!locked && <div className={styles.actionFooter}><button type="button" className={styles.btnPrimary} disabled={saving || Boolean(uploadingWeek)} onClick={save}><MIcon name="save" size={16} />{saving ? t("ClassWorkspacePage.savingLabel") : t("ClassWorkspacePage.saveWeeklyBtn")}</button></div>}
+      {!locked && <div className={styles.actionFooter} data-guide="class-weekly-save"><button type="button" className={styles.btnPrimary} disabled={saving || Boolean(uploadingWeek)} onClick={save}><MIcon name="save" size={16} />{saving ? t("ClassWorkspacePage.savingLabel") : t("ClassWorkspacePage.saveWeeklyBtn")}</button></div>}
     </section>
   </div>;
 }
@@ -585,7 +585,7 @@ function PublicationSummary({ item }) {
     () => Object.fromEntries(item.nodes.map((node) => [node.node_key, node.name])),
     [item.nodes],
   );
-  return <div className={styles.classPublicationList}>
+  return <div className={styles.classPublicationList} data-guide="class-machines-publications">
     {item.publications.map((publication) => <div key={publication.id} className={styles.classPublicationRow}>
       <span className={styles.classPublicationIcon}>
         <MIcon name={publication.mode === "domain" ? "public" : "swap_horiz"} size={16} />
@@ -705,7 +705,7 @@ function TopologyPreview({ item }) {
   const canvasHeight = Math.min(520, 360 + Math.max(0, item.nodes.length - 1) * 80);
   /* .card 是 flex column：.flowWrap 的 flex:1（basis 0）+ min-height:0 會把畫布壓成 0 高，
      inline 的 flex:none 才壓得過兩個 class */
-  return <div className={`${styles.readonlyTopology} ${fwStyles.flowWrap}`} style={{ height: canvasHeight, flex: "none" }}>
+  return <div className={`${styles.readonlyTopology} ${fwStyles.flowWrap}`} style={{ height: canvasHeight, flex: "none" }} data-guide="class-machines-topology">
     <ReactFlow
       nodes={nodes}
       edges={edges}
@@ -782,7 +782,7 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
     const perStudentSpec = environmentSpecs(item.nodes);
     const classSpec = environmentSpecs(item.nodes, Math.max(1, item.students.length));
     return <div className={styles.stack}>
-      <section className={styles.card}>
+      <section className={styles.card} data-guide="class-machines-applied">
         <div className={styles.cardHeader}>
           <div><h2>{t("ClassWorkspacePage.appliedEnvTitle")}</h2><p>{item.course_environment ? `${item.course_environment.name} · v${item.course_environment.version}` : t("ClassWorkspacePage.appliedEnvFallback")}</p></div>
           <span className={styles.lockBadge}><MIcon name="lock" size={14} />{t("ClassWorkspacePage.settingsLockedLabel")}</span>
@@ -801,8 +801,8 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
   }
 
   return <div className={styles.stack}>
-    <section className={styles.card}>
-      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.chooseEnvTitle")}</h2><p>{t("ClassWorkspacePage.chooseEnvDesc")}</p></div><div className={styles.pageActions}><button type="button" className={styles.btnSecondary} onClick={() => navigate(`/course-template-management/new?returnTo=${encodeURIComponent(`/class-management/${item.id}/machines`)}`)}><MIcon name="add" size={16} />{t("ClassWorkspacePage.createNewEnvBtn")}</button></div></div>
+    <section className={styles.card} data-guide="class-machines-choose">
+      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.chooseEnvTitle")}</h2><p>{t("ClassWorkspacePage.chooseEnvDesc")}</p></div><div className={styles.pageActions} data-guide="class-machines-create"><button type="button" className={styles.btnSecondary} onClick={() => navigate(`/course-template-management/new?returnTo=${encodeURIComponent(`/class-management/${item.id}/machines`)}`)}><MIcon name="add" size={16} />{t("ClassWorkspacePage.createNewEnvBtn")}</button></div></div>
       <div className={styles.envChoices}>{templates.map((candidate) => <EnvironmentChoice key={candidate.versionId} candidate={candidate} selected={template?.id === candidate.id} suggested={String(candidate.id) === String(createdTemplateId)} onSelect={() => choose(candidate)} />)}</div>
       {!templates.length && <div className={styles.emptyState}><p>{t("ClassWorkspacePage.noPublishedEnvNote")}</p></div>}
     </section>
@@ -880,7 +880,7 @@ function HeatAttention({ cells, nodeName, nodeType, onWatch, watching }) {
   const high = cells.filter((cell) => heatTone(cell.state, cell.usage) === "high").sort((a, b) => b.usage - a.usage);
   const off = anyOn ? cells.filter((cell) => cell.state === "off") : [];
   const rows = [...high, ...off];
-  return <aside className={styles.heatAttention} aria-label={t("ClassWorkspacePage.attentionTitle")}>
+  return <aside className={styles.heatAttention} data-guide="class-progress-attention" aria-label={t("ClassWorkspacePage.attentionTitle")}>
     <div className={styles.heatAttentionHead}><strong>{t("ClassWorkspacePage.attentionTitle")}</strong>{rows.length > 0 && <span>{rows.length}</span>}</div>
     {allOff
       ? <p>{t("ClassWorkspacePage.attentionAllOff")}</p>
@@ -1127,10 +1127,10 @@ export function StudentMachines({ item }) {
         <span className={usageStatus === "error" ? styles.prototypeBadge : styles.liveBadge}><MIcon name={usageStatus === "error" ? "sync_problem" : "sensors"} size={15} />{badgeText}</span>
       </div>
 
-      <div className={styles.broadcastTools}><MIcon name="sensors" size={18} /><strong>{t("ClassWorkspacePage.broadcastDemoLabel")}</strong><div className={styles.broadcastControls}>{broadcast ? <><span>{t("ClassWorkspacePage.broadcastInProgress")}</span><button type="button" className={styles.btnSecondary} disabled={broadcasting} onClick={stopBroadcast}>{t("ClassWorkspacePage.stopBroadcastBtn")}</button></> : <select disabled={broadcasting || !sources.length} defaultValue="" onChange={(event) => { startBroadcast(event.target.value); event.target.value = ""; }}><option value="">{sources.length ? t("ClassWorkspacePage.selectRunningVmOption") : t("ClassWorkspacePage.noBroadcastVmOption")}</option>{sources.map((source) => <option key={source.vmid} value={source.vmid}>{source.name || t("ClassWorkspacePage.vmFallbackName", { vmid: source.vmid })}</option>)}</select>}</div></div>
-      <div className={styles.broadcastTools}><MIcon name="power_settings_new" size={18} /><strong>{t("ClassWorkspacePage.classPowerLabel", { count: classVmids.length })}</strong><div className={styles.broadcastControls}><button type="button" className={styles.btnSecondary} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("start")}><MIcon name="play_arrow" size={16} />{t("ClassWorkspacePage.classPowerStartBtn")}</button><button type="button" className={styles.btnDangerOutline} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("shutdown")}><MIcon name="power_settings_new" size={16} />{t("ClassWorkspacePage.classPowerShutdownBtn")}</button>{power ? <span>{t("ClassWorkspacePage.classPowerProgress", { done: power.done, total: power.total })}</span> : <span>{t("ClassWorkspacePage.classPowerHint")}</span>}</div></div>
+      <div className={styles.broadcastTools} data-guide="class-progress-broadcast"><MIcon name="sensors" size={18} /><strong>{t("ClassWorkspacePage.broadcastDemoLabel")}</strong><div className={styles.broadcastControls}>{broadcast ? <><span>{t("ClassWorkspacePage.broadcastInProgress")}</span><button type="button" className={styles.btnSecondary} disabled={broadcasting} onClick={stopBroadcast}>{t("ClassWorkspacePage.stopBroadcastBtn")}</button></> : <select disabled={broadcasting || !sources.length} defaultValue="" onChange={(event) => { startBroadcast(event.target.value); event.target.value = ""; }}><option value="">{sources.length ? t("ClassWorkspacePage.selectRunningVmOption") : t("ClassWorkspacePage.noBroadcastVmOption")}</option>{sources.map((source) => <option key={source.vmid} value={source.vmid}>{source.name || t("ClassWorkspacePage.vmFallbackName", { vmid: source.vmid })}</option>)}</select>}</div></div>
+      <div className={styles.broadcastTools} data-guide="class-progress-power"><MIcon name="power_settings_new" size={18} /><strong>{t("ClassWorkspacePage.classPowerLabel", { count: classVmids.length })}</strong><div className={styles.broadcastControls}><button type="button" className={styles.btnSecondary} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("start")}><MIcon name="play_arrow" size={16} />{t("ClassWorkspacePage.classPowerStartBtn")}</button><button type="button" className={styles.btnDangerOutline} disabled={!!power || !classVmids.length || item.status !== "active"} onClick={() => runClassPower("shutdown")}><MIcon name="power_settings_new" size={16} />{t("ClassWorkspacePage.classPowerShutdownBtn")}</button>{power ? <span>{t("ClassWorkspacePage.classPowerProgress", { done: power.done, total: power.total })}</span> : <span>{t("ClassWorkspacePage.classPowerHint")}</span>}</div></div>
 
-      <div className={styles.heatmapToolbar}>
+      <div className={styles.heatmapToolbar} data-guide="class-progress-toolbar">
         <div className={styles.machineTabs} role="tablist" aria-label={t("ClassWorkspacePage.selectMachineAria")}>
           {item.nodes.map((node, index) => {
             const selected = String(node.id) === String(selectedNode?.id);
@@ -1155,7 +1155,7 @@ export function StudentMachines({ item }) {
         </div>
 
         <div className={styles.heatBoard}>
-          <div className={styles.heatTiles} aria-label={`${selectedNode.name} ${metricInfo.label} ${t("ClassWorkspacePage.usageRateLabel")}`}>
+          <div className={styles.heatTiles} data-guide="class-progress-tiles" aria-label={`${selectedNode.name} ${metricInfo.label} ${t("ClassWorkspacePage.usageRateLabel")}`}>
             {cells.map(({ student, machine, index, state, usage }) => <StudentHeatTile
               key={student.id}
               canWatch={Boolean(machine?.vmid) && state === "on"}
@@ -1194,7 +1194,7 @@ export function StudentMachines({ item }) {
 function LockedFeature({ section }) {
   const { t } = useTranslation("teaching");
   const label = section === "ai" ? t("ClassWorkspacePage.tabAiLabel") : section === "classroom" ? t("ClassWorkspacePage.tabClassroomLabel") : t("ClassWorkspacePage.studentMachinesLabel");
-  return <section className={styles.lockedFeature}><span><MIcon name="lock" size={22} /></span><div><h2>{t("ClassWorkspacePage.notYetAvailableTitle", { label })}</h2><p>{t("ClassWorkspacePage.lockedFeatureDesc")}</p></div></section>;
+  return <section className={styles.lockedFeature} data-guide="class-locked"><span><MIcon name="lock" size={22} /></span><div><h2>{t("ClassWorkspacePage.notYetAvailableTitle", { label })}</h2><p>{t("ClassWorkspacePage.lockedFeatureDesc")}</p></div></section>;
 }
 
 export default function ClassWorkspacePage() {

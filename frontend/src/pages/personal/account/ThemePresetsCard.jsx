@@ -72,7 +72,7 @@ export function ThemePresetList() {
 export default function ThemePresetsCard() {
   const { t } = useTranslation("personal");
   return (
-    <div className={styles.card}>
+    <div className={styles.card} data-guide="account-theme-presets">
       <h2 className={styles.cardTitle}>{t("AppearanceTab.groupPresets")}</h2>
       <ThemePresetList />
     </div>

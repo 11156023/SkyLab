@@ -312,7 +312,7 @@ export default function TeacherDashboardPage() {
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}><MIcon name="add" size={18} />{t("TeacherDashboardPage.createClass")}</button>
     </PageHeader>
 
-    <section className={styles.metricGrid} aria-label={t("TeacherDashboardPage.summaryAriaLabel")}>
+    <section className={styles.metricGrid} aria-label={t("TeacherDashboardPage.summaryAriaLabel")} data-guide="teacher-home-metrics">
       {metrics.map((metric) => <button type="button" key={metric.key} className={styles.metricCard} onClick={() => navigate(metric.path)}>
         <span className={styles.metricIcon}><MIcon name={metric.icon} size={20} /></span>
         <span className={styles.metricContent}>
@@ -325,19 +325,19 @@ export default function TeacherDashboardPage() {
     </section>
 
     <div className={styles.mainGrid}>
-      <section className={styles.panel}>
+      <section className={styles.panel} data-guide="teacher-home-checkpoints">
         <div className={styles.panelHeader}><div><h2>{t("TeacherDashboardPage.checkpointPanelTitle")}</h2></div><button type="button" className={styles.textButton} onClick={() => navigate("/course-cms?tab=progress")}>{t("TeacherDashboardPage.fullProgress")}<MIcon name="arrow_forward" size={16} /></button></div>
         <div className={styles.checkpointList}>{reports.length ? reports.map((item) => <CheckpointRow key={item.path.id} item={item} onOpen={() => navigate(`/course-cms?tab=progress&pathId=${item.path.id}`)} />) : <EmptyState icon="checklist" title={t("TeacherDashboardPage.noCheckpointData")} action={<button type="button" className={styles.btnSecondary} onClick={() => navigate("/course-cms")}>{t("TeacherDashboardPage.createContent")}</button>} />}</div>
       </section>
 
-      <aside className={styles.panel}>
+      <aside className={styles.panel} data-guide="teacher-home-incomplete">
         <div className={styles.panelHeader}><div><h2>{t("TeacherDashboardPage.incompleteCheckpointTitle")}</h2><p>{t("TeacherDashboardPage.incompleteCheckpointDesc")}</p></div></div>
         {/* 有學生紀錄、且全部完成才說「都已完成」；連一筆紀錄都沒有時是「尚無學生進度」 */}
         <div className={styles.studentList}>{incompleteStudents.length ? incompleteStudents.map((student) => <button key={`${student.pathId}-${student.user_id}`} type="button" onClick={() => navigate(`/course-cms?tab=progress&pathId=${student.pathId}`)}><span className={styles.studentAvatar}>{(student.user_name ?? student.user_email ?? t("TeacherDashboardPage.avatarFallback")).slice(0, 1)}</span><span><strong>{student.user_name ?? student.user_email}</strong><small>{student.pathTitle} · {student.completed_questions}/{student.total_questions}</small></span><em>{Math.round(student.progress_percent)}%</em></button>) : <EmptyState icon="verified" title={checkpointSummary.students ? t("TeacherDashboardPage.allStudentsComplete") : t("TeacherDashboardPage.noStudentProgress")} />}</div>
       </aside>
     </div>
 
-    <section className={styles.panel}>
+    <section className={styles.panel} data-guide="teacher-home-classes">
       <div className={styles.panelHeader}><div><h2>{t("TeacherDashboardPage.upcomingClassesTitle")}</h2></div><button type="button" className={styles.textButton} onClick={() => navigate("/class-management")}>{t("TeacherDashboardPage.allClasses")}<MIcon name="arrow_forward" size={16} /></button></div>
       {/* 頁首已有「建立班級」，空狀態不再放第二顆主要按鈕 */}
       <div className={styles.classList}>{upcoming.length ? upcoming.map(({ item, session }) => {
