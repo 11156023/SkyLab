@@ -109,7 +109,7 @@ function ReviewActions({ item, onDone }) {
 
   return (
     <>
-      <div className={styles.actions}>
+      <div className={styles.actions} data-guide="ai-review-actions">
         <button
           type="button"
           className={`${styles.actionBtn} ${styles.actionBtnOk}`}
@@ -226,7 +226,7 @@ export default function AiApiReviewPage() {
     <div className={styles.page}>
       <PageHeader title={t("AiApiReviewPage.pageTitle")} />
 
-      <div className={styles.tabsRow}>
+      <div className={styles.tabsRow} data-guide="ai-review-tabs">
         <SegmentedControl
           className={styles.tabsControl}
           options={TABS.map(({ key, label }) => ({
@@ -246,7 +246,7 @@ export default function AiApiReviewPage() {
         ) : filtered.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} data-guide="ai-review-table">
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -267,7 +267,7 @@ export default function AiApiReviewPage() {
                       </div>
                     </td>
                     <td className={styles.td}>{r.api_key_name}</td>
-                    <td className={styles.td}>
+                    <td className={styles.td} data-guide="ai-review-purpose">
                       <span className={styles.purposeCell} title={r.purpose}>
                         {(r.purpose ?? "").length > 60 ? `${r.purpose.slice(0, 60)}…` : r.purpose}
                       </span>

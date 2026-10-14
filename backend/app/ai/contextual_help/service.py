@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 from datetime import datetime, timezone
@@ -390,7 +391,8 @@ async def explain(
         )
         # adherence 必須檢查實際會顯示的字串，而不是截斷前的另一個版本。
         answer = _parse_model_answer(response_data)[:_MAX_ANSWER_CHARS]
-        _log(metrics=metrics)
+        # 用量寫入是同步 DB commit，丟到 worker thread，不卡住 event loop
+        await asyncio.to_thread(_log, metrics=metrics)
 
         guard_request_id = f"{request_id}:adherence"
         guard_result = await check_adherence(
@@ -410,7 +412,8 @@ async def explain(
             model_name=model_name,
             phase="respond",
         )
-        record_ai_template_call(
+        await asyncio.to_thread(
+            record_ai_template_call,
             session=session,
             user_id=current_user.id,
             call_type="contextual_help_adherence",
@@ -451,7 +454,8 @@ async def explain(
         )
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.exception("Contextual help failed, using deterministic answer: %s", exc)
-        _log(
+        await asyncio.to_thread(
+            _log,
             metrics=usage_metrics(
                 response_data,
                 perf_counter() - started,

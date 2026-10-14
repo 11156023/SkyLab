@@ -3,8 +3,10 @@ import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../contexts/AuthContext";
+import { isAdminUser } from "../../utils/roles";
 import MIcon from "../MIcon";
 import { AccountService } from "../../services/account";
+import { ROUTE_DETAILED_GUIDES } from "./pageGuides";
 import { getRouteGuide } from "./routeGuides";
 import styles from "./UserGuide.module.scss";
 
@@ -405,11 +407,16 @@ const COURSE_WEEK_GUIDE = {
   ],
 };
 
-function getDetailedGuide(pathname) {
+/* home 跟 App.jsx 的 /dashboard 分流一致：admin → 管理首頁、teacher → 教師首頁、其他 → 學生首頁 */
+function getDetailedGuide(pathname, routeId, home) {
+  if (pathname === "/dashboard" && home !== "student") {
+    return ROUTE_DETAILED_GUIDES[home === "admin" ? "dashboard-admin" : "dashboard-teacher"] ?? null;
+  }
   if (/^\/courses\/[^/]+\/weeks\/[^/]+$/.test(pathname)) return COURSE_WEEK_GUIDE;
   if (/^\/courses\/[^/]+$/.test(pathname)) return STUDENT_COURSE_GUIDE;
   if (/^\/(?:my-resources|resource-mgmt)\/[^/]+$/.test(pathname)) return RESOURCE_DETAIL_GUIDE;
-  return PAGE_GUIDES[pathname] ?? null;
+  const entry = PAGE_GUIDES[pathname] ?? ROUTE_DETAILED_GUIDES[routeId];
+  return (typeof entry === "function" ? entry(pathname) : entry) ?? null;
 }
 
 const SPOTLIGHT_GAP = 8;
@@ -513,18 +520,19 @@ export default function UserGuide() {
   const location = useLocation();
   const { user, updateUser } = useAuth();
   const isStudent = user?.role === "student" && !user?.is_superuser;
+  const home = isAdminUser(user) ? "admin" : user?.role === "teacher" ? "teacher" : "student";
   const guide = useMemo(() => {
     const routeGuide = getRouteGuide(location.pathname);
     if (!routeGuide) return null;
-    const detailed = getDetailedGuide(location.pathname);
-    if (!detailed || (location.pathname === "/dashboard" && !isStudent)) return routeGuide;
+    const detailed = getDetailedGuide(location.pathname, routeGuide.id, home);
+    if (!detailed) return routeGuide;
     // Viewing history does not reset with guide revisions.
     return {
       ...routeGuide,
       ...detailed,
       generic: false,
     };
-  }, [isStudent, location.pathname]);
+  }, [home, location.pathname]);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [pageTitle, setPageTitle] = useState("");

@@ -171,6 +171,32 @@ describe("RequestReviewPage", () => {
     expect(host.textContent).toContain("RequestReviewPage.selectARequest");
   });
 
+  test("a slow response for the previous tab does not overwrite the newly selected tab", async () => {
+    let releasePending;
+    const pendingGate = new Promise((resolve) => { releasePending = resolve; });
+    let firstPendingCall = true;
+    mocks.vmListAll.mockImplementation(async (status, { limit }) => {
+      if (status === "pending" && limit === 1000 && firstPendingCall) {
+        firstPendingCall = false;
+        await pendingGate;
+        return { data: [vmRequest("P", "pending")], count: 1 };
+      }
+      if (status === "approved" && limit === 100) return { data: [vmRequest("A", "approved")], count: 1 };
+      return { data: [], count: 0 };
+    });
+
+    await act(async () => { root.render(<RequestReviewPage />); });
+    await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
+    await flush();
+    expect(rowButtons().map((b) => b.textContent)).toEqual([expect.stringContaining("host-A")]);
+
+    /* 待審分頁的請求較晚才回來：不能把核准分頁的清單換成待審 */
+    await act(async () => { releasePending(); });
+    await flush();
+    expect(rowButtons().map((b) => b.textContent)).toEqual([expect.stringContaining("host-A")]);
+    expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+  });
+
   test("approve stays disabled while the VM review context is still loading", async () => {
     mocks.vmListAll.mockImplementation(async (status) => (
       status === "pending" ? { data: [vmRequest("A", "pending")], count: 1 } : { data: [], count: 0 }

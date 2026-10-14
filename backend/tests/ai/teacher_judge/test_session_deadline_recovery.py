@@ -139,7 +139,11 @@ async def test_real_itemwise_pipeline_cancels_active_and_waiting_items(
     context, monkeypatch
 ):
     started, cancelled = [], []
-    routes.teacher_judge_settings.REQUEST_TIMEOUT_SECONDS = 0.15
+    # 這個案例要求管線在總期限到期「之前」就已經啟動前兩個項目。期限只給
+    # 0.15 秒時，CI（Python 3.11 加 coverage 追蹤）偶爾連第一個項目都還沒
+    # 開始就逾時，started 會是空的。放寬到 0.8 秒、項目改睡 3 秒，
+    # 語意不變：前兩個項目一定被取消、後三個一定沒機會開始。
+    routes.teacher_judge_settings.REQUEST_TIMEOUT_SECONDS = 0.8
     monkeypatch.setattr(service, "settings", SimpleNamespace(VLLM_MODEL_NAME="test"))
 
     async def extract(*args, **kwargs):
@@ -148,7 +152,7 @@ async def test_real_itemwise_pipeline_cancels_active_and_waiting_items(
     async def analyze(*, source, **kwargs):
         started.append(source["source_index"])
         try:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(3.0)
         except asyncio.CancelledError:
             cancelled.append(source["source_index"])
             raise

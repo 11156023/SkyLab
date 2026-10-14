@@ -9,6 +9,7 @@
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import IntegrityError
 
@@ -25,6 +26,9 @@ from app.services.network.cloudflare_service import (
     is_valid_hostname,
 )
 from app.services.network.publish_target_policy import assert_publishable_vm_ip
+
+if TYPE_CHECKING:
+    from app.models.reverse_proxy_rule import ReverseProxyRule
 
 logger = logging.getLogger(__name__)
 
@@ -208,8 +212,8 @@ def apply_reverse_proxy_rule(
     hostname_prefix: str,
     internal_port: int,
     enable_https: bool = True,
-) -> None:
-    """建立反向代理規則：寫入 DB + 同步 nginx。"""
+) -> "ReverseProxyRule":
+    """建立反向代理規則：寫入 DB + 同步 nginx，回傳建好的規則（供呼叫端整批回滾）。"""
     from app.models import Resource
     from app.models.reverse_proxy_rule import ReverseProxyRule
     from app.repositories import reverse_proxy as rp_repo
@@ -288,6 +292,7 @@ def apply_reverse_proxy_rule(
                 created.id,
             )
         raise
+    return created
 
 
 def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
@@ -502,13 +507,13 @@ def apply_reverse_proxy_rule_for_domain(
     domain: str,
     internal_port: int,
     enable_https: bool = True,
-) -> None:
+) -> "ReverseProxyRule":
     """以完整網域建立反向代理規則（自動反查 Cloudflare Zone）。
 
     供防火牆拓撲（PortSpec.domain 為完整網域）等呼叫端使用。
     """
     zone_id, hostname_prefix = resolve_zone_for_domain(session, domain)
-    apply_reverse_proxy_rule(
+    return apply_reverse_proxy_rule(
         session,
         vmid=vmid,
         vm_ip=vm_ip,
@@ -533,6 +538,22 @@ def _cleanup_managed_dns_record(session: object, rule) -> None:
         )
     except Exception as exc:
         logger.warning("清理 Cloudflare DNS record 失敗 (%s): %s", rule.id, exc)
+
+
+def remove_reverse_proxy_rules(session: object, rules: list) -> None:
+    """撤掉指定的幾條反向代理規則（DNS 紀錄、DB，最後同步 nginx）。
+
+    給「同一次建立多個 port、後面失敗」的整批回滾用：只撤這次建的。
+    DNS 要在刪 DB 之前清：刪掉並 commit 之後就讀不到規則上的 zone／record id。
+    """
+    from app.repositories import reverse_proxy as rp_repo
+
+    if not rules:
+        return
+    for rule in rules:
+        _cleanup_managed_dns_record(session, rule)
+        rp_repo.delete_rule(session, rule)  # type: ignore[arg-type]
+    _sync_nginx(session)
 
 
 def remove_reverse_proxy_rules_for_vmid(session: object, vmid: int) -> None:

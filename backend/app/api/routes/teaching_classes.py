@@ -5,6 +5,7 @@ import io
 import uuid
 
 from fastapi import APIRouter, File, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlmodel import col, func, select
 
 from app.api.deps import InstructorUser, SessionDep
@@ -517,7 +518,6 @@ def archive_class(
         item=item,
         requested_by=current_user.id,
         force=body.force,
-        reclaim_resources=body.reclaim_resources,
     )
     return {"class": _serialize(session, item), "reclaim": reclaim}
 
@@ -633,7 +633,9 @@ async def import_students(
     current_user: InstructorUser,
     file: UploadFile = File(...),
 ):
-    item = _get_class(session, current_user, class_id)
+    # 同步 DB 查詢丟到 worker thread：名單每一筆都要查一次帳號，上千筆在
+    # event loop 上跑會凍住整個 loop（VNC／終端機／其他請求一起卡住）
+    item = await run_in_threadpool(_get_class, session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.studentsLocked"))
     try:
@@ -669,7 +671,9 @@ async def import_students(
             continue
         if value:
             emails.append(value if "@" in value else f"{value}@ntub.edu.tw")
-    return add_students(class_id, StudentAdd(emails=emails), session, current_user)
+    return await run_in_threadpool(
+        add_students, class_id, StudentAdd(emails=emails), session, current_user
+    )
 
 
 @router.post("/{class_id}/generate-weeks")
@@ -774,12 +778,9 @@ def replace_weeks(
     kept_week_ids: set[uuid.UUID] = set()
     kept_file_ids: set[uuid.UUID] = set()
     for row in body:
-        week = weeks_by_number.get(row.week_number) or weeks_by_date.get(
-            row.session_date
-        )
-        if week is None:
-            week = TeachingClassWeek(class_id=class_id, week_number=row.week_number)
-            session.add(week)
+        # 上方已要求送來的日期集合與既有週次相等，這裡一定找得到；
+        # 找不到就讓 KeyError 直接失敗，不要悄悄新建週次。
+        week = weeks_by_number.get(row.week_number) or weeks_by_date[row.session_date]
         for key, value in row.model_dump(exclude={"files"}).items():
             setattr(week, key, value)
         session.add(week)
@@ -811,6 +812,43 @@ def replace_weeks(
     return _serialize(session, item)
 
 
+def _week_for_upload(
+    session: SessionDep,
+    current_user: InstructorUser,
+    class_id: uuid.UUID,
+    week_id: uuid.UUID,
+) -> TeachingClass:
+    """上傳週次教材前的檢查（同步 DB，由 upload_week_file 丟到 worker thread）。"""
+    item = _get_class(session, current_user, class_id)
+    if item.status == TeachingClassStatus.archived:
+        raise BadRequestError(t("teachingClasses.archivedCannotEditWeeklyContent"))
+    week = session.get(TeachingClassWeek, week_id)
+    if not week or week.class_id != class_id:
+        raise NotFoundError(t("teachingClasses.weekNotFound"))
+    return item
+
+
+def _record_week_file(
+    session: SessionDep,
+    item: TeachingClass,
+    *,
+    week_id: uuid.UUID,
+    file_id: uuid.UUID,
+    filename: str,
+    storage_key: str,
+) -> dict:
+    session.add(
+        TeachingClassTaskFile(
+            id=file_id,
+            week_id=week_id,
+            filename=filename,
+            storage_key=storage_key,
+        )
+    )
+    session.commit()
+    return _serialize(session, item)
+
+
 @router.post("/{class_id}/weeks/{week_id}/files")
 async def upload_week_file(
     class_id: uuid.UUID,
@@ -819,12 +857,11 @@ async def upload_week_file(
     current_user: InstructorUser,
     file: UploadFile = File(...),
 ):
-    item = _get_class(session, current_user, class_id)
-    if item.status == TeachingClassStatus.archived:
-        raise BadRequestError(t("teachingClasses.archivedCannotEditWeeklyContent"))
-    week = session.get(TeachingClassWeek, week_id)
-    if not week or week.class_id != class_id:
-        raise NotFoundError(t("teachingClasses.weekNotFound"))
+    # 檔案串流要留在 event loop（UploadFile 的 async read）；前後的同步 DB
+    # 查詢與寫入丟到 worker thread，避免卡住整個 loop
+    item = await run_in_threadpool(
+        _week_for_upload, session, current_user, class_id, week_id
+    )
 
     filename = upload_store.sanitize_upload_filename(
         file.filename,
@@ -840,16 +877,15 @@ async def upload_week_file(
         too_large_message=t("teachingClasses.taskFileTooLarge"),
     )
 
-    session.add(
-        TeachingClassTaskFile(
-            id=file_id,
-            week_id=week_id,
-            filename=filename,
-            storage_key=storage_key,
-        )
+    return await run_in_threadpool(
+        _record_week_file,
+        session,
+        item,
+        week_id=week_id,
+        file_id=file_id,
+        filename=filename,
+        storage_key=storage_key,
     )
-    session.commit()
-    return _serialize(session, item)
 
 
 @router.delete("/{class_id}/weeks/{week_id}/files/{file_id}")

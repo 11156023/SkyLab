@@ -1,11 +1,13 @@
 """批量建立資源服務 — 包含逐一排隊邏輯"""
 
+import asyncio
 import logging
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import and_, or_
 from sqlmodel import Session, col, select
 
 from app.core.db import engine
@@ -50,6 +52,12 @@ TASK_RUN_BATCH_JOB = "batch_provision.run"
 
 # running 超過這個時數且毫無進度的 job 視為 worker 已死（例如被 OOM kill）
 STALE_BATCH_JOB_HOURS = 2.0
+
+# worker 等 PVE clone 時多久記一次心跳（刷新 running task 的 started_at）
+BATCH_HEARTBEAT_SECONDS = 60
+
+# 已核准超過這麼久仍沒有 worker 接手（入列失敗、Redis 掉資料）就由排程重新入列
+APPROVED_JOB_REQUEUE_MINUTES = 5
 
 
 # ─── 公開 API ─────────────────────────────────────────────────────────────────
@@ -157,7 +165,7 @@ def approve_batch_job(
             t("batch_provision.job_no_longer_pending")
         )
 
-    _enqueue_job_run(session=session, job_id=job_id, reviewer_id=reviewer_id)
+    _enqueue_after_approval(session=session, job_id=job_id, reviewer_id=reviewer_id)
 
     logger.info("Batch provision job %s approved by %s", job_id, reviewer_id)
 
@@ -212,7 +220,9 @@ def review_batch_jobs(
         )
     if decision == BatchProvisionJobStatus.approved:
         for job in jobs:
-            _enqueue_job_run(session=session, job_id=job.id, reviewer_id=reviewer_id)
+            _enqueue_after_approval(
+                session=session, job_id=job.id, reviewer_id=reviewer_id
+            )
     logger.info(
         "Teaching class batch jobs %s reviewed as %s by %s",
         ",".join(str(job.id) for job in jobs),
@@ -311,22 +321,133 @@ def to_public(session: Session, job: BatchProvisionJob) -> BatchProvisionJobPubl
 # ─── 背景排隊執行 ──────────────────────────────────────────────────────────────
 
 
+def batch_run_task_id(job_id: uuid.UUID) -> str:
+    """一個 job 的 arq job id；核准入列與排程補入列共用，排隊中不會重複入列。"""
+    return f"batch_provision:{job_id}"
+
+
 def _enqueue_job_run(
     *, session: Session, job_id: uuid.UUID, reviewer_id: uuid.UUID
-) -> None:
-    """把已核准的 job 交給 arq worker 執行。
+) -> Any:
+    """把已核准的 job 交給 arq worker 執行；同一 job 已在排隊／執行中時回 None。
 
     之前用 daemon thread 跑在 API 行程裡：API 重啟整批就消失，只能等
     ``reap_stale_batch_jobs`` 兩小時後標成 failed。arq 的 job 存在 Redis，
     worker 重啟後會續跑；``_run_queue`` 起手的 approved→running 條件式轉換
     則擋掉重複執行。
     """
-    enqueue_task_sync(
+    return enqueue_task_sync(
         session=session,
         task_type=TASK_RUN_BATCH_JOB,
         user_id=reviewer_id,
         payload={"job_id": str(job_id)},
+        job_id=batch_run_task_id(job_id),
     )
+
+
+def _enqueue_after_approval(
+    *, session: Session, job_id: uuid.UUID, reviewer_id: uuid.UUID
+) -> None:
+    """核准後入列；失敗不讓審核失敗。
+
+    走到這裡 job 已經以 approved 寫進 DB，入列失敗時回錯誤反而讓審核者以為
+    沒核准成功（再按一次只會得到「已不是待審」）。排程的
+    ``requeue_stalled_approved_jobs`` 會在幾分鐘內把它重新入列，所以這裡只記
+    ERROR，審核照常回成功。
+    """
+    try:
+        _enqueue_job_run(session=session, job_id=job_id, reviewer_id=reviewer_id)
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "Batch provision job %s approved but enqueue failed; the scheduler "
+            "will re-enqueue it within %s minutes",
+            job_id,
+            APPROVED_JOB_REQUEUE_MINUTES,
+        )
+
+
+def requeue_stalled_approved_jobs(
+    *, stalled_minutes: float = APPROVED_JOB_REQUEUE_MINUTES
+) -> int:
+    """排程安全網：已核准、超過 ``stalled_minutes`` 仍沒有 worker 接手的 job 重新入列。
+
+    核准時入列失敗（Redis 斷線、逾時）或排隊中的 arq job 遺失，job 會永遠停在
+    「已核准」。arq job id 固定（``batch_run_task_id``），還在排隊／執行中的不會
+    重複入列；就算真的多跑一次，``_run_queue`` 起手的 approved→running 條件式
+    轉換也只會讓其中一個執行。回傳本輪重新入列的 job 數。
+    """
+    cutoff = datetime.now(UTC) - timedelta(minutes=stalled_minutes)
+    requeued = 0
+    try:
+        with Session(engine) as session:
+            jobs = list(
+                session.exec(
+                    select(BatchProvisionJob).where(
+                        BatchProvisionJob.status == BatchProvisionJobStatus.approved,
+                        or_(
+                            col(BatchProvisionJob.reviewed_at) <= cutoff,
+                            and_(
+                                col(BatchProvisionJob.reviewed_at).is_(None),
+                                col(BatchProvisionJob.created_at) <= cutoff,
+                            ),
+                        ),
+                    )
+                ).all()
+            )
+            for job in jobs:
+                user_id = job.reviewer_id or job.initiated_by
+                if user_id is None:
+                    teaching_class = session.get(TeachingClass, job.teaching_class_id)
+                    user_id = teaching_class.owner_id if teaching_class else None
+                if user_id is None:
+                    logger.error(
+                        "Approved batch job %s has no reviewer, initiator or class "
+                        "owner to enqueue it as; it cannot be started",
+                        job.id,
+                    )
+                    continue
+                try:
+                    record = _enqueue_job_run(
+                        session=session, job_id=job.id, reviewer_id=user_id
+                    )
+                except Exception:
+                    session.rollback()
+                    logger.exception(
+                        "Failed to re-enqueue approved batch provision job %s", job.id
+                    )
+                    continue
+                if record is not None:
+                    requeued += 1
+                    logger.warning(
+                        "Approved batch provision job %s had no worker; re-enqueued",
+                        job.id,
+                    )
+    except Exception:
+        logger.exception("requeue_stalled_approved_jobs failed")
+    return requeued
+
+
+def record_heartbeat(job_id: uuid.UUID) -> int:
+    """刷新 job 內 running task 的心跳；回傳更新的 task 數。"""
+    with Session(engine) as session:
+        return bp_repo.touch_running_task_heartbeat(session=session, job_id=job_id)
+
+
+async def heartbeat_loop(
+    job_id: uuid.UUID, *, interval_seconds: float = BATCH_HEARTBEAT_SECONDS
+) -> None:
+    """worker 端心跳：每 ``interval_seconds`` 秒刷新一次，直到被取消。
+
+    跟著 arq job 的 coroutine 走：job 超過 6 小時上限被 arq 取消時心跳一起
+    停，卡住的 clone 之後仍會被 ``reap_stale_batch_jobs`` 回收。
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await asyncio.to_thread(record_heartbeat, job_id)
+        except Exception:
+            logger.exception("Batch provision heartbeat failed for job %s", job_id)
 
 
 def run_batch_job_task(
@@ -355,30 +476,46 @@ def _run_queue(job_id: uuid.UUID) -> None:
         _process_task(job_id=job_id, task_id=task_id)
 
     with Session(engine) as session:
-        job = bp_repo.get_job(session=session, job_id=job_id)
+        job = bp_repo.lock_job(session=session, job_id=job_id)
         if job is None:
             return
         if job.status == BatchProvisionJobStatus.cancelled:
             return
-        # 部分失敗仍標 completed：週期性課程的自動開機與清單只認 completed，
-        # 一台失敗就把整個工作標 failed 會讓全班都不再自動開機。失敗台數由
-        # failed_count 呈現，前端據此顯示重試入口；全部失敗才標 failed。
-        final = (
-            BatchProvisionJobStatus.failed
-            if job.failed_count > 0 and job.done == 0
-            else BatchProvisionJobStatus.completed
-        )
-        bp_repo.update_job_status(session=session, job_id=job_id, status=final)
         teaching_class_id = job.teaching_class_id
-        log = logger.warning if job.failed_count > 0 else logger.info
-        log(
-            "Batch provision job %s finished as %s: done=%d failed=%d total=%d",
-            job_id,
-            final.value,
-            job.done,
-            job.failed_count,
-            job.total,
-        )
+        if job.status == BatchProvisionJobStatus.running:
+            bp_repo.recount_job(session=session, job_id=job_id)
+            # 部分失敗仍標 completed：週期性課程的自動開機與清單只認 completed，
+            # 一台失敗就把整個工作標 failed 會讓全班都不再自動開機。失敗台數由
+            # failed_count 呈現，前端據此顯示重試入口；全部失敗才標 failed。
+            final = (
+                BatchProvisionJobStatus.failed
+                if job.failed_count > 0 and job.done == 0
+                else BatchProvisionJobStatus.completed
+            )
+            job.status = final
+            job.finished_at = datetime.now(UTC)
+            session.add(job)
+            session.commit()
+            log = logger.warning if job.failed_count > 0 else logger.info
+            log(
+                "Batch provision job %s finished as %s: done=%d failed=%d total=%d",
+                job_id,
+                final.value,
+                job.done,
+                job.failed_count,
+                job.total,
+            )
+        else:
+            # 已被回收（reap）結案：終態以回收結果為準，晚到的成功已在
+            # _record_task_success 補記
+            closed_as = job.status.value
+            session.rollback()
+            logger.warning(
+                "Batch provision job %s was closed as %s while the worker was "
+                "still running; keeping that result",
+                job_id,
+                closed_as,
+            )
 
     if teaching_class_id is not None:
         _refresh_teaching_class_status(teaching_class_id)
@@ -432,16 +569,27 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
 
     if class_archived or job_cancelled:
         with Session(engine) as session:
-            bp_repo.update_task_failed(
+            bp_repo.lock_job(session=session, job_id=job_id)
+            bp_repo.mark_task_failed_if_open(
                 session=session,
                 task_id=task_id,
                 error="Teaching class is archived or provisioning was cancelled",
             )
-            bp_repo.increment_job_failed(session=session, job_id=job_id)
+            bp_repo.recount_job(session=session, job_id=job_id)
+            session.commit()
         return
 
     with Session(engine) as session:
-        bp_repo.update_task_running(session=session, task_id=task_id)
+        if not bp_repo.claim_pending_task(
+            session=session, job_id=job_id, task_id=task_id
+        ):
+            # job 已被回收（reap）或結案、task 已標 failed：不要再替它建機器
+            logger.warning(
+                "Batch task %s of job %s is no longer pending; skipping",
+                task_id,
+                job_id,
+            )
+            return
 
     try:
         with Session(engine) as session:
@@ -491,6 +639,17 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 raise RuntimeError(
                     "Teaching class was archived while resource was provisioning"
                 )
+            if _superseded_by_retry(session=session, task_id=task_id):
+                # 等 clone 的期間被回收、老師也已按重試：新的 job 會替這位學生
+                # 再建一台，這台留著就是重複的機器
+                _discard_provisioned_machine(
+                    vmid=vmid,
+                    initiated_by_id=initiated_by_id,
+                    reason="task was reaped and superseded by a class retry",
+                )
+                raise RuntimeError(
+                    "Batch task was superseded by a class retry while provisioning"
+                )
 
         # Snapshot failure must not turn a successfully created resource into
         # a failed task, otherwise retrying can create a duplicate machine.
@@ -502,17 +661,9 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
             logger.warning("Initial snapshot failed for class vmid=%s", vmid)
 
         try:
-            with Session(engine) as session:
-                bp_repo.update_task_done(
-                    session=session, task_id=task_id, vmid=vmid
-                )
-                _sync_class_machine_mapping(
-                    session=session,
-                    job_id=job_id,
-                    task_id=task_id,
-                    user_id=user_id,
-                )
-                bp_repo.increment_job_done(session=session, job_id=job_id)
+            late = _record_task_success(
+                job_id=job_id, task_id=task_id, user_id=user_id, vmid=vmid
+            )
         except Exception:
             # 授權紀錄寫不進去 = 學生拿不到這台機器；留著它，重試時又會再
             # 開一台。同樣先清掉機器再讓 task 失敗。
@@ -523,13 +674,26 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
             )
             raise
 
-        logger.info("Batch task %s done: vmid=%d user=%s", task_id, vmid, user_id)
+        if late:
+            logger.warning(
+                "Batch task %s finished after it was reaped; recorded the late "
+                "success: vmid=%s user=%s",
+                task_id,
+                vmid,
+                user_id,
+            )
+            if teaching_class_id is not None:
+                _refresh_teaching_class_status(teaching_class_id)
+        else:
+            logger.info("Batch task %s done: vmid=%d user=%s", task_id, vmid, user_id)
 
     except Exception:
         logger.exception("Batch task failed task=%s user=%s", task_id, user_id)
         error_msg = "Provisioning failed. Retry or contact an administrator."
         with Session(engine) as session:
-            bp_repo.update_task_failed(
+            bp_repo.lock_job(session=session, job_id=job_id)
+            # 已被回收標 failed 的 task 不再覆寫、不重複計數
+            bp_repo.mark_task_failed_if_open(
                 session=session, task_id=task_id, error=error_msg
             )
             _sync_class_machine_mapping(
@@ -537,8 +701,72 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 job_id=job_id,
                 task_id=task_id,
                 user_id=user_id,
+                commit=False,
             )
-            bp_repo.increment_job_failed(session=session, job_id=job_id)
+            bp_repo.recount_job(session=session, job_id=job_id)
+            session.commit()
+
+
+def _record_task_success(
+    *, job_id: uuid.UUID, task_id: uuid.UUID, user_id: uuid.UUID, vmid: int
+) -> bool:
+    """把建好的機器記到 task 上（同一個交易內：task、學生對應、job 計數）。
+
+    回傳 True 代表這是晚到的成功：worker 等 clone 的期間 task 已被回收標成
+    failed。機器最後還是建好了，照樣記成 completed；計數依 task 現況重算，
+    不會重複計算，job 若已被標成 failed 也會改回 completed。
+    """
+    with Session(engine) as session:
+        bp_repo.lock_job(session=session, job_id=job_id)
+        previous = bp_repo.mark_task_completed(
+            session=session, task_id=task_id, vmid=vmid
+        )
+        _sync_class_machine_mapping(
+            session=session,
+            job_id=job_id,
+            task_id=task_id,
+            user_id=user_id,
+            commit=False,
+        )
+        bp_repo.recount_job(session=session, job_id=job_id)
+        session.commit()
+    return previous is not None and previous != BatchProvisionTaskStatus.running
+
+
+def _superseded_by_retry(*, session: Session, task_id: uuid.UUID) -> bool:
+    """被回收的 task 之後，班級重試是否已替同一位學生送出新的建機 task。
+
+    只看「被標 failed 之後才建立」的同班 job：同一位學生在其他機器節點、
+    當初一起送出的 job 不算。新 task 又失敗了也不算，這台晚到的機器照常記入。
+    """
+    task = session.get(BatchProvisionTask, task_id)
+    if task is None or task.status != BatchProvisionTaskStatus.failed:
+        return False
+    failed_at = normalize_datetime(task.finished_at)
+    job = session.get(BatchProvisionJob, task.job_id)
+    if failed_at is None or job is None:
+        return False
+    newer = session.exec(
+        select(BatchProvisionTask.id)
+        .join(
+            BatchProvisionJob,
+            col(BatchProvisionJob.id) == col(BatchProvisionTask.job_id),
+        )
+        .where(
+            BatchProvisionJob.teaching_class_id == job.teaching_class_id,
+            BatchProvisionJob.id != job.id,
+            col(BatchProvisionJob.created_at) >= failed_at,
+            col(BatchProvisionJob.status).not_in(
+                [
+                    BatchProvisionJobStatus.rejected,
+                    BatchProvisionJobStatus.cancelled,
+                ]
+            ),
+            BatchProvisionTask.user_id == task.user_id,
+            BatchProvisionTask.status != BatchProvisionTaskStatus.failed,
+        )
+    ).first()
+    return newer is not None
 
 
 def _discard_provisioned_machine(
@@ -578,7 +806,11 @@ def _discard_provisioned_machine(
 def _last_progress_at(
     job: BatchProvisionJob, tasks: list[BatchProvisionTask]
 ) -> datetime | None:
-    """這個 job 最後一次有動靜的時間（任一 task 開始/結束，否則審核/建立時間）。"""
+    """這個 job 最後一次有動靜的時間（任一 task 開始/結束，否則審核/建立時間）。
+
+    running task 的 ``started_at`` 會被 worker 心跳（``heartbeat_loop``）持續
+    刷新，單台 clone 等再久，只要 worker 還在等就不會被當成卡死。
+    """
     stamps = [
         stamp
         for task in tasks
@@ -607,7 +839,11 @@ def reap_stale_batch_jobs(
     批量建立在 arq worker 裡執行：worker 在 job 跑到一半時被砍掉、OOM 或
     崩潰，job 就會永遠停在 running —— 班級狀態卡在「建立中」，重試入口
     也不會出現。狀態為 ``running``、且超過 ``max_running_hours`` 沒有任何
-    task 有進度的 job，連同它尚未結束的 task 一起標成 failed。
+    task 有進度（含 worker 心跳）的 job，連同它尚未結束的 task 一起標成 failed。
+
+    回收後 worker 若其實還活著（例如等 clone 超過 6 小時上限、心跳已停）：
+    被標 failed 的 task 不會再建（``claim_pending_task``），正在等的那台最後
+    建好時記成晚到的成功（``_record_task_success``），計數不會重複。
     """
     reaped = 0
     now = datetime.now(UTC)
@@ -646,7 +882,14 @@ def reap_stale_batch_jobs(
                 job.failed_count = sum(
                     task.status == BatchProvisionTaskStatus.failed for task in tasks
                 )
-                job.status = BatchProvisionJobStatus.failed
+                # 與 worker 收尾同一條規則：全部失敗才標 failed。已建好的機器仍屬於
+                # 班級，排程器的週期開關機只認 completed，標成 failed 會讓這些學生
+                # 整學期都不再自動開機；失敗台數仍由 failed_count 帶出重試入口。
+                job.status = (
+                    BatchProvisionJobStatus.completed
+                    if job.done > 0
+                    else BatchProvisionJobStatus.failed
+                )
                 job.finished_at = now
                 session.add(job)
                 session.commit()
@@ -711,11 +954,13 @@ def _sync_class_machine_mapping(
     job_id: uuid.UUID,
     task_id: uuid.UUID,
     user_id: uuid.UUID,
+    commit: bool = True,
 ) -> None:
     """Persist the class-to-student machine grant as soon as provisioning ends.
 
     The task must already carry the outcome (vmid / status / error); the
-    mapping only points at it.
+    mapping only points at it. ``commit=False`` leaves the transaction to the
+    caller (the worker records task, mapping and job counts together).
     """
     job = session.get(BatchProvisionJob, job_id)
     if job is None:
@@ -739,7 +984,8 @@ def _sync_class_machine_mapping(
         node_id=node.id,
         task_id=task_id,
     )
-    session.commit()
+    if commit:
+        session.commit()
 
 
 def _provision_one(

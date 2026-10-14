@@ -230,9 +230,17 @@ export default function BatchReviewPage() {
   /* 開合與資料分開存：收合時保留已抓的時段，收合動畫才有內容可收、再展開也不用重抓 */
   const [openPreviews, setOpenPreviews] = useState({});
 
+  /* 只採用最後一次發出的請求：審核前送出的背景刷新若比審核後的重新載入晚回來，
+     舊快照（還是待審核）不能蓋掉新清單。前景載入被背景刷新超車時由最新那次接手收 loading／顯示錯誤 */
+  const loadSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
   const load = useCallback(async (silent = false) => {
+    const seq = ++loadSeqRef.current;
+    const isLatest = () => seq === loadSeqRef.current;
     if (!silent) {
+      foregroundPendingRef.current = true;
       setLoading(true);
       setError("");
     }
@@ -243,6 +251,7 @@ export default function BatchReviewPage() {
         BatchProvisionService.listAll({ limit: BATCH_LIST_LIMIT }),
         BatchProvisionService.listAll({ status: "pending_review", limit: BATCH_LIST_LIMIT }),
       ]);
+      if (!isLatest()) return;
       const byId = new Map();
       for (const job of [
         ...(Array.isArray(pending) ? pending : []),
@@ -252,12 +261,15 @@ export default function BatchReviewPage() {
       }
       setBatches([...byId.values()]);
     } catch (e) {
-      if (!silent) {
+      if (isLatest() && foregroundPendingRef.current) {
         setBatches([]);
         setError(e?.message ?? t("Error.generic", { ns: "common" }));
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [t]);
 
@@ -393,13 +405,14 @@ export default function BatchReviewPage() {
             value: key,
             label,
             badge: key === "all" ? stats.total : (stats[key] ?? 0),
+            buttonProps: key === "pending" ? { "data-guide-tab": "batch-review-pending" } : undefined,
           }))}
           value={activeTab}
           onChange={setActiveTab}
           ariaLabel={t("BatchReviewPage.tabsAriaLabel")}
         />
 
-        <div className={styles.search}>
+        <div className={styles.search} data-guide="batch-review-search">
           <MIcon name="search" size={16} />
           <input
             type="text"
@@ -413,7 +426,7 @@ export default function BatchReviewPage() {
 
       <div className={styles.content}>
         <div className={styles.reviewGrid}>
-          <section className={styles.listPane}>
+          <section className={styles.listPane} data-guide="batch-review-list">
             {loading ? (
               <LoadingState text={t("BatchReviewPage.loadingBatches")} />
             ) : error ? (
@@ -432,6 +445,7 @@ export default function BatchReviewPage() {
                     key={row.id}
                     type="button"
                     className={`${styles.row} ${selected?.id === row.id ? styles.rowActive : ""}`}
+                    data-guide="batch-review-row"
                     onClick={() => { setSelectedId(row.id); setComment(""); }}
                   >
                     <div className={styles.rowIcon}>
@@ -456,7 +470,7 @@ export default function BatchReviewPage() {
             )}
           </section>
 
-          <section className={styles.detailPane}>
+          <section className={styles.detailPane} data-guide="batch-review-detail">
             {!selected ? (
               <div className={styles.stateBox}>{t("BatchReviewPage.selectABatch")}</div>
             ) : (
@@ -586,7 +600,7 @@ export default function BatchReviewPage() {
                 </div>
 
                 {isPending && (
-                  <div className={styles.reviewBar}>
+                  <div className={styles.reviewBar} data-guide="batch-review-decision">
                     <label className={styles.commentField}>
                       <span>{t("BatchReviewPage.commentLabel")}</span>
                       <textarea

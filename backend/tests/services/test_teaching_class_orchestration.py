@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.exceptions import BadRequestError
+from app.exceptions import BadRequestError, NotFoundError
 from app.models import BatchProvisionJobStatus, TeachingClassWeek
 from app.schemas.course_environment import (
     EnvironmentCreate,
@@ -461,7 +461,7 @@ def test_sync_scope_rules_removes_stale_rules_from_a_previous_vmid(monkeypatch):
     monkeypatch.setattr(
         class_network_service.proxmox_service,
         "find_resource",
-        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+        lambda vmid, **_kwargs: {"node": "pve1", "type": "qemu", "vmid": vmid},
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
@@ -502,7 +502,7 @@ def test_sync_scope_rules_cleans_machines_that_lost_every_edge(monkeypatch):
     monkeypatch.setattr(
         class_network_service.proxmox_service,
         "find_resource",
-        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+        lambda vmid, **_kwargs: {"node": "pve1", "type": "qemu", "vmid": vmid},
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
@@ -523,8 +523,8 @@ def test_sync_scope_rules_cleans_machines_that_lost_every_edge(monkeypatch):
 
 
 def test_sync_scope_rules_skips_machines_that_no_longer_exist(monkeypatch):
-    def gone(_vmid):
-        raise RuntimeError("not found")
+    def gone(_vmid, **_kwargs):
+        raise NotFoundError("not found")
 
     monkeypatch.setattr(class_network_service.proxmox_service, "find_resource", gone)
 
@@ -542,7 +542,7 @@ def _plan(monkeypatch, protocol, port):
     monkeypatch.setattr(
         class_network_service.proxmox_service,
         "find_resource",
-        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+        lambda vmid, **_kwargs: {"node": "pve1", "type": "qemu", "vmid": vmid},
     )
     return class_network_service.plan_one_way(
         SimpleNamespace(),

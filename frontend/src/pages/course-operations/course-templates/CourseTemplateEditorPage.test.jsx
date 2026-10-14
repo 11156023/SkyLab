@@ -228,3 +228,22 @@ it("downloads an attachment through the authenticated service when its name is c
   expect(mocks.downloadFile).toHaveBeenCalledWith("env-1", "f1");
   expect(mocks.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "guide.pdf");
 });
+
+it("shows a retryable error instead of a blank editor when an existing environment fails to load", async () => {
+  mocks.get.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => {
+    root.render(<MemoryRouter initialEntries={["/course-template-management/env-1?tab=basic"]}>
+      <Routes><Route path="/course-template-management/:templateId" element={<CourseTemplateEditorPage />} /></Routes>
+    </MemoryRouter>);
+  });
+  expect(mocks.toast.error).toHaveBeenCalledWith("offline");
+  /* 空白表單打的字會寫成這個環境的暫存草稿，下次進來還原時蓋掉伺服器上的草稿：不給編輯 */
+  expect(host.querySelector("input, textarea, select")).toBeNull();
+  expect(sessionStorage.length).toBe(0);
+
+  mocks.get.mockResolvedValue({ ...initial, id: "env-1", version: 1 });
+  const retry = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Error.retry"));
+  await act(async () => retry.click());
+  expect(mocks.get).toHaveBeenCalledTimes(2);
+  expect(host.querySelector("input").value).toBe("Linux");
+});

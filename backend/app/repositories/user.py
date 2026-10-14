@@ -8,6 +8,8 @@ from app.exceptions import NotFoundError
 from app.models import User, UserRole
 from app.schemas import UserCreate, UserUpdate
 
+_NON_NULLABLE_UPDATE_FIELDS = ("email", "password", "is_active", "role", "totp_required")
+
 
 def create_user(*, session: Session, user_create: UserCreate) -> User:
     db_obj = User.model_validate(
@@ -37,8 +39,11 @@ def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
     elif getattr(db_user, "deleted_at", None) is not None:
         raise NotFoundError(t("user.idNotFound"))
     user_data = user_in.model_dump(exclude_unset=True)
-    if user_data.get("role", ...) is None:
-        user_data.pop("role")  # role 欄位 NOT NULL；明確傳 null 視為不變更
+    # 這幾欄在 DB 是 NOT NULL（password 對應 hashed_password）；明確傳 null 視為不變更，
+    # 否則 PATCH {"password": null} 會在雜湊時 TypeError、{"is_active": null} 撞 NOT NULL
+    for field in _NON_NULLABLE_UPDATE_FIELDS:
+        if field in user_data and user_data[field] is None:
+            user_data.pop(field)
     extra_data: dict[str, Any] = {}
     if "password" in user_data:
         password = user_data["password"]

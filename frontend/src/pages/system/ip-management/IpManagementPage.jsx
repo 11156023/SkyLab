@@ -25,7 +25,7 @@ function EmptyState({ variant, canConfigure, onConfigure, onClearFilter }) {
         title={t("IpManagementPage.emptyUnconfigured")}
         action={
           canConfigure ? (
-            <button type="button" className={styles.btnPrimary} onClick={onConfigure}>
+            <button type="button" className={styles.btnPrimary} onClick={onConfigure} data-guide="ip-create-subnet">
               <MIcon name="add" size={18} />
               {t("IpManagementPage.createSubnetConfig")}
             </button>
@@ -65,6 +65,9 @@ function PurposeBadge({ purpose }) {
 }
 
 const PAGE_SIZE = 50;
+
+/** 佔用網段、CIDR 不能再改的配發用途（與後端 ip_management_service 一致） */
+const CIDR_LOCKING_PURPOSES = new Set(["vm", "lxc", "class_reserved", "quick_practice_reserved"]);
 
 export default function IpManagementPage() {
   const { t } = useTranslation("system");
@@ -110,9 +113,10 @@ export default function IpManagementPage() {
   /* getSubnet 需要管理員權限，非管理員只能靠 status 判斷是否已設定 */
   const configured = Boolean(subnet) || Boolean(status?.configured);
 
-  /* 已有 VM/LXC 佔用網段時後端不允許改 CIDR，先在表單擋下來 */
+  /* 已有 VM/LXC 佔用網段、或還有班級／快速練習的預留時後端不允許改 CIDR，先在表單擋下來
+     （預留是依目前網段算好的 IP，改網段後班級建機才會失敗） */
   const cidrLocked = useMemo(
-    () => allocations.some((a) => a.purpose === "vm" || a.purpose === "lxc"),
+    () => allocations.some((a) => CIDR_LOCKING_PURPOSES.has(a.purpose)),
     [allocations],
   );
 
@@ -212,6 +216,7 @@ export default function IpManagementPage() {
               type="button"
               className={styles.btnPrimary}
               onClick={() => setEditing({ config: subnet })}
+              data-guide="ip-edit-subnet"
             >
               <MIcon name="edit" size={18} />
               {t("IpManagementPage.editSubnetConfig")}
@@ -220,7 +225,7 @@ export default function IpManagementPage() {
         )}
       </PageHeader>
 
-      <div className={styles.statRow}>
+      <div className={styles.statRow} data-guide="ip-stats">
         <div className={styles.statCard}>
           <div className={styles.statIcon}>
             <MIcon name="public" size={20} />
@@ -263,7 +268,7 @@ export default function IpManagementPage() {
         />
       )}
 
-      <div className={styles.toolbar}>
+      <div className={styles.toolbar} data-guide="ip-toolbar">
         <div className={styles.search}>
           <MIcon name="search" size={16} />
           <input
@@ -295,7 +300,7 @@ export default function IpManagementPage() {
             onClearFilter={() => setFilter("")}
           />
         ) : (
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} data-guide="ip-table">
             <table className={styles.table}>
               {/* 分頁與搜尋都會換掉整頁的列，欄寬固定才不會每翻一頁就跳動（樣式規範表格規則二） */}
               <colgroup>

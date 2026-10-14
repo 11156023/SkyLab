@@ -551,9 +551,9 @@ def test_stopped_vm_alert_resolves() -> None:
         [_alert("101", "memory"), _alert("pve1", "cpu", scope="node")],
         _CONFIG,
         NOW,
-        inactive_targets={"101"},
+        inactive_targets={(None, "101")},
     )
-    assert decision.resolved_targets == [("101", "memory")]
+    assert decision.resolved_targets == [(None, "101", "memory")]
 
 
 def test_inactive_vm_targets() -> None:
@@ -561,14 +561,14 @@ def test_inactive_vm_targets() -> None:
         {"vmid": 101, "status": "stopped"},
         {"vmid": 102, "status": "running"},
     ]
-    open_targets = {"101", "102", "103", "104"}
+    open_targets = {(None, "101"), (None, "102"), (None, "103"), (None, "104")}
     # 103 已刪除：所有連線都查成功才算；104 挖礦暫停中不收
     assert alert_service.inactive_vm_targets(
         resources, open_targets, complete=True, exclude={"104"}
-    ) == {"101", "103"}
+    ) == {(None, "101"), (None, "103")}
     assert alert_service.inactive_vm_targets(
         resources, open_targets, complete=False, exclude={"104"}
-    ) == {"101"}
+    ) == {(None, "101")}
 
 
 # ─── 長期未恢復的告警不能因為被擠出最新 1000 筆而重複建立 ─────────────

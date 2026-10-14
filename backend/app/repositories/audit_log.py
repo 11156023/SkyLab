@@ -220,7 +220,12 @@ def get_audit_stats(
         .select_from(AuditLog)
         .where(
             AuditLog.action.in_(
-                [AuditAction.login_failed.value, AuditAction.login_google_failed.value]
+                [
+                    AuditAction.login_failed.value,
+                    AuditAction.login_google_failed.value,
+                    AuditAction.login_ldap_failed.value,
+                    AuditAction.login_totp_failed.value,
+                ]
             )
         )
     )

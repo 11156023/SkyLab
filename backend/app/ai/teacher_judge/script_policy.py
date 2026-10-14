@@ -333,7 +333,7 @@ def dangerous_command_issue(
         if compiled.search(normalized):
             return message
     tokens = _WHITESPACE_SPLIT.split(normalized.strip())
-    if not tokens:
+    if not tokens:  # pragma: no cover - re.split 至少回傳 ['']
         return None
     command = tokens[0]
     if command in SHELL_LAUNCHERS:
@@ -349,19 +349,29 @@ def dangerous_command_issue(
         return "禁止使用 rm 遞迴刪除檔案"
     if command == "find" and "-delete" in tokens:
         return "禁止使用 find -delete"
-    if command in {"shutdown", "reboot"}:
+    if command in {"shutdown", "reboot"}:  # pragma: no cover - DENY_PATTERNS 已先命中
         return "禁止關機或重啟"
     if command in {"apt", "apt-get", "pip", "pip3", "npm"} and "install" in tokens:
         return "禁止安裝套件"
     return None
 
 
+def _reject_json_constant(value: str) -> Any:
+    # result.json 來自學生可控的機器；NaN／Infinity 不是標準 JSON，
+    # 收下後 PostgreSQL json 欄位會拒絕寫入，整個 run 的結果都存不進去。
+    raise ValueError(f"result.json 含非標準 JSON 常數：{value}")
+
+
 def validate_managed_script_output(payload: str | dict[str, Any]) -> ScriptValidationResult:
     """Validate managed script JSON output contract."""
     try:
-        data = json.loads(payload) if isinstance(payload, str) else payload
+        data = (
+            json.loads(payload, parse_constant=_reject_json_constant)
+            if isinstance(payload, str)
+            else payload
+        )
         result = ManagedScriptResult.model_validate(data)
-    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+    except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
         return {
             "valid": False,
             "error": str(exc),
@@ -724,7 +734,7 @@ def check_peer_runtime_policy(
             )
 
         def literal_subscript_key(node: ast.AST | None) -> str | None:
-            if not isinstance(node, ast.Subscript):
+            if not isinstance(node, ast.Subscript):  # pragma: no cover - 呼叫端已檢查
                 return None
             return literal_str(node.slice)
 

@@ -5,10 +5,26 @@ import { safeStorage } from "electron";
 
 const ENCRYPTED_PREFIX = "safe:v1:";
 
+/** 一般設定欄位；token 只能經由 saveTokens 更新。 */
+export type SettingsPatch = Pick<
+  SkyLabSettings,
+  "language" | "backendUrl" | "launchAtStartup"
+>;
+export type TokenPatch = Pick<SkyLabSettings, "token" | "refreshToken">;
+
 class SettingsRepository extends BaseRepository<SkyLabSettings> {
   private readonly _id = "1";
   private _sessionToken = "";
   private _sessionRefreshToken = "";
+  // 所有讀取與寫入都排進同一條佇列、一次只跑一個：「讀出 → 合併 → 寫回」之間
+  // 不會有別的寫入插隊（例如存設定時 token 剛好輪替，舊的 refresh token 被寫回）
+  private _queue: Promise<unknown> = Promise.resolve();
+
+  private serialize<R>(task: () => Promise<R>): Promise<R> {
+    const run = this._queue.then(task, task);
+    this._queue = run.catch(() => undefined);
+    return run;
+  }
 
   private decodeSecret(value: string | undefined, refresh: boolean): string {
     const cached = refresh ? this._sessionRefreshToken : this._sessionToken;
@@ -45,7 +61,52 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
     super("settings");
   }
 
-  async get(): Promise<SkyLabSettings> {
+  get(): Promise<SkyLabSettings> {
+    return this.serialize(() => this.load());
+  }
+
+  /**
+   * 只更新給定的一般設定欄位，token 欄位保持資料庫裡的現值；後端網址改變時
+   * 一併清掉 token（舊伺服器的 token 對新伺服器沒有意義）。
+   */
+  saveSettings(patch: SettingsPatch): Promise<SkyLabSettings> {
+    return this.serialize(async () => {
+      const current = await this.load();
+      const fields: Partial<SkyLabSettings> = {};
+      if (patch.language !== undefined) fields.language = patch.language;
+      if (patch.launchAtStartup !== undefined) {
+        fields.launchAtStartup = patch.launchAtStartup;
+      }
+      if (patch.backendUrl !== undefined) {
+        fields.backendUrl = patch.backendUrl;
+        if (patch.backendUrl !== current.backendUrl?.replace(/\/$/, "")) {
+          fields.token = this.encodeSecret("", false);
+          fields.refreshToken = this.encodeSecret("", true);
+        }
+      }
+      if (Object.keys(fields).length) await this.patchById(this._id, fields);
+      return this.load();
+    });
+  }
+
+  /** 只更新 token 欄位，一般設定保持資料庫裡的現值。 */
+  saveTokens(tokens: TokenPatch): Promise<void> {
+    return this.serialize(async () => {
+      // 確保紀錄存在、舊格式已遷移，再只改 token 欄位
+      await this.load();
+      const fields: Partial<SkyLabSettings> = {};
+      if (tokens.token !== undefined) {
+        fields.token = this.encodeSecret(tokens.token, false);
+      }
+      if (tokens.refreshToken !== undefined) {
+        fields.refreshToken = this.encodeSecret(tokens.refreshToken, true);
+      }
+      if (Object.keys(fields).length) await this.patchById(this._id, fields);
+    });
+  }
+
+  /** 讀取設定（必要時做格式遷移）；只能在 serialize 佇列內呼叫。 */
+  private async load(): Promise<SkyLabSettings> {
     const existing = await this.findById(this._id);
     if (existing) {
       let languageMigrated = false;
@@ -95,17 +156,6 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
     };
     await this.updateById(this._id, defaults);
     return defaults;
-  }
-
-  async save(patch: Partial<SkyLabSettings>): Promise<SkyLabSettings> {
-    const current = await this.get();
-    const merged = { ...current, ...patch, _id: this._id };
-    await this.updateById(this._id, {
-      ...merged,
-      token: this.encodeSecret(merged.token, false),
-      refreshToken: this.encodeSecret(merged.refreshToken, true)
-    });
-    return merged;
   }
 }
 

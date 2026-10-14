@@ -8,6 +8,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import { ClassroomService } from "../../../services/classroom";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
+import { useToast } from "../../../hooks/useToast";
 import AiJudgePanel from "../class-workspace/AiJudgePanel";
 import ClassWorkflowStepper from "../class-workspace/ClassWorkflowStepper";
 import styles from "../CourseOperations.module.scss";
@@ -64,7 +65,7 @@ export function toAiJudgeMembers(students) {
 function LockedFeature() {
   const { t } = useTranslation("teaching");
   return (
-    <section className={styles.lockedFeature}>
+    <section className={styles.lockedFeature} data-guide="ai-judge-locked">
       <span><MIcon name="lock" size={22} /></span>
       <div>
         <h2>{t("ClassWorkspacePage.notYetAvailableTitle", { label: t("ClassWorkspacePage.tabAiLabel") })}</h2>
@@ -79,6 +80,7 @@ export default function AiJudgePage() {
   const { classId } = useParams();
   const navigate = useNavigate();
   const { confirmLeave } = useUnsavedChanges();
+  const toast = useToast();
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
   // 讀不到班級：找不到／沒權限直接說原因；網路或伺服器錯誤給重試，不要一律說成「找不到班級」
@@ -115,10 +117,15 @@ export default function AiJudgePage() {
     setMembersLoading(true);
     ClassroomService.listClassStudents(item.id)
       .then((students) => active && setMembers(toAiJudgeMembers(students)))
-      .catch(() => active && setMembers([]))
+      .catch((reason) => {
+        if (!active) return;
+        // 讀不到學生機器不能默默當成沒有機器：核查會少掉學生姓名與機器，老師要知道是載入失敗
+        setMembers([]);
+        toast.error(reason?.message ?? t("Error.generic", { ns: "common" }));
+      })
       .finally(() => active && setMembersLoading(false));
     return () => { active = false; };
-  }, [item?.id, item?.status]);
+  }, [item?.id, item?.status, t, toast]);
 
   if (loading) return <LoadingState fullPage text={t("ClassWorkspacePage.loadingClassText")} />;
   if (!item) {

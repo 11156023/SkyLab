@@ -487,3 +487,51 @@ def test_navigation_prompt_carries_when_to_use_hints() -> None:
     prompt = build_navigation_system_prompt(candidates)
     assert f'"when_to_use":"{hints["/my-resources"]}"' in prompt
     assert "candidate_ids" in prompt
+
+
+@pytest.mark.asyncio
+async def test_usage_records_reported_tokens_when_decision_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """決策不合法時，模型已經用掉的 token 也要照實記錄。
+
+    （DB 寫入由 record_ai_template_call 交給背景 usage writer，不在 event loop 上做，
+    見 tests/api/routes/test_async_routes_offload_db.py。）"""
+    records: list[dict[str, Any]] = []
+
+    def _record(**kwargs: Any) -> None:
+        records.append(kwargs)
+
+    async def _duplicate_ids(
+        _payload, *, profile, timeout: float, request_id: str | None = None
+    ):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"candidate_ids":["route:/jobs","route:/jobs"]}'
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 120, "completion_tokens": 9},
+        }
+
+    monkeypatch.setattr(
+        navigation_service.system_ai_env, "vllm_model_name", "Qwen/test-model"
+    )
+    monkeypatch.setattr(
+        navigation_service.navigation_client,
+        "create_chat_completion",
+        _duplicate_ids,
+    )
+    monkeypatch.setattr(navigation_service, "record_ai_template_call", _record)
+
+    result = await navigation_service.resolve_navigation(
+        "背景任務在哪", _user(UserRole.student)
+    )
+
+    assert result.action == "clarify"
+    assert len(records) == 1
+    assert records[0]["status"] == "error"
+    assert records[0]["metrics"]["prompt_tokens"] == 120
+    assert records[0]["metrics"]["completion_tokens"] == 9

@@ -326,3 +326,70 @@ def test_create_user_with_totp_required(
     assert r.json()["totp_setup_required"] is True
     r = client.get(f"{API}/users/{r.json()['id']}", headers=headers)
     assert r.status_code == 403
+
+
+def test_totp_disable_is_rate_limited(
+    client: TestClient, db: Session, monkeypatch
+) -> None:
+    """停用只靠一組 6 位數驗證碼把關：拿到登入狀態的人不能無限猜碼把 2FA 關掉。
+
+    限流換成記憶體版，不依賴測試環境有沒有 Redis。
+    """
+    from app.api.deps import rate_limit as rate_limit_deps
+
+    counts: dict[str, int] = {}
+
+    async def fake_get_redis() -> object:
+        return object()
+
+    async def fake_check(
+        _redis: object, *, key: str, limit: int, window_seconds: int, scope: str = ""
+    ) -> tuple[bool, dict]:
+        current = counts.get(key, 0)
+        if current >= limit:
+            return False, {"current": current, "window_seconds": window_seconds}
+        counts[key] = current + 1
+        return True, {"current": current + 1, "window_seconds": window_seconds}
+
+    monkeypatch.setattr(rate_limit_deps, "get_redis", fake_get_redis)
+    monkeypatch.setattr(rate_limit_deps, "check_rate_limit_by_key", fake_check)
+
+    base = time.time()
+    user, password = _create_user(db)
+    headers = _bearer(_login(client, user.email, password)["access_token"])
+    secret = _enable_totp(client, headers, now=base)
+
+    for _ in range(5):
+        r = client.post(
+            f"{API}/users/me/totp/disable", headers=headers, json={"code": "000000"}
+        )
+        assert r.status_code == 400
+    # 額度用完後即使驗證碼正確也先被擋下，2FA 仍維持啟用
+    with _totp_clock(base + 60):
+        r = client.post(
+            f"{API}/users/me/totp/disable",
+            headers=headers,
+            json={"code": _code_at(secret, base + 60)},
+        )
+    assert r.status_code == 429
+    r = client.get(f"{API}/users/me", headers=headers)
+    assert r.json()["totp_enabled"] is True
+
+
+def test_reset_totp_cli_matches_email_case_insensitively(db: Session) -> None:
+    """救援 CLI 跟登入一樣不分大小寫找帳號，打成大寫也解得掉 2FA。"""
+    from app.reset_totp import reset_totp
+
+    user, _ = _create_user(db)
+    user.totp_enabled = True
+    user.totp_secret_encrypted = "encrypted-secret"
+    db.add(user)
+    db.commit()
+    version = user.token_version
+
+    assert reset_totp(user.email.upper()) == 0
+
+    db.refresh(user)
+    assert user.totp_enabled is False
+    assert user.totp_secret_encrypted is None
+    assert user.token_version == version + 1

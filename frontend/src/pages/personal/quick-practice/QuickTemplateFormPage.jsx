@@ -78,7 +78,7 @@ export default function QuickTemplateFormPage() {
     </PageHeader>
 
     <div className={styles.form}>
-      <section className={styles.templateHeader}>
+      <section className={styles.templateHeader} data-guide="quick-launch-summary">
         <div className={styles.templateLogo}><MIcon name="account_tree" size={28} /></div>
         <div className={styles.templateMeta}>
           {/* 說明一律緊貼在大標下方，不在晶片後面自成一行 */}
@@ -91,7 +91,7 @@ export default function QuickTemplateFormPage() {
         </div>
       </section>
 
-      <section className={styles.section}>
+      <section className={styles.section} data-guide="quick-launch-machines">
         <h3 className={styles.sectionTitle}>{t("QuickTemplateFormPage.machinesToCreate")}</h3>
         <div className={styles.machineList}>
           {template.nodes.map((node, index) => <article key={node.id}>
@@ -104,7 +104,7 @@ export default function QuickTemplateFormPage() {
         <div className={styles.environmentTotal}><span>{t("QuickTemplateFormPage.environmentTotal")}</span><strong>{t("QuickTemplateFormPage.environmentTotalSpec", { cpu: totalCpu, memory: totalMemory, disk: totalDisk })}</strong></div>
       </section>
 
-      <section className={styles.section}>
+      <section className={styles.section} data-guide="quick-launch-rules">
         <h3 className={styles.sectionTitle}>{t("QuickTemplateFormPage.usageRules")}</h3>
         <div className={styles.ruleList}>
           <p><MIcon name="verified" size={18} /><strong>{t("QuickTemplateFormPage.ruleNoReviewTitle")}</strong></p>
@@ -113,7 +113,7 @@ export default function QuickTemplateFormPage() {
         </div>
       </section>
 
-      <div className={styles.actions}>
+      <div className={styles.actions} data-guide="quick-launch-actions">
         <button type="button" className={styles.btnSecondary} onClick={onBack}>{t("QuickTemplateFormPage.cancel")}</button>
         <button type="button" className={styles.btnPrimary} disabled={submitting} onClick={launch}><MIcon name={submitting ? "hourglass_top" : "bolt"} size={16} spin={submitting} />{submitting ? t("QuickTemplateFormPage.launching") : t("QuickTemplateFormPage.launchButton", { count: template.nodes.length })}</button>
       </div>

@@ -14,7 +14,11 @@ export function statusAfterAction(action) {
 export function machineSpecLabel(machine) {
   const parts = [];
   if (machine.cpu) parts.push(`${machine.cpu} CPU`);
-  if (machine.memoryBytes) parts.push(`${Math.round(machine.memoryBytes / 1024 ** 3)} GB`);
+  if (machine.memoryBytes) {
+    /* 不到 1 GB 改寫 MB：四捨五入成整數 GB 會把 512 MB 的容器寫成 1 GB、256 MB 寫成 0 GB */
+    const gb = machine.memoryBytes / 1024 ** 3;
+    parts.push(gb >= 1 ? `${Number(gb.toFixed(1))} GB` : `${Math.round(machine.memoryBytes / 1024 ** 2)} MB`);
+  }
   return parts.join(" · ");
 }
 

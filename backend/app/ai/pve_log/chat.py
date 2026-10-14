@@ -870,7 +870,8 @@ def _validate_confirmation_history(
         if record is None:
             continue
         _validate_record(item, content, record, token_present=False)
-        if not record.get("consumed"):
+        # 沒帶 token 的紀錄若未 consumed，_validate_record 已先拋錯；留作縱深防禦。
+        if not record.get("consumed"):  # pragma: no cover
             token = record.get("token")
             if not isinstance(token, str):
                 raise PveHistoryValidationError(

@@ -159,6 +159,8 @@ class AdmissionQueue:
         self._sequence = 0
         self._timer: asyncio.TimerHandle | None = None
         self.closed = False
+        # 上一次寫過的 per-model gauge label；這一輪消失的要歸零，否則停在舊值
+        self._model_metric_labels: set[str] = set()
         self._update_metrics()
 
     @property
@@ -408,10 +410,17 @@ class AdmissionQueue:
             label = ai_metrics.model_label(ticket.model or "other", served=False)
             active, waiting = counts.get(label, (0, 0))
             counts[label] = (active, waiting + 1)
+        # 入口 reserve 時 ticket 還沒對到模型（算在 other），對到後 other 就不在
+        # counts 裡；沒有歸零的話 other 的 waiting 會一直停在舊值。
+        for label in self._model_metric_labels - counts.keys():
+            counts[label] = (0, 0)
         for label, (active, waiting) in counts.items():
             ai_metrics.update_proxy_model_admission(
                 label, active=active, waiting=waiting
             )
+        self._model_metric_labels = {
+            label for label, value in counts.items() if value != (0, 0)
+        }
 
     async def close(self) -> None:
         self.closed = True

@@ -45,5 +45,7 @@
   "guest.pathNoDotDot": "The target path must not contain ..",
   "guest.agentNotResponding": "The QEMU guest agent on VM {vmid} is not responding (the agent may not be installed, or the VM is not powered on)",
   "guest.execTimeout": "The guest command on VM {vmid} timed out ({timeout}s)",
+  "ssh.commandTimeout": "The remote command timed out (did not finish within {timeout} seconds)",
+  "ssh.outputTooLarge": "The remote command's {stream} output exceeded the {limit} limit",
   "guest.pctPushFailed": "pct push failed (VMID {vmid}): {detail}"
 }

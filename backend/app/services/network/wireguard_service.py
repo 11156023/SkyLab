@@ -27,6 +27,7 @@ from app.core.i18n import t
 from app.exceptions import BadRequestError, ConflictError
 from app.models.wireguard_peer import WireGuardPeer
 from app.repositories import gateway_config as gateway_config_repo
+from app.repositories import resource as resource_repo
 from app.repositories import wireguard_peer as peer_repo
 from app.schemas.wireguard import (
     WireGuardConnectionTarget,
@@ -212,8 +213,13 @@ def _resource_targets(
             )
         ):
             continue
+        # resource.ip_address 優先取 guest agent 即時回報的值，VM 擁有者可以在機器裡
+        # 改成同學的位址；平台配發給這台的 IP 才是權威，否則 ACL 會放行到別人的機器
+        allocated_ip = resource_repo.get_allocated_ip_address(
+            session=session, vmid=resource.vmid
+        )
         try:
-            address = ipaddress.ip_address(resource.ip_address)
+            address = ipaddress.ip_address(allocated_ip or resource.ip_address)
         except ValueError:
             continue
         if not isinstance(address, ipaddress.IPv4Address) or address not in vm_network:

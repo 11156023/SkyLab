@@ -194,6 +194,67 @@ def test_lxc_rootfs_resize_skipped_when_size_undetectable(monkeypatch) -> None:
 
 
 # --------------------------------------------------------------------------
+# VM 克隆放大磁碟：開機磁碟不一定是 scsi0
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("config", "expected_disk"),
+    [
+        ({"virtio0": "local-lvm:vm-101-disk-0,size=10G"}, "virtio0"),
+        (
+            {
+                "bootdisk": "sata0",
+                "sata0": "local-lvm:vm-101-disk-0,size=10G",
+                "scsi0": "local-lvm:vm-101-disk-1,size=4G",
+            },
+            "sata0",
+        ),
+        ({"scsi0": "local-lvm:vm-101-disk-0,size=10G"}, "scsi0"),
+    ],
+)
+def test_vm_clone_resize_targets_boot_disk(
+    monkeypatch, config: dict, expected_disk: str
+) -> None:
+    resize = Mock()
+    monkeypatch.setattr(
+        provisioning_service,
+        "proxmox_service",
+        SimpleNamespace(
+            resize_disk=resize,
+            find_vm_template=lambda _vmid: {"maxdisk": 10 * 1024**3},
+            get_config=lambda *_args, **_kwargs: config,
+        ),
+    )
+
+    provisioning_service._resize_clone_disk_if_needed("pve1", 101, 9000, 40)
+
+    resize.assert_called_once_with("pve1", 101, "qemu", expected_disk, "40G")
+
+
+def test_vm_clone_resize_falls_back_to_scsi0_when_config_unreadable(
+    monkeypatch,
+) -> None:
+    def unreadable(*_args, **_kwargs):
+        raise RuntimeError("node offline")
+
+    resize = Mock()
+    monkeypatch.setattr(
+        provisioning_service,
+        "proxmox_service",
+        SimpleNamespace(
+            resize_disk=resize,
+            find_vm_template=lambda _vmid: {"maxdisk": 10 * 1024**3},
+            get_config=unreadable,
+        ),
+    )
+
+    provisioning_service._resize_clone_disk_if_needed("pve1", 101, 9000, 40)
+
+    resize.assert_called_once_with("pve1", 101, "qemu", "scsi0", "40G")
+
+
+# --------------------------------------------------------------------------
 # VMRequestCreate：規格欄位原本完全沒有上下界
 # --------------------------------------------------------------------------
 

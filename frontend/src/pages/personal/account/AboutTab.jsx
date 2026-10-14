@@ -50,7 +50,7 @@ export default function AboutTab() {
 
   return (
     <div className={styles.aboutWrap}>
-    <div className={styles.aboutGrid}>
+    <div className={styles.aboutGrid} data-guide="account-about">
       {/* 標題下一行小字交代版本；授權說明獨立成段；三個外部連結做成同一款連結列，不再字級、圖示混在一起 */}
       <div className={styles.aboutSide}>
       <div className={styles.card}>

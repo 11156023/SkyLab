@@ -55,6 +55,8 @@ function useSchedulerGroups(t) {
     {
       title: t("SettingsPage.placementOvercommitTitle"),
       effect: "immediate",
+      /* 頁面導覽的錨點（UserGuide pageGuides/systemSettings.js） */
+      guideProps: { "data-guide": "scheduler-placement" },
       fields: [
         { key: "cpu_overcommit_ratio", label: t("SettingsPage.cpuOvercommitRatio"), step: 0.1 },
         { key: "disk_overcommit_ratio", label: t("SettingsPage.diskOvercommitRatio"), step: 0.1 },
@@ -64,12 +66,14 @@ function useSchedulerGroups(t) {
     {
       title: t("SettingsPage.resourceThresholdsTitle"),
       effect: "immediate",
+      guideProps: { "data-guide": "scheduler-thresholds" },
       fields: [
         { key: "placement_peak_cpu_margin", label: t("SettingsPage.placementPeakCpuMargin"), step: 0.01 },
         { key: "placement_peak_memory_margin", label: t("SettingsPage.placementPeakMemoryMargin"), step: 0.01 },
-        { key: "placement_loadavg_warn_per_core", label: t("SettingsPage.placementLoadavgWarnPerCore"), step: 0.1 },
-        { key: "placement_loadavg_max_per_core", label: t("SettingsPage.placementLoadavgMaxPerCore"), step: 0.1 },
-        { key: "placement_loadavg_penalty_weight", label: t("SettingsPage.placementLoadavgPenaltyWeight"), step: 0.01 },
+        /* LoadAvg 一律以實體核計（不乘 CPU 超配倍率），三個欄位共用同一段說明 */
+        { key: "placement_loadavg_warn_per_core", label: t("SettingsPage.placementLoadavgWarnPerCore"), step: 0.1, hint: t("SettingsPage.placementLoadavgPerPhysicalCoreHint") },
+        { key: "placement_loadavg_max_per_core", label: t("SettingsPage.placementLoadavgMaxPerCore"), step: 0.1, hint: t("SettingsPage.placementLoadavgPerPhysicalCoreHint") },
+        { key: "placement_loadavg_penalty_weight", label: t("SettingsPage.placementLoadavgPenaltyWeight"), step: 0.01, hint: t("SettingsPage.placementLoadavgPerPhysicalCoreHint") },
         { key: "placement_disk_contention_warn_share", label: t("SettingsPage.placementDiskContentionWarnShare"), step: 0.01 },
         { key: "placement_disk_contention_high_share", label: t("SettingsPage.placementDiskContentionHighShare"), step: 0.01 },
         { key: "placement_disk_penalty_weight", label: t("SettingsPage.placementDiskPenaltyWeight"), step: 0.01 },
@@ -85,6 +89,7 @@ function useSchedulerGroups(t) {
     {
       title: t("SettingsPage.scheduledBootTitle"),
       effect: "nextCycle",
+      guideProps: { "data-guide": "scheduler-boot" },
       fields: [
         { key: "scheduled_boot_batch_size", label: t("SettingsPage.scheduledBootBatchSize") },
         { key: "scheduled_boot_batch_interval_seconds", label: t("SettingsPage.scheduledBootBatchIntervalSeconds") },
@@ -94,6 +99,7 @@ function useSchedulerGroups(t) {
     },
     {
       title: t("SettingsPage.practiceExpiryTitle"),
+      guideProps: { "data-guide": "scheduler-practice" },
       fields: [
         { key: "practice_session_hours", label: t("SettingsPage.practiceSessionHours") },
         { key: "practice_warning_minutes", label: t("SettingsPage.practiceWarningMinutes") },
@@ -109,7 +115,7 @@ function SchedulerForm({ form, setField, onSave, saving, dirty, onRestore }) {
   return (
     <form className={styles.panelStack} onSubmit={onSave}>
       {SCHEDULER_GROUPS.map((group) => (
-        <div key={group.title} className={styles.card}>
+        <div key={group.title} className={styles.card} {...group.guideProps}>
           <div className={styles.cardHead}>
             <h2 className={styles.cardTitle}>{group.title}</h2>
             {group.effect && (
@@ -135,7 +141,7 @@ function SchedulerForm({ form, setField, onSave, saving, dirty, onRestore }) {
         </div>
       ))}
 
-      <div className={styles.saveBar}>
+      <div className={styles.saveBar} data-guide="scheduler-save">
         {dirty && (
           <button type="button" className={styles.btnSecondary} disabled={saving} onClick={onRestore}>
             {t("SettingsPage.restore")}

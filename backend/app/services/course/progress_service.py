@@ -138,6 +138,10 @@ def submit_answer(
     path = session.get(CoursePath, room.path_id)
     if path is None or path.status != CoursePathStatus.published:
         raise NotFoundError(t("progress.path_not_found"))
+    # course_service 頂層 import 了本模組，這裡延後 import 避免循環
+    from app.services.course import course_service
+
+    course_service.require_path_enrollment(session, path=path, user_id=user.id)
 
     already = session.exec(
         select(UserCourseProgress).where(

@@ -158,3 +158,44 @@ def test_existing_request_availability_uses_request_id(
     data = response.json()
     assert data["summary"]["role"] == "student"
     assert len(data["days"]) == 7
+
+
+def _preview(client: TestClient, headers: dict[str, str], **extra) -> dict:
+    response = client.post(
+        f"{settings.API_V1_STR}/vm-requests/availability",
+        headers=headers,
+        json={
+            "resource_type": "lxc",
+            "cores": 2,
+            "memory": 2048,
+            "rootfs_size": 12,
+            "days": 1,
+            "timezone": "Asia/Taipei",
+            "detail": False,
+            **extra,
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_non_admin_cannot_preview_with_another_policy_role(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """學生帶 policy_role=admin 仍以自己的身分（學生政策）計算。"""
+    _patch_availability(monkeypatch)
+    data = _preview(client, normal_user_token_headers, policy_role="admin")
+    assert data["summary"]["role"] == "student"
+
+
+def test_admin_can_preview_with_another_policy_role(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _patch_availability(monkeypatch)
+    assert _preview(client, superuser_token_headers)["summary"]["role"] == "admin"
+    data = _preview(client, superuser_token_headers, policy_role="student")
+    assert data["summary"]["role"] == "student"

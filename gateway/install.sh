@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # SkyLab - Gateway 主機安裝腳本
-# 支援系統：Debian 12 / 13
+# 支援系統：只支援 Debian 13（trixie）；其他系統（含 Debian 12）一開始就停止
 # 安裝服務：nginx（Port 轉發 stream + 網域反向代理 http）+ WireGuard
 #           + nftables ACL / SNAT
 # HTTPS 憑證不由這台簽發：管理員自行準備後放在 Gateway 上（建議 /etc/ssl/skylab/），
@@ -74,6 +74,31 @@ info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 section() { echo -e "\n${GREEN}══════ $* ══════${NC}"; }
+
+# ── 系統版本檢查 ──────────────────────────────────────────────────────────────
+# BEGIN supported OS check
+# 下面的 nftables 規則用到 `nft destroy table`（nftables ≥ 1.0.8），Debian 12 的
+# 1.0.6 不支援，會在改完 nginx、UFW 之後才失敗、留下半套設定，所以動手前先擋下。
+# Debian 13 的開發版（testing）os-release 沒有 VERSION_ID，改看 VERSION_CODENAME。
+os_fields=()
+if [[ -r /etc/os-release ]]; then
+    # 在子 shell 讀，避免 os-release 的 NAME、ID 等變數蓋掉本腳本的設定
+    mapfile -t os_fields < <(
+        # shellcheck source=/dev/null
+        . /etc/os-release
+        printf '%s\n' "${ID:-}" "${VERSION_ID:-}" "${VERSION_CODENAME:-}" "${PRETTY_NAME:-}"
+    )
+fi
+os_id="${os_fields[0]:-}"
+os_version_id="${os_fields[1]:-}"
+os_codename="${os_fields[2]:-}"
+os_pretty="${os_fields[3]:-未知系統}"
+if [[ "$os_id" != debian ]] \
+    || { [[ "$os_version_id" != 13 ]] \
+        && ! [[ -z "$os_version_id" && "$os_codename" == trixie ]]; }; then
+    error "此安裝腳本只支援 Debian 13（trixie），偵測到：${os_pretty}。Debian 12 的 nftables 不支援 nft destroy table，請改用 Debian 13 建立 Gateway 主機。"
+fi
+# END supported OS check
 
 # ── Root 檢查 ─────────────────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || error "請以 root 執行此腳本（sudo bash install.sh）"
@@ -312,8 +337,9 @@ if apt-get install -y -qq --no-install-recommends \
 ARGS="--nginx.scrape-uri=http://127.0.0.1:${NGINX_STATUS_PORT}/stub_status"
 NGINX_EXPORTER_EOF
     systemctl enable prometheus-node-exporter prometheus-nginx-exporter >/dev/null 2>&1 || true
-    systemctl restart prometheus-node-exporter prometheus-nginx-exporter
-    if systemctl is-active --quiet prometheus-node-exporter \
+    # restart 失敗（例如 port 被占用）也只走下面的警告，不中斷安裝
+    if systemctl restart prometheus-node-exporter prometheus-nginx-exporter \
+        && systemctl is-active --quiet prometheus-node-exporter \
         && systemctl is-active --quiet prometheus-nginx-exporter; then
         EXPORTERS_READY=true
         info "exporter 已啟動（node :${NODE_EXPORTER_PORT}、nginx :${NGINX_EXPORTER_PORT}）"
@@ -416,8 +442,11 @@ EOF
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
 # 既有 UFW 規則保持不動；全新主機才建立最小安全基線。
+# ufw status 先存進變數再比對：pipefail 下 `ufw status | grep -q` 在 grep 提早結束、
+# ufw 收到 SIGPIPE 時會被當成沒比對到。
 ufw_was_active=false
-if ufw status | grep -Fq "Status: active"; then
+ufw_status="$(ufw status)" || error "無法讀取 UFW 狀態（ufw status 失敗）"
+if grep -Fq "Status: active" <<<"$ufw_status"; then
     ufw_was_active=true
 else
     warn "UFW 尚未啟用，將先允許 SSH、HTTP、HTTPS 與 WireGuard 再啟用"
@@ -467,8 +496,9 @@ ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
     comment "$WG_UFW_FORWARD_COMMENT"
 # END managed WireGuard UFW reconciliation
 # Port 轉發配號池：nginx stream 在這段 port 監聽，外面連不進來轉發就沒用
+ufw_status="$(ufw status)" || error "無法讀取 UFW 狀態（ufw status 失敗）"
 for proto in tcp udp; do
-    if ! ufw status | grep -Fq "${FORWARD_PORT_RANGE}/${proto}"; then
+    if ! grep -Fq "${FORWARD_PORT_RANGE}/${proto}" <<<"$ufw_status"; then
         ufw allow "${FORWARD_PORT_RANGE}/${proto}" comment "SkyLab port forwarding"
     fi
 done

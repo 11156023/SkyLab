@@ -13,7 +13,7 @@ user API examples: [AI API User Manual](../../docs/ai-api-user-manual.md).
 vllm-service/litellm/
 ├── docker-compose.yml       # included by root; standalone entry point retained
 ├── config.template.yaml     # tracked static routing policy
-├── config.yaml              # generated from ../models.json (ignored)
+├── config.yaml              # generated from ../models.json (ignored, written with mode 0600)
 ├── .env.example             # deployment environment template
 └── .env                     # master, upstream, database, salt, remote keys (ignored)
 ```

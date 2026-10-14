@@ -23,6 +23,7 @@ import { uploadSequentially } from "../../../utils/uploadSequentially";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
@@ -455,7 +456,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   return <section className={`${styles.card} ${styles.templateMachineWorkspace}`}>
       {sourceNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{sourceNotice}</p>}
       {topologyNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{topologyNotice}</p>}
-      <div className={styles.machineAddBar}>
+      <div className={styles.machineAddBar} data-guide="course-tpl-editor-add-bar">
         <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldSourceMode")}</span><select value={sourceMode} disabled={locked || atLimit} onChange={(event) => { setSourceMode(event.target.value); setSourceId(""); }}><option value="template">{t("CourseTemplateEditorPage.sourceModeTemplateOption")}</option><option value="custom">{t("CourseTemplateEditorPage.sourceModeCustomOption")}</option></select></label>
         {sourceMode === "custom" && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldMachineType")}</span><select value={customType} disabled={locked || atLimit} onChange={(event) => { setCustomType(event.target.value); setSourceId(""); }}><option value="qemu">VM</option><option value="lxc">LXC</option></select></label>}
         <label className={styles.field}><span>{sourceMode === "template" ? t("CourseTemplateEditorPage.sourceExistingTemplate") : t("CourseTemplateEditorPage.fieldBaseImage")}</span><select value={sourceId} disabled={locked || atLimit} onChange={(event) => setSourceId(event.target.value)}><option value="">{locked ? t("CourseTemplateEditorPage.publishedLockedOption") : atLimit ? t("CourseTemplateEditorPage.atLimitOption") : sourceOptions.length === 0 ? t("CourseTemplateEditorPage.noSourceOption") : t("CourseTemplateEditorPage.pleaseSelectOption")}</option>{sourceMode === "template" ? sourceOptions.map((source) => <option key={source.id} value={source.id}>{source.name} · {source.resource_type ?? "VM"}</option>) : sourceOptions.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></label>
@@ -463,7 +464,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         <button type="button" className={styles.btnSecondary} disabled={locked || value.length === 0} onClick={() => setDialog({})}><MIcon name="add_link" size={16} />{t("CourseTemplateEditorPage.addConnectionBtn")}</button>
       </div>
       {value.length ? <>
-        <div className={styles.topologyWorkspace}>
+        <div className={styles.topologyWorkspace} data-guide="course-tpl-editor-topology">
           {/* 畫布外觀比照防火牆頁：點狀底、Controls、左下圖例 */}
           <div className={`${styles.topologyCanvas} ${frozen ? styles.topologyCanvasFrozen : ""} ${fwStyles.flowWrap}`}><ReactFlow
             nodes={flowNodes}
@@ -588,6 +589,8 @@ export default function CourseTemplateEditorPage() {
   const [zones, setZones] = useState([]);
   const [sourceNotice, setSourceNotice] = useState("");
   const [loading, setLoading] = useState(Boolean(templateId));
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [saveError, setSaveError] = useState("");
@@ -678,6 +681,7 @@ export default function CourseTemplateEditorPage() {
       setLoading(false);
     }
     const existingId = templateId || (draft?.id !== "new" && draft?.id);
+    setLoadFailed(false);
     if (!existingId) {
       initialize(draft ?? makeEmptyTemplate(), Boolean(draft));
     } else {
@@ -693,7 +697,11 @@ export default function CourseTemplateEditorPage() {
           initialize(result, false);
         }
       })
-      .catch((reason) => active && toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadTemplateFailed")))
+      .catch((reason) => {
+        if (!active) return;
+        setLoadFailed(true);
+        toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadTemplateFailed"));
+      })
       .finally(() => active && setLoading(false));
     }
     return () => {
@@ -705,7 +713,7 @@ export default function CourseTemplateEditorPage() {
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId]);
+  }, [templateId, reloadKey]);
   useEffect(() => {
     let active = true;
     TemplatesService.list()
@@ -904,6 +912,12 @@ export default function CourseTemplateEditorPage() {
     finally { publishingRef.current = false; setSaving(false); }
   }
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
+  /* 讀不到既有環境時不畫空白編輯器：在空白表單上打的字會寫進這個環境的暫存草稿，
+     下次進來還原時會連同空的機器清單一起自動儲存，蓋掉伺服器上的草稿 */
+  if (loadFailed) return <div className={styles.page}>
+    <PageHeader title={t("CourseTemplateEditorPage.loadTemplateFailed")}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
+    <section className={styles.card}><ErrorState onRetry={() => setReloadKey((key) => key + 1)} /></section>
+  </div>;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
     <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : (template.name.trim() || t("CourseTemplateEditorPage.unnamedEnv"))} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
     {template.status === "draft" && saveState === "error" && <p className={styles.persistentFeedback} role="alert">
@@ -918,10 +932,10 @@ export default function CourseTemplateEditorPage() {
       activeKey={tab}
       onSelect={changeTab}
     />
-    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label>
+    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field} data-guide="course-tpl-editor-name"><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field} data-guide="course-tpl-editor-usage"><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label>
 
       {/* 說明文件是基本資訊的一個滿寬欄位：放在 formGrid 裡才吃得到卡片內距、跟上面的欄位對齊 */}
-      <div className={`${styles.fileSection} ${styles.fieldFull}`}>
+      <div className={`${styles.fileSection} ${styles.fieldFull}`} data-guide="course-tpl-editor-files">
         <span className={styles.fileHeading}>{t("CourseTemplateEditorPage.fieldFiles")}</span>
         {(template.files ?? []).length > 0 && <ul className={styles.fileList}>
           {(template.files ?? []).map((file) => <li key={file.id}>
@@ -943,7 +957,7 @@ export default function CourseTemplateEditorPage() {
       </div>
       {template.status !== "draft" && <p className={`${styles.inspectorHint} ${styles.fieldFull}`}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}
       </div>
-<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
-    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} frozen={template.status !== "draft"} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
+<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} data-guide="course-tpl-editor-save-basics" disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} {...(template.status === "draft" ? { "data-guide": "course-tpl-editor-to-machines" } : { "data-guide": "course-tpl-editor-view-machines" })} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
+    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} frozen={template.status !== "draft"} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} data-guide="course-tpl-editor-publish" disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

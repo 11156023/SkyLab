@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceMgmtPage.module.scss";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
@@ -45,6 +45,15 @@ export default function BatchActionBar({ selected, onDone, onClear }) {
   const more = useDialogPresence(moreOpen, 130);
   const moreBtnRef = useRef(null);
   const count = selected.length;
+  /* 確認對話框開著時清單可能已刷新、勾選被清掉（全清時這條批量列會直接卸載）：
+     送出前以當下仍勾著的機器為準 */
+  const latestSelectedRef = useRef(selected);
+  latestSelectedRef.current = selected;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   if (count === 0) return null;
 
@@ -79,11 +88,17 @@ export default function BatchActionBar({ selected, onDone, onClear }) {
     const vmids = applicable(action);
     if (!vmids.length || progress) return;
     if (!(await confirmed(action, vmids))) return;
+    /* 只送確認過、而且當下仍勾著並適用的機器；確認期間消失或被取消勾選的不帶到 */
+    if (!mountedRef.current) return;
+    const current = latestSelectedRef.current;
+    const stillApplicable = new Set(applicableVmids(current, action));
+    const targets = vmids.filter((vmid) => stillApplicable.has(vmid));
+    if (!targets.length) return;
     const label = actions[action].label;
-    const skipped = count - vmids.length;
-    setProgress({ label, done: 0, total: vmids.length });
+    const skipped = current.length - targets.length;
+    setProgress({ label, done: 0, total: targets.length });
     try {
-      const res = await ResourcesService.batchActionInChunks(vmids, action, {
+      const res = await ResourcesService.batchActionInChunks(targets, action, {
         onProgress: ({ done, total }) => setProgress((prev) => prev && { ...prev, done, total }),
       });
       if (res.failed === 0) {

@@ -708,3 +708,186 @@ def test_grow_boot_disk_follows_bootdisk(monkeypatch: pytest.MonkeyPatch) -> Non
         "sata0": "local-lvm:vm-200-disk-0,size=16G",
     }
     assert _grow(monkeypatch, config, 20) == [("pve1", 200, "qemu", "sata0", "20G")]
+
+
+# ---------------------------------------------------------------------------
+# 更新循環收尾失敗：保持 updating，讓擁有者重試完成或取消
+# ---------------------------------------------------------------------------
+
+
+def _failed_task(
+    session: Session, template: VMTemplate, task_type: str, error: str | None
+) -> None:
+    from app.models import TaskRecord, TaskRecordStatus
+
+    session.add(
+        TaskRecord(
+            task_type=task_type,
+            user_id=uuid.uuid4(),
+            template_id=template.id,
+            status=TaskRecordStatus.failed,
+            error=error,
+        )
+    )
+    session.commit()
+
+
+@pytest.mark.parametrize(
+    "task_type",
+    [
+        template_service.TASK_UPDATE_CONVERT,
+        template_service.TASK_UPDATE_CANCEL,
+        template_service.TASK_UPDATE_CLONE,
+    ],
+)
+def test_reconcile_keeps_updating_when_update_task_failed(
+    db: Session, task_type: str
+) -> None:
+    template = _template(
+        db, owner_id=uuid.uuid4(), status=VMTemplateStatus.updating,
+        source_vmid=TEMP_VMID,
+    )
+    # worker 中斷：任務被標失敗，但範本沒有寫入錯誤訊息
+    _failed_task(db, template, task_type, "worker lost")
+
+    template_service._reconcile_failed_template_tasks(db, [template])
+
+    db.expire_all()
+    refreshed = db.get(VMTemplate, template.id)
+    assert refreshed is not None
+    assert refreshed.status == VMTemplateStatus.updating
+    assert refreshed.error_message == "worker lost"
+    assert refreshed.source_vmid == TEMP_VMID
+
+
+def test_reconcile_keeps_existing_update_error_message(db: Session) -> None:
+    template = _template(
+        db, owner_id=uuid.uuid4(), status=VMTemplateStatus.updating,
+        source_vmid=TEMP_VMID,
+    )
+    template.error_message = "convert failed: disk busy"
+    db.add(template)
+    db.commit()
+    _failed_task(db, template, template_service.TASK_UPDATE_CONVERT, "generic")
+
+    template_service._reconcile_failed_template_tasks(db, [template])
+
+    db.expire_all()
+    refreshed = db.get(VMTemplate, template.id)
+    assert refreshed.status == VMTemplateStatus.updating
+    assert refreshed.error_message == "convert failed: disk busy"
+
+
+def test_reconcile_still_marks_failed_create_as_failed(db: Session) -> None:
+    template = _template(
+        db, owner_id=uuid.uuid4(), status=VMTemplateStatus.creating,
+        source_vmid=OLD_VMID,
+    )
+    _failed_task(db, template, template_service.TASK_CONVERT, "convert boom")
+
+    template_service._reconcile_failed_template_tasks(db, [template])
+
+    db.expire_all()
+    refreshed = db.get(VMTemplate, template.id)
+    assert refreshed.status == VMTemplateStatus.failed
+    assert refreshed.error_message == "convert boom"
+
+
+async def test_failed_finish_can_be_retried_after_listing(
+    db: Session, enqueued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    teacher = _user()
+    template = _template(
+        db, owner_id=teacher.id, status=VMTemplateStatus.updating,
+        source_vmid=TEMP_VMID,
+    )
+    _resource(db, vmid=TEMP_VMID, user_id=teacher.id)
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    def boom(*_a: Any) -> None:
+        raise RuntimeError("PVE convert failed")
+
+    monkeypatch.setattr(template_service, "_reset_cloud_init_state", lambda *a: False)
+    monkeypatch.setattr(template_service, "_probe_guest_cloud_init", lambda *a: None)
+    monkeypatch.setattr(template_service, "_ensure_stopped", boom)
+    with pytest.raises(RuntimeError):
+        template_service.run_update_convert_task(
+            uuid.uuid4(), _convert_payload(template)
+        )
+    _failed_task(
+        db, template, template_service.TASK_UPDATE_CONVERT, "PVE convert failed"
+    )
+    monkeypatch.setattr(template_service, "_pve_template_raw", lambda: None)
+
+    # 列表／詳情的對帳不能把它改成 failed
+    public = template_service.get_template_for_user(
+        session=db, user=teacher, template_id=template.id
+    )
+    assert public.status == VMTemplateStatus.updating
+    assert public.error_message == "PVE convert failed"
+
+    # 擁有者可以直接重試「完成更新」，舊的錯誤訊息隨之清掉
+    await template_service.finish_update_cycle(
+        session=db, user=teacher, template_id=template.id
+    )
+    assert len(enqueued) == 1
+    assert enqueued[0]["task_type"] == template_service.TASK_UPDATE_CONVERT
+    db.expire_all()
+    refreshed = db.get(VMTemplate, template.id)
+    assert refreshed.status == VMTemplateStatus.updating
+    assert refreshed.error_message is None
+
+    # 也可以改成取消更新循環
+    await template_service.cancel_update_cycle(
+        session=db, user=teacher, template_id=template.id
+    )
+    assert enqueued[-1]["task_type"] == template_service.TASK_UPDATE_CANCEL
+
+
+def test_failed_cancel_keeps_updating_and_can_be_retried(
+    db: Session, pve_ops: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    teacher_id = uuid.uuid4()
+    template = _template(
+        db, owner_id=teacher_id, status=VMTemplateStatus.updating,
+        source_vmid=TEMP_VMID,
+    )
+    _resource(db, vmid=TEMP_VMID, user_id=teacher_id)
+    _pve(monkeypatch, {TEMP_VMID: {"name": f"tpl-{OLD_VMID}-edit"}})
+
+    def delete_fails(*_a: Any) -> None:
+        raise RuntimeError("delete failed: locked")
+
+    monkeypatch.setattr(
+        template_service.proxmox_ops, "delete_resource", delete_fails
+    )
+    with pytest.raises(RuntimeError):
+        template_service.run_update_cancel_task(
+            uuid.uuid4(), _cancel_payload(template)
+        )
+    _failed_task(
+        db, template, template_service.TASK_UPDATE_CANCEL, "delete failed: locked"
+    )
+    template_service._reconcile_failed_template_tasks(
+        db, [db.get(VMTemplate, template.id)]
+    )
+    db.expire_all()
+    refreshed = db.get(VMTemplate, template.id)
+    assert refreshed.status == VMTemplateStatus.updating
+    assert refreshed.error_message == "delete failed: locked"
+
+    # 重試取消：刪掉暫存母機後回到 ready
+    monkeypatch.setattr(
+        template_service.proxmox_ops,
+        "delete_resource",
+        lambda *a: pve_ops.append(("delete", *a)),
+    )
+    result = template_service.run_update_cancel_task(
+        uuid.uuid4(), _cancel_payload(refreshed)
+    )
+    assert result["temp_removed"] is True
+    db.expire_all()
+    refreshed = db.get(VMTemplate, template.id)
+    assert refreshed.status == VMTemplateStatus.ready
+    assert refreshed.error_message is None
+    assert db.get(Resource, TEMP_VMID) is None

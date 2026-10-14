@@ -12,8 +12,14 @@ import useDialogPresence from "../../../../hooks/useDialogPresence";
 import { focusInvalidField } from "../../../../utils/focusField";
 import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider";
 import { formatDateTime } from "../../../../utils/formatDate";
+import { useAuth } from "../../../../contexts/AuthContext";
+import { isAdminUser } from "../../../../utils/roles";
 
 const INIT_SNAPSHOT_NAME = "skylab-init";
+/* 反挖礦自動建立的存證快照（後端 MINING_SNAPSHOT_PREFIX）：只有管理員能刪，不佔快照配額 */
+const MINING_SNAPSHOT_PREFIX = "mining-";
+
+const isMiningEvidence = (name) => typeof name === "string" && name.startsWith(MINING_SNAPSHOT_PREFIX);
 
 /**
  * 快照分頁。只有機器當下能用快照時才會被掛載（由 ResourceDetailPage 依後端的
@@ -24,6 +30,8 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
+  const { user } = useAuth();
+  const isAdmin = isAdminUser(user);
   /* 用 ref 持有 callback：不讓它的 identity 進 load 的依賴而觸發重抓 */
   const onOperationFailedRef = useRef(onOperationFailed);
   useEffect(() => {
@@ -192,6 +200,15 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
                           {t("SnapshotsTab.protected")}
                         </span>
                       )}
+                      {isMiningEvidence(snap.name) && (
+                        <span
+                          className={`${styles.badge} ${styles.badge_danger}`}
+                          title={t("SnapshotsTab.evidenceHint")}
+                        >
+                          <MIcon name="policy" size={12} />
+                          {t("SnapshotsTab.evidence")}
+                        </span>
+                      )}
                     </span>
                   </td>
                   <td className={`${styles.td} ${styles.mutedCell}`}>
@@ -210,7 +227,7 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
                       <MIcon name="history" size={14} />
                       {t("SnapshotsTab.restore")}
                     </button>
-                    {snap.name !== INIT_SNAPSHOT_NAME && (
+                    {snap.name !== INIT_SNAPSHOT_NAME && (isAdmin || !isMiningEvidence(snap.name)) && (
                       <button
                         type="button"
                         className={styles.btnDangerOutline}

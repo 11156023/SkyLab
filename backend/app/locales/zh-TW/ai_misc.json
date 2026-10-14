@@ -45,5 +45,7 @@
   "guest.pathNoDotDot": "目標路徑不可包含 ..",
   "guest.agentNotResponding": "VM {vmid} 的 QEMU guest agent 未回應（可能未安裝 agent 或 VM 未開機）",
   "guest.execTimeout": "VM {vmid} 的 guest 指令執行逾時（{timeout}s）",
+  "ssh.commandTimeout": "遠端指令執行逾時（{timeout} 秒內未結束）",
+  "ssh.outputTooLarge": "遠端指令的 {stream} 輸出超過 {limit} 上限",
   "guest.pctPushFailed": "pct push 失敗（VMID {vmid}）：{detail}"
 }

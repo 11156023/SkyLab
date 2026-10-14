@@ -15,10 +15,11 @@ from __future__ import annotations
 import logging
 import sys
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.core.db import engine
-from app.models import AuditAction, User
+from app.models import AuditAction
+from app.repositories import user as user_repo
 from app.services.user import audit_service
 
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +28,8 @@ logger = logging.getLogger(__name__)
 
 def reset_totp(email: str) -> int:
     with Session(engine) as session:
-        user = session.exec(select(User).where(User.email == email)).first()
+        # 與登入相同的不分大小寫比對：救援時打的信箱大小寫不一定跟資料庫一樣
+        user = user_repo.get_user_by_email(session=session, email=email)
         if user is None:
             logger.error("找不到使用者：%s", email)
             return 1

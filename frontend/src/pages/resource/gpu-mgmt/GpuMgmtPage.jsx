@@ -252,7 +252,7 @@ export default function GpuMgmtPage() {
       <PageHeader title={t("GpuMgmtPage.pageTitle")} />
 
       <div className={styles.toolbar}>
-        <div className={styles.search}>
+        <div className={styles.search} data-guide="gpu-mgmt-search">
           <MIcon name="search" size={16} />
           <input
             type="text"
@@ -270,7 +270,7 @@ export default function GpuMgmtPage() {
         ) : visible.length === 0 ? (
           <EmptyState onClearSearch={filter.trim() ? () => setFilter("") : undefined} />
         ) : (
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} data-guide="gpu-mgmt-table">
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -305,7 +305,7 @@ export default function GpuMgmtPage() {
                           </div>
                         </td>
                         <td className={styles.td}>{n.description || "—"}</td>
-                        <td className={styles.td}>
+                        <td className={styles.td} data-guide="gpu-mgmt-pci">
                           {n.mapEntries.length === 0 ? (
                             <span className={styles.muted}>—</span>
                           ) : collapsible ? (
@@ -337,7 +337,7 @@ export default function GpuMgmtPage() {
                             </div>
                           )}
                         </td>
-                        <td className={styles.td}>
+                        <td className={styles.td} data-guide="gpu-mgmt-capacity">
                           <div>{n.available_count} / {n.capacity_count}</div>
                           {n.is_sriov && n.capacity_count !== n.device_count && (
                             <div className={styles.cellSub}>{n.device_count} VF</div>
@@ -350,13 +350,13 @@ export default function GpuMgmtPage() {
                             </div>
                           )}
                         </td>
-                        <td className={styles.td}>
+                        <td className={styles.td} data-guide="gpu-mgmt-usage">
                           <VmChips vms={n.vms} />
                         </td>
                         <td className={styles.td}>
                           <StatusBadge used={n.used_count} total={n.capacity_count} />
                         </td>
-                        <td className={styles.td}>
+                        <td className={styles.td} data-guide="gpu-mgmt-delete">
                           <div className={styles.actions}>
                             <button
                               type="button"

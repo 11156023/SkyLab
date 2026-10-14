@@ -22,6 +22,7 @@ from app.api.deps import (
     get_current_active_superuser,
     rate_limit_by_ip,
     rate_limit_by_network_and_global,
+    rate_limit_by_user,
     require_turnstile,
 )
 from app.api.request_body import limited_json_openapi, parse_limited_json
@@ -131,6 +132,17 @@ _EMAIL_CHANGE_RATE_LIMIT = Depends(
 _EMAIL_VERIFY_RATE_LIMIT = Depends(
     rate_limit_by_ip(scope="email-verify", limit=30, window_seconds=60)
 )
+# 停用兩步驟驗證只靠一組 6 位數驗證碼把關；不節流的話，拿到登入狀態的人就能
+# 暴力猜碼把 2FA 關掉（登入端的驗證碼另有依帳號的失敗鎖定，見 login.py）
+_TOTP_DISABLE_RATE_LIMIT = Depends(
+    rate_limit_by_user(scope="totp-disable", limit=5, window_seconds=15 * 60)
+)
+# 改密碼要先驗目前密碼：不節流的話，拿到登入狀態（例如沒登出的教室電腦）的人
+# 就能暴力猜出原密碼。依帳號計次，不受同一個校園 NAT 出口的其他人影響
+_PASSWORD_CHANGE_RATE_LIMIT = Depends(
+    rate_limit_by_user(scope="password-change", limit=5, window_seconds=15 * 60)
+)
+
 
 
 @router.get(
@@ -191,7 +203,11 @@ def confirm_email_change_link(
     return Message(message="Email verified")
 
 
-@router.patch("/me/password", response_model=Message)
+@router.patch(
+    "/me/password",
+    response_model=Message,
+    dependencies=[_PASSWORD_CHANGE_RATE_LIMIT],
+)
 def update_password_me(
     *, session: SessionDep, body: UpdatePassword, current_user: CurrentUser
 ) -> Any:
@@ -265,7 +281,11 @@ def confirm_totp_me(
     return TotpStatusPublic(totp_enabled=True)
 
 
-@router.post("/me/totp/disable", response_model=TotpStatusPublic)
+@router.post(
+    "/me/totp/disable",
+    response_model=TotpStatusPublic,
+    dependencies=[_TOTP_DISABLE_RATE_LIMIT],
+)
 def disable_totp_me(
     *, session: SessionDep, body: TotpCodeRequest, current_user: CurrentUser
 ) -> Any:

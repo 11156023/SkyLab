@@ -12,6 +12,12 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from core.supervisor import (
+    DEFAULT_BACKOFF_SECONDS,
+    DEFAULT_MAX_ATTEMPTS,
+    DEFAULT_RESET_AFTER_SECONDS,
+)
+
 # 專案根目錄
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
@@ -142,6 +148,23 @@ class Settings(BaseSettings):
     # ---- 併發與效能 ----
     request_timeout: int = Field(default=300, description="請求逾時秒數", ge=10)
 
+    # ---- 崩潰自動重啟（launcher 監看 vLLM 子程序，見 core/supervisor.py）----
+    engine_restart_max_attempts: int = Field(
+        default=DEFAULT_MAX_ATTEMPTS,
+        description="vLLM 程序崩潰後自動重啟的次數上限；0＝不重啟",
+        ge=0,
+    )
+    engine_restart_backoff_seconds: float = Field(
+        default=DEFAULT_BACKOFF_SECONDS,
+        description="第一次重啟前等待的秒數，之後每次加倍（上限 300 秒）",
+        ge=0,
+    )
+    engine_restart_reset_seconds: float = Field(
+        default=DEFAULT_RESET_AFTER_SECONDS,
+        description="連續運行超過這麼多秒才崩潰時，重啟次數重新計算",
+        ge=0,
+    )
+
     # ---- Benchmark 設定 ----
     bench_total_requests: int = Field(default=60, description="Benchmark 總請求數", ge=1)
     bench_concurrency: int = Field(default=64, description="Benchmark 併發數", ge=1)
@@ -204,6 +227,15 @@ class Settings(BaseSettings):
     def strip_optional_str(cls, v: str) -> str:
         """去除選用字串 CLI 參數的前後空白；未設定（None／空值）一律視為空字串＝不帶該參數。"""
         return v.strip() if v else ""
+
+    @field_validator("long_prefill_token_threshold", mode="before")
+    @classmethod
+    def blank_threshold_is_unset(cls, v: object) -> object:
+        """.env.example 預設寫 ``LONG_PREFILL_TOKEN_THRESHOLD=``；空值代表不帶該參數，
+        不能當成整數解析失敗而讓整份設定載入不了。"""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("max_model_len")
     @classmethod

@@ -2,6 +2,7 @@
 AI API Key 认证依赖
 """
 
+import logging
 import secrets
 from datetime import timedelta
 from typing import Annotated
@@ -22,6 +23,8 @@ from app.models import (
     User,
     get_datetime_utc,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_user_by_ai_api_key(
@@ -73,6 +76,11 @@ def get_current_user_by_ai_api_key(
         try:
             decrypted_key = decrypt_value(cand.api_key_encrypted)
         except Exception:
+            # 解不開代表加密金鑰換過或資料損毀，不是金鑰打錯；不留紀錄的話，
+            # 呼叫端只會看到「金鑰無效」而無從查起
+            logger.error(
+                "Failed to decrypt AI API credential %s", cand.id, exc_info=True
+            )
             continue
         if secrets.compare_digest(decrypted_key, api_key):
             credential = cand

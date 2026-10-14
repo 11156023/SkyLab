@@ -7,7 +7,7 @@ import useDialogPresence from "../../hooks/useDialogPresence";
 import { JobsService } from "../../services/jobs";
 import { JOB_STATUS_META_KEYS, JobLoading } from "./JobRow";
 import styles from "./Jobs.module.scss";
-import { formatDate, formatDateTime } from "../../utils/formatDate";
+import { formatDate, formatDateTime, formatExpiryDate } from "../../utils/formatDate";
 import { canTeachUser } from "../../utils/roles";
 
 const fmt = (iso) => formatDateTime(iso);
@@ -16,12 +16,17 @@ const fmt = (iso) => formatDateTime(iso);
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-const formatExtraValue = (v, t) => {
+/* 機器到期日另附本地時間的實際截止時刻（後端以到期日 00:00 UTC 為界） */
+const EXPIRY_DATE_KEYS = new Set(["expiry_date"]);
+
+const formatExtraValue = (v, t, key) => {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "boolean") return v ? t("JobDetailDialog.boolYes") : t("JobDetailDialog.boolNo");
   if (typeof v === "object") return JSON.stringify(v, null, 2);
   if (typeof v === "string" && ISO_DATETIME.test(v)) return formatDateTime(v);
-  if (typeof v === "string" && ISO_DATE.test(v)) return formatDate(v);
+  if (typeof v === "string" && ISO_DATE.test(v)) {
+    return EXPIRY_DATE_KEYS.has(key) ? formatExpiryDate(v)?.text ?? "—" : formatDate(v);
+  }
   return String(v);
 };
 
@@ -241,7 +246,7 @@ export default function JobDetailDialog({ jobId, onClose }) {
                       {isObject ? (
                         <pre className={styles.dialogExtraJson}>{formatExtraValue(v, t)}</pre>
                       ) : (
-                        <span className={styles.dialogValue}>{formatExtraValue(v, t)}</span>
+                        <span className={styles.dialogValue}>{formatExtraValue(v, t, k)}</span>
                       )}
                     </div>
                   );

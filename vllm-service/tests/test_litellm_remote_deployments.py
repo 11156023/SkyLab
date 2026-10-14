@@ -342,6 +342,27 @@ def test_start_bootstraps_database_and_service_key_before_the_application(tmp_pa
     ]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_start_writes_owner_only_config(tmp_path, monkeypatch):
+    prepare_ai_stack, services = _start_workspace(tmp_path, monkeypatch)
+    output = tmp_path / "vllm-service/litellm/config.yaml"
+    output.write_text("stale\n")
+    output.chmod(0o644)
+    monkeypatch.setattr(sys, "argv", ["prepare_ai_stack.py"])
+
+    def run(command, **kwargs):
+        if command[:3] == ["docker", "compose", "config"]:
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"name": "campus", "services": services}))
+        if command[:2] == ["docker", "ps"]:
+            return subprocess.CompletedProcess(command, 0, stdout="")
+        pytest.fail(f"unexpected command {command}")
+
+    monkeypatch.setattr(prepare_ai_stack.subprocess, "run", run)
+    assert prepare_ai_stack.main() == 0
+    assert "model_list" in output.read_text()
+    assert output.stat().st_mode & 0o777 == 0o600
+
+
 def test_external_database_is_not_created(monkeypatch, capsys):
     import prepare_ai_stack
     monkeypatch.setattr(prepare_ai_stack.subprocess, "run", lambda *a, **k: pytest.fail("must not touch Compose db"))

@@ -109,3 +109,39 @@ def test_redis_miss_falls_through_to_memory(monkeypatch: pytest.MonkeyPatch) -> 
 
     fake.fail = False  # Redis 恢復，但那個 key 不在 Redis 裡
     assert kv.get("code1") == {"token": None}
+
+
+def test_redis_delete_failure_still_clears_memory(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake = _FakeRedis(fail=True)
+    kv = sync_kv.ExpiringKV("device", ttl_seconds=300)
+    monkeypatch.setattr(kv, "_redis", lambda: fake)
+    kv.set("code1", {"token": None})  # 落到記憶體
+
+    kv.delete("code1")
+
+    assert "Redis KV delete failed" in caplog.text
+    fake.fail = False
+    assert kv.get("code1") is None
+
+
+def test_redis_count_stops_at_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeRedis()
+    kv = sync_kv.ExpiringKV("device", ttl_seconds=300)
+    monkeypatch.setattr(kv, "_redis", lambda: fake)
+    for i in range(5):
+        kv.set(f"code{i}", {"i": i})
+
+    assert kv.count(limit=3) == 3
+    assert kv.count() == 5
+
+
+def test_redis_method_uses_shared_sync_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeRedis()
+    monkeypatch.setattr(sync_kv, "get_sync_redis", lambda: fake)
+    kv = sync_kv.ExpiringKV("device", ttl_seconds=300)
+
+    kv.set("a", {"v": 1})
+
+    assert "kv:device:a" in fake.data

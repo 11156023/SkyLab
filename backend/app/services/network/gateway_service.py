@@ -53,6 +53,13 @@ _APT_PACKAGES: dict[str, str] = {
     "nginx": "nginx",
 }
 
+# Gateway 上每條 SSH 指令的總時限（逾時由 exec_command 關掉 channel 並丟
+# TimeoutError）。一般指令要容得下 WireGuard 兩層 flock 各等 15 秒再跑腳本；
+# systemctl 啟停服務時 systemd 預設最多等 90 秒才強制結束，restart 是先停再啟，
+# 留到兩倍以上。
+GATEWAY_EXEC_TIMEOUT_SECONDS = 120
+GATEWAY_SERVICE_CONTROL_TIMEOUT_SECONDS = 300
+
 
 def _systemd_unit(service: str) -> str:
     unit = SERVICE_SYSTEMD_UNITS.get(service)
@@ -120,12 +127,20 @@ def make_client(host: str, ssh_port: int, ssh_user: str, private_key_pem: str):
     )
 
 
-def _exec(client, command: str) -> tuple[int, str, str]:
-    return exec_command(client, command)
+def _exec(
+    client: Any, command: str, *, timeout: float = GATEWAY_EXEC_TIMEOUT_SECONDS
+) -> tuple[int, str, str]:
+    return exec_command(client, command, timeout=timeout)
 
 
-def exec_checked(client, command: str, error_message: str) -> str:
-    code, out, err = _exec(client, command)
+def exec_checked(
+    client: Any,
+    command: str,
+    error_message: str,
+    *,
+    timeout: float = GATEWAY_EXEC_TIMEOUT_SECONDS,
+) -> str:
+    code, out, err = _exec(client, command, timeout=timeout)
     if code != 0:
         detail = (err or out).strip() or t("gateway.noOutput")
         raise ProxmoxError(t("gateway.commandFailedWithDetail", message=error_message, detail=detail))
@@ -263,16 +278,24 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
         with _ssh_client(config, private_key_pem) as client:
             if action == "restart":
                 # Some services hang on restart; do stop+start with a kill fallback
-                _exec(client, f"systemctl stop {unit} 2>&1; sleep 1; "
-                              f"systemctl kill -s SIGKILL {unit} 2>/dev/null; "
-                              f"systemctl start {unit} 2>&1")
+                _exec(
+                    client,
+                    f"systemctl stop {unit} 2>&1; sleep 1; "
+                    f"systemctl kill -s SIGKILL {unit} 2>/dev/null; "
+                    f"systemctl start {unit} 2>&1",
+                    timeout=GATEWAY_SERVICE_CONTROL_TIMEOUT_SECONDS,
+                )
                 code, out, err = _exec(client, f"systemctl is-active {unit} 2>&1")
                 if out.strip() == "active":
                     return True, t("gateway.serviceRestartDone", service=service)
                 return False, t(
                     "gateway.serviceRestartState", service=service, state=out.strip()
                 )
-            code, out, err = _exec(client, f"systemctl {action} {unit} 2>&1")
+            code, out, err = _exec(
+                client,
+                f"systemctl {action} {unit} 2>&1",
+                timeout=GATEWAY_SERVICE_CONTROL_TIMEOUT_SECONDS,
+            )
             output = (out + err).strip()
             return code == 0, output or t(
                 "gateway.serviceActionDone", service=service, action=action
@@ -450,21 +473,26 @@ def _build_service_version_info(
     *,
     service: str,
     version_output: str,
-    candidate_version: str | None,
+    installed_version: str | None = None,
+    candidate_version: str | None = None,
 ) -> GatewayServiceVersionInfo:
-    # 兩者都已經過 _normalize_version，不必再正規化一次
-    current_version = _extract_current_version(version_output)
-
-    if service in _APT_PACKAGES:
-        target_version = _normalize_version(candidate_version)
-        source = "apt candidate"
-    else:
-        target_version = None
-        source = "detected only"
+    detected_version = _extract_current_version(version_output)
 
     update_available = None
-    if current_version and target_version:
-        update_available = current_version != target_version
+    if service in _APT_PACKAGES:
+        # 程式自報的版本（nginx -v 印 1.26.3）沒有 Debian 修訂號，跟 apt 的
+        # Candidate（1.26.3-3+deb13u1）永遠不相等；要比 apt 的 Installed 與
+        # Candidate 完整版本，安全更新（deb13u1 → deb13u2）才判斷得出來。
+        installed = _normalize_version(installed_version)
+        target_version = _normalize_version(candidate_version)
+        current_version = installed or detected_version
+        source = "apt candidate"
+        if installed and target_version:
+            update_available = installed != target_version
+    else:
+        current_version = detected_version
+        target_version = None
+        source = "detected only"
 
     return GatewayServiceVersionInfo(
         service=service,
@@ -475,18 +503,31 @@ def _build_service_version_info(
     )
 
 
-def _get_apt_candidate_version(client, package: str) -> str | None:
-    code, out, err = _exec(
-        client,
-        f"apt-cache policy {shlex.quote(package)} 2>/dev/null "
-        "| sed -n 's/^  Candidate: //p' | head -1",
+def _parse_apt_policy(output: str) -> tuple[str | None, str | None]:
+    """``apt-cache policy`` 輸出的 (Installed, Candidate)；沒有或 ``(none)`` 時為 None。"""
+    fields: dict[str, str] = {}
+    for line in output.splitlines():
+        key, sep, value = line.strip().partition(":")
+        if sep and key in {"Installed", "Candidate"} and key not in fields:
+            fields[key] = value.strip()
+
+    def version(key: str) -> str | None:
+        value = fields.get(key, "")
+        return None if value in {"", "(none)"} else _normalize_version(value)
+
+    return version("Installed"), version("Candidate")
+
+
+def _get_apt_policy_versions(
+    client: Any, package: str
+) -> tuple[str | None, str | None]:
+    # 欄位名稱會跟著系統語系翻譯，固定用 C locale 才抓得到
+    code, out, _err = _exec(
+        client, f"LC_ALL=C apt-cache policy {shlex.quote(package)} 2>/dev/null"
     )
     if code != 0:
-        return None
-    candidate = (out or err).strip()
-    if not candidate or candidate == "(none)":
-        return None
-    return _normalize_version(candidate)
+        return None, None
+    return _parse_apt_policy(out)
 
 
 def get_service_versions(session: object) -> GatewayServiceVersionsResult:
@@ -496,12 +537,14 @@ def get_service_versions(session: object) -> GatewayServiceVersionsResult:
             code, out, err = _exec(client, command)
             version_output = (out or err).strip() or (out + err).strip()
             package = _APT_PACKAGES.get(service)
+            installed, candidate = (
+                _get_apt_policy_versions(client, package) if package else (None, None)
+            )
             info = _build_service_version_info(
                 service=service,
                 version_output=version_output,
-                candidate_version=(
-                    _get_apt_candidate_version(client, package) if package else None
-                ),
+                installed_version=installed,
+                candidate_version=candidate,
             )
             if code != 0 and info.current_version is None:
                 info.detection_error = version_output or t(

@@ -333,9 +333,19 @@ export default function RequestReviewPage() {
     [requests, selectedId],
   );
 
+  /* 只採用最後一次發出的請求：切分頁、審核後重新載入時，較早送出卻較晚回來的
+     舊回應（別的分頁、審核前的快照）不能蓋掉新清單 */
+  const fetchSeqRef = useRef(0);
+  const foregroundLoadingRef = useRef(false);
+
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
   const fetchRequests = useCallback(async (tab = activeTab, silent = false) => {
+    // 前景載入進行中就不另發背景刷新，否則前景那次會被當成舊回應丟掉、loading 收不掉
+    if (silent && foregroundLoadingRef.current) return;
+    const seq = ++fetchSeqRef.current;
+    const isLatest = () => seq === fetchSeqRef.current;
     if (!silent) {
+      foregroundLoadingRef.current = true;
       setLoading(true);
       setError("");
     }
@@ -343,6 +353,7 @@ export default function RequestReviewPage() {
       const pages = await Promise.all(
         TAB_KEYS.map((key) => fetchTabPage(key, key === tab ? (key === "pending" ? PENDING_LIST_LIMIT : LIST_LIMIT) : 1)),
       );
+      if (!isLatest()) return;
       const active = pages[TAB_KEYS.indexOf(tab)] ?? { vm: EMPTY_PAGE, spec: EMPTY_PAGE };
       const items = [
         ...(active.vm?.data ?? []).map((r) => normalizeVmRequest(r, t)),
@@ -358,14 +369,17 @@ export default function RequestReviewPage() {
         current && items.some((item) => item.id === current) ? current : null,
       );
     } catch (err) {
-      if (!silent) {
+      if (!silent && isLatest()) {
         setRequests([]);
         setTabCounts({});
         setSelectedId(null);
         setError(err?.message ?? t("RequestReviewPage.loadRequestsFailed"));
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && isLatest()) {
+        foregroundLoadingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [activeTab, t]);
 
@@ -536,6 +550,7 @@ export default function RequestReviewPage() {
             value: key,
             label,
             badge: tabCounts[key] ?? 0,
+            buttonProps: key === "pending" ? { "data-guide-tab": "request-review-pending" } : undefined,
           }))}
           value={activeTab}
           onChange={setActiveTab}
@@ -550,7 +565,7 @@ export default function RequestReviewPage() {
 
       <div className={styles.content}>
         <div className={styles.reviewGrid}>
-          <section className={styles.listPane}>
+          <section className={styles.listPane} data-guide="request-review-list">
             {loading ? (
               <LoadingState text={t("RequestReviewPage.loadingRequests")} />
             ) : error ? (
@@ -571,7 +586,7 @@ export default function RequestReviewPage() {
                     className={`${styles.row} ${selected?.id === request.id ? styles.rowActive : ""} ${selection.isSelected(request.id) ? styles.rowSelected : ""}`}
                   >
                     {selectableIds.length > 0 && (
-                      <div className={styles.rowCheck}>
+                      <div className={styles.rowCheck} data-guide="request-review-row-select">
                         {request.reviewStatus === "pending" && (
                           <SelectCheckbox
                             checked={selection.isSelected(request.id)}
@@ -585,6 +600,7 @@ export default function RequestReviewPage() {
                     <button
                       type="button"
                       className={styles.rowButton}
+                      data-guide="request-review-row"
                       onClick={(event) => {
                         if (selection.rowClick(request.id, event)) return;
                         setSelectedId(request.id);
@@ -612,7 +628,7 @@ export default function RequestReviewPage() {
             )}
           </section>
 
-          <section className={styles.detailPane}>
+          <section className={styles.detailPane} data-guide="request-review-detail">
             {!selected ? (
               <div className={styles.stateBox}>{t("RequestReviewPage.selectARequest")}</div>
             ) : (
@@ -675,7 +691,7 @@ export default function RequestReviewPage() {
                 </div>
 
                 {isPending && (
-                  <div className={styles.reviewBar}>
+                  <div className={styles.reviewBar} data-guide="request-review-decision">
                     {specResourceGone && (
                       <div className={styles.rowActions}>
                         <span className={styles.doneText}>

@@ -35,8 +35,14 @@ _FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 def _safe_cell(value: object) -> object:
     """公式注入防護：會被當成公式的字串前面補一個單引號當純文字。"""
-    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
-        return f"'{value}"
+    if isinstance(value, str):
+        from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
+        # 貼上的終端輸出（ANSI 色碼）或 PDF 換頁符等控制字元，openpyxl 會
+        # 直接丟 IllegalCharacterError，整份匯出失敗
+        value = ILLEGAL_CHARACTERS_RE.sub("", value)
+        if value.startswith(_FORMULA_PREFIXES):
+            return f"'{value}"
     return value
 
 

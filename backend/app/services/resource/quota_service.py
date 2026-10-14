@@ -13,6 +13,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+from sqlalchemy import or_
 from sqlmodel import Session, col, select
 
 from app.core.i18n import t
@@ -26,6 +27,7 @@ from app.models import (
     SpecChangeRequestStatus,
     SpecChangeType,
     User,
+    VMProvisioningStatus,
     VMRequest,
     VMRequestStatus,
 )
@@ -224,13 +226,24 @@ def _reserved_by_requests(
     待審核／已核准但還沒拿到 vmid 的申請單，在 PVE 上還看不到，但核准之後
     一定會變成機器。不計入的話，使用者可以一次送十張單把配額整個繞過去；
     台數（max_instances）同理，每張單都預約一台，並行克隆中的單彼此也要互相計入。
+
+    使用時段內一直佔著；時段結束還沒開出機器就不再建立（排程只在時段內
+    佈建，``vm_request_expiry_service`` 會把它標成 expired），所以不再計入。
+    clone 已經在跑（provisioning running）的仍計入，機器隨時會出現。沒有結束
+    時間的申請（immediate 模式）沒有時段可結束，保守地一直計入。
     """
+    now = get_datetime_utc()
     statement = select(VMRequest).where(
         VMRequest.user_id == user_id,
         col(VMRequest.status).in_(
             [VMRequestStatus.pending, VMRequestStatus.approved]
         ),
         col(VMRequest.vmid).is_(None),
+        or_(
+            col(VMRequest.end_at).is_(None),
+            col(VMRequest.end_at) > now,
+            col(VMRequest.provisioning_status) == VMProvisioningStatus.running,
+        ),
     )
     if exclude_request_id is not None:
         statement = statement.where(VMRequest.id != exclude_request_id)
