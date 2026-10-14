@@ -26,6 +26,7 @@ from app.ai.navigation.schemas import (
     NavigationMessage,
 )
 from app.ai.template_recommendation.recommendation_service import (
+    DESKTOP_KEYWORDS,
     GPU_KEYWORDS,
     WINDOWS_KEYWORDS,
 )
@@ -65,7 +66,7 @@ SLOTS: tuple[IntakeSlot, ...] = (
         key="display",
         question="需要 Windows 或圖形桌面嗎？",
         options=("需要圖形桌面", "需要 Windows", "Linux 指令列就好"),
-        keywords=WINDOWS_KEYWORDS + _DISPLAY_KEYWORDS,
+        keywords=WINDOWS_KEYWORDS + DESKTOP_KEYWORDS + _DISPLAY_KEYWORDS,
     ),
     IntakeSlot(
         key="duration",
@@ -169,7 +170,8 @@ def _collect_facts(
     purpose = result.purpose or ""
     ordinary_web = mentions(purpose, ("網站", "網頁", "架站", "node.js", "nodejs", "flask", "django", "website"))
     if ordinary_web and not mentions_term(
-        purpose, GPU_KEYWORDS + WINDOWS_KEYWORDS + _DISPLAY_KEYWORDS
+        purpose,
+        GPU_KEYWORDS + WINDOWS_KEYWORDS + DESKTOP_KEYWORDS + _DISPLAY_KEYWORDS,
     ):
         for key, value in (("gpu", "不需要 GPU"), ("display", "Linux 指令列就好")):
             if not getattr(result, key):

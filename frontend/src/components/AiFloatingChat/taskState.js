@@ -67,32 +67,44 @@ export function taskRoute(text, task, flowId, hasForm) {
   return null;
 }
 
+/* 記憶區塊每一段都有上限，加上 recentMessages 的 12K 字，總長才穩定低於後端的 32K。 */
+const MEMORY_GOAL_CHARS = 2_000;
+const MEMORY_FACT_CHARS = 500;
+const MEMORY_LATEST_CHARS = 2_000;
+
 export function withTaskMemory(history, task) {
   const labels = { purpose: "用途", gpu: "加速需求", display: "作業環境", duration: "使用時間" };
   const facts = Object.entries(labels).flatMap(([key, label]) => {
     const value = task.facts?.[key];
     if (!value) return [];
     const source = task.facts.inferred?.includes(key) ? "建議預設，可調整" : "使用者已提供";
-    return [`${label}（${source}）：${value}`];
+    return [`${label}（${source}）：${String(value).slice(0, MEMORY_FACT_CHARS)}`];
   });
   if (!task.goal && !facts.length) return history;
+  const latest = String(history.filter((m) => m.role === "user").at(-1)?.content ?? "");
   // Keep memory inside the planner's recent-message window. Latest user text wins.
   return [...history, {
     role: "user",
-    content: `原始目標：${task.goal}\n${facts.join("\n")}\n本輪要求：${history.filter((m) => m.role === "user").at(-1)?.content ?? ""}`,
+    content: `原始目標：${task.goal.slice(0, MEMORY_GOAL_CHARS)}\n${facts.join("\n")}\n本輪要求：${latest.slice(0, MEMORY_LATEST_CHARS)}`,
   }];
 }
 
 /* 後端一次最多收 50 則、32K 字；長對話整段送過去會直接 400，重按幾次都一樣。
-   只送最近的幾則——規劃需要的答案已經存在 task.facts，不靠舊訊息。 */
-export function recentMessages(history, { maxMessages = 12, maxChars = 16_000 } = {}) {
+   只送最近的幾則——規劃需要的答案已經存在 task.facts，不靠舊訊息。
+   最新一則本身就超長（貼了一大段）時截斷它，不能因為「至少要留一則」就整則送出。 */
+export function recentMessages(history, { maxMessages = 12, maxChars = 12_000 } = {}) {
   const kept = [];
   let chars = 0;
   for (const message of [...history].reverse()) {
-    const size = String(message.content ?? "").length;
-    if (kept.length >= maxMessages || (kept.length && chars + size > maxChars)) break;
+    if (kept.length >= maxMessages) break;
+    const content = String(message.content ?? "");
+    if (!kept.length && content.length > maxChars) {
+      kept.unshift({ ...message, content: content.slice(0, maxChars) });
+      break;
+    }
+    if (chars + content.length > maxChars) break;
     kept.unshift(message);
-    chars += size;
+    chars += content.length;
   }
   return kept;
 }

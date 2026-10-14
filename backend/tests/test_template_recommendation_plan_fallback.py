@@ -401,3 +401,22 @@ async def test_recommend_still_plans_when_pve_option_lookup_fails(
     assert prefill["resource_type"] == "lxc"
     assert prefill["cores"] >= 1
     assert svc.t("recommendation.summary.sourceMissing") in result["summary"]
+
+
+@pytest.mark.parametrize(
+    "text", ["我要 GUI 跑 Linux 開發", "需要遠端桌面", "用 RDP 連進去"]
+)
+def test_desktop_words_do_not_imply_windows(text: str) -> None:
+    intent = svc.infer_intent_from_chat(_chat(text))
+    assert intent.needs_desktop is True
+    assert intent.needs_windows is False
+
+
+def test_linux_desktop_request_gets_linux_vm_image() -> None:
+    request = RecommendationRequest(goal="我要 GUI 跑 Linux 開發", needs_desktop=True)
+    result = svc.normalize_ai_result(
+        {}, request, [], resource_options=_RESOURCES, fallback=True
+    )
+    prefill = result["final_plan"]["form_prefill"]
+    assert prefill["resource_type"] == "vm"
+    assert prefill["vm_os_choice"] == "Ubuntu 24.04 Desktop"

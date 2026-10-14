@@ -60,20 +60,13 @@ MIN_LXC_DISK_GB = 8
 # 規劃逾時就改用規則配置；上限要比前端等待的時間短，使用者才拿得到備援結果
 PLANNER_TIMEOUT_SECONDS = 60.0
 
+# 只放真的指名 Windows 的字。GUI、遠端桌面、RDP 也可能是 Linux 桌面（xrdp、VNC），
+# 放這裡會讓要 Linux 桌面的人被配到 Windows 映像；那些字在 DESKTOP_KEYWORDS。
 WINDOWS_KEYWORDS = (
     "windows",
     "window",
     "win11",
     "win10",
-    "rdp",
-    "remote desktop",
-    "gui",
-    "遠端桌面",
-    "圖形介面",
-    "桌面環境",
-    "視窗",
-    "windows 遠端",
-    "windows遠端",
 )
 
 GPU_KEYWORDS = (
@@ -144,9 +137,11 @@ DESKTOP_KEYWORDS = (
     "桌面環境",
     "遠端桌面",
     "圖形介面",
+    "視窗",
     "gui",
     "vnc",
     "rdp",
+    "remote desktop",
 )
 _NEGATIONS = ("不需要", "不要", "不用", "不必", "無需", "取消", "no", "without")
 _UNSURE = ("不確定", "你幫我判斷", "都可以")

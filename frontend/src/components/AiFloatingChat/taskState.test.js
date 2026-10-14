@@ -138,6 +138,25 @@ describe("planner request payload", () => {
     expect(recentMessages(huge).map((item) => item.content)).toEqual(["最新"]);
   });
 
+  test("an oversized newest message is truncated instead of sent whole", () => {
+    const pasted = { role: "user", content: "y".repeat(50_000) };
+    const kept = recentMessages([{ role: "user", content: "舊的" }, pasted]);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].content).toHaveLength(12_000);
+    expect(pasted.content).toHaveLength(50_000);
+  });
+
+  test("the whole planner payload stays under the backend limit", () => {
+    const task = {
+      ...newTask(),
+      goal: "g".repeat(2_000),
+      facts: { purpose: "p".repeat(2_000), gpu: "q".repeat(2_000), display: "d".repeat(2_000), duration: "t".repeat(2_000), inferred: [] },
+    };
+    const messages = withTaskMemory(recentMessages([{ role: "user", content: "z".repeat(100_000) }]), task);
+    const total = messages.reduce((sum, item) => sum + item.content.length, 0);
+    expect(total).toBeLessThan(32 * 1024);
+  });
+
   test("answered intake facts are sent as structured fields", () => {
     expect(intakeFactsPayload(newTask())).toBeNull();
     const task = { ...newTask(), facts: { purpose: "AI 訓練", gpu: "不確定，你幫我判斷", inferred: [] } };
