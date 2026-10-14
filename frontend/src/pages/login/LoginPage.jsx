@@ -13,7 +13,6 @@ import PageShell from "./PageShell";
 import styles from "./LoginPage.module.scss";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
-const ENABLE_SIGNUP = import.meta.env.ENABLE_SIGNUP !== "false";
 let googleIdentityScriptPromise;
 
 function loadGoogleIdentityScript() {
@@ -258,6 +257,7 @@ function LoginView({
   onRegister,
   deviceApproval = false,
   ldapEnabled = false,
+  signupEnabled = false,
   turnstileSiteKey = "",
 }) {
   const { t } = useTranslation("login");
@@ -483,7 +483,7 @@ function LoginView({
         </div>
       )}
 
-      {ENABLE_SIGNUP && (
+      {signupEnabled && (
         <p className={styles.footerText}>
           {t("LoginPage.noAccountYet")}{" "}
           <button type="button" className={styles.link} onClick={onRegister}>
@@ -732,10 +732,7 @@ function RegisterView({ onBack, turnstileSiteKey = "" }) {
   const { t } = useTranslation("login");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
-  const [submitted, setSubmitted] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
@@ -745,13 +742,6 @@ function RegisterView({ onBack, turnstileSiteKey = "" }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setSubmitted(true);
-
-    const passwordError = newPasswordError(password, confirm, t);
-    if (passwordError) {
-      setError(passwordError);
-      return;
-    }
     if (turnstilePending) {
       setError(t("LoginPage.turnstileRequired"));
       return;
@@ -760,7 +750,7 @@ function RegisterView({ onBack, turnstileSiteKey = "" }) {
     setLoading(true);
     try {
       await AccountService.signup(
-        { email, full_name: fullName, password },
+        { email, full_name: fullName },
         { turnstileToken },
       );
       setSuccess(true);
@@ -822,25 +812,6 @@ function RegisterView({ onBack, turnstileSiteKey = "" }) {
               required
             />
           </div>
-
-          <PasswordField
-            id="reg-password"
-            label={t("LoginPage.passwordLabel")}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={loading}
-          >
-            <PasswordRules password={password} invalid={submitted} />
-          </PasswordField>
-
-          <PasswordField
-            id="reg-confirm"
-            label={t("LoginPage.confirmPasswordLabel")}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            disabled={loading}
-            placeholder={t("LoginPage.confirmPasswordPlaceholder")}
-          />
 
           {turnstileSiteKey && (
             <Turnstile
@@ -962,13 +933,14 @@ export default function LoginPage() {
         <LoginView
           deviceApproval={Boolean(deviceCode)}
           ldapEnabled={Boolean(loginMethods?.ldap)}
+          signupEnabled={Boolean(loginMethods?.signup_enabled)}
           turnstileSiteKey={turnstileSiteKey}
           onForgot={() => setView("forgot")}
           onRegister={() => setView("register")}
         />
       )}
       {view === "forgot" && <ForgotView onBack={() => setView("login")} />}
-      {view === "register" && (
+      {view === "register" && loginMethods?.signup_enabled && (
         <RegisterView
           turnstileSiteKey={turnstileSiteKey}
           onBack={() => setView("login")}

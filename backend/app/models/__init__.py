@@ -60,6 +60,7 @@ from .proxmox_storage import ProxmoxStorage
 from .push_subscription import PushSubscription, WebPushConfig
 from .quick_practice import QuickPracticeSession, QuickPracticeSessionMachine
 from .quota_config import QuotaConfig
+from .registration_policy import RegistrationPolicy
 from .resource import Resource
 from .resource_network import ResourceNetwork
 from .resource_quota import ResourceQuota

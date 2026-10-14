@@ -46,7 +46,11 @@ def send_email(
         html=html_content,
         mail_from=(settings.EMAILS_FROM_NAME, from_email),
     )
-    smtp_options = {"host": settings.SMTP_HOST, "port": settings.SMTP_PORT}
+    smtp_options = {
+        "host": settings.SMTP_HOST,
+        "port": settings.SMTP_PORT,
+        "fail_silently": False,
+    }
     if settings.SMTP_TLS:
         smtp_options["tls"] = True
     elif settings.SMTP_SSL:

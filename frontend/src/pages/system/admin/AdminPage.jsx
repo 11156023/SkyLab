@@ -210,7 +210,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
             type="checkbox"
             checked={form.is_active}
             onChange={(e) => setField("is_active", e.target.checked)}
-            disabled={isEdit && isSelf}
+            disabled={isEdit && (isSelf || user?.registration_status !== "approved")}
           />
           <span>{t("AdminPage.fieldActive")}</span>
         </label>
@@ -228,6 +228,9 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
       )}
       {isEdit && isSelf && (
         <em className={styles.fieldHint}>{t("AdminPage.selfEditLockedHint")}</em>
+      )}
+      {isEdit && user?.registration_status !== "approved" && (
+        <em className={styles.fieldHint}>{t("AdminPage.registrationActivationHint")}</em>
       )}
 
       {isEdit && (
@@ -300,7 +303,13 @@ function UserRow({ user, currentUserId, selected = false, selecting = false, onT
           {role.label}
         </span>
         <span className={`${styles.statusBadge} ${user.is_active ? styles.statusActive : styles.statusInactive}`}>
-          {user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
+          {user.registration_status === "pending_email"
+            ? t("AdminPage.statusPendingEmail")
+            : user.registration_status === "pending_review"
+              ? t("AdminPage.statusPendingReview")
+              : user.registration_status === "rejected"
+                ? t("AdminPage.statusRejected")
+                : user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
         </span>
       </div>
       <span className={styles.createdAt}>{formatDate(user.created_at)}</span>
@@ -328,6 +337,10 @@ export default function AdminPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [users, setUsers] = useState([]);
+  const [registrationPolicy, setRegistrationPolicy] = useState(null);
+  const [pendingRegistrations, setPendingRegistrations] = useState([]);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [reviewingId, setReviewingId] = useState(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -353,6 +366,51 @@ export default function AdminPage() {
     fetchUsers();
   }, [fetchUsers]);
   useAutoRefresh(() => fetchUsers(true));
+
+  const fetchRegistrationSettings = useCallback(async (silent = false) => {
+    try {
+      const [policy, pending] = await Promise.all([
+        UsersService.getRegistrationPolicy(),
+        UsersService.listPendingRegistrations(),
+      ]);
+      setRegistrationPolicy(policy);
+      setPendingRegistrations(pending.data);
+    } catch (err) {
+      if (!silent) toast.error(err?.message ?? t("AdminPage.registrationLoadFailed"));
+    }
+  }, [toast, t]);
+
+  useEffect(() => { fetchRegistrationSettings(); }, [fetchRegistrationSettings]);
+  useAutoRefresh(() => fetchRegistrationSettings(true));
+
+  async function saveRegistrationPolicy(patch) {
+    if (!registrationPolicy || policySaving) return;
+    setPolicySaving(true);
+    try {
+      const saved = await UsersService.saveRegistrationPolicy({ ...registrationPolicy, ...patch });
+      setRegistrationPolicy(saved);
+      toast.success(t("AdminPage.registrationSettingsSaved"));
+    } catch (err) {
+      toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+
+  async function reviewRegistration(user, approve) {
+    if (reviewingId) return;
+    setReviewingId(user.id);
+    try {
+      const updated = await UsersService.reviewRegistration(user.id, approve);
+      setPendingRegistrations((prev) => prev.filter((item) => item.id !== user.id));
+      setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+      toast.success(t(approve ? "AdminPage.registrationApproved" : "AdminPage.registrationRejected"));
+    } catch (err) {
+      toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
+    } finally {
+      setReviewingId(null);
+    }
+  }
 
   const visibleUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -501,6 +559,49 @@ export default function AdminPage() {
           {t("AdminPage.addUser")}
         </button>
       </PageHeader>
+
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.registrationSettingsTitle")}>
+        <h2>{t("AdminPage.registrationSettingsTitle")}</h2>
+        <label className={styles.registrationOption}>
+          <span>
+            <strong>{t("AdminPage.signupEnabled")}</strong>
+            <small>{t("AdminPage.signupEnabledHint")}</small>
+          </span>
+          <input type="checkbox" checked={Boolean(registrationPolicy?.signup_enabled)}
+            disabled={!registrationPolicy || policySaving}
+            onChange={(event) => saveRegistrationPolicy({ signup_enabled: event.target.checked })} />
+        </label>
+        <label className={styles.registrationOption}>
+          <span>
+            <strong>{t("AdminPage.approvalRequired")}</strong>
+            <small>{t("AdminPage.approvalRequiredHint")}</small>
+          </span>
+          <input type="checkbox" checked={Boolean(registrationPolicy?.approval_required)}
+            disabled={!registrationPolicy || policySaving}
+            onChange={(event) => saveRegistrationPolicy({ approval_required: event.target.checked })} />
+        </label>
+      </section>
+
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.pendingRegistrationsTitle")}>
+        <h2>{t("AdminPage.pendingRegistrationsTitle")} ({pendingRegistrations.length})</h2>
+        {pendingRegistrations.length === 0 ? (
+          <p className={styles.registrationEmpty}>{t("AdminPage.noPendingRegistrations")}</p>
+        ) : pendingRegistrations.map((item) => (
+          <div className={styles.pendingRow} key={item.id}>
+            <span><strong>{userDisplayName(item)}</strong><small>{item.email}</small></span>
+            <div>
+              <button type="button" className={styles.btnSecondary}
+                disabled={Boolean(reviewingId)} onClick={() => reviewRegistration(item, false)}>
+                {t("AdminPage.rejectRegistration")}
+              </button>
+              <button type="button" className={styles.btnPrimary}
+                disabled={Boolean(reviewingId)} onClick={() => reviewRegistration(item, true)}>
+                {t("AdminPage.approveRegistration")}
+              </button>
+            </div>
+          </div>
+        ))}
+      </section>
 
       <div className={styles.summaryGrid}>
         <div className={styles.summaryItem}>
