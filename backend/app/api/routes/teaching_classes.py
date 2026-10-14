@@ -778,12 +778,9 @@ def replace_weeks(
     kept_week_ids: set[uuid.UUID] = set()
     kept_file_ids: set[uuid.UUID] = set()
     for row in body:
-        week = weeks_by_number.get(row.week_number) or weeks_by_date.get(
-            row.session_date
-        )
-        if week is None:
-            week = TeachingClassWeek(class_id=class_id, week_number=row.week_number)
-            session.add(week)
+        # 上方已要求送來的日期集合與既有週次相等，這裡一定找得到；
+        # 找不到就讓 KeyError 直接失敗，不要悄悄新建週次。
+        week = weeks_by_number.get(row.week_number) or weeks_by_date[row.session_date]
         for key, value in row.model_dump(exclude={"files"}).items():
             setattr(week, key, value)
         session.add(week)

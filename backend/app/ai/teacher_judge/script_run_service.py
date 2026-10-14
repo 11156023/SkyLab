@@ -1303,7 +1303,13 @@ def get_script_run_batch_public(
     ):
         peer_ips = _peer_ips_from_snapshot(run.target_snapshot_json)
         raw_targets = (run.target_results_json or {}).get("targets")
-        targets = raw_targets if isinstance(raw_targets, list) else []
+        # 非 dict 的項目在這裡就濾掉；之前的守門放在 .get("status") 之後，
+        # 遇到壞資料會先 AttributeError 而永遠到不了。
+        targets = (
+            [target for target in raw_targets if isinstance(target, dict)]
+            if isinstance(raw_targets, list)
+            else []
+        )
         total_targets += int((run.progress_json or {}).get("total") or len(targets))
         completed_targets += sum(
             1 for target in targets if target.get("status") == "completed"
@@ -1323,8 +1329,6 @@ def get_script_run_batch_public(
             )
         )
         for target in targets:
-            if not isinstance(target, dict):
-                continue
             student_id = str(target.get("student_id") or "")
             if not student_id:
                 continue
