@@ -308,7 +308,7 @@ function GlobalQuotaCard({ config, onSaved }) {
   };
 
   return (
-    <section className={styles.card}>
+    <section className={styles.card} data-guide="governance-quota-global">
       <header className={styles.cardHeader}>
         <div className={styles.cardHeading}>
           <span className={styles.cardTitle}>
@@ -442,7 +442,7 @@ export default function QuotasSection() {
     <div className={styles.stack}>
       {globalQuota && <GlobalQuotaCard config={globalQuota} onSaved={setGlobalQuota} />}
 
-      <section className={styles.card}>
+      <section className={styles.card} data-guide="governance-quota-overrides">
         <header className={styles.cardHeader}>
           <div className={styles.cardHeading}>
             <span className={styles.cardTitle}>

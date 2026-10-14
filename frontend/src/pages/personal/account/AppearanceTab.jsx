@@ -10,7 +10,7 @@ import styles from "./AccountSettingsPage.module.scss";
 export default function AppearanceTab() {
   return (
     <>
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="account-appearance-form">
         <AppearanceSettings />
       </div>
       <ThemePresetsCard />

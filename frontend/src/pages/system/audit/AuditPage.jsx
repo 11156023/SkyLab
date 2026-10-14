@@ -209,6 +209,7 @@ export default function AuditPage() {
           className={styles.btnSecondary}
           onClick={handleExport}
           disabled={exporting}
+          data-guide="audit-export"
         >
           <MIcon name="download" size={16} />
           {exporting ? t("AuditPage.exporting") : t("AuditPage.exportCsv")}
@@ -216,7 +217,7 @@ export default function AuditPage() {
       </PageHeader>
 
       {stats && (
-        <div className={styles.summaryGrid}>
+        <div className={styles.summaryGrid} data-guide="audit-summary">
           <div className={styles.summaryItem}>
             <span>{t("AuditPage.statTotal")}</span>
             <strong>{stats.total}</strong>
@@ -236,7 +237,7 @@ export default function AuditPage() {
         </div>
       )}
 
-      <form className={styles.toolbar} onSubmit={(e) => e.preventDefault()}>
+      <form className={styles.toolbar} onSubmit={(e) => e.preventDefault()} data-guide="audit-filters">
         <div className={styles.searchBox}>
           <MIcon name="search" size={16} />
           <input
@@ -304,7 +305,7 @@ export default function AuditPage() {
           <EmptyState hasFilter={hasFilter} onClear={resetFilters} />
         ) : (
           <>
-            <div className={styles.tableWrap}>
+            <div className={styles.tableWrap} data-guide="audit-table">
               <table className={styles.table}>
                 <thead>
                   <tr>

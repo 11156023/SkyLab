@@ -20,6 +20,8 @@ function useSections(t) {
   return useMemo(() => [
     {
       title: t("GovernanceTab.alertsTitle"),
+      /* 頁面導覽的錨點（UserGuide pageGuides/systemSettings.js） */
+      guideProps: { "data-guide": "governance-alerts" },
       toggles: [
         { key: "alerts_enabled", label: t("GovernanceTab.alertsEnabled") },
         { key: "alert_email_enabled", label: t("GovernanceTab.alertEmailEnabled") },
@@ -35,6 +37,7 @@ function useSections(t) {
     {
       title: t("GovernanceTab.ttlTitle"),
       desc: t("GovernanceTab.ttlDesc"),
+      guideProps: { "data-guide": "governance-ttl" },
       toggles: [
         { key: "ttl_enabled", label: t("GovernanceTab.ttlEnabled") },
       ],
@@ -46,6 +49,7 @@ function useSections(t) {
     {
       title: t("GovernanceTab.idleTitle"),
       desc: t("GovernanceTab.idleDesc"),
+      guideProps: { "data-guide": "governance-idle" },
       toggles: [
         { key: "idle_detection_enabled", label: t("GovernanceTab.idleDetectionEnabled") },
       ],
@@ -67,6 +71,7 @@ function useSections(t) {
     {
       title: t("GovernanceTab.miningTitle"),
       desc: t("GovernanceTab.miningDesc"),
+      guideProps: { "data-guide": "governance-mining" },
       toggles: [
         { key: "mining_detection_enabled", label: t("GovernanceTab.miningDetectionEnabled") },
         { key: "mining_auto_suspend", label: t("GovernanceTab.miningAutoSuspend"), hint: t("GovernanceTab.miningAutoSuspendHint") },
@@ -166,7 +171,7 @@ function GovernanceForm() {
   return (
     <form className={styles.panelStack} onSubmit={handleSave}>
       {SECTIONS.map((section) => (
-        <div key={section.title} className={styles.card}>
+        <div key={section.title} className={styles.card} {...section.guideProps}>
           <h3 className={styles.cardTitle}>{section.title}</h3>
           {section.desc && <p className={styles.cardDesc}>{section.desc}</p>}
 
@@ -204,7 +209,7 @@ function GovernanceForm() {
         </div>
       ))}
 
-      <div className={styles.saveBar}>
+      <div className={styles.saveBar} data-guide="governance-save">
         {dirty && (
           <button type="button" className={styles.btnSecondary} disabled={saving} onClick={() => setForm(baseline)}>
             {t("SettingsPage.restore")}

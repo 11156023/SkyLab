@@ -453,7 +453,7 @@ export default function ClassSetupPage() {
   const progressText = `${t("ClassSetupPage.progressLabel")} ${t("ClassSetupPage.progressCount", { count: provisionReady })}`;
 
   // 班級草稿摘要：寬的時候固定在右欄，窄的時候收成卡片上方可展開的一列
-  const draftPanel = <aside className={styles.draftPanel} aria-label={t("ClassSetupPage.draftTitle")}>
+  const draftPanel = <aside className={styles.draftPanel} aria-label={t("ClassSetupPage.draftTitle")} data-guide="class-setup-draft">
     <button type="button" className={styles.draftToggle} aria-expanded={draftOpen} onClick={() => setDraftOpen((open) => !open)}>
       <span><strong>{t("ClassSetupPage.draftTitle")}</strong><small>{estimatedMachines ? `${progressText} · ${t("ClassSetupPage.draftEstimateShort", { count: estimatedMachines })}` : progressText}</small></span>
       <MIcon name={draftOpen ? "expand_less" : "expand_more"} size={20} />
@@ -482,12 +482,12 @@ export default function ClassSetupPage() {
     <button type="button" className={`${styles.btnSecondary} ${styles.footerPrev} ${step === 1 ? styles.keepSpace : ""}`} disabled={busy} onClick={() => switchStep(step - 1)}>{t("ClassSetupPage.prevStepBtn")}</button>
     <div className={styles.footerEnd}>
       {step === 3 && !templateId && <em className={styles.footerHint}><MIcon name="info" size={16} />{templates.length === 0 ? t("ClassSetupPage.needCreateTemplateHint") : t("ClassSetupPage.selectTemplateHint")}</em>}
-      {step < 5 && <button type="button" className={`${styles.btnPrimary} ${styles.footerNext}`} disabled={busy || (step === 3 && !templateId)} onClick={next}>{busy ? t("ClassSetupPage.savingBtn") : t("ClassSetupPage.saveAndNextBtn")}<MIcon name="arrow_forward" size={16} /></button>}
+      {step < 5 && <button type="button" className={`${styles.btnPrimary} ${styles.footerNext}`} data-guide="class-setup-next" disabled={busy || (step === 3 && !templateId)} onClick={next}>{busy ? t("ClassSetupPage.savingBtn") : t("ClassSetupPage.saveAndNextBtn")}<MIcon name="arrow_forward" size={16} /></button>}
       {step === 5 && <>
         {missingSteps.length > 0
           ? <button type="button" className={styles.btnSecondary} onClick={() => switchStep(missingSteps[0])}>{t("ClassSetupPage.goToStepBtn", { step: stepLabel(missingSteps[0]) })}</button>
           : <button type="button" className={styles.btnSecondary} onClick={() => leaveTo(`/class-management/${classId}`)}>{t("ClassSetupPage.saveDraftLaterBtn")}</button>}
-        <button type="button" className={`${styles.btnPrimary} ${styles.footerNext}`} disabled={!capacity?.ready || busy} onClick={provision}><MIcon name="rocket_launch" size={17} />{busy ? t("ClassSetupPage.submittingBtn") : t("ClassSetupPage.finishAndSubmitBtn")}</button>
+        <button type="button" className={`${styles.btnPrimary} ${styles.footerNext}`} data-guide="class-setup-provision" disabled={!capacity?.ready || busy} onClick={provision}><MIcon name="rocket_launch" size={17} />{busy ? t("ClassSetupPage.submittingBtn") : t("ClassSetupPage.finishAndSubmitBtn")}</button>
       </>}
     </div>
   </footer>;
@@ -495,7 +495,7 @@ export default function ClassSetupPage() {
   return <div className={styles.page}>
     <PageHeader title={item?.name || t("ClassSetupPage.defaultPageTitle")}>{backButton}</PageHeader>
 
-    <section className={styles.stepperBar}>
+    <section className={styles.stepperBar} data-guide="class-setup-stepper">
       <Stepper
         ariaLabel={t("ClassSetupPage.stepperAriaLabel")}
         steps={STEPS.map(([key, labelKey], index) => ({ key, label: t(labelKey), done: doneSteps[index], disabled: index + 1 > furthestStep }))}
@@ -509,26 +509,26 @@ export default function ClassSetupPage() {
       <section className={styles.card}>
         {step === 1 && <>
           <div className={styles.sectionHeader}><div><h2>{t("ClassSetupPage.step1Title")}</h2><p>{t("ClassSetupPage.step1Desc")}</p></div></div>
-          <div className={styles.formGrid}>
+          <div className={styles.formGrid} data-guide="class-setup-basic">
             <label className={styles.full}><span>{t("ClassSetupPage.fieldClassName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder={t("ClassSetupPage.classNamePlaceholder")} autoFocus /></label>
             <label className={styles.full}><span>{t("ClassSetupPage.fieldLocation")}</span><input value={form.location} onChange={(event) => updateForm("location", event.target.value)} placeholder={t("ClassSetupPage.locationPlaceholder")} /></label>
             <label><span>{t("ClassSetupPage.fieldStartDate")}</span><input type="date" value={form.startDate} onChange={(event) => updateForm("startDate", event.target.value)} /></label>
             <label><span>{t("ClassSetupPage.fieldEndDate")}</span><input type="date" value={form.endDate} onChange={(event) => updateForm("endDate", event.target.value)} /></label>
             <label><span>{t("ClassSetupPage.fieldWeekday")}</span><select value={form.weekday} onChange={(event) => updateForm("weekday", Number(event.target.value))}>{WEEKDAY_FULL_KEYS.map((labelKey, index) => <option key={labelKey} value={index}>{t(labelKey)}</option>)}</select></label>
             <label><span>{t("ClassSetupPage.fieldClassTime")}</span><div className={styles.timePair}><input type="time" value={form.startTime} onChange={(event) => updateForm("startTime", event.target.value)} /><i>{t("ClassSetupPage.timeRangeSeparator")}</i><input type="time" value={form.endTime} onChange={(event) => updateForm("endTime", event.target.value)} /></div></label>
-            <details className={styles.advanced}><summary>{t("ClassSetupPage.advancedSettings")}</summary><div className={styles.advancedGrid}><label><span>{t("ClassSetupPage.fieldTerm")}</span><input value={form.term} onChange={(event) => updateForm("term", event.target.value)} /></label><label><span>{t("ClassSetupPage.fieldBootLead")}</span><select value={form.bootLeadMinutes} onChange={(event) => updateForm("bootLeadMinutes", Number(event.target.value))}>{BOOT_LEAD_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes === 0 ? t("ClassSetupPage.bootLeadOnTime") : t("ClassSetupPage.bootLeadMinutesOption", { minutes })}</option>)}</select></label><label><span>{t("ClassSetupPage.fieldShutdownGrace")}</span><select value={form.shutdownGraceMinutes} onChange={(event) => updateForm("shutdownGraceMinutes", Number(event.target.value))}>{SHUTDOWN_GRACE_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes === 0 ? t("ClassSetupPage.shutdownGraceImmediate") : t("ClassSetupPage.shutdownGraceMinutesOption", { minutes })}</option>)}</select></label></div></details>
+            <details className={styles.advanced} data-guide="class-setup-advanced"><summary>{t("ClassSetupPage.advancedSettings")}</summary><div className={styles.advancedGrid}><label><span>{t("ClassSetupPage.fieldTerm")}</span><input value={form.term} onChange={(event) => updateForm("term", event.target.value)} /></label><label><span>{t("ClassSetupPage.fieldBootLead")}</span><select value={form.bootLeadMinutes} onChange={(event) => updateForm("bootLeadMinutes", Number(event.target.value))}>{BOOT_LEAD_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes === 0 ? t("ClassSetupPage.bootLeadOnTime") : t("ClassSetupPage.bootLeadMinutesOption", { minutes })}</option>)}</select></label><label><span>{t("ClassSetupPage.fieldShutdownGrace")}</span><select value={form.shutdownGraceMinutes} onChange={(event) => updateForm("shutdownGraceMinutes", Number(event.target.value))}>{SHUTDOWN_GRACE_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes === 0 ? t("ClassSetupPage.shutdownGraceImmediate") : t("ClassSetupPage.shutdownGraceMinutesOption", { minutes })}</option>)}</select></label></div></details>
           </div>
         </>}
 
         {step === 2 && <>
           <div className={styles.sectionHeader}><div><h2>{t("ClassSetupPage.step2Title")}</h2><p>{t("ClassSetupPage.step2Desc")}</p></div></div>
           <div className={styles.studentBody}>
-            <label><span className={styles.fieldLabelRow}>{t("ClassSetupPage.fieldStudentEmails")}<small>{t("ClassSetupPage.pendingEmailsCount", { count: parseStudentEmails(emails).length })}</small></span><textarea ref={emailsRef} className={invalidField === "emails" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "emails"} rows={8} value={emails} onChange={(event) => { setEmails(event.target.value); clearInvalid("emails"); }} placeholder={"student01@example.edu\nstudent02@example.edu"} autoFocus /></label>
+            <label data-guide="class-setup-emails"><span className={styles.fieldLabelRow}>{t("ClassSetupPage.fieldStudentEmails")}<small>{t("ClassSetupPage.pendingEmailsCount", { count: parseStudentEmails(emails).length })}</small></span><textarea ref={emailsRef} className={invalidField === "emails" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "emails"} rows={8} value={emails} onChange={(event) => { setEmails(event.target.value); clearInvalid("emails"); }} placeholder={"student01@example.edu\nstudent02@example.edu"} autoFocus /></label>
             <div className={styles.studentTools}>
               <input ref={fileRef} className={styles.hiddenFileInput} type="file" accept=".csv,text/csv" onChange={importCsv} tabIndex={-1} aria-hidden="true" />
-              <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => fileRef.current?.click()}><MIcon name="upload" size={16} />{t("ClassSetupPage.importCsvBtn")}</button>
+              <button type="button" className={styles.btnGhost} data-guide="class-setup-csv" disabled={busy} onClick={() => fileRef.current?.click()}><MIcon name="upload" size={16} />{t("ClassSetupPage.importCsvBtn")}</button>
             </div>
-            <div className={styles.roster}>
+            <div className={styles.roster} data-guide="class-setup-roster">
               <div className={styles.rosterHead}><strong>{t("ClassSetupPage.currentStudentsLabel")}</strong><span>{t("ClassSetupPage.studentsCountLabel", { count: item?.students.length ?? 0 })}</span></div>
               <p className={styles.rosterHint}>{item?.students.length ? t("ClassSetupPage.canAddMoreStudents") : t("ClassSetupPage.needAtLeastOneStudent")}</p>
               {item?.students.length > 0 && <ul className={styles.studentList}>
@@ -547,7 +547,7 @@ export default function ClassSetupPage() {
         {step === 3 && <>
           <div className={styles.sectionHeader}><div><h2>{t("ClassSetupPage.step3Title")}</h2><p>{t("ClassSetupPage.step3Desc")}</p></div></div>
           {templates.length > 0 ? (
-            <div className={`${shared.envChoices} ${styles.envList}`}>
+            <div className={`${shared.envChoices} ${styles.envList}`} data-guide="class-setup-env-list">
               {templates.map((candidate) => (
                 <EnvironmentChoice
                   key={candidate.versionId}
@@ -572,7 +572,7 @@ export default function ClassSetupPage() {
 
           {/* 找不到合適範本是例外，放在清單後面當出口，不要擋在選擇之前；
               一個模板都沒有時上面的空狀態已經給了建立入口，這張卡就不重複出現 */}
-          {templates.length > 0 && <div className={styles.templatePauseCard}>
+          {templates.length > 0 && <div className={styles.templatePauseCard} data-guide="class-setup-template-pause">
             <div>
               <strong>{t("ClassSetupPage.noSuitableTemplateTitle")}</strong>
               <p>{t("ClassSetupPage.templatePauseDesc")}</p>
@@ -591,8 +591,8 @@ export default function ClassSetupPage() {
 
         {step === 4 && <>
           <div className={styles.sectionHeader}><div><h2>{t("ClassSetupPage.step4Title")}</h2><p>{t("ClassSetupPage.step4Desc")}</p></div><em>{t("ClassSetupPage.weeksConfiguredCount", { done: taskCount, total: weeks.length })}</em></div>
-          <label className={styles.publishToggle}><input type="checkbox" checked={publishWeeks} onChange={(event) => setPublishWeeks(event.target.checked)} /><div><strong>{t("ClassSetupPage.publishWeeksLabel")}</strong><small>{t("ClassSetupPage.publishWeeksHint")}</small></div></label>
-          <div className={styles.weekList}>{weeks.map((week, index) => <label key={week.id ?? week.session_date}>
+          <label className={styles.publishToggle} data-guide="class-setup-publish-weeks"><input type="checkbox" checked={publishWeeks} onChange={(event) => setPublishWeeks(event.target.checked)} /><div><strong>{t("ClassSetupPage.publishWeeksLabel")}</strong><small>{t("ClassSetupPage.publishWeeksHint")}</small></div></label>
+          <div className={styles.weekList} data-guide="class-setup-weeks">{weeks.map((week, index) => <label key={week.id ?? week.session_date}>
             <span><strong>{t("ClassSetupPage.weekNumberLabel", { week: week.week_number ?? index + 1 })}</strong><small>{formatClassDay(week.session_date)}</small></span>
             {/* 範例只放第一週，18 列都重複同一句反而像是已經填好的內容 */}
             <input value={week.title ?? ""} onChange={(event) => setWeeks((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, title: event.target.value } : row))} placeholder={index === 0 ? t("ClassSetupPage.weekTitlePlaceholder") : undefined} />
@@ -601,7 +601,7 @@ export default function ClassSetupPage() {
 
         {step === 5 && <>
           <div className={styles.sectionHeader}><div><h2>{t("ClassSetupPage.step5Title")}</h2><p>{t("ClassSetupPage.step5Desc")}</p></div></div>
-          <div className={styles.readiness}>
+          <div className={styles.readiness} data-guide="class-setup-readiness">
             <span className={`${styles.readyIcon} ${!missingSteps.length && !capacity ? styles.readyIconBusy : ""}`}><MIcon name={missingSteps.length ? "pending_actions" : capacity?.ready ? "check" : "hourglass_top"} size={22} /></span>
             <div>
               <span>{progressText}</span>
@@ -618,7 +618,7 @@ export default function ClassSetupPage() {
               <div><span>{t("ClassSetupPage.capacityFactIps")}</span><strong>{capacity.ip_count}</strong></div>
             </div>}
           </div>
-          <div className={styles.summaryList}>
+          <div className={styles.summaryList} data-guide="class-setup-summary">
             <SummaryLine done={Boolean(item)} label={t("ClassSetupPage.summaryLabelSchedule")} value={item ? `${formatClassDay(item.start_date)} ${t("ClassSetupPage.scheduleDateTo")} ${formatClassDay(item.end_date)} · ${scheduleShort}` : t("ClassSetupPage.notCreatedYet")} onOpen={() => switchStep(1)} />
             <SummaryLine done={studentsReady} label={t("ClassSetupPage.summaryLabelStudents")} value={t("ClassSetupPage.studentsCountLabel", { count: item?.students.length ?? 0 })} onOpen={() => switchStep(2)} />
             <SummaryLine done={environmentReady} label={t("ClassSetupPage.summaryLabelEnvironment")} value={item?.course_environment ? t("ClassSetupPage.envSummaryValue", { name: item.course_environment.name, count: item.nodes.length }) : t("ClassSetupPage.notSelectedYet")} onOpen={() => switchStep(3)} />

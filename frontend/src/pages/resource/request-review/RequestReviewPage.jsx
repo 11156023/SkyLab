@@ -550,6 +550,7 @@ export default function RequestReviewPage() {
             value: key,
             label,
             badge: tabCounts[key] ?? 0,
+            buttonProps: key === "pending" ? { "data-guide-tab": "request-review-pending" } : undefined,
           }))}
           value={activeTab}
           onChange={setActiveTab}
@@ -564,7 +565,7 @@ export default function RequestReviewPage() {
 
       <div className={styles.content}>
         <div className={styles.reviewGrid}>
-          <section className={styles.listPane}>
+          <section className={styles.listPane} data-guide="request-review-list">
             {loading ? (
               <LoadingState text={t("RequestReviewPage.loadingRequests")} />
             ) : error ? (
@@ -585,7 +586,7 @@ export default function RequestReviewPage() {
                     className={`${styles.row} ${selected?.id === request.id ? styles.rowActive : ""} ${selection.isSelected(request.id) ? styles.rowSelected : ""}`}
                   >
                     {selectableIds.length > 0 && (
-                      <div className={styles.rowCheck}>
+                      <div className={styles.rowCheck} data-guide="request-review-row-select">
                         {request.reviewStatus === "pending" && (
                           <SelectCheckbox
                             checked={selection.isSelected(request.id)}
@@ -599,6 +600,7 @@ export default function RequestReviewPage() {
                     <button
                       type="button"
                       className={styles.rowButton}
+                      data-guide="request-review-row"
                       onClick={(event) => {
                         if (selection.rowClick(request.id, event)) return;
                         setSelectedId(request.id);
@@ -626,7 +628,7 @@ export default function RequestReviewPage() {
             )}
           </section>
 
-          <section className={styles.detailPane}>
+          <section className={styles.detailPane} data-guide="request-review-detail">
             {!selected ? (
               <div className={styles.stateBox}>{t("RequestReviewPage.selectARequest")}</div>
             ) : (
@@ -689,7 +691,7 @@ export default function RequestReviewPage() {
                 </div>
 
                 {isPending && (
-                  <div className={styles.reviewBar}>
+                  <div className={styles.reviewBar} data-guide="request-review-decision">
                     {specResourceGone && (
                       <div className={styles.rowActions}>
                         <span className={styles.doneText}>

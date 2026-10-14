@@ -338,6 +338,7 @@ export default function MonitoringPage() {
         {grafanaUrl && (
           <a
             className={styles.linkBtn}
+            data-guide="monitoring-grafana"
             href={grafanaUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -359,7 +360,7 @@ export default function MonitoringPage() {
         </div>
       ) : (
       /* 叢集用量卡片 */
-      <div className={styles.statRow}>
+      <div className={styles.statRow} data-guide="monitoring-overview">
         <OverviewCard
           title={t("MonitoringPage.cpuUsage")}
           pct={cpuPct}
@@ -405,12 +406,13 @@ export default function MonitoringPage() {
       )}
 
       {/* 警告與挖礦事件收進分頁（#24）；兩個面板保持掛載，輪詢與角標持續更新 */}
-      <div className={styles.tabbedPanels}>
+      <div className={styles.tabbedPanels} data-guide="monitoring-panels">
         <div className={styles.panelTabBar} role="tablist" aria-label={t("MonitoringPage.panelTabsAria")}>
           <button
             type="button"
             role="tab"
             aria-selected={panelTab === "alerts"}
+            data-guide-tab="monitoring-alerts"
             className={`${styles.panelTab} ${panelTab === "alerts" ? styles.panelTabActive : ""}`}
             onClick={() => setPanelTab("alerts")}
           >
@@ -421,6 +423,7 @@ export default function MonitoringPage() {
             type="button"
             role="tab"
             aria-selected={panelTab === "mining"}
+            data-guide-tab="monitoring-mining"
             className={`${styles.panelTab} ${panelTab === "mining" ? styles.panelTabActive : ""}`}
             onClick={() => setPanelTab("mining")}
           >
@@ -438,7 +441,7 @@ export default function MonitoringPage() {
 
       {ready && (<>
       {/* 節點用量：整卡收合，收起時標題列仍看得到在線摘要 */}
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="monitoring-nodes">
         <button
           type="button"
           className={styles.cardHeaderToggle}
@@ -560,7 +563,7 @@ export default function MonitoringPage() {
       </div>
 
       {/* Top VMs */}
-      <div className={styles.topGrid}>
+      <div className={styles.topGrid} data-guide="monitoring-top">
         <TopVmTable title={t("MonitoringPage.topCpuTitle")} entries={overview.top_cpu} metric="cpu" />
         <TopVmTable title={t("MonitoringPage.topMemTitle")} entries={overview.top_mem} metric="mem" />
       </div>

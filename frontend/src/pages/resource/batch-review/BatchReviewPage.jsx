@@ -405,13 +405,14 @@ export default function BatchReviewPage() {
             value: key,
             label,
             badge: key === "all" ? stats.total : (stats[key] ?? 0),
+            buttonProps: key === "pending" ? { "data-guide-tab": "batch-review-pending" } : undefined,
           }))}
           value={activeTab}
           onChange={setActiveTab}
           ariaLabel={t("BatchReviewPage.tabsAriaLabel")}
         />
 
-        <div className={styles.search}>
+        <div className={styles.search} data-guide="batch-review-search">
           <MIcon name="search" size={16} />
           <input
             type="text"
@@ -425,7 +426,7 @@ export default function BatchReviewPage() {
 
       <div className={styles.content}>
         <div className={styles.reviewGrid}>
-          <section className={styles.listPane}>
+          <section className={styles.listPane} data-guide="batch-review-list">
             {loading ? (
               <LoadingState text={t("BatchReviewPage.loadingBatches")} />
             ) : error ? (
@@ -444,6 +445,7 @@ export default function BatchReviewPage() {
                     key={row.id}
                     type="button"
                     className={`${styles.row} ${selected?.id === row.id ? styles.rowActive : ""}`}
+                    data-guide="batch-review-row"
                     onClick={() => { setSelectedId(row.id); setComment(""); }}
                   >
                     <div className={styles.rowIcon}>
@@ -468,7 +470,7 @@ export default function BatchReviewPage() {
             )}
           </section>
 
-          <section className={styles.detailPane}>
+          <section className={styles.detailPane} data-guide="batch-review-detail">
             {!selected ? (
               <div className={styles.stateBox}>{t("BatchReviewPage.selectABatch")}</div>
             ) : (
@@ -598,7 +600,7 @@ export default function BatchReviewPage() {
                 </div>
 
                 {isPending && (
-                  <div className={styles.reviewBar}>
+                  <div className={styles.reviewBar} data-guide="batch-review-decision">
                     <label className={styles.commentField}>
                       <span>{t("BatchReviewPage.commentLabel")}</span>
                       <textarea

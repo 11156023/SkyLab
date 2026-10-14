@@ -20,7 +20,7 @@ export default function QuickTemplateCards({ templates, loading, error, from, em
     action={onRetry && <button type="button" className={styles.retry} onClick={onRetry}><MIcon name="refresh" size={16} />{t("Error.retry", { ns: "common" })}</button>} />;
   if (!templates.length) return <EmptyState icon="inventory_2" title={t("StudentHomePage.noQuickTemplatesTitle")} className={emptyClassName} />;
 
-  return <div className={styles.grid}>
+  return <div className={styles.grid} data-guide="quick-template-grid">
     {templates.map((template) => <QuickTemplateFolder key={template.id} template={template}
       onOpen={() => navigate(`/quick-template/${template.id}`, { state: { from } })} />)}
   </div>;

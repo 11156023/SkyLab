@@ -207,7 +207,7 @@ function ManagementRow({ template, cycleBusy, onClone, onEdit, onManual, onRetry
 
   return (
     <tr className={styles.tr}>
-      <td className={styles.td}>
+      <td className={styles.td} data-guide="templates-name">
         <div className={styles.nameCell}>
           <span className={styles.namePrimary}>{template.name}</span>
           {template.pve_exists === false && template.status === "ready" && (
@@ -237,7 +237,7 @@ function ManagementRow({ template, cycleBusy, onClone, onEdit, onManual, onRetry
       <td className={styles.td}>
         <span className={styles.typeChip}>{template.resource_type}</span>
       </td>
-      <td className={styles.td}>
+      <td className={styles.td} data-guide="templates-status">
         <TemplateStatusBadge status={template.status} />
       </td>
       <td className={`${styles.td} ${styles.mutedCell}`}>
@@ -265,6 +265,7 @@ function ManagementRow({ template, cycleBusy, onClone, onEdit, onManual, onRetry
             ref={menuBtnRef}
             type="button"
             className={styles.menuBtn}
+            data-guide="templates-menu"
             onClick={() => setMenuOpen((v) => !v)}
             title={t("TemplatesPage.moreActionsTitle")}
             aria-label={t("TemplatesPage.moreActionsTitle")}
@@ -408,6 +409,7 @@ export default function TemplatesPage() {
             <button
               type="button"
               className={styles.btnPrimary}
+              data-guide="templates-create"
               onClick={() => setCreateOpen(true)}
             >
               <MIcon name="add" size={16} />
@@ -424,10 +426,10 @@ export default function TemplatesPage() {
         <EmptyState
           icon="widgets"
           title={t("TemplatesPage.emptyTitle")}
-          action={<button type="button" className={styles.btnPrimary} onClick={() => setCreateOpen(true)}><MIcon name="add" size={16} />{t("TemplatesPage.createFromVm")}</button>}
+          action={<button type="button" className={styles.btnPrimary} data-guide="templates-create" onClick={() => setCreateOpen(true)}><MIcon name="add" size={16} />{t("TemplatesPage.createFromVm")}</button>}
         />
       ) : (
-        <div className={styles.card}>
+        <div className={styles.card} data-guide="templates-table">
           <div className={styles.tableScroll}>
           <table className={styles.table}>
             <thead>

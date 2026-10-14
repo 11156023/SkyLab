@@ -161,7 +161,7 @@ export default function AdminDashboardPage() {
         : <span className={styles.checkedAt}>{updatedAtText}</span>)}
     </PageHeader>
 
-    {!focusMode && stats.length > 0 && <section className={styles.statsGrid} aria-label={t("AdminDashboardPage.resourceOverview")}>
+    {!focusMode && stats.length > 0 && <section className={styles.statsGrid} aria-label={t("AdminDashboardPage.resourceOverview")} data-guide="admin-home-stats">
       {stats.map((stat) => <button type="button" key={stat.key} className={styles.statCard} onClick={() => navigate(stat.path)}>
         <span className={styles.statIcon}><MIcon name={stat.icon} size={21} /></span>
         <span className={styles.statContent}>
@@ -174,7 +174,7 @@ export default function AdminDashboardPage() {
     </section>}
 
     {/* AI 助手：沒開始對話前只是一條輸入列，不要先佔掉整片高度 */}
-    <section className={`${styles.assistant} ${focusMode ? styles.assistantFocused : ""}`} aria-labelledby="admin-assistant-title">
+    <section className={`${styles.assistant} ${focusMode ? styles.assistantFocused : ""}`} aria-labelledby="admin-assistant-title" data-guide="admin-home-assistant">
       {/* 閒置時不出現整條標頭，助手身份直接放在輸入列上 */}
       {conversationPrompt && <div className={styles.assistantHead}>
         <div className={styles.assistantIdentity}>
@@ -213,7 +213,7 @@ export default function AdminDashboardPage() {
     {!focusMode && <section className={styles.attention} aria-label={t("AdminDashboardPage.attentionTitle")} aria-busy={busy}>
       {busy ? <div className={styles.checking} role="status"><MIcon name="sync" size={18} spin />{t("AdminDashboardPage.checking")}</div> : <>
         <div className={styles.tiers}>
-        <section className={`${styles.tier} ${urgent.length ? styles.tierNow : ""}`} aria-labelledby="admin-urgent-title">
+        <section className={`${styles.tier} ${urgent.length ? styles.tierNow : ""}`} aria-labelledby="admin-urgent-title" data-guide="admin-home-urgent">
           <div className={styles.tierHead}>
             <h3 id="admin-urgent-title"><MIcon name="error_outline" size={18} />{t("AdminDashboardPage.tierNowTitle")}</h3>
             <span className={styles.countBadge}>{incomplete && !urgentCount ? "—" : urgentCount}</span>
@@ -235,7 +235,7 @@ export default function AdminDashboardPage() {
           </button>
         </section>
 
-        <section className={styles.tier} aria-labelledby="admin-today-title">
+        <section className={styles.tier} aria-labelledby="admin-today-title" data-guide="admin-home-today">
           <div className={styles.tierHead}>
             <h3 id="admin-today-title"><MIcon name="event_note" size={18} />{t("AdminDashboardPage.tierTodayTitle")}</h3>
             <span className={`${styles.countBadge} ${todayCount ? styles.countPending : ""}`}>{checks.unavailable && !todayCount ? "—" : todayCount}</span>
