@@ -14,7 +14,7 @@ from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string, random_password
 
 
-def test_get_access_token(client: TestClient) -> None:
+def test_get_access_token(client: TestClient, db: Session) -> None:
     login_data = {
         "username": settings.FIRST_SUPERUSER,
         "password": settings.FIRST_SUPERUSER_PASSWORD,
@@ -26,7 +26,7 @@ def test_get_access_token(client: TestClient) -> None:
     assert tokens["access_token"]
 
 
-def test_get_access_token_incorrect_password(client: TestClient) -> None:
+def test_get_access_token_incorrect_password(client: TestClient, db: Session) -> None:
     login_data = {
         "username": settings.FIRST_SUPERUSER,
         "password": "incorrect",
@@ -39,6 +39,7 @@ def test_recovery_password(
     client: TestClient, normal_user_token_headers: dict[str, str]
 ) -> None:
     with (
+        patch("app.services.user.auth_service.send_email", return_value=None),
         patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
         patch("app.core.config.settings.SMTP_USER", "admin@example.com"),
     ):
@@ -224,13 +225,13 @@ def test_google_login_is_case_insensitive_for_existing_user(
 
 
 def test_google_login_unregistered_email_has_clear_error(
-    client: TestClient, monkeypatch
+    client: TestClient, db: Session, monkeypatch
 ) -> None:
     with (
         patch(
             "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
         ),
-        patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", True),
+        patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", False),
     ):
         _mock_google_tokeninfo(
             monkeypatch,
@@ -249,15 +250,17 @@ def test_google_login_unregistered_email_has_clear_error(
     assert r.json()["detail"] == "此 Google 帳號尚未註冊"
 
 
-def test_google_login_auto_registers_edu_tw_student(
+def test_google_login_auto_registers_any_verified_email(
     client: TestClient, db: Session, monkeypatch
 ) -> None:
-    email = f"{random_lower_string()}@campus.edu.tw"
+    email = f"{random_lower_string()}@gmail.com"
     with (
         patch(
             "app.services.user.auth_service.settings.GOOGLE_CLIENT_ID", "google-client"
         ),
         patch("app.services.user.auth_service.settings.ENABLE_SIGNUP", True),
+        patch("app.services.user.auth_service.settings.SMTP_HOST", "smtp.example.test"),
+        patch("app.services.user.auth_service.settings.EMAILS_FROM_EMAIL", "noreply@example.test"),
     ):
         _mock_google_tokeninfo(
             monkeypatch,

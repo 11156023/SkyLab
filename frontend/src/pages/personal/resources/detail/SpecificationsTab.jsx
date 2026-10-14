@@ -144,7 +144,7 @@ function OpenRequestNotice({ request, busy, onApply, onCancel }) {
  * 數字框在離開欄位時才定稿（夾範圍、對齊步進）再呼叫 onInput，編輯中不干涉。
  * 目前值不是數字（例如 LXC 沒設核心上限）時 current 給 null，由 changed 決定要不要顯示變化標籤。
  */
-function SliderField({
+export function SliderField({
   id, label, unit, wide, disabled,
   min, max, step, value, current, ticks, onChange,
   inputValue, inputMin, inputMax, inputStep, inputPlaceholder, onInput,
@@ -556,13 +556,12 @@ export default function SpecificationsTab({ vmid }) {
                 id="spec-reason"
                 ref={reasonRef}
                 rows={4}
-                placeholder={t("SpecificationsTab.reasonPlaceholder")}
+                placeholder={t("SpecificationsTab.reasonHint")}
                 aria-invalid={reasonInvalid}
                 value={reason}
                 disabled={formLocked}
                 onChange={(e) => { setReason(e.target.value); setReasonInvalid(false); }}
               />
-              <span className={styles.fieldHint}>{t("SpecificationsTab.reasonHint")}</span>
             </div>
           )}
 

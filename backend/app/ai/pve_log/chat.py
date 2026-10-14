@@ -35,7 +35,12 @@ import httpx
 from sqlmodel import Session
 
 from app.ai.adherence_check import ADHERENCE_MAX_TOKENS, check_adherence
-from app.ai.monitoring import new_ai_request_id, record_ai_template_call, usage_metrics
+from app.ai.monitoring import (
+    AIWorkflowObservation,
+    new_ai_request_id,
+    record_ai_template_call,
+    usage_metrics,
+)
 from app.ai.pve_log.collector import PveToolContext
 from app.ai.pve_log.config import settings
 from app.ai.pve_log.history import (
@@ -44,7 +49,13 @@ from app.ai.pve_log.history import (
     merge_pve_messages,
 )
 from app.ai.pve_log.schemas import ChatResponse, SSHExecRequest, ToolCallRecord
-from app.ai.role_contracts import AdherenceResult, OutputMode, RoleContract, TurnContext
+from app.ai.role_contracts import (
+    AdherenceReason,
+    AdherenceResult,
+    OutputMode,
+    RoleContract,
+    TurnContext,
+)
 from app.ai.utils import apply_thinking_control, strip_think_tags
 from app.core.i18n import t
 from app.infrastructure.ai import VLLMRequestProfile
@@ -904,7 +915,7 @@ def _completion_tokens_used(response: dict[str, Any], reserved: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def _record_chat_usage(
+def _record_chat_usage(
     response_data: dict[str, Any],
     *,
     session: Session | None,
@@ -915,12 +926,8 @@ async def _record_chat_usage(
     status: str = "success",
     error_message: str | None = None,
 ) -> None:
-    """記錄一次 vLLM agent step 的用量（成功、上游錯誤或空回應都走這裡）。
-
-    寫 DB 是同步 I/O，丟到 worker thread，不在 event loop 上等資料庫。
-    """
-    await asyncio.to_thread(
-        record_ai_template_call,
+    """記錄一次 vLLM agent step 的用量（成功、上游錯誤或空回應都走這裡）。"""
+    record_ai_template_call(
         session=session,
         user_id=requester_id,
         call_type="pve_chat",
@@ -1001,6 +1008,7 @@ async def _check_pve_candidate(
     facts: Any,
     session: Session | None,
     requester_id: uuid.UUID | None,
+    observation: AIWorkflowObservation,
 ) -> AdherenceResult:
     turn_context = _pve_turn_context(
         allowed_vmids=allowed_vmids,
@@ -1009,24 +1017,24 @@ async def _check_pve_candidate(
         phase=phase,
     )
     request_id = new_ai_request_id()
-    result = await check_adherence(
-        vllm_client,
-        contract,
-        _latest_user_request(messages),
-        candidate,
-        {"turn_context": turn_context.as_facts(), "evidence": facts},
-        request_id,
-        model_name=settings.VLLM_MODEL_NAME,
-        phase=phase,
-    )
+    with observation.phase("adherence", request_id=request_id):
+        result = await check_adherence(
+            vllm_client,
+            contract,
+            _latest_user_request(messages),
+            candidate,
+            {"turn_context": turn_context.as_facts(), "evidence": facts},
+            request_id,
+            model_name=settings.VLLM_MODEL_NAME,
+            phase=phase,
+        )
     if not result.allowed:
         logger.warning(
             "PVE candidate blocked by adherence check: phase=%s reason=%s",
             phase,
             result.reason_code.value,
         )
-    await asyncio.to_thread(
-        record_ai_template_call,
+    record_ai_template_call(
         session=session,
         user_id=requester_id,
         call_type="pve_chat_adherence",
@@ -1091,316 +1099,54 @@ async def chat(
     allowed_vmids／scope_type／scope_id 目前沒有 production 呼叫端傳入
     （管理員 PVE Log 不限範圍），刻意保留為防禦性的 VM 範圍限制掛點。
     """
-    messages = merge_pve_messages(
-        message=message,
-        history=history,
-        server_system_prompt=_SYSTEM_PROMPT,
-        scope_prompt=_SCOPE_PROMPT if allowed_vmids is not None else None,
-        allowed_tool_names=_ALLOWED_TOOL_NAMES,
-        allow_deferred=resume_deferred_ssh,
-    )
-    _validate_confirmation_history(
-        messages,
-        requester_id=requester_id,
-        scope_type=scope_type,
-        scope_id=scope_id,
-        allowed_vmids=allowed_vmids,
-    )
-    if not settings.VLLM_BASE_URL or not settings.VLLM_MODEL_NAME:
-        return ChatResponse(
-            reply="",
-            error=t("pveLog.vllmNotConfigured"),
+    with AIWorkflowObservation(route="/ai/pve-log/chat", model=settings.VLLM_MODEL_NAME) as observation:
+        messages = merge_pve_messages(
+            message=message,
+            history=history,
+            server_system_prompt=_SYSTEM_PROMPT,
+            scope_prompt=_SCOPE_PROMPT if allowed_vmids is not None else None,
+            allowed_tool_names=_ALLOWED_TOOL_NAMES,
+            allow_deferred=resume_deferred_ssh,
         )
-
-    tools_called: list[ToolCallRecord] = []
-    if resume_deferred_ssh:
-        while deferred_call := _next_deferred_ssh_call(messages):
-            message_index, tool_call_id, func_args = deferred_call
-            try:
-                result = await _execute_ssh_tool(
-                    func_args,
-                    session=session,
-                    allowed_vmids=allowed_vmids,
-                    requester_id=requester_id,
-                    scope_type=scope_type,
-                    scope_id=scope_id,
-                )
-            except Exception as exc:
-                logger.error("延後的 SSH 工具執行失敗：%s", exc)
-                result = {"error": str(exc)}
-            result_dict = result if isinstance(result, dict) else {}
-            messages[message_index]["content"] = json.dumps(
-                result,
-                ensure_ascii=False,
-                default=str,
-            )
-            if result_dict.get("pending") and result_dict.get("confirm_token"):
-                from app.ai.pve_log.ssh_exec import bind_pending_tool_call
-
-                bind_pending_tool_call(
-                    str(result_dict["confirm_token"]),
-                    tool_call_id,
-                )
-            tools_called.append(
-                ToolCallRecord(
-                    name="ssh_exec",
-                    args=func_args,
-                    result=result_dict,
-                    tool_call_id=tool_call_id,
-                )
-            )
-            if result_dict.get("pending"):
-                return ChatResponse(
-                    reply=t("pveLog.confirmationNextPending"),
-                    tools_called=tools_called,
-                    needs_confirmation=True,
-                    messages=messages,
-                )
-    _tool_context: PveToolContext | None = None
-    completion_tokens_used = 0
-
-    for tool_round in range(_MAX_TOOL_ROUNDS + 1):
-        remaining_tokens = _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
-        if remaining_tokens <= 0:
-            return ChatResponse(
-                reply=PVE_ADHERENCE_FALLBACK,
-                tools_called=tools_called,
-                messages=messages,
-            )
-        max_tokens = min(settings.VLLM_CHAT_MAX_TOKENS, remaining_tokens)
-        payload = build_chat_payload(messages, max_tokens=max_tokens)
-        request_id = new_ai_request_id()
-        record_usage = functools.partial(
-            _record_chat_usage,
-            session=session,
+        _validate_confirmation_history(
+            messages,
             requester_id=requester_id,
-            request_id=request_id,
-            started=time.perf_counter(),
-            started_at=datetime.now(timezone.utc),
-        )
-        try:
-            data = await vllm_client.create_chat_completion(
-                payload,
-                profile=VLLMRequestProfile.COMPLEX_AGENT,
-                timeout=float(settings.VLLM_TIMEOUT),
-                request_id=request_id,
-            )
-        except httpx.HTTPStatusError as exc:
-            await record_usage(
-                {},
-                status="error",
-                error_message=f"upstream_http_{exc.response.status_code}",
-            )
-            logger.error(
-                "vLLM 請求失敗（%d）：%s", exc.response.status_code, exc.response.text
-            )
-            return ChatResponse(
-                reply="",
-                tools_called=tools_called,
-                messages=messages,
-                error=t("pveLog.llmHttpError", status=exc.response.status_code),
-            )
-        except Exception as exc:
-            await record_usage({}, status="error", error_message=str(exc))
-            logger.error("vLLM 連線失敗：%s", exc)
-            return ChatResponse(
-                reply="",
-                tools_called=tools_called,
-                messages=messages,
-                error=t("pveLog.llmConnectionFailed", error=exc),
-            )
-
-        choices = data.get("choices") or []
-        if not choices:
-            await record_usage(data, status="error", error_message="empty_choices")
-            logger.error("vLLM agent step %d 回應 choices 為空：%s", tool_round, data)
-            return ChatResponse(
-                reply="",
-                tools_called=tools_called,
-                messages=messages,
-                error=t("pveLog.llmEmptyResponse"),
-            )
-
-        await record_usage(data)
-        completion_tokens_used += _completion_tokens_used(data, max_tokens)
-
-        if choices[0].get("finish_reason") == "length":
-            return ChatResponse(
-                reply=PVE_ADHERENCE_FALLBACK,
-                tools_called=tools_called,
-                messages=messages,
-            )
-        assistant_msg = _normalize_assistant_message(choices[0].get("message") or {})
-        reserved_tool_call_ids = {
-            str(item.get("id"))
-            for item in messages
-            if item.get("role") == "assistant"
-            for tool_call in item.get("tool_calls") or []
-            if isinstance(tool_call, dict) and tool_call.get("id")
-        }
-        assistant_msg = _canonicalize_model_tool_calls(
-            assistant_msg,
-            reserved_ids=reserved_tool_call_ids,
-        )
-        tool_calls = assistant_msg.get("tool_calls") or []
-        if not tool_calls:
-            reply = str(assistant_msg.get("content") or "")
-            if (
-                _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
-                < ADHERENCE_MAX_TOKENS
-            ):
-                return ChatResponse(
-                    reply=PVE_ADHERENCE_FALLBACK,
-                    tools_called=tools_called,
-                    messages=messages,
-                )
-            adherence = await _check_pve_candidate(
-                contract=PVE_FREE_TEXT_CONTRACT,
-                messages=messages,
-                candidate=reply,
-                allowed_vmids=allowed_vmids,
-                scope_type=scope_type,
-                scope_id=scope_id,
-                phase="respond",
-                facts=_pve_tool_evidence(messages),
-                session=session,
-                requester_id=requester_id,
-            )
-            completion_tokens_used += adherence.completion_tokens
-            if not adherence.allowed:
-                return ChatResponse(
-                    reply=PVE_ADHERENCE_FALLBACK,
-                    tools_called=tools_called,
-                    messages=messages,
-                )
-            messages.append(assistant_msg)
-            return ChatResponse(
-                reply=reply,
-                tools_called=tools_called,
-                messages=messages,
-            )
-
-        if tool_round >= _MAX_TOOL_ROUNDS:
-            # 不把這輪沒有 result 的 tool_calls 放進 history：回傳的 transcript
-            # 必須停在上一個完整的 tool round，否則下一個 user turn 會被
-            # history 驗證以「assistant tool-call 尚未完成」拒絕（422）。
-            logger.error("AI 工具呼叫超過上限（%d 輪）", _MAX_TOOL_ROUNDS)
-            return ChatResponse(
-                reply="",
-                tools_called=tools_called,
-                messages=messages,
-                error=t("pveLog.tooManyToolRounds"),
-            )
-        needs_pve_tool = any(
-            tc.get("function", {}).get("name") != "ssh_exec" for tc in tool_calls
-        )
-        parsed_calls = [
-            (
-                tc,
-                str((tc.get("function") or {}).get("name") or ""),
-                _parse_tool_arguments(
-                    (tc.get("function") or {}).get("arguments") or "{}"
-                )
-                or {},
-            )
-            for tc in tool_calls
-        ]
-
-        if (
-            _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
-            < ADHERENCE_MAX_TOKENS
-        ):
-            return ChatResponse(
-                reply=PVE_ADHERENCE_FALLBACK,
-                tools_called=tools_called,
-                messages=messages,
-            )
-        adherence = await _check_pve_candidate(
-            contract=PVE_ACTION_CONTRACT,
-            messages=messages,
-            candidate=[
-                {"tool": func_name, "arguments": func_args}
-                for _tc, func_name, func_args in parsed_calls
-            ],
-            allowed_vmids=allowed_vmids,
             scope_type=scope_type,
             scope_id=scope_id,
-            phase="act",
-            facts={
-                "completed_tools": [
-                    item["name"] for item in _pve_tool_evidence(messages)
-                ]
-            },
-            session=session,
-            requester_id=requester_id,
+            allowed_vmids=allowed_vmids,
         )
-        completion_tokens_used += adherence.completion_tokens
-        if not adherence.allowed:
+        if not settings.VLLM_BASE_URL or not settings.VLLM_MODEL_NAME:
+            observation.outcome, observation.terminal_reason = "error", "not_configured"
             return ChatResponse(
-                reply=PVE_ADHERENCE_FALLBACK,
-                tools_called=tools_called,
-                messages=messages,
-            )
-        if needs_pve_tool and _tool_context is None:
-            # Context 只在通過語意檢查後建立；真正的 network I/O 在
-            # _execute_tool_sync 的 worker thread 內執行。
-            _tool_context = PveToolContext()
-        messages.append(assistant_msg)
-
-        # 同一輪只讓第一個 ssh_exec 進入 pending，之後的 ssh_exec 寫成
-        # deferred，待使用者確認後由下一次 chat() 接續。
-        needs_confirmation = False
-        for tc, func_name, func_args in parsed_calls:
-            logger.info(
-                "執行工具（agent step %d）%s，參數：%s",
-                tool_round,
-                func_name,
-                func_args,
+                reply="",
+                error=t("pveLog.vllmNotConfigured"),
             )
 
-            try:
-                if func_name == "ssh_exec" and needs_confirmation:
-                    result = _deferred_ssh_result(func_args)
-                elif func_name == "ssh_exec":
-                    result = await _execute_ssh_tool(
-                        func_args,
-                        session=session,
-                        allowed_vmids=allowed_vmids,
-                        requester_id=requester_id,
-                        scope_type=scope_type,
-                        scope_id=scope_id,
-                    )
-                elif func_name == "get_guest_diagnostic_summary":
-                    result = await _execute_guest_diagnostics_tool(
-                        func_args,
-                        context=_tool_context,
-                        session=session,
-                        allowed_vmids=allowed_vmids,
-                    )
-                else:
-                    if _tool_context is None:
-                        raise RuntimeError("PVE tool context 尚未建立")
-                    result = await asyncio.to_thread(
-                        _execute_tool_sync,
-                        _tool_context,
-                        func_name,
-                        func_args,
-                        allowed_vmids=allowed_vmids,
-                    )
-                if func_name != "ssh_exec":
-                    result = compact_tool_result(result)
-                result_dict = (
-                    result
-                    if isinstance(result, dict)
-                    else {"items": result}
-                    if isinstance(result, list)
-                    else {}
+        tools_called: list[ToolCallRecord] = []
+        if resume_deferred_ssh:
+            while deferred_call := _next_deferred_ssh_call(messages):
+                message_index, tool_call_id, func_args = deferred_call
+                try:
+                    with observation.phase("tool"):
+                        result = await _execute_ssh_tool(
+                            func_args,
+                            session=session,
+                            allowed_vmids=allowed_vmids,
+                            requester_id=requester_id,
+                            scope_type=scope_type,
+                            scope_id=scope_id,
+                        )
+                except Exception as exc:
+                    logger.error("延後的 SSH 工具執行失敗：%s", exc)
+                    result = {"error": str(exc)}
+                result_dict = result if isinstance(result, dict) else {}
+                if result_dict.get("error"):
+                    observation.outcome, observation.terminal_reason = "error", "tool_error"
+                messages[message_index]["content"] = json.dumps(
+                    result,
+                    ensure_ascii=False,
+                    default=str,
                 )
-                needs_confirmation = needs_confirmation or bool(
-                    result_dict.get("pending")
-                )
-                tool_content = json.dumps(result, ensure_ascii=False, default=str)
-                tool_call_id = str(tc.get("id") or "")
                 if result_dict.get("pending") and result_dict.get("confirm_token"):
                     from app.ai.pve_log.ssh_exec import bind_pending_tool_call
 
@@ -1410,39 +1156,330 @@ async def chat(
                     )
                 tools_called.append(
                     ToolCallRecord(
-                        name=func_name,
+                        name="ssh_exec",
                         args=func_args,
                         result=result_dict,
                         tool_call_id=tool_call_id,
                     )
                 )
-            except Exception as exc:
-                logger.error("工具 %s 執行失敗：%s", func_name, exc)
-                tool_content = json.dumps({"error": str(exc)}, ensure_ascii=False)
-                tool_call_id = str(tc.get("id") or "")
-                tools_called.append(
-                    ToolCallRecord(
-                        name=func_name,
-                        args=func_args,
-                        result={"error": str(exc)},
-                        tool_call_id=tool_call_id,
+                if result_dict.get("pending"):
+                    observation.terminal_reason = "needs_confirmation"
+                    return ChatResponse(
+                        reply=t("pveLog.confirmationNextPending"),
+                        tools_called=tools_called,
+                        needs_confirmation=True,
+                        messages=messages,
                     )
+        _tool_context: PveToolContext | None = None
+        completion_tokens_used = 0
+
+        for tool_round in range(_MAX_TOOL_ROUNDS + 1):
+            remaining_tokens = _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+            if remaining_tokens <= 0:
+                observation.outcome, observation.terminal_reason = "blocked", "token_budget"
+                return ChatResponse(
+                    reply=PVE_ADHERENCE_FALLBACK,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
+            max_tokens = min(settings.VLLM_CHAT_MAX_TOKENS, remaining_tokens)
+            payload = build_chat_payload(messages, max_tokens=max_tokens)
+            request_id = new_ai_request_id()
+            record_usage = functools.partial(
+                _record_chat_usage,
+                session=session,
+                requester_id=requester_id,
+                request_id=request_id,
+                started=time.perf_counter(),
+                started_at=datetime.now(timezone.utc),
+            )
+            try:
+                with observation.phase("model", request_id=request_id):
+                    data = await vllm_client.create_chat_completion(
+                        payload,
+                        profile=VLLMRequestProfile.COMPLEX_AGENT,
+                        timeout=float(settings.VLLM_TIMEOUT),
+                        request_id=request_id,
+                    )
+            except httpx.HTTPStatusError as exc:
+                observation.terminal_reason = "upstream_http_error"
+                record_usage(
+                    {},
+                    status="error",
+                    error_message=f"upstream_http_{exc.response.status_code}",
+                )
+                logger.error(
+                    "vLLM 請求失敗（%d）：%s", exc.response.status_code, exc.response.text
+                )
+                return ChatResponse(
+                    reply="",
+                    tools_called=tools_called,
+                    messages=messages,
+                    error=t("pveLog.llmHttpError", status=exc.response.status_code),
+                )
+            except Exception as exc:
+                observation.terminal_reason = "model_timeout" if isinstance(exc, httpx.TimeoutException) else "model_error"
+                record_usage({}, status="error", error_message=str(exc))
+                logger.error("vLLM 連線失敗：%s", exc)
+                return ChatResponse(
+                    reply="",
+                    tools_called=tools_called,
+                    messages=messages,
+                    error=t("pveLog.llmConnectionFailed", error=exc),
                 )
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": tool_content,
-                }
-            )
+            choices = data.get("choices") or []
+            if not choices:
+                observation.outcome, observation.terminal_reason = "error", "empty_choices"
+                record_usage(data, status="error", error_message="empty_choices")
+                logger.error("vLLM agent step %d 回應 choices 為空：%s", tool_round, data)
+                return ChatResponse(
+                    reply="",
+                    tools_called=tools_called,
+                    messages=messages,
+                    error=t("pveLog.llmEmptyResponse"),
+                )
 
-        if needs_confirmation:
-            return ChatResponse(
-                reply=t("pveLog.confirmationPending"),
-                tools_called=tools_called,
-                needs_confirmation=True,
+            record_usage(data)
+            completion_tokens_used += _completion_tokens_used(data, max_tokens)
+
+            if choices[0].get("finish_reason") == "length":
+                observation.outcome, observation.terminal_reason = "blocked", "truncated"
+                return ChatResponse(
+                    reply=PVE_ADHERENCE_FALLBACK,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
+            assistant_msg = _normalize_assistant_message(choices[0].get("message") or {})
+            reserved_tool_call_ids = {
+                str(item.get("id"))
+                for item in messages
+                if item.get("role") == "assistant"
+                for tool_call in item.get("tool_calls") or []
+                if isinstance(tool_call, dict) and tool_call.get("id")
+            }
+            assistant_msg = _canonicalize_model_tool_calls(
+                assistant_msg,
+                reserved_ids=reserved_tool_call_ids,
+            )
+            tool_calls = assistant_msg.get("tool_calls") or []
+            if not tool_calls:
+                reply = str(assistant_msg.get("content") or "")
+                if (
+                    _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+                    < ADHERENCE_MAX_TOKENS
+                ):
+                    observation.outcome, observation.terminal_reason = "blocked", "token_budget"
+                    return ChatResponse(
+                        reply=PVE_ADHERENCE_FALLBACK,
+                        tools_called=tools_called,
+                        messages=messages,
+                    )
+                adherence = await _check_pve_candidate(
+                    contract=PVE_FREE_TEXT_CONTRACT,
+                    messages=messages,
+                    candidate=reply,
+                    allowed_vmids=allowed_vmids,
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                    phase="respond",
+                    facts=_pve_tool_evidence(messages),
+                    session=session,
+                    requester_id=requester_id,
+                    observation=observation,
+                )
+                completion_tokens_used += adherence.completion_tokens
+                if not adherence.allowed:
+                    if adherence.reason_code == AdherenceReason.CHECK_FAILED:
+                        observation.outcome, observation.terminal_reason = "error", "adherence_failed"
+                    else:
+                        observation.outcome, observation.terminal_reason = "blocked", "adherence_block"
+                    return ChatResponse(
+                        reply=PVE_ADHERENCE_FALLBACK,
+                        tools_called=tools_called,
+                        messages=messages,
+                    )
+                messages.append(assistant_msg)
+                return ChatResponse(
+                    reply=reply,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
+
+            if tool_round >= _MAX_TOOL_ROUNDS:
+                # 不把這輪沒有 result 的 tool_calls 放進 history：回傳的 transcript
+                # 必須停在上一個完整的 tool round，否則下一個 user turn 會被
+                # history 驗證以「assistant tool-call 尚未完成」拒絕（422）。
+                observation.outcome, observation.terminal_reason = "error", "round_limit"
+                logger.error("AI 工具呼叫超過上限（%d 輪）", _MAX_TOOL_ROUNDS)
+                return ChatResponse(
+                    reply="",
+                    tools_called=tools_called,
+                    messages=messages,
+                    error=t("pveLog.tooManyToolRounds"),
+                )
+            needs_pve_tool = any(
+                tc.get("function", {}).get("name") != "ssh_exec" for tc in tool_calls
+            )
+            parsed_calls = [
+                (
+                    tc,
+                    str((tc.get("function") or {}).get("name") or ""),
+                    _parse_tool_arguments(
+                        (tc.get("function") or {}).get("arguments") or "{}"
+                    )
+                    or {},
+                )
+                for tc in tool_calls
+            ]
+
+            if (
+                _MAX_REQUEST_COMPLETION_TOKENS - completion_tokens_used
+                < ADHERENCE_MAX_TOKENS
+            ):
+                observation.outcome, observation.terminal_reason = "blocked", "token_budget"
+                return ChatResponse(
+                    reply=PVE_ADHERENCE_FALLBACK,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
+            adherence = await _check_pve_candidate(
+                contract=PVE_ACTION_CONTRACT,
                 messages=messages,
+                candidate=[
+                    {"tool": func_name, "arguments": func_args}
+                    for _tc, func_name, func_args in parsed_calls
+                ],
+                allowed_vmids=allowed_vmids,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                phase="act",
+                facts={
+                    "completed_tools": [
+                        item["name"] for item in _pve_tool_evidence(messages)
+                    ]
+                },
+                session=session,
+                requester_id=requester_id,
+                observation=observation,
             )
+            completion_tokens_used += adherence.completion_tokens
+            if not adherence.allowed:
+                if adherence.reason_code == AdherenceReason.CHECK_FAILED:
+                    observation.outcome, observation.terminal_reason = "error", "adherence_failed"
+                else:
+                    observation.outcome, observation.terminal_reason = "blocked", "adherence_block"
+                return ChatResponse(
+                    reply=PVE_ADHERENCE_FALLBACK,
+                    tools_called=tools_called,
+                    messages=messages,
+                )
+            if needs_pve_tool and _tool_context is None:
+                # Context 只在通過語意檢查後建立；真正的 network I/O 在
+                # _execute_tool_sync 的 worker thread 內執行。
+                _tool_context = PveToolContext()
+            messages.append(assistant_msg)
 
-    raise AssertionError("unreachable")
+            # 同一輪只讓第一個 ssh_exec 進入 pending，之後的 ssh_exec 寫成
+            # deferred，待使用者確認後由下一次 chat() 接續。
+            needs_confirmation = False
+            for tc, func_name, func_args in parsed_calls:
+                logger.info(
+                    "執行工具（agent step %d）%s，參數：%s",
+                    tool_round,
+                    func_name,
+                    func_args,
+                )
+
+                try:
+                    with observation.phase("tool"):
+                        if func_name == "ssh_exec" and needs_confirmation:
+                            result = _deferred_ssh_result(func_args)
+                        elif func_name == "ssh_exec":
+                            result = await _execute_ssh_tool(
+                                func_args,
+                                session=session,
+                                allowed_vmids=allowed_vmids,
+                                requester_id=requester_id,
+                                scope_type=scope_type,
+                                scope_id=scope_id,
+                            )
+                        elif func_name == "get_guest_diagnostic_summary":
+                            result = await _execute_guest_diagnostics_tool(
+                                func_args,
+                                context=_tool_context,
+                                session=session,
+                                allowed_vmids=allowed_vmids,
+                            )
+                        else:
+                            if _tool_context is None:
+                                raise RuntimeError("PVE tool context 尚未建立")
+                            result = await asyncio.to_thread(
+                                _execute_tool_sync,
+                                _tool_context,
+                                func_name,
+                                func_args,
+                                allowed_vmids=allowed_vmids,
+                            )
+                        if func_name != "ssh_exec":
+                            result = compact_tool_result(result)
+                        result_dict = (
+                            result
+                            if isinstance(result, dict)
+                            else {"items": result}
+                            if isinstance(result, list)
+                            else {}
+                        )
+                        if result_dict.get("error"):
+                            observation.outcome, observation.terminal_reason = "error", "tool_error"
+                        needs_confirmation = needs_confirmation or bool(
+                            result_dict.get("pending")
+                        )
+                        tool_content = json.dumps(result, ensure_ascii=False, default=str)
+                        tool_call_id = str(tc.get("id") or "")
+                        if result_dict.get("pending") and result_dict.get("confirm_token"):
+                            from app.ai.pve_log.ssh_exec import bind_pending_tool_call
+
+                            bind_pending_tool_call(
+                                str(result_dict["confirm_token"]),
+                                tool_call_id,
+                            )
+                        tools_called.append(
+                            ToolCallRecord(
+                                name=func_name,
+                                args=func_args,
+                                result=result_dict,
+                                tool_call_id=tool_call_id,
+                            )
+                        )
+                except Exception as exc:
+                    logger.error("工具 %s 執行失敗：%s", func_name, exc)
+                    tool_content = json.dumps({"error": str(exc)}, ensure_ascii=False)
+                    tool_call_id = str(tc.get("id") or "")
+                    tools_called.append(
+                        ToolCallRecord(
+                            name=func_name,
+                            args=func_args,
+                            result={"error": str(exc)},
+                            tool_call_id=tool_call_id,
+                        )
+                    )
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": tool_content,
+                    }
+                )
+
+            if needs_confirmation:
+                observation.terminal_reason = "needs_confirmation"
+                return ChatResponse(
+                    reply=t("pveLog.confirmationPending"),
+                    tools_called=tools_called,
+                    needs_confirmation=True,
+                    messages=messages,
+                )
+
+        raise AssertionError("unreachable")

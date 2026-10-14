@@ -81,6 +81,10 @@ jobs:
 
       - name: Smoke test every public AI model
         id: ai_api_smoke
+        # Model readiness is observed after deployment. A failed model check
+        # must be visible as a warning without turning an otherwise completed
+        # deployment into a failed deploy job.
+        continue-on-error: true
         # Use the normal request/review flow to create a temporary, dedicated
         # ccai_* smoke credential after cleaning up previous runs. The optional variable
         # is the Campus API root ending in /api/v1; otherwise use the published
@@ -108,7 +112,7 @@ jobs:
           cleanup_smoke_files
           container_smoke_dir=""
           if [[ ! "$AI_API_SMOKE_KEY" =~ ^ccai_[A-Za-z0-9_-]+$ ]]; then
-            echo "::error::Unable to create or recover the deployment smoke credential."
+            echo "::warning::Unable to create or recover the deployment smoke credential; deployment remains active."
             exit 1
           fi
           echo "::add-mask::$AI_API_SMOKE_KEY"
@@ -125,6 +129,11 @@ jobs:
             export AI_API_PUBLIC_BASE_URL="http://127.0.0.1:${backend_port}/api/v1"
           fi
           bash scripts/verify-ai-api-cutover.sh
+
+      - name: Warn about public AI model smoke failures
+        if: ${{ steps.ai_api_smoke.outcome == 'failure' }}
+        run: |
+          echo "::warning title=Public AI model smoke test::One or more public AI models failed smoke validation; deployment remains active. Review the smoke output above."
 
       - name: Delete deployment smoke credentials
         if: ${{ always() && steps.ai_api_smoke.outcome != 'skipped' }}

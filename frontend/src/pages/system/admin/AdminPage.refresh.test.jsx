@@ -8,14 +8,21 @@ import AdminPage from "./AdminPage";
 const mocks = vi.hoisted(() => ({
   listAll: vi.fn(),
   deleteUser: vi.fn(),
+  getRegistrationPolicy: vi.fn(),
+  listPendingRegistrations: vi.fn(),
   confirm: vi.fn(),
-  autoRefresh: null,
+  autoRefreshes: [],
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("../../../services/users", () => ({
-  UsersService: { listAll: mocks.listAll, delete: mocks.deleteUser },
+  UsersService: {
+    listAll: mocks.listAll,
+    delete: mocks.deleteUser,
+    getRegistrationPolicy: mocks.getRegistrationPolicy,
+    listPendingRegistrations: mocks.listPendingRegistrations,
+  },
 }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
@@ -23,7 +30,17 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "me" } }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: (refresh) => { mocks.autoRefresh = refresh; } }));
+/* 頁面掛了不只一個自動更新（使用者清單、註冊設定）：依呼叫位置各記一格，每次 render 換成最新的 callback */
+vi.mock("../../../hooks/useAutoRefresh", async () => {
+  const { useRef } = await import("react");
+  return {
+    default: (refresh) => {
+      const slot = useRef(null);
+      if (slot.current === null) slot.current = mocks.autoRefreshes.length;
+      mocks.autoRefreshes[slot.current] = refresh;
+    },
+  };
+});
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
@@ -35,6 +52,11 @@ async function flush() {
   await act(async () => {
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
+}
+
+/* 自動更新的一次 tick：頁面上所有的自動更新一起觸發 */
+function autoRefresh() {
+  return Promise.all(mocks.autoRefreshes.map((refresh) => refresh()));
 }
 
 function deferred() {
@@ -50,7 +72,9 @@ const user = (id) => ({
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.autoRefresh = null;
+  mocks.autoRefreshes = [];
+  mocks.getRegistrationPolicy.mockResolvedValue({ signup_enabled: true, approval_required: false });
+  mocks.listPendingRegistrations.mockResolvedValue({ data: [] });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement("div");
   document.body.append(host);
@@ -77,8 +101,8 @@ describe("AdminPage user list refresh", () => {
 
     let first;
     let second;
-    act(() => { first = mocks.autoRefresh(); });
-    act(() => { second = mocks.autoRefresh(); });
+    act(() => { first = autoRefresh(); });
+    act(() => { second = autoRefresh(); });
     await act(async () => { newer.resolve([user("a")]); await second; });
     await act(async () => { older.resolve([user("a"), user("b")]); await first; });
     await flush();
@@ -99,7 +123,7 @@ describe("AdminPage user list refresh", () => {
     await flush();
 
     let refresh;
-    act(() => { refresh = mocks.autoRefresh(); });
+    act(() => { refresh = autoRefresh(); });
 
     const rowB = [...host.querySelectorAll("button[title='AdminPage.deleteTitle']")]
       .find((button) => button.closest("div").parentElement.textContent.includes("user-b"));
@@ -124,7 +148,7 @@ describe("AdminPage user list refresh", () => {
     expect(host.querySelector('[data-testid="loading"]')).toBeTruthy();
 
     let refresh;
-    act(() => { refresh = mocks.autoRefresh(); });
+    act(() => { refresh = autoRefresh(); });
     await act(async () => { background.reject(new Error("list failed")); await refresh; });
     await flush();
 

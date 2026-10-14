@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 from datetime import datetime, timezone
 from time import perf_counter
@@ -51,6 +50,7 @@ from app.ai.utils import (
 )
 from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_user
+from app.core.db import engine
 from app.core.i18n import t
 from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.template_recommendation import client
@@ -123,12 +123,8 @@ async def _record_adherence_call(
 
 
 async def _record_template_call(**kwargs: Any) -> None:
-    """在 worker thread 記錄 template 呼叫（DB 寫入不可卡住 event loop）。
-
-    走 record_ai_template_call 才會同時更新 Prometheus 指標；它本身會吞掉記錄
-    錯誤，記錄失敗不會掩蓋原始結果或錯誤。
-    """
-    await asyncio.to_thread(functools.partial(record_ai_template_call, **kwargs))
+    """Submit scalar usage to the bounded writer without using the request Session."""
+    record_ai_template_call(**kwargs)
 
 
 async def _record_failed_template_call(
@@ -187,10 +183,12 @@ async def chat(
 
     # 同步的 PVE／DB 呼叫一律丟到 worker thread：async 路由直接呼叫會在 PVE 慢或
     # 連線池耗盡時凍住整個 event loop（VNC／終端機／教室 WS 一起卡住）。
-    # session 同一時間只交給一個 thread 依序使用，是安全的。
-    gpu_options = await asyncio.to_thread(
-        options_service.resolve_chat_gpu_options, request, session
-    )
+    # 預約查詢使用短 Session；模型等待及 request 取消均不共用它。
+    def load_gpu_options() -> list[dict[str, Any]]:
+        with Session(engine) as options_session:
+            return options_service.resolve_chat_gpu_options(request, options_session)
+
+    gpu_options = await asyncio.to_thread(load_gpu_options)
     payload = build_chat_payload(
         request, gpu_options=gpu_options, model_name=model_name
     )
@@ -293,9 +291,6 @@ async def recommend(
     # Keep recommendation to one model round-trip. The planner receives recent
     # conversation verbatim and resolves final intent there.
     extracted_intent = infer_intent_from_chat(request)
-    live_nodes_task = asyncio.create_task(
-        options_service.get_live_device_nodes_safely()
-    )
     form_context = request.form_context
     # 同步 PVE／DB 呼叫丟到 worker thread，理由同 chat
     gpu_options = await asyncio.to_thread(
@@ -318,13 +313,17 @@ async def recommend(
     # 表單快照過大屬於客戶端錯誤：在記錄用量的 try 之前就擋掉（與 /chat 一致）
     ensure_recommendation_form_context_within_limits(merged_request)
 
-    resource_options = await asyncio.to_thread(
-        options_service.resolve_resource_options,
-        request,
-        gpu_options,
-        session,
-        current_user,
-    )
+    def load_options() -> dict[str, Any]:
+        with Session(engine) as options_session:
+            return options_service.resolve_resource_options(
+                request,
+                gpu_options,
+                options_session,
+                current_user,
+            )
+
+    resource_options = await asyncio.to_thread(load_options)
+    live_nodes_task = asyncio.create_task(options_service.get_live_device_nodes_safely())
 
     try:
         ai_result, ai_metrics = await generate_ai_plan(
@@ -444,6 +443,9 @@ async def recommend(
         )
         _raise_if_upstream_error(exc)
         raise
+    finally:
+        live_nodes_task.cancel()
+        await asyncio.gather(live_nodes_task, return_exceptions=True)
 
 
 @router.get("/usage/my", summary="查看我的 Template 使用統計")

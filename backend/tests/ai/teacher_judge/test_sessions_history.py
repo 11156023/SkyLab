@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.ai.teacher_judge import attachment_service, session_service
@@ -474,7 +475,9 @@ def test_schedule_summary_uses_stable_task_id_without_waiting_for_model(
 async def test_summary_worker_uses_fresh_session_for_model_and_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    worker_engine = create_engine("sqlite:///:memory:")
+    worker_engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(worker_engine)
     monkeypatch.setattr(session_service, "engine", worker_engine)
     with Session(worker_engine) as db:
@@ -634,7 +637,9 @@ def test_summary_runs_only_on_tenth_completed_turn(
 async def test_summary_failure_preserves_previous_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    worker_engine = create_engine("sqlite:///:memory:")
+    worker_engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(worker_engine)
     monkeypatch.setattr(session_service, "engine", worker_engine)
     with Session(worker_engine) as db:

@@ -53,6 +53,10 @@ class User(UserBase, table=True):
             "deleted_at IS NULL OR is_active = false",
             name="ck_user_deleted_inactive",
         ),
+        sa.CheckConstraint(
+            "registration_status IN ('approved', 'pending_email', 'pending_review', 'rejected')",
+            name="ck_user_registration_status",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -60,6 +64,7 @@ class User(UserBase, table=True):
     # 帳號來源："local"（本地密碼）| "google" | "ldap"（LDAP 管理密碼）。
     # 舊帳號一律 local；LDAP 登入成功時會將 LDAP 設為權威來源。
     auth_source: str = Field(default="local", max_length=20)
+    registration_status: str = Field(default="approved", max_length=20)
     token_version: int = Field(default=0, description="令牌版本，修改密碼時遞增以失效舊令牌")
     deleted_at: datetime | None = Field(
         default=None, sa_type=sa.DateTime(timezone=True)

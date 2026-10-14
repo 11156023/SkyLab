@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
+from app.ai import monitoring as ai_monitoring
 from app.ai.pve_log import chat as pve_chat_module
 from app.ai.teacher_judge.schemas import TeacherJudgeSessionMessageCreateRequest
 from app.api.routes import classroom as classroom_routes
@@ -25,6 +26,7 @@ from app.exceptions import NotFoundError
 from app.models.teacher_judge_session import TeacherJudgeSession
 from app.services.classroom import classroom_service
 from app.services.classroom.vnc_session_manager import ClassroomSession, SessionMode
+from app.services.llm_gateway.usage_writer import UsageWriter
 from tests.ai.teacher_judge.helpers import make_session
 
 
@@ -307,8 +309,13 @@ async def test_pve_chat_usage_is_recorded_off_the_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     threads = _Threads()
+    writer = UsageWriter()
+    # 呼叫端的 DB session；這條路徑只拿它判斷要不要記錄用量，寫入要另開 session
+    caller_session = SimpleNamespace()
+    write_sessions: list[Any] = []
 
-    def record(**kwargs: Any) -> None:
+    def write_usage_row(*, session: Any, **kwargs: Any) -> None:
+        write_sessions.append(session)
         threads.mark(kwargs["call_type"])
 
     class FakeClient:
@@ -323,7 +330,10 @@ async def test_pve_chat_usage_is_recorded_off_the_loop(
                 ],
             }
 
-    monkeypatch.setattr(pve_chat_module, "record_ai_template_call", record)
+    monkeypatch.setattr(
+        ai_monitoring.ai_gateway_service, "record_template_call", write_usage_row
+    )
+    monkeypatch.setattr(ai_monitoring, "get_usage_writer", lambda: writer)
     monkeypatch.setattr(pve_chat_module, "vllm_client", FakeClient())
     monkeypatch.setattr(
         pve_chat_module,
@@ -337,7 +347,12 @@ async def test_pve_chat_usage_is_recorded_off_the_loop(
         ),
     )
 
-    await pve_chat_module.chat(message="列出節點")
+    await pve_chat_module.chat(
+        message="列出節點", session=caller_session, requester_id=uuid.uuid4()
+    )
+    # 用量交給背景 writer 寫：等它寫完再檢查
+    await writer.close()
 
     assert threads.off_loop("pve_chat")
     assert threads.off_loop("pve_chat_adherence")
+    assert write_sessions and all(item is not caller_session for item in write_sessions)

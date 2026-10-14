@@ -16,14 +16,12 @@
 import { useEffect, useRef, useState } from "react";
 import { AuthStorage } from "../services/auth";
 import { wsBaseUrl } from "../utils/wsUrl";
+import { connectReconnectingWebSocket } from "../utils/reconnectingWebSocket";
 
 /* 相容舊的匯入路徑；新程式請直接從 utils/wsUrl 匯入 */
 export { wsBaseUrl };
 
 /** 重連退避：起始 5 秒、上限 60 秒 */
-const RECONNECT_BASE_MS = 5_000;
-const RECONNECT_MAX_MS = 60_000;
-
 export function useClassroomSocket(onEvent, { enabled = true } = {}) {
   const handlerRef = useRef(onEvent);
   handlerRef.current = onEvent;
@@ -32,75 +30,19 @@ export function useClassroomSocket(onEvent, { enabled = true } = {}) {
   useEffect(() => {
     if (!enabled) return undefined;
 
-    let ws = null;
-    let stopped = false;
-    let reconnectTimer = null;
-    /* 退避：第一次 5 秒，之後每次加倍到 60 秒封頂；連上就歸零 */
-    let retryDelay = RECONNECT_BASE_MS;
-
-    const schedule = () => {
-      if (stopped || reconnectTimer !== null) return;
-      const delay = retryDelay;
-      retryDelay = Math.min(retryDelay * 2, RECONNECT_MAX_MS);
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = null;
-        open();
-      }, delay);
-    };
-
-    const open = () => {
-      if (stopped) return;
-      /* 每次連線都讀最新 token：1008 被拒後 refresh 可能已換上新 token */
-      const token = AuthStorage.getAccessToken() || "";
-      if (!token) {
-        schedule();
-        return;
-      }
-      const url = `${wsBaseUrl()}/ws/classroom?token=${encodeURIComponent(token)}`;
-      try {
-        ws = new WebSocket(url);
-      } catch {
-        schedule();
-        return;
-      }
-      ws.onopen = () => {
-        retryDelay = RECONNECT_BASE_MS;
-        setConnected(true);
-      };
-      ws.onmessage = (evt) => {
-        try {
-          handlerRef.current(JSON.parse(evt.data));
-        } catch {
-          // 忽略非 JSON frame
-        }
-      };
-      ws.onclose = () => {
-        setConnected(false);
-        ws = null;
-        schedule();
-      };
-      ws.onerror = () => {
-        ws?.close();
-      };
-    };
-
-    open();
-
-    return () => {
-      stopped = true;
-      if (reconnectTimer !== null) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      if (ws) {
-        try {
-          ws.close();
-        } catch {
-          // noop
-        }
-        ws = null;
-      }
-    };
+    setConnected(false);
+    return connectReconnectingWebSocket(() => {
+      const token = AuthStorage.getAccessToken();
+      return token ? `${wsBaseUrl()}/ws/classroom?token=${encodeURIComponent(token)}` : null;
+    }, {
+      onOpen: () => setConnected(true),
+      onClose: () => setConnected(false),
+      onMessage: (event) => {
+        try { handlerRef.current(JSON.parse(event.data)); } catch { /* Ignore invalid JSON. */ }
+      },
+      /* 1008 被拒後 refresh 可能已換上新 token，照退避重連並重新讀 token */
+      retryPolicyClose: true,
+    });
   }, [enabled]);
 
   return { connected };

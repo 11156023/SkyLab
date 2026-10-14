@@ -237,7 +237,11 @@ def test_mining_alert_carries_vm_connection(monkeypatch: pytest.MonkeyPatch) -> 
 # ─── migration：只回填開啟中的告警 ─────────────────────────────────────
 
 
-def test_migration_backfills_open_alerts_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_migration_backfills_open_alerts_only(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 直接在真的 PostgreSQL 上跑 migration（交易最後 rollback）：明確宣告 guarded
+    # db fixture，DB guard 才不會把它當成純單元測試擋掉
     suffix = uuid.uuid4().hex[:8]
     vmid = 900_000 + int(suffix[:4], 16)
     with pg_engine.connect() as connection:

@@ -448,6 +448,21 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 > `resize`**。特殊情況（真的需要讓使用者拖高的長文編輯區）才在該頁明確寫回
 > `resize: vertical`，讓例外看得見。
 
+### 開關（Switch）與勾選框
+
+「立刻生效」的啟用／停用**一律用共用的 `Switch`**（`components/Switch/Switch`），不要再用開關圖示按鈕（`toggle_on` / `toggle_off`）或勾選框代替：
+
+```jsx
+<Switch checked={rule.enable !== 0} onChange={(next) => toggle(rule, next)} disabled={busy} ariaLabel={t("…enableSwitch")} title={t("…enableSwitch")} />
+```
+
+- **分工**：一切換就送出 → `Switch`；要按「儲存」才生效的表單欄位 → 勾選框（`.checkRow`）。看到開關就知道會立刻生效，兩者別混用
+- 外觀：36×20 膠囊軌道＋16px 白色圓鈕，開＝`--color-primary`、關＝灰，是一個 `button role="switch"`
+- 表格、清單列裡**只放開關本體，不寫「啟用」字樣**（欄名或列內容已交代控制什麼），改用 `ariaLabel`＋`title`；真的需要可見文字才給 `label`，寫「控制什麼」、不隨狀態改字
+- 目前狀態由軌道位置與顏色表達；列表上停用的那一列，**狀態徽章直接換成紅色「停用」**（例如防火牆規則的「允許」換成「停用」），不另外並排「已停用」徽章
+- 停用的那一列只淡化內容，**開關所在的操作欄不淡化**，才看得出能再打開
+- 目前用在：資源詳情進階設定的防火牆規則、防火牆頁規則面板、PVE 管理的節點列表
+
 ### 表格（Table）
 
 列表頁表格一律使用 `_mixins.scss` 的表格 mixin 組，**不要在頁面內重抄整組樣式**：
@@ -500,6 +515,43 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 
 `MIcon` 一律 `aria-hidden`，螢幕閱讀器讀不到。若圖示編碼的資訊
 就寫在緊鄰的文字裡（型別、分類），它只是版面慣性，拿掉讓文字說話即可。
+
+### 清單工具列與批量操作（DataToolbar）
+
+清單或表格上方的「篩選＋搜尋」與「勾選後的批量操作」**一律用 `components/DataToolbar` 這一組**，不要在頁面裡另做浮動操作列或自己的勾選框：
+
+```jsx
+const selection = useRowSelection(shown.filter(canSelect).map((r) => r.id)); // 依畫面順序
+const selected = shown.filter((r) => selection.isSelected(r.id));
+
+<DataToolbar
+  selecting={selected.length > 0}
+  batch={(
+    <BatchBar countLabel={t("…selectedCount", { count: selected.length })} onClear={selection.clear} progress={progress}>
+      <BatchAction icon="block" label={t("…disable")} onClick={…} />
+      <BatchDivider />
+      <BatchAction icon="delete" label={t("…delete")} danger onClick={…} />
+    </BatchBar>
+  )}
+>
+  <SegmentedControl … />
+  <ToolbarSearch value={query} onChange={setQuery} placeholder={t("…searchPlaceholder")} />
+</DataToolbar>
+
+<SelectCheckbox checked={selection.isSelected(r.id)} onToggle={(shift) => selection.toggle(r.id, shift)} ariaLabel={…} />
+```
+
+- **工具列一直都在**：平常沒有底色，放狀態切換與搜尋，控制項對齊清單左右緣；有勾選時**原地換成批量列**（淡主色底的浮起卡片，黏在頂端）。至少 56px 高，篩選在窄螢幕排成兩行時批量列沿用同一個高度——切換時清單不會跳
+- **全選**：表格放在表頭第一欄（`SelectCheckbox cell`）；沒有表頭的清單（使用者、申請、班級卡片）傳 `BatchBar` 的 `selectAll`，放在「已選 N」前面
+- **勾選框**：整格或四周都是點擊範圍；列本身可點時，列的 `onClick` 要略過 `label`。Shift＋點連選一段、Esc 清除選取、只勾一部分時全選框顯示「部分」
+- **勾選狀態下整列都能點**：已勾了至少一筆後，點整列也是勾選（`onClick={(e) => selection.rowClick(id, e)}`，回傳 `true` 就不要再開詳情）；列裡其他按鈕、連結照舊。原本點了會進詳情的列（表格列、審核列、班級票券）在勾選狀態下改成勾選，取消全部勾選後恢復
+- **只勾得到看得見的**：`useRowSelection` 只認傳進去的那些 id；換篩選、翻頁、刷新後消失的自動取消勾選，免得切回來才發現它還勾著、被一起操作
+- **動作**：只送給適用的那幾筆（停用只送啟用中的…），全都不適用就停用按鈕，`title` 說明會略過幾筆；送出時 `progress` 讓整條換成「正在…  3 / 10」；做完靜默刷新，成功的取消勾選、**失敗的保留勾選**（`selection.replace`）可以直接再試
+- **回不去的動作**（刪除、移除、封存、拒絕）用 `danger`，放在 `BatchDivider` 後面的最右邊，先確認並列出名稱（最多 5 個，其餘「等 N」）
+- 沒有後端批量 API 時用 `utils/runBatch` 逐筆呼叫單筆 API（預設同時 4 筆，一筆失敗不影響其他筆）
+- 勾選中的列底色用 `@include row-selected;`（自己就是卡片的清單列傳 `var(--color-surface)`）
+- **加了勾選欄要重算寬度**：清單列用 grid 時，一行排完或分兩行要看**容器寬度**（`container-type: inline-size`＋`@container`），不要看視窗——側邊欄出現（≥1024）後內容比 992 時還窄，用視窗切會在 1024～1180 之間撐出橫向捲動
+- 目前用在：資源管理、使用者管理（批量停用／啟用）、申請審核（批量拒絕）、班級管理（批量封存並回收）、班級工作區學生名單（批量移除）
 
 ### Dropdown 選單
 

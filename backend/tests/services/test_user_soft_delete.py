@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select, update
 
-from app.api.deps import auth
+from app.api.deps import ai_api_key, auth
 from app.api.deps.ai_api_key import get_current_user_by_ai_api_key
 from app.api.deps.database import get_db
 from app.api.routes import ai_proxy, users
@@ -222,6 +222,8 @@ def test_deleted_account_cannot_be_reactivated_or_registered_again(
         db.commit()
     db.rollback()
     monkeypatch.setattr(user_service.settings, "ENABLE_SIGNUP", True)
+    monkeypatch.setattr(user_service.settings, "SMTP_HOST", "smtp.example.test")
+    monkeypatch.setattr(user_service.settings, "EMAILS_FROM_EMAIL", "noreply@example.test")
     with pytest.raises(ConflictError):
         user_service.register_user(
             session=db, user_in=UserRegister(email=email, password="StrongPassword123!")
@@ -399,6 +401,9 @@ def test_http_auth_rejects_old_access_token_and_ai_key_after_self_delete(db: Ses
     app.include_router(ai_proxy.router, prefix="/api/v1")
     app.exception_handlers.update(campus_app.exception_handlers)
     app.dependency_overrides[get_db] = lambda: db
+    # Public AI auth now runs in the bounded DB worker and owns its Session;
+    # point that worker at this test's isolated SQLite engine as well.
+    monkeypatch.setattr(ai_api_key, "engine", db.get_bind())
 
     async def no_redis():
         return None

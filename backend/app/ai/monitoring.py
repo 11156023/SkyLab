@@ -2,25 +2,118 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from types import TracebackType
 from typing import Any
 
 from sqlmodel import Session
 
+from app.core import metrics as core_metrics
+from app.core.db import engine
+from app.core.request_context import get_request_context
 from app.services.llm_gateway import ai_gateway_service
+from app.services.llm_gateway.usage_writer import get_usage_writer
 from app.services.monitoring import ai_metrics
-
-logger = logging.getLogger(__name__)
 
 CALL_AI_NAVIGATION = "ai_nav"
 CALL_AI_CONTEXTUAL_HELP = "ai_help"
+logger = logging.getLogger(__name__)
 
 
 def new_ai_request_id() -> str:
     return str(uuid.uuid4())
+
+
+@dataclass
+class AIWorkflowObservation:
+    """One log summary per System AI workflow; model accounting stays per call."""
+
+    route: str
+    model: str
+    outcome: str = "success"
+    terminal_reason: str = "reply"
+    started: float = field(default_factory=lambda: time.perf_counter())
+    request_id: str = field(
+        default_factory=lambda: get_request_context().request_id or new_ai_request_id()
+    )
+    calls: dict[str, int] = field(
+        default_factory=lambda: {"model": 0, "adherence": 0, "tool": 0}
+    )
+    seconds: dict[str, float] = field(
+        default_factory=lambda: {"model": 0.0, "adherence": 0.0, "tool": 0.0}
+    )
+    call_request_ids: list[str] = field(default_factory=list)
+
+    def __enter__(self) -> AIWorkflowObservation:
+        return self
+
+    @contextmanager
+    def phase(self, stage: str, *, request_id: str | None = None) -> Iterator[None]:
+        self.calls[stage] += 1
+        if request_id is not None:
+            self.call_request_ids.append(request_id)
+        started = time.perf_counter()
+        try:
+            yield
+        except Exception:
+            self.outcome = "error"
+            self.terminal_reason = f"{stage}_error"
+            raise
+        finally:
+            self.seconds[stage] += max(0.0, time.perf_counter() - started)
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        if isinstance(exc, asyncio.CancelledError):
+            self.outcome, self.terminal_reason = "cancelled", "cancelled"
+        elif exc is not None:
+            self.outcome, self.terminal_reason = "error", "error"
+        try:
+            summary = {
+                "event": "ai_workflow_finished",
+                "workflow_request_id": self.request_id,
+                "route": self.route,
+                "source": "platform",
+                "model": ai_metrics.model_label(self.model, served=False),
+                "outcome": self.outcome,
+                "terminal_reason": self.terminal_reason,
+                "workflow_duration_ms": round(
+                    max(0.0, time.perf_counter() - self.started) * 1000, 3
+                ),
+                "call_request_ids": self.call_request_ids,
+                **{f"{stage}_calls": count for stage, count in self.calls.items()},
+                **{
+                    f"{stage}_ms": round(seconds * 1000, 3)
+                    for stage, seconds in self.seconds.items()
+                },
+            }
+        except Exception:
+            # Constructing observation data is also best-effort.
+            return
+        try:
+            core_metrics.AI_WORKFLOWS.labels(
+                route=self.route,
+                outcome=self.outcome,
+                terminal_reason=self.terminal_reason,
+            ).inc()
+        except Exception:
+            pass
+        try:
+            logger.info("AI workflow finished", extra=summary)
+        except Exception:
+            # Observation failure must never change the feature response.
+            pass
 
 
 def usage_metrics(
@@ -103,42 +196,28 @@ def record_ai_template_call(
     )
     if session is None or user_id is None:
         return
-    try:
-        ai_gateway_service.record_template_call(
-            session=session,
-            user_id=user_id,
-            call_type=call_type,
-            model_name=(model_name or "unknown")[:255],
-            preset=preset,
-            request_id=str((metrics or {}).get("request_id") or new_ai_request_id())[
-                :255
-            ],
-            input_tokens=_token_count(metrics or {}, "prompt_tokens"),
-            output_tokens=_token_count(metrics or {}, "completion_tokens"),
-            request_duration_ms=_duration_ms(metrics),
-            stream=bool((metrics or {}).get("stream", False)),
-            usage_reported=bool((metrics or {}).get("usage_reported", False)),
-            response_model=str((metrics or {}).get("response_model") or "")[:255]
-            or None,
-            status=status,
-            error_message=_truncate_error(error_message),
-            started_at=(metrics or {}).get("started_at"),
-            completed_at=(metrics or {}).get("completed_at"),
-        )
-    except Exception:
-        logger.warning(
-            "Failed to record AI template call usage: call_type=%s user_id=%s",
-            call_type,
-            user_id,
-            exc_info=True,
-        )
-        # commit 失敗會讓 session 停在必須 rollback 的狀態；不還原的話，呼叫端同一個
-        # request 後續的查詢與寫入（例如下一筆 adherence 用量）都會被 PendingRollbackError
-        # 連帶打壞，「盡力記錄」就變成把整個請求拖垮。
-        try:
-            session.rollback()
-        except Exception:
-            logger.error(
-                "Failed to roll back session after AI usage recording error",
-                exc_info=True,
-            )
+    # Snapshot all inputs before leaving the caller. Never capture its Session.
+    values = dict(metrics or {})
+    kwargs = {
+        "user_id": user_id,
+        "call_type": call_type,
+        "model_name": (model_name or "unknown")[:255],
+        "preset": preset,
+        "request_id": str(values.get("request_id") or new_ai_request_id())[:255],
+        "input_tokens": _token_count(values, "prompt_tokens"),
+        "output_tokens": _token_count(values, "completion_tokens"),
+        "request_duration_ms": _duration_ms(values),
+        "stream": bool(values.get("stream", False)),
+        "usage_reported": bool(values.get("usage_reported", False)),
+        "response_model": str(values.get("response_model") or "")[:255] or None,
+        "status": status,
+        "error_message": _truncate_error(error_message),
+        "started_at": values.get("started_at"),
+        "completed_at": values.get("completed_at"),
+    }
+
+    def write() -> None:
+        with Session(engine) as usage_session:
+            ai_gateway_service.record_template_call(session=usage_session, **kwargs)
+
+    get_usage_writer().submit(write, source="platform")

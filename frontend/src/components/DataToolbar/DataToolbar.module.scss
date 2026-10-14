@@ -1,0 +1,194 @@
+@use "../../assets/styles/variables" as *;
+@use "../../assets/styles/mixins" as *;
+
+/* ── 工具列：平常是篩選＋搜尋，勾選後原地換成批量列 ── */
+/* 一直都在、高度固定 56px（36px 按鈕＋上下內距＋框線放得下），切換內容時清單不會跳。
+   平常沒有底色，控制項直接對齊清單左右緣；框線留透明的，跟勾選時的框同寬 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  min-height: 56px;
+  padding: $spacing-8 0;
+  border: 1px solid transparent;
+  border-radius: $radius-12;
+  transition: background $transition-base, box-shadow $transition-base;
+
+  /* 分段切換（SegmentedControl 是 role="group"）在手機上放不下時自己橫向捲動，不撐出整頁 */
+  > [role="group"] {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+/* 勾選中：換上淡主色底的浮起卡片，並黏在頂端，往下捲時照樣按得到。
+   平常不黏：沒有底色的工具列浮在清單內容上會跟列文字疊在一起；
+   sticky 不影響排版，勾選時才切過去，清單也不會動 */
+.toolbarSelecting {
+  position: sticky;
+  /* 窄螢幕（側邊欄收起）頂端有 56px 的行動版標題列，黏在它下面，不被選單鈕蓋住 */
+  top: calc(56px + #{$spacing-8});
+  z-index: 20;
+  padding: $spacing-8 $spacing-8 $spacing-8 $spacing-16;
+  @include glass-surface($shadow: var(--shadow-md));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+
+  @media (min-width: $breakpoint-sidebar) {
+    top: $spacing-16;
+  }
+}
+
+/* ── 搜尋框：外框在 label（上下 1px），輸入框 34px，整體跟按鈕、分段切換同為 36px ── */
+.search {
+  display: flex;
+  flex: 0 1 300px;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 180px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  transition: border-color $transition-base;
+
+  &:focus-within {
+    border-color: var(--color-primary);
+  }
+
+  input {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    border: 0;
+    outline: 0;
+    color: var(--color-text);
+    background: transparent;
+    font: inherit;
+    font-size: $font-size-14;
+
+    &::placeholder {
+      color: var(--color-text-muted);
+    }
+  }
+}
+
+/* ── 批量列：數量與清除在左、動作靠右 ── */
+.batchBar {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.batchSpacer {
+  flex: 1;
+}
+
+.batchCount {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+/* 清除選取：數字旁的小 ×，不跟動作搶位置 */
+.batchClear {
+  @include flex-center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: $radius-8;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+}
+
+.batchDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+}
+
+.action {
+  @include btn-secondary;
+}
+
+/* 刪除、移除、封存這類回不去的動作：紅框款，放在分隔線後面的最右邊 */
+.actionDanger {
+  @include btn-danger-outline;
+}
+
+/* 執行中：整條換成「正在駁回… 3 / 10」＋進度條 */
+.batchProgress {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 36px;
+  padding-right: $spacing-8;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+.batchProgressTrack {
+  position: relative;
+  width: 140px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+
+  > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: inherit;
+    background: var(--color-primary);
+    transition: width $transition-base;
+  }
+}
+
+/* ── 勾選框：勾選框四周都算點擊範圍，點偏一點不會變成點進詳情 ── */
+.checkHit {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: -$spacing-8;
+  padding: $spacing-8;
+  cursor: pointer;
+}
+
+/* 表格儲存格：整格都是點擊範圍（抵銷 td 的上下 8、左右 16 內距） */
+.checkHitCell {
+  margin: (-$spacing-8) (-$spacing-16);
+  padding: $spacing-8 $spacing-16;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+}

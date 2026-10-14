@@ -30,6 +30,67 @@
   }
 }
 
+.registrationPanel {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  @include glass-surface($shadow: none);
+  border-radius: $radius-8;
+
+  h2 {
+    margin: 0;
+    font-size: $font-size-16;
+    color: var(--color-text-primary);
+  }
+}
+
+.registrationOption,
+.pendingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  > span {
+    @include flex-column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  strong {
+    font-size: $font-size-14;
+    color: var(--color-text-primary);
+  }
+
+  small {
+    font-size: $font-size-12;
+    color: var(--color-text-muted);
+  }
+}
+
+.registrationOption input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.pendingRow {
+  flex-wrap: wrap;
+  padding-top: $spacing-8;
+  border-top: 1px solid var(--color-border);
+
+  > div {
+    display: flex;
+    gap: $spacing-8;
+  }
+}
+
+.registrationEmpty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
 .summaryItem {
   @include flex-column;
   gap: 4px;
@@ -48,63 +109,30 @@
   }
 }
 
-.toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-16;
-
-  @include respond-to(md) {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-}
-
-.searchBox {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-height: 36px;
-  padding: 0 $spacing-16;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-muted);
-
-  @include respond-to(md) {
-    width: min(420px, 100%);
-  }
-
-  input {
-    width: 100%;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: var(--color-text-primary);
-    font-size: $font-size-14;
-  }
-}
-
 .content {
   flex: 1;
   @include flex-column;
 }
 
+/* 一行排完或分兩行，看的是清單本身有多寬（容器查詢）而不是視窗：
+   側邊欄出現（≥1024）後內容反而比 992 時窄，用視窗寬度切會在 1024～1180 之間撐出橫向捲動 */
 .list {
   @include flex-column;
   gap: $spacing-8;
+  container-type: inline-size;
 }
 
 /* 每一格都用具名區域明確擺放，不靠自動排版：
-   窄螢幕時頭像與操作鈕跨兩行置中，姓名信箱在上、角色狀態在下；
-   寬螢幕一行排完，角色／狀態／日期各自固定欄寬——每一列都是獨立的 grid，
-   只有固定寬度才能讓徽章在不同列之間對齊 */
+   窄時勾選框、頭像與操作鈕跨兩行置中，姓名信箱在上、角色狀態在下；
+   寬時一行排完，角色／狀態／日期各自固定欄寬——每一列都是獨立的 grid，
+   只有固定寬度才能讓徽章在不同列之間對齊。
+   一行排完的最小寬度：內距 32＋框 2＋勾選 16＋頭像 40＋姓名 220＋88＋64＋96＋操作 80＋間距 16×6 = 734 */
 .row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 16px 40px minmax(0, 1fr) auto;
   grid-template-areas:
-    "avatar main actions"
-    "avatar tags actions";
+    "check avatar main actions"
+    "check avatar tags actions";
   column-gap: $spacing-16;
   row-gap: $spacing-8;
   align-items: center;
@@ -112,11 +140,26 @@
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-8;
 
-  @include respond-to(lg) {
-    grid-template-columns: 40px minmax(220px, 1fr) 88px 64px 96px auto;
-    grid-template-areas: "avatar main role status date actions";
+  @container (min-width: 740px) {
+    grid-template-columns: 16px 40px minmax(220px, 1fr) 88px 64px 96px auto;
+    grid-template-areas: "check avatar main role status date actions";
     row-gap: 0;
   }
+}
+
+.rowSelected {
+  @include row-selected(var(--color-surface));
+}
+
+/* 勾選狀態下整列都能點來勾選 */
+.rowSelectMode {
+  cursor: pointer;
+  user-select: none;
+}
+
+.rowCheck {
+  grid-area: check;
+  display: flex;
 }
 
 .rowAvatar {
@@ -179,7 +222,7 @@
   gap: $spacing-8;
   min-width: 0;
 
-  @include respond-to(lg) {
+  @container (min-width: 740px) {
     display: contents;
 
     > .badge {
@@ -241,7 +284,7 @@
   font-size: $font-size-12;
   white-space: nowrap;
 
-  @include respond-to(lg) {
+  @container (min-width: 740px) {
     display: inline;
   }
 }
@@ -325,6 +368,7 @@
 }
 
 /* 編輯視窗的兩步驟驗證列：狀態文字靠左、重設按鈕靠右 */
+/* 玻璃卡（對話框）裡的資訊區塊一律白底細框，不透出底下的玻璃 */
 .totpRow {
   display: flex;
   align-items: center;
@@ -333,6 +377,7 @@
   padding: $spacing-8 $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
+  background: var(--color-surface);
 }
 
 .totpRowText {

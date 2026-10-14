@@ -57,49 +57,18 @@
   @include btn-danger-outline;
 }
 
-/* ── 批次操作列 ── */
-.batchBar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-  padding: $spacing-8 $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-12;
-
-  button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+/* ── 表格工具列（共用 DataToolbar）：跟下方表格的間距 ── */
+.toolbar {
+  margin-bottom: $spacing-16;
 }
 
-.batchCount {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-}
-
-.batchDivider {
-  width: 1px;
-  height: 16px;
-  background: var(--color-border);
-}
-
-/* ── 勾選欄 ── */
+/* ── 勾選欄（勾選框是共用 SelectCheckbox） ── */
 .checkCell {
   width: 36px;
 }
 
-.checkbox {
-  width: 15px;
-  height: 15px;
-  cursor: pointer;
-  accent-color: var(--color-primary);
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.4;
-  }
+.trSelected > td {
+  @include row-selected;
 }
 
 /* ── Content ── */

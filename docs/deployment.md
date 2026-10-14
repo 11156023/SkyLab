@@ -82,7 +82,15 @@ the file (rebuild the image when the file is baked into the image).
 
 The YAML owns effective thinking for every System AI call, including adherence:
 GPT-OSS uses `reasoning_effort=low`, while Gemma uses
-`chat_template_kwargs.enable_thinking=false`. Legacy `enable_thinking` settings
+`chat_template_kwargs.enable_thinking=false`. The `Qwen/Qwen3.8-27B` contract uses
+`thinking: low` with `thinking_parameter: chat_template_reasoning_effort`, mapping
+to `chat_template_kwargs={"enable_thinking": true, "reasoning_effort": "low"}`.
+The [official Qwen3.8 template](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/chat_template.jinja)
+supports `low`, `medium`, and `xhigh` (default); explicitly sending both controls
+prevents a disabled-thinking server default or the default `xhigh` effort from
+overriding the model contract. Other template kwargs, including any explicit
+`preserve_thinking`, are retained. Generation, token counting, and context retries
+use the same effective thinking settings. Legacy `enable_thinking` settings
 remain readable but do not override the model contract. Sampling, token budgets,
 timeouts and checker policy retain their existing backend settings; low reasoning
 does not guarantee that the unchanged 128-token checker budget is sufficient.

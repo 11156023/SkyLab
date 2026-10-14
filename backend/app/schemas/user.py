@@ -26,7 +26,6 @@ class UserRegister(BaseModel):
     """使用者自行註冊"""
 
     email: EmailStr = Field(max_length=255)
-    password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
 
@@ -59,6 +58,11 @@ class EmailChangeConfirm(BaseModel):
     token: str = Field(min_length=1, max_length=2048)
 
 
+class SignupConfirm(BaseModel):
+    token: str = Field(min_length=1, max_length=2048)
+    password: str = Field(min_length=8, max_length=128)
+
+
 class UpdatePassword(BaseModel):
     """更新密碼"""
 
@@ -85,6 +89,7 @@ class UserPublic(BaseModel):
     # 回應不重驗信箱格式：LDAP 帶進來的 alice@school.local 會被 EmailStr 拒絕而整支 500
     email: str
     is_active: bool
+    registration_status: str = "approved"
     role: UserRole
     is_superuser: bool  # 由 role 推導，保留給前端相容
     full_name: str | None = None

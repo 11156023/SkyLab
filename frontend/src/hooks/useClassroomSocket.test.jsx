@@ -40,6 +40,8 @@ function Harness({ onEvent }) {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // 共用重連 helper 的退避有隨機抖動（0.5～1 倍）；固定在上限才能精確比對延遲
+  vi.spyOn(Math, "random").mockReturnValue(1);
   FakeWebSocket.instances = [];
   tokenState.value = "token-1";
   originalWebSocket = globalThis.WebSocket;
@@ -54,6 +56,7 @@ afterEach(() => {
   host.remove();
   globalThis.WebSocket = originalWebSocket;
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 function tokenOf(socket) {

@@ -1,4 +1,4 @@
-﻿import uuid
+import uuid
 from html import unescape
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -56,7 +56,7 @@ def test_create_user_new_email(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
     with (
-        patch("app.utils.send_email", return_value=None),
+        patch("app.services.user.user_service.send_email", return_value=None),
         patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
         patch("app.core.config.settings.SMTP_USER", "admin@example.com"),
     ):
@@ -257,7 +257,9 @@ def test_email_change_requires_new_mailbox_verification(
     )
     db.commit()
     db.refresh(account)
-    headers = user_authentication_headers(client=client, email=old_email, password=password)
+    headers = user_authentication_headers(
+        client=client, email=old_email, password=password
+    )
     new_email = random_email()
     direct = client.patch(
         f"{settings.API_V1_STR}/users/me",
@@ -269,7 +271,10 @@ def test_email_change_requires_new_mailbox_verification(
 
     sent: list[dict[str, str]] = []
     with (
-        patch("app.services.user.user_service.send_email", side_effect=lambda **kw: sent.append(kw)),
+        patch(
+            "app.services.user.user_service.send_email",
+            side_effect=lambda **kw: sent.append(kw),
+        ),
         patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
         patch("app.core.config.settings.EMAILS_FROM_EMAIL", "sender@example.com"),
     ):
@@ -395,11 +400,22 @@ def test_register_user(client: TestClient, db: Session) -> None:
     avatar_url = "https://example.com/register-avatar.png"
     data = {
         "email": username,
-        "password": password,
         "full_name": full_name,
         "avatar_url": avatar_url,
     }
-    with patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True):
+    sent = []
+    with (
+        patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True),
+        patch("app.services.user.user_service.settings.SMTP_HOST", "smtp.example.test"),
+        patch(
+            "app.services.user.user_service.settings.EMAILS_FROM_EMAIL",
+            "noreply@example.test",
+        ),
+        patch(
+            "app.services.user.user_service.send_email",
+            side_effect=lambda **mail: sent.append(mail),
+        ),
+    ):
         r = client.post(
             f"{settings.API_V1_STR}/users/signup",
             json=data,
@@ -416,11 +432,23 @@ def test_register_user(client: TestClient, db: Session) -> None:
     assert user_db.email == username
     assert user_db.full_name == full_name
     assert user_db.avatar_url == avatar_url
-    verified, _ = verify_password(password, user_db.hashed_password)
-    assert verified
+    assert user_db.is_active is False
+    assert verify_password(password, user_db.hashed_password)[0] is False
+    link = unescape(sent[0]["html_content"].split('href="')[1].split('"')[0])
+    token = parse_qs(urlparse(link).fragment)["token"][0]
+    confirmed = client.post(
+        f"{settings.API_V1_STR}/users/signup/confirm",
+        json={"token": token, "password": password},
+    )
+    assert confirmed.status_code == 200
+    db.refresh(user_db)
+    assert user_db.is_active is True
+    assert verify_password(password, user_db.hashed_password)[0] is True
 
 
-def test_register_user_already_exists_error(client: TestClient) -> None:
+def test_register_user_already_exists_error(
+    client: TestClient, db: Session
+) -> None:
     password = random_password()
     full_name = random_lower_string()
     data = {
@@ -428,7 +456,11 @@ def test_register_user_already_exists_error(client: TestClient) -> None:
         "password": password,
         "full_name": full_name,
     }
-    with patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True):
+    with (
+        patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True),
+        patch("app.core.config.settings.SMTP_HOST", "smtp.example.test"),
+        patch("app.core.config.settings.EMAILS_FROM_EMAIL", "noreply@example.test"),
+    ):
         r = client.post(
             f"{settings.API_V1_STR}/users/signup",
             json=data,
@@ -437,7 +469,7 @@ def test_register_user_already_exists_error(client: TestClient) -> None:
     assert r.json()["detail"] == "此電子郵件已經有使用者存在於系統中。"
 
 
-def test_register_user_disabled(client: TestClient) -> None:
+def test_register_user_disabled(client: TestClient, db: Session) -> None:
     data = {
         "email": random_email(),
         "password": random_lower_string(),
@@ -676,13 +708,20 @@ _PREFLIGHT_CHECKS = [
     {
         "key": "database",
         "status": "ok",
-        "components": [{"label": "PostgreSQL", "status": "ok", "latency_ms": 1.0, "detail": None}],
+        "components": [
+            {"label": "PostgreSQL", "status": "ok", "latency_ms": 1.0, "detail": None}
+        ],
     },
     {
         "key": "pve",
         "status": "fail",
         "components": [
-            {"label": "Proxmox VE · lab", "status": "down", "latency_ms": None, "detail": "timeout"}
+            {
+                "label": "Proxmox VE · lab",
+                "status": "down",
+                "latency_ms": None,
+                "detail": "timeout",
+            }
         ],
     },
     {"key": "gateway", "status": "skipped", "components": []},

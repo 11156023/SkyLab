@@ -14,9 +14,16 @@ import { UsersService } from "../../../services/users";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import PasswordRules from "../../../components/PasswordRules/PasswordRules";
+import DataToolbar from "../../../components/DataToolbar/DataToolbar";
+import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
+import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
+import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
+import useRowSelection from "../../../hooks/useRowSelection";
 import Pagination from "../shared/Pagination";
 import { formatDate } from "../../../utils/formatDate";
+import { joinList } from "../../../utils/joinList";
 import { isPasswordStrong } from "../../../utils/passwordPolicy";
+import { runBatch } from "../../../utils/runBatch";
 
 const ROLE_ICONS = {
   student: "school",
@@ -25,6 +32,8 @@ const ROLE_ICONS = {
 };
 
 const PAGE_SIZE = 50;
+/* 批量確認框裡最多列出幾位的名字，其餘寫「等 N 位」 */
+const BATCH_NAME_PREVIEW = 5;
 
 function initialForm(user = null) {
   return {
@@ -201,7 +210,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
             type="checkbox"
             checked={form.is_active}
             onChange={(e) => setField("is_active", e.target.checked)}
-            disabled={isEdit && isSelf}
+            disabled={isEdit && (isSelf || user?.registration_status !== "approved")}
           />
           <span>{t("AdminPage.fieldActive")}</span>
         </label>
@@ -219,6 +228,9 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
       )}
       {isEdit && isSelf && (
         <em className={styles.fieldHint}>{t("AdminPage.selfEditLockedHint")}</em>
+      )}
+      {isEdit && user?.registration_status !== "approved" && (
+        <em className={styles.fieldHint}>{t("AdminPage.registrationActivationHint")}</em>
       )}
 
       {isEdit && (
@@ -246,7 +258,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
   );
 }
 
-function UserRow({ user, currentUserId, onEdit, onDelete }) {
+function UserRow({ user, currentUserId, selected = false, selecting = false, onToggleSelect, onRowClick, onEdit, onDelete }) {
   const { t } = useTranslation("system");
   const ROLE_META = {
     student: { label: t("AdminPage.roleStudent"), icon: ROLE_ICONS.student },
@@ -257,7 +269,21 @@ function UserRow({ user, currentUserId, onEdit, onDelete }) {
   const isSelf = user.id === currentUserId;
 
   return (
-    <div className={styles.row}>
+    /* 勾選狀態下點整列也是勾選（編輯、刪除鈕照舊） */
+    <div
+      className={`${styles.row} ${selected ? styles.rowSelected : ""} ${selecting && !isSelf ? styles.rowSelectMode : ""}`}
+      onClick={(event) => onRowClick?.(user.id, event)}
+    >
+      {/* 自己不能勾（不能停用自己），格子照留，頭像才對得齊 */}
+      <div className={styles.rowCheck}>
+        {!isSelf && (
+          <SelectCheckbox
+            checked={selected}
+            onToggle={(shiftKey) => onToggleSelect(user.id, shiftKey)}
+            ariaLabel={t("AdminPage.selectRowAria", { name: userDisplayName(user) })}
+          />
+        )}
+      </div>
       <div className={styles.rowAvatar}>{userDisplayName(user).slice(0, 1).toUpperCase()}</div>
       <div className={styles.rowMain}>
         <span className={styles.rowName}>
@@ -277,7 +303,13 @@ function UserRow({ user, currentUserId, onEdit, onDelete }) {
           {role.label}
         </span>
         <span className={`${styles.statusBadge} ${user.is_active ? styles.statusActive : styles.statusInactive}`}>
-          {user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
+          {user.registration_status === "pending_email"
+            ? t("AdminPage.statusPendingEmail")
+            : user.registration_status === "pending_review"
+              ? t("AdminPage.statusPendingReview")
+              : user.registration_status === "rejected"
+                ? t("AdminPage.statusRejected")
+                : user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
         </span>
       </div>
       <span className={styles.createdAt}>{formatDate(user.created_at)}</span>
@@ -305,6 +337,10 @@ export default function AdminPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [users, setUsers] = useState([]);
+  const [registrationPolicy, setRegistrationPolicy] = useState(null);
+  const [pendingRegistrations, setPendingRegistrations] = useState([]);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [reviewingId, setReviewingId] = useState(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -351,6 +387,52 @@ export default function AdminPage() {
   }, [fetchUsers]);
   useAutoRefresh(() => fetchUsers(true));
 
+  const fetchRegistrationSettings = useCallback(async (silent = false) => {
+    try {
+      const [policy, pending] = await Promise.all([
+        UsersService.getRegistrationPolicy(),
+        UsersService.listPendingRegistrations(),
+      ]);
+      setRegistrationPolicy(policy);
+      setPendingRegistrations(pending.data);
+    } catch (err) {
+      if (!silent) toast.error(err?.message ?? t("AdminPage.registrationLoadFailed"));
+    }
+  }, [toast, t]);
+
+  useEffect(() => { fetchRegistrationSettings(); }, [fetchRegistrationSettings]);
+  useAutoRefresh(() => fetchRegistrationSettings(true));
+
+  async function saveRegistrationPolicy(patch) {
+    if (!registrationPolicy || policySaving) return;
+    setPolicySaving(true);
+    try {
+      const saved = await UsersService.saveRegistrationPolicy({ ...registrationPolicy, ...patch });
+      setRegistrationPolicy(saved);
+      toast.success(t("AdminPage.registrationSettingsSaved"));
+    } catch (err) {
+      toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+
+  async function reviewRegistration(user, approve) {
+    if (reviewingId) return;
+    setReviewingId(user.id);
+    try {
+      const updated = await UsersService.reviewRegistration(user.id, approve);
+      setPendingRegistrations((prev) => prev.filter((item) => item.id !== user.id));
+      discardInFlightFetch();
+      setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+      toast.success(t(approve ? "AdminPage.registrationApproved" : "AdminPage.registrationRejected"));
+    } catch (err) {
+      toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
+    } finally {
+      setReviewingId(null);
+    }
+  }
+
   const visibleUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return users;
@@ -377,6 +459,57 @@ export default function AdminPage() {
     admins: users.filter((item) => item.role === "admin").length,
     teachers: users.filter((item) => item.role === "teacher").length,
   }), [users]);
+
+  /* 批量停用／啟用：只勾得到這一頁、不是自己的帳號；翻頁或搜尋換了，看不到的自動取消勾選 */
+  const selection = useRowSelection(
+    pagedUsers.filter((item) => item.id !== currentUser?.id).map((item) => item.id),
+  );
+  const selectedUsers = pagedUsers.filter((item) => selection.isSelected(item.id));
+  const [batchProgress, setBatchProgress] = useState(null); // { label, done, total }
+
+  /* 停用只送啟用中的、啟用只送停用中的；不適用的略過 */
+  const batchTargets = (active) => selectedUsers.filter((item) => item.is_active !== active);
+
+  function batchHint(active) {
+    const n = batchTargets(active).length;
+    if (n === 0) return t("AdminPage.batchNotApplicable");
+    return n < selectedUsers.length
+      ? t("AdminPage.batchApplicableHint", { count: n, skipped: selectedUsers.length - n })
+      : undefined;
+  }
+
+  async function runBatchActive(active) {
+    const targets = batchTargets(active);
+    if (!targets.length || batchProgress) return;
+    const label = active ? t("AdminPage.batchEnable") : t("AdminPage.batchDisable");
+    /* 停用會讓對方登不進來：先確認並列出名字（最多 5 位） */
+    if (!active) {
+      const names = targets.map(userDisplayName);
+      const rest = names.length - BATCH_NAME_PREVIEW;
+      const ok = await confirm({
+        title: t("AdminPage.batchDisableTitle", { count: targets.length }),
+        message: `${t("AdminPage.batchDisableDesc")}\n${joinList(names.slice(0, BATCH_NAME_PREVIEW))}${rest > 0 ? ` ${t("AdminPage.batchNamesMore", { count: rest })}` : ""}`,
+        confirmText: label,
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setBatchProgress({ label, done: 0, total: targets.length });
+    const res = await runBatch(targets, (item) => UsersService.update(item.id, { is_active: active }), {
+      onProgress: ({ done, total }) => setBatchProgress((prev) => prev && { ...prev, done, total }),
+    });
+    const updated = new Map(res.results.filter((r) => r.ok && r.value).map((r) => [r.value.id, r.value]));
+    discardInFlightFetch();
+    setUsers((prev) => prev.map((item) => updated.get(item.id) ?? item));
+    if (res.failed === 0) {
+      toast.success(t("AdminPage.batchDoneToast", { count: res.succeeded, label }));
+    } else {
+      toast.error(t("AdminPage.batchFailedKeptToast", { label, succeeded: res.succeeded, failed: res.failed }));
+    }
+    /* 成功的取消勾選，失敗的留著可以直接再試 */
+    selection.replace(res.results.filter((r) => !r.ok).map((r) => r.item.id));
+    setBatchProgress(null);
+  }
 
   async function handleSubmit(payload) {
     setSaving(true);
@@ -453,6 +586,49 @@ export default function AdminPage() {
         </button>
       </PageHeader>
 
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.registrationSettingsTitle")}>
+        <h2>{t("AdminPage.registrationSettingsTitle")}</h2>
+        <label className={styles.registrationOption}>
+          <span>
+            <strong>{t("AdminPage.signupEnabled")}</strong>
+            <small>{t("AdminPage.signupEnabledHint")}</small>
+          </span>
+          <input type="checkbox" checked={Boolean(registrationPolicy?.signup_enabled)}
+            disabled={!registrationPolicy || policySaving}
+            onChange={(event) => saveRegistrationPolicy({ signup_enabled: event.target.checked })} />
+        </label>
+        <label className={styles.registrationOption}>
+          <span>
+            <strong>{t("AdminPage.approvalRequired")}</strong>
+            <small>{t("AdminPage.approvalRequiredHint")}</small>
+          </span>
+          <input type="checkbox" checked={Boolean(registrationPolicy?.approval_required)}
+            disabled={!registrationPolicy || policySaving}
+            onChange={(event) => saveRegistrationPolicy({ approval_required: event.target.checked })} />
+        </label>
+      </section>
+
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.pendingRegistrationsTitle")}>
+        <h2>{t("AdminPage.pendingRegistrationsTitle")} ({pendingRegistrations.length})</h2>
+        {pendingRegistrations.length === 0 ? (
+          <p className={styles.registrationEmpty}>{t("AdminPage.noPendingRegistrations")}</p>
+        ) : pendingRegistrations.map((item) => (
+          <div className={styles.pendingRow} key={item.id}>
+            <span><strong>{userDisplayName(item)}</strong><small>{item.email}</small></span>
+            <div>
+              <button type="button" className={styles.btnSecondary}
+                disabled={Boolean(reviewingId)} onClick={() => reviewRegistration(item, false)}>
+                {t("AdminPage.rejectRegistration")}
+              </button>
+              <button type="button" className={styles.btnPrimary}
+                disabled={Boolean(reviewingId)} onClick={() => reviewRegistration(item, true)}>
+                {t("AdminPage.approveRegistration")}
+              </button>
+            </div>
+          </div>
+        ))}
+      </section>
+
       <div className={styles.summaryGrid}>
         <div className={styles.summaryItem}>
           <span>{t("AdminPage.statTotal")}</span>
@@ -472,16 +648,43 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className={styles.toolbar}>
-        <div className={styles.searchBox}>
-          <MIcon name="search" size={16} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("AdminPage.searchPlaceholder")}
-          />
-        </div>
-      </div>
+      {/* 平常是搜尋；勾選後原地換成批量停用／啟用（同一個高度，清單不會跳） */}
+      <DataToolbar
+        selecting={selectedUsers.length > 0}
+        batch={(
+          <BatchBar
+            countLabel={t("AdminPage.selectedCount", { count: selectedUsers.length })}
+            onClear={selection.clear}
+            selectAll={{
+              checked: selection.allSelected,
+              indeterminate: selection.someSelected,
+              onToggle: selection.toggleAll,
+            }}
+            progress={batchProgress && {
+              text: t("AdminPage.batchRunning", batchProgress),
+              done: batchProgress.done,
+              total: batchProgress.total,
+            }}
+          >
+            <BatchAction
+              icon="check_circle"
+              label={t("AdminPage.batchEnable")}
+              disabled={batchTargets(true).length === 0}
+              title={batchHint(true)}
+              onClick={() => runBatchActive(true)}
+            />
+            <BatchAction
+              icon="block"
+              label={t("AdminPage.batchDisable")}
+              disabled={batchTargets(false).length === 0}
+              title={batchHint(false)}
+              onClick={() => runBatchActive(false)}
+            />
+          </BatchBar>
+        )}
+      >
+        <ToolbarSearch value={query} onChange={setQuery} placeholder={t("AdminPage.searchPlaceholder")} />
+      </DataToolbar>
 
       <div className={styles.content}>
         {loading ? (
@@ -496,6 +699,10 @@ export default function AdminPage() {
                   key={item.id}
                   user={item}
                   currentUserId={currentUser?.id}
+                  selected={selection.isSelected(item.id)}
+                  selecting={selection.selecting}
+                  onToggleSelect={selection.toggle}
+                  onRowClick={selection.rowClick}
                   onEdit={(target) => setModal({ mode: "edit", user: target })}
                   onDelete={handleDelete}
                 />

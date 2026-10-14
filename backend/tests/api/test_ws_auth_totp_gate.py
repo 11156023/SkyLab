@@ -34,6 +34,9 @@ class _FakeSession:
     def get(self, model: Any, key: Any) -> Any:
         return self._user
 
+    def in_transaction(self) -> bool:
+        return False
+
     def close(self) -> None:
         self.closed = True
 

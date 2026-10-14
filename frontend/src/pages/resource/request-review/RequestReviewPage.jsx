@@ -11,7 +11,15 @@ import { VmRequestsService } from "../../../services/vmRequests";
 import { CONSUMED_REQUEST_MARKERS } from "../../../services/pendingResources";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import Modal from "../../../components/Modal/Modal";
+import DataToolbar from "../../../components/DataToolbar/DataToolbar";
+import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
+import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
+import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
+import useDialogPresence from "../../../hooks/useDialogPresence";
+import useRowSelection from "../../../hooks/useRowSelection";
 import { formatShortDateTime } from "../../../utils/formatDate";
+import { runBatch } from "../../../utils/runBatch";
 
 function useTabs() {
   const { t } = useTranslation("resource");
@@ -214,6 +222,55 @@ function EmptyState({ onClearSearch }) {
   const { t } = useTranslation("resource");
   return <SharedEmptyState icon="assignment_turned_in" title={t("RequestReviewPage.emptyTitle")}
     action={onClearSearch && <button type="button" className={styles.btnSecondary} onClick={onClearSearch}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} />;
+}
+
+/* 批量拒絕：列出要拒絕的申請（最多 5 筆），共用一段審核備註（選填，同單筆） */
+const BATCH_NAME_PREVIEW = 5;
+
+/* 外觀比照共用確認框（useConfirm 的危險款）：紅色警告圖示＋標題＋說明，多一份白底名單與備註欄 */
+function BatchRejectDialog({ items, closing, onClose, onSubmit }) {
+  const { t } = useTranslation("resource");
+  const [comment, setComment] = useState("");
+  const preview = items.slice(0, BATCH_NAME_PREVIEW);
+  const rest = items.length - preview.length;
+
+  return (
+    <Modal
+      as="form"
+      onSubmit={(event) => { event.preventDefault(); onSubmit(comment.trim() || null); }}
+      closing={closing}
+      onClose={onClose}
+      role="alertdialog"
+      icon={<span className={styles.dialogIconDanger}><MIcon name="warning" size={20} /></span>}
+      title={t("RequestReviewPage.batchRejectTitle", { count: items.length })}
+      description={t("RequestReviewPage.batchRejectDesc")}
+      actions={(
+        <>
+          <button type="button" className={styles.btnSecondary} onClick={onClose}>{t("RequestReviewPage.cancel")}</button>
+          <button type="submit" className={styles.btnDanger}>{t("RequestReviewPage.batchRejectConfirm", { count: items.length })}</button>
+        </>
+      )}
+    >
+      <ul className={styles.rejectList}>
+        {preview.map((item) => (
+          <li key={item.id} className={styles.rejectItem}>
+            <MIcon name={sourceIcon(item)} size={16} />
+            <span className={styles.rejectItemName}>{item.title}</span>
+            <span className={styles.rejectItemUser}>{item.user}</span>
+          </li>
+        ))}
+        {rest > 0 && <li className={styles.rejectMore}>{t("RequestReviewPage.batchNamesMore", { count: rest })}</li>}
+      </ul>
+      <label className={styles.dialogField}>
+        <span>{t("RequestReviewPage.commentLabel")}</span>
+        <textarea
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          placeholder={t("RequestReviewPage.batchCommentPlaceholder")}
+        />
+      </label>
+    </Modal>
+  );
 }
 
 function InfoRow({ label, value }) {
@@ -422,11 +479,71 @@ export default function RequestReviewPage() {
     });
   }, [query, requests]);
 
+  /* 批量拒絕：只勾得到看得見的待審申請；換分頁、搜尋或刷新後看不到的自動取消勾選 */
+  const selectableIds = visibleRequests
+    .filter((request) => request.reviewStatus === "pending")
+    .map((request) => request.id);
+  const selection = useRowSelection(selectableIds);
+  const selectedRequests = visibleRequests.filter((request) => selection.isSelected(request.id));
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const rejectDialog = useDialogPresence(rejectOpen);
+  const [batchProgress, setBatchProgress] = useState(null); // { done, total }
+
+  async function batchReject(reviewComment) {
+    const targets = selectedRequests;
+    setRejectOpen(false);
+    if (!targets.length || batchProgress) return;
+    setBatchProgress({ done: 0, total: targets.length });
+    const body = { status: "rejected", review_comment: reviewComment };
+    const res = await runBatch(
+      targets,
+      (item) => (item.source === "vm"
+        ? VmRequestsService.review(item.rawId, body)
+        : SpecChangeRequestsService.review(item.rawId, body)),
+      { concurrency: 3, onProgress: ({ done, total }) => setBatchProgress({ done, total }) },
+    );
+    if (res.failed === 0) {
+      toast.success(t("RequestReviewPage.batchRejectedToast", { count: res.succeeded }));
+    } else {
+      toast.error(t("RequestReviewPage.batchRejectFailedKeptToast", { succeeded: res.succeeded, failed: res.failed }));
+    }
+    /* 成功的取消勾選，失敗的留著可以直接再試；靜默刷新，清單不閃載入畫面 */
+    selection.replace(res.results.filter((r) => !r.ok).map((r) => r.item.id));
+    setBatchProgress(null);
+    await fetchRequests(activeTab, true);
+  }
+
   return (
     <div className={styles.page}>
       <PageHeader title={t("RequestReviewPage.pageTitle")} />
 
-      <div className={styles.tabsRow}>
+      {/* 平常是分頁切換＋搜尋；勾選待審申請後原地換成批量拒絕（同一個高度，清單不會跳） */}
+      <DataToolbar
+        selecting={selectedRequests.length > 0}
+        batch={(
+          <BatchBar
+            countLabel={t("RequestReviewPage.selectedCount", { count: selectedRequests.length })}
+            onClear={selection.clear}
+            selectAll={{
+              checked: selection.allSelected,
+              indeterminate: selection.someSelected,
+              onToggle: selection.toggleAll,
+            }}
+            progress={batchProgress && {
+              text: t("RequestReviewPage.batchRejecting", batchProgress),
+              done: batchProgress.done,
+              total: batchProgress.total,
+            }}
+          >
+            <BatchAction
+              icon="block"
+              label={t("RequestReviewPage.reject")}
+              danger
+              onClick={() => setRejectOpen(true)}
+            />
+          </BatchBar>
+        )}
+      >
         <SegmentedControl
           className={styles.tabsControl}
           options={tabs.map(({ key, label }) => ({
@@ -438,18 +555,12 @@ export default function RequestReviewPage() {
           onChange={setActiveTab}
           ariaLabel={t("RequestReviewPage.tabsAriaLabel")}
         />
-
-        <div className={styles.search}>
-          <MIcon name="search" size={16} />
-          <input
-            type="text"
-            className={styles.searchInput}
-            placeholder={t("RequestReviewPage.searchPlaceholder")}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-      </div>
+        <ToolbarSearch
+          value={query}
+          onChange={setQuery}
+          placeholder={t("RequestReviewPage.searchPlaceholder")}
+        />
+      </DataToolbar>
 
       <div className={styles.content}>
         <div className={styles.reviewGrid}>
@@ -468,27 +579,48 @@ export default function RequestReviewPage() {
             ) : (
               <div className={styles.list}>
                 {visibleRequests.map((request) => (
-                  <button
+                  /* 勾選框跟開詳情的按鈕並排（按鈕裡不能放勾選框）；「全部」分頁已審過的那幾列留空格對齊 */
+                  <div
                     key={request.id}
-                    type="button"
-                    className={`${styles.row} ${selected?.id === request.id ? styles.rowActive : ""}`}
-                    onClick={() => { setSelectedId(request.id); setComment(""); }}
+                    className={`${styles.row} ${selected?.id === request.id ? styles.rowActive : ""} ${selection.isSelected(request.id) ? styles.rowSelected : ""}`}
                   >
-                    <div className={styles.rowIcon}>
-                      <MIcon name={sourceIcon(request)} size={20} />
-                    </div>
-                    <div className={styles.rowMain}>
-                      <span className={styles.rowName}>{request.title}</span>
-                      <span className={styles.rowMeta}>
-                        {sourceLabel(request.source, t)}・{request.user}
-                      </span>
-                    </div>
-                    <div className={styles.rowSide}>
-                      <StatusBadge status={request.status} />
-                      {request.progressText && <span className={styles.rowProgress}>{request.progressText}</span>}
-                      <span className={styles.rowTime}>{request.timeText}</span>
-                    </div>
-                  </button>
+                    {selectableIds.length > 0 && (
+                      <div className={styles.rowCheck}>
+                        {request.reviewStatus === "pending" && (
+                          <SelectCheckbox
+                            checked={selection.isSelected(request.id)}
+                            onToggle={(shiftKey) => selection.toggle(request.id, shiftKey)}
+                            ariaLabel={t("RequestReviewPage.selectRowAria", { name: request.title })}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {/* 勾選狀態下點待審的列改成勾選，不開詳情；已審過的列照舊開詳情 */}
+                    <button
+                      type="button"
+                      className={styles.rowButton}
+                      onClick={(event) => {
+                        if (selection.rowClick(request.id, event)) return;
+                        setSelectedId(request.id);
+                        setComment("");
+                      }}
+                    >
+                      <div className={styles.rowIcon}>
+                        <MIcon name={sourceIcon(request)} size={20} />
+                      </div>
+                      <div className={styles.rowMain}>
+                        <span className={styles.rowName}>{request.title}</span>
+                        <span className={styles.rowMeta}>
+                          {sourceLabel(request.source, t)}・{request.user}
+                        </span>
+                      </div>
+                      <div className={styles.rowSide}>
+                        <StatusBadge status={request.status} />
+                        {request.progressText && <span className={styles.rowProgress}>{request.progressText}</span>}
+                        <span className={styles.rowTime}>{request.timeText}</span>
+                      </div>
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -599,6 +731,15 @@ export default function RequestReviewPage() {
           </section>
         </div>
       </div>
+
+      {rejectDialog.open && (
+        <BatchRejectDialog
+          items={selectedRequests}
+          closing={rejectDialog.closing}
+          onClose={() => setRejectOpen(false)}
+          onSubmit={batchReject}
+        />
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ from app.infrastructure.ai import model_adapter as adapter
 
 GPT = "openai/gpt-oss-120b"
 GEMMA = "gemma4-26b-a4b-it"
+QWEN = "Qwen/Qwen3.8-27B"
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +49,7 @@ def _config() -> dict:
     return adapter.load_model_profiles().model_dump()
 
 
-@pytest.mark.parametrize("model", [GPT, GEMMA])
+@pytest.mark.parametrize("model", [GPT, GEMMA, QWEN])
 @pytest.mark.parametrize("legacy_effort", ["none", "off", "low", "medium", "high"])
 @pytest.mark.parametrize("legacy_bool", [False, True])
 def test_model_contract_owns_thinking_and_preserves_other_fields(
@@ -64,6 +65,13 @@ def test_model_contract_owns_thinking_and_preserves_other_fields(
     if model == GPT:
         assert wire["reasoning_effort"] == "low"
         assert wire["chat_template_kwargs"] == {"custom": "keep"}
+    elif model == QWEN:
+        assert "reasoning_effort" not in wire
+        assert wire["chat_template_kwargs"] == {
+            "custom": "keep",
+            "enable_thinking": True,
+            "reasoning_effort": "low",
+        }
     else:
         assert "reasoning_effort" not in wire
         assert wire["chat_template_kwargs"] == {
@@ -77,15 +85,48 @@ def test_model_contract_owns_thinking_and_preserves_other_fields(
 
 
 def test_yaml_supplies_thinking_without_any_legacy_field() -> None:
-    for model in (GPT, GEMMA):
+    for model in (GPT, GEMMA, QWEN):
         payload = _payload(model)
         payload.pop("chat_template_kwargs")
         wire = adapter.adapt_chat_request(payload)
         if model == GPT:
             assert wire["reasoning_effort"] == "low"
             assert "chat_template_kwargs" not in wire
+        elif model == QWEN:
+            assert wire["chat_template_kwargs"] == {
+                "enable_thinking": True,
+                "reasoning_effort": "low",
+            }
         else:
             assert wire["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+@pytest.mark.parametrize("legacy_bool", [False, True])
+def test_qwen_overrides_xhigh_and_preserves_other_template_settings(legacy_bool):
+    payload = _payload(QWEN)
+    payload["reasoning_effort"] = "xhigh"
+    payload["chat_template_kwargs"].update(
+        enable_thinking=legacy_bool, reasoning_effort="xhigh", preserve_thinking=False
+    )
+    original = copy.deepcopy(payload)
+    wire = adapter.adapt_chat_request(payload)
+    assert "reasoning_effort" not in wire
+    assert wire["chat_template_kwargs"] == {
+        "enable_thinking": True,
+        "reasoning_effort": "low",
+        "preserve_thinking": False,
+        "custom": "keep",
+    }
+    assert payload == original
+    assert adapter.adapt_chat_request(wire) == wire
+
+
+def test_qwen_template_effort_requires_low(monkeypatch, tmp_path):
+    config = _config()
+    config["models"][QWEN]["thinking"] = "none"
+    _config_file(monkeypatch, tmp_path, config)
+    with pytest.raises(adapter.ModelAdapterError, match="requires thinking='low'"):
+        adapter.load_model_profiles()
 
 
 @pytest.mark.parametrize(
@@ -198,8 +239,9 @@ def test_template_low_is_owned_by_yaml(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["auto", "none", "required", "named"])
-def test_tool_modes_preserve_native_objects(mode: str) -> None:
-    payload = _payload()
+@pytest.mark.parametrize("model", [GPT, GEMMA, QWEN])
+def test_tool_modes_preserve_native_objects(mode: str, model: str) -> None:
+    payload = _payload(model)
     payload.pop("response_format")
     payload["tools"] = [{"type": "function", "function": {"name": "get_nodes"}}]
     payload["tool_choice"] = (

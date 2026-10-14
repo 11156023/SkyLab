@@ -200,6 +200,15 @@ class Settings(BaseSettings):
                 "TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are required when "
                 "ENABLE_SIGNUP=true outside the local environment."
             )
+        if (
+            self.ENVIRONMENT != "local"
+            and self.ENABLE_SIGNUP
+            and (not self.emails_enabled or self.SMTP_HOST == "mailcatcher")
+        ):
+            raise ValueError(
+                "A real SMTP_HOST and EMAILS_FROM_EMAIL are required when "
+                "ENABLE_SIGNUP=true outside the local environment."
+            )
         return self
 
     # LDAP over ldaps:// / StartTLS 一律驗證伺服器憑證與主機名稱。網域控制站

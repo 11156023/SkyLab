@@ -490,17 +490,17 @@ def test_navigation_prompt_carries_when_to_use_hints() -> None:
 
 
 @pytest.mark.asyncio
-async def test_usage_is_recorded_off_the_event_loop_with_reported_tokens(
+async def test_usage_records_reported_tokens_when_decision_is_invalid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """用量寫入是同步 DB commit，不可在 event loop thread 上執行；決策不合法時
-    模型已經用掉的 token 也要照實記錄。"""
-    import threading
+    """決策不合法時，模型已經用掉的 token 也要照實記錄。
 
+    （DB 寫入由 record_ai_template_call 交給背景 usage writer，不在 event loop 上做，
+    見 tests/api/routes/test_async_routes_offload_db.py。）"""
     records: list[dict[str, Any]] = []
 
     def _record(**kwargs: Any) -> None:
-        records.append({**kwargs, "thread": threading.get_ident()})
+        records.append(kwargs)
 
     async def _duplicate_ids(
         _payload, *, profile, timeout: float, request_id: str | None = None
@@ -532,7 +532,6 @@ async def test_usage_is_recorded_off_the_event_loop_with_reported_tokens(
 
     assert result.action == "clarify"
     assert len(records) == 1
-    assert records[0]["thread"] != threading.get_ident()
     assert records[0]["status"] == "error"
     assert records[0]["metrics"]["prompt_tokens"] == 120
     assert records[0]["metrics"]["completion_tokens"] == 9
