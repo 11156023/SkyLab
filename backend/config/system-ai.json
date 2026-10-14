@@ -7,7 +7,7 @@
       "enable_thinking": false,
       "timeout": 120,
       "temperature": 0.2,
-      "chat_temperature": 0.9,
+      "chat_temperature": 0.4,
       "top_p": 1.0,
       "top_k": 40,
       "min_p": 0.0,

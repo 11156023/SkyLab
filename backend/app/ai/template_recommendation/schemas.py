@@ -98,6 +98,21 @@ class ExtractedIntent(BaseModel):
     needs_database: bool = Field(default=False)
     requires_gpu: bool = Field(default=False)
     needs_windows: bool = Field(default=False)
+    needs_desktop: bool = Field(default=False)
+
+
+class IntakeFactsContext(BaseModel):
+    """配置模式已問到的答案（與導覽 intake 的 IntakeFacts 同欄位）。
+
+    這些是使用者點選或回答的結構化結果；直接拿來判斷需求，不必再從串成文字的
+    記憶裡用關鍵字猜回來。
+    """
+
+    purpose: ShortText | None = None
+    gpu: ShortText | None = None
+    display: ShortText | None = None
+    duration: ShortText | None = None
+    inferred: list[ShortText] = Field(default_factory=list, max_length=4)
 
 
 class GPUOptionContext(BaseModel):
@@ -171,6 +186,7 @@ class ChatRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=10)
     device_nodes: list[DeviceNode] = Field(default_factory=list, max_length=128)
     form_context: RecommendationFormContext | None = None
+    intake_facts: IntakeFactsContext | None = None
     focus_hint: str | None = Field(
         default=None,
         max_length=200,
@@ -196,6 +212,7 @@ class RecommendationRequest(BaseModel):
     expected_users: int = Field(default=1, ge=1, le=100000)
     requires_gpu: bool = False
     needs_windows: bool = False
+    needs_desktop: bool = False
     needs_public_web: bool = False
     needs_database: bool = False
     device_nodes: list[DeviceNode] = Field(default_factory=list)

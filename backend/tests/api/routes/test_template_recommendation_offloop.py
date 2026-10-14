@@ -140,7 +140,7 @@ async def test_chat_runs_sync_work_off_the_event_loop(
         pending = list(writer.pending)
     if pending:
         await asyncio.gather(*(asyncio.wrap_future(future) for future in pending))
-    assert set(thread_log) == {"chat_gpu", "record"}
+    assert set(thread_log) == {"chat_gpu", "resources", "record"}
     assert loop_thread not in thread_log.values()
 
 
@@ -212,7 +212,7 @@ async def test_chat_reservation_returns_connection_before_model_wait(monkeypatch
     monkeypatch.setattr(route, "record_ai_template_call", lambda **_: None)
     monkeypatch.setattr(options_service, "get_base_gpu_options_cached", lambda: [])
     monkeypatch.setattr(
-        options_service, "should_include_gpu_runtime_context", lambda _: True
+        options_service, "resolve_resource_options", lambda *_a, **_k: {}
     )
 
     def reservations(session, options, **_):
@@ -443,35 +443,21 @@ async def test_chat_uses_real_checker_and_correlates_usage(
 
 
 @pytest.mark.parametrize(
-    ("guard_result", "expected_status", "message_key"),
+    "guard_result",
     [
-        (
-            AdherenceResult(AdherenceVerdict.BLOCK, AdherenceReason.UNSUPPORTED_CLAIM),
-            422,
-            None,
+        AdherenceResult(AdherenceVerdict.BLOCK, AdherenceReason.UNSUPPORTED_CLAIM),
+        AdherenceResult(
+            AdherenceVerdict.INSUFFICIENT_CONTEXT, AdherenceReason.CHECK_FAILED
         ),
-        (
-            AdherenceResult(
-                AdherenceVerdict.INSUFFICIENT_CONTEXT, AdherenceReason.CHECK_FAILED
-            ),
-            503,
-            "aiTemplateRecommendation.guardUnavailable",
-        ),
-        (
-            AdherenceResult(
-                AdherenceVerdict.INSUFFICIENT_CONTEXT,
-                AdherenceReason.INSUFFICIENT_CONTEXT,
-            ),
-            422,
-            "aiTemplateRecommendation.guardInsufficientContext",
+        AdherenceResult(
+            AdherenceVerdict.INSUFFICIENT_CONTEXT,
+            AdherenceReason.INSUFFICIENT_CONTEXT,
         ),
     ],
 )
-async def test_recommend_adherence_rejection_returns_no_actionable_plan(
+async def test_recommend_adherence_rejection_returns_rule_based_plan(
     monkeypatch: pytest.MonkeyPatch,
     guard_result: AdherenceResult,
-    expected_status: int,
-    message_key: str | None,
 ) -> None:
     monkeypatch.setattr(route, "settings", _SettingsWithModel(route.settings))
     monkeypatch.setattr(
@@ -490,8 +476,8 @@ async def test_recommend_adherence_rejection_returns_no_actionable_plan(
         return (
             {
                 "summary": "已建立資源",
-                "application_target": {"execution_environment": "lxc"},
-                "form_prefill": {},
+                "application_target": {"service_name": "模型亂寫的服務"},
+                "form_prefill": {"resource_type": "vm", "cores": 64},
             },
             {
                 "prompt_tokens": 10,
@@ -515,19 +501,21 @@ async def test_recommend_adherence_rejection_returns_no_actionable_plan(
     monkeypatch.setattr(route, "check_adherence", blocked)
     monkeypatch.setattr(route, "_record_template_call", record)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await route.recommend(request=_request(), current_user=_USER, session=object())
-
-    assert exc_info.value.status_code == expected_status
-    assert exc_info.value.detail == (
-        route.t(message_key) if message_key else route.TEMPLATE_ADHERENCE_FALLBACK
+    result = await route.recommend(
+        request=_request(), current_user=_USER, session=object()
     )
+
+    # 不放行（含檢查器失敗）時改回不經模型的規則配置，模型挑的欄位一律不用
+    assert result["fallback"] is True
+    prefill = result["final_plan"]["form_prefill"]
+    assert prefill["resource_type"] == "lxc"
+    assert prefill["cores"] != 64
+    assert "模型亂寫的服務" not in prefill["reason"]
+    assert "已建立資源" not in result["summary"]
     assert [item["call_type"] for item in records[:2]] == [
         "recommend",
         "recommend_adherence",
     ]
     assert records[-1]["status"] == "error"
     assert records[-1]["error_message"] == guard_result.reason_code.value
-    assert records[-1]["metrics"]["request_id"] == (
-        f"{exc_info.value.headers['X-AI-Request-ID']}:adherence"
-    )
+    assert records[-1]["metrics"]["request_id"].endswith(":adherence")

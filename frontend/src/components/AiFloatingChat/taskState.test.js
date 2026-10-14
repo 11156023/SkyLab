@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { routeQuestion, stepStatuses } from "./AiFloatingChat";
-import { newTask, withTaskMemory, requestIsReady, markStep, shouldContinueIntake, rememberWorkflow, addWorkflows, environmentStepPath, flowOwnsPath } from "./taskState";
+import { newTask, withTaskMemory, recentMessages, intakeFactsPayload, planErrorKey, requestIsReady, markStep, shouldContinueIntake, rememberWorkflow, addWorkflows, environmentStepPath, flowOwnsPath } from "./taskState";
 
 test("environment steps enter the editor and preserve draft identity and return destination", () => {
   expect(environmentStepPath("/course-template-management", undefined, "basic")).toBe("/course-template-management/new?tab=basic");
@@ -104,5 +104,71 @@ describe("verified progress", () => {
     expect(requestIsReady({ ...request, provisioning_status: "running" }, [{ vmid: 101 }])).toBe(false);
     expect(requestIsReady({ ...request, provisioning_status: "failed" }, [{ vmid: 101 }])).toBe(false);
     expect(requestIsReady(undefined, [{ vmid: 101 }])).toBe(false);
+  });
+});
+
+describe("configuration questions get answers instead of a new plan", () => {
+  test("knowledge and inventory questions go to chat", () => {
+    for (const text of ["LXC 跟 VM 差別？", "4GB 記憶體夠嗎？", "Ubuntu 還是 Debian 比較好", "有哪些 GPU 可以用", "GPU 有哪些型號？"]) {
+      expect(routeQuestion(text)).toBe("chat");
+    }
+  });
+
+  test("asking us to act still plans", () => {
+    expect(routeQuestion("我該申請 LXC 還是 VM？")).toBe("recommend");
+    expect(routeQuestion("推薦我一個規格")).toBe("recommend");
+    expect(routeQuestion("記憶體要開多大")).toBe("recommend");
+  });
+
+  test("inventory questions during intake are not taken as answers", () => {
+    const task = { ...newTask(), stage: "collecting", pendingKey: "gpu" };
+    const route = routeQuestion("有哪些 GPU 可以用", task);
+    expect(route).toBe("chat");
+    expect(shouldContinueIntake("有哪些 GPU 可以用", task, route)).toBe(false);
+  });
+});
+
+describe("planner request payload", () => {
+  test("long conversations are trimmed to the most recent messages", () => {
+    const history = Array.from({ length: 60 }, (_, index) => ({ role: "user", content: `第 ${index} 則` }));
+    const kept = recentMessages(history);
+    expect(kept).toHaveLength(12);
+    expect(kept.at(-1).content).toBe("第 59 則");
+    const huge = [{ role: "user", content: "x".repeat(20_000) }, { role: "user", content: "最新" }];
+    expect(recentMessages(huge).map((item) => item.content)).toEqual(["最新"]);
+  });
+
+  test("an oversized newest message is truncated instead of sent whole", () => {
+    const pasted = { role: "user", content: "y".repeat(50_000) };
+    const kept = recentMessages([{ role: "user", content: "舊的" }, pasted]);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].content).toHaveLength(12_000);
+    expect(pasted.content).toHaveLength(50_000);
+  });
+
+  test("the whole planner payload stays under the backend limit", () => {
+    const task = {
+      ...newTask(),
+      goal: "g".repeat(2_000),
+      facts: { purpose: "p".repeat(2_000), gpu: "q".repeat(2_000), display: "d".repeat(2_000), duration: "t".repeat(2_000), inferred: [] },
+    };
+    const messages = withTaskMemory(recentMessages([{ role: "user", content: "z".repeat(100_000) }]), task);
+    const total = messages.reduce((sum, item) => sum + item.content.length, 0);
+    expect(total).toBeLessThan(32 * 1024);
+  });
+
+  test("answered intake facts are sent as structured fields", () => {
+    expect(intakeFactsPayload(newTask())).toBeNull();
+    const task = { ...newTask(), facts: { purpose: "AI 訓練", gpu: "不確定，你幫我判斷", inferred: [] } };
+    expect(intakeFactsPayload(task)).toEqual({
+      purpose: "AI 訓練", gpu: "不確定，你幫我判斷", display: null, duration: null, inferred: [],
+    });
+  });
+
+  test("plan errors explain what the user can do", () => {
+    expect(planErrorKey({ status: 408, timeout: true })).toBe("AiFloatingChat.planTimedOut");
+    expect(planErrorKey({ status: 429 })).toBe("AiFloatingChat.planRateLimited");
+    expect(planErrorKey({ status: 400 })).toBe("AiFloatingChat.planTooLong");
+    expect(planErrorKey({ status: 502 })).toBe("AiFloatingChat.planFailed");
   });
 });

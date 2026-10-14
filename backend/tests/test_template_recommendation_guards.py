@@ -31,6 +31,7 @@ class _FakeClient:
         payload: dict[str, Any],
         *,
         profile: Any,
+        timeout: float | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         assert profile.value in {"structured_object", "adherence_check"}
@@ -53,6 +54,7 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> None:
             VLLM_PRESENCE_PENALTY=0.0,
             VLLM_REPETITION_PENALTY=1.0,
             VLLM_ENABLE_THINKING=False,
+            VLLM_TIMEOUT=120,
         ),
     )
 
@@ -75,8 +77,11 @@ def test_normalize_tolerates_null_and_wrongly_typed_fields() -> None:
     target = result["final_plan"]["application_target"]
     assert target["service_name"] == "架設網站"
     assert target["environment_reason"]
-    assert result["rule_basis"]["reasons"] == []
-    assert result["summary"] == ""
+    # 說明一律由伺服器產生，不採用模型的 decision_factors／summary
+    assert result["rule_basis"]["reasons"] == [target["environment_reason"]]
+    assert result["summary"] == result["final_plan"]["summary"]
+    assert "LXC" in result["summary"]
+    assert "None" not in result["summary"]
 
 
 def test_normalize_tolerates_string_form_prefill() -> None:
@@ -157,6 +162,7 @@ async def test_generate_ai_plan_lets_httpx_errors_reach_the_route(
             payload: dict[str, Any],
             *,
             profile: Any,
+            timeout: float | None = None,
             request_id: str | None = None,
         ) -> dict[str, Any]:
             assert profile.value == "structured_object"
@@ -188,6 +194,7 @@ async def test_generate_ai_plan_metrics_fall_back_to_summed_total_tokens(
             payload: dict[str, Any],
             *,
             profile: Any,
+            timeout: float | None = None,
             request_id: str | None = None,
         ) -> dict[str, Any]:
             assert profile.value == "structured_object"

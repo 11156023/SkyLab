@@ -102,8 +102,10 @@ def _patch_recommend(
         device_nodes: list[Any],
         *,
         resource_options: dict[str, Any],
+        fallback: bool,
     ) -> dict[str, Any]:
         captured["device_nodes"] = list(device_nodes)
+        captured["fallback"] = fallback
         return dict(ai_result)
 
     def resolve_resources(*args: Any, **_kwargs: Any) -> dict[str, Any]:

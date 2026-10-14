@@ -7,7 +7,7 @@ import { AiNavigationService } from "../../services/aiNavigation";
 import { AiTemplateRecommendationApi } from "../../services/aiTemplateRecommendation";
 import { ResourcesService } from "../../services/resources";
 import { VmRequestsService } from "../../services/vmRequests";
-import { newTask, taskRoute, withTaskMemory, markStep, requestIsReady, TEACHING_PATTERN, SIDE_QUESTION_PATTERN, shouldContinueIntake, rememberWorkflow, addWorkflows, flowOwnsPath, environmentStepPath } from "./taskState";
+import { newTask, taskRoute, withTaskMemory, recentMessages, intakeFactsPayload, planErrorKey, markStep, requestIsReady, TEACHING_PATTERN, SIDE_QUESTION_PATTERN, shouldContinueIntake, rememberWorkflow, addWorkflows, flowOwnsPath, environmentStepPath } from "./taskState";
 import {
   AiContextualHelpService,
   matchSurface,
@@ -108,6 +108,24 @@ export function isFeatureIndex(text) {
   return GLOBAL_SCOPE_PATTERN.test(text) && GLOBAL_USAGE_PATTERN.test(text);
 }
 
+/* 問配置的「知識」（差別、夠不夠、有哪些 GPU／作業系統）要直接回答；只有要我們
+   動手（推薦、幫我配、要申請）才進入規劃。否則「LXC 跟 VM 差別？」會被帶去開申請
+   表單，再反問「這台機器主要要拿來做什麼？」，問題本身沒人回答。 */
+const KNOWLEDGE_QUESTION_PATTERN =
+  /(差別|差異|不同|比較好|優缺點|夠嗎|夠不夠|夠用|可以嗎|能不能|支援|有沒有|是什麼|什麼是|什麼意思|為什麼)/i;
+const INVENTORY_QUESTION_PATTERN = /(有哪些|有什麼|哪些|還有|可以選|可選|可用|型號)/i;
+const RESOURCE_NOUN_PATTERN =
+  /(gpu|顯卡|顯示卡|作業系統|映像|規格|機器|主機|伺服器|型號|cpu|記憶體|硬碟|lxc|vm|虛擬機|容器)/i;
+const PLAN_REQUEST_PATTERN = /(幫我|替我|給我|我要|我想|我該|想要|申請|規劃|產生|推薦)/i;
+const NAVIGATE_VERB_PATTERN = /(怎麼|如何|步驟|流程|在哪|哪裡|帶我|前往)/i;
+
+/** 問的是配置相關的知識或平台有什麼資源，要回答而不是產生配置。 */
+export function isConfigQuestion(text) {
+  if (PLAN_REQUEST_PATTERN.test(text) || NAVIGATE_VERB_PATTERN.test(text)) return false;
+  if (KNOWLEDGE_QUESTION_PATTERN.test(text)) return true;
+  return INVENTORY_QUESTION_PATTERN.test(text) && RESOURCE_NOUN_PATTERN.test(text);
+}
+
 /* 講到流程或步驟就是要被帶著走，不管句子裡還有什麼——導覽優先於說明。 */
 const FLOW_PATTERN = /(流程|步驟)/i;
 
@@ -150,6 +168,7 @@ export function routeQuestion(text, task = newTask(), flowId = null, hasForm = f
   if ((task.stage === "collecting" || flowId) && SIDE_QUESTION_PATTERN.test(text) && !SCREEN_SCOPE_PATTERN.test(text)
     && !/(推薦|幫我.*配置|申請)/.test(text)) return "chat";
   if (isScreenHelp(text)) return "help";
+  if (isConfigQuestion(text)) return "chat";
   if (RECOMMEND_PATTERN.test(text)) return "recommend";
   if (NAVIGATION_PATTERN.test(text) || GUIDE_PATTERN.test(text)) return "navigate";
   return "chat";
@@ -746,15 +765,17 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
      由後端自己補，所以助手不在申請頁也能規劃。 */
   async function sendRecommendation(nextHistory) {
     let data;
+    const source = taskRef.current.intakeHistory.length ? taskRef.current.intakeHistory : nextHistory;
     try {
       data = await AiTemplateRecommendationApi.recommend({
-        messages: withTaskMemory(taskRef.current.intakeHistory.length ? taskRef.current.intakeHistory : nextHistory, taskRef.current),
+        messages: withTaskMemory(recentMessages(source), taskRef.current),
         top_k: 5,
         device_nodes: [],
         form_context: requestFormRef.current?.getContext() ?? null,
+        intake_facts: intakeFactsPayload(taskRef.current),
       });
-    } catch {
-      throw new Error(t("AiFloatingChat.planFailed"));
+    } catch (error) {
+      throw new Error(t(planErrorKey(error)));
     }
     const plan = data?.final_plan;
     const prefill = plan?.form_prefill;
@@ -853,11 +874,11 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     try {
       if (taskRef.current.stage === "collecting") await advanceIntake(nextHistory);
       else await startIntake(nextHistory);
-    } catch {
+    } catch (error) {
       replyFailedRef.current = true;
       setMessages((previous) => [...previous, {
         role: "assistant",
-        content: t("AiFloatingChat.planFailed"),
+        content: error instanceof Error ? error.message : t(planErrorKey(error)),
       }]);
     } finally {
       saveWorkflow();
@@ -932,7 +953,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   }
 
   async function sendChat(text, nextHistory) {
-    const remembered = withTaskMemory(nextHistory, taskRef.current);
+    const remembered = withTaskMemory(recentMessages(nextHistory, { maxMessages: 20 }), taskRef.current);
     const contextualHistory = remembered.map((message, index) => {
       if (index !== remembered.length - 1 || message.role !== "user") return message;
       return {
