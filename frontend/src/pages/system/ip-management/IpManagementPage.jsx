@@ -66,6 +66,9 @@ function PurposeBadge({ purpose }) {
 
 const PAGE_SIZE = 50;
 
+/** 佔用網段、CIDR 不能再改的配發用途（與後端 ip_management_service 一致） */
+const CIDR_LOCKING_PURPOSES = new Set(["vm", "lxc", "class_reserved", "quick_practice_reserved"]);
+
 export default function IpManagementPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
@@ -110,9 +113,10 @@ export default function IpManagementPage() {
   /* getSubnet 需要管理員權限，非管理員只能靠 status 判斷是否已設定 */
   const configured = Boolean(subnet) || Boolean(status?.configured);
 
-  /* 已有 VM/LXC 佔用網段時後端不允許改 CIDR，先在表單擋下來 */
+  /* 已有 VM/LXC 佔用網段、或還有班級／快速練習的預留時後端不允許改 CIDR，先在表單擋下來
+     （預留是依目前網段算好的 IP，改網段後班級建機才會失敗） */
   const cidrLocked = useMemo(
-    () => allocations.some((a) => a.purpose === "vm" || a.purpose === "lxc"),
+    () => allocations.some((a) => CIDR_LOCKING_PURPOSES.has(a.purpose)),
     [allocations],
   );
 

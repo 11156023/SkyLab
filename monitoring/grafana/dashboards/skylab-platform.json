@@ -254,8 +254,8 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "API p95 延遲",
-      "description": "",
+      "title": "一般 API p95 延遲",
+      "description": "workload=general_api; AI generation is shown separately. Duration covers the complete ASGI lifecycle.",
       "datasource": {
         "type": "prometheus",
         "uid": "skylab-prometheus"
@@ -272,7 +272,7 @@
             "type": "prometheus",
             "uid": "skylab-prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",path!=\"<unmatched>\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",workload=\"general_api\"}[5m])))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -548,8 +548,8 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "API 延遲",
-      "description": "不含未對到路由的請求",
+      "title": "一般 API 延遲",
+      "description": "workload=general_api; AI generation is shown separately. Duration covers the complete ASGI lifecycle.",
       "datasource": {
         "type": "prometheus",
         "uid": "skylab-prometheus"
@@ -566,7 +566,7 @@
             "type": "prometheus",
             "uid": "skylab-prometheus"
           },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",path!=\"<unmatched>\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",workload=\"general_api\"}[5m])))",
           "legendFormat": "p50",
           "refId": "A"
         },
@@ -575,7 +575,7 @@
             "type": "prometheus",
             "uid": "skylab-prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",path!=\"<unmatched>\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",workload=\"general_api\"}[5m])))",
           "legendFormat": "p95",
           "refId": "B"
         },
@@ -584,7 +584,7 @@
             "type": "prometheus",
             "uid": "skylab-prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",path!=\"<unmatched>\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",workload=\"general_api\"}[5m])))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -644,8 +644,8 @@
     {
       "id": 11,
       "type": "table",
-      "title": "最慢的路由（p95，最近 15 分鐘）",
-      "description": "",
+      "title": "一般 最慢的路由（p95，最近 15 分鐘）",
+      "description": "workload=general_api; AI generation is shown separately. Duration covers the complete ASGI lifecycle.",
       "datasource": {
         "type": "prometheus",
         "uid": "skylab-prometheus"
@@ -662,7 +662,7 @@
             "type": "prometheus",
             "uid": "skylab-prometheus"
           },
-          "expr": "topk(15, histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",path!=\"<unmatched>\"}[15m]))))",
+          "expr": "topk(15, histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",workload=\"general_api\"}[15m]))))",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
@@ -1693,6 +1693,322 @@
           "placement": "bottom",
           "showLegend": true,
           "calcs": [
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "AI 生成 HTTP p95",
+      "description": "Completed observations; inspect sample counts and overflow. Gauges describe current state, not completed latency. All deployed instances must have the same metric schema.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "skylab-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",workload=\"ai_generation\"}[15m])))",
+          "legendFormat": "{{method}} {{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "無資料"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "AI HTTP 樣本數（15 分鐘）",
+      "description": "Completed observations; inspect sample counts and overflow. Gauges describe current state, not completed latency. All deployed instances must have the same metric schema.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "skylab-prometheus"
+          },
+          "expr": "sum by (method, path) (increase(http_request_duration_seconds_count{job=\"skylab-backend\",workload=\"ai_generation\"}[15m]))",
+          "legendFormat": "{{method}} {{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "無資料"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "HTTP 超過 600 秒比例",
+      "description": "Completed observations; inspect sample counts and overflow. Gauges describe current state, not completed latency. All deployed instances must have the same metric schema.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "skylab-prometheus"
+          },
+          "expr": "100 * (sum by (workload) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",le=\"+Inf\"}[15m])) - sum by (workload) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",le=\"600.0\"}[15m]))) / sum by (workload) (rate(http_request_duration_seconds_bucket{job=\"skylab-backend\",le=\"+Inf\"}[15m]))",
+          "legendFormat": "{{workload}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "無資料"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "HTTP 樣本數（依工作類型）",
+      "description": "Completed observations; inspect sample counts and overflow. Gauges describe current state, not completed latency. All deployed instances must have the same metric schema.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "skylab-prometheus"
+          },
+          "expr": "sum by (workload) (increase(http_request_duration_seconds_count{job=\"skylab-backend\"}[15m]))",
+          "legendFormat": "{{workload}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "無資料"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
             "max",
             "lastNotNull"
           ]

@@ -102,6 +102,9 @@ def update_dotenv(
             rendered.append(line)
     for key, count in counts.items():
         if count == 0:
+            # A last line without a newline would otherwise absorb the new key.
+            if rendered and not rendered[-1].endswith(("\n", "\r")):
+                rendered[-1] += "\n"
             rendered.append(f"{key}={dotenv_value(updates[key])}\n")
     return "".join(rendered)
 

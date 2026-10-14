@@ -724,7 +724,7 @@ def test_execute_target_script_uploads_runs_and_collects_result(
         lambda *args, **kwargs: fake_client,
     )
 
-    def fake_exec_command(client, command, *, timeout):
+    def fake_exec_command(client, command, *, timeout, max_output_bytes):
         commands.append(command)
         if "python3 script.py" in command:
             client.sftp.files[f"{remote_dir}/result.json"] = (

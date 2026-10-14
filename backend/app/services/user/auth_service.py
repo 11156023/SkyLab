@@ -24,6 +24,7 @@ from app.repositories import user as user_repo
 from app.schemas import Token, TokenPayload, TotpChallenge, UserUpdate
 from app.services.user import audit_service, totp_service
 from app.services.user.password_policy import ensure_password_complexity
+from app.services.user.registration_policy_service import get_policy
 from app.services.user.tokens import create_token_pair
 from app.utils import (
     decode_password_reset_token,
@@ -31,18 +32,6 @@ from app.utils import (
     generate_reset_password_email,
     send_email,
 )
-
-
-def _is_education_email(email: str) -> bool:
-    """Return whether the email domain contains an exact ``edu`` label.
-
-    This accepts both US-style ``school.edu`` and country domains such as
-    ``school.edu.tw`` without accepting lookalikes such as ``school-edu.com``.
-    """
-    _, separator, domain = email.strip().casefold().rpartition("@")
-    if not separator:
-        return False
-    return "edu" in domain.strip(".").split(".")
 
 
 def _google_profile_text(
@@ -56,7 +45,7 @@ def _google_profile_text(
 
 
 def _create_google_user(
-    *, session: Session, email: str, data: Mapping[str, object]
+    *, session: Session, email: str, data: Mapping[str, object], approval_required: bool = False
 ) -> User:
     """Create a passwordless-by-default student for an eligible Google login.
 
@@ -69,7 +58,8 @@ def _create_google_user(
         full_name=_google_profile_text(data, "name", 255),
         avatar_url=_google_profile_text(data, "picture", 2048),
         role=UserRole.student,
-        is_active=True,
+        is_active=not approval_required,
+        registration_status="pending_review" if approval_required else "approved",
         auth_source="google",
         hashed_password=security.get_password_hash(secrets.token_urlsafe(32)),
     )
@@ -85,9 +75,7 @@ def _create_google_user(
     return user
 
 
-def login(
-    *, session: Session, email: str, password: str
-) -> Token | TotpChallenge:
+def login(*, session: Session, email: str, password: str) -> Token | TotpChallenge:
     user = user_repo.authenticate(session=session, email=email, password=password)
     if not user:
         audit_service.log_action(
@@ -146,19 +134,27 @@ def _complete_google_login(
     """Google ID token 已驗過之後的同步 DB 流程（查帳號或自動註冊、稽核、發 token）。"""
     user = user_repo.get_user_by_email(session=session, email=email)
     if not user:
-        # Public signup also governs Google self-registration. Only verified
-        # educational domains may create an account; all other Google accounts
-        # must already have a local user record.
-        if not settings.ENABLE_SIGNUP or not _is_education_email(email):
+        # Public signup also governs Google self-registration.
+        policy = get_policy(session)
+        if not policy.signup_enabled:
             _log_google_login_failure(session, "user not found", email)
             raise BadRequestError(t("auth.googleAccountNotRegistered"))
-        user = _create_google_user(session=session, email=email, data=data)
+        user = _create_google_user(
+            session=session, email=email, data=data,
+            approval_required=policy.approval_required,
+        )
+        if user.registration_status == "pending_review":
+            session.commit()
     # Keep the source of an existing account unchanged. In particular, LDAP
     # remains authoritative for password management even when the same email
     # also uses Google login.
     if not user.is_active:
         _log_google_login_failure(session, "inactive user", email, user.id)
-        raise BadRequestError(t("auth.inactiveUser"))
+        raise BadRequestError(
+            t("user.registrationPendingReview")
+            if user.registration_status == "pending_review"
+            else t("auth.inactiveUser")
+        )
     if user.totp_enabled:
         return totp_service.issue_challenge(user, method="google")
     audit_service.log_action(
@@ -170,9 +166,7 @@ def _complete_google_login(
     return create_token_pair(user)
 
 
-async def google_login(
-    *, session: Session, id_token: str
-) -> Token | TotpChallenge:
+async def google_login(*, session: Session, id_token: str) -> Token | TotpChallenge:
     # 稽核寫入與帳號查詢都是同步 DB 操作（會 commit），一律丟到 worker thread，
     # 不佔住 event loop；event loop 上只留 Google tokeninfo 呼叫與純資料檢查。
     async def _fail(
@@ -203,7 +197,7 @@ async def google_login(
         await _fail("email not verified", data.get("email"))
         raise BadRequestError(t("auth.googleEmailNotVerified"))
     email = data.get("email")
-    if not email:
+    if not isinstance(email, str) or not email:
         await _fail("missing email")
         raise BadRequestError(t("auth.googleEmailMissing"))
     return await run_in_threadpool(_complete_google_login, session, email, data)
@@ -289,9 +283,7 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
     # legitimate client has already rotated past it.
     if token_data.jti and token_data.exp:
         redis = await get_redis()
-        if not await mark_refresh_token_used(
-            redis, token_data.jti, token_data.exp
-        ):
+        if not await mark_refresh_token_used(redis, token_data.jti, token_data.exp):
             raise AuthenticationError(t("auth.tokenRevoked"))
 
     return create_token_pair(user)
@@ -359,4 +351,3 @@ def reset_password(*, session: Session, token: str, new_password: str) -> None:
         commit=False,
     )
     session.commit()
-

@@ -40,7 +40,7 @@ def test_reaper_marks_each_stale_run_failed(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(
         svc,
         "_mark_run_executor_failed",
-        lambda run_id, msg: marked.append((run_id, msg)),
+        lambda run_id, msg, **_kwargs: marked.append((run_id, msg)),
     )
     session = _Session(stale_ids)
 

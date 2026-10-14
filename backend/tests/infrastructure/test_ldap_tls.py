@@ -81,6 +81,9 @@ def test_tls_failures_map_to_upstream_error(
         def bind(self) -> bool:
             raise exc
 
+        def unbind(self) -> None:
+            return None
+
     monkeypatch.setattr(ldap_client, "Connection", _FailingConnection)
     monkeypatch.setattr(ldap_client, "decrypt_value", lambda _v: "pw")
     config = _config("ldap://dc.example.org", starttls=True)

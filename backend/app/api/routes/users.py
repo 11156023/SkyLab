@@ -9,9 +9,11 @@ from fastapi.responses import FileResponse
 from app.api.deps import (
     CurrentUser,
     SessionDep,
+    enforce_account_rate_limit,
     get_current_active_superuser,
     rate_limit_by_ip,
     rate_limit_by_network_and_global,
+    rate_limit_by_user,
     require_turnstile,
 )
 from app.api.request_body import limited_json_openapi, parse_limited_json
@@ -32,11 +34,72 @@ from app.schemas import (
     UserUpdateMe,
 )
 from app.schemas.monitoring import LoginPreflight
-from app.schemas.user import EmailChangeConfirm, EmailChangeRequest
+from app.schemas.registration import RegistrationPolicyPublic, RegistrationPolicyUpdate
+from app.schemas.user import EmailChangeConfirm, EmailChangeRequest, SignupConfirm
 from app.services.monitoring import preflight_service
-from app.services.user import avatar_service, totp_service, user_service
+from app.services.user import (
+    avatar_service,
+    registration_policy_service,
+    totp_service,
+    user_service,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get(
+    "/registration-policy",
+    response_model=RegistrationPolicyPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def read_registration_policy(session: SessionDep) -> Any:
+    return registration_policy_service.get_policy(session)
+
+
+@router.put(
+    "/registration-policy",
+    response_model=RegistrationPolicyPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def write_registration_policy(
+    session: SessionDep, body: RegistrationPolicyUpdate
+) -> Any:
+    return registration_policy_service.update_policy(
+        session,
+        signup_enabled=body.signup_enabled,
+        approval_required=body.approval_required,
+    )
+
+
+@router.get(
+    "/pending-registrations",
+    response_model=UsersPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def read_pending_registrations(session: SessionDep) -> Any:
+    return user_service.list_pending_registrations(session=session)
+
+
+@router.post(
+    "/{user_id}/registration/approve",
+    response_model=UserPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def approve_registration(user_id: uuid.UUID, session: SessionDep, current_user: CurrentUser) -> Any:
+    return user_service.review_registration(
+        session=session, user_id=user_id, actor=current_user, approve=True
+    )
+
+
+@router.post(
+    "/{user_id}/registration/reject",
+    response_model=UserPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def reject_registration(user_id: uuid.UUID, session: SessionDep, current_user: CurrentUser) -> Any:
+    return user_service.review_registration(
+        session=session, user_id=user_id, actor=current_user, approve=False
+    )
 
 _SIGNUP_RATE_LIMIT = Depends(
     rate_limit_by_ip(
@@ -60,6 +123,17 @@ _EMAIL_CHANGE_RATE_LIMIT = Depends(
 _EMAIL_VERIFY_RATE_LIMIT = Depends(
     rate_limit_by_ip(scope="email-verify", limit=30, window_seconds=60)
 )
+# 停用兩步驟驗證只靠一組 6 位數驗證碼把關；不節流的話，拿到登入狀態的人就能
+# 暴力猜碼把 2FA 關掉（登入端的驗證碼另有依帳號的失敗鎖定，見 login.py）
+_TOTP_DISABLE_RATE_LIMIT = Depends(
+    rate_limit_by_user(scope="totp-disable", limit=5, window_seconds=15 * 60)
+)
+# 改密碼要先驗目前密碼：不節流的話，拿到登入狀態（例如沒登出的教室電腦）的人
+# 就能暴力猜出原密碼。依帳號計次，不受同一個校園 NAT 出口的其他人影響
+_PASSWORD_CHANGE_RATE_LIMIT = Depends(
+    rate_limit_by_user(scope="password-change", limit=5, window_seconds=15 * 60)
+)
+
 
 @router.get(
     "/",
@@ -95,7 +169,9 @@ def update_user_me(
     )
 
 
-@router.post("/me/email-change", response_model=Message, dependencies=[_EMAIL_CHANGE_RATE_LIMIT])
+@router.post(
+    "/me/email-change", response_model=Message, dependencies=[_EMAIL_CHANGE_RATE_LIMIT]
+)
 def request_email_change_me(
     *, session: SessionDep, body: EmailChangeRequest, current_user: CurrentUser
 ) -> Message:
@@ -106,7 +182,9 @@ def request_email_change_me(
 
 
 @router.post(
-    "/email-change/confirm", response_model=Message, dependencies=[_EMAIL_VERIFY_RATE_LIMIT]
+    "/email-change/confirm",
+    response_model=Message,
+    dependencies=[_EMAIL_VERIFY_RATE_LIMIT],
 )
 def confirm_email_change_link(
     *, session: SessionDep, body: EmailChangeConfirm
@@ -115,7 +193,11 @@ def confirm_email_change_link(
     return Message(message="Email verified")
 
 
-@router.patch("/me/password", response_model=Message)
+@router.patch(
+    "/me/password",
+    response_model=Message,
+    dependencies=[_PASSWORD_CHANGE_RATE_LIMIT],
+)
 def update_password_me(
     *, session: SessionDep, body: UpdatePassword, current_user: CurrentUser
 ) -> Any:
@@ -132,7 +214,9 @@ def update_password_me(
 def read_user_me(current_user: CurrentUser) -> Any:
     me = UserPublic.model_validate(current_user)
     # 管理員要求此帳號啟用 2FA 但尚未綁定：前端只顯示綁定畫面
-    me.totp_setup_required = current_user.totp_required and not current_user.totp_enabled
+    me.totp_setup_required = (
+        current_user.totp_required and not current_user.totp_enabled
+    )
     return me
 
 
@@ -173,7 +257,11 @@ def confirm_totp_me(
     return TotpStatusPublic(totp_enabled=True)
 
 
-@router.post("/me/totp/disable", response_model=TotpStatusPublic)
+@router.post(
+    "/me/totp/disable",
+    response_model=TotpStatusPublic,
+    dependencies=[_TOTP_DISABLE_RATE_LIMIT],
+)
 def disable_totp_me(
     *, session: SessionDep, body: TotpCodeRequest, current_user: CurrentUser
 ) -> Any:
@@ -189,23 +277,17 @@ async def upload_avatar_me(
     """上傳頭像圖片，存檔後把 avatar_url 指向本服務的頭像端點。"""
     ext = avatar_service.AVATAR_CONTENT_TYPES.get((file.content_type or "").lower())
     if not ext:
-        raise HTTPException(
-            status_code=400, detail=t("users.avatarUnsupportedFormat")
-        )
+        raise HTTPException(status_code=400, detail=t("users.avatarUnsupportedFormat"))
     # 邊讀邊檢查大小，超過上限立即中止，避免先把整個檔案讀進記憶體
     buffer = bytearray()
     while chunk := await file.read(64 * 1024):
         buffer.extend(chunk)
         if len(buffer) > avatar_service.AVATAR_MAX_BYTES:
-            raise HTTPException(
-                status_code=400, detail=t("users.avatarTooLarge")
-            )
+            raise HTTPException(status_code=400, detail=t("users.avatarTooLarge"))
     data = bytes(buffer)
 
     # 檔案 I/O 與同步 DB commit 都丟到 worker thread，不佔住 event loop
-    await run_in_threadpool(
-        avatar_service.store_avatar, current_user.id, ext, data
-    )
+    await run_in_threadpool(avatar_service.store_avatar, current_user.id, ext, data)
 
     # v= 時間戳讓 <img> 換圖時不吃瀏覽器快取
     avatar_url = (
@@ -253,10 +335,26 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
 )
 async def register_user(request: Request, session: SessionDep) -> Any:
     user_in = await parse_limited_json(request, UserRegister)
+    await enforce_account_rate_limit(
+        scope="signup-mail",
+        account=str(user_in.email),
+        limit=3,
+        window_seconds=3600,
+    )
     # Argon2 與同步 DB transaction 留在 worker thread，不阻塞 event loop。
     return await run_in_threadpool(
         user_service.register_user, session=session, user_in=user_in
     )
+
+
+@router.post(
+    "/signup/confirm", response_model=Message, dependencies=[_EMAIL_VERIFY_RATE_LIMIT]
+)
+def confirm_signup(*, session: SessionDep, body: SignupConfirm) -> Message:
+    status = user_service.confirm_signup(
+        session=session, token=body.token, password=body.password
+    )
+    return Message(message=status)
 
 
 @router.get("/{user_id}", response_model=UserPublic)

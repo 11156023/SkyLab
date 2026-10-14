@@ -56,14 +56,14 @@ backend 容器內沒有掛專案 `.env`，在容器內跑要加 `--skip-env-upda
 | `FRONTEND_HOST` | 使用者開啟的對外網址（用於信件與 SkyLab Connect 裝置登入）；啟用平台入口後要更新 |
 | `NGINX_HOST_PORT` | 入口的主機 port，預設 8082 |
 | `SKYLAB_TRUSTED_PROXY` | 用平台入口時填 Gateway 連進來的來源 IP／CIDR；預設不信任任何代理 |
-| `ENABLE_SIGNUP` | 公開註冊，以及教育網域 Google 帳號首次登入自動建帳 |
+| `ENABLE_SIGNUP` | 首次啟動時的公開註冊預設值；之後由管理員後台控制信箱註冊及 Google 首次登入自動建帳 |
 | `LOGIN_RATE_LIMIT_PER_ACCOUNT`、`LOGIN_RATE_LIMIT_PER_IP` | 每分鐘登入節流；整班從同一個 NAT 出口登入時 IP 上限要夠大 |
 | `BACKEND_CORS_ORIGINS` | 全部經 nginx 同源時留空 |
 | `REDIS_ENABLED`、`REDIS_URL` | 容器內保持 `true` |
 | `VLLM_BASE_URL`、`VLLM_API_KEY`、`VLLM_MODEL_NAME` | 內建 AI 助手（System AI）用的模型 |
 | `AI_API_BASE_URL`、`AI_API_API_KEY`、`AI_API_PUBLIC_BASE_URL`、`LITELLM_RUNTIME_*` | 經 LiteLLM 對外的 AI API；`AI_API_API_KEY` 是受限的 service key，絕不是 master key |
-| `SMTP_*`、`EMAILS_FROM_EMAIL` | 寄信；沒設 `SMTP_HOST` 時 stack 指向 MailCatcher |
-| `GOOGLE_CLIENT_ID` | Google 登入（只驗 ID token 的 aud） |
+| `SMTP_*`、`EMAILS_FROM_EMAIL` | 註冊驗證信；正式環境啟用註冊時須設定真實 SMTP，MailCatcher 僅供本機開發 |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID；後端驗證 ID token 的 aud 與已驗證信箱，Google 帳號範圍由 Google Cloud「目標對象」控制，詳見[Google 登入與公開註冊](google-login-registration.zh-TW.md) |
 | `TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY` | 登入與註冊頁的 Cloudflare Turnstile；兩個都填才啟用 |
 | `LDAP_CA_CERT_FILE` | LDAP/AD over TLS 的 CA，見下方 |
 | `SENTRY_DSN`、`SENTRY_RELEASE`、`VITE_SENTRY_DSN` | 錯誤追蹤；前端的值在建置映像時帶入 |
@@ -72,6 +72,23 @@ backend 容器內沒有掛專案 `.env`，在容器內跑要加 `--skip-env-upda
 | `COMPOSE_PROFILES=monitoring`、`GRAFANA_*`、`INFLUXDB_*`、`METRICS_TOKEN`、`DOCKER_SOCKET`… | 選用的監控 stack，見 [`monitoring.zh-TW.md`](monitoring.zh-TW.md) |
 
 Proxmox 連線**不是**環境變數：在初始化精靈或「PVE 連線」頁填入並加密存放；舊的 `PROXMOX_*` 變數會被忽略。
+
+System AI 的模型請求契約在 `backend/config/llm-model-profiles.yaml`，會一併包進
+backend 映像。模型 key、`VLLM_MODEL_NAME` 與上游 served model ID 必須完全相同；
+使用自訂 ID 時請新增或改名對應的 key。未知模型會在送出推論前拒絕。修改後須
+重新啟動 backend；若設定包在映像內，須重新建置映像。
+
+YAML 統一決定每次 System AI 呼叫的 thinking，包含 adherence checker。
+`Qwen/Qwen3.8-27B` 使用 `thinking: low` 與
+`thinking_parameter: chat_template_reasoning_effort`，轉成
+`chat_template_kwargs={"enable_thinking": true, "reasoning_effort": "low"}`。
+[Qwen3.8 官方模板](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/chat_template.jinja)
+支援 `low`、`medium` 與預設的 `xhigh`；明確送出兩個控制值，確保不受上游
+停用思考的預設值或預設 `xhigh` 影響。其他 template kwargs（包含明確設定的
+`preserve_thinking`）保留，推論、token 計算與 context 重試使用相同的 thinking 設定。
+既有 `enable_thinking` 不會覆蓋模型契約；取樣參數、token 上限、逾時、checker
+政策與對外 LiteLLM 轉發維持現有設定。啟用思考不保證現有 128-token checker
+預算足夠，切換模型後仍須驗證實際推論結果。
 
 ## 3. 啟動 stack
 
@@ -175,7 +192,7 @@ SkyLab **不簽發憑證**（不跑 certbot、不做 ACME）。管理員自己�
 
 ## 7. Gateway VM
 
-Gateway 是另一台 Linux VM，用 `gateway/install.sh` 安裝（nginx stream + http、WireGuard、nftables ACL、SNAT、選用的 Prometheus exporter）。SkyLab 從「閘道 VM」頁經 SSH 管理它，也能從該頁代跑安裝腳本。細節見 [`wireguard-desktop-architecture.zh-TW.md`](wireguard-desktop-architecture.zh-TW.md) 與 [`monitoring.zh-TW.md`](monitoring.zh-TW.md) 的「Gateway 監控」。
+Gateway 是另一台 Linux VM，用 `gateway/install.sh` 安裝（nginx stream + http、WireGuard、nftables ACL、SNAT、選用的 Prometheus exporter）。安裝腳本**只支援 Debian 13（trixie）**，其他系統在動到任何設定前就會停止：它的 nftables 規則用到 `nft destroy table`，需要 nftables 1.0.8 以上，而 Debian 12 附的是 1.0.6。Debian 12 的 Gateway 請先升級或改用 Debian 13 重建，再（重新）執行安裝腳本。SkyLab 從「閘道 VM」頁經 SSH 管理它，也能從該頁代跑安裝腳本。細節見 [`wireguard-desktop-architecture.zh-TW.md`](wireguard-desktop-architecture.zh-TW.md) 與 [`monitoring.zh-TW.md`](monitoring.zh-TW.md) 的「Gateway 監控」。
 
 ## 8. 持續部署（測試環境）
 

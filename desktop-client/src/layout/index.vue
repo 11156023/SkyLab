@@ -66,6 +66,16 @@ const openWeb = () =>
             t("router.about.title")
           }}</span></router-link
         >
+        <div
+          v-if="store.serverUnreachable"
+          class="desktop-offline"
+          role="status"
+          :title="t('workspace.serverUnreachableHint')"
+        >
+          <AppIcon name="alert" /><span>{{
+            t("workspace.serverUnreachable")
+          }}</span>
+        </div>
         <div class="desktop-account">
           <AppIcon name="shield" /><span>{{
             t(

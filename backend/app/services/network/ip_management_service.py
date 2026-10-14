@@ -115,6 +115,109 @@ def _has_vm_allocations(session: Session) -> bool:
     )
 
 
+_SYSTEM_PURPOSES = ("subnet_gateway", "gateway_vm")
+# 尚未綁到機器的整組預留（綁定後 purpose 會改成 vm／lxc）
+_RESERVATION_PURPOSES = ("class_reserved", "quick_practice_reserved")
+# 快速練習的預留鍵格式見 quick_practice._ip_reservation_key：quick:<session>:<node>
+_QUICK_PRACTICE_KEY_PREFIX = "quick:"
+
+
+def _quick_practice_holder_label(session: Session, practice_raw: str) -> str:
+    from app.models import QuickPracticeSession, User
+
+    owner = "—"
+    try:
+        practice = session.get(QuickPracticeSession, uuid.UUID(practice_raw))
+    except ValueError:
+        practice = None
+    if practice is not None:
+        user = session.get(User, practice.user_id)
+        if user is not None:
+            owner = user.email
+    return t(
+        "ipManagement.reservationHolderQuickPractice",
+        session=practice_raw,
+        owner=owner,
+    )
+
+
+def _reservation_holder_label(session: Session, alloc: IpAllocation) -> str | None:
+    """預留列屬於哪個班級／快速練習（給管理員看的錯誤訊息用）；認不出來回 None。"""
+    if alloc.teaching_class_id is not None:
+        from app.models import TeachingClass
+
+        teaching_class = session.get(TeachingClass, alloc.teaching_class_id)
+        if teaching_class is None:
+            name = str(alloc.teaching_class_id)
+        else:
+            name = f"{teaching_class.name}（{teaching_class.code}）"
+        return t("ipManagement.reservationHolderClass", name=name)
+    key = alloc.reservation_key or ""
+    if key.startswith(_QUICK_PRACTICE_KEY_PREFIX):
+        practice_raw = key[len(_QUICK_PRACTICE_KEY_PREFIX):].split(":", 1)[0]
+        return _quick_practice_holder_label(session, practice_raw)
+    return None
+
+
+def _reservation_holders(session: Session) -> list[str]:
+    """還有未綁定預留的班級／快速練習（依出現順序去重）。
+
+    這些預留是依目前網段算出的具體 IP；改 CIDR 或刪除子網設定後它們會落在
+    網段外或整筆消失，等班級真的建機時才失敗，所以要先擋下並告訴管理員是誰。
+    """
+    rows = session.exec(
+        select(IpAllocation).where(
+            IpAllocation.purpose.in_(_RESERVATION_PURPOSES)  # type: ignore[union-attr]
+        )
+    ).all()
+    holders: list[str] = []
+    for row in rows:
+        label = _reservation_holder_label(session, row) or (
+            row.description or row.purpose
+        )
+        if label not in holders:
+            holders.append(label)
+    return holders
+
+
+def _ip_holder_label(session: Session, alloc: IpAllocation) -> str:
+    if alloc.vmid is not None:
+        return t("ipManagement.ipHolderVm", vmid=alloc.vmid)
+    return _reservation_holder_label(session, alloc) or (
+        alloc.description or alloc.purpose
+    )
+
+
+def _assert_system_ips_available(
+    session: Session, *, gateway: str, gateway_vm_ip: str
+) -> None:
+    """閘道／Gateway VM IP 不可是已配發給機器或被預留的位址。
+
+    不先擋的話 ``_reserve_system_ips`` 會撞到 ip_address 的 UNIQUE 約束變成 500。
+    原本的系統保留列會整批重建，不算衝突。
+    """
+    for ip_str, label_key in (
+        (gateway, "ipManagement.gatewayIpLabel"),
+        (gateway_vm_ip, "ipManagement.gatewayVmIpLabel"),
+    ):
+        normalized = str(ipaddress.IPv4Address(ip_str))
+        holder = session.exec(
+            select(IpAllocation).where(
+                IpAllocation.ip_address.in_({ip_str, normalized})  # type: ignore[attr-defined]
+            )
+        ).first()
+        if holder is None or holder.purpose in _SYSTEM_PURPOSES:
+            continue
+        raise ConflictError(
+            t(
+                "ipManagement.systemIpInUse",
+                label=t(label_key),
+                ip=ip_str,
+                holder=_ip_holder_label(session, holder),
+            )
+        )
+
+
 def upsert_subnet_config(
     session: Session,
     *,
@@ -131,7 +234,8 @@ def upsert_subnet_config(
 ) -> SubnetConfig:
     """設定或更新子網配置，並保留系統 IP。
 
-    若已有 VM/LXC 類型的 IP 分配且 CIDR 改變，則拒絕操作。
+    若已有 VM/LXC 類型的 IP 分配或班級／快速練習的預留且 CIDR 改變，則拒絕操作；
+    閘道／Gateway VM IP 撞到已配發或預留的位址時回 409。
     VLAN 只在建立機器時寫進網卡，改了不會回頭改既有機器。
     """
     network = ipaddress.IPv4Network(cidr, strict=False)
@@ -173,6 +277,20 @@ def upsert_subnet_config(
                 raise ConflictError(
                     t("ipManagement.cidrChangeBlockedByAllocations")
                 )
+            holders = _reservation_holders(session)
+            if holders:
+                raise ConflictError(
+                    t(
+                        "ipManagement.cidrChangeBlockedByReservations",
+                        holders=", ".join(holders),
+                    )
+                )
+
+    _assert_system_ips_available(
+        session, gateway=gateway, gateway_vm_ip=gateway_vm_ip
+    )
+
+    if existing:
 
         existing.cidr = str(network)
         existing.gateway = gateway
@@ -225,13 +343,21 @@ def upsert_subnet_config(
 
 
 def delete_subnet_config(session: Session) -> None:
-    """刪除子網配置（需先確認無 VM/LXC 分配）"""
+    """刪除子網配置（需先確認無 VM/LXC 分配，也沒有班級／快速練習的預留）"""
     config = get_subnet_config(session)
     if config is None:
         raise BadRequestError(t("ipManagement.subnetConfigNotFound"))
 
     if _has_vm_allocations(session):
         raise ConflictError(t("ipManagement.subnetConfigDeleteBlocked"))
+    holders = _reservation_holders(session)
+    if holders:
+        raise ConflictError(
+            t(
+                "ipManagement.subnetConfigDeleteBlockedByReservations",
+                holders=", ".join(holders),
+            )
+        )
 
     # 刪除所有 IP 分配（含系統保留）
     all_allocs = session.exec(select(IpAllocation)).all()
@@ -595,6 +721,20 @@ def get_all_allocations(session: Session) -> list[IpAllocation]:
     # 依 IP 數值排序（而非字串排序）
     allocs.sort(key=lambda a: ipaddress.IPv4Address(a.ip_address))
     return allocs
+
+
+def get_allocation_by_ip(session: Session, ip_address: str) -> IpAllocation | None:
+    """這個位址的配發／預留紀錄（ip_address 唯一，最多一筆）。
+
+    沒有 ``exec`` 的 session（測試替身）視為沒有紀錄，與
+    ``resource_repo.get_allocated_ip_address`` 一致。
+    """
+    if not hasattr(session, "exec"):
+        return None
+    rows = session.exec(
+        select(IpAllocation).where(IpAllocation.ip_address == ip_address)
+    ).all()
+    return rows[0] if rows else None
 
 
 def get_ip_stats(session: Session) -> dict[str, int]:

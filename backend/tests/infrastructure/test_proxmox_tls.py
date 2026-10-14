@@ -64,3 +64,40 @@ def test_hook_installed_once(bundle_dir: Path) -> None:
 
     assert HTTPAdapter.build_connection_pool_key_attributes is hook
     assert len(tls._CA_BUNDLE_CONTEXTS) == 2
+
+
+def test_concurrent_first_write_of_same_ca_does_not_fail(
+    bundle_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """兩個執行緒同時首次落地同一把 CA：不能因共用暫存檔而 FileNotFoundError。"""
+    import threading
+
+    barrier = threading.Barrier(2)
+    real_replace = tls.os.replace
+
+    def replace_after_both_wrote(src: object, dst: object) -> None:
+        # 讓兩個寫入者都寫完暫存檔後才 replace，重現共用 .tmp 的競態
+        barrier.wait(timeout=5)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(tls.os, "replace", replace_after_both_wrote)
+    pem = _ca_pem()
+    errors: list[BaseException] = []
+    paths: list[str] = []
+
+    def write() -> None:
+        try:
+            paths.append(tls.ca_bundle_path(pem))
+        except BaseException as exc:  # pragma: no cover - 失敗時才會進來
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == []
+    assert len(set(paths)) == 1
+    assert Path(paths[0]).read_text(encoding="utf-8") == pem
+    assert sorted(p.name for p in bundle_dir.iterdir()) == [Path(paths[0]).name]

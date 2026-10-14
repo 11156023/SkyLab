@@ -1,11 +1,13 @@
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, func, select
 
+from app.domain.resource_markers import RESOURCE_DELETED_MARKERS
 from app.models import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.repositories import resource as resource_repo
 from app.schemas import VMRequestCreate
@@ -341,10 +343,53 @@ def get_latest_approved_vm_request_by_vmid(
     return session.exec(statement).first()
 
 
+def _not_closed() -> Any:
+    """申請單沒有「機器已刪除／轉範本」的結案標記。
+
+    結案的申請仍是 approved、也保留 vmid（稽核用）；PVE 會把同一個 VMID 配給
+    下一台新機器，查那台新機器的使用時段時不能拿到它。
+    """
+    return sa.or_(
+        col(VMRequest.resource_warning).is_(None),
+        col(VMRequest.resource_warning).not_in(sorted(RESOURCE_DELETED_MARKERS)),
+    )
+
+
+def get_window_request_for_vmid(
+    *,
+    session: Session,
+    vmid: int,
+    source_request_id: uuid.UUID | None = None,
+) -> VMRequest | None:
+    """這台機器的使用時段要看哪張申請單。
+
+    機器有來源申請（``resources.request_id``）就用它；沒有（或那張單已不指向
+    這個 VMID）才找同 VMID 最新、尚未結案的 approved 申請。只看 VMID 的話，
+    VMID 被回收給新機器後會拿到前一台已結案的申請。
+    """
+    if source_request_id is not None:
+        source = session.get(VMRequest, source_request_id)
+        if source is not None and source.vmid == vmid:
+            return source
+    statement = (
+        select(VMRequest)
+        .where(
+            VMRequest.vmid == vmid,
+            col(VMRequest.status).in_(_ACTIVE_STATUSES),
+            _not_closed(),
+        )
+        .order_by(col(VMRequest.reviewed_at).desc(), col(VMRequest.created_at).desc())
+    )
+    return session.exec(statement).first()
+
+
 def get_latest_approved_vm_requests_by_vmids(
-    *, session: Session, vmids: Iterable[int]
+    *, session: Session, vmids: Iterable[int], skip_closed: bool = False
 ) -> dict[int, VMRequest]:
-    """get_latest_approved_vm_request_by_vmid 的批次版（不預載 user）。"""
+    """get_latest_approved_vm_request_by_vmid 的批次版（不預載 user）。
+
+    ``skip_closed`` 排除已結案（機器刪除／轉範本）的申請，查使用時段時用。
+    """
     wanted = {vmid for vmid in vmids if vmid is not None}
     if not wanted:
         return {}
@@ -356,6 +401,8 @@ def get_latest_approved_vm_requests_by_vmids(
         )
         .order_by(VMRequest.reviewed_at.desc(), VMRequest.created_at.desc())  # type: ignore[union-attr]
     )
+    if skip_closed:
+        statement = statement.where(_not_closed())
     latest: dict[int, VMRequest] = {}
     for request in session.exec(statement).all():
         if request.vmid is not None:
@@ -407,6 +454,35 @@ def list_expired_pending_vm_requests(
             VMRequest.end_at <= at_time,  # type: ignore[operator]
         )
         .order_by(VMRequest.end_at.asc())  # type: ignore[union-attr]
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    return list(session.exec(statement).all())
+
+
+def list_expired_unprovisioned_approved_vm_requests(
+    *,
+    session: Session,
+    at_time: datetime,
+    limit: int = 100,
+) -> list[VMRequest]:
+    """Approved requests whose usage window ended before a machine was provisioned.
+
+    The scheduler only provisions inside the window, so these never become a
+    machine; left alone they reserve quota forever. ``end_at IS NULL``
+    (open-ended immediate mode) never expires. Requests that already have a
+    vmid are managed by ``process_due_request_stops`` and are not returned.
+    Rows are locked with SKIP LOCKED like the pending variant.
+    """
+    statement = (
+        select(VMRequest)
+        .where(
+            VMRequest.status == VMRequestStatus.approved,
+            col(VMRequest.vmid).is_(None),
+            col(VMRequest.end_at).is_not(None),
+            col(VMRequest.end_at) <= at_time,
+        )
+        .order_by(col(VMRequest.end_at).asc())
         .limit(limit)
         .with_for_update(skip_locked=True)
     )

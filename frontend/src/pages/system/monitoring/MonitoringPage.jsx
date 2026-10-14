@@ -134,7 +134,7 @@ function NodeTrends({ node }) {
   );
 }
 
-function AlertsCard({ onCountChange }) {
+export function AlertsCard({ onCountChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const METRIC_LABELS = { cpu: "CPU", memory: t("MonitoringPage.memoryLabel"), disk: t("MonitoringPage.diskLabel") };
@@ -202,6 +202,12 @@ function AlertsCard({ onCountChange }) {
                     <span className={styles.alertScope}>
                       {SCOPE_LABELS[alert.scope] ?? alert.scope}
                     </span>
+                    {/* 多叢集下 vmid 會重複：標出告警屬於哪個 PVE 連線 */}
+                    {alert.connection_name && (
+                      <span className={styles.alertCluster}>
+                        {t("MonitoringPage.alertCluster", { name: alert.connection_name })}
+                      </span>
+                    )}
                     <span className={styles.alertTarget}>{alert.target}</span>
                     {/* 平台健康告警的 value 不是百分比（連續失敗次數等），直接顯示後端訊息 */}
                     {alert.scope === "system" ? (

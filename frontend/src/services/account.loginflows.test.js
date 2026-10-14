@@ -55,11 +55,11 @@ describe("AccountService 登入頁流程", () => {
     expect(JSON.parse(init.body)).toEqual({ new_password: "N3w-Passw0rd!", token: "tok-123" });
   });
 
-  test("signup() 送出 email、full_name、password；後端拒絕時 throw", async () => {
+  test("signup() 送出 email、full_name；後端拒絕時 throw", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes({ id: "u1", email: "u@x.y" }));
 
     await expect(
-      AccountService.signup({ email: "u@x.y", full_name: "User", password: "pw123456" }),
+      AccountService.signup({ email: "u@x.y", full_name: "User" }),
     ).resolves.toEqual({ id: "u1", email: "u@x.y" });
 
     const [url, init] = fetchMock.mock.calls[0];
@@ -68,12 +68,11 @@ describe("AccountService 登入頁流程", () => {
     expect(JSON.parse(init.body)).toEqual({
       email: "u@x.y",
       full_name: "User",
-      password: "pw123456",
     });
 
     fetchMock.mockResolvedValueOnce(jsonRes({ detail: "已存在" }, 400));
     await expect(
-      AccountService.signup({ email: "u@x.y", full_name: "User", password: "pw123456" }),
+      AccountService.signup({ email: "u@x.y", full_name: "User" }),
     ).rejects.toMatchObject({ status: 400 });
   });
 

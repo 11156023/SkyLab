@@ -992,6 +992,10 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
                 name="process_expired_requests",
                 handler=process_expired_requests_task,
             ),
+            ScheduledTask(
+                name="process_expired_unprovisioned_requests",
+                handler=process_expired_unprovisioned_requests_task,
+            ),
             ScheduledTask(name="process_pending_deletions", handler=process_pending_deletions_task),
             ScheduledTask(
                 name="reap_stale_script_runs", handler=reap_stale_script_runs_task
@@ -1042,6 +1046,10 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
                 handler=reap_stale_batch_jobs_task,
             ),
             ScheduledTask(
+                name="requeue_stalled_batch_jobs",
+                handler=requeue_stalled_batch_jobs_task,
+            ),
+            ScheduledTask(
                 name="process_system_health_alerts",
                 handler=process_system_health_alerts_task,
             ),
@@ -1060,6 +1068,15 @@ def reap_stale_batch_jobs_task() -> int:
     return batch_provision_service.reap_stale_batch_jobs()
 
 
+def requeue_stalled_batch_jobs_task() -> int:
+    """Scheduler tick：已核准卻一直沒有 worker 接手的批次建機重新入列。"""
+    from app.services.vm import (
+        batch_provision_service,
+    )
+
+    return batch_provision_service.requeue_stalled_approved_jobs()
+
+
 def process_expired_requests_task() -> int:
     """Scheduler tick：已過使用時段仍未審核的申請自動過期。"""
     from app.services.vm import (
@@ -1067,6 +1084,15 @@ def process_expired_requests_task() -> int:
     )
 
     return vm_request_expiry_service.process_expired_requests()
+
+
+def process_expired_unprovisioned_requests_task() -> int:
+    """Scheduler tick：時段已結束卻沒開出機器的已核准申請自動過期，釋放配額。"""
+    from app.services.vm import (
+        vm_request_expiry_service,
+    )
+
+    return vm_request_expiry_service.process_expired_unprovisioned_requests()
 
 
 def process_quick_practice_lifecycle_task() -> int:

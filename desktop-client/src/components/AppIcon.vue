@@ -11,6 +11,7 @@ const paths: Record<string, string> = {
   info: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zm-9-1v6m0-10v.1",
   external: "M14 3h7v7m0-7L10 14m0-9H3v16h16v-7",
   activity: "M2 12h4l3-8 6 16 3-8h4",
+  alert: "M12 3 2 20h20zM12 10v4m0 3v.1",
   sun: "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0zm-4-10v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1",
   settings:
     "m9 3-1 3-3 1-2 4 2 3v3l4 3 3-1 3 1 4-3v-3l2-3-2-4-3-1-1-3zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"

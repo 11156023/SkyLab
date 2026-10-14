@@ -1,10 +1,21 @@
 ﻿import { spawn } from "child_process";
 import { app, shell } from "electron";
+import BeanFactory from "../core/BeanFactory";
 import GlobalConstant from "../core/GlobalConstant";
+import type SettingsService from "./SettingsService";
 
 class SystemService {
   async openUrl(url: string) {
     const target = new URL(url);
+    // 「開啟 Web 平台」開的是設定頁填的後端（SettingsService 已驗證過 HTTPS／本機
+    // http），不只預設網址；只放行同一個 origin。
+    const settingsService: SettingsService =
+      BeanFactory.getBean("settingsService");
+    const backendUrl = await settingsService.getBackendUrl();
+    if (target.origin === new URL(backendUrl).origin) {
+      await shell.openExternal(target.toString());
+      return;
+    }
     if (target.protocol !== "https:") throw new Error("URL must use HTTPS");
     const allowedHosts = new Set([
       "github.com",

@@ -89,7 +89,8 @@ db、pgbouncer、redis、backend 原本就有；新增：
 
 ```bash
 # 先在 .env 設好（至少）：
-#   GRAFANA_ADMIN_PASSWORD、INFLUXDB_ADMIN_PASSWORD、INFLUXDB_ADMIN_TOKEN
+#   INFLUXDB_ADMIN_PASSWORD、INFLUXDB_ADMIN_TOKEN
+#（GRAFANA_ADMIN_PASSWORD 可以留空：Grafana 自己的帳密登入已關閉，見「登入 Grafana」）
 docker compose --profile monitoring up -d
 ```
 
@@ -144,9 +145,24 @@ SkyLab「資源監控」頁右上角的「在 Grafana 查看詳細」按鈕只�
 3. nginx 一律以後端的回覆覆寫這四個標頭（瀏覽器自己帶的會被丟掉），Grafana `auth.proxy` 只信任 nginx 在 `grafana-authproxy` 網路上的固定 IP（`GF_AUTH_PROXY_WHITELIST`）。Grafana 不另外發 session，每個請求都重新驗證。
 4. 登出 SkyLab 時一併刪掉這個 cookie。
 
-**備用入口**：沒有 cookie（例如沒先開資源監控頁、cookie 過期）或後端掛掉時，`/grafana/` 顯示 Grafana 原本的登入頁，用 `admin`／`GRAFANA_ADMIN_PASSWORD` 登入。注意 Grafana 只在第一次啟動時寫入這個密碼，之後改 `.env` 不會生效，要用 `docker exec $(docker ps -qf name=grafana) grafana cli admin reset-admin-password '新密碼'` 重設。
+**Grafana 自己的帳密登入已關閉**：登入表單與 HTTP API 的 basic auth 都關掉了（`docker-compose.yml` 的 `GF_AUTH_DISABLE_LOGIN_FORM=true`、`GF_AUTH_BASIC_ENABLED=false`），對外的 `/grafana/` 只能經上面的 SkyLab 管理員免密碼登入進入。沒有有效 cookie（例如沒先開資源監控頁、cookie 過期）或後端掛掉時，`/grafana/` 只會顯示沒有帳號／密碼欄位的 Grafana 登入頁，請先在 SkyLab 開「資源監控」頁。
 
-**網段設定**：`grafana-authproxy` 是只有 nginx 與 Grafana 的 docker 網路，預設 `172.30.253.0/28`、nginx 固定 `172.30.253.2`（放在動態分配範圍 `172.30.253.8/29` 之外）。與主機或其他網路衝突時，在 `.env` 一起改 `GRAFANA_AUTHPROXY_SUBNET`、`GRAFANA_AUTHPROXY_IP_RANGE`、`GRAFANA_AUTHPROXY_NGINX_IP`。不想要免密碼登入時設 `GRAFANA_AUTH_PROXY_ENABLED=false`。
+SkyLab 管理員在 Grafana 主組織裡的角色是 Admin，儀表板、資料來源、使用者與 service account 都能管理。Grafana 內建的 `admin` 帳號（server admin）仍然存在，只是無法登入；它的密碼是 `GRAFANA_ADMIN_PASSWORD`，留空（或仍是範本的 `changethis`／`admin`）時容器改用隨機密碼，不再落回 Grafana 預設的 `admin`。Grafana 只在第一次啟動時寫入這個密碼，所以既有安裝的舊密碼仍留在 Grafana 資料庫裡（只是不能再拿來登入），之後改 `.env` 也不會生效。
+
+**需要用內建 admin 時**（SkyLab 登入壞掉，或要改 Grafana 全站設定），在 SkyLab 主機上：
+
+1. 在容器裡設新密碼：`docker compose exec grafana grafana cli admin reset-admin-password '新密碼'`。
+2. 在 `docker-compose.yml` 旁邊放一個 `docker-compose.override.yml` 暫時打開登入表單，再執行 `docker compose --profile monitoring up -d grafana`：
+   ```yaml
+   services:
+     grafana:
+       environment:
+         GF_AUTH_DISABLE_LOGIN_FORM: "false"
+   ```
+   這段期間對外的 `/grafana/` 也看得到登入表單，建議經 SSH tunnel 連 `http://127.0.0.1:3000/grafana/` 登入，並盡快結束。
+3. 用完刪掉 override 檔，再跑一次同樣的 `up -d grafana`，並把密碼再重設成隨機值。
+
+**網段設定**：`grafana-authproxy` 是只有 nginx 與 Grafana 的 docker 網路，預設 `172.30.253.0/28`、nginx 固定 `172.30.253.2`（放在動態分配範圍 `172.30.253.8/29` 之外）。與主機或其他網路衝突時，在 `.env` 一起改 `GRAFANA_AUTHPROXY_SUBNET`、`GRAFANA_AUTHPROXY_IP_RANGE`、`GRAFANA_AUTHPROXY_NGINX_IP`。設 `GRAFANA_AUTH_PROXY_ENABLED=false` 會關掉免密碼登入，也就沒有任何從網頁進入 Grafana 的方式（上面的緊急程序除外）。
 
 ### Proxmox VE Metric Server 設定
 
@@ -194,6 +210,8 @@ sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
 
 沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（「SkyLab Gateway」儀表板的 exporter 狀態顯示 DOWN）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。
 
+exporter 裝不起來或啟動失敗（例如 port 被占用）時，安裝腳本只會警告並繼續，nginx 與 WireGuard 照樣裝好；用 `journalctl -u prometheus-node-exporter -u prometheus-nginx-exporter` 查原因，修好後重跑 `install.sh`。
+
 `stub_status` 只涵蓋 http（對外網址）；Port 轉發（nginx stream）沒有對應的連線統計，請看「SkyLab Gateway」儀表板的 TCP 連線數與網卡流量。
 
 Gateway 服務異常、憑證快到期的通知由內建的系統告警負責（`component:gateway`），監控 stack 這邊只看圖。
@@ -227,7 +245,7 @@ AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prom
 
 | 指標 | 說明 |
 |---|---|
-| `http_requests_total{method,path,status}`、`http_request_duration_seconds` | 以路由樣板為 label；對不到路由的請求一律 `path="<unmatched>"` |
+| `http_requests_total{method,path,status,workload}`、`http_request_duration_seconds{method,path,workload}` | 以 method／路由樣板分一般 API、AI 生成與 other；對不到路由仍為 `path="<unmatched>"`；HTTP duration 含 ASGI 收尾，上界 600 秒不是 timeout。 |
 | `http_requests_in_progress` | 處理中的請求數 |
 | `skylab_websocket_connections{kind}` | vnc／terminal／jobs／classroom／classroom_watch／course_progress |
 | `skylab_scheduler_task_runs_total{loop,task,result}`、`skylab_scheduler_task_duration_seconds` | 排程任務執行次數與耗時 |
@@ -237,12 +255,18 @@ AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prom
 | `skylab_queue_jobs{queue}` | arq 佇列等待中的任務數 |
 | `skylab_task_records{status}` | queued／running（當下）、failed_24h／succeeded_24h |
 | `skylab_ai_requests_total{source,model,request_type,outcome}` | AI 呼叫次數；`outcome`＝success／client_error／rate_limited／unavailable／upstream_error／stream_error／cancelled／error |
-| `skylab_ai_request_duration_seconds{source,model,stream}`、`skylab_ai_time_to_first_token_seconds{source,model}` | 端到端延遲、串流首字延遲 |
+| `skylab_ai_request_duration_seconds{source,model,stream,request_type,outcome}`、`skylab_ai_time_to_first_token_seconds{source,model}` | Public 每筆 logical request／System 每次模型呼叫的耗時；TTFT 僅 public 串流首字。取消不進 duration，System 非串流沒有 TTFT 樣本。 |
+| `skylab_ai_proxy_queue_wait_seconds{model}` | 每筆公開 logical request 終止時記一次累積 admission／retry cooldown 等待；排除 catalogue／生成；取消／失敗也記錄。 |
+| `skylab_ai_workflows_total{route,outcome,terminal_reason}` | Navigation／PVE 流程終止結果；HTTP 200 fallback、adherence 失敗與政策拒絕分開，不等於模型呼叫數。 |
 | `skylab_ai_tokens_total{source,model,direction}` | 模型回報的 input／output token |
 
 依賴元件與佇列指標在 Prometheus 抓取時才更新（最多每 5 秒一次）；PVE 連線、Gateway 與 AI 狀態沿用最近一次系統健康檢查的結果，不會因為 Prometheus 抓取而去打 PVE／SSH／LiteLLM。
 
 `skylab_ai_*` 的 `model` 只保留 LiteLLM 成功服務過、或健康檢查查到的模型名稱（上限 100 個），呼叫端亂填的名稱一律歸為 `other`，時間序列數量才有上限。
+
+更新 metrics schema／buckets 時，backend instances 與 dashboards 必須同步；最後一個舊 instance 退出後，至少等待最長查詢窗（目前 15 分鐘）再比較。Queue 舊版是每次 acquire 樣本，新版是每筆 logical request 累積，不能直接拼接 P95 趨勢。空樣本顯示無資料；P95 落入 `+Inf` 會截在最大有限上界，應並看 >600 秒比例、樣本數與 waiting。
+
+`ai_relay_finished` 與 `ai_workflow_finished` structured logs 保留 root／child request IDs、有限終止原因與階段時間，沒有 prompt／回答／工具 payload。這些 ID 只用於 logs，不放進 metric labels。PVE 一筆 HTTP 可能含多次生成／adherence 與工具；不要相加各階段的 P95。Auth／DB／usage backlog、retry 與 event-loop lag panel 可協助對照同一時間窗；最新 lag 沒尖峰不能排除 scrape 間的短暫阻塞。
 
 ### 資源與保留期
 

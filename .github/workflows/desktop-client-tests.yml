@@ -48,6 +48,12 @@ jobs:
       - name: Test resource access guards
         run: npm run test:resources
 
+      - name: Test settings write serialization
+        run: npm run test:settings
+
+      - name: Test session status polling
+        run: npm run test:polling
+
       - name: Audit dependencies
         run: npm run audit:security
 

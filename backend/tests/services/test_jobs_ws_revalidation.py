@@ -172,3 +172,31 @@ async def test_gives_up_after_repeated_poll_failures(
     assert attempts == 3
     assert websocket.closed_with == 1011
     assert session.closed
+
+
+async def test_client_messages_do_not_trigger_extra_polls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """client 連發訊息不能讓伺服器每則訊息都查一次 DB：一個間隔只輪詢一次。"""
+    session = _Session(_user())
+    _patch_auth(monkeypatch, session)
+    # 間隔拉長：舊行為收到訊息就提早進下一輪，會在斷線前輪詢 6 次
+    monkeypatch.setattr(jobs_ws, "_SNAPSHOT_INTERVAL_SECONDS", 5.0)
+    polls = 0
+
+    def counting_poll(*args: Any, **kwargs: Any) -> Any:
+        nonlocal polls
+        polls += 1
+        return SimpleNamespace(reminders=[], model_dump_json=lambda: "{}")
+
+    monkeypatch.setattr(jobs_ws, "_poll", counting_poll)
+    flood = [{"type": "websocket.receive", "text": "ping"} for _ in range(5)]
+    websocket = _FakeWebSocket(
+        [*flood, {"type": "websocket.disconnect", "code": 1000}]
+    )
+
+    await asyncio.wait_for(jobs_ws.jobs_ws_proxy(websocket, token="t"), timeout=2)
+
+    assert polls == 1
+    assert websocket.sent == ["{}"]
+    assert session.closed

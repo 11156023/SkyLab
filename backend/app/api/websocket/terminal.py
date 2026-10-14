@@ -12,7 +12,7 @@ from app.api.websocket.utils import (
     safe_close_websocket,
 )
 from app.core.db import run_db_in_threadpool
-from app.exceptions import NotFoundError, ProxmoxError
+from app.exceptions import AppError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
     get_connection_id_for_node,
     get_proxmox_settings,
@@ -37,7 +37,11 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
 
     try:
         await run_db_in_threadpool(authorize)
-    except Exception:
+    except Exception as exc:
+        # 沒有權限是預期結果；DB 斷線等其他例外一樣拒絕連線，但要留紀錄，
+        # 不能讓真正的故障看起來只是「沒有權限」
+        if not isinstance(exc, AppError):
+            logger.exception("Terminal permission check failed for vmid %s", vmid)
         await safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
 

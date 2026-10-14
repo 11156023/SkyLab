@@ -80,6 +80,30 @@ test("the banner re-checks the subnet status on page change once the last check 
   nowSpy.mockRestore();
 });
 
+test("a page change while the first check is in flight still shows the banner", async () => {
+  let navigate;
+  function Nav() {
+    navigate = useNavigate();
+    return null;
+  }
+  let resolveStatus;
+  getStatus.mockReturnValueOnce(new Promise((resolve) => { resolveStatus = resolve; }));
+  await act(async () =>
+    root.render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Nav />
+        <SubnetBanner />
+      </MemoryRouter>,
+    ),
+  );
+  // 例如 / 立刻轉址到 /dashboard：一分鐘內不重查，第一次的結果不能被丟掉
+  await act(async () => navigate("/dashboard"));
+  expect(getStatus).toHaveBeenCalledTimes(1);
+
+  await act(async () => resolveStatus({ configured: false }));
+  expect(host.textContent).toContain("SubnetBanner.adminMessage");
+});
+
 test("the listener is removed on unmount", async () => {
   getStatus.mockResolvedValue({ configured: true });
   await act(async () =>

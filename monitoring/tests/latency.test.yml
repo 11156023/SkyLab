@@ -1,0 +1,524 @@
+# NaN cannot be compared as an expected scalar by promtool; self-inequality counts it explicitly.
+evaluation_interval: 1m
+fuzzy_compare: true
+tests:
+- name: general_API_isolated_from_System_AI_long_tail
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="0.005"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="0.01"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="0.025"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="0.05"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="0.1"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="0.25"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="0.5"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="1.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="2.5"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="5.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="10.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="20.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="30.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="60.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="90.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="120.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="300.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="600.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api",le="+Inf"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_count{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="0.005"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="0.01"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="0.025"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="0.05"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="0.1"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="0.25"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="0.5"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="1.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="2.5"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="5.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="10.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="20.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="30.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="60.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="90.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="120.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="300.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="600.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation",le="+Inf"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_count{job="skylab-backend",method="POST",path="/api/v1/ai/navigation/resolve",workload="ai_generation"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="0.005"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="0.01"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="0.025"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="0.05"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="0.1"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="0.25"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="0.5"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="1.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="2.5"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="5.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="10.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="20.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="30.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="60.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="90.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="120.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="300.0"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="600.0"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation",le="+Inf"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_count{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation"}
+    values: 0+10x20
+  promql_expr_test:
+  - expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="general_api"}[5m])))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{}'
+      value: 0.975
+  - expr: topk(15, histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="general_api"}[15m]))))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{method="GET",path="/api/v1/users/me"}'
+      value: 0.975
+  - expr: histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="ai_generation"}[15m])))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{method="POST",path="/api/v1/ai/navigation/resolve"}'
+      value: 19.5
+    - labels: '{method="POST",path="/api/v1/ai/pve-log/chat"}'
+      value: 585
+  - expr: 100 * (sum by (workload) (rate(http_request_duration_seconds_bucket{job="skylab-backend",le="+Inf"}[15m])) - sum by (workload) (rate(http_request_duration_seconds_bucket{job="skylab-backend",le="600.0"}[15m])))
+      / sum by (workload) (rate(http_request_duration_seconds_bucket{job="skylab-backend",le="+Inf"}[15m]))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{workload="general_api"}'
+      value: 0
+    - labels: '{workload="ai_generation"}'
+      value: 0
+- name: missing_samples_are_not_zero_latency
+  interval: 1m
+  input_series: []
+  promql_expr_test:
+  - expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="general_api"}[5m])))
+    eval_time: 15m
+    exp_samples: []
+- name: model_call_populations_and_logical_queue_are_separate
+  interval: 1m
+  input_series:
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.25",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.5",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="1.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="2.5",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="5.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="10.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="20.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="30.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="60.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="120.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="300.0",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_count{job="skylab-backend",model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.25",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.5",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="1.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="2.5",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="5.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="10.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="20.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="30.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="60.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="120.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="300.0",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_count{job="skylab-backend",model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.25",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.5",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="1.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="2.5",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="5.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="10.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="20.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="30.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="60.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="120.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="300.0",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_count{job="skylab-backend",model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.25",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.5",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="1.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="2.5",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="5.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="10.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="20.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="30.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="60.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="120.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="300.0",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_count{job="skylab-backend",model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.25",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.5",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="1.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="2.5",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="5.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="10.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="20.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="30.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="60.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="120.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="300.0",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_count{job="skylab-backend",model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.25",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="0.5",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="1.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="2.5",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="5.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="10.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="20.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="30.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="60.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+0x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="120.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="300.0",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_request_duration_seconds_count{job="skylab-backend",model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="0.05",model="A",source="api_key"}
+    values: 0+0x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="0.1",model="A",source="api_key"}
+    values: 0+0x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="0.25",model="A",source="api_key"}
+    values: 0+0x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="0.5",model="A",source="api_key"}
+    values: 0+0x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="1.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="2.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="5.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="10.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="30.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="60.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="90.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="120.0",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",le="+Inf",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_count{job="skylab-backend",model="A",source="api_key"}
+    values: 0+10x20
+  - series: skylab_ai_time_to_first_token_seconds_count{job="skylab-backend",model="A",source="platform"}
+    values: 0+100x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.001",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.01",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.05",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.1",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.25",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.5",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="1.0",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="2.5",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="5.0",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="10.0",model="A"}
+    values: 0+0x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="30.0",model="A"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="45.0",model="A"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="60.0",model="A"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="70.0",model="A"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="75.0",model="A"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="+Inf",model="A"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_count{job="skylab-backend",model="A"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.001",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.01",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.05",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.1",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.25",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="0.5",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="1.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="2.5",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="5.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="10.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="30.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="45.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="60.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="70.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="75.0",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend",le="+Inf",model="B"}
+    values: 0+10x20
+  - series: skylab_ai_proxy_queue_wait_seconds_count{job="skylab-backend",model="B"}
+    values: 0+10x20
+  promql_expr_test:
+  - expr: histogram_quantile(0.95, sum by (le, source, model, request_type, stream) (rate(skylab_ai_request_duration_seconds_bucket{job="skylab-backend",outcome="success"}[5m])))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{model="A",request_type="ai_nav",source="platform",stream="false"}'
+      value: 0.975
+    - labels: '{model="A",request_type="pve_chat",source="platform",stream="false"}'
+      value: 4.875
+    - labels: '{model="A",request_type="pve_chat_adherence",source="platform",stream="false"}'
+      value: 0.4875
+    - labels: '{model="A",request_type="chat_completion",source="api_key",stream="true"}'
+      value: 19.5
+    - labels: '{model="B",request_type="chat_completion",source="api_key",stream="false"}'
+      value: 2.425
+  - expr: histogram_quantile(0.95, sum by (le, source, model, request_type, stream) (rate(skylab_ai_request_duration_seconds_bucket{job="skylab-backend"}[5m])))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{model="A",request_type="ai_nav",source="platform",stream="false"}'
+      value: 114
+    - labels: '{model="A",request_type="pve_chat",source="platform",stream="false"}'
+      value: 4.875
+    - labels: '{model="A",request_type="pve_chat_adherence",source="platform",stream="false"}'
+      value: 0.4875
+    - labels: '{model="A",request_type="chat_completion",source="api_key",stream="true"}'
+      value: 19.5
+    - labels: '{model="B",request_type="chat_completion",source="api_key",stream="false"}'
+      value: 2.425
+  - expr: sum by (source, model, request_type, stream, outcome) (increase(skylab_ai_request_duration_seconds_count{job="skylab-backend"}[15m]))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{model="A",outcome="success",request_type="ai_nav",source="platform",stream="false"}'
+      value: 150
+    - labels: '{model="A",outcome="success",request_type="pve_chat",source="platform",stream="false"}'
+      value: 150
+    - labels: '{model="A",outcome="success",request_type="pve_chat_adherence",source="platform",stream="false"}'
+      value: 150
+    - labels: '{model="A",outcome="success",request_type="chat_completion",source="api_key",stream="true"}'
+      value: 150
+    - labels: '{model="B",outcome="success",request_type="chat_completion",source="api_key",stream="false"}'
+      value: 150
+    - labels: '{model="A",outcome="error",request_type="ai_nav",source="platform",stream="false"}'
+      value: 150
+  - expr: histogram_quantile(0.95, sum by (le, source, model) (rate(skylab_ai_time_to_first_token_seconds_bucket{job="skylab-backend",source="api_key"}[5m])))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{model="A",source="api_key"}'
+      value: 0.975
+  - expr: sum by (source, model) (increase(skylab_ai_time_to_first_token_seconds_count{job="skylab-backend",source="api_key"}[15m]))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{model="A",source="api_key"}'
+      value: 150
+  - expr: histogram_quantile(0.95, sum by (le, model) (rate(skylab_ai_proxy_queue_wait_seconds_bucket{job="skylab-backend"}[15m])))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{model="A"}'
+      value: 29
+    - labels: '{model="B"}'
+      value: 0.00095
+  - expr: sum by (model) (increase(skylab_ai_proxy_queue_wait_seconds_count{job="skylab-backend"}[15m]))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{model="A"}'
+      value: 150
+    - labels: '{model="B"}'
+      value: 150
+- name: positive_overflow_exposes_clipped_quantile
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",le="300.0",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",le="600.0",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation"}
+    values: 0+9x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation"}
+    values: 0+10x20
+  - series: http_request_duration_seconds_count{job="skylab-backend",method="POST",path="/api/v1/ai/pve-log/chat",workload="ai_generation"}
+    values: 0+10x20
+  promql_expr_test:
+  - expr: 100 * (sum by (workload) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="ai_generation",le="+Inf"}[15m])) - sum by (workload)
+      (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="ai_generation",le="600.0"}[15m]))) / sum by (workload) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="ai_generation",le="+Inf"}[15m]))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{workload="ai_generation"}'
+      value: 10
+  - expr: histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="ai_generation"}[15m])))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{method="POST",path="/api/v1/ai/pve-log/chat"}'
+      value: 600
+- name: zero_completed_samples_are_nan_not_healthy_zero
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",le="0.5",method="GET",path="/api/v1/users/me",workload="general_api"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",le="1.0",method="GET",path="/api/v1/users/me",workload="general_api"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_bucket{job="skylab-backend",le="+Inf",method="GET",path="/api/v1/users/me",workload="general_api"}
+    values: 0+0x20
+  - series: http_request_duration_seconds_count{job="skylab-backend",method="GET",path="/api/v1/users/me",workload="general_api"}
+    values: 0+0x20
+  promql_expr_test:
+  - expr: count((histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="general_api"}[5m])))) !=
+      (histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="skylab-backend",workload="general_api"}[5m])))))
+    eval_time: 15m
+    exp_samples:
+    - labels: '{}'
+      value: 1

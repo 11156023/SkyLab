@@ -471,3 +471,67 @@ def test_reminders_derive_expiry_review_and_class_task() -> None:
     class_task = next(row for row in rows if row.kind == "class_task")
     assert "Checkpoint" in class_task.title
     assert class_task.target == f"/dashboard/course/{path.id}"
+
+
+def test_course_content_and_answers_require_active_enrollment() -> None:
+    """退選或別班的學生拿著 id 也不能讀路徑／房間內容或交答案。"""
+    import pytest
+
+    from app.exceptions import NotFoundError
+    from app.models import CourseQuestion, CourseQuestionType, CourseRoom, CourseTask
+    from app.services.course import course_service, progress_service
+
+    with _session() as session:
+        teacher = _user("teacher@example.edu", UserRole.teacher)
+        student = _user("student@example.edu", UserRole.student)
+        outsider = _user("outsider@example.edu", UserRole.student)
+        session.add(outsider)
+        _teaching_class, path = _linked_class(
+            session, teacher=teacher, student=student, session_date=date(2026, 8, 25)
+        )
+        room = CourseRoom(path_id=path.id, title="Room 1")
+        session.add(room)
+        session.flush()
+        task = CourseTask(room_id=room.id, title="Task 1", content="secret steps")
+        session.add(task)
+        session.flush()
+        question = CourseQuestion(
+            task_id=task.id,
+            prompt="Read me",
+            question_type=CourseQuestionType.no_answer,
+        )
+        session.add(question)
+        session.commit()
+
+        assert course_service.get_path_detail(
+            session, user_id=student.id, path_id=path.id
+        ).id == path.id
+        assert course_service.get_room_student_detail(
+            session, user_id=student.id, room_id=room.id
+        ).tasks[0].content == "secret steps"
+
+        with pytest.raises(NotFoundError):
+            course_service.get_path_detail(session, user_id=outsider.id, path_id=path.id)
+        with pytest.raises(NotFoundError):
+            course_service.get_room_student_detail(
+                session, user_id=outsider.id, room_id=room.id
+            )
+        with pytest.raises(NotFoundError):
+            progress_service.submit_answer(
+                session, user=outsider, question_id=question.id, answer=None
+            )
+
+        enrollment = session.exec(select(TeachingClassStudent).where(
+            TeachingClassStudent.user_id == student.id,
+        )).one()
+        enrollment.status = "removed"
+        session.add(enrollment)
+        session.commit()
+        with pytest.raises(NotFoundError):
+            course_service.get_room_student_detail(
+                session, user_id=student.id, room_id=room.id
+            )
+        with pytest.raises(NotFoundError):
+            progress_service.submit_answer(
+                session, user=student, question_id=question.id, answer=None
+            )

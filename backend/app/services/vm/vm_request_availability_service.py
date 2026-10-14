@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from app.core.authorizers import require_vm_request_access
 from app.core.i18n import t
+from app.core.permissions import is_admin
 from app.domain.placement import advisor as placement_advisor
 from app.domain.placement.schemas import NodeCapacity, PlacementRequest, ResourceType
 from app.domain.placement.storage import (
@@ -65,7 +66,11 @@ def assess_request(
     current_user,
     request_in: VMRequestAvailabilityRequest,
 ) -> VMRequestAvailabilityResponse:
-    role = request_in.policy_role or cast(UserRole, current_user.role)
+    # policy_role 只給管理員預覽其他身分的政策；一般使用者帶了也照自己的身分算，
+    # 否則學生能用管理員政策看可用時段
+    role = cast(UserRole, current_user.role)
+    if request_in.policy_role is not None and is_admin(current_user):
+        role = request_in.policy_role
     return _build_availability_response(
         session=session,
         source_request=request_in,

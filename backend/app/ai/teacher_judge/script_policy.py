@@ -356,12 +356,22 @@ def dangerous_command_issue(
     return None
 
 
+def _reject_json_constant(value: str) -> Any:
+    # result.json 來自學生可控的機器；NaN／Infinity 不是標準 JSON，
+    # 收下後 PostgreSQL json 欄位會拒絕寫入，整個 run 的結果都存不進去。
+    raise ValueError(f"result.json 含非標準 JSON 常數：{value}")
+
+
 def validate_managed_script_output(payload: str | dict[str, Any]) -> ScriptValidationResult:
     """Validate managed script JSON output contract."""
     try:
-        data = json.loads(payload) if isinstance(payload, str) else payload
+        data = (
+            json.loads(payload, parse_constant=_reject_json_constant)
+            if isinstance(payload, str)
+            else payload
+        )
         result = ManagedScriptResult.model_validate(data)
-    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+    except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
         return {
             "valid": False,
             "error": str(exc),

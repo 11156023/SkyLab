@@ -71,3 +71,21 @@ test("switching to another job id never shows the previous job's details", async
   await render("b");
   expect(document.body.textContent).not.toContain("任務甲");
 });
+
+test("a machine expiry date shows its calendar day plus the local cutoff time", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Taipei";
+  try {
+    JobsService.detail.mockResolvedValueOnce({
+      ...job("a", "任務甲", "completed"),
+      extra: { expiry_date: "2026-10-15" },
+    });
+    await render("a");
+    // 到期界線是 00:00 UTC，台灣是當天 08:00
+    /* 日期與時間間的空白依 ICU 版本可能是 U+202F，比對前統一成一般空白 */
+    expect(document.body.textContent.replace(/\s/g, " ")).toContain("2026/10/15（08:00 截止）");
+  } finally {
+    if (previousTz === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTz;
+  }
+});

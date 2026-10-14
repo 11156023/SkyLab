@@ -9,14 +9,17 @@ import { toast } from "sonner";
 import { StudentMachines, WeeklyContent } from "./ClassWorkspacePage";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { ClassroomService } from "../../../services/classroom";
+import { ResourcesService } from "../../../services/resources";
 import i18n from "../../../i18n";
 
 // en／ja 語系檔改為用到才載入；這裡要檢查三語都有 key，先全部載入
 beforeAll(() => i18n.loadLanguages(["en", "ja"]));
 
+const confirmMock = vi.hoisted(() => vi.fn());
+
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 vi.mock("../../../components/Classroom/ClassroomWatchDialog", () => ({ default: () => null }));
-vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => vi.fn() }));
+vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => confirmMock }));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -143,6 +146,25 @@ describe("StudentMachines 教室 session 不留孤兒", () => {
     expect(stopSession).toHaveBeenCalledWith("m1");
   });
 
+  test("整班開機會分批送出並回報結果（不會因殘留的 setMessage 而丟 ReferenceError）", async () => {
+    mockServices([]);
+    const batch = vi.spyOn(ResourcesService, "batchActionInChunks")
+      .mockResolvedValue({ total: 1, succeeded: 1, failed: 0, results: [{ vmid: 101, success: true }] });
+    const { container, cleanup } = mount(<StudentMachines item={{ ...classItem, status: "active" }} />);
+    await act(async () => { await flush(); });
+
+    const startLabel = i18n.t("ClassWorkspacePage.classPowerStartBtn", { ns: "teaching" });
+    const startButton = [...container.querySelectorAll("button")].find((button) => button.textContent.endsWith(startLabel));
+    expect(startButton.disabled).toBe(false);
+    await act(async () => {
+      startButton.click();
+      await flush();
+    });
+    expect(batch).toHaveBeenCalledWith([101], "start", expect.any(Object));
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
   test("觀看 session 還在建立中就卸載時，建好後立刻收掉", async () => {
     const stopSession = mockServices([]);
     let resolveSession;
@@ -164,5 +186,117 @@ describe("StudentMachines 教室 session 不留孤兒", () => {
       await flush();
     });
     expect(stopSession).toHaveBeenCalledWith("m2");
+  });
+});
+
+describe("StudentMachines 全班開關機", () => {
+  const classItem = {
+    id: "c1",
+    status: "active",
+    nodes: [{ id: "n1", name: "Web", resource_type: "qemu" }],
+    students: [
+      { id: "s1", full_name: "Amy", email: "amy@example.com", machines: [{ vmid: 101, status: "stopped", machine_node_id: "n1" }] },
+      { id: "s2", full_name: "Ben", email: "ben@example.com", machines: [{ vmid: 102, status: "stopped", machine_node_id: "n1" }] },
+    ],
+  };
+  const tt = (key, options) => i18n.t(`ClassWorkspacePage.${key}`, { ns: "teaching", ...options });
+
+  function mockServices() {
+    vi.spyOn(TeachingClassesService, "resourceUsage").mockResolvedValue({ items: [] });
+    vi.spyOn(ClassroomService, "listClassBroadcastSources").mockResolvedValue([]);
+    vi.spyOn(ClassroomService, "listSessions").mockResolvedValue([]);
+  }
+
+  /* 批次送出卡在半路，讓測試能檢查進度文字，再手動放行 */
+  function mockPendingBatch() {
+    const pending = {};
+    const batch = vi.spyOn(ResourcesService, "batchActionInChunks").mockImplementation((vmids, action, { onProgress }) => {
+      pending.progress = onProgress;
+      return new Promise((resolve) => { pending.resolve = resolve; });
+    });
+    return { batch, pending };
+  }
+
+  function powerButton(container, key) {
+    const label = tt(key);
+    return [...container.querySelectorAll("button")].find((button) => button.textContent.endsWith(label));
+  }
+
+  test("全班開機：顯示批次進度，完成後跳成功 toast", async () => {
+    mockServices();
+    const { batch, pending } = mockPendingBatch();
+    const { container, cleanup } = mount(<StudentMachines item={classItem} />);
+    await act(async () => { await flush(); });
+
+    const startButton = powerButton(container, "classPowerStartBtn");
+    expect(startButton.disabled).toBe(false);
+    await act(async () => {
+      startButton.click();
+      await flush();
+    });
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(batch).toHaveBeenCalledWith([101, 102], "start", expect.objectContaining({ onProgress: expect.any(Function) }));
+    expect(container.textContent).toContain(tt("classPowerProgress", { done: 0, total: 2 }));
+    expect(startButton.disabled).toBe(true);
+    expect(powerButton(container, "classPowerShutdownBtn").disabled).toBe(true);
+
+    await act(async () => { pending.progress({ done: 1, total: 2 }); });
+    expect(container.textContent).toContain(tt("classPowerProgress", { done: 1, total: 2 }));
+
+    await act(async () => {
+      pending.resolve({ total: 2, succeeded: 2, failed: 0, results: [] });
+      await flush();
+    });
+    expect(toast.success).toHaveBeenCalledWith(tt("classPowerDoneMsg", { label: tt("classPowerStartBtn"), count: 2 }));
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(tt("classPowerHint"));
+    expect(startButton.disabled).toBe(false);
+    cleanup();
+  });
+
+  test("全班關機：確認後送出，部分失敗跳警告 toast", async () => {
+    mockServices();
+    confirmMock.mockResolvedValueOnce(true);
+    const { batch, pending } = mockPendingBatch();
+    const { container, cleanup } = mount(<StudentMachines item={classItem} />);
+    await act(async () => { await flush(); });
+
+    await act(async () => {
+      powerButton(container, "classPowerShutdownBtn").click();
+      await flush();
+    });
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({ danger: true, confirmText: tt("classPowerShutdownBtn") }));
+    expect(batch).toHaveBeenCalledWith([101, 102], "shutdown", expect.anything());
+    expect(container.textContent).toContain(tt("classPowerProgress", { done: 0, total: 2 }));
+
+    await act(async () => {
+      pending.progress({ done: 2, total: 2 });
+      pending.resolve({ total: 2, succeeded: 1, failed: 1, results: [] });
+      await flush();
+    });
+    expect(toast.warning).toHaveBeenCalledWith(tt("classPowerPartialMsg", { label: tt("classPowerShutdownBtn"), succeeded: 1, failed: 1 }));
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(tt("classPowerHint"));
+    cleanup();
+  });
+
+  test("全班關機：取消確認就不送出", async () => {
+    mockServices();
+    confirmMock.mockResolvedValueOnce(false);
+    const batch = vi.spyOn(ResourcesService, "batchActionInChunks");
+    const { container, cleanup } = mount(<StudentMachines item={classItem} />);
+    await act(async () => { await flush(); });
+
+    await act(async () => {
+      powerButton(container, "classPowerShutdownBtn").click();
+      await flush();
+    });
+
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(batch).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(tt("classPowerHint"));
+    cleanup();
   });
 });

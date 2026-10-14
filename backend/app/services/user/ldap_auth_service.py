@@ -218,16 +218,12 @@ def login_ldap(
             is_active=True,
             auth_source="ldap",
             # LDAP 帳號不允許本地密碼登入 — 設不可猜的隨機雜湊。
-            hashed_password=security.get_password_hash(
-                secrets.token_urlsafe(32)
-            ),
+            hashed_password=security.get_password_hash(secrets.token_urlsafe(32)),
         )
         session.add(user)
         session.commit()
         session.refresh(user)
-        logger.info(
-            "Auto-created LDAP user %s with role %s", info.email, role.value
-        )
+        logger.info("Auto-created LDAP user %s with role %s", info.email, role.value)
     else:
         if user.auth_source != "ldap":
             # 標記欄位晚於帳號出現（或帳號先由管理員手動建立）：

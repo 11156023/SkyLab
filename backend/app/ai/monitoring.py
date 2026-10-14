@@ -2,24 +2,118 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from types import TracebackType
 from typing import Any
 
 from sqlmodel import Session
 
+from app.core import metrics as core_metrics
 from app.core.db import engine
+from app.core.request_context import get_request_context
 from app.services.llm_gateway import ai_gateway_service
 from app.services.llm_gateway.usage_writer import get_usage_writer
 from app.services.monitoring import ai_metrics
 
 CALL_AI_NAVIGATION = "ai_nav"
 CALL_AI_CONTEXTUAL_HELP = "ai_help"
+logger = logging.getLogger(__name__)
 
 
 def new_ai_request_id() -> str:
     return str(uuid.uuid4())
+
+
+@dataclass
+class AIWorkflowObservation:
+    """One log summary per System AI workflow; model accounting stays per call."""
+
+    route: str
+    model: str
+    outcome: str = "success"
+    terminal_reason: str = "reply"
+    started: float = field(default_factory=lambda: time.perf_counter())
+    request_id: str = field(
+        default_factory=lambda: get_request_context().request_id or new_ai_request_id()
+    )
+    calls: dict[str, int] = field(
+        default_factory=lambda: {"model": 0, "adherence": 0, "tool": 0}
+    )
+    seconds: dict[str, float] = field(
+        default_factory=lambda: {"model": 0.0, "adherence": 0.0, "tool": 0.0}
+    )
+    call_request_ids: list[str] = field(default_factory=list)
+
+    def __enter__(self) -> AIWorkflowObservation:
+        return self
+
+    @contextmanager
+    def phase(self, stage: str, *, request_id: str | None = None) -> Iterator[None]:
+        self.calls[stage] += 1
+        if request_id is not None:
+            self.call_request_ids.append(request_id)
+        started = time.perf_counter()
+        try:
+            yield
+        except Exception:
+            self.outcome = "error"
+            self.terminal_reason = f"{stage}_error"
+            raise
+        finally:
+            self.seconds[stage] += max(0.0, time.perf_counter() - started)
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        if isinstance(exc, asyncio.CancelledError):
+            self.outcome, self.terminal_reason = "cancelled", "cancelled"
+        elif exc is not None:
+            self.outcome, self.terminal_reason = "error", "error"
+        try:
+            summary = {
+                "event": "ai_workflow_finished",
+                "workflow_request_id": self.request_id,
+                "route": self.route,
+                "source": "platform",
+                "model": ai_metrics.model_label(self.model, served=False),
+                "outcome": self.outcome,
+                "terminal_reason": self.terminal_reason,
+                "workflow_duration_ms": round(
+                    max(0.0, time.perf_counter() - self.started) * 1000, 3
+                ),
+                "call_request_ids": self.call_request_ids,
+                **{f"{stage}_calls": count for stage, count in self.calls.items()},
+                **{
+                    f"{stage}_ms": round(seconds * 1000, 3)
+                    for stage, seconds in self.seconds.items()
+                },
+            }
+        except Exception:
+            # Constructing observation data is also best-effort.
+            return
+        try:
+            core_metrics.AI_WORKFLOWS.labels(
+                route=self.route,
+                outcome=self.outcome,
+                terminal_reason=self.terminal_reason,
+            ).inc()
+        except Exception:
+            pass
+        try:
+            logger.info("AI workflow finished", extra=summary)
+        except Exception:
+            # Observation failure must never change the feature response.
+            pass
 
 
 def usage_metrics(

@@ -26,7 +26,7 @@ ACL tuple 為 `client_tunnel_ip . vm_ip . tcp_port`。LXC 僅開 SSH；QEMU VM �
 - nftables table：`inet skylab_wg`
 - systemd units：`wg-quick@wg0`、`skylab-wg-firewall.service`
 
-在新 Gateway 上先確認介面、位址與 UDP port 沒有衝突，再以 root 執行：
+Gateway 必須是 Debian 13（trixie）；其他系統（含 Debian 12，它的 nftables 太舊、不支援 `nft destroy table`）安裝腳本會在動到任何設定前拒絕執行。在新 Gateway 上先確認介面、位址與 UDP port 沒有衝突，再以 root 執行：
 
 ```bash
 sudo ./gateway/install.sh

@@ -8,7 +8,6 @@ from fastapi import APIRouter, Cookie, Query, Request, Response
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep
 from app.infrastructure.redis import get_redis
-from app.repositories import governance as governance_repo
 from app.schemas.monitoring import (
     AlertEventPublic,
     GrafanaLink,
@@ -16,6 +15,7 @@ from app.schemas.monitoring import (
     SystemHealth,
 )
 from app.services.monitoring import (
+    alert_service,
     grafana_service,
     monitoring_service,
     system_health_service,
@@ -62,8 +62,9 @@ async def grafana_auth(
 ) -> Response:
     """nginx auth_request 專用：cookie 換成 Grafana auth.proxy 的身分標頭。
 
-    一律回 204：cookie 無效時不帶標頭，Grafana 就顯示原本的登入頁；
-    回 401 的話 nginx 會把整個 /grafana/ 擋掉，連備用的帳密登入都用不了。
+    一律回 204：cookie 無效時不帶標頭，Grafana 顯示沒有帳密欄位的登入頁
+    （Grafana 自己的帳密登入已關閉，見 docker-compose.yml）；回 401 的話
+    nginx 會把整個 /grafana/ 變成錯誤頁。
     """
     headers = await grafana_service.resolve_proxy_headers(session, token)
     return Response(status_code=204, headers=headers)
@@ -93,7 +94,7 @@ def get_vm_rrd(
     current_user: CurrentUser,
     timeframe: str = Query(default="hour"),
 ) -> list[dict[str, Any]]:
-    """VM/LXC RRD 趨勢（擁有者或管理員）。"""
+    """VM/LXC RRD 趨勢（與 /resources/{vmid}/stats 同權限：擁有者、班級老師、被分享者、管理員）。"""
     return monitoring_service.get_vm_rrd(
         session=session, vmid=vmid, timeframe=timeframe, user=current_user
     )
@@ -106,13 +107,8 @@ def list_alerts(
     active: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[AlertEventPublic]:
-    """警告事件列表（active=true 只列未解除的）。"""
-    alerts = governance_repo.list_alerts(
-        session=session, active_only=active, limit=limit
-    )
-    return [
-        AlertEventPublic.model_validate(a, from_attributes=True) for a in alerts
-    ]
+    """警告事件列表（active=true 只列未解除的），附所屬叢集名稱。"""
+    return alert_service.list_alerts(session, active_only=active, limit=limit)
 
 
 @router.post("/alerts/{alert_id}/ack", response_model=AlertEventPublic)
@@ -122,7 +118,6 @@ def acknowledge_alert(
     current_user: AdminUser,
 ) -> AlertEventPublic:
     """確認（ack）一筆警告。"""
-    alert = governance_repo.acknowledge_alert(
-        session=session, alert_id=alert_id, user_id=current_user.id
+    return alert_service.acknowledge_alert(
+        session, alert_id=alert_id, user_id=current_user.id
     )
-    return AlertEventPublic.model_validate(alert, from_attributes=True)

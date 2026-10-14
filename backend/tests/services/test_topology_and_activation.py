@@ -54,7 +54,7 @@ def fake_pve(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(
             class_network_service.proxmox_service,
             "find_resource",
-            lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+            lambda vmid, **_kwargs: {"node": "pve1", "type": "qemu", "vmid": vmid},
         )
         for name in ("list_vm_firewall_rules_strict", "create_rule", "delete_rule_by_pos"):
             monkeypatch.setattr(

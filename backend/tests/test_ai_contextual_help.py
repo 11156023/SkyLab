@@ -797,3 +797,31 @@ async def test_page_overview_fallback_mentions_when_to_use(
         _user(UserRole.student),
     )
     assert "什麼時候用" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_usage_is_recorded_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """模型答案與 adherence 兩筆用量都是同步 DB commit，不可在 event loop 上寫。"""
+    import threading
+
+    threads: list[int] = []
+
+    def _record(**_kwargs: Any) -> None:
+        threads.append(threading.get_ident())
+
+    async def _allow(*_args: Any, **_kwargs: Any) -> AdherenceResult:
+        return AdherenceResult(AdherenceVerdict.ALLOW, AdherenceReason.NONE)
+
+    monkeypatch.setattr(help_service, "check_adherence", _allow)
+    monkeypatch.setattr(help_service, "record_ai_template_call", _record)
+    _use_model(monkeypatch, "這一頁用來申請機器。")
+
+    result = await help_service.explain(
+        _request(question="這頁在做什麼？"), _user(UserRole.student)
+    )
+
+    assert result.used_model is True
+    assert len(threads) == 2
+    assert threading.get_ident() not in threads

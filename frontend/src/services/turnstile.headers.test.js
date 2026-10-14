@@ -96,7 +96,7 @@ describe("註冊 AccountService.signup", () => {
     fetchMock.mockResolvedValueOnce(jsonRes({ id: "u1" }));
 
     await AccountService.signup(
-      { email: "u@x.y", full_name: "User", password: "pw123456" },
+      { email: "u@x.y", full_name: "User" },
       { turnstileToken: "tok" },
     );
 
@@ -106,14 +106,13 @@ describe("註冊 AccountService.signup", () => {
     expect(JSON.parse(init.body)).toEqual({
       email: "u@x.y",
       full_name: "User",
-      password: "pw123456",
     });
   });
 
   test("不給 options 時不帶標頭", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes({ id: "u1" }));
 
-    await AccountService.signup({ email: "u@x.y", full_name: "User", password: "pw123456" });
+    await AccountService.signup({ email: "u@x.y", full_name: "User" });
 
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers).not.toHaveProperty("X-Turnstile-Token");

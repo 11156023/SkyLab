@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, TypeVar
 
+from sqlalchemy import or_
 from sqlmodel import Session, col, select
 
 from app.ai.teacher_judge.script_policy import (
@@ -24,7 +25,11 @@ from app.ai.teacher_judge.target_os import is_windows_target, resource_os_contex
 from app.core.db import engine
 from app.core.security import decrypt_value
 from app.infrastructure.proxmox import operations as proxmox_ops
-from app.infrastructure.ssh import create_key_client, exec_command
+from app.infrastructure.ssh import (
+    SSHOutputTooLargeError,
+    create_key_client,
+    exec_command,
+)
 from app.models.base import get_datetime_utc as _now
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
@@ -48,16 +53,26 @@ MAX_SSH_CONCURRENCY = 5
 STDOUT_LIMIT = 16 * 1024
 STDERR_LIMIT = 16 * 1024
 SSH_TIMEOUT_SECONDS = 60
+# 目標機是學生自己有 root 的機器：shell 啟動檔等可以吐出任意多的輸出。執行器的
+# 指令本身幾乎沒有輸出（腳本結果都寫進檔案），超過就判這台失敗。
+SSH_OUTPUT_LIMIT_BYTES = 1024 * 1024
 REMOTE_ROOT = "/tmp/campus-cloud-judge"
 # 腳本執行的時間預算：依 Check Plan 各步驟的 collector timeout 加總，再加上
 # 餘裕並設上限。腳本的輸出都導向檔案，SSH channel 在腳本結束前完全沒有資料，
-# 所以 channel timeout 必須大於整支腳本的執行時間，不能用固定的 60 秒。
+# 所以這條 SSH 指令的總時限必須大於整支腳本的執行時間，不能用固定的 60 秒。
 _DEFAULT_STEP_TIMEOUTS = {"command": 30, "localhost_http": 10, "peer_ping": 10}
 _STEP_OVERHEAD_SECONDS = 5
 RUN_TIMEOUT_MARGIN_SECONDS = 30
 MAX_RUN_TIMEOUT_SECONDS = 900
 # GNU timeout 逾時的結束碼
 TIMEOUT_EXIT_CODE = 124
+_ACTIVE_RUN_STATUSES = (
+    TeacherJudgeScriptRunStatus.pending,
+    TeacherJudgeScriptRunStatus.running,
+)
+# 改 run 狀態的路徑（接手執行、寫進度、寫結果、標失敗）都先鎖住該列，彼此不會
+# 在「讀狀態 → 寫回」之間互相覆蓋；只鎖 run 本身，不連帶鎖 eager load 的 artifact
+_RUN_ROW_LOCK: dict[str, Any] = {"of": TeacherJudgeScriptRun}
 
 
 @dataclass(frozen=True)
@@ -219,8 +234,11 @@ def _save_run_progress(
     preflight_results: list[dict[str, Any]] | None = None,
 ) -> None:
     with Session(engine) as session:
-        run = session.get(TeacherJudgeScriptRun, run_id)
-        if run is None:
+        run = session.get(
+            TeacherJudgeScriptRun, run_id, with_for_update=_RUN_ROW_LOCK
+        )
+        # 執行中途被回收（或已收尾）的 run 不再寫進度，以免蓋掉 failed 的狀態
+        if run is None or run.status != TeacherJudgeScriptRunStatus.running:
             return
         run.progress_json = {
             "stage": stage,
@@ -238,8 +256,13 @@ def _load_run_and_artifact(
     *,
     session: Session,
     run_id: uuid.UUID,
+    for_update: bool = False,
 ) -> tuple[TeacherJudgeScriptRun, TeacherJudgeScriptArtifact]:
-    run = session.get(TeacherJudgeScriptRun, run_id)
+    run = session.get(
+        TeacherJudgeScriptRun,
+        run_id,
+        with_for_update=_RUN_ROW_LOCK if for_update else None,
+    )
     if run is None:
         raise RuntimeError(f"Teacher Judge script run {run_id} not found")
     artifact = session.get(TeacherJudgeScriptArtifact, run.artifact_id)
@@ -334,6 +357,7 @@ def _execute_target_script(
             client,
             f"mkdir -p {quoted_dir}",
             timeout=SSH_TIMEOUT_SECONDS,
+            max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
         )
         if exit_code != 0:
             return RemoteScriptResult(
@@ -373,6 +397,7 @@ def _execute_target_script(
                 f"then timeout -k 5 {run_timeout} python3 script.py; "
                 "else python3 script.py; fi > result.json 2> stderr.log",
                 timeout=run_timeout + 15,
+                max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
             )
             result_json_text, result_too_large = _read_remote_text(
                 sftp, f"{remote_dir}/result.json", RAW_RESULT_LIMIT
@@ -397,7 +422,12 @@ def _execute_target_script(
             f"{quoted_dir}/stderr.log && rmdir -- {quoted_dir} 2>/dev/null || true"
         )
         try:
-            exec_command(client, cleanup_command, timeout=SSH_TIMEOUT_SECONDS)
+            exec_command(
+                client,
+                cleanup_command,
+                timeout=SSH_TIMEOUT_SECONDS,
+                max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
+            )
         except Exception:
             logger.warning(
                 "Teacher Judge remote cleanup failed run=%s vmid=%s",
@@ -546,21 +576,30 @@ def reap_stale_script_runs(session: Session, *, now: datetime | None = None) -> 
     """把長時間沒有進度的 pending／running run 標成 failed；回傳處理數。
 
     正常路徑（完成、cancel、例外）都會收尾，只有行程被硬殺才會留下殭屍；
-    回收只看 ``updated_at``，執行中有進度回報就不會被誤殺。
+    回收只看 ``updated_at``，執行中有進度回報就不會被誤殺。批次裡的子 run 是
+    一個接一個跑，排隊中的子 run 自己不會有進度，改看整個批次最近的進度：
+    同批次還有 run 在更新就不回收。
     """
     current = now or _now()
     cutoff = current - timedelta(hours=STALE_RUN_HOURS)
+    active_batch_ids = (
+        select(TeacherJudgeScriptRun.run_batch_id)
+        .where(
+            col(TeacherJudgeScriptRun.run_batch_id).is_not(None),
+            TeacherJudgeScriptRun.updated_at > cutoff,
+        )
+        .correlate(None)
+    )
     stale_ids = list(
         session.exec(
             select(TeacherJudgeScriptRun.id)
             .where(
-                col(TeacherJudgeScriptRun.status).in_(
-                    [
-                        TeacherJudgeScriptRunStatus.pending,
-                        TeacherJudgeScriptRunStatus.running,
-                    ]
-                ),
+                col(TeacherJudgeScriptRun.status).in_(_ACTIVE_RUN_STATUSES),
                 TeacherJudgeScriptRun.updated_at <= cutoff,
+                or_(
+                    col(TeacherJudgeScriptRun.run_batch_id).is_(None),
+                    col(TeacherJudgeScriptRun.run_batch_id).not_in(active_batch_ids),
+                ),
             )
             .limit(20)
         ).all()
@@ -568,15 +607,29 @@ def reap_stale_script_runs(session: Session, *, now: datetime | None = None) -> 
     for run_id in stale_ids:
         logger.warning("Reaping stale Teacher Judge script run %s", run_id)
         _mark_run_executor_failed(
-            run_id, STALE_RUN_MESSAGE.format(hours=STALE_RUN_HOURS)
+            run_id,
+            STALE_RUN_MESSAGE.format(hours=STALE_RUN_HOURS),
+            stale_before=cutoff,
         )
     return len(stale_ids)
 
 
-def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
+def _mark_run_executor_failed(
+    run_id: uuid.UUID, message: str, *, stale_before: datetime | None = None
+) -> None:
+    """把 run 標成 failed；``stale_before`` 有值時只處理到那時仍無進度的 run。"""
 
     with Session(engine) as session:
-        run = session.get(TeacherJudgeScriptRun, run_id)
+        statement = select(TeacherJudgeScriptRun).where(
+            TeacherJudgeScriptRun.id == run_id
+        )
+        if stale_before is not None:
+            # 回收的 SELECT 之後才被執行器接手（有了新進度）的 run 不能收掉
+            statement = statement.where(
+                col(TeacherJudgeScriptRun.status).in_(_ACTIVE_RUN_STATUSES),
+                TeacherJudgeScriptRun.updated_at <= stale_before,
+            )
+        run = session.exec(statement.with_for_update(**_RUN_ROW_LOCK)).first()
         if run is None or run.status == TeacherJudgeScriptRunStatus.completed:
             return
         targets = list(run.target_snapshot_json.get("targets") or [])
@@ -624,6 +677,15 @@ def _touch_judge_session(
     session.add(judge_session)
 
 
+def _target_exception_reason(exc: BaseException) -> str:
+    # 逾時／輸出過大只讓這一台失敗，訊息來自 SSH 層（含秒數或上限）
+    if isinstance(exc, TimeoutError):
+        return "execution_timeout"
+    if isinstance(exc, SSHOutputTooLargeError):
+        return "output_too_large"
+    return "executor_error"
+
+
 @dataclass(frozen=True)
 class _ExecutedTargets:
     results: list[dict[str, Any]]
@@ -632,7 +694,17 @@ class _ExecutedTargets:
 def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
     """Own all synchronous target execution and its Sessions in one worker."""
     with Session(engine) as session:
-        run, artifact = _load_run_and_artifact(session=session, run_id=run_id)
+        run, artifact = _load_run_and_artifact(
+            session=session, run_id=run_id, for_update=True
+        )
+        if run.status != TeacherJudgeScriptRunStatus.pending:
+            # 排隊期間已被回收（或已執行、已收尾）的 run 不再執行，也不覆寫它
+            logger.warning(
+                "Skipping Teacher Judge script run %s: status is already %s",
+                run_id,
+                run.status.value,
+            )
+            return None
         if artifact.status != TeacherJudgeScriptStatus.approved:
             run.status = TeacherJudgeScriptRunStatus.failed
             run.result_summary_json = {"error": "只有已核准的腳本可以執行。"}
@@ -738,11 +810,7 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
                         exc_info=True,
                     )
                     target_result = _target_failure(
-                        target,
-                        str(exc),
-                        "execution_timeout"
-                        if isinstance(exc, TimeoutError)
-                        else "executor_error",
+                        target, str(exc), _target_exception_reason(exc)
                     )
                 statuses[vmid] = str(target_result["status"])
                 results.append(target_result)
@@ -769,7 +837,17 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
 
 def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
     with Session(engine) as session:
-        run, artifact = _load_run_and_artifact(session=session, run_id=run_id)
+        run, artifact = _load_run_and_artifact(
+            session=session, run_id=run_id, for_update=True
+        )
+        if run.status != TeacherJudgeScriptRunStatus.running:
+            # 執行中途被回收成 failed：保留回收結果，不改回 completed
+            logger.warning(
+                "Discarding Teacher Judge script run %s results: status is already %s",
+                run_id,
+                run.status.value,
+            )
+            return
         targets = list(run.target_snapshot_json.get("targets") or [])
         preflight_results = list(
             run.target_snapshot_json.get("preflight_results") or []

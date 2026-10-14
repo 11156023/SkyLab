@@ -115,6 +115,20 @@ describe("AiMonitoringPage model details", () => {
     });
   });
 
+  test("keeps every usage row when raw names share a display name", () => {
+    const rows = mergeModelRows(
+      [
+        { model_name: "/models/gemma4-26b", total_calls: 12, total_tokens: 3400, failed_calls: 1 },
+        { model_name: "Gemma4-26b", total_calls: 3, total_tokens: 90, failed_calls: 3 },
+      ],
+      [{ name: "gemma4-26b", status: "online", healthy_deployments: 1, unhealthy_deployments: 0 }],
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ model_name: "/models/gemma4-26b", total_calls: 12, runtime_status: "online" });
+    expect(rows[1]).toMatchObject({ model_name: "Gemma4-26b", total_calls: 3, failed_calls: 3 });
+  });
+
   test("keeps runtime-only models visible", () => {
     const rows = mergeModelRows([], [{ name: "unused-model", status: "online" }]);
 

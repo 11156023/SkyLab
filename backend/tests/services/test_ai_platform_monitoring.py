@@ -309,7 +309,7 @@ def test_observe_call_updates_all_ai_metrics() -> None:
     assert _sample("skylab_ai_tokens_total", **labels, direction="input") == tokens_in + 12
     assert _sample("skylab_ai_tokens_total", **labels, direction="output") >= 30
     assert _sample("skylab_ai_time_to_first_token_seconds_count", **labels) == ttft_count + 1
-    assert _sample("skylab_ai_request_duration_seconds_count", **labels, stream="true") >= 1
+    assert _sample("skylab_ai_request_duration_seconds_count", **labels, stream="true", request_type="chat_completion", outcome="success") >= 1
 
 
 def test_observe_call_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -324,7 +324,7 @@ def test_proxy_admission_metrics_track_queue_state_wait_and_rejection() -> None:
     rejected_before = _sample(
         "skylab_ai_proxy_admission_rejections_total", reason="queue_full"
     )
-    wait_count_before = _sample("skylab_ai_proxy_queue_wait_seconds_count")
+    wait_count_before = _sample("skylab_ai_proxy_queue_wait_seconds_count", model="unknown")
 
     ai_metrics.update_proxy_admission(active=3, waiting=4)
     ai_metrics.observe_proxy_queue_wait(0.25)
@@ -332,7 +332,7 @@ def test_proxy_admission_metrics_track_queue_state_wait_and_rejection() -> None:
 
     assert _sample("skylab_ai_proxy_inflight_requests") == 3
     assert _sample("skylab_ai_proxy_waiting_requests") == 4
-    assert _sample("skylab_ai_proxy_queue_wait_seconds_count") == wait_count_before + 1
+    assert _sample("skylab_ai_proxy_queue_wait_seconds_count", model="unknown") == wait_count_before + 1
     assert (
         _sample("skylab_ai_proxy_admission_rejections_total", reason="queue_full")
         == rejected_before + 1

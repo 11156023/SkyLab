@@ -41,6 +41,7 @@ from app.schemas.auth import GoogleLoginRequest, RefreshTokenRequest
 from app.schemas.ldap import LdapLoginRequest, LoginMethodsPublic
 from app.services.monitoring import grafana_service
 from app.services.user import auth_service, ldap_auth_service, totp_service
+from app.services.user.registration_policy_service import get_policy
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +235,10 @@ async def login_totp(session: SessionDep, body: TotpLoginRequest) -> Token:
 @router.get("/login/methods", response_model=LoginMethodsPublic)
 def login_methods(session: SessionDep) -> LoginMethodsPublic:
     """回報可用的登入方式（公開端點，登入頁據此顯示分頁）。"""
-    return LoginMethodsPublic(**ldap_auth_service.get_login_methods(session=session))
+    return LoginMethodsPublic(
+        **ldap_auth_service.get_login_methods(session=session),
+        signup_enabled=get_policy(session).signup_enabled,
+    )
 
 
 @router.post("/login/refresh-token")

@@ -75,6 +75,17 @@ def test_verify_normalizes_spaces_and_rejects_bad_length() -> None:
     assert totp.verify_totp(secret, "abcdef", now=now) is None
 
 
+def test_verify_rejects_non_ascii_digits_without_crashing() -> None:
+    # 全形數字（CJK 輸入法）以前會讓 hmac.compare_digest 丟 TypeError
+    secret = totp.generate_secret()
+    now = 1_700_000_000.0
+    full_width = "".join(
+        chr(ord(ch) - ord("0") + ord("０")) for ch in totp.totp_code(secret, now=now)
+    )
+    assert totp.verify_totp(secret, full_width, now=now) is None
+    assert totp.verify_totp(secret, "²³⁴⁵⁶⁷", now=now) is None
+
+
 def test_build_otpauth_uri() -> None:
     uri = totp.build_otpauth_uri("ABC234", account="user@example.com", issuer="Sky Lab")
     assert uri.startswith("otpauth://totp/Sky%20Lab%3Auser%40example.com?")
