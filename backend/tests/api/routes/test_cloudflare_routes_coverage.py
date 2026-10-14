@@ -91,7 +91,7 @@ def test_create_zone(monkeypatch: pytest.MonkeyPatch, audits: list) -> None:
     )
     assert cf.create_zone(data=object(), session=SESSION, current_user=USER) is zone
     assert audits[0]["action"] == AuditAction.cloudflare_zone_create
-    assert "example.com" in audits[0]["details"]
+    assert audits[0]["details"] == "Created Cloudflare zone example.com"
 
 
 def test_list_dns_records_annotates_system_rules(
