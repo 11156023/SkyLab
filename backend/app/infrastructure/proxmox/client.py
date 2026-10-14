@@ -8,6 +8,8 @@ from typing import Any
 
 import requests
 from proxmoxer import ProxmoxAPI
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from app.exceptions import ProxmoxError
 from app.infrastructure.proxmox.router import (
@@ -28,6 +30,13 @@ PROXMOX_FAILURE_CACHE_TTL = 15.0
 NODE_CONNECTION_MAP_TTL = 60.0
 # 等待 PVE 任務時，輪詢狀態連續連不到 API 多久才放棄（任務本身不受影響）
 TASK_STATUS_OUTAGE_TOLERANCE_SECONDS = 300.0
+# 每個 PVE host 保留的 keep-alive 連線數：要蓋過 FastAPI threadpool（40）＋背景
+# 排程同時打同一個 client 的量，否則多出來的連線用完就丟、下次重開 TCP／TLS。
+PROXMOX_POOL_MAXSIZE = 64
+# 建立連線（TCP SYN）的逾時與重試。連線階段失敗代表請求還沒送到 PVE，換新
+# socket 重試是安全的；讀取逾時仍用連線設定的 api_timeout，而且絕不重送。
+PROXMOX_CONNECT_TIMEOUT = 5.0
+PROXMOX_CONNECT_RETRIES = 2
 
 # 連線池的 key：connection_id；None 代表「預設連線」（含舊版單連線相容）。
 _ClientKey = int | None
@@ -169,19 +178,48 @@ def _drop_cached_client(connection_id: _ClientKey, client: ProxmoxAPI) -> None:
         state.active_host = None
 
 
-def _watch_connection_errors(connection_id: _ClientKey, client: ProxmoxAPI) -> None:
+def _configure_session(session: requests.Session) -> None:
+    """放大 HTTPS 連線池，並只對「連線建立失敗」換新 socket 重試。
+
+    部署環境看到單一條連線的 SYN 整整 30 秒沒回應，前一刻同一台的 TCP 探測
+    卻是通的；換 source port 重連通常就過，不必等滿 timeout 再整個換節點。
+    ``read=False`` 保留 requests 的預設：讀取階段的錯誤原樣拋出、不重送。
+    """
+    retries = Retry(
+        total=PROXMOX_CONNECT_RETRIES,
+        connect=PROXMOX_CONNECT_RETRIES,
+        read=False,
+        status=0,
+        other=0,
+        redirect=False,
+    )
+    session.mount(
+        "https://",
+        HTTPAdapter(pool_maxsize=PROXMOX_POOL_MAXSIZE, max_retries=retries),
+    )
+
+
+def _watch_connection_errors(
+    connection_id: _ClientKey, client: ProxmoxAPI, api_timeout: float
+) -> None:
     """入口節點連不上時讓快取的 client 失效，而不是沿用到 ticket 過期。
 
     client 會快取 ``PROXMOX_TICKET_TTL``（近兩小時）；沒有這層的話入口節點
     一斷，同連線的每個請求都要等滿 API timeout，即使叢集其他節點都正常。
     只看連線層錯誤（含 ConnectTimeout、TLS 握手失敗）；讀取逾時代表連得上
     只是慢，不換節點。原例外照常拋出，由呼叫端處理。
+
+    呼叫端沒指定 timeout 的請求改用 ``(PROXMOX_CONNECT_TIMEOUT, api_timeout)``，
+    連線階段不再沿用整段 api_timeout。
     """
     # proxmoxer 2.x 把所有請求都送進這個 requests.Session
     session = client._store["session"]
+    _configure_session(session)
     send = session.request
+    timeout = (min(PROXMOX_CONNECT_TIMEOUT, api_timeout), api_timeout)
 
     def request(*args: Any, **kwargs: Any) -> requests.Response:
+        kwargs.setdefault("timeout", timeout)
         try:
             response: requests.Response = send(*args, **kwargs)
             return response
@@ -227,7 +265,7 @@ def _connect_proxmox(connection_id: _ClientKey) -> tuple[ProxmoxAPI, str]:
                     node.host,
                     cfg.connection_name or "default",
                 )
-                _watch_connection_errors(connection_id, client)
+                _watch_connection_errors(connection_id, client, cfg.api_timeout)
                 return client, node.host
             except Exception as exc:
                 last_error = exc
@@ -249,7 +287,7 @@ def _connect_proxmox(connection_id: _ClientKey) -> tuple[ProxmoxAPI, str]:
 
     logger.info("Using configured Proxmox host %s", cfg.host)
     client = try_connect(cfg.host, cfg)
-    _watch_connection_errors(connection_id, client)
+    _watch_connection_errors(connection_id, client, cfg.api_timeout)
     return client, cfg.host
 
 

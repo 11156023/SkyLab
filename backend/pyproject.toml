@@ -121,6 +121,13 @@ dynamic_context = "test_function"
 [tool.coverage.report]
 show_missing = true
 sort = "-Cover"
+# Conventional non-runtime lines: type-only imports, CLI entry guards,
+# Protocol/abstract method stubs.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    '^\s*\.\.\.$',
+]
 
 [tool.coverage.html]
 show_contexts = true

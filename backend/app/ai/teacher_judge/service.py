@@ -1600,7 +1600,7 @@ async def _request_vllm_with_retry(
             "Teacher Judge model request temporarily unavailable; retrying once"
         )
         await asyncio.sleep(min(0.25, max(timeout - (perf_counter() - started), 0)))
-    raise AssertionError("unreachable")
+    raise AssertionError("unreachable")  # pragma: no cover - 迴圈內必 return 或 raise
 
 
 async def _call_vllm_message(
@@ -1721,7 +1721,7 @@ def _contains_embedded_tool_call(content: str) -> bool:
             value = json.loads(match.group(1))
         except json.JSONDecodeError:
             continue
-        if not isinstance(value, dict):
+        if not isinstance(value, dict):  # pragma: no cover - fence 只擷取 {…}，必為 dict
             continue
         name = value.get("name")
         if isinstance(value.get("tool_call"), dict):
