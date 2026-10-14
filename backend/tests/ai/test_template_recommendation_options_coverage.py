@@ -60,36 +60,6 @@ def _request(
     )
 
 
-# ---------------------------------------------------------------- text helpers
-
-
-def test_latest_user_text_picks_last_user_and_empty_when_none() -> None:
-    req = _request([("user", "first"), ("assistant", "reply"), ("user", "second")])
-    assert options_service.latest_user_text(req) == "second"
-    req2 = _request([("assistant", "only assistant")])
-    assert options_service.latest_user_text(req2) == ""
-
-
-def test_should_include_gpu_runtime_context_branches() -> None:
-    vm_ctx = RecommendationFormContext(resource_type="vm")
-    assert options_service.should_include_gpu_runtime_context(
-        _request(form_context=vm_ctx)
-    )
-    gpu_ctx = RecommendationFormContext(
-        resource_type="lxc", selected_gpu_mapping_id="g1"
-    )
-    assert options_service.should_include_gpu_runtime_context(
-        _request(form_context=gpu_ctx)
-    )
-    lxc_ctx = RecommendationFormContext(resource_type="lxc")
-    assert options_service.should_include_gpu_runtime_context(
-        _request([("user", "I need CUDA")], form_context=lxc_ctx)
-    )
-    assert not options_service.should_include_gpu_runtime_context(
-        _request([("user", "a web server")])
-    )
-
-
 # ---------------------------------------------------------------- caches
 
 
@@ -358,13 +328,11 @@ def test_resolve_resource_options_server_side(
 def test_resolve_recommend_gpu_options_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    ctx = RecommendationFormContext(gpu_options=[GPUOptionContext(mapping_id="c")])
-    assert options_service.resolve_recommend_gpu_options(
-        _request(form_context=ctx), requires_gpu=False
-    ) == [GPUOptionContext(mapping_id="c").model_dump(mode="json")]
-
+    session = object()
     assert (
-        options_service.resolve_recommend_gpu_options(_request(), requires_gpu=False)
+        options_service.resolve_recommend_gpu_options(
+            _request(), session, requires_gpu=False
+        )
         == []
     )
     monkeypatch.setattr(
@@ -373,27 +341,62 @@ def test_resolve_recommend_gpu_options_branches(
         lambda: [{"mapping_id": "base"}],
     )
     assert options_service.resolve_recommend_gpu_options(
-        _request(), requires_gpu=True
+        _request(), session, requires_gpu=True
     ) == [{"mapping_id": "base"}]
     sel = RecommendationFormContext(selected_gpu_mapping_id="base")
     assert options_service.resolve_recommend_gpu_options(
-        _request(form_context=sel), requires_gpu=False
+        _request(form_context=sel), session, requires_gpu=False
+    ) == [{"mapping_id": "base"}]
+
+    # 前端帶來的清單不採用：可能過期，也沒扣掉預約
+    ctx = RecommendationFormContext(gpu_options=[GPUOptionContext(mapping_id="c")])
+    assert options_service.resolve_recommend_gpu_options(
+        _request(form_context=ctx), session, requires_gpu=True
     ) == [{"mapping_id": "base"}]
 
 
-def test_resolve_chat_gpu_options_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_recommend_gpu_options_treats_pve_failure_as_no_gpu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing() -> list[dict[str, Any]]:
+        raise RuntimeError("PVE down")
+
+    monkeypatch.setattr(options_service, "get_base_gpu_options_cached", failing)
     assert (
-        options_service.resolve_chat_gpu_options(
-            _request([("user", "web server")]), object()
+        options_service.resolve_recommend_gpu_options(
+            _request(), object(), requires_gpu=True
         )
         == []
     )
+
+
+def test_resolve_recommend_gpu_options_applies_reservation_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     base = [GPUSummary(mapping_id="g1").model_dump(mode="json")]
     monkeypatch.setattr(options_service, "get_base_gpu_options_cached", lambda: base)
-    vm_ctx = RecommendationFormContext(resource_type="vm")
+    monkeypatch.setattr(
+        options_service.gpu_service,
+        "apply_reservation_window",
+        lambda session, options, **_: [
+            o.model_copy(update={"available_count": 0}) for o in options
+        ],
+    )
+    start = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    ctx = RecommendationFormContext(start_at=start, end_at=start + timedelta(hours=2))
+    adjusted = options_service.resolve_recommend_gpu_options(
+        _request(form_context=ctx), object(), requires_gpu=True
+    )
+    assert adjusted[0]["available_count"] == 0
+
+
+def test_resolve_chat_gpu_options_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = [GPUSummary(mapping_id="g1").model_dump(mode="json")]
+    monkeypatch.setattr(options_service, "get_base_gpu_options_cached", lambda: base)
+    # 不靠關鍵字：換個說法問（「顯示卡」）也要看得到清單
     assert (
         options_service.resolve_chat_gpu_options(
-            _request(form_context=vm_ctx), object()
+            _request([("user", "顯示卡還有幾張")]), object()
         )
         == base
     )

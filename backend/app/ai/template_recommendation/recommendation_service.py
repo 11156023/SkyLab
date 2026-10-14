@@ -16,15 +16,19 @@ from app.ai.template_recommendation.prompt import (
     build_fast_ai_plan_prompt,
 )
 from app.ai.template_recommendation.schemas import (
+    PRESET_RESOURCE_BASELINES,
     ChatMessage,
     ChatRequest,
     DeviceNode,
     ExtractedIntent,
+    IntakeFactsContext,
     RecommendationRequest,
 )
 from app.ai.utils import (
     apply_thinking_control,
     ensure_form_context_within_limits,
+    keyword_spans,
+    mentions_term,
     safe_bool,
     safe_int,
 )
@@ -53,6 +57,8 @@ TEMPLATE_ADHERENCE_FALLBACK = (
 
 MIN_VM_DISK_GB = 20
 MIN_LXC_DISK_GB = 8
+# 規劃逾時就改用規則配置；上限要比前端等待的時間短，使用者才拿得到備援結果
+PLANNER_TIMEOUT_SECONDS = 60.0
 
 WINDOWS_KEYWORDS = (
     "windows",
@@ -129,6 +135,27 @@ PUBLIC_WEB_KEYWORDS = (
 )
 
 
+# 只用在推薦的需求判斷，不併進 GPU_KEYWORDS：intake 用那份表判斷「GPU 這題答了沒」，
+# 選「AI 訓練」當用途不該順便把 GPU 題當成已回答。
+_GPU_WORKLOAD_HINTS = ("ai 訓練", "ai訓練", "顯示卡")
+# 圖形桌面會把選擇推向 VM，但不代表要 Windows（Linux 桌面也是桌面）。
+DESKTOP_KEYWORDS = (
+    "圖形桌面",
+    "桌面環境",
+    "遠端桌面",
+    "圖形介面",
+    "gui",
+    "vnc",
+    "rdp",
+)
+_NEGATIONS = ("不需要", "不要", "不用", "不必", "無需", "取消", "no", "without")
+_UNSURE = ("不確定", "你幫我判斷", "都可以")
+
+
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return mentions_term(text, keywords)
+
+
 def _extract_user_signal_flags(messages: list[ChatMessage]) -> dict[str, bool]:
     user_text = "\n".join(
         str(message.content)
@@ -138,15 +165,56 @@ def _extract_user_signal_flags(messages: list[ChatMessage]) -> dict[str, bool]:
 
     normalized_text = _normalize_user_text_for_intent(user_text)
 
-    def _contains_any(keywords: tuple[str, ...]) -> bool:
-        return any(keyword.casefold() in normalized_text for keyword in keywords)
-
     return {
-        "needs_windows": _contains_any(WINDOWS_KEYWORDS),
-        "requires_gpu": _contains_any(GPU_KEYWORDS),
-        "needs_database": _contains_any(DATABASE_KEYWORDS),
-        "needs_public_web": _contains_any(PUBLIC_WEB_KEYWORDS),
+        "needs_windows": _contains_any(normalized_text, WINDOWS_KEYWORDS),
+        "needs_desktop": _contains_any(normalized_text, DESKTOP_KEYWORDS),
+        "requires_gpu": _contains_any(
+            normalized_text, GPU_KEYWORDS + _GPU_WORKLOAD_HINTS
+        ),
+        "needs_database": _contains_any(normalized_text, DATABASE_KEYWORDS),
+        "needs_public_web": _contains_any(normalized_text, PUBLIC_WEB_KEYWORDS),
     }
+
+
+def _last_mention_is_negated(text: str, keywords: tuple[str, ...]) -> bool:
+    """這句話最後一次提到這類需求時是不是在否定它。
+
+    要看「最後一次」：前端的記憶區塊依序是原始目標、已回答的事實、本輪要求，
+    原始目標說要 GPU、後來改口不需要時，只看第一次出現會永遠關不掉。
+    """
+    spans = [
+        found[-1] for keyword in keywords if (found := keyword_spans(text, keyword))
+    ]
+    if not spans:
+        return False
+    # 關鍵字會互相包含（mysql 裡有 sql）：從蓋住最後那個位置的最長字開始往前看，
+    # 否則「不要mysql」會只看到「不要my」
+    last_start = max(start for start, _ in spans)
+    mention_start = min(start for start, end in spans if start <= last_start < end)
+    prefix = text[max(0, mention_start - 12) : mention_start].strip()
+    return any(prefix.endswith(word) for word in _NEGATIONS)
+
+
+def _apply_intake_facts(flags: dict[str, bool], facts: IntakeFactsContext) -> None:
+    """配置模式問到的答案優先於關鍵字猜測。"""
+    purpose = _normalize_user_text_for_intent(facts.purpose or "")
+    gpu = _normalize_user_text_for_intent(facts.gpu or "")
+    if gpu:
+        if _contains_any(gpu, _UNSURE):
+            # 交給系統判斷：看用途是不是 GPU 類的工作
+            flags["requires_gpu"] = _contains_any(
+                purpose, GPU_KEYWORDS + _GPU_WORKLOAD_HINTS
+            )
+        elif _contains_any(gpu, _NEGATIONS):
+            flags["requires_gpu"] = False
+        else:
+            flags["requires_gpu"] = True
+    display = _normalize_user_text_for_intent(facts.display or "")
+    if display:
+        flags["needs_windows"] = "windows" in display or "win1" in display
+        flags["needs_desktop"] = flags["needs_windows"] or _contains_any(
+            display, DESKTOP_KEYWORDS + ("桌面",)
+        )
 
 
 def infer_intent_from_chat(request: ChatRequest) -> ExtractedIntent:
@@ -162,32 +230,26 @@ def infer_intent_from_chat(request: ChatRequest) -> ExtractedIntent:
     # RecommendationRequest.goal 要求至少 3 字；「hi」「好的」這種短句要補上預設目標，
     # 否則在 route 建 RecommendationRequest 時會丟 ValidationError 變成 500
     if len(goal_summary.strip()) < 3:
-        goal_summary = f"{default_goal}：{goal_summary}" if goal_summary else default_goal
+        goal_summary = (
+            f"{default_goal}：{goal_summary}" if goal_summary else default_goal
+        )
     flags = _extract_user_signal_flags(recent)
     normalized = _normalize_user_text_for_intent(goal_summary)
     latest_user_text = _normalize_user_text_for_intent(
         user_texts[-1] if user_texts else ""
     )
-    negations = ("不需要", "不要", "不用", "不必", "無需", "取消", "no", "without")
 
-    def _latest_explicitly_negates(keywords: tuple[str, ...]) -> bool:
-        for keyword in keywords:
-            index = latest_user_text.find(keyword)
-            if index < 0:
-                continue
-            prefix = latest_user_text[max(0, index - 12) : index].strip()
-            if any(prefix.endswith(word) for word in negations):
-                return True
-        return False
-
-    if _latest_explicitly_negates(GPU_KEYWORDS):
-        flags["requires_gpu"] = False
-    if _latest_explicitly_negates(WINDOWS_KEYWORDS):
-        flags["needs_windows"] = False
-    if _latest_explicitly_negates(DATABASE_KEYWORDS):
-        flags["needs_database"] = False
-    if _latest_explicitly_negates(PUBLIC_WEB_KEYWORDS):
-        flags["needs_public_web"] = False
+    for flag, keywords in (
+        ("requires_gpu", GPU_KEYWORDS + _GPU_WORKLOAD_HINTS),
+        ("needs_windows", WINDOWS_KEYWORDS),
+        ("needs_desktop", DESKTOP_KEYWORDS),
+        ("needs_database", DATABASE_KEYWORDS),
+        ("needs_public_web", PUBLIC_WEB_KEYWORDS),
+    ):
+        if _last_mention_is_negated(latest_user_text, keywords):
+            flags[flag] = False
+    if request.intake_facts is not None:
+        _apply_intake_facts(flags, request.intake_facts)
     role = (
         "teacher"
         if any(word in normalized for word in ("teacher", "教授", "老師", "教學"))
@@ -343,6 +405,7 @@ async def generate_ai_plan(
         "needs_database": request.needs_database,
         "requires_gpu": request.requires_gpu,
         "needs_windows": request.needs_windows,
+        "needs_desktop": request.needs_desktop,
         "form_context": prompt_form_context(request),
     }
     # 第二道防線：路由應已在記錄用量的 try 之前呼叫
@@ -356,12 +419,11 @@ async def generate_ai_plan(
         "gpu_options": [],
     }
     gpu_options = list(resource_options.get("gpu_options") or [])
+    # 不跟模型要說明文字：說明由伺服器依驗證過的欄位產生（render_plan_summary），
+    # 模型的自由文字會寫出清單裡沒有的 GPU 或機型。
     plan_schema = {
-        "summary": "Traditional Chinese summary",
         "application_target": {
-            "service_name": "string",
-            "execution_environment": "lxc|vm",
-            "environment_reason": "Traditional Chinese short reason",
+            "service_name": "short service name, e.g. Node.js 網站",
         },
         "form_prefill": {
             "resource_type": "lxc|vm",
@@ -418,6 +480,7 @@ async def generate_ai_plan(
         data = await client.create_chat_completion(
             payload,
             profile=VLLMRequestProfile.STRUCTURED_OBJECT,
+            timeout=min(float(settings.VLLM_TIMEOUT), PLANNER_TIMEOUT_SECONDS),
             request_id=request_id,
         )
         metrics = usage_metrics(
@@ -445,12 +508,160 @@ async def generate_ai_plan(
     return parsed, metrics
 
 
+def _rule_based_spec(
+    request: RecommendationRequest, resource_type: str
+) -> dict[str, int]:
+    """模型沒給規格時的預設：從身分預設的基準出發，再依需求往上調。"""
+    baseline = dict(
+        request.resource_baseline.get(resource_type)
+        or PRESET_RESOURCE_BASELINES["student_individual"][resource_type]
+    )
+    cores = int(baseline.get("cpu") or 1)
+    memory_mb = int(baseline.get("memory_mb") or 1024)
+    disk_gb = int(baseline.get("disk_gb") or _minimum_disk_gb(resource_type))
+    if resource_type == "vm" and request.requires_gpu:
+        cores, memory_mb, disk_gb = (
+            max(cores, 4),
+            max(memory_mb, 8192),
+            max(disk_gb, 50),
+        )
+    elif resource_type == "vm" and request.needs_windows:
+        cores, memory_mb, disk_gb = (
+            max(cores, 2),
+            max(memory_mb, 4096),
+            max(disk_gb, 64),
+        )
+    elif resource_type == "vm" and request.needs_desktop:
+        cores, memory_mb, disk_gb = (
+            max(cores, 2),
+            max(memory_mb, 4096),
+            max(disk_gb, 32),
+        )
+    elif request.needs_database:
+        memory_mb, disk_gb = max(memory_mb, 2048), max(disk_gb, 20)
+    return {
+        "cores": cores,
+        "memory_mb": memory_mb,
+        "disk_gb": max(disk_gb, _minimum_disk_gb(resource_type)),
+    }
+
+
+def _is_windows_label(label: Any) -> bool:
+    return "windows" in str(label or "").casefold()
+
+
+def _default_vm_candidate(
+    candidates: list[dict[str, Any]], *, wants_windows: bool
+) -> dict[str, Any]:
+    """沒有指定 VM 來源時，挑一個符合 Windows／Linux 需求的，不要盲選第一個。"""
+    return next(
+        (
+            item
+            for item in candidates
+            if _is_windows_label(item.get("label")) == wants_windows
+        ),
+        candidates[0],
+    )
+
+
+def rule_based_ai_result(
+    request: RecommendationRequest,
+    *,
+    resource_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """不經模型、只靠需求與候選清單產生的規劃輸入。
+
+    模型逾時、上游錯誤或檢查不放行時用它：使用者已經回答的需求足以規劃出一份
+    合理配置，不該只留下一句「已保留你的需求」。輸出仍交給 normalize_ai_result
+    逐欄驗證，跟模型的輸出走同一條路。
+    """
+    goal = _normalize_user_text_for_intent(request.goal)
+    for item in (resource_options or {}).get("application_templates") or []:
+        name = str(item.get("name") or "").strip()
+        if len(name) < 2 or name.casefold() not in goal:
+            continue
+        resource_type = "lxc" if str(item.get("resource_type")) == "lxc" else "vm"
+        template_id = int(item.get("template_id") or 0)
+        return {
+            "application_target": {"service_name": name},
+            "form_prefill": {
+                "resource_type": resource_type,
+                "lxc_template_id": template_id if resource_type == "lxc" else 0,
+                "vm_template_id": template_id if resource_type == "vm" else 0,
+                "cores": item.get("cores"),
+                "memory_mb": item.get("memory_mb"),
+                "disk_gb": item.get("disk_gb"),
+            },
+        }
+    return {}
+
+
+def _format_memory_gb(memory_mb: int) -> str:
+    return f"{round(memory_mb / 1024, 1):g}"
+
+
+def render_plan_summary(
+    *,
+    resource_type: str,
+    source_label: str,
+    from_template: bool,
+    cores: int,
+    memory_mb: int,
+    disk_gb: int,
+    gpu_label: str,
+    gpu_missing: bool,
+    fallback: bool,
+) -> str:
+    """配置說明一律由伺服器依驗證過的欄位產生。
+
+    提到的作業系統、範本、GPU 都來自候選清單，不會出現平台沒有的型號。
+    """
+    if not source_label:
+        source = t("recommendation.summary.sourceMissing")
+    elif from_template:
+        source = t("recommendation.summary.sourceTemplate", name=source_label)
+    else:
+        source = t("recommendation.summary.sourceImage", name=source_label)
+    parts = [
+        t(
+            "recommendation.summary.base",
+            env="VM" if resource_type == "vm" else "LXC",
+            source=source,
+            cores=cores,
+            memory=_format_memory_gb(memory_mb),
+            disk=disk_gb,
+        )
+    ]
+    if gpu_label:
+        parts.append(t("recommendation.summary.gpuSelected", gpu=gpu_label))
+    elif gpu_missing:
+        parts.append(t("recommendation.summary.gpuUnavailable"))
+    if fallback:
+        parts.append(t("recommendation.summary.fallback"))
+    return "".join(parts)
+
+
+def _environment_reason(
+    request: RecommendationRequest, resource_type: str, *, gpu_selected: bool
+) -> str:
+    if resource_type != "vm":
+        return t("recommendation.environmentReason.lxc")
+    if gpu_selected:
+        return t("recommendation.environmentReason.gpu")
+    if request.needs_windows:
+        return t("recommendation.environmentReason.windows")
+    if request.needs_desktop:
+        return t("recommendation.environmentReason.desktop")
+    return t("recommendation.environmentReason.vm")
+
+
 def normalize_ai_result(
     ai_result: dict[str, Any],
     request: RecommendationRequest,
     nodes: list[DeviceNode],
     *,
     resource_options: dict[str, Any] | None = None,
+    fallback: bool = False,
 ) -> dict[str, Any]:
     resource_options = resource_options or {
         "lxc_os_images": [],
@@ -470,16 +681,22 @@ def normalize_ai_result(
     application_target: dict[str, Any] = (
         target_value if isinstance(target_value, dict) else {}
     )
-    factors_value = ai_result.get("decision_factors")
-    decision_factors: list[Any] = (
-        factors_value if isinstance(factors_value, list) else []
-    )
 
+    # GPU 只能掛在 VM 上：需要 GPU 且真的有空的卡，才把整台推向 VM
+    gpu_available = _best_gpu_option(gpu_options) is not None
+    gpu_forces_vm = request.requires_gpu and gpu_available
+    default_resource_type = (
+        "vm"
+        if request.needs_windows or request.needs_desktop or gpu_forces_vm
+        else "lxc"
+    )
     resource_type = str(
-        raw_prefill.get("resource_type") or ("vm" if request.needs_windows else "lxc")
+        raw_prefill.get("resource_type") or default_resource_type
     ).lower()
     if resource_type not in {"lxc", "vm"}:
-        resource_type = "vm" if request.needs_windows else "lxc"
+        resource_type = default_resource_type
+    if request.needs_windows or gpu_forces_vm:
+        resource_type = "vm"
 
     hostname_seed = str(
         raw_prefill.get("hostname")
@@ -509,20 +726,19 @@ def normalize_ai_result(
             selected_lxc_template_id = requested_lxc_template_id
 
     selected_lxc_image = ""
+    selected_lxc_label = ""
     if resource_type == "lxc" and not selected_lxc_template_id and lxc_os_images:
         requested_image = str(
             raw_prefill.get("lxc_os_image")
             or (form_context.lxc_os_image if form_context else "")
             or ""
         ).strip()
-        selected_lxc_image = next(
-            (
-                item["value"]
-                for item in lxc_os_images
-                if item["value"] == requested_image
-            ),
-            lxc_os_images[0]["value"],
+        selected_image = next(
+            (item for item in lxc_os_images if item["value"] == requested_image),
+            lxc_os_images[0],
         )
+        selected_lxc_image = selected_image["value"]
+        selected_lxc_label = str(selected_image.get("label") or "").strip()
 
     # VM 的候選 = 基礎映像 + 應用範本（後者在伺服器端不會出現在基礎映像清單裡）
     vm_candidates = list(vm_operating_systems) + [
@@ -552,16 +768,21 @@ def normalize_ai_result(
                 for item in vm_candidates
                 if int(item.get("template_id") or 0) == requested_vm_template_id
             ),
-            vm_candidates[0],
-        )
+            None,
+        ) or _default_vm_candidate(vm_candidates, wants_windows=request.needs_windows)
         selected_vm_template_id = int(selected_vm.get("template_id") or 0)
         selected_vm_os = str(selected_vm.get("label") or "").strip()
 
-    requested_gpu_mapping_id = str(
-        raw_prefill.get("gpu_mapping_id")
-        or (form_context.selected_gpu_mapping_id if form_context else "")
-        or ""
+    # 模型挑的 GPU 只在需要 GPU 時採用；表單上已選的照舊保留
+    form_gpu_mapping_id = str(
+        (form_context.selected_gpu_mapping_id if form_context else "") or ""
     ).strip()
+    model_gpu_mapping_id = (
+        str(raw_prefill.get("gpu_mapping_id") or "").strip()
+        if request.requires_gpu
+        else ""
+    )
+    requested_gpu_mapping_id = model_gpu_mapping_id or form_gpu_mapping_id
     selected_gpu: dict[str, Any] | None = None
     if resource_type == "vm" and gpu_options:
         if requested_gpu_mapping_id:
@@ -575,7 +796,7 @@ def normalize_ai_result(
                 ),
                 None,
             )
-        if not selected_gpu and (request.requires_gpu or requested_gpu_mapping_id):
+        if not selected_gpu and (request.requires_gpu or form_gpu_mapping_id):
             selected_gpu = _best_gpu_option(gpu_options)
 
     gpu_reason = ""
@@ -591,10 +812,10 @@ def normalize_ai_result(
                     "reason": t("recommendation.gpuCandidateReason"),
                 }
             )
-        if selected_gpu:
-            gpu_reason = t("recommendation.gpuReasonSelected")
-        elif request.requires_gpu:
-            gpu_reason = t("recommendation.gpuReasonInsufficient")
+    if selected_gpu:
+        gpu_reason = t("recommendation.gpuReasonSelected")
+    elif request.requires_gpu:
+        gpu_reason = t("recommendation.gpuReasonInsufficient")
 
     selected_gpu_mapping_id = ""
     selected_gpu_label = ""
@@ -602,23 +823,32 @@ def normalize_ai_result(
         selected_gpu_mapping_id = str(selected_gpu.get("mapping_id") or "").strip()
         selected_gpu_label = _gpu_option_label(selected_gpu)
 
+    selected_template = catalog_by_id.get(
+        selected_lxc_template_id if resource_type == "lxc" else selected_vm_template_id
+    )
+    spec = _rule_based_spec(request, resource_type)
     cores = safe_int(
         raw_prefill.get("cores") or (form_context.cores if form_context else None),
-        2,
+        spec["cores"],
         minimum=1,
         extract_digits=True,
     )
     memory_mb = safe_int(
         raw_prefill.get("memory_mb")
         or (form_context.memory_mb if form_context else None),
-        2048,
+        spec["memory_mb"],
         minimum=512,
         extract_digits=True,
     )
+    # 克隆出來的硬碟不能比範本本身小
+    minimum_disk_gb = max(
+        _minimum_disk_gb(resource_type),
+        safe_int((selected_template or {}).get("disk_gb"), 0, minimum=0),
+    )
     disk_gb = safe_int(
         raw_prefill.get("disk_gb") or (form_context.disk_gb if form_context else None),
-        _minimum_disk_gb(resource_type),
-        minimum=_minimum_disk_gb(resource_type),
+        max(spec["disk_gb"], minimum_disk_gb),
+        minimum=minimum_disk_gb,
         extract_digits=True,
     )
     username = ""
@@ -690,9 +920,9 @@ def normalize_ai_result(
         or "local-lvm"
     )
 
-    service_name = str(
-        application_target.get("service_name") or request.goal[:40]
-    ).strip()
+    service_name = " ".join(
+        str(application_target.get("service_name") or request.goal).split()
+    )[:40]
 
     form_prefill = {
         "resource_type": resource_type,
@@ -721,6 +951,29 @@ def normalize_ai_result(
         ),
     }
 
+    if resource_type == "lxc":
+        source_label = (
+            str(selected_template.get("name") or "")
+            if selected_template
+            else selected_lxc_label or selected_lxc_image
+        )
+    else:
+        source_label = selected_vm_os
+    summary = render_plan_summary(
+        resource_type=resource_type,
+        source_label=source_label,
+        from_template=selected_template is not None,
+        cores=cores,
+        memory_mb=memory_mb,
+        disk_gb=disk_gb,
+        gpu_label=selected_gpu_label,
+        gpu_missing=request.requires_gpu and not selected_gpu,
+        fallback=fallback,
+    )
+    environment_reason = _environment_reason(
+        request, resource_type, gpu_selected=bool(selected_gpu)
+    )
+
     return {
         "persona": {
             "role": request.role,
@@ -731,35 +984,26 @@ def normalize_ai_result(
             "resource_baseline": request.resource_baseline,
         },
         "device_profile": summarize_device_nodes(nodes),
-        "summary": str(ai_result.get("summary") or "").strip(),
-        "workload_profile": str(
-            ai_result.get("workload_profile") or "ai-planned"
-        ).strip(),
+        "summary": summary,
+        "fallback": fallback,
+        "workload_profile": "rule-based" if fallback else "ai-planned",
         "rule_basis": {
             "reasons": [
-                str(item).strip()
-                for item in decision_factors
-                if str(item).strip()
+                reason for reason in (environment_reason, gpu_reason) if reason
             ],
         },
         "recommended_path": {
-            "fit": "ai-generated plan",
+            "fit": "rule-based plan" if fallback else "ai-generated plan",
             "why": [t("recommendation.recommendedPathWhy")],
-            "upgrade_when": str(ai_result.get("upgrade_when") or "").strip(),
+            "upgrade_when": "",
         },
         "final_plan": {
-            "summary": str(ai_result.get("summary") or "").strip(),
+            "summary": summary,
+            "fallback": fallback,
             "application_target": {
                 "service_name": service_name,
                 "execution_environment": resource_type,
-                "environment_reason": str(
-                    application_target.get("environment_reason")
-                    or (
-                        t("recommendation.environmentReason.vm")
-                        if resource_type == "vm"
-                        else t("recommendation.environmentReason.lxc")
-                    )
-                ).strip(),
+                "environment_reason": environment_reason,
             },
             "form_prefill": form_prefill,
             "gpu_recommendation": {

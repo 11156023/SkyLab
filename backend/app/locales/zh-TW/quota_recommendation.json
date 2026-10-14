@@ -15,5 +15,15 @@
   "recommendation.gpuReasonInsufficient": "使用者明確需要 GPU，但目前可用 GPU 不足。",
   "recommendation.recommendedPathWhy": "AI 依需求與可用設備規劃推薦路徑。",
   "recommendation.environmentReason.vm": "使用 VM 以符合作業系統或環境需求。",
-  "recommendation.environmentReason.lxc": "使用 LXC 以提供較精簡的服務部署方式。"
+  "recommendation.environmentReason.lxc": "使用 LXC 以提供較精簡的服務部署方式。",
+  "recommendation.environmentReason.gpu": "需要 GPU 加速，GPU 只能掛在 VM 上。",
+  "recommendation.environmentReason.windows": "需要 Windows，必須使用 VM。",
+  "recommendation.environmentReason.desktop": "需要圖形桌面，使用 VM 較完整。",
+  "recommendation.summary.base": "建議申請 {env}（{source}），{cores} 核 CPU、{memory} GB 記憶體、{disk} GB 硬碟。",
+  "recommendation.summary.sourceTemplate": "應用範本「{name}」，軟體已預裝",
+  "recommendation.summary.sourceImage": "作業系統 {name}，需要的軟體要自行安裝",
+  "recommendation.summary.sourceMissing": "作業系統請在表單中選擇",
+  "recommendation.summary.gpuSelected": "搭配 GPU：{gpu}。",
+  "recommendation.summary.gpuUnavailable": "目前沒有可用的 GPU，先以不含 GPU 的配置申請，之後有空出的 GPU 再調整。",
+  "recommendation.summary.fallback": "AI 規劃這次沒有完成，這份是依你已提供的需求用規則產生的配置，送出前請再確認。"
 }

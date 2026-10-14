@@ -4,7 +4,8 @@ export function newTask() {
 }
 
 export const TEACHING_PATTERN = /(班級|課堂|課程|開班|開課|環境|範本|模板)/i;
-export const SIDE_QUESTION_PATTERN = /(什麼|為什麼|差別|差異|關係|解釋|請問|順便問|另外問|嗎[？?]?$|[？?])/i;
+/* 「有哪些 GPU 可以用」是在問，不是在回答配置題；不擋下來會被當成 GPU 題的答案。 */
+export const SIDE_QUESTION_PATTERN = /(什麼|為什麼|差別|差異|關係|解釋|請問|順便問|另外問|哪些|有沒有|夠不夠|嗎[？?]?$|[？?])/i;
 
 export function shouldContinueIntake(text, task, route) {
   return task.stage === "collecting" && route === "chat" && !SIDE_QUESTION_PATTERN.test(text);
@@ -80,6 +81,40 @@ export function withTaskMemory(history, task) {
     role: "user",
     content: `原始目標：${task.goal}\n${facts.join("\n")}\n本輪要求：${history.filter((m) => m.role === "user").at(-1)?.content ?? ""}`,
   }];
+}
+
+/* 後端一次最多收 50 則、32K 字；長對話整段送過去會直接 400，重按幾次都一樣。
+   只送最近的幾則——規劃需要的答案已經存在 task.facts，不靠舊訊息。 */
+export function recentMessages(history, { maxMessages = 12, maxChars = 16_000 } = {}) {
+  const kept = [];
+  let chars = 0;
+  for (const message of [...history].reverse()) {
+    const size = String(message.content ?? "").length;
+    if (kept.length >= maxMessages || (kept.length && chars + size > maxChars)) break;
+    kept.unshift(message);
+    chars += size;
+  }
+  return kept;
+}
+
+/** 配置模式已問到的答案，原樣交給後端判斷需求，不要讓它從文字裡猜。 */
+export function intakeFactsPayload(task) {
+  const facts = task.facts ?? {};
+  const keys = ["purpose", "gpu", "display", "duration"];
+  if (!keys.some((key) => facts[key])) return null;
+  return {
+    ...Object.fromEntries(keys.map((key) => [key, facts[key] || null])),
+    inferred: facts.inferred ?? [],
+  };
+}
+
+/* 規劃失敗的原因不同，使用者能做的事也不同：逾時可以重試、太頻繁要等、
+   對話太長要清掉重來。全部說成「已保留你的需求」只會讓人一直按重試。 */
+export function planErrorKey(error) {
+  if (error?.timeout || error?.status === 408) return "AiFloatingChat.planTimedOut";
+  if (error?.status === 429) return "AiFloatingChat.planRateLimited";
+  if (error?.status === 400 || error?.status === 413) return "AiFloatingChat.planTooLong";
+  return "AiFloatingChat.planFailed";
 }
 
 export function requestIsReady(request, resources) {
