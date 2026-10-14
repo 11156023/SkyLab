@@ -11,6 +11,7 @@ from app.ai.template_recommendation.prompt import (
     build_chat_runtime_context,
     build_chat_system_prompt,
     build_intake_focus_block,
+    chat_inventory,
 )
 from app.ai.template_recommendation.schemas import ChatRequest
 from app.ai.utils import (
@@ -51,19 +52,25 @@ def latest_user_request(request: ChatRequest) -> str:
 def build_chat_payload(
     request: ChatRequest,
     *,
-    gpu_options: list[dict[str, Any]],
+    gpu_options: list[dict[str, Any]] | None,
     model_name: str,
+    resource_options: dict[str, Any] | None = None,
+    inventory_loaded: bool = False,
 ) -> dict[str, Any]:
+    """gpu_options／resource_options 為 None 代表這次查不到（不是沒有）。
+
+    資源段落一律附上：沒有段落時模型分不出「沒有 GPU」和「沒告訴我」，
+    就會自己編型號。
+    """
     ensure_conversation_within_limits(request.messages)
     snapshot = chat_form_snapshot(request)
-    runtime = (
-        build_chat_runtime_context(
-            resource_type=snapshot.get("resource_type") if snapshot else None,
-            gpu_options=gpu_options,
-            form_context=snapshot,
-        )
-        if gpu_options or snapshot is not None
-        else ""
+    runtime = build_chat_runtime_context(
+        resource_type=snapshot.get("resource_type") if snapshot else None,
+        gpu_options=gpu_options,
+        form_context=snapshot,
+        inventory=chat_inventory(resource_options),
+        inventory_loaded=inventory_loaded,
+        gpu_lookup_failed=gpu_options is None,
     )
     prompt = build_chat_system_prompt(
         is_first_turn=len(request.messages) <= 1, runtime_context=runtime
@@ -105,7 +112,10 @@ def template_adherence_facts(
 
 
 def build_chat_adherence_facts(
-    request: ChatRequest, *, gpu_options: list[dict[str, Any]]
+    request: ChatRequest,
+    *,
+    gpu_options: list[dict[str, Any]] | None,
+    resource_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ensure_conversation_within_limits(request.messages)
     return template_adherence_facts(
@@ -132,8 +142,10 @@ def build_chat_adherence_facts(
                         "device_count",
                     )
                 }
-                for option in gpu_options[:10]
+                for option in (gpu_options or [])[:10]
             ],
+            # 檢查器要看得到回答模型拿到的同一份清單，才不會把列出 OS／範本當成越界
+            "platform_inventory": chat_inventory(resource_options),
             "form_values_source": "client_snapshot_not_backend_capability_inventory",
         },
     )

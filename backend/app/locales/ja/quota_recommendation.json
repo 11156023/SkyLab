@@ -15,5 +15,15 @@
   "recommendation.gpuReasonInsufficient": "ユーザーが GPU を明示的に必要としていますが、現在利用可能な GPU 容量が不足しています。",
   "recommendation.recommendedPathWhy": "AI が要件と利用可能なデバイスに基づいて推奨パスを計画しました。",
   "recommendation.environmentReason.vm": "オペレーティングシステムまたは環境要件を満たすため VM を使用します。",
-  "recommendation.environmentReason.lxc": "より軽量なサービス展開を実現するため LXC を使用します。"
+  "recommendation.environmentReason.lxc": "より軽量なサービス展開を実現するため LXC を使用します。",
+  "recommendation.environmentReason.gpu": "GPU による高速化が必要で、GPU は VM にのみ割り当てられます。",
+  "recommendation.environmentReason.windows": "Windows が必要なため、VM を使用します。",
+  "recommendation.environmentReason.desktop": "グラフィカルデスクトップが必要なため、VM の方が適しています。",
+  "recommendation.summary.base": "{env}（{source}）、CPU {cores} コア、メモリ {memory} GB、ディスク {disk} GB を推奨します。",
+  "recommendation.summary.sourceTemplate": "アプリテンプレート「{name}」、ソフトウェアはプリインストール済み",
+  "recommendation.summary.sourceImage": "OS {name}、必要なソフトウェアはご自身でインストールしてください",
+  "recommendation.summary.sourceMissing": "OS はフォームで選択してください",
+  "recommendation.summary.gpuSelected": "GPU：{gpu}。",
+  "recommendation.summary.gpuUnavailable": "現在利用できる GPU がないため、GPU なしの構成で申請し、空きが出たら調整してください。",
+  "recommendation.summary.fallback": "今回は AI による計画が完了しなかったため、入力済みの要件からルールで生成した構成です。送信前にご確認ください。"
 }

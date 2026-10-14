@@ -26,10 +26,11 @@ from app.ai.navigation.schemas import (
     NavigationMessage,
 )
 from app.ai.template_recommendation.recommendation_service import (
+    DESKTOP_KEYWORDS,
     GPU_KEYWORDS,
     WINDOWS_KEYWORDS,
 )
-from app.ai.utils import mentions
+from app.ai.utils import mentions, mentions_term
 
 # 圖形介面與 Windows 一樣會把選擇推向 VM，放在同一題問。
 _DISPLAY_KEYWORDS = (
@@ -65,7 +66,7 @@ SLOTS: tuple[IntakeSlot, ...] = (
         key="display",
         question="需要 Windows 或圖形桌面嗎？",
         options=("需要圖形桌面", "需要 Windows", "Linux 指令列就好"),
-        keywords=WINDOWS_KEYWORDS + _DISPLAY_KEYWORDS,
+        keywords=WINDOWS_KEYWORDS + DESKTOP_KEYWORDS + _DISPLAY_KEYWORDS,
     ),
     IntakeSlot(
         key="duration",
@@ -103,7 +104,10 @@ def _explicit_answer(slot: IntakeSlot, text: str) -> str | None:
         if text in _ALL_OPTIONS and text not in slot.options:
             return None
         return text if mentions(text, _PURPOSE_KEYWORDS) else None
-    if any(option in text for option in slot.options) or mentions(text, slot.keywords):
+    # 英數關鍵字要整字比對：「架 WordPress」裡的 rdp 不是在回答桌面這題
+    if any(option in text for option in slot.options) or mentions_term(
+        text, slot.keywords
+    ):
         return text
     return None
 
@@ -165,7 +169,10 @@ def _collect_facts(
     # Ordinary web services have useful defaults; explicit requirements win.
     purpose = result.purpose or ""
     ordinary_web = mentions(purpose, ("網站", "網頁", "架站", "node.js", "nodejs", "flask", "django", "website"))
-    if ordinary_web and not mentions(purpose, GPU_KEYWORDS + WINDOWS_KEYWORDS + _DISPLAY_KEYWORDS):
+    if ordinary_web and not mentions_term(
+        purpose,
+        GPU_KEYWORDS + WINDOWS_KEYWORDS + DESKTOP_KEYWORDS + _DISPLAY_KEYWORDS,
+    ):
         for key, value in (("gpu", "不需要 GPU"), ("display", "Linux 指令列就好")):
             if not getattr(result, key):
                 setattr(result, key, value)

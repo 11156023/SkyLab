@@ -4,7 +4,8 @@ export function newTask() {
 }
 
 export const TEACHING_PATTERN = /(班級|課堂|課程|開班|開課|環境|範本|模板)/i;
-export const SIDE_QUESTION_PATTERN = /(什麼|為什麼|差別|差異|關係|解釋|請問|順便問|另外問|嗎[？?]?$|[？?])/i;
+/* 「有哪些 GPU 可以用」是在問，不是在回答配置題；不擋下來會被當成 GPU 題的答案。 */
+export const SIDE_QUESTION_PATTERN = /(什麼|為什麼|差別|差異|關係|解釋|請問|順便問|另外問|哪些|有沒有|夠不夠|嗎[？?]?$|[？?])/i;
 
 export function shouldContinueIntake(text, task, route) {
   return task.stage === "collecting" && route === "chat" && !SIDE_QUESTION_PATTERN.test(text);
@@ -66,20 +67,66 @@ export function taskRoute(text, task, flowId, hasForm) {
   return null;
 }
 
+/* 記憶區塊每一段都有上限，加上 recentMessages 的 12K 字，總長才穩定低於後端的 32K。 */
+const MEMORY_GOAL_CHARS = 2_000;
+const MEMORY_FACT_CHARS = 500;
+const MEMORY_LATEST_CHARS = 2_000;
+
 export function withTaskMemory(history, task) {
   const labels = { purpose: "用途", gpu: "加速需求", display: "作業環境", duration: "使用時間" };
   const facts = Object.entries(labels).flatMap(([key, label]) => {
     const value = task.facts?.[key];
     if (!value) return [];
     const source = task.facts.inferred?.includes(key) ? "建議預設，可調整" : "使用者已提供";
-    return [`${label}（${source}）：${value}`];
+    return [`${label}（${source}）：${String(value).slice(0, MEMORY_FACT_CHARS)}`];
   });
   if (!task.goal && !facts.length) return history;
+  const latest = String(history.filter((m) => m.role === "user").at(-1)?.content ?? "");
   // Keep memory inside the planner's recent-message window. Latest user text wins.
   return [...history, {
     role: "user",
-    content: `原始目標：${task.goal}\n${facts.join("\n")}\n本輪要求：${history.filter((m) => m.role === "user").at(-1)?.content ?? ""}`,
+    content: `原始目標：${task.goal.slice(0, MEMORY_GOAL_CHARS)}\n${facts.join("\n")}\n本輪要求：${latest.slice(0, MEMORY_LATEST_CHARS)}`,
   }];
+}
+
+/* 後端一次最多收 50 則、32K 字；長對話整段送過去會直接 400，重按幾次都一樣。
+   只送最近的幾則——規劃需要的答案已經存在 task.facts，不靠舊訊息。
+   最新一則本身就超長（貼了一大段）時截斷它，不能因為「至少要留一則」就整則送出。 */
+export function recentMessages(history, { maxMessages = 12, maxChars = 12_000 } = {}) {
+  const kept = [];
+  let chars = 0;
+  for (const message of [...history].reverse()) {
+    if (kept.length >= maxMessages) break;
+    const content = String(message.content ?? "");
+    if (!kept.length && content.length > maxChars) {
+      kept.unshift({ ...message, content: content.slice(0, maxChars) });
+      break;
+    }
+    if (chars + content.length > maxChars) break;
+    kept.unshift(message);
+    chars += content.length;
+  }
+  return kept;
+}
+
+/** 配置模式已問到的答案，原樣交給後端判斷需求，不要讓它從文字裡猜。 */
+export function intakeFactsPayload(task) {
+  const facts = task.facts ?? {};
+  const keys = ["purpose", "gpu", "display", "duration"];
+  if (!keys.some((key) => facts[key])) return null;
+  return {
+    ...Object.fromEntries(keys.map((key) => [key, facts[key] || null])),
+    inferred: facts.inferred ?? [],
+  };
+}
+
+/* 規劃失敗的原因不同，使用者能做的事也不同：逾時可以重試、太頻繁要等、
+   對話太長要清掉重來。全部說成「已保留你的需求」只會讓人一直按重試。 */
+export function planErrorKey(error) {
+  if (error?.timeout || error?.status === 408) return "AiFloatingChat.planTimedOut";
+  if (error?.status === 429) return "AiFloatingChat.planRateLimited";
+  if (error?.status === 400 || error?.status === 413) return "AiFloatingChat.planTooLong";
+  return "AiFloatingChat.planFailed";
 }
 
 export function requestIsReady(request, resources) {
