@@ -55,3 +55,97 @@ def test_targets_outside_vm_subnet_cannot_be_published(
 ) -> None:
     with pytest.raises(BadRequestError):
         assert_publishable_vm_ip(_session(), ip)
+
+
+# ── 沒有配發紀錄的機器：不可把規則指到配給別台或被預留的 IP ─────────────────
+
+
+@pytest.fixture
+def no_own_allocation(
+    monkeypatch: pytest.MonkeyPatch, publish_config: SimpleNamespace
+) -> dict[str, SimpleNamespace]:
+    from app.repositories import resource as resource_repo
+
+    holders: dict[str, SimpleNamespace] = {}
+    monkeypatch.setattr(
+        resource_repo, "get_allocated_ip_address", lambda *, session, vmid: None
+    )
+    monkeypatch.setattr(
+        ip_management_service,
+        "get_allocation_by_ip",
+        lambda session, ip: holders.get(ip),
+    )
+    return holders
+
+
+def test_unallocated_vm_cannot_target_ip_allocated_to_another_vmid(
+    no_own_allocation: dict[str, SimpleNamespace],
+) -> None:
+    no_own_allocation["10.10.1.102"] = SimpleNamespace(vmid=102, purpose="vm")
+
+    with pytest.raises(BadRequestError) as excinfo:
+        assert_publishable_vm_ip(_session(), "10.10.1.102", vmid=999)
+
+    assert "102" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("purpose", ["class_reserved", "quick_practice_reserved"])
+def test_unallocated_vm_cannot_target_reserved_ip(
+    no_own_allocation: dict[str, SimpleNamespace], purpose: str
+) -> None:
+    no_own_allocation["10.10.1.50"] = SimpleNamespace(vmid=None, purpose=purpose)
+
+    with pytest.raises(BadRequestError):
+        assert_publishable_vm_ip(_session(), "10.10.1.50", vmid=999)
+
+
+def test_unallocated_vm_can_target_free_ip_in_subnet(
+    no_own_allocation: dict[str, SimpleNamespace],
+) -> None:
+    no_own_allocation["10.10.1.102"] = SimpleNamespace(vmid=102, purpose="vm")
+
+    assert_publishable_vm_ip(_session(), "10.10.9.9", vmid=999)
+
+
+def test_allocated_vm_still_checked_against_its_own_allocation(
+    monkeypatch: pytest.MonkeyPatch, publish_config: SimpleNamespace
+) -> None:
+    """有配發紀錄的機器維持原本的規則：只能是配給它的那個 IP。"""
+    from app.repositories import resource as resource_repo
+
+    monkeypatch.setattr(
+        resource_repo,
+        "get_allocated_ip_address",
+        lambda *, session, vmid: "10.10.1.101",
+    )
+
+    def _must_not_be_called(session, ip):
+        raise AssertionError("allocated VMs are checked against their own IP only")
+
+    monkeypatch.setattr(ip_management_service, "get_allocation_by_ip", _must_not_be_called)
+
+    assert_publishable_vm_ip(_session(), "10.10.1.101", vmid=101)
+    with pytest.raises(BadRequestError):
+        assert_publishable_vm_ip(_session(), "10.10.1.102", vmid=101)
+
+
+def test_get_allocation_by_ip_reads_the_allocation_row() -> None:
+    from sqlalchemy.pool import StaticPool
+    from sqlmodel import Session, SQLModel, create_engine
+
+    from app.models import IpAllocation
+
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            session.add(IpAllocation(ip_address="10.10.1.102", purpose="vm", vmid=102))
+            session.commit()
+
+            row = ip_management_service.get_allocation_by_ip(session, "10.10.1.102")
+            assert row is not None and row.vmid == 102
+            assert ip_management_service.get_allocation_by_ip(session, "10.10.1.103") is None
+    finally:
+        engine.dispose()

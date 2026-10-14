@@ -73,9 +73,9 @@ describe("TeachingClassesService", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("/class-1/extend");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ end_date: "2026-12-31" });
     expect(fetchMock.mock.calls[1][0]).toContain("/class-1/archive");
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ reclaim_resources: true, force: false });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ force: false });
     expect(fetchMock.mock.calls[2][0]).toContain("/class-1/reclaim");
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ reclaim_resources: true, force: true });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ force: true });
   });
 
   test("batch review listing asks for every status, not just pending", async () => {

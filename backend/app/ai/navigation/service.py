@@ -512,6 +512,7 @@ async def resolve_navigation(
         request_id = new_ai_request_id()
         started = perf_counter()
         started_at = datetime.now(timezone.utc)
+        response_data: dict[str, Any] = {}
         try:
             with observation.phase("model", request_id=request_id):
                 response_data = await navigation_client.create_chat_completion(
@@ -549,9 +550,10 @@ async def resolve_navigation(
             logger.exception(
                 "Navigation resolve failed, using fixed fallback: %s", exc
             )
+            # 模型已回應但決策不合法時，token 已經用掉了，照實記錄
             _log(
                 metrics=usage_metrics(
-                    {},
+                    response_data,
                     perf_counter() - started,
                     request_id=request_id,
                     started_at=started_at,

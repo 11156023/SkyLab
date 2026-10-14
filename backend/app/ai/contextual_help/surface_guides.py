@@ -943,7 +943,7 @@ _add("ip-management", SurfaceGuide(
             opened_by="建立子網設定",
             purpose="設定新機器會用的網段與對外入口。",
             fields=(
-                _f("子網 CIDR", "例：10.10.0.0/24；已有機器使用這個網段時不能改。", required=True),
+                _f("子網 CIDR", "例：10.10.0.0/24；已有機器使用這個網段，或還有班級／快速練習預留的 IP 時不能改。", required=True),
                 _f("閘道 IP", "例：10.10.0.1。", required=True),
                 _f("Bridge 名稱", "例：vmbr1。", required=True),
                 _f("VLAN ID", "選填，1–4094；留空表示不使用 VLAN。"),

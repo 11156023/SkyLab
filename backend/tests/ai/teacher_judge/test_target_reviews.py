@@ -166,3 +166,49 @@ def test_teacher_cannot_override_an_objective_ai_result(monkeypatch) -> None:
 
     assert exc_info.value.status_code == 400
     assert "service" in str(exc_info.value.detail)
+
+
+def test_target_review_does_not_overwrite_concurrent_review_of_other_target() -> None:
+    """另一個請求先存了別的學生的檢閱時，手上的舊 run 快照不可把它蓋掉。"""
+    from sqlmodel import Session
+
+    from app.ai.teacher_judge.script_run_service import update_target_review
+
+    db, _class_id, _judge_session, run = _completed_run()
+    document = dict(run.target_results_json)
+    document["targets"] = [
+        *document["targets"],
+        {**document["targets"][0], "vmid": 484},
+    ]
+    run.target_results_json = document
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    stale_run = run
+
+    with Session(db.get_bind()) as other:
+        update_target_review(
+            other,
+            other.get(TeacherJudgeScriptRun, run.id),
+            vmid=484,
+            feedback="先存的檢閱",
+            decisions={},
+            reviewer_id=uuid.uuid4(),
+        )
+
+    update_target_review(
+        db,
+        stale_run,
+        vmid=483,
+        feedback="後存的檢閱",
+        decisions={},
+        reviewer_id=uuid.uuid4(),
+    )
+
+    db.expire_all()
+    targets = db.get(TeacherJudgeScriptRun, run.id).target_results_json["targets"]
+    feedback_by_vmid = {
+        target["vmid"]: target.get("teacher_review", {}).get("feedback")
+        for target in targets
+    }
+    assert feedback_by_vmid == {483: "後存的檢閱", 484: "先存的檢閱"}

@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, File, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from app.api.deps import InstructorUser, SessionDep
@@ -121,8 +122,9 @@ async def upload_environment_file(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     """文件掛在環境身分上，換版本不會讓講義跟著消失。"""
-    environment = environment_service.get_environment(
-        session, current_user, environment_id
+    # 權限與環境查詢是同步 DB，丟到 worker thread；上傳串流留在 event loop
+    environment = await run_in_threadpool(
+        environment_service.get_environment, session, current_user, environment_id
     )
     return await environment_service.add_file(
         session, environment, file, current_user

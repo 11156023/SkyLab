@@ -314,12 +314,21 @@ class WireGuardTunnelService {
     return `'${value.replace(/'/g, "''")}'`;
   }
 
+  // Start-Process 只把 -ArgumentList 以空白串接、不替含空白的參數加引號；安裝路徑
+  // （C:\Program Files\SkyLab Connect\…）或 userData 含空白時，msiexec／wireguard.exe
+  // 會收到被拆開的路徑，所以先依 Windows 命令列規則（CommandLineToArgvW）加引號。
+  private _windowsArgument(value: string): string {
+    if (value && !/[\s"]/.test(value)) return value;
+    const escaped = value.replace(/(\\*)"/g, '$1$1\\"');
+    return `"${escaped.replace(/(\\+)$/, "$1$1")}"`;
+  }
+
   private _runElevatedProcess(
     executable: string,
     args: string[]
   ): Promise<void> {
     const argumentList = args
-      .map(value => this._powershellQuote(value))
+      .map(value => this._powershellQuote(this._windowsArgument(value)))
       .join(",");
     const command = [
       `$p = Start-Process -FilePath ${this._powershellQuote(executable)}`,

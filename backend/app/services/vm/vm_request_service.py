@@ -259,11 +259,27 @@ def _approve_and_place(
                 commit=False,
             )
             continue
+        if vm_request_placement_service.provisioning_pinned_node(request):
+            # 正在 clone 的申請釘在開始 clone 的節點（rebuild 已固定），
+            # 預留節點、策略與 running 狀態都不動
+            continue
         selection = selections.get(request.id)
         if not selection or not selection.node:
             raise BadRequestError(
                 t("vm_request.no_node_after_reservations")
             )
+        next_status = (
+            VMProvisioningStatus.pending
+            if request.vmid is not None
+            and request.actual_node
+            and request.actual_node != selection.node
+            else VMProvisioningStatus.idle
+        )
+        if request.provisioning_status == VMProvisioningStatus.running:
+            # 其他已核准、正在 worker 上 clone 的申請：重排只更新預留節點。
+            # 改回 idle 會讓取消檢查（cancel_provisioning_in_progress）與排程的
+            # 「clone 進行中」判斷失效
+            next_status = VMProvisioningStatus.running
         vm_request_repo.update_vm_request_provisioning(
             session=session,
             db_request=request,
@@ -272,13 +288,7 @@ def _approve_and_place(
             desired_node=selection.node,
             actual_node=request.actual_node,
             placement_strategy_used=selection.strategy,
-            provisioning_status=(
-                VMProvisioningStatus.pending
-                if request.vmid is not None
-                and request.actual_node
-                and request.actual_node != selection.node
-                else VMProvisioningStatus.idle
-            ),
+            provisioning_status=next_status,
             provisioning_error=None,
             commit=False,
         )
@@ -736,7 +746,13 @@ def get_review_context(
     projected_by_node: dict[str, list[str]] = {}
     for request in projected_requests:
         selection = selections.get(request.id)
-        projected_node = selection.node if selection else None
+        # 正在 clone 的申請不重新選點（見 rebuild_reserved_assignments），
+        # 落點就是它開始 clone 的節點
+        projected_node = (
+            selection.node
+            if selection
+            else vm_request_placement_service.provisioning_pinned_node(request)
+        )
         if projected_node:
             projected_by_node.setdefault(projected_node, []).append(request.hostname)
         overlap_items.append(

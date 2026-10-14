@@ -22,7 +22,7 @@ def test_unreadable_rules_are_reported_and_nothing_is_written(
     monkeypatch.setattr(
         class_network_service.proxmox_service,
         "find_resource",
-        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+        lambda vmid, **_kwargs: {"node": "pve1", "type": "qemu", "vmid": vmid},
     )
     monkeypatch.setattr(
         class_network_service.firewall_service,
@@ -55,3 +55,32 @@ def test_unreadable_rules_are_reported_and_nothing_is_written(
     assert errors == ["101: firewall rules unreadable"]
     assert created == []
     assert deleted == []
+
+
+def test_lookup_failure_is_reported_but_missing_machine_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """機器不在（NotFound）才略過；PVE 連線失敗要回報，不能當成拓樸已套用。"""
+    from app.exceptions import NotFoundError
+
+    def find_resource(vmid: int, **_kwargs: object) -> dict:
+        if vmid == 101:
+            raise NotFoundError("gone")
+        raise ProxmoxError("PVE unavailable")
+
+    monkeypatch.setattr(
+        class_network_service.proxmox_service, "find_resource", find_resource
+    )
+    monkeypatch.setattr(
+        class_network_service.firewall_service,
+        "list_vm_firewall_rules_strict",
+        lambda *_args: pytest.fail("rules must not be read without a node"),
+    )
+
+    errors = class_network_service.sync_scope_rules(
+        comment_prefix=PREFIX,
+        scope_vmids={101, 102},
+        planned=[],
+    )
+
+    assert errors == ["102: resource lookup failed"]

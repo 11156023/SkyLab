@@ -98,6 +98,24 @@ Every `models.json` entry must have a unique `alias`; for local models, `served_
 `served_model_name` is passed to vLLM's `--served-model-name`, so each instance's
 `/v1/models` does not expose the host model path.
 
+### Crash recovery
+
+The launcher keeps watching the vLLM processes after start-up (both modes). When one exits unexpectedly
+it logs the exit code, cleans up any worker processes left in its process group (so GPU memory and the
+port are released) and restarts **only that model**; the other models keep serving. Restarts do not
+wait for readiness, and the model's `logs/<alias>.log` is appended to, so the output from before the
+crash is kept. Retries are limited and back off, configured in `.env.API` / `.env.interface`:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ENGINE_RESTART_MAX_ATTEMPTS` | `3` | Restarts per model before giving up; `0` disables automatic restart |
+| `ENGINE_RESTART_BACKOFF_SECONDS` | `10` | Wait before the first restart, doubled each time (capped at 300 s) |
+| `ENGINE_RESTART_RESET_SECONDS` | `600` | A model that ran this long before crashing starts counting from zero again |
+
+After the limit the launcher gives up on that model and logs an error (`logs/cluster.log` or
+`logs/main.log`). In single-model mode, or when every cluster model has been given up, the launcher
+then exits with a non-zero status. Fix the cause and start the script again.
+
 When you download a model from Hugging Face, pin a fixed revision so that upstream file updates
 cannot make the deployment non-reproducible, for example:
 
@@ -108,6 +126,10 @@ cannot make the deployment non-reproducible, for example:
 `generate_litellm_config.py` reads `models.json` and `litellm/config.template.yaml` and produces
 `litellm/config.yaml`. The output is ignored by Git; ordinary models use `os.environ/...` secret references,
 and if a remote model sets `apikeys`, that value is written directly into this local runtime artifact.
+For that reason both `generate_litellm_config.py` and `scripts/prepare-ai-stack.sh` write the file with mode
+`0600` (owner read/write only) every time, tightening an older world-readable copy in place. Generate it as
+the account that runs Docker: the LiteLLM container reads it as root, which under rootless Docker is that
+account.
 `integration` mode contains no database settings; `production` mode requires the deployment process
 to inject `LITELLM_SERVICE_API_KEY` first, and generates a `DATABASE_URL` reference.
 
@@ -153,7 +175,8 @@ vLLM instance configured in `.env` directly with a single prompt. Full details a
 | --- | --- |
 | `main.py` | CLI entry point, supports `single` / `cluster` |
 | `core/engine.py` | Start/stop, health check and logging of a single vLLM instance |
-| `core/cluster.py` | Multi-model instance lifecycle |
+| `core/cluster.py` | Multi-model instance lifecycle, including restarting a crashed model |
+| `core/supervisor.py` | Crash restart policy (attempt limit, backoff) shared by both modes |
 | `config/settings.py` | Shared vLLM settings |
 | `config/multi_model.py` | `models.json` loading and cluster resource checks |
 | `litellm/` | Git-managed LiteLLM static routing policy template |

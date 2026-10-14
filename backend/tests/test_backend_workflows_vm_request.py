@@ -630,6 +630,69 @@ def test_vm_request_review_assigns_reserved_node(
     assert refreshed.placement_strategy_used == "priority_dominant_share"
 
 
+def test_approve_keeps_running_status_of_request_being_cloned(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """核准新申請會重排同時段的其他申請；正在 clone 的那張不能被改回 idle。"""
+    from app.models import VMProvisioningStatus
+
+    user = _create_user(db)
+    reviewer = _create_user(db, is_superuser=True)
+    now = datetime.now(timezone.utc)
+
+    def _request(hostname: str, **fields) -> VMRequest:
+        return VMRequest(
+            user_id=user.id,
+            reason="clone in flight",
+            resource_type="vm",
+            hostname=hostname,
+            cores=2,
+            memory=2048,
+            password=encrypt_value("strongpass123"),
+            storage="local-lvm",
+            environment_type="Clone In Flight",
+            template_id=123,
+            disk_size=20,
+            username="student",
+            start_at=now + timedelta(hours=2),
+            end_at=now + timedelta(hours=4),
+            created_at=now,
+            **fields,
+        )
+
+    cloning = _request(
+        "cloning-vm",
+        status=VMRequestStatus.approved,
+        assigned_node="pve-a",
+        desired_node="pve-a",
+        provisioning_status=VMProvisioningStatus.running,
+        provisioning_started_at=now,
+    )
+    pending = _request("new-vm", status=VMRequestStatus.pending)
+    db.add(cloning)
+    db.add(pending)
+    db.commit()
+    db.refresh(cloning)
+    db.refresh(pending)
+
+    selection = SimpleNamespace(
+        node="pve-a",
+        strategy="priority_dominant_share",
+        plan=SimpleNamespace(feasible=True),
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_placement_service.rebuild_reserved_assignments",
+        lambda **kwargs: {cloning.id: selection, pending.id: selection},
+    )
+
+    vm_request_service._approve_and_place(
+        session=db, db_request=pending, reviewer_id=reviewer.id
+    )
+
+    assert cloning.provisioning_status == VMProvisioningStatus.running
+    assert pending.provisioning_status == VMProvisioningStatus.idle
+
+
 def test_vm_request_review_context_includes_runtime_and_projection(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

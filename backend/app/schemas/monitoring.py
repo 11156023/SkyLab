@@ -196,6 +196,9 @@ class AlertEventPublic(BaseModel):
 
     id: uuid.UUID
     scope: AlertScope
+    # 所屬 PVE 連線（叢集）；平台告警或無法判定時為 None
+    connection_id: int | None = None
+    connection_name: str | None = None
     target: str
     metric: AlertMetric
     value: float

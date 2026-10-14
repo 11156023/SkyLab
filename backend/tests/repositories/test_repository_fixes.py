@@ -84,6 +84,34 @@ def test_update_user_explicit_null_role_keeps_admin() -> None:
     assert user.token_version == 3
 
 
+def test_update_user_explicit_null_non_nullable_fields_are_ignored() -> None:
+    # 明確送 null：password 以前會進 get_password_hash(None) 變 500，
+    # is_active／email／totp_required 會撞 NOT NULL；full_name 可為 null 照常清空。
+    user = _admin()
+    user.full_name = "Old"
+
+    user_repo.update_user(
+        session=_FlushSession(),  # type: ignore[arg-type]
+        db_user=user,
+        user_in=UserUpdate.model_validate(
+            {
+                "email": None,
+                "password": None,
+                "is_active": None,
+                "totp_required": None,
+                "full_name": None,
+            }
+        ),
+    )
+
+    assert user.email == "admin@example.com"
+    assert user.hashed_password == "x"
+    assert user.is_active is True
+    assert user.totp_required is False
+    assert user.full_name is None
+    assert user.token_version == 3
+
+
 def test_update_user_promote_to_admin_sets_superuser() -> None:
     user = User(
         email="t@example.com", hashed_password="x", role=UserRole.teacher,

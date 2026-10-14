@@ -4,8 +4,10 @@
  * 把後端推播的 live/takeover 事件轉給 handler。
  * handler 以 ref 保存，避免每次 render 重建連線。
  *
- * token 被拒（close code 1008）不重連：重試再多次也一樣會被拒，
- * 只會一直對後端敲門；等使用者重新登入後元件重掛載自然會再連。
+ * token 被拒（close code 1008）也照一般退避重連：多半是 access token 過期，
+ * 期間 api 層的 refresh 會換上新 token，每次重連都重新讀最新的 token
+ * （與 services/jobs.js 的 connectJobsWebSocket 相同做法），
+ * 不必等元件重掛載才恢復推播；退避上限 60 秒，不會一直敲後端。
  *
  * 事件型別：live_started | live_stopped | takeover_started |
  *          takeover_stopped | watch_force_closed
@@ -38,6 +40,8 @@ export function useClassroomSocket(onEvent, { enabled = true } = {}) {
       onMessage: (event) => {
         try { handlerRef.current(JSON.parse(event.data)); } catch { /* Ignore invalid JSON. */ }
       },
+      /* 1008 被拒後 refresh 可能已換上新 token，照退避重連並重新讀 token */
+      retryPolicyClose: true,
     });
   }, [enabled]);
 

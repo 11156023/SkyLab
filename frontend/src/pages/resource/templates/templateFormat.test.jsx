@@ -67,4 +67,23 @@ describe("TemplateCloneDialog", () => {
     expect(mocks.toast.success).toHaveBeenCalledWith("TemplateCloneDialog.cloneQueuedMultiple");
     expect(onClose).toHaveBeenCalled();
   });
+
+  test("台數打成小數時捨去成整數再送出（後端 count 是整數）", async () => {
+    await act(async () => {
+      root.render(<TemplateCloneDialog template={{ id: "tpl-1", name: "Ubuntu" }} onClose={vi.fn()} />);
+    });
+
+    const countInput = document.querySelector("#clone-count");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+      setter.call(countInput, "2.5");
+      countInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const submit = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("TemplateCloneDialog.submit"));
+    await act(async () => { submit.click(); });
+
+    expect(mocks.clone).toHaveBeenCalledWith("tpl-1", expect.objectContaining({ count: 2 }));
+  });
 });

@@ -6,7 +6,6 @@
   MenuItem,
   MenuItemConstructorOptions,
   powerMonitor,
-  shell,
   Tray
 } from "electron";
 import { release, totalmem, cpus } from "node:os";
@@ -19,7 +18,6 @@ import SystemController from "../controller/SystemController";
 import TunnelController from "../controller/TunnelController";
 import UpdateController from "../controller/UpdateController";
 import BeanFactory from "../core/BeanFactory";
-import GlobalConstant from "../core/GlobalConstant";
 import { ipcRouters, listeners } from "../core/IpcRouter";
 import Logger from "../core/Logger";
 import SettingsRepository from "../repository/SettingsRepository";
@@ -102,18 +100,12 @@ class SkyLabApp {
       );
     });
     this._win.webContents.setWindowOpenHandler(({ url }) => {
-      try {
-        const target = new URL(url);
-        const allowedHosts = new Set([
-          "github.com",
-          new URL(GlobalConstant.DEFAULT_BACKEND_URL).hostname
-        ]);
-        if (target.protocol === "https:" && allowedHosts.has(target.hostname)) {
-          void shell.openExternal(target.toString());
-        }
-      } catch {
-        // Invalid URLs are denied below.
-      }
+      // 一律不在 app 內開新視窗。能不能用系統瀏覽器開，交給 SystemService.openUrl
+      // 用同一套規則判斷：設定頁填的後端 origin、預設後端與 GitHub 下載網址。
+      const systemService: SystemService = BeanFactory.getBean("systemService");
+      systemService.openUrl(url).catch((error: Error) => {
+        Logger.warn("SkyLabApp.windowOpenHandler", error.message);
+      });
       return { action: "deny" };
     });
     this._win.webContents.on("will-navigate", event => {

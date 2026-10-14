@@ -33,6 +33,8 @@
     machineCount: "{count} 台",
     noMatches: "找不到符合條件的機器",
     resourceError: "無法更新資源，請重新整理",
+    serverUnreachable: "暫時連不上伺服器",
+    serverUnreachableHint: "會在背景自動重試，恢復連線後這個提示就會消失。",
     appearance: "外觀",
     dark: "深色",
     light: "亮色"

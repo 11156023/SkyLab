@@ -9,6 +9,8 @@ VM 的 IP 是由 guest agent（VM 內部）回報的，VM 擁有者可以任意�
 2. 拒絕 SubnetConfig 的 gateway、gateway_vm_ip，
    以及所有 PVE 連線的 host / gateway_ip。
 3. 若已設定 SubnetConfig.cidr（平台配發 VM IP 的網段），目標必須落在其中。
+4. 給了 vmid 時：有配發紀錄就必須是配給它的那個 IP；沒有配發紀錄就不可是
+   配給別台 VMID 或被預留（班級、快速練習、系統）的 IP。
 
 extra_blocked_subnets 是 VM 出站防火牆規則，不是發布目標黑名單；
 管理員可封鎖整個 VM 網段以限制橫向連線，同時允許從 Gateway 發布網站。
@@ -87,6 +89,34 @@ def validate_publish_target_ip(
     return addr
 
 
+def _assert_not_held_by_others(session: object, vm_ip: str, *, vmid: int) -> None:
+    """沒有配發紀錄的機器（例如手動建的）：目標 IP 不可是平台配給別台或預留的位址。
+
+    只驗「在網段內」的話，這種機器的擁有者可以在 VM 裡把 IP 改成同學的位址，
+    把 NAT／網域／VM 間連線指到同學的機器。查詢失敗直接往外拋（不放行）。
+    """
+    target_addr = _parse_ipv4(vm_ip)
+    if target_addr is None:
+        return  # 格式錯誤交給 validate_publish_target_ip 回報
+    from app.services.network import ip_management_service
+
+    holder = ip_management_service.get_allocation_by_ip(session, str(target_addr))  # type: ignore[arg-type]
+    if holder is None:
+        return
+    if holder.vmid is not None:
+        if holder.vmid == vmid:
+            return
+        raise BadRequestError(
+            t(
+                "publish.targetIpAllocatedToOtherVm",
+                ip=str(target_addr),
+                vmid=vmid,
+                holder=holder.vmid,
+            )
+        )
+    raise BadRequestError(t("publish.targetIpReserved", ip=str(target_addr)))
+
+
 def assert_publishable_vm_ip(
     session: object, vm_ip: str, *, vmid: int | None = None
 ) -> None:
@@ -98,6 +128,7 @@ def assert_publishable_vm_ip(
     給了 ``vmid`` 時另外比對 IP 管理的配發紀錄：``vm_ip`` 是 guest agent 回報、
     VM 擁有者可以在 VM 裡改成同學的位址；平台自己配發給這台機器的 IP 才是
     權威資料，不相符就拒絕發布（只驗「在網段內」擋不住指到別台機器）。
+    這台機器沒有配發紀錄時，改成拒絕已配給別台或被預留的位址。
     """
     allowed_cidrs: list[str] = []
     blocked_ips: list[str] = []
@@ -124,6 +155,8 @@ def assert_publishable_vm_ip(
                         allocated=str(allocated),
                     )
                 )
+        else:
+            _assert_not_held_by_others(session, vm_ip, vmid=vmid)
 
     try:
         from app.services.network import ip_management_service

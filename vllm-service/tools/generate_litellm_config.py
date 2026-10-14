@@ -39,6 +39,24 @@ def _path(value: str) -> Path:
     return path if path.is_absolute() else Path.cwd() / path
 
 
+def write_private_text(path: Path, text: str) -> None:
+    """Write ``text`` so that only the file owner can read it (mode 0600).
+
+    The config may carry literal upstream keys, so the mode is tightened on
+    every write, before any content lands.  The file is rewritten in place
+    (same inode) because LiteLLM bind-mounts this exact file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # O_BINARY (Windows): only the text layer translates newlines, as write_text does.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        # chmod fails (e.g. file owned by another account) before truncation,
+        # so the previous config survives intact.
+        os.chmod(path, 0o600)
+        handle.truncate()
+        handle.write(text)
+
+
 def _require_str(model: dict[str, Any], field: str, index: int) -> str:
     value = model.get(field)
     if not isinstance(value, str) or not value.strip():
@@ -291,8 +309,10 @@ def main() -> int:
         parser.error(str(exc))
 
     output = _path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    try:
+        write_private_text(output, yaml.safe_dump(config, sort_keys=False))
+    except OSError as exc:
+        parser.error(f"無法寫入 {output}：{exc}")
     print(f"Generated LiteLLM {args.mode} config: {output}")
     return 0
 

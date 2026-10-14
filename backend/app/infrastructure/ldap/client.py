@@ -127,6 +127,21 @@ def _build_server(config: LdapConfig) -> Server:
     )
 
 
+def _discard_connection(conn: Connection) -> None:
+    """失敗路徑上收掉連線：送 unbind 並關 socket。
+
+    StartTLS 握手失敗、bind 被拒時 socket 已經開了，不收掉會一直掛到 GC。
+    收尾本身出錯（連線已斷、TLS 做到一半）只記 log、直接關 socket，
+    不能蓋掉呼叫端正要拋出的原始錯誤。
+    """
+    try:
+        conn.unbind()  # type: ignore[no-untyped-call]
+    except Exception as exc:
+        logger.warning("LDAP unbind after a failed bind raised: %s", exc)
+        # unbind 送不出去時 ldap3 不會自己關 socket
+        conn.strategy.close()
+
+
 def _service_connection(config: LdapConfig, server: Server) -> Connection:
     try:
         bind_password = decrypt_value(config.encrypted_bind_password)
@@ -139,10 +154,14 @@ def _service_connection(config: LdapConfig, server: Server) -> Connection:
             password=bind_password,
             receive_timeout=config.connect_timeout_seconds,
         )
-        if config.use_starttls:
-            conn.start_tls()
-        if not conn.bind():
-            raise UpstreamServiceError(t("ldap.serviceBindFailed"))
+        try:
+            if config.use_starttls:
+                conn.start_tls()
+            if not conn.bind():
+                raise UpstreamServiceError(t("ldap.serviceBindFailed"))
+        except BaseException:
+            _discard_connection(conn)
+            raise
         return conn
     except AppError:
         raise
@@ -214,10 +233,14 @@ def authenticate_user(
             password=password,
             receive_timeout=config.connect_timeout_seconds,
         )
-        if config.use_starttls:
-            user_conn.start_tls()
-        if not user_conn.bind():
-            raise AuthenticationError(_invalid_credentials())
+        try:
+            if config.use_starttls:
+                user_conn.start_tls()
+            if not user_conn.bind():
+                raise AuthenticationError(_invalid_credentials())
+        except BaseException:
+            _discard_connection(user_conn)
+            raise
         user_conn.unbind()  # type: ignore[no-untyped-call]
     except AuthenticationError:
         raise

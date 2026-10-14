@@ -354,6 +354,9 @@ def update_target_review(
     （warning／unknown／collected）做人工決定。feedback 與 decisions 都空白時
     視為撤回檢閱。
     """
+    # 下面是整份 target_results_json 的讀改寫：先鎖住並重讀這一列，兩位老師
+    # 同時檢閱同一 run 的不同學生時，後送出的才不會用舊快照蓋掉先送出的檢閱
+    session.refresh(run, with_for_update=True)
     if run.status.value != "completed":
         raise HTTPException(
             status_code=409, detail=t("teacherJudgeSessions.reviewCompletedRunsOnly")

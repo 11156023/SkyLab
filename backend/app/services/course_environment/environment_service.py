@@ -4,6 +4,7 @@
 序列化、發布雜湊、引用盤點與環境文件。
 """
 
+import asyncio
 import copy
 import hashlib
 import json
@@ -646,13 +647,36 @@ async def add_file(
         too_large_message=t("course_env.file_too_large"),
     )
 
+    # 上傳串流要在 event loop 上讀；寫入紀錄是同步 DB，丟到 worker thread
+    return await asyncio.to_thread(
+        _record_file,
+        session,
+        environment,
+        file_id=file_id,
+        filename=filename,
+        storage_key=storage_key,
+        size_bytes=written,
+        uploaded_by=uploaded_by,
+    )
+
+
+def _record_file(
+    session: Session,
+    environment: CourseEnvironment,
+    *,
+    file_id: uuid.UUID,
+    filename: str,
+    storage_key: str,
+    size_bytes: int,
+    uploaded_by: User,
+) -> dict[str, Any]:
     session.add(
         CourseEnvironmentFile(
             id=file_id,
             environment_id=environment.id,
             filename=filename,
             storage_key=storage_key,
-            size_bytes=written,
+            size_bytes=size_bytes,
             uploaded_by=uploaded_by.id,
         )
     )

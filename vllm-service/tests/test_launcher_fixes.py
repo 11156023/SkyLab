@@ -249,8 +249,82 @@ def test_engine_health_url_is_valid_for_ipv6_hosts() -> None:
     assert literal.health_url == "http://[fd00::1]:8000/health"
 
 
+def test_readiness_probe_ignores_http_proxy_env(monkeypatch) -> None:
+    """為下載模型設了 HTTP_PROXY 的主機，探測本機 vLLM 仍要直連，不能送去代理。"""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = b'{"data": [{"id": "model"}]}' if self.path == "/v1/models" else b"{}"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        # 連不上的代理：探測若走代理就永遠等不到就緒
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+        monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+        monkeypatch.delenv("NO_PROXY", raising=False)
+        monkeypatch.delenv("no_proxy", raising=False)
+        engine = VLLMEngine(
+            settings=SimpleNamespace(
+                api_host="127.0.0.1", api_port=server.server_address[1], api_key="k"
+            )
+        )
+        engine._process = SimpleNamespace(poll=lambda: None)
+        stopped: list[bool] = []
+        monkeypatch.setattr(engine, "stop", lambda: stopped.append(True))
+
+        engine._wait_for_ready(timeout=3)
+
+        assert stopped == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_check_port_available_accepts_ipv4_host() -> None:
     assert launcher_main.check_port_available("127.0.0.1", 0, get_logger("TestPort")) is True
+
+
+def _port_left_in_time_wait() -> int:
+    """模擬剛停掉的服務：伺服器端先關連線，port 留下 TIME_WAIT，listener 已關閉。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+        client = socket.create_connection(("127.0.0.1", port))
+        conn, _ = server.accept()
+        conn.close()
+        time.sleep(0.1)
+        client.close()
+    return port
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="TIME_WAIT 綁定行為以 Linux 為準")
+def test_check_port_available_ignores_time_wait_left_by_a_stopped_server() -> None:
+    port = _port_left_in_time_wait()
+
+    assert launcher_main.check_port_available("127.0.0.1", port, get_logger("TestPort")) is True
+
+
+def test_check_port_available_still_detects_a_live_listener() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+
+        assert launcher_main.check_port_available("127.0.0.1", port, get_logger("TestPort")) is False
 
 
 @pytest.mark.skipif(not socket.has_ipv6, reason="此環境不支援 IPv6")
@@ -275,6 +349,17 @@ def _write_models(path: Path, extra: dict | None = None) -> None:
     model = {"alias": "local", "served_model_name": "model", "model_name": "model", "api_port": 8103}
     model.update(extra or {})
     path.write_text(json.dumps([model]), encoding="utf-8")
+
+
+def test_settings_load_from_the_shipped_env_example(monkeypatch) -> None:
+    """.env.API／.env.interface 由 .env.example 複製；範本本身必須載入得了。"""
+    monkeypatch.delenv("LONG_PREFILL_TOKEN_THRESHOLD", raising=False)
+    example = Path(__file__).resolve().parents[1] / ".env.example"
+
+    settings = Settings(_env_file=str(example))
+
+    assert settings.long_prefill_token_threshold is None
+    assert "--long-prefill-token-threshold" not in settings.build_vllm_serve_args()
 
 
 def test_allowed_local_media_path_is_off_by_default(tmp_path: Path, monkeypatch) -> None:

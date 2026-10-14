@@ -668,6 +668,37 @@ def _make_rule_fields(port: int, protocol: str) -> dict:
     return fields
 
 
+def _rollback_gateway_rules(
+    session: object, vmid: int, nat_rules: list, proxy_rules: list
+) -> None:
+    """撤掉同一次建立連線中、前面幾個 port 已建好的 NAT 與反向代理（含 DNS）。
+
+    只撤這次建的那幾條；撤不掉記 ERROR，讓原本的錯誤照常往外拋。
+    """
+    if not nat_rules and not proxy_rules:
+        return
+    from app.services.network import nat_service, reverse_proxy_service
+
+    if nat_rules:
+        try:
+            nat_service.remove_nat_rules(session, nat_rules)
+        except Exception:
+            logger.exception(
+                "rollback：VM %s 這次建立的 %s 條 NAT 規則撤除失敗",
+                vmid,
+                len(nat_rules),
+            )
+    if proxy_rules:
+        try:
+            reverse_proxy_service.remove_reverse_proxy_rules(session, proxy_rules)
+        except Exception:
+            logger.exception(
+                "rollback：VM %s 這次建立的 %s 條網域規則撤除失敗",
+                vmid,
+                len(proxy_rules),
+            )
+
+
 def create_connection(
     source_vmid: int | None,
     target_vmid: int | None,
@@ -679,6 +710,8 @@ def create_connection(
 
     Internet 入站（source_vmid=None）：在 target VM 上建立入站允許規則。
       - 若 port_spec.external_port 有值，額外建立 DNAT 規則（需傳入 session）。
+      - 多個 port 全有或全無：任一個失敗，這次已建立的防火牆規則、NAT、
+        網域（含 DNS）一併撤掉。
     往網關（target_vmid=None）：在 source VM 上建立出站允許規則。
     VM 間連線：在 target VM 上建立入站允許規則，source 為 source VM 的 IP。
     雙向連線：同時在兩個 VM 上建立規則。
@@ -727,8 +760,11 @@ def create_connection(
         else:
             tgt_ip = None
 
-        # 記錄已建立的防火牆規則 comment，供失敗時 rollback
+        # 記錄已建立的防火牆規則 comment 與 Gateway 規則，供失敗時 rollback：
+        # 一次多個 port 時要全有或全無，前面 port 建好的 NAT／網域（含 DNS）也要撤掉
         created_comments: list[str] = []
+        created_nat_rules: list = []
+        created_proxy_rules: list = []
         try:
             for port_spec in ports:
                 comment = _make_connection_comment(
@@ -755,28 +791,36 @@ def create_connection(
                     from app.services.network import (
                         reverse_proxy_service,
                     )
-                    reverse_proxy_service.apply_reverse_proxy_rule_for_domain(
-                        session=session,
-                        vmid=target_vmid,
-                        vm_ip=tgt_ip,
-                        domain=domain,
-                        internal_port=port_spec.port,
-                        enable_https=enable_https,
+                    created_proxy_rules.append(
+                        reverse_proxy_service.apply_reverse_proxy_rule_for_domain(
+                            session=session,
+                            vmid=target_vmid,
+                            vm_ip=tgt_ip,
+                            domain=domain,
+                            internal_port=port_spec.port,
+                            enable_https=enable_https,
+                        )
                     )
                 elif port_spec.external_port is not None:
                     # 🔌 Port 轉發（nginx stream）
                     from app.services.network import nat_service
-                    nat_service.apply_nat_rule(
-                        session=session,
-                        vmid=target_vmid,
-                        vm_ip=tgt_ip,
-                        external_port=port_spec.external_port,
-                        internal_port=port_spec.port,
-                        protocol=port_spec.protocol,
+                    created_nat_rules.append(
+                        nat_service.apply_nat_rule(
+                            session=session,
+                            vmid=target_vmid,
+                            vm_ip=tgt_ip,
+                            external_port=port_spec.external_port,
+                            internal_port=port_spec.port,
+                            protocol=port_spec.protocol,
+                        )
                     )
                 # else: 🔓 僅開放防火牆，不需額外操作
         except Exception:
-            # 回退：刪除已建立的 Proxmox 防火牆規則
+            # 回退：先撤掉前面 port 已上線的 Gateway 規則（失敗那個 port 自己會收回），
+            # 再刪除已建立的 Proxmox 防火牆規則
+            _rollback_gateway_rules(
+                session, target_vmid, created_nat_rules, created_proxy_rules
+            )
             if created_comments:
                 try:
                     existing = get_vm_firewall_rules(tgt_node, target_vmid, tgt_type)

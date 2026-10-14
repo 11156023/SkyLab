@@ -283,7 +283,10 @@ function GlobalQuotaCard({ config, onSaved }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const NUMBER_FIELDS = useNumberFields();
-  const baseline = useMemo(() => pickNumbers(config), [config]);
+  /* 刪改個人覆寫後頁面會重抓全域設定（每次都是新物件）：只有數值真的變了才重設表單，
+     否則全域卡片上還沒儲存的修改會被默默洗掉 */
+  const baselineKey = FIELD_KEYS.map((key) => Number(config?.[key] ?? 0)).join(",");
+  const baseline = useMemo(() => pickNumbers(config), [baselineKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const [form, setForm] = useState(baseline);
   const [saving, setSaving] = useState(false);
 

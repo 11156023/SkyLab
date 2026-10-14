@@ -126,6 +126,20 @@ def test_write_secret_key_keeps_other_lines_and_literal_backslashes(
     assert (tmp_path / ".env.bak").read_text(encoding="utf-8").count("old") == 1
 
 
+def test_write_secret_key_replaces_every_secret_key_line(tmp_path: Path) -> None:
+    # dotenv / Compose 以最後一行為準；只改第一行會讓舊金鑰繼續生效。
+    env = tmp_path / ".env"
+    env.write_text(
+        "SECRET_KEY=changethis\nDOMAIN=x\nSECRET_KEY=old\n", encoding="utf-8"
+    )
+
+    rsk.write_secret_key(env, "new-key")
+
+    assert env.read_text(encoding="utf-8") == (
+        "SECRET_KEY=new-key\nDOMAIN=x\nSECRET_KEY=new-key\n"
+    )
+
+
 def test_rotate_round_trip_on_user_table_and_task_payload(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

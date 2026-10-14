@@ -57,8 +57,12 @@ def totp_code(secret: str, now: float | None = None) -> str:
 
 
 def normalize_code(code: str) -> str:
-    """去掉使用者可能輸入的空白／連字號（App 常顯示成 ``123 456``）。"""
-    return "".join(ch for ch in code if ch.isdigit())
+    """去掉使用者可能輸入的空白／連字號（App 常顯示成 ``123 456``）。
+
+    只留 ASCII 數字：``str.isdigit`` 也認全形「１」、上標「²」等，留下來會讓
+    ``hmac.compare_digest`` 對非 ASCII 字串直接丟 TypeError（500）。
+    """
+    return "".join(ch for ch in code if ch in "0123456789")
 
 
 def verify_totp(

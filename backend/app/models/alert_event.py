@@ -39,6 +39,22 @@ class AlertEvent(SQLModel, table=True):
     scope: AlertScope = Field(
         sa_column=Column(Enum(AlertScope), nullable=False),
     )
+    # 告警所屬的 PVE 連線（叢集）：多叢集下 vmid 只有搭配連線才唯一，
+    # 開啟／解除都以 (connection_id, target, metric) 為鍵。
+    # NULL＝無法判定（舊資料、尚未歸屬連線的節點、平台告警）；連線刪除時改回 NULL。
+    connection_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey(
+                "proxmox_connections.id",
+                name="fk_alert_events_connection_id",
+                ondelete="SET NULL",
+            ),
+            nullable=True,
+            index=True,
+        ),
+    )
     target: str = Field(max_length=255, description="節點名稱或 vmid")
     metric: AlertMetric = Field(
         sa_column=Column(Enum(AlertMetric), nullable=False),

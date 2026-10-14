@@ -102,16 +102,23 @@ async def _wait_for_client(websocket: WebSocket) -> None:
 
     用 receive() 而非 receive_text()：收到 binary frame 時 receive_text()
     會拋例外導致整條連線被收掉。
+
+    前端不會送訊息；收到的一般訊息直接丟棄、繼續等到間隔結束。若收到就提早
+    回去推下一輪，client 連發訊息就能讓伺服器每則訊息都查一次 DB。
     """
-    try:
-        message = await asyncio.wait_for(
-            websocket.receive(), timeout=_SNAPSHOT_INTERVAL_SECONDS
-        )
-    except asyncio.TimeoutError:
-        # 逾時代表沒有新訊息，回到迴圈推送快照
-        return
-    if message.get("type") == "websocket.disconnect":
-        raise WebSocketDisconnect(message.get("code") or 1000)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _SNAPSHOT_INTERVAL_SECONDS
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return
+        try:
+            message = await asyncio.wait_for(websocket.receive(), timeout=remaining)
+        except asyncio.TimeoutError:
+            # 逾時代表間隔已到，回到迴圈推送快照
+            return
+        if message.get("type") == "websocket.disconnect":
+            raise WebSocketDisconnect(message.get("code") or 1000)
 
 
 async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:

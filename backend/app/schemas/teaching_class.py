@@ -2,10 +2,10 @@
 
 import uuid
 from datetime import date, datetime, time
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.i18n import t
 
@@ -65,8 +65,21 @@ class ClassExtend(BaseModel):
 
 
 class ClassArchive(BaseModel):
-    reclaim_resources: bool = True
+    """封存／回收班級。
+
+    封存一律回收學生機器（排程器之後也會刪除）。舊版用戶端可能還會帶
+    ``reclaim_resources``：``true`` 照常接受，``false`` 直接拒絕，免得呼叫端
+    以為機器會保留；要讓學生繼續使用機器請改用「延長」。
+    """
+
     force: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_keep_resources(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("reclaim_resources", True) is not True:
+            raise ValueError(t("teachingClasses.archiveAlwaysReclaims"))
+        return data
 
 
 class StudentAdd(BaseModel):

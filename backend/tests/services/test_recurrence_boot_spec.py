@@ -123,3 +123,31 @@ def test_boot_spec_is_plain_data() -> None:
     spec = _spec()
     with pytest.raises(AttributeError):  # frozen
         spec.vmid = 999  # type: ignore[misc]
+
+
+def test_scheduled_boot_query_skips_consumed_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """已消耗的單留著舊 vmid；PVE 重用 VMID 後不能照它的時段開別人的機器。"""
+    statements: list[Any] = []
+
+    class _Result:
+        def all(self) -> list:
+            return []
+
+    class _ScopedSession(_FakeSessionCtx):
+        def exec(self, statement: Any) -> _Result:
+            statements.append(statement)
+            return _Result()
+
+    monkeypatch.setattr(rs, "Session", lambda engine: _ScopedSession())
+    from app.services.scheduling.recurrence import _DEFAULT_POLICY
+
+    monkeypatch.setattr(rs, "get_schedule_policy", lambda *, session: _DEFAULT_POLICY)
+    monkeypatch.setattr(rs, "_batch_boot_specs", lambda **_kwargs: [])
+
+    rs.process_scheduled_boot()
+
+    sql = str(statements[0])
+    assert "vm_requests.status =" in sql
+    assert "vm_requests.provisioning_status !=" in sql

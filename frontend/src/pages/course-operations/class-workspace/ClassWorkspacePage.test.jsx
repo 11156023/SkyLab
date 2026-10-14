@@ -146,6 +146,25 @@ describe("StudentMachines 教室 session 不留孤兒", () => {
     expect(stopSession).toHaveBeenCalledWith("m1");
   });
 
+  test("整班開機會分批送出並回報結果（不會因殘留的 setMessage 而丟 ReferenceError）", async () => {
+    mockServices([]);
+    const batch = vi.spyOn(ResourcesService, "batchActionInChunks")
+      .mockResolvedValue({ total: 1, succeeded: 1, failed: 0, results: [{ vmid: 101, success: true }] });
+    const { container, cleanup } = mount(<StudentMachines item={{ ...classItem, status: "active" }} />);
+    await act(async () => { await flush(); });
+
+    const startLabel = i18n.t("ClassWorkspacePage.classPowerStartBtn", { ns: "teaching" });
+    const startButton = [...container.querySelectorAll("button")].find((button) => button.textContent.endsWith(startLabel));
+    expect(startButton.disabled).toBe(false);
+    await act(async () => {
+      startButton.click();
+      await flush();
+    });
+    expect(batch).toHaveBeenCalledWith([101], "start", expect.any(Object));
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
   test("觀看 session 還在建立中就卸載時，建好後立刻收掉", async () => {
     const stopSession = mockServices([]);
     let resolveSession;

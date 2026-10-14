@@ -292,6 +292,31 @@ async def test_big5_csv_still_decodes_and_skips_the_header(captured_import) -> N
 
 
 @pytest.mark.asyncio
+async def test_csv_import_runs_db_work_off_the_event_loop(monkeypatch) -> None:
+    """名單每筆都要查一次帳號：權限檢查與加入學生都不能在 event loop 上跑。"""
+    import threading
+
+    threads: list[threading.Thread] = []
+    item = SimpleNamespace(status=TeachingClassStatus.planning)
+
+    def fake_get_class(*_args):
+        threads.append(threading.current_thread())
+        return item
+
+    def fake_add_students(_cid, _body, _session, _user):
+        threads.append(threading.current_thread())
+        return {}
+
+    monkeypatch.setattr(routes, "_get_class", fake_get_class)
+    monkeypatch.setattr(routes, "add_students", fake_add_students)
+
+    await routes.import_students(uuid.uuid4(), None, TEACHER, _upload(b"a@x.edu\n"))
+
+    assert len(threads) == 2
+    assert all(th is not threading.main_thread() for th in threads)
+
+
+@pytest.mark.asyncio
 async def test_oversized_csv_is_rejected(captured_import) -> None:
     raw = b"a@x.edu\n" * (routes.MAX_STUDENT_CSV_BYTES // 8 + 1)
     with pytest.raises(BadRequestError) as caught:
@@ -338,3 +363,55 @@ def test_dropped_weeks_remove_their_task_files(
     assert blobs[1].exists()
     assert blobs[2].exists()
     assert not blobs[3].exists()
+
+
+# --- 封存一律回收機器（不再提供保留機器的選項） ------------------------------
+
+
+def test_class_archive_rejects_keeping_resources() -> None:
+    for value in (False, 0, "false", None):
+        with pytest.raises(ValidationError):
+            routes.ClassArchive.model_validate({"reclaim_resources": value})
+    # 舊版用戶端送 true 照常接受；選項本身已不在 schema 裡
+    body = routes.ClassArchive.model_validate({"reclaim_resources": True, "force": True})
+    assert body.force is True
+    assert "reclaim_resources" not in routes.ClassArchive.model_fields
+    assert routes.ClassArchive.model_validate({}).force is False
+
+
+def test_archive_route_always_queues_reclaim(db: Session, monkeypatch) -> None:
+    item = _class(db, status=TeachingClassStatus.active)
+    queued: list[dict] = []
+    monkeypatch.setattr(class_lifecycle_service, "cancel_jobs", lambda *_a: None)
+    monkeypatch.setattr(
+        class_lifecycle_service, "clear_schedule_windows", lambda *_a: None
+    )
+    monkeypatch.setattr(
+        class_lifecycle_service.class_capacity_service,
+        "release",
+        lambda *_a, **_k: None,
+    )
+
+    def fake_queue_reclaim(**kwargs):
+        queued.append(kwargs)
+        return {
+            "queued_vmids": [101],
+            "in_progress_vmids": [],
+            "cleaned_vmids": [],
+            "failed": [],
+        }
+
+    monkeypatch.setattr(class_lifecycle_service, "queue_reclaim", fake_queue_reclaim)
+
+    result = routes.archive_class(
+        item.id,
+        routes.ClassArchive.model_validate({"force": False}),
+        db,
+        TEACHER,
+    )
+
+    assert len(queued) == 1
+    assert queued[0]["force"] is False
+    assert result["reclaim"]["queued_vmids"] == [101]
+    db.refresh(item)
+    assert item.status == TeachingClassStatus.archived

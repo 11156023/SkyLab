@@ -287,6 +287,14 @@ def start_reset(
     if _has_active_reset(session, vmid):
         session.rollback()
         raise ConflictError(t("reset.already_running"))
+    # 備份／還原同樣會停機、覆寫磁碟（還原還會清掉快照），共用同一把鎖卻只擋
+    # 重置的話，重置會在它們執行中讀到錯的電源狀態或 rollback 失敗。
+    # backup_service 已 import 本模組，只能在這裡延後 import。
+    from app.services.resource import backup_service
+
+    if backup_service._has_active_machine_task(session, vmid):
+        session.rollback()
+        raise ConflictError(t("backup.task_running"))
     # 不在這裡 commit：commit 會提前釋放上面的交易鎖；稽核紀錄跟著
     # enqueue_task_sync 寫入 TaskRecord 的那次 commit 一起落地。
     audit_service.log_action(

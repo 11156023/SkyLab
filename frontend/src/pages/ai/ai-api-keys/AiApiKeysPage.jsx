@@ -198,7 +198,12 @@ export default function AiApiKeysPage() {
     };
   }, [filterOpen]);
 
+  /* 快速切換分頁／篩選時舊條件的回應可能較晚回來，只讓最新一次載入寫入畫面 */
+  const loadSeqRef = useRef(0);
+
   const load = useCallback(async (silent = false) => {
+    const seq = ++loadSeqRef.current;
+    const isCurrent = () => seq === loadSeqRef.current;
     if (!silent) setLoading(true);
     try {
       const res = await AiApiService.listAllCredentials(buildCredentialListParams({
@@ -208,15 +213,17 @@ export default function AiApiKeysPage() {
         createdRange,
         page,
       }));
+      if (!isCurrent()) return;
       setRows(res?.data ?? []);
       setTotal(res?.count ?? 0);
       setAllCount(res?.total_count ?? res?.count ?? 0);
       setActiveCount(res?.active_count ?? 0);
       setInactiveCount(res?.inactive_count ?? 0);
     } catch (error) {
-      if (!silent) toast.error(error?.message ?? t("AiApiKeysPage.loadError"));
+      if (!silent && isCurrent()) toast.error(error?.message ?? t("AiApiKeysPage.loadError"));
     } finally {
-      if (!silent) setLoading(false);
+      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
+      if (isCurrent()) setLoading(false);
     }
   }, [createdRange, page, query, roleFilters, statusFilter, t, toast]);
 

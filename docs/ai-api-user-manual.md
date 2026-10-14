@@ -186,7 +186,8 @@ gateway's source address; confirm that its `/v1/models` really serves `lab-chat-
 from the LiteLLM `.env`, and with `apikeys` it is written straight into the generated
 `litellm/config.yaml`. `apikeys` and `api_key_env` cannot be set at the same time. Because `apikeys` is
 plaintext, neither `models.json` nor the generated `config.yaml` may be committed or copied to an
-untrusted location.
+untrusted location. The generators always write `config.yaml` with mode `0600` (owner read/write only);
+keep `models.json` the same way (`chmod 600 vllm-service/models.json`).
 
 `alias` is the name callers put in the `model` field and must be unique across all entries; local
 `served_model_name` and `api_port` must be unique as well. Different remote hosts may use the same upstream

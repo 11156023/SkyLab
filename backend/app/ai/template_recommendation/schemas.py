@@ -9,14 +9,15 @@ from app.ai.utils import clean_prompt_text
 
 
 def _clip(limit: int) -> BeforeValidator:
-    """把字串截到 *limit* 字元。
+    """把字串截到 *limit* 字元，並清掉能改變 prompt 結構的控制 token。
 
     表單快照會原樣塞進 prompt；這些欄位是使用者正在編輯的草稿，直接回 422
     會讓助理整個不能用，所以截斷而不是拒絕，只保證 prompt 大小有上限。
+    申請原因等欄位是使用者自由輸入的字，跟對話內容一樣要先過 clean_prompt_text。
     """
 
     def _cut(value: Any) -> Any:
-        return value[:limit] if isinstance(value, str) else value
+        return clean_prompt_text(value[:limit]) if isinstance(value, str) else value
 
     return BeforeValidator(_cut)
 

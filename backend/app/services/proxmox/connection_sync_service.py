@@ -142,6 +142,9 @@ def sync_connection_inventory(
     )
 
     storage_dicts: list[dict] = []
+    # 讀不到 storage 的節點（離線、維護中）不列入比對範圍：否則 upsert 會把它
+    # 既有的 storage 列連同管理員的啟用／速度／優先序設定一起刪掉
+    failed_node_names: set[str] = set()
     for node in saved_nodes:
         try:
             raw_storages = list_node_storages(client, node.name)
@@ -151,11 +154,12 @@ def sync_connection_inventory(
                 if is_usable_storage(st)
             )
         except Exception as e:
+            failed_node_names.add(node.name)
             logger.warning(f"Failed to fetch storage for node {node.name}: {e}")
 
     saved_storages = proxmox_storage_repo.upsert_storages(
         session,
         storage_dicts,
-        scope_node_names={node.name for node in saved_nodes},
+        scope_node_names={node.name for node in saved_nodes} - failed_node_names,
     )
     return saved_nodes, len(saved_storages)

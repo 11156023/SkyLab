@@ -94,7 +94,14 @@ def loadavg_penalty(
 
 
 def reference_loadavg_per_core(node: NodeCapacity) -> float | None:
-    total_cpu = max(float(node.total_cpu_cores or 0.0), 0.0)
+    """每個實體核的 loadavg（不乘 CPU 超配倍率）。
+
+    超配只放寬「可分配多少 vCPU」，不會讓節點多出能消化負載的 CPU；
+    以超配後的核數去除，超配倍率越高 loadavg 門檻就越形同虛設。
+    """
+    total_cpu = max(
+        float(node.physical_cpu_cores or node.total_cpu_cores or 0.0), 0.0
+    )
     if total_cpu <= 0:
         return None
     reference = max(
