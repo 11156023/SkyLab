@@ -49,8 +49,13 @@ def multi_node_items():
 
 
 async def run_finalizer(monkeypatch, items, edits, *, refine=True):
+    details = {"role": "assistant", "content": None, "tool_calls": []}
+    for index, item_id in enumerate(dict.fromkeys(edit["id"] for edit in edits)):
+        call = tool_call_message("get_checklist_item", {"id": item_id})["tool_calls"][0]
+        details["tool_calls"].append({**call, "id": f"read_{index}"})
     responses = [
         tool_call_message("list_checklist", {}),
+        *([details] if refine and details["tool_calls"] else []),
         *[tool_call_message("edit_checklist_item", edit) for edit in edits],
         reply_message("核對已完成。", "ready"),
     ]
@@ -84,7 +89,7 @@ async def test_finalizer_preserves_locations_through_save_and_three_node_artifac
             "missing_information": [LOCATION_GAP] if index < 2 else [],
         })
     calls, result = await run_finalizer(monkeypatch, items, edits)
-    assert len(calls) == 5
+    assert len(calls) == 6
     candidate = apply_proposal_operations_to_analysis(
         TeacherJudgeRubricAnalysis(items=items), result.proposal,
     )
@@ -133,7 +138,7 @@ async def test_invalid_finalizer_location_is_repairable_without_asking_teacher(m
         {"id": item["id"], "check_steps": invalid, "detectable": "auto"},
         {"id": item["id"], "check_steps": item["check_steps"], "detectable": "auto"},
     ])
-    error = json.loads(calls[2]["messages"][-1]["content"])
+    error = json.loads(calls[3]["messages"][-1]["content"])
     assert error["reason_code"] == "check_plan_contract_invalid"
     assert error["retryable"] is True
     assert error["teacher_input_required"] is False
@@ -174,7 +179,13 @@ async def test_location_is_never_borrowed_for_a_different_execution_scope(monkey
         steps[0]["id"] = "moved-step"
     elif change == "argv":
         steps[0]["collector"]["argv"] = ["python3", "other.py"]
-    _, result = await run_finalizer(monkeypatch, items, [edit], refine=change != "ordinary_chat")
+    # A Finalizer regression is repairable; repeating it terminates the retry
+    # without borrowing a directory for the changed input.
+    edits = [edit, edit] if change == "argv" else [edit]
+    _, result = await run_finalizer(monkeypatch, items, edits, refine=change != "ordinary_chat")
     assert not result.proposal or result.proposal[0]["detectable"] == "partial"
+    if change == "argv":
+        assert result.tool_calls[-1]["reason_code"] == "check_plan_contract_invalid"
+        assert result.tool_calls[-1]["retryable"] is False
     if result.proposal:
         assert result.proposal[0]["check_steps"][0]["collector"]["cwd"] is None
