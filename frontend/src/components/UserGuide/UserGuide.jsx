@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../contexts/AuthContext";
 import MIcon from "../MIcon";
+import { AccountService } from "../../services/account";
 import { getRouteGuide } from "./routeGuides";
 import styles from "./UserGuide.module.scss";
 
@@ -510,14 +511,14 @@ function getPanelPosition() {
 export default function UserGuide() {
   const { t } = useTranslation("common");
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const isStudent = user?.role === "student" && !user?.is_superuser;
   const guide = useMemo(() => {
     const routeGuide = getRouteGuide(location.pathname);
     if (!routeGuide) return null;
     const detailed = getDetailedGuide(location.pathname);
     if (!detailed || (location.pathname === "/dashboard" && !isStudent)) return routeGuide;
-    /* guideVersion 沿用 getRouteGuide 的全站版本（進 storageKey，決定自動導覽是否已看過） */
+    // Viewing history does not reset with guide revisions.
     return {
       ...routeGuide,
       ...detailed,
@@ -569,9 +570,26 @@ export default function UserGuide() {
   const current = availableSteps[step] ?? availableSteps[0];
   const showEmptySimulation = open && guide?.generic && current?.selector === EMPTY_SIMULATION_STEP.selector;
   const storageKey = guide
-    ? `skylab:user-guide:${guide.guideVersion}:${user?.id ?? user?.email ?? "user"}:${guide.id}`
+    ? `skylab:user-guide:seen:${user?.id ?? user?.email ?? "user"}:${guide.id}`
     : null;
+  const seenOnAccount = user?.seen_user_guides?.includes(guide?.id) ?? false;
   const isLast = step >= availableSteps.length - 1;
+
+  // Viewing is enough: leaving mid-tour must not cause another automatic prompt.
+  useEffect(() => {
+    if (!guide || !user?.id) return;
+    let locallySeen = false;
+    try {
+      locallySeen = localStorage.getItem(storageKey) === "completed";
+      if (open) localStorage.setItem(storageKey, "completed");
+    } catch { /* Account persistence also works when browser storage is unavailable. */ }
+    if (seenOnAccount || (!open && !locallySeen)) return;
+    let active = true;
+    AccountService.markUserGuideSeen(guide.id).then((me) => {
+      if (active) updateUser({ seen_user_guides: me.seen_user_guides });
+    }).catch(() => { /* Keep the local marker and retry on a later visit. */ });
+    return () => { active = false; };
+  }, [open, guide?.id, user?.id, storageKey, seenOnAccount, updateUser]);
 
   const displayTitle = guide?.titleKey ? t(guide.titleKey) : pageTitle || t("UserGuide.defaultPageTitle");
 
@@ -617,6 +635,8 @@ export default function UserGuide() {
     }
     if ((!guide.autoStart || !isStudent) && !chained) return undefined;
 
+    if (!chained && seenOnAccount) return undefined;
+
     try {
       if (!chained && localStorage.getItem(storageKey) === "completed") return undefined;
     } catch {
@@ -653,7 +673,7 @@ export default function UserGuide() {
     timer = window.setTimeout(tryOpen, 500);
 
     return () => window.clearTimeout(timer);
-  }, [guide?.autoStart, guide?.enterSelector, guide?.enterTargetSelector, guide?.id, guide?.steps, isStudent, storageKey]);
+  }, [guide?.autoStart, guide?.enterSelector, guide?.enterTargetSelector, guide?.id, guide?.steps, isStudent, storageKey, seenOnAccount]);
 
   useLayoutEffect(() => {
     if (!open || !current) {

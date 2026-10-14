@@ -2,7 +2,16 @@ import time
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
@@ -203,6 +212,20 @@ def read_user_me(current_user: CurrentUser) -> Any:
         current_user.totp_required and not current_user.totp_enabled
     )
     return me
+
+
+@router.post("/me/user-guides/{guide_id}/seen", response_model=UserPublic)
+def mark_user_guide_seen_me(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    guide_id: Annotated[str, Path(pattern=r"^[a-z][a-z0-9-]{0,63}$")],
+) -> Any:
+    return user_service.mark_user_guide_seen(
+        session=session,
+        current_user=current_user,
+        guide_id=guide_id,
+    )
 
 
 @router.post("/me/onboarding/complete", response_model=UserPublic)

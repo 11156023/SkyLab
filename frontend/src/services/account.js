@@ -53,6 +53,11 @@ export const AccountService = {
   },
 
   /** 首次登入引導精靈走完或略過：之後登入不再顯示，回傳更新後的使用者 */
+  markUserGuideSeen(guideId) {
+    return apiPost(`${BASE}/user-guides/${encodeURIComponent(guideId)}/seen`, {});
+  },
+
+  /** ???????????????????????????????? */
   completeOnboarding() {
     return apiPost(`${BASE}/onboarding/complete`, {});
   },

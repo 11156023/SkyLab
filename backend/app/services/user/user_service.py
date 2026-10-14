@@ -498,6 +498,23 @@ def confirm_email_change_from_link(*, session: Session, token: str) -> None:
     confirm_email_change(session=session, current_user=current_user, token=token)
 
 
+def mark_user_guide_seen(
+    *, session: Session, current_user: User, guide_id: str
+) -> User:
+    # Lock and refresh so simultaneous tabs cannot overwrite each other's guides.
+    user = session.exec(
+        select(User)
+        .where(User.id == current_user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
+    if guide_id not in user.seen_user_guides:
+        user.seen_user_guides = [*user.seen_user_guides, guide_id]
+        session.add(user)
+        return _commit_and_refresh(session, user)
+    return user
+
+
 def complete_onboarding(*, session: Session, current_user: User) -> User:
     """標記首次登入引導精靈已完成（略過也算完成）；重複呼叫無副作用。"""
     if current_user.onboarding_completed:
