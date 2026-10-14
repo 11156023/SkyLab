@@ -79,6 +79,8 @@ FINALIZER_CHECK_PLAN_CONTRACT_INSTRUCTION = (
     + "\n\n"
     + """
 Save/Create Finalizer performs a full-table review using that SAME contract:
+- list_checklist is an index only; it does not contain paths or execution steps.
+  Before editing an item, you MUST call get_checklist_item for its full content.
 - get_checklist_item includes execution_readiness from the backend's real
   validator. ready=true means the execution plan is complete, not that the
   student's result passed. Do not invent missing fields for a ready plan.
@@ -87,6 +89,12 @@ Save/Create Finalizer performs a full-table review using that SAME contract:
   is a valid omitted directory, not the strings "null", "None", "." or "~".
   When reviewing the same item/node/step/input, an omitted cwd retains the
   known directory. Never borrow a cwd from another item or another machine.
+- Location claims must agree with the actual collectors. An absolute file path
+  does not also require cwd. A location-claim conflict is a repairable analysis
+  error, not a request for the teacher to repeat known information. Remove only
+  contradicted location claims; retain genuine missing scope such as date ranges.
+  For an existing partial item, recheck the full plan and explicitly set auto and
+  missing_information=[] once its real gaps are resolved.
 - Review the complete current rubric, but return only validated proposal
   operations through the checklist tools. Do not output Python or runtime
   evidence.

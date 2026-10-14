@@ -31,7 +31,9 @@ from app.ai.teacher_judge.automation_support import (
     non_empty_argv,
 )
 from app.ai.teacher_judge.check_plan_contract import (
+    EXECUTION_LOCATION_REPAIR_HINT,
     TYPED_STEP_REPAIR_HINT,
+    execution_location_claim_issues,
     reconcile_finalizer_locations,
     typed_item_issues,
     typed_step_issues,
@@ -368,7 +370,7 @@ _EDIT_CHECKLIST_ITEM_TOOL: dict[str, Any] = {
         "name": _EDIT_CHECKLIST_ITEM_TOOL_NAME,
         "description": (
             "對既有檢查項目送出修改提案，老師確認套用後才會寫入檢查表。"
-            "必須先以 list_checklist 或 get_checklist_item 確認項目 ID 與目前內容；"
+            "先確認項目 ID；儲存並製作的 Finalizer 必須先用 get_checklist_item 讀取完整內容，list_checklist 摘要不算完成讀取；"
             "只填有變動的欄位，省略的欄位維持原值，要清空時明確填 null 或空陣列。"
         ),
         "parameters": {
@@ -2017,7 +2019,8 @@ def _dispatch_checklist_tool(
             for item in candidate_items_by_id.values()
             if isinstance(item, dict) and str(item.get("id") or "").strip()
         ]
-        read_ids.update(str(entry["id"]) for entry in listing)
+        if not finalizer:
+            read_ids.update(str(entry["id"]) for entry in listing)
         tool_calls.append({"tool": name, "status": "read", "item_count": len(listing)})
         return {"analysis_revision": analysis_revision, "items": listing}
 
@@ -2198,7 +2201,12 @@ def _dispatch_checklist_tool(
                 "error": (
                     f"修改 {item_id} 前，請先呼叫 list_checklist 或 "
                     "get_checklist_item 確認項目目前內容。"
+                ) if not finalizer else (
+                    f"修改 {item_id} 前，必須呼叫 get_checklist_item 讀取完整步驟與 execution_readiness；清單摘要不含路徑。"
                 ),
+                "reason_code": "checklist_item_not_read",
+                "teacher_input_required": False,
+                "retryable": True,
             }
         patch = {
             key: arguments[key]
@@ -2248,6 +2256,14 @@ def _dispatch_checklist_tool(
         if not candidate_list:
             return {"error": "無法解析 edit_checklist_item 的欄位，請重新呼叫。"}
         candidate = candidate_list[0]
+        location_issues = execution_location_claim_issues(candidate)
+        if location_issues:
+            return {
+                **_contract_tool_error(location_issues, item_id=item_id),
+                "teacher_input_required": False,
+                "repair_hint": EXECUTION_LOCATION_REPAIR_HINT,
+                "current_check_steps": current_raw.get("check_steps"),
+            }
         issues = typed_item_issues(
             candidate,
             other_items=list(candidate_items_by_id.values()),
@@ -2493,7 +2509,11 @@ async def _run_proposal_tool_loop(
                 )
                 forced_tool_choice = {
                     "type": "function",
-                    "function": {"name": pending_errors[retry]["tool"]},
+                    "function": {"name": (
+                        _GET_CHECKLIST_ITEM_TOOL_NAME
+                        if pending_errors[retry].get("reason_code") == "checklist_item_not_read"
+                        else pending_errors[retry]["tool"]
+                    )},
                 }
                 continue
             _, proposal_status = _parse_chat_reply_payload(final_content)
@@ -2513,6 +2533,7 @@ async def _run_proposal_tool_loop(
                         "item_id": blocker.get("item_id"),
                         "reason_code": blocker.get("reason_code"),
                         "detail": blocker.get("detail"),
+                        "issues": blocker.get("issues", []),
                     }
                     for blocker in blockers
                     if blocker.get("reason_code") == "check_plan_contract_invalid"
@@ -2534,8 +2555,8 @@ async def _run_proposal_tool_loop(
                                 "content": (
                                     "Finalizer 的 server-side candidate 尚未通過 typed "
                                     "Check Plan 驗證。不要只用 reply 宣稱完成；請立即呼叫 "
-                                    "edit_checklist_item，依下列 item_id 將完整 check_steps "
-                                    "替換為 typed collector/assertion 陣列。"
+                                    "get_checklist_item 讀取尚未讀過的項目，再依下列問題呼叫 "
+                                    "edit_checklist_item 修正對應欄位；保留已有效的步驟與已知路徑。"
                                     + TYPED_STEP_REPAIR_HINT
                                     + "\n"
                                     + json.dumps(
@@ -2548,7 +2569,11 @@ async def _run_proposal_tool_loop(
                         ]
                         forced_tool_choice = {
                             "type": "function",
-                            "function": {"name": _EDIT_CHECKLIST_ITEM_TOOL_NAME},
+                            "function": {"name": (
+                                _GET_CHECKLIST_ITEM_TOOL_NAME
+                                if any(issue["item_id"] not in read_ids for issue in repairable)
+                                else _EDIT_CHECKLIST_ITEM_TOOL_NAME
+                            )},
                         }
                         continue
             if (
@@ -2703,8 +2728,13 @@ async def _run_proposal_tool_loop(
                 write_accepted = bool(result.get("staged") or result.get("unchanged"))
                 for key, error in list(pending_errors.items()):
                     read_repaired = tool_name in {_LIST_CHECKLIST_TOOL_NAME, _GET_CHECKLIST_ITEM_TOOL_NAME} and error.get("tool") == tool_name
+                    precondition_repaired = (
+                        tool_name == _GET_CHECKLIST_ITEM_TOOL_NAME
+                        and error.get("reason_code") == "checklist_item_not_read"
+                        and error.get("item_id") == arguments.get("id")
+                    )
                     anonymous_repaired = key == f"{tool_name}:" and error.get("reason_code") == "tool_arguments_invalid"
-                    if read_repaired or (write_accepted and (
+                    if read_repaired or precondition_repaired or (write_accepted and (
                         key == attempt_key
                         or anonymous_repaired
                         or (
@@ -2713,6 +2743,7 @@ async def _run_proposal_tool_loop(
                         )
                     )):
                         pending_errors.pop(key)
+                        error_reply_reminders.discard(key)
                         for outcome in tool_outcomes:
                             if outcome.get("attempt_key") == key:
                                 outcome["resolved"] = True
