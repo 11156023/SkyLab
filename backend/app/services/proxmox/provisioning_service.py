@@ -594,7 +594,8 @@ def create_lxc(
                 "password": lxc_data.password,
                 "net0": _lxc_net0(net_cfg, allocated_ip),
                 "unprivileged": int(lxc_data.unprivileged),
-                "start": int(lxc_data.start),
+                # 一律先建成關機狀態：套完預設防火牆才開機（見下方）
+                "start": 0,
                 "pool": get_proxmox_settings_for_node(target_node).pool_name,
                 "features": "nesting=1",
                 "ssh-public-keys": public_key,
@@ -607,6 +608,8 @@ def create_lxc(
 
         firewall_service.setup_default_rules(target_node, vmid, "lxc")
         if lxc_data.start:
+            # 開機失敗走下方 except 整台回滾，與範本克隆路徑一致
+            proxmox_service.control(target_node, vmid, "lxc", "start")
             _open_lxc_ssh_login(target_node, vmid, public_key)
 
         db_lxc_resource = resource_repo.create_resource(
@@ -1113,7 +1116,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 "rootfs": f"{plan['target_storage']}:{plan['rootfs_size']}",
                 "net0": net0_parts,
                 "unprivileged": int(plan["unprivileged"]),
-                "start": int(plan["start_immediately"]),
+                # 先建成關機狀態，套完預設防火牆才開機，不留沒有防火牆的開機空窗
+                "start": 0,
                 "pool": pool_name,
                 "features": "nesting=1",
                 "ssh-public-keys": plan.get("ssh_public_key", ""),
@@ -1128,6 +1132,8 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             created = True
             firewall_service.setup_default_rules(target_node, new_vmid, "lxc")
             if plan["start_immediately"]:
+                # 開機失敗由下方 except 整台回滾（與 LXC 範本克隆路徑一致）
+                proxmox_service.control(target_node, new_vmid, "lxc", "start")
                 _open_lxc_ssh_login(target_node, new_vmid, config["ssh-public-keys"])
         else:
             template_node = plan["template_node"]
@@ -1379,7 +1385,30 @@ def _resize_clone_disk_if_needed(
             template_gb,
         )
         return
-    proxmox_service.resize_disk(node, vmid, "qemu", "scsi0", f"{int(disk_size)}G")
+    proxmox_service.resize_disk(
+        node, vmid, "qemu", _clone_boot_disk_key(node, vmid), f"{int(disk_size)}G"
+    )
+
+
+def _clone_boot_disk_key(node: str, vmid: int) -> str:
+    """克隆機的開機磁碟 key（與 clone_service._grow_qemu_boot_disk 同一套判斷）。
+
+    開機磁碟不一定是 scsi0（virtio0／sata0／ide0 的範本也存在），寫死 scsi0
+    會讓 PVE 找不到磁碟而整台回滾。讀不到 config 時照舊用 scsi0：猜錯 PVE
+    會直接報錯，不會悄悄略過放大。
+    """
+    from app.services.template import template_service
+
+    try:
+        boot_disk = template_service.qemu_boot_disk(
+            proxmox_service.get_config(node, vmid, "qemu")
+        )
+    except Exception:
+        logger.warning(
+            "Unable to read boot disk of VM %s; assuming scsi0", vmid, exc_info=True
+        )
+        return "scsi0"
+    return boot_disk[0] if boot_disk else "scsi0"
 
 
 _LXC_ROOTFS_SIZE_UNITS = {"K": 1 / 1024**2, "M": 1 / 1024, "G": 1.0, "T": 1024.0}

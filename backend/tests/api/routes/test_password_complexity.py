@@ -28,18 +28,6 @@ def _create_weak_user(db: Session) -> str:
     return email
 
 
-def test_signup_rejects_weak_password(client: TestClient, db: Session) -> None:
-    email = random_email()
-    with patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True):
-        r = client.post(
-            f"{settings.API_V1_STR}/users/signup",
-            json={"email": email, "password": WEAK_PASSWORD, "full_name": "Weak"},
-        )
-    assert r.status_code == 400, r.text
-    assert r.json()["detail"] == TOO_WEAK_DETAIL
-    assert user_repo.get_user_by_email(session=db, email=email) is None
-
-
 def test_admin_create_user_rejects_weak_password(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:

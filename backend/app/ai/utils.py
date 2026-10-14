@@ -83,7 +83,13 @@ def clean_prompt_text(text: str | None) -> str:
         return text or ""
     # 先刪隱形字元再找控制 token：<|im_​start|> 這種拆開寫的也抓得到
     text = text.translate(_STRIP_TABLE)
-    return _TEMPLATE_TOKEN_RE.sub("", text)
+    text = _TEMPLATE_TOKEN_RE.sub("", text)
+    # 刪掉中間那個 token 會讓前後拼回新的 token（<|im_<|x|>start|>）。還有殘留時改用
+    # 換行取代：換行不在任何 token 的字元範圍內，一趟就拼不回來；不用「刪到沒有為止」
+    # 的迴圈，那在層層巢狀的長字串上是平方時間。
+    if _TEMPLATE_TOKEN_RE.search(text):
+        text = _TEMPLATE_TOKEN_RE.sub("\n", text)
+    return text
 
 
 def strip_think_tags(text: str) -> str:

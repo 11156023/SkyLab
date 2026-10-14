@@ -27,6 +27,12 @@ describe("machineSpecLabel", () => {
     expect(machineSpecLabel({ cpu: 2, memoryBytes: 4 * 1024 ** 3 })).toBe("2 CPU · 4 GB");
   });
 
+  it("keeps sub-GB and fractional memory instead of rounding to whole GB", () => {
+    expect(machineSpecLabel({ cpu: 1, memoryBytes: 512 * 1024 ** 2 })).toBe("1 CPU · 512 MB");
+    expect(machineSpecLabel({ memoryBytes: 256 * 1024 ** 2 })).toBe("256 MB");
+    expect(machineSpecLabel({ memoryBytes: 1.5 * 1024 ** 3 })).toBe("1.5 GB");
+  });
+
   it("omits missing parts", () => {
     expect(machineSpecLabel({ cpu: 4 })).toBe("4 CPU");
     expect(machineSpecLabel({})).toBe("");

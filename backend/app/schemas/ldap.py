@@ -14,6 +14,7 @@ class LoginMethodsPublic(BaseModel):
     password: bool
     google: bool
     ldap: bool
+    signup_enabled: bool = True
     # Cloudflare Turnstile site key（公開值）；None＝未啟用機器人驗證
     turnstile_site_key: str | None = None
 

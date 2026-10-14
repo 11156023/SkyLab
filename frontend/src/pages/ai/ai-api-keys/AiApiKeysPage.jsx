@@ -198,7 +198,12 @@ export default function AiApiKeysPage() {
     };
   }, [filterOpen]);
 
+  /* 快速切換分頁／篩選時舊條件的回應可能較晚回來，只讓最新一次載入寫入畫面 */
+  const loadSeqRef = useRef(0);
+
   const load = useCallback(async (silent = false) => {
+    const seq = ++loadSeqRef.current;
+    const isCurrent = () => seq === loadSeqRef.current;
     if (!silent) setLoading(true);
     try {
       const res = await AiApiService.listAllCredentials(buildCredentialListParams({
@@ -208,15 +213,17 @@ export default function AiApiKeysPage() {
         createdRange,
         page,
       }));
+      if (!isCurrent()) return;
       setRows(res?.data ?? []);
       setTotal(res?.count ?? 0);
       setAllCount(res?.total_count ?? res?.count ?? 0);
       setActiveCount(res?.active_count ?? 0);
       setInactiveCount(res?.inactive_count ?? 0);
     } catch (error) {
-      if (!silent) toast.error(error?.message ?? t("AiApiKeysPage.loadError"));
+      if (!silent && isCurrent()) toast.error(error?.message ?? t("AiApiKeysPage.loadError"));
     } finally {
-      if (!silent) setLoading(false);
+      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
+      if (isCurrent()) setLoading(false);
     }
   }, [createdRange, page, query, roleFilters, statusFilter, t, toast]);
 
@@ -253,7 +260,7 @@ export default function AiApiKeysPage() {
       <PageHeader title={t("AiApiKeysPage.pageTitle")} />
 
       <div className={styles.controlsRow}>
-        <div className={styles.segmentGroup}>
+        <div className={styles.segmentGroup} data-guide="ai-keys-admin-status">
           <SegmentedControl
             className={styles.statusTabs}
             options={tabs.map(({ key, label, count }) => ({ value: key, label, badge: count }))}
@@ -261,7 +268,7 @@ export default function AiApiKeysPage() {
             onChange={(value) => { setStatusFilter(value); setPage(0); }}
             ariaLabel={t("AiApiKeysPage.statusTabsLabel")}
           />
-          <div ref={filterAreaRef} className={styles.filterArea}>
+          <div ref={filterAreaRef} className={styles.filterArea} data-guide="ai-keys-admin-filter">
             <button type="button" className={`${styles.filterButton} ${activeFilterCount ? styles.filterButtonActive : ""}`} aria-haspopup="dialog" aria-expanded={filterOpen} onClick={() => setFilterOpen((current) => !current)}>
               <MIcon name="filter_alt" size={16} />{activeFilterCount ? t("AiApiKeysPage.filterActiveCount", { count: activeFilterCount }) : t("AiApiKeysPage.filterButton")}
             </button>
@@ -269,7 +276,7 @@ export default function AiApiKeysPage() {
           </div>
         </div>
 
-        <div className={styles.searchBox}>
+        <div className={styles.searchBox} data-guide="ai-keys-admin-search">
           <MIcon name="search" size={17} />
           <input type="search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t("AiApiKeysPage.searchPlaceholder")} aria-label={t("AiApiKeysPage.searchPlaceholder")} />
           {searchInput && <button type="button" className={styles.clearSearch} onClick={() => setSearchInput("")} aria-label={t("AiApiKeysPage.clearSearch")}><MIcon name="close" size={15} /></button>}
@@ -285,7 +292,7 @@ export default function AiApiKeysPage() {
             clearFilters();
           }} /> : (
             <>
-              <div className={styles.tableWrap}>
+              <div className={styles.tableWrap} data-guide="ai-keys-admin-table">
                 <table className={styles.table}>
                   <thead>
                     <tr>
@@ -318,7 +325,7 @@ export default function AiApiKeysPage() {
                         <td className={styles.td}>
                           <span className={styles.cellText} title={item.request_purpose || undefined}>{item.request_purpose || "—"}</span>
                         </td>
-                        <td className={styles.td}>
+                        <td className={styles.td} data-guide="ai-keys-admin-activity">
                           {item.last_used_at ? formatDateTime(item.last_used_at) : <span className={styles.cellMuted}>{t("AiApiKeysPage.detailNeverUsed")}</span>}
                         </td>
                         <td className={styles.td}><StatusBadge item={item} /></td>
@@ -328,6 +335,7 @@ export default function AiApiKeysPage() {
                             <button
                               type="button"
                               className={styles.rowRevokeBtn}
+                              data-guide="ai-keys-admin-revoke"
                               onClick={() => setDeletingItem(item)}
                             >
                               <MIcon name="block" size={16} />

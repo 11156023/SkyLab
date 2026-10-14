@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 
 from app.api.deps import CurrentUser, InstructorUser, SessionDep
 from app.core.authorizers import require_classroom_monitor
@@ -21,7 +22,8 @@ from app.schemas.classroom import (
 )
 from app.schemas.common import Message
 from app.services.classroom import classroom_service
-from app.services.classroom.vnc_session_manager import ClassroomSession
+from app.services.classroom.presence import classroom_presence_hub
+from app.services.classroom.vnc_session_manager import ClassroomSession, SessionMode
 from app.services.proxmox import proxmox_service
 
 logger = logging.getLogger(__name__)
@@ -70,8 +72,15 @@ async def list_teaching_class_students(
     current_user: InstructorUser,
 ) -> list[ClassroomStudent]:
     cluster_resources = await _safe_cluster_listing()
-    return classroom_service.list_class_students(
-        session, class_id, current_user, cluster_resources=cluster_resources
+    # presence 是 event loop 上的記憶體狀態，先在這裡讀；其餘 DB 查詢丟到 worker thread
+    online = classroom_presence_hub.online_user_ids_for_class(class_id)
+    return await run_in_threadpool(
+        classroom_service.list_class_students,
+        session,
+        class_id,
+        current_user,
+        cluster_resources=cluster_resources,
+        online_user_ids=online,
     )
 
 
@@ -82,8 +91,13 @@ async def list_teaching_class_broadcast_sources(
     current_user: InstructorUser,
 ) -> list[ClassroomVm]:
     cluster_resources = await _safe_cluster_listing()
-    return classroom_service.list_class_broadcast_sources(
-        session, class_id, current_user, cluster_resources=cluster_resources
+    # 只查 DB（不碰 session manager 的記憶體狀態），整段丟到 worker thread
+    return await run_in_threadpool(
+        classroom_service.list_class_broadcast_sources,
+        session,
+        class_id,
+        current_user,
+        cluster_resources=cluster_resources,
     )
 
 
@@ -136,15 +150,53 @@ async def list_classroom_sessions(
     return [_to_public(s) for s in classroom_service.list_sessions_for(current_user)]
 
 
+class _SessionSnapshot:
+    """在 event loop 上拍下的 session 快照，給 worker thread 裡的查詢用。
+
+    vnc_session_manager 的狀態只在 event loop 上改動、沒有加鎖，不能從別的
+    執行緒直接讀；``list_sessions()`` 回傳的是各 session 的快照，可以安全帶走。
+    """
+
+    def __init__(self, sessions: list[ClassroomSession]) -> None:
+        self._sessions = sessions
+
+    def list_sessions(self) -> list[ClassroomSession]:
+        return list(self._sessions)
+
+    def find_broadcast_for_classes(
+        self, class_ids: set[uuid.UUID]
+    ) -> ClassroomSession | None:
+        # 與 VncSessionManager.find_broadcast_for_classes 同一個規則與順序
+        for live in self._sessions:
+            if live.mode is SessionMode.broadcast and live.class_id in class_ids:
+                return live
+        return None
+
+
+def _live_state(
+    session: SessionDep, user: User, snapshot: _SessionSnapshot
+) -> tuple[ClassroomSession | None, list[int]]:
+    return (
+        classroom_service.get_live_for_user(session, user, manager=snapshot),
+        classroom_service.list_taken_over_vmids_for_user(
+            session, user, manager=snapshot
+        ),
+    )
+
+
 @router.get("/live", response_model=ClassroomLivePublic)
 async def get_live_broadcast(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> ClassroomLivePublic:
-    live = classroom_service.get_live_for_user(session, current_user)
+    # 記憶體裡的 session 狀態在 loop 上讀，DB 查詢丟到 worker thread。
+    # 經由 classroom_service 取 manager，與服務層自己用的是同一個實例
+    manager = classroom_service.vnc_session_manager  # type: ignore[attr-defined]
+    snapshot = _SessionSnapshot(manager.list_sessions())
+    live, taken_over_vmids = await run_in_threadpool(
+        _live_state, session, current_user, snapshot
+    )
     return ClassroomLivePublic(
         session=_to_public(live) if live else None,
-        taken_over_vmids=classroom_service.list_taken_over_vmids_for_user(
-            session, current_user
-        ),
+        taken_over_vmids=taken_over_vmids,
     )

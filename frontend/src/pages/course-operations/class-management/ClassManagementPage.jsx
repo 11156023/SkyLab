@@ -204,6 +204,7 @@ export default function ClassManagementPage() {
 
     {/* 平常是狀態切換＋搜尋；勾選班級後原地換成批量封存（同一個高度，票券不會跳） */}
     <DataToolbar
+      data-guide="class-mgmt-toolbar"
       selecting={selectedClasses.length > 0}
       batch={(
         <BatchBar
@@ -236,7 +237,7 @@ export default function ClassManagementPage() {
         ariaLabel={t("ClassManagementPage.filterAriaLabel")}
       />
       <ToolbarSearch value={query} onChange={setQuery} placeholder={t("ClassManagementPage.searchPlaceholder")} />
-      {archivedCount > 0 && <label className={styles.archivedToggle}><input type="checkbox" checked={showArchived} onChange={(event) => { setShowArchived(event.target.checked); if (!event.target.checked) setStatus("all"); }} />{t("ClassManagementPage.showArchived", { count: archivedCount })}</label>}
+      {archivedCount > 0 && <label className={styles.archivedToggle} data-guide="class-mgmt-archived"><input type="checkbox" checked={showArchived} onChange={(event) => { setShowArchived(event.target.checked); if (!event.target.checked) setStatus("all"); }} />{t("ClassManagementPage.showArchived", { count: archivedCount })}</label>}
     </DataToolbar>
 
     {loading ? <LoadingState fullPage text={t("ClassManagementPage.loadingText")} /> : rows.length ? <section className={styles.classCardGrid}>
@@ -245,7 +246,7 @@ export default function ClassManagementPage() {
         const selectable = item.status !== "archived";
         const checked = selection.isSelected(item.id);
         /* 票券本身是一顆按鈕（點了進班級），勾選框疊在右上角、不能包進按鈕裡 */
-        return <div key={item.id} className={styles.ticketSlot}>
+        return <div key={item.id} className={styles.ticketSlot} data-guide="class-mgmt-ticket">
         <ClassTicket
           selectable={selectable}
           selected={checked}

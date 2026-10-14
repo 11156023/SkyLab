@@ -207,67 +207,150 @@ def get_pending_tasks(
     return list(session.exec(stmt).all())
 
 
-def update_task_running(*, session: Session, task_id: uuid.UUID) -> None:
+def lock_job(*, session: Session, job_id: uuid.UUID) -> BatchProvisionJob | None:
+    """鎖住 job 列（SELECT ... FOR UPDATE）。
+
+    worker 收尾與回收都先鎖 job 再動 task，計數重算才不會互相覆蓋；
+    鎖的順序一律 job → task，避免死結。
+    """
+    return session.exec(
+        select(BatchProvisionJob)
+        .where(BatchProvisionJob.id == job_id)
+        .with_for_update()
+    ).first()
+
+
+def claim_pending_task(
+    *, session: Session, job_id: uuid.UUID, task_id: uuid.UUID
+) -> bool:
+    """條件式把 task 從 pending 轉成 running（job 必須仍在 running）。
+
+    job 已被回收（reap）或取消、task 已被標 failed 時回 False：worker 不得
+    再替這些 task 建機器。
+    """
+    import sqlalchemy as sa
+
+    job = lock_job(session=session, job_id=job_id)
+    if job is None or job.status != BatchProvisionJobStatus.running:
+        session.rollback()
+        return False
+    result = session.exec(
+        sa.update(BatchProvisionTask)
+        .where(
+            col(BatchProvisionTask.id) == task_id,
+            col(BatchProvisionTask.job_id) == job_id,
+            col(BatchProvisionTask.status) == BatchProvisionTaskStatus.pending,
+        )
+        .values(status=BatchProvisionTaskStatus.running, started_at=datetime.now(UTC))
+    )
+    if result.rowcount == 0:
+        session.rollback()
+        return False
+    session.commit()
+    return True
+
+
+def touch_running_task_heartbeat(*, session: Session, job_id: uuid.UUID) -> int:
+    """worker 心跳：把 job 內 running task 的 started_at 刷新成現在。
+
+    單台 clone 可能等 PVE 好幾個小時；``started_at`` 是回收器
+    （``reap_stale_batch_jobs``）與班級重試判斷「還有沒有在動」的時間戳，
+    running 中的 task 以它記錄最後一次確認 worker 仍在等這台機器的時間。
+    只動 running 的 task：已被回收標 failed 的不會因心跳復活。
+    """
+    import sqlalchemy as sa
+
+    result = session.exec(
+        sa.update(BatchProvisionTask)
+        .where(
+            col(BatchProvisionTask.job_id) == job_id,
+            col(BatchProvisionTask.status) == BatchProvisionTaskStatus.running,
+        )
+        .values(started_at=datetime.now(UTC))
+    )
+    session.commit()
+    return int(result.rowcount or 0)
+
+
+def mark_task_failed_if_open(
+    *, session: Session, task_id: uuid.UUID, error: str
+) -> bool:
+    """還沒結束（pending／running）的 task 標成 failed；不 commit。
+
+    已被回收或封存流程標成 failed 的 task 不再覆寫，也就不會重複計數。
+    """
+    import sqlalchemy as sa
+
+    result = session.exec(
+        sa.update(BatchProvisionTask)
+        .where(
+            col(BatchProvisionTask.id) == task_id,
+            col(BatchProvisionTask.status).in_(
+                [BatchProvisionTaskStatus.pending, BatchProvisionTaskStatus.running]
+            ),
+        )
+        .values(
+            status=BatchProvisionTaskStatus.failed,
+            error=error[:500],
+            finished_at=datetime.now(UTC),
+        )
+    )
+    return bool(result.rowcount)
+
+
+def mark_task_completed(
+    *, session: Session, task_id: uuid.UUID, vmid: int
+) -> BatchProvisionTaskStatus | None:
+    """task 標成 completed 並記下 vmid；不 commit。回傳原本的狀態。
+
+    原本已是 failed 代表 worker 等 clone 的期間被回收：機器最後還是建好了，
+    照樣記成成功（計數由 :func:`recount_job` 依 task 現況重算）。
+    """
     task = session.get(BatchProvisionTask, task_id)
-    if task:
-        task.status = BatchProvisionTaskStatus.running
-        task.started_at = datetime.now(UTC)
-        session.add(task)
-        session.commit()
+    if task is None:
+        return None
+    previous = task.status
+    task.status = BatchProvisionTaskStatus.completed
+    task.vmid = vmid if session.get(Resource, vmid) is not None else None
+    task.error = None
+    task.finished_at = datetime.now(UTC)
+    session.add(task)
+    session.flush()
+    return previous
 
 
-def update_task_done(*, session: Session, task_id: uuid.UUID, vmid: int) -> None:
-    task = session.get(BatchProvisionTask, task_id)
-    if task:
-        task.status = BatchProvisionTaskStatus.completed
-        task.vmid = vmid if session.get(Resource, vmid) is not None else None
-        task.finished_at = datetime.now(UTC)
-        session.add(task)
-        session.commit()
+def recount_job(*, session: Session, job_id: uuid.UUID) -> BatchProvisionJob | None:
+    """依 task 現況重算 job 的 done／failed_count；不 commit。
 
+    計數一律由 task 狀態推導，同一台不會被算兩次，done + failed 也不會超過
+    total。job 已結案（completed／failed，例如被回收）時，終態依同一條規則
+    （全部失敗才是 failed）跟著更新，晚到的成功會把 failed 改回 completed。
+    """
+    import sqlalchemy as sa
 
-def update_task_failed(*, session: Session, task_id: uuid.UUID, error: str) -> None:
-    task = session.get(BatchProvisionTask, task_id)
-    if task:
-        task.status = BatchProvisionTaskStatus.failed
-        task.error = error[:500]
-        task.finished_at = datetime.now(UTC)
-        session.add(task)
-        session.commit()
-
-
-def increment_job_done(*, session: Session, job_id: uuid.UUID) -> None:
     job = session.get(BatchProvisionJob, job_id)
-    if job:
-        job.done += 1
-        session.add(job)
-        session.commit()
-
-
-def increment_job_failed(*, session: Session, job_id: uuid.UUID) -> None:
-    job = session.get(BatchProvisionJob, job_id)
-    if job:
-        job.failed_count += 1
-        session.add(job)
-        session.commit()
-
-
-def update_job_status(
-    *,
-    session: Session,
-    job_id: uuid.UUID,
-    status: BatchProvisionJobStatus,
-) -> None:
-    job = session.get(BatchProvisionJob, job_id)
-    if job:
-        job.status = status
-        if status in (
-            BatchProvisionJobStatus.completed,
-            BatchProvisionJobStatus.failed,
-        ):
-            job.finished_at = datetime.now(UTC)
-        session.add(job)
-        session.commit()
+    if job is None:
+        return None
+    session.flush()
+    rows = session.exec(
+        select(BatchProvisionTask.status, sa.func.count())
+        .where(BatchProvisionTask.job_id == job_id)
+        .group_by(BatchProvisionTask.status)
+    ).all()
+    counts = {status: int(count) for status, count in rows}
+    job.done = counts.get(BatchProvisionTaskStatus.completed, 0)
+    job.failed_count = counts.get(BatchProvisionTaskStatus.failed, 0)
+    if job.status in (
+        BatchProvisionJobStatus.completed,
+        BatchProvisionJobStatus.failed,
+    ):
+        job.status = (
+            BatchProvisionJobStatus.failed
+            if job.done == 0 and job.failed_count > 0
+            else BatchProvisionJobStatus.completed
+        )
+    session.add(job)
+    return job
 
 
 def transition_job_to_running(*, session: Session, job_id: uuid.UUID) -> bool:

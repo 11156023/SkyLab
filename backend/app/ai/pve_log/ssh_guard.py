@@ -22,14 +22,16 @@ _BLACKLIST_RULES: list[tuple[str, str]] = [
     (r"\bdd\b.+of=/dev/", "磁碟覆寫（dd ... of=/dev/）"),
     (r"\b(shutdown|reboot|halt|poweroff|init\s+0|init\s+6)\b", "關機或重啟指令"),
     (r"passwd\s+\w", "修改帳號密碼（passwd）"),
-    (r":(){:|:&};:", "Fork Bomb"),
-    (r"chmod\s+[0-9]*7[0-9]*7\s+/\s*$|chmod\s+-R.+777\s+/", "危險全域權限設定"),
+    # ( ) { } | 都是 regex 特殊字元，必須跳脫；允許空白才擋得到 :(){ :|:& };: 這種標準寫法
+    (r"([\w:]+)\s*\(\s*\)\s*\{\s*\1\s*\|\s*\1\s*&", "Fork Bomb"),
+    # 「/」後面接指令分隔符（; && |）也算對根目錄操作，不能只認字串結尾
+    (r"chmod\s+[0-9]*7[0-9]*7\s+/(?:\s|$|[;&|)])|chmod\s+-R.+777\s+/", "危險全域權限設定"),
     (r">\s*/dev/(sda|sdb|sdc|nvme|vda|vdb)", "直接寫入磁碟設備"),
     (r"curl\s+.+\|\s*(ba)?sh|wget\s+.+\|\s*(ba)?sh", "下載後直接執行腳本"),
     (r"\bsystemctl\s+(stop|disable|mask)\s+(sshd|ssh|network|networking)", "停用 SSH 或網路服務"),
     (r"iptables\s+-F|ufw\s+--force\s+reset|nft\s+flush", "清空防火牆規則"),
     # 下載到檔案再執行、寫入 authorized_keys、反向 shell：curl|sh 之外最常見的植入手法
-    (r"(curl|wget)\s+.*-[oO]\s*\S+.*(;|&&|\|\|)\s*(ba)?sh\b", "下載檔案後執行"),
+    (r"(curl|wget)\s+.*-[oO]\s*\S+.*(;|&&|\|\||\n)\s*(ba)?sh\b", "下載檔案後執行"),
     (r">>?\s*~?/?(root|home/[^/\s]+)?/?\.ssh/authorized_keys", "寫入 SSH 授權金鑰"),
     (r"\b(nc|ncat|netcat)\b.*\s-e\s|/dev/tcp/", "反向 shell"),
     (r"\b(useradd|adduser|usermod)\b", "新增或修改系統帳號"),
@@ -39,8 +41,11 @@ _BLACKLIST_RULES: list[tuple[str, str]] = [
     (r"\$\{IFS\}|\$IFS", "利用 IFS 拆解指令"),
 ]
 
+# DOTALL：多行指令（換行分隔、反斜線續行）的 .+ 也要跨行比對，否則
+# "dd if=/dev/zero \<換行> of=/dev/sda" 這類寫法會繞過規則
 _COMPILED: list[tuple[re.Pattern, str]] = [
-    (re.compile(pat, re.IGNORECASE), desc) for pat, desc in _BLACKLIST_RULES
+    (re.compile(pat, re.IGNORECASE | re.DOTALL), desc)
+    for pat, desc in _BLACKLIST_RULES
 ]
 
 

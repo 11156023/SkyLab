@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.placement.advisor import build_node_capacities
 from app.domain.placement.models import PlacementTuning
+from app.domain.placement.schemas import NodeCapacity, NodeSnapshot
 from app.domain.placement.scorer import (
     cpu_contention_penalty,
     linear_penalty,
     loadavg_penalty,
     peak_penalty,
     projected_share,
+    reference_loadavg_per_core,
     storage_contention_penalty,
 )
 
@@ -133,6 +136,42 @@ def test_loadavg_penalty_above_max_is_one() -> None:
 def test_loadavg_penalty_midpoint_is_half() -> None:
     # warn=1.0, max=2.0 → midpoint 1.5 → 0.5
     assert loadavg_penalty(1.5, tuning=_tuning()) == 0.5
+
+
+def _overcommitted_node(*, loadavg: float, ratio: float) -> NodeCapacity:
+    return build_node_capacities(
+        nodes=[
+            NodeSnapshot(
+                node="pve1",
+                status="online",
+                maxcpu=8,
+                maxmem_bytes=64 * 1024**3,
+                maxdisk_bytes=500 * 1024**3,
+                current_loadavg_1=loadavg,
+            )
+        ],
+        resources=[],
+        gpu_used={},
+        cpu_overcommit_ratio=ratio,
+    )[0]
+
+
+def test_reference_loadavg_uses_physical_cores_not_overcommitted_total() -> None:
+    """8 核、超配 4 倍：loadavg 12 是每實體核 1.5，不是每 vCPU 0.375。"""
+    node = _overcommitted_node(loadavg=12.0, ratio=4.0)
+    assert node.total_cpu_cores == 32.0
+    assert node.physical_cpu_cores == 8
+    assert reference_loadavg_per_core(node) == 1.5
+    # 門檻 1.0–2.0 之間：超配倍率不會把負載稀釋到門檻以下
+    assert loadavg_penalty(reference_loadavg_per_core(node), tuning=_tuning()) == 0.5
+
+
+def test_reference_loadavg_ignores_overcommit_ratio() -> None:
+    plain = _overcommitted_node(loadavg=12.0, ratio=1.0)
+    overcommitted = _overcommitted_node(loadavg=12.0, ratio=4.0)
+    assert reference_loadavg_per_core(plain) == reference_loadavg_per_core(
+        overcommitted
+    )
 
 
 # ─── storage_contention_penalty ─────────────────────────────────────────────

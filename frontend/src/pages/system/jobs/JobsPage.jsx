@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./JobsPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -92,8 +92,13 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [focusJobId, setFocusJobId] = useState(null);
 
+  /* 快速切換篩選時舊條件的回應可能較晚回來，只讓最新一次載入寫入畫面 */
+  const loadSeqRef = useRef(0);
+
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
   const load = useCallback(async (silent = false) => {
+    const seq = ++loadSeqRef.current;
+    const isCurrent = () => seq === loadSeqRef.current;
     if (!silent) setLoading(true);
     try {
       const params = { limit: 200 };
@@ -101,11 +106,13 @@ export default function JobsPage() {
       if (status === "active") params.activeOnly = true;
       else if (status !== "all") params.statuses = [status];
       const res = await JobsService.list(params);
+      if (!isCurrent()) return;
       setJobs(res?.items ?? []);
     } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
+      if (!silent && isCurrent()) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
-      if (!silent) setLoading(false);
+      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
+      if (isCurrent()) setLoading(false);
     }
   }, [kind, status, toast, t]);
 
@@ -126,7 +133,7 @@ export default function JobsPage() {
       <PageHeader title={t("JobsPage.pageTitle")} />
 
       {/* 三個數字都是這份清單算出來的，卡片上用同一個副標說明範圍 */}
-      <div className={styles.statRow}>
+      <div className={styles.statRow} data-guide="jobs-stats">
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.statIconBusy}`}>
             <MIcon name="autorenew" size={20} />
@@ -160,7 +167,7 @@ export default function JobsPage() {
       </div>
 
       <div className={styles.toolbar}>
-        <div className={styles.filterGroup}>
+        <div className={styles.filterGroup} data-guide="jobs-kind-filter">
           <SegmentedControl
             className={styles.filterTabs}
             options={KIND_OPTIONS}
@@ -169,7 +176,7 @@ export default function JobsPage() {
             ariaLabel={t("JobsPage.filterKind")}
           />
         </div>
-        <div className={styles.filterGroup}>
+        <div className={styles.filterGroup} data-guide="jobs-status-filter">
           <SegmentedControl
             className={styles.filterTabs}
             options={STATUS_OPTIONS}
@@ -186,7 +193,7 @@ export default function JobsPage() {
         ) : jobs.length === 0 ? (
           <EmptyState onClear={kind !== "all" || status !== "all" ? () => { setKind("all"); setStatus("all"); } : undefined} />
         ) : (
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} data-guide="jobs-table">
             <table className={styles.table}>
               <thead>
                 <tr>

@@ -14,8 +14,9 @@ import styles from "./DataToolbar.module.scss";
  * @param {ReactNode} batch     勾選時顯示的批量列（<BatchBar>）
  * @param {ReactNode} children  平常顯示的篩選、搜尋
  * @param {string}    className 額外樣式（例如跟下方清單的間距）
+ * 其餘屬性（例如導覽用的 data-guide）掛在外框上
  */
-export default function DataToolbar({ selecting = false, batch, children, className }) {
+export default function DataToolbar({ selecting = false, batch, children, className, ...rest }) {
   const ref = useRef(null);
   /* 平常那條的高度（篩選換行時會比 56 高），勾選時拿來當最小高度 */
   const [idleHeight, setIdleHeight] = useState(0);
@@ -33,6 +34,7 @@ export default function DataToolbar({ selecting = false, batch, children, classN
 
   return (
     <div
+      {...rest}
       ref={ref}
       className={`${styles.toolbar}${selecting ? ` ${styles.toolbarSelecting}` : ""}${className ? ` ${className}` : ""}`}
       style={selecting && idleHeight ? { minHeight: idleHeight } : undefined}

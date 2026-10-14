@@ -260,9 +260,11 @@ def archive_and_reclaim(
     item: TeachingClass,
     requested_by: uuid.UUID,
     force: bool = True,
-    reclaim_resources: bool = True,
 ) -> dict:
-    """Archive a class, stop its schedule, release capacity, and reclaim VMs."""
+    """Archive a class, stop its schedule, release capacity, and reclaim VMs.
+
+    封存一律回收學生機器；沒有「封存但保留機器」的選項（要讓學生繼續用請延長班級）。
+    """
     now = get_datetime_utc()
     item.status = TeachingClassStatus.archived
     item.archived_at = item.archived_at or now
@@ -274,13 +276,6 @@ def archive_and_reclaim(
     )
     session.add(item)
     session.commit()
-    if not reclaim_resources:
-        return {
-            "queued_vmids": [],
-            "in_progress_vmids": [],
-            "cleaned_vmids": [],
-            "failed": [],
-        }
     return queue_reclaim(
         session=session,
         item=item,

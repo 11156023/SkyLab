@@ -354,6 +354,9 @@ def update_target_review(
     （warning／unknown／collected）做人工決定。feedback 與 decisions 都空白時
     視為撤回檢閱。
     """
+    # 下面是整份 target_results_json 的讀改寫：先鎖住並重讀這一列，兩位老師
+    # 同時檢閱同一 run 的不同學生時，後送出的才不會用舊快照蓋掉先送出的檢閱
+    session.refresh(run, with_for_update=True)
     if run.status.value != "completed":
         raise HTTPException(
             status_code=409, detail=t("teacherJudgeSessions.reviewCompletedRunsOnly")
@@ -1310,7 +1313,13 @@ def get_script_run_batch_public(
     ):
         peer_ips = _peer_ips_from_snapshot(run.target_snapshot_json)
         raw_targets = (run.target_results_json or {}).get("targets")
-        targets = raw_targets if isinstance(raw_targets, list) else []
+        # 非 dict 的項目在這裡就濾掉；之前的守門放在 .get("status") 之後，
+        # 遇到壞資料會先 AttributeError 而永遠到不了。
+        targets = (
+            [target for target in raw_targets if isinstance(target, dict)]
+            if isinstance(raw_targets, list)
+            else []
+        )
         total_targets += int((run.progress_json or {}).get("total") or len(targets))
         completed_targets += sum(
             1 for target in targets if target.get("status") == "completed"
@@ -1330,8 +1339,6 @@ def get_script_run_batch_public(
             )
         )
         for target in targets:
-            if not isinstance(target, dict):
-                continue
             student_id = str(target.get("student_id") or "")
             if not student_id:
                 continue

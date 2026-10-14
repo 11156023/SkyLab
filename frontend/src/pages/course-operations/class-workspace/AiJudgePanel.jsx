@@ -1458,7 +1458,7 @@ export function SaveAndCreateAction({
     generating: t("AiJudgePanel.saveStatusGenerating"),
   }[status] ?? t("AiJudgePanel.saveAndBuildBtn");
   return (
-    <div className={styles.rubricActionBar}>
+    <div className={styles.rubricActionBar} data-guide="ai-judge-save-build">
       <p className={hint || blocker ? styles.rubricActionHintBlocked : undefined}>
         {(hint || blocker) && <MIcon name="info" size={15} aria-hidden="true" />}
         {hint || blocker || t("AiJudgePanel.saveAndBuildHint")}
@@ -1598,7 +1598,12 @@ function WeekSelectField({ weeks, value, onChange, disabled = false, optional = 
 
 /** 新增檢查時預設帶入「最近已上過的一週」，都還沒開始就不指定 */
 export function getDefaultWeekId(weeks, today = new Date()) {
-  const todayKey = today.toISOString().slice(0, 10);
+  // 上課日期是當地日曆日；toISOString 是 UTC，台灣早上八點前會算成前一天而漏掉當天那一週
+  const todayKey = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("-");
   const past = weeks
     .filter((week) => week.session_date && String(week.session_date).slice(0, 10) <= todayKey)
     .sort((a, b) => String(b.session_date).localeCompare(String(a.session_date)));
@@ -1656,6 +1661,18 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
   );
 }
 
+/**
+ * 背景重抓的清單可能在自動儲存回應之前就產生：同一份檢查表保留 analysis_revision 較新的那筆，
+ * 否則舊清單會把畫面上的修改與版本號一起退回，下一次儲存就撞 409。
+ */
+export function keepNewerRubricFiles(current, rows) {
+  const currentById = new Map((Array.isArray(current) ? current : []).map((entry) => [entry.id, entry]));
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const existing = currentById.get(row.id);
+    return existing && Number(existing.analysis_revision) > Number(row.analysis_revision) ? existing : row;
+  });
+}
+
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
 export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, onDirtyChange, machineNodes = [] }) {
@@ -1702,6 +1719,10 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const pendingReviewIdsByFileRef = useRef(new Map());
   const [pendingReviewIds, setPendingReviewIds] = useState(() => new Set());
   const autosaveRef = useRef(null);
+  // 自動儲存的狀態：unsaved＝最近一次儲存失敗（409 以外），畫面上的修改還沒存到伺服器
+  const [autosaveStatus, setAutosaveStatus] = useState({
+    unsaved: false, saving: false, error: null, autoRetryScheduled: false,
+  });
   const classIdRef = useRef(classId);
   const activeContextRef = useRef(null);
   activeContextRef.current = `${classId}:${judgeSession?.id}:${judgeSession?.selected_file_id}`;
@@ -1805,8 +1826,8 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           entry.id === updated.id ? updated : entry
         )));
       },
-      onError(error) {
-        if (error?.status === 409) {
+      onError(error, { conflict, announce }) {
+        if (conflict) {
           clearPendingProposal();
           toastRef.current.error(jt("rubricConflict"));
           void AiJudgeService.listFiles(classIdRef.current)
@@ -1817,8 +1838,10 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
             .catch(() => {});
           return;
         }
-        toastRef.current.error(error?.message ?? jt("updateRubricFailed"));
+        // 其他失敗：修改保留在畫面上並標成未儲存（見上方提示），自動重試的失敗不再逐次跳通知
+        if (announce) toastRef.current.error(error?.message ?? jt("updateRubricFailed"));
       },
+      onStatusChange: setAutosaveStatus,
     });
     autosaveRef.current = autosave;
     return () => {
@@ -1834,7 +1857,8 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
   const fetchFiles = useCallback(async (silent = false) => {
     try {
-      setFiles(await AiJudgeService.listFiles(classId));
+      const rows = await AiJudgeService.listFiles(classId);
+      setFiles((current) => keepNewerRubricFiles(current, rows));
       setFilesLoaded(true);
     } catch {
       if (!silent) toast.error(t("AiJudgePanel.loadSourcesFailed"));
@@ -2048,8 +2072,13 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       toast.error(t("AiJudgePanel.rubricStillLoading"));
       return false;
     }
-    // 自動儲存失敗時 autosave 已經用 toast 說明原因
-    if (autosaveRef.current && !(await autosaveRef.current.flush())) return false;
+    // 檢查表還有沒存成的修改就不送給助理：助理看到的是伺服器上的版本，會跟畫面對不起來。
+    // 409 時 autosave 已經用 toast 說明原因
+    const autosave = autosaveRef.current;
+    if (autosave && !(await autosave.flush({ quiet: true }))) {
+      if (autosave.hasUnsaved() && mountedRef.current) toast.error(t("AiJudgePanel.unsavedBlocksChat"));
+      return false;
+    }
     if (!mountedRef.current || context !== activeContextRef.current) return false;
     const requestMessages = [...messages, { role: "user", content, attachments }];
     const newMessages = isRefine ? messages : requestMessages;
@@ -2151,14 +2180,16 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       detectabilityNeedsReview: pendingIdsAfterApply.size > 0,
       reviewItemIds: pendingIdsAfterApply,
     });
-    if (!saved) {
+    // 409 才退回：其他失敗時 autosave 會保留套用後的內容並重試，畫面要跟著留住，提案也不能再套一次
+    const keptUnsaved = !saved && Boolean(autosaveRef.current?.hasUnsaved());
+    if (!saved && !keptUnsaved) {
       setAnalysis(previousAnalysis);
       return;
     }
     if (sourceFileId) pendingReviewIdsByFileRef.current.set(sourceFileId, pendingIdsAfterApply);
     setPendingReviewIds(pendingIdsAfterApply);
     clearPendingProposal();
-    toast.success(t("AiJudgePanel.proposalApplied"));
+    if (saved) toast.success(t("AiJudgePanel.proposalApplied"));
   }
 
   function handleItemChange(index, updatedItem) {
@@ -2226,7 +2257,16 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
        notice 只在結束時（成功／失敗）寫入，所以進行中不必另外設定 */
     setScriptGenerationStatus("saving");
     try {
-      if (autosaveRef.current && !(await autosaveRef.current.flush())) {
+      const autosave = autosaveRef.current;
+      if (autosave && !(await autosave.flush({ quiet: true }))) {
+        if (!mountedRef.current || context !== activeContextRef.current) return;
+        // 未儲存的修改再試一次仍存不進去：不製作，說明要先讓檢查表存好
+        if (autosave.hasUnsaved()) {
+          const message = t("AiJudgePanel.unsavedBlocksBuild");
+          setScriptGenerationNotice({ status: "error", message });
+          toast.error(message);
+          return;
+        }
         setScriptGenerationNotice({
           status: "error",
           message: t("AiJudgePanel.buildNotSaved"),
@@ -2384,10 +2424,21 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       : isClearingMessages
         ? t("AiJudgePanel.busyClearing")
         : null;
-  const saveAndCreateHint = isCreatingScript ? null : busyReason ?? scriptCreationBlocker;
+  const saveAndCreateHint = isCreatingScript
+    ? null
+    : busyReason ?? (autosaveStatus.unsaved ? t("AiJudgePanel.unsavedBuildHint") : scriptCreationBlocker);
 
-  // 尚未處理的提案、附件、草稿與進行中的操作仍需要離頁提醒。
+  async function retryUnsavedSave() {
+    const autosave = autosaveRef.current;
+    if (!autosave) return;
+    if (await autosave.retry()) {
+      if (mountedRef.current) toast.success(t("AiJudgePanel.unsavedRetrySucceeded"));
+    }
+  }
+
+  // 尚未處理的提案、附件、草稿、沒存成的檢查表修改與進行中的操作仍需要離頁提醒。
   const dirty = Boolean(pendingProposal)
+    || autosaveStatus.unsaved
     || pendingAttachments.length > 0
     || chatHasDraft
     || isChatting
@@ -2404,6 +2455,30 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         <p role="status">{t(isServerProcessing
           ? "AiJudgePanel.chatStillProcessing" : "AiJudgePanel.chatOutcomeUnknown")}</p>
       )}
+      {autosaveStatus.unsaved && (
+        <div
+          className={`${styles.noticeInfo} ${styles.noticeWorkflowError} ${styles.noticeWithAction}`}
+          role="alert"
+          data-autosave-status="unsaved"
+        >
+          <p>
+            <strong>{t("AiJudgePanel.unsavedTitle")}</strong>{" "}
+            {t("AiJudgePanel.unsavedMessage", {
+              reason: autosaveStatus.error?.message ?? t("AiJudgePanel.updateRubricFailed"),
+            })}
+            {autosaveStatus.autoRetryScheduled && ` ${t("AiJudgePanel.unsavedAutoRetry")}`}
+          </p>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            disabled={autosaveStatus.saving}
+            onClick={retryUnsavedSave}
+          >
+            {autosaveStatus.saving ? <Spinner size={14} /> : <MIcon name="refresh" size={14} />}
+            {t("AiJudgePanel.unsavedRetryBtn")}
+          </button>
+        </div>
+      )}
       <ScriptGenerationNotice
         isCreatingScript={isCreatingScript}
         status={scriptGenerationStatus}
@@ -2411,7 +2486,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       />
 
       <div className={styles.rubricsGrid}>
-        <div className={`${styles.card} ${styles.rubricTableCard} ${styles.checkRubricCard}`}>
+        <div className={`${styles.card} ${styles.rubricTableCard} ${styles.checkRubricCard}`} data-guide="ai-judge-rubric-items">
           <div className={`${styles.cardHead} ${styles.checkHead}`}>
             <h4 className={styles.cardTitle}>{analysis ? t("AiJudgePanel.itemsTitleCount", { count: items.length }) : t("AiJudgePanel.itemsTitle")}</h4>
             {items.length > 0 && (isChatting || isCreatingScript) && (
@@ -2468,7 +2543,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           )}
         </div>
 
-        <div ref={chatColRef} className={`${styles.card} ${styles.checkChatCol}`}>
+        <div ref={chatColRef} className={`${styles.card} ${styles.checkChatCol}`} data-guide="ai-judge-assistant">
           <div className={styles.checkChatInner}>
             <div className={styles.checkHead}>
               <h4 className={styles.cardTitle}>
@@ -2779,7 +2854,7 @@ function ScriptsTab({
   }
 
   return (
-    <div className={styles.tabBody}>
+    <div className={styles.tabBody} data-guide="ai-judge-scripts">
       {loading ? (
         <LoadingState text={t("AiJudgePanel.loadingScripts")} />
       ) : error ? (
@@ -4068,7 +4143,7 @@ export function TeacherReviewTab({
   if (loadError) return <ErrorState onRetry={() => loadReview()} />;
   if (!reviewState) {
     return (
-      <div className={styles.tabBody}>
+      <div className={styles.tabBody} data-guide="ai-judge-review">
         <div className={styles.card}>
           {approvedSets.length > 0 ? (
             <EmptyState
@@ -4106,7 +4181,7 @@ export function TeacherReviewTab({
   }
 
   return (
-    <div className={styles.tabBody}>
+    <div className={styles.tabBody} data-guide="ai-judge-review">
       <div className={`${styles.card} ${styles.reviewOverview}`}>
         <div className={styles.reviewOverviewHead}>
           <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />{t("AiJudgePanel.tabReview")}</h4>
@@ -4240,9 +4315,9 @@ export function TeacherReviewTab({
 
 // 依實際流程排序：設定檢查表 → 核准腳本 → 執行並核查
 const TEACHER_JUDGE_TABS = [
-  { key: "rubrics", icon: "description", get label() { return jt("tabRubrics"); } },
-  { key: "scripts", icon: "terminal", get label() { return jt("tabScripts"); } },
-  { key: "review", icon: "rate_review", get label() { return jt("tabReview"); } },
+  { key: "rubrics", icon: "description", buttonProps: { "data-guide-tab": "ai-judge-tab-rubrics" }, get label() { return jt("tabRubrics"); } },
+  { key: "scripts", icon: "terminal", buttonProps: { "data-guide-tab": "ai-judge-tab-scripts" }, get label() { return jt("tabScripts"); } },
+  { key: "review", icon: "rate_review", buttonProps: { "data-guide-tab": "ai-judge-tab-review" }, get label() { return jt("tabReview"); } },
 ];
 
 const NO_VISITED_TABS = new Set();
@@ -4709,7 +4784,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     <div className={styles.panel}>
       {/* 檢查清單與分頁列固定在同一個位置，三個分頁只換下方內容 */}
       <section className={styles.checkWorkspaceTwo} aria-label={t("AiJudgePanel.workspaceAria")}>
-        <aside className={`${styles.card} ${styles.checkSessionCol}`} aria-label={t("AiJudgePanel.checkListAria")}>
+        <aside className={`${styles.card} ${styles.checkSessionCol}`} data-guide="ai-judge-sessions" aria-label={t("AiJudgePanel.checkListAria")}>
           {sessionSidebarInner}
         </aside>
         <div className={styles.checkContentCol}>
@@ -4719,7 +4794,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
               <SegmentedControl
                 ariaLabel={t("AiJudgePanel.tabsAria")}
                 className={styles.checkTabs}
-                options={TEACHER_JUDGE_TABS.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon }))}
+                options={TEACHER_JUDGE_TABS.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon, buttonProps: tab.buttonProps }))}
                 value={activeTab}
                 onChange={selectTab}
               />
@@ -4768,7 +4843,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
               <LoadingState text={t("AiJudgePanel.loadingChecks")} />
             </div>
           ) : (
-            <div className={styles.card}>
+            <div className={styles.card} data-guide="ai-judge-empty">
               <EmptyCheckHero onCreate={openCreateCheckDialog} />
             </div>
           )}

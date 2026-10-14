@@ -170,3 +170,21 @@ def test_normalize_managed_script_checks_turns_structured_raw_into_text() -> Non
     assert "raw" not in normalized["checks"][1]
     assert normalized["checks"][1]["extra"] == 1
     assert data["checks"][0]["raw"] == {}
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_validate_managed_script_output_rejects_non_standard_json_constants(
+    constant: str,
+) -> None:
+    """學生機器可竄改 result.json；NaN 若被收下，PostgreSQL json 欄位會拒絕
+    寫入，整個 run（含其他學生）的結果都存不進去。"""
+    payload = (
+        '{"schema_version": "teacher_judge_result.v1", '
+        '"metadata": {"timestamp": "now", "platform": "test"}, '
+        f'"checks": [], "errors": [], "extra": {constant}}}'
+    )
+
+    result = validate_managed_script_output(payload)
+
+    assert result["valid"] is False
+    assert constant in str(result["error"])

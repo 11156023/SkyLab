@@ -222,6 +222,8 @@ def test_deleted_account_cannot_be_reactivated_or_registered_again(
         db.commit()
     db.rollback()
     monkeypatch.setattr(user_service.settings, "ENABLE_SIGNUP", True)
+    monkeypatch.setattr(user_service.settings, "SMTP_HOST", "smtp.example.test")
+    monkeypatch.setattr(user_service.settings, "EMAILS_FROM_EMAIL", "noreply@example.test")
     with pytest.raises(ConflictError):
         user_service.register_user(
             session=db, user_in=UserRegister(email=email, password="StrongPassword123!")

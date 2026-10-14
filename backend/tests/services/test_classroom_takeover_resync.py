@@ -11,6 +11,7 @@ import uuid
 from datetime import UTC, date, datetime, time
 
 import pytest
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.api.routes import classroom as routes
@@ -32,7 +33,10 @@ from app.services.classroom.vnc_session_manager import ClassroomSession, Session
 
 @pytest.fixture
 def db():
-    engine = create_engine("sqlite://")
+    # 路由把 DB 查詢丟到 worker thread：in-memory SQLite 要共用同一條連線
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(
         engine,
         tables=[

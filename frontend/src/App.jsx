@@ -20,6 +20,7 @@ const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
 const TotpEnrollPage = lazy(() => import("./pages/login/TotpEnrollPage"));
 const OnboardingPage = lazy(() => import("./pages/onboarding/OnboardingPage"));
 const VerifyEmailChangePage = lazy(() => import("./pages/login/VerifyEmailChangePage"));
+const VerifySignupPage = lazy(() => import("./pages/login/VerifySignupPage"));
 // 首次安裝初始化精靈（免登入；後端 system_setup.completed 之前登入頁會導過來）
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 // 404：登入後開到不存在的路徑
@@ -154,6 +155,9 @@ function App() {
 
   if (window.location.pathname === "/verify-email-change") {
     return <Suspense fallback={<AuthBootstrapState />}><VerifyEmailChangePage /></Suspense>;
+  }
+  if (window.location.pathname === "/verify-signup") {
+    return <Suspense fallback={<AuthBootstrapState />}><VerifySignupPage /></Suspense>;
   }
 
   if (!user && (authStatus === AuthSessionStatus.UNAVAILABLE || reconnecting)) {

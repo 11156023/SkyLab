@@ -87,6 +87,8 @@ def test_public_signup_requires_complete_turnstile_outside_local() -> None:
         SECRET_KEY="z" * 43,
         TURNSTILE_SITE_KEY="site-key",
         TURNSTILE_SECRET_KEY="secret-key",
+        SMTP_HOST="smtp.example.com",
+        EMAILS_FROM_EMAIL="noreply@ntub.edu.tw",
         **{**_REQUIRED, "ENABLE_SIGNUP": True},
     )
     assert configured.turnstile_enabled is True

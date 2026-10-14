@@ -81,12 +81,16 @@ export const AccountService = {
   },
 
   /** 自行註冊帳號 */
-  signup({ email, full_name, password }, { turnstileToken } = {}) {
+  signup({ email, full_name }, { turnstileToken } = {}) {
     return apiPost(
       "/api/v1/users/signup",
-      { email, full_name, password },
+      { email, full_name },
       { headers: turnstileHeaders(turnstileToken) },
     );
+  },
+
+  confirmSignup(token, password) {
+    return apiPost("/api/v1/users/signup/confirm", { token, password });
   },
 
   /** 核准桌面用戶端的裝置授權碼（需已登入） */

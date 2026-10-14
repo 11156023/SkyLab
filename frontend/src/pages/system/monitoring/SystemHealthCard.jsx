@@ -92,7 +92,7 @@ export default function SystemHealthCard() {
 
   if (health === null) {
     return (
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="monitoring-health">
         {error ? (
           <div className={styles.cardEmpty}>
             <MIcon name="warning" size={24} />
@@ -117,7 +117,7 @@ export default function SystemHealthCard() {
   );
 
   return (
-    <div className={styles.card}>
+    <div className={styles.card} data-guide="monitoring-health">
       <button
         type="button"
         className={styles.cardHeaderToggle}

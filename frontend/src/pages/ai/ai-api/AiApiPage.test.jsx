@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getMyUsage: vi.fn(),
   getMyUsageRecords: vi.fn(),
   confirm: vi.fn(),
+  autoRefresh: null,
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -33,7 +34,10 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
-vi.mock("../../../components/RrdChart/RrdChart", () => ({ default: () => null }));
+vi.mock("../../../components/RrdChart/RrdChart", () => ({
+  default: ({ data = [] }) => <div data-testid="daily-chart">{data.map((point) => point.time).join("|")}</div>,
+}));
+vi.mock("../../../hooks/useAutoRefresh", () => ({ default: (refresh) => { mocks.autoRefresh = refresh; } }));
 vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
   default: ({ options = [], value, onChange, ariaLabel }) => (
     <div data-group={ariaLabel}>
@@ -54,8 +58,9 @@ vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
 
 function deferred() {
   let resolve;
-  const promise = new Promise((r) => { resolve = r; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 function usage(total) {
@@ -73,6 +78,7 @@ async function flush() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.autoRefresh = null;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mocks.listMyCredentials.mockResolvedValue({ data: [] });
   mocks.listMyRequests.mockResolvedValue({ data: [] });
@@ -151,4 +157,93 @@ describe("AiApiPage my usage", () => {
       expect(details).not.toMatch(/AiApiPage\.callType/);
     },
   );
+
+  test("daily usage chart labels a date-only bucket with that calendar day", async () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      mocks.getMyUsage.mockResolvedValue({
+        ...usage(3),
+        daily: [
+          { date: "2026-10-10", input_tokens: 5, output_tokens: 1 },
+          { date: "2026-10-11", input_tokens: 2, output_tokens: 3 },
+        ],
+      });
+      await act(async () => { root.render(<AiApiPage />); });
+      await flush();
+      const usageTab = host.querySelector('[data-group="AiApiPage.tabsAriaLabel"] [data-value="usage"]');
+      await act(async () => { usageTab.click(); });
+      await flush();
+
+      // 當成 UTC 午夜解析的話，紐約會標成 10/9、10/10
+      expect(host.querySelector('[data-testid="daily-chart"]').textContent).toBe("10/10|10/11");
+    } finally {
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+    }
+  });
+});
+
+describe("AiApiPage keys and requests", () => {
+  const credential = (id, name) => ({
+    id,
+    api_key_name: name,
+    api_key_prefix: `ccai_${id}`,
+    base_url: "https://api.example.edu",
+    rate_limit: 20,
+    created_at: "2026-09-01T00:00:00Z",
+    expires_at: null,
+    revoked_at: null,
+  });
+  const pendingRequest = { id: "req-1", status: "pending", api_key_name: "待審金鑰", created_at: "2026-09-01T00:00:00Z" };
+
+  test("an older list response arriving after a newer one is ignored", async () => {
+    const older = deferred();
+    const newer = deferred();
+    mocks.listMyRequests.mockResolvedValue({ data: [pendingRequest] });
+    mocks.listMyCredentials
+      .mockResolvedValueOnce({ data: [credential("a", "金鑰甲"), credential("b", "金鑰乙")] })
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+
+    await act(async () => { root.render(<AiApiPage />); });
+    await flush();
+    expect(host.textContent).toContain("金鑰乙");
+
+    act(() => { mocks.autoRefresh(); });
+    act(() => { mocks.autoRefresh(); });
+    await act(async () => { newer.resolve({ data: [credential("a", "金鑰甲")] }); });
+    await flush();
+    await act(async () => { older.resolve({ data: [credential("a", "金鑰甲"), credential("b", "金鑰乙")] }); });
+    await flush();
+
+    expect(host.textContent).toContain("金鑰甲");
+    expect(host.textContent).not.toContain("金鑰乙");
+  });
+
+  test("a stale pending snapshot does not make the approval toast fire twice", async () => {
+    const older = deferred();
+    const approved = { ...pendingRequest, status: "approved" };
+    mocks.listMyCredentials.mockResolvedValue({ data: [] });
+    mocks.listMyRequests
+      .mockResolvedValueOnce({ data: [pendingRequest] })
+      .mockReturnValueOnce(older.promise)
+      .mockResolvedValueOnce({ data: [approved] })
+      .mockResolvedValue({ data: [approved, { ...pendingRequest, id: "req-2" }] });
+
+    await act(async () => { root.render(<AiApiPage />); });
+    await flush();
+
+    act(() => { mocks.autoRefresh(); });
+    await act(async () => { mocks.autoRefresh(); });
+    await flush();
+    expect(mocks.toast.success).toHaveBeenCalledTimes(1);
+
+    await act(async () => { older.resolve({ data: [pendingRequest] }); });
+    await flush();
+    await act(async () => { mocks.autoRefresh(); });
+    await flush();
+
+    expect(mocks.toast.success).toHaveBeenCalledTimes(1);
+  });
 });

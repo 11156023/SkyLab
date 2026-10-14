@@ -111,15 +111,21 @@ function courseGroups(resources, excludedRequestIds) {
 
 export function buildEnvironmentGroups(resources = [], quickSessions = []) {
   const quick = quickPracticeGroups(resources, quickSessions);
-  const quickRequestIds = new Set(
-    quick.flatMap((group) => group.machines.map((machine) => String(machine.requestId))),
-  );
+  const quickRequestIds = requestIdsOf(quick);
   return [...courseGroups(resources, quickRequestIds), ...quick];
+}
+
+/* 沒有申請單的機器（班級機批次佈建、直接建立、範本克隆）不能進來：String(null) 變成 "null"，
+   一比對就把所有沒有申請單的機器都當成同一組 */
+function requestIdsOf(groups) {
+  return new Set(groups.flatMap((group) => group.machines
+    .filter((machine) => machine.requestId != null)
+    .map((machine) => String(machine.requestId))));
 }
 
 export function groupedResourceKeys(groups = []) {
   return {
-    requestIds: new Set(groups.flatMap((group) => group.machines.map((machine) => String(machine.requestId)))),
+    requestIds: requestIdsOf(groups),
     vmids: new Set(groups.flatMap((group) => group.machines.map((machine) => machine.vmid).filter((vmid) => vmid != null))),
   };
 }

@@ -646,10 +646,33 @@ def get_published_path_or_404(
     return path
 
 
+def require_path_enrollment(
+    session: Session, *, path: CoursePath, user_id: uuid.UUID
+) -> None:
+    """綁定班級的課程只給該班有效修課的學生；其他人一律當成不存在。
+
+    清單（list_published_paths）與每週任務、AI 作業、練習機器都只看
+    本人有效修課的班級；路徑內容、房間與答題若只檢查「已發布」，
+    退選或別班的學生拿著 id 仍能讀題目、交答案，還會出現在老師的進度表。
+    """
+    if path.teaching_class_id is None:
+        return
+    enrolled = session.exec(
+        select(TeachingClassStudent.id).where(
+            TeachingClassStudent.class_id == path.teaching_class_id,
+            TeachingClassStudent.user_id == user_id,
+            TeachingClassStudent.status == "active",
+        )
+    ).first()
+    if enrolled is None:
+        raise NotFoundError(t("course.path_not_found"))
+
+
 def get_path_detail(
     session: Session, *, user_id: uuid.UUID, path_id: uuid.UUID
 ) -> CoursePathDetail:
     path = get_published_path_or_404(session, path_id)
+    require_path_enrollment(session, path=path, user_id=user_id)
     rooms = session.exec(
         select(CourseRoom)
         .where(CourseRoom.path_id == path_id)
@@ -686,7 +709,8 @@ def get_room_student_detail(
 ) -> CourseRoomStudentDetail:
     """學生房間視圖：任務 + 題目（不含 flag_hash）+ 完成標記。"""
     room = get_room_or_404(session, room_id)
-    get_published_path_or_404(session, room.path_id)
+    path = get_published_path_or_404(session, room.path_id)
+    require_path_enrollment(session, path=path, user_id=user_id)
 
     completed_ids = progress_service.completed_question_ids_in_room(
         session, room_id=room_id, user_id=user_id

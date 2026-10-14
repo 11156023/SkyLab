@@ -1,11 +1,15 @@
 @use "../../../../assets/styles/variables" as *;
 @use "../../../../assets/styles/mixins" as *;
 
+/* 統計卡與下方兩欄依內容區實際寬度切換（門檻見檔尾 @container）：
+   AI 助手並排停靠時內容區會縮到約 550px，只看視窗寬度會擠成直排字 */
 .page {
   display: flex;
   flex-direction: column;
   gap: $spacing-24;
   width: 100%;
+  min-width: 0;
+  container-type: inline-size;
   padding: $spacing-8 $spacing-16;
 
   @media (min-width: $breakpoint-sidebar) {
@@ -29,9 +33,10 @@
   @include btn-ghost;
   color: var(--color-primary-on-surface);
 }
+/* 預設 2×2，內容區夠寬才排成一列四張 */
 .metricGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: $spacing-16;
 }
 /* 統計卡比照管理員儀表板的 statCard：玻璃卡 radius-16、40px 圖示方塊、標籤／數字／補充三層字級；
@@ -77,12 +82,15 @@
   flex-direction: column;
   gap: 2px;
 }
+/* 標籤與數字一律單行，放不下時省略，不再逐字換行成直排 */
 .metricGrid small {
+  @include text-truncate;
   color: var(--color-text-secondary);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
 }
 .metricGrid strong {
+  @include text-truncate;
   color: var(--color-text-primary);
   font-size: $font-size-24;
   font-weight: $font-weight-700;
@@ -95,10 +103,11 @@
   font-size: $font-size-12;
 }
 
-/* 兩欄面板等高（比照管理員儀表板的待辦卡），清單吃滿剩餘高度，空狀態才會垂直置中 */
+/* 預設單欄堆疊，內容區夠寬才並排；兩欄時面板等高（比照管理員儀表板的待辦卡），
+   清單吃滿剩餘高度，空狀態才會垂直置中 */
 .mainGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: $spacing-24;
   align-items: stretch;
 }
@@ -354,12 +363,17 @@
   background: var(--color-hover);
 }
 
-@include respond-below(xl) {
+/* 依 .page 容器寬度切換：側邊欄展開、AI 助手並排停靠都會吃掉內容區，視窗寬度不準。
+   960：一列四張時每張約 228px，扣掉圖示與箭頭還剩約 107px，放得下最長的標籤「Checkpoint 完成度」 */
+@container (min-width: 960px) {
   .metricGrid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+/* 800：右欄保底 300px 後左欄還有約 476px，Checkpoint 列的路徑名稱不會被擠到只剩幾個字 */
+@container (min-width: 800px) {
   .mainGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
   }
 }
 @include respond-below(md) {
@@ -368,7 +382,6 @@
   }
   /* 比照管理員儀表板手機版：兩欄小卡、圖示疊在文字上方 */
   .metricGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: $spacing-8;
   }
   .metricCard {

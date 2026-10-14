@@ -953,6 +953,8 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   async function handleSubmit(e) {
     e.preventDefault();
     const formEl = e.currentTarget;
+    /* 下面補查帳號要等網路：先把送出鈕鎖住，連按兩下才不會送出兩張一樣的申請 */
+    setSubmitting(true);
     /* 打完帳號立刻送出時即時檢查可能還沒回來：先補查一次再驗證 */
     let currentUsernameViolations = usernameViolations;
     if (checksUsername && form.username && usernameCheck.username !== form.username) {
@@ -965,9 +967,13 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
       }
     }
     const errs = validate(currentUsernameViolations);
-    if (Object.keys(errs).length > 0) { setErrors(errs); focusFirstError(formEl, errs); return; }
+    if (Object.keys(errs).length > 0) {
+      setSubmitting(false);
+      setErrors(errs);
+      focusFirstError(formEl, errs);
+      return;
+    }
 
-    setSubmitting(true);
     try {
       /* 送出前再確認一次選定的 GPU 在申請時段內仍可用 */
       const selectedGpuId = form.gpu_mapping_id?.trim();

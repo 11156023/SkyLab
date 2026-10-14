@@ -21,7 +21,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
-import { formatDate } from "../../../utils/formatDate";
+import { formatExpiryDate } from "../../../utils/formatDate";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import DataToolbar from "../../../components/DataToolbar/DataToolbar";
 import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
@@ -80,6 +80,17 @@ function useColumns() {
 }
 
 /* ── Primitive sub-components ── */
+function ExpiryDateValue({ value }) {
+  const expiry = formatExpiryDate(value);
+  if (!expiry) return "—";
+  return (
+    <>
+      {expiry.date}
+      {expiry.cutoff && <div className={styles.envSub} title={expiry.title}>{expiry.cutoff}</div>}
+    </>
+  );
+}
+
 function StatusBadge({ status }) {
   const statusMap = useStatusMap();
   const s = statusMap[status] ?? { label: status, color: "muted" };
@@ -221,6 +232,7 @@ function EnvironmentGroupRows({ group, machines = group.machines, onUpdated, onR
     <>
       <tr
         className={`${styles.tr} ${styles.environmentGroupRow}`}
+        data-guide="resource-mgmt-env-group"
         onClick={(event) => {
           /* 整列都可以開合，但列內的按鈕與勾選框各自處理自己的點擊 */
           if (event.target.closest("button, input, label")) return;
@@ -365,10 +377,11 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
     <>
       <tr
         className={`${styles.tr} ${canOpenDetail || selecting ? styles.trClickable : ""} ${selected ? styles.trSelected : ""}`}
+        data-guide="resource-mgmt-row"
         onClick={handleRowClick}
       >
         {/* 勾選：整格都是點擊範圍，點偏了不會變成點進詳情頁；Shift 點選連選一段 */}
-        <td className={`${styles.td} ${styles.checkCell}`}>
+        <td className={`${styles.td} ${styles.checkCell}`} data-guide="resource-mgmt-row-select">
           {onToggleSelect && canControl ? (
             <SelectCheckbox
               cell
@@ -427,10 +440,10 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
           )}
         </td>
 
-        {/* 到期日 */}
+        {/* 到期日：日期照字面，小字附本地時間的實際截止時刻（後端以到期日 00:00 UTC 為界） */}
         <td className={styles.td}>
           {resource.expiry_date
-            ? formatDate(resource.expiry_date)
+            ? <ExpiryDateValue value={resource.expiry_date} />
             : <span className={styles.noExpiry}>{t("ResourceMgmtPage.noExpiry")}</span>
           }
         </td>
@@ -439,7 +452,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
         <td className={styles.td}>{resource.node ?? "—"}</td>
 
         {/* 動作 */}
-        <td className={styles.td}>
+        <td className={styles.td} data-guide="resource-mgmt-row-actions">
           {isLive ? (
             <div className={styles.actions}>
               <button
@@ -546,9 +559,18 @@ export default function ResourceMgmtPage() {
     setStatusFilter("all");
   };
 
+  /* 只採用最後一次發出的清單請求：清單經 PVE 要好幾秒，操作前送出的背景刷新可能比
+     操作後的重新載入晚回來，舊快照不能蓋掉新清單。前景載入被背景刷新超車時，
+     由最新那次接手收掉 loading／顯示錯誤，首次載入失敗不會被吞掉 */
+  const fetchSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
   const fetchResources = useCallback(async (silent = false, signal) => {
+    const seq = ++fetchSeqRef.current;
+    const isLatest = () => seq === fetchSeqRef.current;
     if (!silent) {
+      foregroundPendingRef.current = true;
       setLoading(true);
       setError(false);
     }
@@ -557,15 +579,24 @@ export default function ResourceMgmtPage() {
         ResourcesService.listAll({ signal }),
         QuickPracticeService.listAllSessions({ signal }).catch(() => []),
       ]);
+      if (!isLatest()) return;
       setResources(data ?? []);
       setQuickSessions(sessions ?? []);
       /* 背景刷新成功也要能把先前的錯誤畫面收掉 */
       setError(false);
     } catch (err) {
-      if (!silent && !err?.cancelled) setError(true);
+      if (isLatest() && foregroundPendingRef.current && !err?.cancelled) setError(true);
     } finally {
-      if (!silent && !signal?.aborted) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
+  }, []);
+
+  /* 單列操作後就地更新了清單：操作前送出、還在路上的背景刷新回來時不能把它蓋回去 */
+  const discardInFlightRefresh = useCallback(() => {
+    if (!foregroundPendingRef.current) fetchSeqRef.current += 1;
   }, []);
 
   useEffect(() => {
@@ -577,11 +608,13 @@ export default function ResourceMgmtPage() {
   useAutoRefresh(() => fetchResources(true), anyBooting ? BOOTING_POLL_INTERVAL : undefined);
 
   function handleUpdated(updated) {
+    discardInFlightRefresh();
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
   }
 
   /* 刪掉的那台若勾著，從清單消失時 useRowSelection 會自動取消勾選 */
   function handleDeleted(vmid) {
+    discardInFlightRefresh();
     setResources((prev) => prev.filter((r) => r.vmid !== vmid));
   }
 
@@ -611,6 +644,7 @@ export default function ResourceMgmtPage() {
           <>
           {/* ── 表格工具列：平常是狀態切換＋搜尋，勾選後原地換成批量操作（同一個高度，表格不會跳）；黏在頂端，捲到哪都按得到 ── */}
           <DataToolbar
+            data-guide="resource-mgmt-toolbar"
             className={styles.toolbar}
             selecting={selectedResources.length > 0}
             batch={(
@@ -655,7 +689,7 @@ export default function ResourceMgmtPage() {
               )}
             />
           ) : (
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} data-guide="resource-mgmt-table">
             <table className={styles.table}>
               <colgroup>
                 <col className={styles.colCheck} />

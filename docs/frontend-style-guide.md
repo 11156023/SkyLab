@@ -550,6 +550,7 @@ const selected = shown.filter((r) => selection.isSelected(r.id));
 - **Irreversible actions** (delete, remove, archive, reject) use `danger`, sit at the far right after a `BatchDivider`, and confirm first with the names listed (up to 5, then "and N more")
 - When there is no batch API on the backend, use `utils/runBatch` to call the single-item API one by one (4 at a time by default; one failure doesn't stop the rest)
 - Ticked rows get `@include row-selected;` for their background (list rows that are cards themselves pass `var(--color-surface)`)
+- Guide attributes such as `data-guide` can be passed straight to `DataToolbar` (attached to the toolbar's outer frame), so a tour step can spotlight the whole filters + search bar
 - **Re-check widths after adding a checkbox column**: when list rows use grid, decide between one line and two lines by the **container width** (`container-type: inline-size` + `@container`), not the viewport — once the sidebar appears (≥1024) the content area is narrower than at 992, so a viewport switch overflows sideways between 1024 and 1180
 - Currently used on: resource management, user management (batch disable/enable), request review (batch reject), class management (batch archive and reclaim), and the class workspace student roster (batch remove)
 

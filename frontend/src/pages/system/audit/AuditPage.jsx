@@ -139,13 +139,16 @@ export default function AuditPage() {
   }, [fetchLogs]);
 
   useEffect(() => {
+    /* 日期連續改動（手動打年份會逐位觸發）時，較晚回來的舊區間摘要不能蓋掉新區間的 */
+    let cancelled = false;
     AuditLogsService.stats({
       startTime: toIso(filters.startDate) || undefined,
       endTime: toIso(filters.endDate, true) || undefined,
     })
-      .then(setStats)
+      .then((next) => { if (!cancelled) setStats(next); })
       /* 摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
-      .catch(() => setStats(null));
+      .catch(() => { if (!cancelled) setStats(null); });
+    return () => { cancelled = true; };
   }, [filters.startDate, filters.endDate]);
 
   useEffect(() => {
@@ -206,6 +209,7 @@ export default function AuditPage() {
           className={styles.btnSecondary}
           onClick={handleExport}
           disabled={exporting}
+          data-guide="audit-export"
         >
           <MIcon name="download" size={16} />
           {exporting ? t("AuditPage.exporting") : t("AuditPage.exportCsv")}
@@ -213,7 +217,7 @@ export default function AuditPage() {
       </PageHeader>
 
       {stats && (
-        <div className={styles.summaryGrid}>
+        <div className={styles.summaryGrid} data-guide="audit-summary">
           <div className={styles.summaryItem}>
             <span>{t("AuditPage.statTotal")}</span>
             <strong>{stats.total}</strong>
@@ -233,7 +237,7 @@ export default function AuditPage() {
         </div>
       )}
 
-      <form className={styles.toolbar} onSubmit={(e) => e.preventDefault()}>
+      <form className={styles.toolbar} onSubmit={(e) => e.preventDefault()} data-guide="audit-filters">
         <div className={styles.searchBox}>
           <MIcon name="search" size={16} />
           <input
@@ -301,7 +305,7 @@ export default function AuditPage() {
           <EmptyState hasFilter={hasFilter} onClear={resetFilters} />
         ) : (
           <>
-            <div className={styles.tableWrap}>
+            <div className={styles.tableWrap} data-guide="audit-table">
               <table className={styles.table}>
                 <thead>
                   <tr>

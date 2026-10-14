@@ -18,6 +18,8 @@
   "scripts": {
     "test:tunnel": "node scripts/test-tunnel.mjs",
     "test:resources": "node scripts/test-resource-access.mjs",
+    "test:settings": "node scripts/test-settings.mjs",
+    "test:polling": "node scripts/test-session-polling.mjs",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "build:electron": "npm run build && electron-builder -p never",

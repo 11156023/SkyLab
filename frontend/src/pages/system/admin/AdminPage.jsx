@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AdminPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -132,6 +132,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
       busy={loading}
       closeButton
       size="md"
+      closeProps={{ "data-guide": "admin-user-modal-close" }}
       title={isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}
       actions={
         <>
@@ -201,7 +202,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
         </label>
       </div>
 
-      <div className={styles.toggleGrid}>
+      <div className={styles.toggleGrid} data-guide="admin-user-security">
         <label
           className={styles.checkRow}
           title={isEdit && isSelf ? t("AdminPage.selfEditLockedHint") : undefined}
@@ -210,7 +211,7 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
             type="checkbox"
             checked={form.is_active}
             onChange={(e) => setField("is_active", e.target.checked)}
-            disabled={isEdit && isSelf}
+            disabled={isEdit && (isSelf || user?.registration_status !== "approved")}
           />
           <span>{t("AdminPage.fieldActive")}</span>
         </label>
@@ -228,6 +229,9 @@ function UserModal({ mode, user, isSelf = false, loading, closing = false, onClo
       )}
       {isEdit && isSelf && (
         <em className={styles.fieldHint}>{t("AdminPage.selfEditLockedHint")}</em>
+      )}
+      {isEdit && user?.registration_status !== "approved" && (
+        <em className={styles.fieldHint}>{t("AdminPage.registrationActivationHint")}</em>
       )}
 
       {isEdit && (
@@ -270,6 +274,7 @@ function UserRow({ user, currentUserId, selected = false, selecting = false, onT
     <div
       className={`${styles.row} ${selected ? styles.rowSelected : ""} ${selecting && !isSelf ? styles.rowSelectMode : ""}`}
       onClick={(event) => onRowClick?.(user.id, event)}
+      data-guide="admin-user-row"
     >
       {/* 自己不能勾（不能停用自己），格子照留，頭像才對得齊 */}
       <div className={styles.rowCheck}>
@@ -300,12 +305,18 @@ function UserRow({ user, currentUserId, selected = false, selecting = false, onT
           {role.label}
         </span>
         <span className={`${styles.statusBadge} ${user.is_active ? styles.statusActive : styles.statusInactive}`}>
-          {user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
+          {user.registration_status === "pending_email"
+            ? t("AdminPage.statusPendingEmail")
+            : user.registration_status === "pending_review"
+              ? t("AdminPage.statusPendingReview")
+              : user.registration_status === "rejected"
+                ? t("AdminPage.statusRejected")
+                : user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
         </span>
       </div>
       <span className={styles.createdAt}>{formatDate(user.created_at)}</span>
       <div className={styles.rowActions}>
-        <button type="button" className={styles.actionBtn} title={t("AdminPage.editTitle")} onClick={() => onEdit(user)}>
+        <button type="button" className={styles.actionBtn} title={t("AdminPage.editTitle")} onClick={() => onEdit(user)} data-guide="admin-user-edit">
           <MIcon name="edit" size={16} />
         </button>
         <button
@@ -328,31 +339,101 @@ export default function AdminPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [users, setUsers] = useState([]);
+  const [registrationPolicy, setRegistrationPolicy] = useState(null);
+  const [pendingRegistrations, setPendingRegistrations] = useState([]);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [reviewingId, setReviewingId] = useState(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(null);
   const modalPresence  = useDialogPresence(modal);
 
+  /* 只採用最後一次發出的請求：較早送出卻較晚回來的舊清單不能蓋掉新的。
+     前景載入被背景刷新超車時，由最新那次接手收 loading、提示錯誤 */
+  const fetchSeqRef = useRef(0);
+  const foregroundPendingRef = useRef(false);
+
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用。
       逐頁取回全部使用者（原本寫死 limit 100，第 101 位之後在這頁根本管不到）；
       清單改由前端分頁呈現，搜尋因此能掃到全部帳號。 */
   const fetchUsers = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    const seq = ++fetchSeqRef.current;
+    const isLatest = () => seq === fetchSeqRef.current;
+    if (!silent) {
+      foregroundPendingRef.current = true;
+      setLoading(true);
+    }
     try {
       const data = await UsersService.listAll();
-      setUsers(data);
+      if (isLatest()) setUsers(data);
     } catch (err) {
-      if (!silent) toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+      if (isLatest() && foregroundPendingRef.current) toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
-      if (!silent) setLoading(false);
+      if (isLatest() && foregroundPendingRef.current) {
+        foregroundPendingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [toast, t]);
+
+  /* 本地套用了增刪改：改動前送出、還在路上的清單回應回來時不能把它蓋回去。
+     前景載入中就改發一次背景重抓接手（舊的作廢，loading 交給新的收） */
+  const discardInFlightFetch = useCallback(() => {
+    if (foregroundPendingRef.current) fetchUsers(true);
+    else fetchSeqRef.current += 1;
+  }, [fetchUsers]);
 
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
   useAutoRefresh(() => fetchUsers(true));
+
+  const fetchRegistrationSettings = useCallback(async (silent = false) => {
+    try {
+      const [policy, pending] = await Promise.all([
+        UsersService.getRegistrationPolicy(),
+        UsersService.listPendingRegistrations(),
+      ]);
+      setRegistrationPolicy(policy);
+      setPendingRegistrations(pending.data);
+    } catch (err) {
+      if (!silent) toast.error(err?.message ?? t("AdminPage.registrationLoadFailed"));
+    }
+  }, [toast, t]);
+
+  useEffect(() => { fetchRegistrationSettings(); }, [fetchRegistrationSettings]);
+  useAutoRefresh(() => fetchRegistrationSettings(true));
+
+  async function saveRegistrationPolicy(patch) {
+    if (!registrationPolicy || policySaving) return;
+    setPolicySaving(true);
+    try {
+      const saved = await UsersService.saveRegistrationPolicy({ ...registrationPolicy, ...patch });
+      setRegistrationPolicy(saved);
+      toast.success(t("AdminPage.registrationSettingsSaved"));
+    } catch (err) {
+      toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+
+  async function reviewRegistration(user, approve) {
+    if (reviewingId) return;
+    setReviewingId(user.id);
+    try {
+      const updated = await UsersService.reviewRegistration(user.id, approve);
+      setPendingRegistrations((prev) => prev.filter((item) => item.id !== user.id));
+      discardInFlightFetch();
+      setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+      toast.success(t(approve ? "AdminPage.registrationApproved" : "AdminPage.registrationRejected"));
+    } catch (err) {
+      toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
+    } finally {
+      setReviewingId(null);
+    }
+  }
 
   const visibleUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -420,6 +501,7 @@ export default function AdminPage() {
       onProgress: ({ done, total }) => setBatchProgress((prev) => prev && { ...prev, done, total }),
     });
     const updated = new Map(res.results.filter((r) => r.ok && r.value).map((r) => [r.value.id, r.value]));
+    discardInFlightFetch();
     setUsers((prev) => prev.map((item) => updated.get(item.id) ?? item));
     if (res.failed === 0) {
       toast.success(t("AdminPage.batchDoneToast", { count: res.succeeded, label }));
@@ -436,10 +518,12 @@ export default function AdminPage() {
     try {
       if (modal?.mode === "edit") {
         const updated = await UsersService.update(modal.user.id, payload);
+        discardInFlightFetch();
         setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
         toast.success(t("AdminPage.toastUpdated"));
       } else {
         const created = await UsersService.create(payload);
+        discardInFlightFetch();
         setUsers((prev) => [created, ...prev]);
         toast.success(t("AdminPage.toastCreated"));
       }
@@ -463,6 +547,7 @@ export default function AdminPage() {
     if (!ok) return;
     try {
       await UsersService.delete(user.id);
+      discardInFlightFetch();
       setUsers((prev) => prev.filter((item) => item.id !== user.id));
       toast.success(t("AdminPage.toastDeleted"));
     } catch (err) {
@@ -481,6 +566,7 @@ export default function AdminPage() {
     if (!ok) return;
     try {
       await UsersService.resetTotp(user.id);
+      discardInFlightFetch();
       setUsers((prev) =>
         prev.map((item) => (item.id === user.id ? { ...item, totp_enabled: false } : item)),
       );
@@ -502,7 +588,50 @@ export default function AdminPage() {
         </button>
       </PageHeader>
 
-      <div className={styles.summaryGrid}>
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.registrationSettingsTitle")} data-guide="admin-registration">
+        <h2>{t("AdminPage.registrationSettingsTitle")}</h2>
+        <label className={styles.registrationOption}>
+          <span>
+            <strong>{t("AdminPage.signupEnabled")}</strong>
+            <small>{t("AdminPage.signupEnabledHint")}</small>
+          </span>
+          <input type="checkbox" checked={Boolean(registrationPolicy?.signup_enabled)}
+            disabled={!registrationPolicy || policySaving}
+            onChange={(event) => saveRegistrationPolicy({ signup_enabled: event.target.checked })} />
+        </label>
+        <label className={styles.registrationOption}>
+          <span>
+            <strong>{t("AdminPage.approvalRequired")}</strong>
+            <small>{t("AdminPage.approvalRequiredHint")}</small>
+          </span>
+          <input type="checkbox" checked={Boolean(registrationPolicy?.approval_required)}
+            disabled={!registrationPolicy || policySaving}
+            onChange={(event) => saveRegistrationPolicy({ approval_required: event.target.checked })} />
+        </label>
+      </section>
+
+      <section className={styles.registrationPanel} aria-label={t("AdminPage.pendingRegistrationsTitle")} data-guide="admin-pending">
+        <h2>{t("AdminPage.pendingRegistrationsTitle")} ({pendingRegistrations.length})</h2>
+        {pendingRegistrations.length === 0 ? (
+          <p className={styles.registrationEmpty}>{t("AdminPage.noPendingRegistrations")}</p>
+        ) : pendingRegistrations.map((item) => (
+          <div className={styles.pendingRow} key={item.id}>
+            <span><strong>{userDisplayName(item)}</strong><small>{item.email}</small></span>
+            <div>
+              <button type="button" className={styles.btnSecondary}
+                disabled={Boolean(reviewingId)} onClick={() => reviewRegistration(item, false)}>
+                {t("AdminPage.rejectRegistration")}
+              </button>
+              <button type="button" className={styles.btnPrimary}
+                disabled={Boolean(reviewingId)} onClick={() => reviewRegistration(item, true)}>
+                {t("AdminPage.approveRegistration")}
+              </button>
+            </div>
+          </div>
+        ))}
+      </section>
+
+      <div className={styles.summaryGrid} data-guide="admin-summary">
         <div className={styles.summaryItem}>
           <span>{t("AdminPage.statTotal")}</span>
           <strong>{users.length}</strong>

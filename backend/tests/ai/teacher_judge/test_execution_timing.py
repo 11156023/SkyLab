@@ -136,6 +136,50 @@ def test_remote_file_absence_is_optional_but_read_timeout_propagates() -> None:
     assert executor._read_remote_text(SFTP(FileNotFoundError()), "missing", 100) == ("", False)
     with pytest.raises(TimeoutError):
         executor._read_remote_text(SFTP(TimeoutError()), "result", 100)
+    with pytest.raises(OSError, match="connection lost"):
+        executor._read_remote_text(SFTP(OSError("connection lost")), "result", 100)
+
+
+@pytest.mark.parametrize("command_phase", ["mkdir", "script"])
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_output_limit_reason_survives_remote_and_scheduled_wrappers(
+    monkeypatch: pytest.MonkeyPatch, command_phase: str, stream: str,
+) -> None:
+    from tests.ai.teacher_judge.test_scripts_execution import _FakeClient, _target
+
+    client = _FakeClient()
+    closed: list[str] = []
+    commands: list[str] = []
+
+    def command(
+        _client: Any, command: str, *, timeout: float, max_output_bytes: int,
+    ) -> tuple[int, str, str]:
+        commands.append(command)
+        assert max_output_bytes == 1024 * 1024
+        if (command_phase == "mkdir" and command.startswith("mkdir")) or (
+            command_phase == "script" and "then timeout" in command
+        ):
+            raise executor.SSHOutputTooLargeError(stream, max_output_bytes)
+        return 0, "", ""
+
+    monkeypatch.setattr(executor, "create_key_client", lambda *args, **kwargs: client)
+    monkeypatch.setattr(executor, "exec_command", command)
+    monkeypatch.setattr(client, "close", lambda: closed.append("ssh"))
+    monkeypatch.setattr(client.sftp, "close", lambda: closed.append("sftp"))
+    result = executor._execute_scheduled_target(
+        target=_target(), script_content="pass", queued_at=time.perf_counter(),
+        on_start=lambda: None,
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason_code"] == "output_too_large"
+    assert "1 MB" in result["validation"]["error"]
+    assert result["timing"]["prepare_seconds"] >= 0
+    assert result["timing"]["cleanup_seconds"] >= 0
+    assert result["timing"]["total_seconds"] >= 0
+    assert "received_at" not in result["timing"]
+    assert closed == (["sftp", "ssh"] if command_phase == "script" else ["ssh"])
+    assert "rm -f" in commands[-1]
 
 
 def test_missing_remote_timeout_reports_unsupported_deadline() -> None:
@@ -457,6 +501,7 @@ def test_saved_timing_and_batch_projection_include_later_nodes(
         session.flush()
         first = TeacherJudgeScriptRun(
             artifact_id=artifacts[0].id, run_batch_id=batch_id,
+            status=TeacherJudgeScriptRunStatus.running,
             target_snapshot_json={"targets": [{"vmid": 101, "student_id": "s1"}]},
             created_at=base, started_at=base + timedelta(seconds=2),
         )

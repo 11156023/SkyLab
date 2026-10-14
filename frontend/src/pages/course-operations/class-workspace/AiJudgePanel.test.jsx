@@ -1350,6 +1350,9 @@ describe("getDefaultWeekId", () => {
   test("都還沒開始上課就不指定", () => {
     expect(getDefaultWeekId(weeks, new Date("2026-09-01T12:00:00Z"))).toBe("");
   });
+  test("以當地日期判斷：上課當天清晨（UTC 仍是前一天）也算已到這一週", () => {
+    expect(getDefaultWeekId(weeks, new Date(2026, 8, 14, 0, 30))).toBe("w2");
+  });
 });
 
 describe("resolveActiveSessionId", () => {

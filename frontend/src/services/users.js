@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
 
 const BASE = "/api/v1/users";
 
@@ -6,6 +6,21 @@ const PAGE_SIZE = 200;
 const MAX_PAGES = 25; // 上限保護：最多載入 5000 位使用者
 
 export const UsersService = {
+  getRegistrationPolicy() {
+    return apiGet(`${BASE}/registration-policy`);
+  },
+
+  saveRegistrationPolicy(payload) {
+    return apiPut(`${BASE}/registration-policy`, payload);
+  },
+
+  listPendingRegistrations() {
+    return apiGet(`${BASE}/pending-registrations`);
+  },
+
+  reviewRegistration(userId, approve) {
+    return apiPost(`${BASE}/${userId}/registration/${approve ? "approve" : "reject"}`, {});
+  },
   list({ skip = 0, limit = 100 } = {}) {
     return apiGet(`${BASE}/?skip=${skip}&limit=${limit}`);
   },

@@ -22,11 +22,12 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
 /* 密碼與刪除帳號都屬「帳號本身」的事，跟個人資料同一個分頁直向堆疊
-   （危險區域照慣例壓底）；「關於」放版本、授權與開源元件清單 */
+   （危險區域照慣例壓底）；「關於」放版本、授權與開源元件清單。
+   buttonProps 的 data-guide-tab 給頁面導覽切分頁用 */
 const TABS = [
-  { key: "profile",    labelKey: "AccountSettingsPage.tabProfile" },
-  { key: "appearance", labelKey: "AccountSettingsPage.tabAppearance" },
-  { key: "about",      labelKey: "AccountSettingsPage.tabAbout" },
+  { key: "profile",    labelKey: "AccountSettingsPage.tabProfile",    buttonProps: { "data-guide-tab": "account-profile" } },
+  { key: "appearance", labelKey: "AccountSettingsPage.tabAppearance", buttonProps: { "data-guide-tab": "account-appearance" } },
+  { key: "about",      labelKey: "AccountSettingsPage.tabAbout",      buttonProps: { "data-guide-tab": "account-about" } },
 ];
 
 /* ── 個人資料 ───────────────────────────────────────── */
@@ -119,7 +120,7 @@ function ProfileTab() {
   const previewAvatarUrl = editMode ? form.avatar_url : user?.avatar_url;
 
   return (
-    <div className={styles.card}>
+    <div className={styles.card} data-guide="account-profile-card">
       <h2 className={styles.cardTitle}>{t("ProfileTab.title")}</h2>
 
       <form className={styles.form} onSubmit={handleSubmit}>
@@ -248,7 +249,7 @@ function PasswordSection() {
   }
 
   return (
-    <div className={styles.card}>
+    <div className={styles.card} data-guide="account-password">
       <h2 className={styles.cardTitle}>{t("PasswordTab.title")}</h2>
 
       <form className={styles.form} onSubmit={handleSubmit}>
@@ -351,7 +352,7 @@ function TwoFactorSection() {
 
   return (
     <>
-      <div className={styles.card}>
+      <div className={styles.card} data-guide="account-two-factor">
         <h2 className={styles.cardTitle}>{t("TwoFactorSection.title")}</h2>
 
         <div className={styles.twoFactorStatus}>
@@ -490,7 +491,7 @@ function DangerZoneSection() {
 
   return (
     <>
-      <div className={`${styles.card} ${styles.dangerCard}`}>
+      <div className={`${styles.card} ${styles.dangerCard}`} data-guide="account-delete">
         <h2 className={styles.cardTitle}>{t("DangerZoneTab.title")}</h2>
         <p className={styles.dangerDesc}>
           {t("DangerZoneTab.descPart1")}<strong>{t("DangerZoneTab.descBold")}</strong>{t("DangerZoneTab.descPart2")}
@@ -563,9 +564,13 @@ export default function AccountSettingsPage() {
 
       {/* 分頁列：外觀分頁的「重設為系統預設值」放右側，一進頁面就看得到
           （原本壓在表單最底，使用者反映會直接忽略） */}
-      <div className={styles.tabBar}>
+      <div className={styles.tabBar} data-guide="account-tabs">
         <SegmentedControl
-          options={TABS.map((tab) => ({ value: tab.key, label: t(tab.labelKey) }))}
+          options={TABS.map((tab) => ({
+            value: tab.key,
+            label: t(tab.labelKey),
+            buttonProps: tab.buttonProps,
+          }))}
           value={activeTab}
           onChange={setActiveTab}
           ariaLabel={t("AccountSettingsPage.title")}

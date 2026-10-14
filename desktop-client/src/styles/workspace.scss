@@ -197,6 +197,18 @@ input:focus-visible {
   font-size: 14px;
   color: var(--color-text-muted);
 }
+.desktop-offline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.desktop-offline > .sl-icon {
+  flex: none;
+  color: var(--color-danger);
+}
 .desktop-main {
   min-width: 0;
   min-height: 0;
@@ -574,7 +586,8 @@ input:focus-visible {
   }
   .desktop-brand div,
   .desktop-nav span,
-  .desktop-account span {
+  .desktop-account span,
+  .desktop-offline span {
     display: none;
   }
   .desktop-nav {

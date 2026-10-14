@@ -379,7 +379,7 @@ def test_queue_session_reclaim_uses_idempotent_deletion_queue(
     monkeypatch.setattr(
         proxmox_service,
         "find_resource",
-        lambda vmid: {"vmid": vmid, "node": "pve1", "type": "qemu", "name": str(vmid)},
+        lambda vmid, **_kwargs: {"vmid": vmid, "node": "pve1", "type": "qemu", "name": str(vmid)},
     )
     deletions: list[int] = []
 
