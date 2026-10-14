@@ -856,7 +856,9 @@ def test_create_script_run_node_scope_with_preflight_only(
     )
     assert session.flushed and not session.committed
     assert public.result_summary_json == {"preflight_failed": 1}
-    assert public.target_results_json["targets"] == [failure]
+    target = public.target_results_json["targets"][0]
+    assert target["status"] == failure["status"]
+    assert target["reason_code"] == failure["reason_code"]
 
 
 def test_create_script_run_legacy_vmids(monkeypatch: pytest.MonkeyPatch) -> None:

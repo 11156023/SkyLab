@@ -225,9 +225,12 @@ def test_publish_without_allocation_falls_back_to_subnet_rules(publish_env: dict
 def test_student_target_matches_generated_snapshot_shape() -> None:
     import uuid
 
+    from app.models.teacher_judge_script_run import TeacherJudgeScriptRun
+
     student = uuid.uuid4()
     other = uuid.uuid4()
-    run = SimpleNamespace(
+    run = TeacherJudgeScriptRun(
+        artifact_id=uuid.uuid4(),
         started_by=other,
         target_results_json={
             "targets": [
@@ -241,13 +244,15 @@ def test_student_target_matches_generated_snapshot_shape() -> None:
     assert ai_assignment_service._target_for_student(run, uuid.uuid4()) == {}
     # 多 target 的 run 即使是發起者也不可拿到 targets[0]
     assert ai_assignment_service._target_for_student(run, other)["vmid"] == 1
-    multi_no_user = SimpleNamespace(
+    multi_no_user = TeacherJudgeScriptRun(
+        artifact_id=uuid.uuid4(),
         started_by=other,
         target_results_json={"targets": [{"vmid": 1}, {"vmid": 2}]},
     )
     assert ai_assignment_service._target_for_student(multi_no_user, other) == {}
     # 舊資料：單一 target、無 user 快照、由本人發起 → 唯一的 target 就是本人的
-    legacy = SimpleNamespace(
+    legacy = TeacherJudgeScriptRun(
+        artifact_id=uuid.uuid4(),
         started_by=student, target_results_json={"targets": [{"vmid": 7}]}
     )
     assert ai_assignment_service._target_for_student(legacy, student)["vmid"] == 7

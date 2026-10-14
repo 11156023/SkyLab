@@ -10,15 +10,25 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from functools import partial
 from threading import Event, Lock
 from time import perf_counter
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
-from sqlalchemy import or_
+from sqlalchemy import exists, func, or_
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
+from app.ai.teacher_judge.run_record_service import (
+    TERMINAL_TARGET_STATUSES,
+    fail_unfinished_targets,
+    initialize_targets,
+    seconds_between,
+    store_target_result,
+    target_key,
+    update_batch,
+)
 from app.ai.teacher_judge.script_policy import (
     RAW_RESULT_LIMIT,
     normalize_managed_script_checks,
@@ -35,6 +45,8 @@ from app.infrastructure.ssh import (
     exec_command,
 )
 from app.models.base import get_datetime_utc as _now
+from app.models.teacher_judge_run_batch import TeacherJudgeRunBatch
+from app.models.teacher_judge_run_target import TeacherJudgeRunTarget
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptStatus,
@@ -265,14 +277,36 @@ def _save_run_progress(
     statuses: dict[int, str],
     done: int,
     preflight_results: list[dict[str, Any]] | None = None,
+    results: list[dict[str, Any]] | None = None,
+    target_updates: dict[int, dict[str, Any]] | None = None,
 ) -> None:
     with Session(engine) as session:
         run = session.get(
-            TeacherJudgeScriptRun, run_id, with_for_update=_RUN_ROW_LOCK
+            TeacherJudgeScriptRun, run_id, with_for_update=_RUN_ROW_LOCK,
+            options=[selectinload(cast(Any, TeacherJudgeScriptRun.target_records)).defer(
+                cast(Any, TeacherJudgeRunTarget.result_json),
+            )],
         )
         # 執行中途被回收（或已收尾）的 run 不再寫進度，以免蓋掉 failed 的狀態
         if run is None or run.status != TeacherJudgeScriptRunStatus.running:
             return
+        initialize_targets(session, run)
+        records = {row.target_key: row for row in run.target_records}
+        for result in results or []:
+            result_row = records.get(target_key(result))
+            if result_row is not None and result_row.status not in TERMINAL_TARGET_STATUSES:
+                store_target_result(result_row, result)
+        for target in targets:
+            row = records[target_key(target)]
+            update = (target_updates or {}).get(_target_vmid(target), {})
+            for key in ("queued_at", "started_at"):
+                if key in update and getattr(row, key) is None:
+                    setattr(row, key, update[key])
+            if row.status in TERMINAL_TARGET_STATUSES:
+                continue
+            row.status = statuses.get(_target_vmid(target), "queued")
+            row.stage = str(update.get("stage") or row.stage)
+            row.updated_at = _now()
         run.progress_json = {
             "stage": stage,
             "total": len(targets) + len(preflight_results or []),
@@ -282,6 +316,7 @@ def _save_run_progress(
         }
         run.updated_at = _now()
         session.add(run)
+        update_batch(session, run.run_batch_id)
         session.commit()
 
 
@@ -370,6 +405,12 @@ def _resolve_runtime_target(
     }
 
 
+def _target_phase(target: dict[str, Any], stage: str) -> None:
+    callback = target.get("_on_phase")
+    if callback is not None:
+        callback(stage)
+
+
 def _execute_target_script(
     *,
     target: dict[str, Any],
@@ -377,6 +418,7 @@ def _execute_target_script(
 ) -> RemoteScriptResult:
     started = perf_counter()
     timing: dict[str, Any] = {}
+    _target_phase(target, "preparing")
     phase, phase_started = "prepare_seconds", started
     vmid = _target_vmid(target)
     remote_dir = f"{REMOTE_ROOT}/{target['run_id']}/{vmid}"
@@ -430,6 +472,7 @@ def _execute_target_script(
         # timeout(1) 真的停掉逾時的腳本（不然刪掉檔案後 python 仍在背景跑）；
         # 缺少遠端 deadline 時不執行，避免 channel 逾時後腳本仍在背景跑。
         script_started = perf_counter()
+        _target_phase(target, "executing")
         timing["prepare_seconds"] = round(script_started - started, 3)
         phase, phase_started = "script_seconds", script_started
         exit_code, _, _ = exec_command(
@@ -443,6 +486,8 @@ def _execute_target_script(
             max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
         )
         download_started = perf_counter()
+        timing["script_finished_at"] = _now().isoformat()
+        _target_phase(target, "downloading")
         timing["script_seconds"] = round(download_started - script_started, 3)
         phase, phase_started = "download_seconds", download_started
         result_json_text, result_too_large = _read_remote_text(
@@ -464,6 +509,9 @@ def _execute_target_script(
         )
     except Exception as exc:
         timing[phase] = round(perf_counter() - phase_started, 3)
+        timing["failure_stage"] = {
+            "prepare_seconds": "preparing", "script_seconds": "executing", "download_seconds": "downloading",
+        }[phase]
         raise TargetExecutionError(
             str(exc),
             _target_exception_reason(exc),
@@ -471,6 +519,7 @@ def _execute_target_script(
         ) from exc
     finally:
         cleanup_started = perf_counter()
+        _target_phase(target, "cleanup")
         if sftp is not None:
             try:
                 sftp.close()
@@ -527,13 +576,16 @@ def _execute_scheduled_target(
     }
     if stop_event is not None and stop_event.is_set():
         result = _target_failure(target, "執行流程已中斷。", "executor_cancelled")
-        result["timing"] = {**timing, "total_seconds": 0.0}
+        result["timing"] = {**timing, "total_seconds": 0.0, "finished_at": _now().isoformat()}
         return result
     on_start()
     try:
         remote = _execute_target_script(target=target, script_content=script_content)
         timing.update(remote.timing)
+        _target_phase(target, "validating")
+        validation_started = perf_counter()
         result = _target_result(target, remote)
+        timing["validation_seconds"] = round(perf_counter() - validation_started, 3)
     except Exception as exc:
         logger.warning(
             "Teacher Judge target execution failed run=%s vmid=%s",
@@ -546,6 +598,11 @@ def _execute_scheduled_target(
             _target_exception_reason(exc),
         )
     timing["total_seconds"] = round(perf_counter() - started, 3)
+    timing["finished_at"] = _now().isoformat()
+    if result["status"] == "failed":
+        result["failure_stage"] = timing.pop("failure_stage", None) or (
+            "validating" if result["reason_code"] in {"invalid_json", "result_too_large"} else "executing"
+        )
     result["timing"] = timing
     logger.info(
         "Teacher Judge target finished run=%s vmid=%s status=%s timing=%s",
@@ -706,6 +763,10 @@ def reap_stale_script_runs(session: Session, *, now: datetime | None = None) -> 
         .where(
             col(TeacherJudgeScriptRun.run_batch_id).is_not(None),
             TeacherJudgeScriptRun.updated_at > cutoff,
+            or_(
+                col(TeacherJudgeScriptRun.status) != TeacherJudgeScriptRunStatus.failed,
+                func.coalesce(TeacherJudgeScriptRun.result_summary_json["executor_reason"].as_string(), "") != "executor_lost",
+            ),
         )
         .correlate(None)
     )
@@ -730,11 +791,31 @@ def reap_stale_script_runs(session: Session, *, now: datetime | None = None) -> 
             STALE_RUN_MESSAGE.format(hours=STALE_RUN_HOURS),
             stale_before=cutoff,
         )
-    return len(stale_ids)
+    # A process can die after accepting a batch but before committing any child
+    # runs. Such attempts must not remain pending forever.
+    orphan_batches = session.exec(select(TeacherJudgeRunBatch).where(
+        TeacherJudgeRunBatch.status == "pending",
+        col(TeacherJudgeRunBatch.prepared_at).is_(None),
+        col(TeacherJudgeRunBatch.requested_at).is_not(None),
+        TeacherJudgeRunBatch.updated_at <= cutoff,
+        ~exists(select(TeacherJudgeScriptRun.id).where(
+            col(TeacherJudgeScriptRun.run_batch_id) == col(TeacherJudgeRunBatch.id),
+        )),
+    ).limit(20).with_for_update(skip_locked=True)).all()
+    for batch in orphan_batches:
+        batch.status = "failed"
+        batch.finished_at = current
+        batch.updated_at = current
+        batch.error_message = STALE_RUN_MESSAGE.format(hours=STALE_RUN_HOURS)
+        session.add(batch)
+    if orphan_batches:
+        session.commit()
+    return len(stale_ids) + len(orphan_batches)
 
 
 def _mark_run_executor_failed(
-    run_id: uuid.UUID, message: str, *, stale_before: datetime | None = None
+    run_id: uuid.UUID, message: str, *, stale_before: datetime | None = None,
+    reason_code: str = "executor_error",
 ) -> None:
     """把 run 標成 failed；``stale_before`` 有值時只處理到那時仍無進度的 run。"""
 
@@ -749,31 +830,32 @@ def _mark_run_executor_failed(
                 TeacherJudgeScriptRun.updated_at <= stale_before,
             )
         run = session.exec(statement.with_for_update(**_RUN_ROW_LOCK)).first()
-        if run is None or run.status == TeacherJudgeScriptRunStatus.completed:
+        if run is None or run.status not in _ACTIVE_RUN_STATUSES:
             return
         targets = list(run.target_snapshot_json.get("targets") or [])
         preflight_results = list(
             run.target_snapshot_json.get("preflight_results") or []
         )
-        statuses = {_target_vmid(target): "failed" for target in targets}
+        initialize_targets(session, run)
+        finished_at = _now()
+        fail_unfinished_targets(run, message, "executor_lost" if stale_before else reason_code, finished_at)
+        results = run.results_document.get("targets") or []
+        statuses = {int(result["vmid"]): str(result["status"]) for result in results if result.get("vmid") is not None}
         run.status = TeacherJudgeScriptRunStatus.failed
         run.progress_json = {
             "stage": "failed",
             "total": len(targets) + len(preflight_results),
-            "done": len(preflight_results),
+            "done": len(results),
             "targets": _target_progress(targets, statuses)
             + preflight_progress(preflight_results),
         }
         run.result_summary_json = {
+            **_summary(results),
             "executor_error": message,
+            "executor_reason": "executor_lost" if stale_before else reason_code,
             "preflight_failed": len(preflight_results),
         }
-        if preflight_results:
-            run.target_results_json = {
-                "schema_version": "teacher_judge_run_results.v2",
-                "targets": preflight_results,
-            }
-        run.finished_at = _now()
+        run.finished_at = finished_at
         run.result_summary_json = {
             **run.result_summary_json,
             **_run_execution_summary(run, run.finished_at),
@@ -783,6 +865,7 @@ def _mark_run_executor_failed(
         artifact = session.get(TeacherJudgeScriptArtifact, run.artifact_id)
         if artifact is not None:
             _touch_judge_session(session, artifact)
+        update_batch(session, run.run_batch_id)
         session.commit()
 
 
@@ -843,8 +926,11 @@ def _execute_targets(
                 **_run_execution_summary(run, run.finished_at),
             }
             run.updated_at = _now()
+            initialize_targets(session, run)
+            fail_unfinished_targets(run, str(run.result_summary_json["error"]), "artifact_not_approved", run.finished_at)
             session.add(run)
             _touch_judge_session(session, artifact)
+            update_batch(session, run.run_batch_id)
             session.commit()
             return None
 
@@ -863,13 +949,16 @@ def _execute_targets(
             run.updated_at = _now()
             session.add(run)
             _touch_judge_session(session, artifact)
+            update_batch(session, run.run_batch_id)
             session.commit()
             return None
 
         statuses = {_target_vmid(target): "queued" for target in targets}
         run.status = TeacherJudgeScriptRunStatus.running
         run.started_at = run.started_at or _now()
+        initialize_targets(session, run)
         session.add(run)
+        update_batch(session, run.run_batch_id)
         session.commit()
         session.refresh(run)
         _save_run_progress(
@@ -911,7 +1000,10 @@ def _execute_targets(
                     if isinstance(exc, TargetExecutionError)
                     else "executor_error"
                 )
-                early_results.append(_target_failure(target, str(exc), reason_code))
+                failure = _target_failure(target, str(exc), reason_code)
+                failure["failure_stage"] = "resolving_target"
+                failure["timing"] = {"finished_at": _now().isoformat()}
+                early_results.append(failure)
         # 收掉解析目標時開的交易（含 ensure_guest_os 只 flush 的補偵測結果）
         session.commit()
 
@@ -922,17 +1014,23 @@ def _execute_targets(
         statuses=statuses,
         done=len(preflight_results) + len(early_results),
         preflight_results=preflight_results,
+        results=early_results,
     )
 
     results = list(preflight_results) + early_results
     progress_lock = Lock()
-    progress_dirty = False
+    target_updates: dict[int, dict[str, Any]] = {}
 
     def mark_started(target: dict[str, Any]) -> None:
-        nonlocal progress_dirty
         with progress_lock:
             statuses[_target_vmid(target)] = "running"
-            progress_dirty = True
+            target_updates.setdefault(_target_vmid(target), {}).update(
+                stage="preparing", started_at=_now(),
+            )
+
+    def mark_phase(target: dict[str, Any], stage: str) -> None:
+        with progress_lock:
+            target_updates.setdefault(_target_vmid(target), {})["stage"] = stage
 
     if runtime_targets:
         executor = _get_ssh_executor()
@@ -940,6 +1038,11 @@ def _execute_targets(
         pending: dict[Future[dict[str, Any]], dict[str, Any]] = {}
         # Include waiting behind this run's window as well as the shared pool.
         queued_at = perf_counter()
+        queued_timestamp = _now()
+        target_updates = {
+            _target_vmid(target): {"stage": "queued", "queued_at": queued_timestamp}
+            for target in runtime_targets
+        }
         last_progress_at = queued_at
 
         def submit_next() -> bool:
@@ -950,7 +1053,7 @@ def _execute_targets(
                 return False
             future = executor.submit(
                 _execute_scheduled_target,
-                target=target,
+                target={**target, "_on_phase": partial(mark_phase, target)},
                 script_content=script_content,
                 queued_at=queued_at,
                 on_start=partial(mark_started, target),
@@ -959,6 +1062,7 @@ def _execute_targets(
             pending[future] = target
             return True
 
+        interrupted = False
         try:
             for _ in range(MAX_SSH_CONCURRENCY_PER_RUN):
                 if not submit_next():
@@ -981,16 +1085,13 @@ def _execute_targets(
                     results.append(target_result)
                     with progress_lock:
                         statuses[_target_vmid(target)] = str(target_result["status"])
-                        progress_dirty = True
                     submit_next()
 
                 current = perf_counter()
                 if current - last_progress_at >= PROGRESS_UPDATE_INTERVAL_SECONDS:
                     with progress_lock:
-                        snapshot = dict(statuses) if progress_dirty else None
-                        progress_dirty = False
-                    if snapshot is None:
-                        continue
+                        snapshot = dict(statuses)
+                        updates = {key: dict(value) for key, value in target_updates.items()}
                     _save_run_progress(
                         run_id=run_id,
                         stage="executing",
@@ -998,13 +1099,37 @@ def _execute_targets(
                         statuses=snapshot,
                         done=len(results),
                         preflight_results=preflight_results,
+                        results=results,
+                        target_updates=updates,
                     )
                     last_progress_at = current
+        except BaseException:
+            interrupted = True
+            if stop_event is not None:
+                stop_event.set()
+            raise
         finally:
             # On coordinator failure, stop queued work and drain running SSH
             # before the caller marks failure; no progress may arrive afterward.
             running = [future for future in pending if not future.cancel()]
             wait(running)
+            # A cancelled coordinator still saves successfully drained targets.
+            if pending:
+                for future in running:
+                    if future.exception() is None:
+                        result = future.result()
+                        results.append(result)
+                        statuses[_target_vmid(result)] = str(result["status"])
+            if pending or interrupted or (stop_event is not None and stop_event.is_set() and results):
+                try:
+                    _save_run_progress(
+                        run_id=run_id, stage="finalizing", targets=targets,
+                        statuses=statuses, done=len(results),
+                        preflight_results=preflight_results, results=results,
+                        target_updates=target_updates,
+                    )
+                except Exception:
+                    logger.exception("Unable to persist drained targets run=%s", run_id)
 
     if stop_event is not None and stop_event.is_set():
         return None
@@ -1016,6 +1141,8 @@ def _execute_targets(
         statuses=statuses,
         done=len(results),
         preflight_results=preflight_results,
+        results=results,
+        target_updates=target_updates,
     )
     return _ExecutedTargets(results=results)
 
@@ -1043,17 +1170,19 @@ def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
             if result.get("vmid") is not None
         }
         finished_at = _now()
+        initialize_targets(session, run)
+        records = {row.target_key: row for row in run.target_records}
         for result in results:
             timing = result.get("timing")
             if isinstance(timing, dict) and timing.get("received_at"):
-                timing["finalize_wait_seconds"] = _seconds_between(
+                timing["finalize_wait_seconds"] = seconds_between(
                     datetime.fromisoformat(timing["received_at"]), finished_at
                 )
+            row = records.get(target_key(result))
+            if row is not None and row.status != "cancelled":
+                store_target_result(row, result)
+                row.timing_json = {**row.timing_json, "run_wait_seconds": seconds_between(row.finished_at, finished_at)}
         # results arrive already sorted by vmid from _execute_targets
-        run.target_results_json = {
-            "schema_version": "teacher_judge_run_results.v2",
-            "targets": results,
-        }
         run.result_summary_json = {
             **_summary(results),
             **_run_execution_summary(run, finished_at),
@@ -1070,6 +1199,7 @@ def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
         run.updated_at = finished_at
         session.add(run)
         _touch_judge_session(session, artifact)
+        update_batch(session, run.run_batch_id)
         session.commit()
 
 
@@ -1080,20 +1210,12 @@ def _run_execution_summary(
         "ssh_concurrency_per_run": MAX_SSH_CONCURRENCY_PER_RUN,
         "ssh_concurrency_total": MAX_TOTAL_SSH_CONCURRENCY,
         "timing": {
-            "queue_seconds": _seconds_between(run.created_at, run.started_at),
-            "execution_seconds": _seconds_between(run.started_at, finished_at),
-            "total_seconds": _seconds_between(run.created_at, finished_at),
+            "queue_seconds": seconds_between(run.prepared_at or run.created_at, run.started_at),
+            "preparation_seconds": seconds_between(run.created_at, run.prepared_at),
+            "execution_seconds": seconds_between(run.started_at, finished_at),
+            "total_seconds": seconds_between(run.created_at, finished_at),
         },
     }
-
-
-def _seconds_between(start: datetime | None, end: datetime | None) -> float | None:
-    if start is None or end is None:
-        return None
-    # SQLite fixtures return naive UTC while PostgreSQL preserves the timezone.
-    start = start.replace(tzinfo=timezone.utc) if start.tzinfo is None else start
-    end = end.replace(tzinfo=timezone.utc) if end.tzinfo is None else end
-    return round(max(0.0, (end - start).total_seconds()), 3)
 
 
 async def _await_worker(
@@ -1144,6 +1266,7 @@ async def execute_script_run(run_id: uuid.UUID) -> None:
                     _mark_run_executor_failed,
                     run_id,
                     "執行流程已中斷；請檢查目標狀態後再重試。",
+                    reason_code="executor_cancelled",
                 )
             )
         )
@@ -1202,5 +1325,13 @@ async def execute_script_run_batch(run_batch_id: uuid.UUID) -> None:
     """Execute child runs sequentially so total SSH concurrency stays bounded."""
 
     run_ids = await asyncio.to_thread(_batch_run_ids, run_batch_id)
-    for run_id in run_ids:
-        await execute_script_run(run_id)
+    try:
+        for run_id in run_ids:
+            await execute_script_run(run_id)
+    except asyncio.CancelledError:
+        for run_id in run_ids:
+            await _await_worker(asyncio.create_task(asyncio.to_thread(
+                _mark_run_executor_failed, run_id,
+                "整批執行流程已中斷。", reason_code="executor_cancelled",
+            )))
+        raise

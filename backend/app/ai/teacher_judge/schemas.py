@@ -784,6 +784,8 @@ class TeacherJudgeScriptRunPublic(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+    prepared_at: str | None = None
+    request_id: str | None = None
 
 
 class TeacherJudgeScriptRunSummary(BaseModel):
@@ -798,6 +800,8 @@ class TeacherJudgeScriptRunSummary(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+    prepared_at: str | None = None
+    request_id: str | None = None
 
 
 class TeacherJudgeScriptSetPublic(BaseModel):
@@ -824,14 +828,51 @@ class TeacherJudgeRunBatchNodePublic(BaseModel):
     result_summary_json: dict[str, Any]
 
 
-class TeacherJudgeRunBatchPublic(BaseModel):
+class TeacherJudgeRunBatchSummary(BaseModel):
     run_batch_id: str
     teaching_class_id: str
     session_id: str | None = None
-    status: Literal["pending", "running", "completed", "completed_with_failures", "failed"]
+    status: Literal["pending", "running", "completed", "completed_with_failures", "failed", "cancelled"]
     summary: dict[str, int]
+    request_id: str | None = None
+    started_by: str | None = None
+    created_at: str | None = None
+    prepared_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    error_message: str | None = None
+    timing: dict[str, float | None] = Field(default_factory=dict)
+
+
+class TeacherJudgeRunBatchPublic(TeacherJudgeRunBatchSummary):
     nodes: list[TeacherJudgeRunBatchNodePublic]
     students: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TeacherJudgeRunTargetPublic(BaseModel):
+    id: str
+    run_id: str
+    student_id: str | None
+    vmid: int | None
+    node_key: str | None
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    stage: str
+    reason_code: str | None
+    exit_code: int | None
+    created_at: str
+    updated_at: str
+    queued_at: str | None
+    started_at: str | None
+    script_finished_at: str | None
+    received_at: str | None
+    finished_at: str | None
+    timing: dict[str, Any]
+    result: dict[str, Any]
+
+
+class TeacherJudgeRunTargetPage(BaseModel):
+    data: list[TeacherJudgeRunTargetPublic]
+    total: int
 
 
 class TeacherJudgeTargetReviewUpdate(BaseModel):

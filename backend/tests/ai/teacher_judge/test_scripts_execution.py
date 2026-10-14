@@ -630,7 +630,7 @@ def test_target_over_ssh_limits_fails_alone_with_clear_reason(
         stored = session.get(TeacherJudgeScriptRun, run_id)
         assert stored is not None
         assert stored.status == TeacherJudgeScriptRunStatus.completed
-        by_vmid = {item["vmid"]: item for item in stored.target_results_json["targets"]}
+        by_vmid = {item["vmid"]: item for item in stored.results_document["targets"]}
         assert by_vmid[101]["status"] == "failed"
         assert by_vmid[101]["reason_code"] == "execution_timeout"
         assert "75" in by_vmid[101]["validation"]["error"]

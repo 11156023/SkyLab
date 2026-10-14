@@ -105,7 +105,7 @@ def _target_for_student(
 ) -> dict[str, Any]:
     """Return only the result target owned by the requested student."""
 
-    raw_targets = (run.target_results_json or {}).get("targets")
+    raw_targets = (run.results_document or {}).get("targets")
     if isinstance(raw_targets, list):
         for raw_target in raw_targets:
             if not isinstance(raw_target, dict):

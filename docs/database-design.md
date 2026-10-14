@@ -96,3 +96,27 @@ The migration runs in one transaction. Before changing anything it checks existi
 - any row would violate one of the new constraints.
 
 Class machine mappings that have no batch task and whose vmid has no resource are already dangling. They are not treated as errors. The migration logs their count as a warning, and afterwards they read as not provisioned. `downgrade` restores the old columns from the new tables.
+
+## Teacher Judge execution records (`tjrec01`)
+
+| Level | Source | Persistence |
+| --- | --- | --- |
+| Whole class | `teacher_judge_run_batches` | Commit the accepted attempt before preparing child runs. Preparation failures retain a terminal batch record. |
+| Node script | `teacher_judge_script_runs` | Artifact, target snapshot, progress and summary; class identity is still derived from the artifact. |
+| Target | `teacher_judge_run_targets` | Create all selected targets, including preflight failures without a VMID. The coordinator commits progress and completed results about once per second and flushes remaining results at the end. |
+
+Targets are unique by `(run_id, target_key)`, using student plus logical node when available, otherwise VMID. Student identity and VMID are execution snapshots. SSH keys, hosts and runtime context are not copied into target metadata. New executions and teacher reviews use target rows as their result source. `TeacherJudgeScriptRun.results_document` reconstructs the existing API's `target_results_json`; the old column is a historical fallback rather than a second active writer.
+
+Target timestamps cover queue admission, start, observed script exit, download receipt and finish. Durations cover preparation, execution, download, cleanup and validation. `finished_at` records observed completion or the backend's terminal failure decision; executor loss does not establish when a remote script actually stopped. Failures include `reason_code` and `failure_stage`. Target `total_seconds` excludes queuing. `run_wait_seconds` measures target finish to run finalization; the batch API derives `completion_wait_seconds` from target finish to batch finalization. Existing `finalize_wait_seconds` and `batch_wait_seconds` retain their response semantics.
+
+Batch `timing.total_seconds` measures elapsed time from accepting the attempt until all child runs are terminal, rather than summing target durations. Preparation, initial queue and execution-span durations are separate. Total duration remains `null` while active; `elapsed_seconds` provides the current elapsed time. Run queuing starts at `prepared_at`, falling back to `created_at` for historical records. Finalization timestamps are sampled before the last transaction commits and exclude that commit, HTTP delivery and browser polling.
+
+Instructor endpoints retain the `/teaching-classes/{class_id}/judge/sessions/{session_id}` authorization boundary:
+
+- `GET /run-batches`: paginated summaries using `skip`/`limit`; SQL aggregates counts without loading check-result bodies.
+- `GET /run-batches/{run_batch_id}`: batch timing, counts, runs and student results.
+- `GET /runs/{run_id}/targets`: paginated `data`/`total`, optionally filtered by `status`, `student_id` and `vmid`.
+
+Cancellation, dispatch rejection and stale reaping terminate unfinished work without replacing persisted results. Hard process termination may still lose results waiting for the next short commit interval. Accepted batches without committed child runs are also reaped by the existing stale scheduler. Analysis messages store the same request ID as `ai_api_usage`; source-file/analysis-revision references connect them to artifacts, batches, runs and targets.
+
+The migration backfills selected targets, preflight failures and results without inventing target finish or batch request timestamps. Historical terminal targets without results use `legacy_result_missing`. Original run JSON remains intact; downgrade reconstructs target results and subsequent teacher reviews before dropping the new tables. Records follow existing class/artifact/run deletion relationships and are not a permanent audit archive.
