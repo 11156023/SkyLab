@@ -2299,6 +2299,17 @@
 }
 
 /* ── 學生總覽展開後的單台機器卡 ── */
+.executionTiming {
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+
+  summary { cursor: pointer; }
+  dl { display: flex; flex-wrap: wrap; gap: $spacing-8 $spacing-16; margin: $spacing-8 0; }
+  dl > div { display: flex; flex-wrap: wrap; gap: $spacing-8; }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  p { margin: $spacing-8 0 0; }
+}
+
 .reviewMachineCard {
   display: grid;
   gap: $spacing-8;

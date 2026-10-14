@@ -757,7 +757,8 @@ def test_execute_target_script_uploads_runs_and_collects_result(
         "cd /tmp/campus-cloud-judge/run-1/101 && "
         "if command -v timeout >/dev/null 2>&1; "
         "then timeout -k 5 60 python3 script.py; "
-        "else python3 script.py; fi > result.json 2> stderr.log"
+        "else echo 'timeout command unavailable' >&2; exit 125; "
+        "fi > result.json 2> stderr.log"
     )
     assert commands == [
         "mkdir -p /tmp/campus-cloud-judge/run-1/101",

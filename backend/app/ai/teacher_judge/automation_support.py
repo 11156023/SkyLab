@@ -6,6 +6,7 @@ from typing import Any, NotRequired, TypedDict
 
 from fastapi import HTTPException
 
+from app.ai.teacher_judge.check_plan_contract import execution_location_claim_issues
 from app.ai.teacher_judge.deterministic_compiler import missing_execution_location
 from app.ai.teacher_judge.machine_context import rubric_item_machine_issues
 from app.ai.teacher_judge.schemas import (
@@ -23,6 +24,7 @@ class AutomationSupportBlocker(TypedDict):
     missing_information: list[str]
     reason_code: str
     detail: NotRequired[str]
+    issues: NotRequired[list[dict[str, Any]]]
 
 
 _TEACHER_RESULT_GAP_MARKERS = (
@@ -221,6 +223,18 @@ def get_script_generation_blockers(
         )
 
     for item in analysis.items:
+        location_issues = execution_location_claim_issues(item)
+        if location_issues:
+            blockers.append({
+                "item_id": item.id,
+                "title": item.title,
+                "status": "analysis_error",
+                "missing_information": [],
+                "reason_code": "check_plan_contract_invalid",
+                "detail": "檢查步驟已具備完整執行位置，但核對結果仍將位置列為缺口；請重新核對，無須重填已知路徑。",
+                "issues": location_issues,
+            })
+            continue
         if item.detectable == "manual":
             detail = (item.fallback or "").strip()
             if not detail:

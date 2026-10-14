@@ -239,7 +239,7 @@ def _workflow_item_result(row: Any) -> dict[str, Any] | None:
             {
                 "step_id": _workflow_text(issue.get("step_id"), 120),
                 "step_index": issue.get("step_index"),
-                "detail": _workflow_issue_text(issue.get("detail")),
+                "detail": _workflow_issue_text(issue.get("detail") or issue.get("message")),
             }
             for issue in row["issues"][:16]
             if isinstance(issue, dict)

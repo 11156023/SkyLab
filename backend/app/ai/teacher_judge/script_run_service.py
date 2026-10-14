@@ -1221,6 +1221,10 @@ def project_run_items(
         "display_label": display_labels.get(str(artifact.target_node_key or "")),
         "execution_status": target_result.get("status"),
         "reason_code": target_result.get("reason_code"),
+        **(
+            {"timing": dict(target_result["timing"])}
+            if isinstance(target_result.get("timing"), dict) else {}
+        ),
         "vmid": target_result.get("vmid"),
         "teacher_review": (
             cast(
@@ -1290,6 +1294,12 @@ def get_script_run_batch_public(
     nodes = load_class_machine_nodes(session, teaching_class_id)
     labels = {node.node_key: machine_node_display_label(node) for node in nodes}
     runs = [row[0] for row in rows]
+    # The review UI reloads results only after every child run is terminal.
+    batch_finished_at = (
+        max(run.finished_at for run in runs if run.finished_at is not None)
+        if all(run.finished_at is not None for run in runs)
+        else None
+    )
     student_nodes: dict[str, list[dict[str, Any]]] = {}
     total_targets = completed_targets = failed_targets = 0
     node_outputs: list[TeacherJudgeRunBatchNodePublic] = []
@@ -1346,6 +1356,12 @@ def get_script_run_batch_public(
             # Keep the child run id on every student-node projection so clients do
             # not have to infer it from the batch-level node summary.
             projected_node["run_id"] = str(run.id)
+            if "timing" in projected_node:
+                projected_node["timing"]["batch_wait_seconds"] = (
+                    round(max(0.0, (batch_finished_at - run.finished_at).total_seconds()), 3)
+                    if batch_finished_at is not None and run.finished_at is not None
+                    else None
+                )
             student_nodes.setdefault(student_id, []).append(projected_node)
     first_artifact = rows[0][1]
     return TeacherJudgeRunBatchPublic(
