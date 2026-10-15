@@ -1755,10 +1755,13 @@ def _tool_error_reply(errors: list[dict[str, Any]], *, staged: bool = False) -> 
 def _contract_tool_error(
     issues: list[dict[str, Any]], *, item_id: str
 ) -> dict[str, Any]:
+    error_messages = []
+    for issue in issues[:8]:
+        message = str(issue.get("message") or "typed contract 無效")
+        field = str(issue.get("field") or "").strip()
+        error_messages.append(f"{field}: {message}" if field else message)
     return {
-        "error": "；".join(
-            str(issue.get("message") or "typed contract 無效") for issue in issues[:8]
-        ),
+        "error": "；".join(error_messages),
         "reason_code": "check_plan_contract_invalid",
         "teacher_input_required": False,
         "item_id": item_id,
@@ -1836,6 +1839,15 @@ def _execute_checklist_tool(
             ),
             {},
         )
+        title = str(
+            arguments.get("title")
+            or current.get("title")
+            or recorded.get("title")
+            or ""
+        ).strip()
+        error = str(result["error"])
+        if title and title not in error:
+            result["error"] = f"「{title}」：{error}"
         result.setdefault("reason_code", "tool_arguments_invalid")
         result.setdefault("retryable", True)
         result.setdefault("repair_hint", str(result["error"]))

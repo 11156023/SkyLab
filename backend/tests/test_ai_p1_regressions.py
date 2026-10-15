@@ -118,14 +118,6 @@ def test_structured_proposal_status_overrides_reply_wording() -> None:
 
 
 def test_create_tool_rejection_explains_invalid_step_to_model_only() -> None:
-    command = TeacherJudgeTemplateCommand(
-        template_key="linux",
-        command_key="system.run_command",
-        command_label="通用受控指令",
-        category="inspection",
-        command_template="argv + cwd + timeout",
-        description="執行單一唯讀診斷指令。",
-    )
     read_ids: set[str] = set()
     staged_ops: list[dict[str, object]] = []
     rejected_ops: list[tuple[object, dict[str, object], str]] = []
@@ -136,18 +128,30 @@ def test_create_tool_rejection_explains_invalid_step_to_model_only() -> None:
         {
             "title": "檢查 answer.txt 內容",
             "detectable": "auto",
+            "judgement_mode": "ai",
             "detection_method": "讀取檔案並確認內容格式。",
+            "missing_information": [],
             "check_steps": [
                 {
-                    "template_key": "linux",
-                    "command_key": "invented.command",
+                    "id": "answer.contents",
+                    "title": "讀取 answer.txt",
+                    "collector": {
+                        "type": "file_text",
+                        "path": "answer.txt",
+                        "read_mode": "full",
+                        "cwd": "/home/student",
+                    },
+                    "assertion": {
+                        "type": "text_contains",
+                        "expected": "OK",
+                    },
                 }
             ],
         },
         snapshot_items=[],
         analysis_revision=1,
         template_key="linux",
-        template_commands=[command],
+        template_commands=None,
         ready_only=True,
         read_ids=read_ids,
         staged_ops=staged_ops,
@@ -157,13 +161,12 @@ def test_create_tool_rejection_explains_invalid_step_to_model_only() -> None:
 
     assert "error" in result
     assert "「檢查 answer.txt 內容」" in result["error"]
-    assert "linux/system.run_command" in result["error"]
-    assert "這份清單不是提案限制" in result["error"]
-    assert "system.run_command" in result["error"]
-    assert "單一非空 argv list" in result["error"]
+    assert "check_steps[0]" in result["error"]
+    assert "collector.cwd" in result["error"]
+    assert "完整 check_steps 陣列" in result["repair_hint"]
     assert staged_ops == []
     assert any(
-        entry.get("status") == "rejected" for entry in tool_calls
+        entry.get("status") == "error" for entry in tool_calls
     )
 
 
@@ -262,7 +265,7 @@ def test_teacher_judge_prompt_uses_goal_directed_diagnostic_principles():
     assert "避免無目的大量執行指令" in CHAT_SYSTEM_TEMPLATE
     assert "不只回傳原始輸出" in CHAT_SYSTEM_TEMPLATE
     assert "不是提案白名單" in CHAT_SYSTEM_TEMPLATE
-    assert "沒有專用項目時使用 `system.run_command`" in CHAT_SYSTEM_TEMPLATE
+    assert "沒有專用項目時使用 command collector" in CHAT_SYSTEM_TEMPLATE
     assert "systemctl list-units" not in CHAT_SYSTEM_TEMPLATE
     assert "journalctl --since" not in CHAT_SYSTEM_TEMPLATE
     assert "`history` 是 shell builtin" not in CHAT_SYSTEM_TEMPLATE
@@ -301,15 +304,19 @@ async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypat
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "template_key": "python",
-                            "command_key": "python.run_entrypoint",
-                            "parameters": {
-                                "cwd": "/home/student/project",
-                                "argv": ["python3", "main.py"],
+                            "id": "main.output",
+                            "title": "執行 main.py 並確認輸出",
+                            "collector": {
+                                "type": "command",
+                                "argv": [
+                                    "python3",
+                                    "/home/student/project/main.py",
+                                ],
                                 "timeout_seconds": 30,
-                                "success_criteria": (
-                                    "exit code 為 0 且 stdout 等於 20"
-                                ),
+                            },
+                            "assertion": {
+                                "type": "text_equals",
+                                "expected": "20",
                             },
                         }
                     ],
@@ -732,7 +739,7 @@ async def test_teacher_judge_does_not_keep_false_ready_reply_after_failed_repair
 
 
 @pytest.mark.asyncio
-async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
+async def test_teacher_judge_accepts_typed_file_text_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
@@ -741,61 +748,68 @@ async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
             _tool_call_message(
                 "create_checklist_item",
                 {
-                    "title": "確認 answer.txt 內容格式",
+                    "title": "確認 answer.txt 含有 OK",
                     "detectable": "auto",
                     "judgement_mode": "ai",
-                    "detection_method": "讀取檔案並逐行驗證。",
+                    "detection_method": "讀取指定檔案並確認包含 OK。",
                     "missing_information": [],
                     "check_steps": [
                         {
-                            "template_key": "linux",
-                            "command_key": "invented.read_file",
-                            "parameters": {
-                                "argv": ["cat", "answer.txt"],
-                                "timeout_seconds": 30,
-                                "success_criteria": "內容格式正確",
+                            "id": "answer.includes-ok",
+                            "title": "answer.txt 含有 OK",
+                            "collector": {
+                                "type": "file_text",
+                                "path": "/home/student/project/answer.txt",
+                                "read_mode": "full",
+                            },
+                            "assertion": {
+                                "type": "text_contains",
+                                "expected": "OK",
                             },
                         }
                     ],
                 },
             ),
-            _reply_message("answer.txt 內容格式：Ready，已放入提案。", "ready"),
+            _reply_message("answer.txt 含有 OK：Ready，已放入提案。", "ready"),
         ],
     )
 
     monkeypatch.setattr(service, "_call_vllm_message", fake_call)
-    command = TeacherJudgeTemplateCommand(
-        template_key="linux",
-        command_key="system.run_command",
-        command_label="通用受控指令",
-        category="inspection",
-        command_template="argv + cwd + timeout",
-        description="執行單一唯讀診斷指令。",
-    )
 
     reply, proposal, _metrics = await service.chat_with_rubric(
         [
-                TeacherJudgeRubricChatMessage(
-                    role="user",
-                    content="確認 answer.txt 內容格式。",
-                )
+            TeacherJudgeRubricChatMessage(
+                role="user",
+                content=(
+                    "確認 /home/student/project/answer.txt 是否包含 OK。"
+                ),
+            )
         ],
         json.dumps({"items": []}),
-        template_commands=[command],
+        template_commands=None,
+        rubric_available=True,
     )
 
     assert len(calls) == 2
     assert proposal is not None
-    assert "answer.txt 內容格式" in reply
+    assert "answer.txt 含有 OK" in reply
     assert proposal[0]["operation"] == "add"
     assert proposal[0]["check_steps"] == [
         {
-            "template_key": "linux",
-            "command_key": "system.run_command",
-            "command_label": "通用受控指令",
-            "parameters": {
-                "argv": ["cat", "answer.txt"],
-                "timeout_seconds": 30,
+            "id": "answer.includes-ok",
+            "title": "answer.txt 含有 OK",
+            "collector": {
+                "type": "file_text",
+                "path": "/home/student/project/answer.txt",
+                "encoding": "utf-8",
+                "read_mode": "full",
+                "lines": None,
+                "max_chars": 12000,
+            },
+            "assertion": {
+                "type": "text_contains",
+                "expected": "OK",
+                "normalize": "none",
             },
         }
     ]
@@ -920,7 +934,9 @@ async def test_executor_cancellation_drains_worker_before_recording_failure(
     monkeypatch.setattr(executor, "_execute_targets", execute_targets)
     monkeypatch.setattr(executor, "_save_results", save)
     monkeypatch.setattr(
-        executor, "_mark_run_executor_failed", lambda *args: events.append("failed")
+        executor,
+        "_mark_run_executor_failed",
+        lambda *args, **kwargs: events.append("failed"),
     )
     task = asyncio.create_task(executor.execute_script_run(uuid.uuid4()))
     try:
@@ -1015,7 +1031,7 @@ async def test_executor_sessions_and_ssh_wait_stay_off_loop(monkeypatch, tmp_pat
     with Session(db_engine) as session:
         stored = session.get(TeacherJudgeScriptRun, run_id)
         assert stored.status == TeacherJudgeScriptRunStatus.completed
-        assert stored.target_results_json["targets"][0]["vmid"] == 101
+        assert stored.results_document["targets"][0]["vmid"] == 101
     # A late cancellation/failure cannot overwrite a committed completion.
     await asyncio.to_thread(executor._mark_run_executor_failed, run_id, "late failure")
     with Session(db_engine) as session:
