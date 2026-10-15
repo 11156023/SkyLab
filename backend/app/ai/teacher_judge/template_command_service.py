@@ -75,10 +75,10 @@ GENERAL_COMMAND = TeacherJudgeTemplateCommand(
     command_key="system.run_command",
     command_label="通用受控指令",
     category="inspection",
-    command_template="argv + cwd + timeout",
+    command_template="argv + timeout",
     description=(
         "平台已登錄的通用唯讀診斷能力。依檢查目的選擇 Linux 或 Windows "
-        "常見 CLI，以單一 argv 在指定工作目錄執行，並收集 exit code、stdout、"
+        "常見 CLI，以單一 argv 與絕對檔案路徑執行，並收集 exit code、stdout、"
         "stderr。禁止修改系統狀態、高風險或破壞性操作；能以低權限取得資訊時"
         "不得要求提權。平台會套用安全逾時，老師不需指定技術參數或新增權限。"
     ),
@@ -145,7 +145,7 @@ def format_template_commands_for_prompt(
                     f"  requires_confirmation: {command.requires_confirmation}",
                     *(
                         [
-                            "  parameters_schema: argv 是非空字串陣列；cwd 可選；"
+                            "  parameters_schema: argv 是非空字串陣列；檔案與程式位置必須為絕對路徑；"
                             "timeout_seconds 由平台補齊"
                         ]
                         if command.command_key == "system.run_command"

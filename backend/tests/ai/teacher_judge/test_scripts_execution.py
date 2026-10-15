@@ -179,15 +179,14 @@ def test_command_collector_rejects_allowlist_bypasses(argv: list[str]) -> None:
     assert _command_argv_issue(argv) is not None
 
 
-def test_command_collector_resolves_interpreter_script_against_cwd() -> None:
+def test_command_collector_checks_absolute_interpreter_script_location() -> None:
     assert (
         _command_argv_issue(
-            ["python3", "__main__.py", "install", "x"],
-            "/usr/lib/python3/dist-packages/pip",
+            ["python3", "/usr/lib/python3/dist-packages/pip/__main__.py", "install", "x"],
         )
         is not None
     )
-    assert _command_argv_issue(["python3", "main.py"], "/home/student/hw1") is None
+    assert _command_argv_issue(["python3", "/home/student/hw1/main.py"]) is None
 
 
 @pytest.mark.parametrize(
@@ -630,7 +629,7 @@ def test_target_over_ssh_limits_fails_alone_with_clear_reason(
         stored = session.get(TeacherJudgeScriptRun, run_id)
         assert stored is not None
         assert stored.status == TeacherJudgeScriptRunStatus.completed
-        by_vmid = {item["vmid"]: item for item in stored.target_results_json["targets"]}
+        by_vmid = {item["vmid"]: item for item in stored.results_document["targets"]}
         assert by_vmid[101]["status"] == "failed"
         assert by_vmid[101]["reason_code"] == "execution_timeout"
         assert "75" in by_vmid[101]["validation"]["error"]

@@ -149,13 +149,9 @@ def test_rubric_item_drops_retired_gaps() -> None:
 def test_rubric_check_step_json_schema_hides_legacy_fields() -> None:
     schema: dict[str, Any] = TeacherJudgeRubricCheckStep.model_json_schema()
     properties = schema["properties"]
-    for legacy in ("template_key", "command_key", "command_label", "parameters"):
+    for legacy in ("template_key", "command_key", "command_label", "parameters", "argv", "cwd", "timeout_seconds"):
         assert legacy not in properties
-    assert "required" not in schema
-    assert schema["anyOf"] == [
-        {"required": ["argv"]},
-        {"required": ["collector", "id", "title"]},
-    ]
+    assert schema["required"] == ["id", "title", "collector"]
 
 
 def test_session_create_request_validators() -> None:

@@ -158,6 +158,8 @@ const gpuLabel = (gpu) => {
 };
 
 
+const AI_DURATION_DAYS = [3, 14, 30, 90];
+
 function buildAiScheduleOptions(availability) {
   const days = (availability?.days || [])
     .filter((day) => (day.slots || []).some(
@@ -181,7 +183,10 @@ function buildAiScheduleOptions(availability) {
 
   const options = [];
   for (const run of runs) {
-    for (const dayCount of [1, 3, 7, 14, 30]) {
+    /* 與 AI 配置模式的使用時間選項（3天／2周／1個月／3個月）一致；
+       連續可用天數不夠長時多給一個「整段可用」的時段，讓較長的需求有東西可挑 */
+    const dayCounts = new Set([...AI_DURATION_DAYS, Math.min(run.length, 90)]);
+    for (const dayCount of dayCounts) {
       if (run.length < dayCount) continue;
       const selected = run.slice(0, dayCount);
       const selectedSlots = selected.flatMap((day) => day.slots || []);
@@ -195,6 +200,21 @@ function buildAiScheduleOptions(availability) {
     }
   }
   return options.slice(0, 12);
+}
+
+function scheduleDays(option) {
+  return Math.max(Math.round((new Date(option.end_at) - new Date(option.start_at)) / 86_400_000), 1);
+}
+
+/* 與後端 _schedule_for_duration 同規則：長度剛好的優先，否則挑最長的較短時段 */
+function pickScheduleForDuration(options, days) {
+  if (!days || !options?.length) return null;
+  const exact = options.find((option) => scheduleDays(option) === days);
+  if (exact) return exact;
+  const shorter = options.filter((option) => scheduleDays(option) < days);
+  const pool = shorter.length ? shorter : options;
+  const target = shorter.length ? Math.max(...pool.map(scheduleDays)) : Math.min(...pool.map(scheduleDays));
+  return pool.find((option) => scheduleDays(option) === target);
 }
 
 /* 依畫面順序排列，送出時定位到第一個有問題的欄位 */
@@ -292,6 +312,8 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   const [gpuOptions, setGpuOptions]     = useState([]);
   /* AI 建議的 GPU：等可用清單就緒才敢寫進表單（見下方 effect） */
   const [pendingGpu, setPendingGpu]     = useState(null);
+  /* AI 配置模式選的使用時間（天）：表單開啟前規劃的配置沒有時段，等可用日期載入後再挑 */
+  const [pendingDuration, setPendingDuration] = useState(null);
   const [gpuLoading, setGpuLoading]     = useState(false);
   const [gpuOptionsKey, setGpuOptionsKey] = useState("");
   /* 作業系統／範本來源清單是否有任何一支載入失敗，以及按「重試」用的重拉計數 */
@@ -729,11 +751,18 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     } else {
       setAutoOsChoice(prefill.lxc_os_image ? `img:${prefill.lxc_os_image}` : "");
     }
+    let nextMode = mode;
     if (isPrivileged && (prefill.mode === "scheduled" || prefill.mode === "immediate")) {
-      setMode(prefill.mode);
+      nextMode = prefill.mode;
     } else if (!isPrivileged) {
-      setMode("scheduled");
+      nextMode = "scheduled";
     }
+    setMode(nextMode);
+    setPendingDuration(
+      nextMode === "scheduled" && !prefill.start_at && !prefill.end_at && prefill.duration_days
+        ? Number(prefill.duration_days)
+        : null,
+    );
 
     if (nextResourceType !== "lxc") setSelectedTplId("");
     else setSelectedTplId(lxcCatalogPick ? lxcCatalogPick.id : "");
@@ -806,6 +835,17 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     pendingGpu, resourceType, selectedOsNeedsGpu, mode, gpuWindowReady,
     gpuLoading, gpuOptions, gpuOptionsKey, gpuOptionsRequestKey, toast,
   ]);
+
+  /* 使用者這段時間自己選了日期就不覆蓋 */
+  useEffect(() => {
+    if (!pendingDuration || !availabilityData) return;
+    const picked = pickScheduleForDuration(buildAiScheduleOptions(availabilityData), pendingDuration);
+    setPendingDuration(null);
+    if (!picked) return;
+    setForm((prev) => (prev.start_at || prev.end_at
+      ? prev
+      : { ...prev, start_at: picked.start_at, end_at: picked.end_at }));
+  }, [pendingDuration, availabilityData]);
 
   /* AI 助手在別的頁面談完需求後，會帶著推薦配置導到這裡。等候選清單載入完再套用，
      否則 LXC 應用範本會對不到目錄項目而退回成映像檔。 */

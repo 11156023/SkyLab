@@ -6,7 +6,10 @@ from typing import Any, NotRequired, TypedDict
 
 from fastapi import HTTPException
 
-from app.ai.teacher_judge.check_plan_contract import execution_location_claim_issues
+from app.ai.teacher_judge.check_plan_contract import (
+    execution_location_claim_issues,
+    typed_step_issues,
+)
 from app.ai.teacher_judge.deterministic_compiler import missing_execution_location
 from app.ai.teacher_judge.machine_context import rubric_item_machine_issues
 from app.ai.teacher_judge.schemas import (
@@ -25,6 +28,8 @@ class AutomationSupportBlocker(TypedDict):
     reason_code: str
     detail: NotRequired[str]
     issues: NotRequired[list[dict[str, Any]]]
+    step_id: NotRequired[str | None]
+    step_index: NotRequired[int | None]
 
 
 _TEACHER_RESULT_GAP_MARKERS = (
@@ -97,18 +102,6 @@ def missing_step_information(
     missing: list[str] = []
 
     if step.command_key == "python.run_entrypoint":
-        cwd = parameters.get("cwd")
-        if not non_empty_argv(parameters.get("argv")) and (
-            not isinstance(cwd, str) or not cwd.strip()
-        ):
-            missing.append(
-                _gap_text(
-                    parameters,
-                    "cwd",
-                    "main.py 所在的工作目錄",
-                    "main.py 所在的工作目錄（cwd 必須是非空字串）",
-                )
-            )
         if not non_empty_argv(parameters.get("argv")):
             missing.append(
                 _gap_text(
@@ -196,6 +189,7 @@ def get_script_generation_blockers(
 ) -> list[AutomationSupportBlocker]:
     """Explain why the current rubric cannot safely enter script generation."""
     blockers: list[AutomationSupportBlocker] = []
+    complete_items: list[TeacherJudgeRubricItem] = []
     valid_commands = {
         (command.template_key, command.command_key) for command in commands
     }
@@ -223,6 +217,18 @@ def get_script_generation_blockers(
         )
 
     for item in analysis.items:
+        step_issues = typed_step_issues(
+            [step.model_dump(mode="json") for step in item.check_steps if step.collector is not None],
+            item_id=item.id,
+        )
+        if step_issues:
+            blockers.append({
+                "item_id": item.id, "title": item.title, "status": "analysis_error",
+                "missing_information": [], "reason_code": "check_plan_contract_invalid",
+                "detail": "檢查步驟尚未符合目前契約，請依既有資訊重新核對並使用絕對路徑。",
+                "issues": step_issues,
+            })
+            continue
         location_issues = execution_location_claim_issues(item)
         if location_issues:
             blockers.append({
@@ -294,8 +300,11 @@ def get_script_generation_blockers(
                     "reason_code": "automatic_detection_information_missing",
                 }
             )
+        else:
+            complete_items.append(item)
 
-    if require_typed_plan and not blockers:
+    # A missing scope on one item must not hide invalid steps on another.
+    if require_typed_plan and complete_items:
         from app.ai.teacher_judge.deterministic_compiler import (
             CheckPlanContractError,
             canonicalize_check_plan,
@@ -303,7 +312,7 @@ def get_script_generation_blockers(
 
         try:
             canonicalize_check_plan(
-                analysis,
+                TeacherJudgeRubricAnalysis(items=complete_items),
                 require_target_node=require_target_node,
             )
         except CheckPlanContractError as exc:
@@ -315,7 +324,7 @@ def get_script_generation_blockers(
                 blockers.append(
                     {
                         "item_id": item_id,
-                        "title": titles.get(item_id, item_id or "檢查計畫契約"),
+                        "title": titles.get(item_id or "", item_id or "檢查計畫契約"),
                         "step_id": step_id or None,
                         "step_index": issue.get("step_index"),
                         "status": "analysis_error",

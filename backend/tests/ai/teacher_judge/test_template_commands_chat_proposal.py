@@ -763,7 +763,7 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
 
     assert len(calls) == 4
     rejected_result = json.loads(calls[1]["messages"][-1]["content"])
-    assert "list_checklist" in rejected_result["error"]
+    assert "get_checklist_item" in rejected_result["error"]
     assert "get_checklist_item" in rejected_result["error"]
     assert proposal is not None
     assert proposal[0]["id"] == "item-existing"

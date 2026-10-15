@@ -48,8 +48,8 @@ def test_normalize_allows_teacher_judgement_when_script_inputs_are_complete() ->
                         "template_key": "python",
                         "command_key": "python.run_entrypoint",
                         "parameters": {
-                            "cwd": "/home/student/project",
-                            "argv": ["python3", "main.py"],
+
+                            "argv": ["python3", "/home/student/project/main.py"],
                             "timeout_seconds": 30,
                         },
                     }
@@ -85,8 +85,8 @@ async def test_teacher_judgement_requirement_can_form_proposal_without_objective
                             "title": "唯讀取證",
                             "collector": {
                                 "type": "command",
-                                "cwd": "/home/student/project",
-                                "argv": ["cat", "main.py"],
+
+                                "argv": ["cat", "/home/student/project/main.py"],
                                 "timeout_seconds": 30,
                             },
                         }
@@ -149,7 +149,7 @@ def test_normalize_marks_auto_without_valid_check_steps_as_unsupported() -> None
 
 
 @pytest.mark.asyncio
-async def test_edit_patch_supplying_execution_info_clears_stale_missing_information(
+async def test_edit_patch_explicitly_clears_resolved_missing_information(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls, fake_call_vllm = scripted_vllm(
@@ -160,6 +160,7 @@ async def test_edit_patch_supplying_execution_info_clears_stale_missing_informat
                 {
                     "id": "item-python",
                     "detectable": "auto",
+                    "missing_information": [],
                     "judgement_mode": "ai",
                     "detection_method": "執行 main.py 並檢查 stdout",
                     "check_steps": [
@@ -168,8 +169,8 @@ async def test_edit_patch_supplying_execution_info_clears_stale_missing_informat
                             "title": "唯讀取證",
                             "collector": {
                                 "type": "command",
-                                "cwd": "/home/owo",
-                                "argv": ["python3", "main.py"],
+
+                                "argv": ["python3", "/home/student/project/main.py"],
                                 "timeout_seconds": 30,
                             },
                             "assertion": {"type": "returncode_equals", "expected": 0},
@@ -234,11 +235,12 @@ async def test_edit_patch_with_incomplete_parameters_returns_retry_hint(
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取 .env 並比對內容",
+                    "missing_information": [],
                     "check_steps": [
                         {
                             "id": "check.1",
                             "title": "唯讀取證",
-                            "collector": {"type": "command", "cwd": "/home/owo"},
+                            "collector": {"type": "command"},
                             "assertion": {"type": "returncode_equals", "expected": 0},
                         }
                     ],
@@ -251,14 +253,15 @@ async def test_edit_patch_with_incomplete_parameters_returns_retry_hint(
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取 .env 並比對內容",
+                    "missing_information": [],
                     "check_steps": [
                         {
                             "id": "check.1",
                             "title": "唯讀取證",
                             "collector": {
                                 "type": "command",
-                                "cwd": "/home/owo",
-                                "argv": ["cat", ".env"],
+
+                                "argv": ["cat", "/home/student/project/.env"],
                                 "timeout_seconds": 30,
                             },
                             "assertion": {"type": "returncode_equals", "expected": 0},

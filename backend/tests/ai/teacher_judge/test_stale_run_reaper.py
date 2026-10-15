@@ -31,7 +31,7 @@ class _Session:
 
     def exec(self, statement: Any) -> _Result:
         self.statements.append(statement)
-        return _Result(self.rows)
+        return _Result(self.rows if len(self.statements) == 1 else [])
 
 
 def test_reaper_marks_each_stale_run_failed(monkeypatch: pytest.MonkeyPatch) -> None:

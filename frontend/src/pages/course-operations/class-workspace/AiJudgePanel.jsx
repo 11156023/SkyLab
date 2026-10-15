@@ -216,26 +216,6 @@ function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
 }
 
-function hasCompleteParameterizedStep(step) {
-  const parameters = step?.parameters ?? {};
-  const hasArgv = Array.isArray(parameters.argv)
-    && parameters.argv.length > 0
-    && parameters.argv.every((part) => typeof part === "string" && part.trim());
-  const hasTimeout = Number.isInteger(parameters.timeout_seconds)
-    && parameters.timeout_seconds >= 1
-    && parameters.timeout_seconds <= 300;
-  if (step?.command_key === "python.run_entrypoint") {
-    return Boolean(typeof parameters.cwd === "string"
-      && parameters.cwd.trim()
-      && hasArgv
-      && hasTimeout);
-  }
-  if (step?.command_key === "system.run_command") {
-    return Boolean(hasArgv && hasTimeout);
-  }
-  return true;
-}
-
 /** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
 function stepParameterChips(step) {
   const collector = step?.collector ?? null;
@@ -246,9 +226,6 @@ function stepParameterChips(step) {
     : [];
   if (argv.length > 0) {
     chips.push({ key: "argv", label: jt("chipCommand"), mono: true, parts: argv });
-  }
-  if (typeof parameters.cwd === "string" && parameters.cwd.trim()) {
-    chips.push({ key: "cwd", label: jt("chipWorkingDir"), mono: true, parts: [parameters.cwd.trim()] });
   }
   if (typeof parameters.path === "string" && parameters.path.trim()) {
     chips.push({ key: "path", label: jt("chipPath"), mono: true, parts: [parameters.path.trim()] });
@@ -357,9 +334,6 @@ function getStepTargetSummaries(step) {
     }
   }
 
-  if (typeof parameters.cwd === "string") {
-    addTarget("cwd", jt("chipWorkingDir"), "folder_open", parameters.cwd);
-  }
   return targets;
 }
 
@@ -445,6 +419,12 @@ export function getScriptCreationBlocker({ analysis, pendingProposal = null, pen
   if (reviewIds.size > 0) {
     return jt("blockerNeedsReview");
   }
+  // 舊格式交由後端核對轉換；前端不再另寫一套指令／路徑就緒規則。
+  if (items.some((item) => item.check_steps?.some((step) => (
+    !step.collector || step.collector.cwd != null
+  )))) {
+    return jt("blockerNeedsReview");
+  }
   const unsupportedCount = items.filter((item) => item.detectable === "manual").length;
   const missingCount = items.filter((item) => (
     item.detectable === "partial"
@@ -452,9 +432,6 @@ export function getScriptCreationBlocker({ analysis, pendingProposal = null, pen
       !item.detection_method?.trim()
       || !Array.isArray(item.check_steps)
       || item.check_steps.length === 0
-      || item.check_steps.some((step) => (
-        !hasCompleteParameterizedStep(step)
-      ))
     ))
   )).length;
   if (missingCount || unsupportedCount) {
@@ -3127,7 +3104,6 @@ export function CommandLog({ raw, fallbackText }) {
       </div>
       {empty ? <span className={styles.cmdEmpty}>{t("AiJudgePanel.noOutput")}</span> : null}
       <CommandOutput label={t("AiJudgePanel.chipCommand")} text={argvText} />
-      <CommandOutput label={t("AiJudgePanel.chipWorkingDir")} text={parsed.cwd} />
       {argvText && !hasCommandOutput ? (
         <span className={styles.cmdEmpty}>{t("AiJudgePanel.noCommandOutput")}</span>
       ) : null}
