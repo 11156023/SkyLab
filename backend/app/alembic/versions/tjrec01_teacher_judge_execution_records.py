@@ -4,6 +4,12 @@ Revision ID: tjrec01
 Revises: mrg10_merge_alertconn_regpolicy
 """
 
+import hashlib
+import re
+import uuid
+from datetime import datetime
+from typing import Any
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -11,6 +17,208 @@ revision = "tjrec01"
 down_revision = "mrg10_merge_alertconn_regpolicy"
 branch_labels = None
 depends_on = None
+
+_TIME_KEYS = (
+    "queued_at",
+    "started_at",
+    "script_finished_at",
+    "received_at",
+    "finished_at",
+)
+_METADATA_KEYS = (
+    "name",
+    "node_name",
+    "node_role",
+    "display_label",
+    "proxmox_node",
+    "resource_type",
+    "user",
+)
+_RESULT_KEYS = (
+    "validation",
+    "stdout_excerpt",
+    "stderr_excerpt",
+    "raw_result_json",
+    "parsed_result",
+    "teacher_review",
+    "failure_stage",
+)
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _strip_nulls(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_nulls(item)
+            for key, item in value.items()
+            if item is not None
+        }
+    if isinstance(value, list):
+        return [_strip_nulls(item) for item in value]
+    return value
+
+
+def _timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _target_key(result: dict[str, Any]) -> str:
+    student_id = result.get("student_id")
+    if student_id not in (None, ""):
+        return f"student:{student_id}:node:{result.get('node_key') or ''}"
+    return f"vmid:{result.get('vmid')}"
+
+
+def _backfill_targets() -> None:
+    connection = op.get_bind()
+    runs = sa.table(
+        "teacher_judge_script_runs",
+        sa.column("id", sa.Uuid()),
+        sa.column("created_at", sa.DateTime(timezone=True)),
+        sa.column("updated_at", sa.DateTime(timezone=True)),
+        sa.column("status", sa.Text()),
+        sa.column("target_snapshot_json", sa.JSON()),
+        sa.column("target_results_json", sa.JSON()),
+    )
+    targets = sa.table(
+        "teacher_judge_run_targets",
+        sa.column("id", sa.Uuid()),
+        sa.column("run_id", sa.Uuid()),
+        sa.column("target_key", sa.String()),
+        sa.column("student_id", sa.String()),
+        sa.column("vmid", sa.Integer()),
+        sa.column("node_key", sa.String()),
+        sa.column("status", sa.String()),
+        sa.column("stage", sa.String()),
+        sa.column("reason_code", sa.String()),
+        sa.column("exit_code", sa.Integer()),
+        sa.column("metadata_json", sa.JSON()),
+        sa.column("timing_json", sa.JSON()),
+        sa.column("result_json", sa.JSON()),
+        *(sa.column(key, sa.DateTime(timezone=True)) for key in _TIME_KEYS),
+        sa.column("created_at", sa.DateTime(timezone=True)),
+        sa.column("updated_at", sa.DateTime(timezone=True)),
+    )
+
+    last_id = None
+    while True:
+        query = sa.select(
+            runs.c.id,
+            runs.c.created_at,
+            runs.c.updated_at,
+            runs.c.status,
+            runs.c.target_snapshot_json,
+            runs.c.target_results_json,
+        ).order_by(runs.c.id).limit(200)
+        if last_id is not None:
+            query = query.where(runs.c.id > last_id)
+        run_rows = connection.execute(query).mappings().all()
+        if not run_rows:
+            break
+
+        inserts = []
+        for run in run_rows:
+            snapshot = _mapping(run["target_snapshot_json"])
+            results_document = _mapping(run["target_results_json"])
+            sources = []
+            for key in ("targets", "preflight_results"):
+                value = snapshot.get(key)
+                if isinstance(value, list):
+                    sources.extend(value)
+            value = results_document.get("targets")
+            if isinstance(value, list):
+                sources.extend(value)
+
+            # Later canonical results override preflight/snapshot rows with the
+            # same identity, matching the old JSONB backfill ordering.
+            by_key: dict[str, dict[str, Any]] = {}
+            for item in sources:
+                if isinstance(item, dict):
+                    by_key[_target_key(item)] = item
+
+            run_status = str(run["status"])
+            for key, result in by_key.items():
+                result_status = result.get("status")
+                terminal = result_status in {"completed", "failed", "cancelled"}
+                run_terminal = run_status in {"completed", "failed", "cancelled"}
+                status = result_status if terminal else "failed" if run_terminal else "queued"
+                stage = (
+                    result_status
+                    if terminal
+                    else "failed"
+                    if run_terminal
+                    else "pending_executor"
+                )
+                reason = (
+                    result.get("reason_code")
+                    if terminal
+                    else "legacy_result_missing"
+                    if run_terminal
+                    else None
+                )
+                raw_vmid = result.get("vmid")
+                vmid = (
+                    int(raw_vmid)
+                    if re.fullmatch(r"[0-9]{1,9}", str(raw_vmid or ""))
+                    else None
+                )
+                raw_exit_code = result.get("exit_code")
+                exit_code = (
+                    int(raw_exit_code)
+                    if re.fullmatch(r"-?[0-9]{1,9}", str(raw_exit_code or ""))
+                    else None
+                )
+                timing = _mapping(result.get("timing"))
+                inserts.append(
+                    {
+                        "id": uuid.UUID(
+                            hashlib.md5(
+                                f"{run['id']}:{key}".encode(),
+                                usedforsecurity=False,
+                            ).hexdigest()
+                        ),
+                        "run_id": run["id"],
+                        "target_key": key,
+                        "student_id": (
+                            str(result["student_id"])
+                            if result.get("student_id") is not None
+                            else None
+                        ),
+                        "vmid": vmid,
+                        "node_key": result.get("node_key"),
+                        "status": status,
+                        "stage": stage,
+                        "reason_code": reason,
+                        "exit_code": exit_code,
+                        "metadata_json": _strip_nulls(
+                            {name: result[name] for name in _METADATA_KEYS if name in result}
+                        ),
+                        "timing_json": {
+                            name: value
+                            for name, value in timing.items()
+                            if name not in _TIME_KEYS
+                        },
+                        "result_json": _strip_nulls(
+                            {name: result[name] for name in _RESULT_KEYS if name in result}
+                        ),
+                        **{name: _timestamp(timing.get(name)) for name in _TIME_KEYS},
+                        "created_at": run["created_at"],
+                        "updated_at": run["updated_at"],
+                    }
+                )
+        if inserts:
+            connection.execute(targets.insert(), inserts)
+        last_id = run_rows[-1]["id"]
 
 
 def upgrade() -> None:
@@ -172,93 +380,85 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    # Preserve malformed legacy timestamps as unknown rather than failing the
-    # entire migration or fabricating a timestamp from the run finish.
-    op.execute("""
-        CREATE OR REPLACE FUNCTION pg_temp.teacher_judge_timestamp(value text)
-        RETURNS timestamptz LANGUAGE plpgsql AS $$
-        BEGIN RETURN value::timestamptz;
-        EXCEPTION WHEN OTHERS THEN RETURN NULL;
-        END $$
-    """)
-    op.execute("""
-        WITH legacy AS (
-            SELECT r.id AS run_id, r.created_at, r.updated_at, item.value AS result,
-                r.status::text AS run_status,
-                CASE WHEN NULLIF(item.value->>'student_id', '') IS NOT NULL
-                    THEN 'student:' || (item.value->>'student_id') || ':node:' || COALESCE(item.value->>'node_key', '')
-                    ELSE 'vmid:' || COALESCE(item.value->>'vmid', 'None') END AS target_key,
-                item.ordinality
-            FROM teacher_judge_script_runs r
-            CROSS JOIN LATERAL jsonb_array_elements(
-                (CASE WHEN jsonb_typeof(r.target_snapshot_json::jsonb->'targets') = 'array'
-                    THEN r.target_snapshot_json::jsonb->'targets' ELSE '[]'::jsonb END) ||
-                (CASE WHEN jsonb_typeof(r.target_snapshot_json::jsonb->'preflight_results') = 'array'
-                    THEN r.target_snapshot_json::jsonb->'preflight_results' ELSE '[]'::jsonb END) ||
-                (CASE WHEN jsonb_typeof(r.target_results_json::jsonb->'targets') = 'array'
-                    THEN r.target_results_json::jsonb->'targets' ELSE '[]'::jsonb END
-                )
-            ) WITH ORDINALITY AS item(value, ordinality)
-            WHERE jsonb_typeof(item.value) = 'object'
-        ), targets AS (
-            SELECT DISTINCT ON (run_id, target_key) * FROM legacy
-            ORDER BY run_id, target_key, ordinality DESC
-        )
-        INSERT INTO teacher_judge_run_targets
-            (id, run_id, target_key, student_id, vmid, node_key, status, stage,
-             reason_code, exit_code, metadata_json, timing_json, result_json,
-             queued_at, started_at, script_finished_at, received_at, finished_at,
-             created_at, updated_at)
-        SELECT md5(run_id::text || ':' || target_key)::uuid, run_id, target_key,
-            result->>'student_id',
-            CASE WHEN result->>'vmid' ~ '^[0-9]{1,9}$' THEN (result->>'vmid')::int END,
-            result->>'node_key',
-            CASE WHEN result->>'status' IN ('completed', 'failed', 'cancelled') THEN result->>'status'
-                WHEN run_status IN ('completed', 'failed', 'cancelled') THEN 'failed' ELSE 'queued' END,
-            CASE WHEN result->>'status' IN ('completed', 'failed', 'cancelled') THEN result->>'status'
-                WHEN run_status IN ('completed', 'failed', 'cancelled') THEN 'failed' ELSE 'pending_executor' END,
-            CASE WHEN result->>'status' IN ('completed', 'failed', 'cancelled') THEN result->>'reason_code'
-                WHEN run_status IN ('completed', 'failed', 'cancelled') THEN 'legacy_result_missing' END,
-            CASE WHEN result->>'exit_code' ~ '^-?[0-9]{1,9}$' THEN (result->>'exit_code')::int END,
-            jsonb_strip_nulls(jsonb_build_object(
-                'name', result->'name', 'node_name', result->'node_name',
-                'node_role', result->'node_role', 'display_label', result->'display_label',
-                'proxmox_node', result->'proxmox_node', 'resource_type', result->'resource_type', 'user', result->'user')),
-            CASE WHEN jsonb_typeof(result->'timing') = 'object'
-                THEN (result->'timing') - ARRAY['queued_at', 'started_at', 'script_finished_at', 'received_at', 'finished_at']
-                ELSE '{}'::jsonb END,
-            jsonb_strip_nulls(jsonb_build_object(
-                'validation', result->'validation', 'stdout_excerpt', result->'stdout_excerpt',
-                'stderr_excerpt', result->'stderr_excerpt', 'raw_result_json', result->'raw_result_json',
-                'parsed_result', result->'parsed_result', 'teacher_review', result->'teacher_review', 'failure_stage', result->'failure_stage')),
-            pg_temp.teacher_judge_timestamp(result->'timing'->>'queued_at'),
-            pg_temp.teacher_judge_timestamp(result->'timing'->>'started_at'),
-            pg_temp.teacher_judge_timestamp(result->'timing'->>'script_finished_at'),
-            pg_temp.teacher_judge_timestamp(result->'timing'->>'received_at'),
-            pg_temp.teacher_judge_timestamp(result->'timing'->>'finished_at'),
-            created_at, updated_at
-        FROM targets
-    """)
+    # Decode legacy JSON with the driver's UTF-8 JSON loader and write it back to
+    # JSON columns. Casting through JSONB fails on SQL_ASCII databases when a
+    # payload contains escaped non-ASCII characters (for example Chinese text).
+    _backfill_targets()
     # Keep the original JSON intact as the migration's recoverable legacy source.
 
 
 def downgrade() -> None:
     # Reconstruct canonical results before dropping the new tables, including
     # teacher reviews made after migration. Historical originals stay intact.
-    op.execute("""
-        UPDATE teacher_judge_script_runs r SET target_results_json =
-            jsonb_build_object('schema_version', 'teacher_judge_run_results.v2', 'targets', q.targets)
-        FROM (
-            SELECT run_id, jsonb_agg(metadata_json::jsonb || result_json::jsonb || jsonb_build_object(
-                'vmid', vmid, 'student_id', student_id, 'node_key', node_key,
-                'status', status, 'reason_code', reason_code, 'exit_code', exit_code,
-                'timing', timing_json::jsonb || jsonb_strip_nulls(jsonb_build_object(
-                    'queued_at', queued_at, 'started_at', started_at, 'script_finished_at', script_finished_at,
-                    'received_at', received_at, 'finished_at', finished_at))
-            ) ORDER BY vmid NULLS FIRST, student_id) AS targets
-            FROM teacher_judge_run_targets WHERE status IN ('completed', 'failed', 'cancelled') GROUP BY run_id
-        ) q WHERE r.id = q.run_id
-    """)
+    connection = op.get_bind()
+    targets = sa.table(
+        "teacher_judge_run_targets",
+        sa.column("run_id", sa.Uuid()),
+        sa.column("target_key", sa.String()),
+        sa.column("student_id", sa.String()),
+        sa.column("vmid", sa.Integer()),
+        sa.column("node_key", sa.String()),
+        sa.column("status", sa.String()),
+        sa.column("reason_code", sa.String()),
+        sa.column("exit_code", sa.Integer()),
+        sa.column("metadata_json", sa.JSON()),
+        sa.column("timing_json", sa.JSON()),
+        sa.column("result_json", sa.JSON()),
+        *(sa.column(key, sa.DateTime(timezone=True)) for key in _TIME_KEYS),
+    )
+    query = (
+        sa.select(targets)
+        .where(targets.c.status.in_(("completed", "failed", "cancelled")))
+        .order_by(
+            targets.c.run_id,
+            targets.c.vmid,
+            targets.c.student_id,
+            targets.c.target_key,
+        )
+    )
+    grouped: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for row in connection.execute(query).mappings():
+        timing = _mapping(row["timing_json"])
+        for key in _TIME_KEYS:
+            value = row[key]
+            if value is not None:
+                timing[key] = value.isoformat()
+        result = {
+            **_mapping(row["metadata_json"]),
+            **_mapping(row["result_json"]),
+            "vmid": row["vmid"],
+            "student_id": str(row["student_id"]) if row["student_id"] else None,
+            "node_key": row["node_key"],
+            "status": row["status"],
+            "reason_code": row["reason_code"],
+            "exit_code": row["exit_code"],
+        }
+        if timing:
+            result["timing"] = timing
+        grouped.setdefault(row["run_id"], []).append(result)
+
+    runs = sa.table(
+        "teacher_judge_script_runs",
+        sa.column("id", sa.Uuid()),
+        sa.column("target_results_json", sa.JSON()),
+    )
+    update = sa.update(runs).where(runs.c.id == sa.bindparam("p_run_id")).values(
+        target_results_json=sa.bindparam("p_payload", type_=sa.JSON())
+    )
+    if grouped:
+        connection.execute(
+            update,
+            [
+            {
+                "p_run_id": run_id,
+                "p_payload": {
+                    "schema_version": "teacher_judge_run_results.v2",
+                    "targets": values,
+                },
+            }
+            for run_id, values in grouped.items()
+            ],
+        )
     op.drop_constraint(
         "fk_teacher_judge_runs_batch", "teacher_judge_script_runs", type_="foreignkey"
     )
