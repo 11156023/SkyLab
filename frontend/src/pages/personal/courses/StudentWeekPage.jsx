@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -57,7 +57,6 @@ function createGuideDemoWeek(t) {
       title: t("StudentWeekPage.guideDemoWeekTitle"),
       week_number: 1,
       session_date: "2026-09-09",
-      target_node_key: "main",
       checkpoints: [{
         id: checkpointId,
         title: t("StudentWeekPage.guideDemoCheckpointTitle"),
@@ -118,11 +117,6 @@ export default function StudentWeekPage() {
     load();
     return () => { cancelled = true; };
   }, [isGuideDemo, pathId, t, weekId]);
-
-  const machines = useMemo(() => {
-    if (!view.week?.target_node_key) return view.machines;
-    return view.machines.filter((machine) => machine.node_key === view.week.target_node_key);
-  }, [view.machines, view.week]);
 
   async function openDocument(file) {
     if (isGuideDemo) return;
@@ -194,8 +188,8 @@ export default function StudentWeekPage() {
 
       <aside className={styles.side}>
         <section className={styles.panel} data-guide="course-week-machine">
-          <div className={styles.panelHeading}><span><MIcon name="dns" size={20} /></span><div><h2>{t("StudentWeekPage.machineTitle")}</h2><p>{view.week.target_node_key ? t("StudentWeekPage.machineSelectedHint") : t("StudentWeekPage.machineAllHint")}</p></div></div>
-          {machines.length ? <div className={styles.machineList}>{machines.map((machine) => <article className={styles.machineCard} key={machine.machine_node_id}>
+          <div className={styles.panelHeading}><span><MIcon name="dns" size={20} /></span><div><h2>{t("StudentWeekPage.machineTitle")}</h2><p>{t("StudentWeekPage.machineAllHint")}</p></div></div>
+          {view.machines.length ? <div className={styles.machineList}>{view.machines.map((machine) => <article className={styles.machineCard} key={machine.machine_node_id}>
             <div className={styles.machineCopy}><span><MIcon name={machine.resource_type === "lxc" ? "terminal" : "desktop_windows"} size={20} /></span><div><strong>{machine.name}</strong><small>{machine.role}{machine.vmid ? ` · VMID ${machine.vmid}` : ""}</small></div></div>
             <div className={styles.machineActions}>
               {machine.public_url ? <a href={machine.public_url} target="_blank" rel="noreferrer"><MIcon name="language" size={17} />{t("StudentWeekPage.openWebsite")}</a> : (machine.forward_endpoints ?? []).length === 0 && <span className={styles.urlPending}><MIcon name="link_off" size={16} />{t("StudentWeekPage.urlPending")}</span>}

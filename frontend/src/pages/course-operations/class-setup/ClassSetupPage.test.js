@@ -23,7 +23,6 @@ describe("weekPayload", () => {
         week_number: 1,
         session_date: "2026-09-07",
         title: "完成 SSH 連線",
-        target_node_key: null,
         status: "draft",
         files: [],
       },

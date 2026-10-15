@@ -2245,7 +2245,7 @@
 .weekRows article,
 .weekRowsHead {
   display: grid;
-  grid-template-columns: 116px minmax(210px, 1.1fr) minmax(150px, .65fr) minmax(220px, 1fr) 124px;
+  grid-template-columns: 116px minmax(210px, 1.3fr) minmax(220px, 1fr) 124px;
   align-items: center;
   gap: 18px;
   padding: 14px 22px;
@@ -2292,11 +2292,6 @@
 
 .weekTitleInput {
   @include form-control;
-}
-
-.weekMachineSelect {
-  @include form-control;
-  min-width: 0;
 }
 
 .weekFileList {
@@ -2397,10 +2392,10 @@
   /* 窄一點時檔案列換到第二行，週次／主題／可見度仍然同一排 */
   .weekRows article,
   .weekRowsHead {
-    grid-template-columns: 100px minmax(220px, 1fr) minmax(150px, .6fr) 124px;
+    grid-template-columns: 100px minmax(220px, 1fr) 124px;
   }
 
-  .weekRowsHead span:nth-child(4) {
+  .weekRowsHead span:nth-child(3) {
     display: none;
   }
 
@@ -2412,12 +2407,8 @@
     grid-area: 1 / 2;
   }
 
-  .weekRows article>.weekMachineSelect {
-    grid-area: 1 / 3;
-  }
-
   .weekRows article>.weekVisible {
-    grid-area: 1 / 4;
+    grid-area: 1 / 3;
   }
 
   .weekRows article>.weekFileList {
@@ -2597,11 +2588,10 @@
     display: none;
   }
 
-  /* 單欄直排：上面 lg 那組 grid-area 要全部歸位，否則被指定到第 2–4 欄的
-     元素會撐出隱含欄，主題、機器欄被擠到只剩幾十 px */
+  /* 單欄直排：上面 lg 那組 grid-area 要全部歸位，否則被指定到第 2–3 欄的
+     元素會撐出隱含欄，主題欄被擠到只剩幾十 px */
   .weekRows article>.weekDate,
   .weekRows article>.weekTitleInput,
-  .weekRows article>.weekMachineSelect,
   .weekRows article>.weekVisible,
   .weekRows article>.weekFileList {
     grid-area: auto;

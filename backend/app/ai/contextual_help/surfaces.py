@@ -1020,7 +1020,7 @@ _CLASS_WORKSPACE_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="classmgmt.save_weekly", role="button", label="儲存每週內容", section="每週內容",
-        help="每週主題、本週機器、任務檔案與學生可見設定都要按這顆才會保存。",
+        help="每週主題、任務檔案與學生可見設定都要按這顆才會保存。",
     ),
     ElementSpec(
         id="classmgmt.class_power_on", role="button", label="全班開機", section="上課監看",
@@ -1508,11 +1508,11 @@ _COURSE_WEEK_ELEMENTS: tuple[ElementSpec, ...] = (
         help="只顯示你最新的檢查結果與老師可公開的評語。",
     ),
     ElementSpec(
-        id="courseweek.machines", role="list", label="本週機器", section="本週機器",
+        id="courseweek.machines", role="list", label="課堂機器", section="課堂機器",
     ),
     ElementSpec(
         id="courseweek.open_machine", role="button", label="機器與主控台",
-        section="本週機器", help="進入這台機器的詳細頁與主控台。",
+        section="課堂機器", help="進入這台機器的詳細頁與主控台。",
     ),
 )
 
@@ -1573,8 +1573,8 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         id="course-week",
         path="/courses/:pathId/weeks/:weekId",
         title="本週內容",
-        purpose="某一週的檢查回饋、老師評語與這週指定使用的機器。",
-        sections=("檢查回饋", "本週機器"),
+        purpose="某一週的檢查回饋、老師評語與課堂機器。",
+        sections=("檢查回饋", "課堂機器"),
         elements=_COURSE_WEEK_ELEMENTS,
     ),
     SurfaceSpec(

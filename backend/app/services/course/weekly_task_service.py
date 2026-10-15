@@ -136,7 +136,6 @@ def list_student_weekly_tasks(
             week_number=week.week_number,
             session_date=week.session_date,
             title=week.title,
-            target_node_key=week.target_node_key,
             files=files_by_week.get(week.id, []),
             checkpoints=sorted(
                 checkpoints_by_week.get(week.id, []), key=lambda item: item.order

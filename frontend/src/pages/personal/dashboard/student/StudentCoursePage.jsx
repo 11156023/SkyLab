@@ -67,7 +67,6 @@ function createGuideDemoCourse(t) {
       week_number: 1,
       session_date: "2026-09-09",
       title: t("StudentCoursePage.guideDemoWeekTitle"),
-      target_node_key: "main",
     }],
     practiceMachines: [{
       machine_node_id: "demo-machine",

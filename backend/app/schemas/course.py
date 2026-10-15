@@ -329,7 +329,6 @@ class CourseWeeklyTaskStudent(BaseModel):
     week_number: int
     session_date: date
     title: str
-    target_node_key: str | None = None
     files: list[CourseWeeklyTaskFileStudent] = Field(default_factory=list)
     checkpoints: list[CourseWeeklyCheckpointStudent] = Field(default_factory=list)
 
