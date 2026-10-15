@@ -23,8 +23,6 @@ export const PERSONAL_GUIDES = {
       { selector: '[data-page-guide="header"]', titleKey: "UserGuide.teacherHome.intro.title", textKey: "UserGuide.teacherHome.intro.text" },
       { selector: '[data-page-guide="actions"]', titleKey: "UserGuide.teacherHome.createClass.title", textKey: "UserGuide.teacherHome.createClass.text" },
       { selector: '[data-guide="teacher-home-metrics"]', titleKey: "UserGuide.teacherHome.metrics.title", textKey: "UserGuide.teacherHome.metrics.text" },
-      { selector: '[data-guide="teacher-home-checkpoints"]', titleKey: "UserGuide.teacherHome.checkpoints.title", textKey: "UserGuide.teacherHome.checkpoints.text" },
-      { selector: '[data-guide="teacher-home-incomplete"]', titleKey: "UserGuide.teacherHome.incomplete.title", textKey: "UserGuide.teacherHome.incomplete.text" },
       { selector: '[data-guide="teacher-home-classes"]', titleKey: "UserGuide.teacherHome.classes.title", textKey: "UserGuide.teacherHome.classes.text" },
     ],
   },
