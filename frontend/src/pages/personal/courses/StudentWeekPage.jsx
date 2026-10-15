@@ -9,6 +9,7 @@ import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { CoursesService } from "../../../services/courses";
 import styles from "./StudentWeekPage.module.scss";
+import { feedbackFor } from "./studentWeekFeedback";
 
 const STATUS_ICONS = {
   completed: "check_circle",
@@ -19,31 +20,8 @@ const STATUS_ICONS = {
   cancelled: "cancel",
   running: "sync",
   pending: "schedule",
+  env_error: "report",
 };
-
-const SCRIPT_CHECK_STATUS = {
-  pass: "passed",
-  fail: "failed",
-  warning: "partial",
-  unknown: "needs_review",
-  skipped: "needs_review",
-};
-
-function feedbackFor(checkpoint) {
-  const check = checkpoint.latest_check;
-  if (!check) return { score: null, maxScore: null, text: "", status: "none" };
-  const item = (check.items ?? []).find((entry) => entry.item_id === checkpoint.id);
-  const itemStatus = SCRIPT_CHECK_STATUS[item?.status]
-    ?? (["passed", "failed", "partial", "needs_review"].includes(item?.status)
-      ? item.status
-      : null);
-  return {
-    score: item?.score ?? check.score,
-    maxScore: item?.max_score ?? check.max_score,
-    text: item?.comment || check.summary || check.error || "",
-    status: itemStatus || check.status,
-  };
-}
 
 function createGuideDemoWeek(t) {
   const checkpointId = "demo-checkpoint";
@@ -70,6 +48,7 @@ function createGuideDemoWeek(t) {
         },
       }],
       files: [{ id: "demo-file", filename: "linux-week-01.pdf" }],
+      teacher_reply: t("StudentWeekPage.guideDemoTeacherReply"),
     },
     machines: [{
       machine_node_id: "demo-machine",
@@ -147,6 +126,8 @@ export default function StudentWeekPage() {
     </div>;
   }
 
+  const teacherReply = String(view.week.teacher_reply ?? "").trim();
+
   return <div className={styles.page}>
     <div data-guide="course-week-header">
       <PageHeader
@@ -168,13 +149,29 @@ export default function StudentWeekPage() {
     <main className={styles.grid}>
       <section className={styles.panel} data-guide="course-week-feedback">
         <div className={styles.panelHeading}><span><MIcon name="rate_review" size={20} /></span><div><h2>{t("StudentWeekPage.feedbackTitle")}</h2><p>{t("StudentWeekPage.feedbackHint")}</p></div></div>
+        {/* 老師這週的回覆：一週一則，老師再回覆就換成新的 */}
+        {teacherReply && <article className={styles.teacherReply} data-guide="course-week-teacher-reply">
+          <span><MIcon name="forum" size={18} /></span>
+          <div>
+            <strong>{t("StudentWeekPage.teacherReplyTitle")}</strong>
+            <p>{teacherReply}</p>
+          </div>
+        </article>}
         {view.week.checkpoints.length ? <div className={styles.feedbackList}>
           {view.week.checkpoints.map((checkpoint, index) => {
             const feedback = feedbackFor(checkpoint);
+            // 多台機器的作業：標出這一項在哪台機器上檢查
+            const machine = checkpoint.machine_node_key
+              ? view.machines.find((entry) => entry.node_key === checkpoint.machine_node_key)
+              : null;
             return <article key={checkpoint.id} className={`${styles.feedbackCard} ${styles[`feedback_${feedback.status}`] ?? ""}`}>
               <div className={styles.feedbackTop}>
                 <span className={styles.number}>{index + 1}</span>
-                <div><strong>{checkpoint.title}</strong>{checkpoint.description && <p>{checkpoint.description}</p>}</div>
+                <div>
+                  <strong>{checkpoint.title}</strong>
+                  {checkpoint.description && <p>{checkpoint.description}</p>}
+                  {machine && <small className={styles.checkpointMachine}><MIcon name="dns" size={14} />{t("StudentWeekPage.checkpointMachine", { machine: machine.name })}</small>}
+                </div>
                 <span className={styles.feedbackStatus}><MIcon name={STATUS_ICONS[feedback.status] ?? "hourglass_empty"} size={17} />{feedback.status === "none" ? t("StudentWeekPage.noFeedback") : t(`StudentWeekPage.status_${feedback.status}`)}</span>
               </div>
               {feedback.status !== "none" && <div className={styles.feedbackBody}>

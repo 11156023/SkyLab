@@ -28,6 +28,18 @@ export function pickInProgress(items) {
   );
 }
 
+/** 本週：上課日期在今天（含，台北日曆日）以前的最後一週；學期還沒開始時取第一週。 */
+export function pickCurrentWeek(weeks, now = new Date()) {
+  const sorted = [...(weeks ?? [])].sort((left, right) => (
+    String(left.session_date ?? "").localeCompare(String(right.session_date ?? ""))
+    || (left.week_number ?? 0) - (right.week_number ?? 0)
+  ));
+  const todayKey = taipeiDateKey(now);
+  return [...sorted].reverse().find((week) => String(week.session_date ?? "") <= todayKey)
+    ?? sorted[0]
+    ?? null;
+}
+
 /** 保留已發布到今天（含，台北日曆日）的任務，排除未來任務，並依發布日期由舊到新排列。 */
 export function assignmentsUntilToday(assignments, now = new Date()) {
   const todayKey = taipeiDateKey(now);
