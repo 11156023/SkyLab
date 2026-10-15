@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
@@ -44,6 +44,7 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
   shuttingDownId = null, onShutdownMachine }) {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
+  const { pathname: homePath } = useLocation();
   const usedAt = useRecentUse(userId);
   /* 順序維持資源順序；連線紀錄只拿來印終端裡的「last」 */
   const displayedMachines = resources.slice(0, 4)
@@ -74,13 +75,13 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
       {coursesError ? <EmptyPanel icon="cloud_off" title={t("StudentHomePage.errorTitle")} />
         : paths.length ? <div className={styles.courseGrid}>
           {paths.map((path) => <CourseTicket key={path.id} path={path}
-            onOpen={() => navigate(`/courses/${path.id}`, { state: { from: "/dashboard" } })} />)}
+            onOpen={() => navigate(`/courses/${path.id}`, { state: { from: homePath } })} />)}
         </div> : <EmptyPanel icon="school" title={t("StudentHomePage.noPublishedCoursesTitle")} />}
     </section>
 
     <section className={styles.section} aria-labelledby="quick-template-title" data-guide="home-quick-templates">
       <SectionHeading id="quick-template-title" title={t("StudentHomePage.quickPracticeEnv")} />
-      <QuickTemplateCards templates={templates} loading={templatesLoading} error={templatesError} from="/dashboard"
+      <QuickTemplateCards templates={templates} loading={templatesLoading} error={templatesError} from={homePath}
         emptyClassName={styles.sectionEmpty} />
     </section>
 
