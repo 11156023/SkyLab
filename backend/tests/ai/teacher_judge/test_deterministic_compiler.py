@@ -58,8 +58,7 @@ def test_command_plan_compiles_deterministically_and_has_stable_contract() -> No
     analysis = _analysis(
         {
             "type": "command",
-            "argv": ["python3", "main.py"],
-            "cwd": "/srv/student",
+            "argv": ["python3", "/srv/student/main.py"],
             "timeout_seconds": 30,
         },
         {"type": "returncode_equals", "expected": 0},
@@ -161,10 +160,10 @@ def test_each_v1_collector_compiles(
         assert peer_policy["approved"] is True
 
 
-def test_command_plan_without_cwd_renders_python_none_and_executes(
+def test_command_plan_omits_cwd_and_executes(
     tmp_path: Path,
 ) -> None:
-    """cwd 是 optional；缺漏時必須渲染成 Python None，而不是 JSON null。"""
+    """新腳本沒有工作目錄參數，仍可執行不依賴檔案位置的查詢。"""
 
     analysis = _analysis(
         {
@@ -177,7 +176,8 @@ def test_command_plan_without_cwd_renders_python_none_and_executes(
 
     script, policy, review, _ = compile_check_plan(analysis, target_node_key="web")
 
-    assert "run_command(argv, None, 30)" in script
+    assert "run_command(argv, 30)" in script
+    assert "cwd" not in script
     assert policy["approved"] is True
     assert review["approved"] is True
 
@@ -237,19 +237,18 @@ def test_teacher_command_nonzero_is_reported_as_command_failure(tmp_path: Path) 
     assert "returncode 1" in check["evidence"]
     assert raw["error_code"] == "command_failed"
     assert raw["argv"] == [sys.executable, str(failing_script)]
-    assert raw["cwd"] is None
+    assert "cwd" not in raw
     assert raw["timeout_seconds"] == 30
     assert raw["stderr"] == "missing file\n"
     assert payload["errors"] == ["check-1: command_failed"]
 
 
-def test_missing_command_cwd_has_actionable_error_and_keeps_raw_log(tmp_path: Path) -> None:
-    missing_cwd = tmp_path / "missing-project"
+def test_missing_absolute_program_has_actionable_error_and_keeps_raw_log(tmp_path: Path) -> None:
+    missing_program = tmp_path / "missing-project" / "main.py"
     analysis = _analysis(
         {
             "type": "command",
-            "argv": [sys.executable, "main.py"],
-            "cwd": str(missing_cwd),
+            "argv": [sys.executable, str(missing_program)],
             "timeout_seconds": 30,
         },
         None,
@@ -262,11 +261,11 @@ def test_missing_command_cwd_has_actionable_error_and_keeps_raw_log(tmp_path: Pa
     raw = json.loads(check["raw"])
 
     assert check["status"] == "unknown"
-    assert check["evidence"] == f"工作目錄不存在：{missing_cwd}"
-    assert raw["error_code"] == "working_directory_not_found"
-    assert raw["argv"] == [sys.executable, "main.py"]
-    assert raw["cwd"] == str(missing_cwd)
-    assert raw["returncode"] is None
+    assert "指令執行失敗" in check["evidence"]
+    assert raw["error_code"] == "command_failed"
+    assert raw["argv"] == [sys.executable, str(missing_program)]
+    assert "cwd" not in raw
+    assert raw["returncode"] != 0
     assert raw["stderr"]
 
 
@@ -359,8 +358,7 @@ def test_typed_step_cannot_mix_flat_fields() -> None:
 
 
 @pytest.mark.parametrize("kind", ["file_text", "file_stat"])
-@pytest.mark.parametrize("absolute_target", [False, True])
-def test_file_collector_reads_selected_project_not_script_directory(tmp_path, kind, absolute_target):
+def test_file_collector_reads_absolute_target_not_script_directory(tmp_path, kind):
     project = tmp_path / "student project"
     project.mkdir()
     target = project / ".env"
@@ -370,8 +368,7 @@ def test_file_collector_reads_selected_project_not_script_directory(tmp_path, ki
     analysis = _analysis(
         {
             "type": kind,
-            "path": str(target) if absolute_target else ".env",
-            "cwd": str(tmp_path) if absolute_target else str(project),
+            "path": str(target),
         },
         None,
         judgement_mode="teacher",
@@ -397,11 +394,11 @@ def test_file_collector_reads_selected_project_not_script_directory(tmp_path, ki
     ["python3", "-c", "print(1)"],
     ["systemctl", "restart", "nginx"],
 ])
-def test_known_directory_never_bypasses_command_policy(argv):
+def test_absolute_paths_never_bypass_command_policy(argv):
     with pytest.raises(CheckPlanContractError):
         compile_check_plan(
             _analysis(
-                {"type": "command", "argv": argv, "cwd": "/srv/student"},
+                {"type": "command", "argv": argv},
                 None, judgement_mode="teacher",
             ), target_node_key="web",
         )

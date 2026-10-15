@@ -38,8 +38,8 @@ def test_backend_does_not_classify_issue_owner_from_missing_info_prose() -> None
                         "template_key": "linux",
                         "command_key": "system.run_command",
                         "parameters": {
-                            "cwd": r"C:\Users\陳洋\Desktop\Campus-Cloud",
-                            "argv": ["cat", ".env"],
+
+                            "argv": ["cat", "/home/student/project/.env"],
                             "success_criteria": "exit code 為 0",
                         },
                     }
@@ -104,8 +104,8 @@ def test_backend_does_not_infer_config_semantics_from_teacher_text() -> None:
                         "template_key": "linux",
                         "command_key": "system.run_command",
                         "parameters": {
-                            "cwd": r"C:\Users\陳洋\Desktop\Campus-Cloud",
-                            "argv": ["cat", ".env"],
+
+                            "argv": ["cat", "/home/student/project/.env"],
                         },
                     }
                 ],
@@ -164,8 +164,8 @@ async def test_chat_prompt_accepts_objectively_verifiable_main_py_checkpoint(
                             "title": "唯讀取證",
                             "collector": {
                                 "type": "command",
-                                "cwd": "/home/student/project",
-                                "argv": ["python3", "main.py"],
+
+                                "argv": ["python3", "/home/student/project/main.py"],
                                 "timeout_seconds": 30,
                             },
                             "assertion": {"type": "text_equals", "expected": "20"},
@@ -202,7 +202,7 @@ async def test_chat_prompt_accepts_objectively_verifiable_main_py_checkpoint(
     system_prompt = captured_payload["messages"][0]["content"]
     assert "`auto` 表示「腳本取證支援完整」" in system_prompt
     assert (
-        "缺少無法由上下文得知的工作目錄、檔案、服務名稱、Port 或記錄範圍"
+        "缺少無法由上下文得知的檔案絕對路徑、服務名稱、Port 或記錄範圍"
         in system_prompt
     )
     assert "判斷方式預設以自動檢查為目標" in system_prompt
@@ -215,7 +215,7 @@ async def test_chat_prompt_accepts_objectively_verifiable_main_py_checkpoint(
     assert "catalog 僅供能力參考" in system_prompt
     assert "不寫入 command_key 或 parameters" in system_prompt
     assert "`checked` 表示是否已達成" in system_prompt
-    assert "`auto` 項目不得提供 `fallback` 與 `missing_information`" in system_prompt
+    assert "`auto` 項目的 `fallback` 為 null、`missing_information` 為 []" in system_prompt
     assert "python.run_entrypoint" in system_prompt
     assert updated_items is not None
     assert updated_items[-1]["detectable"] == "auto"
@@ -245,8 +245,8 @@ async def test_chat_prompt_accepts_generic_cat_env_checkpoint(
                             "title": "唯讀取證",
                             "collector": {
                                 "type": "command",
-                                "cwd": "/home/student/project",
-                                "argv": ["cat", ".env"],
+
+                                "argv": ["cat", "/home/student/project/.env"],
                                 "timeout_seconds": 10,
                             },
                             "assertion": {"type": "returncode_equals", "expected": 0},
@@ -283,7 +283,7 @@ async def test_chat_prompt_accepts_generic_cat_env_checkpoint(
     assert "不是允許產出提案的完整清單" in system_prompt
     assert "command collector 與完整 argv" in system_prompt
     assert "do not claim Windows execution support" in system_prompt
-    assert "終端提示字串已包含目前目錄時" in system_prompt
+    assert "終端提示字串已包含完整目錄時" in system_prompt
     assert "timeout_seconds (1-300)" in system_prompt
     assert "file_read_example" not in system_prompt
     assert '["cat", ".env"]' not in system_prompt
@@ -538,7 +538,7 @@ def test_unavailable_reply_only_asks_for_location_when_location_is_missing() -> 
 
     assert "檢查服務日誌" in reply
     assert "檢查位置" in reply
-    assert "完整路徑" in reply
+    assert "絕對路徑" in reply
     assert "服務、連接埠或記錄範圍" not in reply
     assert "通過方式" not in reply
     assert "預期結果" not in reply

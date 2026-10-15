@@ -40,7 +40,7 @@ def _itemwise_ready_tool_call(
 ) -> dict[str, object]:
     """Round-1 tool call for one itemwise requirement: create a Ready proposal."""
     parameters: dict[str, object] = {
-        "cwd": "/home/student/project",
+
         "argv": ["python3", "--version"],
         "timeout_seconds": 30,
     }

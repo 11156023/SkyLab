@@ -808,7 +808,6 @@
   "AiJudgePanel.chipReadLines": ", {{count}} lines",
   "AiJudgePanel.chipSeconds": "{{count}} s",
   "AiJudgePanel.chipTimeout": "Timeout",
-  "AiJudgePanel.chipWorkingDir": "Working dir",
   "AiJudgePanel.clearBtn": "Clear",
   "AiJudgePanel.clearChatBtn": "Clear chat",
   "AiJudgePanel.clearChatConfirmMessage": "This check's AI conversation, pending attachments, and unapplied proposals will be cleared. This can't be undone; the checklist itself isn't affected.",

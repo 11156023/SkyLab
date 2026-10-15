@@ -73,8 +73,8 @@ def test_validate_python_entrypoint_coerces_numeric_timeout(
                         "template_key": "python",
                         "command_key": "python.run_entrypoint",
                         "parameters": {
-                            "cwd": "/home/student/project",
-                            "argv": ["python3", "main.py"],
+
+                            "argv": ["python3", "/home/student/project/main.py"],
                             "timeout_seconds": raw_timeout,
                             "success_criteria": "exit code 為 0",
                         },
@@ -106,8 +106,8 @@ def test_validate_python_entrypoint_fills_platform_timeout_when_uncoercible(
                         "template_key": "python",
                         "command_key": "python.run_entrypoint",
                         "parameters": {
-                            "cwd": "/home/student/project",
-                            "argv": ["python3", "main.py"],
+
+                            "argv": ["python3", "/home/student/project/main.py"],
                             "timeout_seconds": raw_timeout,
                             "success_criteria": "exit code 為 0",
                         },
@@ -136,8 +136,8 @@ def test_normalize_rubric_item_accepts_string_timeout_for_python_entrypoint() ->
                         "template_key": "python",
                         "command_key": "python.run_entrypoint",
                         "parameters": {
-                            "cwd": "/home/student/project",
-                            "argv": ["python3", "main.py"],
+
+                            "argv": ["python3", "/home/student/project/main.py"],
                             "timeout_seconds": "5",
                             "success_criteria": "exit code 為 0",
                         },
@@ -467,8 +467,8 @@ def test_normalize_preserves_objectively_verifiable_main_py_checkpoint() -> None
                         "template_key": "python",
                         "command_key": "python.run_entrypoint",
                         "parameters": {
-                            "cwd": "/home/student/project",
-                            "argv": ["python3", "main.py"],
+
+                            "argv": ["python3", "/home/student/project/main.py"],
                             "timeout_seconds": 30,
                             "success_criteria": "exit code 為 0 且 stdout 等於 20",
                         },
@@ -512,7 +512,7 @@ def test_normalize_marks_missing_python_parameters_as_missing_information() -> N
 
     assert items[0].detectable == "partial"
     assert items[0].missing_information == [
-        "程式／檔案「main.py」的完整路徑，或所在工作目錄與相對路徑"
+        "程式／檔案「main.py」的絕對路徑"
     ]
 
 

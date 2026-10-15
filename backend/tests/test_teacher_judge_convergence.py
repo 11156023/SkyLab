@@ -7,6 +7,7 @@ from app.ai.teacher_judge.automation_support import (
     ensure_script_generation_supported,
     get_script_generation_blockers,
 )
+from app.ai.teacher_judge.check_plan_contract import typed_step_issues
 from app.ai.teacher_judge.machine_context import (
     canonicalize_machine_node_key,
     format_machine_context,
@@ -38,10 +39,8 @@ def test_check_step_schema_keeps_flat_read_compatibility_and_exposes_typed_contr
         "timeout_seconds": 20,
     }
     schema = TeacherJudgeRubricCheckStep.model_json_schema()
-    assert {"argv", "cwd", "timeout_seconds"}.issubset(schema["properties"])
-    assert {"id", "title", "collector", "assertion"}.issubset(schema["properties"])
-    assert {"required": ["argv"]} in schema["anyOf"]
-    assert {"required": ["collector", "id", "title"]} in schema["anyOf"]
+    assert set(schema["properties"]) == {"id", "title", "collector", "assertion"}
+    assert schema["required"] == ["id", "title", "collector"]
 
     legacy = TeacherJudgeRubricCheckStep(
         template_key="linux",
@@ -154,7 +153,7 @@ def test_proposal_tools_are_request_scoped_to_current_class_nodes() -> None:
 
 
 def test_finalizer_tools_expose_only_typed_check_steps() -> None:
-    tools = teacher_judge_service._build_proposal_tools(finalizer=True)
+    tools = teacher_judge_service._build_proposal_tools()
 
     for tool in tools:
         if tool["function"]["name"] not in {
@@ -169,7 +168,7 @@ def test_finalizer_tools_expose_only_typed_check_steps() -> None:
 
 
 def test_finalizer_rejects_a_malformed_step_without_dropping_it() -> None:
-    error = teacher_judge_service._finalizer_check_step_error(
+    issues = typed_step_issues(
         [
             {
                 "id": "log.tail",
@@ -183,8 +182,9 @@ def test_finalizer_rejects_a_malformed_step_without_dropping_it() -> None:
         ]
     )
 
-    assert error is not None
-    assert "typed contract invalid" in error
+    assert issues
+    assert issues[0]["step_id"] == "log.tail"
+    assert "lines" in issues[0]["message"]
 
 
 def test_typed_plan_semantic_errors_block_readiness_before_script_creation() -> None:

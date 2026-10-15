@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 from typing import Any, Literal, cast
 
 from fastapi import HTTPException
+from sqlalchemy import case, func
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, desc, select
 
 from app.ai.teacher_judge.machine_context import (
@@ -16,9 +19,19 @@ from app.ai.teacher_judge.machine_context import (
     resolve_class_machine_node,
     target_node_keys_from_snapshot,
 )
+from app.ai.teacher_judge.run_record_service import (
+    batch_status,
+    initialize_targets,
+    seconds_between,
+    target_key,
+    utc_datetime,
+)
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRunBatchNodePublic,
     TeacherJudgeRunBatchPublic,
+    TeacherJudgeRunBatchSummary,
+    TeacherJudgeRunTargetPage,
+    TeacherJudgeRunTargetPublic,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptRunSummary,
 )
@@ -31,9 +44,12 @@ from app.ai.teacher_judge.script_policy import aggregate_check_status
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
 from app.core.i18n import t
+from app.core.request_context import get_request_context
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.models.base import get_datetime_utc as _now
 from app.models.batch_provision import BatchProvisionTask
+from app.models.teacher_judge_run_batch import TeacherJudgeRunBatch
+from app.models.teacher_judge_run_target import TeacherJudgeRunTarget
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptStatus,
@@ -54,6 +70,25 @@ from app.repositories import resource as resource_repo
 from app.services import os_identity_service
 
 logger = logging.getLogger(__name__)
+
+
+def _batch_timing_fields(batch: TeacherJudgeRunBatch) -> dict[str, Any]:
+    return {
+        "request_id": batch.request_id,
+        "started_by": str(batch.started_by) if batch.started_by else None,
+        "created_at": batch.created_at.isoformat(),
+        "prepared_at": batch.prepared_at.isoformat() if batch.prepared_at else None,
+        "started_at": batch.started_at.isoformat() if batch.started_at else None,
+        "finished_at": batch.finished_at.isoformat() if batch.finished_at else None,
+        "error_message": batch.error_message,
+        "timing": {
+            "preparation_seconds": seconds_between(batch.requested_at, batch.prepared_at),
+            "queue_seconds": seconds_between(batch.prepared_at, batch.started_at),
+            "execution_seconds": seconds_between(batch.started_at, batch.finished_at),
+            "total_seconds": seconds_between(batch.requested_at, batch.finished_at),
+            "elapsed_seconds": seconds_between(batch.requested_at, batch.finished_at or _now()),
+        },
+    }
 
 
 _INTERNAL_TARGET_KEYS = frozenset(
@@ -214,10 +249,10 @@ def run_to_public(
         ),
         result_summary_json=run.result_summary_json,
         target_results_json=(
-            run.target_results_json
+            run.results_document
             if include_internal
             else _public_targets_payload(
-                _redact_peer_ips(run.target_results_json, peer_ips)
+                _redact_peer_ips(run.results_document, peer_ips)
             )
         ),
         started_by=str(run.started_by) if run.started_by else None,
@@ -225,6 +260,8 @@ def run_to_public(
         finished_at=run.finished_at.isoformat() if run.finished_at else None,
         created_at=run.created_at.isoformat(),
         updated_at=run.updated_at.isoformat(),
+        prepared_at=run.prepared_at.isoformat() if run.prepared_at else None,
+        request_id=run.request_id,
     )
 
 
@@ -281,6 +318,8 @@ def list_session_run_summaries(
             finished_at=row.finished_at.isoformat() if row.finished_at else None,
             created_at=row.created_at.isoformat(),
             updated_at=row.updated_at.isoformat(),
+            prepared_at=row.prepared_at.isoformat() if row.prepared_at else None,
+            request_id=row.request_id,
         )
         for row in rows
     ]
@@ -316,7 +355,7 @@ def run_to_teacher_review_public(
 
     public = run_to_public(run)
     public_targets = public.target_results_json.get("targets")
-    raw_targets = (run.target_results_json or {}).get("targets")
+    raw_targets = (run.results_document or {}).get("targets")
     if isinstance(public_targets, list) and isinstance(raw_targets, list):
         for public_target, raw_target in zip(public_targets, raw_targets, strict=False):
             if isinstance(public_target, dict) and isinstance(raw_target, dict):
@@ -354,15 +393,14 @@ def update_target_review(
     （warning／unknown／collected）做人工決定。feedback 與 decisions 都空白時
     視為撤回檢閱。
     """
-    # 下面是整份 target_results_json 的讀改寫：先鎖住並重讀這一列，兩位老師
-    # 同時檢閱同一 run 的不同學生時，後送出的才不會用舊快照蓋掉先送出的檢閱
+    # Lock and reload canonical targets to keep concurrent teacher reviews intact.
     session.refresh(run, with_for_update=True)
     if run.status.value != "completed":
         raise HTTPException(
             status_code=409, detail=t("teacherJudgeSessions.reviewCompletedRunsOnly")
         )
 
-    result_document = dict(run.target_results_json or {})
+    result_document = dict(run.results_document or {})
     raw_targets = result_document.get("targets")
     targets = (
         [dict(target) for target in raw_targets]
@@ -422,7 +460,17 @@ def update_target_review(
         target.pop("teacher_review", None)
     targets[target_index] = target
     result_document["targets"] = targets
-    run.target_results_json = result_document
+    if run.target_records:
+        row = next(row for row in run.target_records if row.target_key == target_key(target))
+        result = dict(row.result_json)
+        if "teacher_review" in target:
+            result["teacher_review"] = target["teacher_review"]
+        else:
+            result.pop("teacher_review", None)
+        row.result_json = result
+        row.updated_at = now
+    else:
+        run.target_results_json = result_document
     run.updated_at = now
     session.add(run)
     session.commit()
@@ -744,6 +792,8 @@ def _node_target_failure(
         "stderr_excerpt": message[: 16 * 1024],
         "raw_result_json": "",
         "parsed_result": None,
+        "timing": {"finished_at": _now().isoformat()},
+        "failure_stage": "preflight",
     }
 
 
@@ -965,6 +1015,7 @@ def create_script_run(
     run_batch_id: uuid.UUID | None = None,
     commit: bool = True,
 ) -> TeacherJudgeScriptRunPublic:
+    requested_at = _now()
     artifact = get_artifact(
         session=session,
         teaching_class_id=teaching_class_id,
@@ -1100,10 +1151,14 @@ def create_script_run(
             else {}
         ),
         started_by=started_by,
+        request_id=get_request_context().request_id,
+        created_at=requested_at,
+        prepared_at=_now(),
         started_at=None,
         updated_at=_now(),
     )
     session.add(run)
+    initialize_targets(session, run)
     if commit:
         session.commit()
     else:
@@ -1250,20 +1305,7 @@ def project_run_items(
 
 
 def _batch_status(runs: list[TeacherJudgeScriptRun]) -> str:
-    statuses = {run.status for run in runs}
-    if TeacherJudgeScriptRunStatus.running in statuses:
-        return "running"
-    if TeacherJudgeScriptRunStatus.pending in statuses:
-        return "pending"
-    completed = [run for run in runs if run.status == TeacherJudgeScriptRunStatus.completed]
-    failed_targets = sum(
-        int((run.result_summary_json or {}).get("failed") or 0) for run in runs
-    )
-    if completed and (len(completed) != len(runs) or failed_targets):
-        return "completed_with_failures"
-    if completed and len(completed) == len(runs):
-        return "completed"
-    return "failed"
+    return batch_status(runs)
 
 
 def get_script_run_batch_public(
@@ -1276,6 +1318,7 @@ def get_script_run_batch_public(
     rows = list(
         session.exec(
             select(TeacherJudgeScriptRun, TeacherJudgeScriptArtifact)
+            .options(selectinload(cast(Any, TeacherJudgeScriptRun.target_records)))
             .join(
                 TeacherJudgeScriptArtifact,
                 col(TeacherJudgeScriptArtifact.id)
@@ -1289,19 +1332,32 @@ def get_script_run_batch_public(
     )
     if session_id is not None:
         rows = [row for row in rows if row[1].session_id == session_id]
+    batch = session.get(TeacherJudgeRunBatch, run_batch_id)
+    if batch is not None and (batch.teaching_class_id != teaching_class_id or (session_id is not None and batch.session_id != session_id)):
+        raise HTTPException(status_code=404, detail="Run batch not found")
     if not rows:
+        if batch is not None:
+            return TeacherJudgeRunBatchPublic(
+                run_batch_id=str(batch.id), teaching_class_id=str(teaching_class_id),
+                session_id=str(batch.session_id) if batch.session_id else None,
+                status=batch.status,
+                summary={"nodes": 0, "students": 0, "targets": 0, "completed": 0, "failed": 0, "queued": 0, "running": 0, "cancelled": 0},
+                nodes=[], students=[], **_batch_timing_fields(batch),
+            )
         raise HTTPException(status_code=404, detail="Run batch not found")
     nodes = load_class_machine_nodes(session, teaching_class_id)
     labels = {node.node_key: machine_node_display_label(node) for node in nodes}
     runs = [row[0] for row in rows]
     # The review UI reloads results only after every child run is terminal.
     batch_finished_at = (
-        max(run.finished_at for run in runs if run.finished_at is not None)
+        max(utc_datetime(run.finished_at) for run in runs if run.finished_at is not None)
         if all(run.finished_at is not None for run in runs)
         else None
     )
     student_nodes: dict[str, list[dict[str, Any]]] = {}
     total_targets = completed_targets = failed_targets = 0
+    student_ids: set[str] = set()
+    queued_targets = running_targets = cancelled_targets = 0
     node_outputs: list[TeacherJudgeRunBatchNodePublic] = []
     node_order = {node.node_key: node.sort_order for node in nodes}
     for run, artifact in sorted(
@@ -1312,7 +1368,7 @@ def get_script_run_batch_public(
         ),
     ):
         peer_ips = _peer_ips_from_snapshot(run.target_snapshot_json)
-        raw_targets = (run.target_results_json or {}).get("targets")
+        raw_targets = (run.results_document or {}).get("targets")
         # 非 dict 的項目在這裡就濾掉；之前的守門放在 .get("status") 之後，
         # 遇到壞資料會先 AttributeError 而永遠到不了。
         targets = (
@@ -1320,7 +1376,15 @@ def get_script_run_batch_public(
             if isinstance(raw_targets, list)
             else []
         )
-        total_targets += int((run.progress_json or {}).get("total") or len(targets))
+        if run.target_records:
+            total_targets += len(run.target_records)
+            student_ids.update(row.student_id for row in run.target_records if row.student_id)
+            queued_targets += sum(row.status == "queued" for row in run.target_records)
+            running_targets += sum(row.status == "running" for row in run.target_records)
+            cancelled_targets += sum(row.status == "cancelled" for row in run.target_records)
+        else:
+            total_targets += int((run.progress_json or {}).get("total") or len(targets))
+            student_ids.update(str(target["student_id"]) for target in targets if target.get("student_id"))
         completed_targets += sum(
             1 for target in targets if target.get("status") == "completed"
         )
@@ -1358,9 +1422,12 @@ def get_script_run_batch_public(
             projected_node["run_id"] = str(run.id)
             if "timing" in projected_node:
                 projected_node["timing"]["batch_wait_seconds"] = (
-                    round(max(0.0, (batch_finished_at - run.finished_at).total_seconds()), 3)
+                    seconds_between(run.finished_at, batch_finished_at)
                     if batch_finished_at is not None and run.finished_at is not None
                     else None
+                )
+                projected_node["timing"]["completion_wait_seconds"] = seconds_between(
+                    _target_finished_at(target), batch_finished_at,
                 )
             student_nodes.setdefault(student_id, []).append(projected_node)
     first_artifact = rows[0][1]
@@ -1369,22 +1436,113 @@ def get_script_run_batch_public(
         teaching_class_id=str(teaching_class_id),
         session_id=str(first_artifact.session_id) if first_artifact.session_id else None,
         status=cast(
-            Literal["pending", "running", "completed", "completed_with_failures", "failed"],
+            Literal["pending", "running", "completed", "completed_with_failures", "failed", "cancelled"],
             _batch_status(runs),
         ),
         summary={
             "nodes": len(rows),
-            "students": len(student_nodes),
+            "students": len(student_ids),
             "targets": total_targets,
             "completed": completed_targets,
             "failed": failed_targets,
+            "queued": queued_targets,
+            "running": running_targets,
+            "cancelled": cancelled_targets,
         },
         nodes=node_outputs,
         students=[
             {"student_id": student_id, "nodes": student_nodes[student_id]}
             for student_id in sorted(student_nodes)
         ],
+        request_id=batch.request_id if batch else None,
+        started_by=str(batch.started_by) if batch and batch.started_by else None,
+        created_at=(batch.created_at if batch else min(run.created_at for run in runs)).isoformat(),
+        prepared_at=batch.prepared_at.isoformat() if batch and batch.prepared_at else None,
+        started_at=min(utc_datetime(run.started_at) for run in runs if run.started_at).isoformat()
+        if any(run.started_at for run in runs) else None,
+        finished_at=batch_finished_at.isoformat() if batch_finished_at else None,
+        error_message=batch.error_message if batch else None,
+        timing={
+            "preparation_seconds": seconds_between(batch.requested_at, batch.prepared_at) if batch else None,
+            "queue_seconds": seconds_between(batch.prepared_at, batch.started_at) if batch else None,
+            "execution_seconds": seconds_between(batch.started_at, batch_finished_at) if batch else None,
+            "total_seconds": seconds_between(batch.requested_at, batch_finished_at) if batch else None,
+            "elapsed_seconds": seconds_between(batch.requested_at, batch_finished_at or _now()) if batch else None,
+        },
     )
+
+
+def list_session_batch_summaries(
+    session: Session, teaching_class_id: uuid.UUID, session_id: uuid.UUID,
+    skip: int, limit: int,
+) -> list[TeacherJudgeRunBatchSummary]:
+    batches = session.exec(select(TeacherJudgeRunBatch).where(
+        TeacherJudgeRunBatch.teaching_class_id == teaching_class_id,
+        TeacherJudgeRunBatch.session_id == session_id,
+    ).order_by(desc(TeacherJudgeRunBatch.created_at), desc(TeacherJudgeRunBatch.id))
+        .offset(skip).limit(limit)).all()
+    result = []
+    for batch in batches:
+        counts = session.exec(select(
+            func.count(func.distinct(TeacherJudgeScriptRun.id)),
+            func.count(col(TeacherJudgeRunTarget.id)),
+            func.count(func.distinct(TeacherJudgeRunTarget.student_id)),
+            *[func.coalesce(func.sum(case((col(TeacherJudgeRunTarget.status) == state, 1), else_=0)), 0)
+              for state in ("completed", "failed", "queued", "running", "cancelled")],
+        ).select_from(TeacherJudgeScriptRun).outerjoin(
+            TeacherJudgeRunTarget, col(TeacherJudgeRunTarget.run_id) == col(TeacherJudgeScriptRun.id),
+        ).where(TeacherJudgeScriptRun.run_batch_id == batch.id)).one()
+        summary = dict(zip(("nodes", "targets", "students", "completed", "failed", "queued", "running", "cancelled"), counts, strict=True))
+        result.append(TeacherJudgeRunBatchSummary(
+            run_batch_id=str(batch.id), teaching_class_id=str(teaching_class_id),
+            session_id=str(batch.session_id) if batch.session_id else None,
+            status=batch.status, summary=summary, **_batch_timing_fields(batch),
+        ))
+    return result
+
+
+def _target_finished_at(target: dict[str, Any]) -> datetime | None:
+    value = (target.get("timing") or {}).get("finished_at")
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def list_run_targets(
+    session: Session, run: TeacherJudgeScriptRun, *, skip: int, limit: int,
+    status: str | None = None, student_id: uuid.UUID | None = None,
+    vmid: int | None = None,
+) -> TeacherJudgeRunTargetPage:
+    conditions = [TeacherJudgeRunTarget.run_id == run.id]
+    if status:
+        conditions.append(TeacherJudgeRunTarget.status == status)
+    if student_id:
+        conditions.append(TeacherJudgeRunTarget.student_id == str(student_id))
+    if vmid is not None:
+        conditions.append(TeacherJudgeRunTarget.vmid == vmid)
+    total = session.exec(select(func.count()).select_from(TeacherJudgeRunTarget).where(*conditions)).one()
+    rows = session.exec(select(TeacherJudgeRunTarget).where(*conditions)
+        .order_by(col(TeacherJudgeRunTarget.created_at), col(TeacherJudgeRunTarget.target_key))
+        .offset(skip).limit(limit)).all()
+    peer_ips = _peer_ips_from_snapshot(run.target_snapshot_json)
+    data = []
+    for row in rows:
+        public_result = _public_target(_redact_peer_ips(row.to_result(), peer_ips))
+        times = {key: row.to_result().get("timing", {}).get(key) for key in (
+            "queued_at", "started_at", "script_finished_at", "received_at", "finished_at",
+        )}
+        data.append(TeacherJudgeRunTargetPublic(
+            id=str(row.id), run_id=str(row.run_id), student_id=row.student_id,
+            vmid=row.vmid, node_key=row.node_key,
+            status=cast(Literal["queued", "running", "completed", "failed", "cancelled"], row.status), stage=row.stage,
+            reason_code=row.reason_code, exit_code=row.exit_code,
+            created_at=row.created_at.isoformat(), updated_at=row.updated_at.isoformat(),
+            **times, timing=row.timing_json, result=public_result,
+        ))
+    return TeacherJudgeRunTargetPage(data=data, total=total)
 
 
 def create_script_run_batch(
@@ -1395,6 +1553,7 @@ def create_script_run_batch(
     started_by: uuid.UUID | None,
     session_id: uuid.UUID | None = None,
 ) -> TeacherJudgeRunBatchPublic:
+    requested_at = _now()
     rows = list(
         session.exec(
             select(TeacherJudgeScriptArtifact).where(
@@ -1422,6 +1581,15 @@ def create_script_run_batch(
         )
     run_batch_id = uuid.uuid4()
     try:
+        batch = TeacherJudgeRunBatch(
+            id=run_batch_id, teaching_class_id=teaching_class_id,
+            session_id=session_id, artifact_set_id=artifact_set_id,
+            started_by=started_by, request_id=get_request_context().request_id,
+            requested_at=requested_at, created_at=requested_at,
+        )
+        session.add(batch)
+        # Publish the accepted batch before potentially slow target preparation.
+        session.commit()
         for child in children:
             create_script_run(
                 session=session,
@@ -1434,9 +1602,28 @@ def create_script_run_batch(
                 run_batch_id=run_batch_id,
                 commit=False,
             )
+        prepared_batch = session.get(TeacherJudgeRunBatch, run_batch_id, with_for_update=True)
+        if prepared_batch is None or prepared_batch.status != "pending":
+            raise HTTPException(status_code=409, detail="Batch preparation interrupted")
+        prepared_batch.prepared_at = _now()
+        session.add(prepared_batch)
         session.commit()
     except Exception:
         session.rollback()
+        # Failed preparation is still a whole-class execution attempt. Preserve
+        # its lifecycle after rolling back incomplete child runs.
+        try:
+            failure = session.get(TeacherJudgeRunBatch, run_batch_id, with_for_update=True)
+            if failure is not None and failure.status == "pending":
+                failure.status = "failed"
+                failure.finished_at = _now()
+                failure.updated_at = failure.finished_at
+                failure.error_message = "批次前置處理失敗。"
+                session.add(failure)
+                session.commit()
+        except Exception:
+            session.rollback()
+            logger.exception("Unable to persist batch preparation failure batch=%s", run_batch_id)
         raise
     return get_script_run_batch_public(
         session=session,

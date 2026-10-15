@@ -80,6 +80,8 @@ from .teacher_judge_attachment import (
     TeacherJudgeSessionAttachment,
 )
 from .teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
+from .teacher_judge_run_batch import TeacherJudgeRunBatch
+from .teacher_judge_run_target import TeacherJudgeRunTarget
 from .teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptLanguage,
@@ -222,6 +224,8 @@ __all__ = [
     "TeacherJudgeScriptArtifact",
     "TeacherJudgeScriptLanguage",
     "TeacherJudgeScriptRun",
+    "TeacherJudgeRunBatch",
+    "TeacherJudgeRunTarget",
     "TeacherJudgeScriptRunStatus",
     "TeacherJudgeScriptRunTargetScope",
     "TeacherJudgeScriptSource",

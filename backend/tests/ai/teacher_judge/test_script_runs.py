@@ -383,26 +383,26 @@ async def test_execute_script_run_saves_valid_target_result(
     assert stored_run.status.value == "completed"
     assert stored_run.progress_json["stage"] == "completed"
     assert stored_run.result_summary_json["valid_json"] == 1
-    assert stored_run.target_results_json["schema_version"] == "teacher_judge_run_results.v2"
-    assert stored_run.target_results_json["targets"][0]["status"] == "completed"
-    assert stored_run.target_results_json["targets"][0]["reason_code"] == "success"
-    assert stored_run.target_results_json["targets"][0]["proxmox_node"] == "pve1"
-    assert stored_run.target_results_json["targets"][0]["resource_type"] == "lxc"
-    assert stored_run.target_results_json["targets"][0]["user"]["full_name"] == "S"
-    assert stored_run.target_results_json["targets"][0]["validation"]["valid"] is True
+    assert stored_run.results_document["schema_version"] == "teacher_judge_run_results.v2"
+    assert stored_run.results_document["targets"][0]["status"] == "completed"
+    assert stored_run.results_document["targets"][0]["reason_code"] == "success"
+    assert stored_run.results_document["targets"][0]["proxmox_node"] == "pve1"
+    assert stored_run.results_document["targets"][0]["resource_type"] == "lxc"
+    assert stored_run.results_document["targets"][0]["user"]["full_name"] == "S"
+    assert stored_run.results_document["targets"][0]["validation"]["valid"] is True
     assert (
-        stored_run.target_results_json["targets"][0]["parsed_result"]["schema_version"]
+        stored_run.results_document["targets"][0]["parsed_result"]["schema_version"]
         == "teacher_judge_result.v1"
     )
-    check = stored_run.target_results_json["targets"][0]["parsed_result"]["checks"][0]
+    check = stored_run.results_document["targets"][0]["parsed_result"]["checks"][0]
     assert check["title"] == "Python runtime"
     assert check["status"] == "pass"
     assert check["raw"] == "Python 3.11"
-    assert "ai_judgement" not in stored_run.target_results_json["targets"][0]
+    assert "ai_judgement" not in stored_run.results_document["targets"][0]
 
 
 @pytest.mark.asyncio
-async def test_execute_script_run_records_save_failure_without_partial_results(
+async def test_execute_script_run_preserves_targets_when_final_save_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = make_session()
@@ -479,6 +479,10 @@ async def test_execute_script_run_records_save_failure_without_partial_results(
     assert stored_run.status.value == "failed"
     assert stored_run.result_summary_json["executor_error"] == "save unavailable"
     assert stored_run.target_results_json == {}
+    targets = stored_run.results_document["targets"]
+    assert len(targets) == 1
+    assert targets[0]["status"] == "completed"
+    assert targets[0]["parsed_result"]["schema_version"] == "teacher_judge_result.v1"
 
 
 def test_executor_runtime_target_falls_back_to_live_ip_when_cache_missing(
@@ -586,10 +590,10 @@ async def test_execute_script_run_saves_invalid_json_result(
     session.expire_all()
     stored_run = session.get(models.TeacherJudgeScriptRun, uuid.UUID(run.id))
     assert stored_run is not None
-    result = stored_run.target_results_json["targets"][0]
+    result = stored_run.results_document["targets"][0]
     assert stored_run.status.value == "completed"
     assert stored_run.result_summary_json["invalid_json"] == 1
-    assert stored_run.target_results_json["schema_version"] == "teacher_judge_run_results.v2"
+    assert stored_run.results_document["schema_version"] == "teacher_judge_run_results.v2"
     assert result["status"] == "failed"
     assert result["reason_code"] == "invalid_json"
     assert result["proxmox_node"] == "pve1"

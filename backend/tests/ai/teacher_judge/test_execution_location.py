@@ -88,6 +88,14 @@ def _typed(collector: dict) -> dict:
 def test_proposal_readiness_and_compiler_agree_on_unresolved_paths(collector) -> None:
     raw = _candidate(_typed(collector))
     normalized = service._normalize_rubric_items([raw])[0]
+    if normalized.check_steps[0].collector.cwd is not None:
+        analysis = TeacherJudgeRubricAnalysis(items=[raw])
+        blockers = get_script_generation_blockers(analysis, [], require_typed_plan=True)
+        assert blockers[0]["status"] == "analysis_error"
+        assert blockers[0]["missing_information"] == []
+        with pytest.raises(CheckPlanContractError):
+            canonicalize_check_plan(analysis, require_target_node=False)
+        return
     assert normalized.detectable == "partial"
     assert normalized.missing_information
     # Also validate raw persisted auto items; don't rely on Chat normalization.
@@ -103,8 +111,8 @@ def test_proposal_readiness_and_compiler_agree_on_unresolved_paths(collector) ->
 @pytest.mark.parametrize(
     "collector",
     [
-        {"type": "command", "argv": ["python3", "main.py"], "cwd": "/srv/student"},
         {"type": "command", "argv": ["python3", "/srv/student/main.py"]},
+        {"type": "command", "argv": ["python3", "-W", "ignore", "/srv/student/main.py"]},
         {"type": "command", "argv": ["python3", "--version"]},
         {"type": "command", "argv": ["systemctl", "is-active", "nginx"]},
         {"type": "command", "argv": ["journalctl", "-u", "nginx", "-n", "20"]},
@@ -121,8 +129,8 @@ def test_proposal_readiness_and_compiler_agree_on_unresolved_paths(collector) ->
             "argv": ["awk", "-F", ",", "{print $1}", "/tmp/result.txt"],
         },
         {"type": "command", "argv": ["yq", "eval", ".status", "/tmp/result.yml"]},
-        {"type": "command", "argv": ["cat", "作業.txt"], "cwd": "/srv/學生作業"},
-        {"type": "command", "argv": ["cat", "result.txt"], "cwd": r"C:\Users\student"},
+        {"type": "command", "argv": ["cat", "/srv/學生作業/作業.txt"]},
+        {"type": "command", "argv": ["cat", r"C:\Users\student\result.txt"]},
         {"type": "file_text", "path": "/srv/student/result.txt"},
         {"type": "file_stat", "path": "/srv/student/result.txt"},
     ],
@@ -139,7 +147,7 @@ def test_known_paths_and_location_independent_queries_remain_ready(collector) ->
     ["lscpu"],
     ["cat", "/srv/student/.env"],
 ])
-def test_optional_directory_survives_normalization_save_and_compile(cwd, argv, monkeypatch):
+def test_empty_legacy_directory_is_omitted_on_save_and_compile(cwd, argv, monkeypatch):
     from app.ai.teacher_judge import file_service
 
     raw = _candidate(_typed({"type": "command", "argv": argv, "cwd": cwd}))
@@ -163,10 +171,10 @@ def test_optional_directory_survives_normalization_save_and_compile(cwd, argv, m
 
 
 @pytest.mark.parametrize("kind", ["file_text", "file_stat"])
-def test_file_collectors_accept_explicit_directory(kind, monkeypatch):
+def test_file_collectors_save_and_compile_absolute_path(kind, monkeypatch):
     from app.ai.teacher_judge import file_service
 
-    raw = _candidate(_typed({"type": kind, "path": ".env", "cwd": "/srv/student"}))
+    raw = _candidate(_typed({"type": kind, "path": "/srv/student/.env"}))
     item = service._normalize_rubric_items([raw])[0]
     assert item.detectable == "auto"
     analysis = TeacherJudgeRubricAnalysis(items=[item])
@@ -183,7 +191,7 @@ def test_file_collectors_accept_explicit_directory(kind, monkeypatch):
     script, policy, _, plan = compile_check_plan(analysis, target_node_key="web")
     assert policy["approved"] is True
     assert '/srv/student/.env' in script
-    assert plan["items"][0]["check_steps"][0]["collector"]["cwd"] == "/srv/student"
+    assert "cwd" not in plan["items"][0]["check_steps"][0]["collector"]
 
 
 def test_separately_valid_commands_do_not_trigger_cross_step_deny_pattern():
@@ -260,7 +268,7 @@ async def test_missing_path_rejects_proposal_and_asks_even_when_model_does_not(
     assert len(calls) == 2
     assert result.proposal is None
     assert result.proposal_status == "needs_information"
-    assert "請補上完整路徑，或工作目錄與相對路徑" in result.reply
+    assert "請補上檔案或程式的絕對路徑" in result.reply
     assert "stdout" not in result.reply
     reason = result.tool_calls[-1]["reason"]
     assert "不需要老師補充" not in reason
@@ -268,7 +276,7 @@ async def test_missing_path_rejects_proposal_and_asks_even_when_model_does_not(
     assert result.conversation_focus["requirements"][0]["missing_information"]
 
 
-async def test_followup_with_directory_clears_gap_and_stages_update(
+async def test_followup_encodes_known_directory_as_absolute_path(
     monkeypatch,
 ) -> None:
     raw = _candidate(_typed({"type": "command", "argv": ["python3", "main.py"]}))
@@ -282,18 +290,18 @@ async def test_followup_with_directory_clears_gap_and_stages_update(
                 {
                     "id": "program",
                     "detectable": "auto",
+                    "missing_information": [],
                     "check_steps": [
                         _typed(
                             {
                                 "type": "command",
-                                "argv": ["python3", "main.py"],
-                                "cwd": "/srv/student",
+                                "argv": ["python3", "/srv/student/main.py"],
                             }
                         )
                     ],
                 },
             ),
-            reply_message("已補上工作目錄，請確認提案。", "ready"),
+            reply_message("已補上絕對路徑，請確認提案。", "ready"),
         ]
     )
     monkeypatch.setattr(service, "_call_vllm_message", fake)
@@ -307,7 +315,8 @@ async def test_followup_with_directory_clears_gap_and_stages_update(
     assert len(calls) == 3
     assert result.proposal[0]["detectable"] == "auto"
     assert result.proposal[0]["missing_information"] == []
-    assert result.proposal[0]["check_steps"][0]["collector"]["cwd"] == "/srv/student"
+    assert result.proposal[0]["check_steps"][0]["collector"]["argv"] == ["python3", "/srv/student/main.py"]
+    assert "cwd" not in result.proposal[0]["check_steps"][0]["collector"]
 
 
 @pytest.mark.parametrize("refine", [False, True])
@@ -321,11 +330,11 @@ async def test_file_directory_followup_clears_old_gap_in_chat_and_finalizer(monk
     calls, fake = scripted_vllm([
         tool_call_message("get_checklist_item", {"id": "program"}),
         tool_call_message("edit_checklist_item", {
-            "id": "program", "detectable": "auto", "check_steps": [
-                _typed({"type": "file_text", "path": ".env", "cwd": "/srv/student"}),
+            "id": "program", "detectable": "auto", "missing_information": [], "check_steps": [
+                _typed({"type": "file_text", "path": "/srv/student/.env"}),
             ],
         }),
-        reply_message("已補上工作目錄。", "ready"),
+        reply_message("已補上絕對路徑。", "ready"),
     ])
     monkeypatch.setattr(service, "_call_vllm_message", fake)
     patch_teacher_judge_vllm_settings(monkeypatch)
@@ -406,7 +415,7 @@ async def test_routes_persist_visible_path_question_and_never_create_script(
         assistant = next(
             message for message in messages if message.role.value == "assistant"
         )
-        assert "請提供該程式／檔案的完整路徑" in assistant.content
+        assert "請提供該程式／檔案的絕對路徑" in assistant.content
         assert "狀態良好" not in assistant.content
         assert assistant.metadata_json["status"] == "needs_information"
         assert assistant.metadata_json["conversation_focus"]["requirements"][0][

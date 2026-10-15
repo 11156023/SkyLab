@@ -20,7 +20,10 @@ from app.ai.teacher_judge.script_artifact_service import (
     list_artifacts,
     rename_artifact,
 )
-from app.ai.teacher_judge.script_executor_service import execute_script_run
+from app.ai.teacher_judge.script_executor_service import (
+    _mark_run_executor_failed,
+    execute_script_run,
+)
 from app.ai.teacher_judge.script_run_service import (
     create_script_run,
     get_script_run_public,
@@ -141,11 +144,14 @@ def create_class_teacher_judge_script_run(
         started_by=current_user.id,
         target_node_key=payload.target_node_key,
     )
-    submit(
+    task_id = submit(
         execute_script_run(uuid.UUID(run.id)),
         name=f"teacher_judge_script_run:{run.id}",
         task_id=f"teacher_judge_script_run:{run.id}",
     )
+    if task_id == "":
+        _mark_run_executor_failed(uuid.UUID(run.id), "背景執行器未接受任務。", reason_code="executor_unavailable")
+        session.expire_all()
     return get_script_run_public(
         session=session,
         teaching_class_id=teaching_class_id,

@@ -1,4 +1,4 @@
-"""Teacher Judge regressions: reply-payload parsing, focus coercion, recovered-title check."""
+"""Teacher Judge regressions: reply-payload parsing, focus coercion, legacy reads."""
 
 from __future__ import annotations
 
@@ -13,10 +13,6 @@ from app.ai.role_contracts import (
     AdherenceVerdict,
 )
 from app.ai.teacher_judge import service as teacher_judge_service
-from app.ai.teacher_judge.schemas import (
-    TeacherJudgeRubricCheckStep,
-    TeacherJudgeRubricItem,
-)
 from tests.ai.teacher_judge.helpers import (
     patch_teacher_judge_vllm_settings,
     reply_message,
@@ -24,7 +20,7 @@ from tests.ai.teacher_judge.helpers import (
     tool_call_message,
 )
 
-# --- flat argv proposals are not "recovered" --------------------------
+# Stored flat argv remains readable for conversion.
 
 
 def _flat_raw(title: str) -> dict[str, object]:
@@ -37,47 +33,13 @@ def _flat_raw(title: str) -> dict[str, object]:
     }
 
 
-def test_flat_argv_item_is_not_counted_as_recovered() -> None:
+def test_stored_flat_argv_remains_readable() -> None:
     raw = _flat_raw("檢查 Python 版本")
     items = teacher_judge_service._normalize_rubric_items(
         [raw], template_key="linux", template_commands=[]
     )
     assert items and items[0].detectable == "auto"
     assert all(step.command_key is None for step in items[0].check_steps)
-
-    assert teacher_judge_service._recovered_catalog_item_titles(items, [raw]) == []
-
-
-def test_unknown_command_key_recovered_into_general_command_is_flagged() -> None:
-    item = TeacherJudgeRubricItem(
-        id="item-1",
-        title="檢查 nginx 設定",
-        detectable="auto",
-        detection_method="執行 nginx -t",
-        check_steps=[
-            TeacherJudgeRubricCheckStep(
-                template_key="linux",
-                command_key="system.run_command",
-                parameters={"argv": ["nginx", "-t"], "timeout_seconds": 30},
-            )
-        ],
-    )
-    raw = {
-        "id": "item-1",
-        "title": "檢查 nginx 設定",
-        "detectable": "auto",
-        "check_steps": [
-            {
-                "template_key": "linux",
-                "command_key": "nginx.check_config",
-                "parameters": {"argv": ["nginx", "-t"]},
-            }
-        ],
-    }
-
-    assert teacher_judge_service._recovered_catalog_item_titles([item], [raw]) == [
-        "檢查 nginx 設定"
-    ]
 
 
 @pytest.mark.asyncio
