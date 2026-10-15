@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import i18n from "../../../i18n";
 import styles from "./AiJudgePanel.module.scss";
@@ -19,7 +19,6 @@ import useDialogPresence from "../../../hooks/useDialogPresence";
 import useFileDrop from "../../../hooks/useFileDrop";
 import FileDropOverlay from "../../../components/FileDropzone/FileDropOverlay";
 import { downloadBlob } from "../../../services/api";
-import { focusInvalidField } from "../../../utils/focusField";
 import { formatDateTime } from "../../../utils/formatDate";
 import { joinList } from "../../../utils/joinList";
 import { createRubricAnalysisAutosave } from "./rubricAnalysisAutosave";
@@ -489,15 +488,20 @@ export function getSessionMenuPosition(anchorRect, options = {}) {
   return { top: Math.round(top), left: Math.round(left) };
 }
 
-/** 還沒有任何檢查時的中央空狀態；新增入口在左側清單頂端（有檢查時一律自動選最近的一項）。 */
-export function EmptyCheckHero({ onCreate }) {
+/** 選到的週次還沒有檢查：一週只會有一份，按下去才建立（重複按也只會有一份）。 */
+export function EmptyWeekHero({ week, onCreate, busy = false }) {
   const { t } = useTranslation("teaching");
   return (
     <EmptyState
       icon="checklist"
-      title={t("AiJudgePanel.noChecksTitle")}
-      description={t("AiJudgePanel.noChecksDesc")}
-      action={onCreate && <button type="button" className={styles.btnPrimary} onClick={onCreate}><MIcon name="add" size={16} />{t("AiJudgePanel.newCheckBtn")}</button>}
+      title={t("AiJudgePanel.emptyWeekTitle", { week: week.week ?? week.week_number })}
+      description={t("AiJudgePanel.emptyWeekDesc")}
+      action={onCreate && (
+        <button type="button" className={styles.btnPrimary} disabled={busy} onClick={onCreate}>
+          {busy ? <Spinner size={15} /> : <MIcon name="add" size={16} />}
+          {busy ? t("AiJudgePanel.creating") : t("AiJudgePanel.createWeekCheckBtn")}
+        </button>
+      )}
     />
   );
 }
@@ -850,20 +854,23 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
   return (
     <>
       <tr className={`${styles.rubricTableRow} ${expanded ? styles.rubricTableRowExpanded : ""}`}>
+        {/* 序號和展開鈕同一格：省下一整欄給檢查點與檢測方式 */}
         <td className={styles.rubricDetailToggleCell}>
-          <button
-            type="button"
-            className={styles.detailToggle}
-            aria-expanded={expanded}
-            aria-controls={detailId}
-            aria-label={t(expanded ? "AiJudgePanel.collapseRowAria" : "AiJudgePanel.expandRowAria", { index: index + 1 })}
-            title={expanded ? t("AiJudgePanel.collapseRowTitle") : t("AiJudgePanel.expandRowTitle")}
-            onClick={() => setExpanded((current) => !current)}
-          >
-            <MIcon name={expanded ? "expand_less" : "expand_more"} size={17} aria-hidden="true" />
-          </button>
+          <div className={styles.rubricIndex}>
+            <span className={styles.rubricNumber}>{index + 1}</span>
+            <button
+              type="button"
+              className={styles.detailToggle}
+              aria-expanded={expanded}
+              aria-controls={detailId}
+              aria-label={t(expanded ? "AiJudgePanel.collapseRowAria" : "AiJudgePanel.expandRowAria", { index: index + 1 })}
+              title={expanded ? t("AiJudgePanel.collapseRowTitle") : t("AiJudgePanel.expandRowTitle")}
+              onClick={() => setExpanded((current) => !current)}
+            >
+              <MIcon name={expanded ? "expand_less" : "expand_more"} size={17} aria-hidden="true" />
+            </button>
+          </div>
         </td>
-        <td className={styles.rubricNumberCell}>{index + 1}</td>
         <td>
           <label className={styles.tableField}>
             <span className={styles.srOnly}>{t("AiJudgePanel.rowTitleLabel", { index: index + 1 })}</span>
@@ -883,7 +890,6 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
             </p>
             {targetSummaries.length > 0 && (
               <div className={styles.rubricTargetSummary} aria-label={t("AiJudgePanel.targetsLabel")}>
-                <span className={styles.rubricTargetLabel}>{t("AiJudgePanel.targetsLabel")}</span>
                 <div className={styles.rubricTargetItems}>
                   {targetSummaries.map((target) => (
                     <span
@@ -912,7 +918,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           <div className={styles.tableActions}>
             <button
               type="button"
-              className={styles.iconBtnDanger}
+              className={styles.rubricDeleteBtn}
               title={t("AiJudgePanel.deleteItemTitle")}
               aria-label={t("AiJudgePanel.deleteItemAria", { index: index + 1, title: item.title || t("AiJudgePanel.unnamedItem") })}
               onClick={onDelete}
@@ -925,7 +931,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
       </tr>
       {expanded && (
         <tr className={styles.rubricDetailRow}>
-          <td id={detailId} colSpan={6}>
+          <td id={detailId} colSpan={5}>
             <div className={styles.rubricDetail}>
               <div className={styles.rubricDetailHead}>
                 <div>
@@ -1029,9 +1035,8 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
         <thead>
           <tr>
             <th scope="col">
-              <span className={styles.srOnly}>{t("AiJudgePanel.thDetails")}</span>
+              #<span className={styles.srOnly}>{t("AiJudgePanel.thDetails")}</span>
             </th>
-            <th scope="col">#</th>
             <th scope="col">{t("AiJudgePanel.thCheckpoint")}</th>
             <th scope="col">{t("AiJudgePanel.thMethod")}</th>
             <th scope="col">{t("AiJudgePanel.thAutoSupport")}</th>
@@ -1143,10 +1148,13 @@ export function ChatPanel({
   isUploading = false,
   loadingText = "",
   onDraftChange,
+  title,
+  subtitle,
 }) {
   const { t } = useTranslation("teaching");
   const [input, setInput] = useState("");
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
   const messagesEndRef = useRef(null);
   const visibleMessages = messages.filter(shouldDisplayChatMessage);
   const hasDraft = Boolean(input.trim());
@@ -1154,6 +1162,15 @@ export function ChatPanel({
   useEffect(() => {
     onDraftChange?.(hasDraft);
   }, [hasDraft, onDraftChange]);
+
+  // 輸入框從一行開始，隨內容長高（上限見 .chatComposer textarea 的 max-height），
+  // 「＋」與送出鈕才會跟第一行文字對齊
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [input]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1183,52 +1200,71 @@ export function ChatPanel({
   const { dragging, dropProps } = useFileDrop(([file]) => onUploadFile?.(file), {
     disabled: !canInteract,
   });
-  // 空對話（無可顯示訊息且非載入中）：訊息區置中放 ✦＋標題＋說明，圓角輸入框（Hero Composer）固定在面板底部；
-  // 有訊息或載入中則維持訊息串＋底部輸入列的既有版面。
+  // 空對話時問候貼在輸入框上方（視線本來就在那裡），跟 AI 導覽同一種排法；
+  // 有沒有訊息都用同一個圓角輸入框，不再切換兩套版面。
   const isEmpty = visibleMessages.length === 0 && !isLoading;
-  const heroPlaceholder = t("AiJudgePanel.chatHeroPlaceholder");
 
-  /* 以下幾塊兩種版面（中央 Hero／底部輸入列）共用；同一時間只會畫其中一種版面 */
   const attachmentRail = (
     <ChatAttachmentRail attachments={pendingAttachments} onRemove={onRemoveAttachment} disabled={!canInteract} />
   );
-  const attachmentInput = onUploadFile && (
-    <input
-      ref={fileInputRef}
-      type="file"
-      accept=".md,.txt,.doc,.docx,.pdf"
-      className={styles.srOnly}
-      tabIndex={-1}
-      onChange={handleAttachmentInput}
-    />
-  );
-  const sourcesToggle = onToggleSources && <button
-    type="button"
-    className={styles.btnSecondary}
-    disabled={!canInteract}
-    onClick={onToggleSources}
-    aria-expanded={sourcesOpen}
-    aria-controls="ai-chat-data-sources"
-  >
-    <MIcon name="description" size={14} />
-    {t("AiJudgePanel.sourcesBtn")}
-  </button>;
   const sourcesPanel = sourcesOpen && sourcesContent && (
     <div id="ai-chat-data-sources" className={styles.chatSourcesPanel}>
       {sourcesContent}
     </div>
   );
+  const showClear = !isEmpty;
 
   return (
-    <div className={`${styles.chatPanel} ${isEmpty ? styles.chatPanelEmpty : ""}`} {...(onUploadFile ? dropProps : {})}>
+    <div className={styles.chatPanel} {...(onUploadFile ? dropProps : {})}>
+      {(title || onToggleSources || showClear) && (
+        <div className={styles.chatHeader}>
+          {title && (
+            <>
+              <span className={styles.chatHeaderAvatar}>
+                <OctoAvatar />
+              </span>
+              <div className={styles.chatHeaderText}>
+                <strong>{title}</strong>
+                {subtitle && <span>{subtitle}</span>}
+              </div>
+            </>
+          )}
+          <div className={styles.chatHeaderActions}>
+            {onToggleSources && (
+              <button
+                type="button"
+                className={`${styles.chatHeaderBtn} ${sourcesOpen ? styles.chatHeaderBtnActive : ""}`}
+                disabled={!canInteract}
+                onClick={onToggleSources}
+                aria-expanded={sourcesOpen}
+                aria-controls="ai-chat-data-sources"
+                aria-label={t("AiJudgePanel.sourcesBtn")}
+                title={t("AiJudgePanel.sourcesBtn")}
+              >
+                <MIcon name="description" size={18} />
+              </button>
+            )}
+            {showClear && (
+              <button
+                type="button"
+                className={styles.chatHeaderBtn}
+                disabled={!canInteract || messages.length === 0}
+                onClick={onClearMessages}
+                aria-label={t("AiJudgePanel.clearChatBtn")}
+                title={t("AiJudgePanel.clearChatBtn")}
+              >
+                {isClearing ? <Spinner size={16} /> : <MIcon name="delete_sweep" size={18} />}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className={styles.chatMessages}>
         {isEmpty ? (
-          <div className={styles.chatHero} data-chat-empty-hero="true">
-            <MIcon name="fact_check" size={44} className={styles.chatHeroIcon} />
-            <h3 className={styles.chatHeroTitle}>{t("AiJudgePanel.chatHeroTitle")}</h3>
-            <p className={styles.chatHeroDesc}>
-              {t("AiJudgePanel.chatHeroDesc")}
-            </p>
+          <div className={styles.chatGreeting} data-chat-empty-hero="true">
+            <h3>{t("AiJudgePanel.chatHeroTitle")}</h3>
+            <p>{t("AiJudgePanel.chatHeroDesc")}</p>
           </div>
         ) : (
           visibleMessages.map((msg, i) => (
@@ -1236,8 +1272,7 @@ export function ChatPanel({
               key={`${msg.role}-${i}`}
               className={`${styles.chatMsgRow} ${msg.role === "user" ? styles.chatMsgRow_user : ""}`}
             >
-              {/* 跟首頁 AI 對話同一套：助理有頭像、回覆不加框；使用者是靠右的實心氣泡、不放頭像。
-                  頭像也是章魚學士的靜態頭像（標題列的 fact_check 圖示保留，用來辨認是檢查表助理） */}
+              {/* 跟 AI 導覽同一套：助理有頭像、回覆不加框；使用者是靠右的實心氣泡、不放頭像 */}
               {msg.role === "assistant" && (
                 <span className={styles.chatAvatar}>
                   <OctoAvatar />
@@ -1292,83 +1327,12 @@ export function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 空對話的輸入框是對話框，固定在面板底部（原本置中夾在說明底下）；樣式沿用 Hero Composer */}
-      {isEmpty && (
-        <div className={styles.chatHeroDock}>
-                {attachmentRail}
-                <form
-                  className={styles.chatHeroComposer}
-                  aria-label={t("AiJudgePanel.chatFormAria")}
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    send();
-                  }}
-                >
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        send();
-                      }
-                    }}
-                    placeholder={heroPlaceholder}
-                    rows={3}
-                    aria-label={t("AiJudgePanel.chatInputAria")}
-                    disabled={!canInteract}
-                  />
-                  <div className={styles.chatHeroFooter}>
-                    {onUploadFile ? (
-                      <>
-                        {attachmentInput}
-                        <button
-                          type="button"
-                          className={styles.btnSecondary}
-                          disabled={!canInteract}
-                          aria-label={t("AiJudgePanel.addAttachmentAria")}
-                          title={t("AiJudgePanel.attachFileTitle")}
-                          onClick={() => fileInputRef.current?.click()}
-                        >
-                          <MIcon name="add" size={16} />
-                          {t("AiJudgePanel.attachFileBtn")}
-                        </button>
-                      </>
-                    ) : <span />}
-                    <button
-                      type="submit"
-                      className={`${styles.btnSecondary} ${styles.chatHeroSend}`}
-                      disabled={!canSend}
-                      aria-label={t("AiJudgePanel.sendAria")}
-                      title={t("AiJudgePanel.sendAria")}
-                    >
-                      <MIcon name="arrow_upward" size={18} />
-                    </button>
-                  </div>
-                </form>
-                {sourcesToggle}
-                {sourcesPanel}
-        </div>
-      )}
-
-      {!isEmpty && (
-      <div className={styles.chatInputArea}>
-        {attachmentRail}
-        <div className={styles.chatActions}>
-          {sourcesToggle}
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            disabled={!canInteract || messages.length === 0}
-            onClick={onClearMessages}
-          >
-            {isClearing ? <Spinner size={14} /> : <MIcon name="delete_sweep" size={14} />}
-            {t("AiJudgePanel.clearChatBtn")}
-          </button>
-        </div>
+      <div className={styles.chatComposerDock}>
         {sourcesPanel}
+        {attachmentRail}
         <form
-          className={styles.chatForm}
+          className={styles.chatComposer}
+          aria-label={t("AiJudgePanel.chatFormAria")}
           onSubmit={(e) => {
             e.preventDefault();
             send();
@@ -1376,20 +1340,28 @@ export function ChatPanel({
         >
           {onUploadFile && (
             <>
-              {attachmentInput}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.txt,.doc,.docx,.pdf"
+                className={styles.srOnly}
+                tabIndex={-1}
+                onChange={handleAttachmentInput}
+              />
               <button
                 type="button"
-                className={`${styles.iconBtn} ${styles.chatAttachButton}`}
+                className={styles.chatComposerAttach}
                 disabled={!canInteract}
                 aria-label={t("AiJudgePanel.addAttachmentAria")}
-                title={t("AiJudgePanel.addAttachmentAria")}
+                title={t("AiJudgePanel.attachFileTitle")}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <MIcon name="add" size={19} />
+                <MIcon name="add" size={20} />
               </button>
             </>
           )}
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -1398,21 +1370,22 @@ export function ChatPanel({
                 send();
               }
             }}
-            placeholder={t("AiJudgePanel.chatInputPlaceholder")}
+            placeholder={isEmpty ? t("AiJudgePanel.chatHeroPlaceholder") : t("AiJudgePanel.chatInputPlaceholder")}
             rows={1}
+            aria-label={t("AiJudgePanel.chatInputAria")}
             disabled={!canInteract}
           />
           <button
             type="submit"
-            className={styles.btnSecondary}
+            className={styles.chatComposerSend}
             disabled={!canSend}
             aria-label={t("AiJudgePanel.sendAria")}
+            title={t("AiJudgePanel.sendAria")}
           >
-            <MIcon name="send" size={16} />
+            <MIcon name="arrow_upward" size={18} />
           </button>
         </form>
       </div>
-      )}
       {dragging && <FileDropOverlay label={t("AiJudgePanel.dropToAttach")} />}
     </div>
   );
@@ -1459,121 +1432,173 @@ export function SaveAndCreateAction({
   );
 }
 
-/* ── 新增檢查命名 Dialog ──────────────────────────────── */
+/* ── 工作區欄寬：週次欄、助理欄可以拖拉調整 ──────────────── */
 
-export function CreateCheckDialog({
-  closing = false,
-  busy = false,
-  error = "",
-  weeks = [],
-  defaultWeekId = "",
-  onClose = () => {},
-  onSubmit = () => {},
-}) {
-  const { t } = useTranslation("teaching");
-  const [title, setTitle] = useState("");
-  const [weekId, setWeekId] = useState(defaultWeekId);
-  const [invalid, setInvalid] = useState(false);
-  const inputRef = useRef(null);
+const JUDGE_MAIN_MIN_WIDTH = 480;
+const RESIZE_KEY_STEP = 16;
 
-  useEffect(() => {
-    if (!busy && !closing) inputRef.current?.focus();
-  }, [busy, closing]);
+export const JUDGE_COLUMN_WIDTHS = {
+  week: { cssVar: "--judge-week-w", storageKey: "aiJudge.weekColumnWidth", min: 180, max: 360 },
+  chat: { cssVar: "--judge-chat-w", storageKey: "aiJudge.chatColumnWidth", min: 300, max: 600 },
+};
 
-  function submit(event) {
-    event.preventDefault();
-    const nextTitle = title.trim();
-    if (!nextTitle) {
-      setInvalid(true);
-      inputRef.current?.focus();
-      return;
+/** 上次拖拉出來的欄寬；瀏覽器不給讀就用預設寬度 */
+export function readStoredColumnWidths() {
+  const style = {};
+  for (const { cssVar, storageKey, min, max } of Object.values(JUDGE_COLUMN_WIDTHS)) {
+    try {
+      const value = Number(window.localStorage.getItem(storageKey));
+      if (Number.isFinite(value) && value >= min && value <= max) style[cssVar] = `${value}px`;
+    } catch {
+      // 私密瀏覽或封鎖儲存：照預設寬度
     }
-    onSubmit(nextTitle, weekId || null);
+  }
+  return style;
+}
+
+/**
+ * 欄與欄之間的拖拉把手（就是那條分隔線）。拖拉、左右鍵調整寬度，雙擊恢復預設。
+ * 寬度寫在工作區根節點的 CSS 變數上，中間的檢查項目至少保留 480px。
+ */
+function ColumnResizer({ column, side, label, measureSelector, otherSelector }) {
+  const ref = useRef(null);
+  const { cssVar, storageKey, min, max } = JUDGE_COLUMN_WIDTHS[column];
+
+  const host = () => ref.current?.closest("[data-judge-workspace]") ?? null;
+  const widthOf = (root, selector) => (
+    selector ? root.querySelector(selector)?.getBoundingClientRect().width ?? 0 : 0
+  );
+
+  function limits(root) {
+    const room = root.getBoundingClientRect().width - widthOf(root, otherSelector) - JUDGE_MAIN_MIN_WIDTH;
+    return { low: min, high: Math.max(min, Math.min(max, room)) };
+  }
+
+  function apply(root, width) {
+    const { low, high } = limits(root);
+    const next = Math.round(Math.min(high, Math.max(low, width)));
+    root.style.setProperty(cssVar, `${next}px`);
+    ref.current?.setAttribute("aria-valuenow", String(next));
+    return next;
+  }
+
+  function save(width) {
+    try {
+      window.localStorage.setItem(storageKey, String(width));
+    } catch {
+      // 存不了就只在這次畫面有效
+    }
+  }
+
+  function onPointerDown(event) {
+    const root = host();
+    if (!root || event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = widthOf(root, measureSelector);
+    let latest = startWidth;
+    const target = event.currentTarget;
+    target.setPointerCapture?.(event.pointerId);
+    root.dataset.resizing = "true";
+    function onMove(moveEvent) {
+      const delta = moveEvent.clientX - startX;
+      latest = apply(root, side === "left" ? startWidth + delta : startWidth - delta);
+    }
+    function onUp() {
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+      target.removeEventListener("pointercancel", onUp);
+      delete root.dataset.resizing;
+      save(latest);
+    }
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+    target.addEventListener("pointercancel", onUp);
+  }
+
+  function onKeyDown(event) {
+    const root = host();
+    if (!root || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const grow = (event.key === "ArrowRight") === (side === "left");
+    const width = widthOf(root, measureSelector) + (grow ? RESIZE_KEY_STEP : -RESIZE_KEY_STEP);
+    save(apply(root, width));
+  }
+
+  function reset() {
+    host()?.style.removeProperty(cssVar);
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // 沒存過也沒關係
+    }
   }
 
   return (
-    <Modal
-      as="form"
-      onSubmit={submit}
-      closing={closing}
-      onClose={onClose}
-      busy={busy}
-      title={t("AiJudgePanel.newCheckBtn")}
-      description={t("AiJudgePanel.createCheckDesc")}
-      aria-busy={busy || undefined}
-      actions={
-        <>
-          <button type="button" className={styles.btnSecondary} disabled={busy} onClick={onClose}>
-            {t("AiJudgePanel.cancelBtn")}
-          </button>
-          <button type="submit" className={styles.btnPrimary} disabled={busy}>
-            {busy ? <><Spinner size={15} />{t("AiJudgePanel.creating")}</> : t("AiJudgePanel.createBlankBtn")}
-          </button>
-        </>
-      }
-    >
-      <label className={styles.dialogField} htmlFor="create-check-name-input">
-        <span>{t("AiJudgePanel.checkNameLabel")}</span>
-        <input
-          id="create-check-name-input"
-          ref={inputRef}
-          className={`${styles.createCheckNameInput} ${invalid ? styles.fieldInvalid : ""}`}
-          value={title}
-          maxLength={255}
-          placeholder={t("AiJudgePanel.checkNamePlaceholder")}
-          disabled={busy}
-          aria-invalid={invalid}
-          aria-describedby={invalid ? "create-check-name-error" : undefined}
-          onChange={(event) => {
-            setTitle(event.target.value);
-            setInvalid(false);
-          }}
-        />
-      </label>
-      {invalid && (
-        <p id="create-check-name-error" className={styles.dialogError} role="alert">
-          {t("AiJudgePanel.checkNameRequired")}
-        </p>
-      )}
-      <WeekSelectField weeks={weeks} value={weekId} onChange={setWeekId} disabled={busy} optional />
-      {error && <p className={styles.dialogError} role="alert">{error}</p>}
-    </Modal>
+    <div
+      ref={ref}
+      className={`${styles.columnResizer} ${side === "left" ? styles.columnResizerWeek : styles.columnResizerChat}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
+      title={label}
+      onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
+      onDoubleClick={reset}
+    />
   );
 }
 
-/** 週次下拉：只列填了標題的週次；一週都沒有時說明要去哪裡補 */
-function WeekSelectField({ weeks, value, onChange, disabled = false, optional = false, autoFocus = false }) {
+/* ── 週次：一週一個檢查對話 ───────────────────────────── */
+
+/** 週次在清單、下拉選單裡的名稱：「第 N 週 · 主題」，沒填主題時註明 */
+/** 老師發布這週內容後學生才看得到作業，也才能檢查。 */
+export function isWeekPublished(week) {
+  return week?.status === "published" || week?.status === "completed";
+}
+
+export function weekOptionLabel(week) {
+  return jt("weekOption", {
+    week: week.week ?? week.week_number,
+    title: String(week.title ?? "").trim() || jt("weekNoTopic"),
+  });
+}
+
+/** 移動或複製檢查時選目標週次：只列還沒有檢查的週次 */
+function WeekSelectField({ weeks, value, onChange, autoFocus = false }) {
   const { t } = useTranslation("teaching");
   const selectId = useId();
   if (weeks.length === 0) {
     return (
       <p className={styles.dialogHint}>
         <MIcon name="info" size={15} aria-hidden="true" />
-        {optional ? t("AiJudgePanel.noWeeksHintOptional") : t("AiJudgePanel.noWeeksHint")}
+        {t("AiJudgePanel.noFreeWeeksHint")}
       </p>
     );
   }
   return (
     <label className={styles.dialogField} htmlFor={selectId}>
-      <span>{t("AiJudgePanel.weekLabel")}{optional && <small>{t("AiJudgePanel.optionalTag")}</small>}</span>
+      <span>{t("AiJudgePanel.weekLabel")}</span>
       <select
         id={selectId}
         className={styles.dialogSelect}
         value={value}
-        disabled={disabled}
         autoFocus={autoFocus}
         onChange={(event) => onChange(event.target.value)}
       >
-        <option value="" disabled={!optional}>{optional ? t("AiJudgePanel.weekNone") : t("AiJudgePanel.weekSelect")}</option>
+        <option value="" disabled>{t("AiJudgePanel.weekSelect")}</option>
         {weeks.map((week) => (
-          <option key={week.id} value={week.id}>{t("AiJudgePanel.weekOption", { week: week.week ?? week.week_number, title: week.title })}</option>
+          <option key={week.id} value={week.id}>{weekOptionLabel(week)}</option>
         ))}
       </select>
     </label>
   );
 }
 
-/** 新增檢查時預設帶入「最近已上過的一週」，都還沒開始就不指定 */
+/** 最近已上過的一週；都還沒開始上課時回傳空字串 */
 export function getDefaultWeekId(weeks, today = new Date()) {
   // 上課日期是當地日曆日；toISOString 是 UTC，台灣早上八點前會算成前一天而漏掉當天那一週
   const todayKey = [
@@ -1587,16 +1612,17 @@ export function getDefaultWeekId(weeks, today = new Date()) {
   return past[0]?.id ?? "";
 }
 
-/** 沒有指定（或網址上的檢查已不存在）時預設選最近動過的一項；釘選只影響清單排序 */
-export function getDefaultSessionId(sessions) {
-  if (!Array.isArray(sessions) || sessions.length === 0) return null;
-  const time = (session) => Date.parse(session?.last_activity_at ?? session?.updated_at ?? "") || 0;
-  return sessions.reduce((latest, session) => (time(session) > time(latest) ? session : latest)).id;
-}
-
-export function resolveActiveSessionId(currentId, sessions) {
-  if (!currentId || !Array.isArray(sessions)) return null;
-  return sessions.some((session) => session.id === currentId) ? currentId : null;
+/**
+ * 打開 AI導師檢查時先選哪一週：網址指定的週次 > 本週（最近上過的一週）> 第一週。
+ */
+export function resolveActiveWeekId(requestedId, weeks, today = new Date()) {
+  if (!Array.isArray(weeks) || weeks.length === 0) return null;
+  if (requestedId && weeks.some((week) => String(week.id) === String(requestedId))) {
+    return String(requestedId);
+  }
+  const fallback = getDefaultWeekId(weeks, today)
+    || [...weeks].sort((a, b) => (a.week_number ?? 0) - (b.week_number ?? 0))[0]?.id;
+  return fallback ? String(fallback) : null;
 }
 
 function RubricSourceRail({ classId, file, onClose, embedded = false }) {
@@ -1652,7 +1678,14 @@ export function keepNewerRubricFiles(current, rows) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, onDirtyChange, machineNodes = [] }) {
+export function RubricsTab({
+  classId,
+  judgeSession,
+  onSessionUpdated,
+  onScriptCreated,
+  onDirtyChange,
+  machineNodes = [],
+}) {
   const { t } = useTranslation("teaching");
   const toast = useToast();
   const confirm = useConfirm();
@@ -2463,13 +2496,14 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       />
 
       <div className={styles.rubricsGrid}>
-        <div className={`${styles.card} ${styles.rubricTableCard} ${styles.checkRubricCard}`} data-guide="ai-judge-rubric-items">
-          <div className={`${styles.cardHead} ${styles.checkHead}`}>
-            <h4 className={styles.cardTitle}>{analysis ? t("AiJudgePanel.itemsTitleCount", { count: items.length }) : t("AiJudgePanel.itemsTitle")}</h4>
-            {items.length > 0 && (isChatting || isCreatingScript) && (
-              <span className={styles.actionHint}>{isCreatingScript ? t("AiJudgePanel.editLockedBuilding") : t("AiJudgePanel.editLockedChatting")}</span>
-            )}
-          </div>
+        <ColumnResizer
+          column="chat"
+          side="right"
+          label={t("AiJudgePanel.resizeChatAria")}
+          measureSelector='[data-guide="ai-judge-assistant"]'
+          otherSelector='[data-guide="ai-judge-sessions"]'
+        />
+        <div className={`${styles.checkWorkPane} ${styles.rubricTableCard} ${styles.checkRubricCard}`} data-guide="ai-judge-rubric-items">
           {!filesLoaded && !analysis ? (
             <LoadingState text={t("AiJudgePanel.loadingRubric")} />
           ) : items.length === 0 && !pendingProposal ? (
@@ -2520,15 +2554,10 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           )}
         </div>
 
-        <div ref={chatColRef} className={`${styles.card} ${styles.checkChatCol}`} data-guide="ai-judge-assistant">
+        <div ref={chatColRef} className={styles.checkChatCol} data-guide="ai-judge-assistant">
           <div className={styles.checkChatInner}>
-            <div className={styles.checkHead}>
-              <h4 className={styles.cardTitle}>
-                <MIcon name="fact_check" size={18} />
-                {t("AiJudgePanel.assistantTitle")}
-              </h4>
-            </div>
             <ChatPanel
+              title={t("AiJudgePanel.assistantTitle")}
               messages={messages}
               onSendMessage={handleSendMessage}
               onClearMessages={handleClearMessages}
@@ -2559,432 +2588,9 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   );
 }
 
-/* ── Tab 3：腳本總覽 ────────────────────────────────────── */
-
-const SCRIPT_STATUS_LABELS = {
-  get draft() { return jt("scriptStatusDraft"); },
-  get review_failed() { return jt("scriptStatusReviewFailed"); },
-  get reviewed() { return jt("scriptStatusReviewed"); },
-  get approved() { return jt("scriptStatusApproved"); },
-  get archived() { return jt("scriptStatusArchived"); },
-};
-
-const RETRY_STOP_REASON_LABELS = {
-  get passed() { return jt("retryStopPassed"); },
-  get same_failure_limit() { return jt("retryStopSameFailure", { count: 2 }); },
-  get total_retry_limit() { return jt("retryStopTotal", { count: 4 }); },
-  get unrecoverable_error() { return jt("retryStopUnrecoverable"); },
-};
-
+/* 腳本製作完要去哪：通過就到導師核查執行；其餘留在檢查設定，原因由製作通知顯示 */
 export function getScriptCreationDestination(artifact) {
-  return artifact?.status === "approved" ? "review" : "scripts";
-}
-
-function scriptStatusBadgeClass(status) {
-  if (status === "approved") return styles.badge_success;
-  if (status === "review_failed") return styles.badge_danger;
-  if (status === "reviewed" || status === "draft") return styles.badge_pending;
-  return styles.badge_muted;
-}
-
-function ReviewPanel({ title, result }) {
-  const { t } = useTranslation("teaching");
-  const issues = Array.isArray(result?.issues) ? result.issues : [];
-  return (
-    <div className={styles.reviewPanel}>
-      <div className={styles.reviewPanelHead}>
-        <span>{title}</span>
-        <span
-          className={`${styles.badge} ${result?.approved ? styles.badge_success : styles.badge_danger}`}
-        >
-          {result?.approved ? t("AiJudgePanel.reviewPass") : t("AiJudgePanel.reviewBlock")}
-        </span>
-      </div>
-      {issues.length > 0 ? (
-        <ul className={styles.reviewIssues}>
-          {issues.map((issue, index) => (
-            <li key={`${title}-${index}`}>{String(issue)}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className={styles.mutedText}>{t("AiJudgePanel.reviewNoRisks")}</p>
-      )}
-      {result?.suggested_fix && (
-        <p className={styles.mutedText}>{t("AiJudgePanel.reviewSuggestion", { fix: String(result.suggested_fix) })}</p>
-      )}
-    </div>
-  );
-}
-
-export function getScriptReviewAttemptIssues(attempt) {
-  const uncoveredIssues = Array.isArray(attempt?.uncovered_rubric_items)
-    ? attempt.uncovered_rubric_items.map((item) => {
-      if (typeof item === "string") return jt("uncoveredItem", { title: item });
-      if (!item || typeof item !== "object") return "";
-      const label = item.title || item.id;
-      return label ? jt("uncoveredItem", { title: label }) : "";
-    })
-    : [];
-  return [...new Set([
-    ...(Array.isArray(attempt?.safety_issues) ? attempt.safety_issues : []),
-    ...(Array.isArray(attempt?.quality_issues) ? attempt.quality_issues : []),
-    ...(Array.isArray(attempt?.coverage_issues) ? attempt.coverage_issues : []),
-    ...uncoveredIssues,
-    ...(Array.isArray(attempt?.ai_review_issues) ? attempt.ai_review_issues : []),
-    ...(Array.isArray(attempt?.generation_issues) ? attempt.generation_issues : []),
-  ].filter(Boolean).map((issue) => String(issue)))];
-}
-
-function RetrySummary({ script }) {
-  const { t } = useTranslation("teaching");
-  const summary = script?.policy_check_result_json?.retry_summary;
-  const attempts = Array.isArray(script?.policy_check_result_json?.review_attempts)
-    ? script.policy_check_result_json.review_attempts
-    : [];
-  const coverage = script?.policy_check_result_json?.coverage;
-  const coverageFallback = {
-    phase: "coverage",
-    coverage_issues: Array.isArray(coverage?.issues) ? coverage.issues : [],
-    uncovered_rubric_items: Array.isArray(coverage?.uncovered_items)
-      ? coverage.uncovered_items
-      : [],
-  };
-  const hasCoverageAttempt = attempts.some(
-    (attempt) => attempt?.phase === "coverage"
-      || Array.isArray(attempt?.coverage_issues)
-      || Array.isArray(attempt?.uncovered_rubric_items),
-  );
-  const displayedAttempts = !hasCoverageAttempt
-    && getScriptReviewAttemptIssues(coverageFallback).length > 0
-    ? [...attempts, coverageFallback]
-    : attempts;
-  if (script?.status !== "review_failed") return null;
-
-  const retryCount = Number(summary?.retry_count ?? 0);
-  const stopReason = RETRY_STOP_REASON_LABELS[summary?.stop_reason] ?? t("AiJudgePanel.scriptStatusReviewFailed");
-  return (
-    <div className={styles.noticeInfo}>
-      <p>
-        <strong className={styles.dangerText}>{stopReason}</strong>
-      </p>
-      <p>
-        {t("AiJudgePanel.retrySummary", { count: retryCount })}
-      </p>
-      {displayedAttempts.length > 0 && (
-        <ul className={styles.reviewIssues}>
-          {displayedAttempts.slice(-3).map((attempt, index) => {
-            const issues = getScriptReviewAttemptIssues(attempt);
-            return (
-              <li key={`${attempt?.attempt ?? index}-${attempt?.failure_signature ?? "failure"}`}>
-                {t("AiJudgePanel.retryAttempt", { attempt: attempt?.attempt ?? index + 1, phase: attempt?.phase ?? t("AiJudgePanel.retryPhaseReview") })}
-                {issues.slice(0, 2).join(t("AiJudgePanel.issueSeparator")) || t("AiJudgePanel.retryNoDetail")}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function ScriptsTab({
-  classId,
-  sessionId,
-  initialSelectedId = null,
-  onScriptApproved,
-  onGoToSettings,
-}) {
-  const { t } = useTranslation("teaching");
-  const toast = useToast();
-  const confirm = useConfirm();
-  const [scripts, setScripts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
-  const [renameTarget, setRenameTarget] = useState(null);
-  const [renameName, setRenameName] = useState("");
-  const [renameInvalid, setRenameInvalid] = useState(false);
-  const [actionPending, setActionPending] = useState(null); // "approve" | "rename" | "delete"
-  const renameInputRef = useRef(null);
-
-  const fetchScripts = useCallback(async () => {
-    setLoading(true);
-    setError(false);
-    try {
-      setScripts(await AiJudgeService.listScripts(classId, sessionId));
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [classId, sessionId]);
-
-  useEffect(() => {
-    fetchScripts();
-  }, [fetchScripts]);
-
-  useEffect(() => {
-    if (initialSelectedId) setSelectedId(initialSelectedId);
-  }, [initialSelectedId]);
-
-  useEffect(() => {
-    if (!renameTarget || !renameInputRef.current) return;
-    renameInputRef.current.focus();
-    renameInputRef.current.select();
-  }, [renameTarget]);
-
-  const selected = useMemo(() => {
-    if (scripts.length === 0) return null;
-    return scripts.find((script) => script.id === selectedId) ?? scripts[0];
-  }, [scripts, selectedId]);
-  const selectedIsRenaming = Boolean(selected && renameTarget?.id === selected.id);
-
-  function selectScript(scriptId) {
-    if (actionPending !== null) return;
-    if (renameTarget && renameTarget.id !== scriptId) {
-      setRenameTarget(null);
-      setRenameName("");
-      setRenameInvalid(false);
-    }
-    setSelectedId(scriptId);
-  }
-
-  async function handleApprove() {
-    setActionPending("approve");
-    try {
-      await AiJudgeService.approveScript(classId, selected.id);
-      toast.success(t("AiJudgePanel.scriptApproved"));
-      fetchScripts();
-      onScriptApproved?.();
-    } catch (err) {
-      toast.error(err?.message ?? t("AiJudgePanel.approveFailed"));
-    } finally {
-      setActionPending(null);
-    }
-  }
-
-  async function handleDelete(target) {
-    if (!target) return;
-    const ok = await confirm({
-      title: t("AiJudgePanel.deleteScriptTitle"),
-      message: t("AiJudgePanel.deleteScriptMessage", { name: target.name }),
-      confirmText: t("AiJudgePanel.opDelete"),
-      danger: true,
-    });
-    if (!ok) return;
-    setActionPending("delete");
-    try {
-      await AiJudgeService.deleteScript(classId, target.id);
-      toast.success(t("AiJudgePanel.scriptDeleted"));
-      setSelectedId(null);
-      setScripts((current) => current.filter((script) => script.id !== target.id));
-    } catch (err) {
-      toast.error(err?.message ?? t("AiJudgePanel.deleteFailed"));
-    } finally {
-      setActionPending(null);
-    }
-  }
-
-  function openRename(script) {
-    if (!script || actionPending !== null) return;
-    setRenameTarget(script);
-    setRenameName(script.name ?? "");
-    setRenameInvalid(false);
-  }
-
-  function cancelRename() {
-    if (actionPending === "rename") return;
-    setRenameTarget(null);
-    setRenameName("");
-    setRenameInvalid(false);
-  }
-
-  async function handleRename(event) {
-    event?.preventDefault?.();
-    const nextName = renameName.trim();
-    const target = renameTarget;
-    if (!target || actionPending === "rename") return;
-    if (!nextName) {
-      setRenameInvalid(true);
-      focusInvalidField(renameInputRef.current);
-      return;
-    }
-    if (nextName === String(target.name ?? "").trim()) {
-      cancelRename();
-      return;
-    }
-    setActionPending("rename");
-    try {
-      const updated = await AiJudgeService.renameScript(classId, target.id, nextName);
-      toast.success(t("AiJudgePanel.scriptRenamed"));
-      setScripts((current) =>
-        current.map((script) => (script.id === updated.id ? updated : script)),
-      );
-      setRenameTarget(null);
-      setRenameName("");
-      setRenameInvalid(false);
-    } catch (err) {
-      toast.error(err?.message ?? t("AiJudgePanel.renameFailed"));
-    } finally {
-      setActionPending(null);
-    }
-  }
-
-  return (
-    <div className={styles.tabBody} data-guide="ai-judge-scripts">
-      {loading ? (
-        <LoadingState text={t("AiJudgePanel.loadingScripts")} />
-      ) : error ? (
-        <div className={styles.card}>
-          <ErrorState onRetry={fetchScripts} />
-        </div>
-      ) : scripts.length === 0 ? (
-        <div className={styles.card}>
-          <EmptyState
-            icon="terminal"
-            title={t("AiJudgePanel.noScriptsTitle")}
-            description={t("AiJudgePanel.noScriptsDesc")}
-            action={onGoToSettings && (
-              <button type="button" className={styles.btnSecondary} onClick={onGoToSettings}>
-                <MIcon name="arrow_back" size={16} />{t("AiJudgePanel.goToSettings")}
-              </button>
-            )}
-          />
-        </div>
-      ) : (
-        <div className={styles.scriptsGrid}>
-          <div className={styles.scriptList}>
-            {scripts.map((script) => (
-              <button
-                key={script.id}
-                type="button"
-                className={`${styles.scriptItem} ${selected?.id === script.id ? styles.scriptItemActive : ""}`}
-                onClick={() => selectScript(script.id)}
-                disabled={actionPending !== null}
-              >
-                <span className={styles.scriptItemHead}>
-                  <span className={styles.scriptName}>{script.name}</span>
-                  <span className={`${styles.badge} ${scriptStatusBadgeClass(script.status)}`}>
-                    {SCRIPT_STATUS_LABELS[script.status] ?? script.status}
-                  </span>
-                </span>
-                <span className={styles.fileMeta}>
-                  {getTemplateLabel(script.template_key)} · {formatDateTime(script.updated_at)}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {selected && (
-            <div className={styles.card}>
-              <div className={styles.cardHead}>
-                {selectedIsRenaming ? (
-                  <form
-                    className={styles.scriptRenameForm}
-                    aria-label={t("AiJudgePanel.renameAria", { name: selected.name })}
-                    onSubmit={handleRename}
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <MIcon name="security" size={18} />
-                    <label className={styles.srOnly} htmlFor={`script-name-${selected.id}`}>
-                      {t("AiJudgePanel.scriptNameLabel")}
-                    </label>
-                    <input
-                      id={`script-name-${selected.id}`}
-                      ref={renameInputRef}
-                      className={`${styles.scriptRenameInput} ${renameInvalid ? styles.fieldInvalid : ""}`}
-                      // eslint-disable-next-line jsx-a11y/no-autofocus
-                      autoFocus
-                      type="text"
-                      value={renameName}
-                      maxLength={255}
-                      disabled={actionPending === "rename"}
-                      aria-label={t("AiJudgePanel.renameAria", { name: selected.name })}
-                      aria-invalid={renameInvalid}
-                      aria-describedby={renameInvalid ? `script-name-error-${selected.id}` : undefined}
-                      title={t("AiJudgePanel.renameKeysHint")}
-                      onChange={(event) => {
-                        setRenameName(event.target.value);
-                        setRenameInvalid(false);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.isComposing) return;
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          event.currentTarget.form?.requestSubmit();
-                          return;
-                        }
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          cancelRename();
-                        }
-                      }}
-                    />
-                    {renameInvalid && (
-                      <span id={`script-name-error-${selected.id}`} className={styles.scriptRenameError} role="alert">
-                        {t("AiJudgePanel.scriptNameRequired")}
-                      </span>
-                    )}
-                  </form>
-                ) : (
-                  <h4 className={styles.cardTitle}>
-                    <MIcon name="security" size={18} />
-                    {selected.name}
-                  </h4>
-                )}
-                <div className={styles.sectionActions}>
-                  {selected.status === "reviewed" && (
-                    <button
-                      type="button"
-                      className={styles.btnPrimary}
-                      onClick={handleApprove}
-                      disabled={actionPending !== null || selectedIsRenaming}
-                    >
-                      <MIcon name="check_circle" size={16} />
-                      {actionPending === "approve" ? t("AiJudgePanel.approving") : t("AiJudgePanel.approveBtn")}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => (selectedIsRenaming ? cancelRename() : openRename(selected))}
-                    disabled={actionPending !== null}
-                  >
-                    {actionPending === "rename" ? (
-                      <Spinner size={16} />
-                    ) : (
-                      <MIcon name={selectedIsRenaming ? "close" : "edit"} size={16} />
-                    )}
-                    {actionPending === "rename" ? t("AiJudgePanel.saving") : selectedIsRenaming ? t("AiJudgePanel.cancelBtn") : t("AiJudgePanel.renameBtn")}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnDangerOutline}
-                    onClick={() => handleDelete(selected)}
-                    disabled={actionPending !== null || selectedIsRenaming}
-                  >
-                    <MIcon name="delete" size={16} />
-                    {actionPending === "delete" ? t("AiJudgePanel.deleting") : t("AiJudgePanel.deleteScriptBtn")}
-                  </button>
-                </div>
-              </div>
-
-              <div className={styles.reviewGrid}>
-                <ReviewPanel title={t("AiJudgePanel.policyReviewTitle")} result={selected.policy_check_result_json} />
-                <ReviewPanel title={t("AiJudgePanel.aiReviewTitle")} result={selected.ai_review_result_json} />
-              </div>
-
-              <RetrySummary script={selected} />
-
-              <pre className={styles.codeBlock}>{selected.script_content}</pre>
-            </div>
-          )}
-        </div>
-      )}
-
-
-    </div>
-  );
+  return artifact?.status === "approved" ? "review" : "rubrics";
 }
 
 /* ── 執行結果／核查共用的結果顯示元件 ───────────────────── */
@@ -3380,7 +2986,13 @@ export function sortStudentOverviewRows(students, sortMode = "pending") {
   return [...students].sort((left, right) => {
     if (sortMode === "student-number") return byAccount(left, right);
     const rank = { pending: 0, failed: 1, reviewed: 2, automatic: 3, missing: 4 };
-    const statusDelta = (rank[left?.status?.kind] ?? 9) - (rank[right?.status?.kind] ?? 9);
+    // 回報完成但還沒檢查的學生是下一個要處理的，排在待確認之後
+    const rankOf = (student) => (
+      student?.status?.kind === "missing" && student?.report?.ready
+        ? 0.5
+        : rank[student?.status?.kind] ?? 9
+    );
+    const statusDelta = rankOf(left) - rankOf(right);
     if (statusDelta !== 0) return statusDelta;
     const pendingDelta = (right?.status?.pending ?? 0) - (left?.status?.pending ?? 0);
     return pendingDelta || byAccount(left, right);
@@ -3536,6 +3148,84 @@ export function buildBatchReviewRows(batch, members = []) {
   return rows;
 }
 
+/**
+ * 多批執行合成一份核查列：每位學生取「最近一次有檢查到他」的那一批。
+ * 只檢查部分學生（例如已回報完成的人）之後，其他人的結果仍留在較舊的批次裡。
+ * batches 由新到舊排列。
+ */
+export function buildMergedBatchReviewRows(batches, members = []) {
+  const seen = new Set();
+  const rows = [];
+  for (const batch of Array.isArray(batches) ? batches : []) {
+    const batchRows = buildBatchReviewRows(batch, members);
+    const studentsInBatch = new Set();
+    for (const row of batchRows) {
+      const studentKey = String(row.studentId ?? row.key);
+      if (seen.has(studentKey)) continue;
+      studentsInBatch.add(studentKey);
+      rows.push({ ...row, batchId: batch?.run_batch_id ?? null });
+    }
+    for (const key of studentsInBatch) seen.add(key);
+  }
+  return rows;
+}
+
+function reportSummary(report, itemCount) {
+  if (!report) return null;
+  const done = report.completed_item_ids?.length ?? 0;
+  return {
+    done,
+    total: itemCount,
+    ready: Boolean(report.ready_at),
+    kind: report.ready_at ? "ready" : done > 0 ? "partial" : "none",
+  };
+}
+
+/* 老師給這位學生這週的回覆（一週一則，再回覆覆蓋）；沒回覆是空字串 */
+function replyOf(report) {
+  return { text: String(report?.teacher_reply ?? ""), at: report?.teacher_reply_at ?? null };
+}
+
+/**
+ * 學生總覽補上自評回報，並把還沒有任何檢查結果的學生也列進來（尚未檢查），
+ * 老師才看得到全班當週誰回報完成、誰還沒動。
+ */
+export function attachStudentReports(students, progress) {
+  const reports = Array.isArray(progress?.students) ? progress.students : [];
+  const itemCount = Array.isArray(progress?.items) ? progress.items.length : 0;
+  const reportByUser = new Map(reports.map((report) => [String(report.user_id), report]));
+  const matched = new Set();
+  const userIdOf = (student) => String(
+    student?.user?.user_id
+    ?? student?.machines?.find((row) => row?.member?.user_id)?.member?.user_id
+    ?? "",
+  );
+  const withReports = (Array.isArray(students) ? students : []).map((student) => {
+    const userId = userIdOf(student);
+    const report = userId ? reportByUser.get(userId) : undefined;
+    if (report) matched.add(userId);
+    return {
+      ...student,
+      userId: userId || null,
+      report: reportSummary(report, itemCount),
+      reply: replyOf(report),
+    };
+  });
+  const missing = reports
+    .filter((report) => !matched.has(String(report.user_id)))
+    .map((report) => ({
+      studentId: `user:${report.user_id}`,
+      userId: String(report.user_id),
+      machines: [],
+      user: { user_id: report.user_id, full_name: report.full_name, email: report.email },
+      totals: aggregateStudentCheckTotals([]),
+      status: getStudentOverviewStatus([]),
+      report: reportSummary(report, itemCount),
+      reply: replyOf(report),
+    }));
+  return [...withReports, ...missing];
+}
+
 export function buildLegacyReviewRows(run, members = []) {
   const targets = run?.target_results_json?.targets ?? [];
   const targetsByVmid = new Map(targets.map((target) => [String(target.vmid), target]));
@@ -3626,7 +3316,6 @@ function MachineReviewDetail({
   isDirty,
   saving,
   onToggleDecision,
-  onUpdateFeedback,
   onSave,
 }) {
   const { t } = useTranslation("teaching");
@@ -3715,21 +3404,10 @@ function MachineReviewDetail({
         </div>
       )}
 
-      <label className={styles.reviewFeedbackField}>
-        <span>{t("AiJudgePanel.feedbackLabel")} <small>{t("AiJudgePanel.optionalShort")}</small></span>
-        <textarea
-          value={draft.feedback}
-          maxLength={4000}
-          rows={3}
-          placeholder={t("AiJudgePanel.feedbackPlaceholder")}
-          onChange={(event) => onUpdateFeedback(row.key, event.target.value)}
-        />
-        <small>{draft.feedback.length} / 4000</small>
-      </label>
       <div className={styles.reviewSaveRow}>
         <span>{isDirty
           ? t("AiJudgePanel.unsavedChanges")
-          : saved.feedback || Object.keys(saved.decisions).length
+          : Object.keys(saved.decisions).length
             ? t("AiJudgePanel.lastSaved", { time: target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : t("AiJudgePanel.saved") })
             : t("AiJudgePanel.reviewSaveHint")}</span>
         <button type="button" className={styles.btnSecondary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</> : <><MIcon name="save" size={16} />{t("AiJudgePanel.saveReviewBtn")}</>}</button>
@@ -3738,20 +3416,89 @@ function MachineReviewDetail({
   );
 }
 
+/**
+ * 一位學生（或一台機器）的檢查結果只分成：通過、未通過、待老師確認、還沒檢查。
+ * 老師在總覽上只需要知道成功與失敗；待確認的再展開處理。
+ */
+export function checkOutcome(machines) {
+  const checked = (Array.isArray(machines) ? machines : []).filter((row) => row?.target);
+  if (checked.length === 0) return { kind: "none", count: 0 };
+  const totals = aggregateStudentCheckTotals(checked);
+  const failedRun = checked.some((row) => getTargetReviewSummary(row.target).kind === "failed");
+  if (totals.fail > 0 || failedRun) return { kind: "fail", count: totals.fail };
+  if (totals.pending > 0) return { kind: "pending", count: totals.pending };
+  if (totals.pass > 0) return { kind: "pass", count: totals.pass };
+  return { kind: "none", count: 0 };
+}
+
+const OUTCOME_BADGE_CLASS = {
+  pass: styles.badge_success,
+  fail: styles.badge_danger,
+  pending: styles.badge_pending,
+  none: styles.badge_muted,
+};
+
+const OUTCOME_CHIP_CLASS = {
+  pass: styles.machineChipPass,
+  fail: styles.machineChipFail,
+  pending: styles.machineChipPending,
+  none: "",
+};
+
+/**
+ * 這位學生在班上的每一台機器（還沒檢查過也列出來），帶上那台最近一次的檢查結果；
+ * 檢查結果裡有、但名單上已經沒有的機器（例如 VM 已刪除）也保留。
+ */
+export function studentMachineChips(student, members = [], machineNodes = []) {
+  const userId = String(student?.userId ?? "");
+  const runRows = Array.isArray(student?.machines) ? student.machines : [];
+  const rowByVmid = new Map(
+    runRows.filter((row) => row?.vmid != null).map((row) => [String(row.vmid), row]),
+  );
+  const seen = new Set();
+  const chip = (nodeKey, vmid, fallbackLabel, rows) => ({
+    key: vmid != null ? `vm-${vmid}` : `node-${nodeKey ?? fallbackLabel}`,
+    label: batchMachineDisplayName(nodeKey, machineNodes, fallbackLabel)
+      ?? nodeKey
+      ?? (vmid != null ? `VMID ${vmid}` : "—"),
+    vmid: vmid ?? null,
+    outcome: checkOutcome(rows).kind,
+  });
+  const chips = (Array.isArray(members) ? members : [])
+    .filter((member) => userId && String(member?.user_id ?? "") === userId)
+    .map((member) => {
+      const row = member.vmid != null ? rowByVmid.get(String(member.vmid)) : undefined;
+      if (row) seen.add(row);
+      return chip(member.node_key, member.vmid, member.display_label ?? member.node_name ?? null, row ? [row] : []);
+    });
+  runRows
+    .filter((row) => !seen.has(row))
+    .forEach((row) => chips.push(chip(row.nodeKey, row.vmid, row.node?.display_label ?? null, [row])));
+  return chips;
+}
+
 export function TeacherReviewTab({
   classId,
   sessionId,
   members,
   machineNodes = [],
   active = true,
+  weekPublished = true,
   onDirtyChange,
-  onGoToScripts,
+  onGoToSettings,
+  onGoToPublish,
   onRunStarted,
 }) {
   const { t } = useTranslation("teaching");
   const toast = useToast();
   const confirm = useConfirm();
-  const [reviewState, setReviewState] = useState(null); // { mode: "batch", batch } | { mode: "run", run }
+  // { mode: "batch", batches }（新到舊；每位學生取最近一次有檢查到他的那批）| { mode: "run", run }
+  const [reviewState, setReviewState] = useState(null);
+  // 全班當週自評回報（誰回報完成、做到第幾項）；讀不到時總覽照樣只列有結果的學生
+  const [progress, setProgress] = useState(null);
+  // 每位學生這週回覆的草稿（user_id → 文字）；存好就拿掉
+  const [replyDrafts, setReplyDrafts] = useState({});
+  const [savingReplyUserId, setSavingReplyUserId] = useState(null);
   const [scriptSets, setScriptSets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -3780,12 +3527,15 @@ export function TeacherReviewTab({
       setLoadError(false);
     }
     try {
-      const [sets, runs] = await Promise.all([
+      const [sets, runs, nextProgress, batchSummaries] = await Promise.all([
         AiJudgeService.listSessionScriptSets(classId, sessionId),
         AiJudgeService.listSessionRuns(classId, sessionId),
+        AiJudgeService.getSessionProgress(classId, sessionId).catch(() => null),
+        AiJudgeService.listSessionRunBatches(classId, sessionId, 10).catch(() => []),
       ]);
       if (loadRequestRef.current !== requestId) return;
       setScriptSets(Array.isArray(sets) ? sets : []);
+      setProgress(nextProgress);
       const orderedRuns = Array.isArray(runs) ? runs : [];
       const latest = orderedRuns[0] ?? null;
       let nextState = null;
@@ -3802,8 +3552,21 @@ export function TeacherReviewTab({
           batchStatusRef.current = batch.status;
           setActiveBatch(batch);
         }
-        nextState = { mode: "batch", batch };
-        Object.assign(nextDrafts, draftsFromBatch(batch));
+        // 最新一批只檢查了部分學生時，往前補較舊的批次，其他人的結果才不會消失
+        const batches = [batch];
+        const totalStudents = nextProgress?.students?.length ?? 0;
+        const covered = new Set((batch?.students ?? []).map((student) => String(student?.student_id)));
+        for (const summary of Array.isArray(batchSummaries) ? batchSummaries : []) {
+          if (batches.length >= 5 || covered.size >= totalStudents) break;
+          if (!summary?.run_batch_id || summary.run_batch_id === batch?.run_batch_id) continue;
+          const older = await AiJudgeService.getSessionRunBatch(classId, sessionId, summary.run_batch_id);
+          if (loadRequestRef.current !== requestId) return;
+          batches.push(older);
+          for (const student of older?.students ?? []) covered.add(String(student?.student_id));
+        }
+        nextState = { mode: "batch", batches };
+        // 舊到新套用，同一位學生以較新的那批為準（跟畫面上採用的那批一致）
+        for (const entry of [...batches].reverse()) Object.assign(nextDrafts, draftsFromBatch(entry));
       } else {
         const preferred = orderedRuns.find((item) => item.status === "completed") ?? latest;
         if (preferred) {
@@ -3828,6 +3591,8 @@ export function TeacherReviewTab({
 
   useEffect(() => {
     setReviewState(null);
+    setProgress(null);
+    setReplyDrafts({});
     setScriptSets([]);
     setExpandedKey(null);
     setActiveBatch(null);
@@ -3917,24 +3682,63 @@ export function TeacherReviewTab({
   const machineRows = useMemo(() => {
     if (!reviewState) return [];
     return reviewState.mode === "batch"
-      ? buildBatchReviewRows(reviewState.batch, members)
+      ? buildMergedBatchReviewRows(reviewState.batches, members)
       : buildLegacyReviewRows(reviewState.run, members);
   }, [reviewState, members]);
 
-  /* 以學生為單位的總覽：machine rows 按 studentId 分組，排序以學生狀態為準。 */
+  /* 以學生為單位的總覽：machine rows 按 studentId 分組，補上自評回報與還沒檢查過的學生，
+     排序以學生狀態為準。 */
   const studentRows = useMemo(
-    () => sortStudentOverviewRows(buildStudentOverviewRows(machineRows), sortMode),
-    [machineRows, sortMode],
+    () => sortStudentOverviewRows(
+      attachStudentReports(buildStudentOverviewRows(machineRows), progress),
+      sortMode,
+    ),
+    [machineRows, progress, sortMode],
+  );
+  const readyUserIds = useMemo(
+    () => studentRows.filter((student) => student.report?.ready && student.userId).map((student) => student.userId),
+    [studentRows],
   );
 
   const dirtyCount = useMemo(() => machineRows.filter((row) => (
     Boolean(row.target) && isReviewDraftDirty(drafts[row.key], targetTeacherReview(row.target))
   )).length, [machineRows, drafts]);
   hasDirtyDraftsRef.current = dirtyCount > 0;
+  const savedReplyByUser = useMemo(() => new Map(
+    (progress?.students ?? []).map((row) => [String(row.user_id), String(row.teacher_reply ?? "")]),
+  ), [progress]);
+  const dirtyReplyCount = Object.entries(replyDrafts)
+    .filter(([userId, text]) => text !== (savedReplyByUser.get(userId) ?? "")).length;
 
   useEffect(() => {
-    onDirtyChange?.(dirtyCount > 0);
-  }, [dirtyCount, onDirtyChange]);
+    onDirtyChange?.(dirtyCount + dirtyReplyCount > 0);
+  }, [dirtyCount, dirtyReplyCount, onDirtyChange]);
+
+  async function saveReply(userId) {
+    const text = replyDrafts[userId] ?? savedReplyByUser.get(userId) ?? "";
+    setSavingReplyUserId(userId);
+    try {
+      const saved = await AiJudgeService.saveStudentReply(classId, sessionId, userId, text);
+      setProgress((current) => current && {
+        ...current,
+        students: (current.students ?? []).map((row) => (
+          String(row.user_id) === String(userId)
+            ? { ...row, teacher_reply: saved?.teacher_reply ?? "", teacher_reply_at: saved?.teacher_reply_at ?? null }
+            : row
+        )),
+      });
+      setReplyDrafts((current) => {
+        const next = { ...current };
+        delete next[userId];
+        return next;
+      });
+      toast.success(t(saved?.teacher_reply ? "AiJudgePanel.replySaved" : "AiJudgePanel.replyCleared"));
+    } catch (error) {
+      toast.error(error?.message ?? t("AiJudgePanel.replySaveFailed"));
+    } finally {
+      setSavingReplyUserId(null);
+    }
+  }
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   useEffect(() => {
@@ -3953,14 +3757,16 @@ export function TeacherReviewTab({
     loadReview({ silent: true });
   }
 
+  // 老師只需要兩件事：全班多少人打勾完成；檢查過的學生裡成功幾位、失敗幾位
+  // （以學生為單位：通過＋未通過＋待確認＋尚未檢查＝全班）
   const summary = useMemo(() => studentRows.reduce((counts, student) => {
     counts.total += 1;
-    if (student.status.kind === "pending") counts.pending += 1;
-    if (student.status.kind === "reviewed") counts.reviewed += 1;
-    if (student.status.kind === "automatic") counts.automatic += 1;
-    if (student.status.kind === "missing" || student.status.kind === "failed") counts.unavailable += 1;
+    if (student.report?.ready) counts.reported += 1;
+    counts[checkOutcome(student.machines).kind] += 1;
     return counts;
-  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [studentRows]);
+  }, { total: 0, reported: 0, pass: 0, fail: 0, pending: 0, none: 0 }), [studentRows]);
+  const percentOf = (value) => (summary.total > 0 ? (value / summary.total) * 100 : 0);
+  const checkedCount = summary.pass + summary.fail + summary.pending;
 
   function updateDraft(key, updater) {
     setDrafts((current) => ({
@@ -4011,7 +3817,14 @@ export function TeacherReviewTab({
         const savedReview = savedTarget?.teacher_review;
         setReviewState((current) => (
           current?.mode === "batch"
-            ? { mode: "batch", batch: mergeNodeTeacherReview(current.batch, row, savedReview) }
+            ? {
+              mode: "batch",
+              batches: current.batches.map((entry) => (
+                entry?.run_batch_id === row.batchId
+                  ? mergeNodeTeacherReview(entry, row, savedReview)
+                  : entry
+              )),
+            }
             : current
         ));
         setDrafts((current) => ({
@@ -4045,6 +3858,29 @@ export function TeacherReviewTab({
       setSelectedSetId(null);
       onRunStarted?.();
       toast.success(t("AiJudgePanel.batchCreated", { count: next?.summary?.targets ?? 0 }));
+    } catch (error) {
+      toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
+    } finally {
+      setCreatingBatch(false);
+    }
+  }
+
+  /* 只檢查指定學生（這位學生／已回報完成的人）：用最新核准的那組腳本，其他人的結果不動 */
+  async function runForStudents(userIds) {
+    const targetSet = approvedSets[0] ?? null;
+    if (!targetSet || creatingBatch || batchRunning || !userIds.length) return;
+    setCreatingBatch(true);
+    try {
+      const next = await AiJudgeService.createSessionScriptSetRun(
+        classId,
+        sessionId,
+        targetSet.artifact_set_id,
+        { userIds },
+      );
+      batchStatusRef.current = next?.status ?? null;
+      setActiveBatch(next);
+      onRunStarted?.();
+      toast.success(t("AiJudgePanel.batchCreatedStudents", { count: userIds.length }));
     } catch (error) {
       toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
     } finally {
@@ -4117,7 +3953,11 @@ export function TeacherReviewTab({
 
   if (loading) return <LoadingState text={t("AiJudgePanel.loadingReview")} />;
   if (loadError) return <ErrorState onRetry={() => loadReview()} />;
-  if (!reviewState) {
+  // 讀得到全班名單就直接列出全班，看得到誰回報完成；
+  // 要有核准的腳本、而且這週內容已發布（作業跟著每週內容發布）才可以檢查
+  const showRoster = (progress?.students?.length ?? 0) > 0;
+  const canRun = approvedSets.length > 0 && weekPublished;
+  if (!reviewState && !showRoster) {
     return (
       <div className={styles.tabBody} data-guide="ai-judge-review">
         <div className={styles.card}>
@@ -4131,7 +3971,8 @@ export function TeacherReviewTab({
                   type="button"
                   className={styles.btnPrimary}
                   onClick={() => setRunOnceOpen(true)}
-                  disabled={creatingBatch}
+                  disabled={creatingBatch || !weekPublished}
+                  title={weekPublished ? undefined : t("AiJudgePanel.reviewWeekDraftNotice")}
                 >
                   {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
                   {t("AiJudgePanel.runAllTitle")}
@@ -4143,9 +3984,9 @@ export function TeacherReviewTab({
               icon="rate_review"
               title={t("AiJudgePanel.noResultsTitle")}
               description={t("AiJudgePanel.noResultsNeedScriptDesc")}
-              action={onGoToScripts && (
-                <button type="button" className={styles.btnSecondary} onClick={onGoToScripts}>
-                  <MIcon name="arrow_back" size={16} />{t("AiJudgePanel.goToScripts")}
+              action={onGoToSettings && (
+                <button type="button" className={styles.btnSecondary} onClick={onGoToSettings}>
+                  <MIcon name="arrow_back" size={16} />{t("AiJudgePanel.goToSettings")}
                 </button>
               )}
             />
@@ -4170,25 +4011,87 @@ export function TeacherReviewTab({
             )}
             <button
               type="button"
+              className={styles.btnSecondary}
+              onClick={() => runForStudents(readyUserIds)}
+              disabled={creatingBatch || batchRunning || !canRun || readyUserIds.length === 0}
+              title={t("AiJudgePanel.runReadyHint")}
+            >
+              <MIcon name="how_to_reg" size={16} />
+              {t("AiJudgePanel.runReadyBtn", { count: readyUserIds.length })}
+            </button>
+            <button
+              type="button"
               className={styles.btnPrimary}
               onClick={() => setRunOnceOpen(true)}
-              disabled={creatingBatch || batchRunning || approvedSets.length === 0}
-              title={approvedSets.length === 0
-                ? t("AiJudgePanel.runNoApprovedTitle")
-                : t("AiJudgePanel.runAllHint")}
+              disabled={creatingBatch || batchRunning || !canRun}
+              title={!weekPublished
+                ? t("AiJudgePanel.reviewWeekDraftNotice")
+                : approvedSets.length === 0
+                  ? t("AiJudgePanel.runNoApprovedTitle")
+                  : t("AiJudgePanel.runAllHint")}
             >
               {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
               {t("AiJudgePanel.runAllBtn")}
             </button>
           </div>
         </div>
-        <div className={styles.reviewMetrics} aria-label={t("AiJudgePanel.metricsAria")}>
-          <span><strong>{summary.pending}</strong><small>{t("AiJudgePanel.metricPending")}</small></span>
-          <span><strong>{summary.reviewed}</strong><small>{t("AiJudgePanel.metricReviewed")}</small></span>
-          <span><strong>{summary.automatic}</strong><small>{t("AiJudgePanel.statusAutomatic")}</small></span>
-          <span><strong>{summary.unavailable}</strong><small>{t("AiJudgePanel.metricUnavailable")}</small></span>
-          <span><strong>{summary.total}</strong><small>{t("AiJudgePanel.metricTotal")}</small></span>
+        <div className={styles.reviewStats} aria-label={t("AiJudgePanel.metricsAria")}>
+          <div className={styles.reviewStatLine}>
+            <span className={styles.reviewStatLabel}><MIcon name="task_alt" size={16} />{t("AiJudgePanel.metricReportedRatio")}</span>
+            <div
+              className={styles.reviewStackBar}
+              role="img"
+              aria-label={t("AiJudgePanel.metricReportedValue", { done: summary.reported, total: summary.total })}
+            >
+              <span className={styles.reviewStackReported} style={{ width: `${percentOf(summary.reported)}%` }} />
+            </div>
+            <strong className={styles.reviewStatValue}>{summary.reported}<small>{` / ${summary.total}`}</small></strong>
+          </div>
+          <div className={styles.reviewStatLine}>
+            <span className={styles.reviewStatLabel}><MIcon name="fact_check" size={16} />{t("AiJudgePanel.metricCheckResult")}</span>
+            <div
+              className={styles.reviewStackBar}
+              role="img"
+              aria-label={t("AiJudgePanel.metricCheckValue", { pass: summary.pass, fail: summary.fail, checked: checkedCount, total: summary.total })}
+            >
+              <span className={styles.reviewStackPass} style={{ width: `${percentOf(summary.pass)}%` }} />
+              <span className={styles.reviewStackFail} style={{ width: `${percentOf(summary.fail)}%` }} />
+              <span className={styles.reviewStackPending} style={{ width: `${percentOf(summary.pending)}%` }} />
+            </div>
+            <span className={styles.reviewStatValue}>
+              <em className={styles.reviewStatPass}>{t("AiJudgePanel.metricPassCount", { count: summary.pass })}</em>
+              <em className={styles.reviewStatFail}>{t("AiJudgePanel.metricFailCount", { count: summary.fail })}</em>
+              {summary.pending > 0 && <em className={styles.reviewStatPending}>{t("AiJudgePanel.metricPendingCount", { count: summary.pending })}</em>}
+              <small>{t("AiJudgePanel.metricCheckedOf", { checked: checkedCount, total: summary.total })}</small>
+            </span>
+          </div>
         </div>
+        {(!weekPublished || approvedSets.length === 0) && (
+          <div className={styles.reviewBlockers} role="status">
+            {!weekPublished && (
+              <div className={styles.reviewBlocker}>
+                <MIcon name="unpublished" size={16} />
+                <span>{t("AiJudgePanel.reviewWeekDraftNotice")}</span>
+                {onGoToPublish && (
+                  <button type="button" className={styles.btnText} onClick={onGoToPublish}>
+                    {t("AiJudgePanel.goToPublish")}<MIcon name="arrow_forward" size={15} />
+                  </button>
+                )}
+              </div>
+            )}
+            {approvedSets.length === 0 && (
+              <div className={styles.reviewBlocker}>
+                <MIcon name="code_off" size={16} />
+                <span>{t("AiJudgePanel.reviewNoScriptNotice")}</span>
+                {onGoToSettings && (
+                  <button type="button" className={styles.btnText} onClick={onGoToSettings}>
+                    {t("AiJudgePanel.goToSettings")}<MIcon name="arrow_forward" size={15} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {newResultsWaiting && (
           <div className={`${styles.noticeInfo} ${styles.noticeWithAction}`} role="status">
             <p>{t("AiJudgePanel.newResultsWaiting")}</p>
@@ -4225,7 +4128,14 @@ export function TeacherReviewTab({
           {studentRows.map((student) => {
           const user = student.user ?? {};
           const isOpen = expandedKey === student.studentId;
-          const { totals } = student;
+          const outcome = checkOutcome(student.machines);
+          const chips = studentMachineChips(student, members, machineNodes);
+          const reportKind = student.report?.kind ?? "none";
+          const reportLabel = reportKind === "ready"
+            ? t("AiJudgePanel.reportReady")
+            : reportKind === "partial"
+              ? t("AiJudgePanel.reportPartial", { done: student.report.done, total: student.report.total })
+              : t("AiJudgePanel.reportNone");
           return (
             <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={student.studentId}>
               <button
@@ -4235,26 +4145,107 @@ export function TeacherReviewTab({
                 aria-expanded={isOpen}
               >
                 <span className={styles.reviewStudentIdentity}>
-                  <span className={styles.reviewAvatar}><MIcon name="person" size={18} /></span>
-                  <span>
-                    <strong>{user.full_name ?? t("AiJudgePanel.unnamedStudent")}</strong>
-                    <small>
-                      {user.email ?? ""}
-                      {` · ${t("AiJudgePanel.machineCount", { count: student.machines.length })}`}
-                    </small>
+                  <span
+                    className={`${styles.reportTick} ${styles[`reportTick_${reportKind}`] ?? ""}`}
+                    title={reportLabel}
+                    aria-label={reportLabel}
+                    role="img"
+                  >
+                    {reportKind === "ready" && <MIcon name="check" size={18} />}
+                    {reportKind === "partial" && <small>{`${student.report.done}/${student.report.total}`}</small>}
+                  </span>
+                  <span className={styles.reviewStudentMain}>
+                    <span className={styles.reviewStudentName}>
+                      <strong>{user.full_name ?? t("AiJudgePanel.unnamedStudent")}</strong>
+                      <em className={styles[`reportText_${reportKind}`]}>{reportLabel}</em>
+                      {student.reply?.text && (
+                        <em className={styles.replyMark}><MIcon name="forum" size={13} />{t("AiJudgePanel.replied")}</em>
+                      )}
+                    </span>
+                    {user.email && <small>{user.email}</small>}
+                    <span className={styles.machineChips} aria-label={t("AiJudgePanel.studentMachinesAria")}>
+                      {chips.length === 0 ? (
+                        <em className={styles.machineChipEmpty}>{t("AiJudgePanel.studentNoMachine")}</em>
+                      ) : chips.map((machine) => (
+                        <em
+                          key={machine.key}
+                          className={`${styles.machineChip} ${OUTCOME_CHIP_CLASS[machine.outcome]}`}
+                          title={machine.vmid != null ? `VMID ${machine.vmid}` : undefined}
+                        >
+                          <MIcon name="dns" size={13} />
+                          {machine.label}
+                        </em>
+                      ))}
+                    </span>
                   </span>
                 </span>
-                <span className={styles.reviewAiCounts} aria-label={t("AiJudgePanel.studentTotalsAria")}>
-                  <em className={styles.reviewCountPass}>{t("AiJudgePanel.countPass", { count: totals.pass })}</em>
-                  <em className={styles.reviewCountFail}>{t("AiJudgePanel.countFail", { count: totals.fail })}</em>
-                  <em className={styles.reviewCountPending}>{t("AiJudgePanel.countPending", { count: totals.pending })}</em>
+                <span className={styles.reviewStudentBadges}>
+                  <span className={`${styles.badge} ${OUTCOME_BADGE_CLASS[outcome.kind]}`}>
+                    {t(`AiJudgePanel.outcome_${outcome.kind}`, { count: outcome.count })}
+                  </span>
                 </span>
-                <span className={`${styles.badge} ${reviewBadgeClass(student.status.kind)}`}>{student.status.label}</span>
                 <MIcon name={isOpen ? "expand_less" : "expand_more"} size={20} />
               </button>
 
               {isOpen && (
                 <div className={styles.reviewStudentBody}>
+                  <div className={styles.reviewStudentActions}>
+                    {student.machines.length === 0 && (
+                      <span className={styles.mutedText}>{t("AiJudgePanel.studentNotCheckedYet")}</span>
+                    )}
+                    {student.userId && (
+                      <button
+                        type="button"
+                        className={styles.btnSecondary}
+                        onClick={() => runForStudents([student.userId])}
+                        disabled={creatingBatch || batchRunning || !canRun}
+                      >
+                        <MIcon name="play_arrow" size={16} />
+                        {t("AiJudgePanel.runStudentBtn")}
+                      </button>
+                    )}
+                  </div>
+                  {student.userId && (() => {
+                    const saved = student.reply?.text ?? "";
+                    const value = replyDrafts[student.userId] ?? saved;
+                    const replyDirty = value !== saved;
+                    const savingReply = savingReplyUserId === student.userId;
+                    return (
+                      <section className={styles.reviewReply} aria-label={t("AiJudgePanel.replyLabel")}>
+                        <label className={styles.reviewFeedbackField}>
+                          <span>{t("AiJudgePanel.replyLabel")} <small>{t("AiJudgePanel.optionalShort")}</small></span>
+                          <textarea
+                            value={value}
+                            maxLength={4000}
+                            rows={3}
+                            placeholder={t("AiJudgePanel.feedbackPlaceholder")}
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              setReplyDrafts((current) => ({ ...current, [student.userId]: next }));
+                            }}
+                          />
+                          <small>{value.length} / 4000</small>
+                        </label>
+                        <div className={styles.reviewSaveRow}>
+                          <span>{replyDirty
+                            ? t("AiJudgePanel.unsavedChanges")
+                            : student.reply?.at
+                              ? t("AiJudgePanel.replyLastSaved", { time: formatDateTime(student.reply.at) })
+                              : t("AiJudgePanel.replyHint")}</span>
+                          <button
+                            type="button"
+                            className={styles.btnSecondary}
+                            disabled={!replyDirty || savingReply}
+                            onClick={() => saveReply(student.userId)}
+                          >
+                            {savingReply
+                              ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</>
+                              : <><MIcon name="send" size={16} />{t("AiJudgePanel.replySaveBtn")}</>}
+                          </button>
+                        </div>
+                      </section>
+                    );
+                  })()}
                   {student.machines.map((row) => {
                     const draft = drafts[row.key] ?? reviewDraftFromTeacherReview(row.target?.teacher_review);
                     const saved = targetTeacherReview(row.target);
@@ -4269,7 +4260,6 @@ export function TeacherReviewTab({
                           isDirty={isDirty}
                           saving={savingKey === row.key}
                           onToggleDecision={toggleDecision}
-                          onUpdateFeedback={(key, feedback) => updateDraft(key, (current) => ({ ...current, feedback }))}
                           onSave={saveRow}
                         />
                       </section>
@@ -4292,7 +4282,6 @@ export function TeacherReviewTab({
 // 依實際流程排序：設定檢查表 → 核准腳本 → 執行並核查
 const TEACHER_JUDGE_TABS = [
   { key: "rubrics", icon: "description", buttonProps: { "data-guide-tab": "ai-judge-tab-rubrics" }, get label() { return jt("tabRubrics"); } },
-  { key: "scripts", icon: "terminal", buttonProps: { "data-guide-tab": "ai-judge-tab-scripts" }, get label() { return jt("tabScripts"); } },
   { key: "review", icon: "rate_review", buttonProps: { "data-guide-tab": "ai-judge-tab-review" }, get label() { return jt("tabReview"); } },
 ];
 
@@ -4303,36 +4292,31 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
   const toast = useToast();
   const confirm = useConfirm();
   const { confirmLeave } = useUnsavedChanges();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const requestedSessionId = searchParams.get("check");
-  // 只在載入清單時參考網址；寫回網址不該觸發重新載入
-  const requestedSessionIdRef = useRef(requestedSessionId);
-  requestedSessionIdRef.current = requestedSessionId;
+  const requestedWeekId = searchParams.get("week");
+  // 只在選預設週次時參考網址；寫回網址不該觸發重新選擇
+  const requestedWeekIdRef = useRef(requestedWeekId);
+  requestedWeekIdRef.current = requestedWeekId;
   const [activeTab, setActiveTab] = useState("rubrics");
   // 同一個檢查裡看過的分頁保持掛著（隱藏），切分頁時提案、打到一半的訊息、核查草稿都還在；
-  // 換檢查才整組重來
+  // 換週次才整組重來
   const [visitedTabs, setVisitedTabs] = useState({ sessionId: null, tabs: NO_VISITED_TABS });
   const [dirtyTabs, setDirtyTabs] = useState({ rubrics: false, review: false });
   const [sessions, setSessions] = useState([]);
-  const [activeSessionId, setActiveSessionId] = useState(null);
-  const [focusedScriptId, setFocusedScriptId] = useState(null);
+  const [activeWeekId, setActiveWeekId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const createDialogPresence = useDialogPresence(createDialogOpen);
-  const [creatingCheck, setCreatingCheck] = useState(false);
-  const [createCheckError, setCreateCheckError] = useState("");
-  const createCheckRequestRef = useRef(0);
+  const [creatingWeekId, setCreatingWeekId] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [sessionMenuPosition, setSessionMenuPosition] = useState(null);
   // 選單離場動畫：關閉時保留最後的目標與位置 130ms
   const sessionMenuPos = useDialogPresence(sessionMenuPosition, 130);
   const [busySessionIds, setBusySessionIds] = useState(() => new Set());
-  const [renameTarget, setRenameTarget] = useState(null);
-  const [renameTitle, setRenameTitle] = useState("");
-  const [renameInvalid, setRenameInvalid] = useState(false);
-  const [moveWeekTarget, setMoveWeekTarget] = useState(null);
-  const [moveWeekId, setMoveWeekId] = useState("");
-  const renameInputRef = useRef(null);
+  // 移到／複製到其他週：{ mode: "move" | "copy", item }
+  const [weekPicker, setWeekPicker] = useState(null);
+  const [weekPickerId, setWeekPickerId] = useState("");
+  // 只在第一次掛上時讀；之後拖拉直接改 DOM 上的 CSS 變數，不經過 React
+  const [initialColumnWidths] = useState(readStoredColumnWidths);
   const requestVersionRef = useRef(0);
   const classIdRef = useRef(classId);
   const closeSessionMenu = useCallback(() => {
@@ -4340,10 +4324,25 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     setSessionMenuPosition(null);
   }, []);
 
-  const activeSession = useMemo(
-    () => sessions.find((item) => item.id === activeSessionId) ?? null,
-    [activeSessionId, sessions],
+  const sortedWeeks = useMemo(
+    () => [...weeks].sort((a, b) => (a.week_number ?? 0) - (b.week_number ?? 0)),
+    [weeks],
   );
+  // 一週一個對話：用週次找對話；沒掛週次的舊對話不出現在清單上
+  const sessionByWeek = useMemo(() => {
+    const map = new Map();
+    for (const item of sessions) {
+      if (item.teaching_class_week_id) map.set(String(item.teaching_class_week_id), item);
+    }
+    return map;
+  }, [sessions]);
+  const activeWeek = useMemo(
+    () => sortedWeeks.find((week) => String(week.id) === String(activeWeekId)) ?? null,
+    [activeWeekId, sortedWeeks],
+  );
+  const activeSession = activeWeekId ? sessionByWeek.get(String(activeWeekId)) ?? null : null;
+  const activeSessionId = activeSession?.id ?? null;
+  const freeWeeks = sortedWeeks.filter((week) => !sessionByWeek.has(String(week.id)));
   const openSessionMenuItem = useMemo(
     () => sessions.find((item) => item.id === openMenuId) ?? null,
     [openMenuId, sessions],
@@ -4367,16 +4366,21 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     setActiveTab(key);
   }
 
-  // 換檢查會卸掉目前的分頁：有沒存的提案、訊息或核查草稿先確認
-  async function selectSession(sessionId) {
-    closeSessionMenu();
-    if (sessionId === activeSessionId) return;
-    if (!(await confirmLeave())) return;
-    setCreateDialogOpen(false);
-    setActiveSessionId(sessionId);
+  // 週次在班級的「每週內容」發布；離開前一樣先確認沒存的內容
+  async function goToWeeklyContent() {
+    if (await confirmLeave()) navigate(`/class-management/${classId}/weekly`);
   }
 
-  /* silent：釘選、製作腳本、執行後的背景更新，不讓整個清單閃成轉圈 */
+  // 換週次會卸掉目前的分頁：有沒存的提案、訊息或核查草稿先確認
+  async function selectWeek(weekId) {
+    closeSessionMenu();
+    if (String(weekId) === String(activeWeekId)) return;
+    if (!(await confirmLeave())) return;
+    // 換週次停在同一個分頁：在導師核查逐週看進度時不會被拉回檢查設定
+    setActiveWeekId(String(weekId));
+  }
+
+  /* silent：製作腳本、執行後的背景更新，不讓整個清單閃成轉圈 */
   const loadSessions = useCallback(async ({ silent = false } = {}) => {
     const requestVersion = ++requestVersionRef.current;
     const requestClassId = classId;
@@ -4385,15 +4389,9 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
       const rows = await AiJudgeService.listSessions(classId);
       if (requestVersion !== requestVersionRef.current || classIdRef.current !== requestClassId) return;
       setSessions(rows);
-      setActiveSessionId((current) => (
-        resolveActiveSessionId(current, rows)
-        ?? resolveActiveSessionId(requestedSessionIdRef.current, rows)
-        ?? getDefaultSessionId(rows)
-      ));
     } catch (error) {
       if (requestVersion === requestVersionRef.current && classIdRef.current === requestClassId) {
         setSessions([]);
-        setActiveSessionId(null);
         toast.error(error?.message ?? jt("loadChecksFailed"));
       }
     } finally {
@@ -4403,36 +4401,38 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
 
   useEffect(() => {
     classIdRef.current = classId;
-    createCheckRequestRef.current += 1;
-    setCreateDialogOpen(false);
-    setCreatingCheck(false);
-    setCreateCheckError("");
-    setRenameTarget(null);
-    setRenameTitle("");
-    setActiveSessionId(null);
+    setCreatingWeekId(null);
+    setWeekPicker(null);
+    setActiveWeekId(null);
     closeSessionMenu();
     loadSessions();
     return () => { requestVersionRef.current += 1; };
   }, [closeSessionMenu, loadSessions]);
 
+  // 預設選週次：網址指定的 > 本週 > 第一週；目前選的週次不見了才重選
   useEffect(() => {
-    setFocusedScriptId(null);
-    setRenameTarget(null);
-    setRenameTitle("");
-    closeSessionMenu();
-  }, [activeSessionId, closeSessionMenu]);
+    setActiveWeekId((current) => (
+      current && sortedWeeks.some((week) => String(week.id) === String(current))
+        ? current
+        : resolveActiveWeekId(requestedWeekIdRef.current, sortedWeeks)
+    ));
+  }, [sortedWeeks]);
 
-  // 選中的檢查寫進網址（?check=），重新整理或分享連結都會回到同一項；用 replace 不塞歷史紀錄
   useEffect(() => {
-    if (loading) return;
-    if ((activeSessionId ?? null) === (requestedSessionId ?? null)) return;
+    closeSessionMenu();
+  }, [activeWeekId, closeSessionMenu]);
+
+  // 選中的週次寫進網址（?week=），重新整理或分享連結都會回到同一週；用 replace 不塞歷史紀錄
+  useEffect(() => {
+    if (loading || !activeWeekId) return;
+    if (String(activeWeekId) === String(requestedWeekId ?? "")) return;
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
-      if (activeSessionId) next.set("check", activeSessionId);
-      else next.delete("check");
+      next.set("week", activeWeekId);
+      next.delete("check");
       return next;
     }, { replace: true });
-  }, [activeSessionId, loading, requestedSessionId, setSearchParams]);
+  }, [activeWeekId, loading, requestedWeekId, setSearchParams]);
 
   useEffect(() => {
     if (!openMenuId) return undefined;
@@ -4489,58 +4489,32 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     setSessions((current) => current.map((item) => item.id === updated.id ? updated : item));
   }
 
-  function openCreateCheckDialog() {
-    if (creatingCheck) return;
-    setCreateCheckError("");
-    setCreateDialogOpen(true);
+  function upsertSession(item) {
+    setSessions((current) => [item, ...current.filter((entry) => entry.id !== item.id)]);
   }
 
-  function closeCreateCheckDialog() {
-    if (creatingCheck) return;
-    setCreateDialogOpen(false);
-    setCreateCheckError("");
-  }
-
-  async function handleCreateCheck(title, weekId = null) {
-    const nextTitle = String(title ?? "").trim();
-    if (!nextTitle || creatingCheck) return;
-    // 建好會直接切到新檢查
-    if (!(await confirmLeave())) return;
+  /* 這一週還沒有檢查：建立（伺服器端保證一週只會有一個，重複按也拿回同一個） */
+  async function createWeekCheck(week) {
+    if (!week || creatingWeekId) return;
     const requestClassId = classId;
-    const requestId = ++createCheckRequestRef.current;
-    setCreatingCheck(true);
-    setCreateCheckError("");
+    setCreatingWeekId(String(week.id));
     try {
-      const created = await AiJudgeService.createBlankSession(classId, {
-        title: nextTitle,
-        rubricName: nextTitle,
-        teachingClassWeekId: weekId,
-      });
-      if (requestId !== createCheckRequestRef.current || classIdRef.current !== requestClassId) return;
-      handleCreated(created);
+      const created = await AiJudgeService.ensureWeekSession(classId, week.id);
+      if (classIdRef.current !== requestClassId) return;
+      upsertSession(created);
+      setActiveTab("rubrics");
+      toast.success(t("AiJudgePanel.checkCreated", { title: created.title }));
     } catch (error) {
-      if (requestId === createCheckRequestRef.current && classIdRef.current === requestClassId) {
-        setCreateCheckError(error?.message ?? t("AiJudgePanel.createCheckFailed"));
+      if (classIdRef.current === requestClassId) {
+        toast.error(error?.message ?? t("AiJudgePanel.createCheckFailed"));
       }
     } finally {
-      if (requestId === createCheckRequestRef.current && classIdRef.current === requestClassId) {
-        setCreatingCheck(false);
-      }
+      if (classIdRef.current === requestClassId) setCreatingWeekId(null);
     }
   }
 
-  function handleCreated(created) {
-    if (classIdRef.current !== classId) return;
-    setCreateDialogOpen(false);
-    setCreateCheckError("");
-    setSessions((current) => [created, ...current.filter((item) => item.id !== created.id)]);
-    setActiveSessionId(created.id);
-    setActiveTab("rubrics");
-    toast.success(t("AiJudgePanel.checkCreated", { title: created.title }));
-  }
-
   async function runSessionAction(item, action) {
-    if (!item || busySessionIds.has(item.id)) return;
+    if (!item || busySessionIds.has(item.id)) return null;
     const requestClassId = classId;
     setBusySessionIds((current) => new Set(current).add(item.id));
     closeSessionMenu();
@@ -4549,9 +4523,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
       if (classIdRef.current !== requestClassId) return null;
       if (updated) {
         if (updated.status === "deleted") {
-          const rest = sessions.filter((entry) => entry.id !== item.id);
-          setSessions(rest);
-          if (item.id === activeSessionId) setActiveSessionId(getDefaultSessionId(rest));
+          setSessions((current) => current.filter((entry) => entry.id !== item.id));
         } else {
           updateSessionInList(updated);
         }
@@ -4571,61 +4543,37 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     }
   }
 
-  async function pinSession(item) {
-    await runSessionAction(item, (entry) => AiJudgeService.updateSession(classId, entry.id, { is_pinned: !entry.pinned_at }));
-    loadSessions({ silent: true });
-  }
-
-  async function forkSession(item) {
+  function openWeekPicker(mode, item) {
     closeSessionMenu();
-    // 複製完會直接切到副本
-    if (!(await confirmLeave())) return;
-    const copy = await runSessionAction(item, (entry) => AiJudgeService.forkSession(classId, entry.id));
-    if (!copy) return;
-    setSessions((current) => [copy, ...current.filter((entry) => entry.id !== copy.id)]);
-    setActiveSessionId(copy.id);
-    setActiveTab("rubrics");
-    toast.success(t("AiJudgePanel.checkCopied", { title: copy.title }));
+    setWeekPicker({ mode, item });
+    setWeekPickerId("");
   }
 
-  async function renameSession(event) {
+  /* 移到或複製到另一個還沒有檢查的週次，完成後跟著切到那一週 */
+  async function submitWeekPicker(event) {
     event.preventDefault();
-    const nextTitle = renameTitle.trim();
-    if (!renameTarget || busySessionIds.has(renameTarget.id)) return;
-    if (!nextTitle) {
-      setRenameInvalid(true);
-      focusInvalidField(renameInputRef.current);
+    const picker = weekPicker;
+    if (!picker || !weekPickerId || busySessionIds.has(picker.item.id)) return;
+    if (picker.mode === "copy") {
+      if (!(await confirmLeave())) return;
+      const copy = await runSessionAction(picker.item, (entry) => (
+        AiJudgeService.forkSession(classId, entry.id, { weekId: weekPickerId })
+      ));
+      if (!copy) return;
+      upsertSession(copy);
+      setWeekPicker(null);
+      setActiveWeekId(String(weekPickerId));
+      setActiveTab("rubrics");
+      toast.success(t("AiJudgePanel.checkCopied", { title: copy.title }));
       return;
     }
-    const target = renameTarget;
-    if (String(target.title ?? "").trim() === nextTitle) {
-      setRenameTarget(null);
-      setRenameTitle("");
-      return;
-    }
-    const updated = await runSessionAction(target, (entry) => (
-      AiJudgeService.updateSession(classId, entry.id, { title: nextTitle })
+    const moved = await runSessionAction(picker.item, (entry) => (
+      AiJudgeService.updateSession(classId, entry.id, { teaching_class_week_id: weekPickerId })
     ));
-    if (updated) {
-      setRenameTarget(null);
-      setRenameTitle("");
-    }
-  }
-
-  async function moveSessionToWeek(event) {
-    event.preventDefault();
-    const target = moveWeekTarget;
-    if (!target || !moveWeekId || busySessionIds.has(target.id)) return;
-    const updated = await runSessionAction(target, (entry) => (
-      AiJudgeService.updateSession(classId, entry.id, {
-        teaching_class_week_id: moveWeekId,
-      })
-    ));
-    if (updated) {
-      setMoveWeekTarget(null);
-      setMoveWeekId("");
-      toast.success(t("AiJudgePanel.checkMoved", { title: target.title }));
-    }
+    if (!moved) return;
+    setWeekPicker(null);
+    if (picker.item.id === activeSessionId) setActiveWeekId(String(weekPickerId));
+    toast.success(t("AiJudgePanel.checkMoved", { title: picker.item.title }));
   }
 
   async function deleteSession(item) {
@@ -4645,12 +4593,6 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     if (deleted) toast.success(t("AiJudgePanel.checkDeleted", { title: item.title }));
   }
 
-  function cancelRename() {
-    setRenameTarget(null);
-    setRenameTitle("");
-    setRenameInvalid(false);
-  }
-
   function toggleSessionMenu(event, sessionId) {
     event.stopPropagation();
     if (openMenuId === sessionId) {
@@ -4665,6 +4607,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     const menuPos = sessionMenuPos.item;
     if (!item || !menuPos) return null;
     const busy = busySessionIds.has(item.id);
+    const noFreeWeek = freeWeeks.length === 0;
     return (
       <div
         id={`check-menu-${item.id}`}
@@ -4673,10 +4616,8 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
         aria-label={t("AiJudgePanel.moreActionsAria", { title: item.title })}
         style={{ top: `${menuPos.top}px`, left: `${menuPos.left}px` }}
       >
-        <button type="button" role="menuitem" disabled={busy} onClick={() => { setRenameTarget(item); setRenameTitle(item.title); setRenameInvalid(false); closeSessionMenu(); }}><MIcon name="edit" size={16} />{t("AiJudgePanel.renameBtn")}</button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoveWeekTarget(item); setMoveWeekId(item.teaching_class_week_id ?? ""); closeSessionMenu(); }}><MIcon name="calendar_month" size={16} />{t("AiJudgePanel.moveWeekBtn")}</button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => pinSession(item)}><MIcon name="push_pin" filled={Boolean(item.pinned_at)} size={16} />{item.pinned_at ? t("AiJudgePanel.unpinBtn") : t("AiJudgePanel.pinBtn")}</button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => forkSession(item)}><MIcon name="content_copy" size={16} />{t("AiJudgePanel.copyBtn")}</button>
+        <button type="button" role="menuitem" disabled={busy || noFreeWeek} title={noFreeWeek ? t("AiJudgePanel.noFreeWeeksHint") : undefined} onClick={() => openWeekPicker("move", item)}><MIcon name="calendar_month" size={16} />{t("AiJudgePanel.moveWeekBtn")}</button>
+        <button type="button" role="menuitem" disabled={busy || noFreeWeek} title={noFreeWeek ? t("AiJudgePanel.noFreeWeeksHint") : undefined} onClick={() => openWeekPicker("copy", item)}><MIcon name="content_copy" size={16} />{t("AiJudgePanel.copyToWeekBtn")}</button>
         <span className={styles.menuSeparator} />
         <button type="button" role="menuitem" className={styles.menuDanger} disabled={busy} onClick={() => deleteSession(item)}><MIcon name="delete" size={16} />{t("AiJudgePanel.opDelete")}</button>
       </div>
@@ -4685,95 +4626,96 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
 
   const sessionSidebarInner = (
     <>
-      <button type="button" className={`${styles.btnSecondary} ${styles.newCheckButton}`} onClick={openCreateCheckDialog}><MIcon name="add" size={17} />{t("AiJudgePanel.newCheckBtn")}</button>
-      {loading ? (
-        <div className={styles.sidebarLoading} role="status" aria-label={t("AiJudgePanel.loading")}><LoadingSpinner size={44} /></div>
-      ) : sessions.length === 0 ? null : (
-      <div className={styles.sessionList} role="list">
-        {sessions.map((item) => {
-          const selected = item.id === activeSessionId;
-           const busy = busySessionIds.has(item.id);
-               const linkedWeek = weeks.find((week) => String(week.id) === String(item.teaching_class_week_id));
-               const renaming = renameTarget?.id === item.id;
-               return (
-                 <div key={item.id} className={`${styles.sessionRow} ${selected ? styles.sessionRowActive : ""} ${renaming ? styles.sessionRowRenaming : ""}`} role="listitem">
-                   {renaming ? (
-                     <form className={styles.sessionRenameForm} onSubmit={renameSession} onClick={(event) => event.stopPropagation()}>
-                       <input
-                         ref={renameInputRef}
-                         className={`${styles.sessionRenameInput} ${renameInvalid ? styles.fieldInvalid : ""}`}
-                         autoFocus
-                         value={renameTitle}
-                         maxLength={255}
-                         aria-label={t("AiJudgePanel.renameAria", { name: item.title })}
-                         aria-invalid={renameInvalid}
-                         title={t("AiJudgePanel.renameKeysHint")}
-                         onChange={(event) => { setRenameTitle(event.target.value); setRenameInvalid(false); }}
-                         onKeyDown={(event) => {
-                           if (event.key === "Escape") {
-                             event.preventDefault();
-                             cancelRename();
-                           }
-                         }}
-                       />
-                       {renameInvalid && <span className={styles.sessionRenameError} role="alert">{t("AiJudgePanel.checkNameRequired")}</span>}
-                     </form>
-                   ) : (
-                     <button type="button" className={selected ? styles.sessionItemActive : styles.sessionItem} aria-current={selected ? "true" : undefined} onClick={() => selectSession(item.id)}>
-                       <SessionTitle title={item.title}>{item.title}</SessionTitle>
-                       <small className={styles.sessionWeekLabel}>{linkedWeek ? t("AiJudgePanel.weekOption", { week: linkedWeek.week ?? linkedWeek.week_number, title: linkedWeek.title }) : t("AiJudgePanel.weekUnset")}</small>
-                     </button>
-                   )}
-                   <div className={styles.sessionRowActions}>
-                     {renaming ? <button type="button" className={styles.iconBtn} aria-label={t("AiJudgePanel.cancelRenameAria")} title={t("AiJudgePanel.cancelBtn")} onClick={cancelRename}><MIcon name="close" size={17} /></button> : <>
-                       <button type="button" className={`${styles.pinBtn} ${item.pinned_at ? styles.pinBtnPinned : ""}`} aria-label={t(item.pinned_at ? "AiJudgePanel.unpinAria" : "AiJudgePanel.pinAria", { title: item.title })} aria-pressed={Boolean(item.pinned_at)} title={item.pinned_at ? t("AiJudgePanel.unpinBtn") : t("AiJudgePanel.pinBtn")} disabled={busy} onClick={(event) => { event.stopPropagation(); pinSession(item); }}><MIcon name="push_pin" filled={Boolean(item.pinned_at)} size={16} /></button>
-                       <button type="button" className={styles.menuBtn} aria-label={t("AiJudgePanel.moreActionsAria", { title: item.title })} title={t("AiJudgePanel.moreActions")} aria-haspopup="menu" aria-expanded={openMenuId === item.id} aria-controls={`check-menu-${item.id}`} disabled={busy} onClick={(event) => toggleSessionMenu(event, item.id)}><MIcon name="more_vert" size={18} /></button>
-                     </>}
-                   </div>
-                 </div>
-               );
+      {/* 分頁放在週次清單上方的標頭列：跟表格欄位標頭、助理標頭同一條 */}
+      <div className={styles.sidebarHead}>
+        <SegmentedControl
+          ariaLabel={t("AiJudgePanel.tabsAria")}
+          className={styles.sidebarTabs}
+          options={TEACHER_JUDGE_TABS.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon, buttonProps: tab.buttonProps }))}
+          value={activeTab}
+          onChange={selectTab}
+        />
+      </div>
+      <div className={styles.sidebarBody}>
+        {loading ? (
+          <div className={styles.sidebarLoading} role="status" aria-label={t("AiJudgePanel.loading")}><LoadingSpinner size={44} /></div>
+        ) : sortedWeeks.length === 0 ? null : (
+          <div className={styles.sessionList} role="list">
+            {sortedWeeks.map((week) => {
+              const item = sessionByWeek.get(String(week.id)) ?? null;
+              const selected = String(week.id) === String(activeWeekId);
+              const busy = item ? busySessionIds.has(item.id) : false;
+              const topic = String(week.title ?? "").trim();
+              const date = String(week.session_date ?? "").slice(5, 10).replace("-", "/");
+              return (
+                <div key={week.id} className={`${styles.sessionRow} ${selected ? styles.sessionRowActive : ""}`} role="listitem">
+                  <button type="button" className={selected ? styles.sessionItemActive : styles.sessionItem} aria-current={selected ? "true" : undefined} onClick={() => selectWeek(week.id)}>
+                    <SessionTitle title={topic || t("AiJudgePanel.weekNoTopic")}>
+                      {t("AiJudgePanel.weekRowTitle", { week: week.week_number })}
+                      <span className={topic ? styles.weekRowTopic : styles.weekRowTopicEmpty}>{topic || t("AiJudgePanel.weekNoTopic")}</span>
+                    </SessionTitle>
+                    <small className={styles.sessionWeekLabel}>
+                      <span className={item ? styles.weekDotReady : styles.weekDot} aria-hidden="true" />
+                      {date && `${date} · `}{item ? t("AiJudgePanel.weekHasCheck") : t("AiJudgePanel.weekNoCheck")}
+                      {!isWeekPublished(week) && ` · ${t("AiJudgePanel.weekDraft")}`}
+                    </small>
+                  </button>
+                  {item && (
+                    <div className={styles.sessionRowActions}>
+                      <button type="button" className={styles.menuBtn} aria-label={t("AiJudgePanel.moreActionsAria", { title: item.title })} title={t("AiJudgePanel.moreActions")} aria-haspopup="menu" aria-expanded={openMenuId === item.id} aria-controls={`check-menu-${item.id}`} disabled={busy} onClick={(event) => toggleSessionMenu(event, item.id)}><MIcon name="more_vert" size={18} /></button>
+                    </div>
+                  )}
+                </div>
+              );
             })}
           </div>
-      )}
+        )}
+      </div>
     </>
   );
 
   const visited = visitedTabs.sessionId === activeSessionId ? visitedTabs.tabs : NO_VISITED_TABS;
   const tabMounted = (key) => activeTab === key || visited.has(key);
-  const titledWeeks = weeks.filter((week) => String(week.title ?? "").trim());
 
-  function tabPanel(key, children) {
+  function tabPanel(key, children, active = activeTab === key, className = "") {
     const tab = TEACHER_JUDGE_TABS.find((entry) => entry.key === key);
     return (
       <section
         id={`${tabsIdPrefix}-panel-${key}`}
         aria-label={tab?.label}
-        hidden={activeTab !== key}
-        className={styles.checkTabPanel}
+        hidden={!active}
+        className={`${styles.checkTabPanel} ${className}`}
       >
         {children}
       </section>
     );
   }
 
+  const pickerItem = weekPicker?.item ?? null;
+  const pickerIsCopy = weekPicker?.mode === "copy";
+
   return (
     <div className={styles.panel}>
-      {/* 檢查清單與分頁列固定在同一個位置，三個分頁只換下方內容 */}
-      <section className={styles.checkWorkspaceTwo} aria-label={t("AiJudgePanel.workspaceAria")}>
-        <aside className={`${styles.card} ${styles.checkSessionCol}`} data-guide="ai-judge-sessions" aria-label={t("AiJudgePanel.checkListAria")}>
+      {/* 週次清單、分頁列、分頁內容是同一塊面板，欄位之間只用分隔線區隔 */}
+      <section
+        className={styles.checkWorkspaceTwo}
+        aria-label={t("AiJudgePanel.workspaceAria")}
+        data-judge-workspace=""
+        style={initialColumnWidths}
+      >
+        <aside className={styles.checkSessionCol} data-guide="ai-judge-sessions" aria-label={t("AiJudgePanel.checkListAria")}>
           {sessionSidebarInner}
         </aside>
+        <ColumnResizer
+          column="week"
+          side="left"
+          label={t("AiJudgePanel.resizeWeekAria")}
+          measureSelector='[data-guide="ai-judge-sessions"]'
+          otherSelector='[data-guide="ai-judge-assistant"]'
+        />
         <div className={styles.checkContentCol}>
           {activeSession ? (
             <>
-              {/* 上方已有班級步驟列，這裡用分段切換，不再疊第二條步驟列 */}
-              <SegmentedControl
-                ariaLabel={t("AiJudgePanel.tabsAria")}
-                className={styles.checkTabs}
-                options={TEACHER_JUDGE_TABS.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon, buttonProps: tab.buttonProps }))}
-                value={activeTab}
-                onChange={selectTab}
-              />
               {tabMounted("rubrics") && tabPanel("rubrics", (
                 <RubricsTab
                   key={activeSession.id}
@@ -4784,20 +4726,8 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
                   machineNodes={machineNodes}
                   onScriptCreated={(artifact) => {
                     loadSessions({ silent: true });
-                    const destination = getScriptCreationDestination(artifact);
-                    setFocusedScriptId(destination === "scripts" ? (artifact?.id ?? null) : null);
-                    selectTab(destination);
+                    selectTab(getScriptCreationDestination(artifact));
                   }}
-                />
-              ))}
-              {activeTab === "scripts" && tabPanel("scripts", (
-                <ScriptsTab
-                  key={activeSession.id}
-                  classId={classId}
-                  sessionId={activeSession.id}
-                  initialSelectedId={focusedScriptId}
-                  onScriptApproved={() => selectTab("review")}
-                  onGoToSettings={() => selectTab("rubrics")}
                 />
               ))}
               {tabMounted("review") && tabPanel("review", (
@@ -4808,19 +4738,33 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
                   members={members}
                   machineNodes={machineNodes}
                   active={activeTab === "review"}
+                  weekPublished={isWeekPublished(activeWeek)}
                   onDirtyChange={reportReviewDirty}
-                  onGoToScripts={() => selectTab("scripts")}
+                  onGoToSettings={() => selectTab("rubrics")}
+                  onGoToPublish={goToWeeklyContent}
                   onRunStarted={() => loadSessions({ silent: true })}
                 />
-              ))}
+              ), activeTab === "review", styles.checkTabPanelPadded)}
             </>
           ) : loading ? (
-            <div className={styles.card}>
+            <div className={styles.checkPane}>
               <LoadingState text={t("AiJudgePanel.loadingChecks")} />
             </div>
+          ) : activeWeek ? (
+            <div className={styles.checkPane} data-guide="ai-judge-empty">
+              <EmptyWeekHero
+                week={activeWeek}
+                busy={creatingWeekId === String(activeWeek.id)}
+                onCreate={() => createWeekCheck(activeWeek)}
+              />
+            </div>
           ) : (
-            <div className={styles.card} data-guide="ai-judge-empty">
-              <EmptyCheckHero onCreate={openCreateCheckDialog} />
+            <div className={styles.checkPane} data-guide="ai-judge-empty">
+              <EmptyState
+                icon="calendar_month"
+                title={t("AiJudgePanel.noWeeksTitle")}
+                description={t("AiJudgePanel.noWeeksDesc")}
+              />
             </div>
           )}
         </div>
@@ -4828,37 +4772,29 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
 
       {typeof document !== "undefined" && sessionMenuItemKeep.open && sessionMenuPos.item && createPortal(renderSessionMenu(sessionMenuItemKeep.item), document.body)}
 
-      {createDialogPresence.open && (
-        <CreateCheckDialog
-          closing={createDialogPresence.closing}
-          busy={creatingCheck}
-          error={createCheckError}
-          weeks={titledWeeks}
-          defaultWeekId={getDefaultWeekId(titledWeeks)}
-          onClose={closeCreateCheckDialog}
-          onSubmit={handleCreateCheck}
-        />
-      )}
-      {moveWeekTarget && (
+      {pickerItem && (
         <Modal
           as="form"
-          onSubmit={moveSessionToWeek}
-          onClose={() => setMoveWeekTarget(null)}
-          title={t("AiJudgePanel.moveWeekTitle")}
-          description={t("AiJudgePanel.moveWeekDesc", { title: moveWeekTarget.title })}
+          onSubmit={submitWeekPicker}
+          onClose={() => setWeekPicker(null)}
+          title={pickerIsCopy ? t("AiJudgePanel.copyWeekTitle") : t("AiJudgePanel.moveWeekTitle")}
+          description={pickerIsCopy
+            ? t("AiJudgePanel.copyWeekDesc", { title: pickerItem.title })
+            : t("AiJudgePanel.moveWeekDesc", { title: pickerItem.title })}
           actions={
             <>
-              <button type="button" className={styles.btnSecondary} onClick={() => setMoveWeekTarget(null)}>{titledWeeks.length ? t("AiJudgePanel.cancelBtn") : t("AiJudgePanel.closeBtn")}</button>
-              {titledWeeks.length > 0 && (
-                <button type="submit" className={styles.btnPrimary} disabled={!moveWeekId || busySessionIds.has(moveWeekTarget.id)}>{t("AiJudgePanel.saveWeekBtn")}</button>
+              <button type="button" className={styles.btnSecondary} onClick={() => setWeekPicker(null)}>{freeWeeks.length ? t("AiJudgePanel.cancelBtn") : t("AiJudgePanel.closeBtn")}</button>
+              {freeWeeks.length > 0 && (
+                <button type="submit" className={styles.btnPrimary} disabled={!weekPickerId || busySessionIds.has(pickerItem.id)}>
+                  {pickerIsCopy ? t("AiJudgePanel.copyBtn") : t("AiJudgePanel.saveWeekBtn")}
+                </button>
               )}
             </>
           }
         >
-          <WeekSelectField weeks={titledWeeks} value={moveWeekId} onChange={setMoveWeekId} autoFocus />
+          <WeekSelectField weeks={freeWeeks} value={weekPickerId} onChange={setWeekPickerId} autoFocus />
         </Modal>
       )}
-
     </div>
   );
 }
