@@ -64,7 +64,9 @@ class User(UserBase, table=True):
     # 帳號來源："local"（本地密碼）| "google" | "ldap"（LDAP 管理密碼）。
     # 舊帳號一律 local；LDAP 登入成功時會將 LDAP 設為權威來源。
     auth_source: str = Field(default="local", max_length=20)
-    registration_status: str = Field(default="approved", max_length=20)
+    registration_status: str = Field(
+        default="approved", max_length=20, sa_column_kwargs={"server_default": "approved"}
+    )
     token_version: int = Field(default=0, description="令牌版本，修改密碼時遞增以失效舊令牌")
     deleted_at: datetime | None = Field(
         default=None, sa_type=sa.DateTime(timezone=True)
@@ -81,6 +83,9 @@ class User(UserBase, table=True):
     # 首次登入引導精靈（語言／外觀／兩步驟驗證）是否已走完或略過：
     # 新帳號一律 False，登入後前端只顯示引導畫面；既有帳號由 migration 標為 True
     onboarding_completed: bool = Field(default=False)
+    seen_user_guides: list[str] = Field(
+        default_factory=list, sa_column=Column(sa.JSON, nullable=False)
+    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),

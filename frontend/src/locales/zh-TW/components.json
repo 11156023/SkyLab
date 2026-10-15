@@ -510,5 +510,7 @@
   "Stepper.doneSuffix": "（已完成）",
   "ColorPicker.custom": "自訂顏色",
   "ColorPicker.pick": "選擇顏色",
-  "ColorPicker.hexLabel": "色碼"
+  "ColorPicker.hexLabel": "色碼",
+  "AiFloatingChat.pageHelpHint": "不知道這頁能做什麼？可以問我。",
+  "AiFloatingChat.dismissPageHelpHint": "關閉提示"
 }

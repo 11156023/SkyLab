@@ -101,6 +101,7 @@ class UserPublic(BaseModel):
     totp_setup_required: bool = False
     # 首次登入引導精靈已完成／略過；False 時前端只顯示引導畫面
     onboarding_completed: bool = False
+    seen_user_guides: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
 
 
