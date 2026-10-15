@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from types import SimpleNamespace
 from typing import Any
 
@@ -140,6 +141,17 @@ def test_immediate_no_end_missing_keeps_default_no_end() -> None:
 )
 def test_parse_duration_days(text: str | None, days: int | None) -> None:
     assert svc.parse_duration_days(text) == days
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["0" * 50_000, "一" + " " * 50_000, "1" + " " * 50_000 + "個"],
+    ids=["zeros", "cjk-then-spaces", "digit-spaces-ge"],
+)
+def test_parse_duration_days_is_linear_on_repetitive_input(text: str) -> None:
+    started = perf_counter()
+    assert svc.parse_duration_days(text) is None
+    assert perf_counter() - started < 0.5
 
 
 def _schedule_request(duration_days: int | None, lengths: list[int]) -> RecommendationRequest:
