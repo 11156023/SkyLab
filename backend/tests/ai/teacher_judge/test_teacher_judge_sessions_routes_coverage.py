@@ -33,6 +33,14 @@ from app.models.teacher_judge_session import (
 from tests.ai.teacher_judge.helpers import make_session, make_teacher_judge_file
 
 USER = SimpleNamespace(id=uuid.uuid4())
+WEEK_ID = uuid.uuid4()
+
+
+@pytest.fixture
+def free_week(monkeypatch: pytest.MonkeyPatch):
+    """建立／複製的分支測試不在意週次規則（另有專門測試），一律當成空的週次。"""
+    monkeypatch.setattr(routes, "_require_free_week", lambda *args, **kwargs: None)
+    return WEEK_ID
 
 
 @pytest.fixture
@@ -44,6 +52,8 @@ def ctx(monkeypatch: pytest.MonkeyPatch):
         db.commit()
         db.refresh(item)
         monkeypatch.setattr(routes, "_access", lambda *args: None)
+        # 週次發布的檢查另外測（test_session_week_binding）
+        monkeypatch.setattr(routes, "ensure_week_published", lambda *args: None)
         yield db, class_id, item
 
 
@@ -172,7 +182,7 @@ def test_list_sessions_returns_active_rows(ctx) -> None:
     assert [row.id for row in result] == [str(item.id)]
 
 
-def test_create_session_blank_mode_creates_rubric(ctx, monkeypatch) -> None:
+def test_create_session_blank_mode_creates_rubric(ctx, monkeypatch, free_week) -> None:
     db, class_id, _ = ctx
     file = make_teacher_judge_file(db, class_id)
     calls: list[dict] = []
@@ -186,7 +196,7 @@ def test_create_session_blank_mode_creates_rubric(ctx, monkeypatch) -> None:
     result = routes.create_session(
         class_id,
         TeacherJudgeSessionCreateRequest(
-            title="  Blank  ", creation_mode="blank", rubric_name="My rubric"
+            teaching_class_week_id=WEEK_ID, title="  Blank  ", creation_mode="blank", rubric_name="My rubric"
         ),
         db,
         USER,
@@ -197,7 +207,7 @@ def test_create_session_blank_mode_creates_rubric(ctx, monkeypatch) -> None:
     assert calls[0]["environment_keys"] == []
 
 
-def test_create_session_existing_mode_checks_file(ctx, monkeypatch) -> None:
+def test_create_session_existing_mode_checks_file(ctx, monkeypatch, free_week) -> None:
     db, class_id, _ = ctx
     file = make_teacher_judge_file(db, class_id)
     seen: list[str] = []
@@ -213,7 +223,7 @@ def test_create_session_existing_mode_checks_file(ctx, monkeypatch) -> None:
     result = routes.create_session(
         class_id,
         TeacherJudgeSessionCreateRequest(
-            title="Existing", creation_mode="existing", selected_file_id=file.id
+            teaching_class_week_id=WEEK_ID, title="Existing", creation_mode="existing", selected_file_id=file.id
         ),
         db,
         USER,
@@ -223,7 +233,7 @@ def test_create_session_existing_mode_checks_file(ctx, monkeypatch) -> None:
     assert seen == ["validate", "available"]
 
 
-def test_create_session_without_file_skips_availability(ctx, monkeypatch) -> None:
+def test_create_session_without_file_skips_availability(ctx, monkeypatch, free_week) -> None:
     db, class_id, _ = ctx
     monkeypatch.setattr(routes, "validate_selected_file", lambda *args: None)
     monkeypatch.setattr(
@@ -233,13 +243,13 @@ def test_create_session_without_file_skips_availability(ctx, monkeypatch) -> Non
     )
 
     result = routes.create_session(
-        class_id, TeacherJudgeSessionCreateRequest(title="Plain"), db, USER
+        class_id, TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK_ID, title="Plain"), db, USER
     )
 
     assert result.selected_file_id is None
 
 
-def test_create_session_selected_file_conflict_is_409(ctx, monkeypatch) -> None:
+def test_create_session_selected_file_conflict_is_409(ctx, monkeypatch, free_week) -> None:
     db, class_id, _ = ctx
     monkeypatch.setattr(routes, "validate_selected_file", lambda *args: None)
     monkeypatch.setattr(
@@ -250,24 +260,24 @@ def test_create_session_selected_file_conflict_is_409(ctx, monkeypatch) -> None:
 
     with pytest.raises(HTTPException) as exc:
         routes.create_session(
-            class_id, TeacherJudgeSessionCreateRequest(title="Dup"), db, USER
+            class_id, TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK_ID, title="Dup"), db, USER
         )
 
     assert exc.value.status_code == 409
 
 
-def test_create_session_other_integrity_error_is_reraised(ctx, monkeypatch) -> None:
+def test_create_session_other_integrity_error_is_reraised(ctx, monkeypatch, free_week) -> None:
     db, class_id, _ = ctx
     monkeypatch.setattr(routes, "validate_selected_file", lambda *args: None)
     monkeypatch.setattr(db, "commit", _raise(_integrity("other")))
 
     with pytest.raises(IntegrityError):
         routes.create_session(
-            class_id, TeacherJudgeSessionCreateRequest(title="Dup"), db, USER
+            class_id, TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK_ID, title="Dup"), db, USER
         )
 
 
-def test_create_session_other_error_rolls_back(ctx, monkeypatch) -> None:
+def test_create_session_other_error_rolls_back(ctx, monkeypatch, free_week) -> None:
     db, class_id, _ = ctx
     monkeypatch.setattr(
         routes,
@@ -277,13 +287,13 @@ def test_create_session_other_error_rolls_back(ctx, monkeypatch) -> None:
 
     with pytest.raises(HTTPException) as exc:
         routes.create_session(
-            class_id, TeacherJudgeSessionCreateRequest(title="Bad"), db, USER
+            class_id, TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK_ID, title="Bad"), db, USER
         )
 
     assert exc.value.status_code == 400
 
 
-def test_fork_and_detail_return_public_session(ctx, monkeypatch) -> None:
+def test_fork_and_detail_return_public_session(ctx, monkeypatch, free_week) -> None:
     db, class_id, item = ctx
     clone = TeacherJudgeSession(teaching_class_id=class_id, title="Clone")
     db.add(clone)
@@ -298,12 +308,14 @@ def test_fork_and_detail_return_public_session(ctx, monkeypatch) -> None:
     monkeypatch.setattr(routes, "fork_session_data", fake_fork)
 
     forked = routes.fork_session(
-        class_id, item.id, TeacherJudgeSessionForkRequest(title="Clone"), db, USER
+        class_id, item.id, TeacherJudgeSessionForkRequest(title="Clone", teaching_class_week_id=WEEK_ID), db, USER
     )
     detail = routes.get_session_detail(class_id, item.id, db, USER)
 
     assert forked.id == str(clone.id)
-    assert calls == [{"source": item.id, "title": "Clone", "created_by": USER.id}]
+    assert calls == [
+        {"source": item.id, "title": "Clone", "created_by": USER.id, "week_id": WEEK_ID}
+    ]
     assert detail.id == str(item.id)
 
 

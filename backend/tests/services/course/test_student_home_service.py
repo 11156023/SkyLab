@@ -310,15 +310,14 @@ def test_weekly_tasks_show_ai_extracted_items_before_script_is_approved() -> Non
     session.add(week)
     session.add(source)
     session.commit()
-    session.add(
-        TeacherJudgeSession(
-            teaching_class_id=teaching_class.id,
-            teaching_class_week_id=week.id,
-            selected_file_id=source.id,
-            created_by=teacher.id,
-            title="Week one AI check",
-        )
+    judge = TeacherJudgeSession(
+        teaching_class_id=teaching_class.id,
+        teaching_class_week_id=week.id,
+        selected_file_id=source.id,
+        created_by=teacher.id,
+        title="Week one AI check",
     )
+    session.add(judge)
     session.commit()
 
     rows = weekly_task_service.list_student_weekly_tasks(
@@ -329,9 +328,10 @@ def test_weekly_tasks_show_ai_extracted_items_before_script_is_approved() -> Non
 
     assert len(rows) == 1
     assert rows[0].checkpoints[0].title == "Boot the machine"
-    assert rows[0].checkpoints[0].assignment_title == "Week one AI task"
+    # 還沒有腳本也是這週的作業（可以回報完成），只是還不能檢查
+    assert rows[0].checkpoints[0].assignment_title == "Week one AI check"
     assert rows[0].checkpoints[0].check_available is False
-    assert rows[0].checkpoints[0].assignment_id is None
+    assert rows[0].checkpoints[0].assignment_id == judge.id
 
 
 def test_weekly_tasks_show_published_pdf_without_ai_check() -> None:

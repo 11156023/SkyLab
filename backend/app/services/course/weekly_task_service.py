@@ -12,7 +12,9 @@ from app.exceptions import NotFoundError
 from app.models import TeachingClassTaskFile, TeachingClassWeek
 from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_session import TeacherJudgeSession
+from app.models.teaching_class import PUBLISHED_WEEK_STATUSES
 from app.schemas.course import (
+    CourseAIAssignmentStudent,
     CourseAITaskItemStudent,
     CourseWeeklyCheckpointStudent,
     CourseWeeklyTaskFileStudent,
@@ -21,7 +23,7 @@ from app.schemas.course import (
 from app.services.course import ai_assignment_service, course_service
 
 TASK_FILE_ROOT = Path(__file__).resolve().parents[3] / "data" / "teaching-class-tasks"
-VISIBLE_WEEK_STATUSES = {"published", "completed"}
+VISIBLE_WEEK_STATUSES = PUBLISHED_WEEK_STATUSES
 
 
 def _pdf_file(row: TeachingClassTaskFile) -> CourseWeeklyTaskFileStudent | None:
@@ -92,11 +94,14 @@ def list_student_weekly_tasks(
         )
     ).all()
     checkpoints_by_week: dict[uuid.UUID, list[CourseWeeklyCheckpointStudent]] = {}
+    reply_by_week: dict[uuid.UUID, CourseAIAssignmentStudent] = {}
     for judge_session in judge_sessions:
         week_id = judge_session.teaching_class_week_id
         if week_id is None:
             continue
         assignment = assignments_by_session.get(judge_session.id)
+        if assignment is not None and assignment.teacher_reply:
+            reply_by_week[week_id] = assignment
         source_file = (
             session.get(TeacherJudgeFile, judge_session.selected_file_id)
             if judge_session.selected_file_id is not None
@@ -115,11 +120,14 @@ def list_student_weekly_tasks(
                     task_id=judge_session.id,
                     assignment_id=assignment.id if assignment is not None else None,
                     assignment_title=task_title,
-                    check_available=assignment is not None,
+                    check_available=(
+                        assignment is not None and assignment.check_available
+                    ),
                     title=item.title,
                     description=item.description,
                     detectable=item.detectable,
                     order=item.order,
+                    machine_node_key=item.machine_node_key,
                     latest_check=(
                         assignment.checkpoint_checks.get(item.id)
                         if assignment is not None
@@ -139,6 +147,14 @@ def list_student_weekly_tasks(
             files=files_by_week.get(week.id, []),
             checkpoints=sorted(
                 checkpoints_by_week.get(week.id, []), key=lambda item: item.order
+            ),
+            teacher_reply=(
+                reply_by_week[week.id].teacher_reply if week.id in reply_by_week else ""
+            ),
+            teacher_reply_at=(
+                reply_by_week[week.id].teacher_reply_at
+                if week.id in reply_by_week
+                else None
             ),
         )
         for week in weeks

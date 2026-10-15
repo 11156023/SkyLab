@@ -802,8 +802,12 @@ def _resolve_node_targets(
     session: Session,
     teaching_class_id: uuid.UUID,
     target_node_key: str,
+    user_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Resolve every student machine attached to one class-local node."""
+    """Resolve every student machine attached to one class-local node.
+
+    ``user_ids`` 只留這些學生的機器（導師核查「檢查這位學生／已回報的學生」）。
+    """
 
     node = resolve_class_machine_node(session, teaching_class_id, target_node_key)
     if node is None:
@@ -821,6 +825,8 @@ def _resolve_node_targets(
         teaching_class_id=teaching_class_id,
     )
     members = members_by_node.get(node.node_key, [])
+    if user_ids is not None:
+        members = [member for member in members if member.get("user_id") in user_ids]
     if not members:
         raise HTTPException(
             status_code=400,
@@ -1014,6 +1020,7 @@ def create_script_run(
     requested_item_id: str | None = None,
     run_batch_id: uuid.UUID | None = None,
     commit: bool = True,
+    user_ids: set[str] | None = None,
 ) -> TeacherJudgeScriptRunPublic:
     requested_at = _now()
     artifact = get_artifact(
@@ -1069,6 +1076,7 @@ def create_script_run(
             session=session,
             teaching_class_id=teaching_class_id,
             target_node_key=effective_node_key,
+            user_ids=user_ids,
         )
     elif target_vmids:
         # Keep old all_with_vm/running_only callers functional during migration.
@@ -1552,7 +1560,9 @@ def create_script_run_batch(
     artifact_set_id: uuid.UUID,
     started_by: uuid.UUID | None,
     session_id: uuid.UUID | None = None,
+    user_ids: list[uuid.UUID] | None = None,
 ) -> TeacherJudgeRunBatchPublic:
+    """整組腳本跑一輪；``user_ids`` 有值時只檢查這些學生（其他人的結果不動）。"""
     requested_at = _now()
     rows = list(
         session.exec(
@@ -1579,6 +1589,25 @@ def create_script_run_batch(
                 "message": "artifact set 的所有節點腳本都必須通過審查後才能執行。",
             },
         )
+    wanted_users: set[str] | None = None
+    if user_ids:
+        wanted_users = {str(user_id) for user_id in user_ids}
+        members_by_node = _class_member_by_node_key(
+            session=session, teaching_class_id=teaching_class_id
+        )
+        # 只跑有這些學生機器的那幾台；一台都沒有就不必建立空的批次
+        children = [
+            child
+            for child in children
+            if any(
+                member.get("user_id") in wanted_users
+                for member in members_by_node.get(child.target_node_key or "", [])
+            )
+        ]
+        if not children:
+            raise HTTPException(
+                status_code=400, detail=t("teacherJudgeSessions.noStudentMachines")
+            )
     run_batch_id = uuid.uuid4()
     try:
         batch = TeacherJudgeRunBatch(
@@ -1601,6 +1630,7 @@ def create_script_run_batch(
                 target_node_key=child.target_node_key,
                 run_batch_id=run_batch_id,
                 commit=False,
+                user_ids=wanted_users,
             )
         prepared_batch = session.get(TeacherJudgeRunBatch, run_batch_id, with_for_update=True)
         if prepared_batch is None or prepared_batch.status != "pending":
