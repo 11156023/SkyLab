@@ -394,7 +394,7 @@ async def test_await_worker_drains_failing_worker_after_cancel() -> None:
     await asyncio.sleep(0)
     release.set()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.gather(waiter)
     assert worker.done()
     assert isinstance(worker.exception(), RuntimeError)
 
@@ -464,7 +464,7 @@ async def test_await_worker_keeps_draining_on_repeated_cancel() -> None:
     await asyncio.sleep(0)
     release.set()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.gather(waiter)
     assert worker.result() == "done"
 
 

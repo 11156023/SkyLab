@@ -17,11 +17,20 @@ def test_observation_swallows_metric_and_log_failures(monkeypatch) -> None:
         "AI_WORKFLOWS",
         SimpleNamespace(labels=broken_labels),
     )
-    monkeypatch.setattr(monitoring, "logger", SimpleNamespace(info=broken_info))
+    errors: list[str] = []
+    monkeypatch.setattr(
+        monitoring,
+        "logger",
+        SimpleNamespace(
+            info=broken_info,
+            exception=lambda message, *args: errors.append(message % args),
+        ),
+    )
 
     with monitoring.AIWorkflowObservation(route="/x", model="m") as observation:
         observation.outcome = "success"
     assert observation.outcome == "success"
+    assert errors == ["Failed to record AI workflow metric: route=/x"]
 
 
 def test_token_count_and_duration_fallbacks() -> None:

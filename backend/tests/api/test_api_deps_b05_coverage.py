@@ -246,7 +246,7 @@ async def test_cancelled_queued_ai_db_operation_never_runs(monkeypatch) -> None:
 
     second.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await second
+        await asyncio.gather(second)
     gate.set()
     assert await first is True
     await _settle(lambda: not ai_capacity._pending)

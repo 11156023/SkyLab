@@ -260,7 +260,7 @@ async def test_run_db_in_threadpool_prefers_cancellation_over_late_error(
     release.set()
 
     with pytest.raises(asyncio.CancelledError):
-        await outer
+        await asyncio.gather(outer)
 
 
 # ---------------------------------------------------------------- authorizers

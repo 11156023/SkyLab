@@ -280,7 +280,7 @@ class VLLMEngine:
         try:
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
-            pass
+            return  # 群組剛好在寬限期結束後自行退出，已無程序可終止
 
     def returncode(self) -> int | None:
         """vLLM 子程序已結束時回傳退出碼；仍在執行（或尚未啟動）回傳 None。"""

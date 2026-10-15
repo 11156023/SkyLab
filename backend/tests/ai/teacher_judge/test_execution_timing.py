@@ -402,7 +402,7 @@ async def test_cancellation_stops_queued_and_remaining_targets(
     finally:
         release.set()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            await asyncio.gather(task)
         await asyncio.to_thread(executor.shutdown_script_executor)
     assert started == [1000]
     with Session(executor.engine) as session:

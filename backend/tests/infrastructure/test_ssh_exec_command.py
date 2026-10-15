@@ -238,7 +238,7 @@ def _call_with_deadline(func: Callable[[], Any], seconds: float) -> Any:
     def run() -> None:
         try:
             outcome["value"] = func()
-        except BaseException as exc:  # noqa: BLE001 - 原樣轉交給測試
+        except Exception as exc:  # noqa: BLE001 - 原樣轉交給測試
             outcome["error"] = exc
 
     worker = threading.Thread(target=run, daemon=True)

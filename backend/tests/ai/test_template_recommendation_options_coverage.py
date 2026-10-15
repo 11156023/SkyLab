@@ -223,9 +223,7 @@ def test_allowed_vm_template_ids_empty_base(monkeypatch: pytest.MonkeyPatch) -> 
 def test_allowed_vm_template_ids_student_and_manager(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        options_service, "get_base_resource_options_cached", lambda: _bundle()
-    )
+    monkeypatch.setattr(options_service, "get_base_resource_options_cached", _bundle)
     monkeypatch.setattr(
         options_service.vm_template_repo,
         "registered_pve_vmids",
@@ -303,9 +301,7 @@ def test_resolve_resource_options_server_side(
     monkeypatch.setattr(
         options_service, "get_application_templates_cached", lambda session: []
     )
-    monkeypatch.setattr(
-        options_service, "get_base_resource_options_cached", lambda: _bundle()
-    )
+    monkeypatch.setattr(options_service, "get_base_resource_options_cached", _bundle)
     monkeypatch.setattr(
         options_service.vm_template_repo,
         "registered_pve_vmids",

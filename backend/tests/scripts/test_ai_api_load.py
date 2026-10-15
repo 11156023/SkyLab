@@ -321,6 +321,7 @@ def test_interrupted_main_writes_completed_cancelled_and_not_sent_rows(
             if len(sent) == concurrency + 1:
                 blocked.set()
             await asyncio.Event().wait()
+            raise AssertionError("blocked request must stay pending until cancelled")
 
         async def preflight(*args):
             return ("model-a",)
