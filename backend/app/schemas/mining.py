@@ -27,6 +27,13 @@ class MiningIncidentPublic(BaseModel):
     review_note: str | None = None
 
 
+class MiningIncidentListItem(MiningIncidentPublic):
+    """事件列表的一筆：多帶擁有者，讓管理員不必另外查 user_id 就能判斷。"""
+
+    owner_email: str | None = None
+    owner_full_name: str | None = None
+
+
 class MiningDismissResult(MiningIncidentPublic):
     """誤判解除的回應：事件本身加上結案時的非致命失敗。
 

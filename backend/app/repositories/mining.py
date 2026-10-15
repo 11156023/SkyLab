@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlmodel import Session, col, select
 
 from app.exceptions import NotFoundError
-from app.models import MiningIncident, MiningIncidentStatus
+from app.models import MiningIncident, MiningIncidentStatus, User
 
 # 未結案（待管理員審核）的事件狀態；TTL、閒置偵測、資源告警與重複偵測共用這一份。
 OPEN_STATUSES = (MiningIncidentStatus.detected, MiningIncidentStatus.suspended)
@@ -69,16 +69,23 @@ def list_open_incident_vmids(*, session: Session) -> set[int]:
     return {int(vmid) for vmid in rows if vmid is not None}
 
 
-def list_incidents(
+def list_incidents_with_owners(
     *,
     session: Session,
     status: MiningIncidentStatus | None = None,
     limit: int = 200,
-) -> list[MiningIncident]:
-    stmt = select(MiningIncident)
+) -> list[tuple[MiningIncident, User | None]]:
+    """事件連同擁有者（單次 join，管理員審核時要知道機器是誰的）。
+
+    user_id 是 NOT NULL＋CASCADE，正常一定有擁有者；用 outer join 是為了
+    資料異常時事件仍列得出來，擁有者欄位留空而不是整筆消失。
+    """
+    stmt = select(MiningIncident, User).outerjoin(
+        User, col(User.id) == col(MiningIncident.user_id)
+    )
     if status is not None:
         stmt = stmt.where(MiningIncident.status == status)
     stmt = stmt.order_by(
         MiningIncident.detected_at.desc()  # type: ignore[attr-defined]
     ).limit(limit)
-    return list(session.exec(stmt).all())
+    return [(incident, owner) for incident, owner in session.exec(stmt).all()]

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
@@ -153,6 +154,7 @@ export default function MiningIncidentsPanel({ onCountChange }) {
           <thead>
             <tr>
               <th className={styles.th}>VMID</th>
+              <th className={styles.th}>{t("MiningIncidentsPanel.colOwner")}</th>
               <th className={styles.th}>{t("MiningIncidentsPanel.colAvgCpu")}</th>
               <th className={styles.th}>{t("MiningIncidentsPanel.colWindow")}</th>
               <th className={styles.th}>{t("MiningIncidentsPanel.colSnapshot")}</th>
@@ -164,7 +166,29 @@ export default function MiningIncidentsPanel({ onCountChange }) {
           <tbody>
             {[...open, ...closed].map((incident) => (
               <tr key={incident.id} className={styles.tr}>
-                <td className={`${styles.td} ${styles.monoCell}`}>{incident.vmid}</td>
+                <td className={`${styles.td} ${styles.monoCell}`}>
+                  {/* 判斷誤判要看機器用途、CPU 曲線與存證快照，直接連到資源詳情 */}
+                  <Link
+                    to={`/resource-mgmt/${incident.vmid}`}
+                    className={styles.vmLink}
+                    title={t("MiningIncidentsPanel.openResourceDetail", { vmid: incident.vmid })}
+                  >
+                    {incident.vmid}
+                    <MIcon name="open_in_new" size={12} />
+                  </Link>
+                </td>
+                <td className={styles.td}>
+                  {incident.owner_email ? (
+                    <div className={styles.ownerCell}>
+                      <span>{incident.owner_full_name || incident.owner_email}</span>
+                      {incident.owner_full_name && (
+                        <span className={styles.mutedCell}>{incident.owner_email}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className={styles.mutedCell}>{t("MiningIncidentsPanel.ownerUnknown")}</span>
+                  )}
+                </td>
                 <td className={`${styles.td} ${styles.monoCell}`}>
                   {incident.avg_cpu.toFixed(1)}%
                 </td>

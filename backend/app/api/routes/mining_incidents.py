@@ -12,6 +12,7 @@ from app.schemas.mining import (
     MiningDismissResult,
     MiningExemptRequest,
     MiningExemptResponse,
+    MiningIncidentListItem,
     MiningIncidentPublic,
 )
 from app.services.security import mining_service
@@ -19,20 +20,26 @@ from app.services.security import mining_service
 router = APIRouter(prefix="/mining-incidents", tags=["mining"])
 
 
-@router.get("", response_model=list[MiningIncidentPublic])
+@router.get("", response_model=list[MiningIncidentListItem])
 def list_incidents(
     session: SessionDep,
     _: AdminUser,
     status: MiningIncidentStatus | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
-) -> list[MiningIncidentPublic]:
-    """挖礦事件列表（可依狀態過濾）。"""
-    incidents = mining_repo.list_incidents(
+) -> list[MiningIncidentListItem]:
+    """挖礦事件列表（可依狀態過濾），附擁有者 email／姓名。"""
+    rows = mining_repo.list_incidents_with_owners(
         session=session, status=status, limit=limit
     )
     return [
-        MiningIncidentPublic.model_validate(i, from_attributes=True)
-        for i in incidents
+        MiningIncidentListItem(
+            **MiningIncidentPublic.model_validate(
+                incident, from_attributes=True
+            ).model_dump(),
+            owner_email=owner.email if owner is not None else None,
+            owner_full_name=owner.full_name if owner is not None else None,
+        )
+        for incident, owner in rows
     ]
 
 
