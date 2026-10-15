@@ -8,7 +8,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -41,6 +41,8 @@ from app.ai.teacher_judge.machine_context import (
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeRunBatchPublic,
+    TeacherJudgeRunBatchSummary,
+    TeacherJudgeRunTargetPage,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptRunSummary,
@@ -63,6 +65,7 @@ from app.ai.teacher_judge.script_artifact_service import (
     list_artifact_sets,
 )
 from app.ai.teacher_judge.script_executor_service import (
+    _mark_run_executor_failed,
     execute_script_run,
     execute_script_run_batch,
 )
@@ -73,6 +76,8 @@ from app.ai.teacher_judge.script_run_service import (
     get_script_run_public,
     get_session_run_for_review,
     get_session_run_record,
+    list_run_targets,
+    list_session_batch_summaries,
     list_session_run_summaries,
 )
 from app.ai.teacher_judge.script_run_service import (
@@ -1000,7 +1005,6 @@ async def create_message(
                     file=file,
                     proposal=proposal,
                     template_commands=template_commands,
-                    reply=reply,
                     analysis_revision=base_revision,
                     tool_calls=tool_calls,
                 )
@@ -1015,7 +1019,7 @@ async def create_message(
                 content=redact_message_content(reply),
                 message_type=TeacherJudgeMessageType.chat,
                 metadata_json=build_assistant_metadata(
-                    metrics=metrics,
+                    metrics={**metrics, "request_id": ai_request_id},
                     workflow=workflow,
                     item_results=item_results,
                     itemwise_error=itemwise_error,
@@ -1471,11 +1475,15 @@ def create_session_script_set_run(
     item.updated_at = item.last_activity_at
     session.add(item)
     session.commit()
-    submit(
+    task_id = submit(
         execute_script_run_batch(uuid.UUID(batch.run_batch_id)),
         name=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
         task_id=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
     )
+    if task_id == "":
+        for node in batch.nodes:
+            _mark_run_executor_failed(uuid.UUID(node.run_id), "背景執行器未接受任務。", reason_code="executor_unavailable")
+        session.expire_all()
     return get_script_run_batch_public(
         session=session,
         teaching_class_id=teaching_class_id,
@@ -1503,6 +1511,30 @@ def get_session_script_run_batch(
         run_batch_id=run_batch_id,
         session_id=session_id,
     )
+
+
+@router.get("/{session_id}/run-batches", response_model=list[TeacherJudgeRunBatchSummary])
+def list_session_batches(
+    teaching_class_id: uuid.UUID, session_id: uuid.UUID,
+    session: SessionDep, current_user: InstructorUser,
+    skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+) -> list[TeacherJudgeRunBatchSummary]:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return list_session_batch_summaries(session, teaching_class_id, session_id, skip, limit)
+
+
+@router.get("/{session_id}/runs/{run_id}/targets", response_model=TeacherJudgeRunTargetPage)
+def list_session_run_targets(
+    teaching_class_id: uuid.UUID, session_id: uuid.UUID, run_id: uuid.UUID,
+    session: SessionDep, current_user: InstructorUser,
+    skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
+    status: Literal["queued", "running", "completed", "failed", "cancelled"] | None = None,
+    student_id: uuid.UUID | None = None, vmid: int | None = Query(None, ge=1),
+) -> TeacherJudgeRunTargetPage:
+    _access(session, teaching_class_id, current_user)
+    run = get_session_run_record(session, teaching_class_id, session_id, run_id)
+    return list_run_targets(session, run, skip=skip, limit=limit, status=status, student_id=student_id, vmid=vmid)
 
 
 @router.get("/{session_id}/runs", response_model=list[TeacherJudgeScriptRunSummary])
@@ -1648,11 +1680,14 @@ def create_session_run(
     item.updated_at = item.last_activity_at
     session.add(item)
     session.commit()
-    submit(
+    task_id = submit(
         execute_script_run(uuid.UUID(run.id)),
         name=f"teacher_judge_script_run:{run.id}",
         task_id=f"teacher_judge_script_run:{run.id}",
     )
+    if task_id == "":
+        _mark_run_executor_failed(uuid.UUID(run.id), "背景執行器未接受任務。", reason_code="executor_unavailable")
+        session.expire_all()
     return get_script_run_public(
         session=session,
         teaching_class_id=teaching_class_id,

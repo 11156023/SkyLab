@@ -96,3 +96,27 @@ migration 在單一交易內執行。修改任何東西之前會先檢查既有�
 - 有任何一列會違反新的約束。
 
 沒有 batch task、vmid 也找不到資源的班級機器對應原本就是懸空資料，不會被當成錯誤。migration 會以警告記下筆數，升級後這些列會顯示為尚未建機。`downgrade` 會從新的資料表還原舊的欄位。
+
+## Teacher Judge 執行紀錄（`tjrec01`）
+
+| 層級 | 資料表與來源 | 寫入時機 |
+| --- | --- | --- |
+| 整班 | `teacher_judge_run_batches` | 接受執行後先提交主紀錄，再準備 child runs；前置失敗仍保留失敗紀錄。 |
+| 節點腳本 | `teacher_judge_script_runs` | 保存 artifact、目標快照、進度與摘要；班級仍經 artifact 取得。 |
+| 執行目標 | `teacher_judge_run_targets` | 執行前建立每個目標，包括沒有 VMID 的前置失敗；由協調執行緒約每秒批次提交狀態與已完成結果，結束時強制提交剩餘結果。 |
+
+target 以 `(run_id, target_key)` 唯一識別；有學生時 key 包含學生與邏輯節點，否則使用 VMID。學生識別與 VMID 是執行當時的快照。SSH key、host 與 runtime context 不複製到 target metadata。新執行與教師覆核以 target 表為結果來源，`TeacherJudgeScriptRun.results_document` 組回既有 API 的 `target_results_json` 格式；舊欄位只作歷史回退，不持續雙寫。
+
+target 保存 `queued_at`、`started_at`、`script_finished_at`、`received_at`、`finished_at`，以及準備、腳本、下載、清理、驗證的耗時。`finished_at` 是後端觀察到處理完成或決定失敗的時間；失聯時不能推定遠端腳本的實際結束時間。失敗紀錄包含 `reason_code` 與 `failure_stage`。`total_seconds` 不含排隊；`run_wait_seconds` 是 target 完成到 run 收尾的間隔，batch API 另外推算 `completion_wait_seconds`（target 完成到整班收尾）。舊 `finalize_wait_seconds` 與 `batch_wait_seconds` 保留原本的回傳語意。
+
+batch 的 `timing.total_seconds` 為接受執行到所有 child runs 進入終態的經過時間；不是各 target 耗時相加。`preparation_seconds`、`queue_seconds`、`execution_seconds` 分別對應前置準備、等待第一個 run、整個執行跨度；尚未完成時總耗時為 `null`，`elapsed_seconds` 可查目前經過時間。run 的排隊時間從 `prepared_at` 起算；舊 run 缺少此時間時沿用 `created_at`。收尾時間在最終交易提交前取值，不包含最後一次 commit、HTTP 傳輸或畫面輪詢。
+
+教師端沿用 `/teaching-classes/{class_id}/judge/sessions/{session_id}` 權限邊界：
+
+- `GET /run-batches`：以 `skip`／`limit` 分頁讀取整班摘要，SQL 聚合數量，不載入核查結果內容。
+- `GET /run-batches/{run_batch_id}`：整班時間、數量、run 與學生結果。
+- `GET /runs/{run_id}/targets`：以 `skip`／`limit` 分頁，可依 `status`、`student_id`、`vmid` 篩選；回傳 `data`、`total`。
+
+程序取消、背景執行器拒收與 stale 回收只收尾尚未完成的目標，保留已提交結果。硬中斷仍可能遺失尚未提交的短週期結果；已接受但尚未建立 child runs 的 batch 也由既有 stale 排程回收。AI 分析訊息保存與 `ai_api_usage` 相同的 request ID，可經來源檔案／分析版本連回 artifact、batch、run 與 target。
+
+升級會搬移既有目標快照、前置失敗與結果，不推造未觀察到的 target 完成時間或 batch 請求時間；無結果的歷史終態目標標記 `legacy_result_missing`。舊 JSON 保留原始內容，downgrade 會先將新 target 結果與教師覆核還原到 run JSON。資料仍遵循既有 class／artifact／run 刪除關聯，並非永久保留的稽核封存。

@@ -28,10 +28,10 @@ LOCATION_GAP = "工作目錄的完整路徑（不可使用相對路徑或 ~；�
 
 def multi_node_items():
     items = []
-    for node, argv, cwd, mode in [
-        ("postgresql", ["cat", "/home/owo/main.log"], None, "teacher"),
-        ("n8n", ["pgrep", "-f", "n8n"], None, "ai"),
-        ("python", ["python3", "main.py"], "/home/owo", "teacher"),
+    for node, argv, mode in [
+        ("postgresql", ["cat", "/home/owo/main.log"], "teacher"),
+        ("n8n", ["pgrep", "-f", "n8n"], "ai"),
+        ("python", ["python3", "/home/owo/main.py"], "teacher"),
     ]:
         items.append({
             "id": f"item-{node}", "title": f"check {node}", "detectable": "auto",
@@ -40,7 +40,7 @@ def multi_node_items():
             "check_steps": [{
                 # Repeated step IDs are valid across distinct nodes.
                 "id": "step-1", "title": "Collect", "collector": {
-                    "type": "command", "argv": argv, "cwd": cwd, "timeout_seconds": 30,
+                    "type": "command", "argv": argv, "timeout_seconds": 30,
                 },
                 **({"assertion": {"type": "returncode_equals", "expected": 0}} if mode == "ai" else {}),
             }],
@@ -55,7 +55,7 @@ async def run_finalizer(monkeypatch, items, edits, *, refine=True):
         details["tool_calls"].append({**call, "id": f"read_{index}"})
     responses = [
         tool_call_message("list_checklist", {}),
-        *([details] if refine and details["tool_calls"] else []),
+        *([details] if details["tool_calls"] else []),
         *[tool_call_message("edit_checklist_item", edit) for edit in edits],
         reply_message("核對已完成。", "ready"),
     ]
@@ -79,10 +79,6 @@ async def test_finalizer_preserves_locations_through_save_and_three_node_artifac
     edits = []
     for index, item in enumerate(items):
         steps = copy.deepcopy(item["check_steps"])
-        if index < 2:
-            steps[0]["collector"]["cwd"] = "null"
-        else:
-            steps[0]["collector"].pop("cwd")
         edits.append({
             "id": item["id"], "check_steps": steps,
             "detectable": "partial" if index < 2 else "auto",
@@ -149,7 +145,7 @@ async def test_invalid_finalizer_location_is_repairable_without_asking_teacher(m
 async def test_return_to_saved_contract_supersedes_earlier_partial_candidate(monkeypatch):
     item = multi_node_items()[2]
     changed = copy.deepcopy(item["check_steps"])
-    changed[0]["collector"].update(argv=["python3", "other.py"], cwd=None)
+    changed[0]["collector"].update(argv=["python3", "other.py"])
     _, result = await run_finalizer(monkeypatch, [item], [
         {"id": item["id"], "check_steps": changed, "detectable": "auto"},
         {"id": item["id"], "check_steps": item["check_steps"], "detectable": "auto"},
@@ -172,7 +168,7 @@ async def test_location_is_never_borrowed_for_a_different_execution_scope(monkey
     items = multi_node_items()
     item = items[2]
     steps = copy.deepcopy(item["check_steps"])
-    steps[0]["collector"].pop("cwd")
+    steps[0]["collector"]["argv"] = ["python3", "main.py"]
     edit = {"id": item["id"], "check_steps": steps, "detectable": "auto"}
     if change == "node":
         edit["target_node_key"] = "postgresql"
@@ -188,4 +184,4 @@ async def test_location_is_never_borrowed_for_a_different_execution_scope(monkey
         assert result.tool_calls[-1]["reason_code"] == "check_plan_contract_invalid"
         assert result.tool_calls[-1]["retryable"] is False
     if result.proposal:
-        assert result.proposal[0]["check_steps"][0]["collector"]["cwd"] is None
+        assert "cwd" not in result.proposal[0]["check_steps"][0]["collector"]

@@ -255,18 +255,6 @@ def test_candidate_rejection_recoverable_parameter_gap(
     assert reason is not None and "argv（單一非空的命令字串 list）" in reason
 
 
-def test_restore_legacy_alias_readiness_no_recovered_keys() -> None:
-    item = _item(
-        detectable="partial",
-        missing_information=["檔案路徑"],
-        check_steps=[TeacherJudgeRubricCheckStep(template_key="t", command_key="k")],
-    )
-    svc._restore_legacy_alias_candidate_readiness(
-        item, {"check_steps": [{"command_key": "k"}]}
-    )
-    assert item.detectable == "partial"
-
-
 # ------------------------------------------------------ teacher-facing text
 
 
@@ -278,7 +266,7 @@ def test_teacher_missing_gap_reply_location_result_and_remaining() -> None:
     )
     reply = svc._teacher_missing_gap_reply(item)
     assert "檢查位置、通過方式與「其他事項」" in reply
-    assert "請補充檔案或程式的完整路徑，以及服務、連接埠或記錄範圍" in reply
+    assert "請補充檔案或程式的絕對路徑，以及服務、連接埠或記錄範圍" in reply
     assert "請補充預期文字或內容、版本" in reply
     assert "請補充「其他事項」" in reply
 
@@ -531,21 +519,16 @@ def test_dispatch_edit_rejections(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result["reason_code"] == "check_plan_contract_invalid"
 
 
-def test_dispatch_edit_with_legacy_steps(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[Any] = []
-    monkeypatch.setattr(
-        svc,
-        "_restore_legacy_alias_candidate_readiness",
-        lambda candidate, raw: calls.append((candidate, raw)),
-    )
+def test_dispatch_edit_rejects_legacy_working_directory() -> None:
     snapshot = [{"id": "i1", "title": "舊", "detectable": "manual"}]
-    _dispatch(
+    result, _ = _dispatch(
         "edit_checklist_item",
-        {"id": "i1", "check_steps": [{"argv": ["ls", "/srv"]}]},
+        {"id": "i1", "check_steps": [{"argv": ["ls", "/srv"], "cwd": "/srv"}]},
         snapshot=snapshot,
         read_ids={"i1"},
     )
-    assert len(calls) == 1
+    assert result["reason_code"] == "check_plan_contract_invalid"
+    assert result["teacher_input_required"] is False
 
 
 # ------------------------------------------------------------ tool loop

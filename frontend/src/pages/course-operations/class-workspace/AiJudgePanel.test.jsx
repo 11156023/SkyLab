@@ -812,7 +812,7 @@ describe("RubricTable", () => {
             check_steps: [{
               id: "run-main",
               title: "執行 main.py",
-              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+              collector: { type: "command", argv: ["python3", "/home/student/project/main.py"], timeout_seconds: 30 },
             }],
           },
           {
@@ -847,14 +847,13 @@ describe("RubricTable", () => {
     expect(html.match(/rubricTargetSummary/g)).toHaveLength(4);
     expect(html).toContain("檔案內容");
     expect(html).toContain("/home/student/main.py");
-    expect(html).toContain("python3 main.py");
-    expect(html).toContain("/home/student/project");
+    expect(html).toContain("python3 /home/student/project/main.py");
     expect(html).toContain("http://localhost:3000/health");
     expect(html).toContain("由執行節點觀察");
     expect(html).not.toContain("peer-secret-key");
   });
 
-  test("檔案項目標出目錄與相對路徑，版本項目可省略目錄", () => {
+  test("檔案項目顯示絕對路徑，版本項目不需要檔案位置", () => {
     const renderItem = (collector) => renderToStaticMarkup(
       <RubricTable
         items={[{
@@ -866,11 +865,10 @@ describe("RubricTable", () => {
         onDelete={() => {}}
       />,
     );
-    const fileHtml = renderItem({ type: "file_text", path: ".env", cwd: "/srv/student project" });
-    expect(fileHtml).toContain("工作目錄");
-    expect(fileHtml).toContain("/srv/student project");
-    expect(fileHtml).toContain(".env");
-    const versionHtml = renderItem({ type: "command", argv: ["python3", "--version"], cwd: null });
+    const fileHtml = renderItem({ type: "file_text", path: "/srv/student project/.env" });
+    expect(fileHtml).not.toContain("工作目錄");
+    expect(fileHtml).toContain("/srv/student project/.env");
+    const versionHtml = renderItem({ type: "command", argv: ["python3", "--version"] });
     expect(versionHtml).toContain("python3 --version");
     expect(versionHtml).not.toContain("工作目錄");
     expect(versionHtml).not.toContain("缺少資訊");
@@ -893,7 +891,7 @@ describe("RubricTable", () => {
             check_steps: [{
               id: "run",
               title: "執行 main.py",
-              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+              collector: { type: "command", argv: ["python3", "/home/student/project/main.py"], timeout_seconds: 30 },
               assertion: { type: "returncode_equals", expected: 0 },
             }],
           }]}
@@ -940,13 +938,14 @@ describe("getScriptCreationBlocker", () => {
     detectable: "auto",
     detection_method: "依 exit code 與 stdout 判定",
     check_steps: [{
-      template_key: "python",
-      command_key: "python.run_entrypoint",
-      parameters: {
-        cwd: "/home/student/project",
-        argv: ["python3", "main.py"],
+      id: "python.output",
+      title: "執行 main.py",
+      collector: {
+        type: "command",
+        argv: ["python3", "/home/student/project/main.py"],
         timeout_seconds: 30,
       },
+      assertion: { type: "returncode_equals", expected: 0 },
     }],
   };
 
@@ -960,15 +959,19 @@ describe("getScriptCreationBlocker", () => {
       judgement_mode: "teacher",
       check_steps: [{
         ...completeItem.check_steps[0],
-        parameters: {
-          cwd: "/home/student/project",
-          argv: ["python3", "main.py"],
-          timeout_seconds: 30,
-        },
+        assertion: undefined,
       }],
     };
 
     expect(getScriptCreationBlocker({ analysis: { items: [teacherReviewItem] } })).toBeNull();
+  });
+
+  test.each([
+    { argv: ["python3", "main.py"], cwd: "/home/student/project" },
+    { ...completeItem.check_steps[0], collector: { type: "file_text", path: "main.py", cwd: "/home/student/project" } },
+  ])("舊步驟提示重新核對，不推算已可執行", (step) => {
+    const analysis = { items: [{ ...completeItem, check_steps: [step] }] };
+    expect(getScriptCreationBlocker({ analysis })).toContain("待更新");
   });
 
   test("typed auto + teacher 項目可直接製作腳本", () => {
@@ -1387,12 +1390,11 @@ describe("script creation workflow", () => {
 });
 
 describe("teacher review summary", () => {
-  test("非零 returncode 即使沒有輸出也顯示 argv、cwd 與無輸出提示", () => {
+  test("非零 returncode 即使沒有輸出也顯示 argv 與無輸出提示", () => {
     const markup = renderToStaticMarkup(
       <CommandLog
         raw={JSON.stringify({
           argv: ["pgrep", "-f", "n8n"],
-          cwd: "/srv/student",
           timeout_seconds: 10,
           stdout: "",
           stderr: "",
@@ -1403,7 +1405,7 @@ describe("teacher review summary", () => {
     );
 
     expect(markup).toContain("[&quot;pgrep&quot;,&quot;-f&quot;,&quot;n8n&quot;]");
-    expect(markup).toContain("/srv/student");
+    expect(markup).not.toContain("工作目錄");
     expect(markup).toContain("指令沒有 stdout/stderr 輸出");
     expect(markup).toContain("結束代碼 1");
   });

@@ -120,7 +120,7 @@ def test_cross_template_catalog_includes_generic_controlled_command() -> None:
     assert general.requires_confirmation is True
     assert "平台已登錄的通用唯讀診斷能力" in general.description
     assert "依檢查目的選擇 Linux 或 Windows" in general.description
-    assert "指定工作目錄" in general.description
+    assert "絕對檔案路徑" in general.description
     assert "stdout" in general.description
     assert "stderr" in general.description
     assert "禁止修改系統狀態" in general.description

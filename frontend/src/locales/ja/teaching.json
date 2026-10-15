@@ -805,7 +805,6 @@
   "AiJudgePanel.chipReadLines": "、{{count}} 行",
   "AiJudgePanel.chipSeconds": "{{count}} 秒",
   "AiJudgePanel.chipTimeout": "タイムアウト",
-  "AiJudgePanel.chipWorkingDir": "作業ディレクトリ",
   "AiJudgePanel.clearBtn": "クリア",
   "AiJudgePanel.clearChatBtn": "内容をクリア",
   "AiJudgePanel.clearChatConfirmMessage": "このチェックの AI 会話、送信待ちの添付ファイル、未適用の提案をクリアします。元に戻せません。チェック表自体は変わりません。",

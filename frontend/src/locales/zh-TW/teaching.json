@@ -805,7 +805,6 @@
   "AiJudgePanel.chipReadLines": "，{{count}} 行",
   "AiJudgePanel.chipSeconds": "{{count}} 秒",
   "AiJudgePanel.chipTimeout": "逾時",
-  "AiJudgePanel.chipWorkingDir": "工作目錄",
   "AiJudgePanel.clearBtn": "清除",
   "AiJudgePanel.clearChatBtn": "清除內容",
   "AiJudgePanel.clearChatConfirmMessage": "這個檢查的 AI 對話、待送出的附件與尚未套用的提案都會清除，無法復原；檢查表本身不受影響。",
