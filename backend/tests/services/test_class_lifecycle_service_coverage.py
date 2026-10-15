@@ -52,7 +52,20 @@ def test_validate_schedule_accepts_and_rejects():
         svc.validate_schedule(_class(end_time=time(9, 0)))
 
 
-def test_generate_weeks_without_preserve_rebuilds_rows(session):
+def test_generate_weeks_without_preserve_creates_rows_for_a_new_class(session):
+    item = _class()
+    session.add(item)
+    session.commit()
+    svc.generate_weeks(session, item)
+    weeks = session.exec(
+        select(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
+    ).all()
+    assert sorted(w.week_number for w in weeks) == [1, 2, 3, 4, 5]
+    assert min(w.session_date for w in weeks) == date(2026, 9, 1)
+
+
+def test_generate_weeks_never_rebuilds_existing_weeks(session):
+    """整批重建會刪掉既有週次（AI導師檢查掛在上面），一律擋下。"""
     item = _class()
     session.add(item)
     session.add(
@@ -61,12 +74,12 @@ def test_generate_weeks_without_preserve_rebuilds_rows(session):
         )
     )
     session.commit()
-    svc.generate_weeks(session, item)
+    with pytest.raises(BadRequestError):
+        svc.generate_weeks(session, item)
     weeks = session.exec(
         select(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
     ).all()
-    assert sorted(w.week_number for w in weeks) == [1, 2, 3, 4, 5]
-    assert min(w.session_date for w in weeks) == date(2026, 9, 1)
+    assert [w.week_number for w in weeks] == [9]
 
 
 def test_clear_schedule_windows(session):

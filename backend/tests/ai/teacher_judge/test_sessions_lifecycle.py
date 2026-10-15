@@ -105,6 +105,7 @@ def test_clear_messages_keeps_session(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_session_creation_mode_contract_is_explicit() -> None:
     with pytest.raises(ValueError):
         TeacherJudgeSessionCreateRequest(
+            teaching_class_week_id=uuid.uuid4(),
             title="Blank without rubric",
             creation_mode="blank",
             environment_keys=["linux"],
@@ -112,12 +113,14 @@ def test_session_creation_mode_contract_is_explicit() -> None:
 
     with pytest.raises(ValueError):
         TeacherJudgeSessionCreateRequest(
+            teaching_class_week_id=uuid.uuid4(),
             title="Existing without file",
             creation_mode="existing",
         )
 
     with pytest.raises(ValueError):
         TeacherJudgeSessionCreateRequest(
+            teaching_class_week_id=uuid.uuid4(),
             title="Existing with blank fields",
             creation_mode="existing",
             selected_file_id=uuid.uuid4(),
@@ -217,11 +220,15 @@ def test_create_session_rejects_a_source_owned_by_another_session(
     )
     db.commit()
     monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(
+        teacher_judge_sessions, "_require_free_week", lambda *args, **kwargs: None
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         teacher_judge_sessions.create_session(
             class_id,
             TeacherJudgeSessionCreateRequest(
+                teaching_class_week_id=uuid.uuid4(),
                 title="Should fail",
                 creation_mode="existing",
                 selected_file_id=rubric_file.id,

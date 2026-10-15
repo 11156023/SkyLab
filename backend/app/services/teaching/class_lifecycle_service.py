@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import date, timedelta
 
-from sqlmodel import Session, col, delete, select
+from sqlmodel import Session, select
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
@@ -17,7 +17,6 @@ from app.models import (
     BatchProvisionTaskStatus,
     TeachingClass,
     TeachingClassStatus,
-    TeachingClassTaskFile,
     TeachingClassWeek,
 )
 from app.models.base import get_datetime_utc
@@ -62,35 +61,62 @@ def remove_task_file_blob(storage_key: str | None) -> None:
     upload_store.remove_blob(weekly_task_service.TASK_FILE_ROOT, storage_key)
 
 
+def planned_week_count(item: TeachingClass) -> int:
+    """依目前的課表會產生幾週（與 generate_weeks 的推算方式相同）。"""
+    current = class_provision_service.first_session_date(item)
+    count = 0
+    while current <= item.end_date and count < MAX_CLASS_WEEKS:
+        count += 1
+        current += timedelta(days=7)
+    return count
+
+
+def ensure_weeks_not_removed(
+    session: Session, item: TeachingClass, *, rebuild: bool = False
+) -> None:
+    """已建立的週次不能刪：AI導師檢查一週一個對話，週次一刪對話就沒有歸屬。
+
+    課表改短（結束日提前、改上課日讓課次變少）會少掉後面的週次，在寫入任何
+    資料前就擋下；``rebuild`` 是整批重建，既有週次全部都會被刪，一樣擋下。
+    """
+    weeks = session.exec(
+        select(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
+    ).all()
+    planned = 0 if rebuild else planned_week_count(item)
+    dropped = sorted(week.week_number for week in weeks if week.week_number > planned)
+    if dropped:
+        raise BadRequestError(
+            t(
+                "teachingClasses.weeksCannotBeRemoved",
+                weeks="、".join(str(number) for number in dropped),
+            )
+        )
+
+
 def generate_weeks(
     session: Session, item: TeachingClass, *, preserve: bool = False
 ) -> None:
-    """重建課次；``preserve`` 時沿用既有週次的主題與教材。
+    """依課表產生課次；既有週次沿用原本的主題與教材，只更新日期。
 
     對應的鍵是「第幾週」而不是上課日期：改動每週上課日或開始日期會讓所有日期
     整批位移，用日期比對會一筆都對不上，等於把老師填好的主題與上傳的教材全部
     刪掉。改用 week_number 之後，第 N 週的內容仍然留在第 N 週，只是日期跟著搬。
+
+    週次只增不減（見 ensure_weeks_not_removed）；``preserve=False`` 只用在剛建立、
+    還沒有任何週次的班級。
     """
     validate_schedule_span(item.start_date, item.end_date)
-    existing = (
-        {
-            row.week_number: row
-            for row in session.exec(
-                select(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
-            ).all()
-        }
-        if preserve
-        else {}
-    )
-    if not preserve:
-        session.exec(
-            delete(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
-        )
+    ensure_weeks_not_removed(session, item, rebuild=not preserve)
+    existing = {
+        row.week_number: row
+        for row in session.exec(
+            select(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
+        ).all()
+    }
     # 課次推算與排程 RRULE 共用同一個「第一次上課日」
     current = class_provision_service.first_session_date(item)
-    number, keep = 1, set()
+    number = 1
     while current <= item.end_date and number <= MAX_CLASS_WEEKS:
-        keep.add(number)
         row = existing.get(number)
         if row:
             row.session_date = current
@@ -103,27 +129,7 @@ def generate_weeks(
             )
         current += timedelta(days=7)
         number += 1
-    removed_storage_keys: list[str] = []
-    if preserve:
-        dropped = [row for number, row in existing.items() if number not in keep]
-        if dropped:
-            # 週次被刪時教材檔列會跟著 FK CASCADE 消失，磁碟上的檔案要自己收
-            removed_storage_keys = [
-                key
-                for key in session.exec(
-                    select(TeachingClassTaskFile.storage_key).where(
-                        col(TeachingClassTaskFile.week_id).in_(
-                            [row.id for row in dropped]
-                        )
-                    )
-                ).all()
-                if isinstance(key, str)
-            ]
-        for row in dropped:
-            session.delete(row)
     session.commit()
-    for storage_key in removed_storage_keys:
-        remove_task_file_blob(storage_key)
 
 
 def clear_schedule_windows(session: Session, class_id: uuid.UUID) -> None:

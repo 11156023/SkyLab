@@ -35,7 +35,7 @@ class TeacherJudgeSession(SQLModel, table=True):
         sa.UniqueConstraint(
             "id", "teaching_class_id", name="uq_teacher_judge_sessions_id_class"
         ),
-        # 選填的週次／選定檔案必須屬於同一個班級（複合外鍵；刪除時由單欄外鍵 SET NULL）
+        # 週次／選定檔案必須屬於同一個班級（複合外鍵）
         sa.ForeignKeyConstraint(
             ["teaching_class_week_id", "teaching_class_id"],
             ["teaching_class_weeks.id", "teaching_class_weeks.class_id"],
@@ -67,6 +67,15 @@ class TeacherJudgeSession(SQLModel, table=True):
             postgresql_where=sa.text("selected_file_id IS NOT NULL"),
             sqlite_where=sa.text("selected_file_id IS NOT NULL"),
         ),
+        # 一週一個對話。欄位仍可為空只是相容舊資料：建立／移動／複製都要求週次
+        # （見 teacher_judge_sessions 路由），週次本身也刪不掉
+        sa.Index(
+            "uq_teacher_judge_sessions_week",
+            "teaching_class_week_id",
+            unique=True,
+            postgresql_where=sa.text("teaching_class_week_id IS NOT NULL"),
+            sqlite_where=sa.text("teaching_class_week_id IS NOT NULL"),
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -82,13 +91,13 @@ class TeacherJudgeSession(SQLModel, table=True):
         default=None,
         sa_column=Column(
             sa.Uuid,
+            # 不設 ondelete：週次有對話就刪不掉（NO ACTION 在語句結束才檢查，
+            # 整個班級刪除時週次與對話會一起連帶刪除，不受影響）
             sa.ForeignKey(
                 "teaching_class_weeks.id",
                 name="fk_teacher_judge_sessions_week_id",
-                ondelete="SET NULL",
             ),
             nullable=True,
-            index=True,
         ),
     )
     title: str = Field(max_length=255)
