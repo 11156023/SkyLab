@@ -510,5 +510,7 @@
   "Stepper.doneSuffix": " (completed)",
   "ColorPicker.custom": "Custom",
   "ColorPicker.pick": "Choose color",
-  "ColorPicker.hexLabel": "Hex"
+  "ColorPicker.hexLabel": "Hex",
+  "AiFloatingChat.pageHelpHint": "Not sure what this page is for? You can ask me.",
+  "AiFloatingChat.dismissPageHelpHint": "Dismiss hint"
 }

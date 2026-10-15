@@ -351,11 +351,18 @@ _AI_GENERATION_POST_PATHS = frozenset({
 def _http_workload(scope: Scope, path: str) -> str:
     """Classify intent using finite templates; raw paths never become labels."""
     prefix = settings.API_V1_STR.rstrip("/")
-    candidate = path if path != UNMATCHED_PATH else scope.get("path", "")
-    relative = candidate.removeprefix(prefix) if candidate.startswith(prefix + "/") else ""
+    raw_path = scope.get("path", "")
+    under_api = raw_path.startswith(prefix + "/") or path.startswith(prefix + "/")
+    if path == UNMATCHED_PATH:
+        candidate = raw_path
+    else:
+        # FastAPI 0.141 起 include_router 是 lazy 的，scope["route"].path 是相對於
+        # /api/v1 的樣板（/utils/health-check/），不含前綴；是否屬於 API 要看原始路徑。
+        candidate = path if path.startswith(prefix + "/") else prefix + path
+    relative = candidate.removeprefix(prefix) if under_api else ""
     if scope.get("method") == "POST" and relative in _AI_GENERATION_POST_PATHS:
         return "ai_generation"
-    if path != UNMATCHED_PATH and path.startswith(prefix + "/"):
+    if path != UNMATCHED_PATH and under_api:
         return "general_api"
     return "other"
 
