@@ -2245,7 +2245,7 @@
 .weekRows article,
 .weekRowsHead {
   display: grid;
-  grid-template-columns: 116px minmax(210px, 1.3fr) minmax(220px, 1fr) 124px;
+  grid-template-columns: 116px minmax(210px, 2fr) minmax(160px, .5fr) 124px;
   align-items: center;
   gap: 18px;
   padding: 14px 22px;
