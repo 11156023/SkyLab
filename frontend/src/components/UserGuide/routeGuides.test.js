@@ -4,7 +4,7 @@ import { getRouteGuide, ROUTE_GUIDES } from "./routeGuides";
 describe("route guide catalog", () => {
   it("covers every primary application route family", () => {
     const paths = [
-      "/dashboard", "/courses", "/courses/linux", "/courses/linux/weeks/1",
+      "/dashboard", "/home", "/courses", "/courses/linux", "/courses/linux/weeks/1",
       "/quick-create", "/quick-template/12", "/my-resources", "/my-resources/101", "/my-requests", "/account",
       "/resource-mgmt", "/resource-mgmt/101", "/request-review", "/gpu-mgmt", "/batch-review", "/templates",
       "/ai-api", "/ai-api-review", "/ai-api-keys", "/ai-monitoring",
