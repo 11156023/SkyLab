@@ -1360,7 +1360,7 @@ describe("weekOptionLabel", () => {
 });
 
 describe("script creation workflow", () => {
-  test("通過自動檢查後進入導師核查，其餘留在檢查設定", () => {
+  test("通過自動檢查後進入導師核查，其餘留在任務設定", () => {
     expect(getScriptCreationDestination({ status: "approved" })).toBe("review");
     expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("rubrics");
   });
@@ -1904,7 +1904,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     });
 
     expect(container.textContent).toContain("還沒有可核查的結果");
-    expect(container.textContent).toContain("在「檢查設定」按「儲存並製作」後再回來");
+    expect(container.textContent).toContain("在「任務設定」按「儲存並製作」後再回來");
     expect(container.textContent).not.toContain("一次執行");
     await act(async () => {
       root.unmount();

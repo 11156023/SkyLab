@@ -2608,7 +2608,7 @@ export function RubricsTab({
   );
 }
 
-/* 腳本製作完要去哪：通過就到導師核查執行；其餘留在檢查設定，原因由製作通知顯示 */
+/* 腳本製作完要去哪：通過就到導師核查執行；其餘留在任務設定，原因由製作通知顯示 */
 export function getScriptCreationDestination(artifact) {
   return artifact?.status === "approved" ? "review" : "rubrics";
 }
@@ -4396,7 +4396,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     closeSessionMenu();
     if (String(weekId) === String(activeWeekId)) return;
     if (!(await confirmLeave())) return;
-    // 換週次停在同一個分頁：在導師核查逐週看進度時不會被拉回檢查設定
+    // 換週次停在同一個分頁：在導師核查逐週看進度時不會被拉回任務設定
     setActiveWeekId(String(weekId));
   }
 

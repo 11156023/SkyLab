@@ -1523,20 +1523,21 @@ _CLASS_WORKSPACE_SECTIONS: tuple[str, ...] = (
 
 _AI_JUDGE_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
-        id="aijudge.new_check", role="button", label="新增檢查", section="檢查清單",
-        help="輸入名稱後，會直接建立一份空白檢查表。",
+        id="aijudge.weeks", role="list", label="週次", section="週次",
+        help="列出班級每一週，一週一份檢查；還沒有檢查的週次按「建立這週的檢查」。",
     ),
     ElementSpec(
-        id="aijudge.run_all", role="button", label="一次執行", section="檢查清單",
-        help="在每位學生的對應機器上執行整組已審查的檢查腳本；機器要開著才能檢查。",
+        id="aijudge.tab_rubrics", role="list", label="任務設定", section="任務設定",
+        help="請 AI導師檢查整理這週要檢查的項目，再按「儲存並製作」產生檢查腳本。",
     ),
     ElementSpec(
-        id="aijudge.move_week", role="button", label="調整週次", section="檢查清單",
-        help="讓這份檢查只出現在所選週次。",
+        id="aijudge.tab_review", role="list", label="導師核查", section="導師核查",
+        help="看全班學生是否打勾完成、檢查通過或未通過，並給每位學生這週的回覆。",
     ),
-    ElementSpec(id="aijudge.tab_rubrics", role="list", label="檢查設定", section="檢查設定"),
-    ElementSpec(id="aijudge.tab_scripts", role="list", label="腳本總覽", section="腳本總覽"),
-    ElementSpec(id="aijudge.tab_review", role="list", label="導師核查", section="導師核查"),
+    ElementSpec(
+        id="aijudge.run_all", role="button", label="一次執行", section="導師核查",
+        help="在每位學生的對應機器上執行這週的檢查腳本；週次要先發布、機器要開著才能檢查。",
+    ),
 )
 
 
@@ -1718,7 +1719,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
             "替班級建立檢查表，讓 AI 產生檢查腳本並在每位學生的機器上執行，"
             "再由老師核查結果。"
         ),
-        sections=("檢查清單", "檢查設定", "腳本總覽", "導師核查"),
+        sections=("週次", "任務設定", "導師核查"),
         access="staff",
         elements=_AI_JUDGE_ELEMENTS,
     ),

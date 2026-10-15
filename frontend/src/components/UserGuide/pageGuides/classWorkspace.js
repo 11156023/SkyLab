@@ -118,7 +118,7 @@ export const CLASS_WORKSPACE_GUIDES = {
   "class-workspace": classWorkspaceGuide,
   "ai-judge": {
     titleKey: `${J}.title`,
-    /* 導覽會切到導師核查，結束時回到預設的檢查設定 */
+    /* 導覽會切到導師核查，結束時回到預設的任務設定 */
     cleanupSelector: JUDGE_TAB,
     steps: [
       judgeStep('[data-page-guide="header"]', "header"),

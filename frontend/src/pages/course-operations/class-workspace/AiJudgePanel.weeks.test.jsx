@@ -74,7 +74,7 @@ test("側邊欄依序列出每一週，標出哪幾週已建立檢查", async ()
   expect(container.textContent).toContain(tr("emptyWeekTitle", { week: 2 }));
 });
 
-test("按「建立這週的檢查」才建立，之後直接進入那週的檢查設定", async () => {
+test("按「建立這週的檢查」才建立，之後直接進入那週的任務設定", async () => {
   vi.spyOn(AiJudgeService, "listSessions").mockResolvedValue([]);
   vi.spyOn(AiJudgeService, "listFiles").mockResolvedValue([]);
   vi.spyOn(AiJudgeService, "listSessionMessages").mockResolvedValue([]);
@@ -124,7 +124,7 @@ test("存下來的欄寬超出範圍或不是數字時不採用", () => {
   window.localStorage.removeItem(chat.storageKey);
 });
 
-test("在導師核查換週次時停在導師核查，不會跳回檢查設定", async () => {
+test("在導師核查換週次時停在導師核查，不會跳回任務設定", async () => {
   vi.spyOn(AiJudgeService, "listSessions").mockResolvedValue([
     { id: "session-1", title: "第 1 週", status: "active", teaching_class_week_id: "week-1" },
     { id: "session-2", title: "第 2 週", status: "active", teaching_class_week_id: "week-2" },
