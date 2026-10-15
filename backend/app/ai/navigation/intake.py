@@ -71,7 +71,7 @@ SLOTS: tuple[IntakeSlot, ...] = (
     IntakeSlot(
         key="duration",
         question="大概要用多久？",
-        options=("幾天", "幾週", "整個學期", "還不確定"),
+        options=("3天", "2周", "1個月", "3個月"),
         keywords=_DURATION_KEYWORDS,
     ),
 )
