@@ -49,7 +49,7 @@ const LIVE_INTERVAL = 10_000;
 const RESOURCE_INTERVAL = 30_000;
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
-const MASK = "••••••••••••";
+export const MASK = "••••••••••••";
 
 /* ── helpers ── */
 

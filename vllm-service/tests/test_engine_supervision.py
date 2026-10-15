@@ -14,9 +14,9 @@ from typing import ClassVar
 import pytest
 
 import core.cluster as cluster_module
-import core.engine as engine_module
 import main as launcher_main
 from config.settings import SERVICE_ENV_FILE_VAR, Settings
+from core import engine as engine_module
 from core.engine import VLLMEngine
 from core.supervisor import MAX_BACKOFF_SECONDS, RestartPolicy, RestartTracker
 

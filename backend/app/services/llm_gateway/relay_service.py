@@ -1093,7 +1093,9 @@ class RelayObservation:
                     "first_output_ms": self.usage.get("first_token_ms"),
                 })
             except Exception:
-                pass
+                logger.exception(
+                    "Failed to log AI relay summary: request_id=%s", self.request_id
+                )
             if len(_usage_tasks) >= AI_PROXY_MAX_WAITING:
                 metrics.AI_USAGE_WRITES.labels(source="api_key", result="dropped").inc()
                 ai_metrics.record_proxy_event(self.model_name, "usage_backlog_full")

@@ -563,11 +563,15 @@ def test_observation_failure_preserves_response_exception_and_cancellation(
             result = "original response"
         assert result == "original response"
     else:
-        with pytest.raises(type(original)) as caught:
+
+        def observe_failure() -> None:
             with monitoring.AIWorkflowObservation(
                 "/ai/navigation/resolve", "test-model"
             ):
                 raise original
+
+        with pytest.raises(type(original)) as caught:
+            observe_failure()
         assert caught.value is original
 
 

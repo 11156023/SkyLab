@@ -1480,6 +1480,9 @@ def test_probe_topology_vms_empty() -> None:
 
 
 def test_get_topology_uses_saved_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_owned_classes(*, session: Any, user: Any) -> set[Any]:
+        return set()
+
     monkeypatch.setattr(
         fw.resource_access,
         "list_reachable_resources",
@@ -1493,7 +1496,7 @@ def test_get_topology_uses_saved_layout(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         fw.resource_access,
         "list_owned_teaching_class_ids",
-        lambda *, session, user: set(),
+        no_owned_classes,
     )
     monkeypatch.setattr(
         fw.resource_access,

@@ -16,7 +16,7 @@ import RrdChart from "../../../../components/RrdChart/RrdChart";
 import SegmentedControl from "../../../../components/SegmentedControl/SegmentedControl";
 import Switch from "../../../../components/Switch/Switch";
 import KpiCard from "./KpiCard";
-import { InfoRow, SecretRow } from "./OverviewTab";
+import { InfoRow, MASK, SecretRow } from "./OverviewTab";
 import { StatCard } from "./MonitoringTab";
 import { SliderField } from "./SpecificationsTab";
 import { coreSegments, gbSegments } from "./kpiBar";
@@ -32,8 +32,6 @@ const DEMO_OS = "Ubuntu 24.04 LTS";
 const DEMO_IP = "10.20.0.24";
 const DEMO_URL = "https://demo-web-01.example.edu";
 const DEMO_USER = "student";
-const DEMO_EMAIL = "student@example.edu";
-const DEMO_PASSWORD = "Skylab-Demo-2026";
 /* 到期日跟著今天往後推，「剩幾天」永遠是同一個數字，示範頁不會哪天變成已到期 */
 const DEMO_DAYS_LEFT = 82;
 const DEMO_UPTIME = { days: 3, hours: 4 };
@@ -295,9 +293,10 @@ function DemoOverview({ t, lang }) {
                 <span className={ov.mono}>{DEMO_USER}</span>
                 <CopyButton id="username" text={DEMO_USER} copied={copied} onCopy={copy} t={t} />
               </InfoRow>
+              {/* 示範頁不放密碼字串，顯示與複製都只會拿到遮蔽字元 */}
               <SecretRow
                 label={t("OverviewTab.passwordLabel")}
-                value={DEMO_PASSWORD}
+                value={MASK}
                 secret
                 note={t("OverviewTab.loginPasswordDesc")}
                 copyId="password"
@@ -569,7 +568,6 @@ function DemoAuditLogs({ t }) {
                   <td className={styles.td}>
                     <div className={styles.userCell}>
                       <span className={styles.userName}>{DEMO_USER}</span>
-                      <span className={styles.userEmail}>{DEMO_EMAIL}</span>
                     </div>
                   </td>
                   <td className={styles.td}>

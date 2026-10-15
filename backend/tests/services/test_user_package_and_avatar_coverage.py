@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import app.services.user as user_pkg
+from app.services import user as user_pkg
 from app.services.user import avatar_service
 
 

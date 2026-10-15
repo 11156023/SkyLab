@@ -92,7 +92,7 @@ def _patch_cluster_sources(monkeypatch, calls: list[str]) -> None:
 
     monkeypatch.setattr(placement_support.proxmox_service, "list_nodes", _list_nodes)
     monkeypatch.setattr(
-        placement_support.proxmox_service, "admin_disabled_node_names", lambda: set()
+        placement_support.proxmox_service, "admin_disabled_node_names", set
     )
     monkeypatch.setattr(
         placement_support.proxmox_service, "list_all_resources", lambda: []
