@@ -218,6 +218,8 @@ class RecommendationRequest(BaseModel):
     device_nodes: list[DeviceNode] = Field(default_factory=list)
     resource_baseline: dict[str, dict[str, int]] = Field(default_factory=dict)
     form_context: RecommendationFormContext | None = None
+    # 配置模式問到的使用時間換算成天數；有值時時段照這個長度挑，不交給模型
+    duration_days: int | None = Field(default=None, ge=1, le=90)
 
     @model_validator(mode="after")
     def _infer_preset_when_missing(self) -> RecommendationRequest:

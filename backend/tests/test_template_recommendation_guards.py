@@ -123,6 +123,75 @@ def test_immediate_no_end_missing_keeps_default_no_end() -> None:
     assert result["final_plan"]["form_prefill"]["end_at"] == ""
 
 
+@pytest.mark.parametrize(
+    ("text", "days"),
+    [
+        ("3天", 3),
+        ("2周", 14),
+        ("兩個禮拜", 14),
+        ("1個月", 30),
+        ("3個月", 90),
+        ("大概 2 weeks", 14),
+        ("整個學期", 90),
+        ("半年", None),
+        ("還不確定", None),
+        (None, None),
+    ],
+)
+def test_parse_duration_days(text: str | None, days: int | None) -> None:
+    assert svc.parse_duration_days(text) == days
+
+
+def _schedule_request(duration_days: int | None, lengths: list[int]) -> RecommendationRequest:
+    start = datetime(2026, 10, 16, tzinfo=UTC)
+    return RecommendationRequest(
+        goal="架設網站",
+        duration_days=duration_days,
+        form_context=RecommendationFormContext(
+            mode="scheduled",
+            schedule_options=[
+                {
+                    "start_at": start,
+                    "end_at": start + timedelta(days=length) - timedelta(seconds=1),
+                }
+                for length in lengths
+            ],
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("duration_days", "lengths", "expected"),
+    [
+        (14, [3, 14, 30], 14),
+        (90, [3, 14, 30, 45], 45),  # 排不滿三個月就給最長的較短時段
+        (3, [14, 30], 14),
+    ],
+)
+def test_schedule_follows_intake_duration_over_model_choice(
+    duration_days: int, lengths: list[int], expected: int
+) -> None:
+    request = _schedule_request(duration_days, lengths)
+    model_pick = request.form_context.schedule_options[-1]
+    result = svc.normalize_ai_result(
+        {
+            "form_prefill": {
+                "mode": "scheduled",
+                "start_at": model_pick.start_at.isoformat(),
+                "end_at": model_pick.end_at.isoformat(),
+            }
+        },
+        request,
+        [],
+    )
+    prefill = result["final_plan"]["form_prefill"]
+    span = datetime.fromisoformat(prefill["end_at"]) - datetime.fromisoformat(
+        prefill["start_at"]
+    )
+    assert round(span.total_seconds() / 86400) == expected
+    assert prefill["duration_days"] == duration_days
+
+
 async def test_generate_ai_plan_rejects_non_object_json(
     monkeypatch: pytest.MonkeyPatch, fake_settings: None
 ) -> None:
