@@ -18,6 +18,9 @@ from app.api.routes import quick_practice as qp_route
 from app.api.routes import rubric as rubric_route
 from app.api.routes import teacher_judge_files as tj_files_route
 from app.api.routes import teacher_judge_scripts as tj_scripts_route
+from app.models import TeachingClass, TeachingClassWeek
+from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
+from app.models.teacher_judge_session import TeacherJudgeSession
 
 _USER = SimpleNamespace(id=uuid.uuid4(), email="teacher@example.com")
 
@@ -25,6 +28,13 @@ _USER = SimpleNamespace(id=uuid.uuid4(), email="teacher@example.com")
 def _session_with_class() -> MagicMock:
     session = MagicMock()
     session.get.return_value = SimpleNamespace(owner_id=uuid.uuid4())
+    return session
+
+
+def _session_with_rows(rows: dict[type, Any]) -> MagicMock:
+    """依查詢的資料表回傳對應的假資料列（沒列到的回傳 None）。"""
+    session = MagicMock()
+    session.get.side_effect = lambda model, _id: rows.get(model)
     return session
 
 
@@ -155,11 +165,16 @@ def test_tj_scripts_create_run_submits_background_job(
         target_scope="manual", target_vmids=[101], target_node_key="web"
     )
 
+    # 不屬於任何一週的腳本（舊資料）照舊可以執行
+    session = _session_with_rows({
+        TeachingClass: SimpleNamespace(owner_id=uuid.uuid4()),
+        TeacherJudgeScriptArtifact: SimpleNamespace(teaching_class_id=class_id, session_id=None),
+    })
     result = tj_scripts_route.create_class_teacher_judge_script_run(
         teaching_class_id=class_id,
         script_id=script_id,
         payload=payload,
-        session=_session_with_class(),
+        session=session,
         current_user=_USER,
     )
 
@@ -175,6 +190,41 @@ def test_tj_scripts_create_run_submits_background_job(
         task_id=f"teacher_judge_script_run:{new_run_id}",
     )
     assert tj_scripts.get_script_run_public.call_args.kwargs["run_id"] == new_run_id
+
+
+@pytest.mark.parametrize(("status", "allowed"), [("draft", False), ("published", True), ("completed", True)])
+def test_tj_scripts_run_waits_for_the_week_to_be_published(
+    tj_scripts: SimpleNamespace, status: str, allowed: bool
+) -> None:
+    """屬於某週對話的腳本：那週的內容發布後才能檢查學生。"""
+    class_id = uuid.uuid4()
+    judge_session_id = uuid.uuid4()
+    week_id = uuid.uuid4()
+    tj_scripts.create_script_run.return_value = SimpleNamespace(id=str(uuid.uuid4()))
+    session = _session_with_rows({
+        TeachingClass: SimpleNamespace(owner_id=uuid.uuid4()),
+        TeacherJudgeScriptArtifact: SimpleNamespace(teaching_class_id=class_id, session_id=judge_session_id),
+        TeacherJudgeSession: SimpleNamespace(id=judge_session_id, teaching_class_week_id=week_id),
+        TeachingClassWeek: SimpleNamespace(id=week_id, status=status),
+    })
+    payload = SimpleNamespace(target_scope="manual", target_vmids=[101], target_node_key="web")
+
+    def run() -> Any:
+        return tj_scripts_route.create_class_teacher_judge_script_run(
+            teaching_class_id=class_id,
+            script_id=uuid.uuid4(),
+            payload=payload,
+            session=session,
+            current_user=_USER,
+        )
+
+    if allowed:
+        assert run() == "run-public"
+    else:
+        with pytest.raises(HTTPException) as exc_info:
+            run()
+        assert exc_info.value.status_code == 409
+        tj_scripts.create_script_run.assert_not_called()
 
 
 # ─── teacher_judge_files ─────────────────────────────────────────────────────
