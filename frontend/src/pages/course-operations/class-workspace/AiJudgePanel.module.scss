@@ -1153,7 +1153,8 @@ strong.reviewStatValue { font-size: $font-size-14; }
     box-sizing: border-box;
     flex: 1;
     min-width: 0;
-    max-height: 120px;
+    /* 大約 7 行；超過就停在這個高度、框內捲動 */
+    max-height: 168px;
     overflow-y: auto;
     padding: 8px 6px;
     border: 0;
