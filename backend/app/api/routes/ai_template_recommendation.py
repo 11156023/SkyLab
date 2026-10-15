@@ -38,6 +38,7 @@ from app.ai.template_recommendation.recommendation_service import (
     generate_ai_plan,
     infer_intent_from_chat,
     normalize_ai_result,
+    parse_duration_days,
     rule_based_ai_result,
 )
 from app.ai.template_recommendation.schemas import (
@@ -339,6 +340,9 @@ async def recommend(
         needs_desktop=extracted_intent.needs_desktop,
         device_nodes=request.device_nodes,
         form_context=form_context,
+        duration_days=parse_duration_days(
+            request.intake_facts.duration if request.intake_facts else None
+        ),
     )
     # 表單快照過大屬於客戶端錯誤：在記錄用量的 try 之前就擋掉（與 /chat 一致）
     ensure_recommendation_form_context_within_limits(merged_request)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
@@ -210,6 +211,57 @@ def _apply_intake_facts(flags: dict[str, bool], facts: IntakeFactsContext) -> No
         flags["needs_desktop"] = flags["needs_windows"] or _contains_any(
             display, DESKTOP_KEYWORDS + ("桌面",)
         )
+
+
+# 申請表單的時段最多只能排到 90 天後
+MAX_SCHEDULE_DAYS = 90
+_CJK_AMOUNTS = {
+    "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "半": 0.5,
+}
+# 量詞全部設上限、「個」前後的空白只有一種切法：使用者輸入整串 0 或空白時
+# 回溯不會變成多項式時間（CodeQL py/polynomial-redos）
+_DURATION_PATTERN = re.compile(
+    r"(?<!\d)(\d{1,3}(?:\.\d{1,2})?|[一二兩三四五六七八九十半])"
+    r"(?:\s{0,3}個)?\s{0,3}"
+    r"(月|週|周|星期|禮拜|天|日|months?|weeks?|days?)",
+    re.IGNORECASE,
+)
+
+
+def parse_duration_days(text: str | None) -> int | None:
+    """把「3天」「2周」「1個月」這類使用時間換成天數；講不出長度就回 None。"""
+    text = (text or "").strip()
+    if not text:
+        return None
+    if "學期" in text or "semester" in text.lower():
+        return MAX_SCHEDULE_DAYS
+    match = _DURATION_PATTERN.search(text)
+    if not match:
+        return None
+    amount, unit = match.groups()
+    value = float(amount) if amount[0].isdigit() else _CJK_AMOUNTS[amount]
+    unit = unit.lower()
+    per_unit = 30 if unit[0] in "月m" else 7 if unit[0] in "週周星禮w" else 1
+    return min(max(round(value * per_unit), 1), MAX_SCHEDULE_DAYS)
+
+
+def _schedule_days(option: Any) -> int:
+    seconds = (option.end_at - option.start_at).total_seconds()
+    return max(round(seconds / 86400), 1)
+
+
+def _schedule_for_duration(options: list[Any], days: int | None) -> Any | None:
+    """挑長度剛好的時段；排不滿就挑最長的較短時段，不替使用者多申請。"""
+    if not days or not options:
+        return None
+    exact = next((option for option in options if _schedule_days(option) == days), None)
+    if exact:
+        return exact
+    shorter = [option for option in options if _schedule_days(option) < days]
+    if shorter:
+        return max(shorter, key=_schedule_days)
+    return min(options, key=_schedule_days)
 
 
 def infer_intent_from_chat(request: ChatRequest) -> ExtractedIntent:
@@ -886,7 +938,10 @@ def normalize_ai_result(
         requested_start = _parse_datetime(raw_prefill.get("start_at"))
         requested_end = _parse_datetime(raw_prefill.get("end_at"))
         schedule_options = list(form_context.schedule_options) if form_context else []
-        selected_schedule = next(
+        # 使用者在配置模式選過使用時間就照那個長度挑，不讓模型改
+        selected_schedule = _schedule_for_duration(
+            schedule_options, request.duration_days
+        ) or next(
             (
                 option
                 for option in schedule_options
@@ -931,6 +986,8 @@ def normalize_ai_result(
         "start_at": start_at.isoformat() if start_at else "",
         "end_at": end_at.isoformat() if end_at else "",
         "immediate_no_end": immediate_no_end,
+        # 表單還沒開、沒有可用時段可挑時，申請頁載入可用日期後照這個長度帶入
+        "duration_days": request.duration_days,
         "cores": cores,
         "memory_mb": memory_mb,
         "disk_gb": disk_gb,
