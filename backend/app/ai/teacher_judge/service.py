@@ -31,9 +31,7 @@ from app.ai.teacher_judge.automation_support import (
     non_empty_argv,
 )
 from app.ai.teacher_judge.check_plan_contract import (
-    EXECUTION_LOCATION_REPAIR_HINT,
     TYPED_STEP_REPAIR_HINT,
-    execution_location_claim_issues,
     reconcile_finalizer_locations,
     typed_item_issues,
     typed_step_issues,
@@ -370,7 +368,7 @@ _EDIT_CHECKLIST_ITEM_TOOL: dict[str, Any] = {
         "name": _EDIT_CHECKLIST_ITEM_TOOL_NAME,
         "description": (
             "對既有檢查項目送出修改提案，老師確認套用後才會寫入檢查表。"
-            "先確認項目 ID；儲存並製作的 Finalizer 必須先用 get_checklist_item 讀取完整內容，list_checklist 摘要不算完成讀取；"
+            "必須先用 get_checklist_item 確認項目 ID 並讀取完整內容，list_checklist 摘要不算完成讀取；"
             "只填有變動的欄位，省略的欄位維持原值，要清空時明確填 null 或空陣列。"
         ),
         "parameters": {
@@ -395,12 +393,8 @@ _PROPOSAL_TOOLS: list[dict[str, Any]] = [
 
 def _build_proposal_tools(
     machine_entries: list[dict[str, Any]] | None = None,
-    *,
-    finalizer: bool = False,
 ) -> list[dict[str, Any]]:
     """Build request-scoped node enums without mutating shared tool schemas."""
-    # Kept for callers selecting the review mode; the write schema is shared.
-    del finalizer
     tools = copy.deepcopy(_PROPOSAL_TOOLS)
     if machine_entries is None:
         return tools
@@ -624,34 +618,13 @@ def _normalize_check_steps(
     return normalized
 
 
-def _finalizer_check_step_error(raw_steps: Any) -> str | None:
-    """Compatibility helper backed by the shared write validator."""
-    issues = typed_step_issues(raw_steps)
-    return (
-        "; ".join(
-            f"{issue['field']}: typed contract invalid: {issue['message']}"
-            for issue in issues
-        )
-        or None
-    )
-
-
 def _normalize_rubric_items(
     raw_items: Any,
     template_key: str | None = None,
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     strip_auto_fallback: bool = True,
-    refresh_missing_information: bool = False,
 ) -> list[TeacherJudgeRubricItem]:
-    """Best-effort normalization for AI-returned item payloads.
-
-    ``refresh_missing_information`` marks an edit patch that re-declares the
-    evidence plan (``detectable`` or ``check_steps``) without an explicit
-    ``missing_information`` list. The persisted item's stale prose gaps are
-    then dropped and recomputed from the validated check_steps, so a patch
-    that supplies the previously missing execution info can stage cleanly
-    instead of being rejected by its own historical gap text.
-    """
+    """Normalize item fields while preserving explicitly recorded information gaps."""
     if not isinstance(raw_items, list):
         return []
 
@@ -696,8 +669,6 @@ def _normalize_rubric_items(
             else []
         )
         missing_information = sanitize_rubric_missing_information(missing_information)
-        if refresh_missing_information:
-            missing_information = []
         check_steps = _normalize_check_steps(
             raw.get("check_steps"),
             template_key=template_key,
@@ -708,9 +679,6 @@ def _normalize_rubric_items(
         ]
         if system_command_steps:
             for step in system_command_steps:
-                missing_information.extend(missing_step_information(step))
-        if refresh_missing_information:
-            for step in check_steps:
                 missing_information.extend(missing_step_information(step))
         if template_commands is not None and detectable == "auto" and not check_steps:
             detectable = "manual"
@@ -964,7 +932,6 @@ def _allowed_command_text(
 _PARAMETER_GAP_FIELD_HINTS: dict[str, str] = {
     "要檢查的檔案、服務或記錄範圍": "argv（單一非空的命令字串 list）",
     "實際 Python 命令與參數": "argv（python.run_entrypoint 的完整命令 list）",
-    "main.py 所在的工作目錄": "cwd（main.py 所在的工作目錄）",
 }
 
 
@@ -974,7 +941,7 @@ def _recoverable_parameter_gaps(item: TeacherJudgeRubricItem) -> list[str]:
     for step in item.check_steps:
         gaps.extend(
             gap for gap in missing_step_information(step)
-            if not _has_gap_marker(gap, ("工作目錄", "完整路徑", "相對路徑"))
+            if not _has_gap_marker(gap, ("工作目錄", "路徑"))
         )
     return list(dict.fromkeys(gaps))
 
@@ -1030,7 +997,7 @@ def _proposal_candidate_rejection(
         missing_text = "、".join(missing) or "缺少可自動取證的完整檢查步驟"
         return (
             f"「{normalized.title}」目前無法形成可套用的提案：{missing_text}。"
-            "若上下文已有完整路徑或工作目錄，請據此修正步驟後重試；"
+            "若上下文已有絕對路徑，請據此修正步驟後重試；"
             "否則不要猜測路徑或建立提案，請改在 reply 中說明缺少的內容並詢問老師，"
             "並將 proposal_status 設為 needs_information。"
         )
@@ -1113,76 +1080,6 @@ def _manual_candidates_needing_capability_review(
         and not item.missing_information
         and _raw_detectable(raw_by_id.get(item.id)) == "manual"
     ]
-
-
-def _recovered_catalog_item_titles(
-    normalized_items: list[TeacherJudgeRubricItem],
-    raw_items: Any,
-) -> list[str]:
-    """Return items whose executable step was coerced server-side.
-
-    Only a command_key the model did not submit (invalid reference recovered
-    into ``system.run_command``) counts. Backfilling an omitted
-    ``template_key`` is documented prompt behavior (後端會依唯一的
-    command_key 補齊) and must not replace the model's teacher-facing reply.
-    """
-    raw_by_id = _raw_items_by_id(raw_items)
-    recovered: list[str] = []
-    for item in normalized_items:
-        if item.detectable != "auto" or not item.check_steps:
-            continue
-        raw = raw_by_id.get(item.id, {})
-        raw_steps = raw.get("check_steps")
-        # Flat argv / typed collector steps carry no command_key on either
-        # side (raw "" vs normalized None); only real keys can be recovered.
-        raw_command_keys = {
-            key
-            for key in (
-                str(step.get("command_key") or "").strip()
-                for step in (raw_steps if isinstance(raw_steps, list) else [])
-                if isinstance(step, dict)
-            )
-            if key
-        }
-        normalized_command_keys = {
-            step.command_key for step in item.check_steps if step.command_key
-        }
-        if normalized_command_keys - raw_command_keys:
-            recovered.append(item.title)
-    return recovered
-
-
-def _restore_legacy_alias_candidate_readiness(
-    normalized: TeacherJudgeRubricItem,
-    raw: dict[str, Any],
-) -> None:
-    """Keep the old alias-recovery chat path compatible until typed persistence.
-
-    Older model adapters used a catalog alias for generic file reads.  Once the
-    server has recovered that alias into ``system.run_command`` the old chat
-    contract treated the relative target as executable evidence; retain that
-    narrow behavior here.  The typed save/finalizer validators still require a
-    real execution location before the plan can run.
-    """
-    if normalized.detectable != "partial" or not normalized.missing_information:
-        return
-    raw_steps = raw.get("check_steps")
-    raw_command_keys = {
-        str(step.get("command_key") or "").strip()
-        for step in (raw_steps if isinstance(raw_steps, list) else [])
-        if isinstance(step, dict) and str(step.get("command_key") or "").strip()
-    }
-    normalized_command_keys = {
-        step.command_key for step in normalized.check_steps if step.command_key
-    }
-    if not normalized_command_keys - raw_command_keys:
-        return
-    if all(
-        _has_gap_marker(gap, _TEACHER_LOCATION_GAP_MARKERS)
-        for gap in normalized.missing_information
-    ):
-        normalized.detectable = "auto"
-        normalized.missing_information = []
 
 
 _TEACHER_LOCATION_GAP_MARKERS = (
@@ -1311,9 +1208,9 @@ def _teacher_missing_gap_reply(item: TeacherJudgeRubricItem) -> str:
             ("服務名稱", "連接埠", "Port", "範圍", "對象"),
         )
         if needs_path and needs_scope:
-            requests.append("請補充檔案或程式的完整路徑，以及服務、連接埠或記錄範圍")
+            requests.append("請補充檔案或程式的絕對路徑，以及服務、連接埠或記錄範圍")
         elif needs_path:
-            requests.append("請補上完整路徑，或工作目錄與相對路徑")
+            requests.append("請補上檔案或程式的絕對路徑")
         else:
             requests.append("請補充要檢查的服務、檔案或記錄範圍")
     if result_gaps:
@@ -1863,37 +1760,30 @@ def _contract_tool_error(
             str(issue.get("message") or "typed contract 無效") for issue in issues[:8]
         ),
         "reason_code": "check_plan_contract_invalid",
+        "teacher_input_required": False,
         "item_id": item_id,
         "issues": issues[:16],
         "repair_hint": TYPED_STEP_REPAIR_HINT,
     }
 
 
-def _uses_legacy_check_step_shape(raw_steps: Any) -> bool:
-    """Identify the read-compatible model payload handled by chat normalization.
-
-    The native tool schema advertises typed steps, but older model adapters can
-    still send catalog-backed steps.  Only a completely legacy array is allowed
-    through the compatibility path; mixed or malformed arrays remain strict so
-    a bad typed step is never silently dropped.
-    """
-    if not isinstance(raw_steps, list) or not raw_steps:
-        return False
-    legacy_keys = {
-        "template_key",
-        "command_key",
-        "command_label",
-        "parameters",
-        "argv",
-        "cwd",
-        "timeout_seconds",
-    }
-    return all(
-        isinstance(step, dict)
-        and not isinstance(step.get("collector"), dict)
-        and bool(set(step) & legacy_keys)
-        for step in raw_steps
-    )
+def _candidate_contract_error(
+    candidate: TeacherJudgeRubricItem,
+    *,
+    other_items: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Use the same location/typed verdict for create and edit proposals."""
+    issues = typed_item_issues(candidate, other_items=other_items)
+    if not issues:
+        return None
+    result = _contract_tool_error(issues, item_id=candidate.id)
+    repair_hint = next((issue["repair_hint"] for issue in issues if issue.get("repair_hint")), None)
+    if repair_hint:
+        result.update(
+            repair_hint=repair_hint,
+            candidate_check_steps=[step.model_dump(mode="json") for step in candidate.check_steps],
+        )
+    return result
 
 
 def _execute_checklist_tool(
@@ -2019,8 +1909,6 @@ def _dispatch_checklist_tool(
             for item in candidate_items_by_id.values()
             if isinstance(item, dict) and str(item.get("id") or "").strip()
         ]
-        if not finalizer:
-            read_ids.update(str(entry["id"]) for entry in listing)
         tool_calls.append({"tool": name, "status": "read", "item_count": len(listing)})
         return {"analysis_revision": analysis_revision, "items": listing}
 
@@ -2091,12 +1979,10 @@ def _dispatch_checklist_tool(
             )
         except ValueError as exc:
             return {"error": str(exc)}
-        legacy_check_steps = _uses_legacy_check_step_shape(raw_item.get("check_steps"))
         if "check_steps" in raw_item:
-            if not legacy_check_steps:
-                issues = typed_step_issues(raw_item["check_steps"], item_id=item_id)
-                if issues:
-                    return _contract_tool_error(issues, item_id=item_id)
+            issues = typed_step_issues(raw_item["check_steps"], item_id=item_id)
+            if issues:
+                return _contract_tool_error(issues, item_id=item_id)
         candidate_list = _normalize_rubric_items(
             [raw_item],
             template_key=template_key,
@@ -2105,15 +1991,12 @@ def _dispatch_checklist_tool(
         if not candidate_list:
             return {"error": "無法解析 create_checklist_item 的欄位，請重新呼叫。"}
         candidate = candidate_list[0]
-        issues = typed_item_issues(
+        contract_error = _candidate_contract_error(
             candidate,
             other_items=list(candidate_items_by_id.values()),
-            allow_legacy=legacy_check_steps,
         )
-        if issues:
-            return _contract_tool_error(issues, item_id=item_id)
-        if legacy_check_steps:
-            _restore_legacy_alias_candidate_readiness(candidate, raw_item)
+        if contract_error:
+            return contract_error
         rejection = _proposal_candidate_rejection(
             candidate,
             raw_item,
@@ -2122,11 +2005,6 @@ def _dispatch_checklist_tool(
             template_commands=template_commands,
         )
         if rejection is not None:
-            legacy_contract_invalid = (
-                legacy_check_steps
-                and str(raw_item.get("detectable") or "").strip().lower() == "auto"
-                and not candidate.check_steps
-            )
             rejected_ops.append((candidate, raw_item, rejection))
             tool_calls.append(
                 {
@@ -2139,25 +2017,9 @@ def _dispatch_checklist_tool(
             )
             return {
                 "error": rejection,
-                "reason_code": "check_plan_contract_invalid"
-                if legacy_contract_invalid
-                else "information_missing"
+                "reason_code": "information_missing"
                 if candidate.missing_information
                 else "proposal_rejected",
-                **(
-                    {
-                        "issues": [
-                            {
-                                "item_id": item_id,
-                                "field": "check_steps",
-                                "message": "舊版檢查步驟未解析為有效的執行步驟",
-                            }
-                        ],
-                        "repair_hint": TYPED_STEP_REPAIR_HINT,
-                    }
-                    if legacy_contract_invalid
-                    else {}
-                ),
                 "teacher_input_required": bool(candidate.missing_information),
                 "retryable": not bool(candidate.missing_information),
             }
@@ -2199,9 +2061,6 @@ def _dispatch_checklist_tool(
         if item_id not in read_ids:
             return {
                 "error": (
-                    f"修改 {item_id} 前，請先呼叫 list_checklist 或 "
-                    "get_checklist_item 確認項目目前內容。"
-                ) if not finalizer else (
                     f"修改 {item_id} 前，必須呼叫 get_checklist_item 讀取完整步驟與 execution_readiness；清單摘要不含路徑。"
                 ),
                 "reason_code": "checklist_item_not_read",
@@ -2225,54 +2084,33 @@ def _dispatch_checklist_tool(
             )
         except ValueError as exc:
             return {"error": str(exc)}
-        legacy_check_steps = _uses_legacy_check_step_shape(
-            raw_candidate.get("check_steps")
-        )
         if "check_steps" in arguments:
-            if not legacy_check_steps:
-                issues = typed_step_issues(
-                    raw_candidate.get("check_steps"), item_id=item_id
-                )
-                if issues:
-                    return _contract_tool_error(issues, item_id=item_id)
+            issues = typed_step_issues(raw_candidate.get("check_steps"), item_id=item_id)
+            if issues:
+                return _contract_tool_error(issues, item_id=item_id)
         if finalizer:
             raw_candidate, issues = reconcile_finalizer_locations(current_raw, raw_candidate)
             if issues:
                 return {
                     **_contract_tool_error(issues, item_id=item_id),
                     "teacher_input_required": False,
-                    "repair_hint": "保留此項目既有的執行位置與全部步驟。若未改變檢查內容，可省略修改；cwd=null 表示不需要切換目錄。",
+                    "repair_hint": "保留此項目既有的絕對路徑與全部步驟。若未改變檢查內容，可省略修改；不要新增 cwd。",
                     "current_check_steps": current_raw.get("check_steps"),
                 }
         candidate_list = _normalize_rubric_items(
             [raw_candidate],
             template_key=template_key,
             template_commands=template_commands,
-            refresh_missing_information=(
-                ("detectable" in arguments or "check_steps" in arguments)
-                and "missing_information" not in arguments
-            ),
         )
         if not candidate_list:
             return {"error": "無法解析 edit_checklist_item 的欄位，請重新呼叫。"}
         candidate = candidate_list[0]
-        location_issues = execution_location_claim_issues(candidate)
-        if location_issues:
-            return {
-                **_contract_tool_error(location_issues, item_id=item_id),
-                "teacher_input_required": False,
-                "repair_hint": EXECUTION_LOCATION_REPAIR_HINT,
-                "current_check_steps": current_raw.get("check_steps"),
-            }
-        issues = typed_item_issues(
+        contract_error = _candidate_contract_error(
             candidate,
             other_items=list(candidate_items_by_id.values()),
-            allow_legacy=legacy_check_steps,
         )
-        if issues:
-            return _contract_tool_error(issues, item_id=item_id)
-        if legacy_check_steps:
-            _restore_legacy_alias_candidate_readiness(candidate, raw_candidate)
+        if contract_error:
+            return contract_error
         current_normalized = _normalize_rubric_items(
             [current_raw_by_id[item_id]] if item_id in current_raw_by_id else [],
             template_key=template_key,
@@ -2307,12 +2145,6 @@ def _dispatch_checklist_tool(
             template_commands=template_commands,
         )
         if rejection is not None:
-            legacy_contract_invalid = (
-                legacy_check_steps
-                and str(raw_candidate.get("detectable") or "").strip().lower()
-                == "auto"
-                and not candidate.check_steps
-            )
             rejected_ops.append((candidate, raw_candidate, rejection))
             tool_calls.append(
                 {
@@ -2325,25 +2157,9 @@ def _dispatch_checklist_tool(
             )
             return {
                 "error": rejection,
-                "reason_code": "check_plan_contract_invalid"
-                if legacy_contract_invalid
-                else "information_missing"
+                "reason_code": "information_missing"
                 if candidate.missing_information
                 else "proposal_rejected",
-                **(
-                    {
-                        "issues": [
-                            {
-                                "item_id": item_id,
-                                "field": "check_steps",
-                                "message": "舊版檢查步驟未解析為有效的執行步驟",
-                            }
-                        ],
-                        "repair_hint": TYPED_STEP_REPAIR_HINT,
-                    }
-                    if legacy_contract_invalid
-                    else {}
-                ),
                 "teacher_input_required": bool(candidate.missing_information),
                 "retryable": not bool(candidate.missing_information),
             }
@@ -2417,7 +2233,6 @@ async def _run_proposal_tool_loop(
     if rubric_available:
         base_request["tools"] = _build_proposal_tools(
             machine_entries,
-            finalizer=finalizer,
         )
         base_request["tool_choice"] = (
             {"type": "function", "function": {"name": _LIST_CHECKLIST_TOOL_NAME}}
@@ -3056,18 +2871,6 @@ async def chat_with_rubric(
         else:
             reply_text = _proposal_unavailable_reply([], [], template_commands)
 
-    recovered_titles = list(
-        dict.fromkeys(
-            _recovered_catalog_item_titles(
-                [entry["item"] for entry in staged_ops],
-                [entry["raw"] for entry in staged_ops],
-            )
-        )
-    )
-    if not is_refine and updated_items is not None and recovered_titles:
-        titles = "、".join(f"「{title}」" for title in recovered_titles)
-        reply_text = f"我已把{titles}整理成提案。請先查看提案內容，確認後再套用。"
-
     # Partial success: when some proposals staged but others were rejected,
     # the teacher must see why; the model's own reply often claims full success.
     # Deduplicate retries (keep latest) and skip titles the model reply already
@@ -3164,7 +2967,8 @@ async def chat_with_rubric(
     location_rejections = [
         item for item, _raw, _reason in _dedupe_rejected_ops_keep_latest(rejected_ops)
         if item.title not in staged_titles
-        and any(_has_gap_marker(gap, ("工作目錄", "完整路徑", "相對路徑")) for gap in item.missing_information)
+        and any(missing_step_information(step) for step in item.check_steps)
+        and any(_has_gap_marker(gap, ("工作目錄", "路徑")) for gap in item.missing_information)
     ]
     if location_rejections:
         questions = "\n".join(_teacher_missing_gap_reply(item) for item in location_rejections)

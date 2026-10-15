@@ -19,7 +19,6 @@ from pydantic import (
     model_validator,
 )
 
-from app.ai.teacher_judge.execution_paths import optional_cwd
 from app.ai.teacher_judge.template_command_service import (
     SUPPORTED_TEMPLATE_KEYS,
     sanitize_check_step_parameters,
@@ -52,18 +51,32 @@ def sanitize_rubric_missing_information(value: Any) -> Any:
 
 
 class TeacherJudgeLocatedCollector(BaseModel):
+    """Read old stored directories without exposing them in the write schema."""
     model_config = ConfigDict(extra="forbid")
 
     cwd: str | None = Field(
         default=None,
         max_length=1024,
-        description="Optional absolute working directory; needed only to locate relative file inputs. Blank means omitted.",
+        description="Legacy stored directory; read only. Replace the step with absolute file paths before execution.",
     )
 
     @field_validator("cwd")
     @classmethod
     def normalize_cwd(cls, value: str | None) -> str | None:
-        return optional_cwd(value)
+        return None if isinstance(value, str) and value.strip().casefold() in {"", "null", "none"} else value
+
+    @model_serializer(mode="wrap")
+    def omit_absent_legacy_directory(self, handler: Any) -> dict[str, Any]:
+        result = handler(self)
+        if self.cwd is None:
+            result.pop("cwd", None)
+        return cast("dict[str, Any]", result)
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: Any, handler: Any) -> dict[str, Any]:
+        schema = handler(core_schema)
+        schema.get("properties", {}).pop("cwd", None)
+        return cast("dict[str, Any]", schema)
 
 
 class TeacherJudgeCommandCollector(TeacherJudgeLocatedCollector):
@@ -212,6 +225,14 @@ class TeacherJudgeTypedCheckStep(BaseModel):
     collector: TeacherJudgeCollector
     assertion: TeacherJudgeAssertion | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_working_directory(cls, value: Any) -> Any:
+        collector = value.get("collector") if isinstance(value, dict) else None
+        if isinstance(collector, dict) and "cwd" in collector:
+            raise ValueError("不再支援 collector.cwd；檔案與程式位置必須使用絕對路徑")
+        return value
+
     @field_validator("id", "title")
     @classmethod
     def reject_blank_identity(cls, value: str) -> str:
@@ -261,7 +282,7 @@ class TeacherJudgeRubricCheckStep(BaseModel):
     )
     cwd: str | None = Field(
         default=None,
-        description="Legacy flat cwd; read/convert only. New command steps use collector.cwd",
+        description="Legacy stored cwd; read only. New steps require absolute file paths and omit cwd",
     )
     timeout_seconds: int | None = Field(
         default=None,
@@ -380,23 +401,8 @@ class TeacherJudgeRubricCheckStep(BaseModel):
         core_schema: Any,
         handler: Any,
     ) -> dict[str, Any]:
-        """Expose typed or flat fields without the retired command catalog."""
-        schema = handler(core_schema)
-        properties = schema.get("properties")
-        if isinstance(properties, dict):
-            for legacy_key in (
-                "template_key",
-                "command_key",
-                "command_label",
-                "parameters",
-            ):
-                properties.pop(legacy_key, None)
-            schema.pop("required", None)
-            schema["anyOf"] = [
-                {"required": ["argv"]},
-                {"required": ["collector", "id", "title"]},
-            ]
-        return cast("dict[str, Any]", schema)
+        """Advertise only current writes; stored legacy rows remain readable."""
+        return cast("dict[str, Any]", handler(TeacherJudgeTypedCheckStep.__pydantic_core_schema__))
 
 
 class TeacherJudgeRubricItem(BaseModel):

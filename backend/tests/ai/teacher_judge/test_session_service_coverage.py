@@ -190,7 +190,6 @@ def test_reanalysis_message_merges_duplicate_blockers_and_proposals() -> None:
                 "status": "ready",
             },
         ],
-        assistant_reply=None,
     )
     metadata = message["metadata"]
     assert metadata["status"] == "analysis_error"

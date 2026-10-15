@@ -179,15 +179,14 @@ def test_command_collector_rejects_allowlist_bypasses(argv: list[str]) -> None:
     assert _command_argv_issue(argv) is not None
 
 
-def test_command_collector_resolves_interpreter_script_against_cwd() -> None:
+def test_command_collector_checks_absolute_interpreter_script_location() -> None:
     assert (
         _command_argv_issue(
-            ["python3", "__main__.py", "install", "x"],
-            "/usr/lib/python3/dist-packages/pip",
+            ["python3", "/usr/lib/python3/dist-packages/pip/__main__.py", "install", "x"],
         )
         is not None
     )
-    assert _command_argv_issue(["python3", "main.py"], "/home/student/hw1") is None
+    assert _command_argv_issue(["python3", "/home/student/hw1/main.py"]) is None
 
 
 @pytest.mark.parametrize(

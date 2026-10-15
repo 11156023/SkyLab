@@ -139,7 +139,6 @@ def refine_readiness_workflow(
     file: TeacherJudgeFile,
     proposal: list[dict[str, Any]] | None,
     template_commands: list[TeacherJudgeTemplateCommand],
-    reply: str,
     analysis_revision: int | None,
     tool_calls: list[dict[str, Any]] | None = None,
 ) -> WorkflowMessage:
@@ -159,7 +158,7 @@ def refine_readiness_workflow(
     failed_tools = {
         str(outcome.get("item_id") or outcome.get("title") or outcome.get("tool")): outcome
         for outcome in (tool_calls or [])
-        if outcome.get("status") == "error" and not outcome.get("resolved")
+        if outcome.get("status") in {"error", "rejected", "duplicate"} and not outcome.get("resolved")
     }
     for outcome in failed_tools.values():
         blockers.append({
@@ -196,7 +195,6 @@ def refine_readiness_workflow(
         source_file_id=file.id,
         analysis_revision=analysis_revision,
         proposal=proposal,
-        assistant_reply=reply,
     )
 
 

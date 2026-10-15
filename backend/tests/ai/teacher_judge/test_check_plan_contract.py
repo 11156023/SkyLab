@@ -104,9 +104,10 @@ async def chat(*, snapshot=None, refine=False):
 
 
 def test_chat_and_finalizer_expose_identical_model_derived_contract():
-    assert service._build_proposal_tools() == service._build_proposal_tools(
-        finalizer=True
-    )
+    for tool in service._build_proposal_tools():
+        if tool["function"]["name"] in {"create_checklist_item", "edit_checklist_item"}:
+            schema = tool["function"]["parameters"]["properties"]["check_steps"]["items"]
+            assert schema["required"] == ["id", "title", "collector"]
     issues = typed_step_issues(alias_steps())
     assert {issue["field"] for issue in issues} == {
         "check_steps[0].collector",
@@ -395,7 +396,6 @@ def test_two_legacy_steps_render_once_with_title_and_preserve_each_issue():
         blockers,
         source_file_id=None,
         analysis_revision=12,
-        assistant_reply="我會嘗試修正格式後重新提交，請稍候。",
     )
     assert workflow["content"].count("「Python版本檢查」") == 1
     assert "請稍候" not in workflow["content"]

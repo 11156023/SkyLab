@@ -59,7 +59,7 @@ def test_missing_python_working_directory_blocks_script_generation() -> None:
 
     assert blockers[0]["status"] == "missing_info"
     assert blockers[0]["missing_information"] == [
-        "程式／檔案「main.py」的完整路徑，或所在工作目錄與相對路徑"
+        "程式／檔案「main.py」的絕對路徑"
     ]
 
 
@@ -83,8 +83,7 @@ def test_manual_item_blocks_the_whole_script() -> None:
 def test_all_items_with_complete_supported_steps_allow_script_generation() -> None:
     item = _item(
         parameters={
-            "cwd": "/home/student/project",
-            "argv": ["python3", "main.py"],
+            "argv": ["python3", "/home/student/project/main.py"],
             "timeout_seconds": 30,
             "success_criteria": "exit code 為 0 且 stdout 等於 20",
         }
@@ -105,8 +104,7 @@ def test_generic_command_timeout_is_platform_owned_not_teacher_missing_info() ->
                 template_key="python",
                 command_key="system.run_command",
                 parameters={
-                    "cwd": r"C:\Users\陳洋\Desktop\Campus-Cloud",
-                    "argv": ["cat", ".env"],
+                    "argv": ["cat", "/home/student/project/.env"],
                     "success_criteria": "exit code 為 0",
                 },
             )
@@ -171,7 +169,6 @@ def test_step_gaps_distinguish_absent_fields_from_invalid_values() -> None:
         parameters={"cwd": "", "argv": "python3 main.py", "timeout_seconds": 30},
     )
     assert missing_step_information(entrypoint) == [
-        "main.py 所在的工作目錄（cwd 必須是非空字串）",
         "實際 Python 命令與參數（argv 必須是非空字串 list）",
     ]
 
@@ -181,7 +178,6 @@ def test_step_gaps_distinguish_absent_fields_from_invalid_values() -> None:
         parameters={"timeout_seconds": 30},
     )
     assert missing_step_information(absent) == [
-        "main.py 所在的工作目錄",
         "實際 Python 命令與參數",
     ]
 

@@ -1005,7 +1005,6 @@ async def create_message(
                     file=file,
                     proposal=proposal,
                     template_commands=template_commands,
-                    reply=reply,
                     analysis_revision=base_revision,
                     tool_calls=tool_calls,
                 )

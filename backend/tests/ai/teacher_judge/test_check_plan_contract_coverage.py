@@ -55,7 +55,7 @@ def test_reconcile_skips_new_steps_and_keeps_non_list_gaps() -> None:
     assert result["check_steps"][0]["id"] == "python.version.new"
 
 
-def test_typed_item_issues_allows_legacy_chat_candidates() -> None:
+def test_typed_item_issues_rejects_legacy_chat_candidates() -> None:
     item = TeacherJudgeRubricItem(
         id="legacy",
         title="legacy",
@@ -64,7 +64,7 @@ def test_typed_item_issues_allows_legacy_chat_candidates() -> None:
             TeacherJudgeRubricCheckStep(template_key="linux", command_key="x")
         ],
     )
-    assert typed_item_issues(item, allow_legacy=True) == []
+    assert typed_item_issues(item)
 
 
 def test_analysis_write_issues_duplicates_and_invalid_previous() -> None:
