@@ -15,6 +15,8 @@ import {
 import MIcon from "../MIcon";
 import OctoPet from "../OctoPet/OctoPet";
 import OctoAvatar from "../OctoPet/OctoAvatar";
+import PageHelpHint from "./PageHelpHint";
+import { getRouteGuide } from "../UserGuide/routeGuides";
 import { formatDate } from "../../utils/formatDate";
 import { joinList } from "../../utils/joinList";
 import useDialogPresence from "../../hooks/useDialogPresence";
@@ -1153,6 +1155,16 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
           </footer>
         </aside>
       )}
+
+      <PageHelpHint
+        enabled={!presence.open && !loading && !fabNotice}
+        pageKey={getRouteGuide(location.pathname)?.id ?? activeSurfaceId}
+        userId={user?.id}
+        onActivate={() => {
+          setInput(t("AiFloatingChat.pageGuideQuestion"));
+          onOpenChange(true);
+        }}
+      />
 
       {!presence.open && (
         /* 章魚學士本身就是按鈕：點擊只負責打開助手，章魚只回應游標移上去與摸頭 */

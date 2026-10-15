@@ -52,12 +52,12 @@ export const AccountService = {
     return apiPost(`${BASE}/totp/disable`, { code });
   },
 
-  /** 首次登入引導精靈走完或略過：之後登入不再顯示，回傳更新後的使用者 */
+  /** 將頁面導覽已看過的狀態存到帳號，不隨導覽版本重設。 */
   markUserGuideSeen(guideId) {
     return apiPost(`${BASE}/user-guides/${encodeURIComponent(guideId)}/seen`, {});
   },
 
-  /** ???????????????????????????????? */
+  /** 首次登入引導精靈走完或略過：之後登入不再顯示，回傳更新後的使用者 */
   completeOnboarding() {
     return apiPost(`${BASE}/onboarding/complete`, {});
   },
