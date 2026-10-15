@@ -219,7 +219,7 @@ async def test_heartbeat_loop_beats_until_cancelled(
     await asyncio.sleep(0.1)
     loop_task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await loop_task
+        await asyncio.gather(loop_task)
     count = len(beats)
     await asyncio.sleep(0.05)
 

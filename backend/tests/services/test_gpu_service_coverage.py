@@ -2,9 +2,9 @@
 
 import pytest
 
-import app.services.proxmox as proxmox_pkg
 from app.exceptions import ConflictError, NotFoundError, ProxmoxError
 from app.schemas.gpu import GPUDeviceMap, GPUUsageInfo
+from app.services import proxmox as proxmox_pkg
 from app.services.proxmox import gpu_service
 from app.services.proxmox.gpu_service import MdevProfile
 

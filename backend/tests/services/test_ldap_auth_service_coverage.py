@@ -25,8 +25,12 @@ def _config(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
+def _session_config(*, session: Any) -> SimpleNamespace:
+    return _config()
+
+
 def test_test_config_reports_bind_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(svc, "get_ldap_config", lambda *, session: _config())
+    monkeypatch.setattr(svc, "get_ldap_config", _session_config)
 
     def failing_bind(_config: Any) -> None:
         raise AppError(status_code=502, message="LDAP server unreachable")
@@ -64,7 +68,7 @@ def test_login_with_totp_issues_challenge(monkeypatch: pytest.MonkeyPatch) -> No
         is_active=True,
         totp_enabled=True,
     )
-    monkeypatch.setattr(svc, "get_ldap_config", lambda *, session: _config())
+    monkeypatch.setattr(svc, "get_ldap_config", _session_config)
     monkeypatch.setattr(
         svc.ldap_client,
         "authenticate_user",

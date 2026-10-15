@@ -355,7 +355,7 @@ def test_start_writes_owner_only_config(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"name": "campus", "services": services}))
         if command[:2] == ["docker", "ps"]:
             return subprocess.CompletedProcess(command, 0, stdout="")
-        pytest.fail(f"unexpected command {command}")
+        raise AssertionError(f"unexpected command {command}")
 
     monkeypatch.setattr(prepare_ai_stack.subprocess, "run", run)
     assert prepare_ai_stack.main() == 0

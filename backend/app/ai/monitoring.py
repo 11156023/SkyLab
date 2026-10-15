@@ -31,6 +31,11 @@ def new_ai_request_id() -> str:
     return str(uuid.uuid4())
 
 
+def _perf_counter() -> float:
+    # Resolved at call time so tests can swap ``time.perf_counter``.
+    return time.perf_counter()
+
+
 @dataclass
 class AIWorkflowObservation:
     """One log summary per System AI workflow; model accounting stays per call."""
@@ -39,7 +44,7 @@ class AIWorkflowObservation:
     model: str
     outcome: str = "success"
     terminal_reason: str = "reply"
-    started: float = field(default_factory=lambda: time.perf_counter())
+    started: float = field(default_factory=_perf_counter)
     request_id: str = field(
         default_factory=lambda: get_request_context().request_id or new_ai_request_id()
     )
@@ -108,7 +113,9 @@ class AIWorkflowObservation:
                 terminal_reason=self.terminal_reason,
             ).inc()
         except Exception:
-            pass
+            logger.exception(
+                "Failed to record AI workflow metric: route=%s", self.route
+            )
         try:
             logger.info("AI workflow finished", extra=summary)
         except Exception:

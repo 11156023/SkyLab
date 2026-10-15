@@ -117,9 +117,12 @@ def test_lock_takes_xact_advisory_lock_and_rolls_back() -> None:
 def test_lock_accepts_connection_without_connect_and_survives_rollback_error() -> None:
     conn = _Conn(rollback_error=RuntimeError("connection closed"))
 
-    with pytest.raises(ValueError, match="provisioning failed"):
+    def fail_inside_lock() -> None:
         with ops.vmid_allocation_lock(db_engine=conn):
             raise ValueError("provisioning failed")
+
+    with pytest.raises(ValueError, match="provisioning failed"):
+        fail_inside_lock()
 
     assert conn.rollbacks == 1
 

@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import app.services.system as system_pkg
 from app.core.config import settings
 from app.exceptions import BadRequestError
+from app.services import system as system_pkg
 from app.services.system import setup_service as svc
 
 

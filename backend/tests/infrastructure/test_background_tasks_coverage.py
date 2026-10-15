@@ -79,7 +79,7 @@ async def test_submit_rejected_when_shutting_down() -> None:
     assert runner.submit(coro, name="x") == ""
     # coroutine was closed, awaiting it again raises
     with pytest.raises(RuntimeError):
-        await coro
+        await asyncio.gather(coro)
 
 
 async def test_submit_duplicate_id_is_skipped() -> None:
@@ -93,7 +93,7 @@ async def test_submit_duplicate_id_is_skipped() -> None:
     second = work()
     assert runner.submit(second, task_id="dup") == "dup"
     with pytest.raises(RuntimeError):
-        await second
+        await asyncio.gather(second)
     gate.set()
     await _drain(runner)
 
@@ -122,7 +122,7 @@ async def test_submit_cancelled_reraises(caplog) -> None:
     task = runner._tasks["c"]
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
     assert "cancelled" in caplog.text
 
 
@@ -206,7 +206,7 @@ async def test_submit_factory_cancelled_during_attempt(caplog) -> None:
     task = runner._tasks["f"]
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
     assert "cancelled (attempt 1)" in caplog.text
 
 
@@ -226,7 +226,7 @@ async def test_submit_factory_cancelled_while_waiting_for_retry(caplog) -> None:
     task = runner._tasks["w"]
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
     assert "cancelled while waiting for retry" in caplog.text
 
 
@@ -315,7 +315,7 @@ async def test_shutdown_timeout_cancels_tasks(caplog) -> None:
     await runner.shutdown(timeout=0.01)
     assert "Timed out waiting" in caplog.text
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
 
 
 async def test_shutdown_timeout_cancels_late_registered_task() -> None:
@@ -340,7 +340,7 @@ async def test_shutdown_timeout_cancels_late_registered_task() -> None:
     assert started.is_set()
     late_task = late_holder["t"]
     with pytest.raises(asyncio.CancelledError):
-        await late_task
+        await asyncio.gather(late_task)
 
 
 def test_close_quietly_swallows_errors() -> None:
@@ -375,7 +375,7 @@ async def test_module_helpers_without_runner(caplog) -> None:
     coro = work()
     assert bt.submit(coro, name="x") == ""
     with pytest.raises(RuntimeError):
-        await coro
+        await asyncio.gather(coro)
 
     def fn() -> None:
         return None

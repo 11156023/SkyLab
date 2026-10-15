@@ -12,8 +12,11 @@ from app.services.monitoring import ai_metrics
 
 
 class _BrokenMetric:
-    def __getattr__(self, name: str) -> Any:
-        raise RuntimeError(f"metric broken: {name}")
+    def labels(self, **_labels: Any) -> Any:
+        raise RuntimeError("metric broken: labels")
+
+    def set(self, _value: float) -> None:
+        raise RuntimeError("metric broken: set")
 
 
 @pytest.fixture(autouse=True)
