@@ -25,6 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.ai.teacher_judge.script_executor_service import shutdown_script_executor
 from app.api.ai_capacity import (
     AIIngressMiddleware,
     close_ai_capacity,
@@ -198,6 +199,7 @@ async def lifespan(app: FastAPI):
         for task in (scheduler_task, wireguard_task, push_task):
             await _cancel_and_wait(task)
         await shutdown_background_runner()
+        await asyncio.to_thread(shutdown_script_executor)
         await close_ai_capacity()
         await close_relay_runtime()
         await close_ai_clients()

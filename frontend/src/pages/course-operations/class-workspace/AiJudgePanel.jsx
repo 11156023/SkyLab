@@ -3465,6 +3465,7 @@ export function buildBatchReviewTarget(node, member = null) {
     reason_code: node?.reason_code ?? null,
     user: member ?? {},
     teacher_review: node?.teacher_review ?? undefined,
+    timing: node?.timing,
     parsed_result: { checks },
   };
 }
@@ -3608,6 +3609,38 @@ export function buildLegacyReviewRows(run, members = []) {
   return [...memberRows, ...unmatched];
 }
 
+export function ExecutionTiming({ timing }) {
+  const { t } = useTranslation("teaching");
+  if (!timing) return null;
+  const hasSeconds = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  // A missing field belongs to a single-run record; null means a batch is unfinished.
+  const batchWait = timing.batch_wait_seconds === undefined ? 0 : timing.batch_wait_seconds;
+  const metrics = [
+    ["timingQueue", timing.queue_seconds],
+    ["timingCollection", hasSeconds(timing.prepare_seconds) && hasSeconds(timing.script_seconds)
+      ? timing.prepare_seconds + timing.script_seconds : null],
+    ["timingDownload", timing.download_seconds],
+    ["timingReady", hasSeconds(timing.download_seconds) && hasSeconds(timing.finalize_wait_seconds) && hasSeconds(batchWait)
+      ? timing.download_seconds + timing.finalize_wait_seconds + batchWait : null],
+    ["timingTotal", timing.total_seconds],
+  ].filter(([, value]) => hasSeconds(value));
+  if (metrics.length === 0) return null;
+  return (
+    <details className={styles.executionTiming}>
+      <summary>{t("AiJudgePanel.timingTitle")}</summary>
+      <dl>
+        {metrics.map(([key, value]) => (
+          <div key={key}>
+            <dt>{t(`AiJudgePanel.${key}`)}</dt>
+            <dd>{t("AiJudgePanel.timingSeconds", { value: value.toFixed(3) })}</dd>
+          </div>
+        ))}
+      </dl>
+      <p>{t("AiJudgePanel.timingHint")}</p>
+    </details>
+  );
+}
+
 /* 單台機器的核查內容（檢查點 → checks、回饋、儲存）；由學生總覽展開後逐台渲染。 */
 function MachineReviewDetail({
   row,
@@ -3638,6 +3671,7 @@ function MachineReviewDetail({
           {getTargetReviewSummary(target).label}
         </span>
       </div>
+      <ExecutionTiming timing={target.timing} />
       {row.items ? (
         <div className={styles.reviewCheckList}>
           {row.items.length === 0 && (

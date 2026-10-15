@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -27,6 +28,14 @@ TYPED_STEP_REPAIR_HINT = (
     '"assertion":{"type":"text_contains","expected":"3.12"}}。'
     "範例值不能取代老師的條件。teacher 模式省略 assertion；"
     "file_text 的 head/tail 必須提供 lines。缺少真實資訊時列出缺口，不得猜值。"
+)
+
+EXECUTION_LOCATION_REPAIR_HINT = (
+    "目前 typed 步驟已有可定位的執行位置，請依 get_checklist_item 的完整內容核對。"
+    "保留原機器、步驟與已知路徑，只移除與這些步驟矛盾的路徑缺口；"
+    "日期範圍等其他缺口必須保留。若確實缺少另一個檔案或程式的位置，"
+    "請明確指出該對象並更新對應步驟，不得省略既有步驟。"
+    "沒有其他缺口時，明確送出 detectable=auto、missing_information=[]。"
 )
 
 
@@ -163,7 +172,9 @@ def reconcile_finalizer_locations(
         previous = TeacherJudgeRubricItem.model_validate(current)
     except ValidationError:
         return candidate, []
-    if previous.detectable != "auto" or typed_item_issues(previous):
+    if previous.detectable == "manual" or typed_item_issues(
+        previous.model_copy(update={"detectable": "auto"})
+    ):
         return candidate, []
     if any(current.get(key) != candidate.get(key) for key in ("id", "target_node_key", "peer_node_key")):
         return candidate, []
@@ -179,9 +190,15 @@ def reconcile_finalizer_locations(
         old = old_step.collector.model_dump(mode="json")
         kind = collector.get("type")
         input_key = "argv" if kind == "command" else "path"
-        if kind not in {"command", "file_text", "file_stat"} or (
-            kind != old.get("type") or collector.get(input_key) != old.get(input_key)
-        ):
+        if kind not in {"command", "file_text", "file_stat"} or kind != old.get("type"):
+            continue
+        if collector.get(input_key) != old.get(input_key):
+            if missing_execution_location(collector):
+                issues.append({
+                    "item_id": previous.id, "step_id": step.get("id"), "step_index": index,
+                    "field": f"check_steps[{index}].collector.{input_key}",
+                    "message": "核對修改遺失既有步驟的完整執行位置；請保留原輸入，或依已知資訊提供完整的新位置，不可把此修改錯誤當成老師缺少資料。",
+                })
             continue
         if optional_cwd(collector.get("cwd")) is None:
             collector["cwd"] = old.get("cwd")
@@ -207,6 +224,32 @@ def reconcile_finalizer_locations(
             if result.get("detectable") == "partial" and not remaining:
                 result["detectable"] = "auto"
     return result, issues
+
+
+def execution_location_claim_issues(item: TeacherJudgeRubricItem) -> list[dict[str, Any]]:
+    """Route ungrounded location prose to repair, never erase teacher intent.
+
+    Keywords identify claims to review, not facts to discard. Only a complete,
+    compiler-valid plan can contradict a claim; unresolved paths still require
+    teacher input. The model must reconcile any other target/scope explicitly.
+    """
+    claims = [
+        (index, gap) for index, gap in enumerate(item.missing_information)
+        if re.search(r"工作目錄|工作目录|路徑|路径|\b(?:cwd|path|directory)\b", gap, re.IGNORECASE)
+    ]
+    if not claims or item.detectable == "manual" or typed_item_issues(
+        item.model_copy(update={"detectable": "auto"})
+    ):
+        return []
+    return [
+        {
+            "item_id": item.id,
+            "field": f"missing_information[{index}]",
+            "message": f"路徑缺口「{gap}」與目前已具備執行位置的檢查步驟不一致，需重新核對。",
+            "repair_hint": EXECUTION_LOCATION_REPAIR_HINT,
+        }
+        for index, gap in claims
+    ]
 
 
 def analysis_write_issues(

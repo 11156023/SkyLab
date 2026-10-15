@@ -7,9 +7,13 @@ import json
 import logging
 import shlex
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from functools import partial
+from threading import Event, Lock
+from time import perf_counter
 from typing import Any, TypeVar
 
 from sqlalchemy import or_
@@ -47,9 +51,13 @@ from app.services import os_identity_service
 logger = logging.getLogger(__name__)
 _WorkerResult = TypeVar("_WorkerResult")
 
-# Class-wide node fan-out may contain more targets than the SSH concurrency
-# limit. Keep concurrency bounded, but do not silently cap a run at five VMs.
-MAX_SSH_CONCURRENCY = 5
+# Shared workers cap all runs in this backend process. Each run submits only a
+# rolling window so a large run cannot occupy the pool's entire pending queue.
+MAX_SSH_CONCURRENCY_PER_RUN = 50
+MAX_TOTAL_SSH_CONCURRENCY = 200
+PROGRESS_UPDATE_INTERVAL_SECONDS = 1.0
+_ssh_executor: ThreadPoolExecutor | None = None
+_ssh_executor_lock = Lock()
 STDOUT_LIMIT = 16 * 1024
 STDERR_LIMIT = 16 * 1024
 SSH_TIMEOUT_SECONDS = 60
@@ -66,6 +74,7 @@ RUN_TIMEOUT_MARGIN_SECONDS = 30
 MAX_RUN_TIMEOUT_SECONDS = 900
 # GNU timeout 逾時的結束碼
 TIMEOUT_EXIT_CODE = 124
+TIMEOUT_UNAVAILABLE_EXIT_CODE = 125
 _ACTIVE_RUN_STATUSES = (
     TeacherJudgeScriptRunStatus.pending,
     TeacherJudgeScriptRunStatus.running,
@@ -75,20 +84,44 @@ _ACTIVE_RUN_STATUSES = (
 _RUN_ROW_LOCK: dict[str, Any] = {"of": TeacherJudgeScriptRun}
 
 
+def _get_ssh_executor() -> ThreadPoolExecutor:
+    global _ssh_executor
+    with _ssh_executor_lock:
+        if _ssh_executor is None:
+            _ssh_executor = ThreadPoolExecutor(
+                max_workers=MAX_TOTAL_SSH_CONCURRENCY,
+                thread_name_prefix="teacher-judge-ssh",
+            )
+        return _ssh_executor
+
+
+def shutdown_script_executor() -> None:
+    """Drain SSH workers after the background runner has stopped accepting work."""
+    global _ssh_executor
+    with _ssh_executor_lock:
+        if _ssh_executor is not None:
+            _ssh_executor.shutdown(wait=True)
+            _ssh_executor = None
+
+
 @dataclass(frozen=True)
 class RemoteScriptResult:
     exit_code: int
     result_json_text: str
     stderr_text: str
     result_too_large: bool = False
+    timing: dict[str, Any] = field(default_factory=dict)
 
 
 class TargetExecutionError(RuntimeError):
     """Target-scoped executor error with a stable JSON reason code."""
 
-    def __init__(self, message: str, reason_code: str) -> None:
+    def __init__(
+        self, message: str, reason_code: str, *, timing: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.reason_code = reason_code
+        self.timing = timing if timing is not None else {}
 
 
 def _truncate(value: str, limit: int) -> str:
@@ -342,17 +375,22 @@ def _execute_target_script(
     target: dict[str, Any],
     script_content: str,
 ) -> RemoteScriptResult:
+    started = perf_counter()
+    timing: dict[str, Any] = {}
+    phase, phase_started = "prepare_seconds", started
     vmid = _target_vmid(target)
     remote_dir = f"{REMOTE_ROOT}/{target['run_id']}/{vmid}"
     quoted_dir = shlex.quote(remote_dir)
-    client = create_key_client(
-        str(target["host"]),
-        22,
-        str(target["ssh_user"]),
-        str(target["private_key_pem"]),
-        timeout=SSH_TIMEOUT_SECONDS,
-    )
+    client = None
+    sftp = None
     try:
+        client = create_key_client(
+            str(target["host"]),
+            22,
+            str(target["ssh_user"]),
+            str(target["private_key_pem"]),
+            timeout=SSH_TIMEOUT_SECONDS,
+        )
         exit_code, _, stderr = exec_command(
             client,
             f"mkdir -p {quoted_dir}",
@@ -360,74 +398,100 @@ def _execute_target_script(
             max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
         )
         if exit_code != 0:
+            timing["prepare_seconds"] = round(perf_counter() - started, 3)
             return RemoteScriptResult(
-                exit_code=exit_code, result_json_text="", stderr_text=stderr
+                exit_code=exit_code, result_json_text="", stderr_text=stderr,
+                timing=timing,
             )
 
         sftp = client.open_sftp()
         # 目標機是學生自己有 root 的機器：SFTP 讀寫卡住時不能讓執行緒永遠等下去
         sftp.get_channel().settimeout(SSH_TIMEOUT_SECONDS)
-        try:
-            with sftp.file(f"{remote_dir}/script.py", "wb") as remote_file:
-                remote_file.write(script_content.encode())
-            with sftp.file(
-                f"{remote_dir}/runtime_context.json", "wb"
-            ) as remote_context:
-                remote_context.write(
-                    json.dumps(
-                        target.get("runtime_context")
-                        or {
-                            "schema_version": "teacher_judge_runtime_context.v1",
-                            "executor": {"node_key": target.get("node_key")},
-                            "peers": {},
-                        },
-                        ensure_ascii=False,
-                    ).encode()
-                )
+        with sftp.file(f"{remote_dir}/script.py", "wb") as remote_file:
+            remote_file.write(script_content.encode())
+        with sftp.file(
+            f"{remote_dir}/runtime_context.json", "wb"
+        ) as remote_context:
+            remote_context.write(
+                json.dumps(
+                    target.get("runtime_context")
+                    or {
+                        "schema_version": "teacher_judge_runtime_context.v1",
+                        "executor": {"node_key": target.get("node_key")},
+                        "peers": {},
+                    },
+                    ensure_ascii=False,
+                ).encode()
+            )
 
-            run_timeout = int(
-                target.get("run_timeout_seconds") or SSH_TIMEOUT_SECONDS
-            )
-            # timeout(1) 真的停掉逾時的腳本（不然刪掉檔案後 python 仍在背景跑）；
-            # 沒有 timeout 指令的精簡系統退回直接執行，由 channel timeout 兜底。
-            exit_code, _, _ = exec_command(
-                client,
-                f"cd {quoted_dir} && "
-                "if command -v timeout >/dev/null 2>&1; "
-                f"then timeout -k 5 {run_timeout} python3 script.py; "
-                "else python3 script.py; fi > result.json 2> stderr.log",
-                timeout=run_timeout + 15,
-                max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
-            )
-            result_json_text, result_too_large = _read_remote_text(
-                sftp, f"{remote_dir}/result.json", RAW_RESULT_LIMIT
-            )
-            stderr_text, stderr_too_large = _read_remote_text(
-                sftp, f"{remote_dir}/stderr.log", STDERR_LIMIT
-            )
-            if stderr_too_large:
-                stderr_text += "\n...[truncated]"
-            return RemoteScriptResult(
-                exit_code=exit_code,
-                result_json_text=result_json_text,
-                stderr_text=stderr_text,
-                result_too_large=result_too_large,
-            )
-        finally:
-            sftp.close()
+        run_timeout = int(
+            target.get("run_timeout_seconds") or SSH_TIMEOUT_SECONDS
+        )
+        # timeout(1) 真的停掉逾時的腳本（不然刪掉檔案後 python 仍在背景跑）；
+        # 缺少遠端 deadline 時不執行，避免 channel 逾時後腳本仍在背景跑。
+        script_started = perf_counter()
+        timing["prepare_seconds"] = round(script_started - started, 3)
+        phase, phase_started = "script_seconds", script_started
+        exit_code, _, _ = exec_command(
+            client,
+            f"cd {quoted_dir} && "
+            "if command -v timeout >/dev/null 2>&1; "
+            f"then timeout -k 5 {run_timeout} python3 script.py; "
+            f"else echo 'timeout command unavailable' >&2; exit {TIMEOUT_UNAVAILABLE_EXIT_CODE}; "
+            "fi > result.json 2> stderr.log",
+            timeout=run_timeout + 15,
+            max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
+        )
+        download_started = perf_counter()
+        timing["script_seconds"] = round(download_started - script_started, 3)
+        phase, phase_started = "download_seconds", download_started
+        result_json_text, result_too_large = _read_remote_text(
+            sftp, f"{remote_dir}/result.json", RAW_RESULT_LIMIT
+        )
+        stderr_text, stderr_too_large = _read_remote_text(
+            sftp, f"{remote_dir}/stderr.log", STDERR_LIMIT
+        )
+        if stderr_too_large:
+            stderr_text += "\n...[truncated]"
+        timing["download_seconds"] = round(perf_counter() - download_started, 3)
+        timing["received_at"] = _now().isoformat()
+        return RemoteScriptResult(
+            exit_code=exit_code,
+            result_json_text=result_json_text,
+            stderr_text=stderr_text,
+            result_too_large=result_too_large,
+            timing=timing,
+        )
+    except Exception as exc:
+        timing[phase] = round(perf_counter() - phase_started, 3)
+        raise TargetExecutionError(
+            str(exc),
+            _target_exception_reason(exc),
+            timing=timing,
+        ) from exc
     finally:
+        cleanup_started = perf_counter()
+        if sftp is not None:
+            try:
+                sftp.close()
+            except Exception:
+                logger.warning(
+                    "Teacher Judge SFTP close failed run=%s vmid=%s",
+                    target["run_id"], vmid, exc_info=True,
+                )
         cleanup_command = (
             f"rm -f -- {quoted_dir}/script.py {quoted_dir}/runtime_context.json "
             f"{quoted_dir}/result.json "
             f"{quoted_dir}/stderr.log && rmdir -- {quoted_dir} 2>/dev/null || true"
         )
         try:
-            exec_command(
-                client,
-                cleanup_command,
-                timeout=SSH_TIMEOUT_SECONDS,
-                max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
-            )
+            if client is not None:
+                exec_command(
+                    client,
+                    cleanup_command,
+                    timeout=SSH_TIMEOUT_SECONDS,
+                    max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
+                )
         except Exception:
             logger.warning(
                 "Teacher Judge remote cleanup failed run=%s vmid=%s",
@@ -435,7 +499,60 @@ def _execute_target_script(
                 vmid,
                 exc_info=True,
             )
-        client.close()
+        try:
+            if client is not None:
+                client.close()
+        except Exception:
+            logger.warning(
+                "Teacher Judge SSH close failed run=%s vmid=%s",
+                target["run_id"], vmid, exc_info=True,
+            )
+        finally:
+            timing["cleanup_seconds"] = round(perf_counter() - cleanup_started, 3)
+
+
+def _execute_scheduled_target(
+    *,
+    target: dict[str, Any],
+    script_content: str,
+    queued_at: float,
+    on_start: Callable[[], None],
+    stop_event: Event | None = None,
+) -> dict[str, Any]:
+    """Time targets admitted by the shared pool, including failed executions."""
+    started = perf_counter()
+    timing: dict[str, Any] = {
+        "queue_seconds": round(started - queued_at, 3),
+        "started_at": _now().isoformat(),
+    }
+    if stop_event is not None and stop_event.is_set():
+        result = _target_failure(target, "執行流程已中斷。", "executor_cancelled")
+        result["timing"] = {**timing, "total_seconds": 0.0}
+        return result
+    on_start()
+    try:
+        remote = _execute_target_script(target=target, script_content=script_content)
+        timing.update(remote.timing)
+        result = _target_result(target, remote)
+    except Exception as exc:
+        logger.warning(
+            "Teacher Judge target execution failed run=%s vmid=%s",
+            target.get("run_id"), _target_vmid(target), exc_info=True,
+        )
+        if isinstance(exc, TargetExecutionError):
+            timing.update(exc.timing)
+        result = _target_failure(
+            target, str(exc),
+            _target_exception_reason(exc),
+        )
+    timing["total_seconds"] = round(perf_counter() - started, 3)
+    result["timing"] = timing
+    logger.info(
+        "Teacher Judge target finished run=%s vmid=%s status=%s timing=%s",
+        target.get("run_id"), _target_vmid(target), result["status"],
+        json.dumps(timing),
+    )
+    return result
 
 
 def _read_remote_text(sftp: Any, path: str, limit: int) -> tuple[str, bool]:
@@ -448,7 +565,7 @@ def _read_remote_text(sftp: Any, path: str, limit: int) -> tuple[str, bool]:
     try:
         with sftp.file(path, "rb") as remote_file:
             data = remote_file.read(limit + 1)
-    except OSError:
+    except FileNotFoundError:
         return "", False
     if not isinstance(data, bytes):
         data = str(data).encode(errors="replace")
@@ -532,6 +649,8 @@ def _target_result(
             reason_code = "python_missing"
         elif remote_result.exit_code == TIMEOUT_EXIT_CODE:
             reason_code = "execution_timeout"
+        elif remote_result.exit_code == TIMEOUT_UNAVAILABLE_EXIT_CODE:
+            reason_code = "timeout_unavailable"
         elif remote_result.exit_code != 0:
             reason_code = "execution_nonzero"
         else:
@@ -655,7 +774,11 @@ def _mark_run_executor_failed(
                 "targets": preflight_results,
             }
         run.finished_at = _now()
-        run.updated_at = _now()
+        run.result_summary_json = {
+            **run.result_summary_json,
+            **_run_execution_summary(run, run.finished_at),
+        }
+        run.updated_at = run.finished_at
         session.add(run)
         artifact = session.get(TeacherJudgeScriptArtifact, run.artifact_id)
         if artifact is not None:
@@ -679,6 +802,8 @@ def _touch_judge_session(
 
 def _target_exception_reason(exc: BaseException) -> str:
     # 逾時／輸出過大只讓這一台失敗，訊息來自 SSH 層（含秒數或上限）
+    if isinstance(exc, TargetExecutionError):
+        return exc.reason_code
     if isinstance(exc, TimeoutError):
         return "execution_timeout"
     if isinstance(exc, SSHOutputTooLargeError):
@@ -691,9 +816,13 @@ class _ExecutedTargets:
     results: list[dict[str, Any]]
 
 
-def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
+def _execute_targets(
+    run_id: uuid.UUID, *, stop_event: Event | None = None,
+) -> _ExecutedTargets | None:
     """Own all synchronous target execution and its Sessions in one worker."""
     with Session(engine) as session:
+        if stop_event is not None and stop_event.is_set():
+            return None
         run, artifact = _load_run_and_artifact(
             session=session, run_id=run_id, for_update=True
         )
@@ -709,6 +838,10 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
             run.status = TeacherJudgeScriptRunStatus.failed
             run.result_summary_json = {"error": "只有已核准的腳本可以執行。"}
             run.finished_at = _now()
+            run.result_summary_json = {
+                **run.result_summary_json,
+                **_run_execution_summary(run, run.finished_at),
+            }
             run.updated_at = _now()
             session.add(run)
             _touch_judge_session(session, artifact)
@@ -723,13 +856,16 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
             run.status = TeacherJudgeScriptRunStatus.failed
             run.result_summary_json = {"error": "執行目標數量不合法。"}
             run.finished_at = _now()
+            run.result_summary_json = {
+                **run.result_summary_json,
+                **_run_execution_summary(run, run.finished_at),
+            }
             run.updated_at = _now()
             session.add(run)
             _touch_judge_session(session, artifact)
             session.commit()
             return None
 
-        live_by_vmid = _live_running_by_vmid() if targets else {}
         statuses = {_target_vmid(target): "queued" for target in targets}
         run.status = TeacherJudgeScriptRunStatus.running
         run.started_at = run.started_at or _now()
@@ -744,6 +880,7 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
             done=len(preflight_results),
             preflight_results=preflight_results,
         )
+        live_by_vmid = _live_running_by_vmid() if targets else {}
 
         # 先把 SSH 階段要用的值複製成區域變數：下面會 commit 並關掉這個
         # Session，SSH fan-out 期間不能佔著交易（PgBouncer transaction
@@ -753,6 +890,9 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
         runtime_targets: list[dict[str, Any]] = []
         early_results: list[dict[str, Any]] = []
         for target in targets:
+            if stop_event is not None and stop_event.is_set():
+                session.commit()
+                return None
             vmid = _target_vmid(target)
             try:
                 runtime_target = _resolve_runtime_target(
@@ -764,7 +904,6 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
                 runtime_targets.append(
                     {**runtime_target, "run_timeout_seconds": run_timeout_seconds}
                 )
-                statuses[vmid] = "running"
             except Exception as exc:
                 statuses[vmid] = "failed"
                 reason_code = (
@@ -786,43 +925,89 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
     )
 
     results = list(preflight_results) + early_results
-    workers = min(MAX_SSH_CONCURRENCY, len(runtime_targets))
-    if workers:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_target = {
-                executor.submit(
-                    _execute_target_script,
-                    target=target,
-                    script_content=script_content,
-                ): target
-                for target in runtime_targets
-            }
-            for future in as_completed(future_to_target):
-                target = future_to_target[future]
-                vmid = _target_vmid(target)
-                try:
-                    target_result = _target_result(target, future.result())
-                except Exception as exc:
-                    logger.warning(
-                        "Teacher Judge target execution failed run=%s vmid=%s",
-                        run_id,
-                        vmid,
-                        exc_info=True,
-                    )
-                    target_result = _target_failure(
-                        target, str(exc), _target_exception_reason(exc)
-                    )
-                statuses[vmid] = str(target_result["status"])
-                results.append(target_result)
-                _save_run_progress(
-                    run_id=run_id,
-                    stage="executing",
-                    targets=targets,
-                    statuses=statuses,
-                    done=len(results),
-                    preflight_results=preflight_results,
-                )
+    progress_lock = Lock()
+    progress_dirty = False
 
+    def mark_started(target: dict[str, Any]) -> None:
+        nonlocal progress_dirty
+        with progress_lock:
+            statuses[_target_vmid(target)] = "running"
+            progress_dirty = True
+
+    if runtime_targets:
+        executor = _get_ssh_executor()
+        remaining = iter(runtime_targets)
+        pending: dict[Future[dict[str, Any]], dict[str, Any]] = {}
+        # Include waiting behind this run's window as well as the shared pool.
+        queued_at = perf_counter()
+        last_progress_at = queued_at
+
+        def submit_next() -> bool:
+            if stop_event is not None and stop_event.is_set():
+                return False
+            target = next(remaining, None)
+            if target is None:
+                return False
+            future = executor.submit(
+                _execute_scheduled_target,
+                target=target,
+                script_content=script_content,
+                queued_at=queued_at,
+                on_start=partial(mark_started, target),
+                stop_event=stop_event,
+            )
+            pending[future] = target
+            return True
+
+        try:
+            for _ in range(MAX_SSH_CONCURRENCY_PER_RUN):
+                if not submit_next():
+                    break
+            while pending:
+                if stop_event is not None and stop_event.is_set():
+                    for future in list(pending):
+                        if future.cancel():
+                            pending.pop(future)
+                    if not pending:
+                        break
+                finished, _ = wait(
+                    pending,
+                    timeout=PROGRESS_UPDATE_INTERVAL_SECONDS,
+                    return_when=FIRST_COMPLETED,
+                )
+                for future in finished:
+                    target = pending.pop(future)
+                    target_result = future.result()
+                    results.append(target_result)
+                    with progress_lock:
+                        statuses[_target_vmid(target)] = str(target_result["status"])
+                        progress_dirty = True
+                    submit_next()
+
+                current = perf_counter()
+                if current - last_progress_at >= PROGRESS_UPDATE_INTERVAL_SECONDS:
+                    with progress_lock:
+                        snapshot = dict(statuses) if progress_dirty else None
+                        progress_dirty = False
+                    if snapshot is None:
+                        continue
+                    _save_run_progress(
+                        run_id=run_id,
+                        stage="executing",
+                        targets=targets,
+                        statuses=snapshot,
+                        done=len(results),
+                        preflight_results=preflight_results,
+                    )
+                    last_progress_at = current
+        finally:
+            # On coordinator failure, stop queued work and drain running SSH
+            # before the caller marks failure; no progress may arrive afterward.
+            running = [future for future in pending if not future.cancel()]
+            wait(running)
+
+    if stop_event is not None and stop_event.is_set():
+        return None
     results.sort(key=lambda item: int(item.get("vmid") or 0))
     _save_run_progress(
         run_id=run_id,
@@ -857,12 +1042,22 @@ def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
             for result in results
             if result.get("vmid") is not None
         }
+        finished_at = _now()
+        for result in results:
+            timing = result.get("timing")
+            if isinstance(timing, dict) and timing.get("received_at"):
+                timing["finalize_wait_seconds"] = _seconds_between(
+                    datetime.fromisoformat(timing["received_at"]), finished_at
+                )
         # results arrive already sorted by vmid from _execute_targets
         run.target_results_json = {
             "schema_version": "teacher_judge_run_results.v2",
             "targets": results,
         }
-        run.result_summary_json = _summary(results)
+        run.result_summary_json = {
+            **_summary(results),
+            **_run_execution_summary(run, finished_at),
+        }
         run.progress_json = {
             "stage": "completed",
             "total": len(targets) + len(preflight_results),
@@ -871,17 +1066,44 @@ def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
             + preflight_progress(preflight_results),
         }
         run.status = TeacherJudgeScriptRunStatus.completed
-        run.finished_at = _now()
-        run.updated_at = _now()
+        run.finished_at = finished_at
+        run.updated_at = finished_at
         session.add(run)
         _touch_judge_session(session, artifact)
         session.commit()
 
 
-async def _await_worker(worker: asyncio.Task[_WorkerResult]) -> _WorkerResult:
+def _run_execution_summary(
+    run: TeacherJudgeScriptRun, finished_at: datetime,
+) -> dict[str, Any]:
+    return {
+        "ssh_concurrency_per_run": MAX_SSH_CONCURRENCY_PER_RUN,
+        "ssh_concurrency_total": MAX_TOTAL_SSH_CONCURRENCY,
+        "timing": {
+            "queue_seconds": _seconds_between(run.created_at, run.started_at),
+            "execution_seconds": _seconds_between(run.started_at, finished_at),
+            "total_seconds": _seconds_between(run.created_at, finished_at),
+        },
+    }
+
+
+def _seconds_between(start: datetime | None, end: datetime | None) -> float | None:
+    if start is None or end is None:
+        return None
+    # SQLite fixtures return naive UTC while PostgreSQL preserves the timezone.
+    start = start.replace(tzinfo=timezone.utc) if start.tzinfo is None else start
+    end = end.replace(tzinfo=timezone.utc) if end.tzinfo is None else end
+    return round(max(0.0, (end - start).total_seconds()), 3)
+
+
+async def _await_worker(
+    worker: asyncio.Task[_WorkerResult], *, stop_event: Event | None = None,
+) -> _WorkerResult:
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError:
+        if stop_event is not None:
+            stop_event.set()
         # Cancelling the coroutine cannot stop an SSH thread. Drain the worker
         # before recording failure so it cannot write progress after termination.
         while not worker.done():
@@ -897,8 +1119,12 @@ async def _await_worker(worker: asyncio.Task[_WorkerResult]) -> _WorkerResult:
 
 
 async def _execute_script_run(run_id: uuid.UUID) -> None:
+    stop_event = Event()
     collected = await _await_worker(
-        asyncio.create_task(asyncio.to_thread(_execute_targets, run_id))
+        asyncio.create_task(
+            asyncio.to_thread(_execute_targets, run_id, stop_event=stop_event)
+        ),
+        stop_event=stop_event,
     )
     if collected is None:
         return

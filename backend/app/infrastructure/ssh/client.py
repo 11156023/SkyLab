@@ -185,8 +185,12 @@ def create_key_client(
 ) -> Any:
     ensure_ssh_backend()
     client = paramiko.SSHClient()
-    _configure_host_key_verification(client)
-    pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_pem))
+    try:
+        _configure_host_key_verification(client)
+        pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_pem))
+    except BaseException:
+        client.close()
+        raise
     _connect_or_close(
         client,
         hostname=host,
@@ -194,6 +198,9 @@ def create_key_client(
         username=username,
         pkey=pkey,
         timeout=timeout,
+        banner_timeout=timeout,
+        auth_timeout=timeout,
+        channel_timeout=timeout,
         allow_agent=False,
         look_for_keys=False,
     )

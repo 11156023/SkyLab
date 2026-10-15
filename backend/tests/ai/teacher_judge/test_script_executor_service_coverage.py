@@ -191,6 +191,8 @@ class _FakeClient:
 def test_execute_target_script_mkdir_failure_and_cleanup_error(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    ticks = iter([10.0, 11.0, 12.0, 13.0])
+    monkeypatch.setattr(executor, "perf_counter", lambda: next(ticks))
     client = _FakeClient()
     monkeypatch.setattr(executor, "create_key_client", lambda *a, **k: client)
     calls: list[str] = []
@@ -214,7 +216,8 @@ def test_execute_target_script_mkdir_failure_and_cleanup_error(
             script_content="print(1)",
         )
     assert result == executor.RemoteScriptResult(
-        exit_code=1, result_json_text="", stderr_text="permission denied"
+        exit_code=1, result_json_text="", stderr_text="permission denied",
+        timing={"prepare_seconds": 1.0, "cleanup_seconds": 1.0},
     )
     assert len(calls) == 2
     assert client.closed is True
@@ -224,7 +227,7 @@ def test_execute_target_script_mkdir_failure_and_cleanup_error(
 def test_read_remote_text_handles_missing_file_and_text_reads() -> None:
     class _MissingSFTP:
         def file(self, path: str, mode: str) -> Any:
-            raise OSError("no such file")
+            raise FileNotFoundError("no such file")
 
     assert executor._read_remote_text(_MissingSFTP(), "/x", 10) == ("", False)
 
@@ -271,6 +274,24 @@ def test_target_exception_reason_defaults_to_executor_error() -> None:
     assert executor._target_exception_reason(RuntimeError("x")) == "executor_error"
 
 
+def _assert_unstarted_failure_summary(
+    run: TeacherJudgeScriptRun, expected: dict[str, Any],
+) -> None:
+    assert run.finished_at is not None
+    assert run.result_summary_json == {
+        **expected,
+        "ssh_concurrency_per_run": 50,
+        "ssh_concurrency_total": 200,
+        "timing": {
+            "queue_seconds": None,
+            "execution_seconds": None,
+            "total_seconds": pytest.approx(
+                (run.finished_at - run.created_at).total_seconds(), abs=0.001,
+            ),
+        },
+    }
+
+
 def test_mark_run_failed_keeps_preflight_and_touches_session(
     sqlite_db: Session,
 ) -> None:
@@ -295,10 +316,10 @@ def test_mark_run_failed_keeps_preflight_and_touches_session(
     assert stored is not None
     assert stored.status == TeacherJudgeScriptRunStatus.failed
     assert stored.target_results_json["targets"] == preflight
-    assert stored.result_summary_json == {
+    _assert_unstarted_failure_summary(stored, {
         "executor_error": "boom",
         "preflight_failed": 1,
-    }
+    })
     touched = sqlite_db.get(TeacherJudgeSession, judge_session.id)
     assert touched is not None
     assert touched.last_activity_at >= before
@@ -322,7 +343,7 @@ def test_execute_targets_rejects_unapproved_artifact(sqlite_db: Session) -> None
     stored = sqlite_db.get(TeacherJudgeScriptRun, run.id)
     assert stored is not None
     assert stored.status == TeacherJudgeScriptRunStatus.failed
-    assert stored.result_summary_json == {"error": "只有已核准的腳本可以執行。"}
+    _assert_unstarted_failure_summary(stored, {"error": "只有已核准的腳本可以執行。"})
 
 
 def test_execute_targets_rejects_empty_targets(sqlite_db: Session) -> None:
@@ -333,7 +354,7 @@ def test_execute_targets_rejects_empty_targets(sqlite_db: Session) -> None:
     stored = sqlite_db.get(TeacherJudgeScriptRun, run.id)
     assert stored is not None
     assert stored.status == TeacherJudgeScriptRunStatus.failed
-    assert stored.result_summary_json == {"error": "執行目標數量不合法。"}
+    _assert_unstarted_failure_summary(stored, {"error": "執行目標數量不合法。"})
 
 
 def test_execute_targets_records_unexpected_resolution_errors(
@@ -373,7 +394,7 @@ async def test_await_worker_drains_failing_worker_after_cancel() -> None:
     await asyncio.sleep(0)
     release.set()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.gather(waiter)
     assert worker.done()
     assert isinstance(worker.exception(), RuntimeError)
 
@@ -443,7 +464,7 @@ async def test_await_worker_keeps_draining_on_repeated_cancel() -> None:
     await asyncio.sleep(0)
     release.set()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.gather(waiter)
     assert worker.result() == "done"
 
 

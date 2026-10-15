@@ -190,6 +190,8 @@ def test_delete_attachment_paths(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_create_bind_and_context_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # OS MIME registries differ; keep the guessed-type fallback deterministic.
+    monkeypatch.setattr(svc.mimetypes, "guess_type", lambda filename: ("text/markdown", None))
     db = make_session()
     assert svc.get_pending_attachments(db, uuid.uuid4(), []) == []
     monkeypatch.setattr(svc, "MAX_EXTRACTED_CHARS", 3)

@@ -115,6 +115,10 @@ def _policy(**overrides):
     return SimpleNamespace(**base)
 
 
+def _session_policy(*, session: Any) -> SimpleNamespace:
+    return _policy()
+
+
 # ---------------------------------------------------------------------------
 # 開機時段
 # ---------------------------------------------------------------------------
@@ -980,9 +984,7 @@ def autostop_env(monkeypatch):
     state: dict[str, Any] = {"resource": None, "request": None, "in_window": False}
     calls: list[dict] = []
     monkeypatch.setattr(resource_service, "_utc_now", lambda: NOW)
-    monkeypatch.setattr(
-        resource_service, "get_schedule_policy", lambda *, session: _policy()
-    )
+    monkeypatch.setattr(resource_service, "get_schedule_policy", _session_policy)
     monkeypatch.setattr(
         resource_service.resource_repo,
         "get_resource_by_vmid",
@@ -1061,9 +1063,7 @@ def test_extend_session_rejections(monkeypatch) -> None:
 
 def test_get_session_status_expiry_warning(monkeypatch) -> None:
     monkeypatch.setattr(resource_service, "_utc_now", lambda: NOW)
-    monkeypatch.setattr(
-        resource_service, "get_schedule_policy", lambda *, session: _policy()
-    )
+    monkeypatch.setattr(resource_service, "get_schedule_policy", _session_policy)
     _patch_get_resource(monkeypatch, _db_resource(expiry_date=date(2026, 10, 15)))
     status = resource_service.get_session_status(
         session=FakeSession(), vmid=1, resource_info={"status": "running"}

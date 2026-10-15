@@ -874,7 +874,7 @@ async def test_executor_sync_stage_does_not_block_loop(monkeypatch):
 
     monkeypatch.setattr(executor, "_load_run_and_artifact", unexpected_load)
 
-    def execute_targets(run_id):
+    def execute_targets(run_id, *, stop_event=None):
         worker_threads.append(threading.get_ident())
         entered.set()
         assert released.wait(2)
@@ -908,7 +908,7 @@ async def test_executor_cancellation_drains_worker_before_recording_failure(
         assert released.wait(2)
         events.append("worker_finished")
 
-    def execute_targets(run_id):
+    def execute_targets(run_id, *, stop_event=None):
         if stage == "execute":
             block()
         return executor._ExecutedTargets([])

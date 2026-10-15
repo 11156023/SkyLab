@@ -1,7 +1,5 @@
 """帳號密碼複雜度：所有設定密碼的 API 入口都擋弱密碼，登入不受影響。"""
 
-from unittest.mock import patch
-
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 

@@ -393,7 +393,7 @@ async def test_cancel_during_commit_recovers_only_pending_admission(
     finally:
         release.set()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
     rows = db.exec(select(TeacherJudgeSessionMessage)).all()
     assert len(rows) == 2
     assert (

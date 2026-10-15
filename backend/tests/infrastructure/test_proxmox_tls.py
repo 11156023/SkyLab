@@ -82,13 +82,13 @@ def test_concurrent_first_write_of_same_ca_does_not_fail(
 
     monkeypatch.setattr(tls.os, "replace", replace_after_both_wrote)
     pem = _ca_pem()
-    errors: list[BaseException] = []
+    errors: list[Exception] = []
     paths: list[str] = []
 
     def write() -> None:
         try:
             paths.append(tls.ca_bundle_path(pem))
-        except BaseException as exc:  # pragma: no cover - 失敗時才會進來
+        except Exception as exc:  # pragma: no cover - 失敗時才會進來
             errors.append(exc)
 
     threads = [threading.Thread(target=write) for _ in range(2)]

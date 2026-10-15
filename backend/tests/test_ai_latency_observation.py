@@ -104,6 +104,43 @@ def test_workload_classifies_method_and_template(method, path, expected):
     assert metrics._http_workload({"method": method}, path) == expected
 
 
+@pytest.mark.parametrize(
+    ("method", "template", "expected"),
+    [
+        ("POST", "/ai-proxy/chat/completions", "ai_generation"),
+        (
+            "POST",
+            "/teaching-classes/{teaching_class_id}/judge/sessions/{session_id}/messages",
+            "ai_generation",
+        ),
+        ("GET", "/utils/health-check/", "general_api"),
+        ("GET", "/ai-proxy/models", "general_api"),
+    ],
+)
+def test_workload_accepts_prefixless_route_template(method, template, expected):
+    # Lazy include_router leaves the /api/v1 prefix out of scope["route"].path.
+    scope = {"method": method, "path": metrics.settings.API_V1_STR + "/x"}
+    assert metrics._http_workload(scope, template) == expected
+    assert metrics._http_workload({"method": method, "path": "/x"}, template) == "other"
+
+
+def test_real_app_routes_are_labelled_general_api(registry):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    TestClient(app).get(metrics.settings.API_V1_STR + "/utils/health-check/")
+    workloads = {
+        s.labels["workload"]
+        for m in registry.collect()
+        if m.name == "http_request_duration_seconds"
+        for s in m.samples
+        if s.name.endswith("_count")
+        and s.labels["path"].endswith("/utils/health-check/")
+    }
+    assert workloads == {"general_api"}
+
+
 @pytest.mark.parametrize("status", [401, 429, 503])
 async def test_early_rejections_preserve_ai_intent_without_raw_path_labels(
     registry, status
@@ -563,11 +600,15 @@ def test_observation_failure_preserves_response_exception_and_cancellation(
             result = "original response"
         assert result == "original response"
     else:
-        with pytest.raises(type(original)) as caught:
+
+        def observe_failure() -> None:
             with monitoring.AIWorkflowObservation(
                 "/ai/navigation/resolve", "test-model"
             ):
                 raise original
+
+        with pytest.raises(type(original)) as caught:
+            observe_failure()
         assert caught.value is original
 
 

@@ -24,7 +24,9 @@ def ensure_conversation_within_limits(
     """擋掉過長的對話；超過上限一律 400，不要送進模型。"""
     if len(messages) > max_messages:
         raise BadRequestError(t("ai_guard.too_many_messages", limit=max_messages))
-    total_chars = sum(len(str(getattr(message, "content", "") or "")) for message in messages)
+    total_chars = sum(
+        len(str(getattr(message, "content", "") or "")) for message in messages
+    )
     if total_chars > max_chars:
         raise BadRequestError(t("ai_guard.messages_too_long", limit=max_chars))
 
@@ -62,7 +64,11 @@ _TEMPLATE_TOKEN_RE = re.compile(
 # 人也很難一眼看出範圍到底涵蓋了什麼。
 _STRIPPED_CODEPOINTS = (
     # 控制字元：保留 \t（0x09）、\n（0x0A）、\r（0x0D）
-    *range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20), 0x7F,
+    *range(0x00, 0x09),
+    0x0B,
+    0x0C,
+    *range(0x0E, 0x20),
+    0x7F,
     # 零寬字元與左右標記：U+200B–U+200F
     *range(0x200B, 0x2010),
     # 雙向嵌入與覆寫：U+202A–U+202E
@@ -107,7 +113,35 @@ def mentions(text: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword.casefold() in lowered for keyword in keywords)
 
 
-def apply_thinking_control(payload: dict[str, Any], enable_thinking: bool) -> dict[str, Any]:
+def keyword_spans(text: str, keyword: str) -> list[tuple[int, int]]:
+    """*keyword* 在 casefold 後的 *text* 裡出現的位置。
+
+    英數關鍵字要整個字比對：WordPress 裡有 rdp、mongodb 裡有 db，子字串比對會把
+    「架 WordPress」判成要遠端桌面。中文關鍵字沒有字界，維持子字串比對。
+    """
+    lowered = text.casefold()
+    term = keyword.casefold()
+    if not term:
+        return []
+    if term.isascii():
+        pattern = rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"
+        return [match.span() for match in re.finditer(pattern, lowered)]
+    spans: list[tuple[int, int]] = []
+    start = lowered.find(term)
+    while start >= 0:
+        spans.append((start, start + len(term)))
+        start = lowered.find(term, start + 1)
+    return spans
+
+
+def mentions_term(text: str, keywords: tuple[str, ...]) -> bool:
+    """跟 mentions 一樣，但英數關鍵字只比對完整的字（見 keyword_spans）。"""
+    return any(keyword_spans(text, keyword) for keyword in keywords)
+
+
+def apply_thinking_control(
+    payload: dict[str, Any], enable_thinking: bool
+) -> dict[str, Any]:
     """Inject *enable_thinking* into the vLLM chat_template_kwargs payload."""
     payload["chat_template_kwargs"] = {
         **dict(payload.get("chat_template_kwargs") or {}),
@@ -175,4 +209,3 @@ def safe_bool(value: Any, default: bool = False) -> bool:
         if text in {"false", "0", "no", "n", "off", "unchecked", "todo"}:
             return False
     return default
-

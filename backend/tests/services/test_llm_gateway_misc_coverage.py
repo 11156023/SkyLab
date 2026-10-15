@@ -8,8 +8,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-import app.services.llm_gateway as llm_gateway
 from app.models import AIAPIUsage
+from app.services import llm_gateway
 from app.services.llm_gateway import ai_usage_export, usage_writer
 
 

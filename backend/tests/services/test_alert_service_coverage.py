@@ -30,6 +30,10 @@ class FakeConfig:
     alert_check_interval_seconds = 60
 
 
+def _session_config(*, session: Any) -> FakeConfig:
+    return FakeConfig()
+
+
 class _FakeSession:
     def __call__(self, _engine: Any) -> _FakeSession:
         return self
@@ -146,7 +150,7 @@ def test_process_resource_alerts_throttled(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(
         alert_service.governance_repo,
         "get_governance_config",
-        lambda *, session: FakeConfig(),
+        _session_config,
     )
     monkeypatch.setattr(
         alert_service, "time", SimpleNamespace(monotonic=lambda: 1000.0)

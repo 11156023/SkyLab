@@ -38,6 +38,7 @@ from app.ai.template_recommendation.recommendation_service import (
     generate_ai_plan,
     infer_intent_from_chat,
     normalize_ai_result,
+    rule_based_ai_result,
 )
 from app.ai.template_recommendation.schemas import (
     ChatRequest,
@@ -52,6 +53,7 @@ from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_user
 from app.core.db import engine
 from app.core.i18n import t
+from app.exceptions import AppError
 from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.template_recommendation import client
 from app.services.llm_gateway import ai_gateway_service
@@ -165,6 +167,16 @@ def _raise_if_upstream_error(exc: Exception) -> None:
         ) from exc
 
 
+def _is_planner_failure(exc: Exception) -> bool:
+    """模型這一側的失敗（逾時、上游錯誤、輸出解析失敗）改用規則配置。
+
+    客戶端錯誤（4xx）與程式錯誤照常往外拋，不能被備援配置蓋掉。
+    """
+    if isinstance(exc, httpx.HTTPError):
+        return True
+    return isinstance(exc, AppError) and exc.status_code >= 500
+
+
 @router.post(
     "/chat",
     response_model=ChatResponse,
@@ -184,13 +196,34 @@ async def chat(
     # 同步的 PVE／DB 呼叫一律丟到 worker thread：async 路由直接呼叫會在 PVE 慢或
     # 連線池耗盡時凍住整個 event loop（VNC／終端機／教室 WS 一起卡住）。
     # 預約查詢使用短 Session；模型等待及 request 取消均不共用它。
-    def load_gpu_options() -> list[dict[str, Any]]:
+    # 查不到的清單回 None，讓模型說「待確認」，而不是整個問答失敗或自己編。
+    def load_chat_resources() -> tuple[
+        list[dict[str, Any]] | None, dict[str, Any] | None
+    ]:
         with Session(engine) as options_session:
-            return options_service.resolve_chat_gpu_options(request, options_session)
+            try:
+                gpu_options = options_service.resolve_chat_gpu_options(
+                    request, options_session
+                )
+            except Exception as exc:
+                logger.warning("Unable to load GPU options for AI chat: %s", exc)
+                gpu_options = None
+            try:
+                resource_options = options_service.resolve_resource_options(
+                    request, gpu_options or [], options_session, current_user
+                )
+            except Exception as exc:
+                logger.warning("Unable to load resource options for AI chat: %s", exc)
+                resource_options = None
+        return gpu_options, resource_options
 
-    gpu_options = await asyncio.to_thread(load_gpu_options)
+    gpu_options, resource_options = await asyncio.to_thread(load_chat_resources)
     payload = build_chat_payload(
-        request, gpu_options=gpu_options, model_name=model_name
+        request,
+        gpu_options=gpu_options,
+        model_name=model_name,
+        resource_options=resource_options,
+        inventory_loaded=True,
     )
 
     request_id = new_ai_request_id()
@@ -225,7 +258,9 @@ async def chat(
             TEMPLATE_CHAT_CONTRACT,
             latest_user_request(request),
             content,
-            build_chat_adherence_facts(request, gpu_options=gpu_options),
+            build_chat_adherence_facts(
+                request, gpu_options=gpu_options, resource_options=resource_options
+            ),
             guard_request_id,
             model_name=model_name,
             phase="respond",
@@ -292,12 +327,6 @@ async def recommend(
     # conversation verbatim and resolves final intent there.
     extracted_intent = infer_intent_from_chat(request)
     form_context = request.form_context
-    # 同步 PVE／DB 呼叫丟到 worker thread，理由同 chat
-    gpu_options = await asyncio.to_thread(
-        options_service.resolve_recommend_gpu_options,
-        request,
-        requires_gpu=extracted_intent.requires_gpu,
-    )
     merged_request = RecommendationRequest(
         goal=extracted_intent.goal_summary,
         role=extracted_intent.role,
@@ -307,31 +336,74 @@ async def recommend(
         needs_database=extracted_intent.needs_database,
         requires_gpu=extracted_intent.requires_gpu,
         needs_windows=extracted_intent.needs_windows,
+        needs_desktop=extracted_intent.needs_desktop,
         device_nodes=request.device_nodes,
         form_context=form_context,
     )
     # 表單快照過大屬於客戶端錯誤：在記錄用量的 try 之前就擋掉（與 /chat 一致）
     ensure_recommendation_form_context_within_limits(merged_request)
 
+    # 同步 PVE／DB 呼叫丟到 worker thread，理由同 chat
     def load_options() -> dict[str, Any]:
         with Session(engine) as options_session:
-            return options_service.resolve_resource_options(
-                request,
-                gpu_options,
-                options_session,
-                current_user,
+            gpu_options = options_service.resolve_recommend_gpu_options(
+                request, options_session, requires_gpu=merged_request.requires_gpu
             )
+            try:
+                return options_service.resolve_resource_options(
+                    request,
+                    gpu_options,
+                    options_session,
+                    current_user,
+                )
+            except Exception as exc:
+                # PVE 讀不到映像清單時仍給一份規格配置（作業系統留給使用者在表單選），
+                # 不要整個請求失敗、只剩一句「已保留你的需求」
+                logger.warning(
+                    "Unable to load resource options for AI recommendation: %s", exc
+                )
+                return {
+                    "lxc_os_images": [],
+                    "vm_operating_systems": [],
+                    "application_templates": [],
+                    "gpu_options": gpu_options,
+                }
 
     resource_options = await asyncio.to_thread(load_options)
-    live_nodes_task = asyncio.create_task(options_service.get_live_device_nodes_safely())
+    live_nodes_task = asyncio.create_task(
+        options_service.get_live_device_nodes_safely()
+    )
 
     try:
-        ai_result, ai_metrics = await generate_ai_plan(
-            merged_request,
-            request.messages,
-            resource_options=resource_options,
-            request_id=request_id,
-        )
+        ai_result: dict[str, Any] | None
+        try:
+            ai_result, ai_metrics = await generate_ai_plan(
+                merged_request,
+                request.messages,
+                resource_options=resource_options,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            if not _is_planner_failure(exc):
+                raise
+            # 模型逾時或上游錯誤：記成失敗，但仍依已收集的需求回一份規則配置，
+            # 不要只留給使用者一句「已保留你的需求」
+            await _record_failed_template_call(
+                session,
+                user_id=current_user.id,
+                call_type="recommend",
+                model_name=model_name,
+                request_id=request_id,
+                started_at=started_at,
+                started_at_utc=started_at_utc,
+                exc=exc,
+            )
+            logger.warning(
+                "Template AI planner failed, using rule-based plan: request_id=%s error=%s",
+                request_id,
+                exc,
+            )
+            ai_result, ai_metrics = None, {}
         try:
             live_nodes = await asyncio.wait_for(
                 asyncio.shield(live_nodes_task),
@@ -341,17 +413,30 @@ async def recommend(
             live_nodes = []
         if live_nodes:
             merged_request.device_nodes = live_nodes
-        result = normalize_ai_result(
-            ai_result,
-            merged_request,
-            merged_request.device_nodes,
-            resource_options=resource_options,
-        )
-        result["live_device_nodes"] = [
-            node.model_dump() for node in merged_request.device_nodes
-        ]
-        result["ai_metrics"] = ai_metrics
-        result["resource_options"] = resource_options
+
+        def build_result(*, fallback: bool) -> dict[str, Any]:
+            plan_input = (
+                rule_based_ai_result(merged_request, resource_options=resource_options)
+                if fallback
+                else ai_result or {}
+            )
+            result = normalize_ai_result(
+                plan_input,
+                merged_request,
+                merged_request.device_nodes,
+                resource_options=resource_options,
+                fallback=fallback,
+            )
+            result["live_device_nodes"] = [
+                node.model_dump() for node in merged_request.device_nodes
+            ]
+            result["ai_metrics"] = ai_metrics
+            result["resource_options"] = resource_options
+            return result
+
+        if ai_result is None:
+            return build_result(fallback=True)
+        result = build_result(fallback=False)
 
         # 記錄 template recommend 呼叫（耗時為模型呼叫本身，由 generate_ai_plan 量測）
         await _record_template_call(
@@ -388,6 +473,7 @@ async def recommend(
                     "form_context": chat_form_snapshot(request),
                     "requires_gpu": merged_request.requires_gpu,
                     "needs_windows": merged_request.needs_windows,
+                    "needs_desktop": merged_request.needs_desktop,
                     "application_templates": resource_options.get(
                         "application_templates", []
                     )[:20],
@@ -401,8 +487,13 @@ async def recommend(
                             :20
                         ]
                     ],
-                    "available_gpu_mapping_ids": [
-                        item.get("mapping_id")
+                    "available_gpus": [
+                        {
+                            "mapping_id": item.get("mapping_id"),
+                            "model": item.get("model"),
+                            "description": item.get("description"),
+                            "available_count": item.get("available_count"),
+                        }
                         for item in resource_options.get("gpu_options", [])[:20]
                     ],
                 },
@@ -419,13 +510,10 @@ async def recommend(
             request_id=guard_request_id,
             result=guard_result,
         )
-        _raise_guard_failure(guard_result, request_id=request_id)
         if not guard_result.allowed:
-            raise HTTPException(
-                status_code=422,
-                detail=TEMPLATE_ADHERENCE_FALLBACK,
-                headers={"X-AI-Request-ID": request_id},
-            )
+            # 不採用這次模型挑的欄位，改回不經模型的規則配置；檢查器失敗也一樣，
+            # 回傳內容完全不含模型輸出，不需要再擋下整份配置。
+            return build_result(fallback=True)
 
         return result
     except HTTPException:

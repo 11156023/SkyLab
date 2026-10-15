@@ -368,7 +368,7 @@ def placement_env(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             get_overcommit_ratios=lambda _s: (1.0, 1.0),
             get_node_priorities=lambda _s: {},
             build_plan=lambda **_: SimpleNamespace(feasible=env.pinned_plan_feasible),
-            CurrentPlacementSelection=lambda **kw: SimpleNamespace(**kw),
+            CurrentPlacementSelection=SimpleNamespace,
             select_reserved_target_node=lambda **_: env.fallback,
             select_current_target_node=lambda **_: env.selection,
         ),

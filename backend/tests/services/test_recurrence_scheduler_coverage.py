@@ -251,9 +251,13 @@ def _policy(**overrides) -> SchedulePolicy:
     return SchedulePolicy(**values)
 
 
+def _session_policy(*, session: Any) -> SchedulePolicy:
+    return _policy()
+
+
 def test_scheduled_boot_batches_and_survives_failures(monkeypatch) -> None:
     monkeypatch.setattr(rs, "_utc_now", lambda: NOW)
-    monkeypatch.setattr(rs, "get_schedule_policy", lambda *, session: _policy())
+    monkeypatch.setattr(rs, "get_schedule_policy", _session_policy)
     end = NOW + timedelta(hours=1)
     first = SimpleNamespace(
         id=uuid.uuid4(),
@@ -301,7 +305,7 @@ def test_scheduled_boot_batches_and_survives_failures(monkeypatch) -> None:
 
 def test_scheduled_boot_without_targets_returns_early(monkeypatch) -> None:
     monkeypatch.setattr(rs, "_utc_now", lambda: NOW)
-    monkeypatch.setattr(rs, "get_schedule_policy", lambda *, session: _policy())
+    monkeypatch.setattr(rs, "get_schedule_policy", _session_policy)
     _use_session(monkeypatch, _FakeSession())
     monkeypatch.setattr(rs, "_batch_boot_specs", lambda *, session, now: [])
     monkeypatch.setattr(

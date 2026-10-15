@@ -38,39 +38,6 @@ _live_nodes_cache: dict[str, Any] = {"at": 0.0, "items": []}
 _base_resource_options_cache: dict[str, Any] = {"at": 0.0, "items": None}
 _application_templates_cache: dict[str, Any] = {"at": 0.0, "items": None}
 
-_GPU_KEYWORDS = (
-    "gpu",
-    "vram",
-    "cuda",
-    "nvidia",
-    "pytorch",
-    "tensorflow",
-    "llm",
-    "yolo",
-    "訓練",
-    "推理",
-    "顯卡",
-)
-
-
-def latest_user_text(request: ChatRequest) -> str:
-    for message in reversed(request.messages):
-        if str(message.role).strip().lower() == "user":
-            return str(message.content or "")
-    return ""
-
-
-def should_include_gpu_runtime_context(request: ChatRequest) -> bool:
-    form_context = request.form_context
-    if form_context and (
-        (form_context.resource_type and str(form_context.resource_type).lower() == "vm")
-        or form_context.selected_gpu_mapping_id
-    ):
-        return True
-
-    text = latest_user_text(request).lower()
-    return any(keyword in text for keyword in _GPU_KEYWORDS)
-
 
 def get_base_gpu_options_cached() -> list[dict[str, Any]]:
     now = monotonic()
@@ -239,28 +206,13 @@ def resolve_resource_options(
     return resource_options
 
 
-def resolve_recommend_gpu_options(
-    request: ChatRequest, *, requires_gpu: bool
-) -> list[dict[str, Any]]:
-    form_context = request.form_context
-    if form_context and form_context.gpu_options:
-        return [item.model_dump(mode="json") for item in form_context.gpu_options]
-
-    selected_gpu_mapping_id = (
-        form_context.selected_gpu_mapping_id if form_context else None
-    )
-    if not requires_gpu and not selected_gpu_mapping_id:
-        return []
-
-    return get_base_gpu_options_cached()
-
-
-def resolve_chat_gpu_options(
+def _window_adjusted_gpu_options(
     request: ChatRequest, session: Session
 ) -> list[dict[str, Any]]:
-    if not should_include_gpu_runtime_context(request):
-        return []
+    """伺服器端的 GPU 清單，表單已選時段時扣掉該時段已被預約的額度。
 
+    不採用前端送來的 gpu_options：那份清單可能過期，也沒扣掉預約。
+    """
     # 20 秒快取只留在這裡：/gpu/options 直接查 PVE，不共用這份快取
     options = get_base_gpu_options_cached()
     form_context = request.form_context
@@ -274,3 +226,30 @@ def resolve_chat_gpu_options(
         end_at=form_context.end_at,
     )
     return [option.model_dump(mode="json") for option in adjusted]
+
+
+def resolve_recommend_gpu_options(
+    request: ChatRequest, session: Session, *, requires_gpu: bool
+) -> list[dict[str, Any]]:
+    form_context = request.form_context
+    selected_gpu_mapping_id = (
+        form_context.selected_gpu_mapping_id if form_context else None
+    )
+    if not requires_gpu and not selected_gpu_mapping_id:
+        return []
+    try:
+        return _window_adjusted_gpu_options(request, session)
+    except Exception as exc:  # PVE 失敗不該擋住整份配置，當成沒有可用 GPU
+        logger.warning("Unable to load GPU options for AI recommendation: %s", exc)
+        return []
+
+
+def resolve_chat_gpu_options(
+    request: ChatRequest, session: Session
+) -> list[dict[str, Any]]:
+    """問答一律附上 GPU 清單（有快取）。
+
+    只在問句命中關鍵字時才查，換個說法（「顯示卡」「A100 還有嗎」）模型就
+    看不到清單，只能自己編型號。
+    """
+    return _window_adjusted_gpu_options(request, session)

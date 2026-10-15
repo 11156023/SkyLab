@@ -202,7 +202,7 @@ async def test_cancelled_shutdown_still_discards_queued_work(writer, monkeypatch
         await settle(lambda: writer.closed if kind == "usage" else ai_capacity._closed)
         closing.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await closing
+            await asyncio.gather(closing)
         assert queued.cancelled()
         assert queued_calls == []
     finally:
@@ -312,7 +312,7 @@ async def test_session_cannot_close_while_cancelled_db_worker_is_running():
     finally:
         gate.set()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.gather(task)
     assert closed == [True]
 
 
@@ -555,6 +555,6 @@ async def test_actual_asgi_ws_db_lookup_keeps_http_loop_available(monkeypatch, k
         assert not task.done() and not gate.is_set()
     finally:
         gate.set()
-    await task
+    await asyncio.gather(task)
     assert any(message["type"] == "websocket.accept" for message in sent)
     assert threads and threading.get_ident() not in threads
