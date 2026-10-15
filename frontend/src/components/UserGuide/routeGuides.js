@@ -6,6 +6,7 @@
  */
 const ROUTE_GUIDES = [
   { match: /^\/dashboard$/, id: "dashboard", icon: "space_dashboard", profile: "explore" },
+  { match: /^\/home$/, id: "dashboard", icon: "home", profile: "explore" },
   { match: /^\/courses$/, id: "courses", icon: "school", profile: "explore" },
   { match: /^\/courses\/[^/]+$/, id: "course", icon: "menu_book", profile: "learning" },
   { match: /^\/courses\/[^/]+\/weeks\/[^/]+$/, id: "course-week", icon: "event_note", profile: "learning" },
