@@ -20,7 +20,8 @@ function buildInitialForm(config) {
     bridge_name:   config?.bridge_name ?? "vmbr1",
     vlan_tag:      config?.vlan_tag != null ? String(config.vlan_tag) : "",
     gateway_vm_ip: config?.gateway_vm_ip ?? "",
-    dns_servers:   config?.dns_servers ?? "",
+    platform_ip:   config?.platform_ip ?? "",
+    dns_servers:  config?.dns_servers ?? "",
     extra_blocked_subnets: (config?.extra_blocked_subnets ?? []).join("\n"),
     forward_port_start: String(config?.forward_port_start ?? 30000),
     forward_port_end:   String(config?.forward_port_end ?? 39999),
@@ -56,7 +57,8 @@ export default function SubnetConfigForm({
       bridge_name:   form.bridge_name.trim(),
       vlan_tag:      form.vlan_tag.trim() ? Number(form.vlan_tag) : null,
       gateway_vm_ip: form.gateway_vm_ip.trim(),
-      dns_servers:   form.dns_servers.trim() || null,
+      platform_ip:   form.platform_ip.trim() || null,
+      dns_servers:  form.dns_servers.trim() || null,
       extra_blocked_subnets: parseBlockedList(form.extra_blocked_subnets),
       forward_port_start: Number(form.forward_port_start),
       forward_port_end:   Number(form.forward_port_end),
@@ -156,6 +158,17 @@ export default function SubnetConfigForm({
             placeholder={t("SubnetConfigForm.gatewayVmIpPlaceholder")}
             pattern={IPV4_PATTERN}
             required
+          />
+        </label>
+
+        {/* 選填：主系統在實驗室網段內的 IP，有填就保留、不會配給 VM / LXC */}
+        <label className={styles.field}>
+          <span>{t("SubnetConfigForm.platformIp")}</span>
+          <input
+            value={form.platform_ip}
+            onChange={(e) => set("platform_ip", e.target.value)}
+            placeholder={t("SubnetConfigForm.platformIpPlaceholder")}
+            pattern={IPV4_PATTERN}
           />
         </label>
 
