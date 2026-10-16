@@ -115,7 +115,7 @@ def _has_vm_allocations(session: Session) -> bool:
     )
 
 
-_SYSTEM_PURPOSES = ("subnet_gateway", "gateway_vm")
+_SYSTEM_PURPOSES = ("subnet_gateway", "gateway_vm", "platform_host")
 # 尚未綁到機器的整組預留（綁定後 purpose 會改成 vm／lxc）
 _RESERVATION_PURPOSES = ("class_reserved", "quick_practice_reserved")
 # 快速練習的預留鍵格式見 quick_practice._ip_reservation_key：quick:<session>:<node>
@@ -188,18 +188,32 @@ def _ip_holder_label(session: Session, alloc: IpAllocation) -> str:
     )
 
 
+def _system_ip_fields(
+    gateway: str, gateway_vm_ip: str, platform_ip: str | None
+) -> list[tuple[str, str]]:
+    """系統保留 IP 與其標籤 key；主系統 IP 選填，沒填就不列。"""
+    fields = [
+        (gateway, "ipManagement.gatewayIpLabel"),
+        (gateway_vm_ip, "ipManagement.gatewayVmIpLabel"),
+    ]
+    if platform_ip:
+        fields.append((platform_ip, "ipManagement.platformIpLabel"))
+    return fields
+
+
 def _assert_system_ips_available(
-    session: Session, *, gateway: str, gateway_vm_ip: str
+    session: Session,
+    *,
+    gateway: str,
+    gateway_vm_ip: str,
+    platform_ip: str | None = None,
 ) -> None:
-    """閘道／Gateway VM IP 不可是已配發給機器或被預留的位址。
+    """閘道／Gateway VM／主系統 IP 不可是已配發給機器或被預留的位址。
 
     不先擋的話 ``_reserve_system_ips`` 會撞到 ip_address 的 UNIQUE 約束變成 500。
     原本的系統保留列會整批重建，不算衝突。
     """
-    for ip_str, label_key in (
-        (gateway, "ipManagement.gatewayIpLabel"),
-        (gateway_vm_ip, "ipManagement.gatewayVmIpLabel"),
-    ):
+    for ip_str, label_key in _system_ip_fields(gateway, gateway_vm_ip, platform_ip):
         normalized = str(ipaddress.IPv4Address(ip_str))
         holder = session.exec(
             select(IpAllocation).where(
@@ -225,6 +239,7 @@ def upsert_subnet_config(
     gateway: str,
     bridge_name: str,
     gateway_vm_ip: str,
+    platform_ip: str | None = None,
     dns_servers: str | None = None,
     extra_blocked_subnets: list[str] | None = None,
     forward_port_start: int | None = None,
@@ -235,16 +250,14 @@ def upsert_subnet_config(
     """設定或更新子網配置，並保留系統 IP。
 
     若已有 VM/LXC 類型的 IP 分配或班級／快速練習的預留且 CIDR 改變，則拒絕操作；
-    閘道／Gateway VM IP 撞到已配發或預留的位址時回 409。
+    閘道／Gateway VM／主系統 IP 撞到已配發或預留的位址時回 409。
     VLAN 只在建立機器時寫進網卡，改了不會回頭改既有機器。
     """
     network = ipaddress.IPv4Network(cidr, strict=False)
+    system_ips = _system_ip_fields(gateway, gateway_vm_ip, platform_ip)
 
     # 驗證所有 IP 都在 CIDR 範圍內
-    for ip_str, label_key in [
-        (gateway, "ipManagement.gatewayIpLabel"),
-        (gateway_vm_ip, "ipManagement.gatewayVmIpLabel"),
-    ]:
+    for ip_str, label_key in system_ips:
         ip = ipaddress.IPv4Address(ip_str)
         if ip not in network:
             raise BadRequestError(
@@ -254,6 +267,9 @@ def upsert_subnet_config(
     # 閘道與 Gateway VM IP 不可相同
     if gateway == gateway_vm_ip:
         raise BadRequestError(t("ipManagement.gatewayIpsMustDiffer"))
+    # 主系統 IP 也不可跟閘道或 Gateway VM 共用
+    if platform_ip and platform_ip in (gateway, gateway_vm_ip):
+        raise BadRequestError(t("ipManagement.platformIpMustDiffer"))
 
     # 額外封鎖網段會變成每台機器的 out-DROP，而且排在往網關的 ACCEPT 前面；
     # 跟實驗室子網重疊的話，機器連閘道、DNS、其他機器都會被自己擋掉。
@@ -287,7 +303,10 @@ def upsert_subnet_config(
                 )
 
     _assert_system_ips_available(
-        session, gateway=gateway, gateway_vm_ip=gateway_vm_ip
+        session,
+        gateway=gateway,
+        gateway_vm_ip=gateway_vm_ip,
+        platform_ip=platform_ip,
     )
 
     if existing:
@@ -297,6 +316,7 @@ def upsert_subnet_config(
         existing.bridge_name = bridge_name
         existing.vlan_tag = vlan_tag
         existing.gateway_vm_ip = gateway_vm_ip
+        existing.platform_ip = platform_ip
         if forward_port_start is not None:
             existing.forward_port_start = forward_port_start
         if forward_port_end is not None:
@@ -313,6 +333,7 @@ def upsert_subnet_config(
             bridge_name=bridge_name,
             vlan_tag=vlan_tag,
             gateway_vm_ip=gateway_vm_ip,
+            platform_ip=platform_ip,
             forward_port_start=forward_port_start or 30000,
             forward_port_end=forward_port_end or 39999,
             forward_public_host=forward_public_host,
@@ -373,14 +394,13 @@ def delete_subnet_config(session: Session) -> None:
 
 
 def _reserve_system_ips(session: Session, config: SubnetConfig) -> None:
-    """保留系統級 IP（閘道、Gateway VM）。
+    """保留系統級 IP（閘道、Gateway VM、有填時的主系統）。
 
     先清除既有系統保留，再重新建立。
     """
-    system_purposes = ["subnet_gateway", "gateway_vm"]
     old_allocs = session.exec(
         select(IpAllocation).where(
-            IpAllocation.purpose.in_(system_purposes)  # type: ignore[union-attr]
+            IpAllocation.purpose.in_(_SYSTEM_PURPOSES)  # type: ignore[union-attr]
         )
     ).all()
     for alloc in old_allocs:
@@ -391,6 +411,8 @@ def _reserve_system_ips(session: Session, config: SubnetConfig) -> None:
         (config.gateway, "subnet_gateway", "子網閘道"),
         (config.gateway_vm_ip, "gateway_vm", "Gateway VM"),
     ]
+    if config.platform_ip:
+        reserves.append((config.platform_ip, "platform_host", "主系統"))
     for ip, purpose, desc in reserves:
         alloc = IpAllocation(
             ip_address=ip,

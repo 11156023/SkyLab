@@ -66,6 +66,8 @@ class SubnetConfig(SQLModel, table=True):
     # 選填：實驗室網段走 802.1Q VLAN 時，VM/LXC 網卡帶 tag=N；None＝untagged
     vlan_tag: int | None = Field(default=None)
     gateway_vm_ip: str = Field(max_length=50)
+    # 選填：主系統（SkyLab 平台主機）在實驗室網段內的 IP；有填就保留不配發給機器
+    platform_ip: str | None = Field(default=None, max_length=50)
     # 對外 port 轉發的自動配號池：課程環境逐位學生發布時從這段挑沒用過的。
     # 使用者在拓撲圖上自己填的對外 port 不受此範圍限制。
     forward_port_start: int = Field(default=30000)

@@ -69,6 +69,7 @@ const EMPTY_SUBNET_FORM = {
   bridge_name: "vmbr1",
   vlan_tag: "",
   gateway_vm_ip: "",
+  platform_ip: "",
   dns_servers: "",
   forward_port_start: "30000",
   forward_port_end: "39999",
@@ -639,7 +640,7 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
 
 /* ─── 步驟 3：IP 網段 ────────────────────────────────────── */
 
-function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
+export function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
   const { t } = useTranslation("login");
   const toast = useToast();
   const [form, setForm] = useState(EMPTY_SUBNET_FORM);
@@ -658,6 +659,7 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
         bridge_name: form.bridge_name.trim(),
         vlan_tag: form.vlan_tag.trim() ? Number(form.vlan_tag) : null,
         gateway_vm_ip: form.gateway_vm_ip.trim(),
+        platform_ip: form.platform_ip.trim() || null,
         dns_servers: form.dns_servers.trim() || null,
         extra_blocked_subnets: [],
         forward_port_start: Number(form.forward_port_start) || 30000,
@@ -730,6 +732,17 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
             pattern={IPV4_PATTERN}
             disabled={saving}
             required
+          />
+        </label>
+        {/* 選填：主系統在實驗室網段內的 IP，有填就保留、不會配給 VM / LXC */}
+        <label className={styles.field}>
+          <span>{t("SetupPage.platformIpLabel")}</span>
+          <input
+            value={form.platform_ip}
+            onChange={(e) => set("platform_ip", e.target.value)}
+            placeholder={t("SetupPage.platformIpPlaceholder")}
+            pattern={IPV4_PATTERN}
+            disabled={saving}
           />
         </label>
         <label className={styles.field}>
