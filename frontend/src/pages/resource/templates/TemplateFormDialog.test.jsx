@@ -9,6 +9,9 @@ import common from "../../../locales/zh-TW/common.json";
 const mocks = vi.hoisted(() => ({
   listAttachments: vi.fn(),
   uploadAttachment: vi.fn(),
+  create: vi.fn(),
+  listResources: vi.fn(),
+  confirm: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
@@ -17,16 +20,16 @@ vi.mock("../../../services/templates", () => ({
     listAttachments: mocks.listAttachments,
     uploadAttachment: mocks.uploadAttachment,
     removeAttachment: vi.fn(),
-    create: vi.fn(),
+    create: mocks.create,
     update: vi.fn(),
   },
 }));
 vi.mock("../../../services/resources", () => ({
-  ResourcesService: { list: async () => [], listAll: async () => [] },
+  ResourcesService: { list: mocks.listResources, listAll: mocks.listResources },
 }));
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { role: "teacher" } }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => vi.fn() }));
+vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({ t: translate }),
@@ -45,6 +48,7 @@ let root;
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.resetAllMocks();
+  mocks.listResources.mockResolvedValue([]);
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -199,5 +203,37 @@ describe("TemplateFormDialog 附件一次多檔", () => {
 
     expect(attachmentCount()).toBe(0);
     expect(mocks.toast.error).toHaveBeenCalledWith("檔案內容不合法");
+  });
+});
+
+describe("TemplateFormDialog 從資源列表轉成範本", () => {
+  const SOURCE = { vmid: 123, name: "web-lab", type: "qemu" };
+
+  test("來源機器預選並鎖定、名稱預填，不另外抓機器清單；確認後用該 vmid 建立", async () => {
+    mocks.confirm.mockResolvedValue(true);
+    mocks.create.mockResolvedValue({ template: { id: "tpl-new" } });
+    const onSaved = vi.fn();
+    await act(async () => {
+      root.render(<TemplateFormDialog sourceResource={SOURCE} onClose={() => {}} onSaved={onSaved} />);
+      await tick();
+    });
+
+    expect(mocks.listResources).not.toHaveBeenCalled();
+    const source = document.body.querySelector("#tpl-source");
+    expect(source.disabled).toBe(true);
+    expect(source.value).toBe("123");
+    expect(document.body.querySelector("#tpl-name").value).toBe("web-lab");
+
+    const submit = [...document.body.querySelectorAll("button")].find(
+      (b) => b.textContent === dict["TemplateFormDialog.startConvert"],
+    );
+    await act(async () => {
+      submit.click();
+      await tick();
+    });
+
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ source_vmid: 123, name: "web-lab" }));
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 });
