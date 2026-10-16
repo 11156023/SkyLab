@@ -205,7 +205,7 @@ If you run several SkyLab instances or want the community dashboard, you can als
 At install time, use `MONITORING_ALLOW_FROM` to specify the IP of the host running Prometheus (usually the one running SkyLab); UFW opens these two ports only to it:
 
 ```bash
-sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
+sudo MONITORING_ALLOW_FROM=192.0.2.20 bash install.sh
 ```
 
 Without it the exporters are still installed but Prometheus cannot reach them, so the `gateway-node` / `gateway-nginx` jobs stay down (the exporter status on the "SkyLab Gateway" dashboard shows DOWN). On a Gateway that is already installed, just re-run `install.sh` with this variable to add it.

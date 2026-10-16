@@ -43,7 +43,7 @@
 - 說明改了什麼、為什麼改，並連結相關 issue。
 - 行為變更要補或更新測試。後端測試在 `backend/tests/`，前端 service 測試與 service 檔放在一起。
 - 變更設定、部署步驟或維運流程時，同步更新 `docs/` 的文件。英文版是主要版本；有 `*.zh-TW.md` 對應檔時請一起更新。
-- CI 必須通過（後端測試、前端測試、migration 檢查、CodeQL）。
+- CI 必須通過（後端測試、前端測試、桌面端測試、AI service 測試、migration 檢查、CodeQL）。
 
 ## 貢獻的授權
 
@@ -66,6 +66,10 @@ SkyLab 以 AGPL-3.0 授權，維護者另外也提供商業授權。為了讓兩
 
 歡迎使用任何能幫上忙的工具，包括 AI 助手。但貢獻仍必須反映你自己的理解：你應該能解釋 PR 裡的每一處變更，而且已在本機實際跑過。看起來是自動生成、作者又沒有自行檢視過的 PR 會被關閉。
 
+## 行為準則
+
+參與本專案的每個人都應遵守[行為準則](CODE_OF_CONDUCT.zh-TW.md)。
+
 ## 有問題？
 
-在本 repo 開 GitHub issue 或 discussion。
+在本 repo 開 GitHub issue。

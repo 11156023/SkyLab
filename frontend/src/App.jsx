@@ -138,7 +138,6 @@ function App() {
   const reconnecting = loading && Boolean(authError);
   const isAdmin = isAdminUser(user);
   const canTeach = canTeachUser(user);
-  const canViewPersonalCourses = !canTeach || isAdmin;
   const isDeviceApproval = Boolean(
     new URLSearchParams(window.location.search).get("device_code"),
   );
@@ -258,13 +257,11 @@ function App() {
                   : <StudentHomePage />
             }
           />
-          {/* 管理員的一般首頁由側欄切換進入；預設入口仍是 /dashboard 管理首頁。 */}
-          <Route path="/home" element={isAdmin ? <StudentHomePage /> : <Navigate to="/dashboard" replace />} />
           {/* 單一課程總覽：課堂環境、課堂機器與截至今天的 AI 任務 */}
-          <Route path="/courses" element={canViewPersonalCourses ? <StudentCoursesPage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/courses/:pathId" element={canViewPersonalCourses ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/courses/:pathId/weeks/:weekId" element={canViewPersonalCourses ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard/course/:pathId" element={canViewPersonalCourses ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses" element={!canTeach ? <StudentCoursesPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId" element={!canTeach ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId/weeks/:weekId" element={!canTeach ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard/course/:pathId" element={!canTeach ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
           {/* 快速練習：學生、老師、管理者共用，側欄「教學」群組的入口 */}
           <Route path="/quick-create"         element={<QuickCreatePage />} />
           <Route path="/quick-template/:id"   element={<QuickTemplateFormPage />} />

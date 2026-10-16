@@ -75,7 +75,7 @@ def test_list_incidents_with_status_filter(session: Session) -> None:
 
 def test_list_incidents_with_owners_joins_owner(session: Session) -> None:
     owner = User(
-        email="11156077@ntub.edu.tw", full_name="王小明", hashed_password="x"
+        email="s1110001@example.edu", full_name="王小明", hashed_password="x"
     )
     session.add(owner)
     session.flush()
@@ -95,6 +95,6 @@ def test_list_incidents_with_owners_joins_owner(session: Session) -> None:
 
     rows = repo.list_incidents_with_owners(session=session)
     assert [(i.id, o.email if o else None) for i, o in rows] == [
-        (owned.id, "11156077@ntub.edu.tw"),
+        (owned.id, "s1110001@example.edu"),
         (orphan.id, None),
     ]

@@ -134,7 +134,7 @@ bun run test          # Vitest, services layer
 bun run build         # catches import and syntax errors
 ```
 
-Pre-commit hooks (ruff, ruff-format, trailing whitespace, YAML/TOML checks) are managed with [prek](https://prek.j178.dev/):
+Pre-commit hooks (ruff, ruff-format, YAML/TOML checks, large-file check; defined in the root `.pre-commit-config.yaml`) are managed with [prek](https://prek.j178.dev/):
 
 ```bash
 cd backend

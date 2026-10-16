@@ -30,6 +30,11 @@ Bundled installer
   Windows is not already present and is not removed when SkyLab Connect is
   uninstalled, because other applications may share it.
 
+Application template
+  Electron + Vue 3 + Vite template  MIT      Copyright (c) 2023 刘嘉伟
+  Portions of the application scaffolding derive from this template; its full
+  MIT notice is reproduced in the NOTICE file of the repository.
+
 Build tooling (Vite, TypeScript, electron-builder, ESLint, Tailwind CSS) is
 used to produce this application and is not distributed with it.
 

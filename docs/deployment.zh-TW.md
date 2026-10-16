@@ -63,7 +63,7 @@ backend 容器內沒有掛專案 `.env`，在容器內跑要加 `--skip-env-upda
 | `VLLM_BASE_URL`、`VLLM_API_KEY`、`VLLM_MODEL_NAME` | 內建 AI 助手（System AI）用的模型 |
 | `AI_API_BASE_URL`、`AI_API_API_KEY`、`AI_API_PUBLIC_BASE_URL`、`LITELLM_RUNTIME_*` | 經 LiteLLM 對外的 AI API；`AI_API_API_KEY` 是受限的 service key，絕不是 master key |
 | `SMTP_*`、`EMAILS_FROM_EMAIL` | 註冊驗證信；正式環境啟用註冊時須設定真實 SMTP，MailCatcher 僅供本機開發 |
-| `GOOGLE_CLIENT_ID` | Google OAuth Client ID；後端驗證 ID token 的 aud 與已驗證信箱，Google 帳號範圍由 Google Cloud「目標對象」控制，詳見[Google 登入與公開註冊](google-login-registration.zh-TW.md) |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID；後端驗證 ID token 的 aud 與已驗證信箱，Google 帳號範圍由 Google Cloud「目標對象」控制，詳見[註冊設定與 Google 登入](registration-and-google-login.zh-TW.md) |
 | `TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY` | 登入與註冊頁的 Cloudflare Turnstile；兩個都填才啟用 |
 | `LDAP_CA_CERT_FILE` | LDAP/AD over TLS 的 CA，見下方 |
 | `SENTRY_DSN`、`SENTRY_RELEASE`、`VITE_SENTRY_DSN` | 錯誤追蹤；前端的值在建置映像時帶入 |

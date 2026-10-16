@@ -1,0 +1,12 @@
+# Security updates for all ecosystems are enabled in the repository settings.
+# Version updates are limited to GitHub Actions; application dependencies are
+# upgraded by hand in reviewed batches.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

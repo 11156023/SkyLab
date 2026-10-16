@@ -8,7 +8,7 @@ on:
 
 jobs:
   opencode:
-    # 🔥 突破盲腸：用括號將「身分群組」與「指令群組」分開，並用 && 連接
+    # Only repository members may trigger it: the author check and the command check are grouped separately and joined with &&.
     if: |
       (github.event.comment.author_association == 'OWNER' ||
        github.event.comment.author_association == 'MEMBER' ||
@@ -39,6 +39,6 @@ jobs:
         uses: anomalyco/opencode/github@fe3f3a41f79ad292cc3c7c629567385a20ec5130 # v1.18.32
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }} # 確保你有在 Repo 的 Settings -> Secrets 裡設定這個 Key
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }} # set under Settings → Secrets and variables → Actions
         with:
           model: opencode/deepseek-v4-pro

@@ -91,7 +91,7 @@
   flex: 1;
 }
 
-/* 品牌列下方與底部區塊上方共用同一條分隔線，
+/* 品牌列下方、麵包屑下方與底部區塊上方共用同一條分隔線，
    側欄才讀得出上／中／下三段 */
 .divider {
   height: 1px;
@@ -348,14 +348,59 @@
 
 /* ===== 管理員設定核心側欄 ===== */
 
-/* 管理區是管理員的預設工作區，以標題標示，避免呈現成下一層頁面。 */
-.sectionTitle {
+/* 麵包屑：交代「從哪來 / 現在在哪」，不是清單的一項。
+   只有左半的「主控台」可點，右半是目前位置的靜態標示 */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
   padding: 6px $spacing-8;
   margin-bottom: $spacing-4;
   font-size: $font-size-12;
   color: var(--color-text-muted);
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.crumbLink {
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  font-size: inherit;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+.crumbCurrent {
+  color: var(--color-text-primary);
   font-weight: $font-weight-500;
   @include text-truncate;
+}
+
+/* 側欄收合時放不下麵包屑，退回成純箭頭鈕 */
+.backItem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px;
+  margin-bottom: $spacing-4;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
 }
 
 /* ===== Popup animations ===== */

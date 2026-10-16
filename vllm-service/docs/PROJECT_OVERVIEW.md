@@ -33,7 +33,7 @@ The `--no-gateway` and `--gateway-ready-timeout` flags from the old command are 
 
 ## Configuration boundaries
 
-The main Campus-Cloud backend uses two different settings:
+The main SkyLab backend uses two different settings:
 
 ```env
 VLLM_BASE_URL=http://localhost:8000/v1

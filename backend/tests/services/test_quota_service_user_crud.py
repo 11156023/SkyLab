@@ -78,6 +78,22 @@ def test_create_user_quota_missing_user_is_404(
             actor_id=ACTOR_ID,
         )
     assert session.commits == 0
+
+
+def test_create_user_quota_for_admin_is_409(
+    audit_calls: list[dict[str, Any]],
+) -> None:
+    """管理員不受配額限制，設了也不會生效，直接拒絕。"""
+    session = _FakeSession({User: SimpleNamespace(role="admin")})
+    with pytest.raises(ConflictError):
+        quota_service.create_user_quota(
+            session,  # type: ignore[arg-type]
+            ResourceQuotaCreate(user_id=uuid.uuid4()),
+            actor_id=ACTOR_ID,
+        )
+    assert session.added == []
+    assert session.commits == 0
+    assert audit_calls == []
     assert audit_calls == []
 
 

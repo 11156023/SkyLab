@@ -134,7 +134,7 @@ bun run test          # Vitest，services 層
 bun run build         # 抓 import 與語法錯誤
 ```
 
-Pre-commit hooks（ruff、ruff-format、trailing whitespace、YAML/TOML 檢查）由 [prek](https://prek.j178.dev/) 管理：
+Pre-commit hooks（ruff、ruff-format、YAML/TOML 檢查、大檔檢查；定義在根目錄的 `.pre-commit-config.yaml`）由 [prek](https://prek.j178.dev/) 管理：
 
 ```bash
 cd backend

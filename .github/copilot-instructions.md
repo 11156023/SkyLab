@@ -1,6 +1,6 @@
 # SkyLab — Copilot Instructions
 
-> Working rules for GitHub Copilot CLI / Copilot Chat and similar agents. This is the short version; the full guide for AI agents lives in the repository root `CLAUDE.md` (local, not committed) and the human-facing docs in [`docs/`](../docs/README.md). When they disagree, `CLAUDE.md` wins.
+> Working rules for GitHub Copilot CLI / Copilot Chat and similar agents. This is the short version; the full documentation lives in [`docs/`](../docs/README.md) and [`CONTRIBUTING.md`](../CONTRIBUTING.md). When anything here disagrees with the code, the code wins.
 
 ## Project at a glance
 
@@ -81,7 +81,6 @@ main.py           ← FastAPI app, lifespan (Redis init + scheduler / push / Wir
 ## Provisioning flow (key points)
 
 - VM request → scheduler (`services/scheduling/coordinator.py`) → provisioning fan-out through `provision_pool` (dedup: runner task id + DB `SKIP LOCKED` + status re-check); clones run in the arq worker.
-- Service-template deployment goes through `services/network/script_deploy_service.py` (SSH to the Proxmox node, community-scripts); cancellation sets a cancel event → the SSH streaming loop breaks → rollback (destroy container + release IP).
 - IP allocation **must** come from `services/network/ip_management_service` (`cidr/gateway/dns`); never fall back to DHCP.
 
 ## Commit messages
@@ -91,7 +90,6 @@ main.py           ← FastAPI app, lifespan (Redis init + scheduler / push / Wir
 
 ## Style
 
-- **Backend:** Ruff + Mypy strict + prek pre-commit.
+- **Backend:** Ruff + Mypy strict + prek pre-commit (root `.pre-commit-config.yaml`).
 - **Frontend:** SCSS Modules per [`docs/frontend-style-guide.md`](../docs/frontend-style-guide.md); no linter configured yet.
 - **Comments:** only to explain intent, never to restate what the code literally does.
-- Environment is Windows for the main maintainer; use `\` paths in shell suggestions where it matters.

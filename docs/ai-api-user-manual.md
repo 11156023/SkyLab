@@ -2,37 +2,37 @@
 
 > **English** | [繁體中文](./ai-api-user-manual.zh-TW.md)
 
-This manual covers the deployment in which the main Campus Compose stack integrates LiteLLM.
-Regular users obtain `ccai_*` keys from Campus; operators manage Docker from the project root,
+This manual covers the deployment in which the main SkyLab Compose stack integrates LiteLLM.
+Regular users obtain `ccai_*` keys from SkyLab; operators manage Docker from the project root,
 and model connections are centralised in `vllm-service/models.json`. Unless stated otherwise,
-every deployment command below is run from `Campus-Cloud/`.
+every deployment command below is run from the repository root.
 
 ## 1. Request flow and file locations
 
 ```mermaid
 flowchart LR
-    U[User: ccai key] --> N[Campus nginx: 8082]
+    U[User: ccai key] --> N[SkyLab nginx: 8082]
     N --> B[Backend: key validation and rate limiting]
     B -->|restricted service key| L[LiteLLM: Compose internal network litellm:4000]
     L -->|local upstream key| V[Local vLLM: 8103 / 8104]
     L -->|per-host upstream key| R[Remote vLLM: IP or domain]
-    B -->|PgBouncer| C[(Campus DB)]
+    B -->|PgBouncer| C[(SkyLab DB)]
     L -->|direct to db:5432| D[(Dedicated LiteLLM DB)]
 ```
 
 LiteLLM shares the Compose `skylab` internal network with the backend and worker; the backend calls it at
 `http://litellm:4000`. LiteLLM connects directly to its own dedicated database on the same PostgreSQL
 instance (`db:5432`), bypassing PgBouncer. On the host, only `127.0.0.1:4000` is exposed, for health
-checks, key issuance and admin tooling. LiteLLM is not behind nginx: users always go through Campus
+checks, key issuance and admin tooling. LiteLLM is not behind nginx: users always go through SkyLab
 `/api/v1/ai-proxy`, where the backend validates the `ccai_*` key and applies rate limiting before
 forwarding. LiteLLM's admin UI, `/key/*` and health APIs are not exposed publicly; when you need the
 admin UI, connect to `127.0.0.1:4000` from the deployment host itself or through an SSH tunnel.
 
 | File | Purpose | Day-to-day maintenance |
 | --- | --- | --- |
-| `docker-compose.yml` | Campus production Docker entry point; includes the original LiteLLM Compose | `docker compose` from the repo root |
+| `docker-compose.yml` | SkyLab production Docker entry point; includes the original LiteLLM Compose | `docker compose` from the repo root |
 | `vllm-service/litellm/docker-compose.yml` | LiteLLM service definition; also kept as the standalone entry point | Edit once, shared by both launch modes |
-| `.env` | URLs and the restricted service key used by Campus backend/worker to reach LiteLLM | Keep existing values; never store LiteLLM admin/upstream keys here |
+| `.env` | URLs and the restricted service key used by SkyLab backend/worker to reach LiteLLM | Keep existing values; never store LiteLLM admin/upstream keys here |
 | `vllm-service/litellm/.env` | LiteLLM master key, salt, DB and every upstream key | Injected only into the LiteLLM container |
 | `vllm-service/models.json` | List of local and remote model connections | Add/remove models, adjust aliases or IPs |
 | `vllm-service/litellm/config.template.yaml` | Shared timeout, retry and health-check policy | Edit only when the policy changes |
@@ -41,7 +41,7 @@ admin UI, connect to `127.0.0.1:4000` from the deployment host itself or through
 
 `config.yaml`, `models.json` and the real `.env` files are all ignored by Git. Examples and templates may be committed.
 The root `.dockerignore` excludes the inference directories and every layer's `.env` so that model weights
-and secrets never end up in the Campus build. The LiteLLM `.env` is deliberately not merged into the main
+and secrets never end up in the SkyLab build. The LiteLLM `.env` is deliberately not merged into the main
 `.env`: backend, worker and prestart read the main `.env`, and keeping them separate ensures that
 high-privilege keys only reach the gateway. Maintenance stays small thanks to a single Compose definition,
 one model list and the pre-flight checks.
@@ -62,7 +62,7 @@ BACKEND_HOST_PORT=8000
 REDIS_HOST_PORT=6379
 ```
 
-`AI_API_PUBLIC_BASE_URL` is the Campus root URL that users can reach; locally it defaults to
+`AI_API_PUBLIC_BASE_URL` is the SkyLab root URL that users can reach; locally it defaults to
 `http://localhost:8082`. The full API base URL is that address plus `/api/v1/ai-proxy`.
 If the backend runs directly on the host, change both gateway URLs to `http://127.0.0.1:4000`;
 in main-Compose mode always use the service name `litellm` (the pre-flight check rejects `127.0.0.1`
@@ -71,7 +71,7 @@ and the old `host.docker.internal`).
 `AI_API_API_KEY` is chosen by the deployment and registered in LiteLLM: `--start` uses the master key to
 create a Virtual Key in LiteLLM with this value (alias `campus-ai-api-service`); if it already exists, the
 model allowlist is synced to the aliases currently in `models.json`. When reusing an existing LiteLLM
-database, simply fill in the key that was originally issued to Campus.
+database, simply fill in the key that was originally issued to SkyLab.
 
 The LiteLLM `.env`:
 
@@ -95,8 +95,8 @@ be entered by hand.
 
 | Key | User / service | Scope |
 | --- | --- | --- |
-| `ccai_*` | Regular user → Campus | Personal API access approved by Campus |
-| `AI_API_API_KEY` | Campus → LiteLLM | Models allowed by the LiteLLM Virtual Key |
+| `ccai_*` | Regular user → SkyLab | Personal API access approved by SkyLab |
+| `AI_API_API_KEY` | SkyLab → LiteLLM | Models allowed by the LiteLLM Virtual Key |
 | `LITELLM_MASTER_KEY` | Operators → LiteLLM | Gateway administration and Virtual Key issuance |
 | `VLLM_UPSTREAM_API_KEY`, remote keys | LiteLLM → inference hosts | Each upstream's model API |
 
@@ -110,7 +110,7 @@ observability features stay disabled.
 persist Virtual Key configuration and validation data, usage and spend records, user/team settings and its
 own schema. Whether usage records include request content depends on LiteLLM's logging settings; do not
 assume it stores only token counts. The database must be a dedicated DB with its own login role. It must
-not point to the Campus application DB, and Campus Alembic must never be run against it.
+not point to the SkyLab application DB, and SkyLab Alembic must never be run against it.
 
 `LITELLM_SALT_KEY` is used by LiteLLM to encrypt and decrypt some sensitive settings and upstream
 credentials it stores; it is not a user API key. Keep it fixed, and back it up and restore it together
@@ -122,7 +122,7 @@ host in the URL is `db:5432`, unrelated to `POSTGRES_HOST_PORT`. Do not use `pgb
 needs session semantics) or `127.0.0.1` (inside the container that points to itself). When the host is
 `db`, `--start` automatically creates the dedicated role and database using the account, password and
 database name in the URL (if they already exist, the role password is aligned with the URL), and verifies
-that the role has no table-creation privilege on the Campus database; LiteLLM runs its own schema
+that the role has no table-creation privilege on the SkyLab database; LiteLLM runs its own schema
 migration on startup. For a remote DB, enter that host's IP/domain and connection parameters and keep the
 existing DB and salt; external DBs are created by their own administrators and the script will not touch
 them. The integrated Compose does not migrate databases automatically. The old host-network value
@@ -218,7 +218,7 @@ bash scripts/prepare-ai-stack.sh --init-env
 bash scripts/prepare-ai-stack.sh --start
 ```
 
-The main `.env` must first be created from `.env.example` with the required Campus parameters filled in;
+The main `.env` must first be created from `.env.example` with the required SkyLab parameters filled in;
 if the LiteLLM `.env` does not exist, `--init-env` creates it from the template. `--init-env` generates
 automatically:
 
@@ -268,7 +268,7 @@ loopback.
 
 Keep the original `LITELLM_MASTER_KEY`, `LITELLM_SALT_KEY` and `DATABASE_URL` (for an external host enter
 its IP/domain; the script will not try to create it), and put the service key originally issued to
-Campus into `AI_API_API_KEY` and `LITELLM_RUNTIME_API_KEY` in the main `.env`. `--init-env` leaves real
+SkyLab into `AI_API_API_KEY` and `LITELLM_RUNTIME_API_KEY` in the main `.env`. `--init-env` leaves real
 values untouched; `--start` only syncs that key's model allowlist.
 
 ### Upgrading from the old host-network deployment
@@ -298,10 +298,10 @@ To add a model or change an IP: edit `models.json`, add the matching key to the 
 bash scripts/prepare-ai-stack.sh --start
 ```
 
-`--start` recreates LiteLLM to load the new routes and syncs the Campus service Virtual Key's model
+`--start` recreates LiteLLM to load the new routes and syncs the SkyLab service Virtual Key's model
 allowlist to the new alias list; no separate `/key/update` call is needed. If you only recreate with
 `docker compose up -d --force-recreate litellm`, the allowlist is not synced and new models remain
-unavailable to Campus users. Changing the model itself, the GPU or the local listening port also requires
+unavailable to SkyLab users. Changing the model itself, the GPU or the local listening port also requires
 restarting the local inference cluster. After editing the main `.env`, run
 `docker compose up -d --force-recreate backend worker` so the containers pick up the new values. A plain
 `restart` does not re-inject `.env`.
@@ -317,7 +317,7 @@ restarting the local inference cluster. After editing the main `.env`, run
 **Monitoring**: "Resource Monitoring → System Health" lists the status of the AI Gateway (LiteLLM) and of
 every model; when a model's upstream inference service (for example the DGX) is unreachable, a system
 alert is raised and emailed to administrators. With the monitoring stack enabled, the Grafana "SkyLab AI"
-dashboard shows Campus request volume/errors/latency plus LiteLLM and vLLM engine metrics; the vLLM scrape
+dashboard shows SkyLab request volume/errors/latency plus LiteLLM and vLLM engine metrics; the vLLM scrape
 targets are generated automatically by `--start` from `models.json`, and the remote host's firewall must
 allow the deployment host to reach the inference port (the same rule LiteLLM needs). See
 [System Monitoring](monitoring.md#ai-module-monitoring) for details.
@@ -333,7 +333,7 @@ no other fallback entry point.
 
 ## 6. Requesting and calling the API as a regular user
 
-Sign in to Campus, open the AI API page, fill in the purpose, key name and duration, and submit the
+Sign in to SkyLab, open the AI API page, fill in the purpose, key name and duration, and submit the
 request. Once someone with approval rights approves it, the user can view their key and connection
 examples. The key list only returns prefixes; the single plaintext key is shown only to its owner.
 Students can choose 1, 7, 30 or 90 days (default 30); teachers and administrators can choose 1, 7 or 30
@@ -343,7 +343,7 @@ requests and pending permanent requests from students must be rejected and resub
 keys keep their original expiry. After rotation the old key is invalidated immediately, so programs using
 it must be updated at the same time; users can view their own usage and revoke keys they no longer use.
 
-The request-management endpoints under `/api/v1/ai-api/*` use the Campus login bearer token; the
+The request-management endpoints under `/api/v1/ai-api/*` use the SkyLab login bearer token; the
 inference endpoints below use `ccai_*`. These are two different kinds of authentication. Set the
 `base_url` of your SDK or compatible client to `https://campus.example.edu/api/v1/ai-proxy`, without an
 extra `/v1` segment.
@@ -355,14 +355,14 @@ extra `/v1` segment.
 | `POST /completions` | Prompt-based text generation; requires upstream support |
 | `POST /responses` | Responses format; requires upstream support |
 
-Campus does not forward LiteLLM's admin, key, DB or health APIs. Other endpoints such as embeddings are
-currently outside the public scope of the Campus proxy.
+SkyLab does not forward LiteLLM's admin, key, DB or health APIs. Other endpoints such as embeddings are
+currently outside the public scope of the SkyLab proxy.
 
 ### curl: model list and chat
 
 ```bash
 export CAMPUS_AI_BASE_URL='http://localhost:8082/api/v1/ai-proxy'
-read -rsp 'Campus ccai key: ' CAMPUS_AI_API_KEY; echo
+read -rsp 'SkyLab ccai key: ' CAMPUS_AI_API_KEY; echo
 export CAMPUS_AI_API_KEY
 curl --fail --silent --show-error \
   --config <(printf 'header = "Authorization: Bearer %s"\n' "$CAMPUS_AI_API_KEY") \
@@ -405,19 +405,35 @@ with urlopen(request, timeout=120) as response:
 print(payload["choices"][0]["message"])
 ```
 
+### Reading the rate limits
+
+| Layer | Default in code / contract | What it means |
+| --- | --- | --- |
+| SkyLab generation | 20 requests per 60-second sliding window for each approved request | The key's `rate_limit` takes precedence; the site-wide default applies only when it is unset. Shared by all models and the three generation endpoints |
+| Model list | 30 requests per 60 seconds for each approved request | `/models` has its own quota and does not use the generation quota |
+| Rate-limit status | Does not use the generation quota | `/rate-limit/status` reports the credential's current quota; `disabled=true` and `error` have to be read separately |
+| Backend admission | Per process: 20 active globally, 10 active per model, 40 waiting | Concurrency and queueing limits, not RPM; the wait/cooldown budget is 70 seconds and the whole request has a 115-second deadline |
+| LiteLLM deployment | The generator gives each deployment `rpm` 10 by default | The source of truth is `litellm.rpm` in `vllm-service/models.json`; the generated config is only used at runtime |
+| AI navigation | 30 requests per 60 seconds for each logged-in account | `/resolve` and `/intake` share the `ai-navigation` scope; intake does not call the model but still counts |
+| AI PVE assistant | The chat route sets no separate RPM dependency | This does not mean unlimited capacity: it is still bound by login permissions, the System AI transport and upstream limits, and the public API's 20 RPM does not apply to it |
+
+The generation quota is keyed by the approved request's `request_id`, so rotating the key of the same request does not reset it, and different models do not each get their own 20 requests. A normal call and a streaming call each count once; the rate-limit check runs before body and model validation, so some invalid requests use quota as well. Upstream retries are handled by the relay, and the same logical request does not consume SkyLab RPM again. The sliding window does not reset on the hour; the `reset_at` in the status response is the query time plus one window, not the exact moment the next slot frees up, so query again when you need the remaining value.
+
+`20/60`, `30/60` and LiteLLM's `10 RPM` are the defaults and configuration sources in the current code; they do not replace measurements on a real deployment. The actual values for a credential are whatever the status response reports. The status does not expose the length of the generation window, so if a deployment changed `AI_API_RATE_LIMIT_WINDOW_SECONDS`, confirm it with the operator; LiteLLM RPM is not exposed by the public status either and also has to be confirmed by the operator. With several backend processes the total concurrency adds up, so a single sequential check cannot prove capacity.
+
 ### Operational verification
 
 ```bash
 bash scripts/prepare-ai-stack.sh --check-only --check-upstreams
 curl -fsS http://127.0.0.1:4000/health/liveliness
 curl -fsS http://127.0.0.1:4000/health/readiness
-# With the Campus backend running, use the admin key to verify the gateway model list, upstreams and backend connectivity.
+# With the SkyLab backend running, use the admin key to verify the gateway model list, upstreams and backend connectivity.
 read -rsp 'LiteLLM master key: ' LITELLM_MASTER_KEY; echo
 export LITELLM_MASTER_KEY
 bash scripts/verify-litellm-staging.sh
 unset LITELLM_MASTER_KEY
 
-# Verify the four public endpoints with an approved Campus test key.
+# Verify the four public endpoints with an approved SkyLab test key.
 export AI_API_SMOKE_KEY="$CAMPUS_AI_API_KEY"
 AI_API_PUBLIC_BASE_URL=http://localhost:8082/api/v1 \
   AI_API_SMOKE_MODEL=gpt-oss-20B bash scripts/verify-ai-api-cutover.sh
@@ -438,20 +454,20 @@ support every format. Run `unset CAMPUS_AI_API_KEY` when you are done.
 | Local upstream returns 401 | `API_KEY` in `.env.API` must match the LiteLLM upstream key |
 | Local upstream unreachable | `API_HOST` in `.env.API` must be `0.0.0.0` (the container connects via `host.docker.internal`), and restrict the engine port with the firewall |
 | Remote model connection fails | Check IP/domain, listening interface, firewall, `/v1`, served model name and key consistency |
-| Campus 401 / 403 | Check whether the `ccai_*` key is approved, expired or revoked; whether the service Virtual Key is valid and allows the model (`--start` re-registers and syncs it) |
+| SkyLab 401 / 403 | Check whether the `ccai_*` key is approved, expired or revoked; whether the service Virtual Key is valid and allows the model (`--start` re-registers and syncs it) |
 | New model missing from the model list | Redeploy with `--start`: it regenerates the config, recreates LiteLLM and syncs the service key allowlist |
 | `--start` stuck waiting for LiteLLM readiness | `docker compose logs litellm`; usually wrong `DATABASE_URL` credentials/host, or the first migration is still running |
 | Key issuance returns HTTP 400 | Another key already uses the alias `campus-ai-api-service`: put that key into `AI_API_API_KEY`, or revoke it in LiteLLM and rerun |
-| 429 | Campus rate limit or LiteLLM RPM limit; retry after the `Retry-After` delay |
+| 429 | SkyLab rate limit or LiteLLM RPM limit; retry after the `Retry-After` delay |
 | 413 / 415 | Request exceeds `AI_API_MAX_REQUEST_BODY_BYTES`, or Content-Type is not JSON |
 | 502 / 503 | Check whether the gateway, upstream and DB are available, then read the backend/LiteLLM logs |
-| DB authentication / migration failure | Check the dedicated role, URL-encoded password, DB host and port; do not switch to the Campus DB |
+| DB authentication / migration failure | Check the dedicated role, URL-encoded password, DB host and port; do not switch to the SkyLab DB |
 | Cannot decrypt after changing the salt | Restore the original salt and the matching DB backup; old ciphertext cannot be repaired with a new salt |
 | `.env` changes have no effect | Recreate the affected containers with `up -d --force-recreate` |
 | `8000` or `6379` port conflict | Set `BACKEND_HOST_PORT` / `REDIS_HOST_PORT`; service ports between containers stay unchanged |
 
 LiteLLM only opens port `127.0.0.1:4000` on the host and is unreachable from external networks; traffic
-between containers always uses the Compose internal network. The normal entry point for users is Campus
+between containers always uses the Compose internal network. The normal entry point for users is SkyLab
 (nginx → backend); LiteLLM is not exposed through nginx. For the full LiteLLM feature set and key
 management, see [Virtual Keys](https://docs.litellm.ai/docs/proxy/virtual_keys) and the
 [vLLM provider](https://docs.litellm.ai/docs/providers/vllm).
