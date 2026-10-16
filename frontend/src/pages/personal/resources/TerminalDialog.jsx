@@ -10,11 +10,28 @@ import { recordMachineUse } from "../../../services/recentMachines";
 import { wsBaseUrl } from "../../../utils/wsUrl";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
+import useConsoleKeyboard, { isKeyboardLockSupported } from "../../../hooks/useConsoleKeyboard";
+import { useToast } from "../../../hooks/useToast";
 import styles from "./ConsoleDialog.module.scss";
+
+/* 保留瀏覽器的剪貼簿動作：Ctrl+Shift+V、Shift+Insert 觸發 paste、Ctrl+Insert 觸發 copy，
+   xterm 由這兩個事件貼上與複製選取文字 */
+function keepsBrowserClipboard(event) {
+  if (event.altKey || event.metaKey) return false;
+  if (event.key === "Insert") return event.ctrlKey || event.shiftKey;
+  return event.ctrlKey && event.shiftKey && event.code === "KeyV";
+}
+
+/* 終端機慣例的 Ctrl+Shift+C（Chrome 原本是檢查元素） */
+function isCopyShortcut(event) {
+  return event.type === "keydown" && event.ctrlKey && event.shiftKey
+    && !event.altKey && !event.metaKey && event.code === "KeyC";
+}
 
 export default function TerminalDialog({ resource, onClose }) {
   const { user } = useAuth();
   const { t } = useTranslation("personal");
+  const toast = useToast();
   const [status, setStatus]       = useState("connecting");
   const [error, setError]         = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -30,6 +47,8 @@ export default function TerminalDialog({ resource, onClose }) {
   const termRef     = useRef(null);
   const dialogRef   = useRef(null);
   const titleId     = useId();
+
+  useConsoleKeyboard(termDivRef, { active: status === "connected", allowDefault: keepsBrowserClipboard });
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -63,6 +82,17 @@ export default function TerminalDialog({ resource, onClose }) {
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
     term.open(el);
+
+    term.attachCustomKeyEventHandler((event) => {
+      if (!isCopyShortcut(event)) return true;
+      if (term.hasSelection()) {
+        const text = term.getSelection();
+        /* 非 https 沒有 Clipboard API；明講複製失敗，Ctrl+Insert 走 copy 事件不受限 */
+        if (!navigator.clipboard?.writeText) toast.error(t("TerminalDialog.copyFailed"));
+        else navigator.clipboard.writeText(text).catch(() => toast.error(t("TerminalDialog.copyFailed")));
+      }
+      return false;
+    });
 
     termRef.current = term;
 
@@ -163,7 +193,7 @@ export default function TerminalDialog({ resource, onClose }) {
             </button>
           </>
         )}
-        <button type="button" className={styles.headerBtn} title={isFullscreen ? t("TerminalDialog.exitFullscreen") : t("TerminalDialog.fullscreen")} onClick={toggleFullscreen}>
+        <button type="button" className={styles.headerBtn} title={isFullscreen ? t("TerminalDialog.exitFullscreen") : t(isKeyboardLockSupported() ? "TerminalDialog.fullscreenKeyboardHint" : "TerminalDialog.fullscreen")} onClick={toggleFullscreen}>
           <MIcon name={isFullscreen ? "fullscreen_exit" : "fullscreen"} size={16} />
         </button>
         <button type="button" className={styles.closeBtn} onClick={handleClose} aria-label={t("Modal.close", { ns: "common" })}>

@@ -35,11 +35,12 @@ const fileExt = (name) => {
 };
 
 /**
- * 建立（從 VM 轉換）或編輯範本的 dialog。
+ * 建立（從 VM 轉換）或編輯範本的 dialog，也是唯一的「轉成範本」對話框。
  * template 有值 = 編輯模式。
+ * sourceResource 有值 = 從資源列表「更多」選單開啟：來源機器預選且鎖定，名稱預填機器名稱。
  * 附件可一次選多個：編輯模式依序即時上傳；建立模式先暫存，create 成功後補上傳。
  */
-export default function TemplateFormDialog({ template, closing = false, onClose, onSaved }) {
+export default function TemplateFormDialog({ template, sourceResource = null, closing = false, onClose, onSaved }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const confirm = useConfirm();
@@ -47,12 +48,14 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   const isEdit = Boolean(template);
   const isAdmin = isAdminUser(user);
 
-  const [sourceVmid, setSourceVmid] = useState("");
+  const sourceLocked = !isEdit && Boolean(sourceResource);
+
+  const [sourceVmid, setSourceVmid] = useState(sourceLocked ? String(sourceResource.vmid) : "");
   // 必填欄位未填：送出時一次標出全部（紅框），游標跳到第一個
   const [invalid, setInvalid] = useState({});
   const sourceRef = useRef(null);
   const nameRef = useRef(null);
-  const [name, setName] = useState(template?.name ?? "");
+  const [name, setName] = useState(template?.name ?? (sourceLocked ? sourceResource.name ?? "" : ""));
   const [description, setDescription] = useState(template?.description ?? "");
   const [visibility, setVisibility] = useState(template?.visibility ?? "private");
   const [useCustomSpec, setUseCustomSpec] = useState(
@@ -61,8 +64,8 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   const [defaultCores, setDefaultCores] = useState(template?.default_cores || 2);
   const [defaultMemory, setDefaultMemory] = useState(template?.default_memory || 2048);
   const [requiresGpu, setRequiresGpu] = useState(Boolean(template?.requires_gpu));
-  const [resources, setResources] = useState([]);
-  const [resourcesLoading, setResourcesLoading] = useState(!isEdit);
+  const [resources, setResources] = useState(sourceLocked ? [sourceResource] : []);
+  const [resourcesLoading, setResourcesLoading] = useState(!isEdit && !sourceLocked);
   const [busy, setBusy] = useState(false);
 
   // 編輯模式：既有附件（即時操作）
@@ -77,10 +80,13 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   useEffect(() => {
     let cancelled = false;
     if (!isEdit) {
-      (isAdmin ? ResourcesService.listAll() : ResourcesService.list())
-        .then((res) => !cancelled && setResources(res ?? []))
-        .catch(() => {})
-        .finally(() => !cancelled && setResourcesLoading(false));
+      // 來源已由呼叫端指定時不用再抓機器清單
+      if (!sourceLocked) {
+        (isAdmin ? ResourcesService.listAll() : ResourcesService.list())
+          .then((res) => !cancelled && setResources(res ?? []))
+          .catch(() => {})
+          .finally(() => !cancelled && setResourcesLoading(false));
+      }
     } else {
       TemplatesService.listAttachments(template.id)
         .then((res) => !cancelled && setAttachments(res?.data ?? []))
@@ -89,7 +95,7 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
     return () => {
       cancelled = true;
     };
-  }, [isEdit, isAdmin, template?.id]);
+  }, [isEdit, isAdmin, sourceLocked, template?.id]);
 
   // 來源機類型決定可否設定 GPU（hostpci 僅 qemu 支援）
   const selectedResource = resources.find((r) => String(r.vmid) === sourceVmid);
@@ -283,6 +289,7 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
             id="tpl-source"
             ref={sourceRef}
             value={sourceVmid}
+            disabled={sourceLocked}
             aria-invalid={Boolean(invalid.source)}
             onChange={(e) => { setSourceVmid(e.target.value); setInvalid((prev) => ({ ...prev, source: false })); }}
           >

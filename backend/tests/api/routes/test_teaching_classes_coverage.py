@@ -276,7 +276,11 @@ def test_serialize_full_class(db: Session) -> None:
 
     assert data["member_count"] == 1
     assert data["students"][0]["email"] == "stu@x.edu"
-    assert data["students"][0]["machines"]
+    # 熱力圖／整班開關機／觀看畫面都靠 vmid 與 status 對機器，不能被 model_dump 漏掉
+    machine = data["students"][0]["machines"][0]
+    assert machine["vmid"] == 7001
+    assert machine["status"] == "completed"
+    assert machine["error"] is None
     assert data["instructor_machine"]["email"] is None
     assert data["ready_machines"] == 1
     assert data["total_machines"] == 4

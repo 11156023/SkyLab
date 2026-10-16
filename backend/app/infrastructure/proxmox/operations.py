@@ -107,6 +107,45 @@ def vmid_allocation_lock(*, db_engine: Any | None = None) -> Iterator[None]:
                     )
 
 
+# 從一般 CT（非 PVE 範本）複製時，PVE 會在來源加 ``disk`` 鎖直到磁碟複製完，
+# 同一個來源同時複製第二台會直接失敗（CT is locked）。平台範本的 CT 母機不轉成
+# PVE 範本，同一個來源的複製必須跨 worker 排隊；鍵為 (namespace, 來源 VMID)。
+_CLONE_SOURCE_LOCK_NAMESPACE = 0x534B4C43
+_clone_source_thread_lock = threading.Lock()
+
+
+@contextmanager
+def clone_source_lock(vmid: int, *, db_engine: Any | None = None) -> Iterator[None]:
+    """同一個來源 CT 的複製逐一進行（交易層級 advisory lock，PgBouncer 安全）。"""
+    if db_engine is None:
+        from app.core.db import engine as resolved_engine
+    else:
+        resolved_engine = db_engine
+
+    if resolved_engine.dialect.name != "postgresql":
+        with _clone_source_thread_lock:
+            yield
+        return
+
+    with resolved_engine.connect() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :vmid)"),
+            {"namespace": _CLONE_SOURCE_LOCK_NAMESPACE, "vmid": int(vmid)},
+        )
+        try:
+            yield
+        finally:
+            try:
+                connection.rollback()
+            except Exception:
+                # 關閉連線一樣會結束交易並釋放鎖；不蓋掉複製本身的例外
+                logger.warning(
+                    "Failed to explicitly release clone source lock for %s",
+                    vmid,
+                    exc_info=True,
+                )
+
+
 @dataclass(frozen=True)
 class MonitoringSnapshot:
     """同一輪監控取樣的節點、資源與連線完成度。"""
@@ -603,10 +642,39 @@ def resolve_target_storage(
     )
 
 
-def find_vm_template(template_id: int) -> dict:
-    """Find a VM template by VMID in its connection's pool."""
+def platform_template_vmids(*, db_engine: Any | None = None) -> set[int]:
+    """平台範本（ready／updating）的 VMID。
+
+    平台範本在 PVE 端不轉換，母機維持一般關機的 VM／CT（template=0）；
+    範本身分以 DB 為準。先前轉成 PVE 範本的舊範本仍以 template=1 認得。
+    """
+    from sqlmodel import Session, col, select
+
+    from app.models import VMTemplate, VMTemplateStatus
+
+    if db_engine is None:
+        from app.core.db import engine as db_engine
+
+    with Session(db_engine) as session:
+        rows = session.exec(
+            select(VMTemplate.pve_vmid).where(
+                col(VMTemplate.status).in_(
+                    [VMTemplateStatus.ready, VMTemplateStatus.updating]
+                )
+            )
+        ).all()
+    return {int(vmid) for vmid in rows}
+
+
+def _is_template_guest(vm: dict[str, Any], platform_vmids: set[int]) -> bool:
+    return vm.get("template") == 1 or int(vm["vmid"]) in platform_vmids
+
+
+def find_vm_template(template_id: int) -> dict[str, Any]:
+    """Find a template guest (PVE template or platform template) by VMID in its pool."""
+    platform_vmids = platform_template_vmids()
     for vm in _pool_vms():
-        if vm["vmid"] == template_id and vm.get("template") == 1:
+        if vm["vmid"] == template_id and _is_template_guest(vm, platform_vmids):
             return vm
     raise NotFoundError(f"VM template {template_id} not found")
 
@@ -1133,31 +1201,96 @@ def clone_vm(node: str, template_id: int, **clone_config) -> str:
     task = proxmox.nodes(node).qemu(template_id).clone.post(**clone_config)
     try:
         basic_blocking_task_status(node, task)
+        _clear_inherited_template_marks(
+            str(clone_config.get("target") or node), int(clone_config["newid"]), "qemu"
+        )
     finally:
         invalidate_cluster_resources_cache()
     return task
 
 
 def clone_lxc(node: str, template_id: int, **clone_config) -> str:
-    """Clone an LXC template and wait. Returns UPID."""
+    """Clone an LXC container and wait. Returns UPID.
+
+    來源可能是一般 CT（平台範本），同一個來源的複製以 ``clone_source_lock`` 排隊。
+    """
     proxmox = get_proxmox_api_for_node(node)
-    task = proxmox.nodes(node).lxc(template_id).clone.post(**clone_config)
-    try:
-        basic_blocking_task_status(node, task)
-    finally:
-        invalidate_cluster_resources_cache()
+    with clone_source_lock(template_id):
+        task = proxmox.nodes(node).lxc(template_id).clone.post(**clone_config)
+        try:
+            basic_blocking_task_status(node, task)
+            _clear_inherited_template_marks(
+                str(clone_config.get("target") or node),
+                int(clone_config["newid"]),
+                "lxc",
+            )
+        finally:
+            invalidate_cluster_resources_cache()
     return task
 
 
-def convert_to_template(
+# 寫在平台範本母機的 PVE 備註最前面；給直接登入 PVE 的管理員看
+TEMPLATE_GUEST_NOTE = (
+    "【SkyLab 範本母機】請勿開機或修改；要更新範本請到平台的範本頁使用更新循環。"
+)
+
+
+def protect_template_guest(
     node: str, vmid: int, resource_type: ResourceType = "qemu"
 ) -> None:
-    """POST /nodes/{node}/{type}/{vmid}/template — 轉為唯讀範本（不可逆）。
+    """把母機鎖定成平台範本：開 protection（PVE 擋刪除與移除磁碟）、關 onboot，
+    並在 PVE 備註最前面加上範本母機標記（原本的備註保留）。
 
-    VM 必須處於 stopped 狀態，呼叫端負責先關機。
+    平台範本在 PVE 端不轉換（厚配置 LVM 等儲存無法放 PVE 範本），母機維持
+    一般關機的機器，克隆一律 full clone。PVE 不能用 lock 擋開機：來源帶 lock
+    時連複製都會被拒絕。
     """
-    _resource_api(node, vmid, resource_type).template.post()
-    invalidate_cluster_resources_cache()
+    description = str(get_config(node, vmid, resource_type).get("description") or "")
+    if not description.startswith(TEMPLATE_GUEST_NOTE):
+        description = (
+            f"{TEMPLATE_GUEST_NOTE}\n\n{description}" if description else TEMPLATE_GUEST_NOTE
+        )
+    update_config(
+        node,
+        vmid,
+        resource_type,
+        protection=1,
+        onboot=0,
+        description=description,
+    )
+
+
+def _clear_inherited_template_marks(
+    node: str, vmid: int, resource_type: ResourceType
+) -> None:
+    """PVE 複製會把來源設定原樣抄給新機器（protection、備註都在內）。
+
+    從平台範本複製出的機器不能帶著 protection，否則之後刪不掉；範本母機標記
+    也要從備註拿掉（標記後面原本的備註保留）。
+    """
+    config = get_config(node, vmid, resource_type)
+    params: dict[str, Any] = {}
+    delete: list[str] = []
+    if str(config.get("protection", "0")) == "1":
+        delete.append("protection")
+    description = str(config.get("description") or "")
+    if description.startswith(TEMPLATE_GUEST_NOTE):
+        rest = description[len(TEMPLATE_GUEST_NOTE) :].lstrip("\n")
+        if rest:
+            params["description"] = rest
+        else:
+            delete.append("description")
+    if delete:
+        params["delete"] = ",".join(delete)
+    if params:
+        update_config(node, vmid, resource_type, **params)
+
+
+def unprotect_template_guest(
+    node: str, vmid: int, resource_type: ResourceType = "qemu"
+) -> None:
+    """刪除平台範本的母機前先解除 protection，否則 PVE 會拒絕刪除。"""
+    update_config(node, vmid, resource_type, protection=0)
 
 
 def _db_claimed_vmids() -> set[int]:
@@ -1285,9 +1418,10 @@ def get_lxc_templates(node: str) -> list[dict]:
     return proxmox.nodes(node).storage(iso_storage).content.get()
 
 
-def get_vm_templates() -> list[dict]:
-    """Return all VM templates in each connection's pool."""
-    return [vm for vm in _pool_vms() if vm.get("template") == 1]
+def get_vm_templates() -> list[dict[str, Any]]:
+    """Return every template guest (PVE template or platform template) in each pool."""
+    platform_vmids = platform_template_vmids()
+    return [vm for vm in _pool_vms() if _is_template_guest(vm, platform_vmids)]
 
 
 # OS 範本（vztmpl）是管理員在 PVE 上手動放的，很少變動，快取久一點，

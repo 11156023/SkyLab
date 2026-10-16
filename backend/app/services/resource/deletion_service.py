@@ -201,6 +201,9 @@ def request_deletion(
 
     if db_resource is not None:
         _ensure_not_template_update_temp_vm(session, db_resource)
+    elif vmid in proxmox_service.platform_template_vmids():
+        # 平台範本的母機在 PVE 端是一般機器，從資源頁刪掉範本就壞了
+        raise ConflictError(t("resource.delete_platform_template"))
 
     # Try to locate the VM in Proxmox.
     # - If gone and DB record exists → clean up orphan DB record.
