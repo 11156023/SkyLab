@@ -39,6 +39,17 @@ class VLLMProfileError(ValueError):
     """Raised when a request or response violates its declared profile."""
 
 
+class VLLMEmptyContentError(VLLMProfileError):
+    """No usable text or tool call; retain usage without retaining model content."""
+
+    def __init__(self, profile: VLLMRequestProfile, response: dict[str, Any]) -> None:
+        super().__init__(
+            f"Profile {profile.value} requires non-empty assistant content"
+        )
+        usage = response.get("usage")
+        self.usage = dict(usage) if isinstance(usage, dict) else {}
+
+
 @dataclass(frozen=True)
 class _ProfilePolicy:
     max_tokens: int | None
@@ -287,6 +298,16 @@ def _validate_response(response: Any, profile: VLLMRequestProfile) -> dict[str, 
     content = message.get("content")
     if has_tool_calls:
         return response
+    if content is None or (isinstance(content, str) and not content.strip()):
+        logger.warning(
+            "Empty vLLM response: profile=%s finish_reason=%s content_type=%s "
+            "reasoning_present=%s",
+            profile.value,
+            choice.get("finish_reason"),
+            type(content).__name__,
+            bool(message.get("reasoning") or message.get("reasoning_content")),
+        )
+        raise VLLMEmptyContentError(profile, response)
     if not isinstance(content, str) or not content.strip():
         raise VLLMProfileError(
             f"Profile {profile.value} requires non-empty assistant content"

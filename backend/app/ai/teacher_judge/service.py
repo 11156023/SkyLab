@@ -75,6 +75,7 @@ from app.ai.utils import apply_thinking_control, safe_bool, strip_think_tags
 from app.core.i18n import t
 from app.infrastructure.ai import VLLMRequestProfile
 from app.infrastructure.ai.teacher_judge import client as teacher_judge_client
+from app.infrastructure.ai.vllm_client import VLLMEmptyContentError
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
 TEACHER_FREE_TEXT_CONTRACT = RoleContract(
@@ -1512,20 +1513,62 @@ async def _call_vllm_message(
     logger.debug(f"Calling vLLM API: {url}")
 
     try:
-        data = await _request_vllm_with_retry(
-            payload,
-            profile=_request_profile(payload),
-            timeout=timeout,
-        )
+        failed_usage: dict[str, Any] = {}
+        request = payload
+        for attempt in range(2):
+            remaining = timeout - (perf_counter() - started)
+            if remaining <= 0:
+                raise httpx.ReadTimeout("Teacher Judge model request deadline exceeded")
+            try:
+                data = await _request_vllm_with_retry(
+                    request,
+                    profile=_request_profile(request),
+                    timeout=remaining,
+                )
+                break
+            except VLLMEmptyContentError as exc:
+                # No tool call was returned or executed. Correct only this generation;
+                # never replay earlier tools or silently treat an empty reply as success.
+                used = exc.usage.get("completion_tokens")
+                if attempt or type(used) is not int or used < 0:
+                    raise
+                remaining_tokens = int(payload.get("max_tokens") or 0) - used
+                if remaining_tokens <= 0:
+                    raise
+                failed_usage = exc.usage
+                request = {
+                    **payload,
+                    "max_tokens": remaining_tokens,
+                    "messages": [
+                        *payload["messages"],
+                        {
+                            "role": "system",
+                            "content": (
+                                "上一輪沒有提供可用的回覆。請依原本格式輸出非空的最終說明，"
+                                "或呼叫本輪允許的工具；不要只輸出思考內容。"
+                                "若無須修改，說明判斷依據；若資訊不足，具體列出需要教師補充的資訊。"
+                                "只能根據已取得的資料與工具結果回答，不得把未完成檢查說成通過。"
+                            ),
+                        },
+                    ],
+                }
+                logger.warning("Teacher Judge empty response; requesting one corrected reply")
 
         elapsed = max(perf_counter() - started, 0.0)
         raw_usage = data.get("usage")
         usage_reported = isinstance(raw_usage, dict)
         usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
-        prompt_tokens = int(usage.get("prompt_tokens") or 0)
-        completion_tokens = int(usage.get("completion_tokens") or 0)
-        total_tokens = int(
-            usage.get("total_tokens") or (prompt_tokens + completion_tokens)
+        prompt_tokens = int(usage.get("prompt_tokens") or 0) + int(
+            failed_usage.get("prompt_tokens") or 0
+        )
+        completion_tokens = int(usage.get("completion_tokens") or 0) + int(
+            failed_usage.get("completion_tokens") or 0
+        )
+        total_tokens = sum(
+            int(part.get("total_tokens") or (
+                int(part.get("prompt_tokens") or 0) + int(part.get("completion_tokens") or 0)
+            ))
+            for part in (failed_usage, usage)
         )
         tps = (completion_tokens / elapsed) if elapsed > 0 else 0.0
 
@@ -2552,6 +2595,10 @@ async def _run_proposal_tool_loop(
                     result["error"],
                 )
             else:
+                if tool_name == _LIST_CHECKLIST_TOOL_NAME:
+                    # The initial index read is a prerequisite, not a permanent
+                    # restriction on every subsequent model decision.
+                    base_request["tool_choice"] = "auto"
                 write_accepted = bool(result.get("staged") or result.get("unchanged"))
                 for key, error in list(pending_errors.items()):
                     read_repaired = tool_name in {_LIST_CHECKLIST_TOOL_NAME, _GET_CHECKLIST_ITEM_TOOL_NAME} and error.get("tool") == tool_name
@@ -2608,7 +2655,20 @@ async def _run_proposal_tool_loop(
             len(rejected_ops),
             len(pending_errors),
         )
-        reply_payload = {**base_request, "messages": list(messages)}
+        reply_payload = {
+            **base_request,
+            "messages": [
+                *messages,
+                {
+                    "role": "system",
+                    "content": (
+                        "本次工具階段已結束，請停止呼叫工具，依已取得的資料輸出非空的 reply "
+                        "與 proposal_status。說明已建立的修改提案、需要補充的資訊或無須修改的依據。"
+                        "若尚未完成細查，明確說明未完成；沒有修改候選不代表檢查通過。"
+                    ),
+                },
+            ],
+        }
         reply_payload.pop("tools", None)
         reply_payload.pop("tool_choice", None)
         remaining_tokens = main_completion_budget - int(
@@ -2879,7 +2939,10 @@ async def chat_with_rubric(
                 f"我已把{staged_titles}整理成提案。請先查看提案內容，確認後再套用。"
             )
         elif is_refine:
-            reply_text = "檢查完畢，檢查表目前狀態良好。"
+            raise HTTPException(
+                status_code=502,
+                detail="本次未取得有效的檢查說明，無法確認是否需要修改；請重新核對檢查表。",
+            )
         else:
             reply_text = _proposal_unavailable_reply([], [], template_commands)
 

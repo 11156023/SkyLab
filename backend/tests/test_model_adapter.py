@@ -9,7 +9,7 @@ import yaml
 
 from app.infrastructure.ai import model_adapter as adapter
 
-GPT = "openai/gpt-oss-120b"
+GPT = "gpt-oss-120B"
 GEMMA = "gemma4-26b-a4b-it"
 QWEN = "Qwen/Qwen3.8-27B"
 
@@ -133,7 +133,7 @@ def test_qwen_template_effort_requires_low(monkeypatch, tmp_path):
     "mutation",
     [
         {"model": "unknown-model"},
-        {"model": " openai/gpt-oss-120b"},
+        {"model": " gpt-oss-120B"},
         {"model": None},
         {"chat_template_kwargs": []},
         {"chat_template_kwargs": {"enable_thinking": "false"}},

@@ -72,6 +72,19 @@ Create, edit, attachment consolidation and direct persistence use
 
 ## Missing input and analysis errors
 
+Full-table review forces `list_checklist` only until the initial index read
+succeeds, then switches to `tool_choice=auto`. The model may inspect and edit
+an item, ask for missing information, or explain why no changes are needed.
+Index-only review must not claim execution details were checked; zero proposals
+does not establish that the rubric passed review.
+
+Exhausting tool rounds explicitly requests a final explanation. An empty model
+response without tool calls gets one corrective generation only when completion
+usage is known and budget remains, within the original call's time and token
+limits. Prior tool results are retained without replaying tools; recovered usage
+includes the empty generation. Repeated emptiness, exhausted budgets, or invalid
+response structures fail rather than defaulting to a successful review.
+
 | Condition | Handling |
 | --- | --- |
 | Unlocated file or unknown date/service scope | Ask for the actual missing information; do not guess |
