@@ -458,7 +458,7 @@ async def test_complex_agent_accepts_native_tool_call() -> None:
 @pytest.mark.parametrize(
     ("model", "thinking"),
     [
-        ("openai/gpt-oss-120b", "low"),
+        ("gpt-oss-120B", "low"),
         ("gemma4-26b-a4b-it", "none"),
         ("gemma4-26b-a4b-it", "low"),
         ("Qwen/Qwen3.8-27B", "low"),
@@ -512,7 +512,7 @@ async def test_all_request_profiles_use_model_contract_on_the_wire(
     client._http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     assert await client.create_chat_completion(payload, profile=profile) == body
     wire = json.loads(seen[0].content)
-    if model == "openai/gpt-oss-120b":
+    if model == "gpt-oss-120B":
         assert wire["reasoning_effort"] == "low"
         assert "chat_template_kwargs" not in wire
     elif model == "Qwen/Qwen3.8-27B":
@@ -542,7 +542,7 @@ async def test_all_request_profiles_use_model_contract_on_the_wire(
         ("bad request", "stop", 400, "check_failed"),
     ],
 )
-@pytest.mark.parametrize("model", ["openai/gpt-oss-120b", "Qwen/Qwen3.8-27B"])
+@pytest.mark.parametrize("model", ["gpt-oss-120B", "Qwen/Qwen3.8-27B"])
 async def test_real_checker_uses_model_low_with_unchanged_schema_and_budget(
     content, finish, status, expected_reason, model
 ):
@@ -583,7 +583,7 @@ async def test_real_checker_uses_model_low_with_unchanged_schema_and_budget(
     wire = json.loads(seen[0].content)
     assert wire["max_tokens"] == 128
     assert wire["model"] == model
-    if model == "openai/gpt-oss-120b":
+    if model == "gpt-oss-120B":
         assert wire["reasoning_effort"] == "low"
         assert "chat_template_kwargs" not in wire
     else:
@@ -598,7 +598,7 @@ async def test_real_checker_uses_model_low_with_unchanged_schema_and_budget(
         assert result.completion_tokens == 128
 
 
-@pytest.mark.parametrize("model", ["openai/gpt-oss-120b", "Qwen/Qwen3.8-27B"])
+@pytest.mark.parametrize("model", ["gpt-oss-120B", "Qwen/Qwen3.8-27B"])
 async def test_context_retry_tokenizes_with_the_same_effective_thinking(model):
     seen = []
 
@@ -619,7 +619,7 @@ async def test_context_retry_tokenizes_with_the_same_effective_thinking(model):
         payload, profile=VLLMRequestProfile.CONFIGURED_TEXT
     )
     first, counted, retry = [json.loads(request.content) for request in seen]
-    if model == "openai/gpt-oss-120b":
+    if model == "gpt-oss-120B":
         assert first["reasoning_effort"] == "low"
         assert "chat_template_kwargs" not in first
         template_kwargs = {"reasoning_effort": "low"}

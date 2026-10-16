@@ -337,7 +337,11 @@ SESSION_NO_RUBRIC_INSTRUCTION = """
 
 
 DIRECT_RUBRIC_UPDATE_INSTRUCTION = """
-本次必須先呼叫 `list_checklist` 取得目前檢查表。需要調整既有項目時，先用 `get_checklist_item` 確認該項目內容，再呼叫 `edit_checklist_item` 送出修正提案；每次只填有變動的欄位。沒有需要調整的項目時，不呼叫任何提案工具，直接輸出 reply 說明檢查表狀態良好。
+本次必須先呼叫一次 `list_checklist` 取得全部項目的 ID 與摘要。成功後自行選擇下一步，不要反覆讀取相同列表：
+- 需要細查時，呼叫 `get_checklist_item` 取得該項目完整內容與 execution_readiness；需要修改時再呼叫 `edit_checklist_item`，每次只填有變動的欄位。
+- 若資訊不足，輸出非空的 reply，具體列出需要教師補充的資訊，proposal_status 為 needs_information；不得猜測未知資料。
+- 若依目前資料無須修改，不必為了結束而呼叫更多工具；直接輸出非空的 reply 說明判斷依據，proposal_status 為 none。
+列表只有摘要；未讀取完整內容時不得宣稱已檢查路徑、步驟或執行結果。沒有修改候選不代表檢查通過，也不能以空回覆表示無須修改。
 """.strip()
 
 SITUATION_REFINE = """

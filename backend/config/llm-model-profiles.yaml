@@ -12,6 +12,13 @@ models:
     native_tool_calls: true
     tool_choice_modes: ["auto", "none", "required", "named"]
 
+  "gpt-oss-120B":
+    thinking: "low"
+    thinking_parameter: reasoning_effort
+    response_formats: ["json_object", "json_schema"]
+    native_tool_calls: true
+    tool_choice_modes: ["auto", "none", "required", "named"]
+
   "gemma4-26b-a4b-it":
     thinking: "none"
     thinking_parameter: enable_thinking
