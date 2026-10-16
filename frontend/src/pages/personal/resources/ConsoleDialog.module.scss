@@ -188,6 +188,14 @@
   :global(canvas) { display: block; }
 }
 
+/* 鍵盤接管範圍（useConsoleKeyboard）：只包遠端畫面，撐滿 .vncWrap */
+.vncSurface {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
 /* ── 剪貼簿面板（浮在遠端畫面右上角，低於教室接管覆蓋層） ── */
 .clipboardPanel {
   position: absolute;

@@ -8,6 +8,7 @@ import { AuthStorage } from "../../services/auth";
 import { ClassroomService } from "../../services/classroom";
 import { wsBaseUrl } from "../../utils/wsUrl";
 import { useToast } from "../../hooks/useToast";
+import useConsoleKeyboard, { isKeyboardLockSupported } from "../../hooks/useConsoleKeyboard";
 
 /**
  * 教室觀看視窗：連 /ws/classroom/{session_id}/watch 的原生 RFB 資料面
@@ -23,6 +24,9 @@ export default function ClassroomWatchDialog({
   const { t } = useTranslation("components");
   const toast = useToast();
   const vncRef = useRef(null);
+  const dialogRef = useRef(null);
+  const surfaceRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [controlling, setControlling] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
@@ -59,6 +63,20 @@ export default function ClassroomWatchDialog({
 
   const viewOnly = !(canControl && controlling);
 
+  // 接管時鍵盤要全部交給學生畫面；只看畫面時按鍵本來就不送出
+  useConsoleKeyboard(surfaceRef, { active: connected && !viewOnly });
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) dialogRef.current?.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+
   const handleControl = async () => {
     const action = controlling ? "release" : "take";
     setControlBusy(true);
@@ -66,6 +84,8 @@ export default function ClassroomWatchDialog({
       await ClassroomService.setControl(sessionId, action);
       controllingRef.current = action === "take";
       setControlling(action === "take");
+      // 接管後按鍵要立刻進學生畫面，不必再把滑鼠移出移入
+      if (action === "take") vncRef.current?.focus?.();
     } catch (e) {
       toast.error(e?.message ?? t("ClassroomWatchDialog.controlToggleFailed"));
     } finally {
@@ -89,6 +109,7 @@ export default function ClassroomWatchDialog({
   /* 畫面型：蓋過 AI 助手；接管控制時鍵盤要全部交給學生畫面，所以 Esc 不關 */
   return (
     <Modal
+      ref={dialogRef}
       bare
       layer="screen"
       size="xl"
@@ -123,6 +144,17 @@ export default function ClassroomWatchDialog({
             {controlling ? t("ClassroomWatchDialog.releaseControl") : t("ClassroomWatchDialog.takeControl")}
           </button>
         )}
+        <button
+          type="button"
+          className={styles.headerBtn}
+          title={isFullscreen
+            ? t("ClassroomWatchDialog.exitFullscreen")
+            : t(isKeyboardLockSupported() ? "ClassroomWatchDialog.fullscreenKeyboardHint" : "ClassroomWatchDialog.fullscreen")}
+          aria-label={isFullscreen ? t("ClassroomWatchDialog.exitFullscreen") : t("ClassroomWatchDialog.fullscreen")}
+          onClick={toggleFullscreen}
+        >
+          <MIcon name={isFullscreen ? "fullscreen_exit" : "fullscreen"} size={14} />
+        </button>
         <button type="button" className={styles.closeBtn} onClick={handleClose} title={t("ClassroomWatchDialog.closeTitle")} aria-label={t("ClassroomWatchDialog.closeTitle")}>
           <MIcon name="close" size={18} />
         </button>
@@ -136,15 +168,18 @@ export default function ClassroomWatchDialog({
           </div>
         )}
         {wsUrl && (
-          <VncScreen
-            ref={vncRef}
-            url={wsUrl}
-            scaleViewport
-            viewOnly={viewOnly}
-            onConnect={() => setConnected(true)}
-            onDisconnect={() => setConnected(false)}
-            style={{ width: "100%", height: "100%", background: "#000" }}
-          />
+          <div ref={surfaceRef} className={styles.vncSurface}>
+            <VncScreen
+              ref={vncRef}
+              url={wsUrl}
+              scaleViewport
+              viewOnly={viewOnly}
+              focusOnClick
+              onConnect={() => setConnected(true)}
+              onDisconnect={() => setConnected(false)}
+              style={{ width: "100%", height: "100%", background: "#000" }}
+            />
+          </div>
         )}
       </div>
     </Modal>

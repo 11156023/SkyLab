@@ -8,6 +8,7 @@ import { ResourcesService } from "../../../services/resources";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import { useClassroomTakeover } from "../../../components/Classroom/ClassroomStudentLayer";
+import useConsoleKeyboard, { isKeyboardLockSupported } from "../../../hooks/useConsoleKeyboard";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useToast } from "../../../hooks/useToast";
 import TakeoverOverlay from "../../../components/Classroom/TakeoverOverlay";
@@ -27,6 +28,7 @@ export default function VncDialog({ resource, onClose }) {
   const toast = useToast();
   const vncRef      = useRef(null);
   const dialogRef   = useRef(null);
+  const surfaceRef  = useRef(null);
   const mountedRef  = useRef(true);
   const titleId     = useId();
   const [connected, setConnected]       = useState(false);
@@ -43,6 +45,8 @@ export default function VncDialog({ resource, onClose }) {
   const underTakeover = useClassroomTakeover(resource?.vmid);
   // 接管覆蓋層的進出場
   const takeover = useDialogPresence(underTakeover);
+
+  useConsoleKeyboard(surfaceRef, { active: connected });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -187,7 +191,7 @@ export default function VncDialog({ resource, onClose }) {
             </button>
           </>
         )}
-        <button type="button" className={styles.headerBtn} title={isFullscreen ? t("VncDialog.exitFullscreen") : t("VncDialog.fullscreen")} onClick={() => toggleFullscreen(dialogRef.current)}>
+        <button type="button" className={styles.headerBtn} title={isFullscreen ? t("VncDialog.exitFullscreen") : t(isKeyboardLockSupported() ? "VncDialog.fullscreenKeyboardHint" : "VncDialog.fullscreen")} onClick={() => toggleFullscreen(dialogRef.current)}>
           <MIcon name={isFullscreen ? "fullscreen_exit" : "fullscreen"} size={16} />
         </button>
         <button type="button" className={styles.closeBtn} onClick={handleClose} aria-label={t("Modal.close", { ns: "common" })}>
@@ -243,27 +247,34 @@ export default function VncDialog({ resource, onClose }) {
               </p>
             </div>
           )}
-          <VncScreen
-            ref={vncRef}
-            url={wsUrl}
-            rfbOptions={{
-              credentials: {
-                username: "",
-                password: vncTicket,
-                target: "",
-              },
-            }}
-            style={{ width: "100%", height: "100%" }}
-            onConnect={() => {
-              if (!mountedRef.current) return;
-              setConnected(true);
-              recordMachineUse(user?.id, resource.vmid);
-            }}
-            onDisconnect={() => mountedRef.current && setConnected(false)}
-            onClipboard={handleGuestClipboard}
-            scaleViewport
-            background="#1e1e1e"
-          />
+          {/* 鍵盤接管的範圍只到遠端畫面，剪貼簿面板的文字框照常可用瀏覽器快捷鍵 */}
+          <div ref={surfaceRef} className={styles.vncSurface}>
+            <VncScreen
+              ref={vncRef}
+              url={wsUrl}
+              rfbOptions={{
+                credentials: {
+                  username: "",
+                  password: vncTicket,
+                  target: "",
+                },
+              }}
+              style={{ width: "100%", height: "100%" }}
+              /* react-vnc 只在滑鼠「移進」畫面時給焦點；對話框開在游標底下不會觸發，
+                 連上前移進來也因為還沒有 RFB 而無效，所以連上就主動給焦點，點畫面也會拿回焦點 */
+              focusOnClick
+              onConnect={() => {
+                if (!mountedRef.current) return;
+                setConnected(true);
+                recordMachineUse(user?.id, resource.vmid);
+                vncRef.current?.focus?.();
+              }}
+              onDisconnect={() => mountedRef.current && setConnected(false)}
+              onClipboard={handleGuestClipboard}
+              scaleViewport
+              background="#1e1e1e"
+            />
+          </div>
         </div>
       )}
     </Modal>
