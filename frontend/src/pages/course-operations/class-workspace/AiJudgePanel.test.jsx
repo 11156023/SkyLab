@@ -2351,7 +2351,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     // 打勾比例以全班為分母；還沒檢查任何人
     const bars = [...container.querySelectorAll('[role="img"]')].map((node) => node.getAttribute("aria-label"));
     expect(bars).toContain(i18n.t("AiJudgePanel.metricReportedValue", { ns: "teaching", done: 1, total: 2 }));
-    expect(bars).toContain(i18n.t("AiJudgePanel.metricCheckValue", { ns: "teaching", pass: 0, fail: 0, checked: 0, total: 2 }));
+    expect(bars).toContain(i18n.t("AiJudgePanel.metricCheckValue", { ns: "teaching", pass: 0, fail: 0, error: 0, checked: 0, total: 2 }));
 
     const runReady = [...container.querySelectorAll("button")]
       .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.runReadyBtn", { ns: "teaching", count: 1 })));

@@ -220,7 +220,8 @@ def test_execute_target_script_mkdir_failure_and_cleanup_error(
         )
     assert result == executor.RemoteScriptResult(
         exit_code=1, result_json_text="", stderr_text="permission denied",
-        timing={"prepare_seconds": 1.0, "cleanup_seconds": 1.0},
+        timing={"prepare_seconds": 1.0, "cleanup_seconds": 1.0, "failure_stage": "preparing"},
+        reason_code="preparation_failed",
     )
     assert len(calls) == 2
     assert client.closed is True

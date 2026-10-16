@@ -86,7 +86,7 @@ def test_running_vm_with_ssh_timeout_is_not_reported_as_powered_off(monkeypatch:
         target=_target(), script_content="pass", queued_at=0, on_start=lambda: None,
     )
     assert calls == ["power", "ssh"]
-    assert result["reason_code"] == "execution_timeout"
+    assert result["reason_code"] == "ssh_connection_timeout"
 
 
 @pytest.mark.parametrize("metadata", [{"proxmox_node": None}, {"resource_type": "storage"}])
@@ -180,7 +180,7 @@ def test_preflight_power_off_keeps_results_and_other_targets_running(
         return executor.RemoteScriptResult(0, json.dumps({
             "schema_version": "teacher_judge_result.v1",
             "metadata": {"timestamp": "2026-10-16T00:00:00Z", "platform": "linux"},
-            "checks": [], "errors": [],
+            "checks": [{"id": "check", "title": "Check", "status": "pass"}], "errors": [],
         }), "")
 
     monkeypatch.setattr(executor, "_execute_target_script", remote)

@@ -186,6 +186,8 @@ def _script_checks(
     if not isinstance(raw_checks, list):
         return []
 
+    execution_failed = target.get("status") in {"failed", "cancelled"} or (target.get("validation") or {}).get("valid") is False
+
     _, teacher_decisions = _teacher_review(target)
 
     check_by_id: dict[str, dict[str, Any]] = {}
@@ -226,7 +228,7 @@ def _script_checks(
             )
             for check in selected
         ]
-        status = aggregate_check_status(statuses, incomplete=incomplete)
+        status = aggregate_check_status(statuses, incomplete=incomplete or execution_failed)
         evidence = "\n".join(
             str(check.get("evidence") or "").strip()
             for check in selected
@@ -247,7 +249,7 @@ def _script_checks(
         CourseAICheckItemStudent(
             item_id=check_id,
             title=str(check.get("title") or check_id),
-            status=teacher_decisions.get(
+            status="unknown" if execution_failed else teacher_decisions.get(
                 check_id, str(check.get("status") or "unknown")
             ),
             comment=str(check.get("evidence") or ""),
@@ -322,6 +324,7 @@ def _check_to_student(
         (target_validation.get("error") if isinstance(target_validation, dict) else "")
         or target.get("error")
         or judgement.get("error")
+        or target.get("status") in {"failed", "cancelled"}
     )
     # 腳本自己在 errors 回報的訊息屬於輸出契約的一部分，照舊顯示
     script_errors = (

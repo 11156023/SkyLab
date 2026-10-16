@@ -1742,7 +1742,7 @@ def _render_script(plan: dict[str, Any]) -> str:
         "        return 'unknown', message, raw\n"
         "    if step.get('judgement_mode') == 'teacher':\n"
         "        notice = str(collected['raw']['error_message']) + '\\n' if collected.get('incomplete') else ''\n"
-        "        return 'collected', notice + str(collected.get('value') or ''), dict(collected.get('raw') or collected)\n"
+        "        return 'collected', notice + ('' if actual is None else str(actual)), dict(collected.get('raw') or collected)\n"
         "    if collected.get('incomplete'):\n"
         "        return 'unknown', str(collected['raw']['error_message']), dict(collected['raw'])\n"
         "    if kind == 'returncode_equals':\n"

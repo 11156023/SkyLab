@@ -279,6 +279,7 @@ def _review_run(status: TeacherJudgeScriptRunStatus) -> TeacherJudgeScriptRun:
                 {
                     "vmid": 101,
                     "student_id": "s1",
+                    "status": status.value,
                     "parsed_result": {"checks": [{"id": "c1", "status": "warning"}]},
                     "teacher_review": {"feedback": "old"},
                 }

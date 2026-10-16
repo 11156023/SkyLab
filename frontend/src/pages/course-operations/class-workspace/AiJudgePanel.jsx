@@ -2663,6 +2663,7 @@ function parseCheckRaw(raw) {
 export function getCheckResultSummary(check) {
   const parsed = parseCheckRaw(check?.raw);
   if (!parsed) return check?.evidence || "—";
+  if (typeof parsed.exists === "boolean") return jt(parsed.exists ? "fileExists" : "fileMissing");
   if (typeof parsed.error_message === "string" && parsed.error_message.trim()) {
     return parsed.error_message.trim();
   }
@@ -2715,6 +2716,9 @@ export function CommandLog({ raw, fallbackText }) {
     );
   }
   const argvText = Array.isArray(parsed.argv) ? JSON.stringify(parsed.argv) : "";
+  if (!argvText && !["stdout", "stderr", "returncode"].some((key) => key in parsed)) {
+    return <div className={styles.cmdLog}><pre className={styles.cmdStdout}>{JSON.stringify(parsed, null, 2)}</pre>{fallbackText ? <pre className={styles.cmdStderr}>{fallbackText}</pre> : null}</div>;
+  }
   const hasCommandOutput = Boolean(parsed.stdout || parsed.stderr || parsed.error);
   const empty = !argvText && !hasCommandOutput && parsed.returncode == null;
   return (
@@ -2814,6 +2818,44 @@ const EXECUTION_BLOCKERS = {
   vm_status_unavailable: { label: "statusPowerUnavailable", message: "powerUnavailableHint" },
 };
 
+function executionFailureKind(target) {
+  const reason = target?.reason_code;
+  if (["ssh_authentication_failed", "ssh_connection_failed", "ssh_connection_timeout", "missing_ip", "missing_ssh_key"].includes(reason)) return "Connection";
+  if (["python_missing", "timeout_unavailable", "unsupported_os", "vm_powered_off", "vm_status_unavailable", "not_running", "preparation_failed"].includes(reason)) return "Environment";
+  if (["download_failed", "upload_failed"].includes(reason)) return "Transfer";
+  if (["missing_checks", "check_id_mismatch", "duplicate_check_ids"].includes(reason)) return "Incomplete";
+  if (["invalid_json", "result_too_large", "output_too_large", "execution_nonzero"].includes(reason)) return "Script";
+  if (reason === "execution_timeout") return "Timeout";
+  return "Unknown";
+}
+
+export function ExecutionFailure({ target }) {
+  const { t } = useTranslation("teaching");
+  if (!target || (target.status !== "failed" && target.status !== "cancelled" && target.validation?.valid !== false)) return null;
+  const kind = executionFailureKind(target);
+  return (
+    <div className={styles.reviewExecutionError} role="status">
+      <strong>{t(`AiJudgePanel.execution${kind}`)}</strong>
+      <p>{t(`AiJudgePanel.execution${kind}Hint`)}</p>
+      <p>{t("AiJudgePanel.executionNotGraded")}</p>
+      <details>
+        <summary>{t("AiJudgePanel.executionEvidence")}</summary>
+        <div className={styles.cmdLog}>
+          <p>{t("AiJudgePanel.executionReason", { reason: target.reason_code || "unknown", stage: target.failure_stage || "unknown" })}</p>
+          {target.exit_code != null && <p>{t("AiJudgePanel.exitCode", { code: target.exit_code })}</p>}
+          <CommandOutput label={t("AiJudgePanel.outputStderr")} text={target.stderr_excerpt} isError />
+          <CommandOutput label={t("AiJudgePanel.outputStdout")} text={target.stdout_excerpt} />
+          <CommandOutput label={t("AiJudgePanel.executionValidation")} text={target.validation?.error} isError />
+          {["missing_check_ids", "unexpected_check_ids", "duplicate_check_ids"].map((key) => (
+            <CommandOutput key={key} label={t(`AiJudgePanel.${key}`)} text={Array.isArray(target.validation?.[key]) ? target.validation[key].join(", ") : ""} />
+          ))}
+          {!target.stdout_excerpt && !target.stderr_excerpt && !target.validation?.error && <p>{t("AiJudgePanel.executionNoEvidence")}</p>}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function targetChecks(target) {
   const checks = target?.parsed_result?.checks;
   return Array.isArray(checks) ? checks : [];
@@ -2833,7 +2875,7 @@ function targetTeacherReview(target) {
 
 export function getTargetReviewSummary(target) {
   if (!target) return { kind: "missing", label: jt("statusNotRun"), pending: 0, reviewable: 0 };
-  if (target.status === "failed" || target.validation?.valid === false) {
+  if (target.status === "failed" || target.status === "cancelled" || target.validation?.valid === false) {
     return { kind: "failed", label: jt(EXECUTION_BLOCKERS[target.reason_code]?.label ?? "statusRunFailed"), pending: 0, reviewable: 0 };
   }
   const reviewable = targetChecks(target).filter((check) => (
@@ -2878,10 +2920,10 @@ function reviewBadgeClass(kind) {
 
 /* 一個檢查項一列：狀態圖示、名稱＋摘要、需要老師判定時右邊是通過／未通過。
    原始輸出收在「查看原始證據」裡；待判定且還沒判的整列淡橘底，一眼找得到 */
-function ReviewCheckRow({ check, decision, onDecide }) {
+function ReviewCheckRow({ check, decision, onDecide, canDecide = true }) {
   const { t } = useTranslation("teaching");
   const meta = checkStatusMeta(check?.status);
-  const reviewable = TEACHER_REVIEW_STATUSES.has(check?.status);
+  const reviewable = canDecide && TEACHER_REVIEW_STATUSES.has(check?.status);
   const title = check?.title ?? check?.id ?? t("AiJudgePanel.collectedItem");
   const summary = getCheckResultSummary(check);
   const hasLog = Boolean(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0));
@@ -2893,6 +2935,7 @@ function ReviewCheckRow({ check, decision, onDecide }) {
       <div className={styles.reviewCheckContent}>
         <strong>{title}</strong>
         <p>{summary === "—" ? t("AiJudgePanel.noSummary") : summary}</p>
+        {check?.status === "unknown" && parseCheckRaw(check?.raw)?.error_code && <p>{t("AiJudgePanel.collectionErrorHint")}</p>}
         {hasLog && (
           <details><summary>{t("AiJudgePanel.viewEvidence")}</summary><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></details>
         )}
@@ -2910,6 +2953,8 @@ function ReviewCheckRow({ check, decision, onDecide }) {
 /* 檢查點右邊的狀態標籤：還有待判定的先講待判定，其次未通過，全過就寫幾項都通過 */
 export function checkpointBadge(item, decisions = {}) {
   const checks = Array.isArray(item?.checks) ? item.checks : [];
+  if (item?.evidence_state === "unavailable") return { kind: "muted", label: jt("checkpointUnavailable") };
+  if (item?.missing_check_ids?.length || item?.evidence_state === "incomplete" || checks.length === 0 && item?.status === "unknown") return { kind: "muted", label: jt("checkpointIncompleteLabel") };
   const pending = checks.filter((check) => TEACHER_REVIEW_STATUSES.has(check?.status) && !decisions[check?.id]).length;
   if (pending > 0) return { kind: "pending", label: jt("statusPendingReview", { count: pending }) };
   const failed = checks.filter((check) => (decisions[check?.id] ?? check?.status) === "fail").length;
@@ -2928,7 +2973,7 @@ const CHECKPOINT_BADGE_CLASS = {
 };
 
 /* 一個檢查點一組：標題列可收合，全部通過的預設收起來，老師只需要看未通過與待判定的 */
-function ReviewCheckpointGroup({ item, decisions, onDecide }) {
+function ReviewCheckpointGroup({ item, decisions, onDecide, executionFailed = false }) {
   const { t } = useTranslation("teaching");
   const itemMeta = checkStatusMeta(item?.status);
   const checks = Array.isArray(item?.checks) ? item.checks : [];
@@ -2952,12 +2997,12 @@ function ReviewCheckpointGroup({ item, decisions, onDecide }) {
         <span className={styles.reviewCheckGroupChevron}><MIcon name="expand_more" size={18} /></span>
       </summary>
       <div className={styles.reviewCheckGroupBody}>
-        {missingCount > 0 && (
+        {missingCount > 0 && !executionFailed && (
           <p className={styles.reviewCheckNote}>{t("AiJudgePanel.checkpointIncomplete", { count: missingCount })}</p>
         )}
         {checks.length === 0 ? (
           <p className={styles.reviewCheckNote}>
-            {item?.reason_code === "peer_unavailable" ? t("AiJudgePanel.peerUnavailable") : t("AiJudgePanel.checkpointNoResult")}
+            {executionFailed ? t("AiJudgePanel.checkpointExecutionFailed") : item?.reason_code === "peer_unavailable" ? t("AiJudgePanel.peerUnavailable") : t("AiJudgePanel.checkpointNoResult")}
           </p>
         ) : checks.map((check, checkIndex) => (
           <ReviewCheckRow
@@ -2965,6 +3010,7 @@ function ReviewCheckpointGroup({ item, decisions, onDecide }) {
             check={check}
             decision={decisions[check?.id]}
             onDecide={(value) => onDecide(check?.id, value)}
+            canDecide={!executionFailed && missingCount === 0 && item?.evidence_state !== "unavailable"}
           />
         ))}
       </div>
@@ -3000,6 +3046,7 @@ function studentDisplayUser(machines) {
 export function aggregateStudentCheckTotals(machines) {
   const totals = { pass: 0, fail: 0, pending: 0, skipped: 0, total: 0 };
   for (const row of Array.isArray(machines) ? machines : []) {
+    if (getTargetReviewSummary(row?.target).kind === "failed") continue;
     const savedDecisions = targetTeacherReview(row?.target).decisions ?? {};
     for (const check of targetChecks(row?.target)) {
       const decision = savedDecisions[check?.id];
@@ -3142,6 +3189,7 @@ export function buildBatchReviewTarget(node, member = null) {
     vmid: node?.vmid ?? member?.vmid ?? null,
     status: node?.execution_status,
     reason_code: node?.reason_code ?? null,
+    ...Object.fromEntries(["exit_code", "failure_stage", "validation", "stdout_excerpt", "stderr_excerpt"].filter((key) => node?.[key] !== undefined).map((key) => [key, node[key]])),
     user: member ?? {},
     teacher_review: node?.teacher_review ?? undefined,
     timing: node?.timing,
@@ -3430,6 +3478,7 @@ function MachineReviewDetail({
         {row.vmid ? <small>{`VMID ${row.vmid}`}</small> : null}
         <span className={`${styles.badge} ${reviewBadgeClass(summary.kind)}`}>{summary.label}</span>
       </div>
+      <ExecutionFailure target={target} />
       {executionBlocker ? (
         <p className={styles.mutedText}><strong>{t(`AiJudgePanel.${executionBlocker.message}`)}</strong></p>
       ) : row.items ? (
@@ -3443,6 +3492,7 @@ function MachineReviewDetail({
               item={item}
               decisions={draft.decisions}
               onDecide={decide}
+              executionFailed={summary.kind === "failed"}
             />
           ))}
           {(row.unmappedChecks ?? []).length > 0 && (
@@ -3460,6 +3510,7 @@ function MachineReviewDetail({
               check={check}
               decision={draft.decisions[check?.id]}
               onDecide={(value) => decide(check?.id, value)}
+              canDecide={summary.kind !== "failed"}
             />
           ))}
         </div>
@@ -3483,21 +3534,22 @@ function MachineReviewDetail({
 }
 
 /**
- * 一位學生（或一台機器）的檢查結果只分成：通過、未通過、待老師確認、還沒檢查。
- * 老師在總覽上只需要知道成功與失敗；待確認的再展開處理。
+ * 執行異常與學生未通過分開呈現，避免把不完整證據當成成績。
  */
 export function checkOutcome(machines) {
   const checked = (Array.isArray(machines) ? machines : []).filter((row) => row?.target);
   if (checked.length === 0) return { kind: "none", count: 0 };
   const totals = aggregateStudentCheckTotals(checked);
-  const failedRun = checked.some((row) => getTargetReviewSummary(row.target).kind === "failed");
-  if (totals.fail > 0 || failedRun) return { kind: "fail", count: totals.fail };
+  const failedRuns = checked.filter((row) => getTargetReviewSummary(row.target).kind === "failed").length;
+  if (failedRuns > 0) return { kind: "error", count: failedRuns };
+  if (totals.fail > 0) return { kind: "fail", count: totals.fail };
   if (totals.pending > 0) return { kind: "pending", count: totals.pending };
   if (totals.pass > 0) return { kind: "pass", count: totals.pass };
   return { kind: "none", count: 0 };
 }
 
 const OUTCOME_BADGE_CLASS = {
+  error: styles.badge_danger,
   pass: styles.badge_success,
   fail: styles.badge_danger,
   pending: styles.badge_pending,
@@ -3509,6 +3561,7 @@ const REPLY_MAX_LENGTH = 4000;
 const REPLY_COUNTER_FROM = 3600;
 
 const OUTCOME_CHIP_CLASS = {
+  error: styles.machineChipFail,
   pass: styles.machineChipPass,
   fail: styles.machineChipFail,
   pending: styles.machineChipPending,
@@ -3857,9 +3910,9 @@ export function TeacherReviewTab({
     if (student.report?.ready) counts.reported += 1;
     counts[checkOutcome(student.machines).kind] += 1;
     return counts;
-  }, { total: 0, reported: 0, pass: 0, fail: 0, pending: 0, none: 0 }), [studentRows]);
+  }, { total: 0, reported: 0, pass: 0, fail: 0, error: 0, pending: 0, none: 0 }), [studentRows]);
   const percentOf = (value) => (summary.total > 0 ? (value / summary.total) * 100 : 0);
-  const checkedCount = summary.pass + summary.fail + summary.pending;
+  const checkedCount = summary.pass + summary.fail + summary.error + summary.pending;
 
   function updateDraft(key, updater) {
     setDrafts((current) => ({
@@ -4142,15 +4195,16 @@ export function TeacherReviewTab({
             <div
               className={styles.reviewStackBar}
               role="img"
-              aria-label={t("AiJudgePanel.metricCheckValue", { pass: summary.pass, fail: summary.fail, checked: checkedCount, total: summary.total })}
+              aria-label={t("AiJudgePanel.metricCheckValue", { pass: summary.pass, fail: summary.fail, error: summary.error, checked: checkedCount, total: summary.total })}
             >
               <span className={styles.reviewStackPass} style={{ width: `${percentOf(summary.pass)}%` }} />
-              <span className={styles.reviewStackFail} style={{ width: `${percentOf(summary.fail)}%` }} />
+              <span className={styles.reviewStackFail} style={{ width: `${percentOf(summary.fail + summary.error)}%` }} />
               <span className={styles.reviewStackPending} style={{ width: `${percentOf(summary.pending)}%` }} />
             </div>
             <span className={styles.reviewStatValue}>
               <em className={styles.reviewStatPass}>{t("AiJudgePanel.metricPassCount", { count: summary.pass })}</em>
               <em className={styles.reviewStatFail}>{t("AiJudgePanel.metricFailCount", { count: summary.fail })}</em>
+              {summary.error > 0 && <em className={styles.reviewStatFail}>{t("AiJudgePanel.metricErrorCount", { count: summary.error })}</em>}
               {summary.pending > 0 && <em className={styles.reviewStatPending}>{t("AiJudgePanel.metricPendingCount", { count: summary.pending })}</em>}
               <small>{t("AiJudgePanel.metricCheckedOf", { checked: checkedCount, total: summary.total })}</small>
             </span>

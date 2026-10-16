@@ -98,6 +98,25 @@
   font-size: $font-size-12;
 }
 
+.reviewExecutionError {
+  display: grid;
+  gap: $spacing-8;
+  min-width: 0;
+  padding: $spacing-16;
+  margin-block: $spacing-8;
+  border: 1px solid var(--color-danger);
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+  font-size: $font-size-14;
+
+  > strong { color: var(--color-danger); }
+  p { margin: 0; }
+  details { min-width: 0; }
+  summary { cursor: pointer; }
+  summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+}
+
 .reviewSort {
   display: inline-flex;
   align-items: center;

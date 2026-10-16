@@ -610,7 +610,7 @@ def test_target_over_ssh_limits_fails_alone_with_clear_reason(
                     "schema_version": "teacher_judge_result.v1",
                     "metadata": {"timestamp": "2026-10-12T00:00:00Z", "platform": "linux"},
                     "summary": "done",
-                    "checks": [],
+                    "checks": [{"id": "check", "title": "Check", "status": "pass"}],
                     "errors": [],
                 }
             ),
@@ -658,6 +658,9 @@ def test_execute_targets_releases_db_session_before_ssh(
             name="test",
             template_key="linux",
             rubric_snapshot_json=_snapshot_with_timeouts(100, 100),
+            policy_check_result_json={"coverage": {"mappings": [
+                {"check_id": "check", "rubric_item_ids": ["item"]},
+            ]}},
             script_content="print('x')",
             status=TeacherJudgeScriptStatus.approved,
         )
@@ -684,6 +687,7 @@ def test_execute_targets_releases_db_session_before_ssh(
         seen["open_transactions"] = [s for s in opened if s.in_transaction()]
         seen["script_content"] = script_content
         seen["run_timeout_seconds"] = target.get("run_timeout_seconds")
+        seen["expected_check_ids"] = target.get("expected_check_ids")
         return executor.RemoteScriptResult(
             0,
             json.dumps(
@@ -691,7 +695,7 @@ def test_execute_targets_releases_db_session_before_ssh(
                     "schema_version": "teacher_judge_result.v1",
                     "metadata": {"timestamp": "2026-09-27T00:00:00Z", "platform": "linux"},
                     "summary": "done",
-                    "checks": [],
+                    "checks": [{"id": "check", "title": "Check", "status": "pass"}],
                     "errors": [],
                 }
             ),
@@ -713,6 +717,7 @@ def test_execute_targets_releases_db_session_before_ssh(
     assert seen["open_transactions"] == []
     assert seen["script_content"] == "print('x')"
     assert seen["run_timeout_seconds"] > 200
+    assert seen["expected_check_ids"] == ["check"]
     with Session(db_engine) as session:
         stored = session.get(TeacherJudgeScriptRun, run_id)
         assert stored is not None

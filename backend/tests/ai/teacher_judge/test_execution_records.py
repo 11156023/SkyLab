@@ -216,7 +216,7 @@ def test_completed_target_is_durable_while_another_runs_and_survives_reaping(
                         "timestamp": "2026-10-14T00:00:00Z",
                         "platform": "linux",
                     },
-                    "checks": [],
+                    "checks": [{"id": "check", "title": "Check", "status": "pass"}],
                     "errors": [],
                 }
             ),
@@ -611,7 +611,7 @@ def test_cancellation_after_last_future_finishes_still_persists_completed_result
                             "timestamp": "2026-10-14T00:00:00Z",
                             "platform": "linux",
                         },
-                        "checks": [],
+                        "checks": [{"id": "check", "title": "Check", "status": "pass"}],
                         "errors": [],
                     }
                 ),

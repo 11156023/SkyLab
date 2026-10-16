@@ -442,6 +442,11 @@ def update_target_review(
         )
 
     target = targets[target_index]
+    if decisions and (
+        target.get("status") != "completed"
+        or (target.get("validation") or {}).get("valid") is False
+    ):
+        raise HTTPException(status_code=409, detail="執行結果不完整或失敗，請重新執行成功後再判定。")
     parsed_result = target.get("parsed_result")
     raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else None
     if not isinstance(raw_checks, list):
@@ -1264,7 +1269,10 @@ def project_run_items(
         check_id for check_ids in mapped_by_item.values() for check_id in check_ids
     }
     items: list[dict[str, Any]] = []
-    execution_failed = target_result.get("status") != "completed"
+    execution_failed = (
+        target_result.get("status") != "completed"
+        or (target_result.get("validation") or {}).get("valid") is False
+    )
     for raw_item in (artifact.rubric_snapshot_json or {}).get("items") or []:
         if not isinstance(raw_item, dict):
             continue
@@ -1310,7 +1318,7 @@ def project_run_items(
                     else None
                 ),
                 "evidence_state": (
-                    "unavailable" if not peer_available
+                    "unavailable" if execution_failed or not peer_available
                     else "incomplete" if missing_check_ids else "available"
                 ),
                 "checks": checks,
@@ -1332,6 +1340,11 @@ def project_run_items(
         "display_label": display_labels.get(str(artifact.target_node_key or "")),
         "execution_status": target_result.get("status"),
         "reason_code": target_result.get("reason_code"),
+        **cast("dict[str, Any]", _redact_peer_ips({
+            key: target_result[key]
+            for key in ("exit_code", "failure_stage", "validation", "stdout_excerpt", "stderr_excerpt")
+            if key in target_result
+        }, peer_ips or set())),
         **(
             {"timing": dict(target_result["timing"])}
             if isinstance(target_result.get("timing"), dict) else {}
