@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   assignmentsUntilToday,
   buildPracticeMachines,
-  practiceMachineActionLabel,
+  pickCurrentWeek,
   pickInProgress,
+  practiceMachineActionLabel,
   toPercent,
 } from "./studentDashboard";
 
@@ -90,5 +91,24 @@ describe("pickInProgress", () => {
     expect(pickInProgress([{ id: "a", progress_percent: 100 }]).id).toBe("a");
     expect(pickInProgress([])).toBeNull();
     expect(pickInProgress(undefined)).toBeNull();
+  });
+});
+
+describe("pickCurrentWeek", () => {
+  const weeks = [
+    { id: "w3", week_number: 3, session_date: "2026-10-13" },
+    { id: "w1", week_number: 1, session_date: "2026-09-29" },
+    { id: "w2", week_number: 2, session_date: "2026-10-06" },
+    { id: "w4", week_number: 4, session_date: "2026-10-20" },
+  ];
+
+  it("本週是上課日期在今天以前（含今天）的最後一週", () => {
+    expect(pickCurrentWeek(weeks, new Date("2026-10-16T04:00:00Z"))?.id).toBe("w3");
+    expect(pickCurrentWeek(weeks, new Date("2026-10-13T01:00:00Z"))?.id).toBe("w3");
+  });
+
+  it("學期還沒開始取第一週；沒有週次是 null", () => {
+    expect(pickCurrentWeek(weeks, new Date("2026-09-01T04:00:00Z"))?.id).toBe("w1");
+    expect(pickCurrentWeek([], new Date())).toBeNull();
   });
 });

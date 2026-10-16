@@ -106,7 +106,7 @@ function classWorkspaceGuide(pathname) {
 
 const J = "UserGuide.aiJudge";
 
-/* 三個分頁的切換都只換畫面、只做讀取，可以當 activateSelector；
+/* 兩個分頁的切換都只換畫面、只做讀取，可以當 activateSelector；
    沒有任何檢查時分頁列不存在，用 conditionSelector 整步略過 */
 const JUDGE_TAB = '[data-guide-tab="ai-judge-tab-rubrics"]';
 
@@ -118,7 +118,7 @@ export const CLASS_WORKSPACE_GUIDES = {
   "class-workspace": classWorkspaceGuide,
   "ai-judge": {
     titleKey: `${J}.title`,
-    /* 導覽會切到腳本總覽、導師核查，結束時回到預設的檢查設定 */
+    /* 導覽會切到導師核查，結束時回到預設的任務設定 */
     cleanupSelector: JUDGE_TAB,
     steps: [
       judgeStep('[data-page-guide="header"]', "header"),
@@ -140,11 +140,6 @@ export const CLASS_WORKSPACE_GUIDES = {
       judgeStep('[data-guide="ai-judge-save-build"]', "saveBuild", {
         activateSelector: JUDGE_TAB,
         conditionSelector: '[data-guide="ai-judge-save-build"]',
-        deferred: true,
-      }),
-      judgeStep('[data-guide="ai-judge-scripts"]', "scripts", {
-        activateSelector: '[data-guide-tab="ai-judge-tab-scripts"]',
-        conditionSelector: JUDGE_TAB,
         deferred: true,
       }),
       judgeStep('[data-guide="ai-judge-review"]', "review", {

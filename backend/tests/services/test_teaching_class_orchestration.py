@@ -158,7 +158,8 @@ def test_extending_the_course_appends_weeks_without_touching_the_old_ones():
     ]
 
 
-def test_shortening_the_course_drops_only_the_trailing_weeks():
+def test_shortening_the_course_is_rejected_and_keeps_every_week():
+    """AI導師檢查一週一個對話，週次只增不減：課表改短就擋下，什麼都不刪。"""
     item = _class_with_weeks(weekday=2, end_date=date(2026, 9, 23))
     weeks = [
         TeachingClassWeek(
@@ -174,12 +175,14 @@ def test_shortening_the_course_drops_only_the_trailing_weeks():
     session = _FakeWeekSession(weeks)
 
     item.end_date = date(2026, 9, 16)
-    _generate_weeks(session, item, preserve=True)
+    with pytest.raises(BadRequestError):
+        _generate_weeks(session, item, preserve=True)
 
-    assert [row.week_number for row in session.deleted] == [3]
+    assert session.deleted == []
     assert [(row.week_number, row.title) for row in session.weeks] == [
         (1, "Linux 權限"),
         (2, "SSH 金鑰"),
+        (3, "systemd"),
     ]
 
 

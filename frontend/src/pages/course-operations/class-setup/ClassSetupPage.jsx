@@ -62,7 +62,6 @@ export function weekPayload(weeks, { publish = false } = {}) {
       week_number: Number(week.week_number ?? week.week ?? index + 1),
       session_date: week.session_date ?? week.date,
       title,
-      target_node_key: week.target_node_key ?? week.target ?? null,
       // 精靈沒有班級頁那種逐週發布鈕；少了這個開關，老師填好的主題會全部停在
       // 草稿，班級建好、狀態變成可上課，學生端卻一週內容都看不到。
       status: publish && title && !VISIBLE_WEEK_STATUSES.includes(status) ? "published" : status,

@@ -292,14 +292,16 @@ describe("一鍵儲存並製作", () => {
 
   test("正式工作區一鍵完成後顯示導師核查分頁，並載入新腳本", async () => {
     const state = fixture();
-    vi.spyOn(AiJudgeService, "listSessions").mockResolvedValue([{ id: "session-1", title: "測試檢查", selected_file_id: "file-1", status: "active" }]);
+    // 一週一個對話：側邊欄列週次，選到第 1 週就是這個對話
+    vi.spyOn(AiJudgeService, "listSessions").mockResolvedValue([{ id: "session-1", title: "測試檢查", selected_file_id: "file-1", status: "active", teaching_class_week_id: "week-1" }]);
     const listSets = vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([state.artifact]);
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    const weeks = [{ id: "week-1", week_number: 1, session_date: "2026-09-01", title: "Linux 權限" }];
     const { container } = await mount(
       <MemoryRouter>
         <ConfirmProvider>
           <UnsavedChangesProvider>
-            <AiJudgePanel classId="class-1" members={[]} />
+            <AiJudgePanel classId="class-1" members={[]} weeks={weeks} />
           </UnsavedChangesProvider>
         </ConfirmProvider>
       </MemoryRouter>,

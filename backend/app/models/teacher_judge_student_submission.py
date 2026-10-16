@@ -12,27 +12,44 @@ from .base import get_datetime_utc
 class TeacherJudgeStudentSubmission(SQLModel, table=True):
     """A student-declared completion state; this never starts an AI run.
 
-    The teaching class comes from the artifact, the completed rubric items live in
-    ``teacher_judge_submission_items``, and "ready" is ``ready_at IS NOT NULL``.
+    一週一個對話（session），學生回報對的是那個對話，不是某一支腳本：
+    重新製作腳本、多台機器各一支腳本，都還是同一份回報。``artifact_id`` 只留作
+    歷史（舊資料當初回報的那支腳本），腳本刪掉時清成空值。
+
+    The completed rubric items live in ``teacher_judge_submission_items``, and
+    "ready" is ``ready_at IS NOT NULL``.
     """
 
     __tablename__ = "teacher_judge_student_submissions"
     __table_args__ = (
-        sa.UniqueConstraint(
-            "artifact_id",
+        sa.Index(
+            "uq_teacher_judge_student_submission_session_student",
+            "session_id",
             "student_id",
-            name="uq_teacher_judge_student_submission_artifact_student",
+            unique=True,
+            postgresql_where=sa.text("session_id IS NOT NULL"),
+            sqlite_where=sa.text("session_id IS NOT NULL"),
         ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    artifact_id: uuid.UUID = Field(
+    session_id: uuid.UUID | None = Field(
+        default=None,
         sa_column=Column(
             sa.Uuid,
-            sa.ForeignKey("teacher_judge_script_artifacts.id", ondelete="CASCADE"),
-            nullable=False,
+            sa.ForeignKey("teacher_judge_sessions.id", ondelete="CASCADE"),
+            nullable=True,
             index=True,
-        )
+        ),
+    )
+    artifact_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("teacher_judge_script_artifacts.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
     )
     student_id: uuid.UUID = Field(
         sa_column=Column(

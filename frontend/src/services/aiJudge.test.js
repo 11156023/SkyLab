@@ -66,34 +66,6 @@ describe("AiJudgeService persistent sessions", () => {
     });
   });
 
-  test("直接建立空白檢查使用可在編輯頁修改的預設值", async () => {
-    await AiJudgeService.createBlankSession("class-1");
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(init.body)).toEqual({
-      title: "未命名檢查",
-      selected_file_id: null,
-      creation_mode: "blank",
-      rubric_name: "空白檢查表",
-      environment_keys: ["n8n"],
-    });
-  });
-
-  test("直接建立空白檢查會帶入指定名稱", async () => {
-    await AiJudgeService.createBlankSession("class-1", {
-      title: "期末環境檢查",
-      rubricName: "期末環境檢查",
-    });
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(init.body)).toMatchObject({
-      title: "期末環境檢查",
-      creation_mode: "blank",
-      rubric_name: "期末環境檢查",
-      selected_file_id: null,
-    });
-  });
-
   test("existing 建立請求只綁定已保存的檢查表", async () => {
     await AiJudgeService.createSession("class-1", {
       title: "既有文件檢查",
@@ -118,15 +90,23 @@ describe("AiJudgeService persistent sessions", () => {
     expect(JSON.parse(init.body)).toEqual({ is_pinned: true });
   });
 
-  test("重構使用 class-scoped fork endpoint，不傳 rubric snapshot", async () => {
-    await AiJudgeService.forkSession("class-1", "check-1");
+  test("複製到另一週使用 class-scoped fork endpoint，只帶目標週次", async () => {
+    await AiJudgeService.forkSession("class-1", "check-1", { weekId: "week-2" });
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toContain(
       "/api/v1/teaching-classes/class-1/judge/sessions/check-1/fork",
     );
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toEqual({});
+    expect(JSON.parse(init.body)).toEqual({ teaching_class_week_id: "week-2" });
+  });
+
+  test("點到還沒有檢查的週次時用 PUT 確保那週有一個對話", async () => {
+    await AiJudgeService.ensureWeekSession("class-1", "week/3");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/judge/sessions/weeks/week%2F3");
+    expect(init.method).toBe("PUT");
   });
 
   test("檢查表保存請求會帶 optimistic revision", async () => {

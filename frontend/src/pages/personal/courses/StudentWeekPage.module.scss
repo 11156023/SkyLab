@@ -24,6 +24,9 @@
 .feedback_completed .feedbackStatus, .feedback_passed .feedbackStatus { color: var(--color-success); }
 .feedback_partial .feedbackStatus, .feedback_needs_review .feedbackStatus { color: var(--color-info); }
 .feedback_failed .feedbackStatus, .feedback_cancelled .feedbackStatus { color: var(--color-danger); }
+/* 機器連不上、腳本沒跑完：不是學生做錯，用提醒色跟「未通過」分開 */
+.feedback_env_error .feedbackStatus { color: var(--color-pending); }
+.checkpointMachine { display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; color: var(--color-text-muted); font-size: $font-size-12; }
 .feedbackBody { display: grid; gap: 5px; padding: 11px 13px 13px 53px; border-top: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-primary) 3%, var(--color-surface)); }
 .feedbackBody strong { color: var(--color-primary); font-size: $font-size-14; }
 .feedbackBody p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.55; white-space: pre-wrap; }
@@ -42,3 +45,9 @@
 
 @include respond-below(lg) { .grid { grid-template-columns: 1fr; } }
 @include respond-below(sm) { .page { padding-inline: $spacing-16; } .panel { padding: $spacing-16; } .feedbackTop { grid-template-columns: 28px minmax(0, 1fr); } .feedbackStatus { grid-column: 2; } .feedbackBody { padding-left: 51px; } }
+
+/* 老師回覆：放在檢查回饋最上面，用主色跟自動檢查的結果分開 */
+.teacherReply { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border)); border-radius: $radius-12; background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
+.teacherReply > span { @include flex-center; width: 34px; height: 34px; border-radius: 50%; color: var(--color-text-on-primary); background: var(--color-primary); }
+.teacherReply strong { color: var(--color-primary-on-surface); font-size: $font-size-12; }
+.teacherReply p { margin: 3px 0 0; color: var(--color-text-primary); font-size: $font-size-14; line-height: 1.6; white-space: pre-wrap; }

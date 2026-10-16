@@ -19,6 +19,8 @@
   "schemas.template_key_unsupported": "template_key contains an unsupported environment",
   "schemas.target_vmids_empty": "target_vmids must not be empty",
   "schemas.target_node_key_required": "logical target_node_key is required for node-scoped execution",
+  "schemas.run_students_required": "Choose at least one student when checking specific students.",
+  "schemas.run_students_only_for_students_scope": "A student list is only allowed when checking specific students.",
   "schemas.target_vmids_not_allowed": "target_vmids is only allowed for legacy manual execution",
 
   "session.no_rubric_selected": "This check has not selected a rubric yet.",
@@ -26,6 +28,7 @@
   "session.not_found": "This check was not found.",
   "session.file_in_use": "This rubric is already used by another check. Use \"Fork\" to create an independent copy, or upload a new rubric.",
   "session.archived_readonly": "Archived checks are read-only.",
+  "session.week_not_published": "This week's content isn't published yet; publish it before checking students.",
   "session.file_not_in_class": "The selected rubric source does not belong to this class.",
   "session.fork_title_exhausted": "Unable to create a copy of this check. Please rename the original check first.",
   "session.fork_file_unavailable": "The original check's rubric can no longer be copied.",

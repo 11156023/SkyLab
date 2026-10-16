@@ -57,6 +57,7 @@ from app.models.teacher_judge_session import (
     TeacherJudgeSessionMessage,
     TeacherJudgeSessionStatus,
 )
+from app.models.teaching_class import PUBLISHED_WEEK_STATUSES, TeachingClassWeek
 
 logger = logging.getLogger(__name__)
 
@@ -933,6 +934,17 @@ def ensure_active(item: TeacherJudgeSession) -> None:
         raise HTTPException(status_code=409, detail=t("session.archived_readonly"))
 
 
+def ensure_week_published(db: Session, item: TeacherJudgeSession) -> None:
+    """作業跟著老師每週的內容發布：週次發布後才能檢查學生。"""
+    week = (
+        db.get(TeachingClassWeek, item.teaching_class_week_id)
+        if item.teaching_class_week_id is not None
+        else None
+    )
+    if week is None or week.status not in PUBLISHED_WEEK_STATUSES:
+        raise HTTPException(status_code=409, detail=t("session.week_not_published"))
+
+
 def validate_selected_file(
     db: Session, class_id: uuid.UUID, file_id: uuid.UUID | None
 ) -> None:
@@ -1108,8 +1120,12 @@ def fork_session_data(
     *,
     title: str | None,
     created_by: uuid.UUID | None,
+    week_id: uuid.UUID | None = None,
 ) -> TeacherJudgeSession:
-    """Clone editable settings only; history and execution evidence stay behind."""
+    """Clone editable settings only; history and execution evidence stay behind.
+
+    一週只能有一個對話，複製時由呼叫端指定要放到哪一週（必須是空的週次）。
+    """
     cloned_file: TeacherJudgeFile | None = None
     try:
         if source.selected_file_id:
@@ -1126,7 +1142,7 @@ def fork_session_data(
             )
         clone = TeacherJudgeSession(
             teaching_class_id=source.teaching_class_id,
-            teaching_class_week_id=source.teaching_class_week_id,
+            teaching_class_week_id=week_id or source.teaching_class_week_id,
             title=(title.strip() if title else _fork_title(db, source.teaching_class_id, source.title)),
             status=TeacherJudgeSessionStatus.active,
             selected_file_id=cloned_file.id if cloned_file else None,

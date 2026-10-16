@@ -1,4 +1,4 @@
-import { Suspense, lazy, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../contexts/AuthContext";
@@ -491,6 +491,14 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   }
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
+  // 輸入框從兩行開始，隨內容長高；到上限（.composer textarea 的 max-height）就停，之後框內捲動
+  const resizeComposer = useCallback(() => {
+    const textarea = inputRef.current;
+    // 看不見的時候（助手還沒打開）量到的高度是 0，等看得到再量
+    if (!textarea || textarea.offsetParent === null) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, []);
   // 配置模式：{ answered, total }，null 代表沒在配置模式
   const [intake, updateIntake] = useState(null);
   const intakeRef = useRef(null);
@@ -587,6 +595,25 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   useEffect(() => {
     if (open) window.setTimeout(() => inputRef.current?.focus(), 120);
   }, [open]);
+
+  // 打開助手（輸入框出現）或內容改變時重新量高度
+  useLayoutEffect(() => {
+    resizeComposer();
+  }, [input, presence.open, resizeComposer]);
+
+  // 縮放視窗會改變換行；從隱藏變成看得到也算寬度改變。寬度變了就重新量
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (!presence.open || !textarea || typeof ResizeObserver === "undefined") return undefined;
+    let width = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === width) return;
+      width = textarea.clientWidth;
+      resizeComposer();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [presence.open, resizeComposer]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -1032,7 +1059,8 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   }
 
   function handleKeyDown(event) {
-    if (event.key === "Enter" && !event.shiftKey) {
+    // 注音、倉頡選字時按 Enter 是確認選字，不是送出
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       send();
     }

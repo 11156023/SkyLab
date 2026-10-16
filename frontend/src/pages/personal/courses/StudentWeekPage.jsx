@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -9,6 +9,7 @@ import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { CoursesService } from "../../../services/courses";
 import styles from "./StudentWeekPage.module.scss";
+import { feedbackFor } from "./studentWeekFeedback";
 
 const STATUS_ICONS = {
   completed: "check_circle",
@@ -19,31 +20,8 @@ const STATUS_ICONS = {
   cancelled: "cancel",
   running: "sync",
   pending: "schedule",
+  env_error: "report",
 };
-
-const SCRIPT_CHECK_STATUS = {
-  pass: "passed",
-  fail: "failed",
-  warning: "partial",
-  unknown: "needs_review",
-  skipped: "needs_review",
-};
-
-function feedbackFor(checkpoint) {
-  const check = checkpoint.latest_check;
-  if (!check) return { score: null, maxScore: null, text: "", status: "none" };
-  const item = (check.items ?? []).find((entry) => entry.item_id === checkpoint.id);
-  const itemStatus = SCRIPT_CHECK_STATUS[item?.status]
-    ?? (["passed", "failed", "partial", "needs_review"].includes(item?.status)
-      ? item.status
-      : null);
-  return {
-    score: item?.score ?? check.score,
-    maxScore: item?.max_score ?? check.max_score,
-    text: item?.comment || check.summary || check.error || "",
-    status: itemStatus || check.status,
-  };
-}
 
 function createGuideDemoWeek(t) {
   const checkpointId = "demo-checkpoint";
@@ -57,7 +35,6 @@ function createGuideDemoWeek(t) {
       title: t("StudentWeekPage.guideDemoWeekTitle"),
       week_number: 1,
       session_date: "2026-09-09",
-      target_node_key: "main",
       checkpoints: [{
         id: checkpointId,
         title: t("StudentWeekPage.guideDemoCheckpointTitle"),
@@ -71,6 +48,7 @@ function createGuideDemoWeek(t) {
         },
       }],
       files: [{ id: "demo-file", filename: "linux-week-01.pdf" }],
+      teacher_reply: t("StudentWeekPage.guideDemoTeacherReply"),
     },
     machines: [{
       machine_node_id: "demo-machine",
@@ -119,11 +97,6 @@ export default function StudentWeekPage() {
     return () => { cancelled = true; };
   }, [isGuideDemo, pathId, t, weekId]);
 
-  const machines = useMemo(() => {
-    if (!view.week?.target_node_key) return view.machines;
-    return view.machines.filter((machine) => machine.node_key === view.week.target_node_key);
-  }, [view.machines, view.week]);
-
   async function openDocument(file) {
     if (isGuideDemo) return;
     setOpeningFileId(file.id);
@@ -153,6 +126,8 @@ export default function StudentWeekPage() {
     </div>;
   }
 
+  const teacherReply = String(view.week.teacher_reply ?? "").trim();
+
   return <div className={styles.page}>
     <div data-guide="course-week-header">
       <PageHeader
@@ -174,13 +149,29 @@ export default function StudentWeekPage() {
     <main className={styles.grid}>
       <section className={styles.panel} data-guide="course-week-feedback">
         <div className={styles.panelHeading}><span><MIcon name="rate_review" size={20} /></span><div><h2>{t("StudentWeekPage.feedbackTitle")}</h2><p>{t("StudentWeekPage.feedbackHint")}</p></div></div>
+        {/* 老師這週的回覆：一週一則，老師再回覆就換成新的 */}
+        {teacherReply && <article className={styles.teacherReply} data-guide="course-week-teacher-reply">
+          <span><MIcon name="forum" size={18} /></span>
+          <div>
+            <strong>{t("StudentWeekPage.teacherReplyTitle")}</strong>
+            <p>{teacherReply}</p>
+          </div>
+        </article>}
         {view.week.checkpoints.length ? <div className={styles.feedbackList}>
           {view.week.checkpoints.map((checkpoint, index) => {
             const feedback = feedbackFor(checkpoint);
+            // 多台機器的作業：標出這一項在哪台機器上檢查
+            const machine = checkpoint.machine_node_key
+              ? view.machines.find((entry) => entry.node_key === checkpoint.machine_node_key)
+              : null;
             return <article key={checkpoint.id} className={`${styles.feedbackCard} ${styles[`feedback_${feedback.status}`] ?? ""}`}>
               <div className={styles.feedbackTop}>
                 <span className={styles.number}>{index + 1}</span>
-                <div><strong>{checkpoint.title}</strong>{checkpoint.description && <p>{checkpoint.description}</p>}</div>
+                <div>
+                  <strong>{checkpoint.title}</strong>
+                  {checkpoint.description && <p>{checkpoint.description}</p>}
+                  {machine && <small className={styles.checkpointMachine}><MIcon name="dns" size={14} />{t("StudentWeekPage.checkpointMachine", { machine: machine.name })}</small>}
+                </div>
                 <span className={styles.feedbackStatus}><MIcon name={STATUS_ICONS[feedback.status] ?? "hourglass_empty"} size={17} />{feedback.status === "none" ? t("StudentWeekPage.noFeedback") : t(`StudentWeekPage.status_${feedback.status}`)}</span>
               </div>
               {feedback.status !== "none" && <div className={styles.feedbackBody}>
@@ -194,8 +185,8 @@ export default function StudentWeekPage() {
 
       <aside className={styles.side}>
         <section className={styles.panel} data-guide="course-week-machine">
-          <div className={styles.panelHeading}><span><MIcon name="dns" size={20} /></span><div><h2>{t("StudentWeekPage.machineTitle")}</h2><p>{view.week.target_node_key ? t("StudentWeekPage.machineSelectedHint") : t("StudentWeekPage.machineAllHint")}</p></div></div>
-          {machines.length ? <div className={styles.machineList}>{machines.map((machine) => <article className={styles.machineCard} key={machine.machine_node_id}>
+          <div className={styles.panelHeading}><span><MIcon name="dns" size={20} /></span><div><h2>{t("StudentWeekPage.machineTitle")}</h2><p>{t("StudentWeekPage.machineAllHint")}</p></div></div>
+          {view.machines.length ? <div className={styles.machineList}>{view.machines.map((machine) => <article className={styles.machineCard} key={machine.machine_node_id}>
             <div className={styles.machineCopy}><span><MIcon name={machine.resource_type === "lxc" ? "terminal" : "desktop_windows"} size={20} /></span><div><strong>{machine.name}</strong><small>{machine.role}{machine.vmid ? ` · VMID ${machine.vmid}` : ""}</small></div></div>
             <div className={styles.machineActions}>
               {machine.public_url ? <a href={machine.public_url} target="_blank" rel="noreferrer"><MIcon name="language" size={17} />{t("StudentWeekPage.openWebsite")}</a> : (machine.forward_endpoints ?? []).length === 0 && <span className={styles.urlPending}><MIcon name="link_off" size={16} />{t("StudentWeekPage.urlPending")}</span>}

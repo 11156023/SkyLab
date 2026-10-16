@@ -522,6 +522,7 @@ def test_dispatch_rejection_returns_failed_batch_instead_of_permanent_pending(
         )
         monkeypatch.setattr(routes, "_access", lambda *args: None)
         monkeypatch.setattr(routes, "get_artifact_set", lambda **kwargs: None)
+        monkeypatch.setattr(routes, "ensure_week_published", lambda *args: None)
         monkeypatch.setattr(routes, "create_script_run_batch", lambda **kwargs: public)
         monkeypatch.setattr(executor, "engine", db.get_bind())
 

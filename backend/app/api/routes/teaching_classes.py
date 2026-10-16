@@ -468,6 +468,8 @@ def update_class(
     for key, value in body.model_dump(exclude_none=True).items():
         setattr(item, key, value)
     class_lifecycle_service.validate_schedule(item)
+    # 存檔前就擋：課表改短會少掉週次，等存了班級才發現會留下日期跟週次對不上的資料
+    class_lifecycle_service.ensure_weeks_not_removed(session, item)
     item.updated_at = get_datetime_utc()
     session.add(item)
     session.commit()
@@ -800,12 +802,13 @@ def replace_weeks(
         for row in files_by_id.values()
         if row.id not in kept_file_ids
     ]
+    # 週次只增不減（AI導師檢查掛在週次上）：送來的內容沒涵蓋到某一週就整筆拒絕
+    if any(week.id not in kept_week_ids for week in weeks):
+        session.rollback()
+        raise BadRequestError(t("teachingClasses.weekDatesMustMatchSchedule"))
     for row in files_by_id.values():
         if row.id not in kept_file_ids:
             session.delete(row)
-    for week in weeks:
-        if week.id not in kept_week_ids:
-            session.delete(week)
     session.commit()
     for storage_key in removed_storage_keys:
         class_lifecycle_service.remove_task_file_blob(storage_key)

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from datetime import date, time
 
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.exceptions import NotFoundError
 from app.models.course import CoursePath, CoursePathStatus
@@ -19,7 +19,12 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRun,
     TeacherJudgeScriptRunStatus,
 )
-from app.models.teaching_class import TeachingClass, TeachingClassStudent
+from app.models.teacher_judge_session import TeacherJudgeSession
+from app.models.teaching_class import (
+    TeachingClass,
+    TeachingClassStudent,
+    TeachingClassWeek,
+)
 from app.services.course import ai_assignment_service
 
 
@@ -45,9 +50,11 @@ def _artifact(
     name: str,
     items: list[dict] | None = None,
     policy: dict | None = None,
+    session_id: uuid.UUID | None = None,
 ) -> TeacherJudgeScriptArtifact:
     return TeacherJudgeScriptArtifact(
         teaching_class_id=teaching_class_id,
+        session_id=session_id,
         name=name,
         template_key="linux",
         rubric_snapshot_json={
@@ -59,6 +66,32 @@ def _artifact(
         script_content="print('{}')",
         status=TeacherJudgeScriptStatus.approved,
     )
+
+
+def _published_week(session: Session, teaching_class_id: uuid.UUID) -> TeachingClassWeek:
+    """作業跟著每週內容發布：測試裡的對話都綁在已發布的週次上。"""
+    number = len(
+        session.exec(
+            select(TeachingClassWeek).where(TeachingClassWeek.class_id == teaching_class_id)
+        ).all()
+    ) + 1
+    week = TeachingClassWeek(
+        class_id=teaching_class_id, week_number=number,
+        session_date=date(2026, 9, number), title=f"第 {number} 週", status="published",
+    )
+    session.add(week)
+    session.flush()
+    return week
+
+
+def _judge(session: Session, teaching_class_id: uuid.UUID, title: str) -> TeacherJudgeSession:
+    week = _published_week(session, teaching_class_id)
+    judge = TeacherJudgeSession(
+        teaching_class_id=teaching_class_id, title=title, teaching_class_week_id=week.id
+    )
+    session.add(judge)
+    session.flush()
+    return judge
 
 
 def _setup_class(session: Session) -> tuple[uuid.UUID, TeachingClass, CoursePath]:
@@ -213,9 +246,13 @@ def test_list_assignments_dedupes_versions_and_skips_empty_rubrics(
     session: Session,
 ) -> None:
     student_id, teaching_class, path = _setup_class(session)
-    newest = _artifact(teaching_class_id=teaching_class.id, name="Week 1")
-    older = _artifact(teaching_class_id=teaching_class.id, name="Week 1")
-    empty = _artifact(teaching_class_id=teaching_class.id, name="Empty", items=[])
+    week_one = _judge(session, teaching_class.id, "Week 1")
+    week_two = _judge(session, teaching_class.id, "Empty")
+    newest = _artifact(teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
+    older = _artifact(teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
+    empty = _artifact(
+        teaching_class_id=teaching_class.id, name="Empty", items=[], session_id=week_two.id
+    )
     session.add(newest)
     session.add(older)
     session.add(empty)
@@ -230,7 +267,8 @@ def test_list_assignments_dedupes_versions_and_skips_empty_rubrics(
 
 def test_source_document_missing_raises_not_found(session: Session) -> None:
     student_id, teaching_class, path = _setup_class(session)
-    artifact = _artifact(teaching_class_id=teaching_class.id, name="No PDF")
+    judge = _judge(session, teaching_class.id, "No PDF")
+    artifact = _artifact(teaching_class_id=teaching_class.id, name="No PDF", session_id=judge.id)
     session.add(artifact)
     session.commit()
 
@@ -239,7 +277,7 @@ def test_source_document_missing_raises_not_found(session: Session) -> None:
             session,
             user_id=student_id,
             path_id=path.id,
-            assignment_id=artifact.id,
+            assignment_id=judge.id,
         )
 
 
@@ -247,8 +285,12 @@ def test_get_student_ai_check_returns_own_run_and_hides_others(
     session: Session,
 ) -> None:
     student_id, teaching_class, path = _setup_class(session)
-    artifact = _artifact(teaching_class_id=teaching_class.id, name="Check")
-    sibling = _artifact(teaching_class_id=teaching_class.id, name="Sibling")
+    judge = _judge(session, teaching_class.id, "Check")
+    sibling_judge = _judge(session, teaching_class.id, "Sibling")
+    artifact = _artifact(teaching_class_id=teaching_class.id, name="Check", session_id=judge.id)
+    sibling = _artifact(
+        teaching_class_id=teaching_class.id, name="Sibling", session_id=sibling_judge.id
+    )
     session.add(artifact)
     session.add(sibling)
     session.commit()
@@ -290,7 +332,7 @@ def test_get_student_ai_check_returns_own_run_and_hides_others(
         session,
         user_id=student_id,
         path_id=path.id,
-        assignment_id=artifact.id,
+        assignment_id=judge.id,
         run_id=own_run.id,
     )
     assert check.run_id == own_run.id
@@ -303,14 +345,15 @@ def test_get_student_ai_check_returns_own_run_and_hides_others(
                 session,
                 user_id=student_id,
                 path_id=path.id,
-                assignment_id=artifact.id,
+                assignment_id=judge.id,
                 run_id=run_id,
             )
 
 
 def test_update_completion_rejects_unknown_item(session: Session) -> None:
     student_id, teaching_class, path = _setup_class(session)
-    artifact = _artifact(teaching_class_id=teaching_class.id, name="Toggle")
+    judge = _judge(session, teaching_class.id, "Toggle")
+    artifact = _artifact(teaching_class_id=teaching_class.id, name="Toggle", session_id=judge.id)
     session.add(artifact)
     session.commit()
 
@@ -319,7 +362,7 @@ def test_update_completion_rejects_unknown_item(session: Session) -> None:
             session,
             user_id=student_id,
             path_id=path.id,
-            assignment_id=artifact.id,
+            assignment_id=judge.id,
             item_id="nope",
             completed=True,
         )
