@@ -332,7 +332,7 @@ def test_compiler_accepts_data_that_mentions_denied_words() -> None:
             TeacherJudgeRubricCheckStep(
                 id="reset-log",
                 title="Git reset 練習：service survives reboot",
-                collector={"type": "command", "argv": ["git", "log"], "timeout_seconds": 10},
+                collector={"type": "command", "argv": ["git", "-C", "/srv/project", "log"], "timeout_seconds": 10},
                 assertion={"type": "text_contains", "expected": "fix: repair after reboot"},
             ),
             TeacherJudgeRubricCheckStep(

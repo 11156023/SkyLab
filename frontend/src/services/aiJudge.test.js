@@ -252,9 +252,18 @@ describe("AiJudgeService persistent sessions", () => {
     expect(RUBRIC_REASSESS_PROMPT).toContain("缺少資訊");
     expect(RUBRIC_REASSESS_PROMPT).toContain("評分計劃書");
     expect(RUBRIC_REASSESS_PROMPT).toContain("不改變原始評分目標");
-    expect(RUBRIC_REASSESS_PROMPT).toContain("工作目錄");
+    expect(RUBRIC_REASSESS_PROMPT).toContain("必要的檔案或專案絕對路徑");
     expect(RUBRIC_REASSESS_PROMPT).toContain("主要情境");
     expect(RUBRIC_REASSESS_PROMPT).toContain("其他已啟用的受控能力");
+  });
+
+  test.each([RUBRIC_POLISH_PROMPT, RUBRIC_REASSESS_PROMPT])("內部提示只允許必要的絕對路徑，禁止產生 cwd", (prompt) => {
+    expect(prompt).toContain("版本、服務狀態、CPU 與一般 pip 套件資訊查詢不需要檔案路徑");
+    expect(prompt).toContain("collector.path 或 argv 對應參數使用絕對路徑");
+    expect(prompt).toContain("後端只驗證，不會補齊或映射路徑");
+    expect(prompt).toContain("不要產生 cwd 欄位，即使是 null 也不允許");
+    expect(prompt).not.toContain("collector.cwd 與相對路徑即可");
+    expect(prompt).not.toContain("省略 cwd 或填 null");
   });
 
   test("Finalizer 提示會保留老師目標並要求完整 typed 契約", () => {
