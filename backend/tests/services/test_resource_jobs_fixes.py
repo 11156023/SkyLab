@@ -168,6 +168,10 @@ class _RequestsSession:
     def __init__(self, requests: list[Any]) -> None:
         self.requests = requests
 
+    def get(self, model: Any, pk: Any) -> None:
+        """查不到申請人：照一般配額執法（管理員豁免另有測試）。"""
+        del model, pk
+
     def exec(self, statement: Any) -> _Result:
         del statement
         return _Result(self.requests)

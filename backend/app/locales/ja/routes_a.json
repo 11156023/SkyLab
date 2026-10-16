@@ -19,6 +19,7 @@
   "rubric.noTextExtracted": "文書からテキストを抽出できませんでした。スキャン PDF でないことを確認してください。",
   "rubric.noItemsToExport": "エクスポートできる採点項目がありません。",
   "quotas.alreadyExists": "この対象には既にクォータが設定されています。更新をご利用ください。",
+  "quotas.adminUnlimited": "管理者はクォータの制限を受けないため、個人クォータは設定できません。",
   "lxc.creating": "LXC を作成しています。しばらくしてからリソース一覧をご確認ください。",
   "proxmoxConfig.invalidCaCert": "CA 証明書の形式が無効です。正しい PEM 形式の証明書を貼り付けてください。",
   "proxmoxConfig.cannotDeleteDefault": "この接続はデフォルト接続です。削除する前に別の接続をデフォルトに設定してください。",

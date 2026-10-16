@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from app.exceptions import ConflictError
-from app.models import QuotaConfig
+from app.models import QuotaConfig, UserRole
 from app.services.resource import quota_service
-from app.services.resource.quota_policy import DEFAULT_QUOTA, QuotaUsage
+from app.services.resource.quota_policy import DEFAULT_QUOTA, NO_QUOTA, QuotaUsage
 
 USER_ID = uuid.uuid4()
 
@@ -69,9 +69,14 @@ class _FakeSession:
 
 @pytest.fixture()
 def stub_quota(monkeypatch: pytest.MonkeyPatch):
-    """樁掉 DB 查詢：個人覆寫與全域預設兩個來源。"""
+    """樁掉 DB 查詢：申請人身分、個人覆寫與全域預設兩個來源。"""
 
-    def _set(user_quota=None, global_quota=None):
+    def _set(user_quota=None, global_quota=None, admin=False):
+        monkeypatch.setattr(
+            quota_service,
+            "_is_admin_user",
+            lambda session, user_id: admin,
+        )
         monkeypatch.setattr(
             quota_service,
             "_quota_for_user",
@@ -251,3 +256,59 @@ def test_check_quota_fail_open_on_pve_error(
 
     monkeypatch.setattr(quota_service, "get_usage", _boom)
     quota_service.check_quota(None, USER_ID, delta_cores=100)  # 不 raise
+
+
+def test_admin_effective_quota_is_unlimited_even_with_override(stub_quota) -> None:
+    """管理員沒有配額：資料表裡殘留的個人配額與全域預設都不套用。"""
+    stub_quota(
+        user_quota=_quota_row(max_cpu_cores=1),
+        global_quota=_quota_row(max_cpu_cores=2),
+        admin=True,
+    )
+    assert quota_service.get_effective_quota(None, USER_ID) == NO_QUOTA
+
+
+def _usage_must_not_be_queried(session, user_id, **kwargs):
+    raise AssertionError("管理員不受配額限制，不該查用量")
+
+
+def test_check_quota_skips_admin(monkeypatch: pytest.MonkeyPatch, stub_quota) -> None:
+    stub_quota(admin=True)
+    monkeypatch.setattr(quota_service, "get_usage", _usage_must_not_be_queried)
+    quota_service.check_quota(
+        None, USER_ID, delta_cores=999, delta_memory_mb=10**7, delta_instances=99
+    )
+
+
+def test_check_quota_for_provision_skips_admin(
+    monkeypatch: pytest.MonkeyPatch, stub_quota
+) -> None:
+    stub_quota(admin=True)
+    monkeypatch.setattr(quota_service, "get_usage", _usage_must_not_be_queried)
+    request = _pending_request(user_id=USER_ID, cores=999, memory=10**7)
+    quota_service.check_quota_for_provision(None, request)
+
+
+def test_check_quota_for_existing_resource_skips_admin(
+    monkeypatch: pytest.MonkeyPatch, stub_quota
+) -> None:
+    """轉移擁有權給管理員時不檢查配額。"""
+    stub_quota(admin=True)
+    monkeypatch.setattr(quota_service, "get_usage", _usage_must_not_be_queried)
+    quota_service.check_quota_for_existing_resource(
+        None, USER_ID, {"maxcpu": 999, "maxmem": 10**15, "maxdisk": 10**15}
+    )
+
+
+@pytest.mark.parametrize(
+    ("user", "expected"),
+    [
+        (SimpleNamespace(role=UserRole.admin), True),
+        (SimpleNamespace(role=UserRole.teacher), False),
+        (SimpleNamespace(role=UserRole.student), False),
+        (None, False),
+    ],
+)
+def test_is_admin_user_reads_role(user: object, expected: bool) -> None:
+    session = _FakeSession(existing=user)
+    assert quota_service._is_admin_user(session, USER_ID) is expected  # type: ignore[arg-type]

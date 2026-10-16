@@ -82,6 +82,26 @@ test("刪除個人覆寫後重抓全域設定，全域卡片尚未儲存的修�
   expect(host.querySelector("#global-max_cpu_cores").value).toBe("16");
 });
 
+test("新增個人配額時挑不到管理員（管理員不受配額限制）", async () => {
+  mocks.listAll.mockResolvedValue([
+    { id: "s1", email: "student@example.edu", role: "student" },
+    { id: "t1", email: "teacher@example.edu", role: "teacher" },
+    { id: "a1", email: "admin@example.edu", role: "admin", is_superuser: true },
+  ]);
+  await act(async () => root.render(<QuotasSection />));
+  await flush();
+
+  const addBtn = [...host.querySelectorAll("button")].find((b) => b.textContent.includes("QuotasTab.addQuota"));
+  await act(async () => addBtn.click());
+  await flush();
+  const picker = document.querySelector("#quota-user");
+  await act(async () => picker.focus());
+  await flush();
+
+  const emails = [...document.querySelectorAll("li button")].map((b) => b.textContent);
+  expect(emails).toEqual(["student@example.edu", "teacher@example.edu"]);
+});
+
 test("全域設定的數值真的變了才重設表單", async () => {
   await act(async () => root.render(<QuotasSection />));
   await flush();

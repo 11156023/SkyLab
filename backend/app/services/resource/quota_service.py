@@ -4,6 +4,7 @@
 教學資源不計入學生個人配額。specs 取自 PVE cluster/resources
 （maxcpu / maxmem / maxdisk，單次呼叫）。
 PVE 不可用時 fail-open（記 warning、放行），不阻斷 provisioning。
+管理員沒有配額：有效配額一律無限制，所有執法點直接放行，也不能替管理員設個人配額。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from sqlalchemy import or_
 from sqlmodel import Session, col, select
 
 from app.core.i18n import t
+from app.core.permissions import is_admin
 from app.exceptions import ConflictError, NotFoundError
 from app.models import (
     AuditAction,
@@ -35,9 +37,11 @@ from app.models.base import get_datetime_utc
 from app.schemas import ResourceQuotaCreate, ResourceQuotaUpdate
 from app.services.proxmox import proxmox_service
 from app.services.resource.quota_policy import (
+    NO_QUOTA,
     EffectiveQuota,
     QuotaUsage,
     check_quota_delta,
+    is_unlimited,
     resolve_effective_quota,
 )
 from app.services.user import audit_service
@@ -103,8 +107,11 @@ def create_user_quota(
     session: Session, body: ResourceQuotaCreate, *, actor_id: uuid.UUID
 ) -> ResourceQuota:
     """建立個人配額；使用者不存在 404，已有配額 409。配額與稽核同一筆交易。"""
-    if session.get(User, body.user_id) is None:
+    target = session.get(User, body.user_id)
+    if target is None:
         raise NotFoundError("User not found")
+    if is_admin(target):
+        raise ConflictError(t("quotas.adminUnlimited"))
     if _quota_for_user(session, body.user_id) is not None:
         raise ConflictError(t("quotas.alreadyExists"))
 
@@ -191,7 +198,15 @@ def _owned_vmids(session: Session, user_id: uuid.UUID) -> list[int]:
     ]
 
 
+def _is_admin_user(session: Session, user_id: uuid.UUID) -> bool:
+    user = session.get(User, user_id)
+    return user is not None and is_admin(user)
+
+
 def get_effective_quota(session: Session, user_id: uuid.UUID) -> EffectiveQuota:
+    """管理員一律無限制（就算資料表裡留著舊的個人配額也不套用）。"""
+    if _is_admin_user(session, user_id):
+        return NO_QUOTA
     return resolve_effective_quota(
         _quota_for_user(session, user_id), _global_quota_row(session)
     )
@@ -359,6 +374,8 @@ def check_quota(
 ) -> None:
     """執法點呼叫；超限 raise ConflictError(409)。PVE 失敗 fail-open。"""
     quota = get_effective_quota(session, user_id)
+    if is_unlimited(quota):
+        return
     try:
         usage = get_usage(
             session, user_id, exclude_spec_request_id=exclude_spec_request_id
@@ -409,6 +426,8 @@ def check_quota_for_provision(session: Session, request: Any) -> None:
     """
     try:
         quota = get_effective_quota(session, request.user_id)
+        if is_unlimited(quota):
+            return
         usage = get_usage(session, request.user_id, exclude_request_id=request.id)
     except Exception:
         logger.warning(

@@ -2,6 +2,7 @@
 
 解析順序：user 覆寫（整列全勝）→ 全域預設（quota_config singleton）→ 內建預設。
 上限值 0 = 無限制（UNLIMITED），該欄位不做執法。
+管理員不受配額限制，一律是 NO_QUOTA（由 quota_service 在解析前判斷身分）。
 """
 
 from __future__ import annotations
@@ -33,6 +34,18 @@ UNLIMITED = 0
 DEFAULT_QUOTA = EffectiveQuota(
     max_cpu_cores=8, max_memory_mb=16384, max_disk_gb=100, max_instances=5
 )
+
+NO_QUOTA = EffectiveQuota(
+    max_cpu_cores=UNLIMITED,
+    max_memory_mb=UNLIMITED,
+    max_disk_gb=UNLIMITED,
+    max_instances=UNLIMITED,
+)
+
+
+def is_unlimited(quota: EffectiveQuota) -> bool:
+    """四個欄位都不設限：執法點連用量都不必查。"""
+    return quota == NO_QUOTA
 
 
 def resolve_effective_quota(
