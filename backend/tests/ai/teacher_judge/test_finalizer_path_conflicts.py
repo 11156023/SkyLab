@@ -23,6 +23,7 @@ from app.ai.teacher_judge.session_service import (
 )
 from app.models.teaching_class import TeachingClassMachineNode
 from tests.ai.teacher_judge.helpers import (
+    make_script_workspace,
     make_session,
     make_teacher_judge_file,
     patch_teacher_judge_vllm_settings,
@@ -255,7 +256,7 @@ async def test_path_conflict_repair_survives_readiness_save_and_artifact(
         assert saved.analysis_revision == 2
         monkeypatch.setattr(script_artifact_service, "get_enabled_template_commands", lambda *a, **kw: [])
         artifact = script_artifact_service.create_artifact_set(
-            session=db, teaching_class_id=class_id, session_id=uuid.uuid4(),
+            session=db, teaching_class_id=class_id, session_id=make_script_workspace(db, class_id, source_file_id=file.id).id,
             name="path regression", template_key="linux",
             rubric_analysis=TeacherJudgeRubricAnalysis.model_validate(saved.analysis_json),
             source_analysis_revision=saved.analysis_revision, created_by=None,

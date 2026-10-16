@@ -33,6 +33,14 @@ beforeEach(() => {
 });
 
 describe("AiJudgeService persistent sessions", () => {
+  test("目前核查清單依指定腳本組過濾，歷史查詢可省略", async () => {
+    await AiJudgeService.listSessionRuns("class-1", "session-1", "active-set");
+    await AiJudgeService.listSessionRunBatches("class-1", "session-1", 10, "active-set");
+    await AiJudgeService.listSessionRuns("class-1", "session-1");
+    expect(fetchMock.mock.calls[0][0]).toContain("/runs?artifact_set_id=active-set");
+    expect(fetchMock.mock.calls[1][0]).toContain("/run-batches?limit=10&artifact_set_id=active-set");
+    expect(fetchMock.mock.calls[2][0]).not.toContain("artifact_set_id");
+  });
   test("session 清單不再傳送進行中或已封存的狀態分類", async () => {
     await AiJudgeService.listSessions("class-1");
 

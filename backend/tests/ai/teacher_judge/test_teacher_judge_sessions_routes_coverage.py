@@ -893,7 +893,7 @@ def test_run_batch_and_run_listing_routes(ctx, monkeypatch) -> None:
     runs = routes.list_session_runs(class_id, item.id, db, USER, 5, 10)
 
     assert batch["run_batch_id"] == batch_id
-    assert runs == [class_id, item.id, 5, 10]
+    assert runs == [class_id, item.id, 5, 10, None]
 
 
 def _artifact_getter(db, monkeypatch, artifact):

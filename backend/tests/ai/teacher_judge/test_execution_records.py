@@ -38,7 +38,7 @@ from app.models.teacher_judge_script_run import (
 )
 from app.models.teacher_judge_session import TeacherJudgeSession
 from app.services.course.ai_assignment_service import _target_for_student
-from tests.ai.teacher_judge.helpers import make_session
+from tests.ai.teacher_judge.helpers import make_script_workspace, make_session
 
 
 def _artifact(db: Session, **kwargs: Any) -> TeacherJudgeScriptArtifact:
@@ -404,7 +404,8 @@ def test_failed_preparation_keeps_batch_and_rolls_back_incomplete_children(
 ) -> None:
     with make_session() as db:
         class_id, artifact_set_id = uuid.uuid4(), uuid.uuid4()
-        judge_session = TeacherJudgeSession(teaching_class_id=class_id, title="prepare")
+        judge_session = make_script_workspace(db, class_id)
+        judge_session.active_artifact_set_id = artifact_set_id
         db.add(judge_session)
         db.flush()
         for node in ("web", "db"):

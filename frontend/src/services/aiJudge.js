@@ -165,9 +165,9 @@ export const AiJudgeService = {
     );
   },
 
-  listSessionRuns(classId, sessionId) {
+  listSessionRuns(classId, sessionId, artifactSetId = null) {
     return apiGet(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs`,
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs${artifactSetId ? `?artifact_set_id=${encodeURIComponent(artifactSetId)}` : ""}`,
     );
   },
 
@@ -240,9 +240,9 @@ export const AiJudgeService = {
   },
 
   /** 最近幾批執行（新的在前）；只檢查部分學生時，其他人的結果在較舊的批次裡 */
-  listSessionRunBatches(classId, sessionId, limit = 20) {
+  listSessionRunBatches(classId, sessionId, limit = 20, artifactSetId = null) {
     return apiGet(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/run-batches?limit=${limit}`,
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/run-batches?limit=${limit}${artifactSetId ? `&artifact_set_id=${encodeURIComponent(artifactSetId)}` : ""}`,
     );
   },
 

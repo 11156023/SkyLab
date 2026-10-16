@@ -410,6 +410,11 @@ export function getRubricReviewItemIds(analysis, candidateIds = null) {
   return new Set([...reviewIds].filter((itemId) => currentIds.has(itemId)));
 }
 
+export function getActiveScriptSet(sets) {
+  const active = (Array.isArray(sets) ? sets : []).filter((set) => set?.is_active === true && set.status === "approved");
+  return active.length === 1 ? active[0] : null;
+}
+
 export function getScriptCreationBlocker({ analysis, pendingProposal = null, pendingReviewIds = new Set() }) {
   const items = Array.isArray(analysis?.items) ? analysis.items : [];
   if (pendingProposal) return jt("blockerProposal");
@@ -3514,6 +3519,8 @@ export function TeacherReviewTab({
   const confirm = useConfirm();
   // { mode: "batch", batches }（新到舊；每位學生取最近一次有檢查到他的那批）| { mode: "run", run }
   const [reviewState, setReviewState] = useState(null);
+  const [reviewSetId, setReviewSetId] = useState(null);
+  const reviewSetIdRef = useRef(null);
   // 全班當週自評回報（誰回報完成、做到第幾項）；讀不到時總覽照樣只列有結果的學生
   const [progress, setProgress] = useState(null);
   // 每位學生這週回覆的草稿（user_id → 文字）；存好就拿掉
@@ -3529,7 +3536,6 @@ export function TeacherReviewTab({
   const [runOnceOpen, setRunOnceOpen] = useState(false);
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [activeBatch, setActiveBatch] = useState(null);
-  const [selectedSetId, setSelectedSetId] = useState(null);
   // 整批執行完成時老師還有沒存的核查：先不換結果（草稿會套到新結果上），存完再自動載入
   const [newResultsWaiting, setNewResultsWaiting] = useState(false);
   const loadRequestRef = useRef(0);
@@ -3547,12 +3553,15 @@ export function TeacherReviewTab({
       setLoadError(false);
     }
     try {
-      const [sets, runs, nextProgress, batchSummaries] = await Promise.all([
+      const [sets, nextProgress] = await Promise.all([
         AiJudgeService.listSessionScriptSets(classId, sessionId),
-        AiJudgeService.listSessionRuns(classId, sessionId),
         AiJudgeService.getSessionProgress(classId, sessionId).catch(() => null),
-        AiJudgeService.listSessionRunBatches(classId, sessionId, 10).catch(() => []),
       ]);
+      const activeSet = getActiveScriptSet(sets);
+      const [runs, batchSummaries] = activeSet ? await Promise.all([
+        AiJudgeService.listSessionRuns(classId, sessionId, activeSet.artifact_set_id),
+        AiJudgeService.listSessionRunBatches(classId, sessionId, 10, activeSet.artifact_set_id).catch(() => []),
+      ]) : [[], []];
       if (loadRequestRef.current !== requestId) return;
       setScriptSets(Array.isArray(sets) ? sets : []);
       setProgress(nextProgress);
@@ -3598,7 +3607,12 @@ export function TeacherReviewTab({
           }
         }
       }
-      if (silent && hasDirtyDraftsRef.current) return;
+      if (silent && hasDirtyDraftsRef.current) {
+        if (reviewSetIdRef.current !== (activeSet?.artifact_set_id ?? null)) setNewResultsWaiting(true);
+        return;
+      }
+      reviewSetIdRef.current = activeSet?.artifact_set_id ?? null;
+      setReviewSetId(activeSet?.artifact_set_id ?? null);
       setReviewState(nextState);
       setDrafts(nextDrafts);
       setNewResultsWaiting(false);
@@ -3611,12 +3625,13 @@ export function TeacherReviewTab({
 
   useEffect(() => {
     setReviewState(null);
+    setReviewSetId(null);
+    reviewSetIdRef.current = null;
     setProgress(null);
     setReplyDrafts({});
     setScriptSets([]);
     setExpandedKey(null);
     setActiveBatch(null);
-    setSelectedSetId(null);
     setNewResultsWaiting(false);
     batchStatusRef.current = null;
     loadReview();
@@ -3687,15 +3702,9 @@ export function TeacherReviewTab({
     }
   }, [activeBatch, loadReview, t, toast]);
 
-  const approvedSets = useMemo(
-    () => scriptSets.filter((set) => set?.status === "approved"),
+  const activeSet = useMemo(
+    () => getActiveScriptSet(scriptSets),
     [scriptSets],
-  );
-  const selectedSet = useMemo(
-    () => approvedSets.find((set) => set.artifact_set_id === selectedSetId)
-      ?? approvedSets[0]
-      ?? null,
-    [approvedSets, selectedSetId],
   );
   const batchRunning = Boolean(activeBatch && !runIsTerminal(activeBatch.status));
 
@@ -3864,22 +3873,22 @@ export function TeacherReviewTab({
   }
 
   async function handleRunOnce() {
-    if (!selectedSet || creatingBatch || batchRunning) return;
+    if (!activeSet || creatingBatch || batchRunning) return;
     setCreatingBatch(true);
     try {
       const next = await AiJudgeService.createSessionScriptSetRun(
         classId,
         sessionId,
-        selectedSet.artifact_set_id,
+        activeSet.artifact_set_id,
       );
       batchStatusRef.current = next?.status ?? null;
       setActiveBatch(next);
       setRunOnceOpen(false);
-      setSelectedSetId(null);
       onRunStarted?.();
       toast.success(t("AiJudgePanel.batchCreated", { count: next?.summary?.targets ?? 0 }));
     } catch (error) {
       toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
+      if (error?.status === 409) loadReview({ silent: true });
     } finally {
       setCreatingBatch(false);
     }
@@ -3887,7 +3896,7 @@ export function TeacherReviewTab({
 
   /* 只檢查指定學生（這位學生／已回報完成的人）：用最新核准的那組腳本，其他人的結果不動 */
   async function runForStudents(userIds) {
-    const targetSet = approvedSets[0] ?? null;
+    const targetSet = activeSet;
     if (!targetSet || creatingBatch || batchRunning || !userIds.length) return;
     setCreatingBatch(true);
     try {
@@ -3903,6 +3912,7 @@ export function TeacherReviewTab({
       toast.success(t("AiJudgePanel.batchCreatedStudents", { count: userIds.length }));
     } catch (error) {
       toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
+      if (error?.status === 409) loadReview({ silent: true });
     } finally {
       setCreatingBatch(false);
     }
@@ -3910,7 +3920,7 @@ export function TeacherReviewTab({
 
   function renderRunOnceDialog() {
     if (!runOnceDialog.open) return null;
-    const children = Array.isArray(selectedSet?.children) ? selectedSet.children : [];
+    const children = Array.isArray(activeSet?.children) ? activeSet.children : [];
     return (
       <Modal
         closing={runOnceDialog.closing}
@@ -3934,28 +3944,14 @@ export function TeacherReviewTab({
               type="button"
               className={styles.btnPrimary}
               onClick={handleRunOnce}
-              disabled={creatingBatch || !selectedSet}
+              disabled={creatingBatch || !activeSet}
             >
               {creatingBatch ? t("AiJudgePanel.creating") : t("AiJudgePanel.confirmRun")}
             </button>
           </>
         }
       >
-        {approvedSets.length > 1 && (
-          <label className={styles.field}>
-            <span>{t("AiJudgePanel.scriptSetLabel")}</span>
-            <select
-              value={selectedSet?.artifact_set_id ?? ""}
-              onChange={(event) => setSelectedSetId(event.target.value)}
-            >
-              {approvedSets.map((set) => (
-                <option key={set.artifact_set_id} value={set.artifact_set_id}>
-                  {t("AiJudgePanel.scriptSetOption", { version: set.source_analysis_revision ?? "—", count: set.children?.length ?? 0 })}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <p>{t("AiJudgePanel.activeScriptSet", { version: activeSet?.source_analysis_revision ?? "—", count: children.length })}</p>
 
         <div className={styles.vmidBox}>
           <span className={styles.fieldLabel}>{t("AiJudgePanel.runScope", { count: children.length })}</span>
@@ -3976,29 +3972,38 @@ export function TeacherReviewTab({
   // 讀得到全班名單就直接列出全班，看得到誰回報完成；
   // 要有核准的腳本、而且這週內容已發布（作業跟著每週內容發布）才可以檢查
   const showRoster = (progress?.students?.length ?? 0) > 0;
-  const canRun = approvedSets.length > 0 && weekPublished;
+  const canRun = Boolean(activeSet) && weekPublished;
+  const publicationNotice = activeSet && (
+    <p className={styles.mutedText} role="status">
+      {t("AiJudgePanel.activeScriptSet", { version: activeSet.source_analysis_revision ?? "—", count: activeSet.children?.length ?? 0 })}
+      {activeSet.source_is_current === false && ` ${t("AiJudgePanel.activeScriptSetPending")}`}
+    </p>
+  );
   if (!reviewState && !showRoster) {
     return (
       <div className={styles.tabBody} data-guide="ai-judge-review">
         <div className={styles.card}>
-          {approvedSets.length > 0 ? (
-            <EmptyState
-              icon="rate_review"
-              title={t("AiJudgePanel.noResultsTitle")}
-              description={t("AiJudgePanel.noResultsReadyDesc")}
-              action={(
-                <button
-                  type="button"
-                  className={styles.btnPrimary}
-                  onClick={() => setRunOnceOpen(true)}
-                  disabled={creatingBatch || !weekPublished}
-                  title={weekPublished ? undefined : t("AiJudgePanel.reviewWeekDraftNotice")}
-                >
-                  {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
-                  {t("AiJudgePanel.runAllTitle")}
-                </button>
-              )}
-            />
+          {Boolean(activeSet) ? (
+            <>
+              {publicationNotice}
+              <EmptyState
+                icon="rate_review"
+                title={t("AiJudgePanel.noResultsTitle")}
+                description={t("AiJudgePanel.noResultsReadyDesc")}
+                action={(
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={() => setRunOnceOpen(true)}
+                    disabled={creatingBatch || !weekPublished}
+                    title={weekPublished ? undefined : t("AiJudgePanel.reviewWeekDraftNotice")}
+                  >
+                    {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
+                    {t("AiJudgePanel.runAllTitle")}
+                  </button>
+                )}
+              />
+            </>
           ) : (
             <EmptyState
               icon="rate_review"
@@ -4020,6 +4025,7 @@ export function TeacherReviewTab({
   return (
     <div className={styles.tabBody} data-guide="ai-judge-review">
       <div className={`${styles.card} ${styles.reviewOverview}`}>
+        {publicationNotice}
         <div className={styles.reviewOverviewHead}>
           <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />{t("AiJudgePanel.tabReview")}</h4>
           <div className={styles.sectionActions}>
@@ -4046,7 +4052,7 @@ export function TeacherReviewTab({
               disabled={creatingBatch || batchRunning || !canRun}
               title={!weekPublished
                 ? t("AiJudgePanel.reviewWeekDraftNotice")
-                : approvedSets.length === 0
+                : !activeSet
                   ? t("AiJudgePanel.runNoApprovedTitle")
                   : t("AiJudgePanel.runAllHint")}
             >
@@ -4086,7 +4092,7 @@ export function TeacherReviewTab({
             </span>
           </div>
         </div>
-        {(!weekPublished || approvedSets.length === 0) && (
+        {(!weekPublished || !activeSet) && (
           <div className={styles.reviewBlockers} role="status">
             {!weekPublished && (
               <div className={styles.reviewBlocker}>
@@ -4099,7 +4105,7 @@ export function TeacherReviewTab({
                 )}
               </div>
             )}
-            {approvedSets.length === 0 && (
+            {!activeSet && (
               <div className={styles.reviewBlocker}>
                 <MIcon name="code_off" size={16} />
                 <span>{t("AiJudgePanel.reviewNoScriptNotice")}</span>
@@ -4114,7 +4120,7 @@ export function TeacherReviewTab({
         )}
         {newResultsWaiting && (
           <div className={`${styles.noticeInfo} ${styles.noticeWithAction}`} role="status">
-            <p>{t("AiJudgePanel.newResultsWaiting")}</p>
+            <p>{t(reviewSetId && reviewSetId !== activeSet?.artifact_set_id ? "AiJudgePanel.previousSetDraftsWaiting" : "AiJudgePanel.newResultsWaiting")}</p>
             <button type="button" className={styles.btnSecondary} onClick={discardDraftsAndLoad}>
               {t("AiJudgePanel.discardReviewsBtn")}
             </button>
@@ -4225,6 +4231,25 @@ export function TeacherReviewTab({
                       </button>
                     )}
                   </div>
+                  {student.machines.map((row) => {
+                    const draft = drafts[row.key] ?? reviewDraftFromTeacherReview(row.target?.teacher_review);
+                    const saved = targetTeacherReview(row.target);
+                    const isDirty = Boolean(row.target) && isReviewDraftDirty(draft, saved);
+                    return (
+                      <section className={styles.reviewMachineCard} key={row.key} aria-label={row.nodeKey ?? `VMID ${row.vmid ?? ""}`}>
+                        <MachineReviewDetail
+                          row={row}
+                          machineNodes={machineNodes}
+                          draft={draft}
+                          saved={saved}
+                          isDirty={isDirty}
+                          saving={savingKey === row.key}
+                          onToggleDecision={toggleDecision}
+                          onSave={saveRow}
+                        />
+                      </section>
+                    );
+                  })}
                   {student.userId && (() => {
                     const saved = student.reply?.text ?? "";
                     const value = replyDrafts[student.userId] ?? saved;
@@ -4266,25 +4291,6 @@ export function TeacherReviewTab({
                       </section>
                     );
                   })()}
-                  {student.machines.map((row) => {
-                    const draft = drafts[row.key] ?? reviewDraftFromTeacherReview(row.target?.teacher_review);
-                    const saved = targetTeacherReview(row.target);
-                    const isDirty = Boolean(row.target) && isReviewDraftDirty(draft, saved);
-                    return (
-                      <section className={styles.reviewMachineCard} key={row.key} aria-label={row.nodeKey ?? `VMID ${row.vmid ?? ""}`}>
-                        <MachineReviewDetail
-                          row={row}
-                          machineNodes={machineNodes}
-                          draft={draft}
-                          saved={saved}
-                          isDirty={isDirty}
-                          saving={savingKey === row.key}
-                          onToggleDecision={toggleDecision}
-                          onSave={saveRow}
-                        />
-                      </section>
-                    );
-                  })}
                 </div>
               )}
             </article>

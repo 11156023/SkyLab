@@ -26,6 +26,7 @@ from app.models.teacher_judge_script_run import (
 )
 from app.repositories import resource as resource_repo
 from tests.ai.teacher_judge.helpers import (
+    activate_script,
     make_session,
 )
 
@@ -115,7 +116,7 @@ def test_create_script_run_snapshots_only_running_class_targets(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -174,7 +175,7 @@ def test_create_script_run_falls_back_to_live_ip_when_cache_missing(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=131, user_id=user_id, ip=None)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -232,7 +233,7 @@ def test_create_script_run_rejects_stopped_target(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -281,7 +282,7 @@ def test_create_script_run_rejects_target_without_ssh_key(
     )
     resource = _add_resource(session, vmid=101, user_id=user_id)
     resource.ssh_private_key_encrypted = None
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -330,7 +331,7 @@ async def test_execute_script_run_saves_valid_target_result(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -419,7 +420,7 @@ async def test_execute_script_run_preserves_targets_when_final_save_fails(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -539,7 +540,7 @@ async def test_execute_script_run_saves_invalid_json_result(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -619,7 +620,7 @@ async def test_execute_script_run_records_executor_level_failure(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 

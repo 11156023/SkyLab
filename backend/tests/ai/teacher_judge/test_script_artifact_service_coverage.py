@@ -23,7 +23,7 @@ from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptStatus,
 )
 from app.models.teaching_class import TeachingClassMachineNode
-from tests.ai.teacher_judge.helpers import make_session
+from tests.ai.teacher_judge.helpers import make_script_workspace, make_session
 
 
 def _item(item_id: str, node_key: str | None = "web") -> TeacherJudgeRubricItem:
@@ -153,10 +153,11 @@ def _create(
     artifact_set_id: uuid.UUID | None = None,
     source_file_id: uuid.UUID | None = None,
 ):
+    workspace = make_script_workspace(session, class_id, session_id=session_id, source_file_id=source_file_id)
     return svc.create_artifact_set(
         session=session,
         teaching_class_id=class_id,
-        session_id=session_id or uuid.uuid4(),
+        session_id=workspace.id,
         name=name,
         template_key="linux",
         rubric_analysis=analysis or TeacherJudgeRubricAnalysis(items=[_item("a")]),
@@ -259,6 +260,9 @@ def test_list_artifact_sets_skips_rows_without_set_id(
         row.created_at = row.updated_at = svc._now()
 
     class _FakeSession:
+        def get(self, *args):
+            return None
+
         def exec(self, _statement: Any) -> Any:
             return SimpleNamespace(all=lambda: rows)
 
@@ -391,7 +395,7 @@ def test_create_artifact_set_regenerate_context_mismatch(
     assert exc.value.status_code == 409
 
 
-def test_create_artifact_set_regenerate_archives_previous(
+def test_create_artifact_set_regenerate_preserves_previous(
     patched: dict[str, Any],
 ) -> None:
     session = make_session()
@@ -419,7 +423,9 @@ def test_create_artifact_set_regenerate_archives_previous(
         )
     ).all()
     statuses = sorted(row.status.value for row in rows)
-    assert statuses == ["approved", "archived", "archived"]
+    assert statuses == ["approved", "archived"]
+    assert result.artifact_set_id != str(set_id)
+    assert result.is_active
 
 
 # ------------------------------------------------------------- approve / rename

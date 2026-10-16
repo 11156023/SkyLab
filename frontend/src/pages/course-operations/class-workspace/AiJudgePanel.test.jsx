@@ -1609,7 +1609,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     ]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
       {
-        artifact_set_id: "set-1",
+        artifact_set_id: "set-1", is_active: true,
         status: "approved",
         source_analysis_revision: 3,
         children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
@@ -1649,7 +1649,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
     ]);
-    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }]);
     const incomplete = structuredClone(batchPayload);
     incomplete.students[0].nodes[0].items[0].status = "unknown";
     incomplete.students[0].nodes[0].items[0].missing_check_ids = ["missing-step"];
@@ -1678,7 +1678,7 @@ describe("teacher review run-once（整組檢查點）", () => {
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "running" },
     ]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
-      { artifact_set_id: "set-1", status: "approved", children: [] },
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
     ]);
     vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue({
       ...batchPayload,
@@ -1743,11 +1743,46 @@ describe("teacher review run-once（整組檢查點）", () => {
     expect(isReviewDraftDirty(undefined, saved)).toBe(false);
   });
 
+  test("生效組切換時保留並標明上一組未儲存核查，查詢改用新組", async () => {
+    vi.spyOn(AiJudgeService, "listSessionScriptSets")
+      .mockResolvedValueOnce([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }])
+      .mockResolvedValue([{ artifact_set_id: "set-2", is_active: true, status: "approved", children: [] }]);
+    const listRuns = vi.spyOn(AiJudgeService, "listSessionRuns").mockImplementation(async (_classId, _sessionId, setId) => (
+      setId === "set-1" ? [{ id: "run-1", run_batch_id: "batch-1", status: "completed" }] : []
+    ));
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const render = (active) => root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} active={active} /></ConfirmProvider>);
+    await act(async () => {
+      render(true);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent.includes("王小明")).click();
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.getAttribute("aria-pressed") !== null && button.textContent.includes("通過")).click();
+    });
+    await act(async () => render(false));
+    await act(async () => {
+      render(true);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(listRuns).toHaveBeenLastCalledWith("class-1", "session-1", "set-2");
+    expect(container.textContent).toContain(i18n.t("AiJudgePanel.previousSetDraftsWaiting", { ns: "teaching" }));
+    expect(container.textContent).toContain("pg_isready");
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent.includes("儲存核查")).disabled).toBe(false);
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   test("批次模式下判定會以對應 run 與 vmid 儲存", async () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
     ]);
-    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }]);
     vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
     const updateReview = vi.spyOn(AiJudgeService, "updateTargetReview").mockResolvedValue({
       id: "run-1",
@@ -1834,7 +1869,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
     ]);
-    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }]);
     vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(failedBatch);
     vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
       items: [],
@@ -2030,7 +2065,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
       {
-        artifact_set_id: "set-1",
+        artifact_set_id: "set-1", is_active: true,
         status: "approved",
         source_analysis_revision: 3,
         children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
@@ -2171,7 +2206,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
   test("還沒執行過也列出全班；可以只檢查已回報完成的學生", async () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
-      { artifact_set_id: "set-1", status: "approved", children: [] },
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
     ]);
     vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
       items: [{ id: "service" }],
@@ -2253,7 +2288,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     const goToPublish = vi.fn();
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
-      { artifact_set_id: "set-1", status: "approved", children: [] },
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
     ]);
     vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
       items: [{ id: "service" }],

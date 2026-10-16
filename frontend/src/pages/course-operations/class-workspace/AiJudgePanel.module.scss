@@ -329,7 +329,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .reportText_none { color: var(--color-text-muted); }
 .replyMark { display: inline-flex; align-items: center; gap: 3px; color: var(--color-primary-on-surface); }
 
-/* 展開後最上面：給這位學生這週的回覆（一週一則，再回覆覆蓋） */
+/* 機器檢查結果之後：給這位學生這週的回覆（一週一則，再回覆覆蓋） */
 .reviewReply {
   display: grid;
   gap: $spacing-8;

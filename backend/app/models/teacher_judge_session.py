@@ -101,6 +101,9 @@ class TeacherJudgeSession(SQLModel, table=True):
         ),
     )
     title: str = Field(max_length=255)
+    # The sole authority for accepting new executions; old approved scripts
+    # remain available to already accepted runs and historical queries.
+    active_artifact_set_id: uuid.UUID | None = Field(default=None, sa_type=sa.Uuid)
     status: TeacherJudgeSessionStatus = Field(
         default=TeacherJudgeSessionStatus.active,
         sa_column=Column(

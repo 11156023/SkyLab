@@ -22,7 +22,7 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunTargetScope,
 )
 from app.models.teaching_class import TeachingClassMachineNode
-from tests.ai.teacher_judge.helpers import make_session
+from tests.ai.teacher_judge.helpers import activate_script, make_session
 
 
 class _Result:
@@ -773,6 +773,8 @@ def _create(
     **kwargs: Any,
 ) -> Any:
     monkeypatch.setattr(svc, "get_artifact", lambda **_: artifact)
+    # These unit tests isolate target preparation; admission has integration tests.
+    monkeypatch.setattr(svc, "require_active_artifact", lambda *args, **kwargs: None)
     session = kwargs.pop("session", None) or _QueueSession(artifact=artifact)
     return svc.create_script_run(
         session=session,
@@ -1005,6 +1007,7 @@ def test_create_script_run_batch_paths(monkeypatch: pytest.MonkeyPatch) -> None:
 
     set_id = uuid.uuid4()
     artifact.artifact_set_id = set_id
+    activate_script(session, artifact)
     session.add(artifact)
     session.commit()
     with pytest.raises(HTTPException) as exc:

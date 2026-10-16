@@ -585,6 +585,7 @@ class TeacherJudgeSessionUpdateRequest(BaseModel):
 
 class TeacherJudgeSessionPublic(BaseModel):
     id: str
+    active_artifact_set_id: str | None = None
     teaching_class_id: str
     teaching_class_week_id: str | None = None
     title: str
@@ -815,6 +816,8 @@ class TeacherJudgeScriptRunSummary(BaseModel):
 
 class TeacherJudgeScriptSetPublic(BaseModel):
     artifact_set_id: str
+    is_active: bool = False
+    source_is_current: bool = False
     teaching_class_id: str
     session_id: str | None = None
     source_file_id: str | None = None
@@ -891,6 +894,7 @@ class TeacherJudgeRunBatchNodePublic(BaseModel):
 
 class TeacherJudgeRunBatchSummary(BaseModel):
     run_batch_id: str
+    artifact_set_id: str | None = None
     teaching_class_id: str
     session_id: str | None = None
     status: Literal["pending", "running", "completed", "completed_with_failures", "failed", "cancelled"]
