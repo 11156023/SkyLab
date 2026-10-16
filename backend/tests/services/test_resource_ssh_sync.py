@@ -70,6 +70,11 @@ def test_resource_start_syncs_lxc_platform_key(monkeypatch) -> None:
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
+        resource_service.firewall_service,
+        "ensure_platform_ssh_rule",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
         resource_service,
         "_set_auto_stop_for_user_start",
         lambda **_kwargs: None,

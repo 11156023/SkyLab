@@ -1313,6 +1313,7 @@ def control(
         # 啟動時確保防火牆仍為啟用狀態
         if action == "start":
             firewall_service.ensure_firewall_enabled(node, vmid, resource_type)
+            firewall_service.ensure_platform_ssh_rule(session, node, vmid, resource_type)
             _set_auto_stop_for_user_start(session=session, vmid=vmid)
         elif action in ("stop", "shutdown"):
             # A guest can ignore graceful shutdown. Keep the expired-window
