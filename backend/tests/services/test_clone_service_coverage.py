@@ -81,6 +81,9 @@ def test_clone_with_fallback_tolerates_cleanup_failure(
     )
     monkeypatch.setattr(cs.proxmox_ops, "clone_vm", clone_vm)
     monkeypatch.setattr(
+        cs.proxmox_ops, "find_resource", lambda vmid: {"vmid": vmid, "template": 1}
+    )
+    monkeypatch.setattr(
         provisioning_service,
         "cleanup_provisioned_resource",
         _raise(RuntimeError("cleanup failed")),

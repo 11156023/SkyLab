@@ -146,12 +146,7 @@ def test_run_convert_task_marks_linked_request_consumed(
     )
     monkeypatch.setattr(
         template_service.proxmox_ops,
-        "list_snapshots",
-        lambda node, vmid, rtype: [],
-    )
-    monkeypatch.setattr(
-        template_service.proxmox_ops,
-        "convert_to_template",
+        "protect_template_guest",
         lambda node, vmid, rtype: None,
     )
 

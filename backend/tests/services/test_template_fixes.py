@@ -79,13 +79,18 @@ def pve_ops(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
     )
     monkeypatch.setattr(
         template_service,
-        "_remove_snapshots_for_convert",
-        lambda *a: calls.append(("snapshots", *a)),
+        "_strip_hostpci_for_convert",
+        lambda *a: calls.append(("strip", *a)),
     )
     monkeypatch.setattr(
         template_service.proxmox_ops,
-        "convert_to_template",
-        lambda *a: calls.append(("convert", *a)),
+        "protect_template_guest",
+        lambda *a: calls.append(("protect", *a)),
+    )
+    monkeypatch.setattr(
+        template_service.proxmox_ops,
+        "unprotect_template_guest",
+        lambda *a: calls.append(("unprotect", *a)),
     )
     monkeypatch.setattr(
         template_service.proxmox_ops,
@@ -508,7 +513,17 @@ def test_convert_task_repoints_open_requests_to_new_template(
     )
 
     assert result["vmid"] == TEMP_VMID
-    assert [call[0] for call in pve_ops] == ["stop", "snapshots", "convert", "delete"]
+    # 平台範本：新版母機鎖定成範本，舊版母機先解除保護再刪
+    assert [call[0] for call in pve_ops] == [
+        "stop",
+        "strip",
+        "protect",
+        "unprotect",
+        "delete",
+    ]
+    assert [call[1:] for call in pve_ops if call[0] == "unprotect"] == [
+        ("pve1", OLD_VMID, "qemu")
+    ]
     db.expire_all()
     template_ids = {
         row.id: row.template_id for row in db.exec(select(VMRequest)).all()

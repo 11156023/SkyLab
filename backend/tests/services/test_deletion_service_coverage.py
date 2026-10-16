@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.exceptions import NotFoundError, PermissionDeniedError
+from app.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.models import DeletionRequest, DeletionRequestStatus
 from app.services.resource import deletion_service
 
@@ -449,6 +449,27 @@ def test_request_deletion_admin_orphan_without_db_record_nothing_to_clean(
     )
     assert result.status == DeletionRequestStatus.completed
     assert result.vmid == 150
+
+
+def test_request_deletion_refuses_platform_template_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 平台範本的母機在 PVE 端是沒有資源紀錄的一般機器，不能從資源頁刪
+    _patch_request_deps(
+        monkeypatch,
+        db_resource=None,
+        is_admin=True,
+        find={"vmid": 213},
+    )
+    monkeypatch.setattr(
+        deletion_service.proxmox_service, "platform_template_vmids", lambda: {213}
+    )
+    with pytest.raises(ConflictError):
+        deletion_service.request_deletion(
+            session=_FakeSession(),  # type: ignore[arg-type]
+            user=_USER,  # type: ignore[arg-type]
+            vmid=213,
+        )
 
 
 def test_request_deletion_non_admin_without_management_rights_reraises(

@@ -369,12 +369,9 @@ def test_run_convert_task_resets_cloud_init_before_shutdown(
         template_service, "_detect_template_disk_gb", lambda *a: None
     )
     monkeypatch.setattr(
-        template_service.proxmox_ops, "list_snapshots", lambda *a: []
-    )
-    monkeypatch.setattr(
         template_service.proxmox_ops,
-        "convert_to_template",
-        lambda *a: order.append("convert"),
+        "protect_template_guest",
+        lambda *a: order.append("protect"),
     )
 
     from app.services.network import ip_management_service, nat_service
@@ -398,7 +395,7 @@ def test_run_convert_task_resets_cloud_init_before_shutdown(
         },
     )
 
-    assert order == ["reset", "stop", "strip", "convert"]
+    assert order == ["reset", "stop", "strip", "protect"]
     assert result == {"vmid": 400, "cloud_init_reset": True}
     assert template.status == VMTemplateStatus.ready
 # ---------------------------------------------------------------------------
@@ -424,10 +421,7 @@ def _convert_task_stubs(
         template_service, "_detect_template_disk_gb", lambda *a: None
     )
     monkeypatch.setattr(
-        template_service.proxmox_ops, "list_snapshots", lambda *a: []
-    )
-    monkeypatch.setattr(
-        template_service.proxmox_ops, "convert_to_template", lambda *a: None
+        template_service.proxmox_ops, "protect_template_guest", lambda *a: None
     )
 
     from app.services.resource import resource_service

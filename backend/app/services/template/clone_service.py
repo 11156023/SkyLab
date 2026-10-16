@@ -224,8 +224,9 @@ def clone_with_fallback(
 ) -> str:
     """linked clone 優先，失敗退 full clone。回傳實際模式（linked/full）。
 
-    ``full_kwargs`` 只在退 full clone 時併入（例如指定 storage——
+    ``full_kwargs`` 只在 full clone 時併入（例如指定 storage——
     linked clone 必須與範本同 storage，不能帶該參數）。
+    平台範本的母機不是 PVE 範本，linked clone 必定失敗，直接 full clone。
     """
     pool = get_proxmox_settings_for_node(node).pool_name
     name_key = "hostname" if resource_type == "lxc" else "name"
@@ -237,6 +238,9 @@ def clone_with_fallback(
         name_key: hostname,
         "pool": pool,
     }
+    if proxmox_ops.find_resource(template_vmid).get("template") != 1:
+        clone_fn(node, template_vmid, full=1, **base_config, **(full_kwargs or {}))
+        return "full"
     try:
         clone_fn(node, template_vmid, full=0, **base_config)
         return "linked"

@@ -18,6 +18,11 @@ from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import operations as ops
 from app.infrastructure.proxmox.settings import ProxmoxSettings
 
+# conftest 會在單元測試裡把這兩個要連 DB 的函式換掉；測它們本身時用模組載入
+# 當下的原函式，並傳入隔離的 engine
+_real_clone_source_lock = ops.clone_source_lock
+_real_platform_template_vmids = ops.platform_template_vmids
+
 
 def _settings(**overrides: Any) -> ProxmoxSettings:
     values: dict[str, Any] = {
@@ -175,6 +180,58 @@ def test_find_vm_template(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ops.find_vm_template(9001)["vmid"] == 9001
     with pytest.raises(NotFoundError):
         ops.find_vm_template(9000)
+
+
+def test_find_vm_template_recognises_platform_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 平台範本在 PVE 端是一般機器（template=0），身分以 DB 為準
+    monkeypatch.setattr(
+        ops,
+        "_pool_vms",
+        lambda **_: [
+            {"vmid": 213, "template": 0, "type": "lxc"},
+            {"vmid": 214, "template": 0, "type": "qemu"},
+        ],
+    )
+    monkeypatch.setattr(ops, "platform_template_vmids", lambda **_: {213})
+
+    assert ops.find_vm_template(213)["vmid"] == 213
+    with pytest.raises(NotFoundError):
+        ops.find_vm_template(214)
+    assert [vm["vmid"] for vm in ops.get_vm_templates()] == [213]
+
+
+def test_platform_template_vmids_reads_ready_and_updating_only() -> None:
+    from sqlalchemy.pool import StaticPool
+
+    from app.models import VMTemplate, VMTemplateStatus
+
+    engine = sqlmodel.create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    sqlmodel.SQLModel.metadata.create_all(engine)
+    with sqlmodel.Session(engine) as session:
+        for vmid, status in [
+            (901, VMTemplateStatus.ready),
+            (902, VMTemplateStatus.updating),
+            (903, VMTemplateStatus.creating),
+            (904, VMTemplateStatus.failed),
+            (905, VMTemplateStatus.deleted),
+        ]:
+            session.add(
+                VMTemplate(
+                    pve_vmid=vmid,
+                    name=f"tpl-{vmid}",
+                    node="pve1",
+                    resource_type="lxc",
+                    status=status,
+                )
+            )
+        session.commit()
+
+    # creating 的母機還是使用者的機器、failed／deleted 已不是範本
+    assert _real_platform_template_vmids(db_engine=engine) == {901, 902}
 
 
 # ---------------------------------------------------------------------------
@@ -554,44 +611,84 @@ def test_clone_lxc_waits_and_invalidates(
     assert invalidations == [1]
 
 
-def test_convert_to_template_invalidates_cache(
-    api: MagicMock, waits: list, invalidations: list
+def test_clone_lxc_holds_source_lock_until_task_finishes(
+    api: MagicMock, monkeypatch: pytest.MonkeyPatch, invalidations: list
 ) -> None:
-    # 舊版 PVE 的 LXC 轉換是同步的，回 null：沒有 task 可等
-    api.nodes.return_value.qemu.return_value.template.post.return_value = None
-    ops.convert_to_template("pve1", 100)
-    api.nodes.return_value.qemu.return_value.template.post.assert_called_once_with()
-    assert waits == []
+    # 從一般 CT 複製時 PVE 會鎖住來源：同一來源的複製要排隊到 task 結束
+    events: list[str] = []
+
+    @contextmanager
+    def lock(vmid: int, **_: Any):
+        events.append(f"lock {vmid}")
+        yield
+        events.append(f"unlock {vmid}")
+
+    monkeypatch.setattr(ops, "clone_source_lock", lock)
+    monkeypatch.setattr(
+        ops,
+        "basic_blocking_task_status",
+        lambda node, task, **kw: events.append(f"wait {task}"),
+    )
+    api.nodes.return_value.lxc.return_value.clone.post.return_value = "UPID:c"
+
+    ops.clone_lxc("pve1", 213, newid=150, full=1)
+
+    assert events == ["lock 213", "wait UPID:c", "unlock 213"]
     assert invalidations == [1]
 
 
-def test_convert_to_template_waits_for_pve_task(
-    api: MagicMock, waits: list, invalidations: list
-) -> None:
-    template = api.nodes.return_value.lxc.return_value.template
-    template.post.return_value = "UPID:pve1:qmtemplate"
-    ops.convert_to_template("pve1", 213, "lxc")
-    assert waits == [("pve1", "UPID:pve1:qmtemplate", {})]
-    assert invalidations == [1]
+def test_clone_source_lock_without_postgres_uses_process_lock() -> None:
+    engine = sqlmodel.create_engine("sqlite://")
+    with _real_clone_source_lock(213, db_engine=engine):
+        assert ops._clone_source_thread_lock.locked()
+    assert not ops._clone_source_thread_lock.locked()
 
 
-def test_convert_to_template_raises_when_pve_task_fails(
-    api: MagicMock, invalidations: list, monkeypatch: pytest.MonkeyPatch
+def test_clone_source_lock_takes_xact_advisory_lock_per_source() -> None:
+    connection = MagicMock()
+    engine = MagicMock()
+    engine.dialect.name = "postgresql"
+    engine.connect.return_value.__enter__.return_value = connection
+
+    with _real_clone_source_lock(213, db_engine=engine):
+        sql, params = connection.execute.call_args.args
+        assert "pg_advisory_xact_lock(:namespace, :vmid)" in str(sql)
+        assert params == {"namespace": ops._CLONE_SOURCE_LOCK_NAMESPACE, "vmid": 213}
+        connection.rollback.assert_not_called()
+    connection.rollback.assert_called_once_with()
+
+
+def test_clone_source_lock_release_failure_is_logged(
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # 厚配置 LVM 不支援範本：POST 成功回 UPID，錯誤只出現在 task 結果
-    api.nodes.return_value.qemu.return_value.template.post.return_value = "UPID:x"
-    message = (
-        "Task UPID:x failed with exitstatus: Template feature is not available "
-        "for 'ssd-data-lvm:vm-213-disk-0'"
+    connection = MagicMock()
+    connection.rollback.side_effect = RuntimeError("connection gone")
+    engine = MagicMock()
+    engine.dialect.name = "postgresql"
+    engine.connect.return_value.__enter__.return_value = connection
+
+    with caplog.at_level("WARNING", logger=ops.logger.name):
+        with _real_clone_source_lock(213, db_engine=engine):
+            pass
+    assert "clone source lock" in caplog.text
+
+
+@pytest.mark.parametrize("resource_type", ["qemu", "lxc"])
+def test_protect_and_unprotect_template_guest(
+    monkeypatch: pytest.MonkeyPatch, resource_type: str
+) -> None:
+    updates: list[tuple] = []
+    monkeypatch.setattr(
+        ops, "update_config", lambda *a, **kw: updates.append((*a, kw))
     )
 
-    def _fail(*_a: Any, **_k: Any) -> None:
-        raise ProxmoxError(message)
+    ops.protect_template_guest("pve1", 213, resource_type)
+    ops.unprotect_template_guest("pve1", 213, resource_type)
 
-    monkeypatch.setattr(ops, "basic_blocking_task_status", _fail)
-    with pytest.raises(ProxmoxError, match="Template feature is not available"):
-        ops.convert_to_template("pve1", 213)
-    assert invalidations == [1]
+    assert updates == [
+        ("pve1", 213, resource_type, {"protection": 1, "onboot": 0}),
+        ("pve1", 213, resource_type, {"protection": 0}),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -897,58 +994,6 @@ def test_get_vm_templates_filters_pool_entries(
         ],
     )
     assert ops.get_vm_templates() == [{"vmid": 1, "template": 1}]
-
-
-def test_get_vm_templates_confirms_lagging_rrd_flag_from_config(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # 剛轉換完：/cluster/resources 的 template 旗標（RRD）還沒跟上，設定檔已是範本
-    monkeypatch.setattr(
-        ops,
-        "_pool_vms",
-        lambda **_: [
-            {"vmid": 1, "template": 1, "node": "pve1", "type": "qemu"},
-            {"vmid": 2, "template": 0, "node": "pve1", "type": "qemu"},
-            {"vmid": 3, "node": "pve1", "type": "lxc"},
-            {"vmid": 4, "node": "pve1", "type": "qemu"},
-        ],
-    )
-    configs = {2: {"template": 1}, 3: {"template": "1"}, 4: {"template": 1}}
-    asked: list[tuple[str, int, str]] = []
-
-    def get_config(node: str, vmid: int, resource_type: str) -> dict:
-        asked.append((node, vmid, resource_type))
-        return configs[vmid]
-
-    monkeypatch.setattr(ops, "get_config", get_config)
-    templates = ops.get_vm_templates(confirm_vmids=[2, 3])
-    assert [vm["vmid"] for vm in templates] == [1, 2, 3]
-    assert all(vm["template"] == 1 for vm in templates)
-    # 只確認呼叫端指定的 VMID；已標範本的不重查
-    assert asked == [("pve1", 2, "qemu"), ("pve1", 3, "lxc")]
-
-
-def test_get_vm_templates_confirm_rejects_non_template_and_config_errors(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    monkeypatch.setattr(
-        ops,
-        "_pool_vms",
-        lambda **_: [
-            {"vmid": 2, "node": "pve1", "type": "qemu"},
-            {"vmid": 3, "node": "pve1", "type": "qemu"},
-        ],
-    )
-
-    def get_config(node: str, vmid: int, resource_type: str) -> dict:
-        if vmid == 3:
-            raise RuntimeError("config unreadable")
-        return {"name": "plain-vm"}
-
-    monkeypatch.setattr(ops, "get_config", get_config)
-    with caplog.at_level("ERROR", logger=ops.logger.name):
-        assert ops.get_vm_templates(confirm_vmids=[2, 3]) == []
-    assert "config unreadable" in caplog.text
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,6 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -126,31 +125,13 @@ def _attachment_counts(
         return {}
 
 
-def _converted_vmids(templates: Iterable[VMTemplate]) -> list[int]:
-    """PVE 端應已是範本的 VMID（轉換完成的範本）。"""
-    return [
-        t.pve_vmid
-        for t in templates
-        if t.status in {VMTemplateStatus.ready, VMTemplateStatus.updating}
-    ]
-
-
-def _pve_template_raw(
-    templates: Iterable[VMTemplate] = (),
-) -> dict[int, dict[str, Any]] | None:
-    """PVE 端實際存在的範本（vmid → pool 原始紀錄）；連不上回 None 不阻擋列表。
+def _pve_template_raw() -> dict[int, dict[str, Any]] | None:
+    """PVE 端實際存在的範本母機（vmid → pool 原始紀錄）；連不上回 None 不阻擋列表。
 
     對帳（範本還在不在）與規格回填共用同一次查詢，避免逐筆打 PVE。
-    ``templates`` 中已轉換完成的範本，PVE 清單的範本旗標還沒跟上時會改讀
-    設定檔確認，否則剛轉換完的範本會被當成「PVE 不存在」。
     """
     try:
-        return {
-            int(t["vmid"]): t
-            for t in proxmox_ops.get_vm_templates(
-                confirm_vmids=_converted_vmids(templates)
-            )
-        }
+        return {int(t["vmid"]): t for t in proxmox_ops.get_vm_templates()}
     except Exception:
         return None
 
@@ -193,7 +174,7 @@ def resolve_effective_spec(
             template.default_disk,
         )
     raw_cores, raw_memory, raw_disk = _spec_from_raw(
-        (_pve_template_raw([template]) or {}).get(template.pve_vmid)
+        (_pve_template_raw() or {}).get(template.pve_vmid)
     )
     return (
         template.default_cores if template.default_cores is not None else raw_cores,
@@ -215,7 +196,7 @@ def list_templates(*, session: Session, user: User) -> list[VMTemplatePublic]:
             only_ready=not _can_manage(user),
         )
     _reconcile_failed_template_tasks(session, templates)
-    pve_raw = _pve_template_raw(templates)
+    pve_raw = _pve_template_raw()
     counts = _attachment_counts(session, [t.id for t in templates])
     return [
         _to_public(
@@ -243,10 +224,7 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
         return []
     # VM 與 LXC 範本都要對帳，所以讀 pool 內的原始紀錄（VM 專用清單已排除 LXC）
     raw_by_vmid = {
-        int(item["vmid"]): item
-        for item in proxmox_ops.get_vm_templates(
-            confirm_vmids=_converted_vmids(templates)
-        )
+        int(item["vmid"]): item for item in proxmox_ops.get_vm_templates()
     }
     catalog: list[TemplateCatalogItem] = []
     for template in templates:
@@ -287,7 +265,7 @@ def get_template_for_user(
     counts = _attachment_counts(session, [template.id])
     return _to_public(
         template,
-        pve_raw=_pve_template_raw([template]),
+        pve_raw=_pve_template_raw(),
         attachment_count=counts.get(template.id, 0),
     )
 
@@ -1305,20 +1283,6 @@ def _detect_password_settable(
     return has_cloud_init_drive(config)
 
 
-def _remove_snapshots_for_convert(
-    node: str, vmid: int, resource_type: proxmox_ops.ResourceType
-) -> None:
-    """轉範本前清掉所有快照（PVE 拒絕帶快照的 CT 轉範本）。
-
-    qemu 雖允許帶快照轉換，但範本化後快照不可回滾、只佔空間，一併清掉。
-    由新到舊刪，避免鏈中間節點的合併順序問題。
-    """
-    snapshots = proxmox_ops.list_snapshots(node, vmid, resource_type)
-    real = [s for s in snapshots if s.get("name") and s["name"] != "current"]
-    for snap in sorted(real, key=lambda s: s.get("snaptime") or 0, reverse=True):
-        proxmox_ops.delete_snapshot(node, vmid, resource_type, snap["name"])
-
-
 _QEMU_BOOT_DISK_KEYS = ("scsi0", "virtio0", "sata0", "ide0")
 
 
@@ -1422,7 +1386,7 @@ def _set_template_error(
 
 
 def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any]:
-    """建立範本：重設 cloud-init → 關機 → convert → 標記 ready、移除母機 Resource。"""
+    """建立範本：重設 cloud-init → 關機 → 鎖定母機 → 標記 ready、移除母機 Resource。"""
     template_id = uuid.UUID(payload["template_id"])
     pve_vmid = int(payload["pve_vmid"])
     resource_type = _as_resource_type(payload["resource_type"])
@@ -1434,11 +1398,12 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
         report_progress(task_id, 25)
         _ensure_stopped(node, pve_vmid, resource_type)
         report_progress(task_id, 40)
-        # 關機後才剝離，避免變更卡在 pending 被一起轉進範本
+        # 關機後才剝離，避免變更卡在 pending 被一起帶進範本
         _strip_hostpci_for_convert(node, pve_vmid, resource_type)
-        _remove_snapshots_for_convert(node, pve_vmid, resource_type)
         report_progress(task_id, 60)
-        proxmox_ops.convert_to_template(node, pve_vmid, resource_type)
+        # 平台範本：PVE 端不轉換（厚配置 LVM 放不了 PVE 範本），母機維持一般
+        # 關機的機器並開 protection，範本身分以 DB 為準
+        proxmox_ops.protect_template_guest(node, pve_vmid, resource_type)
         report_progress(task_id, 90)
     except Exception as exc:
         _set_template_error(
@@ -1459,7 +1424,7 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
             if password_settable is not None:
                 template.password_settable = password_settable
             template_repo.touch(session=session, template=template, commit=False)
-        # 母機已轉為唯讀範本，從資源列表移除（克隆端會重新配置 IP/防火牆）
+        # 母機已成為範本母機，從資源列表移除（克隆端會重新配置 IP/防火牆）
         resource = session.get(Resource, pve_vmid)
         if resource is not None:
             session.delete(resource)
@@ -1506,6 +1471,7 @@ def run_delete_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, An
         except NotFoundError:
             exists = False
         if exists:
+            proxmox_ops.unprotect_template_guest(node, pve_vmid, resource_type)
             proxmox_ops.delete_resource(node, pve_vmid, resource_type)
         report_progress(task_id, 90)
     except Exception as exc:
@@ -1615,9 +1581,10 @@ def run_update_convert_task(
         report_progress(task_id, 25)
         _ensure_stopped(node, temp_vmid, resource_type)
         report_progress(task_id, 40)
-        _remove_snapshots_for_convert(node, temp_vmid, resource_type)
+        # 修改期間可能掛上 GPU：與建立範本一樣在關機後剝離
+        _strip_hostpci_for_convert(node, temp_vmid, resource_type)
         report_progress(task_id, 55)
-        proxmox_ops.convert_to_template(node, temp_vmid, resource_type)
+        proxmox_ops.protect_template_guest(node, temp_vmid, resource_type)
         report_progress(task_id, 70)
     except Exception as exc:
         # 保持 updating：使用者可修好後重試 finish，或 cancel 丟棄暫存機
@@ -1625,6 +1592,7 @@ def run_update_convert_task(
         raise
     warning: str | None = None
     try:
+        proxmox_ops.unprotect_template_guest(node, old_pve_vmid, resource_type)
         proxmox_ops.delete_resource(node, old_pve_vmid, resource_type)
     except Exception as exc:  # 舊版可能仍有 linked clone 子機，容忍失敗
         warning = f"舊版範本 {old_pve_vmid} 刪除失敗: {exc}"

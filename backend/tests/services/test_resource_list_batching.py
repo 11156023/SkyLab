@@ -144,6 +144,23 @@ def test_admin_list_batches_db_lookups(env) -> None:
     assert sorted(calls["ip"]) == vmids
 
 
+def test_admin_list_hides_template_source_machines(
+    env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 舊的 PVE 範本看旗標；平台範本的母機在 PVE 端是一般機器，看 DB
+    legacy = {**_vm(900, status="stopped"), "template": 1}
+    platform = _vm(213, status="stopped")
+    calls = env([_vm(100), legacy, platform])
+    monkeypatch.setattr(
+        resource_service.proxmox_service, "platform_template_vmids", lambda: {213}
+    )
+
+    result = resource_service.list_all(session=_session())  # type: ignore[arg-type]
+
+    assert [r.vmid for r in result] == [100]
+    assert calls["by_vmids"] == [[100]]
+
+
 def test_stopped_vms_skip_the_live_ip_query(env) -> None:
     calls = env([_vm(100), _vm(101, status="stopped")])
 
