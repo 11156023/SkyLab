@@ -19,7 +19,12 @@ from app.domain.resource_markers import (
     RESOURCE_DELETED_MARKERS,
     RESOURCE_DELETED_ORPHAN_MARKER,
 )
-from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
+from app.exceptions import (
+    BadRequestError,
+    ConflictError,
+    PermissionDeniedError,
+    ProxmoxError,
+)
 from app.models import (
     BatchProvisionJob,
     CourseEnvironment,
@@ -851,18 +856,20 @@ def list_all(
     *, session: Session, node: str | None = None, viewer_id: uuid.UUID | None = None
 ) -> list[ResourcePublic]:
     try:
-        resources = proxmox_service.list_all_resources()
+        # 範本母機不是機器：PVE 範本看旗標，平台範本（PVE 端未轉換）看 DB
+        template_vmids = proxmox_service.platform_template_vmids()
+        resources = [
+            r
+            for r in proxmox_service.list_all_resources()
+            if r.get("template") != 1 and r.get("vmid") not in template_vmids
+        ]
         known_practice_ids = resource_kind.practice_request_ids(session)
         public_urls = public_urls_by_vmid(
-            session,
-            [r.get("vmid") for r in resources if r.get("template") != 1],
+            session, [r.get("vmid") for r in resources]
         )
         result = []
         owner_ids: dict[int, uuid.UUID] = {}
-        entries = [
-            r for r in resources
-            if not ((node and r.get("node") != node) or r.get("template") == 1)
-        ]
+        entries = [r for r in resources if not (node and r.get("node") != node)]
         db_by_vmid = resource_repo.get_resources_by_vmids(
             session=session, vmids=[r.get("vmid") for r in entries]
         )
@@ -1280,6 +1287,13 @@ def control(
     valid_actions = {"start", "stop", "reboot", "shutdown", "reset"}
     if action not in valid_actions:
         raise BadRequestError(f"Invalid action: {action}")
+    if (
+        action in {"start", "reboot", "reset"}
+        and vmid in proxmox_service.platform_template_vmids()
+    ):
+        # 平台範本的母機在 PVE 端是一般機器；開機會改到範本內容（cloud-init
+        # 已重設、IP 已回收），只能走範本頁的更新循環。關機／停止不擋。
+        raise ConflictError(t("resource.template_guest_power_blocked"))
 
     try:
         node = resource_info["node"]

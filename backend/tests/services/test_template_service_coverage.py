@@ -186,11 +186,12 @@ def test_attachment_counts_failure_returns_empty() -> None:
 
 def test_pve_template_raw(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        ts.proxmox_ops, "get_vm_templates", lambda: [{"vmid": "900", "maxcpu": 1}]
+        ts.proxmox_ops, "get_vm_templates", lambda **_: [{"vmid": "900", "maxcpu": 1}]
     )
     assert ts._pve_template_raw() == {900: {"vmid": "900", "maxcpu": 1}}
     monkeypatch.setattr(ts.proxmox_ops, "get_vm_templates", _raise(RuntimeError()))
     assert ts._pve_template_raw() is None
+
 
 
 def test_spec_from_raw_missing_values() -> None:
@@ -210,11 +211,11 @@ def test_resolve_effective_spec_fills_from_pve(
     monkeypatch.setattr(
         ts,
         "_pve_template_raw",
-        lambda: {PVE_VMID: {"maxcpu": 8, "maxmem": 512 * 1024 * 1024, "maxdisk": GIB}},
+        lambda *_: {PVE_VMID: {"maxcpu": 8, "maxmem": 512 * 1024 * 1024, "maxdisk": GIB}},
     )
     assert ts.resolve_effective_spec(template) == (3, 512, 1)
     # PVE 連不上：缺的欄位維持 None
-    monkeypatch.setattr(ts, "_pve_template_raw", lambda: None)
+    monkeypatch.setattr(ts, "_pve_template_raw", lambda *_: None)
     assert ts.resolve_effective_spec(template) == (3, None, None)
 
 
@@ -770,8 +771,10 @@ def test_run_convert_task_success_records_detected_values(
     monkeypatch.setattr(ts, "_probe_guest_cloud_init", lambda *a: True)
     monkeypatch.setattr(ts, "_ensure_stopped", lambda *a: None)
     monkeypatch.setattr(ts, "_strip_hostpci_for_convert", lambda *a: None)
-    monkeypatch.setattr(ts, "_remove_snapshots_for_convert", lambda *a: None)
-    monkeypatch.setattr(ts.proxmox_ops, "convert_to_template", lambda *a: None)
+    protected: list[tuple] = []
+    monkeypatch.setattr(
+        ts.proxmox_ops, "protect_template_guest", lambda *a: protected.append(a)
+    )
     monkeypatch.setattr(ts, "_detect_template_disk_gb", lambda *a: 40)
     monkeypatch.setattr(ts, "_detect_password_settable", lambda *a: True)
     monkeypatch.setattr(ip_management_service, "release_ip", lambda s, v: None)
@@ -783,6 +786,8 @@ def test_run_convert_task_success_records_detected_values(
     result = ts.run_convert_task(uuid.uuid4(), _convert_payload(template))
 
     assert result == {"vmid": PVE_VMID, "cloud_init_reset": True}
+    # 平台範本：PVE 端不轉換，只把母機鎖定
+    assert protected == [("pve1", PVE_VMID, "qemu")]
     sess.expire_all()
     stored = sess.get(VMTemplate, template.id)
     assert stored.status == VMTemplateStatus.ready
@@ -811,15 +816,26 @@ def test_run_delete_task_removes_pve_template_and_files(
     template = _template(sess)
     attachment = _attachment(sess, template)
     template_files.save_attachment(template.id, attachment.id, b"x")
-    deleted: list[tuple] = []
+    calls: list[tuple] = []
     monkeypatch.setattr(ts.proxmox_ops, "find_vm_template", lambda vmid: {"vmid": vmid})
-    monkeypatch.setattr(ts.proxmox_ops, "delete_resource", lambda *a: deleted.append(a))
+    monkeypatch.setattr(
+        ts.proxmox_ops,
+        "unprotect_template_guest",
+        lambda *a: calls.append(("unprotect", *a)),
+    )
+    monkeypatch.setattr(
+        ts.proxmox_ops, "delete_resource", lambda *a: calls.append(("delete", *a))
+    )
 
     assert ts.run_delete_task(uuid.uuid4(), _delete_payload(template)) == {
         "vmid": PVE_VMID
     }
 
-    assert deleted == [("pve1", PVE_VMID, "lxc")]
+    # 平台範本的母機開著 protection，要先解除才刪得掉
+    assert calls == [
+        ("unprotect", "pve1", PVE_VMID, "lxc"),
+        ("delete", "pve1", PVE_VMID, "lxc"),
+    ]
     sess.expire_all()
     assert sess.get(VMTemplate, template.id).status == VMTemplateStatus.deleted
     assert sess.exec(select(TemplateAttachment)).all() == []
@@ -846,6 +862,7 @@ def test_run_delete_task_failure_keeps_status(
 ) -> None:
     template = _template(sess)
     monkeypatch.setattr(ts.proxmox_ops, "find_vm_template", lambda vmid: {})
+    monkeypatch.setattr(ts.proxmox_ops, "unprotect_template_guest", lambda *a: None)
     monkeypatch.setattr(
         ts.proxmox_ops, "delete_resource", _raise(RuntimeError("locked"))
     )
@@ -983,8 +1000,9 @@ def test_run_update_convert_task_tolerates_old_delete_failure(
     monkeypatch.setattr(ts, "_reset_cloud_init_state", lambda *a: False)
     monkeypatch.setattr(ts, "_probe_guest_cloud_init", lambda *a: False)
     monkeypatch.setattr(ts, "_ensure_stopped", lambda *a: None)
-    monkeypatch.setattr(ts, "_remove_snapshots_for_convert", lambda *a: None)
-    monkeypatch.setattr(ts.proxmox_ops, "convert_to_template", lambda *a: None)
+    monkeypatch.setattr(ts, "_strip_hostpci_for_convert", lambda *a: None)
+    monkeypatch.setattr(ts.proxmox_ops, "protect_template_guest", lambda *a: None)
+    monkeypatch.setattr(ts.proxmox_ops, "unprotect_template_guest", lambda *a: None)
     monkeypatch.setattr(
         ts.proxmox_ops, "delete_resource", _raise(RuntimeError("has linked clones"))
     )

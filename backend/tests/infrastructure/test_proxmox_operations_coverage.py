@@ -18,6 +18,11 @@ from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import operations as ops
 from app.infrastructure.proxmox.settings import ProxmoxSettings
 
+# conftest 會在單元測試裡把這兩個要連 DB 的函式換掉；測它們本身時用模組載入
+# 當下的原函式，並傳入隔離的 engine
+_real_clone_source_lock = ops.clone_source_lock
+_real_platform_template_vmids = ops.platform_template_vmids
+
 
 def _settings(**overrides: Any) -> ProxmoxSettings:
     values: dict[str, Any] = {
@@ -175,6 +180,58 @@ def test_find_vm_template(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ops.find_vm_template(9001)["vmid"] == 9001
     with pytest.raises(NotFoundError):
         ops.find_vm_template(9000)
+
+
+def test_find_vm_template_recognises_platform_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 平台範本在 PVE 端是一般機器（template=0），身分以 DB 為準
+    monkeypatch.setattr(
+        ops,
+        "_pool_vms",
+        lambda **_: [
+            {"vmid": 213, "template": 0, "type": "lxc"},
+            {"vmid": 214, "template": 0, "type": "qemu"},
+        ],
+    )
+    monkeypatch.setattr(ops, "platform_template_vmids", lambda **_: {213})
+
+    assert ops.find_vm_template(213)["vmid"] == 213
+    with pytest.raises(NotFoundError):
+        ops.find_vm_template(214)
+    assert [vm["vmid"] for vm in ops.get_vm_templates()] == [213]
+
+
+def test_platform_template_vmids_reads_ready_and_updating_only() -> None:
+    from sqlalchemy.pool import StaticPool
+
+    from app.models import VMTemplate, VMTemplateStatus
+
+    engine = sqlmodel.create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    sqlmodel.SQLModel.metadata.create_all(engine)
+    with sqlmodel.Session(engine) as session:
+        for vmid, status in [
+            (901, VMTemplateStatus.ready),
+            (902, VMTemplateStatus.updating),
+            (903, VMTemplateStatus.creating),
+            (904, VMTemplateStatus.failed),
+            (905, VMTemplateStatus.deleted),
+        ]:
+            session.add(
+                VMTemplate(
+                    pve_vmid=vmid,
+                    name=f"tpl-{vmid}",
+                    node="pve1",
+                    resource_type="lxc",
+                    status=status,
+                )
+            )
+        session.commit()
+
+    # creating 的母機還是使用者的機器、failed／deleted 已不是範本
+    assert _real_platform_template_vmids(db_engine=engine) == {901, 902}
 
 
 # ---------------------------------------------------------------------------
@@ -548,18 +605,183 @@ def test_clone_lxc_waits_and_invalidates(
     clone.post.return_value = "UPID:clone"
 
     assert ops.clone_lxc("pve1", 9001, newid=150, full=1) == "UPID:clone"
-    api.nodes.return_value.lxc.assert_called_with(9001)
+    # 第一次是對來源送 clone；之後讀新機器設定確認沒有繼承範本母機標記
+    assert api.nodes.return_value.lxc.call_args_list[0].args == (9001,)
     clone.post.assert_called_once_with(newid=150, full=1)
     assert waits == [("pve1", "UPID:clone", {})]
     assert invalidations == [1]
 
 
-def test_convert_to_template_invalidates_cache(
-    api: MagicMock, invalidations: list
+def test_clone_lxc_holds_source_lock_until_task_finishes(
+    api: MagicMock, monkeypatch: pytest.MonkeyPatch, invalidations: list
 ) -> None:
-    ops.convert_to_template("pve1", 100)
-    api.nodes.return_value.qemu.return_value.template.post.assert_called_once_with()
+    # 從一般 CT 複製時 PVE 會鎖住來源：同一來源的複製要排隊到 task 結束
+    events: list[str] = []
+
+    @contextmanager
+    def lock(vmid: int, **_: Any):
+        events.append(f"lock {vmid}")
+        yield
+        events.append(f"unlock {vmid}")
+
+    monkeypatch.setattr(ops, "clone_source_lock", lock)
+    monkeypatch.setattr(
+        ops,
+        "basic_blocking_task_status",
+        lambda node, task, **kw: events.append(f"wait {task}"),
+    )
+    api.nodes.return_value.lxc.return_value.clone.post.return_value = "UPID:c"
+
+    ops.clone_lxc("pve1", 213, newid=150, full=1)
+
+    assert events == ["lock 213", "wait UPID:c", "unlock 213"]
     assert invalidations == [1]
+
+
+def test_clone_source_lock_without_postgres_uses_process_lock() -> None:
+    engine = sqlmodel.create_engine("sqlite://")
+    with _real_clone_source_lock(213, db_engine=engine):
+        assert ops._clone_source_thread_lock.locked()
+    assert not ops._clone_source_thread_lock.locked()
+
+
+def test_clone_source_lock_takes_xact_advisory_lock_per_source() -> None:
+    connection = MagicMock()
+    engine = MagicMock()
+    engine.dialect.name = "postgresql"
+    engine.connect.return_value.__enter__.return_value = connection
+
+    with _real_clone_source_lock(213, db_engine=engine):
+        sql, params = connection.execute.call_args.args
+        assert "pg_advisory_xact_lock(:namespace, :vmid)" in str(sql)
+        assert params == {"namespace": ops._CLONE_SOURCE_LOCK_NAMESPACE, "vmid": 213}
+        connection.rollback.assert_not_called()
+    connection.rollback.assert_called_once_with()
+
+
+def test_clone_source_lock_release_failure_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    connection = MagicMock()
+    connection.rollback.side_effect = RuntimeError("connection gone")
+    engine = MagicMock()
+    engine.dialect.name = "postgresql"
+    engine.connect.return_value.__enter__.return_value = connection
+
+    with caplog.at_level("WARNING", logger=ops.logger.name):
+        with _real_clone_source_lock(213, db_engine=engine):
+            pass
+    assert "clone source lock" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("existing", "expected"),
+    [
+        (None, ops.TEMPLATE_GUEST_NOTE),
+        ("學生用 Ubuntu 22.04", f"{ops.TEMPLATE_GUEST_NOTE}\n\n學生用 Ubuntu 22.04"),
+        # 重試轉換不重複加標記
+        (
+            f"{ops.TEMPLATE_GUEST_NOTE}\n\n學生用 Ubuntu 22.04",
+            f"{ops.TEMPLATE_GUEST_NOTE}\n\n學生用 Ubuntu 22.04",
+        ),
+    ],
+)
+@pytest.mark.parametrize("resource_type", ["qemu", "lxc"])
+def test_protect_and_unprotect_template_guest(
+    monkeypatch: pytest.MonkeyPatch,
+    resource_type: str,
+    existing: str | None,
+    expected: str,
+) -> None:
+    updates: list[tuple] = []
+    monkeypatch.setattr(
+        ops,
+        "get_config",
+        lambda node, vmid, rt: {} if existing is None else {"description": existing},
+    )
+    monkeypatch.setattr(
+        ops, "update_config", lambda *a, **kw: updates.append((*a, kw))
+    )
+
+    ops.protect_template_guest("pve1", 213, resource_type)
+    ops.unprotect_template_guest("pve1", 213, resource_type)
+
+    assert updates == [
+        (
+            "pve1",
+            213,
+            resource_type,
+            {"protection": 1, "onboot": 0, "description": expected},
+        ),
+        ("pve1", 213, resource_type, {"protection": 0}),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("inherited", "expected"),
+    [
+        # PVE 複製會原樣抄來源的 protection 與備註
+        (
+            {"protection": 1, "description": ops.TEMPLATE_GUEST_NOTE},
+            {"delete": "protection,description"},
+        ),
+        (
+            {"protection": "1", "description": f"{ops.TEMPLATE_GUEST_NOTE}\n\n備註"},
+            {"description": "備註", "delete": "protection"},
+        ),
+        # 舊的 PVE 範本沒有這些標記：什麼都不改
+        ({"description": "自己的備註"}, None),
+        ({}, None),
+    ],
+)
+def test_clone_vm_clears_inherited_template_marks_on_target_node(
+    api: MagicMock,
+    waits: list,
+    invalidations: list,
+    monkeypatch: pytest.MonkeyPatch,
+    inherited: dict[str, Any],
+    expected: dict[str, Any] | None,
+) -> None:
+    api.nodes.return_value.qemu.return_value.clone.post.return_value = "UPID:c"
+    asked: list[tuple] = []
+    updates: list[tuple] = []
+
+    def get_config(node: str, vmid: int, rt: str) -> dict[str, Any]:
+        asked.append((node, vmid, rt))
+        return inherited
+
+    monkeypatch.setattr(ops, "get_config", get_config)
+    monkeypatch.setattr(
+        ops, "update_config", lambda *a, **kw: updates.append((*a, kw))
+    )
+
+    ops.clone_vm("pve1", 9001, newid=150, full=1, target="pve2")
+
+    # 跨節點複製：新機器在 target 節點上
+    assert asked == [("pve2", 150, "qemu")]
+    assert updates == ([] if expected is None else [("pve2", 150, "qemu", expected)])
+    assert invalidations == [1]
+
+
+def test_clone_lxc_clears_inherited_protection(
+    api: MagicMock, waits: list, invalidations: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api.nodes.return_value.lxc.return_value.clone.post.return_value = "UPID:c"
+    updates: list[tuple] = []
+    monkeypatch.setattr(
+        ops,
+        "get_config",
+        lambda node, vmid, rt: {"protection": 1, "description": ops.TEMPLATE_GUEST_NOTE},
+    )
+    monkeypatch.setattr(
+        ops, "update_config", lambda *a, **kw: updates.append((*a, kw))
+    )
+
+    ops.clone_lxc("pve1", 213, newid=151, hostname="stu", full=1)
+
+    assert updates == [
+        ("pve1", 151, "lxc", {"delete": "protection,description"})
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -123,12 +123,16 @@
   overflow: hidden;
   background: #1e1e1e;
   display: flex;
+  padding: $spacing-8;
 }
 
+/* FitAddon 以 .xterm 父層（本元素）的 computed height 算行數，border-box 下會把 padding 算進去，
+   多出的一行被 overflow 切掉看不到最底下的命令；所以 padding 放在外層 .terminalArea，這裡不可加 */
 .terminalWrap {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
-  padding: $spacing-8;
 
   :global(.xterm) { height: 100%; }
   :global(.xterm-viewport) { overflow-y: auto !important; }
@@ -182,6 +186,14 @@
   position: relative;
 
   :global(canvas) { display: block; }
+}
+
+/* 鍵盤接管範圍（useConsoleKeyboard）：只包遠端畫面，撐滿 .vncWrap */
+.vncSurface {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
 }
 
 /* ── 剪貼簿面板（浮在遠端畫面右上角，低於教室接管覆蓋層） ── */

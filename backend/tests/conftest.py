@@ -114,6 +114,27 @@ def _no_qemu_ssh_login_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_platform_template_db_lookup(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """平台範本 VMID 與同來源複製鎖都要連應用程式 DB。
+
+    單元測試預設沒有平台範本、複製不排隊；要測這兩者的測試在模組載入時
+    先取得原函式，再傳入隔離的 engine 呼叫。
+    """
+    if _uses_application_db(request.node):
+        return
+    from contextlib import nullcontext
+
+    from app.infrastructure.proxmox import operations
+
+    monkeypatch.setattr(operations, "platform_template_vmids", lambda **_: set())
+    monkeypatch.setattr(
+        operations, "clone_source_lock", lambda _vmid, **_: nullcontext()
+    )
+
+
 def _is_truthy_env(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 

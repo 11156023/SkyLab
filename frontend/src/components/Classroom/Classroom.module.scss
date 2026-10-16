@@ -107,6 +107,14 @@
   }
 }
 
+/* 鍵盤接管範圍（useConsoleKeyboard）：只包遠端畫面，撐滿 .vncWrap */
+.vncSurface {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
 .vncLoading {
   position: absolute;
   inset: 0;

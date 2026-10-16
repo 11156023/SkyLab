@@ -10,7 +10,12 @@ from typing import Any
 import pytest
 
 from app.domain.resource_markers import RESOURCE_DELETED_BY_USER_MARKER
-from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
+from app.exceptions import (
+    BadRequestError,
+    ConflictError,
+    PermissionDeniedError,
+    ProxmoxError,
+)
 from app.models import TeachingClassStatus
 from app.models.vm_request import VMProvisioningStatus
 from app.schemas import ResourcePublic
@@ -835,6 +840,49 @@ def test_control_start_qemu_schedules_guest_ssh(control_env) -> None:
     assert control_env["ssh"] == [7]
     assert control_env["fw"] == [7]
     assert control_env["audit"] == ["resource_start"]
+
+
+@pytest.mark.parametrize("action", ["start", "reboot", "reset"])
+def test_control_refuses_to_boot_template_source(
+    monkeypatch, control_env, action: str
+) -> None:
+    # 平台範本的母機在 PVE 端是一般機器，開機會改到範本內容
+    powered: list[tuple] = []
+    monkeypatch.setattr(
+        resource_service.proxmox_service, "control", lambda *a: powered.append(a)
+    )
+    monkeypatch.setattr(
+        resource_service.proxmox_service, "platform_template_vmids", lambda: {213}
+    )
+    with pytest.raises(ConflictError):
+        resource_service.control(
+            session=FakeSession(),
+            vmid=213,
+            action=action,
+            resource_info={"node": "n", "type": "lxc"},
+            user_id=uuid.uuid4(),
+        )
+    assert powered == []
+
+
+def test_control_still_stops_template_source(monkeypatch, control_env) -> None:
+    # 被誤開的母機要能從平台關掉
+    _patch_get_resource(monkeypatch, None)
+    powered: list[tuple] = []
+    monkeypatch.setattr(
+        resource_service.proxmox_service, "control", lambda *a: powered.append(a)
+    )
+    monkeypatch.setattr(
+        resource_service.proxmox_service, "platform_template_vmids", lambda: {213}
+    )
+    resource_service.control(
+        session=FakeSession(),
+        vmid=213,
+        action="shutdown",
+        resource_info={"node": "n", "type": "lxc"},
+        user_id=uuid.uuid4(),
+    )
+    assert powered == [("n", 213, "lxc", "shutdown")]
 
 
 def test_control_stop_untracked_clears_auto_stop(monkeypatch, control_env) -> None:

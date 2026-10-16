@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { service, i18n, vnc, toast } = vi.hoisted(() => ({
   service: { getConsole: vi.fn() },
   i18n: { t: (key) => key, i18n: { language: "zh-TW" } },
-  vnc: { clipboardPaste: vi.fn(), props: null },
+  vnc: { clipboardPaste: vi.fn(), focus: vi.fn(), props: null },
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
@@ -14,7 +14,7 @@ vi.mock("react-i18next", async (original) => ({ ...await original(), useTranslat
 vi.mock("react-vnc", () => ({
   VncScreen: forwardRef(function FakeVnc(props, ref) {
     vnc.props = props;
-    useImperativeHandle(ref, () => ({ clipboardPaste: vnc.clipboardPaste, sendCtrlAltDel: () => {} }));
+    useImperativeHandle(ref, () => ({ clipboardPaste: vnc.clipboardPaste, focus: vnc.focus, sendCtrlAltDel: () => {} }));
     useEffect(() => {
       props.onConnect?.();
     }, [props.onConnect]);
@@ -37,6 +37,7 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.useFakeTimers();
   vnc.clipboardPaste.mockReset();
+  vnc.focus.mockReset();
   vnc.props = null;
   Object.values(toast).forEach((fn) => fn.mockReset());
   host = document.createElement("div");
@@ -151,4 +152,24 @@ it("hides the browser clipboard button when the browser cannot read the clipboar
   } finally {
     delete navigator.clipboard;
   }
+});
+
+it("focuses the remote screen as soon as it connects so typing works without moving the mouse", async () => {
+  await renderConnected();
+  expect(vnc.focus).toHaveBeenCalled();
+  expect(vnc.props.focusOnClick).toBe(true);
+});
+
+function keydown(target, init) {
+  const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(event);
+  return event;
+}
+
+it("keeps browser shortcuts away from the remote screen but not from the clipboard panel", async () => {
+  await renderConnected();
+  expect(keydown(host.querySelector('[data-testid="vnc-screen"]'), { key: "f", code: "KeyF", ctrlKey: true }).defaultPrevented).toBe(true);
+
+  await act(async () => click(clipboardToggle()));
+  expect(keydown(host.querySelector("textarea"), { key: "a", code: "KeyA", ctrlKey: true }).defaultPrevented).toBe(false);
 });

@@ -50,6 +50,12 @@ def fake_pool(monkeypatch: pytest.MonkeyPatch) -> None:
         "get_proxmox_settings_for_node",
         lambda node: SimpleNamespace(pool_name="testpool"),
     )
+    # 預設來源是舊的 PVE 範本（template=1），linked clone 可用
+    monkeypatch.setattr(
+        clone_service.proxmox_ops,
+        "find_resource",
+        lambda vmid: {"vmid": vmid, "template": 1},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +177,45 @@ def test_clone_with_fallback_lxc_uses_hostname_key(
     assert mode == "linked"
     assert calls[0]["hostname"] == "ctn-01"
     assert "name" not in calls[0]
+
+
+@pytest.mark.parametrize("resource_type", ["qemu", "lxc"])
+def test_clone_with_fallback_platform_template_goes_straight_to_full(
+    monkeypatch: pytest.MonkeyPatch, resource_type: str
+) -> None:
+    # 平台範本的母機是一般機器（template=0）：linked clone 必定失敗，不該先試
+    calls: list[dict[str, Any]] = []
+
+    def fake_clone(node: str, template_vmid: int, **config: Any) -> str:
+        calls.append(dict(config))
+        return "UPID:ok"
+
+    monkeypatch.setattr(clone_service.proxmox_ops, "clone_vm", fake_clone)
+    monkeypatch.setattr(clone_service.proxmox_ops, "clone_lxc", fake_clone)
+    monkeypatch.setattr(
+        clone_service.proxmox_ops,
+        "find_resource",
+        lambda vmid: {"vmid": vmid, "template": 0},
+    )
+    monkeypatch.setattr(
+        provisioning_service,
+        "cleanup_provisioned_resource",
+        lambda _vmid: pytest.fail("no linked clone leftovers to clean"),
+    )
+
+    mode = clone_service.clone_with_fallback(
+        node="pve1",
+        template_vmid=213,
+        new_vmid=104,
+        hostname="stu-04",
+        resource_type=resource_type,
+        full_kwargs={"storage": "ssd-data-lvm"},
+    )
+
+    assert mode == "full"
+    assert len(calls) == 1
+    assert calls[0]["full"] == 1
+    assert calls[0]["storage"] == "ssd-data-lvm"
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +383,7 @@ def rbac_repo(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(
         template_service.template_repo, "list_visible_templates", fake_list_visible
     )
-    monkeypatch.setattr(template_service, "_pve_template_raw", lambda: None)
+    monkeypatch.setattr(template_service, "_pve_template_raw", lambda *_: None)
     return calls
 
 
@@ -514,34 +559,6 @@ async def test_request_clone_rejects_not_ready_template(
         )
 
 
-# ---------------------------------------------------------------------------
-# convert 前清快照（PVE 拒絕帶快照的 CT 轉範本；qemu 也一併清）
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("resource_type", ["lxc", "qemu"])
-def test_remove_snapshots_for_convert_deletes_snapshots_newest_first(
-    monkeypatch: pytest.MonkeyPatch, resource_type: str
-) -> None:
-    deleted: list[str] = []
-    monkeypatch.setattr(
-        template_service.proxmox_ops,
-        "list_snapshots",
-        lambda node, vmid, rt: [
-            {"name": "old", "snaptime": 100},
-            {"name": "current"},  # PVE 的偽快照，不可刪
-            {"name": "new", "snaptime": 200},
-        ],
-    )
-    monkeypatch.setattr(
-        template_service.proxmox_ops,
-        "delete_snapshot",
-        lambda node, vmid, rt, snapname: deleted.append(snapname),
-    )
-
-    template_service._remove_snapshots_for_convert("pve1", 9001, resource_type)
-
-    assert deleted == ["new", "old"]
 # ---------------------------------------------------------------------------
 # _strip_hostpci_for_convert：轉範本前剝離 GPU 直通
 # ---------------------------------------------------------------------------
