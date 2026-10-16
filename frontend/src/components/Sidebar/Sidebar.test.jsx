@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import Sidebar from "./Sidebar";
 
@@ -27,9 +27,13 @@ vi.mock("react-i18next", async (importOriginal) => ({
 let host;
 let root;
 
+function CurrentLocation() {
+  return <output>{useLocation().pathname}</output>;
+}
+
 async function renderAt(path) {
   await act(async () => {
-    root.render(<MemoryRouter key={path} initialEntries={[path]}><Sidebar collapsed={false} mobileOpen={false} /></MemoryRouter>);
+    root.render(<MemoryRouter key={path} initialEntries={[path]}><Sidebar collapsed={false} mobileOpen={false} /><CurrentLocation /></MemoryRouter>);
   });
 }
 
@@ -76,4 +80,28 @@ test.each(["/dashboard", "/admin"])("admin sees at most one home entry at %s", a
   await renderAt(path);
   expect(buttons("topDashboard").length).toBe(path === "/dashboard" ? 1 : 0);
   expect(buttons("generalPages").length).toBe(0);
+});
+
+test("管理者的課程入口可開啟學生課程頁", async () => {
+  auth.user = { ...auth.user, role: "admin" };
+  confirmLeave.mockResolvedValue(true);
+  await renderAt("/dashboard");
+  expect(buttons("topCourses")).toHaveLength(1);
+  await act(async () => buttons("topCourses")[0].click());
+  expect(host.querySelector("output").textContent).toBe("/courses");
+});
+
+test("學生的課程入口維持連到學生總覽", async () => {
+  confirmLeave.mockResolvedValue(true);
+  await renderAt("/dashboard");
+  expect(buttons("topCourses")).toHaveLength(1);
+  await act(async () => buttons("topCourses")[0].click());
+  expect(host.querySelector("output").textContent).toBe("/courses");
+});
+
+test("老師使用班級管理入口", async () => {
+  auth.user = { ...auth.user, role: "teacher" };
+  await renderAt("/dashboard");
+  expect(buttons("topCourses")).toHaveLength(0);
+  expect(buttons("itemClassManagement")).toHaveLength(1);
 });

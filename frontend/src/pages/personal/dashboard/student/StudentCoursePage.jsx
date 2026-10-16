@@ -246,9 +246,6 @@ export default function StudentCoursePage() {
   const currentCheckpoints = currentWeek?.checkpoints ?? [];
   const currentPassed = currentCheckpoints
     .filter((checkpoint) => feedbackFor(checkpoint).status === "passed").length;
-  const currentPercent = currentCheckpoints.length
-    ? Math.round((currentPassed / currentCheckpoints.length) * 100)
-    : 0;
   const currentReply = String(currentWeek?.teacher_reply ?? "").trim();
   // 這週沒有要打勾的作業（例如只放教材）就不顯示完成狀態
   const heroStatusMeta = !currentWeekGroup?.assignments.length
@@ -545,16 +542,6 @@ export default function StudentCoursePage() {
                       ? t("StudentCoursePage.thisWeekChecks", { passed: currentPassed, total: currentCheckpoints.length })
                       : t("StudentCoursePage.thisWeekNoChecks")}
                   </span>
-                  <div
-                    className={styles.progressTrack}
-                    role="progressbar"
-                    aria-valuenow={currentPercent}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={t("StudentCoursePage.thisWeekChecksAria", { percent: currentPercent })}
-                  >
-                    <span style={{ width: `${currentPercent}%` }} />
-                  </div>
                 </div>
 
                 {currentReply && (

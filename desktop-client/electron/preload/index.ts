@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("electronIpcRenderer", {
     if (!responseChannels.has(channel)) throw new Error("IPC channel denied");
     const wrapped = (_event: unknown, ...args: any[]) => listener({}, ...args);
     const channelListeners = wrappedListeners.get(channel) || new Map();
+    const previous = channelListeners.get(listener);
+    if (previous) ipcRenderer.removeListener(channel, previous);
     channelListeners.set(listener, wrapped);
     wrappedListeners.set(channel, channelListeners);
     ipcRenderer.on(channel, wrapped);

@@ -1,5 +1,9 @@
 export const ipcRouters: IpcRouters = {
   AUTH: {
+    cancelLogin: {
+      path: "auth/cancelLogin",
+      controller: "authController.cancelLogin"
+    },
     startLogin: {
       path: "auth/startLogin",
       controller: "authController.startLogin"

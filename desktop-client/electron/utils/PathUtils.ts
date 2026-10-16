@@ -28,10 +28,13 @@ class PathUtils {
     return path.join(PathUtils.getConfigStoragePath(), "SkyLab.conf");
   }
 
-  public static getWireGuardIdentityFilePath() {
+  public static getWireGuardIdentityFilePath(scope?: string) {
+    if (scope !== undefined && !/^[a-f0-9]{64}$/.test(scope)) {
+      throw new Error("Invalid WireGuard identity scope");
+    }
     return path.join(
       PathUtils.getConfigStoragePath(),
-      "wireguard-identity.json"
+      scope ? `wireguard-identity-${scope}.json` : "wireguard-identity.json"
     );
   }
 

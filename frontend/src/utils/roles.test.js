@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { canTeachUser, isAdminUser } from "./roles";
+import { canTeachUser, canViewStudentCourses, isAdminUser } from "./roles";
 
 describe("isAdminUser", () => {
   test("超級使用者或 admin 角色才算管理員，一律回布林值", () => {
@@ -19,5 +19,15 @@ describe("canTeachUser", () => {
     expect(canTeachUser({ role: "teacher" })).toBe(true);
     expect(canTeachUser({ role: "student" })).toBe(false);
     expect(canTeachUser(null)).toBe(false);
+  });
+});
+
+describe("canViewStudentCourses", () => {
+  test("管理員與學生能開啟課程頁，一般老師使用班級", () => {
+    expect(canViewStudentCourses({ role: "admin" })).toBe(true);
+    expect(canViewStudentCourses({ role: "teacher", is_superuser: true })).toBe(true);
+    expect(canViewStudentCourses({ role: "student" })).toBe(true);
+    expect(canViewStudentCourses({ role: "teacher" })).toBe(false);
+    expect(canViewStudentCourses(null)).toBe(false);
   });
 });

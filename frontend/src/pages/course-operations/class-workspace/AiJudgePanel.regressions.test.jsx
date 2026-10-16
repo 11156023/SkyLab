@@ -99,12 +99,12 @@ describe("ChatPanel 送出失敗時保留輸入", () => {
     const { container, cleanup } = mount(
       <ChatPanel messages={[]} onSendMessage={onSendMessage} isLoading={false} hasRubric />,
     );
-    const textarea = container.querySelector("textarea");
+    const textarea = container.querySelector("textarea[aria-label]");
     typeInto(textarea, "hello");
     await pressEnter(textarea);
 
     expect(onSendMessage).toHaveBeenCalledWith("hello", false, []);
-    expect(container.querySelector("textarea").value).toBe("hello");
+    expect(container.querySelector("textarea[aria-label]").value).toBe("hello");
     cleanup();
   });
 
@@ -113,12 +113,12 @@ describe("ChatPanel 送出失敗時保留輸入", () => {
     const { container, cleanup } = mount(
       <ChatPanel messages={[]} onSendMessage={onSendMessage} isLoading={false} hasRubric />,
     );
-    const textarea = container.querySelector("textarea");
+    const textarea = container.querySelector("textarea[aria-label]");
     typeInto(textarea, "hello");
     await pressEnter(textarea);
 
     expect(onSendMessage).toHaveBeenCalledTimes(1);
-    expect(container.querySelector("textarea").value).toBe("");
+    expect(container.querySelector("textarea[aria-label]").value).toBe("");
     cleanup();
   });
 });
@@ -178,7 +178,7 @@ describe("RubricsTab 背景重抓清單與自動儲存交錯", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    const titleInput = () => container.querySelector("td input");
+    const titleInput = () => container.querySelector("td textarea");
     expect(titleInput().value).toBe("舊標題");
 
     /* 切回視窗觸發背景重抓：這次清單回應拖到自動儲存完成之後才回來 */
@@ -190,7 +190,7 @@ describe("RubricsTab 背景重抓清單與自動儲存交錯", () => {
     expect(listFiles).toHaveBeenCalledTimes(2);
 
     act(() => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
       setter.call(titleInput(), "新標題");
       titleInput().dispatchEvent(new Event("input", { bubbles: true }));
     });

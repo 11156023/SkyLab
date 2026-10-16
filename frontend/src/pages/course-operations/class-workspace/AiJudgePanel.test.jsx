@@ -129,7 +129,7 @@ describe("ChatPanel", () => {
     );
 
     expect(html).not.toContain("AI一鍵整理");
-    expect(html).not.toContain("儲存並製作");
+    expect(html).not.toContain("製作腳本");
     expect(html).not.toContain("製作檢查腳本");
     expect(html).toContain("資料來源");
     expect(html).toContain('aria-controls="ai-chat-data-sources"');
@@ -252,7 +252,7 @@ describe("ChatPanel", () => {
       <ScriptGenerationNotice
         notice={{
           status: "error",
-          message: "上游服務逾時。可再次按「儲存並製作」重試。",
+          message: "上游服務逾時。可再次按「製作腳本」重試。",
         }}
       />,
     );
@@ -290,7 +290,7 @@ describe("ChatPanel", () => {
   });
 });
 
-describe("RubricsTab 儲存並製作流程", () => {
+describe("RubricsTab 製作腳本流程", () => {
   test.each([
     { title: "確認服務 Port", detectable: "partial", missing: "服務 Port", checkSteps: [] },
     {
@@ -384,7 +384,7 @@ describe("RubricsTab 儲存並製作流程", () => {
     });
 
     const saveButton = [...container.querySelectorAll("button")]
-      .find((button) => button.textContent.includes("儲存並製作"));
+      .find((button) => button.textContent.includes("製作腳本"));
     expect(saveButton).toBeTruthy();
     expect(saveButton.disabled).toBe(false);
     await act(async () => {
@@ -504,7 +504,7 @@ describe("RubricsTab 儲存並製作流程", () => {
     });
 
     const saveButton = [...container.querySelectorAll("button")]
-      .find((button) => button.textContent.includes("儲存並製作"));
+      .find((button) => button.textContent.includes("製作腳本"));
     expect(saveButton).toBeTruthy();
     await act(async () => {
       saveButton.click();
@@ -612,7 +612,7 @@ describe("SaveAndCreateAction", () => {
   test("顯示於檢查表操作區並說明全綠後才製作", () => {
     const html = renderToStaticMarkup(<SaveAndCreateAction onClick={() => {}} />);
 
-    expect(html).toContain("儲存並製作");
+    expect(html).toContain("製作腳本");
     expect(html).toContain("通過後自動保存核對結果、製作腳本，並前往導師核查");
     expect(html).toContain("save");
   });
@@ -712,7 +712,7 @@ describe("RubricTable", () => {
     expect(html).toContain("檢測方式");
     expect(html).not.toContain("檢查條件");
     expect(html).toContain("自動檢測支援");
-    expect(html).toContain('value="Python 版本檢查"');
+    expect(html).toContain('>Python 版本檢查</textarea>');
     expect(html).toContain("可以");
     expect(html).toContain("缺少資訊");
     expect(html).toContain("導師檢查");
@@ -727,7 +727,7 @@ describe("RubricTable", () => {
     expect(html).not.toContain("導師人工審核");
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="展開第 1 項檢查設定"');
-    expect(html.indexOf('aria-label="展開第 1 項檢查設定"')).toBeLessThan(html.indexOf('value="Python 版本檢查"'));
+    expect(html.indexOf('aria-label="展開第 1 項檢查設定"')).toBeLessThan(html.indexOf('>Python 版本檢查</textarea>'));
     // 序號跟展開鈕在同一格，排在按鈕前面
     expect(html.indexOf(">1</span>")).toBeGreaterThan(-1);
     expect(html.indexOf(">1</span>")).toBeLessThan(html.indexOf('aria-label="展開第 1 項檢查設定"'));
@@ -1839,7 +1839,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     expect(listRuns).toHaveBeenLastCalledWith("class-1", "session-1", "set-2");
     expect(container.textContent).toContain(i18n.t("AiJudgePanel.previousSetDraftsWaiting", { ns: "teaching" }));
     expect(container.textContent).toContain("pg_isready");
-    expect([...container.querySelectorAll("button")].find((button) => button.textContent.includes("儲存核查")).disabled).toBe(false);
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent.includes(i18n.t("AiJudgePanel.saveStudentBtn", { ns: "teaching" }))).disabled).toBe(false);
     await act(async () => root.unmount());
     container.remove();
   });
@@ -1886,7 +1886,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     });
 
     const saveButton = [...container.querySelectorAll("button")]
-      .find((button) => button.textContent.includes("儲存核查"));
+      .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.saveStudentBtn", { ns: "teaching" })));
     expect(saveButton.disabled).toBe(false);
     await act(async () => {
       saveButton.click();
@@ -1904,6 +1904,93 @@ describe("teacher review run-once（整組檢查點）", () => {
     await act(async () => {
       root.unmount();
     });
+    container.remove();
+  });
+
+  test.each([false, true])("一個學生共用儲存按鈕：跨機器判定與回覆一起存，回覆失敗可重試（%s）", async (failReplyOnce) => {
+    const batch = structuredClone(batchPayload);
+    batch.students[0].nodes.push({
+      node_key: "web", run_id: "run-web", execution_status: "completed", vmid: 102,
+      items: [{ rubric_item_id: "web", title: "網站檢查", status: "warning",
+        checks: [{ id: "check-web", title: "表單資料", status: "warning" }] }],
+    });
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
+    ]);
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batch);
+    vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
+      items: [], students: [{ user_id: "user-1", email: "s1@example.edu", full_name: "王小明" }],
+    });
+    const updateReview = vi.spyOn(AiJudgeService, "updateTargetReview")
+      .mockImplementation(async (_classId, _sessionId, runId, vmid, draft) => ({
+        id: runId,
+        target_results_json: { targets: [{ vmid, teacher_review: {
+          ...draft, updated_at: "2026-10-16T04:00:00Z",
+        } }] },
+      }));
+    const saveReply = vi.spyOn(AiJudgeService, "saveStudentReply").mockResolvedValue({
+      teacher_reply: "請補上備份排程。", teacher_reply_at: "2026-10-16T04:00:00Z",
+    });
+    if (failReplyOnce) saveReply.mockRejectedValueOnce(new Error("network"));
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onDirtyChange = vi.fn();
+    await act(async () => {
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1"
+        members={members} onDirtyChange={onDirtyChange} /></ConfirmProvider>);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent.includes("王小明")).click();
+    });
+    const saveButtons = [...container.querySelectorAll("button")].filter((button) => (
+      button.textContent.includes(i18n.t("AiJudgePanel.saveStudentBtn", { ns: "teaching" }))
+    ));
+    expect(saveButtons).toHaveLength(1);
+    const saveButton = saveButtons[0];
+    expect(saveButton.disabled).toBe(true);
+    const textarea = container.querySelector("textarea");
+    const cards = container.querySelectorAll("section[aria-label]");
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(card.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    await act(async () => {
+      for (const button of container.querySelectorAll('button[aria-pressed="false"]')) {
+        if (button.textContent.endsWith("通過") && !button.textContent.endsWith("未通過")) button.click();
+      }
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(textarea, "請補上備份排程。");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(updateReview).toHaveBeenCalledTimes(2);
+    expect(updateReview).toHaveBeenCalledWith("class-1", "session-1", "run-1", 101,
+      { feedback: "舊留言", decisions: { "check-db": "pass" } });
+    expect(updateReview).toHaveBeenCalledWith("class-1", "session-1", "run-web", 102,
+      { feedback: "", decisions: { "check-web": "pass" } });
+    if (failReplyOnce) {
+      expect(saveButton.disabled).toBe(false);
+      expect(textarea.value).toBe("請補上備份排程。");
+      expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+      await act(async () => {
+        saveButton.click();
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(updateReview).toHaveBeenCalledTimes(2);
+      expect(saveReply).toHaveBeenCalledTimes(2);
+    }
+    expect(saveReply).toHaveBeenLastCalledWith("class-1", "session-1", "user-1", "請補上備份排程。");
+    expect(saveButton.disabled).toBe(true);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    await act(async () => root.unmount());
     container.remove();
   });
 
@@ -1978,7 +2065,7 @@ describe("teacher review run-once（整組檢查點）", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     const saveButton = [...container.querySelectorAll("button")]
-      .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.replySaveBtn", { ns: "teaching" })));
+      .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.saveStudentBtn", { ns: "teaching" })));
     expect(saveButton.disabled).toBe(false);
     await act(async () => {
       saveButton.click();
@@ -2021,7 +2108,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     });
 
     expect(container.textContent).toContain("還沒有可核查的結果");
-    expect(container.textContent).toContain("在「任務設定」按「儲存並製作」後再回來");
+    expect(container.textContent).toContain("在「任務設定」按「製作腳本」後再回來");
     expect(container.textContent).not.toContain("一次執行");
     await act(async () => {
       root.unmount();

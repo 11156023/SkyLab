@@ -99,10 +99,12 @@ export default function StudentWeekPage() {
 
   async function openDocument(file) {
     if (isGuideDemo) return;
-    setOpeningFileId(file.id);
+    setOpeningFileId(file.key);
     const preview = window.open("", "_blank");
     try {
-      const blob = await CoursesService.getWeeklyTaskDocument(pathId, weekId, file.id);
+      const blob = file.assignment_id
+        ? await CoursesService.getAiAssignmentSourceDocument(pathId, file.assignment_id)
+        : await CoursesService.getWeeklyTaskDocument(pathId, weekId, file.id);
       const url = URL.createObjectURL(blob);
       if (preview) preview.location = url;
       else window.open(url, "_blank", "noopener,noreferrer");
@@ -127,6 +129,10 @@ export default function StudentWeekPage() {
   }
 
   const teacherReply = String(view.week.teacher_reply ?? "").trim();
+  const documents = [
+    ...(view.week.files ?? []).map((file) => ({ ...file, key: `weekly-${file.id}` })),
+    ...(view.week.source_documents ?? []).map((file) => ({ ...file, key: `assignment-${file.assignment_id}` })),
+  ];
 
   return <div className={styles.page}>
     <div data-guide="course-week-header">
@@ -197,9 +203,9 @@ export default function StudentWeekPage() {
           </article>)}</div> : <EmptyState icon="dns" title={t("StudentWeekPage.noMachineTitle")} description={t("StudentWeekPage.noMachineDesc")} />}
         </section>
 
-        {view.week.files.length > 0 && <section className={styles.panel} data-guide="course-week-materials">
+        {documents.length > 0 && <section className={styles.panel} data-guide="course-week-materials">
           <div className={styles.panelHeading}><span><MIcon name="description" size={20} /></span><div><h2>{t("StudentWeekPage.filesTitle")}</h2></div></div>
-          <div className={styles.fileList}>{view.week.files.map((file) => <button type="button" key={file.id} disabled={isGuideDemo || openingFileId !== null} onClick={() => openDocument(file)}><MIcon name="picture_as_pdf" size={19} /><span>{file.filename}</span><MIcon name={openingFileId === file.id ? "sync" : "open_in_new"} size={17} /></button>)}</div>
+          <div className={styles.fileList}>{documents.map((file) => <button type="button" key={file.key} disabled={isGuideDemo || openingFileId !== null} onClick={() => openDocument(file)}><MIcon name="picture_as_pdf" size={19} /><span>{file.filename}</span><MIcon name={openingFileId === file.key ? "sync" : "open_in_new"} size={17} /></button>)}</div>
         </section>}
       </aside>
     </main>

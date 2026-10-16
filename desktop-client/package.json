@@ -17,6 +17,7 @@
     }
   },
   "scripts": {
+    "test:auth": "node scripts/test-auth.mjs",
     "test:tunnel": "node scripts/test-tunnel.mjs",
     "test:resources": "node scripts/test-resource-access.mjs",
     "test:settings": "node scripts/test-settings.mjs",

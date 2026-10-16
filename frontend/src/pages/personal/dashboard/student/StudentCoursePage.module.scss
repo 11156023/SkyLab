@@ -136,21 +136,6 @@
   font-weight: $font-weight-500;
 }
 
-.progressTrack {
-  height: 6px;
-  overflow: hidden;
-  border-radius: $radius-pill;
-  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
-
-  span {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: var(--color-primary);
-    transition: width $transition-slow;
-  }
-}
-
 /* ── 課堂機器：白底細框的列，整列可點進入，右側資訊鈕 ── */
 
 .machineList {

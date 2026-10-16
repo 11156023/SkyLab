@@ -7,6 +7,9 @@ import router from "../router";
 interface AppState {
   loggedIn: boolean;
   loginInProgress: boolean;
+  loginError: string;
+  loginErrorCode: string;
+  connectionStarting: boolean;
   language: string;
   autoStart: boolean;
   backendUrl: string;
@@ -38,6 +41,7 @@ const LS_KEY = "session_warning_dismissed";
 let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
 let authExpiryListenerRegistered = false;
 let lastResourceRefreshAt = 0;
+const registeredStores = new WeakSet<object>();
 
 function loadPermanentDismissals(): Record<number, string> {
   try {
@@ -66,6 +70,9 @@ export const useAppStore = defineStore("app", {
   state: (): AppState => ({
     loggedIn: false,
     loginInProgress: false,
+    loginError: "",
+    loginErrorCode: "",
+    connectionStarting: false,
     language: "zh-TW",
     autoStart: false,
     backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
@@ -94,6 +101,60 @@ export const useAppStore = defineStore("app", {
   },
   actions: {
     registerListeners() {
+      if (registeredStores.has(this)) return;
+      registeredStores.add(this);
+      // Own the auth flow for the lifetime of the app, including navigation
+      // away from Home while the browser is waiting for approval.
+      on(
+        ipcRouters.AUTH.startLogin,
+        () => {},
+        (code, message) => {
+          if (!this.loginInProgress) return;
+          this.loginInProgress = false;
+          this.loginError = message;
+          this.loginErrorCode = code;
+        }
+      );
+      window.electronIpcRenderer.on("auth:event", (_event, response) => {
+        if (response?.bizCode !== "A1000" || !this.loginInProgress) return;
+        const payload = response.data;
+        if (
+          !payload ||
+          !["login-success", "login-failure", "login-cancelled"].includes(
+            payload.type
+          )
+        )
+          return;
+        this.loginInProgress = false;
+        this.loginError = "";
+        this.loginErrorCode = "";
+        if (payload.type === "login-success") {
+          this.loggedIn = true;
+          this.refreshResources();
+          this.connectionStarting = true;
+          send(ipcRouters.TUNNEL.start);
+        } else if (payload.type === "login-failure") {
+          this.loginError = payload.error || "unknown";
+          this.loginErrorCode = payload.code || "B1000";
+        }
+      });
+      on(
+        ipcRouters.TUNNEL.start,
+        () => {
+          this.connectionStarting = false;
+          send(ipcRouters.TUNNEL.getStatus);
+        },
+        (_code, message) => {
+          this.connectionStarting = false;
+          this.tunnelStatus = {
+            ...this.tunnelStatus,
+            connectionError: message
+          };
+        }
+      );
+      on(ipcRouters.TUNNEL.getStatus, (data: TunnelStatusInfo) => {
+        if (data) this.tunnelStatus = data;
+      });
       if (!authExpiryListenerRegistered) {
         window.addEventListener("skylab:auth-expired", () => {
           this.handleSessionExpired();
@@ -110,6 +171,9 @@ export const useAppStore = defineStore("app", {
         this.resourcesLoading = false;
         this.resourcesError = "";
         this.loginInProgress = false;
+        this.loginError = "";
+        this.loginErrorCode = "";
+        this.connectionStarting = false;
         this.tunnelStatus = { ...DEFAULT_TUNNEL_STATUS };
         this.stopSessionPolling();
         if (router.currentRoute.value.name !== "Home") {
@@ -193,6 +257,20 @@ export const useAppStore = defineStore("app", {
     refreshAuth() {
       send(ipcRouters.AUTH.getAuthState);
     },
+    startLogin() {
+      if (this.loginInProgress) return;
+      this.loginError = "";
+      this.loginErrorCode = "";
+      this.tunnelStatus = { ...this.tunnelStatus, connectionError: null };
+      this.loginInProgress = true;
+      send(ipcRouters.AUTH.startLogin);
+    },
+    cancelLogin() {
+      this.loginInProgress = false;
+      this.loginError = "";
+      this.loginErrorCode = "";
+      send(ipcRouters.AUTH.cancelLogin);
+    },
     refreshSettings() {
       send(ipcRouters.SETTINGS.getSettings);
     },
@@ -245,6 +323,7 @@ export const useAppStore = defineStore("app", {
       const wasLoggedIn = this.loggedIn;
       this.loggedIn = false;
       this.loginInProgress = false;
+      this.connectionStarting = false;
       this.resources = [];
       this.resourcesLoading = false;
       this.resourcesError = "";
