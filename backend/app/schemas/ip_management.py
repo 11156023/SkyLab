@@ -35,6 +35,8 @@ class SubnetConfigCreate(BaseModel):
     # 選填 802.1Q VLAN ID；None 表示網卡不帶 tag
     vlan_tag: int | None = None
     gateway_vm_ip: str
+    # 選填：主系統在實驗室網段內的 IP，有填就保留不配發
+    platform_ip: str | None = None
     dns_servers: str | None = None
     extra_blocked_subnets: list[str] = []
     # 課程環境 port_forward 的自動配號池；1024 以下留給系統服務
@@ -99,6 +101,24 @@ class SubnetConfigCreate(BaseModel):
         except (ipaddress.AddressValueError, ValueError) as e:
             raise ValueError(t("ip.invalid_ip", error=str(e))) from e
         return v
+
+    @field_validator("platform_ip", mode="before")
+    @classmethod
+    def normalize_platform_ip(cls, v):
+        if v is None:
+            return None
+        cleaned = str(v).strip()
+        return cleaned or None
+
+    @field_validator("platform_ip")
+    @classmethod
+    def validate_platform_ip(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        try:
+            return str(ipaddress.IPv4Address(v))
+        except (ipaddress.AddressValueError, ValueError) as e:
+            raise ValueError(t("ip.invalid_ip", error=str(e))) from e
 
     @field_validator("dns_servers")
     @classmethod
@@ -174,6 +194,7 @@ class SubnetConfigPublic(BaseModel):
     bridge_name: str
     vlan_tag: int | None = None
     gateway_vm_ip: str
+    platform_ip: str | None = None
     dns_servers: str | None
     extra_blocked_subnets: list[str] = []
     forward_port_start: int = 30000

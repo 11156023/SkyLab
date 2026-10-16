@@ -79,12 +79,13 @@ def _judge(
 
 def _artifact(
     *,
+    db: Session | None = None,
     teaching_class_id: uuid.UUID,
     status: TeacherJudgeScriptStatus,
     name: str,
     session_id: uuid.UUID | None = None,
 ) -> TeacherJudgeScriptArtifact:
-    return TeacherJudgeScriptArtifact(
+    artifact = TeacherJudgeScriptArtifact(
         teaching_class_id=teaching_class_id,
         session_id=session_id,
         name=name,
@@ -105,6 +106,17 @@ def _artifact(
         script_content="print('{}')",
         status=status,
     )
+    if (
+        db is not None
+        and session_id is not None
+        and artifact.status == TeacherJudgeScriptStatus.approved
+    ):
+        workspace = db.get(TeacherJudgeSession, session_id)
+        artifact.artifact_set_id = artifact.artifact_set_id or uuid.uuid4()
+        artifact.target_node_key = artifact.target_node_key or "web"
+        workspace.active_artifact_set_id = artifact.artifact_set_id
+        db.add(workspace)
+    return artifact
 
 
 def test_student_sees_only_approved_assignments_from_linked_class() -> None:
@@ -175,6 +187,7 @@ def test_student_sees_only_approved_assignments_from_linked_class() -> None:
         judge = _judge(session, teaching_class_id=class_id, title=name)
         session.add(
             _artifact(
+                db=session,
                 teaching_class_id=class_id,
                 status=status,
                 name=name,
@@ -184,6 +197,7 @@ def test_student_sees_only_approved_assignments_from_linked_class() -> None:
     # 沒有對話的舊腳本：學生端看不到
     session.add(
         _artifact(
+            db=session,
             teaching_class_id=own_class.id,
             status=TeacherJudgeScriptStatus.approved,
             name="沒有對話的舊腳本",
@@ -232,6 +246,7 @@ def test_student_can_toggle_each_task_item_without_starting_ai_check() -> None:
         session, teaching_class_id=teaching_class.id, title="Linux completion toggle"
     )
     artifact = _artifact(
+        db=session,
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Linux completion toggle",
@@ -331,6 +346,7 @@ def test_student_can_toggle_the_whole_weekly_assignment() -> None:
         session, teaching_class_id=teaching_class.id, title="Weekly Linux assignment"
     )
     artifact = _artifact(
+        db=session,
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Weekly Linux assignment",
@@ -416,6 +432,7 @@ def test_student_can_view_one_uploaded_pdf_for_multiple_checkpoints(
     )
     judge = _judge(session, teaching_class_id=teaching_class.id, title="Linux 權限任務")
     artifact = _artifact(
+        db=session,
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Linux 權限任務",
@@ -501,6 +518,7 @@ def test_student_assignment_includes_only_safe_latest_ai_feedback() -> None:
     session.add(TeachingClassStudent(class_id=teaching_class.id, user_id=student_id))
     judge = _judge(session, teaching_class_id=teaching_class.id, title="Linux 權限任務")
     artifact = _artifact(
+        db=session,
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Linux 權限任務",
@@ -809,6 +827,7 @@ def _class_with_student(
 
 def _machine_script(
     *,
+    db: Session | None = None,
     teaching_class_id: uuid.UUID,
     session_id: uuid.UUID,
     set_id: uuid.UUID,
@@ -817,7 +836,7 @@ def _machine_script(
     version: int = 1,
     status: TeacherJudgeScriptStatus = TeacherJudgeScriptStatus.approved,
 ) -> TeacherJudgeScriptArtifact:
-    return TeacherJudgeScriptArtifact(
+    artifact = TeacherJudgeScriptArtifact(
         teaching_class_id=teaching_class_id,
         session_id=session_id,
         artifact_set_id=set_id,
@@ -831,6 +850,17 @@ def _machine_script(
         status=status,
         version=version,
     )
+    if (
+        db is not None
+        and session_id is not None
+        and artifact.status == TeacherJudgeScriptStatus.approved
+    ):
+        workspace = db.get(TeacherJudgeSession, session_id)
+        artifact.artifact_set_id = artifact.artifact_set_id or uuid.uuid4()
+        artifact.target_node_key = artifact.target_node_key or "web"
+        workspace.active_artifact_set_id = artifact.artifact_set_id
+        db.add(workspace)
+    return artifact
 
 
 def _student_run(
@@ -880,6 +910,7 @@ def test_every_machine_of_the_week_shows_up_as_one_assignment() -> None:
                 sort_order=0,
             ),
             _machine_script(
+                db=session,
                 teaching_class_id=teaching_class.id,
                 session_id=judge.id,
                 set_id=set_id,
@@ -887,6 +918,7 @@ def test_every_machine_of_the_week_shows_up_as_one_assignment() -> None:
                 item_id="service",
             ),
             _machine_script(
+                db=session,
                 teaching_class_id=teaching_class.id,
                 session_id=judge.id,
                 set_id=set_id,
@@ -910,12 +942,13 @@ def test_every_machine_of_the_week_shows_up_as_one_assignment() -> None:
     ]
 
 
-def test_completion_and_results_survive_rebuilding_the_scripts() -> None:
+def test_completion_survives_rebuild_but_old_results_stay_historical() -> None:
     session = _session()
     student_id, teaching_class, path = _class_with_student(session)
     judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週")
     set_id = uuid.uuid4()
     first = _machine_script(
+        db=session,
         teaching_class_id=teaching_class.id,
         session_id=judge.id,
         set_id=set_id,
@@ -938,6 +971,7 @@ def test_completion_and_results_survive_rebuilding_the_scripts() -> None:
     # 老師重新製作：舊版封存、新版核准，學生回報與舊結果都還在
     first.status = TeacherJudgeScriptStatus.archived
     rebuilt = _machine_script(
+        db=session,
         teaching_class_id=teaching_class.id,
         session_id=judge.id,
         set_id=set_id,
@@ -953,7 +987,9 @@ def test_completion_and_results_survive_rebuilding_the_scripts() -> None:
     )[0]
     assert assignment.version == 2
     assert assignment.completion.completed_item_ids == ["service"]
-    assert assignment.checkpoint_checks["service"].items[0].status == "pass"
+    assert assignment.checkpoint_checks == {}
+    assert assignment.latest_check is None
+    assert session.exec(select(TeacherJudgeScriptRun)).first() is not None
     submissions = session.exec(select(TeacherJudgeStudentSubmission)).all()
     assert [row.session_id for row in submissions] == [judge.id]
 
@@ -963,6 +999,7 @@ def test_an_environment_failure_keeps_the_last_real_verdict() -> None:
     student_id, teaching_class, path = _class_with_student(session)
     judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週")
     script = _machine_script(
+        db=session,
         teaching_class_id=teaching_class.id,
         session_id=judge.id,
         set_id=uuid.uuid4(),
@@ -1039,6 +1076,7 @@ def test_students_only_see_tasks_after_scripts_are_approved(
     session.add(judge)
     session.commit()
     script = _machine_script(
+        db=session,
         teaching_class_id=teaching_class.id,
         session_id=judge.id,
         set_id=uuid.uuid4(),
@@ -1101,6 +1139,8 @@ def test_students_only_see_tasks_after_scripts_are_approved(
     assert session.exec(select(TeacherJudgeStudentSubmission)).all() == []
 
     script.status = TeacherJudgeScriptStatus.approved
+    judge.active_artifact_set_id = script.artifact_set_id
+    session.add(judge)
     session.add(script)
     session.commit()
     [assignment] = list_student_ai_assignments(
@@ -1142,6 +1182,7 @@ def test_editing_a_checklist_keeps_only_the_approved_snapshot_visible() -> None:
     student_id, teaching_class, path = _class_with_student(session)
     judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週")
     approved = _machine_script(
+        db=session,
         teaching_class_id=teaching_class.id,
         session_id=judge.id,
         set_id=uuid.uuid4(),
@@ -1162,6 +1203,7 @@ def test_editing_a_checklist_keeps_only_the_approved_snapshot_visible() -> None:
     session.add(judge)
     session.add(
         _machine_script(
+            db=session,
             teaching_class_id=teaching_class.id,
             session_id=judge.id,
             set_id=uuid.uuid4(),
@@ -1199,6 +1241,7 @@ def test_teacher_reply_is_per_week_overwritten_and_optional() -> None:
     judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週")
     session.add(
         _machine_script(
+            db=session,
             teaching_class_id=teaching_class.id,
             session_id=judge.id,
             set_id=uuid.uuid4(),

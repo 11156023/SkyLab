@@ -15,6 +15,7 @@ from app.ai.teacher_judge.schemas import TeacherJudgeRubricAnalysis
 from app.ai.teacher_judge.session_service import apply_proposal_operations_to_analysis
 from app.models.teaching_class import TeachingClassMachineNode
 from tests.ai.teacher_judge.helpers import (
+    make_script_workspace,
     make_session,
     make_teacher_judge_file,
     patch_teacher_judge_vllm_settings,
@@ -110,7 +111,7 @@ async def test_finalizer_preserves_locations_through_save_and_three_node_artifac
         restored = TeacherJudgeRubricAnalysis.model_validate(saved.analysis_json)
         monkeypatch.setattr(script_artifact_service, "get_enabled_template_commands", lambda *a, **kw: [])
         artifact_set = script_artifact_service.create_artifact_set(
-            session=db, teaching_class_id=class_id, session_id=uuid.uuid4(),
+            session=db, teaching_class_id=class_id, session_id=make_script_workspace(db, class_id, source_file_id=file.id).id,
             name="three nodes", template_key="linux", rubric_analysis=restored,
             source_analysis_revision=saved.analysis_revision, created_by=None,
             source_file_id=file.id,

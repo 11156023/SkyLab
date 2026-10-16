@@ -6,7 +6,7 @@ VM 的 IP 是由 guest agent（VM 內部）回報的，VM 擁有者可以任意�
 
 規則：
 1. 一律拒絕 loopback / link-local / multicast / unspecified / reserved。
-2. 拒絕 SubnetConfig 的 gateway、gateway_vm_ip，
+2. 拒絕 SubnetConfig 的 gateway、gateway_vm_ip、platform_ip，
    以及所有 PVE 連線的 host / gateway_ip。
 3. 若已設定 SubnetConfig.cidr（平台配發 VM IP 的網段），目標必須落在其中。
 4. 給了 vmid 時：有配發紀錄就必須是配給它的那個 IP；沒有配發紀錄就不可是
@@ -169,7 +169,7 @@ def assert_publishable_vm_ip(
     if subnet_config is not None:
         if getattr(subnet_config, "cidr", None):
             allowed_cidrs.append(subnet_config.cidr)
-        for attr in ("gateway", "gateway_vm_ip"):
+        for attr in ("gateway", "gateway_vm_ip", "platform_ip"):
             value = getattr(subnet_config, attr, None)
             if value:
                 blocked_ips.append(value)

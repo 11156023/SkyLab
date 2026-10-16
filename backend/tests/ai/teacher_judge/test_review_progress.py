@@ -28,7 +28,7 @@ from app.models.teacher_judge_student_submission import (
 )
 from app.models.teaching_class import TeachingClassStudent
 from app.services.course import ai_assignment_service
-from tests.ai.teacher_judge.helpers import make_session
+from tests.ai.teacher_judge.helpers import make_script_workspace, make_session
 
 
 def _user(email: str) -> User:
@@ -50,12 +50,14 @@ def test_progress_lists_every_student_with_their_reported_items() -> None:
         [TeachingClassStudent(class_id=teaching_class.id, user_id=user.id) for user in (done, partial, silent)]
         + [TeachingClassStudent(class_id=teaching_class.id, user_id=teacher.id, status="instructor")]
     )
-    judge = TeacherJudgeSession(teaching_class_id=teaching_class.id, title="第 3 週")
+    judge = make_script_workspace(db, teaching_class.id)
+    judge.active_artifact_set_id = uuid.uuid4()
     db.add(judge)
     db.flush()
     db.add(
         TeacherJudgeScriptArtifact(
             teaching_class_id=teaching_class.id, session_id=judge.id, name="第 3 週",
+            artifact_set_id=judge.active_artifact_set_id, target_node_key="web",
             template_key="linux", script_content="print('{}')",
             status=TeacherJudgeScriptStatus.approved,
             rubric_snapshot_json={"items": [
@@ -103,10 +105,13 @@ def test_set_run_request_requires_students_only_for_student_scope() -> None:
 
 def _two_machine_set(db, class_id: uuid.UUID) -> uuid.UUID:
     set_id = uuid.uuid4()
+    workspace = make_script_workspace(db, class_id)
+    workspace.active_artifact_set_id = set_id
+    db.add(workspace)
     for node in ("web", "db"):
         db.add(
             TeacherJudgeScriptArtifact(
-                teaching_class_id=class_id, artifact_set_id=set_id, target_node_key=node,
+                teaching_class_id=class_id, artifact_set_id=set_id, target_node_key=node, session_id=workspace.id,
                 name=node, template_key="linux", script_content="print('{}')",
                 rubric_snapshot_json={"items": []}, status=TeacherJudgeScriptStatus.approved,
             )

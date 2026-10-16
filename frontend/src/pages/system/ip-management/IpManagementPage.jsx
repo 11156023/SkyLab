@@ -52,6 +52,7 @@ function PurposeBadge({ purpose }) {
     lxc: "LXC",
     gateway_vm: "Gateway VM",
     subnet_gateway: t("IpManagementPage.purposeGateway"),
+    platform_host: t("IpManagementPage.purposePlatformHost"),
     reserved: t("IpManagementPage.purposeReserved"),
     class_reserved: t("IpManagementPage.purposeClassReserved"),
     quick_practice_reserved: t("IpManagementPage.purposeQuickPracticeReserved"),

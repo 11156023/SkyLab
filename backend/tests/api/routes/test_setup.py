@@ -365,6 +365,7 @@ def test_subnet_configures_lab_network(
             "gateway": "10.77.0.1",
             "bridge_name": "vmbr1",
             "gateway_vm_ip": "10.77.0.2",
+            "platform_ip": "10.77.0.3",
             "dns_servers": "8.8.8.8",
         },
     )
@@ -372,6 +373,7 @@ def test_subnet_configures_lab_network(
     body = r.json()
     assert body["cidr"] == "10.77.0.0/24"
     assert body["bridge_name"] == "vmbr1"
+    assert body["platform_ip"] == "10.77.0.3"
     assert body["total_ips"] > 0
     assert _status(client)["steps"]["subnet"] is True
 

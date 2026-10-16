@@ -235,6 +235,8 @@
   "SetupPage.vlanPlaceholder": "選填，1–4094；留空表示不使用 VLAN",
   "SetupPage.gatewayVmIpLabel": "Gateway VM IP",
   "SetupPage.gatewayVmIpPlaceholder": "例：10.10.0.2",
+  "SetupPage.platformIpLabel": "主系統 IP",
+  "SetupPage.platformIpPlaceholder": "選填，例：10.10.0.3；填了就不會配給 VM / LXC",
   "SetupPage.dnsLabel": "DNS 伺服器",
   "SetupPage.dnsPlaceholder": "選填，多組以逗號分隔：8.8.8.8,1.1.1.1",
   "SetupPage.advancedToggle": "進階：對外 port 配號池",

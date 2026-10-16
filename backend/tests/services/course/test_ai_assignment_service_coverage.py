@@ -46,13 +46,14 @@ def _run(**kwargs: object) -> TeacherJudgeScriptRun:
 
 def _artifact(
     *,
+    db: Session | None = None,
     teaching_class_id: uuid.UUID,
     name: str,
     items: list[dict] | None = None,
     policy: dict | None = None,
     session_id: uuid.UUID | None = None,
 ) -> TeacherJudgeScriptArtifact:
-    return TeacherJudgeScriptArtifact(
+    artifact = TeacherJudgeScriptArtifact(
         teaching_class_id=teaching_class_id,
         session_id=session_id,
         name=name,
@@ -66,6 +67,13 @@ def _artifact(
         script_content="print('{}')",
         status=TeacherJudgeScriptStatus.approved,
     )
+    if db is not None and session_id is not None and artifact.status == TeacherJudgeScriptStatus.approved:
+        workspace = db.get(TeacherJudgeSession, session_id)
+        artifact.artifact_set_id = artifact.artifact_set_id or uuid.uuid4()
+        artifact.target_node_key = artifact.target_node_key or "web"
+        workspace.active_artifact_set_id = artifact.artifact_set_id
+        db.add(workspace)
+    return artifact
 
 
 def _published_week(session: Session, teaching_class_id: uuid.UUID) -> TeachingClassWeek:
@@ -248,9 +256,9 @@ def test_list_assignments_dedupes_versions_and_skips_empty_rubrics(
     student_id, teaching_class, path = _setup_class(session)
     week_one = _judge(session, teaching_class.id, "Week 1")
     week_two = _judge(session, teaching_class.id, "Empty")
-    newest = _artifact(teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
-    older = _artifact(teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
-    empty = _artifact(
+    newest = _artifact(db=session, teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
+    older = _artifact(db=session, teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
+    empty = _artifact(db=session,
         teaching_class_id=teaching_class.id, name="Empty", items=[], session_id=week_two.id
     )
     session.add(newest)
@@ -268,7 +276,7 @@ def test_list_assignments_dedupes_versions_and_skips_empty_rubrics(
 def test_source_document_missing_raises_not_found(session: Session) -> None:
     student_id, teaching_class, path = _setup_class(session)
     judge = _judge(session, teaching_class.id, "No PDF")
-    artifact = _artifact(teaching_class_id=teaching_class.id, name="No PDF", session_id=judge.id)
+    artifact = _artifact(db=session, teaching_class_id=teaching_class.id, name="No PDF", session_id=judge.id)
     session.add(artifact)
     session.commit()
 
@@ -287,8 +295,8 @@ def test_get_student_ai_check_returns_own_run_and_hides_others(
     student_id, teaching_class, path = _setup_class(session)
     judge = _judge(session, teaching_class.id, "Check")
     sibling_judge = _judge(session, teaching_class.id, "Sibling")
-    artifact = _artifact(teaching_class_id=teaching_class.id, name="Check", session_id=judge.id)
-    sibling = _artifact(
+    artifact = _artifact(db=session, teaching_class_id=teaching_class.id, name="Check", session_id=judge.id)
+    sibling = _artifact(db=session,
         teaching_class_id=teaching_class.id, name="Sibling", session_id=sibling_judge.id
     )
     session.add(artifact)
@@ -353,7 +361,7 @@ def test_get_student_ai_check_returns_own_run_and_hides_others(
 def test_update_completion_rejects_unknown_item(session: Session) -> None:
     student_id, teaching_class, path = _setup_class(session)
     judge = _judge(session, teaching_class.id, "Toggle")
-    artifact = _artifact(teaching_class_id=teaching_class.id, name="Toggle", session_id=judge.id)
+    artifact = _artifact(db=session, teaching_class_id=teaching_class.id, name="Toggle", session_id=judge.id)
     session.add(artifact)
     session.commit()
 

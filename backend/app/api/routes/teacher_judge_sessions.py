@@ -1425,10 +1425,6 @@ def _generate_script_set(
             created_by=current_user.id,
         )
         raise
-    item.last_activity_at = get_datetime_utc()
-    item.updated_at = item.last_activity_at
-    session.add(item)
-    session.commit()
     return script_set
 
 
@@ -1655,10 +1651,11 @@ def list_session_batches(
     teaching_class_id: uuid.UUID, session_id: uuid.UUID,
     session: SessionDep, current_user: InstructorUser,
     skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+    artifact_set_id: uuid.UUID | None = None,
 ) -> list[TeacherJudgeRunBatchSummary]:
     _access(session, teaching_class_id, current_user)
     get_session(session, teaching_class_id, session_id)
-    return list_session_batch_summaries(session, teaching_class_id, session_id, skip, limit)
+    return list_session_batch_summaries(session, teaching_class_id, session_id, skip, limit, artifact_set_id)
 
 
 @router.get("/{session_id}/runs/{run_id}/targets", response_model=TeacherJudgeRunTargetPage)
@@ -1682,11 +1679,12 @@ def list_session_runs(
     current_user: InstructorUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    artifact_set_id: uuid.UUID | None = None,
 ) -> list[TeacherJudgeScriptRunSummary]:
     _access(session, teaching_class_id, current_user)
     get_session(session, teaching_class_id, session_id)
     return list_session_run_summaries(
-        session, teaching_class_id, session_id, skip, limit
+        session, teaching_class_id, session_id, skip, limit, artifact_set_id
     )
 
 

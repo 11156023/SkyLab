@@ -52,6 +52,8 @@
   "ipManagement.gatewayVmIpLabel": "Gateway VM IP",
   "ipManagement.ipNotInSubnet": "{label}（{ip}）はサブネット {cidr} の範囲内にありません",
   "ipManagement.gatewayIpsMustDiffer": "ゲートウェイ IP と Gateway VM IP を同じにすることはできません",
+  "ipManagement.platformIpLabel": "メインシステム IP",
+  "ipManagement.platformIpMustDiffer": "メインシステム IP をゲートウェイ IP や Gateway VM IP と同じにすることはできません",
   "ipManagement.blockedSubnetOverlapsLab": "追加ブロック対象のネットワーク {blocked} が実習用サブネット {cidr} と重なっています。マシン間の分離は各マシンの受信ルールで行われるため、この範囲をブロックするとゲートウェイや他のマシンに接続できなくなります",
   "ipManagement.cidrChangeBlockedByAllocations": "現在のサブネットの IP を使用している VM/LXC があるため、CIDR を変更できません。先にすべての VM/LXC を削除してから変更してください。",
   "ipManagement.subnetConfigNotFound": "サブネット設定が存在しません",

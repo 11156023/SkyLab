@@ -23,6 +23,7 @@ def _config() -> Any:
         bridge_name="vmbr1",
         vlan_tag=None,
         gateway_vm_ip="10.0.0.2",
+        platform_ip=None,
         forward_port_start=30000,
         forward_port_end=39999,
         forward_public_host=None,
@@ -107,6 +108,7 @@ def _body() -> Any:
         bridge_name="vmbr1",
         vlan_tag=None,
         gateway_vm_ip="10.0.0.2",
+        platform_ip="10.0.0.3",
         dns_servers="1.1.1.1",
         extra_blocked_subnets=["192.168.0.0/16"],
         forward_port_start=30000,
@@ -125,6 +127,7 @@ def test_upsert_subnet_config_sync_ok(
     )
     result = ipm.upsert_subnet_config(session=SESSION, _=None, body=_body())
     assert svc["upserts"][0]["cidr"] == "10.0.0.0/24"
+    assert svc["upserts"][0]["platform_ip"] == "10.0.0.3"
     assert result.block_sync.created == 1
     assert result.block_sync.errors == []
 

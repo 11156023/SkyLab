@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from threading import Event, Lock
 from time import perf_counter
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from sqlalchemy import exists, func, or_
 from sqlalchemy.orm import selectinload
@@ -37,9 +37,11 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
 from app.core.db import engine
+from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.ssh import (
+    SSHAuthenticationError,
     SSHOutputTooLargeError,
     create_key_client,
     exec_command,
@@ -118,11 +120,13 @@ def shutdown_script_executor() -> None:
 
 @dataclass(frozen=True)
 class RemoteScriptResult:
-    exit_code: int
+    exit_code: int | None
     result_json_text: str
     stderr_text: str
     result_too_large: bool = False
     timing: dict[str, Any] = field(default_factory=dict)
+    stdout_text: str = ""
+    reason_code: str | None = None
 
 
 class TargetExecutionError(RuntimeError):
@@ -234,12 +238,18 @@ def _target_metadata(target: dict[str, Any]) -> dict[str, Any]:
 def _target_progress(
     targets: list[dict[str, Any]],
     statuses: dict[int, str],
+    results: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    reasons = {
+        result["vmid"]: result.get("reason_code")
+        for result in results or []
+        if result.get("vmid") is not None
+    }
     return [
         {
             **_target_metadata(target),
             "status": statuses.get(_target_vmid(target), "queued"),
-            "reason_code": None,
+            "reason_code": reasons.get(_target_vmid(target)),
         }
         for target in targets
     ]
@@ -311,7 +321,7 @@ def _save_run_progress(
             "stage": stage,
             "total": len(targets) + len(preflight_results or []),
             "done": done,
-            "targets": _target_progress(targets, statuses)
+            "targets": _target_progress(targets, statuses, results)
             + preflight_progress(preflight_results or []),
         }
         run.updated_at = _now()
@@ -345,6 +355,33 @@ def _live_running_by_vmid() -> dict[int, dict[str, Any]]:
     return proxmox_ops.list_all_resources_by_vmid()
 
 
+def _require_running_power_state(vmid: int, status: str) -> None:
+    if status == "stopped":
+        raise TargetExecutionError(t("run.vmid_powered_off", vmid=vmid), "vm_powered_off")
+    if status != "running":
+        raise TargetExecutionError(t("run.vmid_not_running", vmid=vmid), "not_running")
+
+
+def check_current_target_power(target: dict[str, Any]) -> None:
+    """Require current running state without trusting the cluster-list cache."""
+    node = _target_proxmox_node(target)
+    resource_type = _target_resource_type(target)
+    try:
+        if not node or resource_type not in {"qemu", "lxc"}:
+            raise ValueError("Missing target node or resource type")
+        current = proxmox_ops.get_status(
+            node, _target_vmid(target), cast(Literal["qemu", "lxc"], resource_type),
+        )
+        status = str(current.get("status") or "")
+        if not status or status == "unknown":
+            raise ValueError("Missing current power state")
+    except Exception as exc:
+        raise TargetExecutionError(
+            t("run.status_lookup_failed"), "vm_status_unavailable",
+        ) from exc
+    _require_running_power_state(_target_vmid(target), status)
+
+
 def _resolve_runtime_target(
     *,
     session: Session,
@@ -366,6 +403,17 @@ def _resolve_runtime_target(
             "owner_mismatch",
         )
     live = live_by_vmid.get(vmid)
+    if live is None:
+        raise TargetExecutionError(t("run.vmid_not_running", vmid=vmid), "not_running")
+    if live.get("status") == "stopped":
+        check_current_target_power({**live, "vmid": vmid})
+        live = {**live, "status": "running"}
+    _require_running_power_state(vmid, str(live.get("status") or ""))
+    if str(live.get("type") or "") not in {"qemu", "lxc"}:
+        raise TargetExecutionError(
+            f"VMID {vmid} 不是可執行的 VM/LXC。",
+            "invalid_resource_type",
+        )
     # Guest OS 身份補偵測（僅欄位為空時探測一次並回寫；best-effort）
     os_identity_service.ensure_guest_os(
         session=session,
@@ -374,14 +422,6 @@ def _resolve_runtime_target(
         resource_type=str(live.get("type") or "") if live else "",
     )
     _ensure_linux_executor_capability(resource, vmid)
-
-    if not live or str(live.get("status") or "") != "running":
-        raise TargetExecutionError(f"VMID {vmid} 目前不是運行中。", "not_running")
-    if str(live.get("type") or "") not in {"qemu", "lxc"}:
-        raise TargetExecutionError(
-            f"VMID {vmid} 不是可執行的 VM/LXC。",
-            "invalid_resource_type",
-        )
 
     host = resolve_target_ip_address(
         session=session,
@@ -398,6 +438,8 @@ def _resolve_runtime_target(
 
     return {
         **target,
+        "proxmox_node": live.get("node"),
+        "resource_type": live.get("type"),
         "host": host,
         "ssh_user": "root",
         "private_key_pem": decrypt_value(resource.ssh_private_key_encrypted),
@@ -420,11 +462,22 @@ def _execute_target_script(
     timing: dict[str, Any] = {}
     _target_phase(target, "preparing")
     phase, phase_started = "prepare_seconds", started
+    try:
+        check_current_target_power(target)
+    except TargetExecutionError as exc:
+        exc.timing.update(
+            prepare_seconds=round(perf_counter() - started, 3),
+            failure_stage="preparing",
+        )
+        raise
     vmid = _target_vmid(target)
     remote_dir = f"{REMOTE_ROOT}/{target['run_id']}/{vmid}"
     quoted_dir = shlex.quote(remote_dir)
     client = None
     sftp = None
+    downloads_complete = False
+    failure_stage = "connecting"
+    exit_code: int | None
     try:
         client = create_key_client(
             str(target["host"]),
@@ -433,7 +486,8 @@ def _execute_target_script(
             str(target["private_key_pem"]),
             timeout=SSH_TIMEOUT_SECONDS,
         )
-        exit_code, _, stderr = exec_command(
+        failure_stage = "preparing"
+        exit_code, stdout, stderr = exec_command(
             client,
             f"mkdir -p {quoted_dir}",
             timeout=SSH_TIMEOUT_SECONDS,
@@ -441,11 +495,14 @@ def _execute_target_script(
         )
         if exit_code != 0:
             timing["prepare_seconds"] = round(perf_counter() - started, 3)
+            timing["failure_stage"] = "preparing"
             return RemoteScriptResult(
                 exit_code=exit_code, result_json_text="", stderr_text=stderr,
                 timing=timing,
+                stdout_text=stdout, reason_code="preparation_failed",
             )
 
+        failure_stage = "uploading"
         sftp = client.open_sftp()
         # 目標機是學生自己有 root 的機器：SFTP 讀寫卡住時不能讓執行緒永遠等下去
         sftp.get_channel().settimeout(SSH_TIMEOUT_SECONDS)
@@ -475,46 +532,73 @@ def _execute_target_script(
         _target_phase(target, "executing")
         timing["prepare_seconds"] = round(script_started - started, 3)
         phase, phase_started = "script_seconds", script_started
-        exit_code, _, _ = exec_command(
-            client,
-            f"cd {quoted_dir} && "
-            "if command -v timeout >/dev/null 2>&1; "
-            f"then timeout -k 5 {run_timeout} python3 script.py; "
-            f"else echo 'timeout command unavailable' >&2; exit {TIMEOUT_UNAVAILABLE_EXIT_CODE}; "
-            "fi > result.json 2> stderr.log",
-            timeout=run_timeout + 15,
-            max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
-        )
+        failure_stage = "executing"
+        reason_code = None
+        stdout_text = stderr_text = ""
+        try:
+            exit_code, stdout_text, stderr_text = exec_command(
+                client,
+                f"cd {quoted_dir} && "
+                "if command -v timeout >/dev/null 2>&1; "
+                f"then timeout -k 5 {run_timeout} python3 script.py; "
+                f"else echo 'timeout command unavailable' >&2; exit {TIMEOUT_UNAVAILABLE_EXIT_CODE}; "
+                "fi > result.json 2> stderr.log",
+                timeout=run_timeout + 15,
+                max_output_bytes=SSH_OUTPUT_LIMIT_BYTES,
+            )
+            timing["script_finished_at"] = _now().isoformat()
+        except Exception as exc:
+            # A channel error does not imply that the remote result files are
+            # unreadable. Collect both, while retaining the original failure.
+            exit_code = None
+            reason_code = _target_exception_reason(exc)
+            stderr_text = str(exc)
+            timing["failure_stage"] = failure_stage
         download_started = perf_counter()
-        timing["script_finished_at"] = _now().isoformat()
         _target_phase(target, "downloading")
         timing["script_seconds"] = round(download_started - script_started, 3)
         phase, phase_started = "download_seconds", download_started
-        result_json_text, result_too_large = _read_remote_text(
-            sftp, f"{remote_dir}/result.json", RAW_RESULT_LIMIT
-        )
-        stderr_text, stderr_too_large = _read_remote_text(
-            sftp, f"{remote_dir}/stderr.log", STDERR_LIMIT
-        )
-        if stderr_too_large:
-            stderr_text += "\n...[truncated]"
+        failure_stage = "downloading"
+        result_json_text = ""
+        result_too_large = False
+        downloads_complete = True
+        for filename, limit in (("result.json", RAW_RESULT_LIMIT), ("stderr.log", STDERR_LIMIT)):
+            try:
+                content, too_large = _read_remote_text(sftp, f"{remote_dir}/{filename}", limit)
+                if filename == "result.json":
+                    result_json_text, result_too_large = content, too_large
+                else:
+                    stderr_text = "\n".join(filter(None, [stderr_text, content]))
+                    if too_large:
+                        stderr_text += "\n...[truncated]"
+                timing["received_at"] = _now().isoformat()
+            except Exception as exc:
+                downloads_complete = False
+                stderr_text = f"{filename}: {exc}\n{stderr_text}"
+                if reason_code is None and exit_code == 0:
+                    reason_code = "download_failed"
+                    timing["failure_stage"] = failure_stage
         timing["download_seconds"] = round(perf_counter() - download_started, 3)
-        timing["received_at"] = _now().isoformat()
         return RemoteScriptResult(
             exit_code=exit_code,
             result_json_text=result_json_text,
             stderr_text=stderr_text,
             result_too_large=result_too_large,
             timing=timing,
+            stdout_text=stdout_text,
+            reason_code=reason_code,
         )
     except Exception as exc:
         timing[phase] = round(perf_counter() - phase_started, 3)
-        timing["failure_stage"] = {
-            "prepare_seconds": "preparing", "script_seconds": "executing", "download_seconds": "downloading",
-        }[phase]
+        timing["failure_stage"] = failure_stage
+        reason = _target_exception_reason(exc)
+        if reason == "executor_error":
+            reason = {"connecting": "ssh_connection_failed", "uploading": "upload_failed"}.get(failure_stage, reason)
+        elif reason == "execution_timeout" and failure_stage == "connecting":
+            reason = "ssh_connection_timeout"
         raise TargetExecutionError(
             str(exc),
-            _target_exception_reason(exc),
+            reason,
             timing=timing,
         ) from exc
     finally:
@@ -528,10 +612,12 @@ def _execute_target_script(
                     "Teacher Judge SFTP close failed run=%s vmid=%s",
                     target["run_id"], vmid, exc_info=True,
                 )
+        # Retain remote evidence if either transfer failed. A retry uses its own
+        # run directory and must not erase files that were never collected.
+        output_files = f" {quoted_dir}/result.json {quoted_dir}/stderr.log" if downloads_complete else ""
         cleanup_command = (
-            f"rm -f -- {quoted_dir}/script.py {quoted_dir}/runtime_context.json "
-            f"{quoted_dir}/result.json "
-            f"{quoted_dir}/stderr.log && rmdir -- {quoted_dir} 2>/dev/null || true"
+            f"rm -f -- {quoted_dir}/script.py {quoted_dir}/runtime_context.json"
+            f"{output_files} && rmdir -- {quoted_dir} 2>/dev/null || true"
         )
         try:
             if client is not None:
@@ -601,7 +687,9 @@ def _execute_scheduled_target(
     timing["finished_at"] = _now().isoformat()
     if result["status"] == "failed":
         result["failure_stage"] = timing.pop("failure_stage", None) or (
-            "validating" if result["reason_code"] in {"invalid_json", "result_too_large"} else "executing"
+            "validating" if result["reason_code"] in {
+                "invalid_json", "result_too_large", "missing_checks", "check_id_mismatch", "duplicate_check_ids",
+            } else "executing"
         )
     result["timing"] = timing
     logger.info(
@@ -657,7 +745,7 @@ def _target_result(
     remote_result: RemoteScriptResult,
 ) -> dict[str, Any]:
     raw_result = remote_result.result_json_text
-    stdout_excerpt = _truncate(raw_result, STDOUT_LIMIT)
+    stdout_excerpt = _truncate("\n".join(filter(None, [remote_result.stdout_text, raw_result])), STDOUT_LIMIT)
     stderr_excerpt = _truncate(remote_result.stderr_text, STDERR_LIMIT)
 
     validation: dict[str, Any]
@@ -670,7 +758,7 @@ def _target_result(
         return {
             **_target_metadata(target),
             "status": "failed",
-            "reason_code": "result_too_large",
+            "reason_code": remote_result.reason_code or "result_too_large",
             "exit_code": remote_result.exit_code,
             "validation": validation,
             "stdout_excerpt": stdout_excerpt,
@@ -681,8 +769,22 @@ def _target_result(
 
     validation = dict(validate_managed_script_output(raw_result))
     parsed_result = None
+    contract_reason = "invalid_json"
     if validation.get("valid"):
         parsed_result = normalize_managed_script_checks(json.loads(raw_result))
+        ids = [check["id"] for check in parsed_result.get("checks", [])]
+        actual = set(ids)
+        expected = target.get("expected_check_ids")
+        missing = sorted(set(expected or []) - actual)
+        unexpected = sorted(actual - set(expected)) if expected is not None else []
+        duplicates = sorted(check_id for check_id in actual if ids.count(check_id) > 1)
+        if not ids or missing or unexpected or duplicates:
+            contract_reason = "duplicate_check_ids" if duplicates else "check_id_mismatch" if unexpected else "missing_checks"
+            validation.update(
+                valid=False,
+                error="檢查結果不完整或步驟識別碼不一致；已保留收到的證據，請檢查腳本版本與執行結果。",
+                missing_check_ids=missing, unexpected_check_ids=unexpected, duplicate_check_ids=duplicates,
+            )
     else:
         # 完整驗證錯誤只進 log 與老師端 validation.error，學生頁由
         # ai_assignment_service 換成一句通用說明
@@ -696,13 +798,15 @@ def _target_result(
 
     status = (
         "completed"
-        if remote_result.exit_code == 0 and validation.get("valid") is True
+        if remote_result.exit_code == 0 and validation.get("valid") is True and remote_result.reason_code is None
         else "failed"
     )
     reason_code = "success"
     if status == "failed":
         stderr_lower = remote_result.stderr_text.lower()
-        if remote_result.exit_code == 127 or "python3: not found" in stderr_lower:
+        if remote_result.reason_code:
+            reason_code = remote_result.reason_code
+        elif remote_result.exit_code == 127 or "python3: not found" in stderr_lower:
             reason_code = "python_missing"
         elif remote_result.exit_code == TIMEOUT_EXIT_CODE:
             reason_code = "execution_timeout"
@@ -711,7 +815,7 @@ def _target_result(
         elif remote_result.exit_code != 0:
             reason_code = "execution_nonzero"
         else:
-            reason_code = "invalid_json"
+            reason_code = contract_reason
 
     return {
         **_target_metadata(target),
@@ -846,7 +950,7 @@ def _mark_run_executor_failed(
             "stage": "failed",
             "total": len(targets) + len(preflight_results),
             "done": len(results),
-            "targets": _target_progress(targets, statuses)
+            "targets": _target_progress(targets, statuses, results)
             + preflight_progress(preflight_results),
         }
         run.result_summary_json = {
@@ -887,6 +991,8 @@ def _target_exception_reason(exc: BaseException) -> str:
     # 逾時／輸出過大只讓這一台失敗，訊息來自 SSH 層（含秒數或上限）
     if isinstance(exc, TargetExecutionError):
         return exc.reason_code
+    if isinstance(exc, SSHAuthenticationError):
+        return "ssh_authentication_failed"
     if isinstance(exc, TimeoutError):
         return "execution_timeout"
     if isinstance(exc, SSHOutputTooLargeError):
@@ -975,6 +1081,12 @@ def _execute_targets(
         # Session，SSH fan-out 期間不能佔著交易（PgBouncer transaction
         # pooling 下會一路釘住一條 server 連線）。
         script_content = artifact.script_content
+        coverage = (artifact.policy_check_result_json or {}).get("coverage")
+        expected_check_ids = (
+            sorted({str(mapping["check_id"]) for mapping in (coverage.get("mappings") or [])
+                    if isinstance(mapping, dict) and mapping.get("check_id")})
+            if isinstance(coverage, dict) else None
+        )
         run_timeout_seconds = script_run_timeout_seconds(artifact.rubric_snapshot_json)
         runtime_targets: list[dict[str, Any]] = []
         early_results: list[dict[str, Any]] = []
@@ -991,7 +1103,8 @@ def _execute_targets(
                     live_by_vmid=live_by_vmid,
                 )
                 runtime_targets.append(
-                    {**runtime_target, "run_timeout_seconds": run_timeout_seconds}
+                    {**runtime_target, "run_timeout_seconds": run_timeout_seconds,
+                     "expected_check_ids": expected_check_ids}
                 )
             except Exception as exc:
                 statuses[vmid] = "failed"
@@ -1191,7 +1304,7 @@ def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
             "stage": "completed",
             "total": len(targets) + len(preflight_results),
             "done": len(results),
-            "targets": _target_progress(targets, statuses)
+            "targets": _target_progress(targets, statuses, results)
             + preflight_progress(preflight_results),
         }
         run.status = TeacherJudgeScriptRunStatus.completed

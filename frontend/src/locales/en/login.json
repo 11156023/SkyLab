@@ -235,6 +235,8 @@
   "SetupPage.vlanPlaceholder": "Optional, 1–4094; leave blank for no VLAN",
   "SetupPage.gatewayVmIpLabel": "Gateway VM IP",
   "SetupPage.gatewayVmIpPlaceholder": "e.g. 10.10.0.2",
+  "SetupPage.platformIpLabel": "Main system IP",
+  "SetupPage.platformIpPlaceholder": "Optional, e.g. 10.10.0.3; once set it is never assigned to a VM / LXC",
   "SetupPage.dnsLabel": "DNS servers",
   "SetupPage.dnsPlaceholder": "Optional, comma separated: 8.8.8.8,1.1.1.1",
   "SetupPage.advancedToggle": "Advanced: public port pool",
