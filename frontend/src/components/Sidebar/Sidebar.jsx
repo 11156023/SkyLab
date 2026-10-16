@@ -14,6 +14,10 @@ import OctoMark from "../OctoPet/OctoMark";
 import JobsButton from "../Jobs/JobsButton";
 import { canTeachUser, isAdminUser } from "../../utils/roles";
 
+const topItems = [
+  { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
+];
+
 /* 確認頁沿用舊網址 /quick-template/:id，側欄仍要亮在「快速練習」 */
 const activeKeyAliases = { "quick-template": "quick-create" };
 
@@ -86,8 +90,6 @@ const navGroups = [
 
 /* 系統管理已移出主導覽分類：由底部「管理員設定」進入專屬核心側欄（僅管理員），路由沿用原本的網址 */
 const adminSettingsItems = [
-  /* 管理員另有一般頁面的「首頁」（/home），這裡要叫「管理首頁」才分得出來 */
-  { key: "dashboard",       labelKey: "Sidebar.adminHome",          icon: "dashboard" },
   { key: "admin",           labelKey: "Sidebar.itemAdmin",          icon: "admin_panel_settings" },
   { key: "ip-management",   labelKey: "Sidebar.itemIpManagement",   icon: "lan" },
   { key: "domain",          labelKey: "Sidebar.itemDomain",         icon: "domain" },
@@ -331,15 +333,11 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const canTeach = canTeachUser(user);
   /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
   const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
-  const topItems = [
-    { key: isAdmin ? "home" : "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
-  ];
-  const settingsToggleLabel = t(inAdminSettings ? "Sidebar.generalPages" : "Sidebar.adminSettings");
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>
-        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach) && (!item.studentOnly || !canTeach || isAdmin)
+        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach) && (!item.studentOnly || !canTeach)
       ),
     }))
     .filter((group) => group.items.length > 0);
@@ -402,7 +400,34 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
       {/* ===== Main nav ===== */}
       {inAdminSettings ? (
         <nav className={styles.nav} ref={navScroll.ref} data-scroll-edges={navScroll.edges}>
-          {!collapsed && <div className={styles.sectionTitle}>{t("Sidebar.adminSettings")}</div>}
+          {/* 麵包屑：左半的「主控台」是返回入口，右半標示目前在哪個模式。
+              收合時只剩箭頭鈕（放不下文字） */}
+          {collapsed ? (
+            <button
+              type="button"
+              className={styles.backItem}
+              onClick={() => handleNav("dashboard")}
+              title={t("Sidebar.backToConsole")}
+              aria-label={t("Sidebar.backToConsole")}
+            >
+              <MIcon name="arrow_back" size={16} />
+            </button>
+          ) : (
+            <>
+              <div className={styles.breadcrumb}>
+                <button
+                  type="button"
+                  className={styles.crumbLink}
+                  onClick={() => handleNav("dashboard")}
+                  aria-label={t("Sidebar.backToConsole")}
+                >
+                  {t("Sidebar.console")}
+                </button>
+                <MIcon name="chevron_right" size={14} />
+                <span className={styles.crumbCurrent}>{t("Sidebar.adminSettings")}</span>
+              </div>
+            </>
+          )}
           {adminSettingsItems.map((item) => (
             <button
               key={item.key}
@@ -479,17 +504,17 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
       <div className={styles.divider} />
 
       <div className={styles.bottom}>
-        {/* 管理首頁與一般功能區可由同一位置切換，兩者沒有父子層級。 */}
+        {/* 管理員設定：系統管理頁面的入口，進入後側欄切換成核心側欄 */}
         {isAdmin && (
           <button
             type="button"
-            className={styles.navItem}
-            onClick={() => handleNav(inAdminSettings ? "home" : "dashboard")}
-            title={collapsed ? settingsToggleLabel : undefined}
-            aria-label={settingsToggleLabel}
+            className={`${styles.navItem} ${inAdminSettings ? styles.active : ""}`}
+            onClick={() => handleNav("admin")}
+            title={collapsed ? t("Sidebar.adminSettings") : undefined}
+            aria-label={t("Sidebar.adminSettings")}
           >
-            <MIcon name={inAdminSettings ? "space_dashboard" : "admin_panel_settings"} size={20} />
-            {!collapsed && <span className={styles.navLabel}>{settingsToggleLabel}</span>}
+            <MIcon name="admin_panel_settings" size={20} />
+            {!collapsed && <span className={styles.navLabel}>{t("Sidebar.adminSettings")}</span>}
           </button>
         )}
 
