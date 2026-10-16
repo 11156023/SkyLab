@@ -2877,27 +2877,99 @@ function reviewBadgeClass(kind) {
   return styles.badge_muted;
 }
 
+/* 一個檢查項一列：狀態圖示、名稱＋摘要、需要老師判定時右邊是通過／未通過。
+   原始輸出收在「查看原始證據」裡；待判定且還沒判的整列淡橘底，一眼找得到 */
 function ReviewCheckRow({ check, decision, onDecide }) {
   const { t } = useTranslation("teaching");
   const meta = checkStatusMeta(check?.status);
   const reviewable = TEACHER_REVIEW_STATUSES.has(check?.status);
+  const title = check?.title ?? check?.id ?? t("AiJudgePanel.collectedItem");
+  const summary = getCheckResultSummary(check);
+  const hasLog = Boolean(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0));
   return (
-    <div className={styles.reviewCheck}>
-      <span className={`${styles.reviewCheckIcon} ${meta.className}`}><MIcon name={meta.icon} size={17} /></span>
+    <div className={`${styles.reviewCheck} ${reviewable && !decision ? styles.reviewCheckPending : ""}`}>
+      <span className={`${styles.reviewCheckIcon} ${meta.className}`} role="img" aria-label={meta.label} title={meta.label}>
+        <MIcon name={meta.icon} size={16} />
+      </span>
       <div className={styles.reviewCheckContent}>
-        <div><strong>{check?.title ?? check?.id ?? t("AiJudgePanel.collectedItem")}</strong><span>{meta.label}</span></div>
-        <p>{check?.evidence || t("AiJudgePanel.noSummary")}</p>
-        {(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0)) && (
+        <strong>{title}</strong>
+        <p>{summary === "—" ? t("AiJudgePanel.noSummary") : summary}</p>
+        {hasLog && (
           <details><summary>{t("AiJudgePanel.viewEvidence")}</summary><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></details>
         )}
       </div>
       {reviewable && (
-        <div className={styles.reviewDecision} aria-label={t("AiJudgePanel.manualDecisionAria", { title: check?.title ?? check?.id })}>
-          <button type="button" className={decision === "pass" ? styles.reviewPassActive : ""} aria-pressed={decision === "pass"} onClick={() => onDecide("pass")}><MIcon name="check" size={16} />{t("AiJudgePanel.checkPass")}</button>
-          <button type="button" className={decision === "fail" ? styles.reviewFailActive : ""} aria-pressed={decision === "fail"} onClick={() => onDecide("fail")}><MIcon name="close" size={16} />{t("AiJudgePanel.checkFail")}</button>
+        <div className={styles.reviewDecision} aria-label={t("AiJudgePanel.manualDecisionAria", { title })}>
+          <button type="button" className={decision === "pass" ? styles.reviewPassActive : ""} aria-pressed={decision === "pass"} onClick={() => onDecide("pass")}><MIcon name="check" size={15} />{t("AiJudgePanel.checkPass")}</button>
+          <button type="button" className={decision === "fail" ? styles.reviewFailActive : ""} aria-pressed={decision === "fail"} onClick={() => onDecide("fail")}><MIcon name="close" size={15} />{t("AiJudgePanel.checkFail")}</button>
         </div>
       )}
     </div>
+  );
+}
+
+/* 檢查點右邊的狀態標籤：還有待判定的先講待判定，其次未通過，全過就寫幾項都通過 */
+export function checkpointBadge(item, decisions = {}) {
+  const checks = Array.isArray(item?.checks) ? item.checks : [];
+  const pending = checks.filter((check) => TEACHER_REVIEW_STATUSES.has(check?.status) && !decisions[check?.id]).length;
+  if (pending > 0) return { kind: "pending", label: jt("statusPendingReview", { count: pending }) };
+  const failed = checks.filter((check) => (decisions[check?.id] ?? check?.status) === "fail").length;
+  if (failed > 0 || item?.status === "fail") return { kind: "fail", label: jt("checkpointFailedCount", { count: Math.max(failed, 1) }) };
+  if (checks.length > 0 && checks.every((check) => (decisions[check?.id] ?? check?.status) === "pass")) {
+    return { kind: "pass", label: jt("checkpointPassedCount", { count: checks.length }) };
+  }
+  return { kind: "muted", label: checkStatusMeta(item?.status).label };
+}
+
+const CHECKPOINT_BADGE_CLASS = {
+  pending: styles.badge_pending,
+  fail: styles.badge_danger,
+  pass: styles.badge_success,
+  muted: styles.badge_muted,
+};
+
+/* 一個檢查點一組：標題列可收合，全部通過的預設收起來，老師只需要看未通過與待判定的 */
+function ReviewCheckpointGroup({ item, decisions, onDecide }) {
+  const { t } = useTranslation("teaching");
+  const itemMeta = checkStatusMeta(item?.status);
+  const checks = Array.isArray(item?.checks) ? item.checks : [];
+  const missingCount = Array.isArray(item?.missing_check_ids) ? item.missing_check_ids.length : 0;
+  const badge = checkpointBadge(item, decisions);
+  const peerText = item?.peer_node_key
+    ? t("AiJudgePanel.peerObserve", { name: item?.peer_display_label ?? item.peer_node_key })
+    : null;
+  return (
+    <details className={styles.reviewCheckGroup} open={badge.kind !== "pass" || missingCount > 0}>
+      <summary className={styles.reviewCheckGroupHead}>
+        {/* 還有待判定的檢查項時，圖示跟右邊的「待核查」同色，不要一邊紅一邊橘 */}
+        <span className={`${styles.reviewCheckIcon} ${badge.kind === "pending" ? styles.checkIconWarn : itemMeta.className}`} role="img" aria-label={itemMeta.label}>
+          <MIcon name={itemMeta.icon} size={18} />
+        </span>
+        <span className={styles.reviewCheckGroupTitle}>
+          <strong>{item?.title ?? item?.rubric_item_id ?? t("AiJudgePanel.thCheckpoint")}</strong>
+          {peerText && <small>{peerText}</small>}
+        </span>
+        <span className={`${styles.badge} ${CHECKPOINT_BADGE_CLASS[badge.kind]}`}>{badge.label}</span>
+        <span className={styles.reviewCheckGroupChevron}><MIcon name="expand_more" size={18} /></span>
+      </summary>
+      <div className={styles.reviewCheckGroupBody}>
+        {missingCount > 0 && (
+          <p className={styles.reviewCheckNote}>{t("AiJudgePanel.checkpointIncomplete", { count: missingCount })}</p>
+        )}
+        {checks.length === 0 ? (
+          <p className={styles.reviewCheckNote}>
+            {item?.reason_code === "peer_unavailable" ? t("AiJudgePanel.peerUnavailable") : t("AiJudgePanel.checkpointNoResult")}
+          </p>
+        ) : checks.map((check, checkIndex) => (
+          <ReviewCheckRow
+            key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
+            check={check}
+            decision={decisions[check?.id]}
+            onDecide={(value) => onDecide(check?.id, value)}
+          />
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -3327,7 +3399,8 @@ export function ExecutionTiming({ timing }) {
   );
 }
 
-/* 單台機器的核查內容（檢查點 → checks、回饋、儲存）；由學生總覽展開後逐台渲染。 */
+/* 單台機器的核查內容：機器標題 → 檢查點分組 → 耗時與儲存；由學生總覽展開後逐台渲染。
+   儲存只存老師的判定，這台沒有要判定的檢查項就不顯示儲存列。 */
 function MachineReviewDetail({
   row,
   machineNodes = [],
@@ -3347,63 +3420,29 @@ function MachineReviewDetail({
   if (!target) {
     return <div className={styles.reviewNoResult}>{t("AiJudgePanel.machineNotInRun")}</div>;
   }
+  const summary = getTargetReviewSummary(target);
+  const decide = (checkId, value) => onToggleDecision(row.key, checkId, value);
+  const showSave = summary.reviewable > 0 || isDirty;
   return (
     <>
       <div className={styles.reviewMachineHead}>
         <strong>{nodeLabel ?? `VMID ${row.vmid ?? "—"}`}</strong>
         {row.vmid ? <small>{`VMID ${row.vmid}`}</small> : null}
-        <span className={`${styles.badge} ${reviewBadgeClass(getTargetReviewSummary(target).kind)}`}>
-          {getTargetReviewSummary(target).label}
-        </span>
+        <span className={`${styles.badge} ${reviewBadgeClass(summary.kind)}`}>{summary.label}</span>
       </div>
-      <ExecutionTiming timing={target.timing} />
       {row.items ? (
         <div className={styles.reviewCheckList}>
           {row.items.length === 0 && (
             <p className={styles.mutedText}>{t("AiJudgePanel.machineNoCheckpoints")}</p>
           )}
-          {row.items.map((item, itemIndex) => {
-            const itemMeta = checkStatusMeta(item?.status);
-            const itemChecks = Array.isArray(item?.checks) ? item.checks : [];
-            const peerText = item?.peer_node_key
-              ? t("AiJudgePanel.peerObserve", { name: item?.peer_display_label ?? item.peer_node_key })
-              : null;
-            return (
-              <div
-                className={styles.reviewCheckGroup}
-                key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
-              >
-                <div className={styles.reviewCheckGroupHead}>
-                  <span className={`${styles.reviewCheckIcon} ${itemMeta.className}`}>
-                    <MIcon name={itemMeta.icon} size={17} />
-                  </span>
-                  <div className={styles.reviewCheckGroupTitle}>
-                    <strong>{item?.title ?? item?.rubric_item_id ?? t("AiJudgePanel.thCheckpoint")}</strong>
-                    <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
-                  </div>
-                </div>
-                {Array.isArray(item?.missing_check_ids) && item.missing_check_ids.length > 0 && (
-                  <p className={styles.mutedText}>
-                    {t("AiJudgePanel.checkpointIncomplete", { count: item.missing_check_ids.length })}
-                  </p>
-                )}
-                {itemChecks.length === 0 ? (
-                  <p className={styles.mutedText}>
-                    {item?.reason_code === "peer_unavailable"
-                      ? t("AiJudgePanel.peerUnavailable")
-                      : t("AiJudgePanel.checkpointNoResult")}
-                  </p>
-                ) : itemChecks.map((check, checkIndex) => (
-                  <ReviewCheckRow
-                    key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
-                    check={check}
-                    decision={draft.decisions[check?.id]}
-                    onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
-                  />
-                ))}
-              </div>
-            );
-          })}
+          {row.items.map((item, itemIndex) => (
+            <ReviewCheckpointGroup
+              key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
+              item={item}
+              decisions={draft.decisions}
+              onDecide={decide}
+            />
+          ))}
           {(row.unmappedChecks ?? []).length > 0 && (
             <details className={styles.judgeDetails}>
               <summary>{t("AiJudgePanel.unmappedChecks")}</summary>
@@ -3412,25 +3451,30 @@ function MachineReviewDetail({
           )}
         </div>
       ) : (
-        <div className={styles.reviewCheckList}>
+        <div className={`${styles.reviewCheckList} ${styles.reviewCheckListFlat}`}>
           {checks.length === 0 ? <p className={styles.mutedText}>{t("AiJudgePanel.scriptNoChecks")}</p> : checks.map((check, index) => (
             <ReviewCheckRow
               key={`${check?.id ?? "check"}-${index}`}
               check={check}
               decision={draft.decisions[check?.id]}
-              onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
+              onDecide={(value) => decide(check?.id, value)}
             />
           ))}
         </div>
       )}
 
-      <div className={styles.reviewSaveRow}>
-        <span>{isDirty
-          ? t("AiJudgePanel.unsavedChanges")
-          : Object.keys(saved.decisions).length
-            ? t("AiJudgePanel.lastSaved", { time: target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : t("AiJudgePanel.saved") })
-            : t("AiJudgePanel.reviewSaveHint")}</span>
-        <button type="button" className={styles.btnSecondary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</> : <><MIcon name="save" size={16} />{t("AiJudgePanel.saveReviewBtn")}</>}</button>
+      <div className={styles.reviewMachineFoot}>
+        <ExecutionTiming timing={target.timing} />
+        {showSave && (
+          <div className={styles.reviewSaveRow}>
+            <span>{isDirty
+              ? t("AiJudgePanel.unsavedChanges")
+              : Object.keys(saved.decisions).length
+                ? t("AiJudgePanel.lastSaved", { time: target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : t("AiJudgePanel.saved") })
+                : t("AiJudgePanel.reviewSaveHint")}</span>
+            <button type="button" className={isDirty ? styles.btnPrimary : styles.btnSecondary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</> : <><MIcon name="save" size={16} />{t("AiJudgePanel.saveReviewBtn")}</>}</button>
+          </div>
+        )}
       </div>
     </>
   );
@@ -3458,11 +3502,29 @@ const OUTCOME_BADGE_CLASS = {
   none: styles.badge_muted,
 };
 
+const REPLY_MAX_LENGTH = 4000;
+// 快到上限才顯示字數，平常不佔位置
+const REPLY_COUNTER_FROM = 3600;
+
 const OUTCOME_CHIP_CLASS = {
   pass: styles.machineChipPass,
   fail: styles.machineChipFail,
   pending: styles.machineChipPending,
   none: "",
+};
+
+/** PVE 回報的狀態收成三種：開著、關著、不知道（查不到或還在建機）。 */
+export function machinePowerState(vmStatus) {
+  const status = String(vmStatus ?? "").toLowerCase();
+  if (status === "running") return "on";
+  if (["stopped", "paused", "suspended"].includes(status)) return "off";
+  return "unknown";
+}
+
+const POWER_DOT_CLASS = {
+  on: styles.powerDotOn,
+  off: styles.powerDotOff,
+  unknown: styles.powerDotUnknown,
 };
 
 /**
@@ -3476,20 +3538,21 @@ export function studentMachineChips(student, members = [], machineNodes = []) {
     runRows.filter((row) => row?.vmid != null).map((row) => [String(row.vmid), row]),
   );
   const seen = new Set();
-  const chip = (nodeKey, vmid, fallbackLabel, rows) => ({
+  const chip = (nodeKey, vmid, fallbackLabel, rows, vmStatus) => ({
     key: vmid != null ? `vm-${vmid}` : `node-${nodeKey ?? fallbackLabel}`,
     label: batchMachineDisplayName(nodeKey, machineNodes, fallbackLabel)
       ?? nodeKey
       ?? (vmid != null ? `VMID ${vmid}` : "—"),
     vmid: vmid ?? null,
     outcome: checkOutcome(rows).kind,
+    power: machinePowerState(vmStatus),
   });
   const chips = (Array.isArray(members) ? members : [])
     .filter((member) => userId && String(member?.user_id ?? "") === userId)
     .map((member) => {
       const row = member.vmid != null ? rowByVmid.get(String(member.vmid)) : undefined;
       if (row) seen.add(row);
-      return chip(member.node_key, member.vmid, member.display_label ?? member.node_name ?? null, row ? [row] : []);
+      return chip(member.node_key, member.vmid, member.display_label ?? member.node_name ?? null, row ? [row] : [], member.vm_status);
     });
   runRows
     .filter((row) => !seen.has(row))
@@ -4190,9 +4253,16 @@ export function TeacherReviewTab({
                         <em
                           key={machine.key}
                           className={`${styles.machineChip} ${OUTCOME_CHIP_CLASS[machine.outcome]}`}
-                          title={machine.vmid != null ? `VMID ${machine.vmid}` : undefined}
+                          title={[
+                            machine.vmid != null ? `VMID ${machine.vmid}` : null,
+                            t(`AiJudgePanel.machinePower_${machine.power}`),
+                          ].filter(Boolean).join(" · ")}
                         >
-                          <MIcon name="dns" size={13} />
+                          <span
+                            className={`${styles.powerDot} ${POWER_DOT_CLASS[machine.power]}`}
+                            role="img"
+                            aria-label={t(`AiJudgePanel.machinePower_${machine.power}`)}
+                          />
                           {machine.label}
                         </em>
                       ))}
@@ -4225,47 +4295,6 @@ export function TeacherReviewTab({
                       </button>
                     )}
                   </div>
-                  {student.userId && (() => {
-                    const saved = student.reply?.text ?? "";
-                    const value = replyDrafts[student.userId] ?? saved;
-                    const replyDirty = value !== saved;
-                    const savingReply = savingReplyUserId === student.userId;
-                    return (
-                      <section className={styles.reviewReply} aria-label={t("AiJudgePanel.replyLabel")}>
-                        <label className={styles.reviewFeedbackField}>
-                          <span>{t("AiJudgePanel.replyLabel")} <small>{t("AiJudgePanel.optionalShort")}</small></span>
-                          <textarea
-                            value={value}
-                            maxLength={4000}
-                            rows={3}
-                            placeholder={t("AiJudgePanel.feedbackPlaceholder")}
-                            onChange={(event) => {
-                              const next = event.target.value;
-                              setReplyDrafts((current) => ({ ...current, [student.userId]: next }));
-                            }}
-                          />
-                          <small>{value.length} / 4000</small>
-                        </label>
-                        <div className={styles.reviewSaveRow}>
-                          <span>{replyDirty
-                            ? t("AiJudgePanel.unsavedChanges")
-                            : student.reply?.at
-                              ? t("AiJudgePanel.replyLastSaved", { time: formatDateTime(student.reply.at) })
-                              : t("AiJudgePanel.replyHint")}</span>
-                          <button
-                            type="button"
-                            className={styles.btnSecondary}
-                            disabled={!replyDirty || savingReply}
-                            onClick={() => saveReply(student.userId)}
-                          >
-                            {savingReply
-                              ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</>
-                              : <><MIcon name="send" size={16} />{t("AiJudgePanel.replySaveBtn")}</>}
-                          </button>
-                        </div>
-                      </section>
-                    );
-                  })()}
                   {student.machines.map((row) => {
                     const draft = drafts[row.key] ?? reviewDraftFromTeacherReview(row.target?.teacher_review);
                     const saved = targetTeacherReview(row.target);
@@ -4285,6 +4314,48 @@ export function TeacherReviewTab({
                       </section>
                     );
                   })}
+                  {/* 回覆放在這位學生的檢查結果下面，看完結果直接打；一個輸入框加送出，Ctrl／⌘+Enter 也能送 */}
+                  {student.userId && (() => {
+                    const saved = student.reply?.text ?? "";
+                    const value = replyDrafts[student.userId] ?? saved;
+                    const replyDirty = value !== saved;
+                    const savingReply = savingReplyUserId === student.userId;
+                    return (
+                      <div
+                        className={styles.replyBar}
+                        title={student.reply?.at ? t("AiJudgePanel.replyLastSaved", { time: formatDateTime(student.reply.at) }) : undefined}
+                      >
+                        <textarea
+                          className={styles.replyInput}
+                          value={value}
+                          maxLength={REPLY_MAX_LENGTH}
+                          rows={1}
+                          aria-label={t("AiJudgePanel.replyLabel")}
+                          placeholder={t("AiJudgePanel.replyPlaceholder")}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            setReplyDrafts((current) => ({ ...current, [student.userId]: next }));
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && replyDirty && !savingReply) {
+                              event.preventDefault();
+                              saveReply(student.userId);
+                            }
+                          }}
+                        />
+                        {value.length > REPLY_COUNTER_FROM && <small className={styles.replyCount}>{value.length} / {REPLY_MAX_LENGTH}</small>}
+                        <button
+                          type="button"
+                          className={styles.btnPrimary}
+                          disabled={!replyDirty || savingReply}
+                          onClick={() => saveReply(student.userId)}
+                        >
+                          {savingReply ? <Spinner size={15} /> : <MIcon name="send" size={16} />}
+                          {t("AiJudgePanel.replySaveBtn")}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </article>

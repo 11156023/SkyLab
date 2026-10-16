@@ -45,6 +45,8 @@ export function normalizeAiJudgeClass(item) {
   };
 }
 
+const MEMBERS_REFRESH_MS = 15_000;
+
 export function toAiJudgeMembers(students) {
   return (Array.isArray(students) ? students : []).flatMap((student) =>
     (student.vms ?? []).map((vm) => ({
@@ -114,9 +116,17 @@ export default function AiJudgePage() {
       return () => { active = false; };
     }
 
+    let timer = null;
+    let lastSnapshot = null;
     setMembersLoading(true);
     ClassroomService.listClassStudents(item.id)
-      .then((students) => active && setMembers(toAiJudgeMembers(students)))
+      .then((students) => {
+        if (!active) return;
+        const next = toAiJudgeMembers(students);
+        lastSnapshot = JSON.stringify(next);
+        setMembers(next);
+        timer = window.setTimeout(refreshPower, MEMBERS_REFRESH_MS);
+      })
       .catch((reason) => {
         if (!active) return;
         // 讀不到學生機器不能默默當成沒有機器：核查會少掉學生姓名與機器，老師要知道是載入失敗
@@ -124,7 +134,30 @@ export default function AiJudgePage() {
         toast.error(reason?.message ?? t("Error.generic", { ns: "common" }));
       })
       .finally(() => active && setMembersLoading(false));
-    return () => { active = false; };
+
+    /* 老師上課中途才開學生機器，機器標籤的開機燈號要跟著變；
+       之後的刷新不顯示載入中、分頁隱藏時不打 API、失敗就保留上一份，內容沒變不重繪 */
+    async function refreshPower() {
+      if (!document.hidden) {
+        try {
+          const next = toAiJudgeMembers(await ClassroomService.listClassStudents(item.id));
+          if (!active) return;
+          const snapshot = JSON.stringify(next);
+          if (snapshot !== lastSnapshot) {
+            lastSnapshot = snapshot;
+            setMembers(next);
+          }
+        } catch {
+          // 下一輪再試
+        }
+      }
+      if (active) timer = window.setTimeout(refreshPower, MEMBERS_REFRESH_MS);
+    }
+
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
   }, [item?.id, item?.status, t, toast]);
 
   if (loading) return <LoadingState fullPage text={t("ClassWorkspacePage.loadingClassText")} />;
