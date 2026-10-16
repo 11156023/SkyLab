@@ -205,7 +205,7 @@ Gateway 主機由 `gateway/install.sh` 安裝兩個 exporter（Debian 套件）�
 安裝時要用 `MONITORING_ALLOW_FROM` 指定 Prometheus 所在主機（通常就是跑 SkyLab 的那台）的 IP，UFW 只對它開放這兩個 port：
 
 ```bash
-sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
+sudo MONITORING_ALLOW_FROM=192.0.2.20 bash install.sh
 ```
 
 沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（「SkyLab Gateway」儀表板的 exporter 狀態顯示 DOWN）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。

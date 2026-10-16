@@ -1,6 +1,6 @@
 # Third-party notices
 
-SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`backend/uv.lock`, `frontend/bun.lock`, `desktop-client/package-lock.json`).
+SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`uv.lock`, `frontend/bun.lock`, `desktop-client/package-lock.json`).
 
 Generated with `pip-licenses` / `importlib.metadata` (backend) and `license-report` (frontend, desktop client) on 2026-10-04, then curated by hand. When you add or upgrade a direct dependency, update the matching table.
 

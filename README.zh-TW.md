@@ -2,7 +2,33 @@
 
 > [English](./README.md) | **繁體中文**
 
+**給學校用的自架雲端：學生自己申請 VM、老師一鍵開好整班的機器、管理員把 Proxmox VE 管得井井有條。**
+
+[![Backend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml)
+[![Frontend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml)
+[![CodeQL](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+
 SkyLab 是一個面向校園的 Proxmox VE（PVE）全端管理平台，整合 VM/LXC 生命週期管理、申請審核流程、班級批次建置、防火牆與閘道控制、AI 輔助維運，以及以自架 vLLM 模型為後盾的 OpenAI 相容 AI API。
+
+**適用對象**：已經在用（或打算導入）Proxmox VE 的學校、系所與實驗室，想把機器發給學生與課程使用，又不想讓每個人都進 PVE 管理介面。
+
+## 架構
+
+```mermaid
+flowchart LR
+    U[瀏覽器] --> N[nginx :8082]
+    D[SkyLab Connect<br/>桌面端] -->|WireGuard| G
+    N -->|/api, /ws| B[FastAPI 後端]
+    N --> F[React 前端]
+    B --> P[(PostgreSQL<br/>經 PgBouncer)]
+    B --> R[(Redis)]
+    R --> W[arq worker]
+    B -->|API + SSH| PVE[Proxmox VE<br/>節點／叢集]
+    W -->|API + SSH| PVE
+    B -->|SSH| G[Gateway VM<br/>nginx + WireGuard + nftables]
+    B --> L[LiteLLM] --> V[vLLM 模型]
+```
 
 ## 系統組成
 
@@ -14,10 +40,7 @@ SkyLab 是一個面向校園的 Proxmox VE（PVE）全端管理平台，整合 V
 | Gateway 安裝腳本 | `gateway/` | 校園出口閘道 VM 的 `install.sh`：nginx（Port 轉發、網域反向代理）、WireGuard、nftables ACL |
 | 桌面端 | `desktop-client/` | SkyLab Connect（Electron）：裝置登入與到閘道的 WireGuard 隧道 |
 | vLLM Service | `vllm-service/` | 單模型主服務、多模型 vLLM cluster，以及對外的 LiteLLM gateway |
-| AI PVE Placement Advisor | `ai-pve-placement-advisor/` | 規則 + 加權評分的 PVE 放置建議服務（port 8011） |
-| PVE Resource Simulator | `pve_ resource_simulator/` | 離線放置策略模擬器（port 8012） |
 | 監控 stack | `monitoring/` | 選用的 Prometheus / Grafana / Loki / InfluxDB profile |
-| 舊版 vLLM | `vllm-inference/`、`vllm-API/` | 早期單模型部署與多模型 Gateway，只供遷移參考 |
 | Docs | `docs/` | 指南與設計文件，索引見 [`docs/README.zh-TW.md`](docs/README.zh-TW.md) |
 
 ## 技術棧
@@ -25,7 +48,7 @@ SkyLab 是一個面向校園的 Proxmox VE（PVE）全端管理平台，整合 V
 - **後端**：FastAPI、SQLModel、Alembic、PostgreSQL（經 PgBouncer）、Redis、arq worker、proxmoxer、Paramiko、PyJWT、cryptography、httpx、websockets、Sentry
 - **前端**：React 19、Vite、react-router-dom 7、SCSS Modules、react-i18next（en / zh-TW / ja）、react-vnc、xterm.js、@xyflow/react、Recharts、Monaco Editor、sonner、Vitest
 - **基礎設施**：Docker Compose、nginx、PgBouncer、PostgreSQL、Redis、MailCatcher（開發用）、選用的 Prometheus / Grafana / Loki / Alloy / InfluxDB
-- **AI**：vLLM（OpenAI 相容 API）經 LiteLLM 對外，另有自製的 PVE Advisor 與範本推薦服務
+- **AI**：vLLM（OpenAI 相容 API）經 LiteLLM 對外，後端另內建放置建議與範本推薦
 - **套件管理**：uv（Python）、Bun（前端）
 
 ## 主要功能
@@ -44,18 +67,23 @@ SkyLab 是一個面向校園的 Proxmox VE（PVE）全端管理平台，整合 V
 - 平台健康監控、系統告警、Web Push 推播、Prometheus `/metrics`
 - 完整稽核日誌；角色：superuser / admin / instructor / student；三語系介面（en / zh-TW / ja）
 
+## 需求
+
+- 一台裝有 Docker Engine 與 Docker Compose ≥ 2.20 的 Linux 主機（根目錄 compose 檔用到 `include`）
+- 要建機器就需要連得到的 Proxmox VE 節點或叢集；介面、登入與大部分測試不需要
+- 選用：一台當 Gateway 的 Linux VM（Port 轉發、網域、WireGuard），以及跑 vLLM 的 GPU 主機（AI 功能）
+
 ## 快速開始（Docker Compose）
 
-根目錄 `docker-compose.yml` 已整合 LiteLLM。先填好兩份 `.env`（模型路由與金鑰見 [AI API 使用手冊](docs/ai-api-user-manual.zh-TW.md)），再啟動整個 stack：
-
 ```bash
+git clone https://github.com/ntubclass/SkyLab.git
+cd SkyLab
 cp -n .env.example .env
-cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
-# 填好兩份 .env；本機模型需先用 vllm-service/start_multi_model_cluster.sh 啟動
-bash scripts/prepare-ai-stack.sh --start
+# 編輯 .env：至少改 SECRET_KEY、FIRST_SUPERUSER、FIRST_SUPERUSER_PASSWORD、POSTGRES_PASSWORD
+docker compose up -d --build
 ```
 
-還不需要 AI 功能時，`docker compose up -d --build` 即可。
+接著打開 http://localhost:8082。第一次啟動時，初始化精靈（`/setup`）會建立管理員、測試 Proxmox 連線，並設定 IP 網段、Gateway 與平台入口。
 
 預設服務位址：
 
@@ -68,7 +96,16 @@ bash scripts/prepare-ai-stack.sh --start
 | MailCatcher（開發用收信匣；正式環境請設 `SMTP_HOST`） | http://localhost:1080 |
 | Grafana（需 `--profile monitoring`） | http://localhost:8082/grafana/ |
 
-第一次啟動後打開入口：初始化精靈（`/setup`）會建立管理員、測試 Proxmox 連線，並設定 IP 網段、Gateway 與平台入口。
+### 選用：AI stack
+
+根目錄 `docker-compose.yml` 已整合 LiteLLM。要啟用 AI 功能，先啟動 vLLM 模型（`vllm-service/start_multi_model_cluster.sh`），填好 LiteLLM 的 `.env`（模型路由與金鑰見 [AI API 使用手冊](docs/ai-api-user-manual.zh-TW.md)），再用輔助腳本串起來：
+
+```bash
+cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
+bash scripts/prepare-ai-stack.sh --start
+```
+
+正式部署（平台入口、HTTPS、LDAP、CI）見 [`docs/deployment.zh-TW.md`](docs/deployment.zh-TW.md)。
 
 ## 本地開發
 
@@ -108,14 +145,12 @@ alembic upgrade head
 ## 測試
 
 - **後端**：在 `backend/` 執行 `bash ./scripts/test.sh`（pytest，覆蓋率報告於 `backend/htmlcov/`），或在執行中的 stack 內 `docker compose exec backend bash scripts/tests-start.sh -x`
-- **前端**：在 `frontend/` 執行 `bun run test`（Vitest，services 層）
+- **前端**：在 `frontend/` 執行 `bun run test`（Vitest）
 - **CI**：GitHub Actions 跑後端測試、前端測試、桌面端測試、AI service 測試、migration 檢查與 CodeQL
 
 ## Proxmox 設定
 
 PVE 連線**不在** `.env` 設定。首次安裝時在初始化精靈填入，之後由管理員在「PVE 連線」頁新增、編輯或同步；連線資訊加密存進資料庫。可同時接多個 PVE 入口（單台或叢集），叢集內多台主機會自動 failover（TCP ping 偵測）。
-
-舊版的 `PROXMOX_HOST`、`PROXMOX_USER`、`PROXMOX_PASSWORD`、`PROXMOX_VERIFY_SSL` 後端已不再讀取。
 
 ## 文件
 
@@ -126,8 +161,13 @@ PVE 連線**不在** `.env` 設定。首次安裝時在初始化精靈填入，�
 - [`docs/monitoring.zh-TW.md`](docs/monitoring.zh-TW.md) — 內建健康監控與選用的監控 stack
 - [`docs/ai-api-user-manual.zh-TW.md`](docs/ai-api-user-manual.zh-TW.md) — LiteLLM 部署與對外 AI API
 - [`docs/multi-machine-environment-sop.zh-TW.md`](docs/multi-machine-environment-sop.zh-TW.md) — 多機教學環境 SOP
-- [`CONTRIBUTING.zh-TW.md`](CONTRIBUTING.zh-TW.md) — 貢獻指引
-- [`SECURITY.zh-TW.md`](SECURITY.zh-TW.md) — 安全政策
+
+## 社群
+
+- **問題與 bug 回報**：[GitHub Issues](https://github.com/ntubclass/SkyLab/issues)（請使用範本）
+- **貢獻**：請先讀 [`CONTRIBUTING.zh-TW.md`](CONTRIBUTING.zh-TW.md)；所有 commit 都要 DCO sign-off（`git commit -s`）
+- **安全問題**：請勿開公開 issue，依 [`SECURITY.zh-TW.md`](SECURITY.zh-TW.md) 回報
+- **行為準則**：[`CODE_OF_CONDUCT.zh-TW.md`](CODE_OF_CONDUCT.zh-TW.md)
 
 ## 授權
 
@@ -137,4 +177,4 @@ SkyLab 以 **GNU Affero General Public License v3.0** 釋出（見 [`LICENSE`](L
 - 若你修改了 SkyLab 並讓第三方透過網路使用（例如代管或託管服務），AGPL 要求你向那些使用者提供修改後的原始碼。
 - 想把 SkyLab 當作服務提供、但不希望受 AGPL 原始碼公開條款約束，或需要其他條件的組織，可洽談**商業授權**。請開 issue 或聯絡維護者。
 
-本專案源自 MIT 授權的 Full Stack FastAPI Template，其聲明保留在 [`NOTICE`](NOTICE)；SkyLab 所用的開源元件列在 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)，應用程式內的「帳號設定 → 關於」也會顯示同樣的資訊。「SkyLab」名稱與標誌屬於本專案；授權涵蓋的是程式碼，不是名稱。
+本專案源自 MIT 授權的 Full Stack FastAPI Template，桌面端則源自 MIT 授權的 Electron + Vue 範本，兩者的聲明保留在 [`NOTICE`](NOTICE)；SkyLab 所用的開源元件列在 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)，應用程式內的「帳號設定 → 關於」也會顯示同樣的資訊。「SkyLab」名稱與標誌屬於本專案；授權涵蓋的是程式碼，不是名稱。

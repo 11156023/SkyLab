@@ -56,8 +56,8 @@ async function flush() {
 
 test("顯示擁有者並把 VMID 連到資源詳情", async () => {
   mocks.list.mockResolvedValue([
-    { ...BASE, id: "i1", vmid: 10388, owner_email: "11156077@ntub.edu.tw", owner_full_name: "王小明" },
-    { ...BASE, id: "i2", vmid: 30215, owner_email: "11256003@ntub.edu.tw", owner_full_name: null },
+    { ...BASE, id: "i1", vmid: 10388, owner_email: "s1110001@example.edu", owner_full_name: "王小明" },
+    { ...BASE, id: "i2", vmid: 30215, owner_email: "s1120001@example.edu", owner_full_name: null },
     { ...BASE, id: "i3", vmid: 20419, owner_email: null, owner_full_name: null },
   ]);
   await act(async () => root.render(
@@ -74,7 +74,7 @@ test("顯示擁有者並把 VMID 連到資源詳情", async () => {
 
   // 有姓名：姓名＋email；只有 email：只顯示 email 一次；查不到：未知使用者
   const ownerCell = (row) => row.querySelectorAll("td")[1].textContent;
-  expect(ownerCell(rows[0])).toBe("王小明11156077@ntub.edu.tw");
-  expect(ownerCell(rows[1])).toBe("11256003@ntub.edu.tw");
+  expect(ownerCell(rows[0])).toBe("王小明s1110001@example.edu");
+  expect(ownerCell(rows[1])).toBe("s1120001@example.edu");
   expect(ownerCell(rows[2])).toBe("MiningIncidentsPanel.ownerUnknown");
 });

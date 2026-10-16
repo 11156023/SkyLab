@@ -1,6 +1,7 @@
 {
   "name": "skylab",
   "private": true,
+  "license": "AGPL-3.0-only",
   "workspaces": [
     "frontend"
   ],

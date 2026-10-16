@@ -7,7 +7,7 @@
 | Document version | v1.0 |
 | Effective date | 2026-08-31 (Asia/Taipei) |
 | Document status | Official product and development baseline |
-| Applicable system | SkyLab / Campus Cloud |
+| Applicable system | SkyLab |
 | Applicable roles | System administrators, teachers, students, development and operations staff |
 | Precedence | This document takes precedence over the existing quick-template, single-machine clone and multi-machine environment design drafts; where an older document conflicts with this one, this document prevails |
 

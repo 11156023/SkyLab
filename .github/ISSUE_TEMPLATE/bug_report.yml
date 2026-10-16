@@ -1,0 +1,57 @@
+name: Bug report / 問題回報
+description: Something in SkyLab does not work as expected. 中文或英文都可以。
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please **do not** post security vulnerabilities here; use the Security tab instead (see SECURITY.md).
+        Remove passwords, API keys, real student data and internal addresses from logs and screenshots before posting.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Backend / API
+        - Frontend (web UI)
+        - Desktop client (SkyLab Connect)
+        - Gateway (install.sh / nginx / WireGuard)
+        - AI (vLLM / LiteLLM / assistants)
+        - Monitoring stack
+        - Docs
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Log in as a student
+        2. Open ...
+        3. Click ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Shown under Account Settings → About, or `git rev-parse --short HEAD`.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Proxmox VE version, single node or cluster, browser, OS, deployment method (Docker Compose, dev server).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant backend / worker / browser console output. The request ID from the error message helps.
+      render: text

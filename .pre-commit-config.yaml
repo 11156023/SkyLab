@@ -1,0 +1,28 @@
+# Pre-commit hooks, run with prek (https://prek.j178.dev/) or pre-commit.
+#   uv run prek install -f        # once
+#   uv run prek run --all-files   # on demand
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=4096"]
+      - id: check-toml
+      - id: check-yaml
+        args: ["--unsafe"]
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --force-exclude --fix --exit-non-zero-on-fix
+        require_serial: true
+        language: system
+        types: [python]
+        files: ^backend/
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --force-exclude --exit-non-zero-on-format
+        require_serial: true
+        language: system
+        types: [python]
+        files: ^backend/

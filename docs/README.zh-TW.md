@@ -2,7 +2,7 @@
 
 > [English](./README.md) | **繁體中文**
 
-英文是文件的主要語言。每份指南都有 `.zh-TW.md` 結尾的繁體中文版，從各檔案頂端的語言切換列互連。`archive/` 下是特定時間點的報告，只保留原文語言。
+英文是文件的主要語言。指南都有 `.zh-TW.md` 結尾的繁體中文版，從各檔案頂端的語言切換列互連；少數只有單一語言的文件會在下表註明。`archive/` 下是特定時間點的報告，只保留原文語言。
 
 ## 入門
 
@@ -14,6 +14,7 @@
 | [`../backend/README.zh-TW.md`](../backend/README.zh-TW.md) | 後端結構、API 與 WebSocket 概覽、背景迴圈、migration |
 | [`../CONTRIBUTING.zh-TW.md`](../CONTRIBUTING.zh-TW.md) | 貢獻流程、貢獻的授權、commit 規範 |
 | [`../SECURITY.zh-TW.md`](../SECURITY.zh-TW.md) | 回報漏洞 |
+| [`../CODE_OF_CONDUCT.zh-TW.md`](../CODE_OF_CONDUCT.zh-TW.md) | 社群行為準則 |
 | [`../LICENSE`](../LICENSE)、[`../NOTICE`](../NOTICE)、[`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | AGPL-3.0 授權全文、上游範本的 MIT 聲明，以及開源元件與其授權清單（英文） |
 
 ## 維運
@@ -21,6 +22,7 @@
 | 文件 | 內容 |
 | --- | --- |
 | [`monitoring.zh-TW.md`](monitoring.zh-TW.md) | 內建健康檢查、心跳與系統告警；選用的 Prometheus / Grafana / Loki / InfluxDB stack；Proxmox Metric Server、Gateway 與 AI 監控 |
+| [`registration-and-google-login.zh-TW.md`](registration-and-google-login.zh-TW.md) | 後台的自行註冊與管理員審核開關、開放註冊前的準備、Google 登入與 Google Cloud「目標對象」 |
 | [`ai-api-user-manual.zh-TW.md`](ai-api-user-manual.zh-TW.md) | LiteLLM 部署、模型路由、金鑰、接管獨立 gateway，以及一般使用者如何呼叫 AI API |
 | [`wireguard-desktop-architecture.zh-TW.md`](wireguard-desktop-architecture.zh-TW.md) | SkyLab Connect：桌面端到 Gateway VM 的 WireGuard 隧道、ACL、Gateway 安裝 |
 | [`../vllm-service/README.zh-TW.md`](../vllm-service/README.zh-TW.md) | vLLM 單模型服務與多模型 cluster；另見 [`PROJECT_OVERVIEW.zh-TW.md`](../vllm-service/docs/PROJECT_OVERVIEW.zh-TW.md)、[`SHAREGPT_QUICKSTART.zh-TW.md`](../vllm-service/docs/SHAREGPT_QUICKSTART.zh-TW.md) 與 [LiteLLM README](../vllm-service/litellm/README.md)（英文） |
@@ -44,6 +46,7 @@
 | --- | --- |
 | [`archive/2026-09-09-ui-consistency-audit.md`](archive/2026-09-09-ui-consistency-audit.md) | 28 項 UI 一致性與可用性回饋的稽核，含根因與工作量 |
 | [`archive/2026-10-03-ai-api-concurrency-analysis.md`](archive/2026-10-03-ai-api-concurrency-analysis.md) | AI API 併發故障（DB 連線在等待上游期間被抱住）的根因分析與修正定案 |
+| [`archive/2026-10-06-ai-page-guide.md`](archive/2026-10-06-ai-page-guide.md) | AI 助手的頁面導覽與彈出視窗說明擴充：資料結構、問題分類與回答方式 |
 
 ## 撰寫文件的慣例
 
