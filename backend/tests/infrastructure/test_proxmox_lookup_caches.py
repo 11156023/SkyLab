@@ -111,6 +111,8 @@ def test_clone_invalidates_the_listing(
 
     monkeypatch.setattr(ops, "get_proxmox_api_for_node", lambda node: _Api())
     monkeypatch.setattr(ops, "basic_blocking_task_status", lambda node, task: None)
+    # 複製完會讀新機器設定，清掉從平台範本繼承的 protection（這裡沒有）
+    monkeypatch.setattr(ops, "get_config", lambda node, vmid, rt: {})
 
     ops.list_all_resources()
     ops.clone_vm("pve1", 9000, newid=102)

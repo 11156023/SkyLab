@@ -1201,6 +1201,9 @@ def clone_vm(node: str, template_id: int, **clone_config) -> str:
     task = proxmox.nodes(node).qemu(template_id).clone.post(**clone_config)
     try:
         basic_blocking_task_status(node, task)
+        _clear_inherited_template_marks(
+            str(clone_config.get("target") or node), int(clone_config["newid"]), "qemu"
+        )
     finally:
         invalidate_cluster_resources_cache()
     return task
@@ -1216,20 +1219,71 @@ def clone_lxc(node: str, template_id: int, **clone_config) -> str:
         task = proxmox.nodes(node).lxc(template_id).clone.post(**clone_config)
         try:
             basic_blocking_task_status(node, task)
+            _clear_inherited_template_marks(
+                str(clone_config.get("target") or node),
+                int(clone_config["newid"]),
+                "lxc",
+            )
         finally:
             invalidate_cluster_resources_cache()
     return task
 
 
+# 寫在平台範本母機的 PVE 備註最前面；給直接登入 PVE 的管理員看
+TEMPLATE_GUEST_NOTE = (
+    "【SkyLab 範本母機】請勿開機或修改；要更新範本請到平台的範本頁使用更新循環。"
+)
+
+
 def protect_template_guest(
     node: str, vmid: int, resource_type: ResourceType = "qemu"
 ) -> None:
-    """把母機鎖定成平台範本：開 protection（PVE 擋刪除與移除磁碟）、關 onboot。
+    """把母機鎖定成平台範本：開 protection（PVE 擋刪除與移除磁碟）、關 onboot，
+    並在 PVE 備註最前面加上範本母機標記（原本的備註保留）。
 
     平台範本在 PVE 端不轉換（厚配置 LVM 等儲存無法放 PVE 範本），母機維持
-    一般關機的機器，克隆一律 full clone。
+    一般關機的機器，克隆一律 full clone。PVE 不能用 lock 擋開機：來源帶 lock
+    時連複製都會被拒絕。
     """
-    update_config(node, vmid, resource_type, protection=1, onboot=0)
+    description = str(get_config(node, vmid, resource_type).get("description") or "")
+    if not description.startswith(TEMPLATE_GUEST_NOTE):
+        description = (
+            f"{TEMPLATE_GUEST_NOTE}\n\n{description}" if description else TEMPLATE_GUEST_NOTE
+        )
+    update_config(
+        node,
+        vmid,
+        resource_type,
+        protection=1,
+        onboot=0,
+        description=description,
+    )
+
+
+def _clear_inherited_template_marks(
+    node: str, vmid: int, resource_type: ResourceType
+) -> None:
+    """PVE 複製會把來源設定原樣抄給新機器（protection、備註都在內）。
+
+    從平台範本複製出的機器不能帶著 protection，否則之後刪不掉；範本母機標記
+    也要從備註拿掉（標記後面原本的備註保留）。
+    """
+    config = get_config(node, vmid, resource_type)
+    params: dict[str, Any] = {}
+    delete: list[str] = []
+    if str(config.get("protection", "0")) == "1":
+        delete.append("protection")
+    description = str(config.get("description") or "")
+    if description.startswith(TEMPLATE_GUEST_NOTE):
+        rest = description[len(TEMPLATE_GUEST_NOTE) :].lstrip("\n")
+        if rest:
+            params["description"] = rest
+        else:
+            delete.append("description")
+    if delete:
+        params["delete"] = ",".join(delete)
+    if params:
+        update_config(node, vmid, resource_type, **params)
 
 
 def unprotect_template_guest(

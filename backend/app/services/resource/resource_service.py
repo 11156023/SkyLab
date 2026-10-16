@@ -19,7 +19,12 @@ from app.domain.resource_markers import (
     RESOURCE_DELETED_MARKERS,
     RESOURCE_DELETED_ORPHAN_MARKER,
 )
-from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
+from app.exceptions import (
+    BadRequestError,
+    ConflictError,
+    PermissionDeniedError,
+    ProxmoxError,
+)
 from app.models import (
     BatchProvisionJob,
     CourseEnvironment,
@@ -1282,6 +1287,13 @@ def control(
     valid_actions = {"start", "stop", "reboot", "shutdown", "reset"}
     if action not in valid_actions:
         raise BadRequestError(f"Invalid action: {action}")
+    if (
+        action in {"start", "reboot", "reset"}
+        and vmid in proxmox_service.platform_template_vmids()
+    ):
+        # 平台範本的母機在 PVE 端是一般機器；開機會改到範本內容（cloud-init
+        # 已重設、IP 已回收），只能走範本頁的更新循環。關機／停止不擋。
+        raise ConflictError(t("resource.template_guest_power_blocked"))
 
     try:
         node = resource_info["node"]

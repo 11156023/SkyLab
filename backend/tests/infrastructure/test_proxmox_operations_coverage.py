@@ -605,7 +605,8 @@ def test_clone_lxc_waits_and_invalidates(
     clone.post.return_value = "UPID:clone"
 
     assert ops.clone_lxc("pve1", 9001, newid=150, full=1) == "UPID:clone"
-    api.nodes.return_value.lxc.assert_called_with(9001)
+    # 第一次是對來源送 clone；之後讀新機器設定確認沒有繼承範本母機標記
+    assert api.nodes.return_value.lxc.call_args_list[0].args == (9001,)
     clone.post.assert_called_once_with(newid=150, full=1)
     assert waits == [("pve1", "UPID:clone", {})]
     assert invalidations == [1]
@@ -673,11 +674,31 @@ def test_clone_source_lock_release_failure_is_logged(
     assert "clone source lock" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("existing", "expected"),
+    [
+        (None, ops.TEMPLATE_GUEST_NOTE),
+        ("學生用 Ubuntu 22.04", f"{ops.TEMPLATE_GUEST_NOTE}\n\n學生用 Ubuntu 22.04"),
+        # 重試轉換不重複加標記
+        (
+            f"{ops.TEMPLATE_GUEST_NOTE}\n\n學生用 Ubuntu 22.04",
+            f"{ops.TEMPLATE_GUEST_NOTE}\n\n學生用 Ubuntu 22.04",
+        ),
+    ],
+)
 @pytest.mark.parametrize("resource_type", ["qemu", "lxc"])
 def test_protect_and_unprotect_template_guest(
-    monkeypatch: pytest.MonkeyPatch, resource_type: str
+    monkeypatch: pytest.MonkeyPatch,
+    resource_type: str,
+    existing: str | None,
+    expected: str,
 ) -> None:
     updates: list[tuple] = []
+    monkeypatch.setattr(
+        ops,
+        "get_config",
+        lambda node, vmid, rt: {} if existing is None else {"description": existing},
+    )
     monkeypatch.setattr(
         ops, "update_config", lambda *a, **kw: updates.append((*a, kw))
     )
@@ -686,8 +707,80 @@ def test_protect_and_unprotect_template_guest(
     ops.unprotect_template_guest("pve1", 213, resource_type)
 
     assert updates == [
-        ("pve1", 213, resource_type, {"protection": 1, "onboot": 0}),
+        (
+            "pve1",
+            213,
+            resource_type,
+            {"protection": 1, "onboot": 0, "description": expected},
+        ),
         ("pve1", 213, resource_type, {"protection": 0}),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("inherited", "expected"),
+    [
+        # PVE 複製會原樣抄來源的 protection 與備註
+        (
+            {"protection": 1, "description": ops.TEMPLATE_GUEST_NOTE},
+            {"delete": "protection,description"},
+        ),
+        (
+            {"protection": "1", "description": f"{ops.TEMPLATE_GUEST_NOTE}\n\n備註"},
+            {"description": "備註", "delete": "protection"},
+        ),
+        # 舊的 PVE 範本沒有這些標記：什麼都不改
+        ({"description": "自己的備註"}, None),
+        ({}, None),
+    ],
+)
+def test_clone_vm_clears_inherited_template_marks_on_target_node(
+    api: MagicMock,
+    waits: list,
+    invalidations: list,
+    monkeypatch: pytest.MonkeyPatch,
+    inherited: dict[str, Any],
+    expected: dict[str, Any] | None,
+) -> None:
+    api.nodes.return_value.qemu.return_value.clone.post.return_value = "UPID:c"
+    asked: list[tuple] = []
+    updates: list[tuple] = []
+
+    def get_config(node: str, vmid: int, rt: str) -> dict[str, Any]:
+        asked.append((node, vmid, rt))
+        return inherited
+
+    monkeypatch.setattr(ops, "get_config", get_config)
+    monkeypatch.setattr(
+        ops, "update_config", lambda *a, **kw: updates.append((*a, kw))
+    )
+
+    ops.clone_vm("pve1", 9001, newid=150, full=1, target="pve2")
+
+    # 跨節點複製：新機器在 target 節點上
+    assert asked == [("pve2", 150, "qemu")]
+    assert updates == ([] if expected is None else [("pve2", 150, "qemu", expected)])
+    assert invalidations == [1]
+
+
+def test_clone_lxc_clears_inherited_protection(
+    api: MagicMock, waits: list, invalidations: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api.nodes.return_value.lxc.return_value.clone.post.return_value = "UPID:c"
+    updates: list[tuple] = []
+    monkeypatch.setattr(
+        ops,
+        "get_config",
+        lambda node, vmid, rt: {"protection": 1, "description": ops.TEMPLATE_GUEST_NOTE},
+    )
+    monkeypatch.setattr(
+        ops, "update_config", lambda *a, **kw: updates.append((*a, kw))
+    )
+
+    ops.clone_lxc("pve1", 213, newid=151, hostname="stu", full=1)
+
+    assert updates == [
+        ("pve1", 151, "lxc", {"delete": "protection,description"})
     ]
 
 
