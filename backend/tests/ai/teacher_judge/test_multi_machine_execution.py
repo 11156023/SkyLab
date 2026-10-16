@@ -33,7 +33,7 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
 )
 from app.models.teaching_class import TeachingClassMachineNode
-from tests.ai.teacher_judge.helpers import make_session
+from tests.ai.teacher_judge.helpers import make_script_workspace, make_session
 
 
 def _item(
@@ -154,7 +154,7 @@ def test_create_artifact_set_writes_one_child_per_executor_node(
     result = script_artifact_service.create_artifact_set(
         session=session,
         teaching_class_id=class_id,
-        session_id=uuid.uuid4(),
+        session_id=make_script_workspace(session, class_id).id,
         name="network rubric",
         template_key="linux",
         rubric_analysis=TeacherJudgeRubricAnalysis(
@@ -247,7 +247,7 @@ def test_create_artifact_set_child_name_falls_back_and_truncates(
     result = script_artifact_service.create_artifact_set(
         session=session,
         teaching_class_id=class_id,
-        session_id=uuid.uuid4(),
+        session_id=make_script_workspace(session, class_id).id,
         name="checklist",
         template_key="linux",
         rubric_analysis=TeacherJudgeRubricAnalysis(

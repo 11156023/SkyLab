@@ -98,6 +98,25 @@
   font-size: $font-size-12;
 }
 
+.reviewExecutionError {
+  display: grid;
+  gap: $spacing-8;
+  min-width: 0;
+  padding: $spacing-16;
+  margin-block: $spacing-8;
+  border: 1px solid var(--color-danger);
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+  font-size: $font-size-14;
+
+  > strong { color: var(--color-danger); }
+  p { margin: 0; }
+  details { min-width: 0; }
+  summary { cursor: pointer; }
+  summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+}
+
 .reviewSort {
   display: inline-flex;
   align-items: center;
@@ -368,7 +387,6 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .reportText_none { color: var(--color-text-muted); }
 .replyMark { display: inline-flex; align-items: center; gap: 3px; color: var(--color-primary-on-surface); }
 
-/* 展開後最上面：給這位學生這週的回覆（一週一則，再回覆覆蓋） */
 /* 學生回覆：檢查結果下面一列，輸入框隨內容長高（上限約 6 行），右邊送出 */
 .replyBar {
   display: flex;

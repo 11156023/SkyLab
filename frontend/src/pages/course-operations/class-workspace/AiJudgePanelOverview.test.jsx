@@ -1,6 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ExecutionTiming, buildBatchReviewTarget, getStudentOverviewStatus, sortStudentOverviewRows } from "./AiJudgePanel";
+import { ExecutionTiming, buildBatchReviewTarget, getStudentOverviewStatus, sortStudentOverviewRows, getActiveScriptSet } from "./AiJudgePanel";
+
+describe("getActiveScriptSet", () => {
+  test("只使用後端指定的唯一生效組，歷史時間與排列不影響選取", () => {
+    const active = { artifact_set_id: "active", status: "approved", is_active: true };
+    expect(getActiveScriptSet([{ artifact_set_id: "old", status: "approved" }, active])).toBe(active);
+    expect(getActiveScriptSet([{ status: "approved" }])).toBeNull();
+    expect(getActiveScriptSet([{ ...active, status: "mixed" }])).toBeNull();
+    expect(getActiveScriptSet([active, { ...active, artifact_set_id: "other" }])).toBeNull();
+  });
+});
 
 describe("ExecutionTiming", () => {
   test("整批就緒時間包含後續節點，批次投影保留計時", () => {

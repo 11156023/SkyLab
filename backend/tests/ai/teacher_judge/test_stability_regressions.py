@@ -28,6 +28,7 @@ from app.models.teacher_judge_session import TeacherJudgeSession
 from app.models.teaching_class import TeachingClassMachineNode
 from app.services.course.ai_assignment_service import _script_checks
 from tests.ai.teacher_judge.helpers import (
+    make_script_workspace,
     make_session,
     make_teacher_judge_file,
     patch_teacher_judge_vllm_settings,
@@ -248,12 +249,13 @@ def test_artifact_generation_does_not_write_back_an_older_source_snapshot(monkey
         db.add(file)
         db.commit()
         monkeypatch.setattr(script_artifact_service, "get_enabled_template_commands", lambda *a, **kw: [])
-        artifact_set = script_artifact_service.create_artifact_set(
-            session=db, teaching_class_id=class_id, session_id=uuid.uuid4(),
-            name="Source snapshot", template_key="linux", rubric_analysis=analysis,
-            source_analysis_revision=1, source_file_id=file.id, created_by=None,
-        )
-        assert artifact_set.status == "approved"
+        with pytest.raises(HTTPException) as error:
+            script_artifact_service.create_artifact_set(
+                session=db, teaching_class_id=class_id, session_id=make_script_workspace(db, class_id, source_file_id=file.id).id,
+                name="Source snapshot", template_key="linux", rubric_analysis=analysis,
+                source_analysis_revision=1, source_file_id=file.id, created_by=None,
+            )
+        assert error.value.status_code == 409
         db.refresh(file)
         assert file.analysis_revision == 2
         assert file.analysis_json["summary"] == "Newer teacher edit"

@@ -27,11 +27,16 @@ from app.models.teacher_judge_script_run import (
 )
 
 
+@pytest.fixture(autouse=True)
+def running_power_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(executor.proxmox_ops, "get_status", lambda *args: {"status": "running"})
+
+
 def _remote_result() -> str:
     return json.dumps({
         "schema_version": "teacher_judge_result.v1",
         "metadata": {"timestamp": "2026-10-14T00:00:00Z", "platform": "linux"},
-        "checks": [], "errors": [],
+        "checks": [{"id": "check", "title": "Check", "status": "pass"}], "errors": [],
     })
 
 
@@ -111,7 +116,9 @@ def test_failed_remote_execution_preserves_measured_phases_and_cleans_up(
     result = executor._execute_scheduled_target(
         target=_target(), script_content="pass", queued_at=-4, on_start=lambda: None,
     )
-    assert result["reason_code"] == "execution_timeout"
+    assert result["reason_code"] == {
+        "prepare": "ssh_connection_timeout", "script": "execution_timeout", "download": "download_failed",
+    }[failure_phase]
     timing = result["timing"]
     assert timing["queue_seconds"] == 4
     assert "received_at" not in timing
@@ -122,7 +129,7 @@ def test_failed_remote_execution_preserves_measured_phases_and_cleans_up(
         assert closed == ["sftp", "ssh"]
         assert "rm -f" in commands[-1]
     if failure_phase == "download":
-        assert timing["download_seconds"] == 0.5
+        assert timing["download_seconds"] == 1.0  # Attempt both evidence files independently.
 
 
 def test_remote_file_absence_is_optional_but_read_timeout_propagates() -> None:
@@ -173,11 +180,11 @@ def test_output_limit_reason_survives_remote_and_scheduled_wrappers(
 
     assert result["status"] == "failed"
     assert result["reason_code"] == "output_too_large"
-    assert "1 MB" in result["validation"]["error"]
+    assert "1 MB" in result["stderr_excerpt"]
     assert result["timing"]["prepare_seconds"] >= 0
     assert result["timing"]["cleanup_seconds"] >= 0
     assert result["timing"]["total_seconds"] >= 0
-    assert "received_at" not in result["timing"]
+    assert ("received_at" in result["timing"]) == (command_phase == "script")
     assert closed == (["sftp", "ssh"] if command_phase == "script" else ["ssh"])
     assert "rm -f" in commands[-1]
 

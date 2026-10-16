@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime, time, timedelta
 
+import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import (
@@ -187,7 +189,10 @@ def test_schedule_keeps_active_course_visible_outside_its_class_day() -> None:
     assert rows[0].session_date == date(2026, 8, 27)
 
 
-def test_weekly_tasks_only_show_published_content_and_pdf(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("active", [True, False], ids=["active-set", "no-active-set"])
+def test_weekly_tasks_only_show_published_content_and_pdf(
+    tmp_path, monkeypatch, active: bool
+) -> None:
     session = _session()
     teacher = _user("teacher@example.edu", UserRole.teacher)
     student = _user("student@example.edu", UserRole.student)
@@ -222,10 +227,13 @@ def test_weekly_tasks_only_show_published_content_and_pdf(tmp_path, monkeypatch)
         storage_key="permissions.task",
     )
     session.add(task_file)
+    artifact_set_id = uuid.uuid4()
     judge_session = TeacherJudgeSession(
         teaching_class_id=teaching_class.id,
         teaching_class_week_id=published.id,
         title="Linux 權限檢查",
+        # 核准狀態不足以發布檢查點，對話必須明確指定生效腳本組。
+        active_artifact_set_id=artifact_set_id if active else None,
     )
     session.add(judge_session)
     session.flush()
@@ -233,6 +241,8 @@ def test_weekly_tasks_only_show_published_content_and_pdf(tmp_path, monkeypatch)
         TeacherJudgeScriptArtifact(
             teaching_class_id=teaching_class.id,
             session_id=judge_session.id,
+            artifact_set_id=artifact_set_id,
+            target_node_key="main",
             name="Linux 權限檢查",
             template_key="linux",
             rubric_snapshot_json={
@@ -265,10 +275,13 @@ def test_weekly_tasks_only_show_published_content_and_pdf(tmp_path, monkeypatch)
     assert [row.title for row in rows] == ["Linux 權限任務"]
     assert not hasattr(rows[0], "target_node_key")
     assert rows[0].files[0].filename == "permissions.pdf"
-    assert [item.title for item in rows[0].checkpoints] == [
-        "確認權限模式",
-        "確認檔案擁有者",
-    ]
+    assert [item.title for item in rows[0].checkpoints] == (
+        ["確認權限模式", "確認檔案擁有者"] if active else []
+    )
+    for item in rows[0].checkpoints:
+        assert item.assignment_id == judge_session.id
+        assert item.check_available is True
+        assert item.machine_node_key == "main"
     assert stored_path == tmp_path / "permissions.task"
     assert filename == "permissions.pdf"
 

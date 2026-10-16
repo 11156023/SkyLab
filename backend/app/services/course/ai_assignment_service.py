@@ -17,6 +17,7 @@ from typing import Any
 from sqlmodel import Session, col, delete, desc, select
 
 from app.ai.teacher_judge import file_service
+from app.ai.teacher_judge.script_artifact_service import active_set_children
 from app.ai.teacher_judge.script_policy import aggregate_check_status
 from app.core.i18n import t
 from app.exceptions import NotFoundError
@@ -25,7 +26,6 @@ from app.models.base import get_datetime_utc
 from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
-    TeacherJudgeScriptStatus,
 )
 from app.models.teacher_judge_script_run import TeacherJudgeScriptRun
 from app.models.teacher_judge_session import TeacherJudgeSession
@@ -186,6 +186,8 @@ def _script_checks(
     if not isinstance(raw_checks, list):
         return []
 
+    execution_failed = target.get("status") in {"failed", "cancelled"} or (target.get("validation") or {}).get("valid") is False
+
     _, teacher_decisions = _teacher_review(target)
 
     check_by_id: dict[str, dict[str, Any]] = {}
@@ -226,7 +228,7 @@ def _script_checks(
             )
             for check in selected
         ]
-        status = aggregate_check_status(statuses, incomplete=incomplete)
+        status = aggregate_check_status(statuses, incomplete=incomplete or execution_failed)
         evidence = "\n".join(
             str(check.get("evidence") or "").strip()
             for check in selected
@@ -247,7 +249,7 @@ def _script_checks(
         CourseAICheckItemStudent(
             item_id=check_id,
             title=str(check.get("title") or check_id),
-            status=teacher_decisions.get(
+            status="unknown" if execution_failed else teacher_decisions.get(
                 check_id, str(check.get("status") or "unknown")
             ),
             comment=str(check.get("evidence") or ""),
@@ -322,6 +324,7 @@ def _check_to_student(
         (target_validation.get("error") if isinstance(target_validation, dict) else "")
         or target.get("error")
         or judgement.get("error")
+        or target.get("status") in {"failed", "cancelled"}
     )
     # 腳本自己在 errors 回報的訊息屬於輸出契約的一部分，照舊顯示
     script_errors = (
@@ -485,31 +488,20 @@ def _student_source_document(
 def _current_scripts(
     session: Session, judge_session_id: uuid.UUID
 ) -> list[TeacherJudgeScriptArtifact]:
-    """這個對話目前有效的腳本：最新一次製作的那一組（每台機器一支）。"""
-    rows = session.exec(
-        select(TeacherJudgeScriptArtifact)
-        .where(
-            TeacherJudgeScriptArtifact.session_id == judge_session_id,
-            TeacherJudgeScriptArtifact.status == TeacherJudgeScriptStatus.approved,
-        )
-        .order_by(
-            desc(TeacherJudgeScriptArtifact.approved_at),
-            desc(TeacherJudgeScriptArtifact.created_at),
-        )
-    ).all()
-    if not rows:
+    """依工作區明確指定的生效組投影，不從歷代核准時間推算。"""
+    workspace = session.get(TeacherJudgeSession, judge_session_id)
+    if workspace is None:
         return []
-    newest = rows[0]
-    if newest.artifact_set_id is None:
-        return [newest]
-    members = [row for row in rows if row.artifact_set_id == newest.artifact_set_id]
+    members = active_set_children(session, workspace)
+    if not members:
+        return []
     # 依班級機器的排列順序（老師在上課環境看到的順序）；同一次製作的建立時間
     # 幾乎相同，不能拿來排
     node_order = {
         node.node_key: node.sort_order
         for node in session.exec(
             select(TeachingClassMachineNode).where(
-                TeachingClassMachineNode.class_id == newest.teaching_class_id
+                TeachingClassMachineNode.class_id == workspace.teaching_class_id
             )
         ).all()
     }
@@ -629,18 +621,6 @@ def save_student_reply(
     }
 
 
-def _session_artifact_ids(
-    session: Session, judge_session_id: uuid.UUID
-) -> list[uuid.UUID]:
-    return list(
-        session.exec(
-            select(TeacherJudgeScriptArtifact.id).where(
-                TeacherJudgeScriptArtifact.session_id == judge_session_id
-            )
-        ).all()
-    )
-
-
 def list_student_ai_assignments(
     session: Session,
     *,
@@ -650,7 +630,7 @@ def list_student_ai_assignments(
     """Return the AI checks visible to one student for a path.
 
     一週一個對話，學生看到的作業就是那個對話：檢查點來自最新一次製作的整組
-    腳本（多台機器合在一起），結果則從這個對話所有版本的腳本裡找。
+    腳本（多台機器合在一起），結果只採用生效組的 child，保留同組重跑結果。
     """
 
     teaching_class = course_service.get_student_class_for_path(
@@ -673,7 +653,7 @@ def list_student_ai_assignments(
     judge_sessions = session.exec(
         select(TeacherJudgeSession)
         .where(TeacherJudgeSession.teaching_class_id == teaching_class.id)
-        .order_by(TeacherJudgeSession.created_at)
+        .order_by(col(TeacherJudgeSession.created_at))
     ).all()
 
     assignments: list[CourseAIAssignmentStudent] = []
@@ -691,7 +671,7 @@ def list_student_ai_assignments(
         runs = (
             _student_runs(
                 session,
-                artifact_ids=_session_artifact_ids(session, judge_session.id),
+                artifact_ids=[script.id for script in scripts],
                 user_id=user_id,
             )
             if scripts
