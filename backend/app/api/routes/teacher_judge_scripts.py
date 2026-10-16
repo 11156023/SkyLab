@@ -28,12 +28,15 @@ from app.ai.teacher_judge.script_run_service import (
     create_script_run,
     get_script_run_public,
 )
+from app.ai.teacher_judge.session_service import ensure_week_published
 from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
 from app.infrastructure.worker import submit
 from app.models import TeachingClass
+from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_script_run import TeacherJudgeScriptRunTargetScope
+from app.models.teacher_judge_session import TeacherJudgeSession
 
 router = APIRouter(
     prefix="/teaching-classes/{teaching_class_id}/judge/scripts",
@@ -135,6 +138,17 @@ def create_class_teacher_judge_script_run(
     _ensure_class_access(
         session=session, teaching_class_id=teaching_class_id, current_user=current_user
     )
+    # 屬於某週對話的腳本：那週發布後才能檢查
+    artifact = session.get(TeacherJudgeScriptArtifact, script_id)
+    judge_session = (
+        session.get(TeacherJudgeSession, artifact.session_id)
+        if artifact is not None
+        and artifact.teaching_class_id == teaching_class_id
+        and artifact.session_id is not None
+        else None
+    )
+    if judge_session is not None:
+        ensure_week_published(session, judge_session)
     run = create_script_run(
         session=session,
         teaching_class_id=teaching_class_id,

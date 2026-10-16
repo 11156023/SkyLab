@@ -8,6 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.i18n import t
 from app.exceptions import NotFoundError
+from app.models import User, UserRole
 from app.models.course import CoursePath, CoursePathStatus
 from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_script_artifact import (
@@ -19,8 +20,15 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
     TeacherJudgeScriptRunTargetScope,
 )
-from app.models.teaching_class import TeachingClass, TeachingClassStudent
-from app.services.course import ai_assignment_service
+from app.models.teacher_judge_session import TeacherJudgeSession
+from app.models.teacher_judge_student_submission import TeacherJudgeStudentSubmission
+from app.models.teaching_class import (
+    TeachingClass,
+    TeachingClassMachineNode,
+    TeachingClassStudent,
+    TeachingClassWeek,
+)
+from app.services.course import ai_assignment_service, weekly_task_service
 from app.services.course.ai_assignment_service import list_student_ai_assignments
 
 
@@ -30,14 +38,45 @@ def _session() -> Session:
     return Session(engine)
 
 
+def _published_week(session: Session, teaching_class_id: uuid.UUID) -> TeachingClassWeek:
+    """作業跟著每週內容發布：測試裡的對話都綁在已發布的週次上。"""
+    number = len(
+        session.exec(
+            select(TeachingClassWeek).where(TeachingClassWeek.class_id == teaching_class_id)
+        ).all()
+    ) + 1
+    week = TeachingClassWeek(
+        class_id=teaching_class_id, week_number=number,
+        session_date=date(2026, 9, number), title=f"第 {number} 週", status="published",
+    )
+    session.add(week)
+    session.flush()
+    return week
+
+
+def _judge(
+    session: Session, *, teaching_class_id: uuid.UUID, title: str
+) -> TeacherJudgeSession:
+    """一週一個對話：學生看到的作業就是這個對話。"""
+    week = _published_week(session, teaching_class_id)
+    judge = TeacherJudgeSession(
+        teaching_class_id=teaching_class_id, title=title, teaching_class_week_id=week.id
+    )
+    session.add(judge)
+    session.flush()
+    return judge
+
+
 def _artifact(
     *,
     teaching_class_id: uuid.UUID,
     status: TeacherJudgeScriptStatus,
     name: str,
+    session_id: uuid.UUID | None = None,
 ) -> TeacherJudgeScriptArtifact:
     return TeacherJudgeScriptArtifact(
         teaching_class_id=teaching_class_id,
+        session_id=session_id,
         name=name,
         template_key="linux",
         rubric_snapshot_json={
@@ -113,32 +152,24 @@ def test_student_sees_only_approved_assignments_from_linked_class() -> None:
     session.add(
         TeachingClassStudent(class_id=same_teacher_other_class.id, user_id=student_id)
     )
+    for class_id, status, name in [
+        (own_class.id, TeacherJudgeScriptStatus.approved, "Linux 權限任務"),
+        (same_teacher_other_class.id, TeacherJudgeScriptStatus.approved, "同老師但不同班的任務"),
+        (own_class.id, TeacherJudgeScriptStatus.reviewed, "尚未核准"),
+        (other_class.id, TeacherJudgeScriptStatus.approved, "其他老師任務"),
+    ]:
+        judge = _judge(session, teaching_class_id=class_id, title=name)
+        session.add(
+            _artifact(
+                teaching_class_id=class_id, status=status, name=name, session_id=judge.id
+            )
+        )
+    # 沒有對話的舊腳本：學生端看不到
     session.add(
         _artifact(
             teaching_class_id=own_class.id,
             status=TeacherJudgeScriptStatus.approved,
-            name="Linux 權限任務",
-        )
-    )
-    session.add(
-        _artifact(
-            teaching_class_id=same_teacher_other_class.id,
-            status=TeacherJudgeScriptStatus.approved,
-            name="同老師但不同班的任務",
-        )
-    )
-    session.add(
-        _artifact(
-            teaching_class_id=own_class.id,
-            status=TeacherJudgeScriptStatus.reviewed,
-            name="尚未核准",
-        )
-    )
-    session.add(
-        _artifact(
-            teaching_class_id=other_class.id,
-            status=TeacherJudgeScriptStatus.approved,
-            name="其他老師任務",
+            name="沒有對話的舊腳本",
         )
     )
     session.commit()
@@ -180,10 +211,12 @@ def test_student_can_toggle_each_task_item_without_starting_ai_check() -> None:
         created_by=teacher_id,
         teaching_class_id=teaching_class.id,
     )
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="Linux completion toggle")
     artifact = _artifact(
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Linux completion toggle",
+        session_id=judge.id,
     )
     artifact.rubric_snapshot_json["items"].append(
         {
@@ -203,7 +236,7 @@ def test_student_can_toggle_each_task_item_without_starting_ai_check() -> None:
         session,
         user_id=student_id,
         path_id=path.id,
-        assignment_id=artifact.id,
+        assignment_id=judge.id,
         item_id="permissions",
         completed=True,
     )
@@ -222,7 +255,7 @@ def test_student_can_toggle_each_task_item_without_starting_ai_check() -> None:
         session,
         user_id=student_id,
         path_id=path.id,
-        assignment_id=artifact.id,
+        assignment_id=judge.id,
         item_id="resources",
         completed=True,
     )
@@ -235,7 +268,7 @@ def test_student_can_toggle_each_task_item_without_starting_ai_check() -> None:
         session,
         user_id=student_id,
         path_id=path.id,
-        assignment_id=artifact.id,
+        assignment_id=judge.id,
         item_id="permissions",
         completed=False,
     )
@@ -272,10 +305,12 @@ def test_student_can_toggle_the_whole_weekly_assignment() -> None:
         created_by=teacher_id,
         teaching_class_id=teaching_class.id,
     )
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="Weekly Linux assignment")
     artifact = _artifact(
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Weekly Linux assignment",
+        session_id=judge.id,
     )
     artifact.rubric_snapshot_json["items"].append(
         {
@@ -299,7 +334,7 @@ def test_student_can_toggle_the_whole_weekly_assignment() -> None:
         session,
         user_id=student_id,
         path_id=path.id,
-        assignment_id=artifact.id,
+        assignment_id=judge.id,
         item_id=None,
         completed=True,
     )
@@ -312,7 +347,7 @@ def test_student_can_toggle_the_whole_weekly_assignment() -> None:
         session,
         user_id=student_id,
         path_id=path.id,
-        assignment_id=artifact.id,
+        assignment_id=judge.id,
         item_id=None,
         completed=False,
     )
@@ -354,10 +389,12 @@ def test_student_can_view_one_uploaded_pdf_for_multiple_checkpoints(
         source_type="uploaded",
         display_name="Linux 作業說明",
     )
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="Linux 權限任務")
     artifact = _artifact(
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Linux 權限任務",
+        session_id=judge.id,
     )
     artifact.source_file_id = source_file.id
     artifact.rubric_snapshot_json["items"].append(
@@ -396,7 +433,7 @@ def test_student_can_view_one_uploaded_pdf_for_multiple_checkpoints(
             session,
             user_id=student_id,
             path_id=path.id,
-            assignment_id=artifact.id,
+            assignment_id=judge.id,
         )
     )
     assert document_path == expected_path
@@ -407,7 +444,7 @@ def test_student_can_view_one_uploaded_pdf_for_multiple_checkpoints(
             session,
             user_id=uuid.uuid4(),
             path_id=path.id,
-            assignment_id=artifact.id,
+            assignment_id=judge.id,
         )
     assert exc_info.value.status_code == 404
 
@@ -437,10 +474,12 @@ def test_student_assignment_includes_only_safe_latest_ai_feedback() -> None:
     session.add(teaching_class)
     session.commit()
     session.add(TeachingClassStudent(class_id=teaching_class.id, user_id=student_id))
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="Linux 權限任務")
     artifact = _artifact(
         teaching_class_id=teaching_class.id,
         status=TeacherJudgeScriptStatus.approved,
         name="Linux 權限任務",
+        session_id=judge.id,
     )
     session.add(artifact)
     session.commit()
@@ -686,3 +725,278 @@ def test_student_projection_uses_own_batch_target_and_teacher_review() -> None:
     assert check.items[0].comment == "自己的摘要"
     assert "其他人的" not in str(check.model_dump())
     assert "private raw" not in str(check.model_dump())
+
+
+# ── 一週一個對話：多機器、重新製作都還是同一份作業 ─────────────────────────
+
+
+def _class_with_student(session: Session) -> tuple[uuid.UUID, TeachingClass, CoursePath]:
+    student_id = uuid.uuid4()
+    teacher_id = uuid.uuid4()
+    teaching_class = TeachingClass(
+        name="網站部署",
+        code="web-deploy",
+        term="2026-1",
+        owner_id=teacher_id,
+        start_date=date(2026, 8, 1),
+        end_date=date(2026, 12, 31),
+        weekday=1,
+        start_time=time(9),
+        end_time=time(11),
+    )
+    path = CoursePath(
+        title="網站部署",
+        status=CoursePathStatus.published,
+        created_by=teacher_id,
+        teaching_class_id=teaching_class.id,
+    )
+    session.add_all(
+        [teaching_class, path, TeachingClassStudent(class_id=teaching_class.id, user_id=student_id)]
+    )
+    session.commit()
+    return student_id, teaching_class, path
+
+
+def _machine_script(
+    *,
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    set_id: uuid.UUID,
+    node: str,
+    item_id: str,
+    version: int = 1,
+    status: TeacherJudgeScriptStatus = TeacherJudgeScriptStatus.approved,
+) -> TeacherJudgeScriptArtifact:
+    return TeacherJudgeScriptArtifact(
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+        artifact_set_id=set_id,
+        target_node_key=node,
+        name=f"網站部署 · {node}",
+        template_key="linux",
+        rubric_snapshot_json={"items": [{"id": item_id, "title": item_id, "detectable": "auto"}]},
+        script_content="print('{}')",
+        status=status,
+        version=version,
+    )
+
+
+def _student_run(
+    artifact: TeacherJudgeScriptArtifact, student_id: uuid.UUID, checks: list[dict] | None
+) -> TeacherJudgeScriptRun:
+    parsed = {"summary": "", "checks": checks} if checks is not None else None
+    return TeacherJudgeScriptRun(
+        artifact_id=artifact.id,
+        status=TeacherJudgeScriptRunStatus.completed,
+        target_results_json={
+            "targets": [{"user": {"id": str(student_id)}, "parsed_result": parsed}]
+        },
+    )
+
+
+def test_every_machine_of_the_week_shows_up_as_one_assignment() -> None:
+    session = _session()
+    student_id, teaching_class, path = _class_with_student(session)
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週：網站部署")
+    set_id = uuid.uuid4()
+    session.add_all(
+        [
+            TeachingClassMachineNode(
+                class_id=teaching_class.id, node_key="db", name="資料庫", role="db",
+                resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=10, sort_order=1,
+            ),
+            TeachingClassMachineNode(
+                class_id=teaching_class.id, node_key="web", name="網站", role="web",
+                resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=10, sort_order=0,
+            ),
+            _machine_script(
+                teaching_class_id=teaching_class.id, session_id=judge.id, set_id=set_id,
+                node="web", item_id="service",
+            ),
+            _machine_script(
+                teaching_class_id=teaching_class.id, session_id=judge.id, set_id=set_id,
+                node="db", item_id="database",
+            ),
+        ]
+    )
+    session.commit()
+
+    assignments = list_student_ai_assignments(session, user_id=student_id, path_id=path.id)
+
+    assert len(assignments) == 1
+    assert assignments[0].id == judge.id
+    assert assignments[0].title == "第 3 週：網站部署"
+    assert [(item.id, item.machine_node_key) for item in assignments[0].items] == [
+        ("service", "web"),
+        ("database", "db"),
+    ]
+
+
+def test_completion_and_results_survive_rebuilding_the_scripts() -> None:
+    session = _session()
+    student_id, teaching_class, path = _class_with_student(session)
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週")
+    set_id = uuid.uuid4()
+    first = _machine_script(
+        teaching_class_id=teaching_class.id, session_id=judge.id, set_id=set_id,
+        node="web", item_id="service",
+    )
+    session.add(first)
+    session.commit()
+    ai_assignment_service.update_student_completion(
+        session, user_id=student_id, path_id=path.id, assignment_id=judge.id,
+        item_id="service", completed=True,
+    )
+    session.add(_student_run(first, student_id, [{"id": "service", "status": "pass"}]))
+    session.commit()
+
+    # 老師重新製作：舊版封存、新版核准，學生回報與舊結果都還在
+    first.status = TeacherJudgeScriptStatus.archived
+    rebuilt = _machine_script(
+        teaching_class_id=teaching_class.id, session_id=judge.id, set_id=set_id,
+        node="web", item_id="service", version=2,
+    )
+    session.add_all([first, rebuilt])
+    session.commit()
+
+    assignment = list_student_ai_assignments(session, user_id=student_id, path_id=path.id)[0]
+    assert assignment.version == 2
+    assert assignment.completion.completed_item_ids == ["service"]
+    assert assignment.checkpoint_checks["service"].items[0].status == "pass"
+    submissions = session.exec(select(TeacherJudgeStudentSubmission)).all()
+    assert [row.session_id for row in submissions] == [judge.id]
+
+
+def test_an_environment_failure_keeps_the_last_real_verdict() -> None:
+    session = _session()
+    student_id, teaching_class, path = _class_with_student(session)
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週")
+    script = _machine_script(
+        teaching_class_id=teaching_class.id, session_id=judge.id, set_id=uuid.uuid4(),
+        node="web", item_id="service",
+    )
+    session.add(script)
+    session.commit()
+    session.add(_student_run(script, student_id, [{"id": "service", "status": "fail"}]))
+    session.commit()
+    # 之後重查時連不上機器：沒有任何逐項判定
+    session.add(_student_run(script, student_id, None))
+    session.commit()
+
+    assignment = list_student_ai_assignments(session, user_id=student_id, path_id=path.id)[0]
+    assert assignment.checkpoint_checks["service"].items[0].status == "fail"
+
+
+def test_without_scripts_students_can_still_report_a_published_week() -> None:
+    """老師還沒做好檢查腳本：週次發布後學生照樣看到檢查表上的項目、可以回報完成，
+    老師的導師核查也看得到全班進度，只是還不能執行檢查。"""
+    session = _session()
+    student_id, teaching_class, path = _class_with_student(session)
+    week = TeachingClassWeek(
+        class_id=teaching_class.id, week_number=3, session_date=date(2026, 9, 15),
+        title="網站部署", status="draft",
+    )
+    checklist = TeacherJudgeFile(
+        teaching_class_id=teaching_class.id,
+        uploaded_by=teaching_class.owner_id,
+        original_filename="week3.pdf",
+        file_hash="b" * 64,
+        template_key="linux",
+        source_type="uploaded",
+        display_name="第 3 週檢查表",
+        analysis_json={
+            "summary": "把網站架起來。",
+            "items": [
+                {"id": "service", "title": "服務啟動", "detectable": "auto"},
+                {"id": "database", "title": "資料庫連線", "detectable": "auto"},
+            ],
+        },
+    )
+    student = User(
+        id=student_id, email="student@example.edu", role=UserRole.student, hashed_password="x"
+    )
+    session.add_all([week, checklist, student])
+    session.flush()
+    judge = TeacherJudgeSession(
+        teaching_class_id=teaching_class.id, title="第 3 週",
+        teaching_class_week_id=week.id, selected_file_id=checklist.id,
+    )
+    session.add(judge)
+    session.commit()
+
+    # 週次還是草稿：不外流給學生
+    assert list_student_ai_assignments(session, user_id=student_id, path_id=path.id) == []
+
+    week.status = "published"
+    session.add(week)
+    session.commit()
+    [assignment] = list_student_ai_assignments(session, user_id=student_id, path_id=path.id)
+    assert assignment.id == judge.id
+    assert assignment.check_available is False
+    assert assignment.summary == "把網站架起來。"
+    assert assignment.approved_at is None
+    assert [item.id for item in assignment.items] == ["service", "database"]
+
+    ai_assignment_service.update_student_completion(
+        session, user_id=student_id, path_id=path.id, assignment_id=judge.id,
+        item_id=None, completed=True,
+    )
+    progress = ai_assignment_service.session_progress(session, judge)
+    assert [item["id"] for item in progress["items"]] == ["service", "database"]
+    [row] = progress["students"]
+    assert row["completed_item_ids"] == ["service", "database"]
+    assert row["ready_at"] is not None
+
+
+def test_teacher_reply_is_per_week_overwritten_and_optional() -> None:
+    """回覆對的是「這位學生的這一週」：再回覆覆蓋前一則，學生只看到最新的；空白＝不回覆。"""
+    session = _session()
+    student_id, teaching_class, path = _class_with_student(session)
+    session.add(User(id=student_id, email="s@example.edu", role=UserRole.student, hashed_password="x"))
+    judge = _judge(session, teaching_class_id=teaching_class.id, title="第 3 週")
+    session.add(
+        _machine_script(
+            teaching_class_id=teaching_class.id, session_id=judge.id, set_id=uuid.uuid4(),
+            node="web", item_id="service",
+        )
+    )
+    session.commit()
+
+    # 老師可以不回覆
+    [assignment] = list_student_ai_assignments(session, user_id=student_id, path_id=path.id)
+    assert assignment.teacher_reply == ""
+    assert assignment.teacher_reply_at is None
+
+    first = ai_assignment_service.save_student_reply(
+        session, judge, student_id=student_id, feedback="  服務有起來了  ", teacher_id=None,
+    )
+    assert first["teacher_reply"] == "服務有起來了"
+    second = ai_assignment_service.save_student_reply(
+        session, judge, student_id=student_id, feedback="記得補上日誌設定", teacher_id=None,
+    )
+    assert second["teacher_reply"] == "記得補上日誌設定"
+
+    [assignment] = list_student_ai_assignments(session, user_id=student_id, path_id=path.id)
+    assert assignment.teacher_reply == "記得補上日誌設定"
+    assert assignment.teacher_reply_at is not None
+    [row] = ai_assignment_service.session_progress(session, judge)["students"]
+    assert row["teacher_reply"] == "記得補上日誌設定"
+    [week] = weekly_task_service.list_student_weekly_tasks(
+        session, user_id=student_id, path_id=path.id
+    )
+    assert week.teacher_reply == "記得補上日誌設定"
+
+    # 清空＝收回回覆
+    cleared = ai_assignment_service.save_student_reply(
+        session, judge, student_id=student_id, feedback="   ", teacher_id=None,
+    )
+    assert cleared == {"user_id": str(student_id), "teacher_reply": "", "teacher_reply_at": None}
+    [assignment] = list_student_ai_assignments(session, user_id=student_id, path_id=path.id)
+    assert assignment.teacher_reply == ""
+
+    # 不在這個班的學生不能回覆
+    with pytest.raises(NotFoundError):
+        ai_assignment_service.save_student_reply(
+            session, judge, student_id=uuid.uuid4(), feedback="hi", teacher_id=None,
+        )
+

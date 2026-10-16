@@ -328,7 +328,7 @@ async def test_oversized_csv_is_rejected(captured_import) -> None:
 # --- 縮短課程時被刪掉的週次，教材檔要一起從磁碟清掉 ------------
 
 
-def test_dropped_weeks_remove_their_task_files(
+def test_shortening_weeks_is_rejected_and_keeps_task_files(
     db: Session, monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setattr(routes.weekly_task_service, "TASK_FILE_ROOT", tmp_path)
@@ -358,11 +358,12 @@ def test_dropped_weeks_remove_their_task_files(
     item.end_date = date(2026, 9, 8)
     db.add(item)
     db.commit()
-    class_lifecycle_service.generate_weeks(db, item, preserve=True)
+    with pytest.raises(BadRequestError):
+        class_lifecycle_service.generate_weeks(db, item, preserve=True)
 
-    assert blobs[1].exists()
-    assert blobs[2].exists()
-    assert not blobs[3].exists()
+    # 週次只增不減：第 3 週與它的教材都還在
+    assert all(blob.exists() for blob in blobs.values())
+    assert db.get(TeachingClassWeek, weeks[2].id) is not None
 
 
 # --- 封存一律回收機器（不再提供保留機器的選項） ------------------------------

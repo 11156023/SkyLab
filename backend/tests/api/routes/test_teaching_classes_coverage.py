@@ -579,19 +579,20 @@ def test_replace_weeks_archived(db: Session) -> None:
         routes.replace_weeks(item.id, [], db, TEACHER)
 
 
-def test_replace_weeks_drops_duplicate_date_week(db: Session) -> None:
+def test_replace_weeks_never_drops_a_week(db: Session) -> None:
+    """送來的內容沒涵蓋到某一週時整筆拒絕，不會順手把那一週刪掉。"""
     item = _class(db)
     day = date(2026, 9, 1)
     first = _week(db, item, 1, day)
     second = _week(db, item, 2, day)
-    routes.replace_weeks(
-        item.id, [WeekIn(week_number=1, session_date=day, title="t")], db, TEACHER
-    )
+    with pytest.raises(BadRequestError):
+        routes.replace_weeks(
+            item.id, [WeekIn(week_number=1, session_date=day, title="t")], db, TEACHER
+        )
     remaining = db.exec(
         select(TeachingClassWeek).where(TeachingClassWeek.class_id == item.id)
     ).all()
-    assert [row.id for row in remaining] == [first.id]
-    assert db.get(TeachingClassWeek, second.id) is None
+    assert sorted(row.id for row in remaining) == sorted([first.id, second.id])
 
 
 def test_week_for_upload_branches(db: Session) -> None:

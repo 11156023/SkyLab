@@ -513,7 +513,8 @@ TeacherJudgeFileSourceTypeLiteral = Literal["uploaded", "created"]
 
 class TeacherJudgeSessionCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
-    teaching_class_week_id: uuid.UUID | None = None
+    # 一週一個對話：建立時一定要掛到週次
+    teaching_class_week_id: uuid.UUID
     selected_file_id: uuid.UUID | None = None
     creation_mode: TeacherJudgeSessionCreationModeLiteral | None = None
     rubric_name: str | None = Field(default=None, max_length=255)
@@ -721,6 +722,8 @@ class TeacherJudgeFileAnalysisUpdateRequest(BaseModel):
 
 class TeacherJudgeSessionForkRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    # 一週只能有一個對話：複製一定要放到另一個還沒有對話的週次
+    teaching_class_week_id: uuid.UUID
 
     @field_validator("title")
     @classmethod
@@ -821,7 +824,59 @@ class TeacherJudgeScriptSetPublic(BaseModel):
 
 
 class TeacherJudgeScriptSetRunRequest(BaseModel):
-    target_scope: Literal["all_students_in_set"] = "all_students_in_set"
+    """整組腳本執行範圍：全班，或只檢查指定學生（例如已回報完成的人）。"""
+
+    target_scope: Literal["all_students_in_set", "students"] = "all_students_in_set"
+    # target_scope="students" 時要檢查的學生（使用者 id）
+    user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_students(self) -> TeacherJudgeScriptSetRunRequest:
+        if self.target_scope == "students" and not self.user_ids:
+            raise ValueError(t("schemas.run_students_required"))
+        if self.target_scope != "students" and self.user_ids:
+            raise ValueError(t("schemas.run_students_only_for_students_scope"))
+        self.user_ids = list(dict.fromkeys(self.user_ids))
+        return self
+
+
+class TeacherJudgeProgressItem(BaseModel):
+    id: str
+    title: str
+    machine_node_key: str | None = None
+
+
+class TeacherJudgeStudentProgress(BaseModel):
+    """一位學生在這週檢查的自評回報（不含執行結果）。"""
+
+    user_id: str
+    full_name: str | None = None
+    email: str
+    completed_item_ids: list[str] = Field(default_factory=list)
+    ready_at: str | None = None
+    updated_at: str | None = None
+    # 老師給這位學生這週的回覆（沒回覆是空字串）；再回覆會覆蓋
+    teacher_reply: str = ""
+    teacher_reply_at: str | None = None
+
+
+class TeacherJudgeStudentReplyRequest(BaseModel):
+    """老師給一位學生這週的回覆；空白＝不回覆（清掉之前的回覆）。"""
+
+    feedback: str = Field(default="", max_length=4000)
+
+
+class TeacherJudgeStudentReplyPublic(BaseModel):
+    user_id: str
+    teacher_reply: str = ""
+    teacher_reply_at: str | None = None
+
+
+class TeacherJudgeSessionProgressPublic(BaseModel):
+    """導師核查用：這週檢查的項目，以及全班每位學生回報完成到哪裡。"""
+
+    items: list[TeacherJudgeProgressItem]
+    students: list[TeacherJudgeStudentProgress]
 
 
 class TeacherJudgeRunBatchNodePublic(BaseModel):

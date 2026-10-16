@@ -100,6 +100,7 @@ from .teacher_judge_session import (
     TeacherJudgeSessionMessage,
     TeacherJudgeSessionStatus,
 )
+from .teacher_judge_student_reply import TeacherJudgeStudentReply
 from .teacher_judge_student_submission import (
     TeacherJudgeStudentSubmission,
     TeacherJudgeSubmissionItem,
@@ -230,6 +231,7 @@ __all__ = [
     "TeacherJudgeScriptRunTargetScope",
     "TeacherJudgeScriptSource",
     "TeacherJudgeScriptStatus",
+    "TeacherJudgeStudentReply",
     "TeacherJudgeStudentSubmission",
     "TeacherJudgeSubmissionItem",
     "TeacherJudgeTemplateCommand",

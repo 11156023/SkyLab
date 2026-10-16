@@ -15,12 +15,13 @@ import {
   buildPracticeMachines,
   formatAssignmentDate,
   normalizeSchedule,
+  pickCurrentWeek,
   pickInProgress,
   practiceMachineActionLabel,
-  toPercent,
   waitForPracticeMachine,
 } from "./studentDashboard";
 import styles from "./StudentCoursePage.module.scss";
+import { feedbackFor } from "../../courses/studentWeekFeedback";
 
 /** AI 任務的每個檢查項目可被自動判定的程度。 */
 const AI_DETECTABLE_META = {
@@ -28,8 +29,6 @@ const AI_DETECTABLE_META = {
   partial: { labelKey: "StudentCoursePage.detectablePartial", icon: "rule", tone: "partial" },
   manual: { labelKey: "StudentCoursePage.detectableManual", icon: "how_to_reg", tone: "manual" },
 };
-
-const NO_COURSE_STATUS = { labelKey: "StudentCoursePage.noCourseStatus", tone: "muted", icon: "event_busy" };
 
 function createGuideDemoCourse(t) {
   const weekId = "demo-week-1";
@@ -67,7 +66,7 @@ function createGuideDemoCourse(t) {
       week_number: 1,
       session_date: "2026-09-09",
       title: t("StudentCoursePage.guideDemoWeekTitle"),
-      target_node_key: "main",
+      teacher_reply: t("StudentCoursePage.guideDemoTeacherReply"),
     }],
     practiceMachines: [{
       machine_node_id: "demo-machine",
@@ -203,8 +202,6 @@ export default function StudentCoursePage() {
     };
   }, [isGuideDemo, pathId, t]);
 
-  const nextRoom = pickInProgress(view.pathDetail?.rooms);
-  const roomProgress = toPercent(nextRoom?.progress_percent);
   const practiceMachines = buildPracticeMachines(
     view.practiceMachines,
     view.resources,
@@ -239,11 +236,26 @@ export default function StudentCoursePage() {
     group.assignments.push(assignment);
   });
   const currentSchedule = view.activePath?.schedule;
-  const heroStatusMeta = view.activePath
-    ? currentSchedule?.state === "now"
-      ? { labelKey: "StudentCoursePage.statusInClass", tone: "success", icon: "sensors" }
-      : { labelKey: "StudentCoursePage.statusReadyToStart", tone: "success", icon: "play_circle" }
-    : NO_COURSE_STATUS;
+  // 本週進度：這週的打勾狀態、檢查通過幾項、老師回覆
+  const currentWeek = pickCurrentWeek(view.weeklyTasks);
+  const currentWeekGroup = currentWeek
+    ? weeklyAssignmentGroupByKey.get(`week-${currentWeek.id}`) ?? null
+    : null;
+  const currentWeekDone = Boolean(currentWeekGroup?.assignments.length)
+    && currentWeekGroup.assignments.every((assignment) => Boolean(assignment.completion?.completed));
+  const currentCheckpoints = currentWeek?.checkpoints ?? [];
+  const currentPassed = currentCheckpoints
+    .filter((checkpoint) => feedbackFor(checkpoint).status === "passed").length;
+  const currentPercent = currentCheckpoints.length
+    ? Math.round((currentPassed / currentCheckpoints.length) * 100)
+    : 0;
+  const currentReply = String(currentWeek?.teacher_reply ?? "").trim();
+  // 這週沒有要打勾的作業（例如只放教材）就不顯示完成狀態
+  const heroStatusMeta = !currentWeekGroup?.assignments.length
+    ? null
+    : currentWeekDone
+      ? { labelKey: "StudentCoursePage.weekCompleted", tone: "success", icon: "check_circle" }
+      : { labelKey: "StudentCoursePage.weekPending", tone: "muted", icon: "pending_actions" };
 
   async function openPracticeMachine(machine) {
     if (isGuideDemo) return;
@@ -391,6 +403,8 @@ export default function StudentCoursePage() {
                   (count, assignment) => count + (assignment.items?.length ?? 0),
                   0,
                 );
+                const hasTeacherReply = Boolean(String(group.week?.teacher_reply ?? "").trim());
+                const weekTitle = group.week?.title ?? firstAssignment?.title;
                 return (
                   <article
                     key={group.id}
@@ -398,16 +412,6 @@ export default function StudentCoursePage() {
                     className={`${styles.assignmentRow} ${expanded ? styles.assignmentRowOpen : ""}`}
                   >
                     <div className={styles.assignmentHeader}>
-                      {group.assignments.length > 0 ? <label className={styles.weekCompletion}>
-                        <input
-                          type="checkbox"
-                          checked={completionReported}
-                          onChange={() => updateCompletion(group)}
-                          disabled={isGuideDemo || reportingAssignmentId !== null}
-                          aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: group.week?.title ?? firstAssignment?.title })}
-                        />
-                        {reportingAssignmentId === group.id && <MIcon name="sync" size={15} spin />}
-                      </label> : <span className={styles.weekCompletion} aria-hidden="true" />}
                       <button
                         type="button"
                         className={styles.assignmentToggle}
@@ -420,18 +424,38 @@ export default function StudentCoursePage() {
                       >
                         <span className={styles.taskNumber}>{group.week?.week_number ?? index + 1}</span>
                         <span className={styles.assignmentTitle}>
-                          <strong>{group.week?.title ?? firstAssignment?.title}</strong>
+                          <strong>{weekTitle}</strong>
                           <small>
                             {group.week ? t("StudentCoursePage.weekMeta", { week: group.week.week_number, date: group.week.session_date }) : formatAssignmentDate(firstAssignment.approved_at)}
                             {" · "}{t("StudentCoursePage.itemsCount", { count: itemCount })}
                           </small>
                         </span>
-                        <span className={`${styles.assignmentStatus} ${completionReported ? styles.assignmentStatus_completed : styles.assignmentStatus_ready}`}>
-                          <MIcon name={completionReported ? "check_circle" : "pending_actions"} size={16} />
-                          {t(completionReported ? "StudentCoursePage.weekCompleted" : "StudentCoursePage.weekPending")}
-                        </span>
+                        {hasTeacherReply ? (
+                          <span className={styles.teacherReplyBadge}>
+                            <MIcon name="forum" size={15} />
+                            {t("StudentCoursePage.teacherReplied")}
+                          </span>
+                        ) : <span aria-hidden="true" />}
+                        {/* 打勾框疊在這一格上（按鈕裡不能放 input），箭頭固定在最右邊 */}
+                        <span className={styles.weekCompletionSlot} aria-hidden="true" />
                         <MIcon name={group.week ? "arrow_forward" : (expanded ? "expand_less" : "expand_more")} size={21} />
                       </button>
+                      {/* 一個勾＝這週全部做完；只記錄完成狀態，不會啟動檢查 */}
+                      {group.assignments.length > 0 && (
+                        <label
+                          className={styles.weekCompletion}
+                          title={t(completionReported ? "StudentCoursePage.weekCompleted" : "StudentCoursePage.markWeekDone")}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={completionReported}
+                            onChange={() => updateCompletion(group)}
+                            disabled={isGuideDemo || reportingAssignmentId !== null}
+                            aria-busy={reportingAssignmentId === group.id || undefined}
+                            aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: weekTitle })}
+                          />
+                        </label>
+                      )}
                     </div>
 
                     {expanded && (
@@ -493,21 +517,19 @@ export default function StudentCoursePage() {
         <aside className={styles.side}>
           <section className={styles.panel} aria-labelledby="today-class-title" data-guide="home-current-course">
             <div className={styles.panelHeading}>
-              <span><MIcon name="school" size={20} /></span>
+              <span><MIcon name="event_note" size={20} /></span>
               <div>
-                <h2 id="today-class-title">
-                  {currentSchedule?.state === "now" ? t("StudentCoursePage.eyebrowNow") : t("StudentCoursePage.eyebrowUpcoming")}
-                </h2>
+                <h2 id="today-class-title">{t("StudentCoursePage.thisWeekTitle")}</h2>
                 <p>
-                  {nextRoom
-                    ? t("StudentCoursePage.classTaskDesc", { title: nextRoom.title })
-                    : t("StudentCoursePage.classNoContentYet")}
+                  {currentWeek
+                    ? t("StudentCoursePage.thisWeekDesc", { week: currentWeek.week_number, title: currentWeek.title })
+                    : t("StudentCoursePage.thisWeekNone")}
                 </p>
               </div>
-              <StatusBadge meta={heroStatusMeta} />
+              {heroStatusMeta && <StatusBadge meta={heroStatusMeta} />}
             </div>
 
-            {view.activePath ? (
+            {currentWeek ? (
               <>
                 {currentSchedule && (
                   <div className={styles.courseContext}>
@@ -518,29 +540,44 @@ export default function StudentCoursePage() {
                 )}
 
                 <div className={styles.progress} data-guide="home-progress">
-                  <span className={styles.progressLabel}>{t("StudentCoursePage.taskProgress", { percent: roomProgress })}</span>
+                  <span className={styles.progressLabel}>
+                    {currentCheckpoints.length
+                      ? t("StudentCoursePage.thisWeekChecks", { passed: currentPassed, total: currentCheckpoints.length })
+                      : t("StudentCoursePage.thisWeekNoChecks")}
+                  </span>
                   <div
                     className={styles.progressTrack}
                     role="progressbar"
-                    aria-valuenow={roomProgress}
+                    aria-valuenow={currentPercent}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-label={t("StudentCoursePage.chapterProgressAria", { percent: roomProgress })}
+                    aria-label={t("StudentCoursePage.thisWeekChecksAria", { percent: currentPercent })}
                   >
-                    <span style={{ width: `${roomProgress}%` }} />
+                    <span style={{ width: `${currentPercent}%` }} />
                   </div>
                 </div>
 
-                <p className={styles.hint}>
-                  <MIcon name="check_circle" size={16} />
-                  {t("StudentCoursePage.hintReady")}
-                </p>
+                {currentReply && (
+                  <p className={styles.weekReply}>
+                    <MIcon name="forum" size={16} />
+                    <span><strong>{t("StudentCoursePage.teacherReplied")}</strong>{currentReply}</span>
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  className={styles.weekOpenBtn}
+                  onClick={() => navigate(`/courses/${view.activePath?.id ?? pathId}/weeks/${currentWeek.id}`)}
+                >
+                  {t("StudentCoursePage.openThisWeek")}
+                  <MIcon name="arrow_forward" size={17} />
+                </button>
               </>
             ) : (
               <EmptyState
                 icon="event_available"
-                title={t("StudentCoursePage.emptyNoCourseTitle")}
-                description={t("StudentCoursePage.emptyNoCourseDesc")}
+                title={t("StudentCoursePage.thisWeekNone")}
+                description={t("StudentCoursePage.thisWeekNoneDesc")}
               />
             )}
           </section>

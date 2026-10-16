@@ -5,11 +5,10 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   ChatPanel,
   CommandLog,
-  CreateCheckDialog,
   RubricTable,
   ProposalPanel,
   SaveAndCreateAction,
@@ -18,6 +17,10 @@ import {
   TeacherReviewTab,
   aggregateStudentCheckTotals,
   applyProposalOperations,
+  attachStudentReports,
+  checkOutcome,
+  studentMachineChips,
+  buildMergedBatchReviewRows,
   buildBatchReviewRows,
   buildLegacyReviewRows,
   buildProposalDiff,
@@ -32,15 +35,14 @@ import {
   getScriptCreationBlocker,
   getSessionMenuPosition,
   getScriptCreationDestination,
-  getScriptReviewAttemptIssues,
   getTargetReviewSummary,
   getCheckResultSummary,
   isReviewDraftDirty,
   getSelectableProposalIds,
   mergeNodeTeacherReview,
   mergeSessionMessages,
-  resolveActiveSessionId,
-  getDefaultSessionId,
+  resolveActiveWeekId,
+  weekOptionLabel,
   getDefaultWeekId,
   proposalToolCallLines,
   RubricsTab,
@@ -516,29 +518,7 @@ describe("RubricsTab 儲存並製作流程", () => {
     });
     container.remove();
   });
-});
 
-describe("CreateCheckDialog", () => {
-  test("新增檢查直接詢問名稱並說明會建立空白檢查表", async () => {
-    /* 對話框 portal 到 body，伺服器端渲染不支援 portal，改在 DOM 裡渲染再讀 body */
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    await act(async () => {
-      root.render(<CreateCheckDialog onClose={() => {}} onSubmit={() => {}} />);
-    });
-    const html = document.body.innerHTML;
-    await act(async () => root.unmount());
-    container.remove();
-
-    expect(html).toContain('role="dialog"');
-    expect(html).toContain('aria-modal="true"');
-    expect(html).toContain('id="create-check-name-input"');
-    expect(html).toContain("輸入名稱後，會直接建立一份空白檢查表");
-    expect(html).toContain("建立空白檢查");
-    expect(html).not.toContain("使用已有評分文件");
-    expect(html).not.toContain("選擇建立方式");
-  });
 });
 
 describe("ProposalPanel", () => {
@@ -746,6 +726,9 @@ describe("RubricTable", () => {
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="展開第 1 項檢查設定"');
     expect(html.indexOf('aria-label="展開第 1 項檢查設定"')).toBeLessThan(html.indexOf('value="Python 版本檢查"'));
+    // 序號跟展開鈕在同一格，排在按鈕前面
+    expect(html.indexOf(">1</span>")).toBeGreaterThan(-1);
+    expect(html.indexOf(">1</span>")).toBeLessThan(html.indexOf('aria-label="展開第 1 項檢查設定"'));
     expect(html).not.toContain(">詳細</button>");
     expect(html).toContain("執行 python --version");
     expect(html).not.toContain('placeholder="寫下學生需要符合的條件"');
@@ -1330,17 +1313,6 @@ describe("SessionTitle", () => {
   });
 });
 
-describe("getDefaultSessionId", () => {
-  test("沒有指定時選最近動過的一項，不是清單第一筆（釘選排在最前）", () => {
-    expect(getDefaultSessionId([
-      { id: "pinned-old", pinned_at: "2026-09-01T00:00:00Z", last_activity_at: "2026-09-01T00:00:00Z" },
-      { id: "recent", last_activity_at: "2026-09-20T08:00:00Z" },
-      { id: "older", last_activity_at: "2026-09-10T08:00:00Z" },
-    ])).toBe("recent");
-    expect(getDefaultSessionId([])).toBeNull();
-  });
-});
-
 describe("getDefaultWeekId", () => {
   const weeks = [
     { id: "w1", session_date: "2026-09-07" },
@@ -1358,34 +1330,39 @@ describe("getDefaultWeekId", () => {
   });
 });
 
-describe("resolveActiveSessionId", () => {
-  const sessions = [{ id: "session-1" }, { id: "session-2" }];
+describe("resolveActiveWeekId", () => {
+  const weeks = [
+    { id: "w3", week_number: 3, session_date: "2026-09-21" },
+    { id: "w1", week_number: 1, session_date: "2026-09-07" },
+    { id: "w2", week_number: 2, session_date: "2026-09-14" },
+  ];
 
-  test("沒有目前選擇時保持未選取，不自動帶入第一筆檢查", () => {
-    expect(resolveActiveSessionId(null, sessions)).toBeNull();
+  test("網址指定的週次優先，不存在的週次不採用", () => {
+    expect(resolveActiveWeekId("w3", weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w3");
+    expect(resolveActiveWeekId("missing", weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
   });
 
-  test("保留仍存在的選擇，清除已不存在的選擇", () => {
-    expect(resolveActiveSessionId("session-2", sessions)).toBe("session-2");
-    expect(resolveActiveSessionId("session-missing", sessions)).toBeNull();
+  test("沒有指定時選本週（最近上過的一週），還沒開課就選第一週", () => {
+    expect(resolveActiveWeekId(null, weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
+    expect(resolveActiveWeekId(null, weeks, new Date("2026-09-01T12:00:00Z"))).toBe("w1");
+  });
+
+  test("沒有週次時不選", () => {
+    expect(resolveActiveWeekId(null, [])).toBeNull();
+  });
+});
+
+describe("weekOptionLabel", () => {
+  test("週次名稱帶主題，沒填主題時註明", () => {
+    expect(weekOptionLabel({ week_number: 3, title: "網站部署" })).toBe("第 3 週 · 網站部署");
+    expect(weekOptionLabel({ week_number: 4, title: " " })).toBe("第 4 週 · 未設定主題");
   });
 });
 
 describe("script creation workflow", () => {
-  test("重試摘要會保留 coverage 錯誤與未覆蓋項目", () => {
-    expect(getScriptReviewAttemptIssues({
-      phase: "coverage",
-      coverage_issues: ["coverage 引用不存在的 check id：missing"],
-      uncovered_rubric_items: [{ id: "item-1", title: "收集 Python 版本" }],
-    })).toEqual([
-      "coverage 引用不存在的 check id：missing",
-      "未覆蓋檢查項目：收集 Python 版本",
-    ]);
-  });
-
-  test("通過自動檢查後進入導師核查，失敗時進入腳本總覽", () => {
+  test("通過自動檢查後進入導師核查，其餘留在任務設定", () => {
     expect(getScriptCreationDestination({ status: "approved" })).toBe("review");
-    expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("scripts");
+    expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("rubrics");
   });
 });
 
@@ -1467,6 +1444,12 @@ describe("teacher review summary", () => {
 });
 
 describe("teacher review run-once（整組檢查點）", () => {
+  // 全班回報與較舊批次預設都沒有；需要的測試再自己覆寫
+  beforeEach(() => {
+    vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({ items: [], students: [] });
+    vi.spyOn(AiJudgeService, "listSessionRunBatches").mockResolvedValue([]);
+  });
+
   const batchPayload = {
     run_batch_id: "batch-1",
     status: "completed",
@@ -1644,7 +1627,8 @@ describe("teacher review run-once（整組檢查點）", () => {
 
     expect(getBatch).toHaveBeenCalledWith("class-1", "session-1", "batch-1");
     expect(container.textContent).toContain("一次執行");
-    expect(container.textContent).toContain("學生總數");
+    expect(container.textContent).toContain("學生打勾完成");
+    expect(container.textContent).toContain("待確認 1 項");
 
     const toggle = [...container.querySelectorAll("button")]
       .find((button) => button.textContent.includes("王小明"));
@@ -1822,7 +1806,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     container.remove();
   });
 
-  test("前置檢查失敗且沒有 vmid 時會以學生識別碼儲存留言", async () => {
+  test("回覆是給學生這一週的：檢查失敗、沒有 vmid 也能回覆，再回覆會覆蓋", async () => {
     const failedBatch = {
       ...batchPayload,
       summary: { nodes: 1, students: 1, targets: 1, completed: 0, failed: 1 },
@@ -1852,21 +1836,14 @@ describe("teacher review run-once（整組檢查點）", () => {
     ]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(failedBatch);
-    const updateReview = vi.spyOn(AiJudgeService, "updateStudentReview").mockResolvedValue({
-      id: "run-1",
-      target_results_json: {
-        targets: [{
-          vmid: null,
-          student_id: "enrollment-1",
-          status: "failed",
-          reason_code: "missing_vmid",
-          teacher_review: {
-            feedback: "請先確認虛擬機配置。",
-            decisions: {},
-            updated_at: "2026-09-20T00:00:00Z",
-          },
-        }],
-      },
+    vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
+      items: [],
+      students: [{ user_id: "user-1", email: "s1@example.edu", full_name: "王小明", completed_item_ids: [], teacher_reply: "舊的回覆" }],
+    });
+    const saveReply = vi.spyOn(AiJudgeService, "saveStudentReply").mockResolvedValue({
+      user_id: "user-1",
+      teacher_reply: "請先確認虛擬機配置。",
+      teacher_reply_at: "2026-09-20T00:00:00Z",
     });
 
     const container = document.createElement("div");
@@ -1886,6 +1863,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     });
 
     const textarea = container.querySelector("textarea");
+    expect(textarea.value).toBe("舊的回覆");
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
@@ -1896,21 +1874,17 @@ describe("teacher review run-once（整組檢查點）", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     const saveButton = [...container.querySelectorAll("button")]
-      .find((button) => button.textContent.includes("儲存核查"));
+      .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.replySaveBtn", { ns: "teaching" })));
     expect(saveButton.disabled).toBe(false);
     await act(async () => {
       saveButton.click();
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
-    expect(updateReview).toHaveBeenCalledWith(
-      "class-1",
-      "session-1",
-      "run-1",
-      "enrollment-1",
-      { feedback: "請先確認虛擬機配置。", decisions: {} },
-    );
-    expect(container.textContent).toContain("上次儲存");
+    expect(saveReply).toHaveBeenCalledExactlyOnceWith("class-1", "session-1", "user-1", "請先確認虛擬機配置。");
+    expect(container.textContent).toContain(i18n.t("AiJudgePanel.replied", { ns: "teaching" }));
+    // 每台機器不再各自留言：展開後只有這一個回覆框
+    expect(container.querySelectorAll("textarea")).toHaveLength(1);
     await act(async () => {
       root.unmount();
     });
@@ -1930,7 +1904,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     });
 
     expect(container.textContent).toContain("還沒有可核查的結果");
-    expect(container.textContent).toContain("在「腳本總覽」核准腳本後再回來");
+    expect(container.textContent).toContain("在「任務設定」按「儲存並製作」後再回來");
     expect(container.textContent).not.toContain("一次執行");
     await act(async () => {
       root.unmount();
@@ -2104,6 +2078,211 @@ describe("teacher review run-once（整組檢查點）", () => {
     await act(async () => {
       root.unmount();
     });
+    container.remove();
+  });
+});
+
+describe("導師核查：全班當週回報與指定檢查", () => {
+  beforeEach(() => {
+    vi.spyOn(AiJudgeService, "listSessionRunBatches").mockResolvedValue([]);
+  });
+
+  const studentBatch = (batchId, studentId, vmid, evidence) => ({
+    run_batch_id: batchId,
+    status: "completed",
+    nodes: [{ target_node_key: "web", run_id: `${batchId}-run`, status: "completed" }],
+    students: [{
+      student_id: studentId,
+      nodes: [{
+        node_key: "web", run_id: `${batchId}-run`, execution_status: "completed", vmid,
+        items: [{ rubric_item_id: "service", checks: [{ id: "service", status: "pass", evidence }] }],
+      }],
+    }],
+  });
+
+  test("多批結果合併時，每位學生取最近一次有檢查到他的那一批", () => {
+    const newest = studentBatch("batch-2", "enrollment-a", 101, "新的");
+    const older = {
+      ...studentBatch("batch-1", "enrollment-a", 101, "舊的"),
+      students: [
+        ...studentBatch("batch-1", "enrollment-a", 101, "舊的").students,
+        ...studentBatch("batch-1", "enrollment-b", 102, "B 的結果").students,
+      ],
+    };
+    const rows = buildMergedBatchReviewRows([newest, older], []);
+    expect(rows.map((row) => [row.studentId, row.batchId])).toEqual([
+      ["enrollment-a", "batch-2"],
+      ["enrollment-b", "batch-1"],
+    ]);
+    expect(rows[0].target.parsed_result.checks[0].evidence).toBe("新的");
+  });
+
+  test("總覽補上自評回報，沒有結果的學生也列出來", () => {
+    const students = [{
+      studentId: "enrollment-a",
+      machines: [{ member: { user_id: "user-a" } }],
+      user: { user_id: "user-a", full_name: "甲" },
+      totals: {},
+      status: { kind: "automatic" },
+    }];
+    const progress = {
+      items: [{ id: "service" }, { id: "database" }],
+      students: [
+        { user_id: "user-a", email: "a@x", completed_item_ids: ["service", "database"], ready_at: "2026-09-08T01:00:00Z" },
+        { user_id: "user-b", email: "b@x", full_name: "乙", completed_item_ids: ["service"], ready_at: null },
+        { user_id: "user-c", email: "c@x", full_name: "丙", completed_item_ids: [], ready_at: null },
+      ],
+    };
+    const result = attachStudentReports(students, progress);
+    expect(result.map((row) => [row.userId, row.report.kind])).toEqual([
+      ["user-a", "ready"],
+      ["user-b", "partial"],
+      ["user-c", "none"],
+    ]);
+    expect(result[1]).toMatchObject({ machines: [], status: { kind: "missing" }, report: { done: 1, total: 2 } });
+  });
+
+  test("總覽只看通過／未通過；每位學生列出自己的機器與那台的結果", () => {
+    const passTarget = { parsed_result: { checks: [{ id: "a", status: "pass" }] } };
+    const failTarget = { parsed_result: { checks: [{ id: "b", status: "fail" }] } };
+    expect(checkOutcome([])).toEqual({ kind: "none", count: 0 });
+    expect(checkOutcome([{ target: passTarget }]).kind).toBe("pass");
+    expect(checkOutcome([{ target: passTarget }, { target: failTarget }]).kind).toBe("fail");
+
+    const student = {
+      userId: "user-a",
+      machines: [
+        { key: "101", vmid: 101, nodeKey: "web", target: passTarget },
+        { key: "999", vmid: 999, nodeKey: "old", target: failTarget },
+      ],
+    };
+    const members = [
+      { user_id: "user-a", vmid: 101, node_key: "web", node_name: "網站" },
+      { user_id: "user-a", vmid: 102, node_key: "db", node_name: "資料庫" },
+      { user_id: "user-b", vmid: 201, node_key: "web" },
+    ];
+    expect(studentMachineChips(student, members).map((chip) => [chip.vmid, chip.label, chip.outcome])).toEqual([
+      [101, "網站", "pass"],
+      [102, "資料庫", "none"],
+      [999, "old", "fail"],
+    ]);
+  });
+
+  test("還沒執行過也列出全班；可以只檢查已回報完成的學生", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      { artifact_set_id: "set-1", status: "approved", children: [] },
+    ]);
+    vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
+      items: [{ id: "service" }],
+      students: [
+        { user_id: "user-a", email: "a@x", full_name: "甲", completed_item_ids: ["service"], ready_at: "2026-09-08T01:00:00Z" },
+        { user_id: "user-b", email: "b@x", full_name: "乙", completed_item_ids: [], ready_at: null },
+      ],
+    });
+    const createRun = vi.spyOn(AiJudgeService, "createSessionScriptSetRun").mockResolvedValue({
+      run_batch_id: "batch-9", status: "pending", summary: {}, nodes: [], students: [],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} /></ConfirmProvider>);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const text = container.textContent;
+    expect(text).toContain("甲");
+    expect(text).toContain("乙");
+    expect(text).toContain(i18n.t("AiJudgePanel.reportReady", { ns: "teaching" }));
+    expect(text).toContain(i18n.t("AiJudgePanel.reportNone", { ns: "teaching" }));
+    // 打勾比例以全班為分母；還沒檢查任何人
+    const bars = [...container.querySelectorAll('[role="img"]')].map((node) => node.getAttribute("aria-label"));
+    expect(bars).toContain(i18n.t("AiJudgePanel.metricReportedValue", { ns: "teaching", done: 1, total: 2 }));
+    expect(bars).toContain(i18n.t("AiJudgePanel.metricCheckValue", { ns: "teaching", pass: 0, fail: 0, checked: 0, total: 2 }));
+
+    const runReady = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.runReadyBtn", { ns: "teaching", count: 1 })));
+    await act(async () => {
+      runReady.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(createRun).toHaveBeenCalledExactlyOnceWith("class-1", "session-1", "set-1", { userIds: ["user-a"] });
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  test("還沒有腳本也看得到全班回報進度，只是不能執行檢查", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
+      items: [{ id: "service" }],
+      students: [
+        { user_id: "user-a", email: "a@x", full_name: "甲", completed_item_ids: ["service"], ready_at: "2026-09-08T01:00:00Z" },
+        { user_id: "user-b", email: "b@x", full_name: "乙", completed_item_ids: [], ready_at: null },
+      ],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} /></ConfirmProvider>);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const text = container.textContent;
+    expect(text).toContain("甲");
+    expect(text).toContain("乙");
+    expect(text).toContain(i18n.t("AiJudgePanel.reportReady", { ns: "teaching" }));
+    expect(text).toContain(i18n.t("AiJudgePanel.reviewNoScriptNotice", { ns: "teaching" }));
+    const runButtons = [...container.querySelectorAll("button")].filter((button) => (
+      button.textContent.includes(i18n.t("AiJudgePanel.runReadyBtn", { ns: "teaching", count: 1 }))
+      || button.textContent.includes(i18n.t("AiJudgePanel.runAllBtn", { ns: "teaching" }))
+    ));
+    expect(runButtons).toHaveLength(2);
+    expect(runButtons.every((button) => button.disabled)).toBe(true);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  test("這週內容還沒發布：有腳本也不能檢查，可以直接前往每週內容發布", async () => {
+    const goToPublish = vi.fn();
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      { artifact_set_id: "set-1", status: "approved", children: [] },
+    ]);
+    vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
+      items: [{ id: "service" }],
+      students: [
+        { user_id: "user-a", email: "a@x", full_name: "甲", completed_item_ids: ["service"], ready_at: "2026-09-08T01:00:00Z" },
+      ],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} weekPublished={false} onGoToPublish={goToPublish} /></ConfirmProvider>);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    const publishButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.goToPublish", { ns: "teaching" })));
+    await act(async () => publishButton.click());
+    expect(goToPublish).toHaveBeenCalledOnce();
+
+    expect(container.textContent).toContain(i18n.t("AiJudgePanel.reviewWeekDraftNotice", { ns: "teaching" }));
+    const runButtons = [...container.querySelectorAll("button")].filter((button) => (
+      button.textContent.includes(i18n.t("AiJudgePanel.runReadyBtn", { ns: "teaching", count: 1 }))
+      || button.textContent.includes(i18n.t("AiJudgePanel.runAllBtn", { ns: "teaching" }))
+    ));
+    expect(runButtons).toHaveLength(2);
+    expect(runButtons.every((button) => button.disabled)).toBe(true);
+
+    await act(async () => root.unmount());
     container.remove();
   });
 });

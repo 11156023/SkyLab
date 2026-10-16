@@ -19,6 +19,8 @@
   "schemas.template_key_unsupported": "template_key にサポートされていない環境が含まれています",
   "schemas.target_vmids_empty": "target_vmids を空にすることはできません",
   "schemas.target_node_key_required": "ノード単位の実行には論理 target_node_key が必要です",
+  "schemas.run_students_required": "指定した学生だけをチェックする場合は、学生を 1 人以上選んでください。",
+  "schemas.run_students_only_for_students_scope": "学生リストは「指定した学生をチェック」のときだけ指定できます。",
   "schemas.target_vmids_not_allowed": "target_vmids は旧式の手動実行でのみ使用できます",
 
   "session.no_rubric_selected": "このチェックはまだ評価表を選択していません。",
@@ -26,6 +28,7 @@
   "session.not_found": "このチェックが見つかりません。",
   "session.file_in_use": "この評価表は他のチェックで使用されています。「複製」で独立したコピーを作成するか、新しい評価表をアップロードしてください。",
   "session.archived_readonly": "アーカイブ済みのチェックは読み取り専用です。",
+  "session.week_not_published": "この週の内容はまだ公開されていません。公開してから学生をチェックしてください。",
   "session.file_not_in_class": "選択した評価表のソースはこのクラスに属していません。",
   "session.fork_title_exhausted": "チェックの複製を作成できません。先に元のチェックの名前を変更してください。",
   "session.fork_file_unavailable": "元のチェックの評価表は複製できなくなりました。",

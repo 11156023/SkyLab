@@ -75,7 +75,6 @@ function normalizeClass(item) {
       id: String(week.id),
       week: week.week_number,
       date: week.session_date,
-      target: week.target_node_key ?? "",
       files: (week.files ?? []).map((file) => typeof file === "string" ? { filename: file } : file),
     })),
     students: (item.students ?? []).map((student) => ({ ...student, id: String(student.id), machines: student.machines ?? [] })),
@@ -492,7 +491,7 @@ export function WeeklyContent({ item, onRefresh }) {
     setSaving(true);
     try {
       // 教材只送已上傳檔案的 id：storage_key 由後端自己查，不再由前端帶
-      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: weekFilesPayload(week.files) })));
+      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), status: week.status, files: weekFilesPayload(week.files) })));
       unsavedRef.current = false;
       onRefresh(result); toast.success(t("ClassWorkspacePage.weeklySavedMsg"));
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.saveFailed")); }
@@ -502,7 +501,7 @@ export function WeeklyContent({ item, onRefresh }) {
     <section className={styles.card} data-guide="class-weekly-list">
       <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.weeklyContentHeader", { count: weeks.length })}</h2><p>{t("ClassWorkspacePage.weeklyPublishHint")}</p></div><span className={styles.weekVisibleCount}>{t("ClassWorkspacePage.weeksVisibleCount", { count: visibleWeekCount(weeks) })}</span></div>
       <div className={styles.weekRows}>
-        <div className={styles.weekRowsHead}><span>{t("ClassWorkspacePage.weekColWeek")}</span><span>{t("ClassWorkspacePage.topicTaskLabel")}</span><span>{t("ClassWorkspacePage.weekColMachine")}</span><span>{t("ClassWorkspacePage.taskFilesLabel")}</span><span>{t("ClassWorkspacePage.weekColVisible")}</span></div>
+        <div className={styles.weekRowsHead}><span>{t("ClassWorkspacePage.weekColWeek")}</span><span>{t("ClassWorkspacePage.topicTaskLabel")}</span><span>{t("ClassWorkspacePage.taskFilesLabel")}</span><span>{t("ClassWorkspacePage.weekColVisible")}</span></div>
         {weeks.map((week) => {
           const published = isWeekVisible(week);
           return <article key={week.id} data-guide="class-weekly-row">
@@ -519,10 +518,6 @@ export function WeeklyContent({ item, onRefresh }) {
               }}
               placeholder={t("ClassWorkspacePage.topicPlaceholder")}
             />
-            <select className={styles.weekMachineSelect} disabled={locked} value={week.target} onChange={(event) => update(week.id, "target", event.target.value)} aria-label={t("ClassWorkspacePage.weekMachineAria", { week: week.week })}>
-              <option value="">{t("ClassWorkspacePage.weekMachineAll")}</option>
-              {item.nodes.map((node) => <option key={node.node_key} value={node.node_key}>{node.name}</option>)}
-            </select>
             <div className={styles.weekFileList} data-guide="class-weekly-files">
               {week.files.map((file) => <span className={styles.weekFileChip} key={file.id ?? file.filename}><MIcon name="description" size={15} /><b>{file.filename}</b>{!locked && file.id && <button type="button" disabled={uploadingWeek === week.id} aria-label={t("ClassWorkspacePage.removeFileAria", { filename: file.filename })} onClick={() => removeFile(week.id, file)}><MIcon name="close" size={14} /></button>}</span>)}
               {!locked && <FileDropzone compact multiple title={t("common:FileDropzone.titleShort")} uploading={uploadingWeek === week.id} onFiles={(files) => upload(week.id, files)} />}

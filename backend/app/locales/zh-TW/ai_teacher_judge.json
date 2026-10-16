@@ -19,6 +19,8 @@
   "schemas.template_key_unsupported": "template_key contains an unsupported environment",
   "schemas.target_vmids_empty": "target_vmids must not be empty",
   "schemas.target_node_key_required": "logical target_node_key is required for node-scoped execution",
+  "schemas.run_students_required": "只檢查指定學生時，至少要選一位學生。",
+  "schemas.run_students_only_for_students_scope": "只有「檢查指定學生」可以帶學生清單。",
   "schemas.target_vmids_not_allowed": "target_vmids is only allowed for legacy manual execution",
 
   "session.no_rubric_selected": "這項檢查尚未選擇檢查表。",
@@ -26,6 +28,7 @@
   "session.not_found": "找不到這項檢查。",
   "session.file_in_use": "這份檢查表已被其他檢查使用；請使用「重構」建立獨立副本，或上傳新的檢查表。",
   "session.archived_readonly": "已封存的檢查為唯讀。",
+  "session.week_not_published": "這週的內容還沒發布：發布後才能檢查學生。",
   "session.file_not_in_class": "選擇的檢查表來源不屬於這個班級。",
   "session.fork_title_exhausted": "無法建立檢查副本，請先重新命名原檢查。",
   "session.fork_file_unavailable": "原檢查的檢查表已無法複製。",
