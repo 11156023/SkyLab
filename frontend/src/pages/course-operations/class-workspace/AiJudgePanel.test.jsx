@@ -1441,6 +1441,14 @@ describe("teacher review summary", () => {
     expect(getTargetReviewSummary(null).kind).toBe("missing");
     expect(getTargetReviewSummary({ status: "failed" }).kind).toBe("failed");
   });
+
+  test("只有明確的關機原因顯示關機，舊紀錄與 SSH 錯誤維持一般失敗", () => {
+    expect(getTargetReviewSummary({ status: "failed", reason_code: "vm_powered_off" }).label).toBe("錯誤：關機");
+    expect(getTargetReviewSummary({ status: "failed", reason_code: "vm_status_unavailable" }).label).toBe("錯誤：狀態不明");
+    for (const reason_code of ["not_running", "executor_error", "execution_timeout", "target_not_ready"]) {
+      expect(getTargetReviewSummary({ status: "failed", reason_code }).label).toBe("執行失敗");
+    }
+  });
 });
 
 describe("teacher review run-once（整組檢查點）", () => {
@@ -1643,6 +1651,43 @@ describe("teacher review run-once（整組檢查點）", () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  test.each([
+    ["vm_powered_off", "錯誤：關機", "機器已關機，已跳過檢查。開機後可重新執行。"],
+    ["vm_status_unavailable", "錯誤：狀態不明", "無法確認機器狀態，已跳過檢查。請稍後重新執行。"],
+  ])("%s 在收合與展開時皆顯示原因，不誤報腳本沒有輸出", async (reason, label, message) => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
+    ]);
+    const failed = structuredClone(batchPayload);
+    const node = failed.students[0].nodes[0];
+    node.execution_status = "failed";
+    node.reason_code = reason;
+    node.items[0].checks = [];
+    node.items[0].status = "unknown";
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(failed);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(container.textContent).toContain(label);
+      const toggle = [...container.querySelectorAll("button")].find((button) => button.textContent.includes("王小明"));
+      await act(async () => toggle.click());
+      expect(container.textContent).toContain(message);
+      expect(container.textContent).not.toContain("此檢查點沒有回傳可顯示的結果。");
+      expect(container.textContent).not.toContain("腳本沒有回傳可顯示的檢查項目。");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 
   test("部分步驟未回傳時會顯示不完整提示並保留已取得的證據", async () => {

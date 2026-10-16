@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from threading import Event, Lock
 from time import perf_counter
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from sqlalchemy import exists, func, or_
 from sqlalchemy.orm import selectinload
@@ -37,6 +37,7 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
 from app.core.db import engine
+from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.ssh import (
@@ -234,12 +235,18 @@ def _target_metadata(target: dict[str, Any]) -> dict[str, Any]:
 def _target_progress(
     targets: list[dict[str, Any]],
     statuses: dict[int, str],
+    results: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    reasons = {
+        result["vmid"]: result.get("reason_code")
+        for result in results or []
+        if result.get("vmid") is not None
+    }
     return [
         {
             **_target_metadata(target),
             "status": statuses.get(_target_vmid(target), "queued"),
-            "reason_code": None,
+            "reason_code": reasons.get(_target_vmid(target)),
         }
         for target in targets
     ]
@@ -311,7 +318,7 @@ def _save_run_progress(
             "stage": stage,
             "total": len(targets) + len(preflight_results or []),
             "done": done,
-            "targets": _target_progress(targets, statuses)
+            "targets": _target_progress(targets, statuses, results)
             + preflight_progress(preflight_results or []),
         }
         run.updated_at = _now()
@@ -345,6 +352,33 @@ def _live_running_by_vmid() -> dict[int, dict[str, Any]]:
     return proxmox_ops.list_all_resources_by_vmid()
 
 
+def _require_running_power_state(vmid: int, status: str) -> None:
+    if status == "stopped":
+        raise TargetExecutionError(t("run.vmid_powered_off", vmid=vmid), "vm_powered_off")
+    if status != "running":
+        raise TargetExecutionError(t("run.vmid_not_running", vmid=vmid), "not_running")
+
+
+def check_current_target_power(target: dict[str, Any]) -> None:
+    """Require current running state without trusting the cluster-list cache."""
+    node = _target_proxmox_node(target)
+    resource_type = _target_resource_type(target)
+    try:
+        if not node or resource_type not in {"qemu", "lxc"}:
+            raise ValueError("Missing target node or resource type")
+        current = proxmox_ops.get_status(
+            node, _target_vmid(target), cast(Literal["qemu", "lxc"], resource_type),
+        )
+        status = str(current.get("status") or "")
+        if not status or status == "unknown":
+            raise ValueError("Missing current power state")
+    except Exception as exc:
+        raise TargetExecutionError(
+            t("run.status_lookup_failed"), "vm_status_unavailable",
+        ) from exc
+    _require_running_power_state(_target_vmid(target), status)
+
+
 def _resolve_runtime_target(
     *,
     session: Session,
@@ -366,6 +400,17 @@ def _resolve_runtime_target(
             "owner_mismatch",
         )
     live = live_by_vmid.get(vmid)
+    if live is None:
+        raise TargetExecutionError(t("run.vmid_not_running", vmid=vmid), "not_running")
+    if live.get("status") == "stopped":
+        check_current_target_power({**live, "vmid": vmid})
+        live = {**live, "status": "running"}
+    _require_running_power_state(vmid, str(live.get("status") or ""))
+    if str(live.get("type") or "") not in {"qemu", "lxc"}:
+        raise TargetExecutionError(
+            f"VMID {vmid} 不是可執行的 VM/LXC。",
+            "invalid_resource_type",
+        )
     # Guest OS 身份補偵測（僅欄位為空時探測一次並回寫；best-effort）
     os_identity_service.ensure_guest_os(
         session=session,
@@ -374,14 +419,6 @@ def _resolve_runtime_target(
         resource_type=str(live.get("type") or "") if live else "",
     )
     _ensure_linux_executor_capability(resource, vmid)
-
-    if not live or str(live.get("status") or "") != "running":
-        raise TargetExecutionError(f"VMID {vmid} 目前不是運行中。", "not_running")
-    if str(live.get("type") or "") not in {"qemu", "lxc"}:
-        raise TargetExecutionError(
-            f"VMID {vmid} 不是可執行的 VM/LXC。",
-            "invalid_resource_type",
-        )
 
     host = resolve_target_ip_address(
         session=session,
@@ -398,6 +435,8 @@ def _resolve_runtime_target(
 
     return {
         **target,
+        "proxmox_node": live.get("node"),
+        "resource_type": live.get("type"),
         "host": host,
         "ssh_user": "root",
         "private_key_pem": decrypt_value(resource.ssh_private_key_encrypted),
@@ -420,6 +459,14 @@ def _execute_target_script(
     timing: dict[str, Any] = {}
     _target_phase(target, "preparing")
     phase, phase_started = "prepare_seconds", started
+    try:
+        check_current_target_power(target)
+    except TargetExecutionError as exc:
+        exc.timing.update(
+            prepare_seconds=round(perf_counter() - started, 3),
+            failure_stage="preparing",
+        )
+        raise
     vmid = _target_vmid(target)
     remote_dir = f"{REMOTE_ROOT}/{target['run_id']}/{vmid}"
     quoted_dir = shlex.quote(remote_dir)
@@ -846,7 +893,7 @@ def _mark_run_executor_failed(
             "stage": "failed",
             "total": len(targets) + len(preflight_results),
             "done": len(results),
-            "targets": _target_progress(targets, statuses)
+            "targets": _target_progress(targets, statuses, results)
             + preflight_progress(preflight_results),
         }
         run.result_summary_json = {
@@ -1191,7 +1238,7 @@ def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
             "stage": "completed",
             "total": len(targets) + len(preflight_results),
             "done": len(results),
-            "targets": _target_progress(targets, statuses)
+            "targets": _target_progress(targets, statuses, results)
             + preflight_progress(preflight_results),
         }
         run.status = TeacherJudgeScriptRunStatus.completed

@@ -27,6 +27,11 @@ from app.models.teacher_judge_script_run import (
 )
 
 
+@pytest.fixture(autouse=True)
+def running_power_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(executor.proxmox_ops, "get_status", lambda *args: {"status": "running"})
+
+
 def _remote_result() -> str:
     return json.dumps({
         "schema_version": "teacher_judge_result.v1",

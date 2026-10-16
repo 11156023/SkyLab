@@ -451,6 +451,8 @@ def _target(**extra: Any) -> dict[str, Any]:
         "ssh_user": "root",
         "private_key_pem": "KEY",
         "run_id": "run-1",
+        "proxmox_node": "pve1",
+        "resource_type": "qemu",
         **extra,
     }
 
@@ -463,6 +465,7 @@ def _run_fake_target(
 ) -> tuple[_FakeClient, list[tuple[str, int | None]], executor.RemoteScriptResult]:
     client = _FakeClient()
     commands: list[tuple[str, int | None]] = []
+    monkeypatch.setattr(executor.proxmox_ops, "get_status", lambda *args: {"status": "running"})
 
     def fake_exec(
         _client: Any,

@@ -42,7 +42,11 @@ from app.ai.teacher_judge.script_artifact_service import (
     latest_set_children,
     require_active_artifact,
 )
-from app.ai.teacher_judge.script_executor_service import preflight_progress
+from app.ai.teacher_judge.script_executor_service import (
+    TargetExecutionError,
+    check_current_target_power,
+    preflight_progress,
+)
 from app.ai.teacher_judge.script_policy import aggregate_check_status
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
@@ -680,6 +684,7 @@ def _resolve_running_targets(
     target_vmids: list[int],
     member_by_vmid: dict[int, dict[str, Any]] | None = None,
     live_by_vmid: dict[int, dict[str, Any]] | None = None,
+    preflight_results: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if member_by_vmid is None:
         member_by_vmid = _class_member_by_vmid(
@@ -706,12 +711,6 @@ def _resolve_running_targets(
                 status_code=400,
                 detail=t("run.vmid_not_runnable", vmid=vmid),
             )
-        if live_status != "running":
-            raise HTTPException(
-                status_code=400,
-                detail=t("run.vmid_not_running", vmid=vmid),
-            )
-
         resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
         if resource is None:
             raise HTTPException(
@@ -721,6 +720,26 @@ def _resolve_running_targets(
             raise HTTPException(
                 status_code=400,
                 detail=t("run.owner_mismatch", vmid=vmid),
+            )
+        if live_status == "stopped" and preflight_results is not None:
+            try:
+                check_current_target_power({**live, "vmid": vmid})
+            except TargetExecutionError as exc:
+                if exc.reason_code not in {"vm_powered_off", "vm_status_unavailable"}:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                preflight_results.append(
+                    _node_target_failure(
+                        {**member, "vmid": vmid},
+                        reason_code=exc.reason_code,
+                        detail=str(exc),
+                    )
+                )
+                continue
+            live_status = "running"
+        if live_status != "running":
+            raise HTTPException(
+                status_code=400,
+                detail=t("run.vmid_not_running", vmid=vmid),
             )
         # Guest OS 身份補偵測（僅欄位為空時探測一次並回寫；best-effort）
         os_identity_service.ensure_guest_os(
@@ -881,6 +900,7 @@ def _resolve_node_targets(
                     target_vmids=[int(vmid)],
                     member_by_vmid=member_by_vmid,
                     live_by_vmid=live_by_vmid,
+                    preflight_results=preflight_results,
                 )
             )
         except HTTPException as exc:
@@ -1087,9 +1107,10 @@ def create_script_run(
             session=session,
             teaching_class_id=teaching_class_id,
             target_vmids=target_vmids or [],
+            preflight_results=preflight_results,
         )
         _ensure_targets_on_node(
-            targets,
+            targets + preflight_results,
             artifact_node_key,
             "手動執行目標不屬於腳本指定的 target_node_key。",
         )
@@ -1106,9 +1127,10 @@ def create_script_run(
             session=session,
             teaching_class_id=teaching_class_id,
             target_vmids=target_vmids,
+            preflight_results=preflight_results,
         )
         _ensure_targets_on_node(
-            targets,
+            targets + preflight_results,
             artifact_node_key,
             "舊式 VMID 執行目標不屬於腳本指定的 target_node_key。",
         )

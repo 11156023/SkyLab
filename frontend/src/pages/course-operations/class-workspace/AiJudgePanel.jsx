@@ -2819,6 +2819,10 @@ function CheckResultsTable({ checks }) {
 /* ── Tab 2：導師核查 ────────────────────────────────────── */
 
 const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown", "collected"]);
+const EXECUTION_BLOCKERS = {
+  vm_powered_off: { label: "statusPoweredOff", message: "poweredOffHint" },
+  vm_status_unavailable: { label: "statusPowerUnavailable", message: "powerUnavailableHint" },
+};
 
 function targetChecks(target) {
   const checks = target?.parsed_result?.checks;
@@ -2840,7 +2844,7 @@ function targetTeacherReview(target) {
 export function getTargetReviewSummary(target) {
   if (!target) return { kind: "missing", label: jt("statusNotRun"), pending: 0, reviewable: 0 };
   if (target.status === "failed" || target.validation?.valid === false) {
-    return { kind: "failed", label: jt("statusRunFailed"), pending: 0, reviewable: 0 };
+    return { kind: "failed", label: jt(EXECUTION_BLOCKERS[target.reason_code]?.label ?? "statusRunFailed"), pending: 0, reviewable: 0 };
   }
   const reviewable = targetChecks(target).filter((check) => (
     TEACHER_REVIEW_STATUSES.has(check?.status)
@@ -3346,6 +3350,7 @@ function MachineReviewDetail({
   const { t } = useTranslation("teaching");
   const { target } = row;
   const checks = targetChecks(target);
+  const executionBlocker = target?.status === "failed" ? EXECUTION_BLOCKERS[target.reason_code] : null;
   const nodeLabel = row.nodeKey
     ? batchMachineDisplayName(row.nodeKey, machineNodes, row.node?.display_label) ?? row.nodeKey
     : null;
@@ -3362,7 +3367,9 @@ function MachineReviewDetail({
         </span>
       </div>
       <ExecutionTiming timing={target.timing} />
-      {row.items ? (
+      {executionBlocker ? (
+        <p className={styles.mutedText}><strong>{t(`AiJudgePanel.${executionBlocker.message}`)}</strong></p>
+      ) : row.items ? (
         <div className={styles.reviewCheckList}>
           {row.items.length === 0 && (
             <p className={styles.mutedText}>{t("AiJudgePanel.machineNoCheckpoints")}</p>
@@ -3481,14 +3488,18 @@ export function studentMachineChips(student, members = [], machineNodes = []) {
     runRows.filter((row) => row?.vmid != null).map((row) => [String(row.vmid), row]),
   );
   const seen = new Set();
-  const chip = (nodeKey, vmid, fallbackLabel, rows) => ({
-    key: vmid != null ? `vm-${vmid}` : `node-${nodeKey ?? fallbackLabel}`,
-    label: batchMachineDisplayName(nodeKey, machineNodes, fallbackLabel)
+  const chip = (nodeKey, vmid, fallbackLabel, rows) => {
+    const blocked = rows.find((row) => row?.target?.status === "failed" && EXECUTION_BLOCKERS[row.target.reason_code]);
+    const label = batchMachineDisplayName(nodeKey, machineNodes, fallbackLabel)
       ?? nodeKey
-      ?? (vmid != null ? `VMID ${vmid}` : "—"),
-    vmid: vmid ?? null,
-    outcome: checkOutcome(rows).kind,
-  });
+      ?? (vmid != null ? `VMID ${vmid}` : "—");
+    return {
+      key: vmid != null ? `vm-${vmid}` : `node-${nodeKey ?? fallbackLabel}`,
+      label: blocked ? `${getTargetReviewSummary(blocked.target).label} · ${label}` : label,
+      vmid: vmid ?? null,
+      outcome: checkOutcome(rows).kind,
+    };
+  };
   const chips = (Array.isArray(members) ? members : [])
     .filter((member) => userId && String(member?.user_id ?? "") === userId)
     .map((member) => {
@@ -4196,7 +4207,7 @@ export function TeacherReviewTab({
                         <em
                           key={machine.key}
                           className={`${styles.machineChip} ${OUTCOME_CHIP_CLASS[machine.outcome]}`}
-                          title={machine.vmid != null ? `VMID ${machine.vmid}` : undefined}
+                          title={machine.vmid != null ? `${machine.label} · VMID ${machine.vmid}` : machine.label}
                         >
                           <MIcon name="dns" size={13} />
                           {machine.label}

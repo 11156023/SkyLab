@@ -37,6 +37,7 @@
   "run.vmid_not_in_class": "VMID {vmid} 不屬於此班級或尚未建立可用機器。",
   "run.vmid_not_runnable": "VMID {vmid} 不是可執行的 VM/LXC。",
   "run.vmid_not_running": "VMID {vmid} 目前不是運行中，不能執行腳本。",
+  "run.vmid_powered_off": "VMID {vmid} 已關機，已跳過檢查。",
   "run.vmid_not_registered": "VMID {vmid} 未在資料庫中登記。",
   "run.owner_mismatch": "VMID {vmid} 目前資源擁有者與班級學生不一致。",
   "run.no_ip": "VMID {vmid} 沒有可用 IP。",
