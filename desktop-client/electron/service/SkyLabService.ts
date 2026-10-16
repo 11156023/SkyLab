@@ -1,5 +1,6 @@
 ﻿import { net } from "electron";
 import { BusinessError, ResponseCode } from "../core/BusinessError";
+import { createHash } from "crypto";
 import Logger from "../core/Logger";
 import SettingsService from "./SettingsService";
 
@@ -14,6 +15,26 @@ class SkyLabService {
 
   constructor(settingsService: SettingsService) {
     this._settingsService = settingsService;
+  }
+
+  /** Local storage namespace only; the backend still validates the token. */
+  async getConnectionScope(): Promise<string> {
+    const token = await this._settingsService.getToken();
+    let subject: unknown;
+    try {
+      subject = JSON.parse(
+        Buffer.from(token.split(".")[1], "base64url").toString("utf-8")
+      ).sub;
+    } catch {
+      throw new BusinessError(ResponseCode.NOT_LOGGED_IN);
+    }
+    if (typeof subject !== "string" || !subject) {
+      throw new BusinessError(ResponseCode.NOT_LOGGED_IN);
+    }
+    const backendUrl = await this._settingsService.getBackendUrl();
+    return createHash("sha256")
+      .update(JSON.stringify([backendUrl.replace(/\/$/, ""), subject]))
+      .digest("hex");
   }
 
   private async requestOnce(

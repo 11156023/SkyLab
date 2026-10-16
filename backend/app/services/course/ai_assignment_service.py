@@ -95,11 +95,7 @@ def _completion_to_student(
     return CourseAICompletionStudent(
         completed=all_completed,
         completed_item_ids=completed_item_ids,
-        ready_at=(
-            submission.ready_at
-            if submission and all_completed
-            else None
-        ),
+        ready_at=(submission.ready_at if submission and all_completed else None),
     )
 
 
@@ -122,7 +118,9 @@ def _target_for_student(
             # 產生端（script_run_service / script_executor_service）寫的是 "id"；
             # 相容更早期可能寫成 "user_id" 的快照
             target_user_id = (
-                (user.get("id") or user.get("user_id")) if isinstance(user, dict) else None
+                (user.get("id") or user.get("user_id"))
+                if isinstance(user, dict)
+                else None
             )
             if target_user_id and str(target_user_id) == str(user_id):
                 return raw_target
@@ -182,7 +180,9 @@ def _script_checks(
     item_id: str | None,
 ) -> list[CourseAICheckItemStudent]:
     parsed_result = target.get("parsed_result")
-    raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else None
+    raw_checks = (
+        parsed_result.get("checks") if isinstance(parsed_result, dict) else None
+    )
     if not isinstance(raw_checks, list):
         return []
 
@@ -207,9 +207,7 @@ def _script_checks(
         if not mapped_ids and item_id in check_by_id:
             mapped_ids = [item_id]
         selected = [
-            check_by_id[check_id]
-            for check_id in mapped_ids
-            if check_id in check_by_id
+            check_by_id[check_id] for check_id in mapped_ids if check_id in check_by_id
         ]
         if not mapped_ids:
             return []
@@ -217,7 +215,10 @@ def _script_checks(
         rubric_title = ""
         if artifact is not None:
             for rubric_item in (artifact.rubric_snapshot_json or {}).get("items", []):
-                if isinstance(rubric_item, dict) and str(rubric_item.get("id") or "") == item_id:
+                if (
+                    isinstance(rubric_item, dict)
+                    and str(rubric_item.get("id") or "") == item_id
+                ):
                     rubric_title = str(rubric_item.get("title") or "")
                     break
         statuses = [
@@ -233,11 +234,14 @@ def _script_checks(
             if str(check.get("evidence") or "").strip()
         )
         if incomplete:
-            evidence = "檢查結果不完整，部分步驟未回傳結果，請重新執行檢查。\n" + evidence
+            evidence = (
+                "檢查結果不完整，部分步驟未回傳結果，請重新執行檢查。\n" + evidence
+            )
         return [
             CourseAICheckItemStudent(
                 item_id=item_id,
-                title=rubric_title or (str(selected[0].get("title") or item_id) if selected else item_id),
+                title=rubric_title
+                or (str(selected[0].get("title") or item_id) if selected else item_id),
                 status=status,
                 comment=evidence,
             )
@@ -310,9 +314,7 @@ def _check_to_student(
         else ""
     )
     parsed_errors = (
-        parsed_result.get("errors")
-        if isinstance(parsed_result, dict)
-        else []
+        parsed_result.get("errors") if isinstance(parsed_result, dict) else []
     )
     target_validation = target.get("validation")
     # 輸出驗證失敗、執行器錯誤、AI 判讀錯誤都是給老師除錯的技術訊息
@@ -329,7 +331,9 @@ def _check_to_student(
         if isinstance(parsed_errors, list)
         else ""
     )
-    student_error = t("course.ai_check_incomplete") if has_internal_error else script_errors
+    student_error = (
+        t("course.ai_check_incomplete") if has_internal_error else script_errors
+    )
     item_score = items[0].score if item_id and items else None
     item_max_score = items[0].max_score if item_id and items else None
     has_script_result = isinstance(parsed_result, dict)
@@ -338,21 +342,24 @@ def _check_to_student(
         status=run.status.value,
         submitted_at=run.created_at,
         finished_at=run.finished_at,
-        score=item_score if item_id else (
+        score=item_score
+        if item_id
+        else (
             judgement.get("score")
             if not has_script_result and isinstance(judgement.get("score"), int)
             else None
         ),
-        max_score=item_max_score if item_id else (
+        max_score=item_max_score
+        if item_id
+        else (
             judgement.get("max_score")
             if not has_script_result and isinstance(judgement.get("max_score"), int)
             else None
         ),
         # 舊版 AI 判讀在輸出驗證失敗時會把原始錯誤寫進 ai_judgement.summary（status=skipped），
         # 出現內部錯誤時只採用腳本自己的 summary，避免技術訊息從這裡漏給學生
-        summary=parsed_summary or (
-            "" if has_internal_error else str(judgement.get("summary") or "")
-        ),
+        summary=parsed_summary
+        or ("" if has_internal_error else str(judgement.get("summary") or "")),
         teacher_feedback=teacher_feedback,
         error=student_error,
         items=items,
@@ -411,7 +418,9 @@ def _latest_student_checkpoint_checks(
     for run in runs:
         requested = _requested_item_id(run)
         covered = _run_item_ids(run)
-        candidates = [requested] if requested else [item for item in item_ids if item in covered]
+        candidates = (
+            [requested] if requested else [item for item in item_ids if item in covered]
+        )
         for checkpoint_id in candidates:
             if checkpoint_id not in wanted or checkpoint_id in checks:
                 continue
@@ -432,7 +441,7 @@ def _latest_student_checkpoint_checks(
 def student_task_items(snapshot: dict[str, Any]) -> list[CourseAITaskItemStudent]:
     """把 ``{"items": [...]}`` 形式的評分項目整理成學生看得到的檢查項目。
 
-    核准版本的 rubric 快照與尚未核准的 AI 解析結果共用這一份正規化；
+    學生端只使用核准版本的 rubric 快照；老師端的草稿進度也共用這份正規化。
     id 保留原值（已完成項目以它比對），detectable 去空白轉小寫後限定三種。
     """
     raw_items = snapshot.get("items")
@@ -547,12 +556,18 @@ def _merged_items(
 
 def _session_task(
     session: Session, judge_session: TeacherJudgeSession
-) -> tuple[list[CourseAITaskItemStudent], list[TeacherJudgeScriptArtifact], TeacherJudgeFile | None]:
-    """這週檢查的項目：有核准的腳本就用腳本的（多台機器合在一起），
-    還沒有腳本時用這週檢查表上的項目——學生照樣可以回報完成，只是還不能被檢查。"""
+) -> tuple[
+    list[CourseAITaskItemStudent],
+    list[TeacherJudgeScriptArtifact],
+    TeacherJudgeFile | None,
+]:
+    """取得這週檢查的項目；有核准腳本時合併所有機器的快照。
+
+    尚未核准時回傳檢查表草稿供老師端使用；學生端必須再檢查 scripts 非空。
+    """
     scripts = _current_scripts(session, judge_session.id)
     if scripts:
-        newest = max(scripts, key=lambda row: (row.approved_at or row.created_at))
+        newest = max(scripts, key=lambda row: row.approved_at or row.created_at)
         source_file = (
             session.get(TeacherJudgeFile, newest.source_file_id)
             if newest.source_file_id
@@ -611,7 +626,11 @@ def save_student_reply(
         if reply is not None:
             session.delete(reply)
             session.commit()
-        return {"user_id": str(student_id), "teacher_reply": "", "teacher_reply_at": None}
+        return {
+            "user_id": str(student_id),
+            "teacher_reply": "",
+            "teacher_reply_at": None,
+        }
     if reply is None:
         reply = TeacherJudgeStudentReply(
             session_id=judge_session.id, student_id=student_id, feedback=text
@@ -679,11 +698,12 @@ def list_student_ai_assignments(
     assignments: list[CourseAIAssignmentStudent] = []
     for judge_session in judge_sessions:
         items, scripts, source_file = _session_task(session, judge_session)
-        # 作業跟著老師每週的內容發布：週次發布後學生才看得到，草稿不外流
-        if not items or not _week_visible(session, judge_session):
+        # 發布週次不等於確認 AI 任務；只有製作並核准的腳本快照能公開給學生。
+        # _session_task 的檢查表草稿僅供老師端編修與進度檢視使用。
+        if not scripts or not items or not _week_visible(session, judge_session):
             continue
         newest = (
-            max(scripts, key=lambda row: (row.approved_at or row.created_at))
+            max(scripts, key=lambda row: row.approved_at or row.created_at)
             if scripts
             else None
         )
@@ -925,7 +945,7 @@ def session_progress(
     """導師核查用：全班每位學生在這週檢查回報完成到哪裡（不含執行結果）。
 
     項目與學生端看到的同一份（最新一次製作的腳本，多台機器合在一起）；
-    還沒有核准的腳本時用這週檢查表上的項目，進度照樣看得到，只是不能執行檢查。
+    還沒有核准的腳本時，老師可先看檢查表草稿；學生此時看不到任務，也不能回報完成。
     """
     items = _session_task(session, judge_session)[0]
     item_ids = [item.id for item in items]
@@ -1001,7 +1021,11 @@ def session_progress(
     students.sort(key=lambda row: row["email"])
     return {
         "items": [
-            {"id": item.id, "title": item.title, "machine_node_key": item.machine_node_key}
+            {
+                "id": item.id,
+                "title": item.title,
+                "machine_node_key": item.machine_node_key,
+            }
             for item in items
         ],
         "students": students,

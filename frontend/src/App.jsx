@@ -11,7 +11,7 @@ import ConnectionLostState from "./components/ErrorState/ConnectionLostState";
 import { AuthSessionStatus } from "./services/authSession";
 import { useSetupStatus } from "./pages/setup/useSetupStatus";
 import { useModalScrollLock } from "./hooks/useBodyScrollLock";
-import { canTeachUser, isAdminUser } from "./utils/roles";
+import { canTeachUser, canViewStudentCourses, isAdminUser } from "./utils/roles";
 import styles from "./App.module.scss";
 
 // 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
@@ -138,6 +138,7 @@ function App() {
   const reconnecting = loading && Boolean(authError);
   const isAdmin = isAdminUser(user);
   const canTeach = canTeachUser(user);
+  const canViewCourses = canViewStudentCourses(user);
   const isDeviceApproval = Boolean(
     new URLSearchParams(window.location.search).get("device_code"),
   );
@@ -258,10 +259,10 @@ function App() {
             }
           />
           {/* 單一課程總覽：課堂環境、課堂機器與截至今天的 AI 任務 */}
-          <Route path="/courses" element={!canTeach ? <StudentCoursesPage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/courses/:pathId" element={!canTeach ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/courses/:pathId/weeks/:weekId" element={!canTeach ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard/course/:pathId" element={!canTeach ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses" element={canViewCourses ? <StudentCoursesPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId" element={canViewCourses ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId/weeks/:weekId" element={canViewCourses ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard/course/:pathId" element={canViewCourses ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
           {/* 快速練習：學生、老師、管理者共用，側欄「教學」群組的入口 */}
           <Route path="/quick-create"         element={<QuickCreatePage />} />
           <Route path="/quick-template/:id"   element={<QuickTemplateFormPage />} />

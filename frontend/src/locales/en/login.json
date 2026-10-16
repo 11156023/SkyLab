@@ -96,6 +96,8 @@
   "LoginPage.deviceErrorHelp": "Please go back to SkyLab Connect and click sign in again to get a new link.",
   "LoginPage.backToSkyLab": "Back to SkyLab",
   "LoginPage.deviceConnectingTitle": "Connecting to the App",
+  "LoginPage.deviceCancellingTitle": "Cancelling authorization",
+  "LoginPage.deviceCancellingSubtitle": "Notifying SkyLab Connect that sign-in was cancelled, please wait…",
   "LoginPage.deviceConnectingSubtitle": "Authorizing SkyLab Connect, please wait…",
   "LoginPage.deviceApprovalError": "Authorization failed. Please generate a new sign-in link.",
   "LoginPage.backToLogin": "Back to log in",

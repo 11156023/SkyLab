@@ -60,7 +60,7 @@ async function setup() {
   });
   await wait(20);
 
-  const titleInput = () => container.querySelector("td input");
+  const titleInput = () => container.querySelector("td textarea");
   const setValue = (element, value) => act(() => {
     const proto = Object.getPrototypeOf(element);
     Object.getOwnPropertyDescriptor(proto, "value").set.call(element, value);
@@ -115,7 +115,7 @@ describe("RubricsTab 自動儲存失敗（409 以外）", () => {
 
   test("有未儲存的修改時不傳送給助理，保留輸入草稿並說明原因", async () => {
     const view = await setup();
-    const textarea = view.container.querySelector("textarea");
+    const textarea = view.container.querySelector("textarea[aria-label]");
     view.setValue(textarea, "幫我檢查這份檢查表");
     await act(async () => {
       textarea.closest("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
@@ -124,7 +124,7 @@ describe("RubricsTab 自動儲存失敗（409 以外）", () => {
 
     expect(view.sendMessage).not.toHaveBeenCalled();
     expect(toastApi.error).toHaveBeenCalledWith(tt("unsavedBlocksChat"));
-    expect(view.container.querySelector("textarea").value).toBe("幫我檢查這份檢查表");
+    expect(view.container.querySelector("textarea[aria-label]").value).toBe("幫我檢查這份檢查表");
     expect(unsavedNotice(view.container)).not.toBeNull();
     view.cleanup();
   });
@@ -196,7 +196,7 @@ describe("RubricsTab 套用 AI 提案時儲存失敗", () => {
     const view = await mountWithProposal(Object.assign(new Error("逾時"), { status: 504 }));
     expect(view.save).toHaveBeenCalledTimes(1);
     expect(view.container.querySelector('[aria-label="AI 提案"]')).toBeNull();
-    expect(view.container.querySelector("td input").value).toBe("AI 新增的項目");
+    expect(view.container.querySelector("td textarea").value).toBe("AI 新增的項目");
     expect(unsavedNotice(view.container)).not.toBeNull();
     expect(toastApi.success).not.toHaveBeenCalledWith(tt("proposalApplied"));
     view.cleanup();
@@ -204,7 +204,7 @@ describe("RubricsTab 套用 AI 提案時儲存失敗", () => {
 
   test("409：照舊退回套用前的內容", async () => {
     const view = await mountWithProposal(Object.assign(new Error("conflict"), { status: 409 }));
-    expect(view.container.querySelector("td input")).toBeNull();
+    expect(view.container.querySelector("td textarea")).toBeNull();
     expect(unsavedNotice(view.container)).toBeNull();
     expect(toastApi.error).toHaveBeenCalledWith(tt("rubricConflict"));
     view.cleanup();

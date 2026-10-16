@@ -1,7 +1,75 @@
+import time
 from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
 
 from app.api.routes import desktop_client
 from app.core.config import settings
+from app.schemas.desktop_client import DeviceApproveRequest
+
+
+@pytest.fixture
+def device_codes(monkeypatch):
+    class Codes(dict):
+        def set(self, code, value, ttl_seconds=None):
+            self[code] = value
+            self.last_ttl = ttl_seconds
+
+        def delete(self, code):
+            self.pop(code, None)
+
+    codes = Codes()
+    codes["pending"] = {"token": None, "created_at": time.time() - 30}
+    monkeypatch.setattr(desktop_client, "_device_codes", codes)
+    return codes
+
+
+def test_denied_device_is_reported_without_tokens_and_cannot_be_approved(device_codes):
+    body = DeviceApproveRequest(device_code="pending")
+    assert desktop_client.deny_device_code(body, None) == {"status": "denied"}
+    assert 0 < device_codes.last_ttl <= desktop_client._DEVICE_CODE_TTL - 30
+    for _ in range(2):
+        result = desktop_client.poll_device_code("pending")
+        assert result.status == "denied"
+        assert result.access_token is None
+        assert result.refresh_token is None
+    with pytest.raises(HTTPException) as error:
+        desktop_client.approve_device_code(body, None)
+    assert error.value.status_code == 410
+
+
+def test_denial_is_idempotent_and_does_not_extend_expiry(device_codes):
+    body = DeviceApproveRequest(device_code="pending")
+    desktop_client.deny_device_code(body, None)
+    first_ttl = device_codes.last_ttl
+    desktop_client.deny_device_code(body, None)
+    assert device_codes.last_ttl <= first_ttl
+
+
+def test_denial_cannot_overwrite_an_approved_device(device_codes):
+    device_codes["pending"]["token"] = "approved-token"
+    with pytest.raises(HTTPException) as error:
+        desktop_client.deny_device_code(
+            DeviceApproveRequest(device_code="pending"), None
+        )
+    assert error.value.status_code == 409
+    assert desktop_client.poll_device_code("pending").access_token == "approved-token"
+
+
+def test_deny_unknown_or_expired_device(device_codes):
+    with pytest.raises(HTTPException) as error:
+        desktop_client.deny_device_code(
+            DeviceApproveRequest(device_code="unknown"), None
+        )
+    assert error.value.status_code == 404
+    device_codes["pending"]["created_at"] = time.time() - 301
+    with pytest.raises(HTTPException) as error:
+        desktop_client.deny_device_code(
+            DeviceApproveRequest(device_code="pending"), None
+        )
+    assert error.value.status_code == 410
+    assert "pending" not in device_codes
 
 
 def _write(path: Path) -> Path:
@@ -10,7 +78,9 @@ def _write(path: Path) -> Path:
     return path
 
 
-def test_find_local_download_asset_prefers_static_download(tmp_path, monkeypatch) -> None:
+def test_find_local_download_asset_prefers_static_download(
+    tmp_path, monkeypatch
+) -> None:
     static_dir = tmp_path / "static" / "downloads"
     release_dir = tmp_path / "desktop-client" / "release"
     static_zip = _write(static_dir / "campus-cloud-connect.zip")
@@ -29,9 +99,7 @@ def test_find_local_download_asset_falls_back_to_latest_release_installer(
     static_dir = tmp_path / "static" / "downloads"
     release_dir = tmp_path / "desktop-client" / "release"
     portable = _write(release_dir / "0.1.0" / "Campus Cloud Connect 0.1.0.exe")
-    installer = _write(
-        release_dir / "0.1.0" / "Campus Cloud Connect Setup 0.1.0.exe"
-    )
+    installer = _write(release_dir / "0.1.0" / "Campus Cloud Connect Setup 0.1.0.exe")
     assert portable.exists()
 
     monkeypatch.setattr(desktop_client, "_STATIC_DIR", static_dir)
@@ -40,7 +108,9 @@ def test_find_local_download_asset_falls_back_to_latest_release_installer(
     assert desktop_client._find_local_download_asset() == installer
 
 
-def test_find_local_download_asset_ignores_blockmap_files(tmp_path, monkeypatch) -> None:
+def test_find_local_download_asset_ignores_blockmap_files(
+    tmp_path, monkeypatch
+) -> None:
     static_dir = tmp_path / "static" / "downloads"
     release_dir = tmp_path / "desktop-client" / "release"
     _write(release_dir / "0.1.0" / "Campus Cloud Connect Setup 0.1.0.exe.blockmap")

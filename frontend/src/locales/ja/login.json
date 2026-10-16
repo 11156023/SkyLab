@@ -96,6 +96,8 @@
   "LoginPage.deviceErrorHelp": "SkyLab Connect に戻り、もう一度ログインボタンを押して新しいリンクを取得してください。",
   "LoginPage.backToSkyLab": "SkyLab に戻る",
   "LoginPage.deviceConnectingTitle": "アプリに接続中",
+  "LoginPage.deviceCancellingTitle": "認証をキャンセル中",
+  "LoginPage.deviceCancellingSubtitle": "SkyLab Connect にログインのキャンセルを通知しています。しばらくお待ちください…",
   "LoginPage.deviceConnectingSubtitle": "SkyLab Connect を認証しています。しばらくお待ちください…",
   "LoginPage.deviceApprovalError": "認証に失敗しました。ログインリンクを再生成してください。",
   "LoginPage.backToLogin": "ログインに戻る",

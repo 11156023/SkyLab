@@ -292,7 +292,7 @@ class CourseAIAssignmentStudent(BaseModel):
     template_key: str
     version: int
     approved_at: datetime | None = None
-    # 老師還沒做好檢查腳本時為 False：學生照樣看得到項目、可以回報完成，只是還不能被檢查
+    # 學生端僅公開製作並核准的腳本任務。
     check_available: bool = True
     items: list[CourseAITaskItemStudent]
     source_document: CourseAISourceDocumentStudent | None = None
@@ -328,6 +328,12 @@ class CourseWeeklyCheckpointStudent(BaseModel):
     latest_check: CourseAICheckStudent | None = None
 
 
+class CourseWeeklySourceDocumentStudent(CourseAISourceDocumentStudent):
+    """已核准 AI 任務的 PDF；透過作業身分驗證端點開啟。"""
+
+    assignment_id: uuid.UUID
+
+
 class CourseWeeklyTaskStudent(BaseModel):
     """Published weekly content from the teaching class linked to a path."""
 
@@ -338,6 +344,9 @@ class CourseWeeklyTaskStudent(BaseModel):
     session_date: date
     title: str
     files: list[CourseWeeklyTaskFileStudent] = Field(default_factory=list)
+    source_documents: list[CourseWeeklySourceDocumentStudent] = Field(
+        default_factory=list
+    )
     checkpoints: list[CourseWeeklyCheckpointStudent] = Field(default_factory=list)
     teacher_reply: str = ""
     teacher_reply_at: datetime | None = None

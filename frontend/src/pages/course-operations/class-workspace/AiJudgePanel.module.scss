@@ -4,11 +4,15 @@
 /* ── 主面板 ── */
 .panel {
   @include flex-column;
+  container: judge-layout / inline-size;
+  min-width: 0;
+  width: 100%;
   gap: $spacing-24;
 }
 
 .tabBody {
   @include flex-column;
+  min-width: 0;
   gap: $spacing-16;
 }
 
@@ -368,12 +372,15 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .reportText_none { color: var(--color-text-muted); }
 .replyMark { display: inline-flex; align-items: center; gap: 3px; color: var(--color-primary-on-surface); }
 
-/* 展開後最上面：給這位學生這週的回覆（一週一則，再回覆覆蓋） */
-/* 學生回覆：檢查結果下面一列，輸入框隨內容長高（上限約 6 行），右邊送出 */
+/* 本週回覆放在全部檢查結果之後，與判定共用學生的儲存按鈕。 */
 .replyBar {
-  display: flex;
-  align-items: flex-end;
+  display: grid;
   gap: $spacing-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+
+  > span { font-weight: $font-weight-700; }
+  > span small { margin-left: 4px; color: var(--color-text-muted); font-weight: $font-weight-500; }
 }
 
 .replyInput {
@@ -387,14 +394,11 @@ strong.reviewStatValue { font-size: $font-size-14; }
 }
 
 .replyCount {
-  flex: none;
-  align-self: center;
+  justify-self: end;
   color: var(--color-text-muted);
   font-size: $font-size-12;
   font-variant-numeric: tabular-nums;
 }
-
-.replyBar > button { flex: none; }
 
 .reviewStudentBody {
   display: grid;
@@ -509,14 +513,21 @@ strong.reviewStatValue { font-size: $font-size-14; }
   text-align: center;
 }
 
-@media (max-width: 900px) {
+@container judge-content (max-width: 900px) {
   .reviewStatLine { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; }
+  .reviewStatLabel { grid-column: 1; grid-row: 1; }
+  .reviewStatValue { grid-column: 2; grid-row: 1; }
   .reviewStackBar { grid-column: 1 / -1; grid-row: 2; }
   .reviewCheck { grid-template-columns: 20px minmax(0, 1fr); }
   .reviewDecision { grid-column: 2; }
 }
 
-@media (max-width: 620px) {
+@container judge-content (max-width: 620px) {
+  .reviewOverviewHead { align-items: flex-start; flex-wrap: wrap; }
+  .reviewStatLine { grid-template-columns: minmax(0, 1fr); gap: $spacing-8; }
+  .reviewStatValue { grid-column: 1; grid-row: 2; justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
+  .reviewStackBar { grid-row: 3; }
+  .reviewBlocker { flex-wrap: wrap; }
   .reviewStudentToggle { grid-template-columns: minmax(0, 1fr) auto; }
   .reviewStudentBadges { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; padding-left: 44px; }
   .reviewDecision { flex-wrap: wrap; }
@@ -665,29 +676,25 @@ strong.reviewStatValue { font-size: $font-size-14; }
 /* ── 檢查項目表格 ── */
 .rubricTableCard {
   overflow: hidden;
-
-  @include respond-to(xl) {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
 }
 
 .rubricTableWrap {
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   margin: 0 (-$spacing-24) (-$spacing-24);
 }
 
 .rubricTable {
   @include table-base;
-  min-width: 780px;
+  table-layout: fixed;
 }
 
 .rubricTable th {
   @include table-th;
 }
 
-/* 欄位取捨：序號併進展開鈕那格、刪除鈕只留圖示，固定欄共約 230px；
-   剩下的寬度檢查點拿 34%、檢測方式拿其餘，百分比不超過 100% 才不會撐出橫向捲動 */
+/* 固定序號與操作欄；檢查點拿 30%、檢測方式使用剩餘寬度，長內容在欄內換行。 */
 .rubricTable th:first-child,
 .rubricDetailToggleCell {
   width: 68px;
@@ -696,9 +703,9 @@ strong.reviewStatValue { font-size: $font-size-14; }
   white-space: nowrap;
 }
 
-.rubricTable th:nth-child(2) { width: 34%; }
+.rubricTable th:nth-child(2) { width: 30%; }
 .rubricTable th:nth-child(4) { width: 112px; }
-.rubricTable th:last-child { width: 56px; }
+.rubricTable th:last-child { width: 44px; }
 
 /* 序號與展開鈕同一列、垂直置中 */
 .rubricIndex {
@@ -759,6 +766,8 @@ strong.reviewStatValue { font-size: $font-size-14; }
   padding-top: $spacing-16;
   padding-bottom: $spacing-16;
   vertical-align: top;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tableField {
@@ -800,7 +809,13 @@ strong.reviewStatValue { font-size: $font-size-14; }
   textarea:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 
-.rubricDescriptionCell { min-width: 220px; }
+.tableField .rubricTitleInput {
+  min-height: 48px;
+  field-sizing: content;
+  resize: none;
+  font-weight: $font-weight-700;
+}
+.rubricDescriptionCell { min-width: 0; }
 .rubricMethodText {
   min-height: 36px;
   margin: 0;
@@ -809,6 +824,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   color: var(--color-text-primary);
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .rubricMethodTextEmpty {
   color: var(--color-text-muted);
@@ -834,6 +850,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   align-items: center;
   gap: 4px;
   min-width: 0;
+  flex-wrap: wrap;
   max-width: 100%;
   padding: 2px 8px;
   border-radius: $radius-8;
@@ -847,12 +864,12 @@ strong.reviewStatValue { font-size: $font-size-14; }
 
   code {
     min-width: 0;
-    overflow: hidden;
+    max-width: 100%;
     color: var(--color-text-primary);
     font-family: monospace;
     font-size: $font-size-12;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
 }
 /* 兩個 class 的權重壓過 .rubricTableRow > td 的 top 對齊，不用 !important */
@@ -935,6 +952,15 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .detBadge_manual { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 .detBadge_teacher { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
 .detBadge em { font-size: $font-size-12; font-style: normal; font-weight: $font-weight-700; }
+
+.rubricDetectabilityCell .detBadge {
+  max-width: 100%;
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+
+  > span { min-width: 0; }
+}
 
 .detectGrid {
   display: grid;
@@ -1964,7 +1990,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 
   // 清單高度跟著右側內容走（height: 0 不參與列高、min-height 撐滿格子），
   // 週次很多時在清單內捲動，不會把整塊面板撐高
-  @include respond-to(xl) {
+  @container judge-layout (min-width: 1100px) {
     height: 0;
     min-height: 100%;
     overflow: hidden;
@@ -2005,7 +2031,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   }
 
   .sessionList {
-    @include respond-to(xl) {
+    @container judge-layout (min-width: 1100px) {
       flex: 1 1 auto;
       min-height: 0;
       max-height: none;
@@ -2026,12 +2052,10 @@ strong.reviewStatValue { font-size: $font-size-14; }
    底下是撐滿的表格與底部動作列 */
 .checkWorkPane {
   display: flex;
+  container: judge-rubric / inline-size;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
-
-  > .proposalPreview {
-    margin: $spacing-16 $spacing-24 0;
-  }
 
   .rubricActionBar {
     margin-top: auto;
@@ -2041,7 +2065,8 @@ strong.reviewStatValue { font-size: $font-size-14; }
 }
 
 .checkRubricCard {
-  @include respond-to(xl) {
+  @container judge-content (min-width: 1060px) {
+    height: 100%;
     min-height: 0;
     overflow: hidden;
   }
@@ -2055,7 +2080,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   flex-direction: column;
   border-top: 1px solid var(--judge-line);
 
-  @include respond-to(xl) {
+  @container judge-content (min-width: 1060px) {
     height: auto;
     min-height: 0;
     overflow: hidden;
@@ -2073,10 +2098,10 @@ strong.reviewStatValue { font-size: $font-size-14; }
   align-items: start;
 
   // 跟整塊面板的最小高度一樣，底部不會多出一截空白；助理欄寬可以拖拉（--judge-chat-w）
-  @include respond-to(xl) {
-    grid-template-columns: minmax(0, 1fr) var(--judge-chat-w, clamp(340px, 26vw, 400px));
+  @container judge-content (min-width: 1060px) {
+    grid-template-columns: minmax(0, 1fr) clamp(300px, var(--judge-chat-w, 340px), 38cqw);
     align-items: stretch;
-    height: calc(100vh - 240px);
+    height: calc(100dvh - 240px);
     min-height: 520px;
   }
 }
@@ -2108,7 +2133,10 @@ strong.reviewStatValue { font-size: $font-size-14; }
    負邊距放在會捲動的容器裡，多出來的寬度會變成一條橫向捲軸 */
 .checkRubricBody {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+
+  > .proposalPreview { margin: $spacing-16; }
 
   .rubricTableWrap {
     margin: 0;
@@ -2125,15 +2153,11 @@ strong.reviewStatValue { font-size: $font-size-14; }
   }
 
   // 由這一層統一捲動：表格外框若自己也橫向捲動，會變成黏性標頭的捲動容器，標頭就黏不住
-  @include respond-to(xl) {
+  @container judge-content (min-width: 1060px) {
     overflow: auto;
 
     .rubricTableWrap {
       overflow: visible;
-    }
-
-    .rubricTable {
-      min-width: 600px;
     }
   }
 }
@@ -2148,11 +2172,13 @@ strong.reviewStatValue { font-size: $font-size-14; }
   border-top: 1px solid var(--color-border);
 
   p {
+    min-width: 0;
     max-width: 58ch;
     margin: 0 auto 0 0;
     color: var(--color-text-secondary);
     font-size: $font-size-12;
     line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
   .rubricActionHintBlocked {
@@ -2172,7 +2198,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
     flex: 0 0 auto;
   }
 
-  @media (max-width: 640px) {
+  @container judge-rubric (max-width: 620px) {
     align-items: stretch;
     flex-direction: column;
 
@@ -2210,7 +2236,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   overflow: hidden;
   border-radius: $radius-16;
 
-  @include respond-to(xl) {
+  @container judge-layout (min-width: 1100px) {
     // 週次欄寬可以拖拉（--judge-week-w，見 ColumnResizer）
     grid-template-columns: var(--judge-week-w, 220px) minmax(0, 1fr);
     align-items: stretch;
@@ -2256,27 +2282,29 @@ strong.reviewStatValue { font-size: $font-size-14; }
   &:focus-visible {
     outline: none;
   }
-
-  @include respond-to(xl) {
-    display: block;
-  }
 }
 
 .columnResizerWeek {
   left: calc(var(--judge-week-w, 220px) - 5px);
+
+  @container judge-layout (min-width: 1100px) { display: block; }
 }
 
 .columnResizerChat {
-  right: calc(var(--judge-chat-w, clamp(340px, 26vw, 400px)) - 4px);
+  right: calc(clamp(300px, var(--judge-chat-w, 340px), 38cqw) - 4px);
+
+  @container judge-content (min-width: 1060px) { display: block; }
 }
 
 .checkContentCol {
   display: flex;
+  container: judge-content / inline-size;
   min-width: 0;
   flex-direction: column;
 }
 
 .proposalPreview {
+  min-width: 0;
   flex: 0 0 auto;
   margin-bottom: $spacing-16;
   border: 1px solid var(--color-divider);
@@ -2314,6 +2342,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   display: flex;
   min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   gap: $spacing-8;
 
   small {
@@ -2338,6 +2367,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 
 .proposalContent {
   display: grid;
+  min-width: 0;
   gap: $spacing-8;
   padding: 0 $spacing-16 $spacing-16;
   border-top: 1px solid var(--color-divider);
@@ -2353,8 +2383,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .proposalList {
   display: grid;
   gap: 0;
-  max-height: 280px;
-  overflow-y: auto;
+  min-width: 0;
 }
 
 .proposalRow {
@@ -2376,6 +2405,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   }
 
   input {
+    flex: none;
     margin-top: 3px;
     accent-color: var(--color-primary);
   }
@@ -2384,6 +2414,8 @@ strong.reviewStatValue { font-size: $font-size-14; }
     display: grid;
     gap: 3px;
     min-width: 0;
+    flex: 1;
+    overflow-wrap: anywhere;
   }
 
   b { font-size: $font-size-14; }
@@ -2395,6 +2427,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .proposalCommandPreview {
   justify-self: start;
   max-width: 100%;
+  box-sizing: border-box;
   padding: 2px 8px;
   border-radius: $radius-8;
   background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
@@ -2414,7 +2447,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
     margin: 0 auto 0 0;
   }
 
-  @media (max-width: 640px) {
+  @container judge-rubric (max-width: 420px) {
     align-items: stretch;
     flex-direction: column-reverse;
 
@@ -2432,12 +2465,68 @@ strong.reviewStatValue { font-size: $font-size-14; }
 }
 
 @include respond-below(md) {
-  .rubricTableWrap { margin-right: -$spacing-16; margin-left: -$spacing-16; }
-  .rubricTable { min-width: 780px; }
   .rubricTable th,
   .rubricTableRow > td { padding-right: $spacing-8; padding-left: $spacing-8; }
   .rubricDetailRow > td { padding-right: $spacing-8; padding-left: $spacing-8; }
   .rubricDetailHead { flex-direction: column; }
+}
+
+/* 以實際欄寬切換卡片；側欄、縮放與拖拉助理欄都不能把表格擠出畫面。 */
+@container judge-rubric (max-width: 699px) {
+  .rubricTable { display: block; }
+  .rubricTable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .rubricTable tbody { display: block; }
+  .rubricTableRow {
+    display: grid;
+    grid-template-columns: 68px minmax(0, 1fr) 36px;
+    align-items: center;
+    gap: 4px $spacing-8;
+    padding: $spacing-16;
+  }
+  .rubricTableRow > td { display: block; width: auto; padding: 0; }
+  .rubricDetailToggleCell { grid-column: 1; grid-row: 1; }
+  .rubricTableRow > .rubricDetectabilityCell { grid-column: 2; grid-row: 1; text-align: right; }
+  .rubricTableRow > .rubricActionsCell { grid-column: 3; grid-row: 1; padding: 0; }
+  .rubricTitleCell { grid-column: 1 / -1; grid-row: 2; }
+  .tableField .rubricTitleInput { min-height: 44px; padding-inline: 0; }
+  .rubricDescriptionCell {
+    grid-column: 1 / -1;
+    grid-row: 3;
+
+    &::before {
+      content: attr(data-label);
+      display: block;
+      color: var(--color-text-muted);
+      font-size: $font-size-12;
+    }
+  }
+  .rubricMethodText { min-height: 0; padding: 4px 0; }
+  .rubricTargetSummary { margin: 4px 0 0; }
+  .rubricDetailRow { display: block; }
+  .rubricDetailRow > td { display: block; box-sizing: border-box; width: 100%; padding: 0 $spacing-16 $spacing-16; }
+  .rubricDetail { padding: $spacing-8; }
+  .detectGrid { grid-template-columns: minmax(0, 1fr); }
+  .rubricActionBar { gap: $spacing-8; }
+  .checkWorkPane .rubricActionBar { padding: $spacing-16; }
+}
+
+@container judge-content (max-width: 620px) {
+  .checkChatCol { height: 420px; }
+  .checkTabPanelPadded { padding: $spacing-16; }
+  .checkPane { padding: $spacing-16; }
+  .checkTabPanel > .tabBody > :not(.rubricsGrid) { margin-inline: $spacing-16; }
+  .reviewStudentBody { padding-inline: $spacing-8; }
+  .reviewCheckGroupBody { padding-left: 0; }
+  .reviewCheckGroupHead { grid-template-columns: 20px minmax(0, 1fr) 18px; }
+  .reviewCheckGroupHead > .badge { grid-column: 2; grid-row: 2; justify-self: start; }
+  .reviewCheckGroupChevron { grid-column: 3; grid-row: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2486,7 +2575,6 @@ strong.reviewStatValue { font-size: $font-size-14; }
   border-top: 1px solid var(--color-divider);
 
   &:empty { display: none; }
-  > .reviewSaveRow { flex: 1 1 320px; }
 }
 
 .executionTiming {

@@ -94,6 +94,7 @@
     logoutButton: "登出",
     waiting: "等待瀏覽器完成驗證...",
     success: "登入成功",
+    timeout: "授權已逾時，請重新連線。",
     failure: "登入失敗：{error}",
     alreadyLoggedIn: "已登入"
   },

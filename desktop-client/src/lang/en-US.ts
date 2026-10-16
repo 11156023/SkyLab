@@ -98,6 +98,7 @@
     logoutButton: "Sign out",
     waiting: "Waiting for browser verification...",
     success: "Signed in",
+    timeout: "Authorization timed out. Please connect again.",
     failure: "Sign-in failed: {error}",
     alreadyLoggedIn: "Signed in"
   },
