@@ -7,7 +7,7 @@ import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
-import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
+import TemplateFormDialog from "../../resource/templates/TemplateFormDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -391,7 +391,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
     </tr>
     {consoleOpen && isLxc && createPortal(<TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
     {consoleOpen && !isLxc && createPortal(<VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
-    {convertDialog.open && createPortal(<TemplateConvertDialog resource={resource} closing={convertDialog.closing} onClose={() => setConvertOpen(false)} onDone={() => onDeleted(resource.vmid)} />, document.body)}
+    {convertDialog.open && createPortal(<TemplateFormDialog sourceResource={resource} closing={convertDialog.closing} onClose={() => setConvertOpen(false)} onSaved={() => { onDeleted(resource.vmid); navigate("/templates"); }} />, document.body)}
   </>;
 }
 

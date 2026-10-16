@@ -6,7 +6,7 @@ import styles from "./ResourceMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
-import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
+import TemplateFormDialog from "../templates/TemplateFormDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -508,11 +508,14 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
         document.body,
       )}
       {convertDialog.open && createPortal(
-        <TemplateConvertDialog
-          resource={resource}
+        <TemplateFormDialog
+          sourceResource={resource}
           closing={convertDialog.closing}
           onClose={() => setConvertOpen(false)}
-          onDone={() => onDeleted(resource.vmid)}
+          onSaved={() => {
+            onDeleted(resource.vmid);
+            navigate("/templates");
+          }}
         />,
         document.body,
       )}
