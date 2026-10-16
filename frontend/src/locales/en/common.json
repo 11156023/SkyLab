@@ -217,6 +217,7 @@
   "UserGuide.aiApi.step16.title": "Call details: audit every single call",
   "UserGuide.aiApi.step16.text": "Each row lists the time, call type, model, tokens, and success/failure status. Failed calls include the error message to help you debug.",
   "Sidebar.topDashboard": "Home",
+  "Sidebar.adminHome": "Admin Home",
   "Sidebar.topCourses": "Courses",
   "Sidebar.groupResource": "Resources",
   "Sidebar.itemMyResources": "My Resources",

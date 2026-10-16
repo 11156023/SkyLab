@@ -86,7 +86,8 @@ const navGroups = [
 
 /* 系統管理已移出主導覽分類：由底部「管理員設定」進入專屬核心側欄（僅管理員），路由沿用原本的網址 */
 const adminSettingsItems = [
-  { key: "dashboard",       labelKey: "Sidebar.topDashboard",       icon: "dashboard" },
+  /* 管理員另有一般頁面的「首頁」（/home），這裡要叫「管理首頁」才分得出來 */
+  { key: "dashboard",       labelKey: "Sidebar.adminHome",          icon: "dashboard" },
   { key: "admin",           labelKey: "Sidebar.itemAdmin",          icon: "admin_panel_settings" },
   { key: "ip-management",   labelKey: "Sidebar.itemIpManagement",   icon: "lan" },
   { key: "domain",          labelKey: "Sidebar.itemDomain",         icon: "domain" },

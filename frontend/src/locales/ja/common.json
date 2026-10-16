@@ -217,6 +217,7 @@
   "UserGuide.aiApi.step16.title": "詳細記録：1件ずつの呼び出しを確認",
   "UserGuide.aiApi.step16.text": "各行には日時・呼び出し種別・モデル・Token・成功／失敗の状態が表示され、失敗時にはエラーメッセージも確認できます。",
   "Sidebar.topDashboard": "ホーム",
+  "Sidebar.adminHome": "管理者ホーム",
   "Sidebar.topCourses": "コース",
   "Sidebar.groupResource": "リソース",
   "Sidebar.itemMyResources": "マイリソース",

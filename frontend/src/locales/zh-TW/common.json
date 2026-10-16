@@ -217,6 +217,7 @@
   "UserGuide.aiApi.step16.title": "細項紀錄：每一筆呼叫都能對帳",
   "UserGuide.aiApi.step16.text": "逐筆列出時間、呼叫類型、模型、Tokens 與成功／失敗狀態；失敗的呼叫會顯示錯誤訊息，方便排查問題。",
   "Sidebar.topDashboard": "首頁",
+  "Sidebar.adminHome": "管理首頁",
   "Sidebar.topCourses": "課程",
   "Sidebar.groupResource": "資源",
   "Sidebar.itemMyResources": "我的資源",

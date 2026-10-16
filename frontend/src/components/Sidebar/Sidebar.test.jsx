@@ -84,7 +84,9 @@ test("admin landing shows the settings home and toggles between both workspaces"
   await renderAt("/dashboard");
   expect(button("itemAdmin")).not.toBeNull();
   expect(button("groupResource")).toBeNull();
-  expect(button("topDashboard").className).toContain("active");
+  expect(button("adminHome").className).toContain("active");
+  /* 兩個工作區的首頁名稱不同，管理員不會同時看到兩個「首頁」 */
+  expect(button("topDashboard")).toBeNull();
   expect(button("backToConsole")).toBeNull();
 
   await act(async () => button("generalPages").click());
@@ -92,6 +94,7 @@ test("admin landing shows the settings home and toggles between both workspaces"
   expect(button("itemAdmin")).toBeNull();
   expect(button("groupResource")).not.toBeNull();
   expect(button("topDashboard").className).toContain("active");
+  expect(button("adminHome")).toBeNull();
 
   await act(async () => button("adminSettings").click());
   expect(host.querySelector("output").textContent).toBe("/dashboard");
