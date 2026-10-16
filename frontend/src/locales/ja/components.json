@@ -510,5 +510,7 @@
   "Stepper.doneSuffix": "（完了）",
   "ColorPicker.custom": "カスタム",
   "ColorPicker.pick": "色を選ぶ",
-  "ColorPicker.hexLabel": "カラーコード"
+  "ColorPicker.hexLabel": "カラーコード",
+  "AiFloatingChat.pageHelpHint": "この画面で何ができるか、私に聞いてください。",
+  "AiFloatingChat.dismissPageHelpHint": "ヒントを閉じる"
 }

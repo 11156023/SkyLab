@@ -133,6 +133,10 @@ class TeachingClassMachineNode(SQLModel, table=True):
     )
 
 
+# 老師發布這週內容後，學生才看得到這週的作業，老師也才能執行檢查
+PUBLISHED_WEEK_STATUSES = frozenset({"published", "completed"})
+
+
 class TeachingClassWeek(SQLModel, table=True):
     __tablename__ = "teaching_class_weeks"
     __table_args__ = (

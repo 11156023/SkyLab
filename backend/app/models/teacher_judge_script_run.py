@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from sqlmodel import Column, Field, Relationship, SQLModel
 
 from .base import get_datetime_utc
+from .teacher_judge_run_target import TeacherJudgeRunTarget
 from .teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 
 
@@ -45,7 +46,7 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     run_batch_id: uuid.UUID | None = Field(
         default=None,
-        sa_column=Column(sa.Uuid, nullable=True, index=True),
+        sa_column=Column(sa.Uuid, sa.ForeignKey("teacher_judge_run_batches.id", ondelete="SET NULL"), nullable=True, index=True),
     )
     artifact_id: uuid.UUID = Field(
         sa_column=Column(
@@ -85,6 +86,7 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
         sa_column=Column(sa.JSON, nullable=False),
     )
     target_results_json: dict[str, Any] = Field(
+        # Historical payload only. New executions write target_records.
         default_factory=dict,
         sa_column=Column(sa.JSON, nullable=False),
     )
@@ -101,6 +103,8 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
         default=None,
         sa_column=Column(sa.DateTime(timezone=True), nullable=True),
     )
+    prepared_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
+    request_id: str | None = Field(default=None, max_length=64, index=True)
     finished_at: datetime | None = Field(
         default=None,
         sa_column=Column(sa.DateTime(timezone=True), nullable=True),
@@ -117,6 +121,18 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
     artifact: TeacherJudgeScriptArtifact = Relationship(
         sa_relationship_kwargs={"lazy": "joined", "innerjoin": True}
     )
+    target_records: list[TeacherJudgeRunTarget] = Relationship(
+        sa_relationship_kwargs={"lazy": "select", "cascade": "all, delete-orphan"}
+    )
+
+    @property
+    def results_document(self) -> dict[str, Any]:
+        """Serialize canonical target rows, falling back only for old records."""
+        if not self.target_records:
+            return self.target_results_json
+        targets = [row.to_result() for row in self.target_records if row.status in {"completed", "failed", "cancelled"}]
+        targets.sort(key=lambda item: (int(item.get("vmid") or 0), str(item.get("student_id") or "")))
+        return {"schema_version": "teacher_judge_run_results.v2", "targets": targets}
 
     @property
     def teaching_class_id(self) -> uuid.UUID:

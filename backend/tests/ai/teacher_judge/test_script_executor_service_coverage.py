@@ -284,6 +284,7 @@ def _assert_unstarted_failure_summary(
         "ssh_concurrency_total": 200,
         "timing": {
             "queue_seconds": None,
+            "preparation_seconds": None,
             "execution_seconds": None,
             "total_seconds": pytest.approx(
                 (run.finished_at - run.created_at).total_seconds(), abs=0.001,
@@ -315,9 +316,13 @@ def test_mark_run_failed_keeps_preflight_and_touches_session(
     stored = sqlite_db.get(TeacherJudgeScriptRun, run.id)
     assert stored is not None
     assert stored.status == TeacherJudgeScriptRunStatus.failed
-    assert stored.target_results_json["targets"] == preflight
+    targets = {target["vmid"]: target for target in stored.results_document["targets"]}
+    assert targets[102]["reason_code"] == "not_running"
+    assert targets[101]["reason_code"] == "executor_error"
     _assert_unstarted_failure_summary(stored, {
+        "total": 2, "completed": 0, "failed": 2, "valid_json": 0, "invalid_json": 2,
         "executor_error": "boom",
+        "executor_reason": "executor_error",
         "preflight_failed": 1,
     })
     touched = sqlite_db.get(TeacherJudgeSession, judge_session.id)
@@ -480,7 +485,7 @@ async def test_execute_script_run_marks_failure_when_cancelled(
     monkeypatch.setattr(
         executor,
         "_mark_run_executor_failed",
-        lambda run_id, message: recorded.append((run_id, message)),
+        lambda run_id, message, **kwargs: recorded.append((run_id, message)),
     )
     run_id = uuid.uuid4()
     with pytest.raises(asyncio.CancelledError):

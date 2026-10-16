@@ -15,10 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.ai.teacher_judge.execution_paths import (
-    CWD_LOCATION_GAP,
     absolute_execution_path,
-    optional_cwd,
-    resolved_file_path,
 )
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricAnalysis
 from app.ai.teacher_judge.script_policy import (
@@ -31,7 +28,7 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
-DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v4"
+DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v5"
 _ASSERTION_TYPES_BY_COLLECTOR = {
     "command": {"returncode_equals", "text_equals", "text_contains", "number_compare", "json_path_equals"},
     "file_text": {"text_equals", "text_contains", "number_compare", "json_path_equals"},
@@ -493,13 +490,10 @@ def _interpreter_operand(command: str, args: list[str]) -> tuple[str | None, boo
     return None, False
 
 
-def _script_path_is_unsafe(operand: str, extensions: tuple[str, ...], cwd: str | None) -> bool:
+def _script_path_is_unsafe(operand: str, extensions: tuple[str, ...]) -> bool:
     path = operand.replace("\\", "/")
     if not path.lower().endswith(extensions):
         return True
-    is_absolute = path.startswith("/") or re.match(r"^[A-Za-z]:/", path) is not None
-    if cwd and not is_absolute:
-        path = posixpath.join(cwd.replace("\\", "/"), path)
     normalized = re.sub(r"^/+", "/", posixpath.normpath(path)).lower()
     segments = normalized.split("/")
     return (
@@ -603,23 +597,20 @@ def missing_execution_location(collector: dict[str, Any]) -> list[str]:
     """Shared proposal/preflight/compiler gate for unresolved execution paths.
 
     No remote filesystem I/O is performed: existence is checked at execution.
-    A command may omit cwd only when its inputs can be located independently.
+    File and program inputs must be absolute; no working directory is applied.
     """
     collector_type = collector.get("type")
     if collector_type not in {"command", "file_text", "file_stat"}:
         return []
-    cwd = optional_cwd(collector.get("cwd"))
-    if cwd is not None and not absolute_execution_path(cwd):
-        return [CWD_LOCATION_GAP]
     if collector_type in {"file_text", "file_stat"}:
         path = collector.get("path")
         located = (
             isinstance(path, str) and bool(path.strip())
             and not path.startswith(("~", "$"))
-            and (absolute_execution_path(path) or absolute_execution_path(cwd))
+            and absolute_execution_path(path)
         )
         return [] if located else [
-            f"檔案「{path or '未指定'}」的完整路徑（或提供工作目錄與相對路徑）"
+            f"檔案「{path or '未指定'}」的絕對路徑"
         ]
     argv = collector.get("argv")
     if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
@@ -664,16 +655,16 @@ def missing_execution_location(collector: dict[str, Any]) -> list[str]:
         path for path in paths
         if path != "-" and (
             path.startswith(("~", "$"))
-            or (not absolute_execution_path(path) and not absolute_execution_path(cwd))
+            or not absolute_execution_path(path)
         )
     ]
     return [
-        f"程式／檔案「{path}」的完整路徑，或所在工作目錄與相對路徑"
+        f"程式／檔案「{path}」的絕對路徑"
         for path in dict.fromkeys(unresolved)
     ]
 
 
-def _interpreter_issue(command: str, args: list[str], cwd: str | None = None) -> str | None:
+def _interpreter_issue(command: str, args: list[str]) -> str | None:
     denied, value_letters = _INTERPRETER_SHORT_RULES[command]
     denied += _INTERPRETER_EXTRA_DENIED.get(command, "")
     if any(arg.partition("=")[0] in _INTERPRETER_DENY_LONG for arg in args) or (
@@ -684,7 +675,7 @@ def _interpreter_issue(command: str, args: list[str], cwd: str | None = None) ->
     if denied_value:
         return "command collector 不允許直譯器切換目錄或從其他位置搜尋腳本"
     if operand is not None and _script_path_is_unsafe(
-        operand, _INTERPRETER_SCRIPT_EXTENSIONS[command], cwd
+        operand, _INTERPRETER_SCRIPT_EXTENSIONS[command]
     ):
         return (
             "command collector 的直譯器只允許執行學生作業的原始碼檔"
@@ -1078,7 +1069,7 @@ def _git_issue(args: list[str], lowered: list[str]) -> str | None:
     return None
 
 
-def _command_argv_issue(argv: list[str], cwd: str | None = None) -> str | None:
+def _command_argv_issue(argv: list[str]) -> str | None:
     if not _is_safe_command_argv(argv):
         return "command collector argv 含 shell launcher 或控制字元"
     command = argv[0].replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
@@ -1089,7 +1080,7 @@ def _command_argv_issue(argv: list[str], cwd: str | None = None) -> str | None:
         return f"command collector 只允許唯讀／診斷命令（{command} 不在白名單）"
 
     if command in _INTERPRETER_SHORT_RULES:
-        if issue := _interpreter_issue(command, args, cwd):
+        if issue := _interpreter_issue(command, args):
             return issue
     if command in _BUILD_TOOLS and args not in _VERSION_ONLY_ARGS:
         return "command collector 對建置工具只允許查詢版本"
@@ -1228,13 +1219,15 @@ def canonicalize_check_plan(
                 continue
             seen_step_ids.add(step_id)
             collector = step.collector.model_dump(mode="json")
+            if "cwd" in collector:
+                issues.append(_issue(item_id, "不再支援 collector.cwd；請以絕對路徑重新核對此步驟", step_id=step_id))
             for gap in missing_execution_location(collector):
                 issues.append(_issue(item_id, gap, step_id=step_id))
             assertion = step.assertion.model_dump(mode="json") if step.assertion else None
             collector_type = str(collector.get("type") or "")
             if collector_type == "command":
                 argv = list(collector.get("argv") or [])
-                command_issue = _command_argv_issue(argv, collector.get("cwd"))
+                command_issue = _command_argv_issue(argv)
                 if command_issue:
                     issues.append(
                         _issue(item_id, command_issue, step_id=step_id)
@@ -1350,21 +1343,21 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
                 "        if not command_available(argv[0]):",
                 f"            errors.append({_json_literal(step['id'] + ': command_missing')})",
                 f"            return record_check({check_id}, {title}, 'unknown', 'command unavailable', {{'error_code': 'command_missing'}})",
-                f"        collected = run_command(argv, {_python_literal(collector.get('cwd'))}, {int(collector.get('timeout_seconds', 30))})",
+                f"        collected = run_command(argv, {int(collector.get('timeout_seconds', 30))})",
                 f"        collected['raw']['argv'] = json.loads({_json_literal(collector['argv'])!r})",
             ]
         )
     elif collector_type == "file_text":
         lines.extend(
             [
-                f"        path = Path({_json_literal(resolved_file_path(collector))})",
+                f"        path = Path({_json_literal(collector['path'])})",
                 f"        collected = read_file_text(path, {_json_literal(collector.get('read_mode', 'full'))}, {int(collector.get('lines') or 1)}, {int(collector.get('max_chars', 12000))})",
             ]
         )
     elif collector_type == "file_stat":
         lines.extend(
             [
-                f"        path = Path({_json_literal(resolved_file_path(collector))})",
+                f"        path = Path({_json_literal(collector['path'])})",
                 "        exists = path.exists()",
                 "        collected = {'ok': True, 'value': exists, 'raw': {'exists': exists}}",
             ]
@@ -1497,22 +1490,14 @@ def _render_script(plan: dict[str, Any]) -> str:
         "def command_available(command):\n"
         "    import shutil\n"
         "    return bool(shutil.which(command))\n\n"
-        "def run_command(argv, cwd, timeout):\n"
-        "    command_raw = {'cwd': cwd, 'timeout_seconds': timeout}\n"
+        "def run_command(argv, timeout):\n"
+        "    command_raw = {'timeout_seconds': timeout}\n"
         "    try:\n"
-        "        completed = subprocess.run(argv, cwd=cwd, timeout=timeout, capture_output=True, text=True, check=False)\n"
+        "        completed = subprocess.run(argv, timeout=timeout, capture_output=True, text=True, check=False)\n"
         "        return {'ok': True, 'value': completed.stdout, 'stdout': completed.stdout, 'stderr': completed.stderr, 'returncode': completed.returncode, 'raw': {**command_raw, 'stdout': completed.stdout, 'stderr': completed.stderr, 'returncode': completed.returncode}}\n"
         "    except subprocess.TimeoutExpired as exc:\n"
         "        message = f'指令執行逾時（{timeout} 秒）'\n"
         "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_timeout', 'error_message': message, 'raw': {**command_raw, 'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_timeout', 'error_message': message}}\n"
-        "    except OSError as exc:\n"
-        "        if cwd and (isinstance(exc, FileNotFoundError) or getattr(exc, 'winerror', None) == 267):\n"
-        "            error_code = 'working_directory_not_found'\n"
-        "            message = f'工作目錄不存在：{cwd}'\n"
-        "        else:\n"
-        "            error_code = 'command_exception'\n"
-        "            message = '指令無法執行：' + str(exc)\n"
-        "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': error_code, 'error_message': message, 'raw': {**command_raw, 'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': error_code, 'error_message': message, 'error': str(exc)}}\n"
         "    except Exception as exc:\n"
         "        message = '指令無法執行：' + str(exc)\n"
         "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_exception', 'error_message': message, 'raw': {**command_raw, 'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_exception', 'error_message': message, 'error': str(exc)}}\n\n"
@@ -1611,7 +1596,7 @@ def _policy_view_plan(value: Any) -> Any:
         for key, item in value.items():
             if key in _POLICY_VIEW_KEPT_KEYS:
                 result[key] = item
-            elif key in {"path", "cwd"} and isinstance(item, str):
+            elif key == "path" and isinstance(item, str):
                 result[key] = "/policy-placeholder"
             else:
                 result[key] = _policy_view_plan(item)

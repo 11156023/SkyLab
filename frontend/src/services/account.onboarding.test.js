@@ -47,3 +47,13 @@ describe("AccountService 首次登入引導", () => {
     await expect(AccountService.completeOnboarding()).rejects.toMatchObject({ status: 401 });
   });
 });
+
+
+test("markUserGuideSeen persists the guide on the signed-in account", async () => {
+  const me = { id: "u1", seen_user_guides: ["student-home"] };
+  fetchMock.mockResolvedValueOnce(jsonRes(me));
+  expect(await AccountService.markUserGuideSeen("student-home")).toEqual(me);
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url).toContain("/api/v1/users/me/user-guides/student-home/seen");
+  expect(init.method).toBe("POST");
+});

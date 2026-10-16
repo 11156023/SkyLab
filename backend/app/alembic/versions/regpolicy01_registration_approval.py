@@ -34,7 +34,7 @@ def upgrade() -> None:
         "user",
         "registration_status IN ('approved', 'pending_email', 'pending_review', 'rejected')",
     )
-    op.alter_column("user", "registration_status", server_default=None)
+    # Keep the default so older application instances can still create accounts.
 
 
 def downgrade() -> None:

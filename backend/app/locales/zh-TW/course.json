@@ -22,6 +22,7 @@
   "ai_assignment.source_pdf_not_found": "這個任務沒有可供學生查看的 PDF。",
   "ai_assignment.check_not_found": "AI check not found",
   "ai_assignment.task_item_not_found": "找不到這個任務項目",
+  "ai_assignment.student_not_in_class": "這位學生不在這個班級。",
   "course.ai_check_incomplete": "這次檢查沒有完成，老師會再確認結果。",
   "course.teacher_fallback": "授課老師",
   "course_reminder.today": "今天",

@@ -20,6 +20,7 @@ from app.ai.teacher_judge import file_service
 from app.ai.teacher_judge.script_policy import aggregate_check_status
 from app.core.i18n import t
 from app.exceptions import NotFoundError
+from app.models import User
 from app.models.base import get_datetime_utc
 from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_script_artifact import (
@@ -28,11 +29,17 @@ from app.models.teacher_judge_script_artifact import (
 )
 from app.models.teacher_judge_script_run import TeacherJudgeScriptRun
 from app.models.teacher_judge_session import TeacherJudgeSession
+from app.models.teacher_judge_student_reply import TeacherJudgeStudentReply
 from app.models.teacher_judge_student_submission import (
     TeacherJudgeStudentSubmission,
     TeacherJudgeSubmissionItem,
 )
-from app.models.teaching_class import TeachingClass, TeachingClassStudent
+from app.models.teaching_class import (
+    PUBLISHED_WEEK_STATUSES,
+    TeachingClassMachineNode,
+    TeachingClassStudent,
+    TeachingClassWeek,
+)
 from app.schemas.course import (
     CourseAIAssignmentStudent,
     CourseAICheckItemStudent,
@@ -49,12 +56,13 @@ _DETECTABLE_VALUES = {"auto", "partial", "manual"}
 def _student_submission(
     session: Session,
     *,
-    artifact_id: uuid.UUID,
+    session_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> TeacherJudgeStudentSubmission | None:
+    """學生對這一週對話的回報；重新製作腳本、多台機器都還是同一筆。"""
     return session.exec(
         select(TeacherJudgeStudentSubmission).where(
-            TeacherJudgeStudentSubmission.artifact_id == artifact_id,
+            TeacherJudgeStudentSubmission.session_id == session_id,
             TeacherJudgeStudentSubmission.student_id == user_id,
         )
     ).first()
@@ -105,7 +113,7 @@ def _target_for_student(
 ) -> dict[str, Any]:
     """Return only the result target owned by the requested student."""
 
-    raw_targets = (run.target_results_json or {}).get("targets")
+    raw_targets = (run.results_document or {}).get("targets")
     if isinstance(raw_targets, list):
         for raw_target in raw_targets:
             if not isinstance(raw_target, dict):
@@ -354,15 +362,15 @@ def _check_to_student(
 def _student_runs(
     session: Session,
     *,
-    artifact_id: uuid.UUID,
+    artifact_ids: list[uuid.UUID],
     user_id: uuid.UUID,
 ) -> list[TeacherJudgeScriptRun]:
-    """這份作業裡帶有該學生結果的 run，新的在前。"""
+    """這個對話所有腳本（每個版本、每台機器）裡帶有該學生結果的 run，新的在前。"""
+    if not artifact_ids:
+        return []
     runs = session.exec(
         select(TeacherJudgeScriptRun)
-        .where(
-            TeacherJudgeScriptRun.artifact_id == artifact_id,
-        )
+        .where(col(TeacherJudgeScriptRun.artifact_id).in_(artifact_ids))
         .order_by(desc(TeacherJudgeScriptRun.created_at))
     ).all()
     return [run for run in runs if _target_for_student(run, user_id)]
@@ -371,38 +379,53 @@ def _student_runs(
 def _latest_student_check(
     runs: list[TeacherJudgeScriptRun],
     *,
-    artifact: TeacherJudgeScriptArtifact | None,
     user_id: uuid.UUID,
 ) -> CourseAICheckStudent | None:
     return (
-        _check_to_student(runs[0], artifact=artifact, user_id=user_id)
+        _check_to_student(runs[0], artifact=runs[0].artifact, user_id=user_id)
         if runs
         else None
     )
 
 
+def _run_item_ids(run: TeacherJudgeScriptRun) -> set[str]:
+    snapshot = run.artifact.rubric_snapshot_json if run.artifact else None
+    return {item.id for item in student_task_items(snapshot or {})}
+
+
 def _latest_student_checkpoint_checks(
     runs: list[TeacherJudgeScriptRun],
     *,
-    artifact: TeacherJudgeScriptArtifact | None,
     user_id: uuid.UUID,
     item_ids: list[str],
 ) -> dict[str, CourseAICheckStudent]:
+    """每個檢查點取最新一次「有判定」的結果。
+
+    一個檢查點只在負責它的那台機器的腳本裡；最新一次如果只是環境異常、沒有
+    逐項判定，保留更早那次的有效判定。完全沒有判定時才給最新那次，讓學生端
+    顯示待檢查或環境異常，而不是把整次執行的「完成」當成通過。
+    """
     wanted = set(item_ids)
     checks: dict[str, CourseAICheckStudent] = {}
+    without_verdict: dict[str, CourseAICheckStudent] = {}
     for run in runs:
         requested = _requested_item_id(run)
-        candidates = [requested] if requested else item_ids
+        covered = _run_item_ids(run)
+        candidates = [requested] if requested else [item for item in item_ids if item in covered]
         for checkpoint_id in candidates:
-            if checkpoint_id in wanted and checkpoint_id not in checks:
-                checks[checkpoint_id] = _check_to_student(
-                    run,
-                    artifact=artifact,
-                    item_id=checkpoint_id,
-                    user_id=user_id,
-                )
+            if checkpoint_id not in wanted or checkpoint_id in checks:
+                continue
+            check = _check_to_student(
+                run, artifact=run.artifact, item_id=checkpoint_id, user_id=user_id
+            )
+            if check.items:
+                checks[checkpoint_id] = check
+            else:
+                without_verdict.setdefault(checkpoint_id, check)
         if len(checks) == len(wanted):
             break
+    for checkpoint_id, check in without_verdict.items():
+        checks.setdefault(checkpoint_id, check)
     return checks
 
 
@@ -459,13 +482,176 @@ def _student_source_document(
     )
 
 
+def _current_scripts(
+    session: Session, judge_session_id: uuid.UUID
+) -> list[TeacherJudgeScriptArtifact]:
+    """這個對話目前有效的腳本：最新一次製作的那一組（每台機器一支）。"""
+    rows = session.exec(
+        select(TeacherJudgeScriptArtifact)
+        .where(
+            TeacherJudgeScriptArtifact.session_id == judge_session_id,
+            TeacherJudgeScriptArtifact.status == TeacherJudgeScriptStatus.approved,
+        )
+        .order_by(
+            desc(TeacherJudgeScriptArtifact.approved_at),
+            desc(TeacherJudgeScriptArtifact.created_at),
+        )
+    ).all()
+    if not rows:
+        return []
+    newest = rows[0]
+    if newest.artifact_set_id is None:
+        return [newest]
+    members = [row for row in rows if row.artifact_set_id == newest.artifact_set_id]
+    # 依班級機器的排列順序（老師在上課環境看到的順序）；同一次製作的建立時間
+    # 幾乎相同，不能拿來排
+    node_order = {
+        node.node_key: node.sort_order
+        for node in session.exec(
+            select(TeachingClassMachineNode).where(
+                TeachingClassMachineNode.class_id == newest.teaching_class_id
+            )
+        ).all()
+    }
+    return sorted(
+        members,
+        key=lambda row: (
+            node_order.get(row.target_node_key or "", len(node_order)),
+            row.created_at,
+            str(row.id),
+        ),
+    )
+
+
+def _merged_items(
+    scripts: list[TeacherJudgeScriptArtifact],
+) -> list[CourseAITaskItemStudent]:
+    """把每台機器那支腳本的檢查點合成一份，並標出在哪台機器上檢查。"""
+    items: list[CourseAITaskItemStudent] = []
+    seen: set[str] = set()
+    for script in scripts:
+        for item in student_task_items(script.rubric_snapshot_json or {}):
+            if item.id in seen:
+                continue
+            seen.add(item.id)
+            items.append(
+                item.model_copy(
+                    update={
+                        "order": len(items),
+                        "machine_node_key": script.target_node_key,
+                    }
+                )
+            )
+    return items
+
+
+def _session_task(
+    session: Session, judge_session: TeacherJudgeSession
+) -> tuple[list[CourseAITaskItemStudent], list[TeacherJudgeScriptArtifact], TeacherJudgeFile | None]:
+    """這週檢查的項目：有核准的腳本就用腳本的（多台機器合在一起），
+    還沒有腳本時用這週檢查表上的項目——學生照樣可以回報完成，只是還不能被檢查。"""
+    scripts = _current_scripts(session, judge_session.id)
+    if scripts:
+        newest = max(scripts, key=lambda row: (row.approved_at or row.created_at))
+        source_file = (
+            session.get(TeacherJudgeFile, newest.source_file_id)
+            if newest.source_file_id
+            else None
+        )
+        return _merged_items(scripts), scripts, source_file
+    source_file = (
+        session.get(TeacherJudgeFile, judge_session.selected_file_id)
+        if judge_session.selected_file_id
+        else None
+    )
+    items = student_task_items((source_file.analysis_json or {}) if source_file else {})
+    return items, [], source_file
+
+
+def _week_visible(session: Session, judge_session: TeacherJudgeSession) -> bool:
+    if judge_session.teaching_class_week_id is None:
+        return False
+    week = session.get(TeachingClassWeek, judge_session.teaching_class_week_id)
+    return week is not None and week.status in PUBLISHED_WEEK_STATUSES
+
+
+def _student_reply(
+    session: Session, *, session_id: uuid.UUID, user_id: uuid.UUID
+) -> TeacherJudgeStudentReply | None:
+    return session.exec(
+        select(TeacherJudgeStudentReply).where(
+            TeacherJudgeStudentReply.session_id == session_id,
+            TeacherJudgeStudentReply.student_id == user_id,
+        )
+    ).first()
+
+
+def save_student_reply(
+    session: Session,
+    judge_session: TeacherJudgeSession,
+    *,
+    student_id: uuid.UUID,
+    feedback: str,
+    teacher_id: uuid.UUID | None,
+) -> dict[str, Any]:
+    """老師給一位學生這週的回覆：再回覆就覆蓋前一則；空白＝不回覆，刪掉原本的。"""
+
+    enrolled = session.exec(
+        select(TeachingClassStudent).where(
+            TeachingClassStudent.class_id == judge_session.teaching_class_id,
+            TeachingClassStudent.user_id == student_id,
+            TeachingClassStudent.status == "active",
+        )
+    ).first()
+    if enrolled is None:
+        raise NotFoundError(t("ai_assignment.student_not_in_class"))
+    text = feedback.strip()
+    reply = _student_reply(session, session_id=judge_session.id, user_id=student_id)
+    if not text:
+        if reply is not None:
+            session.delete(reply)
+            session.commit()
+        return {"user_id": str(student_id), "teacher_reply": "", "teacher_reply_at": None}
+    if reply is None:
+        reply = TeacherJudgeStudentReply(
+            session_id=judge_session.id, student_id=student_id, feedback=text
+        )
+    reply.feedback = text
+    reply.updated_by = teacher_id
+    reply.updated_at = get_datetime_utc()
+    session.add(reply)
+    session.commit()
+    session.refresh(reply)
+    return {
+        "user_id": str(student_id),
+        "teacher_reply": reply.feedback,
+        "teacher_reply_at": reply.updated_at.isoformat(),
+    }
+
+
+def _session_artifact_ids(
+    session: Session, judge_session_id: uuid.UUID
+) -> list[uuid.UUID]:
+    return list(
+        session.exec(
+            select(TeacherJudgeScriptArtifact.id).where(
+                TeacherJudgeScriptArtifact.session_id == judge_session_id
+            )
+        ).all()
+    )
+
+
 def list_student_ai_assignments(
     session: Session,
     *,
     user_id: uuid.UUID,
     path_id: uuid.UUID,
 ) -> list[CourseAIAssignmentStudent]:
-    """Return approved AI assignments visible to one student for a path."""
+    """Return the AI checks visible to one student for a path.
+
+    一週一個對話，學生看到的作業就是那個對話：檢查點來自最新一次製作的整組
+    腳本（多台機器合在一起），結果則從這個對話所有版本的腳本裡找。
+    """
 
     teaching_class = course_service.get_student_class_for_path(
         session,
@@ -474,83 +660,68 @@ def list_student_ai_assignments(
     )
     if teaching_class is None:
         return []
-
-    rows = session.exec(
-        select(
-            TeacherJudgeScriptArtifact,
-            TeachingClass,
-            TeacherJudgeFile,
-            TeacherJudgeSession,
-        )
-        .join(
-            TeachingClass,
-            TeacherJudgeScriptArtifact.teaching_class_id == TeachingClass.id,
-        )
-        .outerjoin(
-            TeacherJudgeFile,
-            TeacherJudgeScriptArtifact.source_file_id == TeacherJudgeFile.id,
-        )
-        .outerjoin(
-            TeacherJudgeSession,
-            TeacherJudgeScriptArtifact.session_id == TeacherJudgeSession.id,
-        )
-        .join(
-            TeachingClassStudent,
-            TeachingClassStudent.class_id == TeachingClass.id,
-        )
-        .where(
-            TeachingClass.id == teaching_class.id,
+    enrolled = session.exec(
+        select(TeachingClassStudent).where(
+            TeachingClassStudent.class_id == teaching_class.id,
             TeachingClassStudent.user_id == user_id,
             TeachingClassStudent.status == "active",
-            TeacherJudgeScriptArtifact.status == TeacherJudgeScriptStatus.approved,
         )
-        .order_by(
-            desc(TeacherJudgeScriptArtifact.approved_at),
-            desc(TeacherJudgeScriptArtifact.updated_at),
-        )
+    ).first()
+    if enrolled is None:
+        return []
+
+    judge_sessions = session.exec(
+        select(TeacherJudgeSession)
+        .where(TeacherJudgeSession.teaching_class_id == teaching_class.id)
+        .order_by(TeacherJudgeSession.created_at)
     ).all()
 
     assignments: list[CourseAIAssignmentStudent] = []
-    seen_sources: set[tuple[uuid.UUID, str]] = set()
-    for artifact, teaching_class, source_file, judge_session in rows:
-        # Regeneration creates a new version.  Show only the newest approved
-        # version for the same source rubric (or name when no source exists).
-        source_key = str(artifact.source_file_id or artifact.name)
-        dedupe_key = (teaching_class.id, source_key)
-        if dedupe_key in seen_sources:
+    for judge_session in judge_sessions:
+        items, scripts, source_file = _session_task(session, judge_session)
+        # 作業跟著老師每週的內容發布：週次發布後學生才看得到，草稿不外流
+        if not items or not _week_visible(session, judge_session):
             continue
-        seen_sources.add(dedupe_key)
-
-        snapshot = artifact.rubric_snapshot_json or {}
-        items = student_task_items(snapshot)
-        if not items:
-            continue
-        runs = _student_runs(session, artifact_id=artifact.id, user_id=user_id)
-        checkpoint_checks = _latest_student_checkpoint_checks(
-            runs,
-            artifact=artifact,
-            user_id=user_id,
-            item_ids=[item.id for item in items],
+        newest = (
+            max(scripts, key=lambda row: (row.approved_at or row.created_at))
+            if scripts
+            else None
         )
-        submission = _student_submission(
-            session,
-            artifact_id=artifact.id,
-            user_id=user_id,
+        item_ids = [item.id for item in items]
+        runs = (
+            _student_runs(
+                session,
+                artifact_ids=_session_artifact_ids(session, judge_session.id),
+                user_id=user_id,
+            )
+            if scripts
+            else []
         )
+        reply = _student_reply(session, session_id=judge_session.id, user_id=user_id)
+        snapshot = (
+            newest.rubric_snapshot_json
+            if newest is not None
+            else (source_file.analysis_json if source_file else None)
+        ) or {}
         assignments.append(
             CourseAIAssignmentStudent(
-                id=artifact.id,
+                id=judge_session.id,
                 teaching_class_id=teaching_class.id,
                 teaching_class_name=teaching_class.name,
-                session_id=judge_session.id if judge_session else None,
-                teaching_class_week_id=(
-                    judge_session.teaching_class_week_id if judge_session else None
-                ),
-                title=artifact.name,
+                session_id=judge_session.id,
+                teaching_class_week_id=judge_session.teaching_class_week_id,
+                title=judge_session.title,
                 summary=str(snapshot.get("summary") or "").strip(),
-                template_key=artifact.template_key,
-                version=artifact.version,
-                approved_at=artifact.approved_at,
+                template_key=(
+                    newest.template_key
+                    if newest is not None
+                    else (source_file.template_key if source_file else "")
+                ),
+                version=max((script.version for script in scripts), default=0),
+                approved_at=newest.approved_at if newest is not None else None,
+                check_available=bool(scripts),
+                teacher_reply=reply.feedback if reply is not None else "",
+                teacher_reply_at=reply.updated_at if reply is not None else None,
                 items=items,
                 source_document=_student_source_document(
                     source_file,
@@ -558,15 +729,15 @@ def list_student_ai_assignments(
                 ),
                 completion=_completion_to_student(
                     session,
-                    submission,
-                    item_ids=[item.id for item in items],
+                    _student_submission(
+                        session, session_id=judge_session.id, user_id=user_id
+                    ),
+                    item_ids=item_ids,
                 ),
-                latest_check=_latest_student_check(
-                    runs,
-                    artifact=artifact,
-                    user_id=user_id,
+                latest_check=_latest_student_check(runs, user_id=user_id),
+                checkpoint_checks=_latest_student_checkpoint_checks(
+                    runs, user_id=user_id, item_ids=item_ids
                 ),
-                checkpoint_checks=checkpoint_checks,
             )
         )
     return assignments
@@ -613,11 +784,9 @@ def get_student_ai_assignment_source_document(
         path_id=path_id,
         assignment_id=assignment_id,
     )
-    artifact = session.get(TeacherJudgeScriptArtifact, assignment.id)
+    judge_session = session.get(TeacherJudgeSession, assignment.session_id)
     source_file = (
-        session.get(TeacherJudgeFile, artifact.source_file_id)
-        if artifact is not None and artifact.source_file_id is not None
-        else None
+        _session_task(session, judge_session)[2] if judge_session is not None else None
     )
     if (
         _student_source_document(
@@ -651,19 +820,18 @@ def get_student_ai_check(
         path_id=path_id,
         assignment_id=assignment_id,
     )
-    # The assignment is an artifact of the student's class, so matching the
-    # artifact also pins the run to that class.
+    # 作業就是這一週的對話：run 的腳本必須屬於這個對話，也就釘住了班級
     run = session.get(TeacherJudgeScriptRun, run_id)
     if (
         run is None
-        or run.artifact_id != assignment.id
+        or run.artifact is None
+        or run.artifact.session_id != assignment.id
         or not _target_for_student(run, user_id)
     ):
         raise NotFoundError(t("ai_assignment.check_not_found"))
-    artifact = session.get(TeacherJudgeScriptArtifact, assignment.id)
     return _check_to_student(
         run,
-        artifact=artifact,
+        artifact=run.artifact,
         item_id=_requested_item_id(run),
         user_id=user_id,
     )
@@ -692,7 +860,7 @@ def update_student_completion(
     )
     submission = _student_submission(
         session,
-        artifact_id=assignment.id,
+        session_id=assignment.id,
         user_id=user_id,
     )
     valid_item_ids = [item.id for item in assignment.items]
@@ -716,7 +884,7 @@ def update_student_completion(
     all_completed = len(completed_item_ids) == len(valid_item_ids)
     if submission is None:
         submission = TeacherJudgeStudentSubmission(
-            artifact_id=assignment.id,
+            session_id=assignment.id,
             student_id=user_id,
             ready_at=now if all_completed else None,
             updated_at=now,
@@ -751,10 +919,100 @@ def update_student_completion(
     )
 
 
+def session_progress(
+    session: Session, judge_session: TeacherJudgeSession
+) -> dict[str, Any]:
+    """導師核查用：全班每位學生在這週檢查回報完成到哪裡（不含執行結果）。
+
+    項目與學生端看到的同一份（最新一次製作的腳本，多台機器合在一起）；
+    還沒有核准的腳本時用這週檢查表上的項目，進度照樣看得到，只是不能執行檢查。
+    """
+    items = _session_task(session, judge_session)[0]
+    item_ids = [item.id for item in items]
+    enrollments = session.exec(
+        select(TeachingClassStudent).where(
+            TeachingClassStudent.class_id == judge_session.teaching_class_id,
+            TeachingClassStudent.status == "active",
+        )
+    ).all()
+    users = {
+        user.id: user
+        for user in session.exec(
+            select(User).where(col(User.id).in_([row.user_id for row in enrollments]))
+        ).all()
+    }
+    submissions = {
+        row.student_id: row
+        for row in session.exec(
+            select(TeacherJudgeStudentSubmission).where(
+                TeacherJudgeStudentSubmission.session_id == judge_session.id
+            )
+        ).all()
+    }
+    done_by_submission: dict[uuid.UUID, set[str]] = {}
+    if submissions:
+        for submission_id, item_id in session.exec(
+            select(
+                TeacherJudgeSubmissionItem.submission_id,
+                TeacherJudgeSubmissionItem.item_id,
+            ).where(
+                col(TeacherJudgeSubmissionItem.submission_id).in_(
+                    [row.id for row in submissions.values()]
+                )
+            )
+        ).all():
+            done_by_submission.setdefault(submission_id, set()).add(item_id)
+
+    replies = {
+        row.student_id: row
+        for row in session.exec(
+            select(TeacherJudgeStudentReply).where(
+                TeacherJudgeStudentReply.session_id == judge_session.id
+            )
+        ).all()
+    }
+
+    students: list[dict[str, Any]] = []
+    for enrollment in enrollments:
+        user = users.get(enrollment.user_id)
+        if user is None:
+            continue
+        submission = submissions.get(user.id)
+        reply = replies.get(user.id)
+        done = done_by_submission.get(submission.id, set()) if submission else set()
+        completed = [item_id for item_id in item_ids if item_id in done]
+        all_done = bool(item_ids) and len(completed) == len(item_ids)
+        students.append(
+            {
+                "user_id": str(user.id),
+                "full_name": user.full_name,
+                "email": user.email,
+                "completed_item_ids": completed,
+                "ready_at": (
+                    submission.ready_at.isoformat()
+                    if submission and submission.ready_at and all_done
+                    else None
+                ),
+                "updated_at": submission.updated_at.isoformat() if submission else None,
+                "teacher_reply": reply.feedback if reply else "",
+                "teacher_reply_at": reply.updated_at.isoformat() if reply else None,
+            }
+        )
+    students.sort(key=lambda row: row["email"])
+    return {
+        "items": [
+            {"id": item.id, "title": item.title, "machine_node_key": item.machine_node_key}
+            for item in items
+        ],
+        "students": students,
+    }
+
+
 __all__ = [
     "get_student_ai_assignment",
     "get_student_ai_assignment_source_document",
     "get_student_ai_check",
     "list_student_ai_assignments",
+    "session_progress",
     "update_student_completion",
 ]

@@ -57,6 +57,7 @@ from app.models.teacher_judge_session import (
     TeacherJudgeSessionMessage,
     TeacherJudgeSessionStatus,
 )
+from app.models.teaching_class import PUBLISHED_WEEK_STATUSES, TeachingClassWeek
 
 logger = logging.getLogger(__name__)
 
@@ -325,8 +326,8 @@ def _workflow_blocker_line(row: dict[str, Any]) -> str:
     if status == "needs_information":
         missing = "、".join(row.get("missing_information") or [])
         question = (
-            "請提供該程式／檔案的完整路徑，或工作目錄與相對路徑。"
-            if any(marker in missing for marker in ("工作目錄", "完整路徑", "相對路徑"))
+            "請提供該程式／檔案的絕對路徑。"
+            if any(marker in missing for marker in ("工作目錄", "路徑"))
             else ""
         )
         return f"「{title}」已確認檢查目標，但還缺少：{missing or '會影響檢查範圍或判定的資訊'}。{question}"
@@ -344,35 +345,6 @@ def _workflow_blocker_line(row: dict[str, Any]) -> str:
             return f"「{title}」這次核對未完成：{detail.rstrip('。')}。"
         return f"「{title}」這次核對未完成，請稍後重試。"
     return f"「{title}」目前不需要額外處理。"
-
-
-_WORKFLOW_RESOLVED_REPLY_MARKERS = (
-    "可開始製作",
-    "可以開始製作",
-    "所有檢查項目",
-    "全部檢查項目",
-    "狀態良好",
-    "已通過",
-    "ready",
-    "請稍候",
-    "请稍候",
-    "稍後重新提交",
-    "稍后重新提交",
-    "我會嘗試",
-    "我会尝试",
-    "背景重試",
-)
-
-
-def _workflow_ai_issue_summary(value: Any) -> str:
-    """Keep useful AI issue context without letting it override server gates."""
-    summary = _workflow_issue_text(value)
-    if not summary:
-        return ""
-    lowered = summary.casefold()
-    if any(marker.casefold() in lowered for marker in _WORKFLOW_RESOLVED_REPLY_MARKERS):
-        return ""
-    return summary
 
 
 def _workflow_metadata(
@@ -436,7 +408,6 @@ def reanalysis_workflow_message(
     source_file_id: uuid.UUID | str | None,
     analysis_revision: int | None,
     proposal: list[dict[str, Any]] | None = None,
-    assistant_reply: str | None = None,
 ) -> WorkflowMessage:
     """Build the single safe projection used by refine Chat and page notices."""
     raw_blocker_rows = normalize_workflow_item_results(
@@ -530,9 +501,6 @@ def reanalysis_workflow_message(
     )
     if blocker_rows:
         lines = ["重新核對後，以下項目還需要處理："]
-        summary = _workflow_ai_issue_summary(assistant_reply)
-        if summary and "重新核對後" not in summary:
-            lines.append(summary)
         for row in blocker_rows[:WORKFLOW_FOCUS_LIMIT]:
             lines.append(_workflow_blocker_line(row))
         lines.append(
@@ -966,6 +934,17 @@ def ensure_active(item: TeacherJudgeSession) -> None:
         raise HTTPException(status_code=409, detail=t("session.archived_readonly"))
 
 
+def ensure_week_published(db: Session, item: TeacherJudgeSession) -> None:
+    """作業跟著老師每週的內容發布：週次發布後才能檢查學生。"""
+    week = (
+        db.get(TeachingClassWeek, item.teaching_class_week_id)
+        if item.teaching_class_week_id is not None
+        else None
+    )
+    if week is None or week.status not in PUBLISHED_WEEK_STATUSES:
+        raise HTTPException(status_code=409, detail=t("session.week_not_published"))
+
+
 def validate_selected_file(
     db: Session, class_id: uuid.UUID, file_id: uuid.UUID | None
 ) -> None:
@@ -1141,8 +1120,12 @@ def fork_session_data(
     *,
     title: str | None,
     created_by: uuid.UUID | None,
+    week_id: uuid.UUID | None = None,
 ) -> TeacherJudgeSession:
-    """Clone editable settings only; history and execution evidence stay behind."""
+    """Clone editable settings only; history and execution evidence stay behind.
+
+    一週只能有一個對話，複製時由呼叫端指定要放到哪一週（必須是空的週次）。
+    """
     cloned_file: TeacherJudgeFile | None = None
     try:
         if source.selected_file_id:
@@ -1159,7 +1142,7 @@ def fork_session_data(
             )
         clone = TeacherJudgeSession(
             teaching_class_id=source.teaching_class_id,
-            teaching_class_week_id=source.teaching_class_week_id,
+            teaching_class_week_id=week_id or source.teaching_class_week_id,
             title=(title.strip() if title else _fork_title(db, source.teaching_class_id, source.title)),
             status=TeacherJudgeSessionStatus.active,
             selected_file_id=cloned_file.id if cloned_file else None,

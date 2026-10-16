@@ -22,6 +22,7 @@
   "ai_assignment.source_pdf_not_found": "このタスクには学生が閲覧できるPDFがありません。",
   "ai_assignment.check_not_found": "AIチェックが見つかりません",
   "ai_assignment.task_item_not_found": "タスク項目が見つかりません",
+  "ai_assignment.student_not_in_class": "この学生はこのクラスに在籍していません。",
   "course.ai_check_incomplete": "今回のチェックは完了しませんでした。先生が結果を確認します。",
   "course.teacher_fallback": "担当教員",
   "course_reminder.today": "今日",

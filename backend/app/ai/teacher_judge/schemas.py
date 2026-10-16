@@ -19,7 +19,6 @@ from pydantic import (
     model_validator,
 )
 
-from app.ai.teacher_judge.execution_paths import optional_cwd
 from app.ai.teacher_judge.template_command_service import (
     SUPPORTED_TEMPLATE_KEYS,
     sanitize_check_step_parameters,
@@ -52,18 +51,32 @@ def sanitize_rubric_missing_information(value: Any) -> Any:
 
 
 class TeacherJudgeLocatedCollector(BaseModel):
+    """Read old stored directories without exposing them in the write schema."""
     model_config = ConfigDict(extra="forbid")
 
     cwd: str | None = Field(
         default=None,
         max_length=1024,
-        description="Optional absolute working directory; needed only to locate relative file inputs. Blank means omitted.",
+        description="Legacy stored directory; read only. Replace the step with absolute file paths before execution.",
     )
 
     @field_validator("cwd")
     @classmethod
     def normalize_cwd(cls, value: str | None) -> str | None:
-        return optional_cwd(value)
+        return None if isinstance(value, str) and value.strip().casefold() in {"", "null", "none"} else value
+
+    @model_serializer(mode="wrap")
+    def omit_absent_legacy_directory(self, handler: Any) -> dict[str, Any]:
+        result = handler(self)
+        if self.cwd is None:
+            result.pop("cwd", None)
+        return cast("dict[str, Any]", result)
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: Any, handler: Any) -> dict[str, Any]:
+        schema = handler(core_schema)
+        schema.get("properties", {}).pop("cwd", None)
+        return cast("dict[str, Any]", schema)
 
 
 class TeacherJudgeCommandCollector(TeacherJudgeLocatedCollector):
@@ -212,6 +225,14 @@ class TeacherJudgeTypedCheckStep(BaseModel):
     collector: TeacherJudgeCollector
     assertion: TeacherJudgeAssertion | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_working_directory(cls, value: Any) -> Any:
+        collector = value.get("collector") if isinstance(value, dict) else None
+        if isinstance(collector, dict) and "cwd" in collector:
+            raise ValueError("不再支援 collector.cwd；檔案與程式位置必須使用絕對路徑")
+        return value
+
     @field_validator("id", "title")
     @classmethod
     def reject_blank_identity(cls, value: str) -> str:
@@ -261,7 +282,7 @@ class TeacherJudgeRubricCheckStep(BaseModel):
     )
     cwd: str | None = Field(
         default=None,
-        description="Legacy flat cwd; read/convert only. New command steps use collector.cwd",
+        description="Legacy stored cwd; read only. New steps require absolute file paths and omit cwd",
     )
     timeout_seconds: int | None = Field(
         default=None,
@@ -380,23 +401,8 @@ class TeacherJudgeRubricCheckStep(BaseModel):
         core_schema: Any,
         handler: Any,
     ) -> dict[str, Any]:
-        """Expose typed or flat fields without the retired command catalog."""
-        schema = handler(core_schema)
-        properties = schema.get("properties")
-        if isinstance(properties, dict):
-            for legacy_key in (
-                "template_key",
-                "command_key",
-                "command_label",
-                "parameters",
-            ):
-                properties.pop(legacy_key, None)
-            schema.pop("required", None)
-            schema["anyOf"] = [
-                {"required": ["argv"]},
-                {"required": ["collector", "id", "title"]},
-            ]
-        return cast("dict[str, Any]", schema)
+        """Advertise only current writes; stored legacy rows remain readable."""
+        return cast("dict[str, Any]", handler(TeacherJudgeTypedCheckStep.__pydantic_core_schema__))
 
 
 class TeacherJudgeRubricItem(BaseModel):
@@ -507,7 +513,8 @@ TeacherJudgeFileSourceTypeLiteral = Literal["uploaded", "created"]
 
 class TeacherJudgeSessionCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
-    teaching_class_week_id: uuid.UUID | None = None
+    # 一週一個對話：建立時一定要掛到週次
+    teaching_class_week_id: uuid.UUID
     selected_file_id: uuid.UUID | None = None
     creation_mode: TeacherJudgeSessionCreationModeLiteral | None = None
     rubric_name: str | None = Field(default=None, max_length=255)
@@ -715,6 +722,8 @@ class TeacherJudgeFileAnalysisUpdateRequest(BaseModel):
 
 class TeacherJudgeSessionForkRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    # 一週只能有一個對話：複製一定要放到另一個還沒有對話的週次
+    teaching_class_week_id: uuid.UUID
 
     @field_validator("title")
     @classmethod
@@ -784,6 +793,8 @@ class TeacherJudgeScriptRunPublic(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+    prepared_at: str | None = None
+    request_id: str | None = None
 
 
 class TeacherJudgeScriptRunSummary(BaseModel):
@@ -798,6 +809,8 @@ class TeacherJudgeScriptRunSummary(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+    prepared_at: str | None = None
+    request_id: str | None = None
 
 
 class TeacherJudgeScriptSetPublic(BaseModel):
@@ -811,7 +824,59 @@ class TeacherJudgeScriptSetPublic(BaseModel):
 
 
 class TeacherJudgeScriptSetRunRequest(BaseModel):
-    target_scope: Literal["all_students_in_set"] = "all_students_in_set"
+    """整組腳本執行範圍：全班，或只檢查指定學生（例如已回報完成的人）。"""
+
+    target_scope: Literal["all_students_in_set", "students"] = "all_students_in_set"
+    # target_scope="students" 時要檢查的學生（使用者 id）
+    user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_students(self) -> TeacherJudgeScriptSetRunRequest:
+        if self.target_scope == "students" and not self.user_ids:
+            raise ValueError(t("schemas.run_students_required"))
+        if self.target_scope != "students" and self.user_ids:
+            raise ValueError(t("schemas.run_students_only_for_students_scope"))
+        self.user_ids = list(dict.fromkeys(self.user_ids))
+        return self
+
+
+class TeacherJudgeProgressItem(BaseModel):
+    id: str
+    title: str
+    machine_node_key: str | None = None
+
+
+class TeacherJudgeStudentProgress(BaseModel):
+    """一位學生在這週檢查的自評回報（不含執行結果）。"""
+
+    user_id: str
+    full_name: str | None = None
+    email: str
+    completed_item_ids: list[str] = Field(default_factory=list)
+    ready_at: str | None = None
+    updated_at: str | None = None
+    # 老師給這位學生這週的回覆（沒回覆是空字串）；再回覆會覆蓋
+    teacher_reply: str = ""
+    teacher_reply_at: str | None = None
+
+
+class TeacherJudgeStudentReplyRequest(BaseModel):
+    """老師給一位學生這週的回覆；空白＝不回覆（清掉之前的回覆）。"""
+
+    feedback: str = Field(default="", max_length=4000)
+
+
+class TeacherJudgeStudentReplyPublic(BaseModel):
+    user_id: str
+    teacher_reply: str = ""
+    teacher_reply_at: str | None = None
+
+
+class TeacherJudgeSessionProgressPublic(BaseModel):
+    """導師核查用：這週檢查的項目，以及全班每位學生回報完成到哪裡。"""
+
+    items: list[TeacherJudgeProgressItem]
+    students: list[TeacherJudgeStudentProgress]
 
 
 class TeacherJudgeRunBatchNodePublic(BaseModel):
@@ -824,14 +889,51 @@ class TeacherJudgeRunBatchNodePublic(BaseModel):
     result_summary_json: dict[str, Any]
 
 
-class TeacherJudgeRunBatchPublic(BaseModel):
+class TeacherJudgeRunBatchSummary(BaseModel):
     run_batch_id: str
     teaching_class_id: str
     session_id: str | None = None
-    status: Literal["pending", "running", "completed", "completed_with_failures", "failed"]
+    status: Literal["pending", "running", "completed", "completed_with_failures", "failed", "cancelled"]
     summary: dict[str, int]
+    request_id: str | None = None
+    started_by: str | None = None
+    created_at: str | None = None
+    prepared_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    error_message: str | None = None
+    timing: dict[str, float | None] = Field(default_factory=dict)
+
+
+class TeacherJudgeRunBatchPublic(TeacherJudgeRunBatchSummary):
     nodes: list[TeacherJudgeRunBatchNodePublic]
     students: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TeacherJudgeRunTargetPublic(BaseModel):
+    id: str
+    run_id: str
+    student_id: str | None
+    vmid: int | None
+    node_key: str | None
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    stage: str
+    reason_code: str | None
+    exit_code: int | None
+    created_at: str
+    updated_at: str
+    queued_at: str | None
+    started_at: str | None
+    script_finished_at: str | None
+    received_at: str | None
+    finished_at: str | None
+    timing: dict[str, Any]
+    result: dict[str, Any]
+
+
+class TeacherJudgeRunTargetPage(BaseModel):
+    data: list[TeacherJudgeRunTargetPublic]
+    total: int
 
 
 class TeacherJudgeTargetReviewUpdate(BaseModel):

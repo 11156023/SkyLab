@@ -205,7 +205,7 @@ async def test_existing_partial_is_repaired_after_reply_without_update(monkeypat
 @pytest.mark.parametrize("already_partial", [False, True])
 @pytest.mark.parametrize("collector", [
     {"type": "file_text", "path": "/root/test/test.txt"},
-    {"type": "file_text", "path": "test.txt", "cwd": "/root/test"},
+    {"type": "file_text", "path": "/root/test/另一份檔案.txt"},
     {"type": "command", "argv": ["cat", "/root/test/test.txt"]},
 ])
 async def test_path_conflict_repair_survives_readiness_save_and_artifact(
@@ -241,7 +241,7 @@ async def test_path_conflict_repair_survives_readiness_save_and_artifact(
         db.commit()
         workflow = session_chat_service.refine_readiness_workflow(
             db, teaching_class_id=class_id, session_id=uuid.uuid4(), file=file,
-            proposal=result.proposal, template_commands=[], reply=result.reply,
+            proposal=result.proposal, template_commands=[],
             analysis_revision=1, tool_calls=result.tool_calls,
         )
         assert workflow["metadata"]["script_ready"] is True

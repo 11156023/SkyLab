@@ -45,7 +45,7 @@ def test_missing_step_information_python_entrypoint() -> None:
         template_key="python", command_key="python.run_entrypoint"
     )
     missing = svc.missing_step_information(step)
-    assert missing == ["main.py 所在的工作目錄", "實際 Python 命令與參數"]
+    assert missing == ["實際 Python 命令與參數"]
 
 
 def test_blockers_report_detectability_review() -> None:

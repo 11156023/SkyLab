@@ -97,7 +97,7 @@ def test_a_bare_no_answers_the_question_that_was_just_asked() -> None:
 
 def test_all_answered_is_ready_to_plan() -> None:
     state = read_intake(
-        _history("我要架一個 Flask 網站", "不需要 GPU", "Linux 指令列就好", "整個學期")
+        _history("我要架一個 Flask 網站", "不需要 GPU", "Linux 指令列就好", "3個月")
     )
 
     assert state.ready is True
@@ -115,7 +115,7 @@ def test_the_flow_comes_along_so_planning_does_not_dead_end() -> None:
     assert asking.steps[1].action == "recommend"
 
     done = read_intake(
-        _history("我要架網站", "不需要 GPU", "Linux 指令列就好", "整個學期")
+        _history("我要架網站", "不需要 GPU", "Linux 指令列就好", "3個月")
     )
     assert done.ready is True
     # 問完了進度仍停在這一步：檢查、輸入密碼、按送出都還在同一張表單上
@@ -145,11 +145,11 @@ def test_answers_survive_more_than_twelve_messages() -> None:
     state = read_intake(_history("我要架 Node.js 網站"))
     # The original purpose has fallen out of the transcript by the next request.
     history = _history(*(["好"] * 8))[-11:]
-    history.append(NavigationMessage(role="user", content="幾週"))
+    history.append(NavigationMessage(role="user", content="2周"))
     state = read_intake(history, facts=state.facts, pending_key="duration")
     assert state.ready
     assert state.facts.purpose == "我要架 Node.js 網站"
-    assert state.facts.duration == "幾週"
+    assert state.facts.duration == "2周"
 
 
 def test_acknowledgement_is_not_a_duration_answer() -> None:
@@ -206,7 +206,7 @@ def test_old_transcript_cannot_undo_a_remembered_correction() -> None:
     state = read_intake([
         NavigationMessage(role="user", content="需要 GPU"),
         NavigationMessage(role="assistant", content="大概要用多久？"),
-        NavigationMessage(role="user", content="幾週"),
+        NavigationMessage(role="user", content="2周"),
     ], facts=IntakeFacts(purpose="Node.js 網站", gpu="不需要 GPU", display="Linux 指令列就好"), pending_key="duration")
     assert state.ready
     assert state.facts.gpu == "不需要 GPU"

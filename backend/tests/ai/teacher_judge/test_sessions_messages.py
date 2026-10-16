@@ -34,7 +34,7 @@ from tests.ai.teacher_judge.helpers import (
 )
 
 
-def test_reanalysis_workflow_message_keeps_actionable_ai_summary() -> None:
+def test_reanalysis_workflow_message_uses_validated_blocker_details() -> None:
     workflow = session_service.reanalysis_workflow_message(
         [
             {
@@ -48,10 +48,8 @@ def test_reanalysis_workflow_message_keeps_actionable_ai_summary() -> None:
         ],
         source_file_id=uuid.uuid4(),
         analysis_revision=4,
-        assistant_reply="這項目目前缺少可讀取的程式來源，其他項目可以繼續核對。",
     )
 
-    assert "缺少可讀取的程式來源" in workflow["content"]
     assert "目前沒有可安全讀取的檔案來源" in workflow["content"]
     assert workflow["metadata"]["item_results"][0]["detail"] == (
         "目前沒有可安全讀取的檔案來源"
@@ -887,13 +885,10 @@ async def test_refine_message_preserves_ready_proposal_rows_alongside_blockers(
             "missing_information": [],
             "check_steps": [
                 {
-                    "template_key": "linux",
-                    "command_key": "system.run_command",
-                    "parameters": {
-                        "argv": ["python", "--version"],
-                        "timeout_seconds": 10,
-                        "success_criteria": "exit code 為 0",
-                    },
+                    "id": "python.version",
+                    "title": "Python 版本",
+                    "collector": {"type": "command", "argv": ["python", "--version"]},
+                    "assertion": {"type": "returncode_equals", "expected": 0},
                 }
             ],
             "fallback": None,

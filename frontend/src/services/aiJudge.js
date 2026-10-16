@@ -5,6 +5,7 @@ import {
   apiPatch,
   apiPost,
   apiPostMultipart,
+  apiPut,
 } from "./api";
 import i18n from "../i18n";
 
@@ -76,22 +77,6 @@ export const AiJudgeService = {
     return apiPost(`/api/v1/teaching-classes/${classId}/judge/sessions/`, payload);
   },
 
-  createBlankSession(classId, {
-    title = i18n.t("aiJudge.defaultBlankSessionTitle", { ns: "services" }),
-    rubricName = i18n.t("aiJudge.defaultBlankRubricName", { ns: "services" }),
-    environmentKeys = ["n8n"],
-    teachingClassWeekId = null,
-  } = {}) {
-    return this.createSession(classId, {
-      title,
-      teachingClassWeekId,
-      selectedFileId: null,
-      creationMode: "blank",
-      rubricName,
-      environmentKeys,
-    });
-  },
-
   updateSession(classId, sessionId, changes) {
     return apiPatch(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}`,
@@ -99,10 +84,18 @@ export const AiJudgeService = {
     );
   },
 
-  forkSession(classId, sessionId, title = null) {
+  /** 複製到另一個還沒有檢查的週次（一週只能有一個對話） */
+  forkSession(classId, sessionId, { weekId, title = null }) {
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/fork`,
-      title ? { title } : {},
+      { teaching_class_week_id: weekId, ...(title ? { title } : {}) },
+    );
+  },
+
+  /** 取得這一週的檢查對話，還沒有就建立一個空白的；重複呼叫也只會有一個 */
+  ensureWeekSession(classId, weekId) {
+    return apiPut(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/weeks/${encodeURIComponent(weekId)}`,
     );
   },
 
@@ -221,10 +214,35 @@ export const AiJudgeService = {
   },
 
   /** 對腳本集建立整批執行：每份 child artifact 分散到該節點的每台學生機器 */
-  createSessionScriptSetRun(classId, sessionId, artifactSetId) {
+  /** 整組腳本跑一輪；給 userIds 時只檢查這些學生（其他人的結果不動） */
+  createSessionScriptSetRun(classId, sessionId, artifactSetId, { userIds = null } = {}) {
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}/runs`,
-      { target_scope: "all_students_in_set" },
+      userIds?.length
+        ? { target_scope: "students", user_ids: userIds }
+        : { target_scope: "all_students_in_set" },
+    );
+  },
+
+  /** 這週檢查的項目，以及全班每位學生回報完成到哪裡（導師核查總覽） */
+  getSessionProgress(classId, sessionId) {
+    return apiGet(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/progress`,
+    );
+  },
+
+  /** 老師給一位學生這週的回覆；再回覆覆蓋前一則，空白＝不回覆 */
+  saveStudentReply(classId, sessionId, userId, feedback) {
+    return apiPut(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/students/${encodeURIComponent(userId)}/reply`,
+      { feedback },
+    );
+  },
+
+  /** 最近幾批執行（新的在前）；只檢查部分學生時，其他人的結果在較舊的批次裡 */
+  listSessionRunBatches(classId, sessionId, limit = 20) {
+    return apiGet(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/run-batches?limit=${limit}`,
     );
   },
 

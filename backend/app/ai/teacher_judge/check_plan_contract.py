@@ -9,9 +9,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.ai.teacher_judge.execution_paths import (
-    absolute_execution_path,
     is_generated_location_gap,
-    optional_cwd,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
@@ -31,7 +29,7 @@ TYPED_STEP_REPAIR_HINT = (
 )
 
 EXECUTION_LOCATION_REPAIR_HINT = (
-    "目前 typed 步驟已有可定位的執行位置，請依 get_checklist_item 的完整內容核對。"
+    "目前 typed 步驟沒有尚待補充的檔案或程式位置，請核對本輪候選的完整步驟；修改既有項目時先讀取 get_checklist_item。"
     "保留原機器、步驟與已知路徑，只移除與這些步驟矛盾的路徑缺口；"
     "日期範圍等其他缺口必須保留。若確實缺少另一個檔案或程式的位置，"
     "請明確指出該對象並更新對應步驟，不得省略既有步驟。"
@@ -104,22 +102,12 @@ def typed_item_issues(
     item: TeacherJudgeRubricItem,
     *,
     other_items: list[dict[str, Any]] | None = None,
-    allow_legacy: bool = False,
 ) -> list[dict[str, Any]]:
-    """Apply the compiler's semantic rules as soon as an auto item is written.
-
-    ``allow_legacy`` is limited to the chat proposal compatibility boundary:
-    older model adapters can still emit the read-compatible
-    ``template_key/command_key/parameters`` shape, which is normalized by the
-    chat service before staging. Persistence and finalization keep the default
-    strict typed contract.
-    """
-    steps_for_validation = [
-        step.model_dump(mode="json")
-        for step in item.check_steps
-        if not allow_legacy or step.collector is not None
-    ]
-    issues = typed_step_issues(steps_for_validation, item_id=item.id)
+    """Validate all new writes; legacy parsing is limited to stored data."""
+    issues = typed_step_issues(
+        [step.model_dump(mode="json") for step in item.check_steps], item_id=item.id,
+    )
+    issues.extend(execution_location_claim_issues(item))
     occupied = {
         str(step.get("id") or "").strip()
         for other in (other_items or [])
@@ -138,10 +126,6 @@ def typed_item_issues(
         if step.id and step.id.strip() in occupied
     )
     if issues or item.detectable != "auto":
-        return issues
-    if allow_legacy and any(step.collector is None for step in item.check_steps):
-        # Legacy chat candidates are normalized against the command catalog and
-        # remain read-compatible until the caller replaces them with typed steps.
         return issues
     from app.ai.teacher_judge.deterministic_compiler import (
         CheckPlanContractError,
@@ -162,9 +146,9 @@ def reconcile_finalizer_locations(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Keep known locations when reviewing the same item/node/step/input.
 
-    This is only for Save/Create review, never an ordinary teacher edit. A
-    missing optional field in a regenerated step must not erase known execution
-    information. Explicit new absolute locations remain intentional changes.
+    This is only for Save/Create review, never an ordinary teacher edit.
+    Reject a relative replacement of a known absolute input independently of
+    other plan defects. Explicit new absolute locations remain intentional.
     """
     from app.ai.teacher_judge.deterministic_compiler import missing_execution_location
 
@@ -172,9 +156,7 @@ def reconcile_finalizer_locations(
         previous = TeacherJudgeRubricItem.model_validate(current)
     except ValidationError:
         return candidate, []
-    if previous.detectable == "manual" or typed_item_issues(
-        previous.model_copy(update={"detectable": "auto"})
-    ):
+    if previous.detectable == "manual":
         return candidate, []
     if any(current.get(key) != candidate.get(key) for key in ("id", "target_node_key", "peer_node_key")):
         return candidate, []
@@ -188,6 +170,8 @@ def reconcile_finalizer_locations(
         if old_step is None or old_step.collector is None or not isinstance(collector, dict):
             continue
         old = old_step.collector.model_dump(mode="json")
+        if missing_execution_location(old):
+            continue
         kind = collector.get("type")
         input_key = "argv" if kind == "command" else "path"
         if kind not in {"command", "file_text", "file_stat"} or kind != old.get("type"):
@@ -200,14 +184,6 @@ def reconcile_finalizer_locations(
                     "message": "核對修改遺失既有步驟的完整執行位置；請保留原輸入，或依已知資訊提供完整的新位置，不可把此修改錯誤當成老師缺少資料。",
                 })
             continue
-        if optional_cwd(collector.get("cwd")) is None:
-            collector["cwd"] = old.get("cwd")
-        elif not absolute_execution_path(collector["cwd"]):
-            issues.append({
-                "item_id": previous.id, "step_id": step.get("id"), "step_index": index,
-                "field": f"check_steps[{index}].collector.cwd",
-                "message": "核對修改把既有執行位置改成無效值；請保留目前項目的 collector.cwd，不需要老師補資料。",
-            })
 
     steps = result.get("check_steps") or []
     if steps and all(
@@ -229,16 +205,22 @@ def reconcile_finalizer_locations(
 def execution_location_claim_issues(item: TeacherJudgeRubricItem) -> list[dict[str, Any]]:
     """Route ungrounded location prose to repair, never erase teacher intent.
 
-    Keywords identify claims to review, not facts to discard. Only a complete,
-    compiler-valid plan can contradict a claim; unresolved paths still require
-    teacher input. The model must reconcile any other target/scope explicitly.
+    Location completeness is independent of assertions and other compiler
+    errors. An unrelated invalid assertion cannot turn a known path into a
+    teacher-information gap. Other targets/scopes still require reconciliation.
     """
     claims = [
         (index, gap) for index, gap in enumerate(item.missing_information)
         if re.search(r"工作目錄|工作目录|路徑|路径|\b(?:cwd|path|directory)\b", gap, re.IGNORECASE)
     ]
-    if not claims or item.detectable == "manual" or typed_item_issues(
-        item.model_copy(update={"detectable": "auto"})
+    from app.ai.teacher_judge.deterministic_compiler import missing_execution_location
+
+    if not claims or item.detectable == "manual" or not item.check_steps:
+        return []
+    if any(
+        step.collector is None
+        or missing_execution_location(step.collector.model_dump(mode="json"))
+        for step in item.check_steps
     ):
         return []
     return [
@@ -273,6 +255,8 @@ def analysis_write_issues(
         "check_steps",
         "detectable",
         "judgement_mode",
+        "detection_method",
+        "missing_information",
         "target_node_key",
         "peer_node_key",
     )
@@ -281,7 +265,10 @@ def analysis_write_issues(
             issues.append({"item_id": item.id, "message": "檢查項目 id 重複"})
         seen_items.add(item.id)
         old = previous_by_id.get(item.id)
-        legacy = any(step.collector is None for step in item.check_steps)
+        legacy = any(
+            step.collector is None or getattr(step.collector, "cwd", None) is not None
+            for step in item.check_steps
+        )
         if (
             legacy
             and old

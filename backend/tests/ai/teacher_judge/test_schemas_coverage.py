@@ -24,6 +24,8 @@ from app.ai.teacher_judge.schemas import (
     sanitize_rubric_missing_information,
 )
 
+WEEK = uuid.uuid4()
+
 
 def test_sanitize_missing_information_passes_non_lists_through() -> None:
     assert sanitize_rubric_missing_information("text") == "text"
@@ -149,59 +151,58 @@ def test_rubric_item_drops_retired_gaps() -> None:
 def test_rubric_check_step_json_schema_hides_legacy_fields() -> None:
     schema: dict[str, Any] = TeacherJudgeRubricCheckStep.model_json_schema()
     properties = schema["properties"]
-    for legacy in ("template_key", "command_key", "command_label", "parameters"):
+    for legacy in ("template_key", "command_key", "command_label", "parameters", "argv", "cwd", "timeout_seconds"):
         assert legacy not in properties
-    assert "required" not in schema
-    assert schema["anyOf"] == [
-        {"required": ["argv"]},
-        {"required": ["collector", "id", "title"]},
-    ]
+    assert schema["required"] == ["id", "title", "collector"]
 
 
 def test_session_create_request_validators() -> None:
+    # 一週一個對話：沒有週次就不能建立
     with pytest.raises(ValidationError):
-        TeacherJudgeSessionCreateRequest(title="  ")
+        TeacherJudgeSessionCreateRequest(title="x")
+    with pytest.raises(ValidationError):
+        TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK, title="  ")
     assert (
-        TeacherJudgeSessionCreateRequest(title="x", rubric_name=None).rubric_name
+        TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK, title="x", rubric_name=None).rubric_name
         is None
     )
     with pytest.raises(ValidationError):
-        TeacherJudgeSessionCreateRequest(title="x", rubric_name="   ")
+        TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK, title="x", rubric_name="   ")
     assert (
         TeacherJudgeSessionCreateRequest(
-            title="x", environment_keys=None
+            teaching_class_week_id=WEEK, title="x", environment_keys=None
         ).environment_keys
         is None
     )
     assert TeacherJudgeSessionCreateRequest(
-        title="x", environment_keys=[" Linux ", "linux", " "]
+        teaching_class_week_id=WEEK, title="x", environment_keys=[" Linux ", "linux", " "]
     ).environment_keys == ["linux"]
     with pytest.raises(ValidationError):
-        TeacherJudgeSessionCreateRequest(title="x", environment_keys=["windows"])
+        TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK, title="x", environment_keys=["windows"])
 
 
 def test_session_create_request_creation_mode_rules() -> None:
     file_id = uuid.uuid4()
     with pytest.raises(ValueError):
         TeacherJudgeSessionCreateRequest(
-            title="x",
+            teaching_class_week_id=WEEK, title="x",
             creation_mode="blank",
             selected_file_id=file_id,
             rubric_name="r",
         )
     with pytest.raises(ValueError):
-        TeacherJudgeSessionCreateRequest(title="x", creation_mode="blank")
+        TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK, title="x", creation_mode="blank")
     with pytest.raises(ValueError):
-        TeacherJudgeSessionCreateRequest(title="x", creation_mode="existing")
+        TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK, title="x", creation_mode="existing")
     with pytest.raises(ValueError):
         TeacherJudgeSessionCreateRequest(
-            title="x",
+            teaching_class_week_id=WEEK, title="x",
             creation_mode="existing",
             selected_file_id=file_id,
             rubric_name="r",
         )
     ok = TeacherJudgeSessionCreateRequest(
-        title="x", creation_mode="existing", selected_file_id=file_id
+        teaching_class_week_id=WEEK, title="x", creation_mode="existing", selected_file_id=file_id
     )
     assert ok.selected_file_id == file_id
 
@@ -220,10 +221,13 @@ def test_script_update_request_name() -> None:
 
 
 def test_fork_request_title() -> None:
-    assert TeacherJudgeSessionForkRequest(title=None).title is None
-    assert TeacherJudgeSessionForkRequest(title=" f ").title == "f"
+    assert TeacherJudgeSessionForkRequest(title=None, teaching_class_week_id=WEEK).title is None
+    assert TeacherJudgeSessionForkRequest(title=" f ", teaching_class_week_id=WEEK).title == "f"
     with pytest.raises(ValidationError):
-        TeacherJudgeSessionForkRequest(title="   ")
+        TeacherJudgeSessionForkRequest(title="   ", teaching_class_week_id=WEEK)
+    # 複製一定要指定目標週次
+    with pytest.raises(ValidationError):
+        TeacherJudgeSessionForkRequest(title="f")
 
 
 def test_script_run_create_request_selectors() -> None:

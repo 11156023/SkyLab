@@ -224,6 +224,8 @@ class CourseAITaskItemStudent(BaseModel):
     description: str = ""
     detectable: Literal["auto", "partial", "manual"] = "manual"
     order: int = 0
+    # 這個檢查點在哪台課堂機器上檢查（多機器的作業才有意義）
+    machine_node_key: str | None = None
 
 
 class CourseAICheckItemStudent(BaseModel):
@@ -290,6 +292,8 @@ class CourseAIAssignmentStudent(BaseModel):
     template_key: str
     version: int
     approved_at: datetime | None = None
+    # 老師還沒做好檢查腳本時為 False：學生照樣看得到項目、可以回報完成，只是還不能被檢查
+    check_available: bool = True
     items: list[CourseAITaskItemStudent]
     source_document: CourseAISourceDocumentStudent | None = None
     completion: CourseAICompletionStudent = Field(
@@ -297,6 +301,9 @@ class CourseAIAssignmentStudent(BaseModel):
     )
     latest_check: CourseAICheckStudent | None = None
     checkpoint_checks: dict[str, CourseAICheckStudent] = Field(default_factory=dict)
+    # 老師給這位學生這週的回覆（沒回覆是空字串）；老師再回覆會覆蓋，這裡只有最新的
+    teacher_reply: str = ""
+    teacher_reply_at: datetime | None = None
 
 
 class CourseWeeklyTaskFileStudent(BaseModel):
@@ -317,6 +324,7 @@ class CourseWeeklyCheckpointStudent(BaseModel):
     description: str = ""
     detectable: Literal["auto", "partial", "manual"] = "manual"
     order: int = 0
+    machine_node_key: str | None = None
     latest_check: CourseAICheckStudent | None = None
 
 
@@ -329,9 +337,10 @@ class CourseWeeklyTaskStudent(BaseModel):
     week_number: int
     session_date: date
     title: str
-    target_node_key: str | None = None
     files: list[CourseWeeklyTaskFileStudent] = Field(default_factory=list)
     checkpoints: list[CourseWeeklyCheckpointStudent] = Field(default_factory=list)
+    teacher_reply: str = ""
+    teacher_reply_at: datetime | None = None
 
 
 class ForwardEndpoint(BaseModel):

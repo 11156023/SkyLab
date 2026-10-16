@@ -8,7 +8,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -41,6 +41,8 @@ from app.ai.teacher_judge.machine_context import (
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeRunBatchPublic,
+    TeacherJudgeRunBatchSummary,
+    TeacherJudgeRunTargetPage,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptRunSummary,
@@ -52,9 +54,12 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionForkRequest,
     TeacherJudgeSessionMessageCreateRequest,
     TeacherJudgeSessionMessagePublic,
+    TeacherJudgeSessionProgressPublic,
     TeacherJudgeSessionPublic,
     TeacherJudgeSessionScriptCreateRequest,
     TeacherJudgeSessionUpdateRequest,
+    TeacherJudgeStudentReplyPublic,
+    TeacherJudgeStudentReplyRequest,
     TeacherJudgeTargetReviewUpdate,
 )
 from app.ai.teacher_judge.script_artifact_service import (
@@ -63,6 +68,7 @@ from app.ai.teacher_judge.script_artifact_service import (
     list_artifact_sets,
 )
 from app.ai.teacher_judge.script_executor_service import (
+    _mark_run_executor_failed,
     execute_script_run,
     execute_script_run_batch,
 )
@@ -73,6 +79,8 @@ from app.ai.teacher_judge.script_run_service import (
     get_script_run_public,
     get_session_run_for_review,
     get_session_run_record,
+    list_run_targets,
+    list_session_batch_summaries,
     list_session_run_summaries,
 )
 from app.ai.teacher_judge.script_run_service import (
@@ -96,6 +104,7 @@ from app.ai.teacher_judge.session_service import (
     delete_session_data,
     ensure_active,
     ensure_selected_file_available,
+    ensure_week_published,
     finalize_cleared_attachments,
     fork_session_data,
     get_session,
@@ -132,6 +141,7 @@ from app.models.teacher_judge_session import (
     TeacherJudgeSessionMessage,
     TeacherJudgeSessionStatus,
 )
+from app.services.course import ai_assignment_service
 
 router = APIRouter(
     prefix="/teaching-classes/{teaching_class_id}/judge/sessions",
@@ -345,6 +355,39 @@ def _validate_week(
         )
 
 
+def _week_session(
+    db: SessionDep,
+    week_id: uuid.UUID,
+    *,
+    exclude_session_id: uuid.UUID | None = None,
+) -> TeacherJudgeSession | None:
+    query = select(TeacherJudgeSession).where(
+        TeacherJudgeSession.teaching_class_week_id == week_id
+    )
+    if exclude_session_id is not None:
+        query = query.where(TeacherJudgeSession.id != exclude_session_id)
+    return db.exec(query.order_by(TeacherJudgeSession.created_at)).first()
+
+
+def _require_free_week(
+    db: SessionDep,
+    class_id: uuid.UUID,
+    week_id: uuid.UUID | None,
+    *,
+    exclude_session_id: uuid.UUID | None = None,
+) -> None:
+    """一週只能有一個對話：週次必填、屬於這個班級，而且還沒有別的對話。"""
+    if week_id is None:
+        raise HTTPException(
+            status_code=400, detail=t("teacherJudgeSessions.weekRequired")
+        )
+    _validate_week(db, class_id, week_id)
+    if _week_session(db, week_id, exclude_session_id=exclude_session_id):
+        raise HTTPException(
+            status_code=409, detail=t("teacherJudgeSessions.weekTaken")
+        )
+
+
 @router.get("/", response_model=list[TeacherJudgeSessionPublic])
 def list_sessions(
     teaching_class_id: uuid.UUID,
@@ -382,7 +425,7 @@ def create_session(
 ) -> TeacherJudgeSessionPublic:
     _access(session, teaching_class_id, current_user)
     try:
-        _validate_week(session, teaching_class_id, payload.teaching_class_week_id)
+        _require_free_week(session, teaching_class_id, payload.teaching_class_week_id)
         selected_file_id = payload.selected_file_id
         if payload.creation_mode == "blank":
             rubric = create_blank_file(
@@ -428,13 +471,63 @@ def fork_session(
 ) -> TeacherJudgeSessionPublic:
     _access(session, teaching_class_id, current_user)
     source = get_session(session, teaching_class_id, session_id)
+    _require_free_week(session, teaching_class_id, payload.teaching_class_week_id)
     cloned = fork_session_data(
         session,
         source,
         title=payload.title,
         created_by=current_user.id,
+        week_id=payload.teaching_class_week_id,
     )
     return session_public(session, cloned)
+
+
+@router.put("/weeks/{week_id}", response_model=TeacherJudgeSessionPublic)
+def ensure_week_session(
+    teaching_class_id: uuid.UUID,
+    week_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeSessionPublic:
+    """取得這一週的對話，還沒有就建立一個空白的。
+
+    老師點到一週、送出第一則訊息時才呼叫；同時按兩次也只會有一個對話。
+    """
+    _access(session, teaching_class_id, current_user)
+    _validate_week(session, teaching_class_id, week_id)
+    existing = _week_session(session, week_id)
+    if existing is not None:
+        return session_public(session, existing)
+    week = session.get(TeachingClassWeek, week_id)
+    title = (week.title or "").strip() or t(
+        "teacherJudgeSessions.weekDefaultTitle", week=week.week_number
+    )
+    try:
+        rubric = create_blank_file(
+            session=session,
+            teaching_class_id=teaching_class_id,
+            created_by=current_user.id,
+            display_name=title,
+            environment_keys=[],
+        )
+        item = TeacherJudgeSession(
+            teaching_class_id=teaching_class_id,
+            teaching_class_week_id=week_id,
+            title=title,
+            selected_file_id=rubric.id,
+            created_by=current_user.id,
+        )
+        session.add(item)
+        session.commit()
+    except IntegrityError:
+        # 另一個請求剛好先建好了：回傳那一個，不要多一個對話
+        session.rollback()
+        existing = _week_session(session, week_id)
+        if existing is None:
+            raise
+        return session_public(session, existing)
+    session.refresh(item)
+    return session_public(session, item)
 
 
 @router.get("/{session_id}", response_model=TeacherJudgeSessionPublic)
@@ -466,7 +559,12 @@ def update_session(
     if "title" in changes and payload.title is not None:
         item.title = payload.title.strip()
     if "teaching_class_week_id" in changes:
-        _validate_week(session, teaching_class_id, payload.teaching_class_week_id)
+        _require_free_week(
+            session,
+            teaching_class_id,
+            payload.teaching_class_week_id,
+            exclude_session_id=item.id,
+        )
         item.teaching_class_week_id = payload.teaching_class_week_id
     cleared_attachments: list[TeacherJudgeSessionAttachment] = []
     if "selected_file_id" in changes:
@@ -1000,7 +1098,6 @@ async def create_message(
                     file=file,
                     proposal=proposal,
                     template_commands=template_commands,
-                    reply=reply,
                     analysis_revision=base_revision,
                     tool_calls=tool_calls,
                 )
@@ -1015,7 +1112,7 @@ async def create_message(
                 content=redact_message_content(reply),
                 message_type=TeacherJudgeMessageType.chat,
                 metadata_json=build_assistant_metadata(
-                    metrics=metrics,
+                    metrics={**metrics, "request_id": ai_request_id},
                     workflow=workflow,
                     item_results=item_results,
                     itemwise_error=itemwise_error,
@@ -1450,13 +1547,14 @@ def create_session_script_set_run(
     _access(session, teaching_class_id, current_user)
     item = get_session(session, teaching_class_id, session_id)
     ensure_active(item)
+    ensure_week_published(session, item)
     get_artifact_set(
         session=session,
         teaching_class_id=teaching_class_id,
         artifact_set_id=artifact_set_id,
         session_id=session_id,
     )
-    if payload.target_scope != "all_students_in_set":
+    if payload.target_scope not in {"all_students_in_set", "students"}:
         raise HTTPException(
             status_code=422, detail=t("teacherJudgeSessions.unsupportedRunScope")
         )
@@ -1466,16 +1564,21 @@ def create_session_script_set_run(
         artifact_set_id=artifact_set_id,
         started_by=current_user.id,
         session_id=session_id,
+        user_ids=payload.user_ids if payload.target_scope == "students" else None,
     )
     item.last_activity_at = get_datetime_utc()
     item.updated_at = item.last_activity_at
     session.add(item)
     session.commit()
-    submit(
+    task_id = submit(
         execute_script_run_batch(uuid.UUID(batch.run_batch_id)),
         name=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
         task_id=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
     )
+    if task_id == "":
+        for node in batch.nodes:
+            _mark_run_executor_failed(uuid.UUID(node.run_id), "背景執行器未接受任務。", reason_code="executor_unavailable")
+        session.expire_all()
     return get_script_run_batch_public(
         session=session,
         teaching_class_id=teaching_class_id,
@@ -1503,6 +1606,72 @@ def get_session_script_run_batch(
         run_batch_id=run_batch_id,
         session_id=session_id,
     )
+
+
+@router.put(
+    "/{session_id}/students/{student_id}/reply",
+    response_model=TeacherJudgeStudentReplyPublic,
+)
+def save_student_reply(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    student_id: uuid.UUID,
+    payload: TeacherJudgeStudentReplyRequest,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeStudentReplyPublic:
+    """老師給一位學生這週的回覆；再回覆覆蓋前一則，空白＝不回覆。"""
+    _access(session, teaching_class_id, current_user)
+    item = get_session(session, teaching_class_id, session_id)
+    ensure_active(item)
+    return TeacherJudgeStudentReplyPublic(
+        **ai_assignment_service.save_student_reply(
+            session,
+            item,
+            student_id=student_id,
+            feedback=payload.feedback,
+            teacher_id=current_user.id,
+        )
+    )
+
+
+@router.get("/{session_id}/progress", response_model=TeacherJudgeSessionProgressPublic)
+def get_session_progress(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeSessionProgressPublic:
+    """全班每位學生在這週檢查回報完成到哪裡；執行結果另由 run-batches 提供。"""
+    _access(session, teaching_class_id, current_user)
+    item = get_session(session, teaching_class_id, session_id)
+    return TeacherJudgeSessionProgressPublic.model_validate(
+        ai_assignment_service.session_progress(session, item)
+    )
+
+
+@router.get("/{session_id}/run-batches", response_model=list[TeacherJudgeRunBatchSummary])
+def list_session_batches(
+    teaching_class_id: uuid.UUID, session_id: uuid.UUID,
+    session: SessionDep, current_user: InstructorUser,
+    skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+) -> list[TeacherJudgeRunBatchSummary]:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return list_session_batch_summaries(session, teaching_class_id, session_id, skip, limit)
+
+
+@router.get("/{session_id}/runs/{run_id}/targets", response_model=TeacherJudgeRunTargetPage)
+def list_session_run_targets(
+    teaching_class_id: uuid.UUID, session_id: uuid.UUID, run_id: uuid.UUID,
+    session: SessionDep, current_user: InstructorUser,
+    skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
+    status: Literal["queued", "running", "completed", "failed", "cancelled"] | None = None,
+    student_id: uuid.UUID | None = None, vmid: int | None = Query(None, ge=1),
+) -> TeacherJudgeRunTargetPage:
+    _access(session, teaching_class_id, current_user)
+    run = get_session_run_record(session, teaching_class_id, session_id, run_id)
+    return list_run_targets(session, run, skip=skip, limit=limit, status=status, student_id=student_id, vmid=vmid)
 
 
 @router.get("/{session_id}/runs", response_model=list[TeacherJudgeScriptRunSummary])
@@ -1635,6 +1804,7 @@ def create_session_run(
         raise HTTPException(
             status_code=404, detail=t("teacherJudgeSessions.scriptNotFound")
         )
+    ensure_week_published(session, item)
     run = create_script_run(
         session=session,
         teaching_class_id=teaching_class_id,
@@ -1648,11 +1818,14 @@ def create_session_run(
     item.updated_at = item.last_activity_at
     session.add(item)
     session.commit()
-    submit(
+    task_id = submit(
         execute_script_run(uuid.UUID(run.id)),
         name=f"teacher_judge_script_run:{run.id}",
         task_id=f"teacher_judge_script_run:{run.id}",
     )
+    if task_id == "":
+        _mark_run_executor_failed(uuid.UUID(run.id), "背景執行器未接受任務。", reason_code="executor_unavailable")
+        session.expire_all()
     return get_script_run_public(
         session=session,
         teaching_class_id=teaching_class_id,
