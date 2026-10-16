@@ -32,7 +32,7 @@ English is the primary language of the documentation. Every guide has a Traditio
 | --- | --- |
 | [`multi-machine-environment-sop.md`](multi-machine-environment-sop.md) | Formal SOP (v1.0, 2026-08-31) for building, publishing and using multi-machine teaching environments; roles, data model, end-to-end flow |
 | [`ai-navigation-teaching-workflows.md`](ai-navigation-teaching-workflows.md) | Design notes for the AI navigation assistant in the class-creation and environment-editing wizards |
-| [`teacher-judge-contract.md`](teacher-judge-contract.md) | Shared Teacher Judge proposal, absolute-path, persistence and compilation contract; historical-data boundaries |
+| [AI Teacher Judge workflow and contracts](AI導師檢查流程與不可破壞契約.md) (Traditional Chinese) | Canonical workflow for proposals, AI edits, full-table review, persistence and script compilation; ASCII diagrams, historical-data boundaries and regression criteria |
 | [`frontend-style-guide.md`](frontend-style-guide.md) | Frontend styling rules: SCSS architecture, tokens, components, forms, tables, dark mode |
 | [`database-design.md`](database-design.md) | Database normalization (1NF–3NF), redundancy kept on purpose and how it stays consistent, checklist for schema changes |
 

@@ -675,14 +675,15 @@ async def test_chat_empty_reply_with_staged_ops(
 
 async def test_chat_refine_empty_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_loop(monkeypatch, content="", staged=[])
-    result = await svc.chat_with_rubric(
-        [TeacherJudgeRubricChatMessage(role="user", content="潤飾")],
-        json.dumps({"items": []}),
-        is_refine=True,
-        rubric_available=True,
-    )
-    assert result.reply == "檢查完畢，檢查表目前狀態良好。"
-    assert result.proposal == []
+    with pytest.raises(HTTPException) as exc:
+        await svc.chat_with_rubric(
+            [TeacherJudgeRubricChatMessage(role="user", content="潤飾")],
+            json.dumps({"items": []}),
+            is_refine=True,
+            rubric_available=True,
+        )
+    assert exc.value.status_code == 502
+    assert "無法確認是否需要修改" in exc.value.detail
 
 
 async def test_chat_reply_falls_back_when_no_budget_for_check(
