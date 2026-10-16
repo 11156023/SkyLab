@@ -813,6 +813,11 @@ def control_env(monkeypatch):
         lambda node, vmid, rtype: calls["fw"].append(vmid),
     )
     monkeypatch.setattr(
+        resource_service.firewall_service,
+        "ensure_platform_ssh_rule",
+        lambda session, node, vmid, rtype: calls["fw"].append(("ssh", vmid)),
+    )
+    monkeypatch.setattr(
         resource_service, "_set_auto_stop_for_user_start", lambda **kw: None
     )
     monkeypatch.setattr(
@@ -838,7 +843,7 @@ def test_control_start_qemu_schedules_guest_ssh(control_env) -> None:
     )
     assert out["message"] == "Resource 7 start"
     assert control_env["ssh"] == [7]
-    assert control_env["fw"] == [7]
+    assert control_env["fw"] == [7, ("ssh", 7)]
     assert control_env["audit"] == ["resource_start"]
 
 

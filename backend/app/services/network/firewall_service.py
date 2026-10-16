@@ -54,6 +54,9 @@ _CC_PREFIX = "SkyLab:"
 _GATEWAY_COMMENT = f"{_CC_PREFIX}gateway:default"
 _BLOCK_EXTRA_PREFIX = f"{_CC_PREFIX}block-extra:"
 _GATEWAY_FULL_ACCESS_COMMENT = f"{_CC_PREFIX}gateway:full-access"
+# 主系統（IP 管理設定的 platform_ip）→ 機器的 SSH，導師檢查要靠它連進機器
+_PLATFORM_SSH_COMMENT = f"{_CC_PREFIX}platform:ssh"
+_PLATFORM_SSH_PORT = "22"
 # 專案改名（campus-cloud → SkyLab）前寫進機器的封鎖規則，只在清理時認得
 _LEGACY_BLOCK_EXTRA_PREFIX = "campus-cloud:block-extra:"
 _LEGACY_BLOCK_LOCAL = "campus-cloud:block-local-subnet"
@@ -236,6 +239,89 @@ def _apply_extra_block_rules(
     return stats
 
 
+def _platform_ssh_rule(platform_ip: str) -> dict[str, Any]:
+    return {
+        "type": "in",
+        "action": "ACCEPT",
+        "source": platform_ip,
+        "proto": "tcp",
+        "dport": _PLATFORM_SSH_PORT,
+        "enable": 1,
+        "comment": _PLATFORM_SSH_COMMENT,
+    }
+
+
+def _rule_matches(rule: dict[str, Any], desired: dict[str, Any]) -> bool:
+    """PVE 回傳的規則欄位與期望值是否一致（PVE 會把數字回成字串或 int）。"""
+    return all(
+        str(rule.get(key) or "").strip().lower() == str(value).strip().lower()
+        for key, value in desired.items()
+    )
+
+
+def _apply_platform_ssh_rule(
+    node: str,
+    vmid: int,
+    resource_type: ResourceType,
+    platform_ip: str | None,
+) -> str:
+    """同步單台機器的「主系統 → SSH」入站 ACCEPT，回傳 created/updated/skipped/deleted。
+
+    機器入站一律 policy_in=DROP，主系統（導師檢查）要 SSH 進來只能靠這一條。
+    規則固定排在 pos 0：PVE 先匹配先贏，擁有者自己加的入站 DROP 不能蓋掉它。
+    platform_ip 清空時把舊規則刪掉。讀不到現有規則就拋 ProxmoxError，
+    不把「讀取失敗」當成「沒有規則」去重複建立。
+    """
+    api = _firewall_api(node, vmid, resource_type)
+    rules = list_vm_firewall_rules_strict(node, vmid, resource_type)
+    existing = sorted(
+        (r for r in rules if (r.get("comment") or "").strip() == _PLATFORM_SSH_COMMENT),
+        key=lambda r: int(r.get("pos") or 0),
+    )
+
+    # 沒設主系統 IP 就全刪；有設只留第一條。由後往前刪，前面的 pos 才不會變。
+    stale = existing if not platform_ip else existing[1:]
+    for r in reversed(stale):
+        api.rules(r.get("pos")).delete()
+    if not platform_ip:
+        return "deleted" if stale else "skipped"
+
+    desired = _platform_ssh_rule(platform_ip)
+    if not existing:
+        api.rules.post(**desired, pos=0)
+        return "created"
+
+    result = "deleted" if stale else "skipped"
+    current = existing[0]
+    pos = int(current.get("pos") or 0)
+    if not _rule_matches(current, desired):
+        api.rules(pos).put(**desired)
+        result = "updated"
+    if pos != 0:
+        api.rules(pos).put(moveto=0)
+        result = "updated"
+    return result
+
+
+def ensure_platform_ssh_rule(
+    session: Session, node: str, vmid: int, resource_type: ResourceType
+) -> None:
+    """機器開機時補上主系統 SSH 規則（沒設主系統 IP 就不動）。
+
+    失敗只記 ERROR 不擋開機；管理員可以在 IP 管理重存設定整批重套。
+    """
+    from app.services.network import ip_management_service
+
+    try:
+        config = ip_management_service.get_subnet_config(session)
+        platform_ip = config.platform_ip if config else None
+        if not platform_ip:
+            return
+        _apply_platform_ssh_rule(node, vmid, resource_type, platform_ip)
+    except Exception as e:
+        logger.error("VM %s: 補上主系統 SSH 規則失敗，導師檢查會連不進來: %s", vmid, e)
+
+
 def get_vm_firewall_rules(node: str, vmid: int, resource_type: ResourceType) -> list[dict]:
     """從 Proxmox 取得 VM 防火牆規則列表"""
     try:
@@ -345,8 +431,8 @@ def ensure_firewall_enabled(node: str, vmid: int, resource_type: ResourceType) -
         logger.error(f"VM {vmid}: 確認防火牆啟用失敗: {e}")
 
 
-def _load_subnet_settings() -> tuple[list[str], str | None]:
-    """讀 IP 管理設定：(管理員設定的額外封鎖網段, Gateway VM IP)。"""
+def _load_subnet_settings() -> tuple[list[str], str | None, str | None]:
+    """讀 IP 管理設定：(管理員設定的額外封鎖網段, Gateway VM IP, 主系統 IP)。"""
     from app.core.db import engine
     from app.services.network import ip_management_service
 
@@ -354,25 +440,32 @@ def _load_subnet_settings() -> tuple[list[str], str | None]:
         subnet_config = ip_management_service.get_subnet_config(s)
         extra_blocks = ip_management_service.get_extra_blocked_subnets(subnet_config)
         gateway_vm_ip = subnet_config.gateway_vm_ip if subnet_config else None
-    return extra_blocks, gateway_vm_ip
+        platform_ip = subnet_config.platform_ip if subnet_config else None
+    return extra_blocks, gateway_vm_ip, platform_ip
 
 
 def sync_extra_block_rules() -> dict:
-    """掃描所有 pool 內 VM/LXC，同步管理員設定的額外封鎖網段規則（含孤兒清理）。
+    """掃描所有 pool 內 VM/LXC，同步管理員設定的額外封鎖網段規則（含孤兒清理），
+    以及主系統 SSH 規則（主系統 IP 改了就改、清空就刪）。
 
-    回傳 ``{"extra_blocks": {...}}`` 統計，``errors`` 逐台列出失敗原因。
-    連 PVE 機器清單都拿不到時也不拋出，而是記成一筆 ``vmid=None`` 的錯誤，
-    呼叫端（PUT /ip-management/subnet）才能把「有機器沒套到」原封不動回給管理員。
+    回傳 ``{"extra_blocks": {...}, "platform_ssh": {...}}`` 統計，``errors`` 逐台
+    列出失敗原因；主系統 SSH 規則的失敗也併進 ``extra_blocks.errors``（帶
+    ``platform-ssh:`` 前綴），管理員才看得到。連 PVE 機器清單都拿不到時也不拋出，
+    而是記成一筆 ``vmid=None`` 的錯誤，呼叫端（PUT /ip-management/subnet）才能把
+    「有機器沒套到」原封不動回給管理員。
     """
     from app.infrastructure.proxmox.operations import (
         list_all_resources,
     )
 
-    extra_blocks, _gateway_vm_ip = _load_subnet_settings()
+    extra_blocks, _gateway_vm_ip, platform_ip = _load_subnet_settings()
     # 清單是空的也要跑：管理員把網段全拿掉時，機器上的舊 DROP 得跟著清掉
 
     extra_aggregate: dict[str, list] = {
         "created": [], "updated": [], "skipped": [], "deleted": [], "errors": [],
+    }
+    platform_aggregate: dict[str, list[int]] = {
+        "created": [], "updated": [], "skipped": [], "deleted": [],
     }
 
     try:
@@ -385,7 +478,7 @@ def sync_extra_block_rules() -> dict:
     for r in targets:
         vmid = int(r["vmid"])
         node = r.get("node")
-        rtype = "lxc" if r.get("type") == "lxc" else "qemu"
+        rtype: ResourceType = "lxc" if r.get("type") == "lxc" else "qemu"
         if not node:
             continue
         try:
@@ -394,6 +487,13 @@ def sync_extra_block_rules() -> dict:
                 extra_aggregate[k].extend(sub.get(k, []))
         except Exception as e:
             extra_aggregate["errors"].append({"vmid": vmid, "error": str(e)})
+        try:
+            action = _apply_platform_ssh_rule(node, vmid, rtype, platform_ip)
+            platform_aggregate[action].append(vmid)
+        except Exception as e:
+            extra_aggregate["errors"].append(
+                {"vmid": vmid, "error": f"platform-ssh: {e}"}
+            )
 
     logger.info(
         "block-extra 同步 -> targets=%s: created=%d updated=%d skipped=%d deleted=%d errors=%d",
@@ -402,8 +502,15 @@ def sync_extra_block_rules() -> dict:
         len(extra_aggregate["skipped"]), len(extra_aggregate["deleted"]),
         len(extra_aggregate["errors"]),
     )
+    logger.info(
+        "platform-ssh 同步 -> platform_ip=%s: created=%d updated=%d skipped=%d deleted=%d",
+        platform_ip,
+        len(platform_aggregate["created"]), len(platform_aggregate["updated"]),
+        len(platform_aggregate["skipped"]), len(platform_aggregate["deleted"]),
+    )
     return {
         "extra_blocks": {"targets": extra_blocks, **extra_aggregate},
+        "platform_ssh": {"platform_ip": platform_ip, **platform_aggregate},
     }
 
 
@@ -414,6 +521,7 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
     - policy_out=ACCEPT（允許出站）
     - 套用管理員設定的額外封鎖網段（來自 IP 管理設定）
     - 新增預設出站 ACCEPT 規則作為往網關的 topology 標記
+    - 有設主系統 IP 時放行主系統 → 機器的 SSH（導師檢查用）
     """
     try:
         # 啟用防火牆並設定預設策略
@@ -435,15 +543,15 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
         _firewall_api(node, vmid, resource_type).rules.post(**gateway_rule)
         logger.info(f"VM {vmid}: 已新增預設出站規則（往網關）")
 
-        # 額外封鎖網段與 Gateway VM IP 都在 IP 管理設定裡，讀一次給下面兩步用；
-        # 讀不到就兩步都略過（非致命，與各步驟失敗時的處理一致）
+        # 額外封鎖網段、Gateway VM IP、主系統 IP 都在 IP 管理設定裡，讀一次給下面用；
+        # 讀不到就全部略過（非致命，與各步驟失敗時的處理一致）
         try:
-            extra_blocks, gw_ip = _load_subnet_settings()
+            extra_blocks, gw_ip, platform_ip = _load_subnet_settings()
         except Exception as e:
-            logger.warning(
-                f"VM {vmid}: 讀取 IP 管理設定失敗，略過額外封鎖網段與 Gateway 全埠規則（非致命）: {e}"
+            logger.error(
+                f"VM {vmid}: 讀取 IP 管理設定失敗，略過額外封鎖網段、Gateway 全埠與主系統 SSH 規則: {e}"
             )
-            extra_blocks, gw_ip = [], None
+            extra_blocks, gw_ip, platform_ip = [], None, None
 
         # 套用管理員設定的額外封鎖網段（多筆）。一定要在 gateway:default 之後做：
         # 那條 ACCEPT 不限目的，DROP 得排在它前面才會生效，順序反過來就白寫了。
@@ -479,6 +587,18 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
                 )
             except Exception as gw_err:
                 logger.warning(f"VM {vmid}: 新增 Gateway 全埠規則失敗（非致命）: {gw_err}")
+
+        # 主系統 → VM 的 SSH（只開 22），排在最前面
+        if platform_ip:
+            try:
+                _firewall_api(node, vmid, resource_type).rules.post(
+                    **_platform_ssh_rule(platform_ip), pos=0
+                )
+                logger.info(f"VM {vmid}: 已新增主系統 ({platform_ip}) → VM SSH 規則")
+            except Exception as ssh_err:
+                logger.error(
+                    f"VM {vmid}: 新增主系統 SSH 規則失敗，導師檢查會連不進來: {ssh_err}"
+                )
 
     except Exception as e:
         logger.error(f"VM {vmid}: 設定防火牆預設規則失敗: {e}")

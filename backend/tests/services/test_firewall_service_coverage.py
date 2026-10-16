@@ -29,6 +29,7 @@ from app.services.network import (
 )
 
 GATEWAY_DEFAULT = "SkyLab:gateway:default"
+PLATFORM_SSH = "SkyLab:platform:ssh"
 
 
 # ─── 假 PVE 防火牆端點 ─────────────────────────────────────────────────────────
@@ -438,8 +439,11 @@ def test_ensure_firewall_enabled_logs_failure(monkeypatch: pytest.MonkeyPatch) -
 @pytest.mark.parametrize(
     ("config", "expected"),
     [
-        (None, ([], None)),
-        (SimpleNamespace(gateway_vm_ip="10.0.0.254"), (["10.9.0.0/16"], "10.0.0.254")),
+        (None, ([], None, None)),
+        (
+            SimpleNamespace(gateway_vm_ip="10.0.0.254", platform_ip="10.0.0.5"),
+            (["10.9.0.0/16"], "10.0.0.254", "10.0.0.5"),
+        ),
     ],
 )
 def test_load_subnet_settings(
@@ -458,7 +462,9 @@ def test_load_subnet_settings(
 def test_sync_extra_block_rules_records_listing_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(fw, "_load_subnet_settings", lambda: (["10.9.0.0/16"], None))
+    monkeypatch.setattr(
+        fw, "_load_subnet_settings", lambda: (["10.9.0.0/16"], None, None)
+    )
 
     def boom() -> list[dict]:
         raise RuntimeError("pve down")
@@ -474,7 +480,9 @@ def test_sync_extra_block_rules_records_listing_failure(
 def test_sync_extra_block_rules_aggregates_per_vm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(fw, "_load_subnet_settings", lambda: (["10.9.0.0/16"], None))
+    monkeypatch.setattr(
+        fw, "_load_subnet_settings", lambda: (["10.9.0.0/16"], None, "10.0.0.5")
+    )
     monkeypatch.setattr(
         pve_ops,
         "list_all_resources",
@@ -494,13 +502,30 @@ def test_sync_extra_block_rules_aggregates_per_vm(
         return {"created": [f"{vmid}"], "deleted": ["old"]}
 
     monkeypatch.setattr(fw, "_apply_extra_block_rules", fake_apply)
+    ssh_seen: list[tuple] = []
 
-    result = fw.sync_extra_block_rules()["extra_blocks"]
+    def fake_platform(node: str, vmid: int, rtype: str, platform_ip: str | None) -> str:
+        ssh_seen.append((vmid, platform_ip))
+        if vmid == 101:
+            raise RuntimeError("ssh boom")
+        return "created"
+
+    monkeypatch.setattr(fw, "_apply_platform_ssh_rule", fake_platform)
+
+    full = fw.sync_extra_block_rules()
+    result = full["extra_blocks"]
 
     assert seen == [("pve1", 100, "qemu"), ("pve1", 101, "lxc"), ("pve2", 103, "qemu")]
     assert result["created"] == ["100", "101"]
     assert result["deleted"] == ["old", "old"]
-    assert result["errors"] == [{"vmid": 103, "error": "apply boom"}]
+    # 封鎖網段失敗的那台仍要同步主系統 SSH 規則；SSH 規則的失敗併進同一份 errors
+    assert ssh_seen == [(100, "10.0.0.5"), (101, "10.0.0.5"), (103, "10.0.0.5")]
+    assert result["errors"] == [
+        {"vmid": 101, "error": "platform-ssh: ssh boom"},
+        {"vmid": 103, "error": "apply boom"},
+    ]
+    assert full["platform_ssh"]["platform_ip"] == "10.0.0.5"
+    assert full["platform_ssh"]["created"] == [100, 103]
 
 
 # ─── setup_default_rules ────────────────────────────────────────────────────
@@ -510,7 +535,9 @@ def test_setup_default_rules_full_path(monkeypatch: pytest.MonkeyPatch) -> None:
     firewall = _install_fw(monkeypatch, FakeFirewall())
     applied: list[tuple] = []
     monkeypatch.setattr(
-        fw, "_load_subnet_settings", lambda: (["10.9.0.0/16"], "10.0.0.254")
+        fw,
+        "_load_subnet_settings",
+        lambda: (["10.9.0.0/16"], "10.0.0.254", "10.0.0.5"),
     )
 
     def fake_apply(node: str, vmid: int, rtype: str, targets: list[str]) -> dict:
@@ -527,8 +554,18 @@ def test_setup_default_rules_full_path(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     posts = [c[1] for c in firewall.calls if c[0] == "post"]
     assert posts[0]["comment"] == GATEWAY_DEFAULT
-    assert [p["proto"] for p in posts[1:]] == ["tcp", "udp"]
-    assert all(p["source"] == "10.0.0.254" for p in posts[1:])
+    assert [p["proto"] for p in posts[1:3]] == ["tcp", "udp"]
+    assert all(p["source"] == "10.0.0.254" for p in posts[1:3])
+    assert posts[3] == {
+        "type": "in",
+        "action": "ACCEPT",
+        "source": "10.0.0.5",
+        "proto": "tcp",
+        "dport": "22",
+        "enable": 1,
+        "comment": PLATFORM_SSH,
+        "pos": 0,
+    }
     assert applied == [(100, ["10.9.0.0/16"])]
 
 
@@ -556,7 +593,7 @@ def test_setup_default_rules_nonfatal_step_failures(
         FakeFirewall(fail_post_comment="SkyLab:gateway:full-access"),
     )
     monkeypatch.setattr(
-        fw, "_load_subnet_settings", lambda: (["10.9.0.0/16"], "10.0.0.254")
+        fw, "_load_subnet_settings", lambda: (["10.9.0.0/16"], "10.0.0.254", None)
     )
 
     def boom(*args: Any) -> dict:
@@ -568,6 +605,160 @@ def test_setup_default_rules_nonfatal_step_failures(
 
     posts = [c[1] for c in firewall.calls if c[0] == "post"]
     assert [p["comment"] for p in posts] == [GATEWAY_DEFAULT]
+
+
+def test_setup_default_rules_platform_ssh_failure_is_nonfatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = _install_fw(monkeypatch, FakeFirewall(fail_post_comment=PLATFORM_SSH))
+    monkeypatch.setattr(fw, "_load_subnet_settings", lambda: ([], None, "10.0.0.5"))
+
+    fw.setup_default_rules("pve1", 100, "lxc")
+
+    posts = [c[1] for c in firewall.calls if c[0] == "post"]
+    assert [p["comment"] for p in posts] == [GATEWAY_DEFAULT]
+
+
+# ─── 主系統 SSH 規則 ─────────────────────────────────────────────────────────
+
+
+def _ssh_rule(pos: int, source: str = "10.0.0.5", **extra: Any) -> dict:
+    return {
+        "pos": pos,
+        "type": "in",
+        "action": "ACCEPT",
+        "source": source,
+        "proto": "tcp",
+        "dport": "22",
+        "enable": 1,
+        "comment": PLATFORM_SSH,
+        **extra,
+    }
+
+
+def test_apply_platform_ssh_rule_creates_at_top(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = _install_fw(
+        monkeypatch, FakeFirewall(rules=[{"pos": 0, "comment": GATEWAY_DEFAULT}])
+    )
+
+    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", "10.0.0.5") == "created"
+    assert firewall.calls == [
+        ("post", {**{k: v for k, v in _ssh_rule(0).items() if k != "pos"}, "pos": 0})
+    ]
+
+
+def test_apply_platform_ssh_rule_skips_when_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PVE 會把 enable 回成字串、動作大小寫不一，都算一致
+    firewall = _install_fw(
+        monkeypatch,
+        FakeFirewall(rules=[_ssh_rule(0, enable="1", action="accept"), {"pos": 1}]),
+    )
+
+    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", "10.0.0.5") == "skipped"
+    assert firewall.calls == []
+
+
+def test_apply_platform_ssh_rule_updates_source_and_moves_to_top(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = _install_fw(
+        monkeypatch,
+        FakeFirewall(rules=[{"pos": 0, "type": "in", "action": "DROP"}, _ssh_rule(1)]),
+    )
+
+    assert fw._apply_platform_ssh_rule("pve1", 100, "lxc", "10.0.0.9") == "updated"
+    desired = {k: v for k, v in _ssh_rule(0, source="10.0.0.9").items() if k != "pos"}
+    assert firewall.calls == [("put", 1, desired), ("put", 1, {"moveto": 0})]
+
+
+def test_apply_platform_ssh_rule_drops_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = _install_fw(
+        monkeypatch,
+        FakeFirewall(rules=[_ssh_rule(0), {"pos": 1}, _ssh_rule(2), _ssh_rule(3)]),
+    )
+
+    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", "10.0.0.5") == "deleted"
+    # 由後往前刪，留下 pos 0 那條
+    assert firewall.calls == [("delete", 3), ("delete", 2)]
+
+
+def test_apply_platform_ssh_rule_removes_when_ip_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = _install_fw(
+        monkeypatch, FakeFirewall(rules=[_ssh_rule(0), {"pos": 1}, _ssh_rule(2)])
+    )
+
+    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", None) == "deleted"
+    assert firewall.calls == [("delete", 2), ("delete", 0)]
+
+
+def test_apply_platform_ssh_rule_noop_without_ip_or_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = _install_fw(monkeypatch, FakeFirewall(rules=[{"pos": 0}]))
+
+    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", None) == "skipped"
+    assert firewall.calls == []
+
+
+def test_apply_platform_ssh_rule_raises_when_rules_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = _install_fw(monkeypatch, FakeFirewall(fail=("get",)))
+
+    with pytest.raises(ProxmoxError):
+        fw._apply_platform_ssh_rule("pve1", 100, "qemu", "10.0.0.5")
+    assert firewall.calls == []
+
+
+def test_ensure_platform_ssh_rule_applies_configured_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    applied: list[tuple] = []
+    monkeypatch.setattr(
+        ip_management_service,
+        "get_subnet_config",
+        lambda s: SimpleNamespace(platform_ip="10.0.0.5"),
+    )
+    monkeypatch.setattr(
+        fw, "_apply_platform_ssh_rule", lambda *args: applied.append(args) or "created"
+    )
+
+    fw.ensure_platform_ssh_rule(object(), "pve1", 100, "qemu")
+
+    assert applied == [("pve1", 100, "qemu", "10.0.0.5")]
+
+
+@pytest.mark.parametrize("config", [None, SimpleNamespace(platform_ip=None)])
+def test_ensure_platform_ssh_rule_noop_without_platform_ip(
+    monkeypatch: pytest.MonkeyPatch, config: Any
+) -> None:
+    monkeypatch.setattr(ip_management_service, "get_subnet_config", lambda s: config)
+    monkeypatch.setattr(fw, "_firewall_api", lambda *a: pytest.fail("不該碰 PVE"))
+
+    fw.ensure_platform_ssh_rule(object(), "pve1", 100, "qemu")
+
+
+def test_ensure_platform_ssh_rule_logs_failure(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def boom(s: Any) -> Any:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ip_management_service, "get_subnet_config", boom)
+
+    fw.ensure_platform_ssh_rule(object(), "pve1", 100, "qemu")
+
+    assert any(
+        r.levelname == "ERROR" and "db down" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_setup_default_rules_raises_when_options_fail(
