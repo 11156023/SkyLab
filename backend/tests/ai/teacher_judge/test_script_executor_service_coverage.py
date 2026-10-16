@@ -194,6 +194,7 @@ def test_execute_target_script_mkdir_failure_and_cleanup_error(
     ticks = iter([10.0, 11.0, 12.0, 13.0])
     monkeypatch.setattr(executor, "perf_counter", lambda: next(ticks))
     client = _FakeClient()
+    monkeypatch.setattr(executor.proxmox_ops, "get_status", lambda *args: {"status": "running"})
     monkeypatch.setattr(executor, "create_key_client", lambda *a, **k: client)
     calls: list[str] = []
 
@@ -212,12 +213,15 @@ def test_execute_target_script_mkdir_failure_and_cleanup_error(
                 "ssh_user": "root",
                 "private_key_pem": "KEY",
                 "run_id": "run-1",
+                "proxmox_node": "pve1",
+                "resource_type": "qemu",
             },
             script_content="print(1)",
         )
     assert result == executor.RemoteScriptResult(
         exit_code=1, result_json_text="", stderr_text="permission denied",
-        timing={"prepare_seconds": 1.0, "cleanup_seconds": 1.0},
+        timing={"prepare_seconds": 1.0, "cleanup_seconds": 1.0, "failure_stage": "preparing"},
+        reason_code="preparation_failed",
     )
     assert len(calls) == 2
     assert client.closed is True

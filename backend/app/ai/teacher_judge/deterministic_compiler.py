@@ -28,7 +28,7 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
-DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v5"
+DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v6"
 _ASSERTION_TYPES_BY_COLLECTOR = {
     "command": {"returncode_equals", "text_equals", "text_contains", "number_compare", "json_path_equals"},
     "file_text": {"text_equals", "text_contains", "number_compare", "json_path_equals"},
@@ -505,6 +505,192 @@ def _script_path_is_unsafe(operand: str, extensions: tuple[str, ...]) -> bool:
     )
 
 
+def _path_option_values(
+    args: list[str], options: frozenset[str], short_values: str = "",
+) -> list[str]:
+    """Read declared path options only; never resolve or rewrite their values."""
+    paths: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        index += 1
+        if arg == "--":
+            break
+        option, inline, value = arg.partition("=")
+        if option in options:
+            if not inline:
+                value = args[index] if index < len(args) else ""
+                index += 1
+            elif not option.startswith("--"):
+                # -C=/srv means the relative value '=/srv', unlike --file=/srv.
+                value = "=" + value
+            paths.append(value)
+        elif arg.startswith("-") and not arg.startswith("--"):
+            for offset, letter in enumerate(arg[1:], 2):
+                if letter not in short_values:
+                    continue
+                value = arg[offset:]
+                if not value:
+                    value = args[index] if index < len(args) else ""
+                    index += 1
+                if f"-{letter}" in options:
+                    paths.append(value)
+                break
+    return paths
+
+
+def _scoped_subcommand(args: list[str], options: frozenset[str]) -> list[str]:
+    """Remove only recognized scope options before Git/Compose's subcommand."""
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        option, inline, _ = arg.partition("=")
+        if option in options:
+            index += 1 if inline else 2
+        elif any(len(flag) == 2 and arg.startswith(flag) for flag in options):
+            index += 1
+        else:
+            break
+    return args[index:]
+
+
+_GIT_SCOPE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
+_COMPOSE_SCOPE_OPTIONS = frozenset({"-f", "--file", "--project-directory", "--env-file"})
+
+
+def _java_execution_paths(args: list[str]) -> list[str]:
+    paths: list[str] = []
+    classpaths = {"-cp", "-classpath", "--class-path", "-p", "--module-path", "--upgrade-module-path"}
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        index += 1
+        if arg in {"-version", "--version", "-help", "--help", "-h", "-?", "--list-modules"}:
+            return paths
+        option, inline, value = arg.partition("=")
+        if option in classpaths or option == "-jar":
+            if not inline:
+                value = args[index] if index < len(args) else ""
+                index += 1
+            elif not option.startswith("--"):
+                value = "=" + value
+            if option == "-jar":
+                return paths + [value]
+            paths.extend(value.split(":"))
+        elif not arg.startswith("-"):
+            if arg.endswith(".java"):
+                paths.append(arg)
+            elif not paths:
+                paths.append(".")
+            # Everything after the launch target belongs to the student program.
+            return paths
+    return paths
+
+
+def _command_option_paths(command: str, args: list[str]) -> list[str]:
+    # These are filesystem options, not service names, package names, patterns,
+    # URLs or arbitrary student-program arguments. Command authorization is
+    # still enforced separately by _command_argv_issue.
+    options = {
+        "pip": "--path --python --cert --client-cert --cache-dir --log",
+        "pip3": "--path --python --cert --client-cert --cache-dir --log",
+        "npm": "--prefix --cache --userconfig --globalconfig --cafile",
+        "nginx": "-c -p", "apache2ctl": "-f -d", "httpd": "-f -d", "sshd": "-f",
+        "openssl": "-in -CAfile -CApath -CAstore -cert -cert_chain -key -untrusted -trusted -CRLfile -provider-path",
+        "ssh-keygen": "-f", "date": "-r --reference -f --file",
+        "journalctl": "-D --directory --file --root --image",
+        "systemctl": "--root --image", "lsblk": "--sysroot", "lscpu": "-s --sysroot",
+        "last": "-f --file", "dmesg": "-F --file",
+        "dig": "-f -k", "ss": "-F --filter", "lspci": "-F", "lsusb": "-D",
+        "curl": "--cacert", "redis-cli": "-s --cacert --cacertdir --cert --key",
+        "dpkg": "--root --admindir --instdir", "dpkg-query": "--admindir --root",
+        "rpm": "--root --dbpath", "lsof": "+d +D",
+        "psql": "-h --host", "pg_isready": "-h --host",
+        "mysql": "-S --defaults-file --defaults-extra-file --socket",
+        "mariadb": "-S --defaults-file --defaults-extra-file --socket",
+    }
+    flags = frozenset(options.get(command, "").split())
+    short_values = {
+        "nginx": "cpg", "apache2ctl": "fdCDc", "httpd": "fdCDc", "sshd": "fop",
+        "ssh-keygen": "fEm", "date": "dfr", "journalctl": "DnNSUutpbo",
+        "last": "fnt", "dmesg": "Ffls", "redis-cli": "hpansurid",
+        "dig": "bcfkptxy", "ss": "AfF", "lspci": "Fis", "lsusb": "Dds", "lscpu": "s",
+        "psql": "hpUd", "pg_isready": "hpUd",
+        "mysql": "hPupSD", "mariadb": "hPupSD",
+    }.get(command, "")
+    paths = _path_option_values(args, flags, short_values)
+    # PostgreSQL's host value is a socket directory only when written as a
+    # path; ordinary DNS names and addresses are not file locations.
+    if command in {"psql", "pg_isready"}:
+        paths = [value for value in paths if value.startswith(("/", ".", "~", "$"))]
+    if command == "curl":
+        formats = _path_option_values(args, frozenset({"-H", "--header", "-w", "--write-out"}), "mwHA")
+        paths.extend(value[1:] for value in formats if value.startswith("@"))
+    if command == "find":
+        references = frozenset({"-newer", "-anewer", "-cnewer", "-samefile", "-files0-from"})
+        references |= frozenset(f"-newer{left}{right}" for left in "acmB" for right in "acmB")
+        paths.extend(_path_option_values(args, references))
+    elif command == "git":
+        subargs = _scoped_subcommand(args, _GIT_SCOPE_OPTIONS)
+        scope_args = args[:len(args) - len(subargs)]
+        paths.extend(_path_option_values(scope_args, _GIT_SCOPE_OPTIONS, "C"))
+        scoped = bool(scope_args)
+        independent = subargs[:1] in (["--version"], ["version"])
+        if subargs[:1] == ["config"]:
+            config_paths = _path_option_values(subargs[1:], frozenset({"-f", "--file"}), "f")
+            paths.extend(config_paths)
+            independent = any(arg in {"--global", "--system"} for arg in subargs)
+            independent |= bool(config_paths)
+        if subargs[:1] == ["diff"] and "--no-index" in subargs:
+            independent = True
+            paths.extend(_positionals(subargs[1:], frozenset({"-U", "--unified", "--word-diff-regex"})))
+        elif subargs[:1] == ["status"]:
+            paths.extend(_positionals(subargs[1:]))
+        elif subargs[:1] == ["ls-files"]:
+            paths.extend(_path_option_values(subargs[1:], frozenset({"-X", "--exclude-from"}), "xX"))
+            paths.extend(_positionals(subargs[1:], frozenset({"-x", "--exclude", "-X", "--exclude-from", "--format"})))
+        if not scoped and not independent:
+            paths.append(".")
+        if "--" in subargs:
+            paths.extend(subargs[subargs.index("--") + 1:])
+    elif command in {"docker", "podman"} and args[:1] == ["compose"]:
+        paths.extend(_path_option_values(args[1:], _COMPOSE_SCOPE_OPTIONS, "f"))
+        subargs = _scoped_subcommand(args[1:], _COMPOSE_SCOPE_OPTIONS)
+        if subargs[:1] in (["ps"], ["config"]):
+            location = _COMPOSE_SCOPE_OPTIONS - {"--env-file"}
+            if not _path_option_values(args[1:], location, "f"):
+                paths.append(".")
+    elif command == "npm" and args[:1] in (["list"], ["ls"], ["version"]):
+        if not any(arg in {"-g", "--global", "--global=true"} for arg in args):
+            if not _path_option_values(args, frozenset({"--prefix"})):
+                paths.append(".")
+    elif command == "ssh-keygen" and not paths:
+        # Without -f it prompts for a key in the login user's home directory.
+        paths.append("未指定金鑰檔案")
+    elif command == "openssl":
+        for value in _path_option_values(args, frozenset({"-rand"})):
+            paths.extend(value.split(":"))
+        for value in _path_option_values(args, frozenset({"-passin"})):
+            if value.startswith("file:"):
+                paths.append(value[5:])
+        if args[:1] == ["verify"]:
+            # verify accepts certificate operands after its options.
+            values = flags | {"-purpose", "-verify_hostname", "-verify_email", "-verify_ip", "-auth_level", "-attime", "-verify_depth", "-policy", "-verify_name", "-nameopt", "-provider", "-propquery", "-rand", "-passin"}
+            paths.extend(_positionals(args[1:], values))
+    elif command == "java":
+        paths.extend(_java_execution_paths(args))
+    elif command in {"perl", "ruby"}:
+        operand, _ = _interpreter_operand(command, args)
+        before_script = args[:args.index(operand)] if operand in args else args
+        includes = _path_option_values(before_script, frozenset({"-I"}), _INTERPRETER_SHORT_RULES[command][1])
+        paths.extend(part for value in includes for part in (value.split(":") if command == "ruby" else [value]))
+    elif command == "rpm" and any(
+        arg == "--package" or "p" in _short_letters(arg) for arg in args
+    ):
+        paths.extend(_positionals(args, frozenset({"--root", "--dbpath", "--queryformat", "--qf"})))
+    return paths
+
+
 def _file_command_operands(command: str, args: list[str]) -> list[str]:
     """Separate filenames from common read-command options and expressions.
 
@@ -519,7 +705,7 @@ def _file_command_operands(command: str, args: list[str]) -> list[str]:
         "wc": ("", set()),
         "ls": ("Iw", {"--ignore", "--width", "--block-size", "--format", "--sort", "--time", "--time-style", "--color"}),
         "du": ("d", {"--max-depth", "--block-size", "--exclude"}),
-        "grep": ("efmABC", {"--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--include", "--exclude"}),
+        "grep": ("efmABC", {"--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--include", "--exclude", "--exclude-from"}),
         "sed": ("e", {"--expression"}),
         "jq": ("Lf", {"--indent", "--from-file"}),
         "awk": ("vFf", {"--assign", "--field-separator", "--file"}),
@@ -528,9 +714,16 @@ def _file_command_operands(command: str, args: list[str]) -> list[str]:
         "cut": ("bcdf", {"--bytes", "--characters", "--delimiter", "--fields", "--output-delimiter"}),
         "sort": ("ktST", {"--key", "--field-separator", "--buffer-size", "--temporary-directory", "--parallel"}),
         "uniq": ("fsw", {"--skip-fields", "--skip-chars", "--check-chars"}),
-        "diff": ("UC", {"--unified", "--context", "--label", "--exclude"}),
+        "diff": ("UCxX", {"--unified", "--context", "--label", "--exclude", "--exclude-from"}),
         "cmp": ("in", {"--ignore-initial", "--bytes"}),
         "base64": ("w", {"--wrap"}),
+        "strings": ("ntTe", {"--bytes", "--radix", "--encoding", "--target"}),
+        "od": ("AjNtw", {"--address-radix", "--skip-bytes", "--read-bytes", "--format", "--width", "--endian"}),
+        "hexdump": ("efns", {"--format", "--format-file", "--length", "--skip"}),
+        "column": ("csno", {"--columns", "--separator", "--table-columns", "--output-separator"}),
+        "df": ("Bt", {"--block-size", "--type", "--exclude-type", "--output"}),
+        "lsof": ("cpudgiF", {"+d", "+D"}),
+        "lsblk": ("oxt", {"--output", "--sort", "--sysroot"}),
     }
     command = {"egrep": "grep", "fgrep": "grep"}.get(command, command)
     short_values, long_values = value_options.get(command, ("", set()))
@@ -554,7 +747,7 @@ def _file_command_operands(command: str, args: list[str]) -> list[str]:
         if option in long_values:
             if "=" in arg:
                 value = inline
-            elif option != "--color" and index < len(args):
+            elif option not in {"--color", "--output"} and index < len(args):
                 value = args[index]
                 index += 1
         elif arg.startswith("-") and not arg.startswith("--"):
@@ -570,7 +763,7 @@ def _file_command_operands(command: str, args: list[str]) -> list[str]:
             positionals.append(arg)
         if command in {"grep", "sed"} and option in {"-e", "--regexp", "--expression", "-f", "--file"}:
             has_expression = True
-        if command == "grep" and option in {"-f", "--file"} and value:
+        if command == "grep" and option in {"-f", "--file", "--exclude-from"} and value:
             file_values.append(value)
         if command == "jq" and option in {"-f", "--from-file"}:
             has_expression = True
@@ -582,6 +775,13 @@ def _file_command_operands(command: str, args: list[str]) -> list[str]:
                 file_values.append(value)
         if command == "file" and option in {"-f", "--files-from", "-m", "--magic-file"} and value:
             file_values.append(value)
+        if (command, option) in {
+            ("jq", "-L"), ("sort", "-T"), ("sort", "--temporary-directory"),
+            ("diff", "-X"), ("diff", "--exclude-from"),
+            ("xmllint", "--schema"), ("xmllint", "--dtdvalid"),
+            ("hexdump", "-f"), ("hexdump", "--format-file"),
+        }:
+            file_values.append(value or "")
     if command == "yq" and positionals[:1] in (["eval"], ["eval-all"], ["e"], ["ea"]):
         positionals = positionals[1:]
     if command in {"grep", "sed", "jq", "awk", "yq"} and not has_expression:
@@ -589,6 +789,11 @@ def _file_command_operands(command: str, args: list[str]) -> list[str]:
     if command == "awk":
         positionals = [arg for arg in positionals if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg)]
     if command in {"ls", "du"} and not positionals:
+        positionals = ["."]
+    if command == "grep" and not positionals and (
+        any(arg in {"--recursive", "--dereference-recursive"} for arg in args)
+        or _cluster_has(args, "rR", short_values)
+    ):
         positionals = ["."]
     return file_values + positionals
 
@@ -618,6 +823,7 @@ def missing_execution_location(collector: dict[str, Any]) -> list[str]:
     command = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     args = argv[1:]
     paths: list[str] = []
+    paths.extend(_command_option_paths(command, args))
     if "/" in argv[0] or "\\" in argv[0]:
         paths.append(argv[0])
     if command in _INTERPRETER_SHORT_RULES:
@@ -631,24 +837,27 @@ def missing_execution_location(collector: dict[str, Any]) -> list[str]:
         paths.extend(arg for arg in args[1:] if arg.endswith(".go"))
     elif command == "find":
         # Only the leading roots are paths; -name patterns and predicates are not.
-        roots = []
+        roots: list[str] = []
         for arg in args:
             if arg in {"-H", "-L", "-P"} and not roots:
                 continue
             if arg.startswith("-") or arg in {"(", "!"}:
                 break
             roots.append(arg)
-        paths.extend(roots or ["."])
+        paths.extend(roots or ([] if "-files0-from" in args else ["."]))
     elif command == "test":
         paths.extend(
             args[index + 1] for index, arg in enumerate(args[:-1])
-            if arg in {"-e", "-f", "-d", "-r", "-s", "-L", "-h", "-x", "-w"}
+            if arg in {"-e", "-f", "-d", "-r", "-s", "-L", "-h", "-x", "-w", "-b", "-c", "-p", "-S", "-O", "-G", "-N"}
         )
+        for index, arg in enumerate(args[1:], 1):
+            if arg in {"-nt", "-ot", "-ef"} and index + 1 < len(args):
+                paths.extend([args[index - 1], args[index + 1]])
     elif command in {
         "cat", "head", "tail", "stat", "file", "wc", "ls", "du", "readlink", "realpath",
         "md5sum", "sha1sum", "sha256sum", "sha512sum", "cksum", "diff", "cmp",
         "grep", "egrep", "fgrep", "sed", "jq", "awk", "yq", "xmllint",
-        "cut", "sort", "uniq", "base64",
+        "cut", "sort", "uniq", "base64", "strings", "od", "hexdump", "column", "df", "getcap", "lsof", "lsblk",
     } and not any(arg in {"--version", "--help"} for arg in args):
         paths.extend(_file_command_operands(command, args))
     unresolved = [
@@ -1050,8 +1259,10 @@ def _git_config_is_read(args: list[str]) -> bool:
     return len(positionals) == 1 and positionals[0].lower() not in _GIT_CONFIG_WRITE_ACTIONS
 
 
-def _git_issue(args: list[str], lowered: list[str]) -> str | None:
+def _git_issue(args: list[str]) -> str | None:
     message = "command collector 只允許唯讀 Git 子命令"
+    args = _scoped_subcommand(args, _GIT_SCOPE_OPTIONS)
+    lowered = [part.lower() for part in args]
     sub = lowered[0] if lowered else ""
     if any(arg.startswith("--output") for arg in args):
         return message
@@ -1106,14 +1317,15 @@ def _command_argv_issue(argv: list[str]) -> str | None:
         if sub not in _DOCKER_READ_SUBCOMMANDS:
             return "command collector 只允許唯讀的容器查詢子命令"
         if sub in _DOCKER_READ_THIRD:
-            third = lowered[1] if len(lowered) > 1 else ""
+            subargs = _scoped_subcommand(args[1:], _COMPOSE_SCOPE_OPTIONS) if sub == "compose" else args[1:]
+            third = subargs[0].lower() if subargs else ""
             if third not in _DOCKER_READ_THIRD[sub]:
                 return "command collector 只允許唯讀的容器查詢子命令"
         if sub == "logs" and any(flag in {"-f", "--follow"} for flag in lowered):
             return "command collector 不允許持續跟隨的 docker logs"
-        if sub == "compose" and lowered[1:2] == ["config"] and (
-            _cluster_has(args[2:], "o")
-            or any(arg.startswith("--output") for arg in args[2:])
+        if sub == "compose" and third == "config" and (
+            _cluster_has(subargs[1:], "o", "f")
+            or any(arg.startswith("--output") for arg in subargs[1:])
         ):
             return "command collector 不允許 compose config 寫出檔案"
     if command in {"apt", "apt-cache", "dpkg", "dpkg-query", "rpm", "yum", "dnf",
@@ -1121,7 +1333,7 @@ def _command_argv_issue(argv: list[str]) -> str | None:
         if issue := _package_issue(command, args, lowered):
             return issue
     if command == "git":
-        if issue := _git_issue(args, lowered):
+        if issue := _git_issue(args):
             return issue
     if command == "curl":
         if issue := _curl_issue(args):
@@ -1530,7 +1742,7 @@ def _render_script(plan: dict[str, Any]) -> str:
         "        return 'unknown', message, raw\n"
         "    if step.get('judgement_mode') == 'teacher':\n"
         "        notice = str(collected['raw']['error_message']) + '\\n' if collected.get('incomplete') else ''\n"
-        "        return 'collected', notice + str(collected.get('value') or ''), dict(collected.get('raw') or collected)\n"
+        "        return 'collected', notice + ('' if actual is None else str(actual)), dict(collected.get('raw') or collected)\n"
         "    if collected.get('incomplete'):\n"
         "        return 'unknown', str(collected['raw']['error_message']), dict(collected['raw'])\n"
         "    if kind == 'returncode_equals':\n"

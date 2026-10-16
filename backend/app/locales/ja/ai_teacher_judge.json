@@ -37,6 +37,7 @@
   "run.vmid_not_in_class": "VMID {vmid} はこのクラスに属していないか、利用可能なマシンがまだ作成されていません。",
   "run.vmid_not_runnable": "VMID {vmid} は実行可能な VM/LXC ではありません。",
   "run.vmid_not_running": "VMID {vmid} は現在実行中ではないため、スクリプトを実行できません。",
+  "run.vmid_powered_off": "VMID {vmid} は電源がオフのため、チェックをスキップしました。",
   "run.vmid_not_registered": "VMID {vmid} はデータベースに登録されていません。",
   "run.owner_mismatch": "VMID {vmid} のリソースの現在の所有者がクラスの学生と一致しません。",
   "run.no_ip": "VMID {vmid} に利用可能な IP アドレスがありません。",

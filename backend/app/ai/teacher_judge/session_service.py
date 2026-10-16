@@ -968,6 +968,7 @@ def _session_public(
 ) -> TeacherJudgeSessionPublic:
     return TeacherJudgeSessionPublic(
         id=str(item.id),
+        active_artifact_set_id=str(item.active_artifact_set_id) if item.active_artifact_set_id else None,
         teaching_class_id=str(item.teaching_class_id),
         teaching_class_week_id=(
             str(item.teaching_class_week_id) if item.teaching_class_week_id else None

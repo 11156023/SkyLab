@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,8 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.ai.teacher_judge import service as teacher_judge_service
 from app.models.teacher_judge_file import TeacherJudgeFile
+from app.models.teacher_judge_session import TeacherJudgeSession
+from app.models.teaching_class import TeachingClassWeek
 
 
 def patch_teacher_judge_vllm_settings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,3 +113,64 @@ def make_teacher_judge_file(db: Session, class_id: uuid.UUID) -> TeacherJudgeFil
     db.commit()
     db.refresh(item)
     return item
+
+
+def make_script_workspace(
+    db: Session,
+    class_id: uuid.UUID,
+    *,
+    session_id: uuid.UUID | None = None,
+    source_file_id: uuid.UUID | None = None,
+) -> TeacherJudgeSession:
+    """Seed the real weekly authority required by script generation/admission."""
+    from sqlalchemy import func
+    from sqlmodel import select
+
+    item = db.get(TeacherJudgeSession, session_id) if session_id else None
+    if item is None or item.teaching_class_week_id is None:
+        number = (
+            db.exec(
+                select(func.count())
+                .select_from(TeachingClassWeek)
+                .where(TeachingClassWeek.class_id == class_id)
+            ).one()
+            + 1
+        )
+        week = TeachingClassWeek(
+            class_id=class_id,
+            week_number=number,
+            session_date=date(2026, 9, 1),
+            status="published",
+        )
+        db.add(week)
+        db.flush()
+        if item is None:
+            item = TeacherJudgeSession(
+                id=session_id or uuid.uuid4(),
+                teaching_class_id=class_id,
+                teaching_class_week_id=week.id,
+                title="Weekly checks",
+                selected_file_id=source_file_id,
+            )
+        else:
+            item.teaching_class_week_id = week.id
+        db.add(item)
+    db.commit()
+    return item
+
+
+def activate_script(db: Session, artifact) -> TeacherJudgeSession:
+    """Explicitly publish a fixture set without bypassing admission checks."""
+    workspace = make_script_workspace(
+        db,
+        artifact.teaching_class_id,
+        session_id=artifact.session_id,
+        source_file_id=artifact.source_file_id,
+    )
+    artifact.session_id = workspace.id
+    artifact.artifact_set_id = artifact.artifact_set_id or uuid.uuid4()
+    artifact.target_node_key = artifact.target_node_key or "web"
+    workspace.active_artifact_set_id = artifact.artifact_set_id
+    db.add_all([workspace, artifact])
+    db.commit()
+    return workspace

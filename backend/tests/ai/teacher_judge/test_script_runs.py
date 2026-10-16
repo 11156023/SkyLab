@@ -26,6 +26,7 @@ from app.models.teacher_judge_script_run import (
 )
 from app.repositories import resource as resource_repo
 from tests.ai.teacher_judge.helpers import (
+    activate_script,
     make_session,
 )
 
@@ -115,7 +116,7 @@ def test_create_script_run_snapshots_only_running_class_targets(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -174,7 +175,7 @@ def test_create_script_run_falls_back_to_live_ip_when_cache_missing(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=131, user_id=user_id, ip=None)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -215,7 +216,7 @@ def test_create_script_run_falls_back_to_live_ip_when_cache_missing(
     )
 
 
-def test_create_script_run_rejects_stopped_target(
+def test_create_script_run_records_stopped_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = make_session()
@@ -232,7 +233,7 @@ def test_create_script_run_rejects_stopped_target(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -246,21 +247,26 @@ def test_create_script_run_rejects_stopped_target(
     monkeypatch.setattr(
         script_run_service,
         "_running_resources_by_vmid",
-        lambda: {101: {"vmid": 101, "type": "qemu", "status": "stopped"}},
+        lambda: {101: {"vmid": 101, "type": "qemu", "status": "stopped", "node": "pve1"}},
+    )
+    monkeypatch.setattr(
+        script_executor_service.proxmox_ops, "get_status", lambda *args: {"status": "stopped"},
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        script_run_service.create_script_run(
-            session=session,
-            teaching_class_id=teaching_class_id,
-            artifact_id=artifact.id,
-            target_scope=TeacherJudgeScriptRunTargetScope.manual,
-            target_vmids=[101],
-            started_by=None,
-        )
-
-    assert exc_info.value.status_code == 400
-    assert "不是運行中" in str(exc_info.value.detail)
+    run = script_run_service.create_script_run(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_id=artifact.id,
+        target_scope=TeacherJudgeScriptRunTargetScope.manual,
+        target_vmids=[101],
+        started_by=None,
+    )
+    assert run.target_snapshot_json["targets"] == []
+    target = run.target_results_json["targets"][0]
+    assert target["reason_code"] == "vm_powered_off"
+    assert target["status"] == "failed"
+    assert target["parsed_result"] is None
+    assert run.progress_json["done"] == 1
 
 
 def test_create_script_run_rejects_target_without_ssh_key(
@@ -281,7 +287,7 @@ def test_create_script_run_rejects_target_without_ssh_key(
     )
     resource = _add_resource(session, vmid=101, user_id=user_id)
     resource.ssh_private_key_encrypted = None
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -330,7 +336,7 @@ async def test_execute_script_run_saves_valid_target_result(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -419,7 +425,7 @@ async def test_execute_script_run_preserves_targets_when_final_save_fails(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -539,7 +545,7 @@ async def test_execute_script_run_saves_invalid_json_result(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -619,7 +625,7 @@ async def test_execute_script_run_records_executor_level_failure(
         ai_review_result_json={"approved": True},
     )
     _add_resource(session, vmid=101, user_id=user_id)
-    session.add(artifact)
+    activate_script(session, artifact)
     session.commit()
     session.refresh(artifact)
 
@@ -670,6 +676,9 @@ async def test_execute_script_run_records_executor_level_failure(
 def test_execute_target_script_uploads_runs_and_collects_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        script_executor_service.proxmox_ops, "get_status", lambda *args: {"status": "running"},
+    )
     class FakeRemoteFile:
         def __init__(self, files: dict[str, bytes], path: str, mode: str) -> None:
             self.files = files
@@ -746,6 +755,8 @@ def test_execute_target_script_uploads_runs_and_collects_result(
             "ssh_user": "root",
             "private_key_pem": "KEY",
             "run_id": "run-1",
+            "proxmox_node": "pve1",
+            "resource_type": "qemu",
         },
         script_content=SAFE_SCRIPT,
     )

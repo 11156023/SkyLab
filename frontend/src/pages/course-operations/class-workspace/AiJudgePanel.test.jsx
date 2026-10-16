@@ -20,6 +20,8 @@ import {
   attachStudentReports,
   checkOutcome,
   studentMachineChips,
+  machinePowerState,
+  checkpointBadge,
   buildMergedBatchReviewRows,
   buildBatchReviewRows,
   buildLegacyReviewRows,
@@ -1315,18 +1317,19 @@ describe("SessionTitle", () => {
 
 describe("getDefaultWeekId", () => {
   const weeks = [
-    { id: "w1", session_date: "2026-09-07" },
-    { id: "w2", session_date: "2026-09-14" },
-    { id: "w3", session_date: "2026-09-21" },
+    { id: "w3", week_number: 3, session_date: "2026-09-21" },
+    { id: "w1", week_number: 1, session_date: "2026-09-07" },
+    { id: "w2", week_number: 2, session_date: "2026-09-14" },
   ];
-  test("預設帶入最近已上過的一週", () => {
-    expect(getDefaultWeekId(weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
+  test("依週次編號預設第一週，不改動來源順序", () => {
+    expect(getDefaultWeekId(weeks)).toBe("w1");
+    expect(weeks.map((week) => week.id)).toEqual(["w3", "w1", "w2"]);
   });
-  test("都還沒開始上課就不指定", () => {
-    expect(getDefaultWeekId(weeks, new Date("2026-09-01T12:00:00Z"))).toBe("");
+  test("沒有第一週時選編號最小的現有週次", () => {
+    expect(getDefaultWeekId([weeks[0], weeks[2]])).toBe("w2");
   });
-  test("以當地日期判斷：上課當天清晨（UTC 仍是前一天）也算已到這一週", () => {
-    expect(getDefaultWeekId(weeks, new Date(2026, 8, 14, 0, 30))).toBe("w2");
+  test("沒有週次時不指定", () => {
+    expect(getDefaultWeekId([])).toBe("");
   });
 });
 
@@ -1338,13 +1341,24 @@ describe("resolveActiveWeekId", () => {
   ];
 
   test("網址指定的週次優先，不存在的週次不採用", () => {
-    expect(resolveActiveWeekId("w3", weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w3");
-    expect(resolveActiveWeekId("missing", weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
+    expect(resolveActiveWeekId("w3", weeks)).toBe("w3");
+    expect(resolveActiveWeekId("missing", weeks)).toBe("w1");
   });
 
-  test("沒有指定時選本週（最近上過的一週），還沒開課就選第一週", () => {
-    expect(resolveActiveWeekId(null, weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
-    expect(resolveActiveWeekId(null, weeks, new Date("2026-09-01T12:00:00Z"))).toBe("w1");
+  test.each(["2026-09-01", "2026-09-16", "2026-09-21", "2026-10-16"])("日期為 %s 時，沒有指定週次仍選第一週", (date) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(`${date}T12:00:00`));
+      expect(resolveActiveWeekId(null, weeks)).toBe("w1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("週次 ID 統一為字串，網址可以指定數字 ID", () => {
+    const numericWeeks = [{ id: 20, week_number: 2 }, { id: 10, week_number: 1 }];
+    expect(resolveActiveWeekId("20", numericWeeks)).toBe("20");
+    expect(resolveActiveWeekId(null, numericWeeks)).toBe("10");
   });
 
   test("沒有週次時不選", () => {
@@ -1440,6 +1454,14 @@ describe("teacher review summary", () => {
   test("沒有結果與執行失敗會清楚分開", () => {
     expect(getTargetReviewSummary(null).kind).toBe("missing");
     expect(getTargetReviewSummary({ status: "failed" }).kind).toBe("failed");
+  });
+
+  test("只有明確的關機原因顯示關機，舊紀錄與 SSH 錯誤維持一般失敗", () => {
+    expect(getTargetReviewSummary({ status: "failed", reason_code: "vm_powered_off" }).label).toBe("錯誤：關機");
+    expect(getTargetReviewSummary({ status: "failed", reason_code: "vm_status_unavailable" }).label).toBe("錯誤：狀態不明");
+    for (const reason_code of ["not_running", "executor_error", "execution_timeout", "target_not_ready"]) {
+      expect(getTargetReviewSummary({ status: "failed", reason_code }).label).toBe("執行失敗");
+    }
   });
 });
 
@@ -1609,7 +1631,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     ]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
       {
-        artifact_set_id: "set-1",
+        artifact_set_id: "set-1", is_active: true,
         status: "approved",
         source_analysis_revision: 3,
         children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
@@ -1645,11 +1667,55 @@ describe("teacher review run-once（整組檢查點）", () => {
     container.remove();
   });
 
+  test.each([
+    ["vm_powered_off", "錯誤：關機", "機器已關機，已跳過檢查。開機後可重新執行。"],
+    ["vm_status_unavailable", "錯誤：狀態不明", "無法確認機器狀態，已跳過檢查。請稍後重新執行。"],
+  ])("%s 在收合與展開時皆顯示原因，不誤報腳本沒有輸出", async (reason, label, message) => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
+    ]);
+    const failed = structuredClone(batchPayload);
+    const node = failed.students[0].nodes[0];
+    node.execution_status = "failed";
+    node.reason_code = reason;
+    node.timing = { total_seconds: 0.25 };
+    node.items[0].checks = [];
+    node.items[0].status = "unknown";
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(failed);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members.map((member) => ({ ...member, vm_status: "running" }))} /></ConfirmProvider>);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(container.textContent).toContain(label);
+      // 最近一次檢查的失敗原因與目前電源狀態各自保留；重新開機不抹掉舊失敗。
+      const power = container.querySelector('[role="img"][aria-label="已開機"]');
+      expect(power).toBeTruthy();
+      expect(power.parentElement.title).toContain(label);
+      expect(power.parentElement.title).toContain("VMID 101");
+      const toggle = [...container.querySelectorAll("button")].find((button) => button.textContent.includes("王小明"));
+      await act(async () => toggle.click());
+      expect(container.textContent).toContain(message);
+      expect(container.textContent).not.toContain("此檢查點沒有回傳可顯示的結果。");
+      expect(container.textContent).not.toContain("腳本沒有回傳可顯示的檢查項目。");
+      expect([...container.querySelectorAll("summary")].filter((element) => element.textContent === i18n.t("AiJudgePanel.timingTitle", { ns: "teaching" }))).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   test("部分步驟未回傳時會顯示不完整提示並保留已取得的證據", async () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
     ]);
-    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }]);
     const incomplete = structuredClone(batchPayload);
     incomplete.students[0].nodes[0].items[0].status = "unknown";
     incomplete.students[0].nodes[0].items[0].missing_check_ids = ["missing-step"];
@@ -1678,7 +1744,7 @@ describe("teacher review run-once（整組檢查點）", () => {
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "running" },
     ]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
-      { artifact_set_id: "set-1", status: "approved", children: [] },
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
     ]);
     vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue({
       ...batchPayload,
@@ -1743,11 +1809,46 @@ describe("teacher review run-once（整組檢查點）", () => {
     expect(isReviewDraftDirty(undefined, saved)).toBe(false);
   });
 
+  test("生效組切換時保留並標明上一組未儲存核查，查詢改用新組", async () => {
+    vi.spyOn(AiJudgeService, "listSessionScriptSets")
+      .mockResolvedValueOnce([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }])
+      .mockResolvedValue([{ artifact_set_id: "set-2", is_active: true, status: "approved", children: [] }]);
+    const listRuns = vi.spyOn(AiJudgeService, "listSessionRuns").mockImplementation(async (_classId, _sessionId, setId) => (
+      setId === "set-1" ? [{ id: "run-1", run_batch_id: "batch-1", status: "completed" }] : []
+    ));
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const render = (active) => root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} active={active} /></ConfirmProvider>);
+    await act(async () => {
+      render(true);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent.includes("王小明")).click();
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.getAttribute("aria-pressed") !== null && button.textContent.includes("通過")).click();
+    });
+    await act(async () => render(false));
+    await act(async () => {
+      render(true);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(listRuns).toHaveBeenLastCalledWith("class-1", "session-1", "set-2");
+    expect(container.textContent).toContain(i18n.t("AiJudgePanel.previousSetDraftsWaiting", { ns: "teaching" }));
+    expect(container.textContent).toContain("pg_isready");
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent.includes("儲存核查")).disabled).toBe(false);
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   test("批次模式下判定會以對應 run 與 vmid 儲存", async () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
     ]);
-    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }]);
     vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
     const updateReview = vi.spyOn(AiJudgeService, "updateTargetReview").mockResolvedValue({
       id: "run-1",
@@ -1834,7 +1935,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
       { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
     ]);
-    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([{ artifact_set_id: "set-1", is_active: true, status: "approved", children: [] }]);
     vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(failedBatch);
     vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
       items: [],
@@ -1864,6 +1965,9 @@ describe("teacher review run-once（整組檢查點）", () => {
 
     const textarea = container.querySelector("textarea");
     expect(textarea.value).toBe("舊的回覆");
+    // 回覆框在這位學生的檢查結果下面
+    const machineCard = container.querySelector("section[aria-label]");
+    expect(machineCard.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
@@ -1883,6 +1987,19 @@ describe("teacher review run-once（整組檢查點）", () => {
 
     expect(saveReply).toHaveBeenCalledExactlyOnceWith("class-1", "session-1", "user-1", "請先確認虛擬機配置。");
     expect(container.textContent).toContain(i18n.t("AiJudgePanel.replied", { ns: "teaching" }));
+
+    // Ctrl+Enter 也能送出
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setValue.call(textarea, "記得重開服務。");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(saveReply).toHaveBeenLastCalledWith("class-1", "session-1", "user-1", "記得重開服務。");
     // 每台機器不再各自留言：展開後只有這一個回覆框
     expect(container.querySelectorAll("textarea")).toHaveLength(1);
     await act(async () => {
@@ -2030,7 +2147,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
       {
-        artifact_set_id: "set-1",
+        artifact_set_id: "set-1", is_active: true,
         status: "approved",
         source_analysis_revision: 3,
         children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
@@ -2168,10 +2285,44 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     ]);
   });
 
+  test("檢查點標籤：待判定優先，其次未通過，全過才寫幾項都通過；老師判定會蓋過原始狀態", () => {
+    const item = {
+      status: "warning",
+      checks: [
+        { id: "a", status: "pass" },
+        { id: "b", status: "warning" },
+        { id: "c", status: "collected" },
+      ],
+    };
+    expect(checkpointBadge(item)).toMatchObject({ kind: "pending" });
+    expect(checkpointBadge(item, { b: "pass" })).toMatchObject({ kind: "pending" });
+    expect(checkpointBadge(item, { b: "pass", c: "fail" })).toMatchObject({ kind: "fail" });
+    expect(checkpointBadge(item, { b: "pass", c: "pass" })).toMatchObject({ kind: "pass" });
+    expect(checkpointBadge({ status: "fail", checks: [] })).toMatchObject({ kind: "fail" });
+    expect(checkpointBadge({ status: "pass", checks: [{ id: "x", status: "pass" }] })).toMatchObject({ kind: "pass" });
+  });
+
+  test("機器標籤帶上 PVE 開機狀態，只有在線名單有的機器才算得出來", () => {
+    expect(["running", "RUNNING"].map(machinePowerState)).toEqual(["on", "on"]);
+    expect(["stopped", "paused"].map(machinePowerState)).toEqual(["off", "off"]);
+    expect(["completed", "unknown", undefined, ""].map(machinePowerState)).toEqual(["unknown", "unknown", "unknown", "unknown"]);
+
+    const student = { userId: "user-a", machines: [{ key: "999", vmid: 999, nodeKey: "old" }] };
+    const members = [
+      { user_id: "user-a", vmid: 101, node_key: "web", vm_status: "running" },
+      { user_id: "user-a", vmid: 102, node_key: "db", vm_status: "stopped" },
+    ];
+    expect(studentMachineChips(student, members).map((chip) => [chip.vmid, chip.power])).toEqual([
+      [101, "on"],
+      [102, "off"],
+      [999, "unknown"],
+    ]);
+  });
+
   test("還沒執行過也列出全班；可以只檢查已回報完成的學生", async () => {
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
-      { artifact_set_id: "set-1", status: "approved", children: [] },
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
     ]);
     vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
       items: [{ id: "service" }],
@@ -2200,7 +2351,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     // 打勾比例以全班為分母；還沒檢查任何人
     const bars = [...container.querySelectorAll('[role="img"]')].map((node) => node.getAttribute("aria-label"));
     expect(bars).toContain(i18n.t("AiJudgePanel.metricReportedValue", { ns: "teaching", done: 1, total: 2 }));
-    expect(bars).toContain(i18n.t("AiJudgePanel.metricCheckValue", { ns: "teaching", pass: 0, fail: 0, checked: 0, total: 2 }));
+    expect(bars).toContain(i18n.t("AiJudgePanel.metricCheckValue", { ns: "teaching", pass: 0, fail: 0, error: 0, checked: 0, total: 2 }));
 
     const runReady = [...container.querySelectorAll("button")]
       .find((button) => button.textContent.includes(i18n.t("AiJudgePanel.runReadyBtn", { ns: "teaching", count: 1 })));
@@ -2253,7 +2404,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     const goToPublish = vi.fn();
     vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
     vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
-      { artifact_set_id: "set-1", status: "approved", children: [] },
+      { artifact_set_id: "set-1", is_active: true, status: "approved", children: [] },
     ]);
     vi.spyOn(AiJudgeService, "getSessionProgress").mockResolvedValue({
       items: [{ id: "service" }],

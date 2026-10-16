@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 from fastapi import HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, desc, select
 
 from app.ai.teacher_judge.machine_context import (
@@ -36,10 +37,16 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeScriptRunSummary,
 )
 from app.ai.teacher_judge.script_artifact_service import (
+    active_set_children,
     get_artifact,
     latest_set_children,
+    require_active_artifact,
 )
-from app.ai.teacher_judge.script_executor_service import preflight_progress
+from app.ai.teacher_judge.script_executor_service import (
+    TargetExecutionError,
+    check_current_target_power,
+    preflight_progress,
+)
 from app.ai.teacher_judge.script_policy import aggregate_check_status
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
@@ -59,6 +66,7 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
     TeacherJudgeScriptRunTargetScope,
 )
+from app.models.teacher_judge_session import TeacherJudgeSession
 from app.models.teaching_class import (
     INSTRUCTOR_ENROLLMENT_STATUS,
     TeachingClassMachineNode,
@@ -74,6 +82,7 @@ logger = logging.getLogger(__name__)
 
 def _batch_timing_fields(batch: TeacherJudgeRunBatch) -> dict[str, Any]:
     return {
+        "artifact_set_id": str(batch.artifact_set_id) if batch.artifact_set_id else None,
         "request_id": batch.request_id,
         "started_by": str(batch.started_by) if batch.started_by else None,
         "created_at": batch.created_at.isoformat(),
@@ -292,14 +301,19 @@ def list_session_run_summaries(
     session_id: uuid.UUID,
     skip: int,
     limit: int,
+    artifact_set_id: uuid.UUID | None = None,
 ) -> list[TeacherJudgeScriptRunSummary]:
     """列出某個 Teacher Judge session（經由 script artifact）的執行紀錄摘要，新到舊。"""
+    workspace = session.get(TeacherJudgeSession, session_id) if artifact_set_id else None
+    current_ids = [child.id for child in active_set_children(session, workspace)] if workspace and workspace.active_artifact_set_id == artifact_set_id else None
     rows = session.exec(
         select(TeacherJudgeScriptRun)
         .join(TeacherJudgeScriptArtifact)
         .where(
             TeacherJudgeScriptArtifact.session_id == session_id,
             TeacherJudgeScriptArtifact.teaching_class_id == teaching_class_id,
+            *([TeacherJudgeScriptArtifact.artifact_set_id == artifact_set_id] if artifact_set_id else []),
+            *([col(TeacherJudgeScriptRun.artifact_id).in_(current_ids)] if current_ids is not None else []),
         )
         .order_by(desc(TeacherJudgeScriptRun.created_at))
         .offset(skip)
@@ -428,6 +442,11 @@ def update_target_review(
         )
 
     target = targets[target_index]
+    if decisions and (
+        target.get("status") != "completed"
+        or (target.get("validation") or {}).get("valid") is False
+    ):
+        raise HTTPException(status_code=409, detail="執行結果不完整或失敗，請重新執行成功後再判定。")
     parsed_result = target.get("parsed_result")
     raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else None
     if not isinstance(raw_checks, list):
@@ -670,6 +689,7 @@ def _resolve_running_targets(
     target_vmids: list[int],
     member_by_vmid: dict[int, dict[str, Any]] | None = None,
     live_by_vmid: dict[int, dict[str, Any]] | None = None,
+    preflight_results: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if member_by_vmid is None:
         member_by_vmid = _class_member_by_vmid(
@@ -696,12 +716,6 @@ def _resolve_running_targets(
                 status_code=400,
                 detail=t("run.vmid_not_runnable", vmid=vmid),
             )
-        if live_status != "running":
-            raise HTTPException(
-                status_code=400,
-                detail=t("run.vmid_not_running", vmid=vmid),
-            )
-
         resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
         if resource is None:
             raise HTTPException(
@@ -711,6 +725,26 @@ def _resolve_running_targets(
             raise HTTPException(
                 status_code=400,
                 detail=t("run.owner_mismatch", vmid=vmid),
+            )
+        if live_status == "stopped" and preflight_results is not None:
+            try:
+                check_current_target_power({**live, "vmid": vmid})
+            except TargetExecutionError as exc:
+                if exc.reason_code not in {"vm_powered_off", "vm_status_unavailable"}:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                preflight_results.append(
+                    _node_target_failure(
+                        {**member, "vmid": vmid},
+                        reason_code=exc.reason_code,
+                        detail=str(exc),
+                    )
+                )
+                continue
+            live_status = "running"
+        if live_status != "running":
+            raise HTTPException(
+                status_code=400,
+                detail=t("run.vmid_not_running", vmid=vmid),
             )
         # Guest OS 身份補偵測（僅欄位為空時探測一次並回寫；best-effort）
         os_identity_service.ensure_guest_os(
@@ -871,6 +905,7 @@ def _resolve_node_targets(
                     target_vmids=[int(vmid)],
                     member_by_vmid=member_by_vmid,
                     live_by_vmid=live_by_vmid,
+                    preflight_results=preflight_results,
                 )
             )
         except HTTPException as exc:
@@ -1031,6 +1066,18 @@ def create_script_run(
     if artifact.status != TeacherJudgeScriptStatus.approved:
         raise HTTPException(status_code=400, detail=t("run.artifact_not_approved"))
 
+    if run_batch_id is None:
+        require_active_artifact(session, artifact, lock=False)
+    else:
+        # The batch was admitted under the workspace lock before its early
+        # commit. A later switch must not change its immutable child selection.
+        accepted = session.get(TeacherJudgeRunBatch, run_batch_id)
+        if (accepted is None or accepted.status != "pending"
+            or accepted.teaching_class_id != teaching_class_id
+            or accepted.session_id != artifact.session_id
+            or accepted.artifact_set_id != artifact.artifact_set_id):
+            raise HTTPException(status_code=409, detail="Batch artifact context mismatch")
+
     requested_node_key = str(target_node_key or "").strip() or None
     artifact_node_keys = target_node_keys_from_snapshot(artifact.rubric_snapshot_json)
     if len(artifact_node_keys) > 1:
@@ -1065,9 +1112,10 @@ def create_script_run(
             session=session,
             teaching_class_id=teaching_class_id,
             target_vmids=target_vmids or [],
+            preflight_results=preflight_results,
         )
         _ensure_targets_on_node(
-            targets,
+            targets + preflight_results,
             artifact_node_key,
             "手動執行目標不屬於腳本指定的 target_node_key。",
         )
@@ -1084,9 +1132,10 @@ def create_script_run(
             session=session,
             teaching_class_id=teaching_class_id,
             target_vmids=target_vmids,
+            preflight_results=preflight_results,
         )
         _ensure_targets_on_node(
-            targets,
+            targets + preflight_results,
             artifact_node_key,
             "舊式 VMID 執行目標不屬於腳本指定的 target_node_key。",
         )
@@ -1126,6 +1175,10 @@ def create_script_run(
     ]
     progress_targets.extend(preflight_progress(preflight_results))
 
+    # Single-run target preparation may contact PVE. Lock only at admission,
+    # then revalidate so a switch during preparation cannot accept an old set.
+    if run_batch_id is None:
+        require_active_artifact(session, artifact)
     run = TeacherJudgeScriptRun(
         run_batch_id=run_batch_id,
         artifact_id=artifact.id,
@@ -1216,7 +1269,10 @@ def project_run_items(
         check_id for check_ids in mapped_by_item.values() for check_id in check_ids
     }
     items: list[dict[str, Any]] = []
-    execution_failed = target_result.get("status") != "completed"
+    execution_failed = (
+        target_result.get("status") != "completed"
+        or (target_result.get("validation") or {}).get("valid") is False
+    )
     for raw_item in (artifact.rubric_snapshot_json or {}).get("items") or []:
         if not isinstance(raw_item, dict):
             continue
@@ -1262,7 +1318,7 @@ def project_run_items(
                     else None
                 ),
                 "evidence_state": (
-                    "unavailable" if not peer_available
+                    "unavailable" if execution_failed or not peer_available
                     else "incomplete" if missing_check_ids else "available"
                 ),
                 "checks": checks,
@@ -1284,6 +1340,11 @@ def project_run_items(
         "display_label": display_labels.get(str(artifact.target_node_key or "")),
         "execution_status": target_result.get("status"),
         "reason_code": target_result.get("reason_code"),
+        **cast("dict[str, Any]", _redact_peer_ips({
+            key: target_result[key]
+            for key in ("exit_code", "failure_stage", "validation", "stdout_excerpt", "stderr_excerpt")
+            if key in target_result
+        }, peer_ips or set())),
         **(
             {"timing": dict(target_result["timing"])}
             if isinstance(target_result.get("timing"), dict) else {}
@@ -1441,6 +1502,7 @@ def get_script_run_batch_public(
     first_artifact = rows[0][1]
     return TeacherJudgeRunBatchPublic(
         run_batch_id=str(run_batch_id),
+        artifact_set_id=str(batch.artifact_set_id) if batch and batch.artifact_set_id else str(first_artifact.artifact_set_id) if first_artifact.artifact_set_id else None,
         teaching_class_id=str(teaching_class_id),
         session_id=str(first_artifact.session_id) if first_artifact.session_id else None,
         status=cast(
@@ -1483,10 +1545,23 @@ def get_script_run_batch_public(
 def list_session_batch_summaries(
     session: Session, teaching_class_id: uuid.UUID, session_id: uuid.UUID,
     skip: int, limit: int,
+    artifact_set_id: uuid.UUID | None = None,
 ) -> list[TeacherJudgeRunBatchSummary]:
+    workspace = session.get(TeacherJudgeSession, session_id) if artifact_set_id else None
+    current_ids = [child.id for child in active_set_children(session, workspace)] if workspace and workspace.active_artifact_set_id == artifact_set_id else None
+    # Old regenerate reused a set ID. Exclude batches containing superseded
+    # child versions when projecting that legacy set as the current assignment.
+    current_scope: list[ColumnElement[bool]] = []
+    if current_ids is not None:
+        current_scope = [~select(TeacherJudgeScriptRun.id).where(
+            TeacherJudgeScriptRun.run_batch_id == TeacherJudgeRunBatch.id,
+            col(TeacherJudgeScriptRun.artifact_id).not_in(current_ids),
+        ).exists()] if current_ids else [col(TeacherJudgeRunBatch.id).is_(None)]
     batches = session.exec(select(TeacherJudgeRunBatch).where(
         TeacherJudgeRunBatch.teaching_class_id == teaching_class_id,
         TeacherJudgeRunBatch.session_id == session_id,
+        *([TeacherJudgeRunBatch.artifact_set_id == artifact_set_id] if artifact_set_id else []),
+        *current_scope,
     ).order_by(desc(TeacherJudgeRunBatch.created_at), desc(TeacherJudgeRunBatch.id))
         .offset(skip).limit(limit)).all()
     result = []
@@ -1581,6 +1656,12 @@ def create_script_run_batch(
         rows,
         node_order={node.node_key: node.sort_order for node in nodes},
     )
+    if not children:
+        raise HTTPException(status_code=409, detail="Script set has no executable children")
+    workspace = require_active_artifact(session, children[0])
+    node_order = {node.node_key: node.sort_order for node in nodes}
+    children = sorted(active_set_children(session, workspace), key=lambda child: (node_order.get(child.target_node_key or "", 10**9), child.target_node_key or ""))
+    session_id = workspace.id
     if any(child.status != TeacherJudgeScriptStatus.approved for child in children):
         raise HTTPException(
             status_code=409,

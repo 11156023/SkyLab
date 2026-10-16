@@ -74,18 +74,20 @@ def _user(role: UserRole, user_id: uuid.UUID | None = None):
 
 def test_class_machine_serialization_hides_internal_error_details():
     internal_error = "psycopg traceback at D:\\secret\\service.py password=hidden"
+    # vmid / status / error 是 property，model_dump 不帶，要由序列化補上
     machine = SimpleNamespace(
-        model_dump=lambda: {
-            "vmid": None,
-            "status": "failed",
-            "error": internal_error,
-        }
+        model_dump=lambda: {"id": uuid.uuid4(), "batch_task_id": None},
+        vmid=None,
+        status="failed",
+        error=internal_error,
     )
 
     result = teaching_classes._public_machine_dump(machine)
 
     assert result["error"] == teaching_classes.PUBLIC_PROVISION_ERROR
     assert internal_error not in result["error"]
+    assert result["vmid"] is None
+    assert result["status"] == "failed"
 
 
 def test_class_capacity_preview_hides_caught_exception_details(monkeypatch):

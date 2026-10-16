@@ -410,6 +410,11 @@ export function getRubricReviewItemIds(analysis, candidateIds = null) {
   return new Set([...reviewIds].filter((itemId) => currentIds.has(itemId)));
 }
 
+export function getActiveScriptSet(sets) {
+  const active = (Array.isArray(sets) ? sets : []).filter((set) => set?.is_active === true && set.status === "approved");
+  return active.length === 1 ? active[0] : null;
+}
+
 export function getScriptCreationBlocker({ analysis, pendingProposal = null, pendingReviewIds = new Set() }) {
   const items = Array.isArray(analysis?.items) ? analysis.items : [];
   if (pendingProposal) return jt("blockerProposal");
@@ -1618,30 +1623,20 @@ function WeekSelectField({ weeks, value, onChange, autoFocus = false }) {
   );
 }
 
-/** 最近已上過的一週；都還沒開始上課時回傳空字串 */
-export function getDefaultWeekId(weeks, today = new Date()) {
-  // 上課日期是當地日曆日；toISOString 是 UTC，台灣早上八點前會算成前一天而漏掉當天那一週
-  const todayKey = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-  const past = weeks
-    .filter((week) => week.session_date && String(week.session_date).slice(0, 10) <= todayKey)
-    .sort((a, b) => String(b.session_date).localeCompare(String(a.session_date)));
-  return past[0]?.id ?? "";
+/** 預設從第一週開始；沒有第一週時選編號最小的現有週次。 */
+export function getDefaultWeekId(weeks) {
+  return [...weeks].sort((a, b) => (a.week_number ?? 0) - (b.week_number ?? 0))[0]?.id ?? "";
 }
 
 /**
- * 打開 AI導師檢查時先選哪一週：網址指定的週次 > 本週（最近上過的一週）> 第一週。
+ * 打開 AI導師檢查時先選哪一週：網址指定的有效週次 > 第一週。
  */
-export function resolveActiveWeekId(requestedId, weeks, today = new Date()) {
+export function resolveActiveWeekId(requestedId, weeks) {
   if (!Array.isArray(weeks) || weeks.length === 0) return null;
   if (requestedId && weeks.some((week) => String(week.id) === String(requestedId))) {
     return String(requestedId);
   }
-  const fallback = getDefaultWeekId(weeks, today)
-    || [...weeks].sort((a, b) => (a.week_number ?? 0) - (b.week_number ?? 0))[0]?.id;
+  const fallback = getDefaultWeekId(weeks);
   return fallback ? String(fallback) : null;
 }
 
@@ -2668,6 +2663,7 @@ function parseCheckRaw(raw) {
 export function getCheckResultSummary(check) {
   const parsed = parseCheckRaw(check?.raw);
   if (!parsed) return check?.evidence || "—";
+  if (typeof parsed.exists === "boolean") return jt(parsed.exists ? "fileExists" : "fileMissing");
   if (typeof parsed.error_message === "string" && parsed.error_message.trim()) {
     return parsed.error_message.trim();
   }
@@ -2720,6 +2716,9 @@ export function CommandLog({ raw, fallbackText }) {
     );
   }
   const argvText = Array.isArray(parsed.argv) ? JSON.stringify(parsed.argv) : "";
+  if (!argvText && !["stdout", "stderr", "returncode"].some((key) => key in parsed)) {
+    return <div className={styles.cmdLog}><pre className={styles.cmdStdout}>{JSON.stringify(parsed, null, 2)}</pre>{fallbackText ? <pre className={styles.cmdStderr}>{fallbackText}</pre> : null}</div>;
+  }
   const hasCommandOutput = Boolean(parsed.stdout || parsed.stderr || parsed.error);
   const empty = !argvText && !hasCommandOutput && parsed.returncode == null;
   return (
@@ -2814,6 +2813,48 @@ function CheckResultsTable({ checks }) {
 /* ── Tab 2：導師核查 ────────────────────────────────────── */
 
 const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown", "collected"]);
+const EXECUTION_BLOCKERS = {
+  vm_powered_off: { label: "statusPoweredOff", message: "poweredOffHint" },
+  vm_status_unavailable: { label: "statusPowerUnavailable", message: "powerUnavailableHint" },
+};
+
+function executionFailureKind(target) {
+  const reason = target?.reason_code;
+  if (["ssh_authentication_failed", "ssh_connection_failed", "ssh_connection_timeout", "missing_ip", "missing_ssh_key"].includes(reason)) return "Connection";
+  if (["python_missing", "timeout_unavailable", "unsupported_os", "vm_powered_off", "vm_status_unavailable", "not_running", "preparation_failed"].includes(reason)) return "Environment";
+  if (["download_failed", "upload_failed"].includes(reason)) return "Transfer";
+  if (["missing_checks", "check_id_mismatch", "duplicate_check_ids"].includes(reason)) return "Incomplete";
+  if (["invalid_json", "result_too_large", "output_too_large", "execution_nonzero"].includes(reason)) return "Script";
+  if (reason === "execution_timeout") return "Timeout";
+  return "Unknown";
+}
+
+export function ExecutionFailure({ target }) {
+  const { t } = useTranslation("teaching");
+  if (!target || (target.status !== "failed" && target.status !== "cancelled" && target.validation?.valid !== false)) return null;
+  const kind = executionFailureKind(target);
+  return (
+    <div className={styles.reviewExecutionError} role="status">
+      <strong>{t(`AiJudgePanel.execution${kind}`)}</strong>
+      <p>{t(`AiJudgePanel.execution${kind}Hint`)}</p>
+      <p>{t("AiJudgePanel.executionNotGraded")}</p>
+      <details>
+        <summary>{t("AiJudgePanel.executionEvidence")}</summary>
+        <div className={styles.cmdLog}>
+          <p>{t("AiJudgePanel.executionReason", { reason: target.reason_code || "unknown", stage: target.failure_stage || "unknown" })}</p>
+          {target.exit_code != null && <p>{t("AiJudgePanel.exitCode", { code: target.exit_code })}</p>}
+          <CommandOutput label={t("AiJudgePanel.outputStderr")} text={target.stderr_excerpt} isError />
+          <CommandOutput label={t("AiJudgePanel.outputStdout")} text={target.stdout_excerpt} />
+          <CommandOutput label={t("AiJudgePanel.executionValidation")} text={target.validation?.error} isError />
+          {["missing_check_ids", "unexpected_check_ids", "duplicate_check_ids"].map((key) => (
+            <CommandOutput key={key} label={t(`AiJudgePanel.${key}`)} text={Array.isArray(target.validation?.[key]) ? target.validation[key].join(", ") : ""} />
+          ))}
+          {!target.stdout_excerpt && !target.stderr_excerpt && !target.validation?.error && <p>{t("AiJudgePanel.executionNoEvidence")}</p>}
+        </div>
+      </details>
+    </div>
+  );
+}
 
 function targetChecks(target) {
   const checks = target?.parsed_result?.checks;
@@ -2834,8 +2875,8 @@ function targetTeacherReview(target) {
 
 export function getTargetReviewSummary(target) {
   if (!target) return { kind: "missing", label: jt("statusNotRun"), pending: 0, reviewable: 0 };
-  if (target.status === "failed" || target.validation?.valid === false) {
-    return { kind: "failed", label: jt("statusRunFailed"), pending: 0, reviewable: 0 };
+  if (target.status === "failed" || target.status === "cancelled" || target.validation?.valid === false) {
+    return { kind: "failed", label: jt(EXECUTION_BLOCKERS[target.reason_code]?.label ?? "statusRunFailed"), pending: 0, reviewable: 0 };
   }
   const reviewable = targetChecks(target).filter((check) => (
     TEACHER_REVIEW_STATUSES.has(check?.status)
@@ -2877,27 +2918,103 @@ function reviewBadgeClass(kind) {
   return styles.badge_muted;
 }
 
-function ReviewCheckRow({ check, decision, onDecide }) {
+/* 一個檢查項一列：狀態圖示、名稱＋摘要、需要老師判定時右邊是通過／未通過。
+   原始輸出收在「查看原始證據」裡；待判定且還沒判的整列淡橘底，一眼找得到 */
+function ReviewCheckRow({ check, decision, onDecide, canDecide = true }) {
   const { t } = useTranslation("teaching");
   const meta = checkStatusMeta(check?.status);
-  const reviewable = TEACHER_REVIEW_STATUSES.has(check?.status);
+  const reviewable = canDecide && TEACHER_REVIEW_STATUSES.has(check?.status);
+  const title = check?.title ?? check?.id ?? t("AiJudgePanel.collectedItem");
+  const summary = getCheckResultSummary(check);
+  const hasLog = Boolean(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0));
   return (
-    <div className={styles.reviewCheck}>
-      <span className={`${styles.reviewCheckIcon} ${meta.className}`}><MIcon name={meta.icon} size={17} /></span>
+    <div className={`${styles.reviewCheck} ${reviewable && !decision ? styles.reviewCheckPending : ""}`}>
+      <span className={`${styles.reviewCheckIcon} ${meta.className}`} role="img" aria-label={meta.label} title={meta.label}>
+        <MIcon name={meta.icon} size={16} />
+      </span>
       <div className={styles.reviewCheckContent}>
-        <div><strong>{check?.title ?? check?.id ?? t("AiJudgePanel.collectedItem")}</strong><span>{meta.label}</span></div>
-        <p>{check?.evidence || t("AiJudgePanel.noSummary")}</p>
-        {(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0)) && (
+        <strong>{title}</strong>
+        <p>{summary === "—" ? t("AiJudgePanel.noSummary") : summary}</p>
+        {check?.status === "unknown" && parseCheckRaw(check?.raw)?.error_code && <p>{t("AiJudgePanel.collectionErrorHint")}</p>}
+        {hasLog && (
           <details><summary>{t("AiJudgePanel.viewEvidence")}</summary><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></details>
         )}
       </div>
       {reviewable && (
-        <div className={styles.reviewDecision} aria-label={t("AiJudgePanel.manualDecisionAria", { title: check?.title ?? check?.id })}>
-          <button type="button" className={decision === "pass" ? styles.reviewPassActive : ""} aria-pressed={decision === "pass"} onClick={() => onDecide("pass")}><MIcon name="check" size={16} />{t("AiJudgePanel.checkPass")}</button>
-          <button type="button" className={decision === "fail" ? styles.reviewFailActive : ""} aria-pressed={decision === "fail"} onClick={() => onDecide("fail")}><MIcon name="close" size={16} />{t("AiJudgePanel.checkFail")}</button>
+        <div className={styles.reviewDecision} aria-label={t("AiJudgePanel.manualDecisionAria", { title })}>
+          <button type="button" className={decision === "pass" ? styles.reviewPassActive : ""} aria-pressed={decision === "pass"} onClick={() => onDecide("pass")}><MIcon name="check" size={15} />{t("AiJudgePanel.checkPass")}</button>
+          <button type="button" className={decision === "fail" ? styles.reviewFailActive : ""} aria-pressed={decision === "fail"} onClick={() => onDecide("fail")}><MIcon name="close" size={15} />{t("AiJudgePanel.checkFail")}</button>
         </div>
       )}
     </div>
+  );
+}
+
+/* 檢查點右邊的狀態標籤：還有待判定的先講待判定，其次未通過，全過就寫幾項都通過 */
+export function checkpointBadge(item, decisions = {}) {
+  const checks = Array.isArray(item?.checks) ? item.checks : [];
+  if (item?.evidence_state === "unavailable") return { kind: "muted", label: jt("checkpointUnavailable") };
+  if (item?.missing_check_ids?.length || item?.evidence_state === "incomplete" || checks.length === 0 && item?.status === "unknown") return { kind: "muted", label: jt("checkpointIncompleteLabel") };
+  const pending = checks.filter((check) => TEACHER_REVIEW_STATUSES.has(check?.status) && !decisions[check?.id]).length;
+  if (pending > 0) return { kind: "pending", label: jt("statusPendingReview", { count: pending }) };
+  const failed = checks.filter((check) => (decisions[check?.id] ?? check?.status) === "fail").length;
+  if (failed > 0 || item?.status === "fail") return { kind: "fail", label: jt("checkpointFailedCount", { count: Math.max(failed, 1) }) };
+  if (checks.length > 0 && checks.every((check) => (decisions[check?.id] ?? check?.status) === "pass")) {
+    return { kind: "pass", label: jt("checkpointPassedCount", { count: checks.length }) };
+  }
+  return { kind: "muted", label: checkStatusMeta(item?.status).label };
+}
+
+const CHECKPOINT_BADGE_CLASS = {
+  pending: styles.badge_pending,
+  fail: styles.badge_danger,
+  pass: styles.badge_success,
+  muted: styles.badge_muted,
+};
+
+/* 一個檢查點一組：標題列可收合，全部通過的預設收起來，老師只需要看未通過與待判定的 */
+function ReviewCheckpointGroup({ item, decisions, onDecide, executionFailed = false }) {
+  const { t } = useTranslation("teaching");
+  const itemMeta = checkStatusMeta(item?.status);
+  const checks = Array.isArray(item?.checks) ? item.checks : [];
+  const missingCount = Array.isArray(item?.missing_check_ids) ? item.missing_check_ids.length : 0;
+  const badge = checkpointBadge(item, decisions);
+  const peerText = item?.peer_node_key
+    ? t("AiJudgePanel.peerObserve", { name: item?.peer_display_label ?? item.peer_node_key })
+    : null;
+  return (
+    <details className={styles.reviewCheckGroup} open={badge.kind !== "pass" || missingCount > 0}>
+      <summary className={styles.reviewCheckGroupHead}>
+        {/* 還有待判定的檢查項時，圖示跟右邊的「待核查」同色，不要一邊紅一邊橘 */}
+        <span className={`${styles.reviewCheckIcon} ${badge.kind === "pending" ? styles.checkIconWarn : itemMeta.className}`} role="img" aria-label={itemMeta.label}>
+          <MIcon name={itemMeta.icon} size={18} />
+        </span>
+        <span className={styles.reviewCheckGroupTitle}>
+          <strong>{item?.title ?? item?.rubric_item_id ?? t("AiJudgePanel.thCheckpoint")}</strong>
+          {peerText && <small>{peerText}</small>}
+        </span>
+        <span className={`${styles.badge} ${CHECKPOINT_BADGE_CLASS[badge.kind]}`}>{badge.label}</span>
+        <span className={styles.reviewCheckGroupChevron}><MIcon name="expand_more" size={18} /></span>
+      </summary>
+      <div className={styles.reviewCheckGroupBody}>
+        {missingCount > 0 && !executionFailed && (
+          <p className={styles.reviewCheckNote}>{t("AiJudgePanel.checkpointIncomplete", { count: missingCount })}</p>
+        )}
+        {checks.length === 0 ? (
+          <p className={styles.reviewCheckNote}>
+            {executionFailed ? t("AiJudgePanel.checkpointExecutionFailed") : item?.reason_code === "peer_unavailable" ? t("AiJudgePanel.peerUnavailable") : t("AiJudgePanel.checkpointNoResult")}
+          </p>
+        ) : checks.map((check, checkIndex) => (
+          <ReviewCheckRow
+            key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
+            check={check}
+            decision={decisions[check?.id]}
+            onDecide={(value) => onDecide(check?.id, value)}
+            canDecide={!executionFailed && missingCount === 0 && item?.evidence_state !== "unavailable"}
+          />
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -2929,6 +3046,7 @@ function studentDisplayUser(machines) {
 export function aggregateStudentCheckTotals(machines) {
   const totals = { pass: 0, fail: 0, pending: 0, skipped: 0, total: 0 };
   for (const row of Array.isArray(machines) ? machines : []) {
+    if (getTargetReviewSummary(row?.target).kind === "failed") continue;
     const savedDecisions = targetTeacherReview(row?.target).decisions ?? {};
     for (const check of targetChecks(row?.target)) {
       const decision = savedDecisions[check?.id];
@@ -3071,6 +3189,7 @@ export function buildBatchReviewTarget(node, member = null) {
     vmid: node?.vmid ?? member?.vmid ?? null,
     status: node?.execution_status,
     reason_code: node?.reason_code ?? null,
+    ...Object.fromEntries(["exit_code", "failure_stage", "validation", "stdout_excerpt", "stderr_excerpt"].filter((key) => node?.[key] !== undefined).map((key) => [key, node[key]])),
     user: member ?? {},
     teacher_review: node?.teacher_review ?? undefined,
     timing: node?.timing,
@@ -3327,7 +3446,8 @@ export function ExecutionTiming({ timing }) {
   );
 }
 
-/* 單台機器的核查內容（檢查點 → checks、回饋、儲存）；由學生總覽展開後逐台渲染。 */
+/* 單台機器的核查內容：機器標題 → 檢查點分組 → 耗時與儲存；由學生總覽展開後逐台渲染。
+   儲存只存老師的判定，這台沒有要判定的檢查項就不顯示儲存列。 */
 function MachineReviewDetail({
   row,
   machineNodes = [],
@@ -3341,69 +3461,40 @@ function MachineReviewDetail({
   const { t } = useTranslation("teaching");
   const { target } = row;
   const checks = targetChecks(target);
+  const executionBlocker = target?.status === "failed" ? EXECUTION_BLOCKERS[target.reason_code] : null;
   const nodeLabel = row.nodeKey
     ? batchMachineDisplayName(row.nodeKey, machineNodes, row.node?.display_label) ?? row.nodeKey
     : null;
   if (!target) {
     return <div className={styles.reviewNoResult}>{t("AiJudgePanel.machineNotInRun")}</div>;
   }
+  const summary = getTargetReviewSummary(target);
+  const decide = (checkId, value) => onToggleDecision(row.key, checkId, value);
+  const showSave = summary.reviewable > 0 || isDirty;
   return (
     <>
       <div className={styles.reviewMachineHead}>
         <strong>{nodeLabel ?? `VMID ${row.vmid ?? "—"}`}</strong>
         {row.vmid ? <small>{`VMID ${row.vmid}`}</small> : null}
-        <span className={`${styles.badge} ${reviewBadgeClass(getTargetReviewSummary(target).kind)}`}>
-          {getTargetReviewSummary(target).label}
-        </span>
+        <span className={`${styles.badge} ${reviewBadgeClass(summary.kind)}`}>{summary.label}</span>
       </div>
-      <ExecutionTiming timing={target.timing} />
-      {row.items ? (
+      <ExecutionFailure target={target} />
+      {executionBlocker ? (
+        <p className={styles.mutedText}><strong>{t(`AiJudgePanel.${executionBlocker.message}`)}</strong></p>
+      ) : row.items ? (
         <div className={styles.reviewCheckList}>
           {row.items.length === 0 && (
             <p className={styles.mutedText}>{t("AiJudgePanel.machineNoCheckpoints")}</p>
           )}
-          {row.items.map((item, itemIndex) => {
-            const itemMeta = checkStatusMeta(item?.status);
-            const itemChecks = Array.isArray(item?.checks) ? item.checks : [];
-            const peerText = item?.peer_node_key
-              ? t("AiJudgePanel.peerObserve", { name: item?.peer_display_label ?? item.peer_node_key })
-              : null;
-            return (
-              <div
-                className={styles.reviewCheckGroup}
-                key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
-              >
-                <div className={styles.reviewCheckGroupHead}>
-                  <span className={`${styles.reviewCheckIcon} ${itemMeta.className}`}>
-                    <MIcon name={itemMeta.icon} size={17} />
-                  </span>
-                  <div className={styles.reviewCheckGroupTitle}>
-                    <strong>{item?.title ?? item?.rubric_item_id ?? t("AiJudgePanel.thCheckpoint")}</strong>
-                    <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
-                  </div>
-                </div>
-                {Array.isArray(item?.missing_check_ids) && item.missing_check_ids.length > 0 && (
-                  <p className={styles.mutedText}>
-                    {t("AiJudgePanel.checkpointIncomplete", { count: item.missing_check_ids.length })}
-                  </p>
-                )}
-                {itemChecks.length === 0 ? (
-                  <p className={styles.mutedText}>
-                    {item?.reason_code === "peer_unavailable"
-                      ? t("AiJudgePanel.peerUnavailable")
-                      : t("AiJudgePanel.checkpointNoResult")}
-                  </p>
-                ) : itemChecks.map((check, checkIndex) => (
-                  <ReviewCheckRow
-                    key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
-                    check={check}
-                    decision={draft.decisions[check?.id]}
-                    onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
-                  />
-                ))}
-              </div>
-            );
-          })}
+          {row.items.map((item, itemIndex) => (
+            <ReviewCheckpointGroup
+              key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
+              item={item}
+              decisions={draft.decisions}
+              onDecide={decide}
+              executionFailed={summary.kind === "failed"}
+            />
+          ))}
           {(row.unmappedChecks ?? []).length > 0 && (
             <details className={styles.judgeDetails}>
               <summary>{t("AiJudgePanel.unmappedChecks")}</summary>
@@ -3412,57 +3503,83 @@ function MachineReviewDetail({
           )}
         </div>
       ) : (
-        <div className={styles.reviewCheckList}>
+        <div className={`${styles.reviewCheckList} ${styles.reviewCheckListFlat}`}>
           {checks.length === 0 ? <p className={styles.mutedText}>{t("AiJudgePanel.scriptNoChecks")}</p> : checks.map((check, index) => (
             <ReviewCheckRow
               key={`${check?.id ?? "check"}-${index}`}
               check={check}
               decision={draft.decisions[check?.id]}
-              onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
+              onDecide={(value) => decide(check?.id, value)}
+              canDecide={summary.kind !== "failed"}
             />
           ))}
         </div>
       )}
 
-      <div className={styles.reviewSaveRow}>
-        <span>{isDirty
-          ? t("AiJudgePanel.unsavedChanges")
-          : Object.keys(saved.decisions).length
-            ? t("AiJudgePanel.lastSaved", { time: target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : t("AiJudgePanel.saved") })
-            : t("AiJudgePanel.reviewSaveHint")}</span>
-        <button type="button" className={styles.btnSecondary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</> : <><MIcon name="save" size={16} />{t("AiJudgePanel.saveReviewBtn")}</>}</button>
+      <div className={styles.reviewMachineFoot}>
+        <ExecutionTiming timing={target.timing} />
+        {showSave && (
+          <div className={styles.reviewSaveRow}>
+            <span>{isDirty
+              ? t("AiJudgePanel.unsavedChanges")
+              : Object.keys(saved.decisions).length
+                ? t("AiJudgePanel.lastSaved", { time: target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : t("AiJudgePanel.saved") })
+                : t("AiJudgePanel.reviewSaveHint")}</span>
+            <button type="button" className={isDirty ? styles.btnPrimary : styles.btnSecondary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</> : <><MIcon name="save" size={16} />{t("AiJudgePanel.saveReviewBtn")}</>}</button>
+          </div>
+        )}
       </div>
     </>
   );
 }
 
 /**
- * 一位學生（或一台機器）的檢查結果只分成：通過、未通過、待老師確認、還沒檢查。
- * 老師在總覽上只需要知道成功與失敗；待確認的再展開處理。
+ * 執行異常與學生未通過分開呈現，避免把不完整證據當成成績。
  */
 export function checkOutcome(machines) {
   const checked = (Array.isArray(machines) ? machines : []).filter((row) => row?.target);
   if (checked.length === 0) return { kind: "none", count: 0 };
   const totals = aggregateStudentCheckTotals(checked);
-  const failedRun = checked.some((row) => getTargetReviewSummary(row.target).kind === "failed");
-  if (totals.fail > 0 || failedRun) return { kind: "fail", count: totals.fail };
+  const failedRuns = checked.filter((row) => getTargetReviewSummary(row.target).kind === "failed").length;
+  if (failedRuns > 0) return { kind: "error", count: failedRuns };
+  if (totals.fail > 0) return { kind: "fail", count: totals.fail };
   if (totals.pending > 0) return { kind: "pending", count: totals.pending };
   if (totals.pass > 0) return { kind: "pass", count: totals.pass };
   return { kind: "none", count: 0 };
 }
 
 const OUTCOME_BADGE_CLASS = {
+  error: styles.badge_danger,
   pass: styles.badge_success,
   fail: styles.badge_danger,
   pending: styles.badge_pending,
   none: styles.badge_muted,
 };
 
+const REPLY_MAX_LENGTH = 4000;
+// 快到上限才顯示字數，平常不佔位置
+const REPLY_COUNTER_FROM = 3600;
+
 const OUTCOME_CHIP_CLASS = {
+  error: styles.machineChipFail,
   pass: styles.machineChipPass,
   fail: styles.machineChipFail,
   pending: styles.machineChipPending,
   none: "",
+};
+
+/** PVE 回報的狀態收成三種：開著、關著、不知道（查不到或還在建機）。 */
+export function machinePowerState(vmStatus) {
+  const status = String(vmStatus ?? "").toLowerCase();
+  if (status === "running") return "on";
+  if (["stopped", "paused", "suspended"].includes(status)) return "off";
+  return "unknown";
+}
+
+const POWER_DOT_CLASS = {
+  on: styles.powerDotOn,
+  off: styles.powerDotOff,
+  unknown: styles.powerDotUnknown,
 };
 
 /**
@@ -3476,20 +3593,25 @@ export function studentMachineChips(student, members = [], machineNodes = []) {
     runRows.filter((row) => row?.vmid != null).map((row) => [String(row.vmid), row]),
   );
   const seen = new Set();
-  const chip = (nodeKey, vmid, fallbackLabel, rows) => ({
-    key: vmid != null ? `vm-${vmid}` : `node-${nodeKey ?? fallbackLabel}`,
-    label: batchMachineDisplayName(nodeKey, machineNodes, fallbackLabel)
+  const chip = (nodeKey, vmid, fallbackLabel, rows, vmStatus) => {
+    const blocked = rows.find((row) => row?.target?.status === "failed" && EXECUTION_BLOCKERS[row.target.reason_code]);
+    const label = batchMachineDisplayName(nodeKey, machineNodes, fallbackLabel)
       ?? nodeKey
-      ?? (vmid != null ? `VMID ${vmid}` : "—"),
-    vmid: vmid ?? null,
-    outcome: checkOutcome(rows).kind,
-  });
+      ?? (vmid != null ? `VMID ${vmid}` : "—");
+    return {
+      key: vmid != null ? `vm-${vmid}` : `node-${nodeKey ?? fallbackLabel}`,
+      label: blocked ? `${getTargetReviewSummary(blocked.target).label} · ${label}` : label,
+      vmid: vmid ?? null,
+      outcome: checkOutcome(rows).kind,
+      power: machinePowerState(vmStatus),
+    };
+  };
   const chips = (Array.isArray(members) ? members : [])
     .filter((member) => userId && String(member?.user_id ?? "") === userId)
     .map((member) => {
       const row = member.vmid != null ? rowByVmid.get(String(member.vmid)) : undefined;
       if (row) seen.add(row);
-      return chip(member.node_key, member.vmid, member.display_label ?? member.node_name ?? null, row ? [row] : []);
+      return chip(member.node_key, member.vmid, member.display_label ?? member.node_name ?? null, row ? [row] : [], member.vm_status);
     });
   runRows
     .filter((row) => !seen.has(row))
@@ -3514,6 +3636,8 @@ export function TeacherReviewTab({
   const confirm = useConfirm();
   // { mode: "batch", batches }（新到舊；每位學生取最近一次有檢查到他的那批）| { mode: "run", run }
   const [reviewState, setReviewState] = useState(null);
+  const [reviewSetId, setReviewSetId] = useState(null);
+  const reviewSetIdRef = useRef(null);
   // 全班當週自評回報（誰回報完成、做到第幾項）；讀不到時總覽照樣只列有結果的學生
   const [progress, setProgress] = useState(null);
   // 每位學生這週回覆的草稿（user_id → 文字）；存好就拿掉
@@ -3529,7 +3653,6 @@ export function TeacherReviewTab({
   const [runOnceOpen, setRunOnceOpen] = useState(false);
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [activeBatch, setActiveBatch] = useState(null);
-  const [selectedSetId, setSelectedSetId] = useState(null);
   // 整批執行完成時老師還有沒存的核查：先不換結果（草稿會套到新結果上），存完再自動載入
   const [newResultsWaiting, setNewResultsWaiting] = useState(false);
   const loadRequestRef = useRef(0);
@@ -3547,12 +3670,15 @@ export function TeacherReviewTab({
       setLoadError(false);
     }
     try {
-      const [sets, runs, nextProgress, batchSummaries] = await Promise.all([
+      const [sets, nextProgress] = await Promise.all([
         AiJudgeService.listSessionScriptSets(classId, sessionId),
-        AiJudgeService.listSessionRuns(classId, sessionId),
         AiJudgeService.getSessionProgress(classId, sessionId).catch(() => null),
-        AiJudgeService.listSessionRunBatches(classId, sessionId, 10).catch(() => []),
       ]);
+      const activeSet = getActiveScriptSet(sets);
+      const [runs, batchSummaries] = activeSet ? await Promise.all([
+        AiJudgeService.listSessionRuns(classId, sessionId, activeSet.artifact_set_id),
+        AiJudgeService.listSessionRunBatches(classId, sessionId, 10, activeSet.artifact_set_id).catch(() => []),
+      ]) : [[], []];
       if (loadRequestRef.current !== requestId) return;
       setScriptSets(Array.isArray(sets) ? sets : []);
       setProgress(nextProgress);
@@ -3598,7 +3724,12 @@ export function TeacherReviewTab({
           }
         }
       }
-      if (silent && hasDirtyDraftsRef.current) return;
+      if (silent && hasDirtyDraftsRef.current) {
+        if (reviewSetIdRef.current !== (activeSet?.artifact_set_id ?? null)) setNewResultsWaiting(true);
+        return;
+      }
+      reviewSetIdRef.current = activeSet?.artifact_set_id ?? null;
+      setReviewSetId(activeSet?.artifact_set_id ?? null);
       setReviewState(nextState);
       setDrafts(nextDrafts);
       setNewResultsWaiting(false);
@@ -3611,12 +3742,13 @@ export function TeacherReviewTab({
 
   useEffect(() => {
     setReviewState(null);
+    setReviewSetId(null);
+    reviewSetIdRef.current = null;
     setProgress(null);
     setReplyDrafts({});
     setScriptSets([]);
     setExpandedKey(null);
     setActiveBatch(null);
-    setSelectedSetId(null);
     setNewResultsWaiting(false);
     batchStatusRef.current = null;
     loadReview();
@@ -3687,15 +3819,9 @@ export function TeacherReviewTab({
     }
   }, [activeBatch, loadReview, t, toast]);
 
-  const approvedSets = useMemo(
-    () => scriptSets.filter((set) => set?.status === "approved"),
+  const activeSet = useMemo(
+    () => getActiveScriptSet(scriptSets),
     [scriptSets],
-  );
-  const selectedSet = useMemo(
-    () => approvedSets.find((set) => set.artifact_set_id === selectedSetId)
-      ?? approvedSets[0]
-      ?? null,
-    [approvedSets, selectedSetId],
   );
   const batchRunning = Boolean(activeBatch && !runIsTerminal(activeBatch.status));
 
@@ -3784,9 +3910,9 @@ export function TeacherReviewTab({
     if (student.report?.ready) counts.reported += 1;
     counts[checkOutcome(student.machines).kind] += 1;
     return counts;
-  }, { total: 0, reported: 0, pass: 0, fail: 0, pending: 0, none: 0 }), [studentRows]);
+  }, { total: 0, reported: 0, pass: 0, fail: 0, error: 0, pending: 0, none: 0 }), [studentRows]);
   const percentOf = (value) => (summary.total > 0 ? (value / summary.total) * 100 : 0);
-  const checkedCount = summary.pass + summary.fail + summary.pending;
+  const checkedCount = summary.pass + summary.fail + summary.error + summary.pending;
 
   function updateDraft(key, updater) {
     setDrafts((current) => ({
@@ -3864,22 +3990,22 @@ export function TeacherReviewTab({
   }
 
   async function handleRunOnce() {
-    if (!selectedSet || creatingBatch || batchRunning) return;
+    if (!activeSet || creatingBatch || batchRunning) return;
     setCreatingBatch(true);
     try {
       const next = await AiJudgeService.createSessionScriptSetRun(
         classId,
         sessionId,
-        selectedSet.artifact_set_id,
+        activeSet.artifact_set_id,
       );
       batchStatusRef.current = next?.status ?? null;
       setActiveBatch(next);
       setRunOnceOpen(false);
-      setSelectedSetId(null);
       onRunStarted?.();
       toast.success(t("AiJudgePanel.batchCreated", { count: next?.summary?.targets ?? 0 }));
     } catch (error) {
       toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
+      if (error?.status === 409) loadReview({ silent: true });
     } finally {
       setCreatingBatch(false);
     }
@@ -3887,7 +4013,7 @@ export function TeacherReviewTab({
 
   /* 只檢查指定學生（這位學生／已回報完成的人）：用最新核准的那組腳本，其他人的結果不動 */
   async function runForStudents(userIds) {
-    const targetSet = approvedSets[0] ?? null;
+    const targetSet = activeSet;
     if (!targetSet || creatingBatch || batchRunning || !userIds.length) return;
     setCreatingBatch(true);
     try {
@@ -3903,6 +4029,7 @@ export function TeacherReviewTab({
       toast.success(t("AiJudgePanel.batchCreatedStudents", { count: userIds.length }));
     } catch (error) {
       toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
+      if (error?.status === 409) loadReview({ silent: true });
     } finally {
       setCreatingBatch(false);
     }
@@ -3910,7 +4037,7 @@ export function TeacherReviewTab({
 
   function renderRunOnceDialog() {
     if (!runOnceDialog.open) return null;
-    const children = Array.isArray(selectedSet?.children) ? selectedSet.children : [];
+    const children = Array.isArray(activeSet?.children) ? activeSet.children : [];
     return (
       <Modal
         closing={runOnceDialog.closing}
@@ -3934,28 +4061,14 @@ export function TeacherReviewTab({
               type="button"
               className={styles.btnPrimary}
               onClick={handleRunOnce}
-              disabled={creatingBatch || !selectedSet}
+              disabled={creatingBatch || !activeSet}
             >
               {creatingBatch ? t("AiJudgePanel.creating") : t("AiJudgePanel.confirmRun")}
             </button>
           </>
         }
       >
-        {approvedSets.length > 1 && (
-          <label className={styles.field}>
-            <span>{t("AiJudgePanel.scriptSetLabel")}</span>
-            <select
-              value={selectedSet?.artifact_set_id ?? ""}
-              onChange={(event) => setSelectedSetId(event.target.value)}
-            >
-              {approvedSets.map((set) => (
-                <option key={set.artifact_set_id} value={set.artifact_set_id}>
-                  {t("AiJudgePanel.scriptSetOption", { version: set.source_analysis_revision ?? "—", count: set.children?.length ?? 0 })}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <p>{t("AiJudgePanel.activeScriptSet", { version: activeSet?.source_analysis_revision ?? "—", count: children.length })}</p>
 
         <div className={styles.vmidBox}>
           <span className={styles.fieldLabel}>{t("AiJudgePanel.runScope", { count: children.length })}</span>
@@ -3976,29 +4089,38 @@ export function TeacherReviewTab({
   // 讀得到全班名單就直接列出全班，看得到誰回報完成；
   // 要有核准的腳本、而且這週內容已發布（作業跟著每週內容發布）才可以檢查
   const showRoster = (progress?.students?.length ?? 0) > 0;
-  const canRun = approvedSets.length > 0 && weekPublished;
+  const canRun = Boolean(activeSet) && weekPublished;
+  const publicationNotice = activeSet && (
+    <p className={styles.mutedText} role="status">
+      {t("AiJudgePanel.activeScriptSet", { version: activeSet.source_analysis_revision ?? "—", count: activeSet.children?.length ?? 0 })}
+      {activeSet.source_is_current === false && ` ${t("AiJudgePanel.activeScriptSetPending")}`}
+    </p>
+  );
   if (!reviewState && !showRoster) {
     return (
       <div className={styles.tabBody} data-guide="ai-judge-review">
         <div className={styles.card}>
-          {approvedSets.length > 0 ? (
-            <EmptyState
-              icon="rate_review"
-              title={t("AiJudgePanel.noResultsTitle")}
-              description={t("AiJudgePanel.noResultsReadyDesc")}
-              action={(
-                <button
-                  type="button"
-                  className={styles.btnPrimary}
-                  onClick={() => setRunOnceOpen(true)}
-                  disabled={creatingBatch || !weekPublished}
-                  title={weekPublished ? undefined : t("AiJudgePanel.reviewWeekDraftNotice")}
-                >
-                  {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
-                  {t("AiJudgePanel.runAllTitle")}
-                </button>
-              )}
-            />
+          {Boolean(activeSet) ? (
+            <>
+              {publicationNotice}
+              <EmptyState
+                icon="rate_review"
+                title={t("AiJudgePanel.noResultsTitle")}
+                description={t("AiJudgePanel.noResultsReadyDesc")}
+                action={(
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={() => setRunOnceOpen(true)}
+                    disabled={creatingBatch || !weekPublished}
+                    title={weekPublished ? undefined : t("AiJudgePanel.reviewWeekDraftNotice")}
+                  >
+                    {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
+                    {t("AiJudgePanel.runAllTitle")}
+                  </button>
+                )}
+              />
+            </>
           ) : (
             <EmptyState
               icon="rate_review"
@@ -4020,6 +4142,7 @@ export function TeacherReviewTab({
   return (
     <div className={styles.tabBody} data-guide="ai-judge-review">
       <div className={`${styles.card} ${styles.reviewOverview}`}>
+        {publicationNotice}
         <div className={styles.reviewOverviewHead}>
           <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />{t("AiJudgePanel.tabReview")}</h4>
           <div className={styles.sectionActions}>
@@ -4046,7 +4169,7 @@ export function TeacherReviewTab({
               disabled={creatingBatch || batchRunning || !canRun}
               title={!weekPublished
                 ? t("AiJudgePanel.reviewWeekDraftNotice")
-                : approvedSets.length === 0
+                : !activeSet
                   ? t("AiJudgePanel.runNoApprovedTitle")
                   : t("AiJudgePanel.runAllHint")}
             >
@@ -4072,21 +4195,22 @@ export function TeacherReviewTab({
             <div
               className={styles.reviewStackBar}
               role="img"
-              aria-label={t("AiJudgePanel.metricCheckValue", { pass: summary.pass, fail: summary.fail, checked: checkedCount, total: summary.total })}
+              aria-label={t("AiJudgePanel.metricCheckValue", { pass: summary.pass, fail: summary.fail, error: summary.error, checked: checkedCount, total: summary.total })}
             >
               <span className={styles.reviewStackPass} style={{ width: `${percentOf(summary.pass)}%` }} />
-              <span className={styles.reviewStackFail} style={{ width: `${percentOf(summary.fail)}%` }} />
+              <span className={styles.reviewStackFail} style={{ width: `${percentOf(summary.fail + summary.error)}%` }} />
               <span className={styles.reviewStackPending} style={{ width: `${percentOf(summary.pending)}%` }} />
             </div>
             <span className={styles.reviewStatValue}>
               <em className={styles.reviewStatPass}>{t("AiJudgePanel.metricPassCount", { count: summary.pass })}</em>
               <em className={styles.reviewStatFail}>{t("AiJudgePanel.metricFailCount", { count: summary.fail })}</em>
+              {summary.error > 0 && <em className={styles.reviewStatFail}>{t("AiJudgePanel.metricErrorCount", { count: summary.error })}</em>}
               {summary.pending > 0 && <em className={styles.reviewStatPending}>{t("AiJudgePanel.metricPendingCount", { count: summary.pending })}</em>}
               <small>{t("AiJudgePanel.metricCheckedOf", { checked: checkedCount, total: summary.total })}</small>
             </span>
           </div>
         </div>
-        {(!weekPublished || approvedSets.length === 0) && (
+        {(!weekPublished || !activeSet) && (
           <div className={styles.reviewBlockers} role="status">
             {!weekPublished && (
               <div className={styles.reviewBlocker}>
@@ -4099,7 +4223,7 @@ export function TeacherReviewTab({
                 )}
               </div>
             )}
-            {approvedSets.length === 0 && (
+            {!activeSet && (
               <div className={styles.reviewBlocker}>
                 <MIcon name="code_off" size={16} />
                 <span>{t("AiJudgePanel.reviewNoScriptNotice")}</span>
@@ -4114,7 +4238,7 @@ export function TeacherReviewTab({
         )}
         {newResultsWaiting && (
           <div className={`${styles.noticeInfo} ${styles.noticeWithAction}`} role="status">
-            <p>{t("AiJudgePanel.newResultsWaiting")}</p>
+            <p>{t(reviewSetId && reviewSetId !== activeSet?.artifact_set_id ? "AiJudgePanel.previousSetDraftsWaiting" : "AiJudgePanel.newResultsWaiting")}</p>
             <button type="button" className={styles.btnSecondary} onClick={discardDraftsAndLoad}>
               {t("AiJudgePanel.discardReviewsBtn")}
             </button>
@@ -4190,9 +4314,17 @@ export function TeacherReviewTab({
                         <em
                           key={machine.key}
                           className={`${styles.machineChip} ${OUTCOME_CHIP_CLASS[machine.outcome]}`}
-                          title={machine.vmid != null ? `VMID ${machine.vmid}` : undefined}
+                          title={[
+                            machine.label,
+                            machine.vmid != null ? `VMID ${machine.vmid}` : null,
+                            t(`AiJudgePanel.machinePower_${machine.power}`),
+                          ].filter(Boolean).join(" · ")}
                         >
-                          <MIcon name="dns" size={13} />
+                          <span
+                            className={`${styles.powerDot} ${POWER_DOT_CLASS[machine.power]}`}
+                            role="img"
+                            aria-label={t(`AiJudgePanel.machinePower_${machine.power}`)}
+                          />
                           {machine.label}
                         </em>
                       ))}
@@ -4225,47 +4357,6 @@ export function TeacherReviewTab({
                       </button>
                     )}
                   </div>
-                  {student.userId && (() => {
-                    const saved = student.reply?.text ?? "";
-                    const value = replyDrafts[student.userId] ?? saved;
-                    const replyDirty = value !== saved;
-                    const savingReply = savingReplyUserId === student.userId;
-                    return (
-                      <section className={styles.reviewReply} aria-label={t("AiJudgePanel.replyLabel")}>
-                        <label className={styles.reviewFeedbackField}>
-                          <span>{t("AiJudgePanel.replyLabel")} <small>{t("AiJudgePanel.optionalShort")}</small></span>
-                          <textarea
-                            value={value}
-                            maxLength={4000}
-                            rows={3}
-                            placeholder={t("AiJudgePanel.feedbackPlaceholder")}
-                            onChange={(event) => {
-                              const next = event.target.value;
-                              setReplyDrafts((current) => ({ ...current, [student.userId]: next }));
-                            }}
-                          />
-                          <small>{value.length} / 4000</small>
-                        </label>
-                        <div className={styles.reviewSaveRow}>
-                          <span>{replyDirty
-                            ? t("AiJudgePanel.unsavedChanges")
-                            : student.reply?.at
-                              ? t("AiJudgePanel.replyLastSaved", { time: formatDateTime(student.reply.at) })
-                              : t("AiJudgePanel.replyHint")}</span>
-                          <button
-                            type="button"
-                            className={styles.btnSecondary}
-                            disabled={!replyDirty || savingReply}
-                            onClick={() => saveReply(student.userId)}
-                          >
-                            {savingReply
-                              ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</>
-                              : <><MIcon name="send" size={16} />{t("AiJudgePanel.replySaveBtn")}</>}
-                          </button>
-                        </div>
-                      </section>
-                    );
-                  })()}
                   {student.machines.map((row) => {
                     const draft = drafts[row.key] ?? reviewDraftFromTeacherReview(row.target?.teacher_review);
                     const saved = targetTeacherReview(row.target);
@@ -4285,6 +4376,48 @@ export function TeacherReviewTab({
                       </section>
                     );
                   })}
+                  {/* 回覆放在這位學生的檢查結果下面，看完結果直接打；一個輸入框加送出，Ctrl／⌘+Enter 也能送 */}
+                  {student.userId && (() => {
+                    const saved = student.reply?.text ?? "";
+                    const value = replyDrafts[student.userId] ?? saved;
+                    const replyDirty = value !== saved;
+                    const savingReply = savingReplyUserId === student.userId;
+                    return (
+                      <div
+                        className={styles.replyBar}
+                        title={student.reply?.at ? t("AiJudgePanel.replyLastSaved", { time: formatDateTime(student.reply.at) }) : undefined}
+                      >
+                        <textarea
+                          className={styles.replyInput}
+                          value={value}
+                          maxLength={REPLY_MAX_LENGTH}
+                          rows={1}
+                          aria-label={t("AiJudgePanel.replyLabel")}
+                          placeholder={t("AiJudgePanel.replyPlaceholder")}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            setReplyDrafts((current) => ({ ...current, [student.userId]: next }));
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && replyDirty && !savingReply) {
+                              event.preventDefault();
+                              saveReply(student.userId);
+                            }
+                          }}
+                        />
+                        {value.length > REPLY_COUNTER_FROM && <small className={styles.replyCount}>{value.length} / {REPLY_MAX_LENGTH}</small>}
+                        <button
+                          type="button"
+                          className={styles.btnPrimary}
+                          disabled={!replyDirty || savingReply}
+                          onClick={() => saveReply(student.userId)}
+                        >
+                          {savingReply ? <Spinner size={15} /> : <MIcon name="send" size={16} />}
+                          {t("AiJudgePanel.replySaveBtn")}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </article>
@@ -4429,7 +4562,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     return () => { requestVersionRef.current += 1; };
   }, [closeSessionMenu, loadSessions]);
 
-  // 預設選週次：網址指定的 > 本週 > 第一週；目前選的週次不見了才重選
+  // 預設選週次：網址指定的有效週次 > 第一週；目前選的週次不見了才重選
   useEffect(() => {
     setActiveWeekId((current) => (
       current && sortedWeeks.some((week) => String(week.id) === String(current))

@@ -37,6 +37,7 @@
   "run.vmid_not_in_class": "VMID {vmid} does not belong to this class, or no usable machine has been created yet.",
   "run.vmid_not_runnable": "VMID {vmid} is not a runnable VM/LXC.",
   "run.vmid_not_running": "VMID {vmid} is not currently running, so the script cannot be executed.",
+  "run.vmid_powered_off": "VMID {vmid} is powered off. The check was skipped.",
   "run.vmid_not_registered": "VMID {vmid} is not registered in the database.",
   "run.owner_mismatch": "The current owner of VMID {vmid}'s resource does not match the class student.",
   "run.no_ip": "VMID {vmid} has no available IP address.",
