@@ -15,6 +15,7 @@ from app.models import IpAllocation
 from app.schemas.ip_management import SubnetConfigCreate
 from app.services.network import ip_management_service as svc
 from app.services.network.publish_target_policy import assert_publishable_vm_ip
+from app.services.system import setup_service
 
 BASE = {
     "cidr": "10.60.0.0/29",
@@ -122,3 +123,21 @@ def test_platform_ip_cannot_be_published(monkeypatch: pytest.MonkeyPatch) -> Non
     assert_publishable_vm_ip(session, "10.60.0.9")
     with pytest.raises(BadRequestError):
         assert_publishable_vm_ip(session, "10.60.0.3")
+
+
+def test_setup_wizard_subnet_step_saves_platform_ip(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        setup_service,
+        "ensure_setup_open",
+        lambda *, session: SimpleNamespace(admin_user_id=None),
+    )
+    monkeypatch.setattr(setup_service.audit_service, "log_action", lambda **_: None)
+
+    result = setup_service.configure_subnet(
+        session=db, data=SubnetConfigCreate(**BASE, platform_ip="10.60.0.3")
+    )
+
+    assert result.platform_ip == "10.60.0.3"
+    assert [row.ip_address for row in _platform_rows(db)] == ["10.60.0.3"]

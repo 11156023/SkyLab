@@ -107,6 +107,7 @@ class SetupSubnetResult(BaseModel):
     bridge_name: str
     vlan_tag: int | None = None
     gateway_vm_ip: str
+    platform_ip: str | None = None
     dns_servers: str | None = None
     total_ips: int
     available_ips: int

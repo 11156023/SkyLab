@@ -233,6 +233,8 @@
   "SetupPage.vlanPlaceholder": "任意。1–4094、VLAN を使わない場合は空欄",
   "SetupPage.gatewayVmIpLabel": "Gateway VM IP",
   "SetupPage.gatewayVmIpPlaceholder": "例：10.10.0.2",
+  "SetupPage.platformIpLabel": "メインシステム IP",
+  "SetupPage.platformIpPlaceholder": "任意、例：10.10.0.3。設定すると VM / LXC には割り当てられません",
   "SetupPage.dnsLabel": "DNS サーバー",
   "SetupPage.dnsPlaceholder": "任意。複数はカンマ区切り：8.8.8.8,1.1.1.1",
   "SetupPage.advancedToggle": "詳細：公開ポートの割り当てプール",
