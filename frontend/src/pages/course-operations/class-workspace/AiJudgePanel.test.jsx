@@ -1317,18 +1317,19 @@ describe("SessionTitle", () => {
 
 describe("getDefaultWeekId", () => {
   const weeks = [
-    { id: "w1", session_date: "2026-09-07" },
-    { id: "w2", session_date: "2026-09-14" },
-    { id: "w3", session_date: "2026-09-21" },
+    { id: "w3", week_number: 3, session_date: "2026-09-21" },
+    { id: "w1", week_number: 1, session_date: "2026-09-07" },
+    { id: "w2", week_number: 2, session_date: "2026-09-14" },
   ];
-  test("預設帶入最近已上過的一週", () => {
-    expect(getDefaultWeekId(weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
+  test("依週次編號預設第一週，不改動來源順序", () => {
+    expect(getDefaultWeekId(weeks)).toBe("w1");
+    expect(weeks.map((week) => week.id)).toEqual(["w3", "w1", "w2"]);
   });
-  test("都還沒開始上課就不指定", () => {
-    expect(getDefaultWeekId(weeks, new Date("2026-09-01T12:00:00Z"))).toBe("");
+  test("沒有第一週時選編號最小的現有週次", () => {
+    expect(getDefaultWeekId([weeks[0], weeks[2]])).toBe("w2");
   });
-  test("以當地日期判斷：上課當天清晨（UTC 仍是前一天）也算已到這一週", () => {
-    expect(getDefaultWeekId(weeks, new Date(2026, 8, 14, 0, 30))).toBe("w2");
+  test("沒有週次時不指定", () => {
+    expect(getDefaultWeekId([])).toBe("");
   });
 });
 
@@ -1340,13 +1341,24 @@ describe("resolveActiveWeekId", () => {
   ];
 
   test("網址指定的週次優先，不存在的週次不採用", () => {
-    expect(resolveActiveWeekId("w3", weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w3");
-    expect(resolveActiveWeekId("missing", weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
+    expect(resolveActiveWeekId("w3", weeks)).toBe("w3");
+    expect(resolveActiveWeekId("missing", weeks)).toBe("w1");
   });
 
-  test("沒有指定時選本週（最近上過的一週），還沒開課就選第一週", () => {
-    expect(resolveActiveWeekId(null, weeks, new Date("2026-09-16T12:00:00Z"))).toBe("w2");
-    expect(resolveActiveWeekId(null, weeks, new Date("2026-09-01T12:00:00Z"))).toBe("w1");
+  test.each(["2026-09-01", "2026-09-16", "2026-09-21", "2026-10-16"])("日期為 %s 時，沒有指定週次仍選第一週", (date) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(`${date}T12:00:00`));
+      expect(resolveActiveWeekId(null, weeks)).toBe("w1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("週次 ID 統一為字串，網址可以指定數字 ID", () => {
+    const numericWeeks = [{ id: 20, week_number: 2 }, { id: 10, week_number: 1 }];
+    expect(resolveActiveWeekId("20", numericWeeks)).toBe("20");
+    expect(resolveActiveWeekId(null, numericWeeks)).toBe("10");
   });
 
   test("沒有週次時不選", () => {

@@ -1623,30 +1623,20 @@ function WeekSelectField({ weeks, value, onChange, autoFocus = false }) {
   );
 }
 
-/** 最近已上過的一週；都還沒開始上課時回傳空字串 */
-export function getDefaultWeekId(weeks, today = new Date()) {
-  // 上課日期是當地日曆日；toISOString 是 UTC，台灣早上八點前會算成前一天而漏掉當天那一週
-  const todayKey = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-  const past = weeks
-    .filter((week) => week.session_date && String(week.session_date).slice(0, 10) <= todayKey)
-    .sort((a, b) => String(b.session_date).localeCompare(String(a.session_date)));
-  return past[0]?.id ?? "";
+/** 預設從第一週開始；沒有第一週時選編號最小的現有週次。 */
+export function getDefaultWeekId(weeks) {
+  return [...weeks].sort((a, b) => (a.week_number ?? 0) - (b.week_number ?? 0))[0]?.id ?? "";
 }
 
 /**
- * 打開 AI導師檢查時先選哪一週：網址指定的週次 > 本週（最近上過的一週）> 第一週。
+ * 打開 AI導師檢查時先選哪一週：網址指定的有效週次 > 第一週。
  */
-export function resolveActiveWeekId(requestedId, weeks, today = new Date()) {
+export function resolveActiveWeekId(requestedId, weeks) {
   if (!Array.isArray(weeks) || weeks.length === 0) return null;
   if (requestedId && weeks.some((week) => String(week.id) === String(requestedId))) {
     return String(requestedId);
   }
-  const fallback = getDefaultWeekId(weeks, today)
-    || [...weeks].sort((a, b) => (a.week_number ?? 0) - (b.week_number ?? 0))[0]?.id;
+  const fallback = getDefaultWeekId(weeks);
   return fallback ? String(fallback) : null;
 }
 
@@ -4518,7 +4508,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     return () => { requestVersionRef.current += 1; };
   }, [closeSessionMenu, loadSessions]);
 
-  // 預設選週次：網址指定的 > 本週 > 第一週；目前選的週次不見了才重選
+  // 預設選週次：網址指定的有效週次 > 第一週；目前選的週次不見了才重選
   useEffect(() => {
     setActiveWeekId((current) => (
       current && sortedWeeks.some((week) => String(week.id) === String(current))
