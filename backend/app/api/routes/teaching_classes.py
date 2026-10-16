@@ -133,10 +133,15 @@ def _course_environment_summary(
 
 
 def _public_machine_dump(row: TeachingClassStudentMachine) -> dict:
-    """Serialize a class machine without exposing stored infrastructure errors."""
+    """Serialize a class machine without exposing stored infrastructure errors.
+
+    vmid / status / error 是透過建機工作讀出的 property，``model_dump`` 不會帶，
+    要明確補上；少了 vmid 熱力圖、整班開關機與觀看畫面都對不到機器。
+    """
     data = row.model_dump()
-    if data.get("error"):
-        data["error"] = PUBLIC_PROVISION_ERROR
+    data["vmid"] = row.vmid
+    data["status"] = row.status
+    data["error"] = PUBLIC_PROVISION_ERROR if row.error else None
     return data
 
 

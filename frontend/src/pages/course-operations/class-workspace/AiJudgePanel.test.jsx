@@ -20,6 +20,8 @@ import {
   attachStudentReports,
   checkOutcome,
   studentMachineChips,
+  machinePowerState,
+  checkpointBadge,
   buildMergedBatchReviewRows,
   buildBatchReviewRows,
   buildLegacyReviewRows,
@@ -1864,6 +1866,9 @@ describe("teacher review run-once（整組檢查點）", () => {
 
     const textarea = container.querySelector("textarea");
     expect(textarea.value).toBe("舊的回覆");
+    // 回覆框在這位學生的檢查結果下面
+    const machineCard = container.querySelector("section[aria-label]");
+    expect(machineCard.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
@@ -1883,6 +1888,19 @@ describe("teacher review run-once（整組檢查點）", () => {
 
     expect(saveReply).toHaveBeenCalledExactlyOnceWith("class-1", "session-1", "user-1", "請先確認虛擬機配置。");
     expect(container.textContent).toContain(i18n.t("AiJudgePanel.replied", { ns: "teaching" }));
+
+    // Ctrl+Enter 也能送出
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setValue.call(textarea, "記得重開服務。");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(saveReply).toHaveBeenLastCalledWith("class-1", "session-1", "user-1", "記得重開服務。");
     // 每台機器不再各自留言：展開後只有這一個回覆框
     expect(container.querySelectorAll("textarea")).toHaveLength(1);
     await act(async () => {
@@ -2165,6 +2183,40 @@ describe("導師核查：全班當週回報與指定檢查", () => {
       [101, "網站", "pass"],
       [102, "資料庫", "none"],
       [999, "old", "fail"],
+    ]);
+  });
+
+  test("檢查點標籤：待判定優先，其次未通過，全過才寫幾項都通過；老師判定會蓋過原始狀態", () => {
+    const item = {
+      status: "warning",
+      checks: [
+        { id: "a", status: "pass" },
+        { id: "b", status: "warning" },
+        { id: "c", status: "collected" },
+      ],
+    };
+    expect(checkpointBadge(item)).toMatchObject({ kind: "pending" });
+    expect(checkpointBadge(item, { b: "pass" })).toMatchObject({ kind: "pending" });
+    expect(checkpointBadge(item, { b: "pass", c: "fail" })).toMatchObject({ kind: "fail" });
+    expect(checkpointBadge(item, { b: "pass", c: "pass" })).toMatchObject({ kind: "pass" });
+    expect(checkpointBadge({ status: "fail", checks: [] })).toMatchObject({ kind: "fail" });
+    expect(checkpointBadge({ status: "pass", checks: [{ id: "x", status: "pass" }] })).toMatchObject({ kind: "pass" });
+  });
+
+  test("機器標籤帶上 PVE 開機狀態，只有在線名單有的機器才算得出來", () => {
+    expect(["running", "RUNNING"].map(machinePowerState)).toEqual(["on", "on"]);
+    expect(["stopped", "paused"].map(machinePowerState)).toEqual(["off", "off"]);
+    expect(["completed", "unknown", undefined, ""].map(machinePowerState)).toEqual(["unknown", "unknown", "unknown", "unknown"]);
+
+    const student = { userId: "user-a", machines: [{ key: "999", vmid: 999, nodeKey: "old" }] };
+    const members = [
+      { user_id: "user-a", vmid: 101, node_key: "web", vm_status: "running" },
+      { user_id: "user-a", vmid: 102, node_key: "db", vm_status: "stopped" },
+    ];
+    expect(studentMachineChips(student, members).map((chip) => [chip.vmid, chip.power])).toEqual([
+      [101, "on"],
+      [102, "off"],
+      [999, "unknown"],
     ]);
   });
 
