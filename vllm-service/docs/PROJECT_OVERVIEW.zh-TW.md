@@ -33,7 +33,7 @@ OpenAI-compatible client 負責。早期自寫的 FastAPI Gateway 已移除，�
 
 ## 設定邊界
 
-主 Campus-Cloud backend 使用兩條不同設定：
+主 SkyLab backend 使用兩條不同設定：
 
 ```env
 VLLM_BASE_URL=http://localhost:8000/v1

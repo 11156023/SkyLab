@@ -12,6 +12,7 @@ import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 import { formatDateTime } from "../../../utils/formatDate";
+import { isAdminUser } from "../../../utils/roles";
 
 /**
  * 配額（資源政策頁的下半段）：全域預設上限 + 個別使用者覆寫。
@@ -414,7 +415,8 @@ export default function QuotasSection() {
 
   const candidates = useMemo(() => {
     const taken = new Set((quotas ?? []).map((q) => q.user_id));
-    return users.filter((u) => !taken.has(u.id));
+    // 管理員不受配額限制，後端也不讓替管理員設個人配額
+    return users.filter((u) => !taken.has(u.id) && !isAdminUser(u));
   }, [users, quotas]);
 
   const handleDelete = async (quota) => {

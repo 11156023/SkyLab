@@ -2,7 +2,33 @@
 
 > **English** | [繁體中文](./README.zh-TW.md)
 
+**A self-hosted cloud for schools: students request VMs, teachers spin up whole classrooms, admins keep Proxmox VE under control.**
+
+[![Backend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml)
+[![Frontend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml)
+[![CodeQL](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+
 SkyLab is a full-stack management platform for Proxmox VE (PVE) built for campus use. It covers VM/LXC lifecycle management, request and approval workflows, class-based batch provisioning, firewall and gateway control, AI-assisted operations, and an OpenAI-compatible AI API backed by self-hosted vLLM models.
+
+**Who it is for:** schools, departments and labs that already run (or plan to run) Proxmox VE and want to hand out machines to students and courses without giving everyone access to the PVE web UI.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Browser] --> N[nginx :8082]
+    D[SkyLab Connect<br/>desktop client] -->|WireGuard| G
+    N -->|/api, /ws| B[FastAPI backend]
+    N --> F[React frontend]
+    B --> P[(PostgreSQL<br/>via PgBouncer)]
+    B --> R[(Redis)]
+    R --> W[arq worker]
+    B -->|API + SSH| PVE[Proxmox VE<br/>nodes / clusters]
+    W -->|API + SSH| PVE
+    B -->|SSH| G[Gateway VM<br/>nginx + WireGuard + nftables]
+    B --> L[LiteLLM] --> V[vLLM models]
+```
 
 ## Components
 
@@ -14,10 +40,7 @@ SkyLab is a full-stack management platform for Proxmox VE (PVE) built for campus
 | Gateway installer | `gateway/` | `install.sh` for the campus egress gateway VM: nginx (port forwarding, domain reverse proxy), WireGuard, nftables ACL |
 | Desktop client | `desktop-client/` | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway |
 | vLLM service | `vllm-service/` | Single-model service, multi-model vLLM cluster and the LiteLLM gateway that exposes them |
-| AI PVE Placement Advisor | `ai-pve-placement-advisor/` | Rule + weighted-score placement suggestion service (port 8011) |
-| PVE Resource Simulator | `pve_ resource_simulator/` | Offline placement-strategy simulator (port 8012) |
 | Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / InfluxDB profile |
-| Legacy vLLM | `vllm-inference/`, `vllm-API/` | Old single-model deployment and multi-model gateway, kept for migration reference only |
 | Docs | `docs/` | Guides and design notes, see [`docs/README.md`](docs/README.md) |
 
 ## Tech stack
@@ -25,7 +48,7 @@ SkyLab is a full-stack management platform for Proxmox VE (PVE) built for campus
 - **Backend:** FastAPI, SQLModel, Alembic, PostgreSQL (via PgBouncer), Redis, arq worker, proxmoxer, Paramiko, PyJWT, cryptography, httpx, websockets, Sentry
 - **Frontend:** React 19, Vite, react-router-dom 7, SCSS Modules, react-i18next (en / zh-TW / ja), react-vnc, xterm.js, @xyflow/react, Recharts, Monaco Editor, sonner, Vitest
 - **Infrastructure:** Docker Compose, nginx, PgBouncer, PostgreSQL, Redis, MailCatcher (dev), optional Prometheus / Grafana / Loki / Alloy / InfluxDB
-- **AI:** vLLM (OpenAI-compatible API) behind LiteLLM, plus the in-house PVE Advisor and template recommendation services
+- **AI:** vLLM (OpenAI-compatible API) behind LiteLLM, plus built-in placement advice and template recommendation in the backend
 - **Package managers:** uv (Python), Bun (frontend)
 
 ## Main features
@@ -44,18 +67,23 @@ SkyLab is a full-stack management platform for Proxmox VE (PVE) built for campus
 - Platform health monitoring, system alerts, Web Push notifications, Prometheus `/metrics`
 - Full audit log; roles: superuser / admin / instructor / student; trilingual UI (en / zh-TW / ja)
 
+## Requirements
+
+- A Linux host with Docker Engine and Docker Compose ≥ 2.20 (the root compose file uses `include`)
+- A reachable Proxmox VE node or cluster to provision machines; the UI, authentication and most tests work without one
+- Optional: a Linux VM to act as the gateway (port forwarding, domains, WireGuard), and GPU hosts running vLLM for the AI features
+
 ## Quick start (Docker Compose)
 
-The root `docker-compose.yml` already includes LiteLLM. Fill in the two `.env` files first (see the [AI API User Manual](docs/ai-api-user-manual.md) for the model routing and keys), then start the whole stack:
-
 ```bash
+git clone https://github.com/ntubclass/SkyLab.git
+cd SkyLab
 cp -n .env.example .env
-cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
-# edit both .env files; local models must be started first with vllm-service/start_multi_model_cluster.sh
-bash scripts/prepare-ai-stack.sh --start
+# edit .env: at least SECRET_KEY, FIRST_SUPERUSER, FIRST_SUPERUSER_PASSWORD and POSTGRES_PASSWORD
+docker compose up -d --build
 ```
 
-If you do not need the AI stack yet, `docker compose up -d --build` is enough.
+Then open http://localhost:8082. On first launch the setup wizard (`/setup`) creates the administrator, tests the Proxmox connection, and configures the IP subnet, gateway and platform entry.
 
 Default URLs:
 
@@ -68,7 +96,16 @@ Default URLs:
 | MailCatcher (dev inbox; set `SMTP_HOST` in production) | http://localhost:1080 |
 | Grafana (only with `--profile monitoring`) | http://localhost:8082/grafana/ |
 
-On first launch open the entry point: the setup wizard (`/setup`) creates the administrator, tests the Proxmox connection, and configures the IP subnet, gateway and platform entry.
+### Optional: AI stack
+
+The root `docker-compose.yml` already includes LiteLLM. To enable the AI features, start your vLLM models first (`vllm-service/start_multi_model_cluster.sh`), fill in the LiteLLM `.env` (model routing and keys are explained in the [AI API User Manual](docs/ai-api-user-manual.md)), then let the helper script wire everything up:
+
+```bash
+cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
+bash scripts/prepare-ai-stack.sh --start
+```
+
+For production deployment (platform entry, HTTPS, LDAP, CI) see [`docs/deployment.md`](docs/deployment.md).
 
 ## Local development
 
@@ -108,14 +145,12 @@ alembic upgrade head
 ## Tests
 
 - **Backend:** `bash ./scripts/test.sh` from `backend/` (pytest; coverage report in `backend/htmlcov/`), or `docker compose exec backend bash scripts/tests-start.sh -x` inside the running stack
-- **Frontend:** `bun run test` from `frontend/` (Vitest, services layer)
+- **Frontend:** `bun run test` from `frontend/` (Vitest)
 - **CI:** GitHub Actions runs backend tests, frontend tests, desktop client tests, AI service tests, a migration check and CodeQL
 
 ## Proxmox configuration
 
 Proxmox connections are **not** configured in `.env`. Enter them in the setup wizard on first install, then add, edit or sync them on the "PVE Connections" page; credentials are encrypted and stored in the database. Several PVE entry points (standalone nodes or clusters) can be attached at once, and hosts inside a cluster fail over automatically (TCP ping).
-
-The legacy `PROXMOX_HOST`, `PROXMOX_USER`, `PROXMOX_PASSWORD` and `PROXMOX_VERIFY_SSL` variables are no longer read by the backend.
 
 ## Documentation
 
@@ -126,8 +161,13 @@ The index is in [`docs/README.md`](docs/README.md). Most-used entries:
 - [`docs/monitoring.md`](docs/monitoring.md) — built-in health monitoring and the optional monitoring stack
 - [`docs/ai-api-user-manual.md`](docs/ai-api-user-manual.md) — LiteLLM deployment and the user-facing AI API
 - [`docs/multi-machine-environment-sop.md`](docs/multi-machine-environment-sop.md) — SOP for multi-machine teaching environments
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution guide
-- [`SECURITY.md`](SECURITY.md) — security policy
+
+## Community
+
+- **Questions and bug reports:** [GitHub Issues](https://github.com/ntubclass/SkyLab/issues) (please use the templates)
+- **Contributing:** read [`CONTRIBUTING.md`](CONTRIBUTING.md); all commits need a DCO sign-off (`git commit -s`)
+- **Security issues:** do not open a public issue; follow [`SECURITY.md`](SECURITY.md)
+- **Code of conduct:** [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 
 ## License
 
@@ -137,4 +177,4 @@ SkyLab is released under the **GNU Affero General Public License v3.0** (see [`L
 - If you modify SkyLab and let third parties use it over a network (for example as a hosted or managed service), the AGPL requires you to make your modified source available to those users.
 - **Commercial licensing** is available for organisations that want to offer SkyLab as a service without the AGPL's source-sharing terms, or need other terms. Open an issue or contact the maintainers to discuss.
 
-The project started from the MIT-licensed Full Stack FastAPI Template; its notice is kept in [`NOTICE`](NOTICE), and the open-source components SkyLab is built on are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The same information is shown in the application under Account Settings → About. "SkyLab" and the SkyLab logo are names of this project; the license covers the code, not the name.
+The project started from the MIT-licensed Full Stack FastAPI Template, and the desktop client from an MIT-licensed Electron + Vue template; their notices are kept in [`NOTICE`](NOTICE), and the open-source components SkyLab is built on are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The same information is shown in the application under Account Settings → About. "SkyLab" and the SkyLab logo are names of this project; the license covers the code, not the name.

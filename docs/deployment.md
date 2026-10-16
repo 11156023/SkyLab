@@ -56,14 +56,14 @@ Inside the backend container the project `.env` is not mounted, so run it there 
 | `FRONTEND_HOST` | public URL users open (used in emails and by SkyLab Connect device login); update it when you enable the platform entry |
 | `NGINX_HOST_PORT` | host port of the entry point, default 8082 |
 | `SKYLAB_TRUSTED_PROXY` | source IP/CIDR of the gateway when the platform entry is used; default trusts nobody |
-| `ENABLE_SIGNUP` | public self-registration and automatic account creation for education-domain Google logins |
+| `ENABLE_SIGNUP` | initial default for public self-registration; afterwards the admin UI controls email registration and automatic account creation on a first Google login |
 | `LOGIN_RATE_LIMIT_PER_ACCOUNT`, `LOGIN_RATE_LIMIT_PER_IP` | login throttling per minute; the per-IP limit must cover a whole class behind one NAT |
 | `BACKEND_CORS_ORIGINS` | leave empty when everything is served through nginx on one origin |
 | `REDIS_ENABLED`, `REDIS_URL` | keep `true` in containers |
 | `VLLM_BASE_URL`, `VLLM_API_KEY`, `VLLM_MODEL_NAME` | the model used by the built-in AI assistants ("System AI") |
 | `AI_API_BASE_URL`, `AI_API_API_KEY`, `AI_API_PUBLIC_BASE_URL`, `LITELLM_RUNTIME_*` | the user-facing AI API through LiteLLM; `AI_API_API_KEY` is a restricted service key, never the master key |
 | `SMTP_*`, `EMAILS_FROM_EMAIL` | outgoing mail; without `SMTP_HOST` the stack points at MailCatcher |
-| `GOOGLE_CLIENT_ID` | Google login (ID token audience only) |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID; the backend verifies the ID token's aud and verified email, and the Google Cloud "Audience" setting decides which accounts may log in, see [Registration settings and Google login](registration-and-google-login.md) |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile on login and sign-up; both required to enable |
 | `LDAP_CA_CERT_FILE` | CA for LDAP/AD over TLS, see below |
 | `SENTRY_DSN`, `SENTRY_RELEASE`, `VITE_SENTRY_DSN` | error tracking; the frontend value is baked in at image build time |

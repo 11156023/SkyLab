@@ -19,6 +19,7 @@
   "rubric.noTextExtracted": "Unable to extract any text from the document. Please make sure it isn't a scanned PDF.",
   "rubric.noItemsToExport": "No rubric items to export.",
   "quotas.alreadyExists": "This target already has a quota configured. Please update it instead.",
+  "quotas.adminUnlimited": "Administrators are not subject to quotas, so a personal quota cannot be set for them.",
   "lxc.creating": "Creating LXC. Please check the resource list later.",
   "proxmoxConfig.invalidCaCert": "Invalid CA certificate format. Please paste a valid PEM-formatted certificate.",
   "proxmoxConfig.cannotDeleteDefault": "This is the default connection. Please set another connection as default before deleting it.",

@@ -36,7 +36,6 @@ const STUDENT_HOME_GUIDE = {
 
 const PAGE_GUIDES = {
   "/dashboard": STUDENT_HOME_GUIDE,
-  "/home": STUDENT_HOME_GUIDE,
   "/courses": {
     id: "courses",
     titleKey: "UserGuide.courses.title",

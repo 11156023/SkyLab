@@ -171,7 +171,7 @@ def test_validate_generic_command_applies_platform_timeout_default() -> None:
                         "template_key": "linux",
                         "command_key": "system.run_command",
                         "parameters": {
-                            "cwd": r"C:\Users\陳洋\Desktop\Campus-Cloud",
+                            "cwd": r"C:\Users\student\Desktop\SkyLab",
                             "argv": ["cat", ".env"],
                             "success_criteria": "exit code 為 0",
                         },
@@ -184,7 +184,7 @@ def test_validate_generic_command_applies_platform_timeout_default() -> None:
 
     parameters = items[0]["check_steps"][0]["parameters"]
     assert parameters == {
-        "cwd": r"C:\Users\陳洋\Desktop\Campus-Cloud",
+        "cwd": r"C:\Users\student\Desktop\SkyLab",
         "argv": ["cat", ".env"],
         "timeout_seconds": 30,
     }

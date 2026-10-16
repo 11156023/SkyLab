@@ -286,9 +286,9 @@ async def test_utf8_bom_csv_keeps_the_first_cell(captured_import, raw: bytes) ->
 
 @pytest.mark.asyncio
 async def test_big5_csv_still_decodes_and_skips_the_header(captured_import) -> None:
-    raw = "學號\n11036001\n".encode("cp950")
+    raw = "學號\n10000001\n".encode("cp950")
     await routes.import_students(uuid.uuid4(), None, TEACHER, _upload(raw))
-    assert captured_import == [["11036001@ntub.edu.tw"]]
+    assert captured_import == [["10000001@ntub.edu.tw"]]
 
 
 @pytest.mark.asyncio

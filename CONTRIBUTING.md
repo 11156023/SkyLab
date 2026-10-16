@@ -43,7 +43,7 @@ Thanks for taking the time to contribute. This page covers the house rules; the 
 - Describe what changed and why, and reference the related issue.
 - Add or update tests when behaviour changes. Backend tests are under `backend/tests/`, frontend service tests sit next to the service file.
 - Update the documentation under `docs/` when you change configuration, deployment steps or an operator-facing workflow. English documents are the primary version; keep the `*.zh-TW.md` counterpart in sync when one exists.
-- CI must pass (backend tests, frontend tests, migration check, CodeQL).
+- CI must pass (backend tests, frontend tests, desktop client tests, AI service tests, migration check, CodeQL).
 
 ## Licensing of contributions
 
@@ -66,6 +66,10 @@ SkyLab is licensed under the AGPL-3.0, and the maintainers also offer it under c
 
 You are welcome to use whatever tools help you work, including AI assistants. The contribution still has to reflect your own understanding: you should be able to explain every change in the PR and have run it locally. PRs that look auto-generated and have not been reviewed by their author will be closed.
 
+## Code of conduct
+
+Everyone taking part in the project is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Questions
 
-Open a GitHub issue or discussion in this repository.
+Open a GitHub issue in this repository.

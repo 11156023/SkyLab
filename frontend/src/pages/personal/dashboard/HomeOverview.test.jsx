@@ -12,9 +12,9 @@ vi.mock("react-i18next", async (original) => ({ ...await original(),
 let host, root;
 const defaults = { paths: [], resources: [], templates: [], templatesLoading: false,
   openingMachineId: null, onOpenMachine: vi.fn(), todayLabel: "9/17" };
-function Location() { const location = useLocation(); return <output data-create={Boolean(location.state?.create)} data-from={location.state?.from}>{location.pathname}</output>; }
-async function render(props = {}, pathname = "/dashboard") {
-  await act(async () => root.render(<MemoryRouter initialEntries={[pathname]}><HomeOverview {...defaults} {...props} /><Location /></MemoryRouter>));
+function Location() { const location = useLocation(); return <output data-create={Boolean(location.state?.create)}>{location.pathname}</output>; }
+async function render(props = {}) {
+  await act(async () => root.render(<MemoryRouter><HomeOverview {...defaults} {...props} /><Location /></MemoryRouter>));
 }
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,14 +43,6 @@ it("keeps all courses reachable once there are courses or the schedule failed to
 
   await render({ coursesError: true });
   expect(allCoursesButton()).toBeDefined();
-});
-
-it("returns from a course to the admin's general home", async () => {
-  await render({ paths: [{ id: "c1", title: "Linux 101", state: "upcoming", completed_questions: 0, total_questions: 3 }] }, "/home");
-  const course = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Linux 101"));
-  await act(async () => course.click());
-  expect(host.querySelector("output").textContent).toBe("/courses/c1");
-  expect(host.querySelector("output").dataset.from).toBe("/home");
 });
 
 it("shows existing machines without connection history and launches the selected resource", async () => {

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "fastapi-full-stack-template",
+      "name": "skylab",
     },
     "frontend": {
       "name": "frontend",

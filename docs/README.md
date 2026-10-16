@@ -2,7 +2,7 @@
 
 > **English** | [繁體中文](./README.zh-TW.md)
 
-English is the primary language of the documentation. Every guide has a Traditional Chinese counterpart with the `.zh-TW.md` suffix, linked from the top of each file. Files under `archive/` are point-in-time reports and are kept in their original language only.
+English is the primary language of the documentation. Guides have a Traditional Chinese counterpart with the `.zh-TW.md` suffix, linked from the top of each file; the few documents available in one language only are marked in the tables below. Files under `archive/` are point-in-time reports and are kept in their original language only.
 
 ## Getting started
 
@@ -14,6 +14,7 @@ English is the primary language of the documentation. Every guide has a Traditio
 | [`../backend/README.md`](../backend/README.md) | Backend layout, API and WebSocket overview, runtime loops, migrations |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Contribution workflow, licensing of contributions, commit rules |
 | [`../SECURITY.md`](../SECURITY.md) | Reporting vulnerabilities |
+| [`../CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) | Community code of conduct |
 | [`../LICENSE`](../LICENSE), [`../NOTICE`](../NOTICE), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | AGPL-3.0 license text, the upstream template's MIT notice, and the list of open-source components with their licenses |
 
 ## Operations
@@ -21,6 +22,7 @@ English is the primary language of the documentation. Every guide has a Traditio
 | Document | What it covers |
 | --- | --- |
 | [`monitoring.md`](monitoring.md) | Built-in health checks, heartbeats and system alerts; the optional Prometheus / Grafana / Loki / InfluxDB stack; Proxmox Metric Server, gateway and AI monitoring |
+| [`registration-and-google-login.md`](registration-and-google-login.md) | The self-registration and administrator-approval switches, what to set up before opening registration, Google login and the Google Cloud "Audience" setting |
 | [`ai-api-user-manual.md`](ai-api-user-manual.md) | LiteLLM deployment, model routing, keys, taking over a standalone gateway, and calling the user-facing AI API |
 | [`wireguard-desktop-architecture.md`](wireguard-desktop-architecture.md) | SkyLab Connect: WireGuard tunnel from the desktop client to the gateway VM, ACLs, gateway installation |
 | [`../vllm-service/README.md`](../vllm-service/README.md) | vLLM single-model service and multi-model cluster; see also [`PROJECT_OVERVIEW.md`](../vllm-service/docs/PROJECT_OVERVIEW.md), [`SHAREGPT_QUICKSTART.md`](../vllm-service/docs/SHAREGPT_QUICKSTART.md) and the [LiteLLM README](../vllm-service/litellm/README.md) |
@@ -44,6 +46,7 @@ Reports written for a specific date. Useful as history, not as current specifica
 | --- | --- |
 | [`archive/2026-09-09-ui-consistency-audit.md`](archive/2026-09-09-ui-consistency-audit.md) | Audit of 28 UI consistency and usability findings, with root causes and estimates |
 | [`archive/2026-10-03-ai-api-concurrency-analysis.md`](archive/2026-10-03-ai-api-concurrency-analysis.md) | Root-cause analysis and fix plan for the AI API concurrency incident (DB connections held across upstream calls) |
+| [`archive/2026-10-06-ai-page-guide.md`](archive/2026-10-06-ai-page-guide.md) | Extending the AI assistant's page guides and dialog explanations: data structure, question intents and how answers are built (Traditional Chinese) |
 
 ## Conventions for writing docs
 

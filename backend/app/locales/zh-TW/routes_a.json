@@ -19,6 +19,7 @@
   "rubric.noTextExtracted": "無法從文件中提取任何文字，請確認文件不是掃描版 PDF。",
   "rubric.noItemsToExport": "沒有可匯出的評分項目。",
   "quotas.alreadyExists": "此對象已有配額設定，請改用更新",
+  "quotas.adminUnlimited": "管理員不受配額限制，無法設定個人配額",
   "lxc.creating": "LXC 建立中，請稍後於資源列表查看",
   "proxmoxConfig.invalidCaCert": "CA 憑證格式無效，請貼上正確的 PEM 格式內容",
   "proxmoxConfig.cannotDeleteDefault": "此連線為預設連線，請先將其他連線設為預設再刪除",
