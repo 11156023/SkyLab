@@ -555,10 +555,42 @@ def test_clone_lxc_waits_and_invalidates(
 
 
 def test_convert_to_template_invalidates_cache(
-    api: MagicMock, invalidations: list
+    api: MagicMock, waits: list, invalidations: list
 ) -> None:
+    # 舊版 PVE 的 LXC 轉換是同步的，回 null：沒有 task 可等
+    api.nodes.return_value.qemu.return_value.template.post.return_value = None
     ops.convert_to_template("pve1", 100)
     api.nodes.return_value.qemu.return_value.template.post.assert_called_once_with()
+    assert waits == []
+    assert invalidations == [1]
+
+
+def test_convert_to_template_waits_for_pve_task(
+    api: MagicMock, waits: list, invalidations: list
+) -> None:
+    template = api.nodes.return_value.lxc.return_value.template
+    template.post.return_value = "UPID:pve1:qmtemplate"
+    ops.convert_to_template("pve1", 213, "lxc")
+    assert waits == [("pve1", "UPID:pve1:qmtemplate", {})]
+    assert invalidations == [1]
+
+
+def test_convert_to_template_raises_when_pve_task_fails(
+    api: MagicMock, invalidations: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 厚配置 LVM 不支援範本：POST 成功回 UPID，錯誤只出現在 task 結果
+    api.nodes.return_value.qemu.return_value.template.post.return_value = "UPID:x"
+    message = (
+        "Task UPID:x failed with exitstatus: Template feature is not available "
+        "for 'ssd-data-lvm:vm-213-disk-0'"
+    )
+
+    def _fail(*_a: Any, **_k: Any) -> None:
+        raise ProxmoxError(message)
+
+    monkeypatch.setattr(ops, "basic_blocking_task_status", _fail)
+    with pytest.raises(ProxmoxError, match="Template feature is not available"):
+        ops.convert_to_template("pve1", 213)
     assert invalidations == [1]
 
 
@@ -865,6 +897,58 @@ def test_get_vm_templates_filters_pool_entries(
         ],
     )
     assert ops.get_vm_templates() == [{"vmid": 1, "template": 1}]
+
+
+def test_get_vm_templates_confirms_lagging_rrd_flag_from_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 剛轉換完：/cluster/resources 的 template 旗標（RRD）還沒跟上，設定檔已是範本
+    monkeypatch.setattr(
+        ops,
+        "_pool_vms",
+        lambda **_: [
+            {"vmid": 1, "template": 1, "node": "pve1", "type": "qemu"},
+            {"vmid": 2, "template": 0, "node": "pve1", "type": "qemu"},
+            {"vmid": 3, "node": "pve1", "type": "lxc"},
+            {"vmid": 4, "node": "pve1", "type": "qemu"},
+        ],
+    )
+    configs = {2: {"template": 1}, 3: {"template": "1"}, 4: {"template": 1}}
+    asked: list[tuple[str, int, str]] = []
+
+    def get_config(node: str, vmid: int, resource_type: str) -> dict:
+        asked.append((node, vmid, resource_type))
+        return configs[vmid]
+
+    monkeypatch.setattr(ops, "get_config", get_config)
+    templates = ops.get_vm_templates(confirm_vmids=[2, 3])
+    assert [vm["vmid"] for vm in templates] == [1, 2, 3]
+    assert all(vm["template"] == 1 for vm in templates)
+    # 只確認呼叫端指定的 VMID；已標範本的不重查
+    assert asked == [("pve1", 2, "qemu"), ("pve1", 3, "lxc")]
+
+
+def test_get_vm_templates_confirm_rejects_non_template_and_config_errors(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(
+        ops,
+        "_pool_vms",
+        lambda **_: [
+            {"vmid": 2, "node": "pve1", "type": "qemu"},
+            {"vmid": 3, "node": "pve1", "type": "qemu"},
+        ],
+    )
+
+    def get_config(node: str, vmid: int, resource_type: str) -> dict:
+        if vmid == 3:
+            raise RuntimeError("config unreadable")
+        return {"name": "plain-vm"}
+
+    monkeypatch.setattr(ops, "get_config", get_config)
+    with caplog.at_level("ERROR", logger=ops.logger.name):
+        assert ops.get_vm_templates(confirm_vmids=[2, 3]) == []
+    assert "config unreadable" in caplog.text
 
 
 # ---------------------------------------------------------------------------

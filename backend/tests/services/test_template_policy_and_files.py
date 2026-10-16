@@ -574,7 +574,7 @@ def test_student_catalog_uses_pve_facts_and_skips_missing_templates(
     monkeypatch.setattr(
         template_service.proxmox_ops,
         "get_vm_templates",
-        lambda: [
+        lambda **_: [
             # 16 GiB disk, 2 GiB RAM
             {"vmid": 9001, "type": "lxc", "maxcpu": 2, "maxmem": 2147483648, "maxdisk": 17179869184},
             {"vmid": 9002, "type": "qemu", "maxcpu": 2, "maxmem": 2147483648, "maxdisk": 21474836480},

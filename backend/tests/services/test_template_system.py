@@ -338,7 +338,7 @@ def rbac_repo(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(
         template_service.template_repo, "list_visible_templates", fake_list_visible
     )
-    monkeypatch.setattr(template_service, "_pve_template_raw", lambda: None)
+    monkeypatch.setattr(template_service, "_pve_template_raw", lambda *_: None)
     return calls
 
 

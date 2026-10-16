@@ -186,11 +186,31 @@ def test_attachment_counts_failure_returns_empty() -> None:
 
 def test_pve_template_raw(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        ts.proxmox_ops, "get_vm_templates", lambda: [{"vmid": "900", "maxcpu": 1}]
+        ts.proxmox_ops, "get_vm_templates", lambda **_: [{"vmid": "900", "maxcpu": 1}]
     )
     assert ts._pve_template_raw() == {900: {"vmid": "900", "maxcpu": 1}}
     monkeypatch.setattr(ts.proxmox_ops, "get_vm_templates", _raise(RuntimeError()))
     assert ts._pve_template_raw() is None
+
+
+def test_pve_template_raw_confirms_converted_templates_only(
+    sess: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 剛轉換完的範本要請 PVE 層用設定檔確認，免得 RRD 延遲時顯示「PVE 不存在」
+    ready = _template(sess, pve_vmid=901)
+    updating = _template(sess, pve_vmid=902, status=VMTemplateStatus.updating)
+    creating = _template(sess, pve_vmid=903, status=VMTemplateStatus.creating)
+    failed = _template(sess, pve_vmid=904, status=VMTemplateStatus.failed)
+    seen: list[list[int]] = []
+
+    def get_vm_templates(*, confirm_vmids: list[int]) -> list[dict[str, Any]]:
+        seen.append(sorted(confirm_vmids))
+        return [{"vmid": 901, "template": 1}]
+
+    monkeypatch.setattr(ts.proxmox_ops, "get_vm_templates", get_vm_templates)
+    raw = ts._pve_template_raw([ready, updating, creating, failed])
+    assert raw == {901: {"vmid": 901, "template": 1}}
+    assert seen == [[901, 902]]
 
 
 def test_spec_from_raw_missing_values() -> None:
@@ -210,11 +230,11 @@ def test_resolve_effective_spec_fills_from_pve(
     monkeypatch.setattr(
         ts,
         "_pve_template_raw",
-        lambda: {PVE_VMID: {"maxcpu": 8, "maxmem": 512 * 1024 * 1024, "maxdisk": GIB}},
+        lambda *_: {PVE_VMID: {"maxcpu": 8, "maxmem": 512 * 1024 * 1024, "maxdisk": GIB}},
     )
     assert ts.resolve_effective_spec(template) == (3, 512, 1)
     # PVE 連不上：缺的欄位維持 None
-    monkeypatch.setattr(ts, "_pve_template_raw", lambda: None)
+    monkeypatch.setattr(ts, "_pve_template_raw", lambda *_: None)
     assert ts.resolve_effective_spec(template) == (3, None, None)
 
 

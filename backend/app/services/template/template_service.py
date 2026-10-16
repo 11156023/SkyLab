@@ -15,6 +15,7 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -125,13 +126,31 @@ def _attachment_counts(
         return {}
 
 
-def _pve_template_raw() -> dict[int, dict[str, Any]] | None:
+def _converted_vmids(templates: Iterable[VMTemplate]) -> list[int]:
+    """PVE 端應已是範本的 VMID（轉換完成的範本）。"""
+    return [
+        t.pve_vmid
+        for t in templates
+        if t.status in {VMTemplateStatus.ready, VMTemplateStatus.updating}
+    ]
+
+
+def _pve_template_raw(
+    templates: Iterable[VMTemplate] = (),
+) -> dict[int, dict[str, Any]] | None:
     """PVE 端實際存在的範本（vmid → pool 原始紀錄）；連不上回 None 不阻擋列表。
 
     對帳（範本還在不在）與規格回填共用同一次查詢，避免逐筆打 PVE。
+    ``templates`` 中已轉換完成的範本，PVE 清單的範本旗標還沒跟上時會改讀
+    設定檔確認，否則剛轉換完的範本會被當成「PVE 不存在」。
     """
     try:
-        return {int(t["vmid"]): t for t in proxmox_ops.get_vm_templates()}
+        return {
+            int(t["vmid"]): t
+            for t in proxmox_ops.get_vm_templates(
+                confirm_vmids=_converted_vmids(templates)
+            )
+        }
     except Exception:
         return None
 
@@ -174,7 +193,7 @@ def resolve_effective_spec(
             template.default_disk,
         )
     raw_cores, raw_memory, raw_disk = _spec_from_raw(
-        (_pve_template_raw() or {}).get(template.pve_vmid)
+        (_pve_template_raw([template]) or {}).get(template.pve_vmid)
     )
     return (
         template.default_cores if template.default_cores is not None else raw_cores,
@@ -196,7 +215,7 @@ def list_templates(*, session: Session, user: User) -> list[VMTemplatePublic]:
             only_ready=not _can_manage(user),
         )
     _reconcile_failed_template_tasks(session, templates)
-    pve_raw = _pve_template_raw()
+    pve_raw = _pve_template_raw(templates)
     counts = _attachment_counts(session, [t.id for t in templates])
     return [
         _to_public(
@@ -224,7 +243,10 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
         return []
     # VM 與 LXC 範本都要對帳，所以讀 pool 內的原始紀錄（VM 專用清單已排除 LXC）
     raw_by_vmid = {
-        int(item["vmid"]): item for item in proxmox_ops.get_vm_templates()
+        int(item["vmid"]): item
+        for item in proxmox_ops.get_vm_templates(
+            confirm_vmids=_converted_vmids(templates)
+        )
     }
     catalog: list[TemplateCatalogItem] = []
     for template in templates:
@@ -265,7 +287,7 @@ def get_template_for_user(
     counts = _attachment_counts(session, [template.id])
     return _to_public(
         template,
-        pve_raw=_pve_template_raw(),
+        pve_raw=_pve_template_raw([template]),
         attachment_count=counts.get(template.id, 0),
     )
 

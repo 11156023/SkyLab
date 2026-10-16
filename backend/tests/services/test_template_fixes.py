@@ -817,7 +817,7 @@ async def test_failed_finish_can_be_retried_after_listing(
     _failed_task(
         db, template, template_service.TASK_UPDATE_CONVERT, "PVE convert failed"
     )
-    monkeypatch.setattr(template_service, "_pve_template_raw", lambda: None)
+    monkeypatch.setattr(template_service, "_pve_template_raw", lambda *_: None)
 
     # 列表／詳情的對帳不能把它改成 failed
     public = template_service.get_template_for_user(

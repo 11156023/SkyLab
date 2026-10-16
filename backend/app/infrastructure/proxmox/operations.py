@@ -1155,9 +1155,17 @@ def convert_to_template(
     """POST /nodes/{node}/{type}/{vmid}/template — 轉為唯讀範本（不可逆）。
 
     VM 必須處於 stopped 狀態，呼叫端負責先關機。
+
+    PVE 以背景 task 執行轉換並立刻回傳 UPID，磁碟所在儲存不支援範本
+    （例如厚配置 LVM）這類錯誤只會出現在 task 結果裡，所以必須等 task
+    結束；不等的話呼叫端會把轉換失敗的機器標成 ready。
     """
-    _resource_api(node, vmid, resource_type).template.post()
-    invalidate_cluster_resources_cache()
+    result = _resource_api(node, vmid, resource_type).template.post()
+    try:
+        if isinstance(result, str) and result.startswith("UPID:"):
+            basic_blocking_task_status(node, result)
+    finally:
+        invalidate_cluster_resources_cache()
 
 
 def _db_claimed_vmids() -> set[int]:
@@ -1285,9 +1293,36 @@ def get_lxc_templates(node: str) -> list[dict]:
     return proxmox.nodes(node).storage(iso_storage).content.get()
 
 
-def get_vm_templates() -> list[dict]:
-    """Return all VM templates in each connection's pool."""
-    return [vm for vm in _pool_vms() if vm.get("template") == 1]
+def get_vm_templates(*, confirm_vmids: Iterable[int] = ()) -> list[dict[str, Any]]:
+    """Return all VM templates in each connection's pool.
+
+    ``/cluster/resources`` 的 ``template`` 旗標讀自 pvestatd 寫的 RRD（約 10 秒
+    更新一次），剛轉換完的範本在那之前仍標成一般機器。``confirm_vmids`` 是
+    呼叫端已知應為範本的 VMID：在 pool 內但旗標還沒跟上時，改讀設定檔確認。
+    """
+    confirm = {int(vmid) for vmid in confirm_vmids}
+    templates: list[dict[str, Any]] = []
+    for vm in _pool_vms():
+        if vm.get("template") == 1:
+            templates.append(vm)
+        elif int(vm["vmid"]) in confirm and _config_marks_template(vm):
+            vm["template"] = 1
+            templates.append(vm)
+    return templates
+
+
+def _config_marks_template(vm: dict[str, Any]) -> bool:
+    """設定檔的 ``template`` 旗標（轉換後立即生效，不受 RRD 延遲影響）。"""
+    try:
+        config = get_config(str(vm["node"]), int(vm["vmid"]), vm["type"])
+    except Exception as exc:
+        logger.error(
+            "Failed to read config of VM %s to confirm template flag: %s",
+            vm.get("vmid"),
+            exc,
+        )
+        return False
+    return str(config.get("template", "0")) == "1"
 
 
 # OS 範本（vztmpl）是管理員在 PVE 上手動放的，很少變動，快取久一點，
