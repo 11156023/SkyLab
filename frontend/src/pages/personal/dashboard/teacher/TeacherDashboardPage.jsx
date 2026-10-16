@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../../components/MIcon";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { CourseAdminService } from "../../../../services/courses";
 import { TeachingClassesService } from "../../../../services/teachingClasses";
 import styles from "./TeacherDashboardPage.module.scss";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
@@ -25,11 +24,6 @@ const CLASS_STATUS_KEYS = {
 /* 「準備中」＝還不能上課的班級：設定中、等待審核、建立中、部分建立失敗 */
 const PREPARING_STATUSES = ["planning", "pending_review", "provisioning", "partial_failed"];
 
-const DEMO_STUDENT_NAMES = [
-  "王小明", "陳怡君", "林志豪", "張雅婷", "劉冠廷", "黃郁雯", "郭家豪", "李欣儒",
-  "周柏翰", "吳思妤", "許庭瑋", "鄭凱文", "蔡佳蓉", "楊承恩", "謝宜庭", "何俊傑",
-];
-
 function weekdayFromDateKey(value) {
   const [year, month, day] = value.split("-").map(Number);
   return (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
@@ -43,25 +37,6 @@ function addDaysToDateKey(value, days) {
 
 function taipeiDateTime(date, time = "00:00") {
   return new Date(`${date}T${time.slice(0, 5)}:00+08:00`);
-}
-
-function demoStudents(prefix, count, totalQuestions, fullyCompleted, inProgress) {
-  return Array.from({ length: count }, (_, index) => {
-    const completedQuestions = index < fullyCompleted
-      ? totalQuestions
-      : index < fullyCompleted + inProgress
-        ? Math.max(1, totalQuestions - 1 - (index % Math.max(1, totalQuestions - 1)))
-        : 0;
-    const name = DEMO_STUDENT_NAMES[index % DEMO_STUDENT_NAMES.length];
-    return {
-      user_id: `${prefix}-student-${index + 1}`,
-      user_name: index < DEMO_STUDENT_NAMES.length ? name : `${name}${Math.floor(index / DEMO_STUDENT_NAMES.length) + 1}`,
-      user_email: `${prefix}.student${String(index + 1).padStart(2, "0")}@example.com`,
-      completed_questions: completedQuestions,
-      total_questions: totalQuestions,
-      progress_percent: Math.round(completedQuestions / totalQuestions * 100),
-    };
-  });
 }
 
 export function buildTeacherDashboardDemo(now = new Date()) {
@@ -108,30 +83,7 @@ export function buildTeacherDashboardDemo(now = new Date()) {
       total_machines: 40,
     },
   ];
-  const reportRows = [
-    {
-      path: { id: "demo-path-linux-a", title: "資工二甲｜第 4 週：使用者與權限" },
-      report: {
-        total_questions: 3,
-        students: demoStudents("linux-a", 28, 3, 16, 8),
-      },
-    },
-    {
-      path: { id: "demo-path-linux-b", title: "資工二乙｜第 5 週：網路診斷" },
-      report: {
-        total_questions: 4,
-        students: demoStudents("linux-b", 30, 4, 21, 6),
-      },
-    },
-    {
-      path: { id: "demo-path-container", title: "夜間班｜第 3 週：Docker 基礎" },
-      report: {
-        total_questions: 2,
-        students: demoStudents("container", 20, 2, 12, 5),
-      },
-    },
-  ];
-  return { classes: classRows, reports: reportRows };
+  return { classes: classRows };
 }
 
 export function nextClassSession(item, now = new Date()) {
@@ -151,23 +103,6 @@ export function nextClassSession(item, now = new Date()) {
   return session <= end ? session : null;
 }
 
-export function summarizeCheckpointReports(rows) {
-  // 同一位學生可能出現在多條學習路徑，人數依 user_id 去重
-  const studentIds = new Set();
-  const summary = rows.reduce((acc, row) => {
-    const students = row.report?.students ?? [];
-    acc.completed += students.reduce((sum, student) => sum + Number(student.completed_questions ?? 0), 0);
-    acc.possible += students.reduce((sum, student) => sum + Number(student.total_questions ?? 0), 0);
-    students.forEach((student) => studentIds.add(String(student.user_id ?? student.user_email)));
-    return acc;
-  }, { completed: 0, possible: 0 });
-  return {
-    ...summary,
-    students: studentIds.size,
-    percent: summary.possible ? Math.round(summary.completed / summary.possible * 100) : 0,
-  };
-}
-
 function normalizeClass(item) {
   return {
     ...item,
@@ -177,25 +112,6 @@ function normalizeClass(item) {
     readyMachines: item.ready_machines ?? 0,
     totalMachines: item.total_machines ?? 0,
   };
-}
-
-function CheckpointRow({ item, onOpen }) {
-  const { t } = useTranslation("personal");
-  const students = item.report?.students ?? [];
-  const { completed, possible, percent } = summarizeCheckpointReports([item]);
-  const fullyCompleted = students.filter((student) => Number(student.progress_percent) >= 100).length;
-  // 還沒有作答紀錄時不顯示 0%／空進度條，免得看起來像「全班都沒做」
-  const hasRecords = possible > 0;
-  return <button type="button" className={styles.checkpointRow} onClick={onOpen}>
-    <span className={styles.courseIcon}><MIcon name="checklist" size={19} /></span>
-    <span className={styles.checkpointMain}>
-      <span><strong>{item.path.title}</strong><small>{students.length ? t("CheckpointRow.completedCount", { fullyCompleted, total: students.length }) : t("CheckpointRow.noRecords")}</small></span>
-      {hasRecords && <span className={styles.progressTrack}><i style={{ width: `${percent}%` }} /></span>}
-    </span>
-    {/* 沒有紀錄時整格留空（「尚無作答紀錄」已經說明了），保留欄位讓箭頭位置不跳動 */}
-    <span className={styles.checkpointMetric}>{hasRecords && <><strong>{percent}%</strong><small>{completed}/{possible}</small></>}</span>
-    <MIcon name="chevron_right" size={19} />
-  </button>;
 }
 
 /** 問候語用的稱呼：姓名第一段；沒填姓名（或全空白）時回 null，由呼叫端改用不帶名字的問候。
@@ -210,7 +126,6 @@ export default function TeacherDashboardPage() {
   const { user } = useAuth();
   const toast = useToast();
   const [classes, setClasses] = useState([]);
-  const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   // 載入失敗時統計卡一律「—」，不顯示看起來像真資料的 0
   const [failed, setFailed] = useState(false);
@@ -225,22 +140,12 @@ export default function TeacherDashboardPage() {
       if (demoMode) {
         const demo = buildTeacherDashboardDemo();
         setClasses(demo.classes.map(normalizeClass));
-        setReports(demo.reports);
         setLoading(false);
         return;
       }
       try {
-        const [classRows, pathRows] = await Promise.all([
-          TeachingClassesService.list(),
-          CourseAdminService.listPaths(),
-        ]);
-        if (!active) return;
-        setClasses((classRows?.data ?? classRows ?? []).map(normalizeClass));
-        const ownedPaths = (pathRows ?? []).filter((path) => !path.created_by || String(path.created_by) === String(user?.id));
-        const settled = await Promise.allSettled(
-          ownedPaths.slice(0, 6).map(async (path) => ({ path, report: await CourseAdminService.getPathProgress(path.id) })),
-        );
-        if (active) setReports(settled.filter((result) => result.status === "fulfilled").map((result) => result.value));
+        const classRows = await TeachingClassesService.list();
+        if (active) setClasses((classRows?.data ?? classRows ?? []).map(normalizeClass));
       } catch (reason) {
         if (!active) return;
         setFailed(true);
@@ -251,44 +156,21 @@ export default function TeacherDashboardPage() {
     }
     load();
     return () => { active = false; };
-  }, [demoMode, user?.id, t, toast]);
+  }, [demoMode, t, toast]);
 
-  const checkpointSummary = useMemo(() => summarizeCheckpointReports(reports), [reports]);
   const upcoming = useMemo(() => classes
     .map((item) => ({ item, session: nextClassSession(item) }))
     .filter((row) => row.session)
     .sort((a, b) => a.session - b.session)
     .slice(0, 4), [classes]);
-  const incompleteStudents = useMemo(() => reports.flatMap(({ path, report }) => (report?.students ?? [])
-    .filter((student) => Number(student.progress_percent) < 100)
-    .map((student) => ({ ...student, pathTitle: path.title, pathId: path.id })))
-    .sort((a, b) => Number(a.progress_percent) - Number(b.progress_percent))
-    .slice(0, 5), [reports]);
   // 沒填姓名時不拿 email 帳號湊名字，直接打招呼
   const firstName = teacherDisplayName(user);
 
   // 資料是同一次請求抓回來的，整頁一個載入動畫就好
   if (loading) return <LoadingState fullPage />;
 
-  const hasCheckpoints = checkpointSummary.possible > 0;
   const nextClass = upcoming[0];
   const metrics = [
-    {
-      key: "checkpoint",
-      icon: "task_alt",
-      label: t("TeacherDashboardPage.metricCheckpointRate"),
-      value: hasCheckpoints ? `${checkpointSummary.percent}%` : "—",
-      detail: hasCheckpoints ? t("TeacherDashboardPage.metricCheckpointDetail", { completed: checkpointSummary.completed, possible: checkpointSummary.possible }) : t("CheckpointRow.noRecords"),
-      path: "/course-cms?tab=progress",
-    },
-    {
-      key: "students",
-      icon: "groups",
-      label: t("TeacherDashboardPage.metricHasRecords"),
-      value: t("TeacherDashboardPage.metricStudentsValue", { count: checkpointSummary.students }),
-      detail: t("TeacherDashboardPage.metricAcrossPaths", { count: reports.length }),
-      path: "/course-cms?tab=progress",
-    },
     {
       key: "classes",
       icon: "school",
@@ -323,19 +205,6 @@ export default function TeacherDashboardPage() {
         <MIcon name="chevron_right" size={17} className={styles.metricArrow} />
       </button>)}
     </section>
-
-    <div className={styles.mainGrid}>
-      <section className={styles.panel} data-guide="teacher-home-checkpoints">
-        <div className={styles.panelHeader}><div><h2>{t("TeacherDashboardPage.checkpointPanelTitle")}</h2></div><button type="button" className={styles.textButton} onClick={() => navigate("/course-cms?tab=progress")}>{t("TeacherDashboardPage.fullProgress")}<MIcon name="arrow_forward" size={16} /></button></div>
-        <div className={styles.checkpointList}>{reports.length ? reports.map((item) => <CheckpointRow key={item.path.id} item={item} onOpen={() => navigate(`/course-cms?tab=progress&pathId=${item.path.id}`)} />) : <EmptyState icon="checklist" title={t("TeacherDashboardPage.noCheckpointData")} action={<button type="button" className={styles.btnSecondary} onClick={() => navigate("/course-cms")}>{t("TeacherDashboardPage.createContent")}</button>} />}</div>
-      </section>
-
-      <aside className={styles.panel} data-guide="teacher-home-incomplete">
-        <div className={styles.panelHeader}><div><h2>{t("TeacherDashboardPage.incompleteCheckpointTitle")}</h2><p>{t("TeacherDashboardPage.incompleteCheckpointDesc")}</p></div></div>
-        {/* 有學生紀錄、且全部完成才說「都已完成」；連一筆紀錄都沒有時是「尚無學生進度」 */}
-        <div className={styles.studentList}>{incompleteStudents.length ? incompleteStudents.map((student) => <button key={`${student.pathId}-${student.user_id}`} type="button" onClick={() => navigate(`/course-cms?tab=progress&pathId=${student.pathId}`)}><span className={styles.studentAvatar}>{(student.user_name ?? student.user_email ?? t("TeacherDashboardPage.avatarFallback")).slice(0, 1)}</span><span><strong>{student.user_name ?? student.user_email}</strong><small>{student.pathTitle} · {student.completed_questions}/{student.total_questions}</small></span><em>{Math.round(student.progress_percent)}%</em></button>) : <EmptyState icon="verified" title={checkpointSummary.students ? t("TeacherDashboardPage.allStudentsComplete") : t("TeacherDashboardPage.noStudentProgress")} />}</div>
-      </aside>
-    </div>
 
     <section className={styles.panel} data-guide="teacher-home-classes">
       <div className={styles.panelHeader}><div><h2>{t("TeacherDashboardPage.upcomingClassesTitle")}</h2></div><button type="button" className={styles.textButton} onClick={() => navigate("/class-management")}>{t("TeacherDashboardPage.allClasses")}<MIcon name="arrow_forward" size={16} /></button></div>

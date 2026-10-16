@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildTeacherDashboardDemo,
   nextClassSession,
-  summarizeCheckpointReports,
   teacherDisplayName,
 } from "./TeacherDashboardPage";
 
@@ -15,38 +14,6 @@ describe("teacherDisplayName", () => {
     expect(teacherDisplayName({ full_name: "   ", email: "amy@x.edu" })).toBeNull();
     expect(teacherDisplayName({ full_name: "", email: "bob@x.edu" })).toBeNull();
     expect(teacherDisplayName(null)).toBeNull();
-  });
-});
-
-describe("teacher dashboard checkpoint summary", () => {
-  it("aggregates completed checkpoints and students", () => {
-    const result = summarizeCheckpointReports([
-      {
-        path: { id: "course-a", title: "Linux" },
-        report: {
-          students: [
-            { user_id: "s1", completed_questions: 3, total_questions: 4, progress_percent: 75 },
-            { user_id: "s2", completed_questions: 1, total_questions: 4, progress_percent: 25 },
-          ],
-        },
-      },
-    ]);
-
-    expect(result.completed).toBe(4);
-    expect(result.possible).toBe(8);
-    expect(result.percent).toBe(50);
-    expect(result.students).toBe(2);
-  });
-
-  it("counts a student once even when they appear in several paths", () => {
-    const student = { user_id: "s1", completed_questions: 1, total_questions: 2, progress_percent: 50 };
-    const result = summarizeCheckpointReports([
-      { path: { id: "a", title: "A" }, report: { students: [student] } },
-      { path: { id: "b", title: "B" }, report: { students: [student, { ...student, user_id: "s2" }] } },
-    ]);
-
-    expect(result.students).toBe(2);
-    expect(result.possible).toBe(6);
   });
 });
 
@@ -68,12 +35,8 @@ describe("teacher dashboard demo data", () => {
   it("fills every existing dashboard section without changing production data", () => {
     const now = new Date("2026-09-17T10:00:00+08:00");
     const demo = buildTeacherDashboardDemo(now);
-    const summary = summarizeCheckpointReports(demo.reports);
 
     expect(demo.classes).toHaveLength(3);
-    expect(demo.reports).toHaveLength(3);
-    expect(summary.students).toBe(78);
-    expect(summary.completed).toBeGreaterThan(0);
     expect(nextClassSession(demo.classes[0], now)).not.toBeNull();
   });
 });

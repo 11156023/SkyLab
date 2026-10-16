@@ -23,6 +23,7 @@ from app.api.routes import spec_change_requests as spec_route
 from app.api.routes import vm as vm_route
 from app.api.routes import vm_requests as vm_requests_route
 from app.exceptions import BadRequestError, ProxmoxError
+from app.models import MiningIncidentStatus
 from app.schemas.jobs import JobKind
 from app.services.jobs.jobs_service import JobAccessDeniedError, JobNotFoundError
 
@@ -581,21 +582,41 @@ class _FakeIncidentPublic:
         return ("public", obj)
 
 
+def _mining_incident(vmid: int) -> SimpleNamespace:
+    now = datetime(2026, 10, 16, tzinfo=timezone.utc)
+    return SimpleNamespace(
+        id=uuid.uuid4(), vmid=vmid, user_id=uuid.uuid4(), node="pve1",
+        resource_type="qemu", avg_cpu=96.8, window_hours=6, snapshot_name=None,
+        status=MiningIncidentStatus.suspended, detected_at=now, suspended_at=now,
+        reviewed_by=None, reviewed_at=None, review_note=None,
+    )
+
+
 def test_mining_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     repo = MagicMock()
-    repo.list_incidents.return_value = ["i1", "i2"]
+    repo.list_incidents_with_owners.return_value = [
+        (_mining_incident(101), SimpleNamespace(email="a@x.tw", full_name="甲")),
+        (_mining_incident(102), None),
+    ]
     service = MagicMock()
     service.ban_incident.return_value = "banned"
     service.set_exemption.return_value = SimpleNamespace(mining_exempt=True)
     monkeypatch.setattr(mining_route, "mining_repo", repo)
     monkeypatch.setattr(mining_route, "mining_service", service)
-    monkeypatch.setattr(mining_route, "MiningIncidentPublic", _FakeIncidentPublic)
     session = MagicMock()
 
-    assert mining_route.list_incidents(
+    listed = mining_route.list_incidents(
         session=session, _=_USER, status=None, limit=50
-    ) == [("public", "i1"), ("public", "i2")]
-    repo.list_incidents.assert_called_once_with(session=session, status=None, limit=50)
+    )
+    assert [(i.vmid, i.owner_email, i.owner_full_name) for i in listed] == [
+        (101, "a@x.tw", "甲"),
+        (102, None, None),
+    ]
+    repo.list_incidents_with_owners.assert_called_once_with(
+        session=session, status=None, limit=50
+    )
+
+    monkeypatch.setattr(mining_route, "MiningIncidentPublic", _FakeIncidentPublic)
 
     assert mining_route.ban_incident(
         incident_id=uuid.uuid4(), session=session, current_user=_USER
