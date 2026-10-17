@@ -54,3 +54,4 @@ Reports written for a specific date. Useful as history, not as current specifica
 - Use plain descriptive file names without date prefixes; dated reports go to `archive/`.
 - Link to the English file from code comments and configuration (`.env.example`, `docker-compose.yml`, Prometheus configs), so references survive translation updates.
 - Keep commands, paths, variable names and tables identical in both languages.
+- The documentation site under [`../website/`](../website/README.md) is generated from these files: `website/scripts/sync-docs.mjs` copies every guide into the site's two locales, removes the language switch line and rewrites links. Edit the files here, never the copies. New guides also need a sidebar entry in `website/.vitepress/config.mts`.

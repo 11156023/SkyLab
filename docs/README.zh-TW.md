@@ -54,3 +54,4 @@
 - 檔名用純描述、不加日期前綴；有日期的報告放 `archive/`。
 - 程式註解與設定檔（`.env.example`、`docker-compose.yml`、Prometheus 設定）一律連到英文檔，翻譯更新時引用才不會失效。
 - 指令、路徑、變數名稱與表格在兩種語言中保持一致。
+- [`../website/`](../website/README.zh-TW.md) 的文件網站由這些檔案產生：`website/scripts/sync-docs.mjs` 會把每篇指南複製到網站的兩個語系、拿掉語言切換列並改寫連結。只改這裡的檔案，不要改複本。新增指南時也要在 `website/.vitepress/config.mts` 加側欄項目。

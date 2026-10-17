@@ -42,6 +42,7 @@ flowchart LR
 | vLLM service | `vllm-service/` | Single-model service, multi-model vLLM cluster and the LiteLLM gateway that exposes them |
 | Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / InfluxDB profile |
 | Docs | `docs/` | Guides and design notes, see [`docs/README.md`](docs/README.md) |
+| Docs site | `website/` | VitePress site built from `docs/` and the backend's OpenAPI schema, deployed to Cloudflare Pages; see [`website/README.md`](website/README.md) |
 
 ## Tech stack
 

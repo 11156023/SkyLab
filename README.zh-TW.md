@@ -42,6 +42,7 @@ flowchart LR
 | vLLM Service | `vllm-service/` | 單模型主服務、多模型 vLLM cluster，以及對外的 LiteLLM gateway |
 | 監控 stack | `monitoring/` | 選用的 Prometheus / Grafana / Loki / InfluxDB profile |
 | Docs | `docs/` | 指南與設計文件，索引見 [`docs/README.zh-TW.md`](docs/README.zh-TW.md) |
+| 文件網站 | `website/` | 由 `docs/` 與後端 OpenAPI schema 建置的 VitePress 網站，部署到 Cloudflare Pages；見 [`website/README.zh-TW.md`](website/README.zh-TW.md) |
 
 ## 技術棧
 
