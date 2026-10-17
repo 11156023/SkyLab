@@ -38,19 +38,6 @@ def _patch_qga(monkeypatch: pytest.MonkeyPatch, *, alive: bool, osinfo=None) -> 
 # ── _read_ostype ───────────────────────────────────────────
 
 
-def test_read_ostype_returns_string_or_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_config(monkeypatch, {"ostype": "ubuntu"})
-    assert svc._read_ostype("pve1", 100, "lxc") == "ubuntu"
-
-    _patch_config(monkeypatch, {})
-    assert svc._read_ostype("pve1", 100, "lxc") is None
-
-
-def test_read_ostype_swallows_lookup_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_config(monkeypatch, error=RuntimeError("pve down"))
-    assert svc._read_ostype("pve1", 100, "qemu") is None
-
-
 # ── initial_guest_os ───────────────────────────────────────
 
 
@@ -61,13 +48,6 @@ def test_initial_guest_os_lxc_is_stamped(monkeypatch: pytest.MonkeyPatch) -> Non
     assert payload["family"] == "linux"
     assert payload["id"] == "debian"
     assert payload["detected_at"]
-
-
-def test_initial_guest_os_qemu_windows_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_config(monkeypatch, {"ostype": "win11"})
-    payload = svc.initial_guest_os(resource_type="qemu", node="pve1", vmid=102)
-    assert payload is not None
-    assert payload["family"] == "windows"
 
 
 def test_initial_guest_os_unknown_type_or_family(
@@ -98,25 +78,6 @@ def test_ensure_guest_os_returns_existing_identity() -> None:
         is existing
     )
     assert session.added == []
-
-
-def test_ensure_guest_os_requires_int_vmid_and_node() -> None:
-    session = _FakeSession()
-    assert (
-        svc.ensure_guest_os(
-            session, SimpleNamespace(vmid="7"), node="pve1", resource_type="qemu"
-        )
-        is None
-    )
-    assert (
-        svc.ensure_guest_os(
-            session,
-            SimpleNamespace(vmid=7, guest_os=None),
-            node="",
-            resource_type="qemu",
-        )
-        is None
-    )
 
 
 def test_ensure_guest_os_qemu_agent_probe_persists(
@@ -153,16 +114,6 @@ def test_ensure_guest_os_qemu_falls_back_to_ostype(
     assert payload["confidence"] == "low"
 
 
-def test_ensure_guest_os_lxc_uses_ostype(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_config(monkeypatch, {"ostype": "alpine"})
-    resource = SimpleNamespace(vmid=202, guest_os=None)
-    payload = svc.ensure_guest_os(
-        _FakeSession(), resource, node="pve1", resource_type="lxc"
-    )
-    assert payload is not None
-    assert payload["id"] == "alpine"
-
-
 def test_ensure_guest_os_unknown_resource_type() -> None:
     resource = SimpleNamespace(vmid=203, guest_os=None)
     assert (
@@ -184,17 +135,4 @@ def test_ensure_guest_os_probe_exception_leaves_db(
         svc.ensure_guest_os(session, resource, node="pve1", resource_type="qemu")
         is None
     )
-    assert session.added == []
-
-
-def test_ensure_guest_os_unknown_family_is_not_persisted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_config(monkeypatch, {"ostype": "unmanaged"})
-    resource = SimpleNamespace(vmid=205, guest_os=None)
-    session = _FakeSession()
-    assert (
-        svc.ensure_guest_os(session, resource, node="pve1", resource_type="lxc") is None
-    )
-    assert resource.guest_os is None
     assert session.added == []

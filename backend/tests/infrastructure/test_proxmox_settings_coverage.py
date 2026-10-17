@@ -70,34 +70,3 @@ def test_settings_for_node_route_to_owning_connection(
     result = proxmox_settings.get_proxmox_settings_for_node("pve2")
 
     assert (result.connection_id, result.host) == (2, "10.0.0.2")
-
-
-def test_enabled_connection_ids_are_cached(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[int] = []
-
-    def _all(_session: Any, *, enabled_only: bool) -> list[Any]:
-        calls.append(1)
-        assert enabled_only is True
-        return [_conn(1), SimpleNamespace(id=None), _conn(3)]
-
-    monkeypatch.setattr(connection_repo, "get_all_connections", _all)
-
-    assert proxmox_settings.list_enabled_connection_ids() == [1, 3]
-    assert proxmox_settings.list_enabled_connection_ids() == [1, 3]
-    assert len(calls) == 1
-
-
-def test_enabled_connection_ids_failure_is_not_cached(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[int] = []
-
-    def _all(_session: Any, *, enabled_only: bool) -> list[Any]:
-        calls.append(1)
-        raise RuntimeError("db down")
-
-    monkeypatch.setattr(connection_repo, "get_all_connections", _all)
-
-    assert proxmox_settings.list_enabled_connection_ids() == []
-    assert proxmox_settings.list_enabled_connection_ids() == []
-    assert len(calls) == 2

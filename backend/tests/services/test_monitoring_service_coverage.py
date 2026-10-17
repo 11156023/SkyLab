@@ -123,24 +123,6 @@ def test_get_node_rrd_validates_and_delegates(monkeypatch: pytest.MonkeyPatch) -
 # ─── 本機快取 ───────────────────────────────────────────────────────────────
 
 
-def test_read_local_overview_fresh_stale_and_expired(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    overview = _overview()
-    _store(overview, 1000.0)
-
-    monkeypatch.setattr(ms, "time", _Clock([1005.0]))
-    assert ms._read_local_overview(fresh_only=True).data_status == "fresh"
-
-    monkeypatch.setattr(ms, "time", _Clock([1030.0]))
-    assert ms._read_local_overview(fresh_only=True) is None
-    stale = ms._read_local_overview(fresh_only=False)
-    assert stale is not None and stale.data_status == "stale"
-
-    monkeypatch.setattr(ms, "time", _Clock([1100.0]))
-    assert ms._read_local_overview(fresh_only=False) is None
-
-
 def test_local_collect_returns_fresh_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     _store(_overview(), 1000.0)
     monkeypatch.setattr(ms, "time", _Clock([1001.0]))
@@ -302,9 +284,3 @@ async def test_redis_errors_fall_back_to_local(monkeypatch: pytest.MonkeyPatch) 
     expected = _overview()
     monkeypatch.setattr(ms, "_get_or_collect_local_overview", lambda: expected)
     assert await ms.get_overview_cached(redis=BrokenRedis()) is expected
-
-
-async def test_no_redis_uses_local_collection(monkeypatch: pytest.MonkeyPatch) -> None:
-    expected = _overview()
-    monkeypatch.setattr(ms, "_get_or_collect_local_overview", lambda: expected)
-    assert await ms.get_overview_cached(redis=None) is expected

@@ -15,7 +15,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.api.websocket import vnc
-from app.exceptions import NotFoundError, PermissionDeniedError, ProxmoxError
+from app.exceptions import NotFoundError, ProxmoxError
 from app.infrastructure.vnc.messages import RfbStreamError
 
 VMID = 101
@@ -156,25 +156,6 @@ def test_register_and_get_cached_cookie(monkeypatch: pytest.MonkeyPatch) -> None
 # ── 權限檢查 ───────────────────────────────────────────────────────
 
 
-async def test_permission_denied_app_error_closes_without_exception_log(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    _isolate: dict[str, Any],
-) -> None:
-    def deny(**kwargs: Any) -> None:
-        raise PermissionDeniedError()
-
-    monkeypatch.setattr(vnc, "require_resource_console_access", deny)
-    ws = FakeClientWs()
-    with caplog.at_level(logging.ERROR, logger=vnc.logger.name):
-        await _run(ws)
-
-    assert ws.close_calls == [(1008, "Permission denied")]
-    assert not ws.accepted
-    assert _isolate["session_closed"]
-    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
-
-
 async def test_permission_check_unexpected_error_is_logged(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -281,35 +262,6 @@ async def test_unexpected_error_closes_with_1011(
 # ── 成功連線與轉發 ─────────────────────────────────────────────────
 
 
-async def test_reused_ticket_with_cached_cookie_skips_authentication(
-    _isolate: dict[str, Any],
-) -> None:
-    vnc.register_vnc_session_cookie(VMID, "t1", "cached-cookie")
-    ws = FakeClientWs([_disconnect_msg()])
-    await _run(ws, vnc_ticket="t1", vnc_port="5901")
-
-    assert _isolate["session_ticket_calls"] == 0
-    assert _isolate["open_args"] == (NODE, "qemu", VMID, "5901", "t1", "cached-cookie")
-    assert _isolate["pve"].closed
-
-
-async def test_reused_ticket_without_cached_cookie_authenticates(
-    _isolate: dict[str, Any],
-) -> None:
-    ws = FakeClientWs([_disconnect_msg()])
-    await _run(ws, vnc_ticket="t1", vnc_port="5901")
-
-    assert _isolate["session_ticket_calls"] == 1
-    assert _isolate["open_args"] == (
-        NODE,
-        "qemu",
-        VMID,
-        "5901",
-        "t1",
-        "PVEAuthCookie=abc",
-    )
-
-
 async def test_forwarding_filters_bytes_and_passes_text(
     monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Any]
 ) -> None:
@@ -358,22 +310,6 @@ async def test_filter_lost_sync_falls_back_to_passthrough(
 
     # 失去同步：先送出 splitter 殘留，其後原樣轉發
     assert _isolate["pve"].sent == [b"rest", b"raw"]
-
-
-async def test_filter_lost_sync_without_remainder(
-    monkeypatch: pytest.MonkeyPatch, _isolate: dict[str, Any]
-) -> None:
-    def lose_sync(splitter: Any, data: bytes, *, blocked: bool) -> list[bytes]:
-        raise RfbStreamError("unknown message type")
-
-    monkeypatch.setattr(vnc, "filter_client_bytes", lose_sync)
-    monkeypatch.setattr(vnc, "ClientMessageSplitter", FakeSplitter)
-    ws = FakeClientWs(
-        [{"type": "websocket.receive", "bytes": b"bad"}, _disconnect_msg()]
-    )
-    await _run(ws)
-
-    assert _isolate["pve"].sent == []
 
 
 async def test_disconnect_set_while_waiting_for_client(

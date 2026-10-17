@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import threading
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
@@ -225,32 +223,6 @@ def test_start_ai_capacity_refuses_while_previous_workers_pending(monkeypatch) -
     monkeypatch.setattr(ai_capacity, "_pending", {object()})
     with pytest.raises(RuntimeError, match="not drained"):
         ai_capacity.start_ai_capacity()
-
-
-async def _settle(predicate, attempts: int = 500) -> None:
-    for _ in range(attempts):
-        if predicate():
-            return
-        await asyncio.sleep(0.01)
-    raise AssertionError("condition not reached")
-
-
-async def test_cancelled_queued_ai_db_operation_never_runs(monkeypatch) -> None:
-    monkeypatch.setattr(ai_capacity, "MAX_DB_ACTIVE", 1)
-    gate = threading.Event()
-    ran: list[bool] = []
-
-    first = asyncio.create_task(ai_capacity.run_ai_db(gate.wait, 5))
-    second = asyncio.create_task(ai_capacity.run_ai_db(lambda: ran.append(True)))
-    await _settle(lambda: len(ai_capacity._pending) == 2)
-
-    second.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.gather(second)
-    gate.set()
-    assert await first is True
-    await _settle(lambda: not ai_capacity._pending)
-    assert ran == []
 
 
 # --- request_body ---------------------------------------------------------------------

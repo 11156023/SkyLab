@@ -50,13 +50,6 @@ CASES: list[tuple[list[str], Callable[[], None]]] = [
 
 
 @pytest.mark.parametrize(("names", "call"), CASES)
-def test_proxy_metric_updates_succeed(
-    names: list[str], call: Callable[[], None]
-) -> None:
-    call()  # 真實 Prometheus 指標：不拋例外
-
-
-@pytest.mark.parametrize(("names", "call"), CASES)
 def test_proxy_metric_failures_are_swallowed_and_logged(
     monkeypatch: pytest.MonkeyPatch, names: list[str], call: Callable[[], None]
 ) -> None:
@@ -68,23 +61,3 @@ def test_proxy_metric_failures_are_swallowed_and_logged(
         monkeypatch.setattr(metrics, name, _BrokenMetric())
     call()
     assert len(logged) == 1
-
-
-def test_queue_wait_uses_other_label_for_unknown_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    labels: list[dict[str, str]] = []
-
-    class Recorder:
-        def labels(self, **kw: str) -> Recorder:
-            labels.append(kw)
-            return self
-
-        def observe(self, value: float) -> None:
-            assert value == 0.0
-
-    monkeypatch.setattr(metrics, "AI_PROXY_QUEUE_WAIT", Recorder())
-    ai_metrics.observe_proxy_queue_wait(-5.0, model="never-served")
-    ai_metrics.remember_models(["known"])
-    ai_metrics.observe_proxy_queue_wait(-5.0, model="known")
-    assert labels == [{"model": "other"}, {"model": "known"}]

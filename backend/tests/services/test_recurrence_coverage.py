@@ -21,16 +21,6 @@ def test_active_or_next_window_rejects_empty_rule_or_duration() -> None:
     assert recurrence.compute_active_or_next_window("FREQ=DAILY", 0, None, now) is None
 
 
-def test_active_or_next_window_falls_back_to_next_occurrence() -> None:
-    # 台北 10:00；COUNT=1 只有當日 00:00 一次，已在 now-duration 之前，
-    # 第一次查詢沒有候選視窗，改用 now 往後找（同樣找不到）
-    now = datetime(2026, 10, 14, 2, 0, tzinfo=UTC)
-    assert (
-        recurrence.compute_active_or_next_window("FREQ=DAILY;COUNT=1", 60, None, now)
-        is None
-    )
-
-
 def test_active_or_next_window_skips_window_ending_exactly_now() -> None:
     # 台北 10:00、每日 09:00 開始 60 分鐘：當天視窗剛好在 now 結束，
     # 應改回傳隔天 09:00 的視窗

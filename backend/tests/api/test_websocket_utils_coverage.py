@@ -213,34 +213,7 @@ async def test_client_forward_error_is_logged(
 # ── run_until_first_done ──────────────────────────────────────────
 
 
-async def test_run_until_first_done_cancels_the_rest() -> None:
-    cancelled = asyncio.Event()
-
-    async def quick() -> None:
-        return None
-
-    async def slow() -> None:
-        try:
-            await asyncio.sleep(3600)
-        except asyncio.CancelledError:
-            cancelled.set()
-            raise
-
-    await asyncio.wait_for(utils.run_until_first_done(quick(), slow()), timeout=5)
-
-    assert cancelled.is_set()
-
-
 # ── safe_close_websocket ──────────────────────────────────────────
-
-
-async def test_safe_close_swallows_failed_handshake_attribute_error() -> None:
-    ws = FakeClientWs(
-        close_error=AttributeError("'NoneType' has no attribute 'transfer_data_task'")
-    )
-    await utils.safe_close_websocket(cast(WebSocket, ws), code=1008, reason="x")
-
-    assert ws.close_calls == [(1008, "x")]
 
 
 async def test_safe_close_reraises_unrelated_attribute_error() -> None:

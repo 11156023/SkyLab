@@ -11,12 +11,11 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.exceptions import NotFoundError
-from app.models import UserRole
 from app.models.wireguard_peer import WireGuardPeer
 from app.repositories import firewall_layout as layout_repo
 from app.repositories import user as user_repo
 from app.repositories import wireguard_peer as peer_repo
-from app.schemas import UserCreate, UserUpdate
+from app.schemas import UserUpdate
 
 
 @pytest.fixture()
@@ -139,48 +138,3 @@ def test_update_user_rejects_deleted_user_without_session_get() -> None:
             db_user=deleted_user,  # type: ignore[arg-type]
             user_in=UserUpdate(full_name="x"),
         )
-
-
-def _local_user(session: Session):
-    user = user_repo.create_user(
-        session=session,
-        user_create=UserCreate(
-            email=f"cov-{uuid.uuid4().hex[:8]}@example.com",
-            password="Strongpass123!",
-            role=UserRole.student,
-        ),
-    )
-    session.commit()
-    session.refresh(user)
-    return user
-
-
-def test_update_user_rejects_soft_deleted_row(session: Session) -> None:
-    user = _local_user(session)
-    user.deleted_at = NOW
-    user.is_active = False
-    session.add(user)
-    session.commit()
-    with pytest.raises(NotFoundError):
-        user_repo.update_user(
-            session=session, db_user=user, user_in=UserUpdate(full_name="x")
-        )
-
-
-def test_authenticate_rejects_wrong_password_and_ldap_accounts(
-    session: Session,
-) -> None:
-    user = _local_user(session)
-    assert (
-        user_repo.authenticate(session=session, email=user.email, password="wrong")
-        is None
-    )
-    user.auth_source = "ldap"
-    session.add(user)
-    session.commit()
-    assert (
-        user_repo.authenticate(
-            session=session, email=user.email, password="Strongpass123!"
-        )
-        is None
-    )

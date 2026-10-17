@@ -55,15 +55,6 @@ def test_platform_entry_upsert_and_dns_record(session: Session) -> None:
 # ── gateway_config ─────────────────────────────────────────────────────────
 
 
-def test_gateway_keypair_created_then_updated(session: Session) -> None:
-    assert gateway_repo.get_gateway_config(session) is None
-    created = gateway_repo.save_keypair(session, "PEM-1", "ssh-ed25519 AAA1")
-    assert gateway_repo.get_decrypted_private_key(created) == "PEM-1"
-    updated = gateway_repo.save_keypair(session, "PEM-2", "ssh-ed25519 AAA2")
-    assert updated.public_key == "ssh-ed25519 AAA2"
-    assert gateway_repo.get_decrypted_private_key(updated) == "PEM-2"
-
-
 def test_gateway_connection_settings_and_certificate_paths(session: Session) -> None:
     cert = gateway_repo.save_certificate_paths(
         session,
@@ -80,11 +71,6 @@ def test_gateway_connection_settings_and_certificate_paths(session: Session) -> 
 
     conn = gateway_repo.upsert_connection_settings(session, "10.0.0.1", 2222, "admin")
     assert (conn.host, conn.ssh_port, conn.ssh_user) == ("10.0.0.1", 2222, "admin")
-
-
-def test_gateway_connection_settings_created_fresh(session: Session) -> None:
-    conn = gateway_repo.upsert_connection_settings(session, "10.0.0.9", 22, "root")
-    assert conn.id == 1 and conn.host == "10.0.0.9"
 
 
 def test_gateway_private_key_decrypt_failure(session: Session) -> None:

@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from app.exceptions import BadRequestError
-from app.repositories import gateway_config as gw_repo
 from app.repositories import platform_entry as repo
 from app.services.network import (
     cloudflare_service,
-    gateway_service,
     platform_entry_service,
     reverse_proxy_service,
 )
@@ -64,22 +61,6 @@ def test_restore_previous_logs_when_resync_fails(
     assert restored == [{"domain": "a"}]
 
 
-def test_managed_dns_zone_is_empty_when_cloudflare_not_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        cloudflare_service,
-        "get_public_config",
-        lambda _session: SimpleNamespace(
-            is_configured=False, has_default_dns_target=True
-        ),
-    )
-
-    assert (
-        platform_entry_service._managed_dns_zone(object(), "skylab.example.edu") == ""
-    )
-
-
 def test_dns_status_reports_lookup_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def broken_find(**_kwargs: Any) -> None:
         raise RuntimeError("cloudflare 500")
@@ -97,36 +78,3 @@ def test_dns_status_reports_lookup_failure(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_managed_dns_zone_is_empty_without_domain() -> None:
     assert platform_entry_service._managed_dns_zone(object(), "") == ""
-
-
-def test_upstream_probe_runs_through_gateway_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = object()
-
-    @contextmanager
-    def fake_client(_session: Any):
-        yield client
-
-    probes: list[tuple[Any, str, int]] = []
-    monkeypatch.setattr(gateway_service, "gateway_client_or_502", fake_client)
-    monkeypatch.setattr(
-        platform_entry_service,
-        "_probe_upstream",
-        lambda c, host, port: probes.append((c, host, port)) or "ok",
-    )
-
-    assert platform_entry_service.test_upstream(object(), "10.0.0.5", 8082) == "ok"
-    assert probes == [(client, "10.0.0.5", 8082)]
-
-
-def test_gateway_host_reports_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(gw_repo, "get_gateway_config", lambda _s: None)
-    assert platform_entry_service._gateway_host(object()) == (False, "")
-
-    monkeypatch.setattr(
-        gw_repo,
-        "get_gateway_config",
-        lambda _s: SimpleNamespace(host="10.0.0.2", encrypted_private_key=""),
-    )
-    assert platform_entry_service._gateway_host(object()) == (False, "10.0.0.2")

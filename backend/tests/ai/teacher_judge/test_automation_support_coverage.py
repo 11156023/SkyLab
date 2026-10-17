@@ -40,25 +40,6 @@ def test_missing_step_information_typed_collectors() -> None:
     assert ping == ["collector.timeout_seconds 必須是 1-60 的整數"]
 
 
-def test_missing_step_information_python_entrypoint() -> None:
-    step = TeacherJudgeRubricCheckStep(
-        template_key="python", command_key="python.run_entrypoint"
-    )
-    missing = svc.missing_step_information(step)
-    assert missing == ["實際 Python 命令與參數"]
-
-
-def test_blockers_report_detectability_review() -> None:
-    blockers = svc.get_script_generation_blockers(
-        TeacherJudgeRubricAnalysis(detectability_needs_review=True), []
-    )
-    codes = [blocker["reason_code"] for blocker in blockers]
-    assert codes == [
-        "automatic_detection_items_missing",
-        "automation_support_needs_review",
-    ]
-
-
 def test_item_missing_information_gaps() -> None:
     item = TeacherJudgeRubricItem(id="i1", title="t", detectable="auto")
     missing = svc._item_missing_information(

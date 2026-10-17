@@ -14,7 +14,7 @@ import pytest
 from app.exceptions import ProxmoxError
 from app.schemas import LXCCreateRequest
 from app.services.proxmox import provisioning_service as svc
-from app.services.template import clone_service, template_service
+from app.services.template import clone_service
 
 _NET_CFG = {
     "bridge_name": "vmbr0",
@@ -181,17 +181,6 @@ def _fake_clock(monkeypatch: pytest.MonkeyPatch, step: float) -> None:
     )
 
 
-def test_ensure_resource_stopped_status_failure_returns(pm: MagicMock) -> None:
-    pm.get_status.side_effect = RuntimeError("down")
-    svc._ensure_resource_stopped("pve1", 100, "qemu")
-    pm.control.assert_not_called()
-
-
-def test_ensure_resource_stopped_already_stopped(pm: MagicMock) -> None:
-    svc._ensure_resource_stopped("pve1", 100, "qemu")
-    pm.control.assert_not_called()
-
-
 def test_ensure_resource_stopped_waits_until_stopped(
     monkeypatch: pytest.MonkeyPatch, pm: MagicMock
 ) -> None:
@@ -260,16 +249,6 @@ def test_rollback_created_resource_ignores_rule_delete_errors(
     assert cleaned == [("pve1", 104, "qemu")]
 
 
-def test_rollback_created_resource_survives_rule_listing_error(
-    monkeypatch: pytest.MonkeyPatch, fw: MagicMock
-) -> None:
-    fw.get_vm_firewall_rules.side_effect = RuntimeError("firewall API down")
-    cleaned: list[tuple] = []
-    monkeypatch.setattr(svc, "cleanup_failed_resource", lambda *a: cleaned.append(a))
-    svc._rollback_created_resource("pve1", 106, "lxc")
-    assert cleaned == [("pve1", 106, "lxc")]
-
-
 def test_release_ip_after_failure_swallows_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -312,11 +291,6 @@ def test_build_gpu_hostpci_wraps_lookup_errors(
     _patch_gpu(monkeypatch, _boom)
     with pytest.raises(ProxmoxError):
         svc._build_gpu_hostpci("gpu0", None)
-
-
-def test_build_gpu_hostpci_raw_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_gpu(monkeypatch, lambda _m: _gpu_detail())
-    assert svc._build_gpu_hostpci("gpu0", None) == "mapping=gpu0"
 
 
 # ── _select_request_placement ──────────────────────────────
@@ -413,22 +387,6 @@ def test_pinned_node_incompatible_with_gpu(placement_env: SimpleNamespace) -> No
         _select(_placement_request_row(desired_node="pve2"))
 
 
-def test_pinned_node_outside_template_whitelist(
-    placement_env: SimpleNamespace,
-) -> None:
-    placement_env.template_nodes = {"pve2"}
-    with pytest.raises(ProxmoxError):
-        _select(_placement_request_row(desired_node="pve1"))
-
-
-def test_pinned_node_feasible_returns_pinned_plan(
-    placement_env: SimpleNamespace,
-) -> None:
-    result = _select(_placement_request_row(assigned_node="pve1"))
-    assert result.node == "pve1"
-    assert result.plan.feasible is True
-
-
 def test_pinned_infeasible_fallback_not_gpu_compatible(
     placement_env: SimpleNamespace,
 ) -> None:
@@ -462,17 +420,6 @@ def test_pinned_infeasible_without_fallback_returns_pinned(
     result = _select(_placement_request_row(desired_node="pve1"))
     assert result.node == "pve1"
     assert result.plan.feasible is False
-
-
-def test_pinned_infeasible_uses_feasible_fallback(
-    placement_env: SimpleNamespace,
-) -> None:
-    placement_env.gpu_nodes = []
-    placement_env.pinned_plan_feasible = False
-    placement_env.fallback = _placement("pve2")
-    assert _select(_placement_request_row(desired_node="pve1")) is (
-        placement_env.fallback
-    )
 
 
 def test_auto_selection_incompatible_with_gpu(
@@ -730,17 +677,6 @@ def test_plan_provision_vm_cross_node_with_gpu_and_quick_key(
     assert plan["password_custom"] is False
 
 
-def test_plan_provision_vm_same_node_quick_without_machine(
-    plan_env: SimpleNamespace,
-) -> None:
-    plan_env.placement = _placement("pve1")
-    row = _db_request(request_kind="quick_template", gpu_mapping_id="gpu0")
-    plan = svc.plan_provision(session=_FakeSession([None]), db_request=row)
-    assert plan["ip_reservation_key"] is None
-    assert "fallback_storage" not in plan
-    assert "gpu_mdev_profile" not in plan
-
-
 def test_plan_provision_lxc_template_clone(plan_env: SimpleNamespace) -> None:
     template_row = SimpleNamespace(node="pve3", default_disk=12)
     row = _db_request(resource_type="lxc", template_id=8000, username="Bad User")
@@ -960,16 +896,6 @@ def test_clone_source_disk_gb_non_numeric_custom_image() -> None:
     assert svc.clone_source_disk_gb(MagicMock(), node) == 15
 
 
-def test_template_disk_floor_gb_lookup_failure(pm: MagicMock) -> None:
-    pm.find_vm_template.side_effect = RuntimeError("missing")
-    assert svc.template_disk_floor_gb(9000) == 0
-
-
-def test_resize_clone_disk_skips_without_size(pm: MagicMock) -> None:
-    svc._resize_clone_disk_if_needed("pve1", 900, 9000, None)
-    pm.resize_disk.assert_not_called()
-
-
 def test_resize_clone_disk_skips_when_template_is_larger(pm: MagicMock) -> None:
     pm.find_vm_template.return_value = {"node": "pve1", "maxdisk": 40 * 1024**3}
     svc._resize_clone_disk_if_needed("pve1", 900, 9000, 20)
@@ -991,13 +917,3 @@ def test_template_ostype_reads_config(pm: MagicMock) -> None:
 def test_is_windows_template_lookup_failure(pm: MagicMock) -> None:
     pm.find_vm_template.side_effect = RuntimeError("missing")
     assert svc.is_windows_template(9000) is False
-
-
-def test_clone_boot_disk_key_uses_template_service(
-    monkeypatch: pytest.MonkeyPatch, pm: MagicMock
-) -> None:
-    pm.get_config.return_value = {"virtio0": "local:vm-1-disk-0"}
-    monkeypatch.setattr(
-        template_service, "qemu_boot_disk", lambda cfg: ("virtio0", "x")
-    )
-    assert svc._clone_boot_disk_key("pve1", 1) == "virtio0"

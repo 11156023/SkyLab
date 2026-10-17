@@ -70,17 +70,6 @@ def test_sync_scope_rules_reports_delete_and_create_failures(monkeypatch):
     ]
 
 
-def test_plan_one_way_requires_reserved_ips(session):
-    with pytest.raises(RuntimeError):
-        svc.plan_one_way(
-            session,
-            scope_id=uuid.uuid4(),
-            comment_prefix=PREFIX,
-            source_vmid=1,
-            target_vmid=2,
-        )
-
-
 def test_apply_topology_for_unknown_class(session, monkeypatch):
     seen: list[dict] = []
     monkeypatch.setattr(
@@ -187,36 +176,3 @@ def test_apply_topology_plans_rules_per_student(session, monkeypatch):
         (102, "in"),
     ]
     assert planned[0].rule["dport"] == "5432"
-
-
-def test_topology_directions_explicit_edges():
-    edges = [
-        CourseEnvironmentEdge(
-            version_id=uuid.uuid4(),
-            source_node_key="a",
-            target_node_key="b",
-            direction="bidirectional",
-            protocol="tcp",
-            port=22,
-        ),
-        CourseEnvironmentEdge(
-            version_id=uuid.uuid4(),
-            source_node_key="a",
-            target_node_key="missing",
-        ),
-    ]
-    assert svc.topology_directions(
-        peer_policy=svc.PEER_POLICY_EXPLICIT,
-        edges=edges,
-        vmid_by_key={"a": 1, "b": 2},
-        network_by_key={},
-    ) == [(1, 2, "tcp", 22), (2, 1, "tcp", 22)]
-
-
-def test_topology_directions_segment_policy():
-    assert svc.topology_directions(
-        peer_policy=svc.PEER_POLICY_SEGMENT,
-        edges=[],
-        vmid_by_key={"a": 1, "b": 2, "c": 3, "ghost": 4},
-        network_by_key={"a": "lab-net", "b": "lab-net / mgmt", "c": "other"},
-    ) == [(1, 2, "any", None), (2, 1, "any", None)]

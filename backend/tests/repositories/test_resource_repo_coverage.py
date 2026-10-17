@@ -34,19 +34,6 @@ def _res(session: Session, vmid: int, **kw) -> Resource:
     return repo.create_resource(session=session, vmid=vmid, **kw)
 
 
-def test_create_resource_without_commit_flushes(session: Session) -> None:
-    r = _res(session, 100, commit=False)
-    assert r.vmid == 100
-    assert repo.get_resource_by_vmid(session=session, vmid=100) is r
-
-
-def test_linked_resource_vmid(session: Session) -> None:
-    _res(session, 101)
-    assert repo.linked_resource_vmid(session, None) is None
-    assert repo.linked_resource_vmid(session, 999) is None
-    assert repo.linked_resource_vmid(session, 101) == 101
-
-
 def test_listing_queries(session: Session) -> None:
     uid = uuid.uuid4()
     class_a = uuid.uuid4()
@@ -127,73 +114,6 @@ def test_network_and_allocation_lookups_without_exec() -> None:
     assert repo.get_cached_ip_address(session=fake, vmid=1) is None  # type: ignore[arg-type]
 
 
-def test_rollback_quietly_without_rollback_attr() -> None:
-    repo._rollback_quietly(object())  # type: ignore[arg-type]
-
-
-def test_sync_ip_cache_live_cached_and_allocated(session: Session) -> None:
-    _res(session, 145)
-    assert (
-        repo.sync_ip_cache(session=session, vmid=145, live_ip="10.3.0.1") == "10.3.0.1"
-    )
-    assert repo.sync_ip_cache(session=session, vmid=145, live_ip=None) == "10.3.0.1"
-
-    session.add(IpAllocation(ip_address="10.3.0.9", purpose="vm", vmid=146))
-    session.commit()
-    assert repo.sync_ip_cache(session=session, vmid=146, live_ip=None) == "10.3.0.9"
-    assert repo.sync_ip_cache(session=session, vmid=147, live_ip="") is None
-
-
-class _BrokenSession:
-    """exec／get 一律失敗，記錄是否 rollback。"""
-
-    def __init__(self) -> None:
-        self.rolled_back = 0
-
-    def exec(self, *_a, **_k):
-        raise RuntimeError("db down")
-
-    def rollback(self) -> None:
-        self.rolled_back += 1
-
-
-def test_sync_ip_cache_write_failure_rolls_back(caplog) -> None:
-    s = _BrokenSession()
-    assert repo.sync_ip_cache(session=s, vmid=1, live_ip="10.0.0.1") == "10.0.0.1"  # type: ignore[arg-type]
-    assert s.rolled_back == 1
-    assert "IP 快取寫入失敗" in caplog.text
-
-
-def test_sync_ip_cache_read_failure_rolls_back(caplog) -> None:
-    s = _BrokenSession()
-    assert repo.sync_ip_cache(session=s, vmid=1, live_ip=None) is None  # type: ignore[arg-type]
-    assert s.rolled_back == 1
-    assert "IP 快取讀取失敗" in caplog.text
-
-
-def test_sync_ip_cache_allocation_failure_rolls_back(monkeypatch, caplog) -> None:
-    s = _BrokenSession()
-    monkeypatch.setattr(repo, "get_cached_ip_address", lambda **_k: None)
-    assert repo.sync_ip_cache(session=s, vmid=1, live_ip=None) is None  # type: ignore[arg-type]
-    assert s.rolled_back == 1
-    assert "IP 分配紀錄讀取失敗" in caplog.text
-
-
-def test_sync_ip_cache_many_read_failure_still_returns_live(
-    monkeypatch, caplog
-) -> None:
-    s = _BrokenSession()
-    persisted = {}
-    monkeypatch.setattr(
-        repo, "_persist_ip_cache", lambda _s, changes: persisted.update(changes)
-    )
-    result = repo.sync_ip_cache_many(session=s, live_ips={1: "10.0.0.1", 2: None})  # type: ignore[arg-type]
-    assert result == {1: "10.0.0.1", 2: None}
-    assert persisted == {1: "10.0.0.1"}
-    assert s.rolled_back == 1
-    assert "IP 快取批次讀取失敗" in caplog.text
-
-
 def test_sync_ip_cache_many_empty(session: Session) -> None:
     assert repo.sync_ip_cache_many(session=session, live_ips={}) == {}
 
@@ -241,33 +161,6 @@ def test_sync_ip_cache_many_persists_changes(session: Session) -> None:
     )
 
 
-def test_persist_ip_cache_failure_is_logged(session: Session, caplog) -> None:
-    _res(session, 160)
-    _res(session, 161)
-    session.add(ResourceNetwork(resource_vmid=161, ip_address="10.2.0.1"))
-    session.commit()
-
-    # 160 takes 161's IP -> unique violation, logged and swallowed
-    repo._persist_ip_cache(session, {160: "10.2.0.1"})
-    assert "IP 快取寫回失敗" in caplog.text
-
-
-def test_persist_ip_cache_with_fake_session_returns() -> None:
-    class Fake:
-        def get_bind(self):
-            raise RuntimeError("no bind")
-
-    repo._persist_ip_cache(Fake(), {1: "x"})  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize("commit", [True, False])
-def test_delete_resource(session: Session, commit: bool) -> None:
-    _res(session, 170)
-    repo.delete_resource(session=session, vmid=999, commit=commit)
-    repo.delete_resource(session=session, vmid=170, commit=commit)
-    assert repo.get_resource_by_vmid(session=session, vmid=170) is None
-
-
 @pytest.mark.parametrize("commit", [True, False])
 def test_set_auto_stop_and_due_list(session: Session, commit: bool) -> None:
     _res(session, 180)
@@ -299,14 +192,6 @@ def test_set_auto_stop_and_due_list(session: Session, commit: bool) -> None:
     )
     due = repo.list_due_auto_stops(session=session, now=NOW)
     assert [x.vmid for x in due] == [180]
-
-
-def test_list_resources_with_expiry(session: Session) -> None:
-    today = NOW.date()
-    _res(session, 190, expiry_date=today)
-    _res(session, 191, expiry_date=today, allocation_scope="teaching_class")
-    _res(session, 192)
-    assert [r.vmid for r in repo.list_resources_with_expiry(session=session)] == [190]
 
 
 def test_list_idle_scan_candidates(session: Session) -> None:

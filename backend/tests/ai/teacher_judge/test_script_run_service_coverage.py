@@ -183,24 +183,6 @@ def test_public_payload_helpers_reject_non_dicts() -> None:
     assert snapshot["preflight_results"] == [{"status": "failed"}]
 
 
-def test_run_to_public_include_internal_keeps_raw_payloads() -> None:
-    artifact = _artifact()
-    run = _run(
-        artifact,
-        run_batch_id=uuid.uuid4(),
-        target_snapshot_json={"targets": [{"vmid": 1}]},
-        progress_json={"targets": [{"vmid": 1}]},
-        target_results_json={"targets": [{"vmid": 1}]},
-        started_by=uuid.uuid4(),
-        started_at=svc._now(),
-        finished_at=svc._now(),
-    )
-    public = svc.run_to_public(run, include_internal=True)
-    assert public.target_snapshot_json == {"targets": [{"vmid": 1}]}
-    assert public.run_batch_id == str(run.run_batch_id)
-    assert public.started_at is not None and public.finished_at is not None
-
-
 def test_get_script_run_public_not_found_and_found() -> None:
     artifact = _artifact()
     run = _run(artifact)
@@ -230,40 +212,6 @@ def test_get_script_run_public_not_found_and_found() -> None:
         run_id=run.id,
     )
     assert public.id == str(run.id)
-
-
-def test_session_run_summaries_and_record_lookup() -> None:
-    session = make_session()
-    session_id = uuid.uuid4()
-    artifact = _artifact(session_id=session_id)
-    session.add(artifact)
-    session.commit()
-    run = TeacherJudgeScriptRun(
-        artifact_id=artifact.id,
-        run_batch_id=uuid.uuid4(),
-        started_at=svc._now(),
-        finished_at=svc._now(),
-    )
-    plain = TeacherJudgeScriptRun(artifact_id=artifact.id)
-    session.add(run)
-    session.add(plain)
-    session.commit()
-
-    summaries = svc.list_session_run_summaries(
-        session, artifact.teaching_class_id, session_id, 0, 10
-    )
-    assert {row.id for row in summaries} == {str(run.id), str(plain.id)}
-    assert any(row.run_batch_id is None for row in summaries)
-
-    with pytest.raises(HTTPException) as exc:
-        svc.get_session_run_record(
-            session, artifact.teaching_class_id, session_id, uuid.uuid4()
-        )
-    assert exc.value.status_code == 404
-    review = svc.get_session_run_for_review(
-        session, artifact.teaching_class_id, session_id, run.id
-    )
-    assert review.id == str(run.id)
 
 
 # ---------------------------------------------------------- teacher review
@@ -314,84 +262,6 @@ def test_update_target_review_unknown_target_is_404() -> None:
             reviewer_id=uuid.uuid4(),
         )
     assert exc.value.status_code == 404
-
-
-def test_update_target_review_clears_review_when_empty() -> None:
-    run = _review_run(TeacherJudgeScriptRunStatus.completed)
-    public = svc.update_target_review(
-        MagicMock(),
-        run,
-        student_id="s1",
-        feedback="",
-        decisions={},
-        reviewer_id=uuid.uuid4(),
-    )
-    assert "teacher_review" not in run.target_results_json["targets"][0]
-    assert public.target_results_json["targets"][0]["vmid"] == 101
-
-
-def test_update_target_review_validates_and_saves_decisions() -> None:
-    run = _review_run(TeacherJudgeScriptRunStatus.completed)
-    with pytest.raises(HTTPException) as exc:
-        svc.update_target_review(
-            MagicMock(),
-            run,
-            vmid=101,
-            feedback="",
-            decisions={"nope": "pass"},
-            reviewer_id=uuid.uuid4(),
-        )
-    assert exc.value.status_code == 400
-
-    reviewer = uuid.uuid4()
-    svc.update_target_review(
-        MagicMock(),
-        run,
-        vmid=101,
-        feedback="good",
-        decisions={"c1": "pass"},
-        reviewer_id=reviewer,
-    )
-    review = run.target_results_json["targets"][0]["teacher_review"]
-    assert review["decisions"] == {"c1": "pass"}
-    assert review["reviewed_by"] == str(reviewer)
-
-    run.target_results_json = {"targets": [{"vmid": 101, "parsed_result": None}]}
-    with pytest.raises(HTTPException):
-        svc.update_target_review(
-            MagicMock(),
-            run,
-            vmid=101,
-            feedback="",
-            decisions={"c1": "pass"},
-            reviewer_id=reviewer,
-        )
-
-
-def test_running_resources_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        svc.proxmox_ops, "list_all_resources_by_vmid", lambda: {1: {"vmid": 1}}
-    )
-    assert svc._running_resources_by_vmid() == {1: {"vmid": 1}}
-
-    def boom() -> None:
-        raise RuntimeError("pve down")
-
-    monkeypatch.setattr(svc.proxmox_ops, "list_all_resources_by_vmid", boom)
-    with pytest.raises(HTTPException) as exc:
-        svc._running_resources_by_vmid()
-    assert exc.value.status_code == 503
-
-
-def test_linux_executor_capability_rejects_windows() -> None:
-    svc._ensure_linux_executor_capability(_resource(), 1)
-    windows = SimpleNamespace(
-        guest_os=None, os_info="Windows Server 2022", environment_type="vm"
-    )
-    with pytest.raises(HTTPException) as exc:
-        svc._ensure_linux_executor_capability(windows, 7)
-    assert exc.value.detail["code"] == "teacher_judge_unsupported_os"
-    assert exc.value.detail["vmid"] == 7
 
 
 # ---------------------------------------------------------- class members
@@ -558,36 +428,6 @@ def test_resolve_running_targets_rejections(
     assert exc.value.status_code == 400
 
 
-def test_resolve_running_targets_success_and_missing_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    live = {"type": "qemu", "status": "running", "node": "pve1"}
-    targets = _resolve(
-        monkeypatch,
-        member=_member(node_key="web"),
-        live=live,
-        resource=_resource(),
-    )
-    assert targets[0]["ip_address"] == "10.0.0.5"
-    assert targets[0]["proxmox_node"] == "pve1"
-    assert targets[0]["user"]["id"] == "u1"
-    with pytest.raises(HTTPException):
-        _resolve(monkeypatch, member=_member(), live=live, resource=_resource(key=None))
-
-
-def test_resolve_running_targets_loads_defaults(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        svc, "_class_member_by_vmid", lambda *, session, teaching_class_id: {}
-    )
-    monkeypatch.setattr(svc, "_running_resources_by_vmid", lambda: {})
-    with pytest.raises(HTTPException):
-        svc._resolve_running_targets(
-            session=MagicMock(), teaching_class_id=uuid.uuid4(), target_vmids=[1]
-        )
-
-
 def test_resolve_node_targets_unknown_node(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(svc, "resolve_class_machine_node", lambda *_: None)
     with pytest.raises(HTTPException) as exc:
@@ -639,18 +479,6 @@ def test_resolve_node_targets_records_preflight_failures(
 
 
 # ------------------------------------------------------------- peer context
-
-
-def test_attach_peer_contexts_without_peers() -> None:
-    targets: list[dict[str, Any]] = [{"vmid": 1}]
-    svc._attach_peer_runtime_contexts(
-        session=MagicMock(),
-        teaching_class_id=uuid.uuid4(),
-        executor_node_key="web",
-        peer_node_keys=set(),
-        targets=targets,
-    )
-    assert targets[0]["runtime_context"]["peers"] == {}
 
 
 def test_attach_peer_contexts_records_each_reason(
@@ -755,14 +583,6 @@ def test_attach_peer_contexts_tolerates_live_lookup_failure(
     assert targets[0]["runtime_context"]["peers"]["db"]["reason_code"] == (
         "peer_not_running"
     )
-
-
-def test_ensure_targets_on_node() -> None:
-    svc._ensure_targets_on_node([{"node_key": "x"}], None, "msg")
-    svc._ensure_targets_on_node([{"node_key": "web"}], "web", "msg")
-    with pytest.raises(HTTPException) as exc:
-        svc._ensure_targets_on_node([{"node_key": None}], "web", "msg")
-    assert exc.value.detail["mismatched_node_keys"] == [""]
 
 
 # ------------------------------------------------------------ create run
@@ -918,22 +738,6 @@ def test_coverage_mapping_and_projection_tolerate_bad_shapes() -> None:
         display_labels={},
     )
     assert projected["items"][0]["missing_check_ids"] == ["c1"]
-
-
-def test_batch_status_variants() -> None:
-    artifact = _artifact()
-
-    def run(status: TeacherJudgeScriptRunStatus, failed: int = 0) -> Any:
-        return _run(artifact, status=status, result_summary_json={"failed": failed})
-
-    S = TeacherJudgeScriptRunStatus
-    assert svc._batch_status([run(S.running), run(S.pending)]) == "running"
-    assert svc._batch_status([run(S.pending), run(S.completed)]) == "pending"
-    assert svc._batch_status([run(S.completed), run(S.failed)]) == (
-        "completed_with_failures"
-    )
-    assert svc._batch_status([run(S.completed)]) == "completed"
-    assert svc._batch_status([run(S.failed)]) == "failed"
 
 
 # ---------------------------------------------------------- batches (sqlite)

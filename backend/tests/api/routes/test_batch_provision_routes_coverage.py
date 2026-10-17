@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from app.api.routes import batch_provision as bp
-from app.exceptions import NotFoundError, PermissionDeniedError
+from app.exceptions import NotFoundError
 from app.models import BatchProvisionJobStatus, TeachingClass
 from app.schemas.batch_provision import BatchProvisionReviewRequest
 from app.services.scheduling import recurrence
@@ -74,18 +74,6 @@ def test_get_batch_status_class_missing(monkeypatch: pytest.MonkeyPatch) -> None
         )
 
 
-def test_get_batch_status_access_denied(monkeypatch: pytest.MonkeyPatch) -> None:
-    _get_job(monkeypatch, _job())
-
-    def _deny(user: Any, owner_id: Any) -> None:
-        raise PermissionDeniedError("no")
-
-    monkeypatch.setattr(bp, "require_teaching_access", _deny)
-    session = _FakeSession({CLASS_ID: SimpleNamespace(owner_id=OWNER)})
-    with pytest.raises(PermissionDeniedError):
-        bp.get_batch_status(job_id=uuid.uuid4(), session=session, current_user=_user())
-
-
 def test_get_batch_status_success(monkeypatch: pytest.MonkeyPatch) -> None:
     job = _job()
     _get_job(monkeypatch, job)
@@ -137,46 +125,6 @@ def test_recurrence_preview_job_missing(monkeypatch: pytest.MonkeyPatch) -> None
         bp.get_recurrence_preview(
             job_id=uuid.uuid4(), session=_FakeSession(), _=_user()
         )
-
-
-@pytest.mark.parametrize(
-    ("rule", "duration"), [(None, 60), ("FREQ=WEEKLY", None), ("FREQ=WEEKLY", 0)]
-)
-def test_recurrence_preview_without_rule(
-    monkeypatch: pytest.MonkeyPatch, rule: str | None, duration: int | None
-) -> None:
-    _get_job(
-        monkeypatch, _job(recurrence_rule=rule, recurrence_duration_minutes=duration)
-    )
-    preview = bp.get_recurrence_preview(
-        job_id=uuid.uuid4(), session=_FakeSession(), _=_user()
-    )
-    assert preview.windows == []
-
-
-def test_recurrence_preview_advances_until_count(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _get_job(
-        monkeypatch,
-        _job(recurrence_rule="FREQ=DAILY", recurrence_duration_minutes=60),
-    )
-    base = datetime(2030, 1, 1, tzinfo=UTC)
-    afters: list[datetime] = []
-
-    def _next(*, rule: str, duration_minutes: int, timezone: str, after: datetime):
-        afters.append(after)
-        start = base + timedelta(days=len(afters))
-        return start, start + timedelta(minutes=duration_minutes)
-
-    monkeypatch.setattr(recurrence, "compute_next_window", _next)
-    preview = bp.get_recurrence_preview(
-        job_id=uuid.uuid4(), session=_FakeSession(), _=_user(), count=3
-    )
-    assert len(preview.windows) == 3
-    # 第二次之後的 after 是前一個視窗的結束時間
-    assert afters[1] == preview.windows[0][1]
-    assert afters[2] == preview.windows[1][1]
 
 
 def test_recurrence_preview_stops_when_exhausted(

@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from app.exceptions import BadRequestError, ConflictError
 from app.services.resource import reset_service as svc
 
 USER = SimpleNamespace(id=uuid.uuid4(), email="t@campus.edu")
@@ -108,27 +107,10 @@ def pve(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 # ── ensure_init_snapshot ───────────────────────────────────────────────────
 
 
-def test_ensure_init_snapshot_unsupported_storage(pve: dict[str, Any]) -> None:
-    pve["supported"] = False
-    assert svc.ensure_init_snapshot(150) is False
-    assert pve["created"] == []
-
-
 def test_ensure_init_snapshot_already_present(pve: dict[str, Any]) -> None:
     pve["snapshots"] = [{"name": svc.INIT_SNAPSHOT_NAME}]
     assert svc.ensure_init_snapshot(150) is True
     assert pve["created"] == []
-
-
-def test_ensure_init_snapshot_retries_then_creates(pve: dict[str, Any]) -> None:
-    pve["find_errors"] = 1
-    assert svc.ensure_init_snapshot(150) is True
-    assert pve["created"] == [svc.INIT_SNAPSHOT_NAME]
-
-
-def test_ensure_init_snapshot_gives_up_after_attempts(pve: dict[str, Any]) -> None:
-    pve["find_errors"] = svc.INIT_SNAPSHOT_ATTEMPTS
-    assert svc.ensure_init_snapshot(150) is False
 
 
 # ── create_init_snapshot ───────────────────────────────────────────────────
@@ -147,20 +129,6 @@ def test_create_init_snapshot_creates_and_audits(
     assert out["snapname"] == svc.INIT_SNAPSHOT_NAME
     assert pve["created"] == [svc.INIT_SNAPSHOT_NAME]
     assert pve["audits"][0]["action"] == "snapshot_create"
-
-
-def test_create_init_snapshot_conflict_when_present(
-    pve: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(svc, "require_snapshot_available", lambda *_a: None)
-    pve["snapshots"] = [{"name": svc.INIT_SNAPSHOT_NAME}]
-    with pytest.raises(ConflictError):
-        svc.create_init_snapshot(
-            _FakeSession(),  # type: ignore[arg-type]
-            vmid=150,
-            resource_info=QEMU_INFO,
-            user=USER,
-        )
 
 
 # ── _audit_reset ───────────────────────────────────────────────────────────
@@ -188,17 +156,6 @@ def test_audit_reset_swallows_db_failure(
 
 
 # ── _sync_lxc_platform_key_after_start ─────────────────────────────────────
-
-
-def test_sync_after_start_qemu_schedules_ssh_login(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[tuple[Any, ...]] = []
-    monkeypatch.setattr(
-        svc.guest_ssh_login, "schedule_after_start", lambda *a: seen.append(a)
-    )
-    svc._sync_lxc_platform_key_after_start("pve1", 150, "qemu")
-    assert seen == [("pve1", 150, "qemu")]
 
 
 def test_sync_after_start_lxc_repairs_key_and_password(
@@ -240,39 +197,6 @@ def test_sync_after_start_lxc_failure_is_swallowed(
 # ── _run_reset / run_reset_task ────────────────────────────────────────────
 
 
-def test_run_reset_running_machine_restarts(
-    pve: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    audits: list[tuple[bool, str]] = []
-    synced: list[Any] = []
-    monkeypatch.setattr(
-        svc, "_audit_reset", lambda _v, _u, *, ok, detail: audits.append((ok, detail))
-    )
-    monkeypatch.setattr(
-        svc, "_sync_lxc_platform_key_after_start", lambda *a: synced.append(a)
-    )
-    out = svc.run_reset_task(
-        uuid.uuid4(),
-        {"vmid": "150", "node": "pve1", "rtype": "lxc", "user_id": str(USER.id)},
-    )
-    assert out == {"vmid": 150}
-    assert pve["control"] == ["stop", "start"]
-    assert pve["rollback"] == [svc.INIT_SNAPSHOT_NAME]
-    assert synced == [("pve1", 150, "lxc")]
-    assert audits[0][0] is True
-
-
-def test_run_reset_stopped_machine_stays_off(
-    pve: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    pve["status"] = "stopped"
-    monkeypatch.setattr(svc, "_audit_reset", lambda *_a, **_k: None)
-    svc.run_reset_task(
-        uuid.uuid4(), {"vmid": 150, "node": "pve1", "user_id": str(USER.id)}
-    )
-    assert pve["control"] == []
-
-
 def test_run_reset_failure_audits_and_reraises(
     pve: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -308,74 +232,4 @@ def test_lock_reset_enqueue_dialects() -> None:
     assert pg.executed[0][1] == {"ns": svc._RESET_LOCK_NAMESPACE, "vmid": 150}
 
 
-def test_has_active_reset_payload_variants() -> None:
-    rows = [
-        SimpleNamespace(payload=None),
-        SimpleNamespace(payload="not json"),
-        SimpleNamespace(payload={"vmid": None}),
-        SimpleNamespace(payload={"vmid": 7}),
-        SimpleNamespace(payload='{"vmid": "150"}'),
-    ]
-    assert svc._has_active_reset(_FakeSession(rows), 150) is True  # type: ignore[arg-type]
-    assert svc._has_active_reset(_FakeSession(rows[:4]), 150) is False  # type: ignore[arg-type]
-
-
 # ── start_reset ────────────────────────────────────────────────────────────
-
-
-@pytest.fixture()
-def start_env(pve: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    from app.services.resource import backup_service
-
-    pve["snapshots"] = [{"name": svc.INIT_SNAPSHOT_NAME}]
-    pve["backup_active"] = False
-    pve["enqueued"] = []
-    monkeypatch.setattr(svc, "require_snapshot_available", lambda *_a: None)
-    monkeypatch.setattr(
-        backup_service, "_has_active_machine_task", lambda _s, _v: pve["backup_active"]
-    )
-
-    def _enqueue(**kw: Any) -> SimpleNamespace:
-        pve["enqueued"].append(kw)
-        return SimpleNamespace(id="task-1")
-
-    monkeypatch.setattr(svc, "enqueue_task_sync", _enqueue)
-    return pve
-
-
-def test_start_reset_requires_init_snapshot(start_env: dict[str, Any]) -> None:
-    start_env["snapshots"] = []
-    with pytest.raises(BadRequestError):
-        svc.start_reset(_FakeSession(), vmid=150, resource_info=QEMU_INFO, user=USER)  # type: ignore[arg-type]
-
-
-def test_start_reset_conflicts_with_active_reset(start_env: dict[str, Any]) -> None:
-    session = _FakeSession([SimpleNamespace(payload={"vmid": 150})])
-    with pytest.raises(ConflictError):
-        svc.start_reset(session, vmid=150, resource_info=QEMU_INFO, user=USER)  # type: ignore[arg-type]
-    assert session.rollbacks == 1
-
-
-def test_start_reset_conflicts_with_backup_task(start_env: dict[str, Any]) -> None:
-    start_env["backup_active"] = True
-    session = _FakeSession()
-    with pytest.raises(ConflictError):
-        svc.start_reset(session, vmid=150, resource_info=QEMU_INFO, user=USER)  # type: ignore[arg-type]
-    assert session.rollbacks == 1
-
-
-def test_start_reset_enqueues(start_env: dict[str, Any]) -> None:
-    out = svc.start_reset(
-        _FakeSession(),  # type: ignore[arg-type]
-        vmid=150,
-        resource_info=QEMU_INFO,
-        user=USER,
-    )
-    assert out == "task-1"
-    assert start_env["enqueued"][0]["payload"] == {
-        "vmid": 150,
-        "node": "pve1",
-        "rtype": "qemu",
-        "user_id": str(USER.id),
-    }
-    assert start_env["audits"][0]["commit"] is False

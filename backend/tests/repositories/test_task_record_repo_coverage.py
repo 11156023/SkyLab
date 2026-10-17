@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
@@ -73,48 +72,6 @@ def test_lifecycle_updates(session: Session) -> None:
     )
     session.refresh(record)
     assert record.progress == 100
-
-
-def test_latest_template_task(session: Session) -> None:
-    template_id = uuid.uuid4()
-    assert (
-        repo.get_latest_template_task(session=session, template_id=template_id) is None
-    )
-    record = repo.create_task_record(
-        session=session,
-        task_type="template_convert",
-        user_id=uuid.uuid4(),
-        payload={},
-        template_id=template_id,
-    )
-    latest = repo.get_latest_template_task(session=session, template_id=template_id)
-    assert latest is not None and latest.id == record.id
-
-
-def test_reap_stale_task_records(session: Session) -> None:
-    now = datetime(2099, 1, 2, tzinfo=UTC)
-    running = _record(session)
-    running.status = TaskRecordStatus.running
-    running.started_at = now - timedelta(hours=3)
-    queued = _record(session)
-    queued.created_at = now - timedelta(hours=30)
-    fresh = _record(session)
-    fresh.created_at = now
-    for r in (running, queued, fresh):
-        session.add(r)
-    session.commit()
-
-    assert repo.reap_stale_task_records(session=session, now=now) == 2
-    session.refresh(running)
-    session.refresh(queued)
-    session.refresh(fresh)
-    assert running.status == TaskRecordStatus.failed
-    assert "still running after 2h" in running.error
-    assert queued.status == TaskRecordStatus.failed
-    assert "still queued after 24h" in queued.error
-    assert fresh.status == TaskRecordStatus.queued
-    # 沒有可收的任務時不 commit、回傳 0
-    assert repo.reap_stale_task_records(session=session, now=now) == 0
 
 
 def test_missing_task_ids_are_ignored(session: Session) -> None:

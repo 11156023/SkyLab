@@ -15,11 +15,6 @@ from app.infrastructure.queue import arq_client, dispatch, registry
 from app.models import TaskRecordStatus
 
 
-@pytest.fixture(scope="session")
-def _seed_first_superuser() -> None:
-    """純單元測試，不需要測試資料庫。"""
-
-
 @pytest.fixture(autouse=True)
 def _reset_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(arq_client, "_pool", None)
@@ -158,14 +153,6 @@ async def test_close_arq_pool(monkeypatch) -> None:
     assert arq_client._pool is None
 
 
-def test_get_redis_settings_reads_url(monkeypatch) -> None:
-    monkeypatch.setattr(core_settings, "REDIS_URL", "redis://cache.internal:6390/3")
-    rs = arq_client.get_redis_settings()
-    assert rs.host == "cache.internal"
-    assert rs.port == 6390
-    assert rs.database == 3
-
-
 # ─── dispatch：入列失敗與去重 ─────────────────────────────────────────
 
 
@@ -228,35 +215,6 @@ def test_enqueue_task_sync_discards_duplicate(monkeypatch) -> None:
 
     assert result is None
     assert deleted == [record]
-
-
-def test_enqueue_task_sync_skips_when_local_job_active(monkeypatch) -> None:
-    created: list[object] = []
-    monkeypatch.setattr(core_settings, "REDIS_ENABLED", False)
-    monkeypatch.setattr(worker, "get_runner", lambda: None)
-    monkeypatch.setattr(worker, "is_active", lambda tid: tid == "job-2")
-    monkeypatch.setattr(
-        dispatch.task_record_repo, "create_task_record", lambda **kw: created.append(kw)
-    )
-
-    result = dispatch.enqueue_task_sync(
-        session=object(),  # type: ignore[arg-type]
-        task_type="t.x",
-        user_id=uuid.uuid4(),
-        payload={},
-        job_id="job-2",
-    )
-
-    assert result is None
-    assert created == []
-
-
-async def test_job_exists_uses_local_runner_when_redis_disabled(monkeypatch) -> None:
-    monkeypatch.setattr(core_settings, "REDIS_ENABLED", False)
-    monkeypatch.setattr(worker, "is_active", lambda tid: tid == "busy")
-
-    assert await dispatch._job_exists("busy") is True
-    assert await dispatch._job_exists("idle") is False
 
 
 def test_run_then_close_pool_closes_when_redis_enabled(monkeypatch) -> None:

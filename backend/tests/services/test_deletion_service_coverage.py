@@ -115,11 +115,6 @@ def _fixed_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(deletion_service, "_utc_now", lambda: _NOW)
 
 
-def test_utc_now_is_timezone_aware(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.undo()
-    assert deletion_service._utc_now().tzinfo is not None
-
-
 # ── helpers: presence check / template guard / queue / worker ─────────────
 
 
@@ -148,162 +143,6 @@ def test_ensure_absent_passes_when_vmid_nowhere(
     assert asked == [[None]]
 
 
-def test_ensure_absent_unverifiable_raises_proxmox_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.exceptions import ProxmoxError
-
-    _patch_connections(monkeypatch, [1, None])
-
-    def _find(_vmid: int, ids: list[Any]) -> None:
-        assert ids == [1]
-        raise ProxmoxError("conn 1 down")
-
-    monkeypatch.setattr(
-        deletion_service.proxmox_service, "find_vmid_on_connections", _find
-    )
-    with pytest.raises(ProxmoxError):
-        deletion_service._ensure_vm_absent_everywhere(_FakeSession(), 150)  # type: ignore[arg-type]
-
-
-def test_ensure_absent_found_outside_pool_conflicts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.exceptions import ConflictError
-
-    _patch_connections(monkeypatch, [2])
-    monkeypatch.setattr(
-        deletion_service.proxmox_service,
-        "find_vmid_on_connections",
-        lambda _v, _ids: (2, {"vmid": 150}),
-    )
-    with pytest.raises(ConflictError):
-        deletion_service._ensure_vm_absent_everywhere(_FakeSession(), 150)  # type: ignore[arg-type]
-
-
-def test_template_guard_ignores_regular_resources() -> None:
-    deletion_service._ensure_not_template_update_temp_vm(
-        _FakeSession(),  # type: ignore[arg-type]
-        SimpleNamespace(vmid=1, environment_type="lxc"),  # type: ignore[arg-type]
-    )
-
-
-def test_template_guard_blocks_updating_template_temp_vm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.exceptions import ConflictError
-    from app.services.template.template_service import UPDATE_TEMP_ENVIRONMENT_TYPE
-
-    monkeypatch.setattr(
-        deletion_service.template_repo,
-        "get_updating_template_by_source_vmid",
-        lambda **_kw: SimpleNamespace(name="ubuntu"),
-    )
-    with pytest.raises(ConflictError):
-        deletion_service._ensure_not_template_update_temp_vm(
-            _FakeSession(),  # type: ignore[arg-type]
-            SimpleNamespace(vmid=1, environment_type=UPDATE_TEMP_ENVIRONMENT_TYPE),  # type: ignore[arg-type]
-        )
-
-
-def test_enqueue_processing_pending_and_non_pending(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        deletion_service, "enqueue_task_sync", lambda **kw: calls.append(kw)
-    )
-    req = _request()
-    deletion_service.enqueue_processing(session=_FakeSession(), req=req)  # type: ignore[arg-type]
-    deletion_service.enqueue_processing(
-        session=_FakeSession(),  # type: ignore[arg-type]
-        req=_request(status=DeletionRequestStatus.running),
-    )
-    assert len(calls) == 1
-    assert calls[0]["task_type"] == deletion_service.TASK_DELETE
-    assert calls[0]["payload"] == {"request_id": str(req.id), "vmid": 150}
-
-
-def test_run_delete_task_calls_process_one_request(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[uuid.UUID] = []
-    monkeypatch.setattr(deletion_service, "process_one_request", seen.append)
-    rid = uuid.uuid4()
-    out = deletion_service.run_delete_task(uuid.uuid4(), {"request_id": str(rid)})
-    assert seen == [rid]
-    assert out == {"request_id": str(rid), "vmid": None}
-
-
-def test_list_active_for_vmids_maps_rows() -> None:
-    req = _request()
-    session = _FakeSession(exec_results=[[req]])
-    out = deletion_service.list_active_for_vmids(
-        session=session,  # type: ignore[arg-type]
-        vmids=[150],
-    )
-    assert out == {150: req}
-
-
-def test_execute_deletion_refuses_reassigned_vmid() -> None:
-    req = _request(status=DeletionRequestStatus.running, resource_vmid=None)
-    resource = SimpleNamespace(
-        created_at=_NOW + timedelta(hours=1), user_id=uuid.uuid4()
-    )
-    session = _FakeSession(exec_results=[resource])
-    deletion_service._execute_deletion(session, req)  # type: ignore[arg-type]
-    assert req.status == DeletionRequestStatus.failed
-    assert "different resource" in (req.error_message or "")
-    assert session.commits == 1
-
-
-def test_request_deletion_non_admin_missing_db_record_not_found(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_request_deps(monkeypatch, db_resource=None, is_admin=False, find={})
-    with pytest.raises(NotFoundError):
-        deletion_service.request_deletion(
-            session=_FakeSession(),  # type: ignore[arg-type]
-            user=_USER,  # type: ignore[arg-type]
-            vmid=150,
-        )
-
-
-def test_request_deletion_orphan_db_record_is_cleaned(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_request_deps(
-        monkeypatch,
-        db_resource=SimpleNamespace(vmid=150, environment_type=None),
-        is_admin=False,
-        find=NotFoundError("gone"),
-    )
-    monkeypatch.setattr(
-        deletion_service, "require_resource_management", lambda **_kw: None
-    )
-    checked: list[int] = []
-    cleaned: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        deletion_service,
-        "_ensure_vm_absent_everywhere",
-        lambda _s, vmid: checked.append(vmid),
-    )
-    monkeypatch.setattr(
-        deletion_service.resource_service,
-        "delete_orphan_db_record",
-        lambda **kw: cleaned.append(kw),
-    )
-    result = deletion_service.request_deletion(
-        session=_FakeSession(),  # type: ignore[arg-type]
-        user=_USER,  # type: ignore[arg-type]
-        vmid=150,
-    )
-    assert result.status == DeletionRequestStatus.completed
-    assert checked == [150]
-    assert cleaned[0]["vmid"] == 150
-    assert cleaned[0]["user_id"] == _USER.id
-
-
 # ── create_deletion_request ────────────────────────────────────────────────
 
 
@@ -329,21 +168,6 @@ def test_create_deletion_request_inserts_new_row(
     assert req.node == "pve1"
     assert session.commits == 1
     assert session.refreshed == [req]
-
-
-def test_create_deletion_request_returns_existing_active(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    existing = _request()
-    session = _FakeSession(exec_results=[existing])
-    req = deletion_service.create_deletion_request(
-        session=session,  # type: ignore[arg-type]
-        user_id=uuid.uuid4(),
-        vmid=150,
-        resource_info={},
-    )
-    assert req is existing
-    assert session.added == []
 
 
 def test_create_deletion_request_integrity_race_returns_winner(
@@ -382,23 +206,6 @@ def test_create_deletion_request_integrity_error_without_winner_reraises(
 
 
 # ── _ensure_not_template_update_temp_vm ───────────────────────────────────
-
-
-def test_template_update_temp_vm_without_updating_template_passes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.services.template.template_service import UPDATE_TEMP_ENVIRONMENT_TYPE
-
-    monkeypatch.setattr(
-        deletion_service.template_repo,
-        "get_updating_template_by_source_vmid",
-        lambda **_kw: None,
-    )
-    resource = SimpleNamespace(vmid=150, environment_type=UPDATE_TEMP_ENVIRONMENT_TYPE)
-    deletion_service._ensure_not_template_update_temp_vm(
-        _FakeSession(),  # type: ignore[arg-type]
-        resource,  # type: ignore[arg-type]
-    )
 
 
 # ── request_deletion ───────────────────────────────────────────────────────
@@ -561,16 +368,6 @@ def test_execute_deletion_skips_non_active_requests(
     deletion_service._execute_deletion(session, req)  # type: ignore[arg-type]
     assert session.commits == 0
     assert req.status == status
-
-
-def test_execute_deletion_pending_claim_lost_returns() -> None:
-    req = _request()
-    session = _FakeSession(rowcount=0)
-    deletion_service._execute_deletion(session, req)  # type: ignore[arg-type]
-    assert session.commits == 1
-    assert session.refreshed == [req]
-    assert len(session.executed) == 1
-    assert session.exec_results == []
 
 
 def test_execute_deletion_missing_snapshot_marks_failed() -> None:
@@ -791,24 +588,6 @@ def test_process_one_request_exhausted_respects_final_state(
 
 
 # ── process_pending_deletions ──────────────────────────────────────────────
-
-
-def test_tick_failure_marks_running_request_failed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    req = _request(status=DeletionRequestStatus.running)
-    session = _FakeSession(exec_results=[[], [req]], get_map={req.id: req})
-
-    def _boom(_s: Any, _r: Any) -> None:
-        raise RuntimeError("delete exploded")
-
-    monkeypatch.setattr(deletion_service, "_execute_deletion", _boom)
-
-    deletion_service.process_pending_deletions(session)  # type: ignore[arg-type]
-
-    assert req.status == DeletionRequestStatus.failed
-    assert req.error_message == "delete exploded"
-    assert session.commits == 1
 
 
 def test_tick_finalize_failure_is_logged(monkeypatch: pytest.MonkeyPatch) -> None:

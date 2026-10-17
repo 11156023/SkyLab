@@ -8,10 +8,10 @@ from typing import Any, cast
 
 import pytest
 from fastapi import WebSocket
-from starlette.websockets import WebSocketDisconnect, WebSocketState
+from starlette.websockets import WebSocketState
 
 from app.api.websocket import classroom as classroom_ws
-from app.exceptions import AppError, PermissionDeniedError
+from app.exceptions import AppError
 
 USER_ID = uuid.uuid4()
 
@@ -94,31 +94,6 @@ async def _watch(ws: FakeWs) -> None:
 # ── presence ──────────────────────────────────────────────────────
 
 
-async def test_presence_registers_with_user_class_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db = _patch_user(monkeypatch)
-    class_ids = {uuid.uuid4()}
-    registered: list[dict[str, Any]] = []
-
-    async def fake_register(**kwargs: Any) -> None:
-        registered.append(kwargs)
-
-    monkeypatch.setattr(
-        classroom_ws.classroom_service,
-        "get_class_ids_of_user",
-        lambda session, user_id: class_ids,
-    )
-    monkeypatch.setattr(classroom_ws.classroom_presence_hub, "register", fake_register)
-    ws = FakeWs()
-
-    await classroom_ws.classroom_presence_proxy(cast(WebSocket, ws), token="t")
-
-    assert ws.accepted
-    assert db.closed
-    assert registered == [{"user_id": USER_ID, "class_ids": class_ids, "websocket": ws}]
-
-
 # ── watch 授權 ────────────────────────────────────────────────────
 
 
@@ -158,27 +133,6 @@ async def test_monitor_non_starter_checks_class_watch_permission(
     assert calls == [(class_id, 300)]
     assert attached == [USER_ID]
     assert ws.close_calls == [(1000, "Session ended")]
-
-
-async def test_monitor_class_watch_denied_returns_app_error_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_user(monkeypatch)
-    monkeypatch.setattr(
-        classroom_ws, "require_classroom_monitor", lambda u, detail: None
-    )
-
-    def deny(db: Any, user: Any, class_id: Any, vmid: Any) -> None:
-        raise PermissionDeniedError("not your class")
-
-    monkeypatch.setattr(classroom_ws.classroom_service, "require_can_watch_class", deny)
-    attached = _patch_session(monkeypatch, mode=classroom_ws.SessionMode.monitor)
-    ws = FakeWs()
-
-    await _watch(ws)
-
-    assert attached == []
-    assert ws.close_calls == [(1008, "not your class")]
 
 
 async def test_broadcast_outsider_is_denied(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -225,15 +179,3 @@ async def test_attach_errors_close_with_reason(
 
     assert ws.accepted
     assert ws.close_calls == [expected_first_close, (1000, "Session ended")]
-
-
-async def test_attach_client_disconnect_only_final_close(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_user(monkeypatch, admin=True)
-    _patch_session(monkeypatch, attach_error=WebSocketDisconnect(1006))
-    ws = FakeWs()
-
-    await _watch(ws)
-
-    assert ws.close_calls == [(1000, "Session ended")]

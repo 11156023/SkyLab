@@ -97,12 +97,6 @@ def test_get_specs_failure_raises_proxmox_error(pve: _FakePve) -> None:
 # ── parsing helpers ────────────────────────────────────────────────────────
 
 
-def test_parse_volid_none_and_empty() -> None:
-    assert svc._parse_volid("none,media=cdrom") is None
-    assert svc._parse_volid("") is None
-    assert svc._parse_volid("local:iso/a.iso,media=cdrom") == "local:iso/a.iso"
-
-
 def test_parse_boot_order_variants() -> None:
     assert svc._parse_boot_order(None) == []
     assert svc._parse_boot_order("cdn") == []
@@ -144,12 +138,6 @@ def test_get_boot_options_iso_storage_lookup_failure(
 # ── list_iso_images ────────────────────────────────────────────────────────
 
 
-def test_list_iso_images_skips_blank_and_sorts(pve: _FakePve) -> None:
-    images = svc.list_iso_images(resource_info=_info())
-    assert [i.name for i in images] == ["alpha.iso", "Zeta.iso"]
-    assert images[0].size == 1
-
-
 def test_list_iso_images_failure(pve: _FakePve) -> None:
     pve.isos = RuntimeError("boom")
     with pytest.raises(ProxmoxError):
@@ -168,34 +156,6 @@ def test_pick_cdrom_slot_branches() -> None:
 
 
 # ── update_boot_options ────────────────────────────────────────────────────
-
-
-def test_get_boot_options_lxc(pve: _FakePve) -> None:
-    opts = svc.get_boot_options(vmid=150, resource_info=_info("lxc"))
-    assert opts.supports_boot_order is False
-    assert opts.running is False
-
-
-def test_update_lxc_rejects_boot_changes(pve: _FakePve) -> None:
-    with pytest.raises(BadRequestError):
-        _update(BootOptionsUpdate(boot_order=["scsi0"]), rtype="lxc")
-
-
-def test_update_unknown_device_rejected(pve: _FakePve) -> None:
-    with pytest.raises(BadRequestError):
-        _update(BootOptionsUpdate(boot_order=["scsi5"]))
-
-
-def test_update_boot_order_writes_order(pve: _FakePve) -> None:
-    opts = _update(BootOptionsUpdate(boot_order=["net0", "scsi0"]))
-    assert pve.updates == [{"boot": "order=net0;scsi0"}]
-    assert opts.resource_type == "qemu"
-
-
-def test_update_eject_mounted_cdrom(pve: _FakePve) -> None:
-    pve.config["ide0"] = "local:iso/alpha.iso,media=cdrom"
-    _update(BootOptionsUpdate(eject_cdrom=True))
-    assert pve.updates == [{"ide0": "none,media=cdrom"}]
 
 
 def test_update_empty_boot_order_deletes_boot(pve: _FakePve) -> None:

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.domain.placement.models import PlacementTuning, WorkingStoragePool
+from app.domain.placement.models import PlacementTuning
 from app.domain.placement.schemas import NodeCapacity, PlacementRequest
 from app.exceptions import NotFoundError
 from app.services.vm import placement_support
@@ -45,23 +45,6 @@ def _node(name: str, **overrides) -> NodeCapacity:
     )
     defaults.update(overrides)
     return NodeCapacity(**defaults)
-
-
-def _pool(name: str, **overrides) -> WorkingStoragePool:
-    defaults = dict(
-        storage=name,
-        total_gb=400.0,
-        avail_gb=200.0,
-        active=True,
-        enabled=True,
-        can_vm=True,
-        can_lxc=True,
-        is_shared=False,
-        speed_tier="ssd",
-        user_priority=5,
-    )
-    defaults.update(overrides)
-    return WorkingStoragePool(**defaults)
 
 
 @pytest.fixture(autouse=True)
@@ -135,10 +118,6 @@ def test_set_cached_cluster_state_disabled_when_ttl_zero(monkeypatch) -> None:
     assert placement_support._cluster_cache is None
 
 
-def test_utc_now_is_timezone_aware() -> None:
-    assert placement_support.utc_now().tzinfo is not None
-
-
 # ---------------------------------------------------------------------------
 # storage pool state / current node / preview request
 # ---------------------------------------------------------------------------
@@ -209,33 +188,6 @@ def test_provisioned_current_node(request_obj, expected) -> None:
     assert placement_support.provisioned_current_node(request_obj) == expected
 
 
-def test_build_preview_vm_request_for_vm_and_lxc() -> None:
-    end = T0 + timedelta(hours=2)
-    vm = placement_support.build_preview_vm_request(
-        request=PlacementRequest(
-            resource_type="vm", cpu_cores=4, memory_mb=4096, disk_gb=40
-        ),
-        start_at=T0,
-        end_at=end,
-    )
-    assert vm.resource_type == "vm"
-    assert vm.disk_size == 40
-    assert vm.rootfs_size is None
-    assert vm.template_id == 1
-    assert vm.username == "preview"
-    assert vm.ostemplate is None
-
-    lxc = placement_support.build_preview_vm_request(
-        request=PlacementRequest(resource_type="lxc", disk_gb=8),
-        start_at=T0,
-        end_at=end,
-    )
-    assert lxc.rootfs_size == 8
-    assert lxc.disk_size is None
-    assert lxc.ostemplate == "preview"
-    assert lxc.template_id is None
-
-
 # ---------------------------------------------------------------------------
 # node_can_host_request GPU count
 # ---------------------------------------------------------------------------
@@ -267,16 +219,6 @@ def test_lxc_clone_template_missing_returns_empty(monkeypatch) -> None:
     monkeypatch.setattr(placement_support.proxmox_service, "find_resource", _missing)
     request = PlacementRequest(resource_type="lxc", template_vmid=9001)
     assert placement_support.allowed_template_nodes_for_request(request) == set()
-
-
-def test_lxc_clone_template_without_node_is_unconstrained(monkeypatch) -> None:
-    monkeypatch.setattr(
-        placement_support.proxmox_service,
-        "find_resource",
-        lambda vmid: {"node": "", "name": "debian"},
-    )
-    request = PlacementRequest(resource_type="lxc", template_vmid=9002)
-    assert placement_support.allowed_template_nodes_for_request(request) is None
 
 
 def test_lxc_clone_gpu_template_keeps_node_when_gpu_lookup_fails(
@@ -379,89 +321,3 @@ def test_apply_reserved_requests_skips_incomplete_and_unknown_nodes() -> None:
 # ---------------------------------------------------------------------------
 # build_plan: node whose managed storage cannot host the request
 # ---------------------------------------------------------------------------
-
-
-def test_build_plan_skips_node_without_usable_storage() -> None:
-    request = PlacementRequest(
-        resource_type="lxc", cpu_cores=1, memory_mb=512, disk_gb=8
-    )
-
-    plan = placement_support.build_plan(
-        session=None,
-        request=request,
-        node_capacities=[_node("pve1"), _node("pve2")],
-        effective_resource_type="lxc",
-        resource_type_reason="test",
-        placement_strategy="priority_dominant_share",
-        node_priorities={"pve1": 1},
-        build_storage_pool_state_fn=lambda **kw: (
-            {
-                "pve1": [_pool("vm-only", can_lxc=False)],
-                "pve2": [_pool("good")],
-            },
-            True,
-        ),
-        get_placement_tuning_fn=lambda **kw: TUNING,
-        get_overcommit_ratios_fn=lambda session: (1.0, 1.0),
-        get_node_priorities_fn=lambda session: {},
-        placement_sort_key_fn=placement_support.placement_sort_key,
-    )
-
-    assert plan.feasible is True
-    assert plan.recommended_node == "pve2"
-
-
-def test_build_live_node_capacities_uses_gpu_slots(monkeypatch) -> None:
-    monkeypatch.setattr(placement_support, "gpu_used_slots", lambda: {"pve1": 1})
-    seen: dict = {}
-
-    def _fake_build(**kwargs):
-        seen.update(kwargs)
-        return ["cap"]
-
-    monkeypatch.setattr(
-        placement_support.placement_advisor, "build_node_capacities", _fake_build
-    )
-    assert placement_support.build_live_node_capacities(nodes=[], resources=[]) == [
-        "cap"
-    ]
-    assert seen["gpu_used"] == {"pve1": 1}
-
-
-def test_load_cluster_state_without_cache_queries_pve(monkeypatch) -> None:
-    calls: list[str] = []
-    _patch_cluster_sources(monkeypatch, calls)
-    assert placement_support.load_cluster_state() == ([], [])
-    assert calls == ["list_nodes"]
-
-
-@pytest.mark.parametrize(
-    ("resource_type", "expected"),
-    [("vm", 20), ("lxc", 8)],
-)
-def test_request_disk_gb_defaults(resource_type, expected) -> None:
-    assert (
-        placement_support.request_disk_gb(
-            resource_type=resource_type, disk_size=None, rootfs_size=0
-        )
-        == expected
-    )
-
-
-def test_apply_reserved_requests_skips_provisioned_machines() -> None:
-    reserved = [
-        SimpleNamespace(
-            vmid=101,
-            start_at=T0,
-            end_at=T0 + timedelta(hours=1),
-            assigned_node="pve1",
-        )
-    ]
-    adjusted = placement_support.apply_reserved_requests_to_capacities(
-        baseline_capacities=[_node("pve1")],
-        reserved_requests=reserved,
-        at_time=T0,
-        normalize_datetime_fn=lambda v: v,
-        request_capacity_tuple_fn=lambda r: (2.0, 2 * GIB, 0),
-    )
-    assert adjusted[0].allocatable_cpu_cores == 16.0

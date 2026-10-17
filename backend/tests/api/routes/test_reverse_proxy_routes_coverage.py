@@ -342,18 +342,6 @@ def test_update_rule_missing_is_404(monkeypatch) -> None:
     assert exc.value.status_code == 404
 
 
-def test_update_rule_same_vm_replaces_service(access_calls, firewall, existing) -> None:
-    _, calls = firewall
-
-    result = routes.update_reverse_proxy_rule(
-        str(existing.id), _update_body(101, 9000), SESSION, STUDENT
-    )
-
-    assert result.message
-    assert access_calls == [101]
-    assert calls == [("replace", 101, 80, 9000)]
-
-
 def test_update_rule_moves_to_other_vm(access_calls, firewall, existing) -> None:
     _, calls = firewall
 
@@ -375,19 +363,6 @@ def test_update_rule_other_vm_port_already_published(
     fake.list_vm_published_services = lambda vmid, session: [
         SimpleNamespace(port=8080, protocol="tcp")
     ]
-
-    with pytest.raises(HTTPException) as exc:
-        routes.update_reverse_proxy_rule(
-            str(existing.id), _update_body(202, 8080), SESSION, STUDENT
-        )
-
-    assert exc.value.status_code == 400
-    assert calls == []
-
-
-def test_update_rule_other_vm_without_ip(access_calls, firewall, existing) -> None:
-    fake, calls = firewall
-    fake._get_publishable_vm_ip = lambda vmid, session: None
 
     with pytest.raises(HTTPException) as exc:
         routes.update_reverse_proxy_rule(

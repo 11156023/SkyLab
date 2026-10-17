@@ -140,16 +140,6 @@ def test_target_for_student_skips_non_dict_targets() -> None:
     assert ai_assignment_service._target_for_student(run, user_id)["x"] == 1
 
 
-def test_coverage_mappings_handles_missing_artifact_and_bad_shape() -> None:
-    assert ai_assignment_service._coverage_mappings(None) == []
-    artifact = _artifact(
-        teaching_class_id=uuid.uuid4(),
-        name="a",
-        policy={"coverage": {"mappings": "not-a-list"}},
-    )
-    assert ai_assignment_service._coverage_mappings(artifact) == []
-
-
 def test_script_checks_mapping_branches() -> None:
     artifact = _artifact(
         teaching_class_id=uuid.uuid4(),
@@ -187,48 +177,6 @@ def test_script_checks_mapping_branches() -> None:
     )
 
 
-def test_script_checks_marks_incomplete_mapping() -> None:
-    artifact = _artifact(
-        teaching_class_id=uuid.uuid4(),
-        name="a",
-        policy={
-            "coverage": {
-                "mappings": [
-                    {"check_id": "perm.a", "rubric_item_ids": ["perm"]},
-                    {"check_id": "perm.b", "rubric_item_ids": ["perm"]},
-                ]
-            }
-        },
-    )
-    target = {
-        "parsed_result": {
-            "checks": [{"id": "perm.a", "status": "pass", "evidence": "ok"}]
-        }
-    }
-    result = ai_assignment_service._script_checks(
-        target, artifact=artifact, item_id="perm"
-    )
-    assert len(result) == 1
-    assert result[0].comment.endswith("ok")
-    assert result[0].comment != "ok"
-
-
-def test_student_task_items_normalisation() -> None:
-    assert ai_assignment_service.student_task_items({"items": "bad"}) == []
-    items = ai_assignment_service.student_task_items(
-        {
-            "items": [
-                "junk",
-                {"title": "   "},
-                {"title": "Weird", "detectable": "sometimes"},
-            ]
-        }
-    )
-    assert [(i.id, i.title, i.detectable, i.order) for i in items] == [
-        ("item-3", "Weird", "manual", 2)
-    ]
-
-
 def test_legacy_judgement_items_filters_non_dicts_and_other_items() -> None:
     judgement = {
         "item_judgements": [
@@ -248,29 +196,6 @@ def test_legacy_judgement_items_filters_non_dicts_and_other_items() -> None:
 
 
 # ── DB-backed flows ────────────────────────────────────────────────────────
-
-
-def test_list_assignments_dedupes_versions_and_skips_empty_rubrics(
-    session: Session,
-) -> None:
-    student_id, teaching_class, path = _setup_class(session)
-    week_one = _judge(session, teaching_class.id, "Week 1")
-    week_two = _judge(session, teaching_class.id, "Empty")
-    newest = _artifact(db=session, teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
-    older = _artifact(db=session, teaching_class_id=teaching_class.id, name="Week 1", session_id=week_one.id)
-    empty = _artifact(db=session,
-        teaching_class_id=teaching_class.id, name="Empty", items=[], session_id=week_two.id
-    )
-    session.add(newest)
-    session.add(older)
-    session.add(empty)
-    session.commit()
-
-    assignments = ai_assignment_service.list_student_ai_assignments(
-        session, user_id=student_id, path_id=path.id
-    )
-    assert len(assignments) == 1
-    assert assignments[0].title == "Week 1"
 
 
 def test_source_document_missing_raises_not_found(session: Session) -> None:

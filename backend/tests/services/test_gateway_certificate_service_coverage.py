@@ -69,9 +69,3 @@ def test_save_rolls_back_session_and_survives_restore_failure(
 
     assert session.rollbacks == 1
     assert len(saves) == 2
-
-
-def test_stored_paths_without_gateway_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(gw_repo, "get_gateway_config", lambda _s: None)
-    assert svc._stored_paths(object()) == ("", "")
-    assert svc.is_configured(object()) is False

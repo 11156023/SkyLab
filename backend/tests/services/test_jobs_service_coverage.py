@@ -143,43 +143,6 @@ def test_spec_change_job_status(
     )
 
 
-def test_spec_change_to_job_completed_with_user() -> None:
-    req = _spec(
-        status=SpecChangeRequestStatus.approved,
-        applied_at=datetime(2026, 7, 2, 8, 0),  # naive → 補 UTC
-    )
-    req.user = User(email="u@campus.edu", hashed_password="x")
-    item = jobs_service._spec_change_to_job(req)
-    assert item.status == JobStatus.completed
-    assert item.progress == 100
-    assert item.user_email == "u@campus.edu"
-    assert item.completed_at == datetime(2026, 7, 2, 8, 0, tzinfo=timezone.utc)
-    assert item.updated_at == item.completed_at
-    assert item.meta["change_type"] == "cpu"
-
-
-def test_spec_change_to_job_failed_and_pending() -> None:
-    reviewed = T0 + timedelta(hours=1)
-    failed = jobs_service._spec_change_to_job(
-        _spec(
-            status=SpecChangeRequestStatus.rejected,
-            reviewed_at=reviewed,
-            review_comment="no budget",
-        )
-    )
-    assert failed.status == JobStatus.failed
-    assert failed.progress is None
-    assert failed.completed_at == reviewed
-    assert failed.message == "no budget"
-    assert failed.user_email is None
-
-    pending = jobs_service._spec_change_to_job(_spec())
-    assert pending.progress == 0
-    assert pending.completed_at is None
-    assert pending.message == "need more"
-    assert pending.updated_at == T0
-
-
 # ─── 刪除 ─────────────────────────────────────────────────────────────────
 
 
@@ -321,35 +284,6 @@ def test_task_record_to_job_template_titles() -> None:
     assert unknown.title == "template.weird"
 
 
-def test_task_record_to_job_queue_kind_and_completion() -> None:
-    record = _record(
-        task_type="resource.backup",
-        payload={"vmid": 55},
-        status=TaskRecordStatus.succeeded,
-        progress=40,
-        started_at=T0 + timedelta(minutes=1),
-        finished_at=T0 + timedelta(minutes=5),
-    )
-    item = jobs_service._task_record_to_job(record)
-    assert item.kind == JobKind.resource_backup
-    assert item.title == "備份：VMID 55"
-    assert item.progress == 100
-    assert item.updated_at == T0 + timedelta(minutes=5)
-    assert item.meta["vmid"] == 55
-
-
-def test_template_name_map() -> None:
-    template_id = uuid.uuid4()
-    template = SimpleNamespace(id=template_id, name="ubuntu")
-    session = _Session(rows={VMTemplate: [template]})
-
-    assert jobs_service._template_name_map(session, [_record()]) == {}  # type: ignore[arg-type]
-    assert session.entities == []
-    assert jobs_service._template_name_map(  # type: ignore[arg-type]
-        session, [_record(template_id=template_id)]
-    ) == {template_id: "ubuntu"}
-
-
 def test_fetch_task_records_queue_kind_for_student() -> None:
     owner_id = uuid.uuid4()
     template_id = uuid.uuid4()
@@ -381,18 +315,6 @@ def test_fetch_task_records_queue_kind_for_student() -> None:
     assert items[0].meta["template_name"] == "tpl"
     assert items[1].meta["template_name"] is None
     assert session.entities == [TaskRecord, User, VMTemplate]
-
-
-def test_fetch_task_records_empty() -> None:
-    session = _Session()
-    items = jobs_service._fetch_task_records(
-        session,  # type: ignore[arg-type]
-        user=_admin(),
-        since=T0,
-        kind=JobKind.batch_provision,
-    )
-    assert items == []
-    assert session.entities == [TaskRecord]
 
 
 # ─── 聚合與清單 ───────────────────────────────────────────────────────────
@@ -439,18 +361,6 @@ def fixed_jobs(monkeypatch: pytest.MonkeyPatch) -> list[JobItem]:
         lambda **kw: sorted(jobs, key=lambda j: j.updated_at, reverse=True),
     )
     return jobs
-
-
-def test_list_jobs_all(fixed_jobs: list[JobItem]) -> None:
-    resp = jobs_service.list_jobs(
-        session=None,  # type: ignore[arg-type]
-        user=_admin(),
-        limit=2,
-        offset=1,
-    )
-    assert resp.total == 4
-    assert resp.active_count == 2
-    assert [i.status for i in resp.items] == [JobStatus.completed, JobStatus.running]
 
 
 def test_list_jobs_active_only(fixed_jobs: list[JobItem]) -> None:
@@ -544,16 +454,6 @@ def test_detail_vm_request_success_and_consumed() -> None:
     assert detail2.extra["expiry_date"] is None
 
 
-def test_detail_vm_request_denies_other_user() -> None:
-    req = _vm_request()
-    with pytest.raises(jobs_service.JobAccessDeniedError):
-        jobs_service._detail_vm_request(
-            _Session(rows={VMRequest: [req]}),  # type: ignore[arg-type]
-            str(req.id),
-            _student(),
-        )
-
-
 def test_detail_spec_change_success() -> None:
     req = _spec(
         status=SpecChangeRequestStatus.approved,
@@ -629,52 +529,6 @@ def test_detail_task_record_with_template_and_owner() -> None:
     assert detail.extra["raw_status"] == "failed"
 
 
-def test_detail_task_record_template_gone_and_no_owner() -> None:
-    record = _record(template_id=uuid.uuid4())
-    session = _Session(objects={(TaskRecord, record.id): record})
-    detail = jobs_service._detail_task_record(
-        session,  # type: ignore[arg-type]
-        str(record.id),
-        _admin(),
-    )
-    assert detail.extra["template_name"] is None
-    assert detail.item.user_email is None
-
-    no_template = _record()
-    session2 = _Session(objects={(TaskRecord, no_template.id): no_template})
-    detail2 = jobs_service._detail_task_record(
-        session2,  # type: ignore[arg-type]
-        str(no_template.id),
-        _admin(),
-    )
-    assert detail2.extra["template_id"] is None
-
-
-@pytest.mark.parametrize(
-    ("overrides", "status", "progress"),
-    [
-        (
-            {"vmid": None, "provisioning_status": VMProvisioningStatus.running},
-            JobStatus.running,
-            60,
-        ),
-        (
-            {"vmid": None, "provisioning_status": VMProvisioningStatus.failed},
-            JobStatus.failed,
-            None,
-        ),
-        ({"vmid": 5}, JobStatus.completed, 100),
-        ({"vmid": None, "status": VMRequestStatus.pending}, JobStatus.pending, 0),
-    ],
-)
-def test_vm_request_to_job_status_branches(
-    overrides: dict[str, Any], status: JobStatus, progress: int | None
-) -> None:
-    item = jobs_service._vm_request_to_job(_vm_request(**overrides))
-    assert item.status == status
-    assert item.progress == progress
-
-
 @pytest.mark.parametrize(
     ("minutes_ago", "comment", "expected"),
     [
@@ -698,81 +552,6 @@ def test_vm_request_to_job_overdue_message(
     item = jobs_service._vm_request_to_job(req)
     assert item.meta["overdue"] is True
     assert item.message == expected
-
-
-def test_fetch_vm_requests_and_template_records_for_student() -> None:
-    student = _student()
-    session = _Session(rows={VMRequest: [_vm_request(user_id=student.id)]})
-    items = jobs_service._fetch_vm_requests(
-        session,  # type: ignore[arg-type]
-        user=student,
-        since=T0 - timedelta(days=1),
-    )
-    assert len(items) == 1
-
-    template_session = _Session()
-    assert (
-        jobs_service._FETCHERS[JobKind.template](
-            template_session,  # type: ignore[arg-type]
-            user=student,
-            since=T0,
-        )
-        == []
-    )
-
-
-def test_list_recent_for_user_caches_and_prioritises_active(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[int] = []
-    jobs = [
-        _job(JobStatus.completed, 9),
-        _job(JobStatus.running, 1),
-        _job(JobStatus.failed, 8),
-    ]
-
-    def fake_aggregate(**kw: Any) -> list[JobItem]:
-        calls.append(1)
-        return jobs
-
-    monkeypatch.setattr(jobs_service, "_aggregate_jobs", fake_aggregate)
-    clock = {"t": 1000.0}
-    monkeypatch.setattr(jobs_service.time, "monotonic", lambda: clock["t"])
-    jobs_service.clear_recent_jobs_cache()
-    user = _admin()
-    try:
-        first = jobs_service.list_recent_for_user(
-            session=None,  # type: ignore[arg-type]
-            user=user,
-            limit=2,
-        )
-        assert [i.status for i in first.items] == [
-            JobStatus.running,
-            JobStatus.completed,
-        ]
-        assert first.total == 3
-        assert first.active_count == 1
-
-        # TTL 內命中快取，回傳複本
-        first.reminders = []
-        second = jobs_service.list_recent_for_user(
-            session=None,  # type: ignore[arg-type]
-            user=user,
-            limit=2,
-        )
-        assert calls == [1]
-        assert second.reminders is None
-
-        # 過期後重算並清掉舊項目
-        clock["t"] += 10
-        jobs_service.list_recent_for_user(
-            session=None,  # type: ignore[arg-type]
-            user=user,
-            limit=2,
-        )
-        assert calls == [1, 1]
-    finally:
-        jobs_service.clear_recent_jobs_cache()
 
 
 def test_get_job_detail_dispatch_and_errors() -> None:

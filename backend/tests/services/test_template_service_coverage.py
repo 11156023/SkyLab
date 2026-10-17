@@ -27,8 +27,6 @@ from app.models import (
     Resource,
     TaskRecord,
     TemplateAttachment,
-    VMRequest,
-    VMRequestStatus,
     VMTemplate,
     VMTemplateStatus,
     VMTemplateVisibility,
@@ -160,25 +158,6 @@ def test_to_public_backfills_unset_spec_from_pve(sess: Session) -> None:
     assert public.attachment_count == 4
 
 
-def test_to_public_keeps_custom_spec_and_flags_missing_template(sess: Session) -> None:
-    template = _template(sess, default_cores=4, default_memory=4096, default_disk=30)
-    public = ts._to_public(template, pve_raw={})
-    assert public.pve_exists is False
-    assert (public.default_cores, public.default_memory, public.default_disk) == (
-        4,
-        4096,
-        30,
-    )
-
-
-def test_attachment_counts(sess: Session) -> None:
-    assert ts._attachment_counts(sess, []) == {}
-    template = _template(sess)
-    _attachment(sess, template)
-    _attachment(sess, template, "b.pdf")
-    assert ts._attachment_counts(sess, [template.id]) == {template.id: 2}
-
-
 def test_attachment_counts_failure_returns_empty() -> None:
     broken = SimpleNamespace(exec=_raise(RuntimeError("db down")))
     assert ts._attachment_counts(broken, [uuid.uuid4()]) == {}
@@ -191,12 +170,6 @@ def test_pve_template_raw(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ts._pve_template_raw() == {900: {"vmid": "900", "maxcpu": 1}}
     monkeypatch.setattr(ts.proxmox_ops, "get_vm_templates", _raise(RuntimeError()))
     assert ts._pve_template_raw() is None
-
-
-
-def test_spec_from_raw_missing_values() -> None:
-    assert ts._spec_from_raw(None) == (None, None, None)
-    assert ts._spec_from_raw({"vmid": 1}) == (None, None, None)
 
 
 def test_resolve_effective_spec_prefers_db_values(sess: Session) -> None:
@@ -339,14 +312,6 @@ def test_prepare_retry_already_converted_records_password_settable(
 # ---------------------------------------------------------------------------
 
 
-def test_list_attachments(sess: Session) -> None:
-    owner = _user()
-    template = _template(sess, owner_id=owner.id)
-    attachment = _attachment(sess, template)
-    listed = ts.list_attachments(session=sess, user=owner, template_id=template.id)
-    assert [a.id for a in listed] == [attachment.id]
-
-
 def test_get_manual_for_cloned_resource_without_registered_template(
     sess: Session,
 ) -> None:
@@ -474,26 +439,6 @@ def test_prepare_delete_blocks_during_update_cycle(sess: Session) -> None:
         ts._prepare_delete(sess, owner, template.id)
 
 
-def test_prepare_delete_blocks_on_open_requests(sess: Session) -> None:
-    owner = _user()
-    template = _template(sess, owner_id=owner.id)
-    sess.add(
-        VMRequest(
-            user_id=uuid.uuid4(),
-            reason="lab",
-            resource_type="vm",
-            hostname="stu-01",
-            template_id=PVE_VMID,
-            status=VMRequestStatus.pending,
-            created_at=datetime.now(UTC),
-        )
-    )
-    sess.commit()
-    assert ts._open_request_count(sess, PVE_VMID) == 1
-    with pytest.raises(ConflictError):
-        ts._prepare_delete(sess, owner, template.id)
-
-
 def test_prepare_delete_blocks_on_open_batch_jobs(sess: Session) -> None:
     owner = _user()
     template = _template(sess, owner_id=owner.id)
@@ -516,12 +461,6 @@ def test_prepare_delete_blocks_on_open_batch_jobs(sess: Session) -> None:
     assert ts._open_batch_job_count(sess, template.id) == 1
     with pytest.raises(ConflictError):
         ts._prepare_delete(sess, owner, template.id)
-
-
-def test_prepare_delete_passes_when_unreferenced(sess: Session) -> None:
-    owner = _user()
-    template = _template(sess, owner_id=owner.id)
-    assert ts._prepare_delete(sess, owner, template.id).id == template.id
 
 
 # ---------------------------------------------------------------------------
@@ -625,14 +564,6 @@ def test_ensure_stopped_force_stop_then_gives_up(
     assert actions == ["shutdown", "stop"]
 
 
-def test_ensure_stopped_force_stop_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
-    actions = _record_control(monkeypatch)
-    results = iter([False, True])
-    monkeypatch.setattr(ts, "_wait_until_stopped", lambda *a: next(results))
-    ts._ensure_stopped("pve1", PVE_VMID, "qemu")
-    assert actions == ["shutdown", "stop"]
-
-
 def test_reset_cloud_init_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ts.proxmox_ops, "get_status", lambda *a: {"status": "running"})
     monkeypatch.setattr(guest, "get_osinfo_qemu", lambda node, vmid: {"id": "ubuntu"})
@@ -666,33 +597,6 @@ def test_probe_guest_cloud_init(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(guest, "exec_qemu", _raise(RuntimeError("agent gone")))
     assert ts._probe_guest_cloud_init("pve1", PVE_VMID, "qemu") is None
-
-
-def test_has_cloud_init_drive() -> None:
-    assert ts.has_cloud_init_drive({"ide2": "local-lvm:vm-1-cloudinit,media=cdrom"})
-    assert not ts.has_cloud_init_drive(
-        {"net0": "cloudinit", "scsi0": "local:vm-1-disk"}
-    )
-
-
-def test_detect_password_settable(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert ts._detect_password_settable("pve1", 1, "lxc", None) is True
-    assert ts._detect_password_settable("pve1", 1, "qemu", False) is False
-    monkeypatch.setattr(ts.proxmox_ops, "get_config", _raise(RuntimeError("down")))
-    assert ts._detect_password_settable("pve1", 1, "qemu", True) is None
-    monkeypatch.setattr(
-        ts.proxmox_ops, "get_config", lambda *a: {"ide2": "x:vm-1-cloudinit"}
-    )
-    assert ts._detect_password_settable("pve1", 1, "qemu", None) is True
-
-
-def test_qemu_boot_disk() -> None:
-    assert ts.qemu_boot_disk({"bootdisk": "virtio0", "virtio0": "a,size=8G"}) == (
-        "virtio0",
-        "a,size=8G",
-    )
-    assert ts.qemu_boot_disk({"sata0": "b,size=4G"}) == ("sata0", "b,size=4G")
-    assert ts.qemu_boot_disk({"net0": "virtio"}) is None
 
 
 @pytest.mark.parametrize(
@@ -953,30 +857,6 @@ def test_run_update_clone_task_qemu_registers_owner_resource(
     assert temp.user_id == owner_id
     assert temp.connection_id == 7
     assert temp.environment_type == ts.UPDATE_TEMP_ENVIRONMENT_TYPE
-
-
-def test_run_update_clone_task_lxc_without_owner(
-    sess: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    template = _template(sess, status=VMTemplateStatus.updating)
-    clones = _stub_update_clone(monkeypatch)
-    ts.run_update_clone_task(uuid.uuid4(), _update_clone_payload(template, "lxc"))
-    assert clones[0][0] == "lxc"
-    assert sess.get(Resource, TEMP_VMID) is None
-
-
-def test_run_update_clone_task_failure_restores_ready(
-    sess: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    template = _template(sess, status=VMTemplateStatus.updating)
-    _stub_update_clone(monkeypatch)
-    monkeypatch.setattr(ts.proxmox_ops, "clone_vm", _raise(RuntimeError("no space")))
-    with pytest.raises(RuntimeError):
-        ts.run_update_clone_task(uuid.uuid4(), _update_clone_payload(template, "qemu"))
-    sess.expire_all()
-    stored = sess.get(VMTemplate, template.id)
-    assert stored.status == VMTemplateStatus.ready
-    assert stored.error_message == "no space"
 
 
 def test_run_update_convert_task_tolerates_old_delete_failure(

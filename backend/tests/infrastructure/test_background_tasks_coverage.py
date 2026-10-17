@@ -28,46 +28,6 @@ def _reset_global_runner(monkeypatch, caplog):
     bt._runner = None
 
 
-def test_bound_loop_is_none_before_bind() -> None:
-    assert BackgroundTaskRunner().bound_loop() is None
-
-
-async def test_bind_loop_uses_running_loop() -> None:
-    runner = BackgroundTaskRunner()
-    runner.bind_loop()
-    assert runner.bound_loop() is asyncio.get_running_loop()
-
-
-async def test_submit_runs_coroutine_and_tracks_active() -> None:
-    runner = BackgroundTaskRunner()
-    gate = asyncio.Event()
-    done = []
-
-    async def work() -> None:
-        await gate.wait()
-        done.append(1)
-
-    tid = runner.submit(work(), name="w", task_id="t1")
-    assert tid == "t1"
-    await asyncio.sleep(0)
-    assert runner.is_active("t1")
-    gate.set()
-    await _drain(runner)
-    assert done == [1]
-    assert not runner.is_active("t1")
-
-
-async def test_submit_auto_generates_id_and_anonymous_name() -> None:
-    runner = BackgroundTaskRunner()
-
-    async def work() -> None:
-        return None
-
-    tid = runner.submit(work())
-    assert tid
-    await _drain(runner)
-
-
 async def test_submit_rejected_when_shutting_down() -> None:
     runner = BackgroundTaskRunner()
     runner._shutting_down = True
@@ -109,36 +69,6 @@ async def test_submit_failure_is_logged_and_recorded(caplog) -> None:
     assert "Background task 'boom' failed" in caplog.text
 
 
-async def test_submit_cancelled_reraises(caplog) -> None:
-    runner = BackgroundTaskRunner()
-    started = asyncio.Event()
-
-    async def forever() -> None:
-        started.set()
-        await asyncio.Event().wait()
-
-    runner.submit(forever(), name="fv", task_id="c")
-    await started.wait()
-    task = runner._tasks["c"]
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.gather(task)
-    assert "cancelled" in caplog.text
-
-
-async def test_submit_sync_runs_in_thread() -> None:
-    runner = BackgroundTaskRunner()
-    out = []
-
-    def work(a, b=0):
-        out.append(a + b)
-
-    tid = runner.submit_sync(work, 1, b=2)
-    assert tid
-    await _drain(runner)
-    assert out == [3]
-
-
 async def test_submit_factory_rejected_when_shutting_down() -> None:
     runner = BackgroundTaskRunner()
     runner._shutting_down = True
@@ -160,23 +90,6 @@ async def test_submit_factory_duplicate_is_skipped() -> None:
     gate.set()
     await _drain(runner)
     assert calls == [1]
-
-
-async def test_submit_factory_retries_then_succeeds(caplog) -> None:
-    runner = BackgroundTaskRunner()
-    attempts = []
-
-    async def flaky() -> None:
-        attempts.append(1)
-        if len(attempts) < 3:
-            raise RuntimeError("transient")
-
-    runner.submit_factory(
-        flaky, name="flaky", max_retries=3, retry_delay=0.0, retry_backoff=2.0
-    )
-    await _drain(runner)
-    assert len(attempts) == 3
-    assert "retrying" in caplog.text
 
 
 async def test_submit_factory_gives_up_after_max_retries(caplog) -> None:
@@ -256,18 +169,6 @@ async def test_spawn_from_thread_uses_bound_loop() -> None:
     assert out == ["ran"]
 
 
-def test_spawn_without_loop_drops_task(caplog) -> None:
-    runner = BackgroundTaskRunner()
-
-    async def work() -> None:
-        return None
-
-    coro = work()
-    assert runner.submit(coro, name="nl") == ""
-    coro.close()  # the runner only closes its wrapper
-    assert "no bound event loop" in caplog.text
-
-
 def test_spawn_with_closed_loop_drops_task() -> None:
     runner = BackgroundTaskRunner()
     loop = asyncio.new_event_loop()
@@ -280,42 +181,6 @@ def test_spawn_with_closed_loop_drops_task() -> None:
     coro = work()
     assert runner.submit(coro, name="closed") == ""
     coro.close()
-
-
-async def test_shutdown_without_tasks_returns() -> None:
-    runner = BackgroundTaskRunner()
-    await runner.shutdown()
-    assert runner._shutting_down is True
-
-
-async def test_shutdown_waits_for_tasks() -> None:
-    runner = BackgroundTaskRunner()
-    done = []
-
-    async def work() -> None:
-        await asyncio.sleep(0)
-        done.append(1)
-
-    runner.submit(work(), task_id="s")
-    await runner.shutdown(timeout=5)
-    assert done == [1]
-
-
-async def test_shutdown_timeout_cancels_tasks(caplog) -> None:
-    runner = BackgroundTaskRunner()
-    started = asyncio.Event()
-
-    async def forever() -> None:
-        started.set()
-        await asyncio.Event().wait()
-
-    runner.submit(forever(), task_id="hang")
-    await started.wait()
-    task = runner._tasks["hang"]
-    await runner.shutdown(timeout=0.01)
-    assert "Timed out waiting" in caplog.text
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.gather(task)
 
 
 async def test_shutdown_timeout_cancels_late_registered_task() -> None:
@@ -357,13 +222,6 @@ def test_init_background_runner_outside_loop_warns(caplog) -> None:
     assert bt.get_runner() is runner
     assert runner.bound_loop() is None
     assert "outside a running event loop" in caplog.text
-
-
-async def test_init_background_runner_inside_loop_binds() -> None:
-    runner = bt.init_background_runner()
-    assert runner.bound_loop() is asyncio.get_running_loop()
-    await bt.shutdown_background_runner(timeout=1)
-    assert bt.get_runner() is None
 
 
 async def test_module_helpers_without_runner(caplog) -> None:

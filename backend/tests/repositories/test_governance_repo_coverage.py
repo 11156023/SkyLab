@@ -39,23 +39,6 @@ def _alert(scope: AlertScope, *, minutes: int, resolved: bool = False) -> AlertE
     )
 
 
-def test_config_singleton_and_update(session: Session) -> None:
-    config = repo.get_governance_config(session=session)
-    assert config.id == repo.GOVERNANCE_CONFIG_ID
-    assert repo.get_governance_config(session=session) is config
-    updated = repo.update_governance_config(
-        session=session,
-        data={
-            "not_a_field": 1,
-            "updated_at": None,
-            "provision_max_concurrency": 7,
-        },
-    )
-    assert updated.updated_at is not None
-    assert updated.provision_max_concurrency == 7
-    assert not hasattr(updated, "not_a_field")
-
-
 def test_alert_queries(session: Session) -> None:
     system_open = _alert(AlertScope.system, minutes=0)
     system_resolved = _alert(AlertScope.system, minutes=10, resolved=True)

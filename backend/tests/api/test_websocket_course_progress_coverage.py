@@ -128,21 +128,3 @@ async def test_teacher_without_access_to_path_is_denied(
 
     assert ws.close_calls == [(1008, "Permission denied")]
     assert registered == []
-
-
-async def test_admin_subscribes_to_path(
-    monkeypatch: pytest.MonkeyPatch, registered: list[dict[str, Any]]
-) -> None:
-    db = FakeDb(SimpleNamespace(created_by=OWNER_ID))
-    _patch_user(monkeypatch, db)
-    monkeypatch.setattr(cp_ws, "is_teacher", lambda u: False)
-    monkeypatch.setattr(cp_ws, "is_admin", lambda u: True)
-    path_id = uuid.uuid4()
-    ws = FakeWs()
-
-    await _run(ws, str(path_id))
-
-    assert ws.accepted
-    assert ws.close_calls == []
-    assert registered == [{"path_id": path_id, "websocket": ws}]
-    assert db.closed

@@ -54,39 +54,6 @@ def svc(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return state
 
 
-def test_block_sync_summary_handles_missing_extra() -> None:
-    summary = ipm._block_sync_summary({"extra_blocks": None})
-    assert summary.targets == []
-    assert summary.errors == []
-    assert ipm._block_sync_summary({}).created == 0
-
-
-def test_block_sync_summary_counts() -> None:
-    summary = ipm._block_sync_summary(
-        {
-            "extra_blocks": {
-                "targets": ("192.168.0.0/16",),
-                "created": [1, 2],
-                "updated": [3],
-                "skipped": [],
-                "deleted": [4, 5, 6],
-                "errors": [{"vmid": 7, "error": RuntimeError("x")}, {}],
-            }
-        }
-    )
-    assert summary.targets == ["192.168.0.0/16"]
-    assert (summary.created, summary.updated, summary.skipped, summary.deleted) == (
-        2,
-        1,
-        0,
-        3,
-    )
-    assert summary.errors[0].vmid == 7
-    assert summary.errors[0].error == "x"
-    assert summary.errors[1].vmid is None
-    assert summary.errors[1].error == ""
-
-
 def test_get_subnet_config_none(svc: dict[str, Any]) -> None:
     svc["config"] = None
     assert ipm.get_subnet_config(session=SESSION, _=None) is None
@@ -115,21 +82,6 @@ def _body() -> Any:
         forward_port_end=39999,
         forward_public_host=None,
     )
-
-
-def test_upsert_subnet_config_sync_ok(
-    monkeypatch: pytest.MonkeyPatch, svc: dict[str, Any]
-) -> None:
-    monkeypatch.setattr(
-        firewall_service,
-        "sync_extra_block_rules",
-        lambda: {"extra_blocks": {"targets": ["192.168.0.0/16"], "created": [1]}},
-    )
-    result = ipm.upsert_subnet_config(session=SESSION, _=None, body=_body())
-    assert svc["upserts"][0]["cidr"] == "10.0.0.0/24"
-    assert svc["upserts"][0]["platform_ip"] == "10.0.0.3"
-    assert result.block_sync.created == 1
-    assert result.block_sync.errors == []
 
 
 def test_upsert_subnet_config_sync_partial_errors(

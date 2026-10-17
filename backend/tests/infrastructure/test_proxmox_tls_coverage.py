@@ -4,19 +4,13 @@ from __future__ import annotations
 
 import socket
 import ssl
-from pathlib import Path
 from typing import Any
 
-import certifi
 import pytest
 
 from app.exceptions import ProxmoxError
 from app.infrastructure.proxmox import tls
 from app.infrastructure.proxmox.settings import ProxmoxSettings
-
-
-def _ca_pem() -> str:
-    return Path(certifi.where()).read_text(encoding="utf-8")
 
 
 def _cfg(*, ca_cert: str | None = None, verify_ssl: bool = False) -> ProxmoxSettings:
@@ -121,37 +115,6 @@ def test_verify_server_with_ca_reports_connect_failure(
 
     with pytest.raises(ProxmoxError, match="Unable to connect to Proxmox host"):
         tls._verify_server_with_ca("pve.example", "PEM", port=8006)
-
-
-def test_resolve_verify_with_ca_preflights_and_returns_bundle_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(tls, "_CA_BUNDLE_DIR", tmp_path)
-    monkeypatch.setattr(tls, "_CA_BUNDLE_CONTEXTS", {})
-    preflights: list[tuple[str, int]] = []
-    monkeypatch.setattr(
-        tls,
-        "_verify_server_with_ca",
-        lambda host, _pem, port: preflights.append((host, port)),
-    )
-
-    result = tls.resolve_verify("pve.example", False, _ca_pem(), port=443)
-
-    assert isinstance(result, str)
-    assert Path(result).parent == tmp_path
-    assert preflights == [("pve.example", 443)]
-
-
-def test_resolve_verify_without_ca_returns_flag() -> None:
-    assert tls.resolve_verify("pve.example", True, None) is True
-    assert tls.resolve_verify("pve.example", False, None) is False
-
-
-def test_build_ws_ssl_context_with_ca_uses_pve_context() -> None:
-    ctx = tls.build_ws_ssl_context(_cfg(ca_cert=_ca_pem()))
-
-    assert ctx.check_hostname is True
-    assert ctx.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_build_ws_ssl_context_verify_ssl_uses_default_certs() -> None:

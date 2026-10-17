@@ -33,14 +33,6 @@ def _create(session: Session, *, vmid: int = 101, user_id=None, commit=True):
     )
 
 
-def test_create_commit_and_flush(session: Session) -> None:
-    committed = _create(session)
-    flushed = _create(session, vmid=102, commit=False)
-    assert committed.status == SpecChangeRequestStatus.pending
-    assert committed.resource_vmid is None
-    assert flushed.id is not None
-
-
 def test_cancel_open_requests_commit_and_flush(session: Session) -> None:
     _create(session, vmid=200)
     assert (

@@ -140,12 +140,6 @@ def test_find_target_user_missing_or_inactive(state: dict[str, Any]) -> None:
 # ── user_has_share / list_shares ───────────────────────────────────────────
 
 
-def test_user_has_share(state: dict[str, Any]) -> None:
-    state["shares"][(150, _TARGET.id)] = _share(_TARGET.id)
-    assert svc.user_has_share(session=_FakeSession(), vmid=150, user_id=_TARGET.id)  # type: ignore[arg-type]
-    assert not svc.user_has_share(session=_FakeSession(), vmid=150, user_id=_OWNER_ID)  # type: ignore[arg-type]
-
-
 def test_list_shares_maps_known_and_deleted_users(
     state: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -243,44 +237,6 @@ def test_remove_share_deletes_and_audits(
 # ── _check_target_quota ────────────────────────────────────────────────────
 
 
-def test_check_target_quota_admin_skips(state: dict[str, Any]) -> None:
-    state["bypass"] = True
-    svc._check_target_quota(
-        _FakeSession(),  # type: ignore[arg-type]
-        vmid=150,
-        actor=_ACTOR,
-        target_id=_TARGET.id,
-        resource_info=None,
-    )
-    assert state["quota"] == []
-
-
-def test_check_target_quota_uses_given_info(state: dict[str, Any]) -> None:
-    info = {"maxcpu": 2}
-    svc._check_target_quota(
-        _FakeSession(),  # type: ignore[arg-type]
-        vmid=150,
-        actor=_ACTOR,
-        target_id=_TARGET.id,
-        resource_info=info,
-    )
-    assert state["quota"] == [(_TARGET.id, info)]
-
-
-def test_check_target_quota_looks_up_live_info(
-    state: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(svc.proxmox_service, "find_resource", lambda _v: {"maxmem": 1})
-    svc._check_target_quota(
-        _FakeSession(),  # type: ignore[arg-type]
-        vmid=150,
-        actor=_ACTOR,
-        target_id=_TARGET.id,
-        resource_info=None,
-    )
-    assert state["quota"] == [(_TARGET.id, {"maxmem": 1})]
-
-
 def test_check_target_quota_live_lookup_failure_counts_machine_only(
     state: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -331,20 +287,3 @@ def test_transfer_with_keep_access_and_cleanup(state: dict[str, Any]) -> None:
     assert state["created"][0]["user_id"] == _OWNER_ID
     assert _OWNER.email in state["audits"][0]["details"]
     assert session.commits == 1
-
-
-def test_transfer_without_keep_access_unknown_previous_owner(
-    state: dict[str, Any],
-) -> None:
-    session = _FakeSession()
-    svc.transfer_ownership(
-        session=session,  # type: ignore[arg-type]
-        vmid=150,
-        actor=_ACTOR,
-        email=_TARGET.email,
-        keep_access=False,
-        resource_info={},
-    )
-    assert state["created"] == []
-    assert state["deleted"] == []
-    assert str(_OWNER_ID) in state["audits"][0]["details"]

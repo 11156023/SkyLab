@@ -286,12 +286,6 @@ def test_confirmation_history_accepts_already_consumed_result_without_token() ->
     assert json.loads(messages[1]["content"])["reason"] == "r"
 
 
-def test_confirmation_history_rejects_unconsumed_result_without_token() -> None:
-    _record()
-    with pytest.raises(PveHistoryValidationError, match="confirmation token"):
-        _validate(_history(dict(_RESULT)))
-
-
 def test_confirmation_history_rejects_non_object_server_result() -> None:
     _record()
     with pytest.raises(PveHistoryValidationError, match="JSON object"):

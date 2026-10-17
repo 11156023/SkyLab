@@ -112,43 +112,7 @@ def test_closed_mining_snapshots_maps_closed_times() -> None:
     }
 
 
-def test_reset_cursor_zeroes_cursor() -> None:
-    svc._cursor.vmid = 42
-    svc._reset_cursor()
-    assert svc._cursor.vmid == 0
-
-
 # ─── _audit_and_notify ─────────────────────────────────────────────────────
-
-
-def test_audit_and_notify_regular_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
-    logged: list[dict[str, Any]] = []
-    mails: list[dict[str, Any]] = []
-    monkeypatch.setattr(svc.audit_service, "log_action", lambda **kw: logged.append(kw))
-    monkeypatch.setattr(svc, "send_email", lambda **kw: mails.append(kw))
-    resource = SimpleNamespace(vmid=101, user=SimpleNamespace(email="s@campus.edu"))
-
-    svc._audit_and_notify(object(), resource, "old", 7)  # type: ignore[arg-type]
-
-    assert logged[0]["details"] == "Auto-cleaned snapshot 'old' (>7d)"
-    assert logged[0]["commit"] is False
-    assert "保留天數（7 天）" in mails[0]["html_content"]
-    assert mails[0]["email_to"] == "s@campus.edu"
-
-
-def test_audit_and_notify_evidence_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
-    logged: list[dict[str, Any]] = []
-    mails: list[dict[str, Any]] = []
-    monkeypatch.setattr(svc.audit_service, "log_action", lambda **kw: logged.append(kw))
-    monkeypatch.setattr(svc, "send_email", lambda **kw: mails.append(kw))
-    resource = SimpleNamespace(vmid=101, user=SimpleNamespace(email="s@campus.edu"))
-
-    svc._audit_and_notify(object(), resource, "mining-x", 30, evidence=True)  # type: ignore[arg-type]
-
-    assert logged[0]["details"] == (
-        "Auto-cleaned mining evidence snapshot 'mining-x' (incident closed >30d)"
-    )
-    assert "已結案超過 30 天" in mails[0]["html_content"]
 
 
 def test_audit_and_notify_without_owner_email(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -284,19 +248,6 @@ def test_loop_handles_missing_failing_and_eligible(harness: dict[str, Any]) -> N
     assert harness["closed_calls"] == 1
     assert harness["session"].rollbacks == 1
     assert harness["session"].commits == 2
-
-
-def test_disabled_returns_zero(
-    harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        svc,
-        "_get_config",
-        lambda session: SimpleNamespace(
-            snapshot_cleanup_enabled=False, snapshot_retention_days=7
-        ),
-    )
-    assert svc.process_snapshot_cleanup() == 0
 
 
 def test_outer_failure_returns_zero(

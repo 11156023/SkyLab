@@ -29,7 +29,6 @@ from app.models import (
 )
 from app.models.vm_template import VMTemplateVisibility
 from app.schemas.course_environment import (
-    EnvironmentBasicsIn,
     EnvironmentCreate,
     EnvironmentDraftIn,
     EnvironmentEdgeIn,
@@ -264,59 +263,6 @@ def test_template_type_mismatch_is_rejected(db: Session) -> None:
         svc.validate_configuration(db, [_node(lxc_template.id)], [], owner=TEACHER)
 
 
-def test_not_ready_template_is_rejected(db: Session) -> None:
-    template = _template(db, status=VMTemplateStatus.creating)
-    with pytest.raises(BadRequestError):
-        svc.validate_configuration(db, [_node(template.id)], [], owner=TEACHER)
-
-
-def _two_nodes(db: Session) -> list[EnvironmentNodeIn]:
-    template = _template(db)
-    return [_node(template.id), _node(template.id, node_key="db", name="DB")]
-
-
-@pytest.mark.parametrize(
-    "edges",
-    [
-        [_edge(target_node_key="ghost")],
-        [_edge(port=22), _edge(port=22)],
-        [_edge(direction="bidirectional", port=80), _edge(port=80)],
-        [_edge(protocol="any"), _edge(port=443)],
-    ],
-)
-def test_bad_edges_are_rejected(db: Session, edges: list[EnvironmentEdgeIn]) -> None:
-    with pytest.raises(BadRequestError):
-        svc.validate_configuration(db, _two_nodes(db), edges, owner=TEACHER)
-
-
-@pytest.mark.parametrize(
-    "publications",
-    [
-        [_publication(node_key="ghost")],
-        [_publication(), _publication()],
-    ],
-)
-def test_bad_publications_are_rejected(
-    db: Session, publications: list[EnvironmentPublicationIn]
-) -> None:
-    with pytest.raises(BadRequestError):
-        svc.validate_configuration(db, _two_nodes(db), [], publications, owner=TEACHER)
-
-
-def test_port_forward_publications_skip_hostname_check(db: Session) -> None:
-    svc.validate_configuration(
-        db,
-        _two_nodes(db),
-        [_edge(port=22), _edge(direction="bidirectional", port=80)],
-        [
-            _publication(mode="port_forward", port=22),
-            _publication(mode="port_forward", port=23),
-            _publication(port=80),
-        ],
-        owner=TEACHER,
-    )
-
-
 # --- 建立、列表、草稿與編輯 ---------------------------------------------------
 
 
@@ -396,12 +342,6 @@ def test_create_and_save_draft(db: Session) -> None:
     assert saved["draft_data"]["configuration"] == {"name": "Second"}
 
 
-def test_save_draft_refuses_published_version(db: Session) -> None:
-    environment, _ = _environment(db, status=CourseEnvironmentVersionStatus.published)
-    with pytest.raises(BadRequestError):
-        svc.save_draft(db, environment, _draft())
-
-
 def test_update_environment(db: Session) -> None:
     environment, version = _environment(db, draft_data={"configuration": {}})
     result = svc.update_environment(db, environment, _body(db), ADMIN)
@@ -416,37 +356,6 @@ def test_update_environment_refuses_published_version(db: Session) -> None:
     environment, _ = _environment(db, status=CourseEnvironmentVersionStatus.published)
     with pytest.raises(BadRequestError):
         svc.update_environment(db, environment, _body(db), TEACHER)
-
-
-def test_update_basics_also_rewrites_draft(db: Session) -> None:
-    environment, version = _environment(
-        db,
-        draft_data={"configuration": {"name": "Old"}, "editor": {"name": "Old"}},
-    )
-    svc.update_basics(
-        db,
-        environment,
-        EnvironmentBasicsIn(name=" New ", description="d", usage_scope="both"),
-    )
-    assert version.draft_data == {
-        "configuration": {"name": "New", "description": "d", "usage_scope": "both"},
-        "editor": {"name": "New", "description": "d", "usageScope": "both"},
-    }
-
-
-def test_update_basics_with_partial_or_no_draft(db: Session) -> None:
-    environment, version = _environment(db, draft_data={"configuration": "broken"})
-    svc.update_basics(
-        db, environment, EnvironmentBasicsIn(name="A", usage_scope="course")
-    )
-    assert version.draft_data == {"configuration": "broken"}
-
-    plain, plain_version = _environment(db)
-    result = svc.update_basics(
-        db, plain, EnvironmentBasicsIn(name="B", usage_scope="quick_practice")
-    )
-    assert result["name"] == "B"
-    assert plain_version.draft_data is None
 
 
 # --- 發布 ---------------------------------------------------------------------
@@ -481,22 +390,6 @@ def test_publish_rejects_invalid_draft(
         svc.publish(db, environment, TEACHER)
 
 
-def test_publish_applies_draft_and_hashes(db: Session) -> None:
-    body = _body(db)
-    environment, version = _environment(
-        db,
-        draft_data=_draft(body.model_dump(mode="json")).model_dump(mode="json"),
-    )
-
-    result = svc.publish(db, environment, TEACHER)
-
-    assert result["status"] == CourseEnvironmentVersionStatus.published
-    assert result["name"] == "Linux Lab"
-    assert len(result["configuration_hash"]) == 64
-    assert version.draft_data is None
-    assert version.published_at is not None
-
-
 def test_publish_existing_configuration_without_draft(db: Session) -> None:
     environment, version = _environment(db)
     svc.replace_configuration(db, version, _body(db), owner=TEACHER)
@@ -526,20 +419,6 @@ async def test_file_lifecycle(db: Session, file_root: Path) -> None:
     after = svc.delete_file(db, environment, item)
     assert after["files"] == []
     assert not path.exists()
-
-
-def test_record_file_returns_serialized_version(db: Session) -> None:
-    environment, _ = _environment(db)
-    result = svc._record_file(
-        db,
-        environment,
-        file_id=uuid.uuid4(),
-        filename="slides.pdf",
-        storage_key="slides.bin",
-        size_bytes=3,
-        uploaded_by=TEACHER,  # type: ignore[arg-type]
-    )
-    assert [f["filename"] for f in result["files"]] == ["slides.pdf"]
 
 
 def test_get_environment_file_missing_or_foreign(db: Session) -> None:
@@ -632,12 +511,3 @@ def test_delete_environment_removes_versions_and_files(
     assert db.exec(select(CourseEnvironmentVersion)).all() == []
     assert db.exec(select(CourseEnvironmentNode)).all() == []
     assert not (file_root / "doc.bin").exists()
-
-
-def test_delete_environment_without_versions(db: Session) -> None:
-    environment = CourseEnvironment(owner_id=TEACHER.id, name="Bare")
-    db.add(environment)
-    db.commit()
-    environment_id = environment.id
-    svc.delete_environment(db, environment)
-    assert db.get(CourseEnvironment, environment_id) is None

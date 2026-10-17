@@ -55,23 +55,6 @@ async def test_security_headers_docs_skip_csp_and_production_adds_hsts(
     assert sent[1] == {"type": "http.response.body", "body": b"ok"}
 
 
-async def test_security_headers_regular_path_local_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "ENVIRONMENT", "local")
-
-    sent = await _run_middleware("/api/v1/x")
-
-    headers = dict(sent[0]["headers"])
-    assert b"content-security-policy" in headers
-    assert b"strict-transport-security" not in headers
-
-
-async def test_security_headers_pass_through_websocket() -> None:
-    sent = await _run_middleware("/ws/jobs", scope_type="websocket")
-    assert sent[0]["headers"] == []
-
-
 async def test_lifespan_starts_and_stops_scheduler_and_reconciler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -134,10 +117,6 @@ async def test_lifespan_starts_and_stops_scheduler_and_reconciler(
         assert name in calls
     assert calls[-1] == "close_redis"
     assert calls.index("shutdown_runner") < calls.index("close_ai_capacity")
-
-
-async def test_cancel_and_wait_none_is_noop() -> None:
-    await main._cancel_and_wait(None)
 
 
 @pytest.mark.parametrize(

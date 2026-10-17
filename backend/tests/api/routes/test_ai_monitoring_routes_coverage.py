@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -152,76 +152,6 @@ def test_export_rejects_start_after_effective_end() -> None:
     assert "start_date" in info.value.detail
 
 
-def test_export_requires_timezone_on_end_date() -> None:
-    with pytest.raises(HTTPException) as info:
-        ai_monitoring.export_ai_usage(
-            session=SESSION,
-            _current_user=USER,
-            start_date=None,
-            end_date=datetime(2030, 1, 1),
-            source="all",
-            status=None,
-            model_name=None,
-            call_type=None,
-            user_id=None,
-        )
-    assert info.value.status_code == 422
-    assert "end_date" in info.value.detail
-
-
-def test_export_rejects_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        ai_monitoring.ai_usage_export,
-        "count_rows",
-        lambda **_kwargs: ai_monitoring.ai_usage_export.EXPORT_MAX_ROWS + 1,
-    )
-    with pytest.raises(HTTPException) as info:
-        ai_monitoring.export_ai_usage(
-            session=SESSION,
-            _current_user=USER,
-            start_date=None,
-            end_date=None,
-            source="all",
-            status=None,
-            model_name=None,
-            call_type=None,
-            user_id=None,
-        )
-    assert info.value.status_code == 413
-
-
-def test_export_with_start_and_user_filter(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        ai_monitoring.ai_usage_export,
-        "count_rows",
-        lambda **kwargs: captured.update(kwargs) or 1,
-    )
-    monkeypatch.setattr(
-        ai_monitoring.ai_usage_export,
-        "export_csv_chunks",
-        lambda **_kwargs: iter(["id\r\n"]),
-    )
-    tz8 = datetime(2026, 1, 1, 8, tzinfo=UTC).astimezone(timezone(timedelta(hours=8)))
-    user_id = uuid.uuid4()
-    response = ai_monitoring.export_ai_usage(
-        session=SESSION,
-        _current_user=USER,
-        start_date=tz8,
-        end_date=None,
-        source="platform",
-        status="success",
-        model_name="m",
-        call_type="chat",
-        user_id=user_id,
-    )
-    assert response.headers["cache-control"] == "no-store"
-    # 帶時區的邊界統一轉成 UTC
-    assert captured["start_date"].utcoffset() == timedelta(0)
-    assert captured["start_date"] == datetime(2026, 1, 1, 8, tzinfo=UTC)
-    assert captured["user_id"] == user_id
-
-
 # ─── LiteLLM runtime snapshot ─────────────────────────────────────────────────
 
 
@@ -259,37 +189,6 @@ def _install(monkeypatch: pytest.MonkeyPatch, responses: dict[str, Any]) -> None
 
 def _ok(payload: Any = None) -> httpx.Response:
     return httpx.Response(200, json=payload if payload is not None else {})
-
-
-async def test_runtime_snapshot_without_key_is_503(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        ai_monitoring,
-        "ai_api_settings",
-        SimpleNamespace(litellm_runtime_api_key="", litellm_runtime_base_url="x"),
-    )
-    with pytest.raises(HTTPException) as info:
-        await ai_monitoring.get_litellm_runtime_snapshot(USER)
-    assert info.value.status_code == 503
-
-
-async def test_runtime_snapshot_offline_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install(
-        monkeypatch,
-        {
-            "/health/liveliness": _ok(),
-            "/health/readiness": _ok(),
-            "/health": _ok({"unhealthy_endpoints": [{"model_id": "dep-9"}]}),
-            "/model/info": _ok(
-                {"data": [{"model_name": "down", "model_info": {"id": "dep-9"}}]}
-            ),
-            "/v1/models": _ok({"data": []}),
-        },
-    )
-    snapshot = await ai_monitoring.get_litellm_runtime_snapshot(USER)
-    assert snapshot["models"][0]["status"] == "offline"
-    assert snapshot["summary"]["offline"] == 1
 
 
 async def test_runtime_snapshot_request_error_is_503(

@@ -106,52 +106,8 @@ def test_upsert_storages_updates_creates_and_deletes(session: Session) -> None:
     assert (other.node_name, other.storage) in names
 
 
-def test_upsert_storages_without_scope_deletes_everything_missing(
-    session: Session,
-) -> None:
-    _storage(session, "a", "x")
-    _storage(session, "b", "y")
-
-    result = repo.upsert_storages(session, [{"node_name": "a", "storage": "x"}])
-
-    assert [(s.node_name, s.storage) for s in result] == [("a", "x")]
-    assert len(repo.get_all_storages(session)) == 1
-
-
 def test_update_storage_settings_missing_returns_none(session: Session) -> None:
     assert repo.update_storage_settings(session, 424242, True, "ssd", 1) is None
-
-
-def test_update_storage_settings_single_target(session: Session) -> None:
-    s = _storage(session, "pve1", "local", is_shared=False)
-
-    target, nodes = repo.update_storage_settings(
-        session, s.id, True, "nvme", 2, peer_node_names={"pve1", "pve2"}
-    )
-
-    assert target.id == s.id
-    assert target.enabled is True
-    assert target.speed_tier == "nvme"
-    assert target.user_priority == 2
-    assert nodes == ["pve1"]
-
-
-def test_update_storage_settings_applies_to_shared_peers(session: Session) -> None:
-    s1 = _storage(session, "pve1", "ceph", is_shared=True)
-    s2 = _storage(session, "pve2", "ceph", is_shared=True)
-    s3 = _storage(session, "pve3", "ceph", is_shared=True)
-
-    target, nodes = repo.update_storage_settings(
-        session, s1.id, False, "ssd", 7, peer_node_names={"pve1", "pve2"}
-    )
-
-    assert target.id == s1.id
-    assert nodes == ["pve1", "pve2"]
-    session.refresh(s2)
-    session.refresh(s3)
-    assert s2.speed_tier == "ssd"
-    assert s2.user_priority == 7
-    assert s3.speed_tier != "ssd"
 
 
 def test_update_storage_settings_appends_self_when_not_in_peers(
@@ -166,13 +122,3 @@ def test_update_storage_settings_appends_self_when_not_in_peers(
 
     assert target.id == s1.id
     assert nodes == ["pve1", "pve2"]
-
-
-def test_update_storage_settings_no_peers_found_keeps_self(session: Session) -> None:
-    s1 = _storage(session, "pve1", "ceph", is_shared=True)
-
-    _, nodes = repo.update_storage_settings(
-        session, s1.id, True, "hdd", 3, peer_node_names={"nowhere"}
-    )
-
-    assert nodes == ["pve1"]

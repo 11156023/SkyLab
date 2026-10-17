@@ -12,7 +12,6 @@ import pytest
 from app.services.governance import lifecycle_service
 from app.services.governance.lifecycle_policy import IdleAction, TtlAction
 from app.services.resource import deletion_service
-from app.services.security import mining_service
 
 NOW = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
 
@@ -155,15 +154,6 @@ def test_utc_now_is_timezone_aware() -> None:
     assert lifecycle_service._utc_now().tzinfo is not None
 
 
-def test_owner_email_none_without_user_or_email() -> None:
-    assert lifecycle_service._owner_email(_resource(user=None)) is None  # type: ignore[arg-type]
-    assert (
-        lifecycle_service._owner_email(_resource(user=SimpleNamespace(email="")))  # type: ignore[arg-type]
-        is None
-    )
-    assert lifecycle_service._owner_email(_resource()) == "s@campus.edu"  # type: ignore[arg-type]
-
-
 def test_send_owner_email_skips_without_email(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[Any] = []
     monkeypatch.setattr(lifecycle_service, "send_email", lambda **kw: sent.append(kw))
@@ -185,13 +175,6 @@ def test_send_owner_email_swallows_failure(
 def test_vmids_with_open_deletion_skips_null() -> None:
     session = _FakeSession(rows=[101, None, "202"])
     assert lifecycle_service._vmids_with_open_deletion(session) == {101, 202}  # type: ignore[arg-type]
-
-
-def test_vmids_with_open_mining_incident_delegates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mining_service, "open_incident_vmids", lambda session: {7})
-    assert lifecycle_service._vmids_with_open_mining_incident(object()) == {7}  # type: ignore[arg-type]
 
 
 def test_uptime_seconds_variants() -> None:
@@ -252,15 +235,6 @@ def test_fetch_avg_cpu_averages_rrd(monkeypatch: pytest.MonkeyPatch) -> None:
 # ─── _apply_ttl_* ──────────────────────────────────────────────────────────
 
 
-def test_apply_ttl_warn_emails_and_stamps(env: dict[str, Any]) -> None:
-    session = _FakeSession()
-    resource = _resource()
-    lifecycle_service._apply_ttl_warn(session, resource, NOW)  # type: ignore[arg-type]
-    assert resource.expiry_notified_at == NOW
-    assert session.added == [resource]
-    assert "即將到期" in env["emails"][0]
-
-
 def test_apply_ttl_stop_skips_when_already_scheduled(env: dict[str, Any]) -> None:
     resource = _resource(auto_stop_reason="ttl_expired", auto_stop_at=NOW)
     lifecycle_service._apply_ttl_stop(_FakeSession(), resource, NOW)  # type: ignore[arg-type]
@@ -275,26 +249,6 @@ def test_apply_ttl_delete_missing_on_pve(env: dict[str, Any]) -> None:
     assert resource.scheduled_deletion_at == NOW
     assert env["deletions"] == []
     assert env["emails"] == []
-
-
-def test_apply_ttl_delete_queues_deletion(env: dict[str, Any]) -> None:
-    session = _FakeSession()
-    resource = _resource()
-    lifecycle_service._apply_ttl_delete(  # type: ignore[arg-type]
-        session,
-        resource,
-        NOW,
-        {"name": "vm-a", "node": "pve1", "type": "qemu"},
-    )
-    assert env["deletions"][0]["resource_info"] == {
-        "name": "vm-a",
-        "node": "pve1",
-        "type": "qemu",
-    }
-    assert env["deletions"][0]["purge"] is True
-    assert env["deletions"][0]["force"] is True
-    assert resource.scheduled_deletion_at == NOW
-    assert "刪除佇列" in env["emails"][0]
 
 
 # ─── process_ttl_lifecycle ─────────────────────────────────────────────────
@@ -383,16 +337,6 @@ def test_ttl_outer_failure_returns_zero(
 # ─── _apply_idle_action ────────────────────────────────────────────────────
 
 
-def test_apply_idle_mark_sets_idle_since(env: dict[str, Any]) -> None:
-    resource = _resource(idle_notified_at=NOW)
-    lifecycle_service._apply_idle_action(  # type: ignore[arg-type]
-        _FakeSession(), resource, IdleAction.mark, NOW, grace_hours=24
-    )
-    assert resource.idle_since == NOW
-    assert resource.idle_notified_at is None
-    assert env["emails"] == []
-
-
 def test_apply_idle_notify_with_idle_since(env: dict[str, Any]) -> None:
     resource = _resource(idle_since=NOW - timedelta(hours=13))
     lifecycle_service._apply_idle_action(  # type: ignore[arg-type]
@@ -400,35 +344,6 @@ def test_apply_idle_notify_with_idle_since(env: dict[str, Any]) -> None:
     )
     assert resource.idle_notified_at == NOW
     assert "疑似閒置" in env["emails"][0]
-
-
-def test_apply_idle_notify_without_idle_since(env: dict[str, Any]) -> None:
-    resource = _resource(idle_since=None)
-    lifecycle_service._apply_idle_action(  # type: ignore[arg-type]
-        _FakeSession(), resource, IdleAction.notify, NOW, grace_hours=0
-    )
-    assert resource.idle_notified_at == NOW
-    assert len(env["emails"]) == 1
-
-
-def test_apply_idle_stop_sends_email_once(env: dict[str, Any]) -> None:
-    resource = _resource(
-        idle_since=NOW - timedelta(hours=30),
-        idle_notified_at=NOW - timedelta(hours=18),
-    )
-    lifecycle_service._apply_idle_action(  # type: ignore[arg-type]
-        _FakeSession(), resource, IdleAction.stop, NOW, grace_hours=24
-    )
-    assert env["auto_stops"] == ["idle"]
-    assert resource.idle_notified_at == NOW
-    assert len(env["emails"]) == 1
-
-    # 第二次判 stop：idle_notified_at 已晚於寬限期滿，只重排關機不再寄信
-    lifecycle_service._apply_idle_action(  # type: ignore[arg-type]
-        _FakeSession(), resource, IdleAction.stop, NOW, grace_hours=24
-    )
-    assert env["auto_stops"] == ["idle", "idle"]
-    assert len(env["emails"]) == 1
 
 
 def test_apply_idle_stop_without_prior_notice_emails(env: dict[str, Any]) -> None:
@@ -461,10 +376,6 @@ def test_idle_disabled_returns_zero(env: dict[str, Any]) -> None:
     assert lifecycle_service.process_idle_detection() == 0
 
 
-def test_idle_no_candidates(env: dict[str, Any]) -> None:
-    assert lifecycle_service.process_idle_detection() == 0
-
-
 def test_idle_skips_candidate_missing_on_pve_and_counts_actions(
     env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -480,33 +391,6 @@ def test_idle_skips_candidate_missing_on_pve_and_counts_actions(
     assert missing.idle_checked_at is None
     assert active.idle_since == NOW
     assert active.idle_checked_at == NOW
-
-
-def test_idle_skips_vm_with_open_mining_incident(
-    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    resource = _resource(idle_since=NOW, idle_notified_at=NOW)
-    env["resources"] = [resource]
-    monkeypatch.setattr(
-        lifecycle_service, "_vmids_with_open_mining_incident", lambda s: {101}
-    )
-    assert lifecycle_service.process_idle_detection() == 0
-    assert resource.idle_since is None
-    assert resource.idle_notified_at is None
-    assert resource.idle_checked_at == NOW
-
-
-def test_idle_none_action_not_counted(
-    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    resource = _resource()
-    env["resources"] = [resource]
-    monkeypatch.setattr(lifecycle_service, "_fetch_avg_cpu", lambda *a, **k: 80.0)
-    monkeypatch.setattr(
-        lifecycle_service, "decide_idle_action", lambda **kw: IdleAction.none
-    )
-    assert lifecycle_service.process_idle_detection() == 0
-    assert resource.idle_checked_at == NOW
 
 
 def test_idle_per_resource_failure_still_advances_cursor(

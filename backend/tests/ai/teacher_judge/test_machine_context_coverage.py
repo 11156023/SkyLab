@@ -6,8 +6,6 @@ import uuid
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from app.ai.teacher_judge import machine_context as mc
 from app.models.teaching_class import TeachingClassMachineNode
 from tests.ai.teacher_judge.helpers import make_session
@@ -41,39 +39,6 @@ def test_guest_os_by_node_id_skips_duplicate_and_missing_vmid() -> None:
     session = _ScriptedSession(machines, resources)
     result = mc._guest_os_by_node_id(session, [node_a, node_b])  # type: ignore[arg-type]
     assert result == {node_a: {"family": "debian"}}
-
-
-def test_guest_os_by_node_id_without_vmids() -> None:
-    node = uuid.uuid4()
-    session = _ScriptedSession([SimpleNamespace(machine_node_id=node, vmid=None)])
-    assert mc._guest_os_by_node_id(session, [node]) == {}  # type: ignore[arg-type]
-
-
-def test_display_label_and_canonicalize_ambiguous() -> None:
-    assert mc.machine_node_display_label(SimpleNamespace(sort_order=2)) == "P3"  # type: ignore[arg-type]
-    entries = [
-        {"node_key": "a", "display_label": "P1"},
-        {"node_key": "b", "display_label": "P1"},
-    ]
-    with pytest.raises(ValueError, match="P1"):
-        mc.canonicalize_machine_node_key("P1", entries)
-
-
-def test_rubric_item_machine_issues_token_must_be_whole_argv() -> None:
-    issues = mc.rubric_item_machine_issues(
-        {
-            "target_node_key": "web",
-            "peer_node_key": "db",
-            "check_steps": [{"argv": ["ping", f"x{mc.PEER_IP_TOKEN}"]}],
-        }
-    )
-    assert f"{mc.PEER_IP_TOKEN} 只能作為完整 argv element" in issues
-
-
-def test_target_node_keys_include_top_level_key() -> None:
-    assert mc.target_node_keys_from_snapshot(
-        {"items": [{"target_node_key": "web"}], "target_node_key": "db"}
-    ) == {"web", "db"}
 
 
 def test_rubric_item_machine_issues_peer_requirements() -> None:

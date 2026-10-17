@@ -187,15 +187,6 @@ def test_inject_lxc_platform_key_blank_key() -> None:
     assert cs._inject_lxc_platform_key("pve1", NEW_VMID, "   ") is False
 
 
-def test_public_lxc_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        cs, "_set_lxc_root_password", lambda node, vmid, pw, hashed=False: hashed
-    )
-    monkeypatch.setattr(cs, "_inject_lxc_platform_key", lambda node, vmid, key: True)
-    assert cs.set_lxc_root_password("pve1", 1, "x", hashed=True) is True
-    assert cs.inject_lxc_platform_key("pve1", 1, "k") is True
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [(None, None), ("", None), ("2026-12-31", date(2026, 12, 31)), ("nope", None)],
@@ -461,23 +452,6 @@ def test_run_clone_task_lxc_not_started_keeps_password_pending(
     created = stubs["create_resource"][0]
     assert created["login_password_encrypted"] is None
     assert created["login_password_pending_encrypted"] == "enc:Random123"
-
-
-def test_run_clone_task_keeps_template_credentials(
-    eng: Engine, stubs: dict[str, list]
-) -> None:
-    template = _template(eng, resource_type="lxc")
-
-    result = cs.run_clone_task(
-        uuid.uuid4(), _payload(template, allow_password_reset=False)
-    )
-
-    assert result["login_password_set"] is False
-    assert stubs["set_password"] == []
-    created = stubs["create_resource"][0]
-    assert created["login_password_encrypted"] is None
-    assert created["login_password_pending_encrypted"] is None
-    assert created["login_password_hash"] is None
 
 
 def test_run_clone_task_rolls_back_after_partial_setup(

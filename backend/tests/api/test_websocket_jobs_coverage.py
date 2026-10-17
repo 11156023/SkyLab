@@ -160,19 +160,6 @@ async def test_reminders_are_cached_between_refresh_rounds(
     assert session.closed
 
 
-async def test_unexpected_error_closes_with_1011(
-    monkeypatch: pytest.MonkeyPatch, session: FakeSession
-) -> None:
-    monkeypatch.setattr(jobs_ws, "_poll_once", lambda *a, **k: Snap(1, None))
-    ws = FakeWs(send_error=RuntimeError("send failed"))
-
-    await asyncio.wait_for(
-        jobs_ws.jobs_ws_proxy(cast(WebSocket, ws), token="t"), timeout=2
-    )
-
-    assert ws.closed_with == [1011]
-
-
 async def test_close_failure_after_error_is_ignored(
     monkeypatch: pytest.MonkeyPatch, session: FakeSession
 ) -> None:

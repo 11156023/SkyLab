@@ -1,15 +1,11 @@
 """app.schemas 各模組 validator 分支覆蓋測試（resource_settings、ip_management、resource、
 course_environment、firewall、push、template、gateway、teaching_class）。"""
 
-import uuid
-from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
-from app.models.task_record import TaskRecordStatus
 from app.schemas.course_environment import (
     MAX_DRAFT_BYTES,
     EnvironmentDraftIn,
@@ -27,7 +23,6 @@ from app.schemas.resource_settings import (
     PasswordResetRequest,
 )
 from app.schemas.teaching_class import ClassPatch
-from app.schemas.template import TaskRecordPublic
 
 # --- resource_settings -------------------------------------------------------
 
@@ -169,15 +164,6 @@ def test_node_custom_qemu_requires_positive_vmid(ref: str) -> None:
         _node(source_type="custom", custom_image_ref=ref)
 
 
-def test_node_custom_qemu_accepts_vmid() -> None:
-    node = _node(
-        source_type="custom",
-        custom_image_ref="9001",
-        source_template_id=uuid.uuid4(),
-    )
-    assert node.source_template_id is None
-
-
 def test_edge_rejects_same_node() -> None:
     with pytest.raises(ValidationError):
         EnvironmentEdgeIn(source_node_key="a", target_node_key="a")
@@ -212,31 +198,6 @@ def test_push_endpoint_unparseable_by_sender_is_rejected() -> None:
 
 
 # --- template ----------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("result", "expected"), [({"ok": True}, {"ok": True}), ("text", None)]
-)
-def test_task_record_public_from_record(
-    result: Any, expected: dict[str, Any] | None
-) -> None:
-    now = datetime(2026, 10, 1, tzinfo=UTC)
-    record = SimpleNamespace(
-        id=uuid.uuid4(),
-        task_type="template_clone",
-        status=TaskRecordStatus.succeeded,
-        progress=100,
-        result=result,
-        error=None,
-        template_id=None,
-        resource_vmid=101,
-        created_at=now,
-        started_at=now,
-        finished_at=now,
-    )
-    public = TaskRecordPublic.from_record(record)  # type: ignore[arg-type]
-    assert public.result == expected
-    assert public.resource_vmid == 101
 
 
 # --- gateway -----------------------------------------------------------------

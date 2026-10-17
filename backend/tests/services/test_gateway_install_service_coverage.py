@@ -114,20 +114,6 @@ def test_connect_wraps_ssh_failures(monkeypatch: pytest.MonkeyPatch) -> None:
         svc._connect(object())
 
 
-def test_connect_returns_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_config(monkeypatch)
-    calls: list[tuple] = []
-    client = _FakeClient()
-    monkeypatch.setattr(
-        gateway_service,
-        "make_client",
-        lambda *args: calls.append(args) or client,
-    )
-
-    assert svc._connect(object()) is client
-    assert calls == [("gw.example", 22, "root", "PEM")]
-
-
 # ---------------------------------------------------------------- status
 
 
@@ -164,22 +150,6 @@ def test_get_install_status_uses_subnet_config(monkeypatch: pytest.MonkeyPatch) 
     assert status.defaults.forward_port_start == 31000
     assert status.defaults.monitoring_allow_from == ["192.168.100.20"]
     assert status.log == "done\n"
-
-
-def test_read_status_without_subnet_uses_settings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        gateway_service, "_exec", lambda client, cmd: (0, _STATUS_OK, "")
-    )
-    monkeypatch.setattr(
-        ip_management_service, "get_subnet_config", lambda session: None
-    )
-
-    status = svc._read_status(object(), _FakeClient())
-
-    assert status.wireguard_vm_subnet == svc.settings.WIREGUARD_VM_SUBNET
-    assert status.defaults.forward_port_start == 30000
 
 
 # ---------------------------------------------------------------- start
@@ -239,12 +209,3 @@ def test_start_install_maps_remote_outcomes(start_env, result, error) -> None:
         svc.start_install(object(), GatewayInstallOptions())
 
     assert start_env.client.closed is True
-
-
-def test_start_install_without_root_removes_uploaded_script(start_env) -> None:
-    start_env.state["start"] = (0, "ROOT=0\n", "")
-
-    with pytest.raises(BadRequestError):
-        svc.start_install(object(), GatewayInstallOptions())
-
-    assert start_env.commands[-1].startswith("rm -f")

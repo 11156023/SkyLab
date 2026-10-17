@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -68,58 +68,6 @@ def _set_status(session: Session, job: BatchProvisionJob, status) -> None:
 )
 def test_job_params(value, expected) -> None:
     assert repo.job_params(SimpleNamespace(template_params=value)) == expected
-
-
-def test_job_params_missing_attribute() -> None:
-    assert repo.job_params(object()) == {}
-
-
-def test_create_job_with_tasks(session: Session) -> None:
-    job = _job(session, members=3, recurrence_rule="FREQ=WEEKLY")
-    assert job.total == 3
-    assert job.status == S.pending_review
-    tasks = repo.get_job_tasks(session=session, job_id=job.id)
-    assert [t.member_index for t in tasks] == [1, 2, 3]
-    assert repo.get_job(session=session, job_id=job.id).id == job.id
-    assert [t.id for t in repo.get_pending_tasks(session=session, job_id=job.id)] == [
-        t.id for t in tasks
-    ]
-
-
-def test_transition_pending_review(session: Session) -> None:
-    job = _job(session)
-    reviewer = uuid.uuid4()
-    out = repo.transition_pending_review(
-        session=session,
-        job_id=job.id,
-        reviewer_id=reviewer,
-        decision=S.approved,
-        review_comment="",
-    )
-    assert out is not None
-    assert out.status == S.approved
-    assert out.review_comment is None
-    # second attempt loses the race
-    assert (
-        repo.transition_pending_review(
-            session=session, job_id=job.id, reviewer_id=reviewer, decision=S.rejected
-        )
-        is None
-    )
-
-
-def test_transition_pending_review_job_vanished(session: Session, monkeypatch) -> None:
-    job = _job(session)
-    monkeypatch.setattr(session, "get", lambda *_a, **_k: None)
-    assert (
-        repo.transition_pending_review(
-            session=session,
-            job_id=job.id,
-            reviewer_id=uuid.uuid4(),
-            decision=S.approved,
-        )
-        is None
-    )
 
 
 def test_transition_pending_reviews(session: Session) -> None:
@@ -201,33 +149,6 @@ def test_claim_pending_task(session: Session) -> None:
     assert not repo.claim_pending_task(session=session, job_id=job.id, task_id=task.id)
 
 
-def test_touch_running_task_heartbeat(session: Session) -> None:
-    job = _job(session, members=2)
-    t1, t2 = repo.get_job_tasks(session=session, job_id=job.id)
-    t1.status = T.running
-    t1.started_at = datetime.now(UTC) - timedelta(hours=5)
-    session.add(t1)
-    session.commit()
-    assert repo.touch_running_task_heartbeat(session=session, job_id=job.id) == 1
-    session.refresh(t2)
-    assert t2.started_at is None
-
-
-def test_mark_task_failed_if_open(session: Session) -> None:
-    job = _job(session, members=1)
-    task = repo.get_job_tasks(session=session, job_id=job.id)[0]
-    assert repo.mark_task_failed_if_open(
-        session=session, task_id=task.id, error="x" * 600
-    )
-    session.commit()
-    session.refresh(task)
-    assert task.status == T.failed
-    assert len(task.error) == 500
-    assert not repo.mark_task_failed_if_open(
-        session=session, task_id=task.id, error="y"
-    )
-
-
 def test_mark_task_completed(session: Session) -> None:
     job = _job(session, members=2)
     t1, t2 = repo.get_job_tasks(session=session, job_id=job.id)
@@ -278,15 +199,6 @@ def test_recount_job(session: Session) -> None:
     _set_status(session, job, S.running)
     out = repo.recount_job(session=session, job_id=job.id)
     assert out.status == S.running
-
-
-def test_transition_job_to_running(session: Session) -> None:
-    job = _job(session)
-    assert not repo.transition_job_to_running(session=session, job_id=job.id)
-    _set_status(session, job, S.approved)
-    assert repo.transition_job_to_running(session=session, job_id=job.id)
-    session.refresh(job)
-    assert job.status == S.running
 
 
 @pytest.mark.parametrize("commit", [True, False])

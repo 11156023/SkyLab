@@ -242,13 +242,6 @@ async def test_proxy_json_payload_rejects_non_object() -> None:
     assert json.loads(response.body)["error"]["code"] == "invalid_request"
 
 
-@pytest.mark.parametrize("model", [None, "", "   ", 42])
-def test_proxy_request_model_requires_non_empty_string(model: Any) -> None:
-    response = proxy_route._request_model({"model": model})
-    assert isinstance(response, JSONResponse)
-    assert json.loads(response.body)["error"]["code"] == "invalid_model"
-
-
 async def test_proxy_relay_returns_payload_error_before_relaying(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

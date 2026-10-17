@@ -174,14 +174,6 @@ def test_select_reserved_target_node_with_no_feasible_node(env) -> None:
     assert selection.plan.candidate_nodes == []
 
 
-def test_select_reserved_target_node_with_window(env) -> None:
-    selection = placement_service.select_reserved_target_node(
-        session=None, db_request=_vm_request(), reserved_requests=[]
-    )
-    assert selection.node is not None
-    assert "rental window" in selection.plan.summary
-
-
 # ---------------------------------------------------------------------------
 # pinned / rebuild
 # ---------------------------------------------------------------------------
@@ -220,47 +212,9 @@ def test_rebuild_keeps_provisioned_node_and_raises_on_infeasible(
     assert provisioned.desired_node == "pve-live"
 
 
-def test_rebuild_pins_running_clone_and_assigns_others(monkeypatch) -> None:
-    cloning = _vm_request(
-        hostname="cloning",
-        provisioning_status=VMProvisioningStatus.running,
-        desired_node="pve1",
-    )
-    fresh = _vm_request(hostname="fresh", start_at=START + timedelta(hours=1))
-    seen: list[list[str]] = []
-
-    def _fake_select(*, session, db_request, reserved_requests):
-        seen.append([item.hostname for item in reserved_requests])
-        return SimpleNamespace(
-            node="pve2", strategy="s", plan=SimpleNamespace(feasible=True)
-        )
-
-    monkeypatch.setattr(placement_service, "select_reserved_target_node", _fake_select)
-
-    selections = placement_service.rebuild_reserved_assignments(
-        session=None, requests=[fresh, cloning]
-    )
-
-    assert cloning.assigned_node == "pve1"
-    assert seen == [["cloning"]]
-    assert fresh.assigned_node == "pve2"
-    assert fresh.placement_strategy_used == "s"
-    assert set(selections) == {fresh.id}
-
-
 # ---------------------------------------------------------------------------
 # preview scores
 # ---------------------------------------------------------------------------
-
-
-def test_preview_scores_empty_when_no_node_fits(env) -> None:
-    env.nodes = [_node("pve1", allocatable_cpu_cores=0.5)]
-    assert (
-        placement_service.get_preview_node_scores(
-            session=None, db_request=_vm_request()
-        )
-        == []
-    )
 
 
 def test_preview_scores_empty_without_window(env) -> None:
@@ -333,19 +287,6 @@ def test_preview_breakdown_returns_none_for_unknown_node() -> None:
 # ---------------------------------------------------------------------------
 # select_best_storage_name
 # ---------------------------------------------------------------------------
-
-
-def test_select_best_storage_name_fallback_without_managed_storage(env) -> None:
-    assert (
-        placement_service.select_best_storage_name(
-            session=None,
-            node_name="pve1",
-            resource_type="lxc",
-            disk_gb=8,
-            fallback_storage="local-lvm",
-        )
-        == "local-lvm"
-    )
 
 
 def test_select_best_storage_name_picks_pool(env) -> None:

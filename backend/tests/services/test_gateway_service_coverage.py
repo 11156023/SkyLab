@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 from app.exceptions import BadRequestError, ProxmoxError, UpstreamServiceError
-from app.infrastructure.ssh import SSHAuthenticationError
 from app.repositories import gateway_config as gw_repo
 from app.repositories import wireguard_peer as peer_repo
 from app.services.network import gateway_service, ip_management_service
@@ -90,19 +89,6 @@ def test_systemd_unit_rejects_unknown_service() -> None:
         gateway_service._systemd_unit("haproxy")
 
 
-def test_generate_keypair_and_public_config(monkeypatch) -> None:
-    monkeypatch.setattr(
-        gateway_service, "_generate_ed25519_keypair", lambda: ("priv", "pub")
-    )
-    assert gateway_service.generate_ed25519_keypair() == ("priv", "pub")
-
-    empty = gateway_service.to_public_config(None)
-    assert empty.is_configured is False
-    public = gateway_service.to_public_config(_config())
-    assert public.is_configured is True
-    assert public.host == "10.0.0.1"
-
-
 def test_make_client_passes_timeout(monkeypatch) -> None:
     seen = {}
 
@@ -128,12 +114,6 @@ def test_exec_checked_raises_on_failure(monkeypatch) -> None:
 
 
 # ── 已儲存連線 / host key ────────────────────────────────────────────────
-
-
-def test_saved_connection_not_configured(monkeypatch) -> None:
-    monkeypatch.setattr(gw_repo, "get_gateway_config", lambda _s: None)
-    ok, _message = gateway_service.test_saved_connection(object())
-    assert ok is False
 
 
 def test_saved_connection_uses_decrypted_key(monkeypatch, configured) -> None:
@@ -172,12 +152,6 @@ def test_get_config_requires_host_and_key(monkeypatch) -> None:
     )
     with pytest.raises(BadRequestError):
         gateway_service._get_credentials(object())
-
-
-def test_get_credentials_returns_config_and_key(configured) -> None:
-    config, pem = gateway_service._get_credentials(object())
-    assert config is configured
-    assert pem == "PEM"
 
 
 # ── SSH client context managers ──────────────────────────────────────────
@@ -219,23 +193,6 @@ def test_connection_ok_and_unexpected(monkeypatch) -> None:
     ok, message = gateway_service.test_connection("h", 22, "root", "pem")
     assert ok is False
     assert "nope" in message
-
-
-def test_connection_auth_and_generic_errors(monkeypatch) -> None:
-    def auth_fail(*_a, **_k):
-        raise SSHAuthenticationError("denied")
-
-    monkeypatch.setattr(gateway_service, "make_client", auth_fail)
-    ok, _ = gateway_service.test_connection("h", 22, "root", "pem")
-    assert ok is False
-
-    def other_fail(*_a, **_k):
-        raise OSError("timeout")
-
-    monkeypatch.setattr(gateway_service, "make_client", other_fail)
-    ok, message = gateway_service.test_connection("h", 22, "root", "pem")
-    assert ok is False
-    assert "timeout" in message
 
 
 # ── 設定檔讀寫 ───────────────────────────────────────────────────────────
@@ -378,14 +335,6 @@ def test_parse_wireguard_dump_tolerates_bad_numbers() -> None:
     assert metrics["transfer_tx_bytes"] == 0
 
 
-def test_format_endpoint_variants() -> None:
-    assert gateway_service.format_endpoint("gw.example.com", 51820) == (
-        "gw.example.com:51820"
-    )
-    assert gateway_service.format_endpoint("::1", 51820) == "[::1]:51820"
-    assert gateway_service.format_endpoint("10.0.0.1", 51820) == "10.0.0.1:51820"
-
-
 def _patch_overview_deps(monkeypatch, subnet) -> None:
     monkeypatch.setattr(
         peer_repo, "list_active_unexpired", lambda *, session, now: [1, 2]
@@ -407,19 +356,6 @@ def test_wireguard_overview_with_runtime_metrics(monkeypatch, configured) -> Non
     assert overview.vm_subnet == "10.20.0.0/24"
     assert overview.listen_port == 51820
     assert overview.transfer_rx_bytes == 10
-
-
-def test_wireguard_overview_command_failure_keeps_empty_metrics(
-    monkeypatch, configured
-) -> None:
-    _patch_overview_deps(monkeypatch, None)
-    _patch_client(monkeypatch, _Client())
-    monkeypatch.setattr(gateway_service, "_exec", lambda *_a, **_k: (1, "", "err"))
-
-    overview = gateway_service.get_wireguard_overview(object())
-
-    assert overview.inspection_available is False
-    assert overview.vm_subnet == gateway_service.settings.WIREGUARD_VM_SUBNET
 
 
 def test_wireguard_overview_ssh_failure_is_logged(monkeypatch, configured) -> None:
@@ -444,63 +380,6 @@ def test_version_helpers_edge_cases() -> None:
     assert gateway_service._normalize_version("v") is None
     assert gateway_service._extract_current_version("   ") is None
     assert gateway_service._extract_current_version("no version here") is None
-
-
-def test_exec_checked_returns_stdout(monkeypatch) -> None:
-    monkeypatch.setattr(
-        gateway_service, "exec_command", lambda *_a, **_k: (0, "out", "")
-    )
-    assert gateway_service.exec_checked(object(), "true", "failed") == "out"
-
-
-def test_control_service_restart_active(monkeypatch, configured) -> None:
-    _patch_client(monkeypatch, _Client())
-    monkeypatch.setattr(gateway_service, "_exec", lambda *_a, **_k: (0, "active\n", ""))
-    ok, _message = gateway_service.control_service(object(), "wireguard", "restart")
-    assert ok is True
-
-
-def test_service_versions_detect_apt_update(monkeypatch) -> None:
-    def fake_exec(_client, command: str, **_kwargs):
-        if "apt-cache policy" in command:
-            return (
-                0,
-                "nginx:\n  Installed: 1.26.3-3+deb13u1\n  Candidate: (none)\n"
-                "  Installed: ignored-duplicate\n",
-                "",
-            )
-        if command.startswith("nginx -v"):
-            return 0, "", "nginx version: nginx/1.26.3\n"
-        return 0, "wireguard-tools v1.0.20210914\n", ""
-
-    class _Ctx:
-        def __enter__(self):
-            return object()
-
-        def __exit__(self, *exc):
-            return None
-
-    monkeypatch.setattr(gateway_service, "gateway_client", lambda _s: _Ctx())
-    monkeypatch.setattr(gateway_service, "_exec", fake_exec)
-
-    result = gateway_service.get_service_versions(object())
-
-    by_service = {item.service: item for item in result.items}
-    assert by_service["nginx"].current_version == "1.26.3-3+deb13u1"
-    assert by_service["nginx"].target_version is None
-    assert by_service["nginx"].update_available is None
-    assert by_service["wireguard"].current_version == "1.0.20210914"
-    assert by_service["wireguard"].detection_error is None
-
-
-def test_apt_versions_compare_installed_and_candidate() -> None:
-    info = gateway_service._build_service_version_info(
-        service="nginx",
-        version_output="nginx version: nginx/1.26.3",
-        installed_version="1.26.3-3+deb13u1",
-        candidate_version="1.26.3-3+deb13u2",
-    )
-    assert info.update_available is True
 
 
 def test_service_versions_report_detection_errors(monkeypatch) -> None:

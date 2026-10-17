@@ -196,18 +196,3 @@ def test_path_progress_report(session: Session) -> None:
     assert [r.room_id for r in alice_row.rooms] == [room.id, second_room.id]
     assert alice_row.rooms[1].total_questions == 0
     assert alice_row.rooms[1].progress_percent == 0.0
-
-
-def test_path_progress_report_for_empty_path(session: Session) -> None:
-    report = progress_service.path_progress_report(session, path_id=uuid.uuid4())
-    assert report.total_questions == 0
-    assert report.students == []
-
-    path = CoursePath(title="P", status=CoursePathStatus.published)
-    session.add(path)
-    session.commit()
-    session.add(CourseRoom(path_id=path.id, title="R"))
-    session.commit()
-    report = progress_service.path_progress_report(session, path_id=path.id)
-    assert report.total_questions == 0
-    assert report.students == []

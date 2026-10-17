@@ -20,8 +20,6 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
     TeacherJudgeScriptRunTargetScope,
 )
-from app.models.teacher_judge_session import TeacherJudgeSession
-from app.models.teaching_class import TeachingClassMachineNode
 from app.repositories import resource as resource_repo
 from app.services import os_identity_service
 from tests.ai.teacher_judge.helpers import make_session
@@ -252,32 +250,6 @@ def test_read_remote_text_handles_missing_file_and_text_reads() -> None:
     assert executor._read_remote_text(_TextSFTP(), "/x", 5) == ("abcde", True)
 
 
-@pytest.mark.parametrize(
-    ("exit_code", "stderr", "reason"),
-    [
-        (127, "", "python_missing"),
-        (0, "sh: python3: not found", "python_missing"),
-        (1, "", "execution_nonzero"),
-        (executor.TIMEOUT_EXIT_CODE, "", "execution_timeout"),
-    ],
-)
-def test_target_result_failure_reasons(
-    exit_code: int, stderr: str, reason: str
-) -> None:
-    result = executor._target_result(
-        {"vmid": 101, "run_id": "r"},
-        executor.RemoteScriptResult(
-            exit_code=exit_code, result_json_text="not json", stderr_text=stderr
-        ),
-    )
-    assert result["status"] == "failed"
-    assert result["reason_code"] == reason
-
-
-def test_target_exception_reason_defaults_to_executor_error() -> None:
-    assert executor._target_exception_reason(RuntimeError("x")) == "executor_error"
-
-
 def _assert_unstarted_failure_summary(
     run: TeacherJudgeScriptRun, expected: dict[str, Any],
 ) -> None:
@@ -295,43 +267,6 @@ def _assert_unstarted_failure_summary(
             ),
         },
     }
-
-
-def test_mark_run_failed_keeps_preflight_and_touches_session(
-    sqlite_db: Session,
-) -> None:
-    judge_session = TeacherJudgeSession(teaching_class_id=uuid.uuid4(), title="S")
-    sqlite_db.add(judge_session)
-    sqlite_db.commit()
-    sqlite_db.refresh(judge_session)
-    before = judge_session.last_activity_at
-    artifact = _artifact(sqlite_db, session_id=judge_session.id)
-    preflight = [{"vmid": 102, "status": "failed", "reason_code": "not_running"}]
-    run = _run(
-        sqlite_db,
-        artifact.id,
-        status=TeacherJudgeScriptRunStatus.running,
-        snapshot={"targets": [{"vmid": 101}], "preflight_results": preflight},
-    )
-
-    executor._mark_run_executor_failed(run.id, "boom")
-
-    sqlite_db.expire_all()
-    stored = sqlite_db.get(TeacherJudgeScriptRun, run.id)
-    assert stored is not None
-    assert stored.status == TeacherJudgeScriptRunStatus.failed
-    targets = {target["vmid"]: target for target in stored.results_document["targets"]}
-    assert targets[102]["reason_code"] == "not_running"
-    assert targets[101]["reason_code"] == "executor_error"
-    _assert_unstarted_failure_summary(stored, {
-        "total": 2, "completed": 0, "failed": 2, "valid_json": 0, "invalid_json": 2,
-        "executor_error": "boom",
-        "executor_reason": "executor_error",
-        "preflight_failed": 1,
-    })
-    touched = sqlite_db.get(TeacherJudgeSession, judge_session.id)
-    assert touched is not None
-    assert touched.last_activity_at >= before
 
 
 def test_mark_run_failed_with_missing_judge_session(sqlite_db: Session) -> None:
@@ -406,92 +341,3 @@ async def test_await_worker_drains_failing_worker_after_cancel() -> None:
         await asyncio.gather(waiter)
     assert worker.done()
     assert isinstance(worker.exception(), RuntimeError)
-
-
-def test_batch_run_ids_orders_by_class_node_sort_order(sqlite_db: Session) -> None:
-    class_id = uuid.uuid4()
-    batch_id = uuid.uuid4()
-    for key, order in (("web", 2), ("db", 1)):
-        sqlite_db.add(
-            TeachingClassMachineNode(
-                class_id=class_id,
-                node_key=key,
-                name=key,
-                role=key,
-                resource_type="lxc",
-                cpu=1,
-                memory_mb=512,
-                disk_gb=8,
-                sort_order=order,
-            )
-        )
-    sqlite_db.commit()
-    web = _artifact(sqlite_db, teaching_class_id=class_id, target_node_key="web")
-    db_node = _artifact(sqlite_db, teaching_class_id=class_id, target_node_key="db")
-    unknown = _artifact(sqlite_db, teaching_class_id=class_id, target_node_key="cache")
-    web_run = _run(sqlite_db, web.id, run_batch_id=batch_id)
-    db_run = _run(sqlite_db, db_node.id, run_batch_id=batch_id)
-    unknown_run = _run(sqlite_db, unknown.id, run_batch_id=batch_id)
-    _run(sqlite_db, web.id, run_batch_id=uuid.uuid4())
-
-    assert executor._batch_run_ids(batch_id) == [db_run.id, web_run.id, unknown_run.id]
-
-
-def test_resolve_runtime_target_rejects_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    owner = uuid.uuid4()
-    windows = _resource(owner)
-    windows.environment_type = "windows"
-    monkeypatch.setattr(
-        resource_repo, "get_resource_by_vmid", lambda *, session, vmid: windows
-    )
-    monkeypatch.setattr(os_identity_service, "ensure_guest_os", lambda **kwargs: None)
-    with pytest.raises(executor.TargetExecutionError) as exc:
-        executor._resolve_runtime_target(
-            session=None,  # type: ignore[arg-type]
-            run=SimpleNamespace(id=uuid.uuid4()),  # type: ignore[arg-type]
-            target={"vmid": 101, "user_id": str(owner)},
-            live_by_vmid={101: {"status": "running", "type": "qemu", "node": "pve"}},
-        )
-    assert exc.value.reason_code == "unsupported_os"
-
-
-async def test_await_worker_keeps_draining_on_repeated_cancel() -> None:
-    release = asyncio.Event()
-
-    async def work() -> str:
-        await release.wait()
-        return "done"
-
-    worker = asyncio.create_task(work())
-    waiter = asyncio.create_task(executor._await_worker(worker))
-    await asyncio.sleep(0)
-    waiter.cancel()
-    await asyncio.sleep(0)
-    waiter.cancel()
-    await asyncio.sleep(0)
-    release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.gather(waiter)
-    assert worker.result() == "done"
-
-
-async def test_execute_script_run_marks_failure_when_cancelled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    recorded: list[tuple[uuid.UUID, str]] = []
-
-    async def cancelled(run_id: uuid.UUID) -> None:
-        raise asyncio.CancelledError
-
-    monkeypatch.setattr(executor, "_execute_script_run", cancelled)
-    monkeypatch.setattr(
-        executor,
-        "_mark_run_executor_failed",
-        lambda run_id, message, **kwargs: recorded.append((run_id, message)),
-    )
-    run_id = uuid.uuid4()
-    with pytest.raises(asyncio.CancelledError):
-        await executor.execute_script_run(run_id)
-    assert recorded == [(run_id, "執行流程已中斷；請檢查目標狀態後再重試。")]

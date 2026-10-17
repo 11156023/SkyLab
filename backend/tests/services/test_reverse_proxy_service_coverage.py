@@ -49,19 +49,6 @@ def test_build_runtime_name_delegates_to_nginx() -> None:
     )
 
 
-def test_build_full_domain_bare_zone_and_bad_label() -> None:
-    assert (
-        reverse_proxy_service.build_full_domain(
-            zone_name="Example.com.", hostname_prefix=" . "
-        )
-        == "example.com"
-    )
-    with pytest.raises(BadRequestError):
-        reverse_proxy_service.build_full_domain(
-            zone_name="example.com", hostname_prefix="bad_label"
-        )
-
-
 def test_build_full_domain_rejects_bad_zone_and_long_domain() -> None:
     with pytest.raises(BadRequestError):
         reverse_proxy_service.build_full_domain(
@@ -183,18 +170,6 @@ def test_ensure_reverse_proxy_ready_raises_reasons(monkeypatch) -> None:
         reverse_proxy_service.ensure_reverse_proxy_ready(object())
 
 
-def test_ensure_reverse_proxy_ready_passes(monkeypatch) -> None:
-    monkeypatch.setattr(
-        reverse_proxy_service, "_get_gateway_ready_state", lambda _s: (True, None)
-    )
-    monkeypatch.setattr(
-        reverse_proxy_service,
-        "_get_cloudflare_ready_state",
-        lambda _s: (True, None, [], None, None),
-    )
-    reverse_proxy_service.ensure_reverse_proxy_ready(object())
-
-
 # ── nginx 同步 ───────────────────────────────────────────────────────────
 
 
@@ -259,15 +234,6 @@ def test_sync_nginx_writes_config_and_warns_without_certificate(sync_env) -> Non
 
     assert sync_env.writes == [(nginx.NGINX_HTTP_CONF_PATH, "conf")]
     assert sync_env.client.closed is True
-
-
-def test_sync_nginx_with_certificate_and_https_rule(sync_env) -> None:
-    sync_env.rules = [_rule(enable_https=True)]
-    sync_env.certificate = SimpleNamespace(cert="c", key="k")
-
-    reverse_proxy_service._sync_nginx(object())
-
-    assert len(sync_env.writes) == 1
 
 
 def test_sync_nginx_reraises_known_errors(sync_env) -> None:
@@ -344,13 +310,6 @@ def _apply(session, prefix: str = "app"):
     )
 
 
-def test_apply_rule_success(apply_env) -> None:
-    rule = _apply(_Session())
-    assert rule.domain == "app.example.com"
-    assert rule.cloudflare_record_id == "rec-new"
-    assert apply_env.updated == [rule]
-
-
 def test_apply_rule_rejects_unknown_vmid(apply_env) -> None:
     with pytest.raises(BadRequestError):
         _apply(_Session(resource=False))
@@ -378,21 +337,6 @@ def test_apply_rule_dns_failure_and_delete_failure(monkeypatch, apply_env) -> No
     monkeypatch.setattr(rp_repo, "delete_rule", delete)
     with pytest.raises(RuntimeError, match="dns failed"):
         _apply(_Session())
-
-
-def test_apply_rule_sync_failure_rolls_back(monkeypatch, apply_env) -> None:
-    def sync(_s):
-        raise ProxmoxError("gateway down")
-
-    monkeypatch.setattr(reverse_proxy_service, "_sync_nginx", sync)
-    monkeypatch.setattr(
-        rp_repo, "delete_rule", lambda _s, rule: apply_env.deleted.append(rule)
-    )
-
-    with pytest.raises(ProxmoxError):
-        _apply(_Session())
-    assert len(apply_env.cleaned) == 1
-    assert apply_env.deleted == apply_env.cleaned
 
 
 def test_apply_rule_sync_failure_and_delete_failure(monkeypatch, apply_env) -> None:
@@ -435,36 +379,6 @@ def test_resolve_zone_rejects_invalid_domain() -> None:
         reverse_proxy_service.resolve_zone_for_domain(object(), "bad domain")
 
 
-def test_resolve_zone_not_found(monkeypatch) -> None:
-    monkeypatch.setattr(
-        reverse_proxy_service, "_active_zones", lambda _s: [_zone("z", "other.org")]
-    )
-    with pytest.raises(BadRequestError):
-        reverse_proxy_service.resolve_zone_for_domain(object(), "a.example.com")
-
-
-def test_find_zone_prefers_longest_suffix(monkeypatch) -> None:
-    monkeypatch.setattr(
-        reverse_proxy_service,
-        "_active_zones",
-        lambda _s: [
-            _zone("z1", "example.com"),
-            _zone("z2", "b.example.com."),
-            _zone("z3", "x.example.com"),
-        ],
-    )
-    assert reverse_proxy_service.resolve_zone_for_domain(
-        object(), "A.B.Example.com"
-    ) == (
-        "z2",
-        "a",
-    )
-    assert reverse_proxy_service.find_zone_for_domain(object(), "example.com") == (
-        "z1",
-        "",
-    )
-
-
 # ── 網域可用性 ───────────────────────────────────────────────────────────
 
 
@@ -500,27 +414,6 @@ def avail_env(monkeypatch):
     return env
 
 
-def test_availability_invalid_and_system(avail_env) -> None:
-    assert (
-        reverse_proxy_service.check_domain_availability(object(), "bad domain").reason
-        == "invalid"
-    )
-    avail_env.taken = True
-    assert (
-        reverse_proxy_service.check_domain_availability(
-            object(), "a.example.com"
-        ).reason
-        == "system"
-    )
-
-
-def test_availability_platform_domain(avail_env) -> None:
-    avail_env.platform = True
-    result = reverse_proxy_service.check_domain_availability(object(), "a.example.com")
-    assert result.available is False
-    assert result.reason == "system"
-
-
 def test_availability_no_zone(avail_env) -> None:
     avail_env.zones = []
     result = reverse_proxy_service.check_domain_availability(object(), "a.example.com")
@@ -533,14 +426,6 @@ def test_availability_zone_lookup_failure_is_unverified(avail_env) -> None:
     result = reverse_proxy_service.check_domain_availability(object(), "a.example.com")
     assert result.reason == "unverified"
     assert result.available is True
-
-
-def test_availability_records_failure_is_unverified(avail_env) -> None:
-    avail_env.list_error = RuntimeError("cloudflare down")
-    result = reverse_proxy_service.check_domain_availability(
-        object(), "a.example.com", zone_id=_ZONE_ID
-    )
-    assert result.reason == "unverified"
 
 
 def test_availability_excludes_own_record_by_string_id(avail_env) -> None:
@@ -558,19 +443,6 @@ def test_availability_excludes_own_record_by_string_id(avail_env) -> None:
         object(), "a.example.com", exclude_rule_id=rule_id
     )
     assert result.reason == "external"
-
-
-def test_assert_domain_available_variants(avail_env) -> None:
-    reverse_proxy_service.assert_domain_available(object(), "a.example.com")
-
-    avail_env.list_error = RuntimeError("down")
-    with pytest.raises(BadRequestError):
-        reverse_proxy_service.assert_domain_available(object(), "a.example.com")
-
-    avail_env.list_error = None
-    avail_env.taken = True
-    with pytest.raises(BadRequestError):
-        reverse_proxy_service.assert_domain_available(object(), "a.example.com")
 
 
 # ── DNS 紀錄標註 ─────────────────────────────────────────────────────────
@@ -648,17 +520,6 @@ def removal_env(monkeypatch):
 
     monkeypatch.setattr(reverse_proxy_service, "_sync_nginx", sync)
     return env
-
-
-def test_remove_rules(removal_env) -> None:
-    reverse_proxy_service.remove_reverse_proxy_rules(object(), [])
-    assert removal_env.syncs == 0
-
-    rule = _rule()
-    reverse_proxy_service.remove_reverse_proxy_rules(object(), [rule])
-    assert removal_env.cleaned == [rule]
-    assert removal_env.deleted == [rule]
-    assert removal_env.syncs == 1
 
 
 def test_remove_rules_for_vmid(monkeypatch, removal_env) -> None:

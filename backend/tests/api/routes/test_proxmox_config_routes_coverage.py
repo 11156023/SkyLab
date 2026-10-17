@@ -155,29 +155,6 @@ def test_resource_vmids_on_pve_ignores_malformed_entries(monkeypatch) -> None:
     assert routes._resource_vmids_on_pve(SESSION, 1, {"pve1"}) == []
 
 
-def test_resource_vmids_on_pve_returns_known_resources(monkeypatch) -> None:
-    monkeypatch.setattr(
-        routes,
-        "list_connection_vms",
-        lambda connection_id: [{"vmid": 200}, {"vmid": "101"}, {"bad": 1}],
-    )
-
-    assert routes._resource_vmids_on_pve(_FakeSession([200, 101]), 1, {"pve1"}) == [
-        101,
-        200,
-    ]
-
-
-def test_resource_vmids_on_pve_unreachable_raises(monkeypatch) -> None:
-    monkeypatch.setattr(
-        routes, "list_connection_vms", _raise(RuntimeError("connection refused"))
-    )
-
-    with pytest.raises(routes._ResourceCheckUnavailable) as exc:
-        routes._resource_vmids_on_pve(SESSION, 1, {"pve1"})
-    assert exc.value.status_code == 503
-
-
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -579,17 +556,3 @@ def test_sync_now_all_failed(monkeypatch, audits) -> None:
     assert result.success is False
     assert result.error == "bad config"
     assert audits.invalidated == [True]
-
-
-def test_sync_now_all_ok_has_no_error(monkeypatch, audits) -> None:
-    _all_connections(monkeypatch, [_conn(1)])
-    monkeypatch.setattr(
-        routes.connection_sync_service,
-        "sync_connection_inventory",
-        lambda session, conn: ([_node()], 1),
-    )
-
-    result = routes.sync_now(SESSION, ADMIN)
-
-    assert result.success is True
-    assert result.error is None

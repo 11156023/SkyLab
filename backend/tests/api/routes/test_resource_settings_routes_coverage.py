@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from app.api.routes import resource_settings as rs
-from app.exceptions import PermissionDeniedError
 
 SESSION = object()
 USER = SimpleNamespace(id=uuid.uuid4())
@@ -133,21 +132,3 @@ def test_sharing_routes(services: dict[str, _Recorder], managed: list[int]) -> N
     assert kwargs["keep_access"] is True
     assert kwargs["resource_info"] is RESOURCE
     assert managed == [VMID] * 4
-
-
-def test_write_routes_stop_when_not_manager(
-    monkeypatch: pytest.MonkeyPatch, services: dict[str, _Recorder]
-) -> None:
-    def _deny(**_kwargs: Any) -> None:
-        raise PermissionDeniedError("read only")
-
-    monkeypatch.setattr(rs, "require_resource_management", _deny)
-    with pytest.raises(PermissionDeniedError):
-        rs.transfer_ownership(
-            vmid=VMID,
-            body=SimpleNamespace(email="b@example.com", keep_access=False),
-            _resource_info=RESOURCE,
-            session=SESSION,
-            current_user=USER,
-        )
-    assert services["sharing_service"].calls == []

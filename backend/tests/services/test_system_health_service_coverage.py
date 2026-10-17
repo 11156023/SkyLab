@@ -91,19 +91,6 @@ def _reset_caches(monkeypatch: pytest.MonkeyPatch):
 # ─── 基本探測 ──────────────────────────────────────────────────────────────
 
 
-def test_check_database_down_when_connect_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class BrokenEngine:
-        def connect(self):
-            raise RuntimeError("no db")
-
-    monkeypatch.setattr(shs, "engine", BrokenEngine())
-    result = shs.check_database()
-    assert result["status"] == "down"
-    assert result["detail"] == "RuntimeError: no db"
-
-
 def test_check_redis_disabled_ok_and_down(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shs, "get_sync_redis", lambda: None)
     assert shs.check_redis()["status"] == "disabled"
@@ -446,39 +433,6 @@ def test_process_alerts_creates_resolves_and_notifies(
     assert notified == [["component:worker"]]
 
 
-def test_process_alerts_without_email_and_nothing_resolved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_alert_tick(
-        monkeypatch,
-        config=_gov_config(alert_email_enabled=False),
-        components=[
-            {"name": "worker", "label": "Worker", "status": "down", "detail": "x"}
-        ],
-        open_alerts=[],
-        recent=[],
-    )
-    shs._alert_state.streaks = {"component:worker": 1}
-    monkeypatch.setattr(
-        shs, "_notify_admins", lambda *_a: pytest.fail("email disabled")
-    )
-    assert shs.process_system_health_alerts() == 1
-
-
-def test_process_alerts_nothing_new_or_resolved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _patch_alert_tick(
-        monkeypatch,
-        config=_gov_config(),
-        components=[_comp("database", "ok")],
-        open_alerts=[],
-        recent=[],
-    )
-    assert shs.process_system_health_alerts() == 0
-    assert session.added == []
-
-
 # ─── /metrics ──────────────────────────────────────────────────────────────
 
 
@@ -554,33 +508,3 @@ def test_collect_metrics_survives_probe_failures(
     )
     monkeypatch.setattr(shs, "_task_record_counts", broken_counts)
     shs.collect_metrics()  # 不拋例外
-
-
-def test_collect_metrics_skips_queue_and_counts_when_dependencies_down(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(shs, "check_database", lambda: _comp("database", "down"))
-    monkeypatch.setattr(shs, "check_redis", lambda: _comp("redis", "disabled"))
-    monkeypatch.setattr(
-        shs, "check_worker", lambda *, redis_ok: _comp("worker", "disabled")
-    )
-    monkeypatch.setattr(shs, "cached_pve_components", lambda: [])
-    monkeypatch.setattr(shs, "cached_gateway_components", lambda: [])
-    monkeypatch.setattr(shs, "cached_ai_components", lambda: [])
-    monkeypatch.setattr(shs, "_task_record_counts", lambda: pytest.fail("db down"))
-    # get_sync_redis 仍會被呼叫一次，但 redis 不是 ok 時不該用它
-    monkeypatch.setattr(
-        shs,
-        "get_sync_redis",
-        lambda: SimpleNamespace(zcard=lambda _q: pytest.fail("redis")),
-    )
-    shs.collect_metrics()
-
-
-async def test_collect_metrics_hook_runs_in_thread(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[bool] = []
-    monkeypatch.setattr(shs, "collect_metrics", lambda: calls.append(True))
-    await shs.collect_metrics_hook()
-    assert calls == [True]

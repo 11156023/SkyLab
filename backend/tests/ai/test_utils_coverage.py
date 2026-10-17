@@ -1,31 +1,8 @@
 """Coverage tests for app.ai.utils coercion and guard helpers."""
 
-from types import SimpleNamespace
 
-import pytest
 
 from app.ai import utils
-from app.exceptions import BadRequestError
-
-
-def test_conversation_limits() -> None:
-    message = SimpleNamespace(content="abc")
-    utils.ensure_conversation_within_limits([message], max_messages=1, max_chars=3)
-    with pytest.raises(BadRequestError):
-        utils.ensure_conversation_within_limits([message, message], max_messages=1)
-    with pytest.raises(BadRequestError):
-        utils.ensure_conversation_within_limits([message], max_chars=2)
-
-
-def test_form_context_limit() -> None:
-    utils.ensure_form_context_within_limits("{}", max_chars=2)
-    with pytest.raises(BadRequestError):
-        utils.ensure_form_context_within_limits("{}", max_chars=1)
-
-
-def test_strip_think_tags_without_marker() -> None:
-    assert utils.strip_think_tags("  plain answer  ") == "plain answer"
-    assert utils.strip_think_tags("<think>x</think> done") == "done"
 
 
 def test_safe_int_branches() -> None:

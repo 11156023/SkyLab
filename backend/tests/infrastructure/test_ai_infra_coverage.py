@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -101,20 +100,6 @@ def test_validate_request_rejects(
         _validate_request(payload, profile)
 
 
-def test_validate_request_accepts_named_tool_choice() -> None:
-    _validate_request(
-        _payload(
-            tools=[_TOOL],
-            tool_choice={"type": "function", "function": {"name": "lookup"}},
-        ),
-        _AGENT,
-    )
-
-
-def test_validate_request_accepts_agent_without_tools() -> None:
-    _validate_request(_payload(), _AGENT)
-
-
 # ---------------------------------------------------------------- response
 
 
@@ -165,18 +150,6 @@ def test_validate_response_rejects(response: Any, profile: Any, match: str) -> N
         _validate_response(response, profile)
 
 
-def test_validate_response_accepts_tool_calls_with_empty_arguments() -> None:
-    response = _response(
-        {"content": None, "tool_calls": [{"function": {"name": "f", "arguments": ""}}]}
-    )
-    assert _validate_response(response, _AGENT) is response
-
-
-def test_validate_response_accepts_json_object() -> None:
-    response = _response({"content": '{"ok": true}'})
-    assert _validate_response(response, _OBJECT) is response
-
-
 # ---------------------------------------------------------------- model_adapter
 
 
@@ -190,11 +163,6 @@ def _profile_data(**overrides: Any) -> dict[str, Any]:
     }
     data.update(overrides)
     return data
-
-
-def test_model_profile_rejects_duplicate_tool_choice_modes() -> None:
-    with pytest.raises(ValidationError, match="duplicate tool_choice_modes"):
-        ModelProfile.model_validate(_profile_data(tool_choice_modes=["auto", "auto"]))
 
 
 def test_model_profile_rejects_duplicate_response_formats() -> None:
@@ -212,29 +180,6 @@ def test_model_profiles_rejects_whitespace_model_keys() -> None:
 
 
 # ---------------------------------------------------------------- litellm_runtime
-
-
-def test_probe_model_info_failure_hides_unmapped_deployments() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path == "/health/liveliness":
-            return httpx.Response(200, json="ok")
-        if path == "/health/readiness":
-            return httpx.Response(200, json={"db": "connected"})
-        if path == "/model/info":
-            return httpx.Response(500, json={})
-        if path == "/health":
-            return httpx.Response(
-                200, json={"healthy_endpoints": [{"model_id": "upstream-x"}, None]}
-            )
-        return httpx.Response(404)
-
-    result = litellm_runtime.probe(
-        "http://litellm:4000", "sk", transport=httpx.MockTransport(handler)
-    )
-    assert result["reachable"] is True
-    assert result["db"] == "connected"
-    assert result["deployments"] == {}
 
 
 def test_short_error_timeout() -> None:

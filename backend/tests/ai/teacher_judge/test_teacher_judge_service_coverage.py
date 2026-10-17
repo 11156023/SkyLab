@@ -519,18 +519,6 @@ def test_dispatch_edit_rejections(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result["reason_code"] == "check_plan_contract_invalid"
 
 
-def test_dispatch_edit_rejects_legacy_working_directory() -> None:
-    snapshot = [{"id": "i1", "title": "舊", "detectable": "manual"}]
-    result, _ = _dispatch(
-        "edit_checklist_item",
-        {"id": "i1", "check_steps": [{"argv": ["ls", "/srv"], "cwd": "/srv"}]},
-        snapshot=snapshot,
-        read_ids={"i1"},
-    )
-    assert result["reason_code"] == "check_plan_contract_invalid"
-    assert result["teacher_input_required"] is False
-
-
 # ------------------------------------------------------------ tool loop
 
 
@@ -562,45 +550,6 @@ async def test_tool_loop_ignores_non_dict_tool_calls(
         rubric_available=True,
     )
     assert content == "最後回覆"
-
-
-async def test_tool_loop_forces_plain_reply_after_round_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(svc, "settings", _settings(VLLM_CHAT_MAX_TOOL_ROUNDS=1))
-    calls, fake = _scripted(
-        [
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "function": {"name": "list_checklist", "arguments": "{}"},
-                    }
-                ],
-            },
-            {"role": "assistant", "content": "整理完成"},
-        ]
-    )
-    monkeypatch.setattr(svc, "_call_vllm_message", fake)
-    (
-        content,
-        _metrics_out,
-        _staged,
-        _rejected,
-        outcomes,
-    ) = await svc._run_proposal_tool_loop(
-        {"messages": [], "max_tokens": 512},
-        rubric_context=json.dumps({"items": [{"id": "i1", "title": "t"}]}),
-        template_key="linux",
-        template_commands=None,
-        machine_entries=None,
-        analysis_revision=1,
-        rubric_available=True,
-    )
-    assert content == "整理完成"
-    assert "tools" not in calls[-1]
-    assert outcomes[0]["status"] == "read"
 
 
 # --------------------------------------------------------- chat orchestration

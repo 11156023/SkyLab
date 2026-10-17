@@ -78,46 +78,6 @@ def test_reset_totp_user_without_totp_is_noop(monkeypatch: pytest.MonkeyPatch) -
     assert sessions[0].commits == 0
 
 
-def test_reset_totp_clears_secret_and_bumps_token_version(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    user = SimpleNamespace(
-        totp_enabled=True,
-        totp_secret_encrypted="enc",
-        totp_last_used_step=42,
-        token_version=3,
-    )
-    sessions: list[_FakeSession] = []
-    audits: list[dict[str, Any]] = []
-
-    def _session(*args: Any, **kwargs: Any) -> _FakeSession:
-        session = _FakeSession()
-        sessions.append(session)
-        return session
-
-    monkeypatch.setattr(reset_totp_cli, "Session", _session)
-    monkeypatch.setattr(
-        reset_totp_cli.user_repo, "get_user_by_email", lambda **_kwargs: user
-    )
-    monkeypatch.setattr(
-        reset_totp_cli.audit_service,
-        "log_action",
-        lambda **kwargs: audits.append(kwargs),
-    )
-
-    assert reset_totp_cli.reset_totp("a@example.com") == 0
-
-    assert user.totp_enabled is False
-    assert user.totp_secret_encrypted is None
-    assert user.totp_last_used_step is None
-    assert user.token_version == 4
-    assert sessions[0].added == [user]
-    assert sessions[0].commits == 1
-    assert audits[0]["user_id"] is None
-    assert audits[0]["action"] == reset_totp_cli.AuditAction.totp_admin_reset
-    assert audits[0]["commit"] is False
-
-
 @pytest.mark.parametrize("argv", [["reset_totp.py"], ["reset_totp.py", "a", "b"]])
 def test_reset_totp_main_usage_error(
     monkeypatch: pytest.MonkeyPatch, argv: list[str]

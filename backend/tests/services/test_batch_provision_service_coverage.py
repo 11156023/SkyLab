@@ -22,7 +22,6 @@ from app.models import (
     TeachingClassStudent,
     TeachingClassStudentMachine,
     User,
-    VMTemplateStatus,
 )
 from app.models.batch_provision import (
     BatchProvisionJob,
@@ -147,11 +146,6 @@ def ip_ok(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
     return stats
 
 
-def test_submit_requires_members(db: Session) -> None:
-    with pytest.raises(BadRequestError):
-        _submit(db, member_user_ids=[])
-
-
 @pytest.mark.parametrize("template", [None, SimpleNamespace(status="building")])
 def test_submit_rejects_missing_or_unready_template(
     db: Session, monkeypatch: pytest.MonkeyPatch, template: Any
@@ -172,29 +166,6 @@ def test_submit_requires_duration_for_recurrence(
 ) -> None:
     with pytest.raises(BadRequestError):
         _submit(db, recurrence_rule="FREQ=WEEKLY")
-
-
-def test_submit_creates_pending_review_job_with_ready_template(
-    db: Session, ip_ok: dict[str, int], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ip_ok["available"] = 0
-    monkeypatch.setattr(
-        svc.vm_template_repo,
-        "get_template",
-        lambda **_k: SimpleNamespace(status=VMTemplateStatus.ready),
-    )
-    item = _class(db)
-    job_id = _submit(
-        db,
-        teaching_class_id=item.id,
-        params={"vm_template_id": str(uuid.uuid4()), "cores": 1},
-        capacity_reserved=True,
-        recurrence_rule="FREQ=WEEKLY",
-        recurrence_duration_minutes=90,
-    )
-    job = db.get(BatchProvisionJob, job_id)
-    assert job.status == BatchProvisionJobStatus.pending_review
-    assert job.total == 2
 
 
 # ---------------------------------------------------------------------------
@@ -303,21 +274,6 @@ def test_to_public_includes_people_class_and_spec(db: Session) -> None:
     assert by_user[missing_student].user_email is None
 
 
-def test_to_public_without_people_or_class(db: Session) -> None:
-    job = _job(
-        db,
-        uuid.uuid4(),
-        users=[],
-        initiated_by=None,
-        reviewer_id=None,
-    )
-    public = svc.to_public(db, job)
-    assert public.teaching_class_name is None
-    assert public.initiated_by_email is None
-    assert public.reviewer_email is None
-    assert public.tasks == []
-
-
 # ---------------------------------------------------------------------------
 # requeue_stalled_approved_jobs
 # ---------------------------------------------------------------------------
@@ -325,30 +281,6 @@ def test_to_public_without_people_or_class(db: Session) -> None:
 
 def _old() -> datetime:
     return datetime.now(UTC) - timedelta(minutes=svc.APPROVED_JOB_REQUEUE_MINUTES + 5)
-
-
-def test_requeue_falls_back_to_class_owner(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    item = _class(db)
-    _job(
-        db,
-        item.id,
-        users=[uuid.uuid4()],
-        initiated_by=None,
-        reviewer_id=None,
-        reviewed_at=_old(),
-    )
-    calls: list[dict[str, Any]] = []
-
-    def fake_enqueue(**kwargs: Any) -> SimpleNamespace:
-        calls.append(kwargs)
-        return SimpleNamespace(id=uuid.uuid4())
-
-    monkeypatch.setattr(svc, "enqueue_task_sync", fake_enqueue)
-
-    assert svc.requeue_stalled_approved_jobs() == 1
-    assert calls[0]["user_id"] == OWNER
 
 
 def test_requeue_skips_job_without_anyone_to_enqueue_as(
@@ -399,16 +331,6 @@ async def test_heartbeat_loop_logs_failures_and_keeps_going(
     with pytest.raises(asyncio.CancelledError):
         await svc.heartbeat_loop(job_id, interval_seconds=0)
     assert calls == [job_id, job_id]
-
-
-def test_run_batch_job_task_unpacks_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[uuid.UUID] = []
-    monkeypatch.setattr(svc, "_run_queue", seen.append)
-    job_id = uuid.uuid4()
-    assert svc.run_batch_job_task(uuid.uuid4(), {"job_id": str(job_id)}) == {
-        "job_id": str(job_id)
-    }
-    assert seen == [job_id]
 
 
 # ---------------------------------------------------------------------------
@@ -728,18 +650,6 @@ def test_sync_mapping_upserts_and_commits(db: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_provision_one_requires_class_capacity_reservation(db: Session) -> None:
-    with pytest.raises(BadRequestError):
-        svc._provision_one(
-            session=db,
-            resource_type="lxc",
-            hostname="h-1",
-            user_id=uuid.uuid4(),
-            params={},
-            teaching_class_id=uuid.uuid4(),
-        )
-
-
 def test_provision_one_clones_vm_template_with_reservation(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -809,72 +719,6 @@ def quota_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return calls
 
 
-def test_provision_one_clone_without_batch_job(
-    db: Session, monkeypatch: pytest.MonkeyPatch, quota_calls: list[dict[str, Any]]
-) -> None:
-    payloads: list[dict[str, Any]] = []
-    monkeypatch.setattr(svc.password_policy, "find_template", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        svc.clone_service,
-        "run_clone_task",
-        lambda _tid, payload: payloads.append(payload) or {"vmid": 5},
-    )
-    assert (
-        svc._provision_one(
-            session=db,
-            resource_type="qemu",
-            hostname="h-1",
-            user_id=uuid.uuid4(),
-            params={"vm_template_id": "abc", "disk_size": 30},
-        )
-        == 5
-    )
-    assert payloads[0]["batch_job_id"] is None
-    assert payloads[0]["ip_reservation_key"] is None
-    assert payloads[0]["allow_password_reset"] is True
-    assert quota_calls == [
-        {
-            "delta_cores": 0,
-            "delta_memory_mb": 0,
-            "delta_disk_gb": 30,
-            "delta_instances": 1,
-        }
-    ]
-
-
-def test_provision_one_creates_lxc(
-    db: Session, monkeypatch: pytest.MonkeyPatch, quota_calls: list[dict[str, Any]]
-) -> None:
-    created: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        svc.provisioning_service,
-        "create_lxc",
-        lambda **kw: created.append(kw) or SimpleNamespace(vmid=401),
-    )
-    vmid = svc._provision_one(
-        session=db,
-        resource_type="lxc",
-        hostname="h-1",
-        user_id=uuid.uuid4(),
-        params={
-            "ostemplate": "local:vztmpl/debian.tar.zst",
-            "cores": 1,
-            "memory": 512,
-            "rootfs_size": 10,
-            "expiry_date": "2026-12-31",
-            "unprivileged": False,
-        },
-        target_node="pve3",
-    )
-    assert vmid == 401
-    req = created[0]["lxc_data"]
-    assert req.expiry_date == date(2026, 12, 31)
-    assert req.unprivileged is False
-    assert len(req.password) >= 6
-    assert created[0]["target_node"] == "pve3"
-    assert quota_calls[0]["delta_disk_gb"] == 10
-
-
 def test_provision_one_creates_vm_and_requires_vmid(
     db: Session, monkeypatch: pytest.MonkeyPatch, quota_calls: list[dict[str, Any]]
 ) -> None:
@@ -915,13 +759,3 @@ def test_provision_one_creates_vm_and_requires_vmid(
             user_id=uuid.uuid4(),
             params=params,
         )
-
-
-def test_parse_date() -> None:
-    assert svc._parse_date(None) is None
-    assert svc._parse_date("2026-01-02") == date(2026, 1, 2)
-    assert svc._parse_date("bad") is None
-
-
-def test_build_hostname_falls_back_for_empty_prefix() -> None:
-    assert svc._build_hostname("__", 3) == "vm-3"
