@@ -1,4 +1,4 @@
-﻿name: Backend Tests
+name: Backend Tests
 
 on:
   pull_request:
@@ -92,7 +92,7 @@ jobs:
       LOG_JSON: "false"
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -144,7 +144,7 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
