@@ -87,6 +87,9 @@ class ResourceSnapshot(BaseModel):
     resource_type: str = Field(default="unknown")
     node: str = Field(default="unknown")
     status: str = Field(default="unknown")
+    # 分配給這台機器的規格（關機也算）；整班容量預檢以它計算已承諾的用量
+    maxcpu: int = Field(default=0, ge=0)
+    maxmem_bytes: int = Field(default=0, ge=0)
 
 
 class NodeCapacity(BaseModel):
