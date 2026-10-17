@@ -2274,7 +2274,9 @@ describe("teacher review run-once（整組檢查點）", () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
-    expect(createRun).toHaveBeenCalledWith("class-1", "session-1", "set-1");
+    expect(createRun).toHaveBeenCalledWith("class-1", "session-1", "set-1", {
+      userIds: null, runBatchId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
@@ -2446,7 +2448,9 @@ describe("導師核查：全班當週回報與指定檢查", () => {
       runReady.click();
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(createRun).toHaveBeenCalledExactlyOnceWith("class-1", "session-1", "set-1", { userIds: ["user-a"] });
+    expect(createRun).toHaveBeenCalledExactlyOnceWith("class-1", "session-1", "set-1", {
+      userIds: ["user-a"], runBatchId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
 
     await act(async () => root.unmount());
     container.remove();

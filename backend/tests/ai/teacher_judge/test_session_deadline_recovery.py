@@ -270,13 +270,19 @@ async def test_summary_scheduler_failure_does_not_hide_durable_success(
 async def test_deadline_covers_multiple_calls_without_resetting_budget(
     context, monkeypatch
 ):
-    routes.teacher_judge_settings.REQUEST_TIMEOUT_SECONDS = 0.35
+    # The request deadline starts during admission, before the thread-pool
+    # context snapshot can schedule the model coroutine.  A very
+    # small value makes this test scheduling-sensitive under the full CI suite
+    # and can cancel ``generate`` before its first line runs.  Leave enough
+    # headroom for that setup while keeping four calls (4 * 0.4 s) longer than
+    # the single shared deadline.
+    routes.teacher_judge_settings.REQUEST_TIMEOUT_SECONDS = 1.0
     calls = []
 
     async def chat(*args, **kwargs):
         for index in range(4):
             calls.append(index)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.4)
         return "不應完成", None, {}
 
     monkeypatch.setattr(routes, "chat_with_rubric", chat)
