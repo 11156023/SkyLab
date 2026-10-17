@@ -117,6 +117,54 @@ def test_build_http_config_http_only_rule_proxies_on_80() -> None:
     assert "        proxy_pass http://10.10.0.3:3000;" in out
 
 
+# ─── server_names_hash ───────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("longest", "expected"),
+    [
+        (0, 128),
+        (46, 128),  # nginx 預設 64 的桶放得下的上限，仍一律至少 128
+        (47, 128),  # 2026-10-17 課程發布的學生網域就是從這裡開始讓 nginx -t 失敗
+        (110, 128),  # 128 的桶放得下的上限：8 + align8(110+2) + 8 = 128
+        (111, 192),
+        (255, 320),  # build_full_domain 允許的最長網域
+    ],
+)
+def test_server_names_hash_bucket_size_fits_longest_domain(
+    longest: int, expected: int
+) -> None:
+    domains = ["a.example.com", "x" * longest] if longest else []
+    assert nginx.server_names_hash_bucket_size(domains) == expected
+
+
+def test_build_http_config_sets_hash_sizes_before_any_server_block() -> None:
+    """nginx.conf 沒設桶大小時預設跟 CPU cache line 一樣（通常 64），長網域會讓 nginx -t 失敗。"""
+    long_domain = "s1a2b3c4d5e-vmware-lab-2026-fall-a.skylab.example.edu.tw"
+    rules = [
+        _ProxyRule(vmid=215, domain=long_domain, vm_ip="10.10.0.5", internal_port=80, enable_https=True),
+        _ProxyRule(vmid=3, domain="plain.example.com", vm_ip="10.10.0.3", internal_port=3000, enable_https=False),
+    ]
+    out = nginx.build_http_config(rules, _CERT, platform=_platform())
+
+    assert "server_names_hash_bucket_size 128;" in out
+    assert f"server_names_hash_max_size {nginx.SERVER_NAMES_HASH_MAX_SIZE};" in out
+    assert out.index("server_names_hash_bucket_size") < out.index("server {")
+    assert out.count("server_names_hash_bucket_size") == 1
+
+
+def test_build_http_config_hash_bucket_grows_with_platform_domain() -> None:
+    platform = nginx.PlatformEntry(
+        domain="p" * 120 + ".example.com",
+        upstream_host="192.168.100.20",
+        upstream_port=8082,
+        enable_https=False,
+        cloudflare_proxy=False,
+    )
+    out = nginx.build_http_config([], None, platform=platform)
+    assert "server_names_hash_bucket_size 192;" in out
+
+
 # ─── 平台入口 ────────────────────────────────────────────────────────────────
 
 
