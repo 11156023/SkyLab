@@ -2084,7 +2084,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 }
 
 .checkRubricCard {
-  @container judge-content (min-width: 1060px) {
+  @container judge-content (min-width: 780px) {
     height: 100%;
     min-height: 0;
     overflow: hidden;
@@ -2099,7 +2099,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   flex-direction: column;
   border-top: 1px solid var(--judge-line);
 
-  @container judge-content (min-width: 1060px) {
+  @container judge-content (min-width: 780px) {
     height: auto;
     min-height: 0;
     overflow: hidden;
@@ -2117,7 +2117,9 @@ strong.reviewStatValue { font-size: $font-size-14; }
   align-items: start;
 
   // 跟整塊面板的最小高度一樣，底部不會多出一截空白；助理欄寬可以拖拉（--judge-chat-w）
-  @container judge-content (min-width: 1060px) {
+  // 480px for the checklist and 300px for chat; this is the content width
+  // after the week column has already been deducted.
+  @container judge-content (min-width: 780px) {
     grid-template-columns: minmax(0, 1fr) clamp(300px, var(--judge-chat-w, 340px), 38cqw);
     align-items: stretch;
     height: calc(100dvh - 240px);
@@ -2172,7 +2174,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
   }
 
   // 由這一層統一捲動：表格外框若自己也橫向捲動，會變成黏性標頭的捲動容器，標頭就黏不住
-  @container judge-content (min-width: 1060px) {
+  @container judge-content (min-width: 780px) {
     overflow: auto;
 
     .rubricTableWrap {
@@ -2246,6 +2248,9 @@ strong.reviewStatValue { font-size: $font-size-14; }
   --judge-bar-bg: linear-gradient(var(--color-hover), var(--color-hover)), var(--color-surface);
   // 欄與欄、標頭底下的分隔線：比一般 divider 深，三欄的界線一眼看得出來
   --judge-line: color-mix(in srgb, var(--color-text-primary) 16%, transparent);
+  // Retain room for both content columns, including the workspace borders,
+  // even when a wider week column was saved on a larger display.
+  --judge-week-effective-w: clamp(180px, var(--judge-week-w, 220px), calc(100cqw - 782px));
 
   @include glass-surface;
   position: relative;
@@ -2257,7 +2262,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 
   @container judge-layout (min-width: 1100px) {
     // 週次欄寬可以拖拉（--judge-week-w，見 ColumnResizer）
-    grid-template-columns: var(--judge-week-w, 220px) minmax(0, 1fr);
+    grid-template-columns: var(--judge-week-effective-w) minmax(0, 1fr);
     align-items: stretch;
     min-height: calc(100vh - 240px);
   }
@@ -2304,7 +2309,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 }
 
 .columnResizerWeek {
-  left: calc(var(--judge-week-w, 220px) - 5px);
+  left: calc(var(--judge-week-effective-w) - 5px);
 
   @container judge-layout (min-width: 1100px) { display: block; }
 }
@@ -2312,7 +2317,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .columnResizerChat {
   right: calc(clamp(300px, var(--judge-chat-w, 340px), 38cqw) - 4px);
 
-  @container judge-content (min-width: 1060px) { display: block; }
+  @container judge-content (min-width: 780px) { display: block; }
 }
 
 .checkContentCol {
