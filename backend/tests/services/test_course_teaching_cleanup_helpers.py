@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models import BatchProvisionJobStatus
-from app.services.course import ai_assignment_service, weekly_task_service
+from app.services.course import ai_assignment_service
 from app.services.resource import resource_service
 from app.services.teaching import (
     class_network_service,
@@ -21,7 +21,9 @@ from app.services.teaching import (
 # ---------------------------------------------------------------------------
 
 
-def _edge(source: str, target: str, *, direction: str = "one_way", port: int | None = 22):
+def _edge(
+    source: str, target: str, *, direction: str = "one_way", port: int | None = 22
+):
     return SimpleNamespace(
         source_node_key=source,
         target_node_key=target,
@@ -109,7 +111,7 @@ def test_jobs_all_ready(node_count: int, jobs: list, expected: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_student_task_items_normalization_is_shared_by_weekly_tasks() -> None:
+def test_student_task_items_normalizes_rubric_snapshot() -> None:
     snapshot = {
         "items": [
             {"id": "perm", "title": " 權限 ", "detectable": " AUTO "},
@@ -126,9 +128,6 @@ def test_student_task_items_normalization_is_shared_by_weekly_tasks() -> None:
         ("item-4", "日誌", "manual", 3),
     ]
     assert items[1].description == "看 log"
-    source_file = SimpleNamespace(analysis_json=snapshot)
-    assert weekly_task_service._source_items(source_file) == items  # type: ignore[arg-type]
-    assert weekly_task_service._source_items(None) == []
 
 
 def test_student_task_items_ignores_missing_item_list() -> None:

@@ -102,4 +102,7 @@ export const AccountService = {
   approveDesktopDevice(deviceCode) {
     return apiPost("/api/v1/desktop-client/auth/approve", { device_code: deviceCode });
   },
+  declineDesktopDevice(deviceCode) {
+    return apiPost("/api/v1/desktop-client/auth/deny", { device_code: deviceCode });
+  },
 };

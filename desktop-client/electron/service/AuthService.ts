@@ -11,6 +11,7 @@ class AuthService {
   private readonly _tunnelService: WireGuardTunnelService;
   private _pollTimer: NodeJS.Timeout | null = null;
   private _loginInProgress = false;
+  private _loginAttempt = 0;
 
   constructor(
     SkyLabService: SkyLabService,
@@ -64,18 +65,25 @@ class AuthService {
    * finishes (success or failure).
    */
   async startLogin(
-    onResult: (success: boolean, error?: string) => void
+    onResult: (success: boolean, error?: string, code?: string) => void
   ): Promise<void> {
     if (this._loginInProgress) {
-      throw new BusinessError(
-        ResponseCode.INTERNAL_ERROR,
-        "Login already in progress"
-      );
+      return;
     }
     this._loginInProgress = true;
+    const attempt = ++this._loginAttempt;
+    const isCurrent = () =>
+      this._loginInProgress && this._loginAttempt === attempt;
+    const finish = (success: boolean, error?: string, code?: string) => {
+      if (!isCurrent()) return;
+      this._loginInProgress = false;
+      this._pollTimer = null;
+      onResult(success, error, code);
+    };
 
     try {
       const dc = await this._SkyLabService.requestDeviceCode();
+      if (!isCurrent()) return;
       // 只允許在瀏覽器開啟 http(s) 連結；後端若被竄改回傳 file:// 或自訂 scheme，
       // shell.openExternal 會直接交給作業系統執行，必須先擋掉。
       let loginUrl: URL;
@@ -94,46 +102,54 @@ class AuthService {
         );
       }
       await shell.openExternal(loginUrl.toString());
+      if (!isCurrent()) return;
       const expiresAt = Date.now() + dc.expires_in * 1000;
 
       const poll = async () => {
+        if (!isCurrent()) return;
         if (Date.now() > expiresAt) {
-          this._loginInProgress = false;
-          this._pollTimer = null;
-          onResult(false, "login timed out");
+          finish(false, "login timed out", "B1002");
           return;
         }
         try {
           const result = await this._SkyLabService.pollDeviceCode(
             dc.device_code
           );
+          if (!isCurrent()) return;
+          if (result.status === "denied") {
+            finish(false, undefined, "B1003");
+            return;
+          }
           if (result.status === "approved" && result.accessToken) {
             await this._settingsService.setTokens(
               result.accessToken,
               result.refreshToken || ""
             );
-            this._loginInProgress = false;
-            this._pollTimer = null;
-            onResult(true);
+            finish(true);
             return;
           }
           this._pollTimer = setTimeout(poll, 2000);
         } catch (err) {
+          if (!isCurrent()) return;
           Logger.warn("AuthService.startLogin.poll", (err as Error).message);
-          this._loginInProgress = false;
-          this._pollTimer = null;
-          onResult(false, (err as Error).message);
+          finish(
+            false,
+            (err as Error).message,
+            err instanceof BusinessError ? err.bizCode : "B1000"
+          );
         }
       };
 
       this._pollTimer = setTimeout(poll, 2000);
     } catch (err) {
+      if (!isCurrent()) return;
       this._loginInProgress = false;
       throw err;
     }
   }
 
   cancelLogin() {
+    ++this._loginAttempt;
     if (this._pollTimer) {
       clearTimeout(this._pollTimer);
       this._pollTimer = null;

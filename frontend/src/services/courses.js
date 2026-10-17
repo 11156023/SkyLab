@@ -45,6 +45,13 @@ export const CoursesService = {
     );
   },
 
+  /** 透過作業身分驗證的端點預覽老師在 AI 任務設定上傳的 PDF。 */
+  getAiAssignmentSourceDocument(pathId, assignmentId) {
+    return apiGetBlob(
+      `/api/v1/courses/paths/${pathId}/ai-assignments/${assignmentId}/source-document`,
+    );
+  },
+
   /** 取得學生在此課程由班級流程分配的所有練習機器。 */
   getPracticeMachines(pathId) {
     return apiGet(`/api/v1/courses/paths/${pathId}/practice-machines`);

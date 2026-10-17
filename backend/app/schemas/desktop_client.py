@@ -14,6 +14,6 @@ class DeviceApproveRequest(BaseModel):
 
 
 class DevicePollResponse(BaseModel):
-    status: str  # "pending" | "approved"
+    status: str  # "pending" | "approved" | "denied"
     access_token: str | None = None
     refresh_token: str | None = None

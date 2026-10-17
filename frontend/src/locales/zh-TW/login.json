@@ -96,6 +96,8 @@
   "LoginPage.deviceErrorHelp": "請回到 SkyLab Connect，重新按一次登入取得新的連結。",
   "LoginPage.backToSkyLab": "回到 SkyLab",
   "LoginPage.deviceConnectingTitle": "正在連接 App",
+  "LoginPage.deviceCancellingTitle": "正在取消授權",
+  "LoginPage.deviceCancellingSubtitle": "正在通知 SkyLab Connect 取消登入，請稍候…",
   "LoginPage.deviceConnectingSubtitle": "正在授權 SkyLab Connect，請稍候…",
   "LoginPage.deviceApprovalError": "授權失敗，請重新產生登入連結",
   "LoginPage.backToLogin": "返回登入",

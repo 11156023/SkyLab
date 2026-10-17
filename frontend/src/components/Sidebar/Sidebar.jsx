@@ -12,7 +12,7 @@ import MIcon from "../MIcon";
 import Avatar from "../Avatar/Avatar";
 import OctoMark from "../OctoPet/OctoMark";
 import JobsButton from "../Jobs/JobsButton";
-import { canTeachUser, isAdminUser } from "../../utils/roles";
+import { canTeachUser, canViewStudentCourses, isAdminUser } from "../../utils/roles";
 
 const topItems = [
   { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
@@ -68,7 +68,7 @@ const navGroups = [
     labelKey: "Sidebar.groupTeaching",
     icon: "school",
     items: [
-      { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentOnly: true },
+      { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentCoursesOnly: true },
       { key: "class-management", labelKey: "Sidebar.itemClassManagement", icon: "groups_2", instructorOnly: true },
       { key: "course-template-management", labelKey: "Sidebar.itemCourseTemplateManagement", icon: "view_quilt", instructorOnly: true },
       /* 快速練習對所有登入者開放（後端 quick-practice 沒有角色限制） */
@@ -331,13 +331,14 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const { confirmLeave } = useUnsavedChanges();
   const isAdmin = isAdminUser(user);
   const canTeach = canTeachUser(user);
+  const canViewCourses = canViewStudentCourses(user);
   /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
   const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>
-        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach) && (!item.studentOnly || !canTeach)
+        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach) && (!item.studentCoursesOnly || canViewCourses)
       ),
     }))
     .filter((group) => group.items.length > 0);

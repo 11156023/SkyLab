@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, test } from "node:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { build } from "esbuild";
 
 const bundle = await build({
-  entryPoints: ["electron/service/WireGuardTunnelService.ts"],
+  stdin: {
+    contents: [
+      'export { default } from "./electron/service/WireGuardTunnelService";',
+      'export { default as SkyLabService } from "./electron/service/SkyLabService";',
+      'export { default as PathUtils } from "./electron/utils/PathUtils";',
+      'export { default as AuthService } from "./electron/service/AuthService";'
+    ].join("\n"),
+    resolveDir: process.cwd(),
+    loader: "ts"
+  },
   bundle: true,
   write: false,
   platform: "node",
@@ -19,7 +31,13 @@ const bundle = await build({
         builder.onLoad({ filter: /.*/, namespace: "fake" }, args => ({
           contents:
             args.path === "electron"
-              ? "export const app = {}, BrowserWindow = {}, Notification = class {}, safeStorage = {};"
+              ? `export const app = {getPath: () => globalThis.__tunnelTestDataDir},
+                  net = {}, shell = {openExternal: async () => {}}, BrowserWindow = {}, Notification = class {},
+                  safeStorage = {
+                    isEncryptionAvailable: () => true,
+                    encryptString: value => Buffer.from("enc:" + value),
+                    decryptString: value => value.toString().slice(4)
+                  };`
               : args.path.endsWith("BeanFactory")
                 ? "export default {getBean: () => ({})};"
                 : "export default {info(){},warn(){},error(){},debug(){}};"
@@ -28,9 +46,21 @@ const bundle = await build({
     }
   ]
 });
-const { default: Tunnel } = await import(
+const {
+  default: Tunnel,
+  SkyLabService,
+  PathUtils,
+  AuthService
+} = await import(
   `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`
 );
+const testDataDir = mkdtempSync(path.join(tmpdir(), "skylab-tunnel-test-"));
+globalThis.__tunnelTestDataDir = testDataDir;
+after(() => {
+  assert.equal(path.dirname(path.resolve(testDataDir)), path.resolve(tmpdir()));
+  assert.ok(path.basename(testDataDir).startsWith("skylab-tunnel-test-"));
+  rmSync(testDataDir, { recursive: true, force: true });
+});
 const deferred = () => {
   let resolve;
   const promise = new Promise(done => {
@@ -189,4 +219,201 @@ test("elevated arguments with spaces survive Start-Process joining", () => {
     tunnel._windowsArgument("/installtunnelservice"),
     "/installtunnelservice"
   );
+});
+
+const jwt = (sub, extra = {}) =>
+  `header.${Buffer.from(JSON.stringify({ sub, ...extra })).toString("base64url")}.signature`;
+const apiFor = (sub, backendUrl = "https://campus.example.org") =>
+  new SkyLabService({
+    getToken: async () => jwt(sub),
+    getBackendUrl: async () => backendUrl
+  });
+
+test("connection identities are isolated by account and backend, and stable across token refresh", async () => {
+  const accountA = await apiFor("account-a").getConnectionScope();
+  const accountB = await apiFor("account-b").getConnectionScope();
+  const otherBackend = await apiFor(
+    "account-a",
+    "https://other.example.org"
+  ).getConnectionScope();
+  assert.notEqual(accountA, accountB);
+  assert.notEqual(accountA, otherBackend);
+  const refreshedApi = apiFor("account-a", "https://campus.example.org/");
+  refreshedApi._settingsService.getToken = async () =>
+    jwt("account-a", { exp: 9999999999 });
+  assert.equal(await refreshedApi.getConnectionScope(), accountA);
+  const tunnel = new Tunnel();
+  const legacyPath = PathUtils.getWireGuardIdentityFilePath();
+  writeFileSync(legacyPath, "legacy-key-must-remain-untouched");
+  const first = tunnel._loadIdentity(accountA);
+  const second = tunnel._loadIdentity(accountB);
+  assert.notEqual(first.publicKey, second.publicKey);
+  assert.notEqual(first.deviceId, second.deviceId);
+  assert.deepEqual(tunnel._loadIdentity(accountA), first);
+  assert.equal(
+    readFileSync(legacyPath, "utf8"),
+    "legacy-key-must-remain-untouched"
+  );
+  assert.ok(
+    !readFileSync(
+      PathUtils.getWireGuardIdentityFilePath(accountA),
+      "utf8"
+    ).includes(first.privateKey)
+  );
+});
+
+test("missing account identity cannot fall back to a shared key", async () => {
+  await assert.rejects(
+    apiFor(undefined).getConnectionScope(),
+    error => error.bizCode === "B1001"
+  );
+  assert.throws(
+    () => PathUtils.getWireGuardIdentityFilePath("../other-account"),
+    /Invalid/
+  );
+});
+
+test("switching accounts cannot reuse the running account's tunnel or key", async () => {
+  const tunnel = new Tunnel();
+  const scopeA = await apiFor("account-a").getConnectionScope();
+  const scopeB = await apiFor("account-b").getConnectionScope();
+  tunnel._activeIdentityScope = scopeA;
+  tunnel._activeIdentity = tunnel._loadIdentity(scopeA);
+  const oldPublicKey = tunnel._activeIdentity.publicKey;
+  tunnel._lastStartTime = Date.now();
+  tunnel._expiresAt = Date.now() + 60000;
+  tunnel.isRunning = async () => true;
+  const calls = [];
+  let removed = false;
+  tunnel._removeLocalTunnelService = async () => {
+    removed = true;
+  };
+  tunnel._SkyLabService.disconnectWireGuard = async () => {};
+  tunnel._ensureWireGuardInstalled = async () => {};
+  tunnel._SkyLabService.getConnectionScope = async () => scopeB;
+  tunnel._SkyLabService.connectWireGuard = async (deviceId, publicKey) => {
+    assert.equal(removed, true);
+    calls.push({ deviceId, publicKey });
+    throw new Error("test stops before installing a service");
+  };
+  await assert.rejects(tunnel.startTunnel(), /test stops/);
+  assert.deepEqual(calls, [
+    {
+      deviceId: tunnel._loadIdentity(scopeB).deviceId,
+      publicKey: tunnel._loadIdentity(scopeB).publicKey
+    }
+  ]);
+  assert.notEqual(calls[0].publicKey, oldPublicKey);
+  assert.match(tunnel.connectionError, /test stops/);
+});
+
+test("renewal refuses to apply a different account's lease", async () => {
+  const tunnel = new Tunnel();
+  tunnel.isRunning = async () => true;
+  tunnel._lastStartTime = Date.now();
+  tunnel._activeIdentityScope = "old-account";
+  tunnel._activeIdentity = { deviceId: "old-device" };
+  let removed = false;
+  tunnel._removeLocalTunnelService = async () => {
+    removed = true;
+  };
+  tunnel._SkyLabService.disconnectWireGuard = async () => {};
+  tunnel._SkyLabService.getConnectionScope = async () => "new-account";
+  tunnel._SkyLabService.refreshWireGuard = async () =>
+    assert.fail("must not renew another account's device");
+  await assert.rejects(tunnel.refreshTunnel(), /signed-in account changed/);
+  assert.equal(removed, true);
+  assert.equal(tunnel._activeIdentity, null);
+});
+
+test("logout disconnects the active profile and clears its in-memory identity", async () => {
+  const tunnel = new Tunnel();
+  const devices = [];
+  tunnel._activeIdentity = { deviceId: "active-device" };
+  tunnel._activeIdentityScope = "active-account";
+  tunnel._removeLocalTunnelService = async () => {};
+  tunnel._SkyLabService.disconnectWireGuard = async device =>
+    devices.push(device);
+  await tunnel.stopTunnel();
+  assert.deepEqual(devices, ["active-device"]);
+  assert.equal(tunnel._activeIdentity, null);
+  assert.equal(tunnel._activeIdentityScope, null);
+});
+
+test("Web account switch followed by desktop logout and sign-in uses the new account's own device", async t => {
+  let token = jwt("flow-account-a");
+  let refreshToken = "refresh-a";
+  const settings = {
+    getToken: async () => token,
+    getRefreshToken: async () => refreshToken,
+    getBackendUrl: async () => "https://campus.example.org",
+    setTokens: async (access, refresh) => {
+      token = access;
+      refreshToken = refresh;
+    },
+    clearTokens: async () => {
+      token = "";
+      refreshToken = "";
+    }
+  };
+  const subject = () =>
+    JSON.parse(Buffer.from(token.split(".")[1], "base64url")).sub;
+  const api = new SkyLabService(settings);
+  const connected = [];
+  const disconnected = [];
+  let revokedUser;
+  api.connectWireGuard = async (deviceId, publicKey) => {
+    connected.push({ user: subject(), deviceId, publicKey });
+    return { connections: [], expires_in: 3600 };
+  };
+  api.disconnectWireGuard = async deviceId =>
+    disconnected.push({ user: subject(), deviceId });
+  api.logout = async () => {
+    revokedUser = subject();
+  };
+  const tunnel = new Tunnel();
+  tunnel._SkyLabService = api;
+  tunnel._ensureWireGuardInstalled = async () => {};
+  tunnel._removeLocalTunnelService = async () => {};
+  tunnel._runElevatedWireGuard = async () => {};
+  tunnel._waitUntilRunning = async () => true;
+  tunnel._readLatestHandshake = async () => null;
+  tunnel._buildConfig = () => "[Interface]";
+  tunnel.isRunning = async () => true;
+  await tunnel.startTunnel();
+
+  // Only the browser changed to B; the desktop must revoke A before clearing A.
+  const auth = new AuthService(api, settings, tunnel);
+  await auth.logout();
+  assert.equal(revokedUser, "flow-account-a");
+  assert.deepEqual(disconnected, [
+    { user: "flow-account-a", deviceId: connected[0].deviceId }
+  ]);
+  assert.equal(token, "");
+  assert.equal((await tunnel.getStatus()).running, false);
+
+  api.requestDeviceCode = async () => ({
+    device_code: "flow-code",
+    login_url: "https://campus.example.org/login",
+    expires_in: 300
+  });
+  api.pollDeviceCode = async () => ({
+    status: "approved",
+    accessToken: jwt("flow-account-b"),
+    refreshToken: "refresh-b"
+  });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let complete;
+  const authenticated = new Promise(resolve => {
+    complete = resolve;
+  });
+  await auth.startLogin(success => complete(success));
+  t.mock.timers.tick(2000);
+  assert.equal(await authenticated, true);
+  t.mock.timers.reset();
+  await tunnel.startTunnel();
+  assert.equal(connected[1].user, "flow-account-b");
+  assert.notEqual(connected[0].deviceId, connected[1].deviceId);
+  assert.notEqual(connected[0].publicKey, connected[1].publicKey);
+  assert.equal((await tunnel.getStatus()).running, true);
 });

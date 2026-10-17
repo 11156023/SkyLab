@@ -97,6 +97,7 @@ export default {
     logoutButton: "ログアウト",
     waiting: "ブラウザーでの確認を待っています...",
     success: "ログインしました",
+    timeout: "認証がタイムアウトしました。もう一度接続してください。",
     failure: "ログインに失敗しました: {error}",
     alreadyLoggedIn: "ログイン済み"
   },

@@ -96,26 +96,40 @@ def test_course_list_only_includes_published_courses_for_active_enrollments() ->
             session, teacher=teacher, student=student, session_date=date(2026, 8, 25)
         )
         session.refresh(teaching_class)
-        other_class = TeachingClass(**{
-            **teaching_class.model_dump(exclude={"id", "code"}), "code": "other-class",
-        })
+        other_class = TeachingClass(
+            **{
+                **teaching_class.model_dump(exclude={"id", "code"}),
+                "code": "other-class",
+            }
+        )
         session.add(other_class)
         session.add(other_student)
         session.flush()
-        session.add(TeachingClassStudent(class_id=other_class.id, user_id=other_student.id))
+        session.add(
+            TeachingClassStudent(class_id=other_class.id, user_id=other_student.id)
+        )
         other_path = CoursePath(
-            title="Other student's course", created_by=teacher.id,
-            teaching_class_id=other_class.id, status=CoursePathStatus.published,
+            title="Other student's course",
+            created_by=teacher.id,
+            teaching_class_id=other_class.id,
+            status=CoursePathStatus.published,
         )
         session.add(other_path)
-        session.add(CoursePath(
-            title="Unassigned published course", created_by=teacher.id,
-            status=CoursePathStatus.published,
-        ))
+        session.add(
+            CoursePath(
+                title="Unassigned published course",
+                created_by=teacher.id,
+                status=CoursePathStatus.published,
+            )
+        )
         session.commit()
 
-        assert [row.id for row in list_published_paths(session, user_id=student.id)] == [own_path.id]
-        assert [row.id for row in list_published_paths(session, user_id=other_student.id)] == [other_path.id]
+        assert [
+            row.id for row in list_published_paths(session, user_id=student.id)
+        ] == [own_path.id]
+        assert [
+            row.id for row in list_published_paths(session, user_id=other_student.id)
+        ] == [other_path.id]
         assert list_published_paths(session, user_id=teacher.id) == []
 
         own_path.status = CoursePathStatus.draft
@@ -126,9 +140,11 @@ def test_course_list_only_includes_published_courses_for_active_enrollments() ->
         session.add(own_path)
         session.commit()
 
-        enrollment = session.exec(select(TeachingClassStudent).where(
-            TeachingClassStudent.user_id == student.id,
-        )).one()
+        enrollment = session.exec(
+            select(TeachingClassStudent).where(
+                TeachingClassStudent.user_id == student.id,
+            )
+        ).one()
         enrollment.status = "removed"
         session.add(enrollment)
         session.commit()
@@ -286,7 +302,7 @@ def test_weekly_tasks_only_show_published_content_and_pdf(
     assert filename == "permissions.pdf"
 
 
-def test_weekly_tasks_show_ai_extracted_items_before_script_is_approved() -> None:
+def test_weekly_tasks_hide_ai_extracted_items_before_script_is_approved() -> None:
     session = _session()
     teacher = _user("teacher@example.edu", UserRole.teacher)
     student = _user("student@example.edu", UserRole.student)
@@ -340,11 +356,8 @@ def test_weekly_tasks_show_ai_extracted_items_before_script_is_approved() -> Non
     )
 
     assert len(rows) == 1
-    assert rows[0].checkpoints[0].title == "Boot the machine"
-    # 還沒有腳本也是這週的作業（可以回報完成），只是還不能檢查
-    assert rows[0].checkpoints[0].assignment_title == "Week one AI check"
-    assert rows[0].checkpoints[0].check_available is False
-    assert rows[0].checkpoints[0].assignment_id == judge.id
+    assert rows[0].checkpoints == []
+    assert rows[0].source_documents == []
 
 
 def test_weekly_tasks_show_published_pdf_without_ai_check() -> None:
@@ -479,7 +492,10 @@ def test_reminders_derive_expiry_review_and_class_task() -> None:
         "request_review",
         "class_task",
     }
-    assert next(row for row in rows if row.kind == "resource_expiry").target == "/my-resources"
+    assert (
+        next(row for row in rows if row.kind == "resource_expiry").target
+        == "/my-resources"
+    )
     assert next(row for row in rows if row.kind == "request_review").tone == "success"
     class_task = next(row for row in rows if row.kind == "class_task")
     assert "Checkpoint" in class_task.title
@@ -516,15 +532,25 @@ def test_course_content_and_answers_require_active_enrollment() -> None:
         session.add(question)
         session.commit()
 
-        assert course_service.get_path_detail(
-            session, user_id=student.id, path_id=path.id
-        ).id == path.id
-        assert course_service.get_room_student_detail(
-            session, user_id=student.id, room_id=room.id
-        ).tasks[0].content == "secret steps"
+        assert (
+            course_service.get_path_detail(
+                session, user_id=student.id, path_id=path.id
+            ).id
+            == path.id
+        )
+        assert (
+            course_service.get_room_student_detail(
+                session, user_id=student.id, room_id=room.id
+            )
+            .tasks[0]
+            .content
+            == "secret steps"
+        )
 
         with pytest.raises(NotFoundError):
-            course_service.get_path_detail(session, user_id=outsider.id, path_id=path.id)
+            course_service.get_path_detail(
+                session, user_id=outsider.id, path_id=path.id
+            )
         with pytest.raises(NotFoundError):
             course_service.get_room_student_detail(
                 session, user_id=outsider.id, room_id=room.id
@@ -534,9 +560,11 @@ def test_course_content_and_answers_require_active_enrollment() -> None:
                 session, user=outsider, question_id=question.id, answer=None
             )
 
-        enrollment = session.exec(select(TeachingClassStudent).where(
-            TeachingClassStudent.user_id == student.id,
-        )).one()
+        enrollment = session.exec(
+            select(TeachingClassStudent).where(
+                TeachingClassStudent.user_id == student.id,
+            )
+        ).one()
         enrollment.status = "removed"
         session.add(enrollment)
         session.commit()

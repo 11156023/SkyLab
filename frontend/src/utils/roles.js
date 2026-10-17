@@ -13,3 +13,8 @@ export function isAdminUser(user) {
 export function canTeachUser(user) {
   return isAdminUser(user) || user?.role === "teacher";
 }
+
+/** 學生課程頁也開放管理員；一般老師使用班級管理。 */
+export function canViewStudentCourses(user) {
+  return Boolean(user) && (isAdminUser(user) || !canTeachUser(user));
+}

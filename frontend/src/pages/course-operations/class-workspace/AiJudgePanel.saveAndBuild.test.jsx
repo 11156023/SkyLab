@@ -142,7 +142,7 @@ function mountRubrics(state) {
 }
 
 function saveButton(container) {
-  return [...container.querySelectorAll("button")].find((button) => button.textContent.includes("儲存並製作"));
+  return [...container.querySelectorAll("button")].find((button) => button.textContent.includes("製作腳本"));
 }
 
 async function clickSave(container) {
@@ -152,7 +152,7 @@ async function clickSave(container) {
   await act(async () => button.click());
 }
 
-describe("一鍵儲存並製作", () => {
+describe("一鍵製作腳本", () => {
   test("自動保存 AI 與導師取證的 typed 更新，保留未變更項目，以新版本製作並通知跳頁", async () => {
     const state = fixture();
     const { container } = await mountRubrics(state);

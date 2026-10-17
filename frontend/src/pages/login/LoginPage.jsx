@@ -566,9 +566,11 @@ function DeviceApprovalView({ status, error, user, onApprove, onDecline }) {
 
   return (
     <>
-      <h1 className={styles.title}>{t("LoginPage.deviceConnectingTitle")}</h1>
+      <h1 className={styles.title}>
+        {t(status === "declining" ? "LoginPage.deviceCancellingTitle" : "LoginPage.deviceConnectingTitle")}
+      </h1>
       <p className={styles.subtitle}>
-        {t("LoginPage.deviceConnectingSubtitle")}
+        {t(status === "declining" ? "LoginPage.deviceCancellingSubtitle" : "LoginPage.deviceConnectingSubtitle")}
       </p>
       <div className={styles.deviceProgress} aria-live="polite">
         <MIcon name="sync" size={40} spin />
@@ -883,7 +885,7 @@ export default function LoginPage() {
     if (!deviceCode || !user) return;
 
     const approvalKey = `${deviceCode}:${user.id ?? user.email ?? "current"}`;
-    if (approvalKeyRef.current === approvalKey) return;
+    if (approvalKeyRef.current) return;
     approvalKeyRef.current = approvalKey;
 
     setDeviceApproval({ status: "approving", error: "" });
@@ -899,7 +901,20 @@ export default function LoginPage() {
     }
   };
 
-  const declineDevice = () => {
+  const declineDevice = async () => {
+    if (!deviceCode || approvalKeyRef.current) return;
+    approvalKeyRef.current = `decline:${deviceCode}`;
+    setDeviceApproval({ status: "declining", error: "" });
+    try {
+      await AccountService.declineDesktopDevice(deviceCode);
+    } catch (err) {
+      approvalKeyRef.current = "";
+      setDeviceApproval({
+        status: "error",
+        error: err?.message ?? t("LoginPage.deviceApprovalError"),
+      });
+      return;
+    }
     clearDeviceCodeFromUrl();
     setDeviceCode("");
     setDeviceApproval({ status: "idle", error: "" });

@@ -3,7 +3,7 @@
 The desktop client authenticates via a "device auth" flow:
 1. Client calls POST /auth/device-code  -> gets a device_code
 2. Client opens browser to {frontend}/login?device_code={code}
-3. User logs in on the web, frontend auto-calls POST /auth/approve
+3. User logs in on the web and explicitly approves or denies the request
 4. Client polls GET /auth/poll?code={code} -> gets an access/refresh token pair
 """
 
@@ -72,9 +72,7 @@ _DEVICE_CODE_RATE_LIMIT = Depends(
 def create_device_code() -> DeviceCodeResponse:
     """Generate a new device code for desktop client login."""
     if _device_codes.count(limit=_DEVICE_CODE_MAX_PENDING) >= _DEVICE_CODE_MAX_PENDING:
-        raise HTTPException(
-            status_code=429, detail=t("desktop.device_code_too_many")
-        )
+        raise HTTPException(status_code=429, detail=t("desktop.device_code_too_many"))
     code = secrets.token_urlsafe(32)
     _device_codes.set(code, {"token": None, "created_at": time.time()})
     frontend_url = str(settings.FRONTEND_HOST).rstrip("/")
@@ -99,13 +97,14 @@ def approve_device_code(
 
     entry = _device_codes.get(body.device_code)
     if entry is None:
-        raise HTTPException(
-            status_code=404, detail=t("desktop.device_code_not_found")
-        )
+        raise HTTPException(status_code=404, detail=t("desktop.device_code_not_found"))
 
     remaining = _DEVICE_CODE_TTL - int(time.time() - entry["created_at"])
     if remaining <= 0:
         _device_codes.delete(body.device_code)
+        raise HTTPException(status_code=410, detail=t("desktop.device_code_expired"))
+
+    if entry.get("denied"):
         raise HTTPException(status_code=410, detail=t("desktop.device_code_expired"))
 
     if entry["token"] is not None:
@@ -131,14 +130,35 @@ def approve_device_code(
     return {"status": "approved"}
 
 
+@router.post("/auth/deny")
+def deny_device_code(body: DeviceApproveRequest, _current_user: CurrentUser) -> dict:
+    """Keep a terminal result until the desktop client observes cancellation."""
+    entry = _device_codes.get(body.device_code)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=t("desktop.device_code_not_found"))
+    remaining = _DEVICE_CODE_TTL - int(time.time() - entry["created_at"])
+    if remaining <= 0:
+        _device_codes.delete(body.device_code)
+        raise HTTPException(status_code=410, detail=t("desktop.device_code_expired"))
+    if entry["token"] is not None:
+        raise HTTPException(
+            status_code=409, detail=t("desktop.device_code_already_approved")
+        )
+    _device_codes.set(
+        body.device_code, {**entry, "denied": True}, ttl_seconds=remaining
+    )
+    return {"status": "denied"}
+
+
 @router.get("/auth/poll")
 def poll_device_code(code: str) -> DevicePollResponse:
     """Poll for device code approval (called by the desktop client)."""
     entry = _device_codes.get(code)
     if entry is None:
-        raise HTTPException(
-            status_code=404, detail=t("desktop.device_code_not_found")
-        )
+        raise HTTPException(status_code=404, detail=t("desktop.device_code_not_found"))
+
+    if entry.get("denied"):
+        return DevicePollResponse(status="denied")
 
     if entry["token"] is not None:
         token = entry["token"]

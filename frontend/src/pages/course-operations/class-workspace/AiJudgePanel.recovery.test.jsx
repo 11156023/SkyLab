@@ -107,11 +107,11 @@ test("重開處理中的分析會停用重送，背景更新後恢復提案", as
     metadata_json: { processing: true, processing_deadline: Date.now() / 1000 + 570 },
   }]);
   expect(container.textContent).toContain("仍在處理");
-  expect(container.querySelector("textarea").disabled).toBe(true);
+  expect(container.querySelector("textarea[aria-label]").disabled).toBe(true);
   list.mockResolvedValue([proposalMessage()]);
   await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
   expect(container.querySelector('[aria-label="AI 提案"]')).toBeTruthy();
-  expect(container.querySelector("textarea").disabled).toBe(false);
+  expect(container.querySelector("textarea[aria-label]").disabled).toBe(false);
   expect(send).not.toHaveBeenCalled();
 });
 
@@ -132,7 +132,7 @@ test("切換到另一個檢查後，舊請求的晚到回覆不會插入目前�
   const { container, send, list } = await mountWithMessages([]);
   let finish;
   send.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
-  const textarea = container.querySelector("textarea");
+  const textarea = container.querySelector("textarea[aria-label]");
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
     setter.call(textarea, "舊檢查要求");

@@ -876,10 +876,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
             </button>
           </div>
         </td>
-        <td>
+        <td className={styles.rubricTitleCell}>
           <label className={styles.tableField}>
             <span className={styles.srOnly}>{t("AiJudgePanel.rowTitleLabel", { index: index + 1 })}</span>
-            <input
+            <textarea
+              rows={2}
+              className={styles.rubricTitleInput}
               value={item.title}
               onChange={(event) => onChange({ ...item, title: event.target.value })}
               placeholder={t("AiJudgePanel.rowTitlePlaceholder")}
@@ -887,7 +889,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
             />
           </label>
         </td>
-        <td className={styles.rubricDescriptionCell}>
+        <td className={styles.rubricDescriptionCell} data-label={t("AiJudgePanel.thMethod")}>
           <div className={styles.tableField}>
             <span className={styles.srOnly}>{t("AiJudgePanel.rowMethodLabel", { index: index + 1 })}</span>
             <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
@@ -1450,7 +1452,7 @@ export function SaveAndCreateAction({
         aria-busy={isProcessing}
         data-generation-status={status || undefined}
       >
-        {isProcessing ? <Spinner size={14} /> : <MIcon name="save" size={14} />}
+        {isProcessing ? <Spinner size={14} /> : <MIcon name="code" size={14} />}
         {label}
       </button>
     </div>
@@ -2362,7 +2364,7 @@ export function RubricsTab({
       if (selectableIds.size !== proposal.length) {
         throw new Error(t("AiJudgePanel.buildReviewMalformed"));
       }
-      // 「儲存並製作」包含套用本輪核對結果；保存同一份候選內容後，才以新版本製作腳本。
+      // 「製作腳本」包含套用本輪核對結果；保存同一份候選內容後，才以新版本製作腳本。
       const { items: candidateItems } = applyProposalOperations(
         analysis.items ?? [],
         proposal,
@@ -2530,22 +2532,22 @@ export function RubricsTab({
             />
           ) : (
             <>
-              {pendingProposal && <ProposalPanel
-                proposal={pendingProposal}
-                selectedIds={selectedProposalIds}
-                onToggle={(id) => setSelectedProposalIds((current) => {
-                  const next = new Set(current);
-                  if (next.has(id)) next.delete(id); else next.add(id);
-                  return next;
-                })}
-                onApply={applyPendingProposal}
-                onSkip={skipPendingProposal}
-                isRefine={pendingProposalIsRefine}
-                itemResults={pendingItemResults}
-                disabled={isChatting || isClearingMessages}
-              />}
-              {items.length > 0 && (
-                <div className={styles.checkRubricBody}>
+              <div className={styles.checkRubricBody}>
+                {pendingProposal && <ProposalPanel
+                  proposal={pendingProposal}
+                  selectedIds={selectedProposalIds}
+                  onToggle={(id) => setSelectedProposalIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                  })}
+                  onApply={applyPendingProposal}
+                  onSkip={skipPendingProposal}
+                  isRefine={pendingProposalIsRefine}
+                  itemResults={pendingItemResults}
+                  disabled={isChatting || isClearingMessages}
+                />}
+                {items.length > 0 && (
                   <RubricTable
                     items={items}
                     onChange={handleItemChange}
@@ -2554,8 +2556,8 @@ export function RubricsTab({
                     needsReviewIds={pendingReviewIds}
                     machineNodes={machineNodes}
                   />
-                </div>
-              )}
+                )}
+              </div>
               <SaveAndCreateAction
                 onClick={handleSaveAndCreate}
                 onBlocked={(reason) => toast.info(reason)}
@@ -3446,17 +3448,12 @@ export function ExecutionTiming({ timing }) {
   );
 }
 
-/* 單台機器的核查內容：機器標題 → 檢查點分組 → 耗時與儲存；由學生總覽展開後逐台渲染。
-   儲存只存老師的判定，這台沒有要判定的檢查項就不顯示儲存列。 */
+/* 單台機器的檢查結果；判定與本週回覆由學生下方的儲存按鈕一起儲存。 */
 function MachineReviewDetail({
   row,
   machineNodes = [],
   draft,
-  saved,
-  isDirty,
-  saving,
   onToggleDecision,
-  onSave,
 }) {
   const { t } = useTranslation("teaching");
   const { target } = row;
@@ -3470,7 +3467,6 @@ function MachineReviewDetail({
   }
   const summary = getTargetReviewSummary(target);
   const decide = (checkId, value) => onToggleDecision(row.key, checkId, value);
-  const showSave = summary.reviewable > 0 || isDirty;
   return (
     <>
       <div className={styles.reviewMachineHead}>
@@ -3518,16 +3514,6 @@ function MachineReviewDetail({
 
       <div className={styles.reviewMachineFoot}>
         <ExecutionTiming timing={target.timing} />
-        {showSave && (
-          <div className={styles.reviewSaveRow}>
-            <span>{isDirty
-              ? t("AiJudgePanel.unsavedChanges")
-              : Object.keys(saved.decisions).length
-                ? t("AiJudgePanel.lastSaved", { time: target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : t("AiJudgePanel.saved") })
-                : t("AiJudgePanel.reviewSaveHint")}</span>
-            <button type="button" className={isDirty ? styles.btnPrimary : styles.btnSecondary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</> : <><MIcon name="save" size={16} />{t("AiJudgePanel.saveReviewBtn")}</>}</button>
-          </div>
-        )}
       </div>
     </>
   );
@@ -3642,13 +3628,13 @@ export function TeacherReviewTab({
   const [progress, setProgress] = useState(null);
   // 每位學生這週回覆的草稿（user_id → 文字）；存好就拿掉
   const [replyDrafts, setReplyDrafts] = useState({});
-  const [savingReplyUserId, setSavingReplyUserId] = useState(null);
   const [scriptSets, setScriptSets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [expandedKey, setExpandedKey] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [savingKey, setSavingKey] = useState(null);
+  const savingStudentRef = useRef(false);
   const [sortMode, setSortMode] = useState("pending");
   const [runOnceOpen, setRunOnceOpen] = useState(false);
   const [creatingBatch, setCreatingBatch] = useState(false);
@@ -3849,12 +3835,12 @@ export function TeacherReviewTab({
   const dirtyCount = useMemo(() => machineRows.filter((row) => (
     Boolean(row.target) && isReviewDraftDirty(drafts[row.key], targetTeacherReview(row.target))
   )).length, [machineRows, drafts]);
-  hasDirtyDraftsRef.current = dirtyCount > 0;
   const savedReplyByUser = useMemo(() => new Map(
     (progress?.students ?? []).map((row) => [String(row.user_id), String(row.teacher_reply ?? "")]),
   ), [progress]);
   const dirtyReplyCount = Object.entries(replyDrafts)
     .filter(([userId, text]) => text !== (savedReplyByUser.get(userId) ?? "")).length;
+  hasDirtyDraftsRef.current = dirtyCount + dirtyReplyCount > 0 || savingKey !== null;
 
   useEffect(() => {
     onDirtyChange?.(dirtyCount + dirtyReplyCount > 0);
@@ -3862,43 +3848,37 @@ export function TeacherReviewTab({
 
   async function saveReply(userId) {
     const text = replyDrafts[userId] ?? savedReplyByUser.get(userId) ?? "";
-    setSavingReplyUserId(userId);
-    try {
-      const saved = await AiJudgeService.saveStudentReply(classId, sessionId, userId, text);
-      setProgress((current) => current && {
-        ...current,
-        students: (current.students ?? []).map((row) => (
-          String(row.user_id) === String(userId)
-            ? { ...row, teacher_reply: saved?.teacher_reply ?? "", teacher_reply_at: saved?.teacher_reply_at ?? null }
-            : row
-        )),
-      });
-      setReplyDrafts((current) => {
-        const next = { ...current };
-        delete next[userId];
-        return next;
-      });
-      toast.success(t(saved?.teacher_reply ? "AiJudgePanel.replySaved" : "AiJudgePanel.replyCleared"));
-    } catch (error) {
-      toast.error(error?.message ?? t("AiJudgePanel.replySaveFailed"));
-    } finally {
-      setSavingReplyUserId(null);
-    }
+    const saved = await AiJudgeService.saveStudentReply(classId, sessionId, userId, text);
+    setProgress((current) => current && {
+      ...current,
+      students: (current.students ?? []).map((row) => (
+        String(row.user_id) === String(userId)
+          ? { ...row, teacher_reply: saved?.teacher_reply ?? "", teacher_reply_at: saved?.teacher_reply_at ?? null }
+          : row
+      )),
+    });
+    setReplyDrafts((current) => {
+      if (current[userId] !== text) return current;
+      const next = { ...current };
+      delete next[userId];
+      return next;
+    });
   }
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   useEffect(() => {
-    if (newResultsWaiting && dirtyCount === 0 && savingKey === null) loadReview({ silent: true });
-  }, [newResultsWaiting, dirtyCount, savingKey, loadReview]);
+    if (newResultsWaiting && dirtyCount + dirtyReplyCount === 0 && savingKey === null) loadReview({ silent: true });
+  }, [newResultsWaiting, dirtyCount, dirtyReplyCount, savingKey, loadReview]);
 
   async function discardDraftsAndLoad() {
     const ok = await confirm({
       title: t("AiJudgePanel.discardReviewsTitle"),
-      message: t("AiJudgePanel.discardReviewsMessage", { count: dirtyCount }),
+      message: t("AiJudgePanel.discardReviewsMessage", { count: dirtyCount + dirtyReplyCount }),
       confirmText: t("AiJudgePanel.discardAndLoad"),
       danger: true,
     });
     if (!ok) return;
+    setReplyDrafts({});
     hasDirtyDraftsRef.current = false;
     loadReview({ silent: true });
   }
@@ -3932,59 +3912,91 @@ export function TeacherReviewTab({
 
   async function saveRow(row) {
     const draft = drafts[row.key] ?? reviewDraftFromTeacherReview(row.target?.teacher_review);
-    setSavingKey(row.key);
+    if (!row.runId) throw new Error(t("AiJudgePanel.missingRunId"));
+    if (row.vmid == null && !row.studentId) {
+      throw new Error(t("AiJudgePanel.missingStudentId"));
+    }
+    const updated = row.vmid == null
+      ? await AiJudgeService.updateStudentReview(
+        classId,
+        sessionId,
+        row.runId,
+        row.studentId,
+        draft,
+      )
+      : await AiJudgeService.updateTargetReview(
+        classId,
+        sessionId,
+        row.runId,
+        row.vmid,
+        draft,
+      );
+    const savedTarget = (updated?.target_results_json?.targets ?? [])
+      .find((item) => (
+        row.vmid != null ? String(item?.vmid) === String(row.vmid)
+          : row.studentId != null && String(item?.student_id ?? "") === String(row.studentId)
+      ));
+    if (reviewState?.mode === "batch") {
+      const savedReview = savedTarget?.teacher_review;
+      setReviewState((current) => (
+        current?.mode === "batch"
+          ? {
+            mode: "batch",
+            batches: current.batches.map((entry) => (
+              entry?.run_batch_id === row.batchId
+                ? mergeNodeTeacherReview(entry, row, savedReview)
+                : entry
+            )),
+          }
+          : current
+      ));
+      setDrafts((current) => ({
+        ...current,
+        [row.key]: isReviewDraftDirty(current[row.key], draft)
+          ? current[row.key] : reviewDraftFromTeacherReview(savedReview),
+      }));
+    } else if (reviewState?.mode === "run") {
+      setReviewState((current) => current?.mode === "run" ? {
+        mode: "run",
+        run: {
+          ...current.run,
+          target_results_json: {
+            ...current.run.target_results_json,
+            targets: (current.run.target_results_json?.targets ?? []).map((target) => (
+              (row.vmid != null ? String(target.vmid) === String(row.vmid)
+                : String(target.student_id) === String(row.studentId))
+                ? { ...target, teacher_review: savedTarget?.teacher_review } : target
+            )),
+          },
+        },
+      } : current);
+      setDrafts((current) => ({
+        ...current,
+        [row.key]: isReviewDraftDirty(current[row.key], draft)
+          ? current[row.key] : reviewDraftFromTeacherReview(savedTarget?.teacher_review),
+      }));
+    }
+  }
+
+  async function saveStudent(student) {
+    if (savingStudentRef.current) return;
+    savingStudentRef.current = true;
+    setSavingKey(student.studentId);
     try {
-      if (!row.runId) throw new Error(t("AiJudgePanel.missingRunId"));
-      if (row.vmid == null && !row.studentId) {
-        throw new Error(t("AiJudgePanel.missingStudentId"));
+      for (const row of student.machines) {
+        if (row.target && isReviewDraftDirty(drafts[row.key], targetTeacherReview(row.target))) {
+          await saveRow(row);
+        }
       }
-      const updated = row.vmid == null
-        ? await AiJudgeService.updateStudentReview(
-          classId,
-          sessionId,
-          row.runId,
-          row.studentId,
-          draft,
-        )
-        : await AiJudgeService.updateTargetReview(
-          classId,
-          sessionId,
-          row.runId,
-          row.vmid,
-          draft,
-        );
-      const savedTarget = (updated?.target_results_json?.targets ?? [])
-        .find((item) => (
-          (row.studentId != null
-            && String(item?.student_id ?? "") === String(row.studentId))
-          || (row.vmid != null && String(item?.vmid) === String(row.vmid))
-        ));
-      if (reviewState?.mode === "batch") {
-        const savedReview = savedTarget?.teacher_review;
-        setReviewState((current) => (
-          current?.mode === "batch"
-            ? {
-              mode: "batch",
-              batches: current.batches.map((entry) => (
-                entry?.run_batch_id === row.batchId
-                  ? mergeNodeTeacherReview(entry, row, savedReview)
-                  : entry
-              )),
-            }
-            : current
-        ));
-        setDrafts((current) => ({
-          ...current,
-          [row.key]: reviewDraftFromTeacherReview(savedReview),
-        }));
-      } else if (reviewState?.mode === "run") {
-        setReviewState({ mode: "run", run: updated });
-        setDrafts((current) => ({ ...current, [row.key]: reviewDraftFromTeacherReview(savedTarget?.teacher_review) }));
+      if (student.userId && replyDrafts[student.userId] !== undefined
+        && replyDrafts[student.userId] !== (savedReplyByUser.get(student.userId) ?? "")) {
+        await saveReply(student.userId);
       }
       toast.success(t("AiJudgePanel.reviewSaved"));
     } catch (error) {
       toast.error(error?.message ?? t("AiJudgePanel.reviewSaveFailed"));
     } finally {
+      savingStudentRef.current = false;
       setSavingKey(null);
     }
   }
@@ -4272,6 +4284,16 @@ export function TeacherReviewTab({
           {studentRows.map((student) => {
           const user = student.user ?? {};
           const isOpen = expandedKey === student.studentId;
+          const studentDirty = student.machines.some((row) => (
+            row.target && isReviewDraftDirty(drafts[row.key], targetTeacherReview(row.target))
+          )) || (student.userId && replyDrafts[student.userId] !== undefined
+            && replyDrafts[student.userId] !== (student.reply?.text ?? ""));
+          const savingStudent = savingKey === student.studentId;
+          const savedAt = [student.reply?.at, ...student.machines.map((row) => row.target?.teacher_review?.updated_at)]
+            .filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0];
+          const hasSaved = savedAt || student.reply?.text || student.machines.some((row) => (
+            Object.keys(targetTeacherReview(row.target).decisions).length > 0
+          ));
           const outcome = checkOutcome(student.machines);
           const chips = studentMachineChips(student, members, machineNodes);
           const reportKind = student.report?.kind ?? "none";
@@ -4359,34 +4381,27 @@ export function TeacherReviewTab({
                   </div>
                   {student.machines.map((row) => {
                     const draft = drafts[row.key] ?? reviewDraftFromTeacherReview(row.target?.teacher_review);
-                    const saved = targetTeacherReview(row.target);
-                    const isDirty = Boolean(row.target) && isReviewDraftDirty(draft, saved);
                     return (
                       <section className={styles.reviewMachineCard} key={row.key} aria-label={row.nodeKey ?? `VMID ${row.vmid ?? ""}`}>
                         <MachineReviewDetail
                           row={row}
                           machineNodes={machineNodes}
                           draft={draft}
-                          saved={saved}
-                          isDirty={isDirty}
-                          saving={savingKey === row.key}
                           onToggleDecision={toggleDecision}
-                          onSave={saveRow}
                         />
                       </section>
                     );
                   })}
-                  {/* 回覆放在這位學生的檢查結果下面，看完結果直接打；一個輸入框加送出，Ctrl／⌘+Enter 也能送 */}
+                  {/* 看完所有機器的結果後回覆；按鈕與 Ctrl／⌘+Enter 都會一起儲存判定與回覆。 */}
                   {student.userId && (() => {
                     const saved = student.reply?.text ?? "";
                     const value = replyDrafts[student.userId] ?? saved;
-                    const replyDirty = value !== saved;
-                    const savingReply = savingReplyUserId === student.userId;
                     return (
-                      <div
+                      <label
                         className={styles.replyBar}
                         title={student.reply?.at ? t("AiJudgePanel.replyLastSaved", { time: formatDateTime(student.reply.at) }) : undefined}
                       >
+                        <span>{t("AiJudgePanel.replyLabel")} <small>{t("AiJudgePanel.optionalShort")}</small></span>
                         <textarea
                           className={styles.replyInput}
                           value={value}
@@ -4399,25 +4414,29 @@ export function TeacherReviewTab({
                             setReplyDrafts((current) => ({ ...current, [student.userId]: next }));
                           }}
                           onKeyDown={(event) => {
-                            if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && replyDirty && !savingReply) {
+                            if (event.key === "Enter" && !event.nativeEvent.isComposing
+                              && (event.ctrlKey || event.metaKey) && studentDirty && savingKey === null) {
                               event.preventDefault();
-                              saveReply(student.userId);
+                              saveStudent(student);
                             }
                           }}
                         />
                         {value.length > REPLY_COUNTER_FROM && <small className={styles.replyCount}>{value.length} / {REPLY_MAX_LENGTH}</small>}
-                        <button
-                          type="button"
-                          className={styles.btnPrimary}
-                          disabled={!replyDirty || savingReply}
-                          onClick={() => saveReply(student.userId)}
-                        >
-                          {savingReply ? <Spinner size={15} /> : <MIcon name="send" size={16} />}
-                          {t("AiJudgePanel.replySaveBtn")}
-                        </button>
-                      </div>
+                      </label>
                     );
                   })()}
+                  {(student.userId || student.machines.some((row) => row.target)) && (
+                    <div className={styles.reviewSaveRow}>
+                      <span>{studentDirty ? t("AiJudgePanel.unsavedChanges")
+                        : hasSaved ? t("AiJudgePanel.lastSaved", { time: savedAt ? formatDateTime(savedAt) : t("AiJudgePanel.saved") })
+                          : t("AiJudgePanel.studentSaveHint")}</span>
+                      <button type="button" className={studentDirty ? styles.btnPrimary : styles.btnSecondary}
+                        disabled={!studentDirty || savingKey !== null} onClick={() => saveStudent(student)}>
+                        {savingStudent ? <><Spinner size={15} />{t("AiJudgePanel.saving")}</>
+                          : <><MIcon name="save" size={16} />{t("AiJudgePanel.saveStudentBtn")}</>}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </article>

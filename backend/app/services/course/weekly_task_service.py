@@ -10,13 +10,12 @@ from sqlmodel import Session, select
 from app.core.i18n import t
 from app.exceptions import NotFoundError
 from app.models import TeachingClassTaskFile, TeachingClassWeek
-from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_session import TeacherJudgeSession
 from app.models.teaching_class import PUBLISHED_WEEK_STATUSES
 from app.schemas.course import (
     CourseAIAssignmentStudent,
-    CourseAITaskItemStudent,
     CourseWeeklyCheckpointStudent,
+    CourseWeeklySourceDocumentStudent,
     CourseWeeklyTaskFileStudent,
     CourseWeeklyTaskStudent,
 )
@@ -30,13 +29,6 @@ def _pdf_file(row: TeachingClassTaskFile) -> CourseWeeklyTaskFileStudent | None:
     if not row.filename.lower().endswith(".pdf") or not row.storage_key:
         return None
     return CourseWeeklyTaskFileStudent(id=row.id, filename=row.filename)
-
-
-def _source_items(source_file: TeacherJudgeFile | None) -> list[CourseAITaskItemStudent]:
-    """Expose the AI-extracted task list even before a runnable script is approved."""
-    if source_file is None:
-        return []
-    return ai_assignment_service.student_task_items(source_file.analysis_json or {})
 
 
 def list_student_weekly_tasks(
@@ -94,45 +86,41 @@ def list_student_weekly_tasks(
         )
     ).all()
     checkpoints_by_week: dict[uuid.UUID, list[CourseWeeklyCheckpointStudent]] = {}
+    source_documents_by_week: dict[
+        uuid.UUID, list[CourseWeeklySourceDocumentStudent]
+    ] = {}
     reply_by_week: dict[uuid.UUID, CourseAIAssignmentStudent] = {}
     for judge_session in judge_sessions:
         week_id = judge_session.teaching_class_week_id
         if week_id is None:
             continue
         assignment = assignments_by_session.get(judge_session.id)
-        if assignment is not None and assignment.teacher_reply:
+        # 不得繞過作業可見性檢查，從仍在編修的檢查表補回學生看不到的項目。
+        if assignment is None:
+            continue
+        if assignment.teacher_reply:
             reply_by_week[week_id] = assignment
-        source_file = (
-            session.get(TeacherJudgeFile, judge_session.selected_file_id)
-            if judge_session.selected_file_id is not None
-            else None
-        )
-        items = assignment.items if assignment is not None else _source_items(source_file)
-        task_title = (
-            assignment.title
-            if assignment is not None
-            else (source_file.display_name if source_file else judge_session.title)
-        )
-        for item in items:
+        if assignment.source_document is not None:
+            source_documents_by_week.setdefault(week_id, []).append(
+                CourseWeeklySourceDocumentStudent(
+                    assignment_id=assignment.id,
+                    **assignment.source_document.model_dump(),
+                )
+            )
+        for item in assignment.items:
             checkpoints_by_week.setdefault(week_id, []).append(
                 CourseWeeklyCheckpointStudent(
                     id=item.id,
                     task_id=judge_session.id,
-                    assignment_id=assignment.id if assignment is not None else None,
-                    assignment_title=task_title,
-                    check_available=(
-                        assignment is not None and assignment.check_available
-                    ),
+                    assignment_id=assignment.id,
+                    assignment_title=assignment.title,
+                    check_available=assignment.check_available,
                     title=item.title,
                     description=item.description,
                     detectable=item.detectable,
                     order=item.order,
                     machine_node_key=item.machine_node_key,
-                    latest_check=(
-                        assignment.checkpoint_checks.get(item.id)
-                        if assignment is not None
-                        else None
-                    ),
+                    latest_check=assignment.checkpoint_checks.get(item.id),
                 )
             )
 
@@ -145,6 +133,7 @@ def list_student_weekly_tasks(
             session_date=week.session_date,
             title=week.title,
             files=files_by_week.get(week.id, []),
+            source_documents=source_documents_by_week.get(week.id, []),
             checkpoints=sorted(
                 checkpoints_by_week.get(week.id, []), key=lambda item: item.order
             ),
