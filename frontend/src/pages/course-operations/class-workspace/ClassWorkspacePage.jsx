@@ -573,7 +573,7 @@ const READONLY_NODE_TYPES = { classMachine: ReadonlyMachineNode, gateway: Gatewa
 const READONLY_EDGE_TYPES = { connection: ConnectionEdge };
 
 /* 對外服務清單：與課程環境編輯器側欄的摘要同一套說法。網址是每位學生各一個，
-   模板只存主機名樣板，所以這裡顯示的是樣板而不是實際網址。 */
+   模板只存網址前綴（開課時後面才接亂碼），所以這裡顯示的是前綴而不是實際網址。 */
 function PublicationSummary({ item }) {
   const { t } = useTranslation("teaching");
   const nameByKey = useMemo(

@@ -148,7 +148,7 @@ describe("CourseEnvironmentsService", () => {
       edges: [],
       publications: [
         { nodeKey: "ssh", mode: "firewall_only", port: 22, protocol: "tcp" },
-        { nodeKey: "ssh", mode: "domain", port: 80, protocol: "tcp", hostnamePrefix: "{student}-web", zoneId: "zone-1" },
+        { nodeKey: "ssh", mode: "domain", port: 80, protocol: "tcp", hostnamePrefix: "web", zoneId: "zone-1" },
       ],
     });
 

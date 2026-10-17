@@ -231,9 +231,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
       }));
       const duplicatePort = items.find((item) => others.some((other) => other.nodeKey === item.nodeKey && Number(other.port) === Number(item.port) && other.protocol === item.protocol));
       if (duplicatePort) return { ok: false, error: { text: t("CourseTemplateEditorPage.duplicatePublicationPort", { port: duplicatePort.port }) } };
-      /* 一個網址只能指向一個 port：同一份環境裡的樣板不能重複 */
-      const duplicateHostname = items.find((item) => item.mode === "domain" && others.some((other) => other.mode === "domain" && other.hostnamePrefix === item.hostnamePrefix));
-      if (duplicateHostname) return { ok: false, error: { text: t("CourseTemplateEditorPage.duplicateHostnameHint") } };
+      /* 網址前綴可以重複：開課時每條發布各自接一串不同的亂碼，不會撞網域 */
       onPublicationsChange([...others, ...items]);
       selectPublication(items[0].id);
       return { ok: true, result: { kind: "publish" } };
@@ -616,15 +614,6 @@ export default function CourseTemplateEditorPage() {
   /* 草稿第一次自動儲存後就有真正的 id，那時候就能掛文件了 */
   const hasEnvironmentId = Boolean(template.id) && template.id !== "new";
   const locked = template.status !== "draft" || saving;
-  const duplicatedHostname = (() => {
-    const seen = new Set();
-    for (const item of template.publications ?? []) {
-      if (item.mode !== "domain") continue;
-      if (seen.has(item.hostnamePrefix)) return item.hostnamePrefix;
-      seen.add(item.hostnamePrefix);
-    }
-    return "";
-  })();
   const invalidTopology = (template.edges ?? []).some((edge) => (
     edge.protocol !== "any"
     && (!Number.isInteger(Number(edge.port)) || Number(edge.port) < 1 || Number(edge.port) > 65535)
@@ -879,7 +868,6 @@ export default function CourseTemplateEditorPage() {
     if (template.nodes.length === 0) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.needAtLeastOneMachineReason")); return false; }
     if (template.nodes.length > 3) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.maxThreeMachinesReason")); return false; }
     if (invalidTopology) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.fixPortReason")); return false; }
-    if (duplicatedHostname) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.duplicateHostnameReason", { hostname: duplicatedHostname })); return false; }
     return true;
   }
 

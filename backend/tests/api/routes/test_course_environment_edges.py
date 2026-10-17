@@ -65,7 +65,7 @@ def _validate(edges, publications=None):
     )
 
 
-def _publication(node="web", *, port=80, hostname="{student}-web"):
+def _publication(node="web", *, port=80, hostname="web"):
     return EnvironmentPublicationIn(
         node_key=node,
         mode="domain",
@@ -131,24 +131,23 @@ def test_edge_pointing_at_an_unknown_node_is_rejected() -> None:
 # ── 對外服務 ────────────────────────────────────────────────────────────
 
 
-def test_two_ports_cannot_share_one_hostname_template() -> None:
-    """一個網址只能指向一個 port；同樣板的第二條在開課時才會撞上網域被占用。"""
-    with pytest.raises(BadRequestError):
-        _validate([], [_publication(port=80), _publication(port=443)])
+def test_two_ports_may_share_one_prefix() -> None:
+    """開課時每條發布各自接一串不同的亂碼，前綴相同也不會撞網域。"""
+    _validate([], [_publication(port=80), _publication(port=443)])
 
 
-def test_distinct_hostname_templates_are_fine() -> None:
+def test_distinct_prefixes_are_fine() -> None:
     _validate([], [
-        _publication(port=80, hostname="{student}-web"),
-        _publication(port=443, hostname="{student}-web-tls"),
+        _publication(port=80, hostname="web"),
+        _publication(port=443, hostname="web-tls"),
     ])
 
 
 def test_same_port_cannot_be_published_twice() -> None:
     with pytest.raises(BadRequestError):
         _validate([], [
-            _publication(port=80, hostname="{student}-a"),
-            _publication(port=80, hostname="{student}-b"),
+            _publication(port=80, hostname="a"),
+            _publication(port=80, hostname="b"),
         ])
 
 

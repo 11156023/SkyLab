@@ -11,17 +11,20 @@
 export const RULE_PORT_RE = /^\d{1,5}(?::\d{1,5})?$/;
 
 export const isPortless = (proto) => proto === "icmp" || proto === "icmpv6";
-/** 課程環境主機名樣板裡代表每位學生的占位符；後端 course_env 驗證同一個 */
-export const STUDENT_PLACEHOLDER = "{student}";
-export const CLASS_PLACEHOLDER = "{class}";
+/**
+ * 課程環境對外網址的前綴規則：一段主機名（小寫英數與連字號、頭尾不可是連字號）
+ * 最長 40 字；開課時後面接「-」加 16 碼亂碼，一段網址上限 63 字。
+ * 後端 schemas/course_environment.py 的 HOSTNAME_PREFIX_PATTERN 是同一條規則，改一邊要改另一邊
+ */
+export const HOSTNAME_PREFIX_MAX_LENGTH = 40;
+export const HOSTNAME_PREFIX_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+/** 示範用的亂碼片段（長度與後端 HOSTNAME_SUFFIX_LENGTH 一致） */
+export const SAMPLE_HOSTNAME_SUFFIX = "3f2a9c1e4b7d4e8f";
 
-/** 給老師看的示範網址：課堂代號與匿名學生識別碼都用範例值代入 */
+/** 給老師看的示範網址：前綴後面接一段範例亂碼 */
 export function previewTemplateHostname(prefix, zoneName) {
-  const host = String(prefix ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(CLASS_PLACEHOLDER, "linux101-a1b2c3")
-    .replace(STUDENT_PLACEHOLDER, "s8f21c4a2");
+  const clean = String(prefix ?? "").trim().toLowerCase();
+  const host = clean ? `${clean}-${SAMPLE_HOSTNAME_SUFFIX}` : SAMPLE_HOSTNAME_SUFFIX;
   return zoneName ? `${host}.${zoneName}` : host;
 }
 export const validPort = (n) => Number.isInteger(n) && n >= 1 && n <= 65535;
@@ -46,8 +49,8 @@ export function buildOutboundPorts() {
  * @param {string|null} input.domainTakenText  佔用原因（API 給的訊息，優先顯示）
  * @param {Array} input.forwardRows            mode=port_forward 的列
  * @param {Array} input.firewallRows           mode=firewall_only 的列
- * @param {boolean} input.templateMode         課程環境模板：網址是樣板、對外 port 開課時才配
- * @param {string} input.hostnamePrefix        templateMode 的主機名樣板（須含 {student}）
+ * @param {boolean} input.templateMode         課程環境模板：網址只填前綴、對外 port 開課時才配
+ * @param {string} input.hostnamePrefix        templateMode 的網址前綴（開課時後面接亂碼）
  * @param {string} input.zoneId                templateMode 的網域 zone
  * @param {Array} input.templateForwardRows    templateMode 的 port_forward 列（只有內部 port + 協定）
  */
@@ -70,8 +73,8 @@ export function buildInboundPayload({
     if (!validPort(port)) return fail("ConnectionDialog.portRangeError");
     const prefix = String(hostnamePrefix ?? "").trim().toLowerCase();
     if (!prefix || !zoneId) return fail("ConnectionDialog.domainRequired");
-    /* 少了它，全班會搶同一個網址，只有第一位學生拿得到（後端也擋） */
-    if (!prefix.includes(STUDENT_PLACEHOLDER)) return fail("ConnectionDialog.templateStudentPlaceholder");
+    /* 前綴要是合法的一段主機名，開課時才接得上亂碼（後端也擋） */
+    if (!HOSTNAME_PREFIX_RE.test(prefix)) return fail("ConnectionDialog.templatePrefixInvalid");
     return {
       publish: [{ port, protocol: "tcp", mode, hostname_prefix: prefix, zone_id: zoneId, enable_https: enableHttps }],
       raw: [],

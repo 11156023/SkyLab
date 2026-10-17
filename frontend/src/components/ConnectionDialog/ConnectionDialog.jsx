@@ -16,7 +16,7 @@
  * props：
  * - nodes            可選，[{ key, vmid, name }]；沒給就自己抓 getTopology()
  * - intents          可選，要出現哪些意圖（預設四種）；課程環境模板只留「開放服務」與「互通」
- * - templateMode     課程環境模板：機器沒有 vmid、網址是含 {student} 的樣板、對外 port 開課時才配、
+ * - templateMode     課程環境模板：機器沒有 vmid、網址只填前綴（開課時逐人接亂碼）、對外 port 開課時才配、
  *                    不做網域即時檢查；送出一律交給 onSubmit，不打 API
  * - onSubmit(req)    可選，取代預設的送出（submitRequest）；收到 { kind: "rule"|"inbound"|"edge", ... }，
  *                    回傳 { ok, result } 或 { ok:false, error }
@@ -314,7 +314,7 @@ export default function ConnectionDialog({
 
   /* 網址模式：port 直接輸入，或從 PortInput 的常用 port 選單挑 */
   const [domainPort, setDomainPort] = useState(editing ? String(service.port) : "80");
-  /* 只有模板編輯會帶 service：zone 與「開頭」（主機名樣板，含 {student}）直接從那條發布還原 */
+  /* 只有模板編輯會帶 service：zone 與「開頭」（網址前綴）直接從那條發布還原 */
   const [zoneId, setZoneId] = useState(service?.zone_id ?? "");
   const [prefix, setPrefix] = useState(service?.hostname_prefix ?? "");
   const [enableHttps, setEnableHttps] = useState(service?.enable_https ?? true);
@@ -333,7 +333,7 @@ export default function ConnectionDialog({
     : selectedZone ? (cleanPrefix ? `${cleanPrefix}.${selectedZone.name}` : selectedZone.name) : "";
 
   /* 網域即時檢查：本系統建的或 Cloudflare 上原本就有的，撞名都提醒。
-     模板模式的網址是樣板，開課時才逐人組出來，這裡沒有東西可查 */
+     模板模式只有前綴，網址開課時才逐人接亂碼組出來，這裡沒有東西可查 */
   useEffect(() => {
     if (templateMode || !isInbound || mode !== "domain" || !fullDomain) {
       setAvailability(null);
@@ -677,7 +677,7 @@ export default function ConnectionDialog({
               </div>
               {templateMode ? (
                 <span className={styles.fieldHint}>
-                  {t("ConnectionDialog.templateHostnameHint", { example: fullDomain || previewTemplateHostname("{class}-{student}-app", selectedZone?.name) })}
+                  {t("ConnectionDialog.templateHostnameHint", { example: fullDomain || previewTemplateHostname("app", selectedZone?.name) })}
                 </span>
               ) : fullDomain && (
                 <span className={`${styles.hintLine} ${availabilityTone}`}>

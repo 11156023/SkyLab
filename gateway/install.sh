@@ -240,6 +240,9 @@ http {
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
 
+    # server_names_hash_bucket_size / server_names_hash_max_size 由 SkyLab 寫在 http.conf
+    # （依最長的網域計算），這裡不要再設，重複宣告會讓 nginx -t 失敗
+
     # 沒對到任何已發布網域的請求一律關閉連線（443 用安裝時產生的自簽憑證完成握手）
     server {
         listen 80 default_server;

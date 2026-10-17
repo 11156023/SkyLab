@@ -19,7 +19,7 @@ export function publicationLabel(t, publication, zones = []) {
   });
 }
 
-/** 對外服務給細節面板看的 port 物件：模板的網址是樣板、對外 port 開課前沒有號碼 */
+/** 對外服務給細節面板看的 port 物件：模板的網址只是前綴加範例亂碼、對外 port 開課前沒有號碼 */
 export function publicationDetailPort(publication, zones = []) {
   if (publication.mode === "domain") {
     const zone = zones.find((item) => item.id === publication.zoneId);

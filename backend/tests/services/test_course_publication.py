@@ -1,15 +1,17 @@
 """課程環境的「外網 → 機器」宣告：每位學生各配一個網址。
 
-網域是全域唯一的資源，模板上不可能填一個全班共用的網址，所以老師只宣告
-主機名樣板，實際網域在開課／開練習時逐人組出來。
+網域是全域唯一的資源，模板上不可能填一個全班共用的網址，所以老師只填
+網址前綴，實際網域在開課／開練習時逐人在前綴後面接一串亂碼組出來。
 """
 
+import re
 import uuid
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
+from app.exceptions import BadRequestError
 from app.models import CourseEnvironmentPublication
 from app.schemas.course_environment import EnvironmentPublicationIn
 from app.schemas.firewall import PublishedServiceCreate
@@ -27,7 +29,7 @@ def _publication(**overrides) -> CourseEnvironmentPublication:
         "mode": "domain",
         "port": 5678,
         "protocol": "tcp",
-        "hostname_prefix": "{class}-{student}-n8n",
+        "hostname_prefix": "n8n",
         "zone_id": "zone-1",
         "enable_https": True,
     }
@@ -35,67 +37,95 @@ def _publication(**overrides) -> CourseEnvironmentPublication:
     return CourseEnvironmentPublication(**values)
 
 
-# ── 學生識別片段 ────────────────────────────────────────────────────────
+# ── 亂碼片段 ────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("email", ["alice@school.edu", "student123@school.edu"])
-def test_student_token_is_pseudonymous_and_dns_safe(email: str) -> None:
-    token = cps.student_token(_user(email))
-    assert token == "s6e76689e43"
-    assert "alice" not in token and "student123" not in token
+def test_hostname_suffix_is_sixteen_hex_characters() -> None:
+    suffix = cps.hostname_suffix()
+    assert len(suffix) == cps.HOSTNAME_SUFFIX_LENGTH == 16
+    assert re.fullmatch(r"[0-9a-f]{16}", suffix)
 
 
-def test_student_token_handles_non_ascii_email_without_exposing_it() -> None:
-    """帳號清完是空的（例如全形字元）時仍要產生合法的主機名片段。"""
-    token = cps.student_token(_user("測試@school.edu"))
-    assert token.startswith("s") and token[1:].isalnum()
+def test_hostname_suffix_is_random_per_call() -> None:
+    assert len({cps.hostname_suffix() for _ in range(20)}) == 20
 
 
-def test_student_token_is_different_between_classes() -> None:
-    user = _user("alice@school.edu")
-
-    assert cps.student_token(user, scope="linux-a") != cps.student_token(
-        user, scope="linux-b"
-    )
+def test_student_hostname_joins_prefix_and_suffix() -> None:
+    assert cps.student_hostname(" N8N ", "0123456789abcdef") == "n8n-0123456789abcdef"
 
 
 # ── 網域組合 ────────────────────────────────────────────────────────────
 
 
-def _patch_zone_and_availability(monkeypatch, *, available: bool):
+def _patch_zone_and_availability(monkeypatch, *, available):
+    """``available`` 可以是布林或依呼叫順序回傳的清單。"""
     monkeypatch.setattr(
         cps.cloudflare_service,
         "get_zone",
         lambda **_kwargs: SimpleNamespace(name="lab.example.edu"),
     )
-    monkeypatch.setattr(
-        cps.reverse_proxy_service,
-        "check_domain_availability",
-        lambda *_args, **_kwargs: SimpleNamespace(available=available, reason="system"),
-    )
+    answers = list(available) if isinstance(available, list) else None
+    checked: list[str] = []
+
+    def check(_session, domain, **_kwargs):
+        checked.append(domain)
+        ok = answers.pop(0) if answers is not None else available
+        return SimpleNamespace(available=ok, reason=None if ok else "system")
+
+    monkeypatch.setattr(cps.reverse_proxy_service, "check_domain_availability", check)
+    return checked
 
 
-def test_each_student_gets_their_own_domain(monkeypatch) -> None:
+def test_each_student_gets_prefix_plus_random_suffix(monkeypatch) -> None:
+    _patch_zone_and_availability(monkeypatch, available=True)
+    monkeypatch.setattr(cps, "hostname_suffix", lambda: "0123456789abcdef")
+
+    domain = cps.resolve_domain(Mock(), publication=_publication(), vmid=101)
+
+    assert domain == "n8n-0123456789abcdef.lab.example.edu"
+
+
+def test_two_students_never_share_a_domain(monkeypatch) -> None:
     _patch_zone_and_availability(monkeypatch, available=True)
 
-    domain = cps.resolve_domain(
-        Mock(), publication=_publication(), user=_user("alice@school.edu"), vmid=101,
-        scope="LINUX-101 A",
-    )
+    first = cps.resolve_domain(Mock(), publication=_publication(), vmid=101)
+    second = cps.resolve_domain(Mock(), publication=_publication(), vmid=102)
 
-    assert domain == "linux-101-a-sbe1c6d9a8a-n8n.lab.example.edu"
+    assert first != second
+    assert re.fullmatch(r"n8n-[0-9a-f]{16}\.lab\.example\.edu", first)
 
 
-def test_collision_falls_back_to_a_suffixed_hostname(monkeypatch) -> None:
-    """兩個帳號清完可能撞在一起（alice.wang 與 alice_wang），補短碼區分。"""
-    _patch_zone_and_availability(monkeypatch, available=False)
+def test_collision_retries_with_a_new_suffix(monkeypatch) -> None:
+    """亂碌撞到既有網域（或 Cloudflare 上剛好有同名紀錄）就換一組再試。"""
+    checked = _patch_zone_and_availability(monkeypatch, available=[False, True])
+    suffixes = iter(["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"])
+    monkeypatch.setattr(cps, "hostname_suffix", lambda: next(suffixes))
 
-    domain = cps.resolve_domain(
-        Mock(), publication=_publication(), user=_user("alice@school.edu"), vmid=101,
-        scope="linux-101-a",
-    )
+    domain = cps.resolve_domain(Mock(), publication=_publication(), vmid=101)
 
-    assert domain == "linux-101-a-sbe1c6d9a8a-1111-n8n.lab.example.edu"
+    assert domain == "n8n-bbbbbbbbbbbbbbbb.lab.example.edu"
+    assert checked == [
+        "n8n-aaaaaaaaaaaaaaaa.lab.example.edu",
+        "n8n-bbbbbbbbbbbbbbbb.lab.example.edu",
+    ]
+
+
+def test_repeated_collisions_raise_instead_of_publishing_a_taken_domain(
+    monkeypatch,
+) -> None:
+    checked = _patch_zone_and_availability(monkeypatch, available=False)
+
+    with pytest.raises(BadRequestError):
+        cps.resolve_domain(Mock(), publication=_publication(), vmid=101)
+
+    assert len(checked) == 3
+
+
+def test_publication_without_a_prefix_is_rejected(monkeypatch) -> None:
+    _patch_zone_and_availability(monkeypatch, available=True)
+
+    with pytest.raises(BadRequestError):
+        cps.resolve_domain(Mock(), publication=_publication(hostname_prefix=""), vmid=1)
 
 
 # ── 模板驗證 ────────────────────────────────────────────────────────────
@@ -107,17 +137,29 @@ def _publication_in(**overrides) -> dict:
         "mode": "domain",
         "port": 5678,
         "protocol": "tcp",
-        "hostname_prefix": "{student}-n8n",
+        "hostname_prefix": "n8n",
         "zone_id": "zone-1",
     }
     values.update(overrides)
     return values
 
 
-def test_domain_mode_requires_the_student_placeholder() -> None:
-    """少了 {student}，全班會搶同一個網址，只有第一位學生拿得到。"""
+def test_domain_mode_lowercases_and_trims_the_prefix() -> None:
+    publication = EnvironmentPublicationIn(**_publication_in(hostname_prefix=" My-App "))
+    assert publication.hostname_prefix == "my-app"
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["", "   ", "-app", "app-", "my app", "my.app", "{student}-app", "a" * 41],
+)
+def test_domain_mode_rejects_prefixes_that_are_not_a_hostname_label(prefix: str) -> None:
     with pytest.raises(ValueError):
-        EnvironmentPublicationIn(**_publication_in(hostname_prefix="n8n"))
+        EnvironmentPublicationIn(**_publication_in(hostname_prefix=prefix))
+
+
+def test_domain_mode_accepts_a_forty_character_prefix() -> None:
+    EnvironmentPublicationIn(**_publication_in(hostname_prefix="a" * 40))
 
 
 def test_domain_mode_requires_a_zone() -> None:
