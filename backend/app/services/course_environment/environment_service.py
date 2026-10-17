@@ -223,10 +223,8 @@ def validate_configuration(
                     )
             granted.setdefault(pair, []).append((edge.protocol, edge.port))
 
+    # 網址前綴可以重複：開課時每條發布各自接一串不同的亂碼，不會撞網域
     seen_publications: set[tuple[str, int, str]] = set()
-    # 一個網域只能指向一個目標，所以整份環境裡的主機名樣板必須各不相同，
-    # 否則第二條之後在開課時才會撞上「網域已被占用」。
-    seen_hostnames: set[tuple[str, str]] = set()
     for publication in publications or []:
         if publication.node_key not in node_keys:
             raise BadRequestError(t("course_env.publication_unknown_node"))
@@ -236,20 +234,6 @@ def validate_configuration(
                 t("course_env.duplicate_publication", port=publication.port)
             )
         seen_publications.add(signature)
-        if publication.mode != "domain":
-            continue
-        hostname = (
-            str(publication.zone_id or ""),
-            str(publication.hostname_prefix or ""),
-        )
-        if hostname in seen_hostnames:
-            raise BadRequestError(
-                t(
-                    "course_env.duplicate_publication_hostname",
-                    hostname=publication.hostname_prefix,
-                )
-            )
-        seen_hostnames.add(hostname)
 
 
 def replace_nodes(

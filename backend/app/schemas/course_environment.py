@@ -1,5 +1,6 @@
 """課程環境（老師管理、有版本、每位學生一份）的 API 請求 schemas。"""
 
+import re
 import uuid
 from typing import Any, Literal
 
@@ -18,6 +19,12 @@ from app.schemas.resource import (
 
 # 草稿快照（configuration + editor）序列化後的上限
 MAX_DRAFT_BYTES = 262144
+
+# 對外網址前綴：一段主機名（小寫英數與連字號、頭尾不可是連字號）最長 40 字；
+# 開課時後面還要接「-」加 16 碼亂碼，一段網址的上限是 63 字。前端
+# connectionPayload.js 用同一條規則即時檢查，改一邊要改另一邊
+HOSTNAME_PREFIX_MAX_LENGTH = 40
+HOSTNAME_PREFIX_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 
 
 class EnvironmentNodeIn(BaseModel):
@@ -87,6 +94,7 @@ class EnvironmentPublicationIn(BaseModel):
     mode: Literal["domain", "port_forward"] = "domain"
     port: int = Field(ge=1, le=65535)
     protocol: Literal["tcp", "udp"] = "tcp"
+    # 老師填的網址前綴；開課時每位學生在後面接「-」加 16 碼亂碼成為自己的主機名
     hostname_prefix: str | None = Field(default=None, max_length=120)
     zone_id: str | None = Field(default=None, max_length=64)
     enable_https: bool = True
@@ -102,9 +110,8 @@ class EnvironmentPublicationIn(BaseModel):
         if not (self.zone_id or "").strip():
             raise ValueError(t("course_env.publication_zone_required"))
         prefix = (self.hostname_prefix or "").strip().lower()
-        if "{student}" not in prefix:
-            # 少了它，全班會搶同一個網址，只有第一位學生拿得到
-            raise ValueError(t("course_env.publication_student_placeholder"))
+        if not HOSTNAME_PREFIX_PATTERN.fullmatch(prefix):
+            raise ValueError(t("course_env.publication_prefix_invalid"))
         self.hostname_prefix = prefix
         return self
 

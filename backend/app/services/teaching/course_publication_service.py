@@ -1,21 +1,20 @@
 """把課程環境的「外網 → 機器」宣告，逐位學生實體化成對外服務。
 
 課程模板是一份規格、每位學生各拿一份，但網域與對外 port 都是全域唯一的
-資源——模板上不可能填一個所有人共用的網址或 port。所以老師只宣告主機名
-樣板（含 ``{student}``）或「要一個對外 port」，這裡負責逐人組網域、逐人從
+資源——模板上不可能填一個所有人共用的網址或 port。所以老師只宣告網址前綴
+或「要一個對外 port」，這裡負責逐人在前綴後面接一串亂碼組成網域、逐人從
 配號池挑 port，再交給統一的發布路徑（``firewall_service.publish_vm_service``）
 建立 nginx（反向代理／Port 轉發）、DNS 與入站規則。
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import re
 import uuid
 
 from sqlmodel import Session, col, select
 
+from app.core.i18n import t
 from app.exceptions import BadRequestError
 from app.models import CourseEnvironmentPublication, User
 from app.schemas.firewall import PublishedServiceCreate
@@ -30,11 +29,12 @@ from app.services.network import (
 logger = logging.getLogger(__name__)
 # 兩個班同時開課可能挑到同一個 port：唯一約束會擋下第二個，換號再試
 _FORWARD_ATTEMPTS = 3
+# 亂碼撞到既有網域（機率極低）或 Cloudflare 上剛好有同名紀錄時換一組再試
+_DOMAIN_ATTEMPTS = 3
 
-STUDENT_PLACEHOLDER = "{student}"
-CLASS_PLACEHOLDER = "{class}"
-_MAX_TOKEN_LENGTH = 20
-_UNSAFE = re.compile(r"[^a-z0-9]+")
+# 老師填的前綴後面接的亂碼長度：UUID 的前 16 個十六進位字元。一段網址最長 63 字，
+# 連字號加亂碼佔 17 字，前綴上限 40 字（``EnvironmentPublicationIn``）留有餘裕
+HOSTNAME_SUFFIX_LENGTH = 16
 
 
 def list_for_version(
@@ -49,68 +49,49 @@ def list_for_version(
     )
 
 
-def student_token(user: User, *, scope: str = "") -> str:
-    """Return a class-scoped pseudonym without exposing account identifiers."""
-    source = f"{uuid.UUID(str(user.id))}:{scope}".encode()
-    return f"s{hashlib.sha256(source).hexdigest()[:10]}"
+def hostname_suffix() -> str:
+    """每位學生網址裡的亂碼片段：隨機 UUID 的前 16 個十六進位字元。"""
+    return uuid.uuid4().hex[:HOSTNAME_SUFFIX_LENGTH]
 
 
-def context_token(value: str | uuid.UUID, *, fallback: str = "class") -> str:
-    token = _UNSAFE.sub("-", str(value).lower()).strip("-")
-    return token[:_MAX_TOKEN_LENGTH].strip("-") or fallback
-
-
-def _hostname_for(
-    publication: CourseEnvironmentPublication,
-    student: str,
-    class_scope: str,
-) -> str:
-    template = publication.hostname_prefix or STUDENT_PLACEHOLDER
-    return (
-        template.replace(STUDENT_PLACEHOLDER, student)
-        .replace(CLASS_PLACEHOLDER, class_scope)
-        .strip(".")
-        .lower()
-    )
+def student_hostname(prefix: str, suffix: str) -> str:
+    """``前綴-亂碼``；前綴是老師在模板上填的、已經過 schema 驗證。"""
+    return f"{prefix.strip().lower()}-{suffix}"
 
 
 def resolve_domain(
     session: Session,
     *,
     publication: CourseEnvironmentPublication,
-    user: User,
     vmid: int,
-    scope: str = "class",
 ) -> str:
-    """組出這位學生的完整網域；撞名時補上使用者短碼再試一次。"""
+    """替這台機器組出一個還沒被用的完整網域（前綴＋亂碼）；撞到就換一組亂碼。"""
     zone = cloudflare_service.get_zone(
         session=session, zone_id=str(publication.zone_id or "")
     )
-    class_scope = context_token(scope)
-    token = student_token(user, scope=class_scope)
-    domain = reverse_proxy_service.build_full_domain(
-        zone_name=zone.name,
-        hostname_prefix=_hostname_for(publication, token, class_scope),
-    )
-    availability = reverse_proxy_service.check_domain_availability(
-        session, domain, zone_id=publication.zone_id
-    )
-    if availability.available:
-        return domain
-
-    # 兩位學生的帳號清完可能撞在一起（alice.wang 與 alice_wang），補短碼區分
-    suffix = uuid.UUID(str(user.id)).hex[:4]
-    logger.info(
-        "Domain %s unavailable for vmid %s (%s); retrying with suffix",
-        domain,
-        vmid,
-        availability.reason,
-    )
-    return reverse_proxy_service.build_full_domain(
-        zone_name=zone.name,
-        hostname_prefix=_hostname_for(
-            publication, f"{token}-{suffix}", class_scope
-        ),
+    prefix = publication.hostname_prefix or ""
+    if not prefix:
+        raise BadRequestError(t("course_env.publication_prefix_invalid"))
+    last_reason: str | None = None
+    for _ in range(_DOMAIN_ATTEMPTS):
+        domain = reverse_proxy_service.build_full_domain(
+            zone_name=zone.name,
+            hostname_prefix=student_hostname(prefix, hostname_suffix()),
+        )
+        availability = reverse_proxy_service.check_domain_availability(
+            session, domain, zone_id=publication.zone_id
+        )
+        if availability.available:
+            return domain
+        last_reason = availability.reason
+        logger.info(
+            "Domain %s unavailable for vmid %s (%s); retrying with a new suffix",
+            domain,
+            vmid,
+            availability.reason,
+        )
+    raise BadRequestError(
+        t("course_env.publication_domain_unavailable", reason=last_reason or "")
     )
 
 
@@ -153,9 +134,12 @@ def apply_for_machines(
     version_id: uuid.UUID,
     vmid_by_key: dict[str, int],
     owner: User,
-    scope: str = "class",
 ) -> list[str]:
-    """把這個版本的宣告套用到一位學生的機器上；已發布的略過（可重複執行）。"""
+    """把這個版本的宣告套用到一位學生的機器上；已發布的略過（可重複執行）。
+
+    ``owner`` 是機器的擁有者（學生）；網域裡的亂碼是隨機的，不再從帳號推導，
+    保留參數只為了日誌與呼叫端的語意。
+    """
     publications = list_for_version(session, version_id=version_id)
     if not publications:
         return []
@@ -185,13 +169,7 @@ def apply_for_machines(
                     port=publication.port,
                     protocol="tcp",
                     mode="domain",
-                    domain=resolve_domain(
-                        session,
-                        publication=publication,
-                        user=owner,
-                        vmid=vmid,
-                        scope=scope,
-                    ),
+                    domain=resolve_domain(session, publication=publication, vmid=vmid),
                     enable_https=publication.enable_https,
                 )
                 firewall_service.publish_vm_service(vmid, create, session)
@@ -199,10 +177,11 @@ def apply_for_machines(
                 publish_forward(session, vmid=vmid, publication=publication)
         except Exception:
             logger.exception(
-                "Failed to publish %s:%s for vmid %s",
+                "Failed to publish %s:%s for vmid %s (owner %s)",
                 publication.node_key,
                 publication.port,
                 vmid,
+                owner.id,
             )
             errors.append(f"{vmid}: publishing port {publication.port} failed")
     return errors

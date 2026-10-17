@@ -40,7 +40,7 @@ def test_apply_for_machines_covers_each_outcome(monkeypatch):
     monkeypatch.setattr(
         svc,
         "resolve_domain",
-        lambda _s, *, publication, user, vmid, scope: f"vm{vmid}-{scope}.example.com",
+        lambda _s, *, publication, vmid: f"vm{vmid}.example.com",
     )
     published: list = []
 
@@ -62,13 +62,12 @@ def test_apply_for_machines_covers_each_outcome(monkeypatch):
         version_id=uuid.uuid4(),
         vmid_by_key={"unreadable": 2, "web": 3, "api": 4, "broken": 5},
         owner=SimpleNamespace(id=uuid.uuid4()),  # type: ignore[arg-type]
-        scope="cls",
     )
     assert errors == [
         "2: published services unreadable",
         "5: publishing port 443 failed",
     ]
-    assert published == [(3, "vm3-cls.example.com", 8080)]
+    assert published == [(3, "vm3.example.com", 8080)]
     assert forwards == [(4, 9000)]
 
 

@@ -232,7 +232,7 @@ class CourseEnvironmentPublication(SQLModel, table=True):
     """一條「外網 → 機器」的宣告。
 
     每位學生都會拿到一份自己的環境，所以網址不能寫死在模板上：老師只填
-    主機名樣板（含 ``{student}``），實際網域在開課／開練習時逐人組出來。
+    網址前綴，實際網域在開課／開練習時逐人在前綴後面接 16 碼亂碼組出來。
     """
 
     __tablename__ = "course_environment_publications"
@@ -285,7 +285,7 @@ class CourseEnvironmentPublication(SQLModel, table=True):
     mode: str = Field(default="domain", max_length=16)
     port: int = Field(ge=1, le=65535, description="機器內部 port")
     protocol: str = Field(default="tcp", max_length=16)
-    # 主機名樣板，例如 "{student}-n8n"；僅 mode=domain 有意義
+    # 網址前綴，例如 "n8n"（學生拿到 n8n-<16 碼亂碼>）；僅 mode=domain 有意義
     hostname_prefix: str | None = Field(default=None, max_length=120)
     zone_id: str | None = Field(default=None, max_length=64)
     enable_https: bool = Field(default=True)
