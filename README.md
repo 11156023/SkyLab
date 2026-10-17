@@ -1,6 +1,6 @@
 # SkyLab
 
-> **English** | [繁體中文](./README.zh-TW.md)
+> **English** | [繁體中文](website/zh-TW/overview.md)
 
 **A self-hosted cloud for schools: students request VMs, teachers spin up whole classrooms, admins keep Proxmox VE under control.**
 
@@ -41,8 +41,7 @@ flowchart LR
 | Desktop client | `desktop-client/` | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway |
 | vLLM service | `vllm-service/` | Single-model service, multi-model vLLM cluster and the LiteLLM gateway that exposes them |
 | Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / InfluxDB profile |
-| Docs | `docs/` | Guides and design notes, see [`docs/README.md`](docs/README.md) |
-| Docs site | `website/` | VitePress site built from `docs/` and the backend's OpenAPI schema, deployed to Cloudflare Pages; see [`website/README.md`](website/README.md) |
+| Documentation | `website/` | All guides, the user manual and the API reference, as a VitePress site deployed to Cloudflare Pages; index in [`website/guides/index.md`](website/guides/index.md), site setup in [`website/README.md`](website/README.md) |
 
 ## Tech stack
 
@@ -99,14 +98,14 @@ Default URLs:
 
 ### Optional: AI stack
 
-The root `docker-compose.yml` already includes LiteLLM. To enable the AI features, start your vLLM models first (`vllm-service/start_multi_model_cluster.sh`), fill in the LiteLLM `.env` (model routing and keys are explained in the [AI API User Manual](docs/ai-api-user-manual.md)), then let the helper script wire everything up:
+The root `docker-compose.yml` already includes LiteLLM. To enable the AI features, start your vLLM models first (`vllm-service/start_multi_model_cluster.sh`), fill in the LiteLLM `.env` (model routing and keys are explained in the [AI API User Manual](website/guides/ai-api-user-manual.md)), then let the helper script wire everything up:
 
 ```bash
 cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
 bash scripts/prepare-ai-stack.sh --start
 ```
 
-For production deployment (platform entry, HTTPS, LDAP, CI) see [`docs/deployment.md`](docs/deployment.md).
+For production deployment (platform entry, HTTPS, LDAP, CI) see [`website/guides/deployment.md`](website/guides/deployment.md).
 
 ## Local development
 
@@ -129,7 +128,7 @@ bun run dev                        # http://localhost:5173, /api proxied to :800
 
 The backend has no generated client. Every endpoint is wrapped by hand in `frontend/src/services/*.js` and covered by a Vitest mock test; update the matching service file whenever a route changes.
 
-See [`docs/development.md`](docs/development.md) for the full guide and [`backend/README.md`](backend/README.md) for the backend layout.
+See [`website/guides/development.md`](website/guides/development.md) for the full guide and [`website/guides/backend.md`](website/guides/backend.md) for the backend layout.
 
 ## Database migrations
 
@@ -155,13 +154,17 @@ Proxmox connections are **not** configured in `.env`. Enter them in the setup wi
 
 ## Documentation
 
-The index is in [`docs/README.md`](docs/README.md). Most-used entries:
+Everything lives under [`website/`](website/) and is published as the documentation site (see [`website/README.md`](website/README.md) for the build and the Cloudflare Pages deployment). The index is [`website/guides/index.md`](website/guides/index.md); 繁體中文 pages are under `website/zh-TW/`. Most-used entries:
 
-- [`docs/development.md`](docs/development.md) — development environment
-- [`docs/deployment.md`](docs/deployment.md) — production deployment, platform entry, HTTPS certificate, LDAP
-- [`docs/monitoring.md`](docs/monitoring.md) — built-in health monitoring and the optional monitoring stack
-- [`docs/ai-api-user-manual.md`](docs/ai-api-user-manual.md) — LiteLLM deployment and the user-facing AI API
-- [`docs/multi-machine-environment-sop.md`](docs/multi-machine-environment-sop.md) — SOP for multi-machine teaching environments
+- [`website/getting-started.md`](website/getting-started.md) — from `docker compose up` to the setup wizard and the first login
+- [`website/manual/`](website/manual/index.md) — the user manual, one page per feature, grouped by role (students, teachers, administrators)
+- [`website/guides/development.md`](website/guides/development.md) — development environment
+- [`website/guides/deployment.md`](website/guides/deployment.md) — production deployment, platform entry, HTTPS certificate, LDAP
+- [`website/operations/upgrade.md`](website/operations/upgrade.md), [`website/operations/backup.md`](website/operations/backup.md) — upgrading, migrations, backup and restore
+- [`website/guides/monitoring.md`](website/guides/monitoring.md) — built-in health monitoring and the optional monitoring stack
+- [`website/guides/ai-api-user-manual.md`](website/guides/ai-api-user-manual.md) — LiteLLM deployment and the user-facing AI API
+- [`website/guides/multi-machine-environment-sop.md`](website/guides/multi-machine-environment-sop.md) — SOP for multi-machine teaching environments
+- [`website/troubleshooting.md`](website/troubleshooting.md) — known failures, causes and fixes
 
 ## Community
 

@@ -435,7 +435,7 @@ def main() -> int:
             raise ValueError("無法連線 Docker daemon；請確認 Docker 正在執行")
         other_projects = set(ownership.stdout.split()) - {compose["name"]}
         if other_projects:
-            print("另有獨立 LiteLLM 執行中；接管前請先依 docs/ai-api-user-manual.md 停止該 gateway。")
+            print("另有獨立 LiteLLM 執行中；接管前請先依 website/guides/ai-api-user-manual.md 停止該 gateway。")
             if args.start:
                 raise ValueError("尚未接管 host port 4000，取消主 Compose 啟動；既有 gateway 未被停止")
         if args.start:

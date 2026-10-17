@@ -42,6 +42,10 @@ features:
     details: An OpenAI-compatible AI API through LiteLLM and self-hosted vLLM models, plus assistants for administrators and teachers.
 ---
 
+<div class="home-screenshot">
+  <img src="/screenshots/home-admin.webp" alt="The administrator home page: node, VM and LXC counts, the AI operations assistant, and the lists of things to handle now and today." loading="lazy" />
+</div>
+
 ## Where to start
 
 - **Running SkyLab for the first time:** [Getting started](/getting-started) walks from `docker compose up` to the setup wizard and the first login.
@@ -50,4 +54,10 @@ features:
 - **Something is wrong:** [Troubleshooting](/troubleshooting) lists the failures people actually hit, with their causes and fixes.
 - **Calling the API:** [REST API](/reference/api), [WebSocket endpoints](/reference/websocket) and the [AI API user manual](/guides/ai-api-user-manual).
 
-SkyLab is free software released under the [GNU AGPL-3.0](https://github.com/ntubclass/SkyLab/blob/main/LICENSE). The guides on this site are built from the [`docs/`](https://github.com/ntubclass/SkyLab/tree/main/docs) directory of the repository; the "Edit this page" link at the bottom of each guide opens the source file.
+- **Looking for a specific page:** the [User manual](/manual/) covers every feature by role, and the [documentation index](/guides/) lists every page by file.
+
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/ntubclass/SkyLab/blob/main/LICENSE)
+[![Backend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml)
+[![Frontend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml)
+
+SkyLab is free software released under the GNU AGPL-3.0; see [License](/project/license). This site is the documentation of the repository, kept under [`website/`](https://github.com/ntubclass/SkyLab/tree/main/website); the "Edit this page" link at the bottom of each page opens the source file.

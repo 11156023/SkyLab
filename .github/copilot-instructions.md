@@ -1,6 +1,6 @@
 # SkyLab — Copilot Instructions
 
-> Working rules for GitHub Copilot CLI / Copilot Chat and similar agents. This is the short version; the full documentation lives in [`docs/`](../docs/README.md) and [`CONTRIBUTING.md`](../CONTRIBUTING.md). When anything here disagrees with the code, the code wins.
+> Working rules for GitHub Copilot CLI / Copilot Chat and similar agents. This is the short version; the full documentation lives in [`website/`](../website/guides/index.md) and [`CONTRIBUTING.md`](../CONTRIBUTING.md). When anything here disagrees with the code, the code wins.
 
 ## Project at a glance
 
@@ -76,7 +76,7 @@ main.py           ← FastAPI app, lifespan (Redis init + scheduler / push / Wir
 - **Never commit `.env`;** `.env.example` is the template. Settings load from the root `.env` via `core/config.py` (`env_file="../.env"`). Proxmox credentials are not in `.env` at all.
 - **Logging format:** use `%s`, not `%d`, because vmids are often serialised as strings.
 - **UI text** goes through react-i18next (`frontend/src/locales/{zh-TW,en,ja}`); add every key to all three locales.
-- **Documentation** is English-first with `.zh-TW.md` counterparts (see `docs/README.md`); update both when you change behaviour.
+- **Documentation** is English-first with `zh-TW/` counterparts (see `website/guides/index.md`); update both when you change behaviour.
 
 ## Provisioning flow (key points)
 
@@ -91,5 +91,5 @@ main.py           ← FastAPI app, lifespan (Redis init + scheduler / push / Wir
 ## Style
 
 - **Backend:** Ruff + Mypy strict + prek pre-commit (root `.pre-commit-config.yaml`).
-- **Frontend:** SCSS Modules per [`docs/frontend-style-guide.md`](../docs/frontend-style-guide.md); no linter configured yet.
+- **Frontend:** SCSS Modules per [`website/guides/frontend-style-guide.md`](../website/guides/frontend-style-guide.md); no linter configured yet.
 - **Comments:** only to explain intent, never to restate what the code literally does.

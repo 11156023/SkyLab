@@ -706,7 +706,7 @@ def main() -> None:
     if args.mode == "gateway":
         parser.error(
             "舊 FastAPI Gateway 已移除：多模型請用 cluster 模式（start_multi_model_cluster.sh），"
-            "對外 API 改由 LiteLLM 提供（見 litellm/README.md）"
+            "對外 API 改由 LiteLLM 提供（見 website/guides/litellm.md）"
         )
 
     # --cluster 只是舊版旗標，不影響結果。

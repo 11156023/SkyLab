@@ -1,8 +1,8 @@
 name: Docs Site
 
 # Builds the documentation site (website/) and deploys it to Cloudflare Pages.
-# The site is generated from docs/ and from the backend's OpenAPI schema, so
-# changes to either trigger a build. Pull requests get a preview deployment
+# The site contains all documentation of the repository and renders the
+# backend's OpenAPI schema, so backend changes trigger a build too. Pull requests get a preview deployment
 # (branch alias on *.pages.dev); pushes to main deploy production.
 #
 # Required repository secrets (deploy is skipped without them, the build still
@@ -13,17 +13,17 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs/**"
       - "website/**"
       - "backend/app/**"
       - "backend/scripts/export_openapi.py"
+      - ".env.example"
       - ".github/workflows/docs-site.yml"
   pull_request:
     paths:
-      - "docs/**"
       - "website/**"
       - "backend/app/**"
       - "backend/scripts/export_openapi.py"
+      - ".env.example"
       - ".github/workflows/docs-site.yml"
   workflow_dispatch:
 
@@ -45,6 +45,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The changelog page is generated from the full git history.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7

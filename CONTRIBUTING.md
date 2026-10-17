@@ -2,18 +2,18 @@
 
 > **English** | [繁體中文](./CONTRIBUTING.zh-TW.md)
 
-Thanks for taking the time to contribute. This page covers the house rules; the development setup lives in [`docs/development.md`](docs/development.md).
+Thanks for taking the time to contribute. This page covers the house rules; the development setup lives in [`website/guides/development.md`](website/guides/development.md).
 
 ## Before you start
 
 - **Bug reports and small fixes** (typos, lint warnings, a reproducible bug with a test) can go straight to a pull request.
 - **Larger changes** (new features, schema changes, anything touching provisioning, networking or authentication) should start as a GitHub issue describing the problem and the intended approach, so we can agree on the design before you invest the time.
-- The platform is deployed in real classrooms. Changes that alter existing behaviour (default values, API responses, gateway rules) need a migration path and a note in the relevant document under `docs/`.
+- The platform is deployed in real classrooms. Changes that alter existing behaviour (default values, API responses, gateway rules) need a migration path and a note in the relevant document under `website/`.
 
 ## Development workflow
 
 1. Fork the repository and create a branch from `main`.
-2. Set up the stack following [`docs/development.md`](docs/development.md).
+2. Set up the stack following [`website/guides/development.md`](website/guides/development.md).
 3. Make your change. Keep the architecture rules in mind:
    - Backend follows **Routes → Services → Infrastructure**. Routes are thin controllers, business logic lives in `services/`, and external systems (Proxmox, SSH, Redis, LLM) are only called from `infrastructure/`.
    - DB tables live in `backend/app/models/`, API schemas in `backend/app/schemas/`. Do not mix them.
@@ -42,7 +42,7 @@ Thanks for taking the time to contribute. This page covers the house rules; the 
 - Keep each PR focused on one change. Separate refactors from behaviour changes.
 - Describe what changed and why, and reference the related issue.
 - Add or update tests when behaviour changes. Backend tests are under `backend/tests/`, frontend service tests sit next to the service file.
-- Update the documentation under `docs/` when you change configuration, deployment steps or an operator-facing workflow. English documents are the primary version; keep the `*.zh-TW.md` counterpart in sync when one exists.
+- Update the documentation under `website/` when you change configuration, deployment steps or an operator-facing workflow. English documents are the primary version; keep the `*.zh-TW.md` counterpart in sync when one exists.
 - CI must pass (backend tests, frontend tests, desktop client tests, AI service tests, migration check, CodeQL).
 
 ## Licensing of contributions
