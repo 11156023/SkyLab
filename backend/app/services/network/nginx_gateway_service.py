@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 import shlex
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -80,6 +81,28 @@ def build_stream_config(rules: list[Any]) -> str:
 
 def http_server_name(vmid: int, domain: str) -> str:
     return f"cc-{vmid}-{domain.replace('.', '-')}"
+
+
+# nginx 把所有 server_name 放進雜湊表，每個名稱在桶裡佔「長度＋2 對齊到指標寬度」
+# 再加兩個指標；桶大小沒設時跟 CPU cache line 一樣（通常 64 位元組），只放得下
+# 46 字元以內的名稱，再長 nginx -t 就失敗：「could not build server_names_hash,
+# you should increase server_names_hash_bucket_size: 64」。課程發布替每位學生組出的
+# 網域（學生代號＋班級代號＋zone）常超過，所以 http.conf 依目前最長的網域自己宣告
+# 桶大小（這兩個指令屬於 http 層級，include 進 http {} 的檔案可以設）。
+_HASH_POINTER_SIZE = 8
+_HASH_BUCKET_ALIGNMENT = 64  # nginx 會把設定值向上對齊到 cache line 的倍數
+_MIN_SERVER_NAMES_HASH_BUCKET_SIZE = 128
+# 一個班的學生網域就是幾十到上百個 server_name，預設 512 的表在名稱多時也會建不起來
+SERVER_NAMES_HASH_MAX_SIZE = 4096
+
+
+def server_names_hash_bucket_size(domains: Iterable[str]) -> int:
+    """放得下最長網域的 ``server_names_hash_bucket_size``（64 的倍數、至少 128）。"""
+    longest = max((len(domain) for domain in domains), default=0)
+    aligned_name = -(-(longest + 2) // _HASH_POINTER_SIZE) * _HASH_POINTER_SIZE
+    required = aligned_name + 2 * _HASH_POINTER_SIZE
+    rounded = -(-required // _HASH_BUCKET_ALIGNMENT) * _HASH_BUCKET_ALIGNMENT
+    return max(_MIN_SERVER_NAMES_HASH_BUCKET_SIZE, rounded)
 
 
 def _proxy_location(vm_ip: str, internal_port: int) -> list[str]:
@@ -253,8 +276,16 @@ def build_http_config(
     時先用安裝時產生的自簽憑證頂著，讓 ``nginx -t`` 能過、站台照樣可以連
     （瀏覽器會警告）。憑證沒涵蓋到的網域也一樣會出現瀏覽器警告。
     """
+    domains = [r.domain for r in rules]
+    if platform is not None:
+        domains.append(platform.domain)
     lines: list[str] = [
         _MANAGED_HEADER,
+        "# server_name 雜湊桶要放得下最長的網域（nginx 預設跟 CPU cache line 一樣，",
+        "# 通常 64，只容得下 46 字元），依目前的網域計算；nginx.conf 不要再設一次",
+        f"server_names_hash_bucket_size {server_names_hash_bucket_size(domains)};",
+        f"server_names_hash_max_size {SERVER_NAMES_HASH_MAX_SIZE};",
+        "",
         "# WebSocket 升級：有 Upgrade 標頭時才把 Connection 設成 upgrade",
         "map $http_upgrade $connection_upgrade {",
         "    default upgrade;",
@@ -737,6 +768,8 @@ __all__ = [
     "certificate_covers",
     "collect_runtime",
     "http_server_name",
+    "SERVER_NAMES_HASH_MAX_SIZE",
+    "server_names_hash_bucket_size",
     "inspect_certificate",
     "list_certificates",
     "parse_certificate_inspection",

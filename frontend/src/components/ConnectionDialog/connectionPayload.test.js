@@ -225,31 +225,43 @@ describe("buildRulePayload", () => {
   });
 });
 
-/* ── 課程環境模板：網址是樣板、對外 port 開課時才配 ── */
+/* ── 課程環境模板：網址只填前綴（開課時接亂碼）、對外 port 開課時才配 ── */
 describe("buildInboundPayload：templateMode", () => {
-  test("網址模式送出主機名樣板與 zone，不組完整網域", () => {
+  test("網址模式送出前綴與 zone，不組完整網域", () => {
     const out = buildInboundPayload({
       mode: "domain", domainPort: "5678", enableHttps: true,
-      templateMode: true, hostnamePrefix: " {Class}-{student}-N8N ", zoneId: "zone-1",
+      templateMode: true, hostnamePrefix: " My-N8N ", zoneId: "zone-1",
     });
     expect(out.publish).toEqual([
-      { port: 5678, protocol: "tcp", mode: "domain", hostname_prefix: "{class}-{student}-n8n", zone_id: "zone-1", enable_https: true },
+      { port: 5678, protocol: "tcp", mode: "domain", hostname_prefix: "my-n8n", zone_id: "zone-1", enable_https: true },
     ]);
     expect(out.raw).toEqual([]);
   });
 
-  test("樣板少了 {student} 會被擋下：全班會搶同一個網址", () => {
+  test.each(["-app", "app-", "my app", "my.app", "{student}-app", "a".repeat(41)])(
+    "前綴不是合法的一段主機名會被擋下：%s",
+    (prefix) => {
+      const out = buildInboundPayload({
+        mode: "domain", domainPort: "80", enableHttps: true,
+        templateMode: true, hostnamePrefix: prefix, zoneId: "zone-1",
+      });
+      expect(out.error.key).toBe("ConnectionDialog.templatePrefixInvalid");
+    },
+  );
+
+  test("40 字的前綴剛好可以", () => {
     const out = buildInboundPayload({
       mode: "domain", domainPort: "80", enableHttps: true,
-      templateMode: true, hostnamePrefix: "n8n", zoneId: "zone-1",
+      templateMode: true, hostnamePrefix: "a".repeat(40), zoneId: "zone-1",
     });
-    expect(out.error.key).toBe("ConnectionDialog.templateStudentPlaceholder");
+    expect(out.error).toBeUndefined();
+    expect(out.publish[0].hostname_prefix).toBe("a".repeat(40));
   });
 
   test("沒有 zone 就不能用網址", () => {
     const out = buildInboundPayload({
       mode: "domain", domainPort: "80", enableHttps: true,
-      templateMode: true, hostnamePrefix: "{student}-app", zoneId: "",
+      templateMode: true, hostnamePrefix: "app", zoneId: "",
     });
     expect(out.error.key).toBe("ConnectionDialog.domainRequired");
   });
@@ -272,8 +284,8 @@ describe("buildInboundPayload：templateMode", () => {
     expect(out.error.key).toBe("ConnectionDialog.portsRequired");
   });
 
-  test("預覽網址把兩個占位符換成範例值", () => {
-    expect(previewTemplateHostname("{class}-{student}-app", "lab.example.edu")).toBe("linux101-a1b2c3-s8f21c4a2-app.lab.example.edu");
-    expect(previewTemplateHostname("{student}", undefined)).toBe("s8f21c4a2");
+  test("預覽網址在前綴後面接一段範例亂碼", () => {
+    expect(previewTemplateHostname(" App ", "lab.example.edu")).toBe("app-3f2a9c1e4b7d4e8f.lab.example.edu");
+    expect(previewTemplateHostname("", undefined)).toBe("3f2a9c1e4b7d4e8f");
   });
 });

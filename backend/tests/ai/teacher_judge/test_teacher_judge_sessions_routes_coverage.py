@@ -875,7 +875,7 @@ def test_script_set_run_submits_batch(ctx, monkeypatch) -> None:
         USER,
     )
 
-    assert result["run_batch_id"] == batch_id
+    assert result.run_batch_id == str(batch_id)
     assert submitted == [
         (("job", batch_id), f"teacher_judge_script_run_batch:{batch_id}")
     ]

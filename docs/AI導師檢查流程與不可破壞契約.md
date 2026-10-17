@@ -310,6 +310,19 @@ Finalizer 核對同一機器、項目與步驟時，不能把已知絕對位置�
 
 系統 assertion 比對成功／失敗與取證異常要區分：命令缺失、找不到待讀檔案等通常回傳 `unknown` 與錯誤；`file_stat + exists` 則可依明確的存在條件判定。teacher 成功取證為 `collected`，等待老師決定，不自動判 pass。程式退出碼非零也不能一律當正常收集完成。
 
+### 7.4 批次受理、背景準備與逾時恢復
+
+`POST script-sets/{artifact_set_id}/runs` 在工作區列鎖內確認生效腳本組，保存 batch、child runs 與選定學生機器快照，再提交既有背景執行器並回傳批次資料。受理請求只讀寫資料庫，不等待 PVE、OS、IP、SSH 或整批執行完成；背景準備沿用受理時固定的腳本與 VMID，不重新挑選已切換的生效組或學生機器。
+
+- 同一週已有 `pending`／`running` 批次時，新提交回應 409，前端接回現有進度。同一操作可攜帶 `run_batch_id`；遺失回應後重新確認必須沿用原 ID 與範圍，即使原批次已完成也不得另建任務。未帶此欄位的既有呼叫仍由後端產生 ID。
+- 初始 run 的 `progress_json.stage=preparing`、`prepared_at=null`；背景完成前置檢查後才轉為 `pending_executor` 並填入準備完成時間。逐台失敗包含未分配 VMID 的機器，仍保存在既有 canonical target 紀錄。
+- 前端 timeout 只表示受理結果未知，不能宣稱執行失敗或取消。前端先查原批次 ID；找不到時查進行中的批次，查詢暫時失敗則保持阻擋新執行並持續重查。頁面重載也從批次清單接回，不依賴已開始執行的 child run。
+- 背景準備失敗、執行器拒收與取消都必須把尚未完成的 run／target 收斂為終態；取消先停止後續準備並等待當前同步操作結束。慢速準備返回後須鎖定並重查 run 狀態，不得恢復已回收的任務。
+
+SSH 維持每 run 最多 50 台、單一 backend process 共用最多 200 workers；同批次的 child runs 依序執行。背景工作仍使用既有 process-local runner，並非可跨重啟自動續跑的持久佇列；非正常程序中止留下的紀錄由既有 stale-run 回收處理。
+
+回歸入口：`test_batch_admission.py`、`test_execution_records.py`、`AiJudgePanel.batchExecution.test.jsx`。100 台快照與模擬 SSH 測試不等於 100 台實機容量或 PostgreSQL 跨程序鎖定驗證。
+
 ## 8. 具體情境
 
 | 老師需求 | 路徑需求 | 合格計畫或回問 |

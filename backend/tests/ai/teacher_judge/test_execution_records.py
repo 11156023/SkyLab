@@ -399,7 +399,8 @@ def test_target_query_checks_class_session_scope_and_instructor_access(
         assert error.value.status_code == 403
 
 
-def test_failed_preparation_keeps_batch_and_rolls_back_incomplete_children(
+@pytest.mark.asyncio
+async def test_failed_preparation_keeps_batch_and_selected_targets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with make_session() as db:
@@ -418,44 +419,45 @@ def test_failed_preparation_keeps_batch_and_rolls_back_incomplete_children(
             )
         db.commit()
         session_id = judge_session.id
+        monkeypatch.setattr(service, "_class_member_by_node_key", lambda **kwargs: {
+            node: [{"student_id": "student-1", "user_id": "user-1", "vmid": 101 + index,
+                    "node_key": node}]
+            for index, node in enumerate(("web", "db"))
+        })
+        public = service.create_script_run_batch(
+            session=db, teaching_class_id=class_id, artifact_set_id=artifact_set_id,
+            started_by=None, session_id=session_id,
+        )
+        assert public.status == "pending" and public.summary["targets"] == 2
         calls = []
 
-        def prepare(**kwargs: Any) -> None:
-            with Session(db.get_bind()) as observer:
-                assert (
-                    observer.get(TeacherJudgeRunBatch, kwargs["run_batch_id"]).status
-                    == "pending"
-                )
-            calls.append(kwargs["artifact_id"])
+        def prepare(**kwargs: Any):
+            calls.append(kwargs["members"])
             if len(calls) == 2:
                 raise RuntimeError("target resolution unavailable")
-            db.add(
-                TeacherJudgeScriptRun(
-                    artifact_id=kwargs["artifact_id"],
-                    run_batch_id=kwargs["run_batch_id"],
-                )
-            )
-            db.flush()
+            return [], [service._node_target_failure(
+                kwargs["members"][0], reason_code="target_not_ready", detail="not ready",
+            )]
 
-        monkeypatch.setattr(service, "create_script_run", prepare)
-        with pytest.raises(RuntimeError, match="target resolution unavailable"):
-            service.create_script_run_batch(
-                session=db,
-                teaching_class_id=class_id,
-                artifact_set_id=artifact_set_id,
-                started_by=None,
-                session_id=session_id,
-            )
+        monkeypatch.setattr(service, "_resolve_member_targets", prepare)
+        monkeypatch.setattr(executor, "engine", db.get_bind())
+        await executor.execute_script_run_batch(uuid.UUID(public.run_batch_id))
+        db.expire_all()
         batches = list(db.exec(select(TeacherJudgeRunBatch)).all())
         assert len(batches) == 1 and batches[0].status == "failed"
-        assert list(db.exec(select(TeacherJudgeScriptRun)).all()) == []
+        runs = list(db.exec(select(TeacherJudgeScriptRun)).all())
+        assert len(runs) == 2
+        assert all(run.status == TeacherJudgeScriptRunStatus.failed for run in runs)
+        assert all(run.target_records[0].reason_code == "preparation_failed" for run in runs)
+        assert all(run.prepared_at is None for run in runs)
         public = service.get_script_run_batch_public(
             session=db,
             teaching_class_id=class_id,
             run_batch_id=batches[0].id,
             session_id=session_id,
         )
-        assert public.status == "failed" and public.summary["targets"] == 0
+        assert public.status == "failed" and public.summary["targets"] == 2
+        assert public.summary["failed"] == 2
         assert public.timing["total_seconds"] is not None
         summaries = service.list_session_batch_summaries(
             db, class_id, session_id, 0, 10

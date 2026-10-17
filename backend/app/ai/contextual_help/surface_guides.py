@@ -631,7 +631,7 @@ _ENVIRONMENT_CONNECTION_DIALOG = DialogSpec(
     fields=_CONNECTION_DIALOG_FIELDS,
     notes=(
         "課程環境的連線必須指定 port，不支援 icmp 這類無埠協定。",
-        "用網址發布時可以用主機名樣板：{student} 是匿名學生代號、{class} 是課堂代號。",
+        "用網址發布時只填網址前綴，開課時系統會替每位學生在前綴後面接 16 碼亂碼組成網址。",
     ),
 )
 

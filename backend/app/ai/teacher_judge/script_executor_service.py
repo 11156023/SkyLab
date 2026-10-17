@@ -1434,11 +1434,22 @@ def _batch_run_ids(run_batch_id: uuid.UUID) -> list[uuid.UUID]:
         return [run.id for run, _artifact in rows]
 
 
+def _prepare_script_run_batch(run_batch_id: uuid.UUID, *, stop_event: Event) -> None:
+    from app.ai.teacher_judge.script_run_service import prepare_script_run_batch
+
+    with Session(engine) as session:
+        prepare_script_run_batch(session, run_batch_id, stop_event=stop_event)
+
+
 async def execute_script_run_batch(run_batch_id: uuid.UUID) -> None:
     """Execute child runs sequentially so total SSH concurrency stays bounded."""
 
     run_ids = await asyncio.to_thread(_batch_run_ids, run_batch_id)
+    stop_event = Event()
     try:
+        await _await_worker(asyncio.create_task(asyncio.to_thread(
+            _prepare_script_run_batch, run_batch_id, stop_event=stop_event,
+        )), stop_event=stop_event)
         for run_id in run_ids:
             await execute_script_run(run_id)
     except asyncio.CancelledError:
@@ -1448,3 +1459,10 @@ async def execute_script_run_batch(run_batch_id: uuid.UUID) -> None:
                 "整批執行流程已中斷。", reason_code="executor_cancelled",
             )))
         raise
+    except Exception:
+        logger.exception("Teacher Judge batch preparation failed batch=%s", run_batch_id)
+        for run_id in run_ids:
+            await _await_worker(asyncio.create_task(asyncio.to_thread(
+                _mark_run_executor_failed, run_id,
+                "批次前置處理失敗，請稍後重試。", reason_code="preparation_failed",
+            )))

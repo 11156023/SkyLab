@@ -340,7 +340,6 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
                     version_id=teaching_class.course_version_id,
                     vmid_by_key=vmid_by_key,
                     owner=student,
-                    scope=f"{teaching_class.code[:12]}-{teaching_class.id.hex[:6]}",
                 )
             )
         for source_vmid, target_vmid, protocol, port in topology_directions(

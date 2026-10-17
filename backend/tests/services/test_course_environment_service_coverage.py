@@ -124,7 +124,7 @@ def _publication(**overrides: Any) -> EnvironmentPublicationIn:
         "node_key": "web",
         "port": 80,
         "zone_id": "zone-1",
-        "hostname_prefix": "{student}-web",
+        "hostname_prefix": "web",
     }
     data.update(overrides)
     return EnvironmentPublicationIn(**data)
@@ -294,7 +294,6 @@ def test_bad_edges_are_rejected(db: Session, edges: list[EnvironmentEdgeIn]) -> 
     [
         [_publication(node_key="ghost")],
         [_publication(), _publication()],
-        [_publication(), _publication(port=8080)],
     ],
 )
 def test_bad_publications_are_rejected(

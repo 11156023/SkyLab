@@ -244,7 +244,6 @@ def _apply_session_topology(
                 version_id=practice.environment_version_id,
                 vmid_by_key=vmid_by_key,
                 owner=owner,
-                scope=f"practice-{practice.id.hex[:8]}",
             )
         )
     return errors

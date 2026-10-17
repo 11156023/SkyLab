@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.ai.teacher_judge import script_run_service as svc
+from app.ai.teacher_judge.run_record_service import update_batch
 from app.ai.teacher_judge.schemas import TeacherJudgeScriptSetRunRequest
 from app.models import TeachingClass, User, UserRole
 from app.models.teacher_judge_script_artifact import (
@@ -133,27 +134,18 @@ def test_student_scoped_batch_only_runs_machines_those_students_have(
         "_class_member_by_node_key",
         lambda **_: {"web": [{"user_id": alice}], "db": [{"user_id": bob}]},
     )
-    calls: list[dict[str, Any]] = []
-
-    def fake_create(**kwargs: Any) -> None:
-        calls.append(kwargs)
-        db.add(
-            TeacherJudgeScriptRun(
-                artifact_id=kwargs["artifact_id"],
-                run_batch_id=kwargs["run_batch_id"],
-                status=TeacherJudgeScriptRunStatus.pending,
-            )
-        )
-
-    monkeypatch.setattr(svc, "create_script_run", fake_create)
-
-    svc.create_script_run_batch(
+    batch = svc.create_script_run_batch(
         session=db, teaching_class_id=class_id, artifact_set_id=set_id,
         started_by=None, user_ids=[uuid.UUID(alice)],
     )
 
-    assert [call["target_node_key"] for call in calls] == ["web"]
-    assert calls[0]["user_ids"] == {alice}
+    assert [node.target_node_key for node in batch.nodes] == ["web"]
+    run = db.get(TeacherJudgeScriptRun, uuid.UUID(batch.nodes[0].run_id))
+    assert run.target_snapshot_json["preflight_results"][0]["user"]["id"] == alice
+    run.status = TeacherJudgeScriptRunStatus.failed
+    db.add(run)
+    update_batch(db, uuid.UUID(batch.run_batch_id))
+    db.commit()
 
     # 選到的學生在這組腳本的機器上都沒有 VM：不建立空的批次
     with pytest.raises(HTTPException) as exc:

@@ -179,7 +179,7 @@ def test_apply_topology_plans_rules_per_student(session, monkeypatch):
     assert len(published) == 1
     assert published[0]["owner"].id == student.id
     assert published[0]["vmid_by_key"] == {"web": 101, "db": 102}
-    assert published[0]["scope"] == f"NETWORKING-1-{item.id.hex[:6]}"
+    assert "scope" not in published[0]
     assert synced[0]["scope_vmids"] == {101, 102, 201, 202}
     planned = synced[0]["planned"]
     assert [(rule.vmid, rule.rule["type"]) for rule in planned] == [

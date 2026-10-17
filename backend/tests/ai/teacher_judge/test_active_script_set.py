@@ -310,31 +310,11 @@ def test_batch_pins_all_children_even_if_active_set_switches_during_preparation(
 ):
     db, workspace, _, build = context
     first = build()
-    original_create = runs.create_script_run
-    switched = False
-
-    def create(**kwargs):
-        nonlocal switched
-        if not switched:
-            switched = True
-            build()
-        return original_create(**kwargs)
-
-    monkeypatch.setattr(runs, "create_script_run", create)
     monkeypatch.setattr(
         runs,
-        "_resolve_node_targets",
-        lambda **k: (
-            [],
-            [
-                {
-                    "vmid": None,
-                    "status": "failed",
-                    "reason_code": "missing_vmid",
-                    "node_key": k["target_node_key"],
-                }
-            ],
-        ),
+        "_class_member_by_node_key",
+        lambda **k: {node: [{"student_id": "student-1", "user_id": "user-1",
+                            "vmid": None, "node_key": node}] for node in ("web", "db")},
     )
     batch = runs.create_script_run_batch(
         session=db,
@@ -345,6 +325,8 @@ def test_batch_pins_all_children_even_if_active_set_switches_during_preparation(
     )
     assert batch.artifact_set_id == first.artifact_set_id
     assert len(batch.nodes) == 2
+    build()
+    runs.prepare_script_run_batch(db, uuid.UUID(batch.run_batch_id))
     assert str(workspace.active_artifact_set_id) != first.artifact_set_id
     child_ids = {uuid.UUID(child.id) for child in first.children}
     assert {
