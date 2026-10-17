@@ -26,7 +26,7 @@ from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptStatus,
 )
 from app.models.teacher_judge_session import TeacherJudgeSession
-from app.services.course import weekly_task_service
+from app.services.course import ai_assignment_service, weekly_task_service
 from app.services.course.course_service import (
     ensure_class_path,
     list_published_paths,
@@ -293,6 +293,15 @@ def test_weekly_tasks_only_show_published_content_and_pdf(
     assert rows[0].files[0].filename == "permissions.pdf"
     assert [item.title for item in rows[0].checkpoints] == (
         ["確認權限模式", "確認檔案擁有者"] if active else []
+    )
+    assignments = ai_assignment_service.list_student_ai_assignments(
+        session, user_id=student.id, path_id=path.id
+    )
+    assert [item.title for row in assignments for item in row.items] == [
+        item.title for item in rows[0].checkpoints
+    ]
+    assert [row.teaching_class_week_id for row in assignments] == (
+        [rows[0].id] if active else []
     )
     for item in rows[0].checkpoints:
         assert item.assignment_id == judge_session.id
