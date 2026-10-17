@@ -8,6 +8,7 @@ GPU usage map in.
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -69,6 +70,9 @@ def parse_resource_snapshots(
             resource_type=str(item.get("type") or "unknown"),
             node=str(item.get("node") or "unknown"),
             status=str(item.get("status") or "unknown").lower(),
+            # LXC 設了 cpulimit 時 maxcpu 可能是小數，無條件進位才不會少算
+            maxcpu=max(math.ceil(float(item.get("maxcpu") or 0)), 0),
+            maxmem_bytes=max(int(item.get("maxmem") or 0), 0),
         )
         for item in items
         if item.get("template") != 1 and str(item.get("type") or "") in {"lxc", "qemu", "vm"}

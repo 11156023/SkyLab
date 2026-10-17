@@ -543,6 +543,45 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 逐節點的需要／可用：判定是逐台比的，合計夠不代表每台都夠 */
+.capacityNodes {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.capacityNodesTitle {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
+.capacityNodeRow {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto auto auto;
+  align-items: baseline;
+  gap: $spacing-16;
+  font-size: $font-size-12;
+  font-variant-numeric: tabular-nums;
+}
+
+.capacityNodeRow strong {
+  @include text-truncate;
+  color: var(--color-text-primary);
+}
+
+.capacityNodeRow span {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.capacityNodeRow .capacityShort {
+  color: var(--color-danger);
+  font-weight: $font-weight-700;
+}
+
 /* 摘要每一列都能點，直接跳到那一步修改；hover 只給淡底，不改框線 */
 .summaryList {
   margin-top: $spacing-16;
@@ -1071,5 +1110,17 @@
     .cardFooter {
       padding-right: 72px;
     }
+  }
+}
+
+/* 窄版：節點名稱獨占一列，數字兩兩一列 */
+@container card (max-width: 560px) {
+  .capacityNodeRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 2px;
+  }
+
+  .capacityNodeRow strong {
+    grid-column: 1 / -1;
   }
 }

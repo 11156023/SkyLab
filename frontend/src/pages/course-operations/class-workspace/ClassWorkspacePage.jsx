@@ -52,6 +52,7 @@ import { environmentSpecs } from "../nodeSpecs";
 import { INTERNET_KEY } from "../../../components/ConnectionDialog/intents";
 import { ThemeContext } from "../../../contexts/ThemeContext";
 import { frozenTopologyLayout, normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
+import { mbToGb } from "../capacityFormat";
 
 const JOB_STATUS_KEYS = {
   pending_review: "ClassWorkspacePage.jobStatusPendingReview", approved: "ClassWorkspacePage.jobStatusApproved", pending: "ClassWorkspacePage.jobStatusPending",
@@ -184,7 +185,7 @@ function Overview({
   if (canProvision) {
     title = capacityLoading ? t("ClassWorkspacePage.capacityFullCheckingTitle") : capacity?.ready ? t("ClassWorkspacePage.capacityReadyTitle") : t("ClassWorkspacePage.capacityNotReadyTitle");
     description = capacity
-      ? t("ClassWorkspacePage.capacityDetailDesc", { machines: capacity.machine_count, cpu: capacity.cpu_cores, memory: Math.round(capacity.memory_mb / 1024), disk: capacity.disk_gb, ips: capacity.ip_count })
+      ? t("ClassWorkspacePage.capacityDetailDesc", { machines: capacity.machine_count, cpu: capacity.cpu_cores, memory: mbToGb(capacity.memory_mb), disk: capacity.disk_gb, ips: capacity.ip_count })
       : t("ClassWorkspacePage.noCapacityDesc", { students: item.students.length, nodes: item.nodes.length });
     if (capacity?.issues?.length) description = capacity.issues.join("；");
     actionLabel = provisioning ? t("ClassWorkspacePage.submittingLabel") : t("ClassWorkspacePage.confirmSubmitBtn");
