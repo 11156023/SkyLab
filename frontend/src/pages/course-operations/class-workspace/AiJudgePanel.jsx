@@ -2619,6 +2619,14 @@ function runIsTerminal(status) {
     || status === "cancelled";
 }
 
+function newRunBatchId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 const RUN_STATUS = {
   completed: { get label() { return jt("runCompleted"); }, className: styles.badge_success },
   running: { get label() { return jt("runRunning"); }, className: styles.badge_info },
@@ -3639,6 +3647,8 @@ export function TeacherReviewTab({
   const [runOnceOpen, setRunOnceOpen] = useState(false);
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [activeBatch, setActiveBatch] = useState(null);
+  const [pendingBatch, setPendingBatch] = useState(null);
+  const submissionRef = useRef(null);
   // 整批執行完成時老師還有沒存的核查：先不換結果（草稿會套到新結果上），存完再自動載入
   const [newResultsWaiting, setNewResultsWaiting] = useState(false);
   const loadRequestRef = useRef(0);
@@ -3663,20 +3673,23 @@ export function TeacherReviewTab({
       const activeSet = getActiveScriptSet(sets);
       const [runs, batchSummaries] = activeSet ? await Promise.all([
         AiJudgeService.listSessionRuns(classId, sessionId, activeSet.artifact_set_id),
-        AiJudgeService.listSessionRunBatches(classId, sessionId, 10, activeSet.artifact_set_id).catch(() => []),
+        AiJudgeService.listSessionRunBatches(classId, sessionId, 10, activeSet.artifact_set_id),
       ]) : [[], []];
       if (loadRequestRef.current !== requestId) return;
       setScriptSets(Array.isArray(sets) ? sets : []);
       setProgress(nextProgress);
       const orderedRuns = Array.isArray(runs) ? runs : [];
       const latest = orderedRuns[0] ?? null;
+      const latestBatchId = (Array.isArray(batchSummaries) ? batchSummaries : [])
+        .find((batch) => !runIsTerminal(batch.status))?.run_batch_id
+        ?? batchSummaries?.[0]?.run_batch_id ?? latest?.run_batch_id;
       let nextState = null;
       const nextDrafts = {};
-      if (latest?.run_batch_id) {
+      if (latestBatchId) {
         const batch = await AiJudgeService.getSessionRunBatch(
           classId,
           sessionId,
-          latest.run_batch_id,
+          latestBatchId,
         );
         if (loadRequestRef.current !== requestId) return;
         // 離開再回來時整批還在跑：接回進度輪詢，「一次執行」維持停用，避免重複執行
@@ -3735,11 +3748,15 @@ export function TeacherReviewTab({
     setScriptSets([]);
     setExpandedKey(null);
     setActiveBatch(null);
+    setPendingBatch(null);
+    setCreatingBatch(false);
+    submissionRef.current = null;
     setNewResultsWaiting(false);
     batchStatusRef.current = null;
     loadReview();
     return () => {
       loadRequestRef.current += 1;
+      submissionRef.current = null;
     };
   }, [loadReview]);
 
@@ -3749,6 +3766,65 @@ export function TeacherReviewTab({
     if (active && !wasActiveRef.current) loadReview({ silent: true });
     wasActiveRef.current = active;
   }, [active, loadReview]);
+
+  const acceptBatch = useCallback((batch) => {
+    batchStatusRef.current = batch.status;
+    setActiveBatch(runIsTerminal(batch.status) ? null : batch);
+    setPendingBatch(null);
+    setRunOnceOpen(false);
+    onRunStarted?.();
+    if (batch.status === "failed") toast.error(batch.error_message ?? t("AiJudgePanel.batchFailed"));
+    if (runIsTerminal(batch.status)) loadReview({ silent: true });
+  }, [loadReview, onRunStarted, t, toast]);
+
+  // A lost acknowledgement is an unknown outcome. Query its stable ID before
+  // allowing another run; an explicit retry keeps the same ID and scope.
+  useEffect(() => {
+    if (!pendingBatch || creatingBatch) return undefined;
+    let cancelled = false;
+    let timer;
+    async function recover() {
+      try {
+        let batch;
+        try {
+          batch = await AiJudgeService.getSessionRunBatch(classId, sessionId, pendingBatch.runBatchId);
+        } catch (error) {
+          if (error?.status !== 404) throw error;
+          const summaries = await AiJudgeService.listSessionRunBatches(classId, sessionId, 10);
+          const running = summaries.find((entry) => !runIsTerminal(entry.status));
+          if (running) {
+            batch = await AiJudgeService.getSessionRunBatch(classId, sessionId, running.run_batch_id);
+          } else if (pendingBatch.conflict) {
+            if (!cancelled) {
+              setPendingBatch(null);
+              toast.error(pendingBatch.errorMessage ?? t("AiJudgePanel.batchCreateFailed"));
+              loadReview({ silent: true });
+            }
+            return;
+          }
+        }
+        if (cancelled) return;
+        if (batch) {
+          acceptBatch(batch);
+          if (batch.status !== "failed") toast.info(t("AiJudgePanel.batchRecovered"));
+          return;
+        }
+      } catch (error) {
+        if (cancelled) return;
+        if (error?.status === 401 || error?.status === 403 || error?.sessionChanged) {
+          setPendingBatch(null);
+          toast.error(error.message);
+          return;
+        }
+      }
+      if (!cancelled) timer = setTimeout(recover, 5000);
+    }
+    recover();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [classId, sessionId, pendingBatch, creatingBatch, acceptBatch, loadReview, t, toast]);
 
   /* 「一次執行」輪詢：整批到終態後重新載入核查資料 */
   useEffect(() => {
@@ -3809,7 +3885,7 @@ export function TeacherReviewTab({
     () => getActiveScriptSet(scriptSets),
     [scriptSets],
   );
-  const batchRunning = Boolean(activeBatch && !runIsTerminal(activeBatch.status));
+  const batchRunning = Boolean(pendingBatch || (activeBatch && !runIsTerminal(activeBatch.status)));
 
   const machineRows = useMemo(() => {
     if (!reviewState) return [];
@@ -4002,48 +4078,47 @@ export function TeacherReviewTab({
   }
 
   async function handleRunOnce() {
-    if (!activeSet || creatingBatch || batchRunning) return;
-    setCreatingBatch(true);
-    try {
-      const next = await AiJudgeService.createSessionScriptSetRun(
-        classId,
-        sessionId,
-        activeSet.artifact_set_id,
-      );
-      batchStatusRef.current = next?.status ?? null;
-      setActiveBatch(next);
-      setRunOnceOpen(false);
-      onRunStarted?.();
-      toast.success(t("AiJudgePanel.batchCreated", { count: next?.summary?.targets ?? 0 }));
-    } catch (error) {
-      toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
-      if (error?.status === 409) loadReview({ silent: true });
-    } finally {
-      setCreatingBatch(false);
-    }
+    await startBatch();
   }
 
   /* 只檢查指定學生（這位學生／已回報完成的人）：用最新核准的那組腳本，其他人的結果不動 */
   async function runForStudents(userIds) {
-    const targetSet = activeSet;
-    if (!targetSet || creatingBatch || batchRunning || !userIds.length) return;
+    if (userIds.length) await startBatch(userIds);
+  }
+
+  async function startBatch(userIds = null, retry = null) {
+    if (submissionRef.current || creatingBatch || (batchRunning && !retry) || (!activeSet && !retry)) return;
+    const attempt = retry ?? { runBatchId: newRunBatchId(), artifactSetId: activeSet.artifact_set_id, userIds };
+    submissionRef.current = attempt;
+    loadRequestRef.current += 1;
     setCreatingBatch(true);
     try {
       const next = await AiJudgeService.createSessionScriptSetRun(
-        classId,
-        sessionId,
-        targetSet.artifact_set_id,
-        { userIds },
+        classId, sessionId, attempt.artifactSetId,
+        { userIds: attempt.userIds, runBatchId: attempt.runBatchId },
       );
-      batchStatusRef.current = next?.status ?? null;
-      setActiveBatch(next);
-      onRunStarted?.();
-      toast.success(t("AiJudgePanel.batchCreatedStudents", { count: userIds.length }));
+      if (submissionRef.current !== attempt) return;
+      acceptBatch(next);
+      if (!runIsTerminal(next.status)) {
+        toast.success(t(attempt.userIds?.length ? "AiJudgePanel.batchCreatedStudents" : "AiJudgePanel.batchCreated", {
+          count: attempt.userIds?.length ?? next?.summary?.targets ?? 0,
+        }));
+      }
     } catch (error) {
-      toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
-      if (error?.status === 409) loadReview({ silent: true });
+      if (submissionRef.current !== attempt) return;
+      if (!error?.sessionChanged && (error?.timeout || !error?.status || error.status >= 500 || error.status === 409)) {
+        setPendingBatch({ ...attempt, conflict: error?.status === 409, errorMessage: error?.message });
+        setRunOnceOpen(false);
+        toast.info(t("AiJudgePanel.batchRecovering"));
+      } else {
+        setPendingBatch(null);
+        toast.error(error?.message ?? t("AiJudgePanel.batchCreateFailed"));
+      }
     } finally {
-      setCreatingBatch(false);
+      if (submissionRef.current === attempt) {
+        submissionRef.current = null;
+        setCreatingBatch(false);
+      }
     }
   }
 
@@ -4073,7 +4148,7 @@ export function TeacherReviewTab({
               type="button"
               className={styles.btnPrimary}
               onClick={handleRunOnce}
-              disabled={creatingBatch || !activeSet}
+              disabled={creatingBatch || batchRunning || !activeSet}
             >
               {creatingBatch ? t("AiJudgePanel.creating") : t("AiJudgePanel.confirmRun")}
             </button>
@@ -4108,10 +4183,20 @@ export function TeacherReviewTab({
       {activeSet.source_is_current === false && ` ${t("AiJudgePanel.activeScriptSetPending")}`}
     </p>
   );
-  if (!reviewState && !showRoster) {
+  const recoveryNotice = pendingBatch && (
+    <div className={`${styles.noticeInfo} ${styles.noticeWithAction}`} role="status">
+      <p>{t("AiJudgePanel.batchRecovering")}</p>
+      <button type="button" className={styles.btnSecondary} disabled={creatingBatch}
+        onClick={() => startBatch(null, pendingBatch)}>
+        {t("AiJudgePanel.batchRetryConfirmation")}
+      </button>
+    </div>
+  );
+  if (!reviewState && !showRoster && !activeBatch) {
     return (
       <div className={styles.tabBody} data-guide="ai-judge-review">
         <div className={styles.card}>
+          {recoveryNotice}
           {Boolean(activeSet) ? (
             <>
               {publicationNotice}
@@ -4124,7 +4209,7 @@ export function TeacherReviewTab({
                     type="button"
                     className={styles.btnPrimary}
                     onClick={() => setRunOnceOpen(true)}
-                    disabled={creatingBatch || !weekPublished}
+                    disabled={creatingBatch || batchRunning || !weekPublished}
                     title={weekPublished ? undefined : t("AiJudgePanel.reviewWeekDraftNotice")}
                   >
                     {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
@@ -4155,13 +4240,14 @@ export function TeacherReviewTab({
     <div className={styles.tabBody} data-guide="ai-judge-review">
       <div className={`${styles.card} ${styles.reviewOverview}`}>
         {publicationNotice}
+        {recoveryNotice}
         <div className={styles.reviewOverviewHead}>
           <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />{t("AiJudgePanel.tabReview")}</h4>
           <div className={styles.sectionActions}>
-            {batchRunning && (
+            {activeBatch && batchRunning && (
               <span className={styles.mutedText}>
                 <Spinner size={14} />
-                {t("AiJudgePanel.runProgress", { done: activeBatch.summary?.completed ?? 0, total: activeBatch.summary?.targets ?? 0 })}
+                {t("AiJudgePanel.runProgress", { done: (activeBatch.summary?.completed ?? 0) + (activeBatch.summary?.failed ?? 0) + (activeBatch.summary?.cancelled ?? 0), total: activeBatch.summary?.targets ?? 0 })}
               </span>
             )}
             <button
@@ -4262,6 +4348,7 @@ export function TeacherReviewTab({
               <div className={styles.runOnceProgressLine} key={node.run_id}>
                 <span>{batchMachineDisplayName(node.target_node_key, machineNodes, node.display_label) ?? "—"}</span>
                 <StatusBadge map={RUN_STATUS} status={node.status} />
+                {node.progress_json?.stage === "preparing" && <small>{t("AiJudgePanel.batchPreparing")}</small>}
                 <small>{t("AiJudgePanel.nodeProgress", { done: node.progress_json?.done ?? 0, total: node.progress_json?.total ?? 0 })}</small>
               </div>
             ))}

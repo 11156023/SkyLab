@@ -830,6 +830,8 @@ class TeacherJudgeScriptSetRunRequest(BaseModel):
     """整組腳本執行範圍：全班，或只檢查指定學生（例如已回報完成的人）。"""
 
     target_scope: Literal["all_students_in_set", "students"] = "all_students_in_set"
+    # A client keeps this ID when retrying an acknowledgement that was lost.
+    run_batch_id: uuid.UUID | None = None
     # target_scope="students" 時要檢查的學生（使用者 id）
     user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
 

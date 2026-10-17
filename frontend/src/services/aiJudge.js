@@ -215,12 +215,14 @@ export const AiJudgeService = {
 
   /** 對腳本集建立整批執行：每份 child artifact 分散到該節點的每台學生機器 */
   /** 整組腳本跑一輪；給 userIds 時只檢查這些學生（其他人的結果不動） */
-  createSessionScriptSetRun(classId, sessionId, artifactSetId, { userIds = null } = {}) {
+  createSessionScriptSetRun(classId, sessionId, artifactSetId, { userIds = null, runBatchId = null } = {}) {
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}/runs`,
-      userIds?.length
+      { ...(userIds?.length
         ? { target_scope: "students", user_ids: userIds }
-        : { target_scope: "all_students_in_set" },
+        : { target_scope: "all_students_in_set" }),
+        ...(runBatchId ? { run_batch_id: runBatchId } : {}),
+      },
     );
   },
 

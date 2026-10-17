@@ -1561,26 +1561,28 @@ def create_session_script_set_run(
         started_by=current_user.id,
         session_id=session_id,
         user_ids=payload.user_ids if payload.target_scope == "students" else None,
+        run_batch_id=payload.run_batch_id,
     )
-    item.last_activity_at = get_datetime_utc()
-    item.updated_at = item.last_activity_at
-    session.add(item)
-    session.commit()
-    task_id = submit(
-        execute_script_run_batch(uuid.UUID(batch.run_batch_id)),
-        name=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
-        task_id=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
-    )
+    execution = execute_script_run_batch(uuid.UUID(batch.run_batch_id))
+    try:
+        task_id = submit(
+            execution,
+            name=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
+            task_id=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
+        )
+    except Exception:
+        execution.close()
+        logger.exception("Teacher Judge batch dispatch failed batch=%s", batch.run_batch_id)
+        task_id = ""
     if task_id == "":
         for node in batch.nodes:
             _mark_run_executor_failed(uuid.UUID(node.run_id), "背景執行器未接受任務。", reason_code="executor_unavailable")
         session.expire_all()
-    return get_script_run_batch_public(
-        session=session,
-        teaching_class_id=teaching_class_id,
-        run_batch_id=uuid.UUID(batch.run_batch_id),
-        session_id=session_id,
-    )
+        return get_script_run_batch_public(
+            session=session, teaching_class_id=teaching_class_id,
+            run_batch_id=uuid.UUID(batch.run_batch_id), session_id=session_id,
+        )
+    return batch
 
 
 @router.get(

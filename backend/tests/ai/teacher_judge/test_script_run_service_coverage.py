@@ -1040,7 +1040,11 @@ def test_create_script_run_batch_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     def failing_create(**_: Any) -> None:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(svc, "create_script_run", failing_create)
+    monkeypatch.setattr(svc, "_class_member_by_node_key", lambda **kwargs: {
+        "web": [{"student_id": "student-1", "user_id": "user-1", "vmid": None, "node_key": "web"}],
+    })
+    create_record = svc._create_script_run_record
+    monkeypatch.setattr(svc, "_create_script_run_record", failing_create)
     with pytest.raises(RuntimeError):
         svc.create_script_run_batch(
             session=session,
@@ -1049,16 +1053,7 @@ def test_create_script_run_batch_paths(monkeypatch: pytest.MonkeyPatch) -> None:
             started_by=None,
         )
 
-    def fake_create(**kwargs: Any) -> None:
-        session.add(
-            TeacherJudgeScriptRun(
-                artifact_id=kwargs["artifact_id"],
-                run_batch_id=kwargs["run_batch_id"],
-                status=TeacherJudgeScriptRunStatus.pending,
-            )
-        )
-
-    monkeypatch.setattr(svc, "create_script_run", fake_create)
+    monkeypatch.setattr(svc, "_create_script_run_record", create_record)
     result = svc.create_script_run_batch(
         session=session,
         teaching_class_id=class_id,

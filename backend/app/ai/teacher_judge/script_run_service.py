@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
+from threading import Event
 from typing import Any, Literal, cast
 
 from fastapi import HTTPException
@@ -44,6 +45,7 @@ from app.ai.teacher_judge.script_artifact_service import (
 )
 from app.ai.teacher_judge.script_executor_service import (
     TargetExecutionError,
+    _target_progress,
     check_current_target_power,
     preflight_progress,
 )
@@ -872,7 +874,17 @@ def _resolve_node_targets(
             },
         )
 
-    # The node's members already carry every field _resolve_running_targets
+    return _resolve_member_targets(
+        session=session, teaching_class_id=teaching_class_id, members=members,
+    )
+
+
+def _resolve_member_targets(
+    *, session: Session, teaching_class_id: uuid.UUID,
+    members: list[dict[str, Any]],
+    stop_event: Event | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    # The selected members already carry every field _resolve_running_targets
     # reads, so re-key them instead of reloading the class roster by VMID.
     member_by_vmid = {
         int(member["vmid"]): member
@@ -887,6 +899,8 @@ def _resolve_node_targets(
     targets: list[dict[str, Any]] = []
     preflight_results: list[dict[str, Any]] = []
     for member in members:
+        if stop_event is not None and stop_event.is_set():
+            raise InterruptedError("Batch preparation cancelled")
         vmid = member.get("vmid")
         if vmid is None:
             preflight_results.append(
@@ -926,6 +940,7 @@ def _attach_peer_runtime_contexts(
     executor_node_key: str,
     peer_node_keys: set[str],
     targets: list[dict[str, Any]],
+    stop_event: Event | None = None,
 ) -> None:
     """Attach only declared same-student peer addresses to internal targets."""
 
@@ -957,6 +972,8 @@ def _attach_peer_runtime_contexts(
         student_id = str(target.get("student_id") or "")
         peers: dict[str, dict[str, Any]] = {}
         for peer_node_key in sorted(peer_node_keys):
+            if stop_event is not None and stop_event.is_set():
+                raise InterruptedError("Batch preparation cancelled")
             member = peers_by_key_and_student.get((peer_node_key, student_id))
             ip_address: str | None = None
             reason_code: str | None = None
@@ -1157,6 +1174,32 @@ def create_script_run(
             targets=targets,
         )
 
+    # Single-run target preparation may contact PVE. Revalidate at admission.
+    if run_batch_id is None:
+        require_active_artifact(session, artifact)
+    run = _create_script_run_record(
+        session=session, artifact=artifact, targets=targets,
+        preflight_results=preflight_results, target_scope=target_scope,
+        target_node_key=effective_node_key, requested_item_id=requested_item_id,
+        run_batch_id=run_batch_id, started_by=started_by,
+        requested_at=requested_at, prepared_at=_now(),
+    )
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+    session.refresh(run)
+    return _run_to_public(run, include_internal=True)
+
+
+def _create_script_run_record(
+    *, session: Session, artifact: TeacherJudgeScriptArtifact,
+    targets: list[dict[str, Any]], preflight_results: list[dict[str, Any]],
+    target_scope: TeacherJudgeScriptRunTargetScope, target_node_key: str | None,
+    requested_item_id: str | None, run_batch_id: uuid.UUID | None,
+    started_by: uuid.UUID | None, requested_at: datetime,
+    prepared_at: datetime | None,
+) -> TeacherJudgeScriptRun:
     progress_targets = [
         {
             "vmid": target["vmid"],
@@ -1165,8 +1208,8 @@ def create_script_run(
             "node_key": target.get("node_key"),
             "node_name": target.get("node_name"),
             "display_label": target.get("display_label"),
-            "proxmox_node": target["proxmox_node"],
-            "resource_type": target["resource_type"],
+            "proxmox_node": target.get("proxmox_node"),
+            "resource_type": target.get("resource_type"),
             "user": target["user"],
             "status": "queued",
             "reason_code": None,
@@ -1175,10 +1218,6 @@ def create_script_run(
     ]
     progress_targets.extend(preflight_progress(preflight_results))
 
-    # Single-run target preparation may contact PVE. Lock only at admission,
-    # then revalidate so a switch during preparation cannot accept an old set.
-    if run_batch_id is None:
-        require_active_artifact(session, artifact)
     run = TeacherJudgeScriptRun(
         run_batch_id=run_batch_id,
         artifact_id=artifact.id,
@@ -1190,14 +1229,14 @@ def create_script_run(
                 "version": artifact.version,
                 "template_key": artifact.template_key,
             },
-            "target_node_key": effective_node_key,
+            "target_node_key": target_node_key,
             "targets": targets,
             "preflight_results": preflight_results,
             "requested_item_id": requested_item_id,
         },
         status=TeacherJudgeScriptRunStatus.pending,
         progress_json={
-            "stage": "pending_executor",
+            "stage": "pending_executor" if prepared_at else "preparing",
             "total": len(progress_targets),
             "done": len(preflight_results),
             "targets": progress_targets,
@@ -1214,18 +1253,14 @@ def create_script_run(
         started_by=started_by,
         request_id=get_request_context().request_id,
         created_at=requested_at,
-        prepared_at=_now(),
+        prepared_at=prepared_at,
         started_at=None,
         updated_at=_now(),
     )
     session.add(run)
     initialize_targets(session, run)
-    if commit:
-        session.commit()
-    else:
-        session.flush()
-    session.refresh(run)
-    return _run_to_public(run, include_internal=True)
+    session.flush()
+    return run
 
 
 def _coverage_check_ids_by_item(
@@ -1636,8 +1671,9 @@ def create_script_run_batch(
     started_by: uuid.UUID | None,
     session_id: uuid.UUID | None = None,
     user_ids: list[uuid.UUID] | None = None,
+    run_batch_id: uuid.UUID | None = None,
 ) -> TeacherJudgeRunBatchPublic:
-    """整組腳本跑一輪；``user_ids`` 有值時只檢查這些學生（其他人的結果不動）。"""
+    """Admit a batch using DB snapshots only; background work resolves PVE/SSH."""
     requested_at = _now()
     rows = list(
         session.exec(
@@ -1659,6 +1695,24 @@ def create_script_run_batch(
     if not children:
         raise HTTPException(status_code=409, detail="Script set has no executable children")
     workspace = require_active_artifact(session, children[0])
+    if run_batch_id is not None and session.get(TeacherJudgeRunBatch, run_batch_id) is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "teacher_judge_batch_exists",
+            "message": "這筆執行已受理，請查詢原批次的進度。",
+        })
+    # require_active_artifact holds the workspace row lock until this admission
+    # commits. Concurrent requests must observe the previously accepted batch.
+    active_batch = session.exec(select(TeacherJudgeRunBatch).where(
+        TeacherJudgeRunBatch.session_id == workspace.id,
+        TeacherJudgeRunBatch.teaching_class_id == teaching_class_id,
+        col(TeacherJudgeRunBatch.status).in_(["pending", "running"]),
+    ).order_by(desc(TeacherJudgeRunBatch.created_at))).first()
+    if active_batch is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "teacher_judge_batch_active",
+            "message": "這週已有受理或執行中的批次，請接續查看進度。",
+            "run_batch_id": str(active_batch.id),
+        })
     node_order = {node.node_key: node.sort_order for node in nodes}
     children = sorted(active_set_children(session, workspace), key=lambda child: (node_order.get(child.target_node_key or "", 10**9), child.target_node_key or ""))
     session_id = workspace.id
@@ -1671,11 +1725,11 @@ def create_script_run_batch(
             },
         )
     wanted_users: set[str] | None = None
+    members_by_node = _class_member_by_node_key(
+        session=session, teaching_class_id=teaching_class_id,
+    )
     if user_ids:
         wanted_users = {str(user_id) for user_id in user_ids}
-        members_by_node = _class_member_by_node_key(
-            session=session, teaching_class_id=teaching_class_id
-        )
         # 只跑有這些學生機器的那幾台；一台都沒有就不必建立空的批次
         children = [
             child
@@ -1689,7 +1743,7 @@ def create_script_run_batch(
             raise HTTPException(
                 status_code=400, detail=t("teacherJudgeSessions.noStudentMachines")
             )
-    run_batch_id = uuid.uuid4()
+    run_batch_id = run_batch_id or uuid.uuid4()
     try:
         batch = TeacherJudgeRunBatch(
             id=run_batch_id, teaching_class_id=teaching_class_id,
@@ -1698,47 +1752,113 @@ def create_script_run_batch(
             requested_at=requested_at, created_at=requested_at,
         )
         session.add(batch)
-        # Publish the accepted batch before potentially slow target preparation.
-        session.commit()
         for child in children:
-            create_script_run(
-                session=session,
-                teaching_class_id=teaching_class_id,
-                artifact_id=child.id,
+            members = members_by_node.get(child.target_node_key or "", [])
+            if wanted_users is not None:
+                members = [member for member in members if member.get("user_id") in wanted_users]
+            if not members:
+                raise HTTPException(status_code=400, detail=t("teacherJudgeSessions.noStudentMachines"))
+            targets, failures = [], []
+            for member in members:
+                if member.get("vmid") is None:
+                    failures.append(_node_target_failure(
+                        member, reason_code="missing_vmid",
+                        detail="student machine has no assigned VM/LXC",
+                    ))
+                else:
+                    targets.append({
+                        **{key: member.get(key) for key in (
+                            "vmid", "student_id", "node_key", "node_name",
+                            "node_role", "display_label",
+                        )},
+                        "name": str(member["vmid"]),
+                        "user": {"id": member["user_id"], "email": member.get("email"),
+                                 "full_name": member.get("full_name")},
+                    })
+            _create_script_run_record(
+                session=session, artifact=child, targets=targets,
+                preflight_results=failures,
                 target_scope=TeacherJudgeScriptRunTargetScope.all_students_on_node,
-                target_vmids=None,
                 started_by=started_by,
                 target_node_key=child.target_node_key,
-                run_batch_id=run_batch_id,
-                commit=False,
-                user_ids=wanted_users,
+                run_batch_id=run_batch_id, requested_item_id=None,
+                requested_at=requested_at, prepared_at=None,
             )
-        prepared_batch = session.get(TeacherJudgeRunBatch, run_batch_id, with_for_update=True)
-        if prepared_batch is None or prepared_batch.status != "pending":
-            raise HTTPException(status_code=409, detail="Batch preparation interrupted")
-        prepared_batch.prepared_at = _now()
-        session.add(prepared_batch)
+        workspace.last_activity_at = requested_at
+        workspace.updated_at = requested_at
+        session.add(workspace)
+        public = get_script_run_batch_public(
+            session=session, teaching_class_id=teaching_class_id,
+            run_batch_id=run_batch_id, session_id=session_id,
+        )
         session.commit()
     except Exception:
         session.rollback()
-        # Failed preparation is still a whole-class execution attempt. Preserve
-        # its lifecycle after rolling back incomplete child runs.
-        try:
-            failure = session.get(TeacherJudgeRunBatch, run_batch_id, with_for_update=True)
-            if failure is not None and failure.status == "pending":
-                failure.status = "failed"
-                failure.finished_at = _now()
-                failure.updated_at = failure.finished_at
-                failure.error_message = "批次前置處理失敗。"
-                session.add(failure)
-                session.commit()
-        except Exception:
-            session.rollback()
-            logger.exception("Unable to persist batch preparation failure batch=%s", run_batch_id)
         raise
-    return get_script_run_batch_public(
-        session=session,
-        teaching_class_id=teaching_class_id,
-        run_batch_id=run_batch_id,
-        session_id=session_id,
-    )
+    return public
+
+
+def prepare_script_run_batch(
+    session: Session, run_batch_id: uuid.UUID, *, stop_event: Event | None = None,
+) -> None:
+    """Resolve the accepted machines, without selecting a newer set or roster."""
+    runs = list(session.exec(select(TeacherJudgeScriptRun).where(
+        TeacherJudgeScriptRun.run_batch_id == run_batch_id,
+    )).all())
+    for run in runs:
+        if stop_event is not None and stop_event.is_set():
+            raise InterruptedError("Batch preparation cancelled")
+        if (run.status != TeacherJudgeScriptRunStatus.pending
+                or run.progress_json.get("stage") != "preparing"):
+            continue
+        artifact = run.artifact
+        snapshot = run.target_snapshot_json
+        members = [{
+            **target, "user_id": target["user"]["id"],
+            "email": target["user"].get("email"),
+            "full_name": target["user"].get("full_name"),
+        } for target in snapshot.get("targets") or []]
+        targets, failures = _resolve_member_targets(
+            session=session, teaching_class_id=artifact.teaching_class_id,
+            members=members, stop_event=stop_event,
+        )
+        failures = list(snapshot.get("preflight_results") or []) + failures
+        node_key = snapshot.get("target_node_key")
+        if node_key:
+            _attach_peer_runtime_contexts(
+                session=session, teaching_class_id=artifact.teaching_class_id,
+                executor_node_key=node_key,
+                peer_node_keys=peer_node_keys_from_snapshot(artifact.rubric_snapshot_json),
+                targets=targets,
+                stop_event=stop_event,
+            )
+        if stop_event is not None and stop_event.is_set():
+            raise InterruptedError("Batch preparation cancelled")
+        # PVE calls may outlive stale-run recovery. Recheck under the same run
+        # row lock used by executor lifecycle writers before saving anything.
+        session.refresh(run, with_for_update={"of": TeacherJudgeScriptRun})
+        if (run.status != TeacherJudgeScriptRunStatus.pending
+                or run.progress_json.get("stage") != "preparing"):
+            continue
+        run.target_snapshot_json = {**snapshot, "targets": targets, "preflight_results": failures}
+        run.prepared_at = _now()
+        run.progress_json = {
+            "stage": "pending_executor", "total": len(targets) + len(failures),
+            "done": len(failures),
+            "targets": _target_progress(targets, {}) + preflight_progress(failures),
+        }
+        run.result_summary_json = {"preflight_failed": len(failures)}
+        initialize_targets(session, run)
+        progress_by_key = {target_key(target): target for target in _target_progress(targets, {})}
+        for record in run.target_records:
+            progress = progress_by_key.get(record.target_key)
+            if progress is not None:
+                record.metadata_json = {key: value for key, value in progress.items()
+                                        if key not in {"status", "reason_code", "student_id", "vmid", "node_key"}}
+        session.add(run)
+    batch = session.get(TeacherJudgeRunBatch, run_batch_id)
+    if batch is not None and batch.status == "pending" and batch.prepared_at is None:
+        batch.prepared_at = _now()
+        batch.updated_at = batch.prepared_at
+        session.add(batch)
+    session.commit()

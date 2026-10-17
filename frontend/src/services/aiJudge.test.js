@@ -33,6 +33,17 @@ beforeEach(() => {
 });
 
 describe("AiJudgeService persistent sessions", () => {
+  test("整組執行保留原批次 ID 與指定學生範圍，供遺失回應後重新確認", async () => {
+    const options = { runBatchId: "8ea44e16-56fe-4bb0-aef5-43734ae88fbd", userIds: ["user-1"] };
+    await AiJudgeService.createSessionScriptSetRun("class-1", "session-1", "set-1", options);
+    await AiJudgeService.createSessionScriptSetRun("class-1", "session-1", "set-1", options);
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(bodies).toEqual([{
+      target_scope: "students", user_ids: ["user-1"], run_batch_id: options.runBatchId,
+    }, {
+      target_scope: "students", user_ids: ["user-1"], run_batch_id: options.runBatchId,
+    }]);
+  });
   test("目前核查清單依指定腳本組過濾，歷史查詢可省略", async () => {
     await AiJudgeService.listSessionRuns("class-1", "session-1", "active-set");
     await AiJudgeService.listSessionRunBatches("class-1", "session-1", 10, "active-set");
