@@ -27,6 +27,7 @@ vi.mock("../../resources/TerminalDialog", () => ({ default: () => null }));
 vi.mock("../../resources/VncDialog", () => ({ default: () => null }));
 
 const { default: StudentCoursePage } = await import("./StudentCoursePage");
+const { default: StudentWeekPage } = await import("../../courses/StudentWeekPage");
 
 let host, root;
 function Location() { return <output>{useLocation().pathname}</output>; }
@@ -35,6 +36,7 @@ async function render(path) {
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/courses/:pathId" element={<StudentCoursePage />} />
+        <Route path="/courses/:pathId/weeks/:weekId" element={<StudentWeekPage />} />
         <Route path="*" element={null} />
       </Routes>
       <Location />
@@ -65,7 +67,7 @@ it("shows the load-failure notice when only the course list fails", async () => 
 
 it("opens weeks of the course actually shown after falling back from an unknown course id", async () => {
   courses.listPaths.mockResolvedValue([{ id: 2, title: "Course B", progress_percent: 0 }]);
-  courses.getWeeklyTasks.mockResolvedValue([{ id: 9, week_number: 1, title: "Week one", session_date: "2026-09-09" }]);
+  courses.getWeeklyTasks.mockResolvedValue([{ id: 9, week_number: 1, title: "Week one", session_date: "2026-09-09", checkpoints: [], files: [] }]);
   await render("/courses/1");
   expect(host.textContent).toContain("Course B");
   expect(courses.getWeeklyTasks).toHaveBeenCalledWith(2);
@@ -73,4 +75,28 @@ it("opens weeks of the course actually shown after falling back from an unknown 
   const weekButton = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Week one"));
   await act(async () => weekButton.click());
   expect(host.querySelector("output").textContent).toBe("/courses/2/weeks/9");
+});
+
+
+it("opens the current week's approved task content from the course overview", async () => {
+  const items = [{ id: "backup", title: "Configure daily backups", description: "Run pg_dump at 02:00", detectable: "auto" }];
+  courses.listPaths.mockResolvedValue([{ id: "path-1", title: "Linux course" }]);
+  courses.getAiAssignments.mockResolvedValue([{
+    id: "assignment-1", teaching_class_week_id: "week-1", items,
+    completion: { completed: false },
+  }]);
+  courses.getWeeklyTasks.mockResolvedValue([{
+    id: "week-1", week_number: 1, title: "Backup week", session_date: "2026-09-09",
+    checkpoints: items, files: [],
+  }]);
+  await render("/courses/path-1");
+  expect(host.querySelector('[data-guide="home-tasks"] input[type="checkbox"]')).toBeTruthy();
+  const openWeek = [...host.querySelectorAll("button")]
+    .find((button) => button.textContent.includes("StudentCoursePage.openThisWeek"));
+  await act(async () => openWeek.click());
+  expect(host.querySelector("output").textContent).toBe("/courses/path-1/weeks/week-1");
+  const feedback = host.querySelector('[data-guide="course-week-feedback"]');
+  expect(feedback.textContent).toContain("Configure daily backups");
+  expect(feedback.textContent).toContain("Run pg_dump at 02:00");
+  expect(feedback.textContent).not.toContain("StudentWeekPage.noCheckpointsTitle");
 });
