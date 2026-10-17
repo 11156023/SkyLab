@@ -8,7 +8,9 @@ import styles from "./PasswordRules.module.scss";
  *
  * 規則來源預設是 utils/passwordPolicy（與後端同一套）；這裡只負責呈現。
  * `rules`：換成別套規則（例如 utils/windowsPassword 的 Windows 機器密碼），
- * 每條規則的 `params` 會帶進語系字串。
+ * 每條規則的 `params` 會帶進語系字串。規則若有 `describe(password)`，顯示文字
+ * 改由它依目前輸入決定：回 `null` 不顯示該條，`options` 是語系 key 清單，
+ * 翻譯後以「或」串起來帶進 `{{options}}`。
  * `invalid`：送出時仍有未滿足的規則，把未滿足的項目標成紅色。
  *
  * 各頁的欄位多半包在 <label> 裡，label 內只能放行內內容，所以用 span + role
@@ -20,8 +22,12 @@ export default function PasswordRules({
   className,
   rules = PASSWORD_RULES,
 }) {
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
   const value = password ?? "";
+  const formatOptions = (keys) =>
+    new Intl.ListFormat(i18n.language, { type: "disjunction" }).format(
+      keys.map((key) => t(`PasswordRules.${key}`)),
+    );
 
   return (
     <span
@@ -30,8 +36,14 @@ export default function PasswordRules({
       className={`${styles.rules} ${className ?? ""}`.trim()}
     >
       {rules.map((rule) => {
+        const shown = rule.describe ? rule.describe(value) : rule;
+        if (!shown) return null;
         const met = rule.test(value);
-        const text = t(`PasswordRules.${rule.key}`, { min: PASSWORD_MIN_LENGTH, ...rule.params });
+        const text = t(`PasswordRules.${shown.key}`, {
+          min: PASSWORD_MIN_LENGTH,
+          ...shown.params,
+          ...(shown.options && { options: formatOptions(shown.options) }),
+        });
         const state = met ? styles.met : invalid ? styles.unmetInvalid : "";
         return (
           <span

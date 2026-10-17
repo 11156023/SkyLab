@@ -10,14 +10,27 @@
 /** cloudbase-init 設定檔固定的 Windows 登入帳號 */
 export const WINDOWS_LOGIN_USERNAME = "Admin";
 export const WINDOWS_PASSWORD_MIN_LENGTH = 8;
+const WINDOWS_MIN_CATEGORIES = 3;
+
+/* 缺字元種類時建議補的四類；key 對應 common 語系的 PasswordRules.windowsType.<key> */
+const SUGGESTED_CATEGORIES = ["uppercase", "lowercase", "digit", "symbol"];
 
 function charCategory(ch) {
-  if (ch !== ch.toLowerCase()) return "upper";
-  if (ch !== ch.toUpperCase()) return "lower";
+  if (ch !== ch.toLowerCase()) return "uppercase";
+  if (ch !== ch.toUpperCase()) return "lowercase";
   if (/\p{Nd}/u.test(ch)) return "digit";
   /* 沒有大小寫之分的字母（中日文等），Windows 另算一類 */
   if (/\p{L}/u.test(ch)) return "letter";
   return "symbol";
+}
+
+/** 還差幾類字元（`need`），以及還沒用到、可以補的類別（`missing`）。 */
+export function windowsCategoryShortfall(password) {
+  const present = new Set([...(password ?? "")].map(charCategory));
+  return {
+    need: Math.max(0, WINDOWS_MIN_CATEGORIES - present.size),
+    missing: SUGGESTED_CATEGORIES.filter((category) => !present.has(category)),
+  };
 }
 
 /* 順序即檢查清單的顯示順序；key 對應 common 語系的 PasswordRules.<key> */
@@ -29,7 +42,17 @@ export const WINDOWS_PASSWORD_RULES = [
   },
   {
     key: "windowsCategories",
-    test: (password) => new Set([...password].map(charCategory)).size >= 3,
+    test: (password) => windowsCategoryShortfall(password).need === 0,
+    /* 不先列出「四類任選三類」：還沒輸入就不顯示，缺幾類就只提示可以補哪幾類 */
+    describe: (password) => {
+      if (!password) return null;
+      const { need, missing } = windowsCategoryShortfall(password);
+      if (need === 0) return { key: "windowsCategoriesMet" };
+      return {
+        key: need === 1 ? "windowsAddOneType" : "windowsAddTwoTypes",
+        options: missing.map((category) => `windowsType.${category}`),
+      };
+    },
   },
   {
     key: "windowsUsername",
