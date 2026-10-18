@@ -1,9 +1,13 @@
 // Accounts, sign-in and the endpoints every signed-in layout calls.
 // Scene files add their own page data with m.use([...]).
 
+import { D, NOW } from "../lib/mock.mjs";
+
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+// Expires a week after the frozen clock: a far-future expiry makes the frontend's
+// refresh timer overflow setTimeout and refresh in a tight loop.
 export const fakeJwt = (sub) =>
-  `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub, exp: 4102444800, type: "access" })}.c2lnbmF0dXJl`;
+  `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub, exp: Math.floor((NOW + 7 * D) / 1000), type: "access" })}.c2lnbmF0dXJl`;
 
 export function users(m) {
   return {

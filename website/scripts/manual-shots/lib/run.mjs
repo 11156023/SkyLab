@@ -327,6 +327,9 @@ export class Session {
   //     opts.min ([width, height], default [960, 560]) around the targets.
   //   opts.pad: margin around the crop area in px (default 24)
   //   opts.scroll: scroll the first target into view first (default true)
+  //   opts.newFrame: start a new frame even if the screen barely changed
+  //     (a list that emptied, a field that reverted)
+  //   opts.highlight: false = no outline (the step number still shows)
   async shot(step, target = null, opts = {}) {
     const targets = (Array.isArray(target) ? target : target ? [target] : []).filter(Boolean);
     if (targets.length && opts.scroll !== false) await targets[0].scrollIntoViewIfNeeded().catch(() => {});
@@ -361,7 +364,7 @@ export class Session {
     region = clamp(region, vp);
 
     const png = await this.page.screenshot({ animations: "disabled", caret: "hide" });
-    this.marks.push({ n: step, png, boxes, region, highlight: opts.highlight });
+    this.marks.push({ n: step, png, boxes, region, vp, highlight: opts.highlight, newFrame: !!opts.newFrame });
     this.marked.add(step);
   }
 
@@ -371,13 +374,15 @@ export class Session {
     const groups = [];
     for (const mk of this.marks) {
       const cur = groups[groups.length - 1];
-      if (cur && (await screenDiff(this.browser, cur[cur.length - 1].png, mk.png)) < SAME_SCREEN) cur.push(mk);
+      const last = cur?.[cur.length - 1];
+      const same = last && !mk.newFrame && last.vp.width === mk.vp.width && last.vp.height === mk.vp.height &&
+        (await screenDiff(this.browser, last.png, mk.png)) < SAME_SCREEN;
+      if (same) cur.push(mk);
       else groups.push([mk]);
     }
-    const vp = this.page.viewportSize();
     const frames = groups.map((grp) => ({
       png: grp[grp.length - 1].png,
-      region: clamp(union(grp.map((mk) => mk.region)), vp),
+      region: clamp(union(grp.map((mk) => mk.region)), grp[grp.length - 1].vp),
       marks: grp.map(({ n, boxes, highlight }) => ({ n, boxes, highlight })),
     }));
     const dir = path.join(SHOTS_DIR, this.lang, this.pageName);
