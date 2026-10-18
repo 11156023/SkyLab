@@ -2,13 +2,19 @@
 # 注意：build context 為專案根目錄（COPY 路徑以根目錄為準）
 FROM oven/bun:1 AS build-stage
 
-WORKDIR /app/frontend
+WORKDIR /app
 
-COPY frontend/package.json frontend/bun.lock ./
+# 前端是根目錄 bun workspace 的成員：鎖檔與 overrides 都在根 package.json／bun.lock。
+# 與 CI 用同一份鎖檔並 --frozen-lockfile，正式映像裝到的版本才會和測過的一致，
+# 不會在建映像時重新解析。
+COPY package.json bun.lock ./
+COPY frontend/package.json ./frontend/
 
-RUN bun install
+RUN bun install --frozen-lockfile
 
 COPY ./frontend /app/frontend
+
+WORKDIR /app/frontend
 
 ARG VITE_API_URL
 ARG VITE_GOOGLE_CLIENT_ID
