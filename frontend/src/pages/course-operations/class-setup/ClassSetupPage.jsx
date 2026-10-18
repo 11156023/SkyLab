@@ -20,6 +20,7 @@ import {
   SHUTDOWN_GRACE_OPTIONS,
 } from "../classScheduleForm";
 import { parseStudentEmails, VISIBLE_WEEK_STATUSES, visibleWeekCount, weekFilesPayload } from "../classWeeks";
+import { capacityNodeRows, mbToGb } from "../capacityFormat";
 import styles from "./ClassSetupPage.module.scss";
 import useAiScreen from "../../../hooks/useAiScreen";
 import { useToast } from "../../../hooks/useToast";
@@ -612,9 +613,19 @@ export default function ClassSetupPage() {
             {capacity?.ready && <div className={styles.capacityFacts}>
               <div><span>{t("ClassSetupPage.capacityFactMachines")}</span><strong>{capacity.machine_count}</strong></div>
               <div><span>CPU</span><strong>{capacity.cpu_cores}</strong></div>
-              <div><span>RAM</span><strong>{Math.round(capacity.memory_mb / 1024)} GB</strong></div>
+              <div><span>RAM</span><strong>{mbToGb(capacity.memory_mb)} GB</strong></div>
               <div><span>Disk</span><strong>{capacity.disk_gb} GB</strong></div>
               <div><span>{t("ClassSetupPage.capacityFactIps")}</span><strong>{capacity.ip_count}</strong></div>
+            </div>}
+            {/* 判定是逐節點比的：只看全班合計會覺得「明明夠」，所以列出每台的需要／可用 */}
+            {capacityNodeRows(capacity?.placement_plan).length > 0 && <div className={styles.capacityNodes}>
+              <span className={styles.capacityNodesTitle}>{t("ClassSetupPage.capacityByNodeTitle")}</span>
+              {capacityNodeRows(capacity.placement_plan).map((row) => <div key={row.node} className={styles.capacityNodeRow}>
+                <strong>{row.node}</strong>
+                <span>{t("ClassSetupPage.capacityNodeMachines", { count: row.machines })}</span>
+                <span className={row.shortCpu ? styles.capacityShort : ""}>{t("ClassSetupPage.capacityNodeCpu", { need: row.cpuNeed, available: row.cpuAvailable })}</span>
+                <span className={row.shortMemory ? styles.capacityShort : ""}>{t("ClassSetupPage.capacityNodeRam", { need: row.memoryNeed, available: row.memoryAvailable })}</span>
+              </div>)}
             </div>}
           </div>
           <div className={styles.summaryList} data-guide="class-setup-summary">

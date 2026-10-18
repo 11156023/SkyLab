@@ -4,11 +4,20 @@ import json
 import logging
 import uuid
 from collections import defaultdict
+from collections.abc import Mapping
+from typing import Any
 
 from sqlmodel import Session, select
 
 from app.core.i18n import t
 from app.domain.placement import storage as placement_storage
+from app.domain.placement.config import settings as placement_settings
+from app.domain.placement.schemas import (
+    NodeCapacity,
+    NodeSnapshot,
+    ResourceSnapshot,
+    ResourceType,
+)
 from app.exceptions import BadRequestError
 from app.infrastructure.proxmox import (
     get_connection_id_for_node,
@@ -17,6 +26,7 @@ from app.models import (
     ClassCapacityReservation,
     TeachingClassMachineNode,
     TeachingClassStudent,
+    TeachingClassStudentMachine,
     VMTemplate,
 )
 from app.services.network import ip_management_service
@@ -25,7 +35,15 @@ from app.services.teaching.class_network_service import network_segments
 from app.services.vm import placement_service, placement_support
 
 GIB = 1024**3
+MIB = 1024**2
+# 存進預留快照的逐節點需求欄位；預覽另外附上的可用量不存
+_PLAN_DEMAND_KEYS = ("cpu_cores", "memory_bytes", "disk_bytes", "machines")
 logger = logging.getLogger(__name__)
+
+
+def _gib(value: float) -> str:
+    """位元組換成一位小數的 GB：整數除法會把需要 7.5、可用 7.9 都顯示成 7。"""
+    return f"{value / GIB:.1f}"
 
 
 def _json_dict(value: object) -> dict:
@@ -80,7 +98,7 @@ def preview(
             )
         ]
     )
-    placement_plan: dict[str, dict[str, int]] = {}
+    placement_plan: dict[str, dict[str, float]] = {}
     if check_cluster and nodes and students:
         placement_plan, _placements, cluster_issues = _evaluate_cluster_capacity(
             session,
@@ -147,7 +165,12 @@ def reserve(
         disk_gb=totals["disk_gb"],
         ip_count=totals["ip_count"],
         network_count=totals["network_count"],
-        placement_plan=placement_plan,
+        placement_plan={
+            node_name: {
+                key: values[key] for key in _PLAN_DEMAND_KEYS if key in values
+            }
+            for node_name, values in placement_plan.items()
+        },
         student_placements={
             str(machine_node_id): {
                 str(user_id): node for user_id, node in per_student.items()
@@ -329,7 +352,11 @@ def _cluster_headroom(
     eligibility: dict[uuid.UUID, set[str]],
     capacities: dict[str, object],
 ) -> dict[str, float]:
-    """該叢集內、這堂課用得到的節點加總後的可用量。"""
+    """該叢集內、這堂課用得到的節點加總後的可用 CPU 與 RAM。
+
+    磁碟不在這裡比：節點層的 disk 是 PVE 主機系統碟，不是機器實際放的儲存區，
+    磁碟一律交給 ``_storage_pool_issues`` 依儲存區檢查。
+    """
     rows = [
         capacities[name]
         for name in {
@@ -344,7 +371,6 @@ def _cluster_headroom(
     return {
         "cpu": sum(float(getattr(r, "allocatable_cpu_cores", 0.0)) for r in rows),
         "mem": sum(float(getattr(r, "allocatable_memory_bytes", 0)) for r in rows),
-        "disk": sum(float(getattr(r, "allocatable_disk_bytes", 0)) for r in rows),
     }
 
 
@@ -375,7 +401,7 @@ def choose_class_cluster(
     if not usable:
         return None
 
-    cpu_need, mem_need, disk_need = _student_footprint(nodes)
+    cpu_need, mem_need, _disk_need = _student_footprint(nodes)
 
     def _capacity_in_students(cid: int | None) -> float:
         room = _cluster_headroom(
@@ -384,7 +410,6 @@ def choose_class_cluster(
         return min(
             room["cpu"] / cpu_need if cpu_need > 0 else float("inf"),
             room["mem"] / mem_need if mem_need > 0 else float("inf"),
-            room["disk"] / disk_need if disk_need > 0 else float("inf"),
         )
 
     ranked = sorted(
@@ -434,7 +459,7 @@ def allocate_class_placements(
             return {}
 
         cpu_need = float(machine_node.cpu)
-        mem_need = float(machine_node.memory_mb * 1024**2)
+        mem_need = float(machine_node.memory_mb * MIB)
         disk_need = float(machine_node.disk_gb * GIB)
 
         def _projected(
@@ -442,9 +467,9 @@ def allocate_class_placements(
             *,
             cpu: float = cpu_need,
             mem: float = mem_need,
-            disk: float = disk_need,
         ) -> float:
-            # 需求量以預設參數綁在定義當下，避免閉包抓到下一輪的機器規格
+            # 需求量以預設參數綁在定義當下，避免閉包抓到下一輪的機器規格。
+            # 只比 CPU／RAM：節點層的 disk 是主機系統碟，拿來攤開學生沒有意義
             capacity = capacities[name]
             return max(
                 _ratio(
@@ -454,10 +479,6 @@ def allocate_class_placements(
                 _ratio(
                     taken[name]["mem"] + mem,
                     float(getattr(capacity, "allocatable_memory_bytes", 0)),
-                ),
-                _ratio(
-                    taken[name]["disk"] + disk,
-                    float(getattr(capacity, "allocatable_disk_bytes", 0)),
                 ),
             )
 
@@ -567,7 +588,7 @@ def _evaluate_cluster_capacity(
     nodes: list[TeachingClassMachineNode],
     student_ids: list[uuid.UUID],
 ) -> tuple[
-    dict[str, dict[str, int]],
+    dict[str, dict[str, float]],
     dict[uuid.UUID, dict[uuid.UUID, str]],
     list[str],
 ]:
@@ -576,7 +597,7 @@ def _evaluate_cluster_capacity(
     整班固定在同一個叢集（跨叢集 L2 不通），但叢集內依容量把學生分散到不同
     的 server —— 同一個叢集不代表同一台 server。
     """
-    demand: dict[str, dict[str, int]] = defaultdict(
+    demand: dict[str, dict[str, float]] = defaultdict(
         lambda: {"cpu_cores": 0, "memory_bytes": 0, "disk_bytes": 0, "machines": 0}
     )
     eligibility, clusters, issues = class_eligibility(session, nodes=nodes)
@@ -599,29 +620,27 @@ def _evaluate_cluster_capacity(
         logger.exception("Failed to fetch Proxmox capacity for class reservation")
         return {}, {}, [t("class_capacity.capacity_check_failed")]
 
-    # Pending reviewed classes are not necessarily visible as PVE guests yet.
-    for reservation in session.exec(
-        select(ClassCapacityReservation).where(
-            ClassCapacityReservation.status == "reserved"
+    _apply_committed_allocations(
+        capacities,
+        cluster_nodes=cluster_nodes,
+        resources=resources,
+        cpu_overcommit_ratio=cpu_ratio,
+        excluded_vmids=_template_guest_vmids(session),
+    )
+    # 已預留、還沒建出來的機器 PVE 上看不到，要另外扣；已建出來的上面已經算過
+    pending_machines, legacy_plans = _pending_reservation_load(session)
+    for node_name, spec in pending_machines:
+        _subtract_capacity(
+            capacities.get(node_name),
+            cpu_cores=float(spec.cpu),
+            memory_bytes=int(spec.memory_mb) * MIB,
         )
-    ).all():
-        pending = _json_dict(reservation.placement_plan)
-        for node_name, values in pending.items():
-            capacity = capacities.get(node_name)
-            if capacity is None:
-                continue
-            capacity.allocatable_cpu_cores = max(
-                0,
-                capacity.allocatable_cpu_cores - float(values.get("cpu_cores") or 0),
-            )
-            capacity.allocatable_memory_bytes = max(
-                0,
-                capacity.allocatable_memory_bytes
-                - int(values.get("memory_bytes") or 0),
-            )
-            capacity.allocatable_disk_bytes = max(
-                0,
-                capacity.allocatable_disk_bytes - int(values.get("disk_bytes") or 0),
+    for plan in legacy_plans:
+        for node_name, values in plan.items():
+            _subtract_capacity(
+                capacities.get(node_name),
+                cpu_cores=float(values.get("cpu_cores") or 0),
+                memory_bytes=int(values.get("memory_bytes") or 0),
             )
 
     # 整班鎖定一個叢集，再於叢集內把學生分散到不同 server。
@@ -646,7 +665,7 @@ def _evaluate_cluster_capacity(
         for target_node in placements[node.id].values():
             target = demand[target_node]
             target["cpu_cores"] += node.cpu
-            target["memory_bytes"] += node.memory_mb * 1024**2
+            target["memory_bytes"] += node.memory_mb * MIB
             target["disk_bytes"] += node.disk_gb * GIB
             target["machines"] += 1
 
@@ -656,6 +675,9 @@ def _evaluate_cluster_capacity(
         if capacity is None or capacity.status != "online":
             issues.append(t("class_capacity.node_offline", node=node_name))
             continue
+        # 預覽頁逐節點列出「需要／可用」；存進預留快照前會拿掉
+        values["available_cpu_cores"] = round(float(capacity.allocatable_cpu_cores), 1)
+        values["available_memory_bytes"] = int(capacity.allocatable_memory_bytes)
         if capacity.allocatable_cpu_cores < values["cpu_cores"]:
             issues.append(
                 t(
@@ -670,22 +692,138 @@ def _evaluate_cluster_capacity(
                 t(
                     "class_capacity.ram_insufficient",
                     node=node_name,
-                    required=values["memory_bytes"] // GIB,
-                    available=capacity.allocatable_memory_bytes // GIB,
+                    required=_gib(values["memory_bytes"]),
+                    available=_gib(capacity.allocatable_memory_bytes),
                 )
             )
-        if capacity.allocatable_disk_bytes < values["disk_bytes"]:
-            issues.append(
-                t(
-                    "class_capacity.disk_insufficient",
-                    node=node_name,
-                    required=values["disk_bytes"] // GIB,
-                    available=capacity.allocatable_disk_bytes // GIB,
-                )
-            )
-    if not issues:
-        issues = _storage_pool_issues(session, nodes=nodes, placements=placements)
+    # 磁碟一律依儲存區檢查（節點層的 disk 是主機系統碟），不因 CPU／RAM
+    # 不足就略過，老師才能一次看到所有不足的項目
+    issues.extend(
+        _storage_pool_issues(
+            session,
+            nodes=nodes,
+            placements=placements,
+            pending_machines=pending_machines,
+        )
+    )
     return dict(demand), placements, issues
+
+
+def _template_guest_vmids(session: Session) -> set[int]:
+    """平台範本母機的 VMID：關機、永不開機，不算進已承諾的用量。
+
+    查不到時回空集合，等於把母機也算進去——寧可算嚴，不要放行。
+    """
+    try:
+        return proxmox_service.platform_template_vmids(db_engine=session.get_bind())
+    except Exception:
+        logger.warning("Failed to load platform template VMIDs", exc_info=True)
+        return set()
+
+
+def _apply_committed_allocations(
+    capacities: Mapping[str, NodeCapacity],
+    *,
+    cluster_nodes: list[NodeSnapshot],
+    resources: list[ResourceSnapshot],
+    cpu_overcommit_ratio: float,
+    excluded_vmids: set[int],
+) -> None:
+    """可用 CPU／RAM 改以「已分配給機器的規格」計算，關機的機器也算。
+
+    即時容量看的是此刻的 CPU 使用率與記憶體用量：下課時段整班關機，那些
+    機器就像不存在，新班級照樣通過預檢，等兩班同時上課才擠不下。這裡把
+    每台機器（範本母機除外）分配到的 vCPU 與記憶體加總，和即時值取較嚴的
+    那個——即時值仍要看，主機自己（PVE、ZFS ARC 等）也會吃記憶體。
+    CPU 套超賣倍率，RAM 不超賣；兩者都保留與即時容量相同比例的安全餘裕。
+    """
+    committed_cpu: dict[str, float] = defaultdict(float)
+    committed_mem: dict[str, int] = defaultdict(int)
+    for guest in resources:
+        if int(guest.vmid) in excluded_vmids:
+            continue
+        committed_cpu[guest.node] += float(getattr(guest, "maxcpu", 0) or 0)
+        committed_mem[guest.node] += int(getattr(guest, "maxmem_bytes", 0) or 0)
+
+    headroom = placement_settings.placement_headroom_ratio
+    for node in cluster_nodes:
+        capacity = capacities.get(node.node)
+        if capacity is None:
+            continue
+        total_cpu = float(node.maxcpu) * max(cpu_overcommit_ratio, 1.0)
+        cpu_left = total_cpu - committed_cpu[node.node] - total_cpu * headroom
+        total_mem = int(node.maxmem_bytes)
+        mem_left = total_mem - committed_mem[node.node] - int(total_mem * headroom)
+        capacity.allocatable_cpu_cores = max(
+            0.0, min(float(capacity.allocatable_cpu_cores), cpu_left)
+        )
+        capacity.allocatable_memory_bytes = max(
+            0, min(int(capacity.allocatable_memory_bytes), mem_left)
+        )
+
+
+def _subtract_capacity(
+    capacity: NodeCapacity | None, *, cpu_cores: float, memory_bytes: int
+) -> None:
+    if capacity is None:
+        return
+    capacity.allocatable_cpu_cores = max(
+        0.0, float(capacity.allocatable_cpu_cores) - cpu_cores
+    )
+    capacity.allocatable_memory_bytes = max(
+        0, int(capacity.allocatable_memory_bytes) - memory_bytes
+    )
+
+
+def _pending_reservation_load(
+    session: Session,
+) -> tuple[list[tuple[str, TeachingClassMachineNode]], list[dict[str, Any]]]:
+    """其他班級已預留、但機器還沒建出來的量。
+
+    回傳 (逐台待建機器與預定節點, 沒有逐位落點的舊預留之 placement_plan)。
+    預留在班級第一次上線前都是 reserved；這段期間已經建好的機器會出現在 PVE
+    上、由 ``_apply_committed_allocations`` 算進去，這裡再整份扣一次就重複了。
+    """
+    pending: list[tuple[str, TeachingClassMachineNode]] = []
+    legacy_plans: list[dict[str, Any]] = []
+    for reservation in session.exec(
+        select(ClassCapacityReservation).where(
+            ClassCapacityReservation.status == "reserved"
+        )
+    ).all():
+        placements = _json_dict(reservation.student_placements)
+        if not placements:
+            legacy_plans.append(_json_dict(reservation.placement_plan))
+            continue
+        specs = {
+            str(row.id): row
+            for row in session.exec(
+                select(TeachingClassMachineNode).where(
+                    TeachingClassMachineNode.class_id == reservation.class_id
+                )
+            ).all()
+        }
+        built = {
+            (str(machine.machine_node_id), str(student.user_id))
+            for machine, student in session.exec(
+                select(TeachingClassStudentMachine, TeachingClassStudent)
+                .join(
+                    TeachingClassStudent,
+                    TeachingClassStudentMachine.class_student_id  # type: ignore[arg-type]
+                    == TeachingClassStudent.id,
+                )
+                .where(TeachingClassStudent.class_id == reservation.class_id)
+            ).all()
+            if machine.vmid is not None
+        }
+        for machine_node_id, per_student in placements.items():
+            spec = specs.get(str(machine_node_id))
+            if spec is None or not isinstance(per_student, dict):
+                continue
+            for user_id, node_name in per_student.items():
+                if node_name and (str(machine_node_id), str(user_id)) not in built:
+                    pending.append((str(node_name), spec))
+    return pending, legacy_plans
 
 
 def _storage_pool_issues(
@@ -693,52 +831,69 @@ def _storage_pool_issues(
     *,
     nodes: list[TeachingClassMachineNode],
     placements: dict[uuid.UUID, dict[uuid.UUID, str]],
+    pending_machines: list[tuple[str, TeachingClassMachineNode]] | None = None,
 ) -> list[str]:
-    """節點層磁碟總量夠，不代表任何一個儲存區放得下。
+    """依實際儲存區檢查磁碟：整班逐台試放，一台機器不能跨池。
 
-    上面的檢查看的是節點的 allocatable_disk_bytes 加總；實際開機是逐台挑
-    儲存區，一台機器不能跨池。所以照 placement 的真實規則把整班逐台試放
-    一次，避免預檢通過、開課當下才撞上「沒有可用儲存區」。
+    節點層的 disk 是 PVE 主機系統碟，跟機器放的 local-lvm／Ceph 無關，不能
+    拿來判斷磁碟夠不夠。這裡照 placement 的真實規則逐台挑儲存區；其他班級
+    已預留、還沒建出來的機器先放進去，避免兩班都通過、開課才撞上空間不足。
     """
     target_names = sorted(
         {name for machine in placements.values() for name in machine.values()}
     )
     if not target_names:
         return []
+    pending_machines = pending_machines or []
     pools_by_node, has_managed_storage = placement_support.build_storage_pool_state(
-        session=session, node_names=target_names
+        session=session,
+        node_names=sorted(
+            set(target_names) | {node_name for node_name, _spec in pending_machines}
+        ),
     )
     if not has_managed_storage:
         return []
 
     _cpu_ratio, disk_ratio = placement_service.get_overcommit_ratios(session)
     tuning = placement_service.get_placement_tuning(session=session)
-    for machine_node in nodes:
+
+    def _place(target_node: str, machine_node: TeachingClassMachineNode) -> bool:
         disk_gb = int(machine_node.disk_gb)
-        resource_type = "lxc" if machine_node.resource_type.lower() == "lxc" else "vm"
+        selection = placement_storage.select_best_storage_for_request(
+            storage_pools=pools_by_node.get(target_node, []),
+            resource_type=_storage_resource_type(machine_node),
+            disk_gb=disk_gb,
+            disk_overcommit_ratio=disk_ratio,
+            tuning=tuning,
+        )
+        if selection is None:
+            return False
+        placement_storage.reserve_storage_pool(
+            selection=selection,
+            disk_gb=disk_gb,
+            disk_overcommit_ratio=disk_ratio,
+        )
+        return True
+
+    for target_node, machine_node in pending_machines:
+        # 別班放不下是別班的問題，這裡只是先把它的份占掉
+        _place(target_node, machine_node)
+    for machine_node in nodes:
         for target_node in placements[machine_node.id].values():
-            selection = placement_storage.select_best_storage_for_request(
-                storage_pools=pools_by_node.get(target_node, []),
-                resource_type=resource_type,
-                disk_gb=disk_gb,
-                disk_overcommit_ratio=disk_ratio,
-                tuning=tuning,
-            )
-            if selection is None:
+            if not _place(target_node, machine_node):
                 # 第一個放不下的就足以擋下整班，不必把剩下的學生也列出來
                 return [
                     t(
                         "class_capacity.storage_insufficient",
                         node=target_node,
-                        required=disk_gb,
+                        required=int(machine_node.disk_gb),
                     )
                 ]
-            placement_storage.reserve_storage_pool(
-                selection=selection,
-                disk_gb=disk_gb,
-                disk_overcommit_ratio=disk_ratio,
-            )
     return []
+
+
+def _storage_resource_type(machine_node: TeachingClassMachineNode) -> ResourceType:
+    return "lxc" if machine_node.resource_type.lower() == "lxc" else "vm"
 
 
 def _check_cluster_capacity(
@@ -746,7 +901,7 @@ def _check_cluster_capacity(
     *,
     nodes: list[TeachingClassMachineNode],
     student_ids: list[uuid.UUID],
-) -> tuple[dict[str, dict[str, int]], dict[uuid.UUID, dict[uuid.UUID, str]]]:
+) -> tuple[dict[str, dict[str, float]], dict[uuid.UUID, dict[uuid.UUID, str]]]:
     """Validate capacity for reservation while preview uses structured issues."""
     placement_plan, placements, issues = _evaluate_cluster_capacity(
         session,

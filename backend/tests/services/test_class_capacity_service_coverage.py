@@ -5,12 +5,15 @@ import uuid
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.domain.placement.schemas import NodeCapacity
+from app.domain.placement.schemas import NodeCapacity, NodeSnapshot, ResourceSnapshot
 from app.exceptions import BadRequestError
 from app.models import (
+    BatchProvisionTask,
+    BatchProvisionTaskStatus,
     ClassCapacityReservation,
     TeachingClassMachineNode,
     TeachingClassStudent,
+    TeachingClassStudentMachine,
 )
 from app.services.teaching import class_capacity_service as svc
 
@@ -290,13 +293,16 @@ def test_resolve_class_targets_reports_no_target(session, monkeypatch):
 
 @pytest.fixture
 def cluster_state(monkeypatch):
-    """Stub the live PVE state; tests set ``state['capacities']``."""
-    state: dict = {"capacities": [], "error": None}
+    """Stub the live PVE state; tests set ``state['capacities']``.
+
+    ``nodes``／``resources`` 是 PVE 節點與機器快照，用來算已分配的用量。
+    """
+    state: dict = {"capacities": [], "error": None, "nodes": [], "resources": []}
 
     def load():
         if state["error"]:
             raise state["error"]
-        return [], []
+        return state["nodes"], state["resources"]
 
     monkeypatch.setattr(svc.placement_support, "load_cluster_state", load)
     monkeypatch.setattr(
@@ -375,7 +381,9 @@ def test_evaluate_subtracts_pending_reservations_and_reports_shortage(
     )
     assert plan["a1"]["machines"] == 1
     assert len(placements[machine.id]) == 1
-    assert len(issues) == 3
+    # 沒有逐位落點的舊預留整份扣掉 → CPU、RAM 不足；磁碟不再拿節點系統碟比
+    assert len(issues) == 2
+    assert not any("Disk" in issue for issue in issues)
 
 
 def test_evaluate_reports_offline_target(session, monkeypatch, cluster_state):
@@ -400,12 +408,214 @@ def test_evaluate_checks_storage_pools_when_nodes_fit(
     _eligible(monkeypatch, machine, ["a1"])
     cluster_state["capacities"] = [_capacity("a1")]
     monkeypatch.setattr(
-        svc, "_storage_pool_issues", lambda _s, *, nodes, placements: ["pool full"]
+        svc, "_storage_pool_issues", lambda _s, **_kw: ["pool full"]
     )
     _plan, _placements, issues = svc._evaluate_cluster_capacity(
         session, nodes=[machine], student_ids=[uuid.uuid4()]
     )
     assert issues == ["pool full"]
+
+
+def test_evaluate_checks_storage_pools_even_when_nodes_are_short(
+    session, monkeypatch, cluster_state
+):
+    """CPU／RAM 不足時照樣檢查儲存區，老師一次看到所有不足的項目。"""
+    machine = _machine(cpu=64)
+    _eligible(monkeypatch, machine, ["a1"])
+    cluster_state["capacities"] = [_capacity("a1", cores=4)]
+    monkeypatch.setattr(
+        svc, "_storage_pool_issues", lambda _s, **_kw: ["pool full"]
+    )
+    _plan, _placements, issues = svc._evaluate_cluster_capacity(
+        session, nodes=[machine], student_ids=[uuid.uuid4()]
+    )
+    assert len(issues) == 2
+    assert issues[-1] == "pool full"
+
+
+def test_node_root_disk_is_not_used_for_the_disk_check(
+    session, monkeypatch, cluster_state
+):
+    """節點層的 disk 是 PVE 主機系統碟；它滿了不代表機器放不下。"""
+    machine = _machine(disk_gb=500)
+    _eligible(monkeypatch, machine, ["a1"])
+    cluster_state["capacities"] = [_capacity("a1", disk_gb=10)]
+    _plan, _placements, issues = svc._evaluate_cluster_capacity(
+        session, nodes=[machine], student_ids=[uuid.uuid4()]
+    )
+    assert issues == []
+
+
+def _node_snapshot(name="a1", *, cores=8, memory_gb=16):
+    return NodeSnapshot(
+        node=name,
+        status="online",
+        maxcpu=cores,
+        maxmem_bytes=memory_gb * GIB,
+    )
+
+
+def _guest(vmid, *, node="a1", cores=2, memory_gb=4, status="stopped"):
+    return ResourceSnapshot(
+        vmid=vmid,
+        node=node,
+        status=status,
+        maxcpu=cores,
+        maxmem_bytes=memory_gb * GIB,
+    )
+
+
+def test_stopped_machines_still_count_against_capacity(
+    session, monkeypatch, cluster_state
+):
+    """下課時段整班關機，即時用量是 0；已分配的規格仍要算進去。"""
+    machine = _machine(cpu=2, memory_mb=4096)
+    _eligible(monkeypatch, machine, ["a1"])
+    # 即時看起來很空，但節點只有 16 GB，關機的機器已經分配掉 14 GB
+    cluster_state["capacities"] = [_capacity("a1", cores=64, memory_gb=64)]
+    cluster_state["nodes"] = [_node_snapshot(memory_gb=16)]
+    cluster_state["resources"] = [_guest(201, memory_gb=14)]
+    _plan, _placements, issues = svc._evaluate_cluster_capacity(
+        session, nodes=[machine], student_ids=[uuid.uuid4()]
+    )
+    assert len(issues) == 1
+    assert "RAM" in issues[0]
+
+
+def test_platform_template_guests_are_not_counted(
+    session, monkeypatch, cluster_state
+):
+    """範本母機關機且永不開機，不能佔掉容量。"""
+    machine = _machine(cpu=2, memory_mb=4096)
+    _eligible(monkeypatch, machine, ["a1"])
+    monkeypatch.setattr(svc, "_template_guest_vmids", lambda _s: {201})
+    cluster_state["capacities"] = [_capacity("a1", cores=64, memory_gb=64)]
+    cluster_state["nodes"] = [_node_snapshot(memory_gb=16)]
+    cluster_state["resources"] = [_guest(201, memory_gb=14)]
+    _plan, _placements, issues = svc._evaluate_cluster_capacity(
+        session, nodes=[machine], student_ids=[uuid.uuid4()]
+    )
+    assert issues == []
+
+
+def test_cpu_commitment_uses_overcommit_ratio(session, monkeypatch, cluster_state):
+    machine = _machine(cpu=4, memory_mb=1024)
+    _eligible(monkeypatch, machine, ["a1"])
+    monkeypatch.setattr(
+        svc.placement_service, "get_overcommit_ratios", lambda _s: (4.0, 1.0)
+    )
+    cluster_state["capacities"] = [_capacity("a1", cores=64, memory_gb=64)]
+    # 8 核 ×4 = 32 vCPU，已分配 24，扣 10% 餘裕後還剩 4.8 → 放得下 4
+    cluster_state["nodes"] = [_node_snapshot(cores=8, memory_gb=64)]
+    cluster_state["resources"] = [_guest(201, cores=24, memory_gb=1)]
+    plan, _placements, issues = svc._evaluate_cluster_capacity(
+        session, nodes=[machine], student_ids=[uuid.uuid4()]
+    )
+    assert issues == []
+    assert plan["a1"]["available_cpu_cores"] == pytest.approx(4.8)
+
+
+def test_ram_shortage_message_keeps_one_decimal(session, monkeypatch, cluster_state):
+    machine = _machine(cpu=1, memory_mb=7680)  # 7.5 GB
+    _eligible(monkeypatch, machine, ["a1"])
+    cluster_state["capacities"] = [_capacity("a1", memory_gb=7)]
+    _plan, _placements, issues = svc._evaluate_cluster_capacity(
+        session, nodes=[machine], student_ids=[uuid.uuid4()]
+    )
+    assert len(issues) == 1
+    assert "7.5" in issues[0] and "7.0" in issues[0]
+
+
+def _other_class_reservation(session, *, built_users, pending_users, node="a1"):
+    """另一個還在 reserved 的班級：built_users 的機器已建好，其餘還沒建。"""
+    class_id = uuid.uuid4()
+    spec = _machine(class_id=class_id, cpu=4, memory_mb=8192)
+    session.add(spec)
+    placements = {}
+    for user_id in [*built_users, *pending_users]:
+        student = TeachingClassStudent(class_id=class_id, user_id=user_id)
+        session.add(student)
+        session.flush()
+        placements[str(user_id)] = node
+        if user_id in built_users:
+            task = BatchProvisionTask(
+                job_id=uuid.uuid4(),
+                user_id=user_id,
+                member_index=0,
+                vmid=300 + len(placements),
+                status=BatchProvisionTaskStatus.completed,
+            )
+            session.add(task)
+            session.flush()
+            session.add(
+                TeachingClassStudentMachine(
+                    class_student_id=student.id,
+                    machine_node_id=spec.id,
+                    batch_task_id=task.id,
+                )
+            )
+    reservation = _reservation(class_id, uuid.uuid4())
+    reservation.student_placements = {str(spec.id): placements}
+    session.add(reservation)
+    session.commit()
+    return spec
+
+
+def test_pending_reservation_only_counts_machines_not_built_yet(session):
+    built, pending = [uuid.uuid4()], [uuid.uuid4(), uuid.uuid4()]
+    spec = _other_class_reservation(session, built_users=built, pending_users=pending)
+    machines, legacy = svc._pending_reservation_load(session)
+    assert legacy == []
+    # 已建好的那台由 PVE 已分配量算，這裡只剩兩台待建
+    assert [(node, item.id) for node, item in machines] == [("a1", spec.id)] * 2
+
+
+def test_pending_reservations_reduce_capacity(session, monkeypatch, cluster_state):
+    _other_class_reservation(
+        session, built_users=[], pending_users=[uuid.uuid4(), uuid.uuid4()]
+    )
+    machine = _machine(cpu=1, memory_mb=1024)
+    _eligible(monkeypatch, machine, ["a1"])
+    # 16 GB 被別班兩台各 8 GB 的待建機器預留光了
+    cluster_state["capacities"] = [_capacity("a1", memory_gb=16)]
+    _plan, _placements, issues = svc._evaluate_cluster_capacity(
+        session, nodes=[machine], student_ids=[uuid.uuid4()]
+    )
+    assert len(issues) == 1
+    assert "RAM" in issues[0]
+
+
+def test_reserve_does_not_store_preview_availability(session, monkeypatch):
+    machine = _machine()
+    student = TeachingClassStudent(class_id=machine.class_id, user_id=uuid.uuid4())
+    monkeypatch.setattr(
+        svc,
+        "_check_cluster_capacity",
+        lambda _s, *, nodes, student_ids: (
+            {
+                "a1": {
+                    "cpu_cores": 2,
+                    "memory_bytes": 1,
+                    "disk_bytes": 1,
+                    "machines": 1,
+                    "available_cpu_cores": 9.5,
+                    "available_memory_bytes": 9,
+                }
+            },
+            {},
+        ),
+    )
+    monkeypatch.setattr(svc.ip_management_service, "reserve_ips", lambda *_a, **_k: None)
+    reservation = svc.reserve(
+        session,
+        class_id=machine.class_id,
+        course_version_id=uuid.uuid4(),
+        nodes=[machine],
+        students=[student],
+    )
+    assert svc._json_dict(reservation.placement_plan) == {
+        "a1": {"cpu_cores": 2, "memory_bytes": 1, "disk_bytes": 1, "machines": 1}
+    }
 
 
 def test_storage_pool_issues_without_targets(session):

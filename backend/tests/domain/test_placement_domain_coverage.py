@@ -90,6 +90,27 @@ def test_parse_node_snapshots_parses_loadavg_variants() -> None:
     assert by_name["e"].current_loadavg_1 == 0.25
 
 
+def test_parse_resource_snapshots_keeps_allocated_spec() -> None:
+    """整班容量預檢要用分配規格（關機也算）；LXC 的小數 cpulimit 無條件進位。"""
+    items = [
+        {"vmid": 100, "type": "qemu", "node": "n1", "maxcpu": 4, "maxmem": 8 * 1024**3},
+        {
+            "vmid": 101,
+            "type": "lxc",
+            "node": "n1",
+            "maxcpu": 1.5,
+            "maxmem": 512 * 1024**2,
+        },
+        {"vmid": 102, "type": "lxc", "node": "n1"},
+    ]
+    out = advisor.parse_resource_snapshots(items)
+    assert [(r.maxcpu, r.maxmem_bytes) for r in out] == [
+        (4, 8 * 1024**3),
+        (2, 512 * 1024**2),
+        (0, 0),
+    ]
+
+
 def test_build_warnings_all_branches() -> None:
     request = PlacementRequest(resource_type="lxc", gpu_required=2)
     capacities = [

@@ -99,7 +99,7 @@ jobs:
       SKYLAB_API_URL: ${{ vars.SKYLAB_API_URL || 'http://127.0.0.1:8000/api/v1' }}
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Locate backend container
         # 直接用 compose 標籤找容器，不必為了 exec 把 .env 複製進工作目錄
