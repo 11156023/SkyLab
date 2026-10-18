@@ -1,13 +1,13 @@
-// Puts each step's screenshot under the step in the manual pages.
+// Puts each section's screenshot at the end of the section in the manual pages.
 //
 //   node scripts/manual-shots/inject.mjs [page ...]
 //
 // Image lines pointing at /manual-shots/ are removed first and inserted again
-// for every step whose file exists, so the script can be re-run at any time.
+// for every section whose picture exists, so the script can be re-run at any time.
 
 import fs from "node:fs";
 import path from "node:path";
-import { LANGS, SHOTS_DIR, listPages, manualFile, parsePage, plain, shotName, shotUrl, isImageLine } from "./lib/manual.mjs";
+import { LANGS, SHOTS_DIR, listPages, manualFile, parsePage, plain, sectionName, sectionUrl, isImageLine } from "./lib/manual.mjs";
 
 const pages = process.argv.slice(2).length ? process.argv.slice(2) : listPages();
 let total = 0;
@@ -30,13 +30,13 @@ for (const page of pages) {
 
     const { sections } = parsePage(lang, page);
     const inserts = [];
-    sections.forEach((sec, si) => {
-      for (const step of sec.steps) {
-        const ext = ["webp", "gif"].find((e) => fs.existsSync(path.join(SHOTS_DIR, lang, page, `${shotName(si + 1, step.n)}.${e}`)));
-        if (!ext) continue;
-        const alt = lang === "en" ? `${plain(sec.heading)} — step ${step.n}` : `${plain(sec.heading)}：步驟 ${step.n}`;
-        inserts.push({ at: step.end + 1, text: ["", `${" ".repeat(step.indent)}![${alt}](${shotUrl(lang, page, si + 1, step.n, ext)})`] });
-      }
+    sections.forEach((sec, i) => {
+      if (!fs.existsSync(path.join(SHOTS_DIR, lang, page, `${sectionName(i + 1)}.webp`))) return;
+      const numbered = sec.steps[0].n > 0;
+      const alt = lang === "en"
+        ? `${plain(sec.heading)}${numbered ? " (numbers match the steps above)" : ""}`
+        : `${plain(sec.heading)}${numbered ? "（圖中編號對應上方步驟）" : ""}`;
+      inserts.push({ at: sec.end + 1, text: ["", `![${alt}](${sectionUrl(lang, page, i + 1)})`] });
     });
     inserts.sort((a, b) => b.at - a.at);
     for (const ins of inserts) lines.splice(ins.at, 0, ...ins.text);

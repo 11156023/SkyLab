@@ -3,9 +3,10 @@
 // Under the "## Step by step" heading (zh-TW: "## 操作步驟") every "### " heading
 // is a section, numbered from 1 in page order. Inside a section every top-level
 // numbered list item ("1. ", "2. " at column 0) is a step, numbered from 1 in
-// order of appearance, even when the section has more than one list. Screenshot
-// files are named after these numbers: public/manual-shots/<lang>/<page>/s01-1.webp.
-// A section with no numbered steps gets one picture, step 0, at its end.
+// order of appearance, even when the section has more than one list. Each
+// section has one picture, public/manual-shots/<lang>/<page>/s01.webp, placed at
+// the end of the section, with the steps marked by their numbers. A section
+// with no numbered steps has a single "step 0".
 // Pages with several step chapters ("## Step by step: teacher home") count
 // their sections across all of them.
 
@@ -21,9 +22,8 @@ const STEPS_HEADING = { en: "## Step by step", "zh-TW": "## 操作步驟" };
 export const manualFile = (lang, page) =>
   path.join(WEBSITE, ...(lang === "en" ? [] : [lang]), "manual", `${page}.md`);
 
-export const shotName = (section, step) => `s${String(section).padStart(2, "0")}-${step}`;
-export const shotUrl = (lang, page, section, step, ext = "webp") =>
-  `/manual-shots/${lang}/${page}/${shotName(section, step)}.${ext}`;
+export const sectionName = (section) => `s${String(section).padStart(2, "0")}`;
+export const sectionUrl = (lang, page, section) => `/manual-shots/${lang}/${page}/${sectionName(section)}.webp`;
 
 export function listPages() {
   return fs
@@ -67,12 +67,12 @@ export function parsePage(lang, page) {
     }
   }
   for (const sec of sections) {
-    if (sec.steps.length) continue;
-    let end = sec.line;
+    // Last content line before the next heading; the section picture goes after it.
+    sec.end = sec.line;
     for (let j = sec.line + 1; j < lines.length && !/^#{1,3} /.test(lines[j]); j++) {
-      if (lines[j].trim() !== "" && !IMAGE_LINE.test(lines[j])) end = j;
+      if (lines[j].trim() !== "" && !IMAGE_LINE.test(lines[j])) sec.end = j;
     }
-    sec.steps.push({ n: 0, line: sec.line, end, indent: 0, text: "(whole section)" });
+    if (!sec.steps.length) sec.steps.push({ n: 0, line: sec.line, end: sec.end, indent: 0, text: "(whole section)" });
   }
   return { lines, eol, sections };
 }

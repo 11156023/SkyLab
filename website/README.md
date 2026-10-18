@@ -21,7 +21,7 @@ All documentation of the repository lives in this directory and is published as 
 | `.vitepress/` | Configuration (navigation and both sidebars in `config.mts`), theme components (Scalar and mermaid renderers) |
 | `scripts/generate.mjs` | Builds the generated pages before every build |
 | `scripts/manual-shots/` | Takes the user manual's step screenshots (see below) |
-| `public/manual-shots/` | Those screenshots, `<lang>/<page>/s<section>-<step>.webp` |
+| `public/manual-shots/` | Those screenshots, one per section: `<lang>/<page>/s<section>.webp` |
 
 Generated files (`operations/environment.md`, `changelog.md`, `public/openapi.json` and their `zh-TW/` copies) are gitignored.
 
@@ -43,7 +43,7 @@ bun run preview    # restart it after every build: it caches the file list
 
 ## Manual screenshots
 
-Every step of the user manual has a screenshot under it, taken from the real frontend with a mock API, in the page's language. Section `n` is the n-th `###` heading under "Step by step"; step `k` is the k-th numbered item in it (a section without numbered steps gets one picture, step 0). Each page has a scene file, `scripts/manual-shots/scenes/<page>.mjs`, that opens the page, sets up the mock data and calls `shot(step, element)` for every step; the element is outlined in the picture.
+Every section of the user manual's steps ends with one picture, taken from the real frontend with a mock API, in the page's language. In it, the element of each step is outlined and labelled with the step's number. Section `n` is the n-th `###` heading under "Step by step"; step `k` is the k-th numbered item in it (a section without numbered steps counts as step 0 and gets no number). Each page has a scene file, `scripts/manual-shots/scenes/<page>.mjs`, that opens the page, sets up the mock data and calls `shot(step, element)` for every step. Consecutive steps on the same screen share one frame; when the screen changes (a dialog opens, the page scrolls) the next frame is added below.
 
 ```bash
 cd frontend && bun run build                         # the screenshots are taken from frontend/dist
@@ -51,8 +51,8 @@ cd ../website
 npx playwright install chromium                      # once, or set CHROME_PATH to a Chrome/Chromium
 node scripts/manual-shots/shoot.mjs my-requests      # one page (no name: every page); --lang, --section to narrow
 node scripts/manual-shots/preview.mjs my-requests    # contact sheets in scripts/manual-shots/.debug/
-node scripts/manual-shots/inject.mjs                 # put the image lines under the steps
-node scripts/manual-shots/check.mjs --strict         # every step has a picture in both languages
+node scripts/manual-shots/inject.mjs                 # put the image lines at the end of the sections
+node scripts/manual-shots/check.mjs --strict         # every section has a picture in both languages
 ```
 
 The browser clock is frozen at 2026-10-12 10:00 (Taipei), so re-running a scene produces the same pictures. When you change a manual page's steps, update its scene, re-shoot the page and re-run `inject.mjs`; it removes and re-inserts only its own image lines. When a page's UI changes, re-shoot that page.

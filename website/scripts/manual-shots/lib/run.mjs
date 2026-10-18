@@ -7,9 +7,11 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import { NOW, createMock } from "./mock.mjs";
 import { registerCommon, fakeJwt } from "../mocks/common.mjs";
-import { SHOTS_DIR, WEBSITE, shotName } from "./manual.mjs";
+import { SHOTS_DIR, WEBSITE, sectionName } from "./manual.mjs";
 
 export const VIEWPORT = { width: 1440, height: 900 };
+// Two marks belong to the same frame when less than this share of the screen changed.
+export const SAME_SCREEN = 0.04;
 export const DEBUG_DIR = path.join(WEBSITE, "scripts", "manual-shots", ".debug");
 
 // ---------------------------------------------------------------- static server
@@ -99,27 +101,115 @@ const initScript = (lang, role) => `(() => {
   addStyle();
 })();`;
 
-// ---------------------------------------------------------------- webp encoder
+// ---------------------------------------------------------------- canvas work
+// Comparing and composing screenshots happens on a blank page's canvas, so no
+// image library is needed.
 
-let encoderPage = null;
-async function toWebp(browser, png, quality) {
-  if (!encoderPage) {
-    const ctx = await browser.newContext();
-    encoderPage = await ctx.newPage();
-  }
-  const dataUrl = await encoderPage.evaluate(async ({ b64, q }) => {
-    const img = new Image();
-    img.src = "data:image/png;base64," + b64;
-    await img.decode();
+let canvasPage = null;
+async function canvas(browser) {
+  if (!canvasPage) canvasPage = await (await browser.newContext()).newPage();
+  return canvasPage;
+}
+
+// Share (0..1) of sampled pixels that differ between two screenshots.
+async function screenDiff(browser, a, b) {
+  return (await canvas(browser)).evaluate(async ([a64, b64]) => {
+    const W = 192;
+    const H = 120;
+    const sample = async (b64) => {
+      const img = new Image();
+      img.src = "data:image/png;base64," + b64;
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = W;
+      c.height = H;
+      const g = c.getContext("2d");
+      g.drawImage(img, 0, 0, W, H);
+      return g.getImageData(0, 0, W, H).data;
+    };
+    const [p, q] = [await sample(a64), await sample(b64)];
+    let diff = 0;
+    for (let i = 0; i < p.length; i += 4) {
+      if (Math.abs(p[i] - q[i]) + Math.abs(p[i + 1] - q[i + 1]) + Math.abs(p[i + 2] - q[i + 2]) > 48) diff++;
+    }
+    return diff / (W * H);
+  }, [a.toString("base64"), b.toString("base64")]);
+}
+
+// One picture for a section: the frames stacked top to bottom, each cropped to
+// its region, with every marked element outlined and labelled with its step number.
+// frames: [{ png, region, marks: [{ n, boxes, highlight }] }] (boxes in viewport px)
+async function composeSection(browser, frames) {
+  const dataUrl = await (await canvas(browser)).evaluate(async (frames) => {
+    const GAP = 14;
+    const imgs = [];
+    for (const f of frames) {
+      const img = new Image();
+      img.src = "data:image/png;base64," + f.png;
+      await img.decode();
+      imgs.push(img);
+    }
+    const width = Math.max(...frames.map((f) => f.region.width));
+    const height = frames.reduce((h, f) => h + f.region.height, 0) + GAP * (frames.length - 1);
     const c = document.createElement("canvas");
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
-    c.getContext("2d").drawImage(img, 0, 0);
-    return c.toDataURL("image/webp", q);
-  }, { b64: png.toString("base64"), q: quality });
+    c.width = width;
+    c.height = height;
+    const g = c.getContext("2d");
+    g.fillStyle = "#dfe5ef";
+    g.fillRect(0, 0, width, height);
+    let top = 0;
+    frames.forEach((f, i) => {
+      const r = f.region;
+      const left = Math.round((width - r.width) / 2);
+      g.drawImage(imgs[i], r.x, r.y, r.width, r.height, left, top, r.width, r.height);
+      g.save();
+      g.beginPath();
+      g.rect(left, top, r.width, r.height);
+      g.clip();
+      const placed = [];
+      for (const mk of f.marks) {
+        const boxes = mk.highlight === false ? [] : mk.boxes;
+        for (const b of boxes) {
+          const x = left + b.x - r.x - 5;
+          const y = top + b.y - r.y - 5;
+          g.beginPath();
+          g.roundRect(x, y, b.width + 10, b.height + 10, 10);
+          g.lineWidth = 9;
+          g.strokeStyle = "rgba(249,115,22,.22)";
+          g.stroke();
+          g.lineWidth = 3;
+          g.strokeStyle = "#f97316";
+          g.stroke();
+        }
+        if (mk.n <= 0) continue;
+        // Badge on the first outlined element's top-left corner, else the frame's corner.
+        const b = boxes[0];
+        let cx = b ? left + b.x - r.x - 5 : left + 22;
+        let cy = b ? top + b.y - r.y - 5 : top + 22;
+        cx = Math.min(Math.max(cx, left + 17), left + r.width - 17);
+        cy = Math.min(Math.max(cy, top + 17), top + r.height - 17);
+        while (placed.some(([px, py]) => Math.hypot(px - cx, py - cy) < 28)) cx += 30;
+        placed.push([cx, cy]);
+        g.beginPath();
+        g.arc(cx, cy, 14, 0, Math.PI * 2);
+        g.fillStyle = "#f97316";
+        g.fill();
+        g.lineWidth = 2.5;
+        g.strokeStyle = "#ffffff";
+        g.stroke();
+        g.fillStyle = "#ffffff";
+        g.font = "bold 16px 'Segoe UI', Arial, sans-serif";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(String(mk.n), cx, cy + 1);
+      }
+      g.restore();
+      top += r.height + GAP;
+    });
+    return c.toDataURL("image/webp", 0.82);
+  }, frames.map((f) => ({ ...f, png: f.png.toString("base64") })));
   return Buffer.from(dataUrl.split(",")[1], "base64");
 }
-export const resetEncoder = () => { encoderPage = null; };
 
 // ---------------------------------------------------------------- session
 
@@ -179,8 +269,6 @@ export async function runSection({ browser, baseUrl, lang, page, section, role, 
   return { s, context, mock: m };
 }
 
-const HL_ID = "__manual_shot_overlay";
-
 export class Session {
   constructor({ browser, page, baseUrl, lang, pageName, section, mock }) {
     this.browser = browser;
@@ -190,7 +278,8 @@ export class Session {
     this.pageName = pageName;
     this.section = section;
     this.m = mock;
-    this.written = [];
+    this.marks = [];
+    this.marked = new Set();
   }
 
   // Text for the current UI language, for locating elements by their label.
@@ -225,7 +314,13 @@ export class Session {
     await this.settle(wait);
   }
 
-  // Saves the screenshot for step `step` of this section.
+  // Marks step `step` of this section on the current screen.
+  // A section gets ONE picture: finish() groups consecutive marks taken on the
+  // same screen (less than SAME_SCREEN of the pixels changed) into one frame,
+  // using the last screenshot of the group, and stacks the frames top to bottom.
+  // Each target is outlined and labelled with the step number; a mark without a
+  // target puts the number in the frame's top-left corner. Step 0 (a section with
+  // no numbered steps) is outlined without a number.
   //   target: Locator | Locator[] | null   elements to outline (null: no outline)
   //   opts.crop: "auto" (default) | "viewport" | Locator | { x, y, width, height }
   //     auto = the open dialog the target is in, else an area of at least
@@ -265,15 +360,32 @@ export class Session {
     }
     region = clamp(region, vp);
 
-    if (boxes.length && opts.highlight !== false) await this.drawOutlines(boxes);
-    const png = await this.page.screenshot({ clip: region, animations: "disabled", caret: "hide" });
-    await this.page.evaluate((id) => document.getElementById(id)?.remove(), HL_ID);
+    const png = await this.page.screenshot({ animations: "disabled", caret: "hide" });
+    this.marks.push({ n: step, png, boxes, region, highlight: opts.highlight });
+    this.marked.add(step);
+  }
 
+  // Writes the section's picture. Called by shoot.mjs after the scene ran.
+  async finish() {
+    if (!this.marks.length) return null;
+    const groups = [];
+    for (const mk of this.marks) {
+      const cur = groups[groups.length - 1];
+      if (cur && (await screenDiff(this.browser, cur[cur.length - 1].png, mk.png)) < SAME_SCREEN) cur.push(mk);
+      else groups.push([mk]);
+    }
+    const vp = this.page.viewportSize();
+    const frames = groups.map((grp) => ({
+      png: grp[grp.length - 1].png,
+      region: clamp(union(grp.map((mk) => mk.region)), vp),
+      marks: grp.map(({ n, boxes, highlight }) => ({ n, boxes, highlight })),
+    }));
     const dir = path.join(SHOTS_DIR, this.lang, this.pageName);
     fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${shotName(this.section, step)}.webp`);
-    fs.writeFileSync(file, await toWebp(this.browser, png, opts.quality ?? 0.82));
-    this.written.push(file);
+    const file = path.join(dir, `${sectionName(this.section)}.webp`);
+    fs.writeFileSync(file, await composeSection(this.browser, frames));
+    this.frames = frames.length;
+    return file;
   }
 
   async dialogBox(target) {
@@ -289,21 +401,6 @@ export class Session {
     // A dialog that fills the viewport is a page-like panel: frame the target instead.
     if (!b || (b.width > 1300 && b.height > 800)) return null;
     return b;
-  }
-
-  async drawOutlines(boxes) {
-    await this.page.evaluate(({ id, boxes }) => {
-      const root = document.createElement("div");
-      root.id = id;
-      root.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647";
-      for (const b of boxes) {
-        const d = document.createElement("div");
-        d.style.cssText = `position:absolute;left:${b.x - 5}px;top:${b.y - 5}px;width:${b.width + 10}px;height:${b.height + 10}px;` +
-          "border:3px solid #f97316;border-radius:10px;box-shadow:0 0 0 4px rgba(249,115,22,.22),0 6px 18px rgba(249,115,22,.25);box-sizing:border-box";
-        root.appendChild(d);
-      }
-      document.body.appendChild(root);
-    }, { id: HL_ID, boxes });
   }
 }
 

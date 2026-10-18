@@ -30,11 +30,11 @@
   box-shadow: 0 24px 48px -24px rgba(43, 77, 152, 0.45);
 }
 
-/* Step screenshots in the user manual (scripts/manual-shots/). */
+/* Section screenshots in the user manual (scripts/manual-shots/); numbered
+   badges in the picture match the steps of the section. */
 .vp-doc img[src*='/manual-shots/'] {
   display: block;
   max-width: 100%;
-  max-height: 460px;
   width: auto;
   margin: 10px 0 18px;
   border: 1px solid var(--vp-c-divider);

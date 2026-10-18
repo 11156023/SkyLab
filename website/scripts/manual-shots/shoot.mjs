@@ -6,12 +6,13 @@
 //     --section 2,5      only these sections (1-based, as in check.mjs --list)
 //
 // With no page names every scene in scenes/ runs. Each section runs in its own
-// browser context; a failing section is reported, saved to .debug/ and skipped.
+// browser context and ends up as one picture, s<NN>.webp; a failing section is
+// reported, saved to .debug/ and skipped.
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { LANGS, WEBSITE, parsePage } from "./lib/manual.mjs";
+import { LANGS, SHOTS_DIR, WEBSITE, parsePage } from "./lib/manual.mjs";
 import { debugShot, launchBrowser, runSection, startServer } from "./lib/run.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +30,14 @@ const onlySections = opt("--section")?.split(",").map(Number) ?? null;
 const pages = args.length
   ? args
   : fs.readdirSync(path.join(HERE, "scenes")).filter((f) => f.endsWith(".mjs")).map((f) => f.slice(0, -4)).sort();
+
+// Pictures used to be one per step (s01-1.webp); drop any left over.
+for (const lang of LANGS) {
+  for (const page of pages) {
+    const dir = path.join(SHOTS_DIR, lang, page);
+    if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) if (/^s\d+-\d+\.webp$/.test(f)) fs.rmSync(path.join(dir, f));
+  }
+}
 
 const server = await startServer(dist);
 const browser = await launchBrowser();
@@ -52,18 +61,20 @@ for (const page of pages) {
         browser, baseUrl: server.url, lang, page, section, role,
         mocks: (m) => { scene.mocks?.(m); def.mocks?.(m); },
       });
+      let ok = true;
       try {
         await run(s);
+        await s.finish();
       } catch (e) {
+        ok = false;
         const file = await debugShot(s, `${lang}-${page}-s${section}`);
         failures.push(`${label}: ${e.message.split("\n")[0]}  (see ${path.relative(WEBSITE, file)})`);
       }
       const want = expected[i]?.steps.map((st) => st.n) ?? [];
-      const got = new Set(s.written.map((f) => Number(path.basename(f).match(/-(\d+)\./)[1])));
-      const lacking = want.filter((n) => !got.has(n));
-      shots += s.written.length;
+      const lacking = want.filter((n) => !s.marked.has(n));
+      if (ok && s.frames) shots++;
       const um = [...mock.unmatched.keys()];
-      console.log(`${label}: ${s.written.length} shot(s)${lacking.length ? `, missing step ${lacking.join(",")}` : ""}${um.length ? `  unmatched: ${um.join(" | ")}` : ""}`);
+      console.log(`${label}: ${ok ? `${s.marked.size} step(s) in ${s.frames ?? 0} frame(s)` : "FAILED"}${lacking.length ? `, missing step ${lacking.join(",")}` : ""}${um.length ? `  unmatched: ${um.join(" | ")}` : ""}`);
       await context.close();
     }
     if (scene.sections.length < expected.length) {
@@ -74,7 +85,7 @@ for (const page of pages) {
 
 await browser.close();
 server.close();
-console.log(`\n${shots} screenshot(s) in ${Math.round((Date.now() - t0) / 1000)} s`);
+console.log(`\n${shots} section picture(s) in ${Math.round((Date.now() - t0) / 1000)} s`);
 if (failures.length) {
   console.log(`\n${failures.length} failed section(s):\n  ${failures.join("\n  ")}`);
   process.exitCode = 1;
