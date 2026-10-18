@@ -20,15 +20,27 @@ function write(rel, content) {
   fs.writeFileSync(file, content)
 }
 
-// Escapes a table cell: pipes always; outside inline code also `<`, `>` and
-// `{{`, which the Vue compiler would otherwise read as tags and interpolations.
+// What each context must escape so every character of a table cell renders
+// literally:
+// - outside inline code: backslashes (so the escapes below stay escapes), pipes
+//   (the row is split on them before inline parsing) and `<`, `>`, `{{`, which the
+//   Vue compiler would otherwise read as tags and interpolations;
+// - inside inline code: only pipes — a backslash there is already literal, and
+//   the table splitter drops the one in front of an escaped pipe.
+const ESCAPES_OUTSIDE_CODE = { '\\': '\\\\', '|': '\\|', '<': '&lt;', '>': '&gt;', '{{': '&#123;&#123;' }
+const ESCAPES_INSIDE_CODE = { '|': '\\|' }
+
+// One pass over the text, so an escape never gets re-escaped by a later step.
+function escapeWith(text, escapes) {
+  return text.replace(/\{\{|[\\|<>]/g, (match) => escapes[match] ?? match)
+}
+
 function cell(text) {
-  const compact = text.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
-  return compact
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
     .split('`')
-    .map((part, i) =>
-      i % 2 === 0 ? part.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\{\{/g, '&#123;&#123;') : part,
-    )
+    .map((part, i) => escapeWith(part, i % 2 === 0 ? ESCAPES_OUTSIDE_CODE : ESCAPES_INSIDE_CODE))
     .join('`')
 }
 
