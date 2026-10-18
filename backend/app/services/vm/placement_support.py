@@ -5,6 +5,8 @@ import re
 import threading
 import time
 import uuid
+from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -93,15 +95,94 @@ def build_live_node_capacities(
     resources: list[ResourceSnapshot],
     cpu_overcommit_ratio: float = 1.0,
     disk_overcommit_ratio: float = 1.0,
+    memory_overcommit_ratio: float = 1.0,
 ) -> list[NodeCapacity]:
-    """以當下 PVE 的 GPU 佔用計算節點容量（純計算交給 domain advisor）。"""
-    return placement_advisor.build_node_capacities(
+    """以當下 PVE 的 GPU 佔用計算節點容量，再扣掉已分配給機器的規格。
+
+    純即時容量（advisor）只看此刻的 CPU 使用率與記憶體用量；這裡再用
+    ``apply_committed_allocations`` 把關機機器的分配量也算進去。
+    """
+    capacities = placement_advisor.build_node_capacities(
         nodes=nodes,
         resources=resources,
         gpu_used=gpu_used_slots(),
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
+    apply_committed_allocations(
+        {item.node: item for item in capacities},
+        nodes=nodes,
+        resources=resources,
+        cpu_overcommit_ratio=cpu_overcommit_ratio,
+        memory_overcommit_ratio=memory_overcommit_ratio,
+        excluded_vmids=template_guest_vmids() if resources else set(),
+    )
+    return capacities
+
+
+def template_guest_vmids(db_engine: Any | None = None) -> set[int]:
+    """平台範本母機的 VMID：關機、永不開機，不算進已分配的用量。
+
+    查不到時回空集合，等於把母機也算進去——寧可算嚴，不要放行。
+    """
+    try:
+        return proxmox_service.platform_template_vmids(db_engine=db_engine)
+    except Exception:
+        logger.warning("Failed to load platform template VMIDs", exc_info=True)
+        return set()
+
+
+def apply_committed_allocations(
+    capacities: Mapping[str, NodeCapacity],
+    *,
+    nodes: list[NodeSnapshot],
+    resources: list[ResourceSnapshot],
+    cpu_overcommit_ratio: float,
+    memory_overcommit_ratio: float = 1.0,
+    excluded_vmids: set[int],
+) -> None:
+    """可用 CPU／RAM 改以「已分配給機器的規格」計算，關機的機器也算。
+
+    即時容量看的是此刻的 CPU 使用率與記憶體用量：下課時段機器關機，就像
+    不存在，新申請照樣通過，等全部開機才擠不下；CPU 超賣倍率套在使用率上
+    也形同沒擋住。這裡把每台機器（範本母機除外）分配到的 vCPU 與記憶體加總，
+    和即時值取較嚴的那個——即時值仍要看，主機自己（PVE、ZFS ARC 等）也會吃
+    記憶體。CPU 與 RAM 各套自己的超賣倍率，兩者都保留與即時容量相同比例的
+    安全餘裕。重複套用結果不變。
+    """
+    committed_cpu: dict[str, float] = defaultdict(float)
+    committed_mem: dict[str, int] = defaultdict(int)
+    for guest in resources:
+        if int(guest.vmid) in excluded_vmids:
+            continue
+        committed_cpu[guest.node] += float(guest.maxcpu or 0)
+        committed_mem[guest.node] += int(guest.maxmem_bytes or 0)
+
+    headroom = placement_settings.placement_headroom_ratio
+    for node in nodes:
+        capacity = capacities.get(node.node)
+        if capacity is None:
+            continue
+        total_cpu = float(node.maxcpu) * max(cpu_overcommit_ratio, 1.0)
+        cpu_left = total_cpu - committed_cpu[node.node] - total_cpu * headroom
+        total_mem = int(node.maxmem_bytes * max(memory_overcommit_ratio, 1.0))
+        mem_left = (
+            total_mem
+            - committed_mem[node.node]
+            - int(node.maxmem_bytes * headroom)
+        )
+        capacity.allocatable_cpu_cores = max(
+            0.0, min(float(capacity.allocatable_cpu_cores), cpu_left)
+        )
+        capacity.allocatable_memory_bytes = max(
+            0, min(int(capacity.allocatable_memory_bytes), mem_left)
+        )
+        # 只收緊 candidate；guest 密度沿用 advisor 以實體核心算的結果
+        capacity.candidate = (
+            capacity.candidate
+            and capacity.allocatable_cpu_cores > 0
+            and capacity.allocatable_memory_bytes > 0
+        )
 
 
 def _get_cached_cluster_state() -> _ClusterCacheEntry | None:
@@ -414,7 +495,10 @@ def allowed_gpu_nodes_for_request(request: PlacementRequest) -> set[str] | None:
 
 _TEMPLATE_NODES_CACHE_TTL_SECONDS = 60.0
 # cache value: (timestamp, 模板可見節點集合或 None, 模板是否標記需要 GPU)
-_template_nodes_cache: dict[tuple[str, str], tuple[float, set[str] | None, bool]] = {}
+# (查詢時間, 可建節點, 範本需要 GPU, 範本所在節點)
+_template_nodes_cache: dict[
+    tuple[str, str], tuple[float, set[str] | None, bool, str | None]
+] = {}
 _template_nodes_cache_lock = threading.Lock()
 
 # 範本名稱／映像檔名以 -GPU 結尾（副檔名或版本段前）代表該作業系統需要 GPU
@@ -433,93 +517,107 @@ def _gpu_capable_nodes() -> set[str]:
     }
 
 
+def _template_cache_key(request: PlacementRequest) -> tuple[str, str] | None:
+    resource_type = str(request.resource_type)
+    if resource_type == "lxc" and request.ostemplate:
+        return ("lxc", str(request.ostemplate))
+    if resource_type == "lxc" and request.template_vmid:
+        return ("lxc_clone", str(request.template_vmid))
+    if resource_type == "vm" and request.template_vmid:
+        return ("vm", str(request.template_vmid))
+    return None
+
+
+def _connection_nodes_of(node: str) -> set[str] | None:
+    if not node:
+        return None
+    return get_nodes_for_connection(get_connection_id_for_node(node)) or {node}
+
+
+def _template_node_info(
+    cache_key: tuple[str, str],
+) -> tuple[set[str] | None, bool, str | None]:
+    """(可建節點, 範本需要 GPU, 範本所在節點)，快取 60 秒。"""
+    now = time.monotonic()
+    with _template_nodes_cache_lock:
+        cached = _template_nodes_cache.get(cache_key)
+        if cached and (now - cached[0]) < _TEMPLATE_NODES_CACHE_TTL_SECONDS:
+            return (
+                set(cached[1]) if cached[1] is not None else None,
+                cached[2],
+                cached[3],
+            )
+
+    allowed: set[str] | None
+    needs_gpu = False
+    source_node: str | None = None
+    try:
+        if cache_key[0] == "lxc":
+            node_map = proxmox_service.get_lxc_template_node_map()
+            # 整張映射為空多半是所有節點查詢都失敗，視同不受限
+            allowed = node_map.get(cache_key[1], set()) if node_map else None
+            needs_gpu = _template_needs_gpu(cache_key[1])
+        else:
+            # 範本克隆：平台範本一律 full clone，可以落在範本所屬連線的任何
+            # 節點；範本節點以外只能放共享儲存，由 build_plan 把關
+            try:
+                if cache_key[0] == "lxc_clone":
+                    source = proxmox_service.find_resource(int(cache_key[1]))
+                else:
+                    source = proxmox_service.find_vm_template(int(cache_key[1]))
+            except NotFoundError:
+                allowed = set()
+                source = None
+            else:
+                source_node = str(source.get("node") or "") or None
+                allowed = _connection_nodes_of(source_node or "")
+            needs_gpu = _template_needs_gpu(str((source or {}).get("name") or ""))
+    except Exception as exc:
+        logger.warning(
+            "Unable to resolve template nodes for %s %s: %s",
+            cache_key[0],
+            cache_key[1],
+            exc,
+        )
+        allowed = None
+        needs_gpu = False
+        source_node = None
+
+    with _template_nodes_cache_lock:
+        _template_nodes_cache[cache_key] = (
+            time.monotonic(),
+            set(allowed) if allowed is not None else None,
+            needs_gpu,
+            source_node,
+        )
+    return allowed, needs_gpu, source_node
+
+
+def template_source_node(request: PlacementRequest) -> str | None:
+    """範本克隆的範本所在節點；不是範本克隆、或查不到時回 None。"""
+    cache_key = _template_cache_key(request)
+    if cache_key is None or cache_key[0] == "lxc":
+        return None
+    return _template_node_info(cache_key)[2]
+
+
 def allowed_template_nodes_for_request(request: PlacementRequest) -> set[str] | None:
     """模板決定的候選節點白名單；None = 不受模板限制。
 
     - LXC + ostemplate：只有 iso_storage 看得到該 vztmpl 的節點可選。
-    - LXC + template_vmid（範本克隆）：linked clone 必須與範本同節點同
-      storage，只有範本節點一個選擇。
-    - VM + template_vmid：clone 不可跨連線，限制在範本所屬連線的節點；
-      範本已不存在時回空集合（無可行節點，讓 placement 明確失敗）。
+    - 範本克隆（LXC 與 VM 的 template_vmid）：clone 不可跨連線，限制在範本
+      所屬連線的節點；範本已不存在時回空集合（無可行節點，讓 placement 明確
+      失敗）。範本節點以外的節點只能用共享儲存（見 ``build_plan``）。
     - 名稱標記 -GPU 的模板且未指定 GPU mapping 時，再縮限到有 GPU 的
       節點（有指定 mapping 時交由 allowed_gpu_nodes 過濾，不重複處理）。
     - PVE 查詢異常時回 None（寧可放行讓後續建立報錯，也不因暫時性
       故障把整個排程判成不可行）。
     """
-    resource_type = str(request.resource_type)
-    if resource_type == "lxc" and request.ostemplate:
-        cache_key = ("lxc", str(request.ostemplate))
-    elif resource_type == "lxc" and request.template_vmid:
-        cache_key = ("lxc_clone", str(request.template_vmid))
-    elif resource_type == "vm" and request.template_vmid:
-        cache_key = ("vm", str(request.template_vmid))
-    else:
+    cache_key = _template_cache_key(request)
+    if cache_key is None:
         return None
 
-    now = time.monotonic()
-    allowed: set[str] | None
-    needs_gpu = False
-    cached_hit = False
-    with _template_nodes_cache_lock:
-        cached = _template_nodes_cache.get(cache_key)
-        if cached and (now - cached[0]) < _TEMPLATE_NODES_CACHE_TTL_SECONDS:
-            allowed = set(cached[1]) if cached[1] is not None else None
-            needs_gpu = cached[2]
-            cached_hit = True
-
-    if not cached_hit:
-        try:
-            if cache_key[0] == "lxc":
-                node_map = proxmox_service.get_lxc_template_node_map()
-                # 整張映射為空多半是所有節點查詢都失敗，視同不受限
-                allowed = node_map.get(cache_key[1], set()) if node_map else None
-                needs_gpu = _template_needs_gpu(cache_key[1])
-            elif cache_key[0] == "lxc_clone":
-                try:
-                    source = proxmox_service.find_resource(int(cache_key[1]))
-                except NotFoundError:
-                    allowed = set()
-                    source = None
-                else:
-                    node = str(source.get("node") or "")
-                    allowed = {node} if node else None
-                needs_gpu = _template_needs_gpu(
-                    str((source or {}).get("name") or "")
-                )
-            else:
-                try:
-                    template = proxmox_service.find_vm_template(int(cache_key[1]))
-                except NotFoundError:
-                    allowed = set()
-                    template = None
-                else:
-                    template_node = str(template.get("node") or "")
-                    if template_node:
-                        connection_nodes = get_nodes_for_connection(
-                            get_connection_id_for_node(template_node)
-                        )
-                        allowed = connection_nodes or {template_node}
-                    else:
-                        allowed = None
-                needs_gpu = _template_needs_gpu(
-                    str((template or {}).get("name") or "")
-                )
-        except Exception as exc:
-            logger.warning(
-                "Unable to resolve template nodes for %s %s: %s",
-                cache_key[0],
-                cache_key[1],
-                exc,
-            )
-            allowed = None
-            needs_gpu = False
-
-        with _template_nodes_cache_lock:
-            _template_nodes_cache[cache_key] = (
-                time.monotonic(),
-                set(allowed) if allowed is not None else None,
-                needs_gpu,
-            )
+    allowed, needs_gpu, _source_node = _template_node_info(cache_key)
 
     if needs_gpu and not str(request.gpu_mapping_id or "").strip():
         try:
@@ -664,6 +762,8 @@ def build_plan(
     )
     allowed_gpu_nodes = allowed_gpu_nodes_for_request(request)
     allowed_nodes = allowed_template_nodes_for_request(request)
+    # 範本 clone 到範本節點以外的節點時，PVE 只接受共享儲存當目標
+    clone_source_node = template_source_node(request)
     allowed_affinity_nodes = allowed_affinity_nodes_for_request(
         session=session, request=request
     )
@@ -687,8 +787,11 @@ def build_plan(
                 continue
             storage_selection: StorageSelection | None = None
             if has_managed_storage:
+                pools = storage_pools_by_node.get(item.node, [])
+                if clone_source_node and item.node != clone_source_node:
+                    pools = [pool for pool in pools if pool.is_shared]
                 storage_selection = select_best_storage_for_request(
-                    storage_pools=storage_pools_by_node.get(item.node, []),
+                    storage_pools=pools,
                     resource_type=str(request.resource_type),
                     disk_gb=int(request.disk_gb),
                     disk_overcommit_ratio=disk_overcommit_ratio,

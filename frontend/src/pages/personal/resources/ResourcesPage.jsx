@@ -533,7 +533,8 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <button type="button" className={styles.environmentToggle} aria-expanded={expanded} aria-label={t("EnvironmentGroupRows.toggleAria", { name: group.title })} onClick={() => setExpanded((value) => !value)}><MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} /></button>
-          <div><strong>{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></div>
+          <div><strong>{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small>
+            {group.publicationPending && <small className={styles.publicationPending}><MIcon name="schedule" size={12} />{t("EnvironmentGroupRows.publicationPending")}</small>}</div>
         </div>
       </td>
       <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} teachingClassName={group.title} /></td>

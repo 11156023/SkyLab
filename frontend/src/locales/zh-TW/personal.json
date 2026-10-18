@@ -378,6 +378,7 @@
   "EnvironmentMachineRow.controlFailed": "機器操作失敗",
   "EnvironmentMachineRow.commandSent": "指令已送出",
   "EnvironmentGroupRows.machineCount": "{{count}} 台機器 · 整組管理",
+  "EnvironmentGroupRows.publicationPending": "對外網址設定中，系統會自動重試",
   "EnvironmentGroupRows.runningCount": "{{running}}/{{total}} 執行中",
   "EnvironmentGroupRows.startAll": "整組開機",
   "EnvironmentGroupRows.shutdownAll": "整組關機",

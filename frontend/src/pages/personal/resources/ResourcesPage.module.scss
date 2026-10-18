@@ -105,6 +105,14 @@
   }
 }
 
+/* 快速練習機器可用、對外網址還在背景重試 */
+.nameCell small.publicationPending {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-pending);
+}
+
 .nameCell {
   display: flex;
   min-width: 0;

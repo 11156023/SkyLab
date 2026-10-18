@@ -21,6 +21,7 @@ from app.models import (
     TeachingClassStatus,
     TeachingClassStudent,
     User,
+    VMTemplate,
     VMTemplateStatus,
 )
 from app.models.batch_provision import (
@@ -948,6 +949,47 @@ def _class_target_node(
         return None
 
 
+def _template_clone_placement(
+    session: Session,
+    *,
+    template: VMTemplate,
+    target_node: str,
+    disk_gb: int,
+) -> dict[str, str | None]:
+    """班級範本機器要建在哪台、磁碟放哪個儲存區（與容量預檢同一套規則）。
+
+    - 目標節點不是範本節點：磁碟必須放共享儲存（PVE 跨節點 clone 的限制），
+      挑不到就退回範本節點建。
+    - 範本節點上同樣挑最適合的儲存區：以前一律沿用母機的儲存區，容量預檢
+      試放的卻是節點上最適合的那個，兩邊對不上時會預檢通過、建機放不下。
+      沒有受管儲存紀錄時回 None，照舊沿用母機的儲存區。
+    """
+    from app.services.vm import placement_service
+
+    resource_type = "lxc" if str(template.resource_type).lower() == "lxc" else "vm"
+    disk_gb = max(int(disk_gb or 0), int(template.default_disk or 0), 1)
+    target_storage = None
+    if target_node != template.node:
+        target_storage = placement_service.select_best_storage_name(
+            session=session,
+            node_name=target_node,
+            resource_type=resource_type,
+            disk_gb=disk_gb,
+            shared_only=True,
+        )
+    fallback_storage = placement_service.select_best_storage_name(
+        session=session,
+        node_name=template.node,
+        resource_type=resource_type,
+        disk_gb=disk_gb,
+    )
+    return {
+        "target_node": target_node,
+        "target_storage": target_storage,
+        "fallback_storage": fallback_storage,
+    }
+
+
 def _sync_class_machine_mapping(
     *,
     session: Session,
@@ -1058,6 +1100,17 @@ def _provision_one(
             "expiry_date": params.get("expiry_date"),
             "ip_reservation_key": reservation_key,
         }
+        if target_node and source_template is not None:
+            payload.update(
+                _template_clone_placement(
+                    session,
+                    template=source_template,
+                    target_node=target_node,
+                    disk_gb=int(
+                        params.get("disk_size") or params.get("rootfs_size") or 0
+                    ),
+                )
+            )
         # 同步執行（本身已在 arq worker 的批次 job 裡）；task_id 無對應 TaskRecord，
         # report_progress 會自動 no-op
         clone_result = clone_service.run_clone_task(uuid.uuid4(), payload)
@@ -1107,6 +1160,7 @@ def _provision_one(
             user_id=user_id,
             batch_job_id=batch_job_id,
             ip_reservation_key=reservation_key,
+            target_node=target_node,
         )
 
     if result.vmid is None:

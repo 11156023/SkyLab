@@ -340,6 +340,7 @@ def placement_env(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         "vm_request_placement_service",
         SimpleNamespace(
             get_overcommit_ratios=lambda _s: (1.0, 1.0),
+            get_memory_overcommit_ratio=lambda _s: 1.0,
             get_node_priorities=lambda _s: {},
             build_plan=lambda **_: SimpleNamespace(feasible=env.pinned_plan_feasible),
             CurrentPlacementSelection=SimpleNamespace,

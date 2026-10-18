@@ -119,6 +119,11 @@ def env(monkeypatch) -> _Env:
     )
     monkeypatch.setattr(
         placement_service.placement_policy,
+        "get_memory_overcommit_ratio",
+        lambda session: 1.0,
+    )
+    monkeypatch.setattr(
+        placement_service.placement_policy,
         "get_placement_tuning",
         lambda *, session: TUNING,
     )

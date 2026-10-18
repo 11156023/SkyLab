@@ -601,6 +601,10 @@ def test_launch_creates_requests_and_submits_provisioning(
         lambda session, user_id, **kwargs: quotas.append(kwargs),
     )
     monkeypatch.setattr(quick_practice, "_node_disk_gb", lambda session, node: 8)
+    # 叢集容量預檢另有專門的測試（test_quick_practice_publication_retry）
+    monkeypatch.setattr(
+        quick_practice, "_assert_cluster_capacity", lambda *_a, **_kw: None
+    )
     monkeypatch.setattr(
         quick_practice,
         "get_schedule_policy",

@@ -199,6 +199,11 @@ def test_build_availability_response_copies_baseline_when_timeline_missing(
     )
     monkeypatch.setattr(
         svc.vm_request_placement_service,
+        "get_memory_overcommit_ratio",
+        lambda session: 1.0,
+    )
+    monkeypatch.setattr(
+        svc.vm_request_placement_service,
         "get_placement_strategy",
         lambda session: "balanced",
     )

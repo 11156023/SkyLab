@@ -318,6 +318,19 @@ def test_apply_reserved_requests_skips_incomplete_and_unknown_nodes() -> None:
     assert adjusted[0].allocatable_memory_bytes == 30 * GIB
 
 
-# ---------------------------------------------------------------------------
-# build_plan: node whose managed storage cannot host the request
-# ---------------------------------------------------------------------------
+def test_build_live_node_capacities_uses_gpu_slots(monkeypatch) -> None:
+    monkeypatch.setattr(placement_support, "gpu_used_slots", lambda: {"pve1": 1})
+    seen: dict = {}
+
+    def _fake_build(**kwargs):
+        seen.update(kwargs)
+        return [SimpleNamespace(node="pve1")]
+
+    monkeypatch.setattr(
+        placement_support.placement_advisor, "build_node_capacities", _fake_build
+    )
+    assert [
+        item.node
+        for item in placement_support.build_live_node_capacities(nodes=[], resources=[])
+    ] == ["pve1"]
+    assert seen["gpu_used"] == {"pve1": 1}

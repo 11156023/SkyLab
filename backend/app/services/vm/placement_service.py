@@ -191,6 +191,7 @@ def _select_current_for_request(
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
+        memory_overcommit_ratio=get_memory_overcommit_ratio(session),
     )
     effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
@@ -245,6 +246,7 @@ def _feasible_nodes_over_window(
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
+        memory_overcommit_ratio=get_memory_overcommit_ratio(session),
     )
     effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
@@ -647,6 +649,10 @@ def get_overcommit_ratios(session: Session) -> tuple[float, float]:
     return placement_policy.get_overcommit_ratios(session)
 
 
+def get_memory_overcommit_ratio(session: Session) -> float:
+    return placement_policy.get_memory_overcommit_ratio(session)
+
+
 def get_node_priorities(session: Session) -> dict[str, int]:
     return placement_policy.get_node_priorities(session)
 
@@ -658,17 +664,27 @@ def select_best_storage_name(
     resource_type: str,
     disk_gb: int,
     fallback_storage: str | None = None,
+    shared_only: bool = False,
 ) -> str | None:
+    """挑這台節點上最適合的儲存區名稱；沒有放得下的回 None。
+
+    ``shared_only``：範本 clone 到範本節點以外的節點時，PVE 只接受共享儲存
+    當目標（``can't clone to non-shared storage``）。沒有受管儲存紀錄時無從
+    判斷是否共享，此時回 None 而不是退回 ``fallback_storage``。
+    """
     storage_pools_by_node, has_managed_storage = _build_storage_pool_state(
         session=session,
         node_names=[node_name],
     )
     if not has_managed_storage:
-        return fallback_storage
+        return None if shared_only else fallback_storage
 
+    pools = storage_pools_by_node.get(node_name, [])
+    if shared_only:
+        pools = [pool for pool in pools if pool.is_shared]
     _, disk_overcommit_ratio = get_overcommit_ratios(session)
     selection = _select_best_storage_for_request(
-        storage_pools=storage_pools_by_node.get(node_name, []),
+        storage_pools=pools,
         resource_type=resource_type,
         disk_gb=disk_gb,
         disk_overcommit_ratio=disk_overcommit_ratio,

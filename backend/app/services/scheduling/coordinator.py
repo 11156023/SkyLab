@@ -679,18 +679,9 @@ def process_single_request_start(request_id: uuid.UUID) -> bool:
                 session=session,
                 request=request,
             )
-            # A quick-practice environment becomes ready only after every
-            # machine is provisioned and its published network topology has
-            # been materialized. This callback is idempotent and row-locked.
-            from app.services import quick_practice
-
-            session.expire_all()
-            quick_practice.reconcile_for_request(
-                session,
-                request_id=request_id,
-            )
+            # 先把建機結果寫進去：快速練習的拓撲／對外發布出錯不能把它一起
+            # rollback，也不該被當成這台機器的建機失敗
             session.commit()
-            return started
         except Exception as exc:
             session.rollback()
             logger.exception(
@@ -710,6 +701,26 @@ def process_single_request_start(request_id: uuid.UUID) -> bool:
                     message=str(exc),
                 )
             return False
+
+        # A quick-practice environment becomes ready only after every
+        # machine is provisioned and its published network topology has
+        # been materialized. This callback is idempotent and row-locked;
+        # failures here are retried by the quick-practice lifecycle tick.
+        from app.services import quick_practice
+
+        try:
+            session.expire_all()
+            quick_practice.reconcile_for_request(
+                session,
+                request_id=request_id,
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            logger.exception(
+                "Failed to reconcile quick-practice group for request %s", request_id
+            )
+        return started
 
 
 def process_due_request_starts() -> int:

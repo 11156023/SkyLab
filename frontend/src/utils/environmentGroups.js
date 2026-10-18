@@ -68,6 +68,8 @@ function quickPracticeGroups(resources, sessions) {
       kind: "quick_practice",
       title: session.title,
       status: session.status,
+      /* 機器可以用、只差對外網址，後端在背景重試發布 */
+      publicationPending: Boolean(session.publication_pending),
       timingLabel: expiryLabel(session.expiresAt),
       nodeLabel: nodeSummary(nodes),
       preview: false,

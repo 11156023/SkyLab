@@ -115,6 +115,9 @@ def test_lite_calendar_reuses_fit_results_across_slots(monkeypatch) -> None:
         svc.vm_request_placement_service, "get_overcommit_ratios", lambda session: (1.0, 1.0)
     )
     monkeypatch.setattr(
+        svc.vm_request_placement_service, "get_memory_overcommit_ratio", lambda session: 1.0
+    )
+    monkeypatch.setattr(
         svc.vm_request_placement_service, "get_placement_strategy", lambda session: "balanced"
     )
     monkeypatch.setattr(svc.vm_request_placement_service, "get_node_priorities", lambda session: {})
