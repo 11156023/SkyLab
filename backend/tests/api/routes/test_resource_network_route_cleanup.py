@@ -243,7 +243,7 @@ def test_get_config_fallback_uses_schema_defaults(
     assert result.is_configured is False
     assert result.updated_at is None
     # 放置參數與 scheduled_boot_* 一樣來自 schema 預設（PVE 連線欄位已移到 /connections）
-    assert result.cpu_overcommit_ratio == 2.0
+    assert result.cpu_overcommit_ratio == 5.0
     assert result.placement_loadavg_max_per_core == 1.5
     assert result.placement_memory_peak_high_share == 0.85
     assert result.scheduled_boot_batch_size == 5

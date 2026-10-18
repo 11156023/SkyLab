@@ -4,6 +4,7 @@ import time
 import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import quote
 
 from sqlmodel import Session, select
@@ -382,6 +383,9 @@ def _select_request_placement(
             resources=resources,
             cpu_overcommit_ratio=cpu_overcommit_ratio,
             disk_overcommit_ratio=disk_overcommit_ratio,
+            memory_overcommit_ratio=(
+                vm_request_placement_service.get_memory_overcommit_ratio(session)
+            ),
         )
         node_capacities = [
             item for item in node_capacities if item.node == str(pinned_node)
@@ -482,6 +486,7 @@ def _resolve_managed_storage(
     requested_storage: str | None,
     disk_gb: int,
     required_content: str,
+    shared_only: bool = False,
 ) -> str:
     preferred_storage = vm_request_placement_service.select_best_storage_name(
         session=session,
@@ -489,16 +494,91 @@ def _resolve_managed_storage(
         resource_type=resource_type,
         disk_gb=disk_gb,
         fallback_storage=requested_storage,
+        shared_only=shared_only,
     )
     if preferred_storage is None:
         raise ProxmoxError(
             f"No enabled managed storage is available on node {node} for {resource_type}"
         )
-    return proxmox_service.resolve_target_storage(
+    resolved = proxmox_service.resolve_target_storage(
         node,
         preferred_storage,
         required_content=required_content,
     )
+    if shared_only and resolved != preferred_storage:
+        # resolve_target_storage 找不到指定的儲存區時會退回節點上第一個可用的，
+        # 那個未必是共享儲存，跨節點 clone 會被 PVE 拒絕
+        raise ProxmoxError(
+            f"Shared storage {preferred_storage} is unavailable on node {node}"
+        )
+    return resolved
+
+
+def _cross_node_template_storage(
+    *,
+    session: Session,
+    template_node: str,
+    target_node: str,
+    resource_type: str,
+    requested_storage: str | None,
+    disk_gb: int,
+    required_content: str,
+) -> str | None:
+    """範本要 clone 到別台節點時的目標儲存區；做不到就回 None（改在範本節點建）。
+
+    PVE 跨節點 clone 只接受共享儲存當目標，範本母機本身放在哪不影響。
+    有受管儲存紀錄時照容量挑共享儲存；沒有紀錄時直接問 PVE 那台節點上
+    哪些儲存區是共享的。
+    """
+    if not target_node or target_node == template_node:
+        return None
+    try:
+        _pools, has_managed_storage = placement_support.build_storage_pool_state(
+            session=session, node_names=[target_node]
+        )
+        if not has_managed_storage:
+            return _pve_shared_storage(
+                target_node,
+                requested_storage,
+                required_content=required_content,
+            )
+        return _resolve_managed_storage(
+            session=session,
+            node=target_node,
+            resource_type=resource_type,
+            requested_storage=requested_storage,
+            disk_gb=disk_gb,
+            required_content=required_content,
+            shared_only=True,
+        )
+    except Exception as exc:
+        logger.info(
+            "No shared storage on %s for a %s clone from %s; using the template node: %s",
+            target_node,
+            resource_type,
+            template_node,
+            exc,
+        )
+        return None
+
+
+def _pve_shared_storage(
+    node: str, requested_storage: str | None, *, required_content: str
+) -> str | None:
+    """PVE 上這台節點可用的共享儲存；申請指定的那個是共享的就用它。"""
+    shared = [
+        str(storage.get("storage") or "")
+        for storage in proxmox_service.list_node_storages(node)
+        if str(storage.get("shared", 0)) in {"1", "True", "true"}
+        and storage.get("enabled", 1) not in (0, "0", False)
+        and storage.get("active", 1) not in (0, "0", False)
+        and required_content
+        in {part.strip() for part in str(storage.get("content") or "").split(",")}
+    ]
+    shared = [name for name in shared if name]
+    if requested_storage and requested_storage in shared:
+        return requested_storage
+    return shared[0] if shared else None
 
 
 def _dedupe_templates(templates: Iterable[dict]) -> list[dict]:
@@ -669,6 +749,49 @@ def create_lxc(
         raise ProxmoxError(f"Failed to create LXC container: {e}")
 
 
+def _clone_vm_to_node(
+    *,
+    template_node: str,
+    template_id: int,
+    new_vmid: int,
+    clone_config: dict[str, Any],
+    cross_node: str | None,
+    cross_node_storage: str | None,
+) -> tuple[str, str]:
+    """full clone 一台 VM；有指定別台節點就跨節點，失敗退回範本節點。回傳 (UPID, 節點)。"""
+    if cross_node and cross_node_storage:
+        try:
+            upid = proxmox_service.clone_vm(
+                template_node,
+                template_id,
+                **{**clone_config, "storage": cross_node_storage, "target": cross_node},
+            )
+            return upid, cross_node
+        except Exception as exc:
+            from app.services.template import clone_service
+
+            if clone_service._is_vmid_collision(exc):
+                raise
+            logger.warning(
+                "Cross-node clone of VM template %s -> %s on %s failed (%s); "
+                "falling back to the template node %s",
+                template_id,
+                new_vmid,
+                cross_node,
+                exc,
+                template_node,
+            )
+            try:
+                cleanup_provisioned_resource(new_vmid)
+            except Exception:
+                logger.debug(
+                    "Cleanup of leftover VM %s before fallback failed",
+                    new_vmid,
+                    exc_info=True,
+                )
+    return proxmox_service.clone_vm(template_node, template_id, **clone_config), template_node
+
+
 def create_vm(
     *,
     session: Session,
@@ -676,22 +799,44 @@ def create_vm(
     user_id: uuid.UUID,
     batch_job_id: uuid.UUID | None = None,
     ip_reservation_key: str | None = None,
+    target_node: str | None = None,
 ) -> VMCreateResponse:
+    """從 PVE 範本建一台 VM。
+
+    ``target_node``：班級批次建機照容量預留排好的節點。不是範本節點時，
+    有共享儲存就跨節點 full clone 過去，失敗或沒有共享儲存就在範本節點建。
+    """
     ensure_ciuser_allowed(vm_data.username)
     # 密碼不合 Windows 複雜度時才去查範本是不是 Windows（省一次 PVE 查詢）
     if windows_password_issues(vm_data.password) and template_is_windows(
         vm_data.template_id
     ):
         password_policy.require_windows_password(vm_data.password)
-    target_node = get_vm_target_node(vm_data.template_id)
+    template_node = get_vm_target_node(vm_data.template_id)
     target_storage = _resolve_managed_storage(
         session=session,
-        node=target_node,
+        node=template_node,
         resource_type="vm",
         requested_storage=vm_data.storage,
         disk_gb=int(vm_data.disk_size or 20),
         required_content="images",
     )
+    cross_node_storage = (
+        _cross_node_template_storage(
+            session=session,
+            template_node=template_node,
+            target_node=target_node,
+            resource_type="vm",
+            requested_storage=vm_data.storage,
+            disk_gb=int(vm_data.disk_size or 20),
+            required_content="images",
+        )
+        if target_node
+        else None
+    )
+    cross_node_target = target_node if cross_node_storage else None
+    # clone 完之後所有操作都在機器實際所在的節點上做（失敗回滾也是）
+    target_node = template_node
 
     # 取得網路配置並分配 IP
     net_cfg = ip_management_service.get_network_config_for_vm(session)
@@ -718,8 +863,13 @@ def create_vm(
                 "pool": get_proxmox_settings_for_node(target_node).pool_name,
             }
 
-            result = proxmox_service.clone_vm(
-                target_node, vm_data.template_id, **clone_config
+            result, target_node = _clone_vm_to_node(
+                template_node=template_node,
+                template_id=vm_data.template_id,
+                new_vmid=new_vmid,
+                clone_config=clone_config,
+                cross_node=cross_node_target,
+                cross_node_storage=cross_node_storage,
             )
             created = True
 
@@ -915,8 +1065,8 @@ def plan_provision(*, session: Session, db_request) -> dict:
     }
 
     if db_request.resource_type == "lxc" and getattr(db_request, "template_id", None):
-        # LXC 範本克隆路徑（Course Lab）：linked clone 必須與範本同節點同 storage，
-        # 直接以範本節點覆寫 placement 結果（與範本系統 2.0 clone_service 行為一致）。
+        # LXC 範本克隆路徑：平台範本一律 full clone，排程挑到同叢集的其他節點、
+        # 而且那台有共享儲存時直接 clone 過去；做不到就在範本節點建。
         from app.models import VMTemplate, VMTemplateStatus
 
         template_row = session.exec(
@@ -929,18 +1079,35 @@ def plan_provision(*, session: Session, db_request) -> dict:
             raise ProxmoxError(
                 f"LXC template VMID {db_request.template_id} is not registered"
             )
-        plan["target_node"] = template_row.node
-        plan["lxc_clone"] = True
-        plan["template_id"] = db_request.template_id
-        plan["template_node"] = template_row.node
-        plan["target_storage"] = _resolve_managed_storage(
+        rootfs_gb = int(db_request.rootfs_size or 8)
+        template_storage = _resolve_managed_storage(
             session=session,
             node=template_row.node,
             resource_type="lxc",
             requested_storage=db_request.storage,
-            disk_gb=int(db_request.rootfs_size or 8),
+            disk_gb=rootfs_gb,
             required_content="rootdir",
         )
+        cross_node_storage = _cross_node_template_storage(
+            session=session,
+            template_node=template_row.node,
+            target_node=target_node,
+            resource_type="lxc",
+            requested_storage=db_request.storage,
+            disk_gb=rootfs_gb,
+            required_content="rootdir",
+        )
+        plan["lxc_clone"] = True
+        plan["template_id"] = db_request.template_id
+        plan["template_node"] = template_row.node
+        if cross_node_storage:
+            plan["target_node"] = target_node
+            plan["target_storage"] = cross_node_storage
+            plan["fallback_storage"] = template_storage
+            plan["cross_node_clone"] = True
+        else:
+            plan["target_node"] = template_row.node
+            plan["target_storage"] = template_storage
         plan["rootfs_size"] = db_request.rootfs_size or 8
         plan["template_disk_gb"] = int(template_row.default_disk or 0)
     elif db_request.resource_type == "lxc":
@@ -986,7 +1153,26 @@ def plan_provision(*, session: Session, db_request) -> dict:
             plan["gpu_mapping_id"] = db_request.gpu_mapping_id
             if getattr(db_request, "gpu_mdev_profile", None):
                 plan["gpu_mdev_profile"] = db_request.gpu_mdev_profile
-        plan["target_storage"] = _resolve_managed_storage(
+        cross_node_storage = _cross_node_template_storage(
+            session=session,
+            template_node=template["node"],
+            target_node=target_node,
+            resource_type="vm",
+            requested_storage=db_request.storage,
+            disk_gb=int(db_request.disk_size or 20),
+            required_content="images",
+        )
+        if (
+            target_node != template["node"]
+            and cross_node_storage is None
+            and _template_node_accepts_gpu(plan, template["node"])
+        ):
+            # 目標節點沒有共享儲存，跨節點 clone 一定被 PVE 拒絕：直接在範本
+            # 節點建，不先送一次注定失敗的 clone。範本節點掛不上指定的 GPU
+            # 時不改，讓下面的跨節點失敗明確回報 GPU 不相容。
+            target_node = template["node"]
+            plan["target_node"] = target_node
+        plan["target_storage"] = cross_node_storage or _resolve_managed_storage(
             session=session,
             node=target_node,
             resource_type="vm",
@@ -1052,16 +1238,19 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 # 範本內烘焙的憑證。
                 from app.services.template import clone_service
 
-                clone_service.clone_with_fallback(
-                    node=plan["template_node"],
+                # 計畫找到別台節點的共享儲存時才跨節點 clone，失敗退回範本節點
+                cross_node = bool(plan.get("cross_node_clone"))
+                _mode, actual_node = clone_service.clone_to_node(
+                    template_node=plan["template_node"],
                     template_vmid=plan["template_id"],
                     new_vmid=new_vmid,
                     hostname=hostname,
                     resource_type="lxc",
-                    full_kwargs={"storage": plan["target_storage"]},
+                    target_node=target_node if cross_node else None,
+                    target_storage=plan["target_storage"] if cross_node else None,
+                    fallback_storage=plan.get("fallback_storage", plan["target_storage"]),
                 )
                 created = True
-                actual_node = plan["template_node"]
                 clone_updates = {
                     "cores": plan["cores"],
                     "memory": plan["memory"],

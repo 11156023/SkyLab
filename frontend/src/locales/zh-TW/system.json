@@ -764,6 +764,8 @@
   "SettingsPage.disableNodeHint": "停用後不再接收新 VM，既有 VM 不受影響",
   "SettingsPage.disabled": "停用",
   "SettingsPage.diskOvercommitRatio": "Disk 超配比",
+  "SettingsPage.memoryOvercommitRatio": "RAM 超配比",
+  "SettingsPage.memoryOvercommitRatioHint": "分配給機器的記憶體總量最多可達實體記憶體的幾倍（1～2）；實際用量仍不能超過實體記憶體。1 表示不超配。",
   "SettingsPage.edit": "編輯",
   "SettingsPage.editConnection": "編輯連線",
   "SettingsPage.emptyNoNodeData": "尚無節點資料",

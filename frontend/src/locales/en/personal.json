@@ -378,6 +378,7 @@
   "EnvironmentMachineRow.controlFailed": "Machine control action failed",
   "EnvironmentMachineRow.commandSent": "Command sent",
   "EnvironmentGroupRows.machineCount": "{{count}} machines · managed as a group",
+  "EnvironmentGroupRows.publicationPending": "Public URL is being set up; retrying automatically",
   "EnvironmentGroupRows.runningCount": "{{running}}/{{total}} running",
   "EnvironmentGroupRows.startAll": "Start all",
   "EnvironmentGroupRows.shutdownAll": "Shut down all",

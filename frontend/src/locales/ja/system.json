@@ -764,6 +764,8 @@
   "SettingsPage.disableNodeHint": "無効にすると新しい VM は配置されなくなります。既存の VM には影響しません",
   "SettingsPage.disabled": "無効",
   "SettingsPage.diskOvercommitRatio": "Disk オーバーコミット比率",
+  "SettingsPage.memoryOvercommitRatio": "RAM オーバーコミット比率",
+  "SettingsPage.memoryOvercommitRatioHint": "マシンに割り当てるメモリの合計を物理メモリの何倍まで許可するか（1～2）。実際の使用量は物理メモリを超えられません。1 はオーバーコミットなし。",
   "SettingsPage.edit": "編集",
   "SettingsPage.editConnection": "接続を編集",
   "SettingsPage.emptyNoNodeData": "ノードデータがまだありません",

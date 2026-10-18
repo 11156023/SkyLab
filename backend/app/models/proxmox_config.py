@@ -7,6 +7,9 @@ from sqlmodel import Field, SQLModel
 
 from .base import get_datetime_utc
 
+# CPU 超賣倍率預設值：教學機器大多閒置，已分配 vCPU 可達實體核心的 5 倍
+DEFAULT_CPU_OVERCOMMIT_RATIO = 5.0
+
 
 class ProxmoxConfig(SQLModel, table=True):
     """放置與排程策略參數（單列 singleton，id 固定為 1）。
@@ -17,8 +20,10 @@ class ProxmoxConfig(SQLModel, table=True):
     __tablename__ = "proxmox_config"
 
     id: int = Field(default=1, primary_key=True)
-    cpu_overcommit_ratio: float = Field(default=2.0)
+    cpu_overcommit_ratio: float = Field(default=DEFAULT_CPU_OVERCOMMIT_RATIO)
     disk_overcommit_ratio: float = Field(default=1.0)
+    # 已分配給機器的記憶體總量可以超過實體記憶體幾倍；實際用量仍不能超過實體
+    memory_overcommit_ratio: float = Field(default=1.0)
     placement_reassignment_cost: float = Field(default=0.15, ge=0.0, le=5.0)
     placement_peak_cpu_margin: float = Field(default=1.1, ge=1.0, le=2.0)
     placement_peak_memory_margin: float = Field(default=1.05, ge=1.0, le=2.0)
@@ -50,4 +55,4 @@ class ProxmoxConfig(SQLModel, table=True):
     )
 
 
-__all__ = ["ProxmoxConfig"]
+__all__ = ["DEFAULT_CPU_OVERCOMMIT_RATIO", "ProxmoxConfig"]

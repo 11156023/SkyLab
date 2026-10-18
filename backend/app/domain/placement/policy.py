@@ -10,6 +10,7 @@ from app.domain.placement.models import (
     DEFAULT_RAM_PEAK_WARN_SHARE,
     PlacementTuning,
 )
+from app.models.proxmox_config import DEFAULT_CPU_OVERCOMMIT_RATIO
 from app.repositories import proxmox_config as proxmox_config_repo
 from app.repositories import proxmox_node as proxmox_node_repo
 
@@ -74,12 +75,21 @@ def get_placement_tuning(*, session: Session) -> PlacementTuning:
 def get_overcommit_ratios(session: Session) -> tuple[float, float]:
     config = proxmox_config_repo.get_proxmox_config(session)
     if not config:
-        return 1.0, 1.0
+        # 還沒存過設定：與設定頁顯示的預設值一致
+        return DEFAULT_CPU_OVERCOMMIT_RATIO, 1.0
 
     return (
         max(float(config.cpu_overcommit_ratio or 1.0), 1.0),
         max(float(config.disk_overcommit_ratio or 1.0), 1.0),
     )
+
+
+def get_memory_overcommit_ratio(session: Session) -> float:
+    """已分配記憶體可以超過實體記憶體的倍數；沒設定時不超賣。"""
+    config = proxmox_config_repo.get_proxmox_config(session)
+    if not config:
+        return 1.0
+    return max(float(getattr(config, "memory_overcommit_ratio", 1.0) or 1.0), 1.0)
 
 
 def get_node_priorities(session: Session) -> dict[str, int]:

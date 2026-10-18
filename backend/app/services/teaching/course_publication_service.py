@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import uuid
 
+from sqlalchemy.exc import DBAPIError, PendingRollbackError
 from sqlmodel import Session, col, select
 
 from app.core.i18n import t
@@ -128,6 +129,32 @@ def publish_forward(
     raise last_error
 
 
+def _published_meanwhile(
+    session: Session, *, vmid: int, publication: CourseEnvironmentPublication
+) -> bool:
+    """發布失敗後再看一次：這個 port 是不是已經被別人發布好了。
+
+    只有 session 卡在失敗交易裡（查詢本身報錯）才 rollback：呼叫端（班級
+    拓撲）的 session 可能還有沒 commit 的變更，平白 rollback 會一起丟掉。
+    """
+
+    def _published() -> bool:
+        return (publication.port, publication.protocol) in {
+            (service.port, service.protocol)
+            for service in firewall_service.list_vm_published_services(vmid, session)
+        }
+
+    try:
+        try:
+            return _published()
+        except (PendingRollbackError, DBAPIError):
+            session.rollback()
+            return _published()
+    except Exception:
+        logger.debug("Re-checking publication for vmid %s failed", vmid, exc_info=True)
+        return False
+
+
 def apply_for_machines(
     session: Session,
     *,
@@ -176,6 +203,16 @@ def apply_for_machines(
             else:
                 publish_forward(session, vmid=vmid, publication=publication)
         except Exception:
+            if _published_meanwhile(session, vmid=vmid, publication=publication):
+                # 同一組機器的兩個建機回呼同時發布：慢的那個撞上唯一約束或
+                # 「此 port 已發布」，但服務其實已經由另一邊發布好了，不算失敗
+                logger.info(
+                    "Publication %s:%s for vmid %s was completed concurrently",
+                    publication.node_key,
+                    publication.port,
+                    vmid,
+                )
+                continue
             logger.exception(
                 "Failed to publish %s:%s for vmid %s (owner %s)",
                 publication.node_key,

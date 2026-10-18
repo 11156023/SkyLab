@@ -121,6 +121,33 @@ def allocate_external_port(
     raise BadRequestError(t("nat.poolExhausted", start=start, end=end))
 
 
+def count_free_external_ports(session: object, protocol: str) -> int | None:
+    """配號池裡還能配的對外 port 數；管理員沒設配號池時回 None。
+
+    給開環境前的預檢用：與 ``allocate_external_port`` 排除同一批 port。
+    """
+    from app.repositories import nat_rule as nat_repo
+    from app.services.network import ip_management_service
+
+    pool = ip_management_service.get_forward_port_range(
+        ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
+    )
+    if pool is None:
+        return None
+    start, end = pool
+    taken = nat_repo.taken_external_ports(session, protocol, start, end)  # type: ignore[arg-type]
+    gateway_ports = {
+        port for port, proto in _gateway_host_ports(session) if proto == protocol
+    }
+    return sum(
+        1
+        for candidate in range(start, end + 1)
+        if candidate not in RESERVED_PORTS
+        and candidate not in gateway_ports
+        and candidate not in taken
+    )
+
+
 # ─── nginx 同步（核心） ───────────────────────────────────────────────────────
 
 

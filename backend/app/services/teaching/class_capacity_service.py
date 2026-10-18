@@ -4,23 +4,20 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from collections.abc import Mapping
 from typing import Any
 
 from sqlmodel import Session, select
 
 from app.core.i18n import t
 from app.domain.placement import storage as placement_storage
-from app.domain.placement.config import settings as placement_settings
 from app.domain.placement.schemas import (
     NodeCapacity,
-    NodeSnapshot,
-    ResourceSnapshot,
     ResourceType,
 )
 from app.exceptions import BadRequestError
 from app.infrastructure.proxmox import (
     get_connection_id_for_node,
+    get_nodes_for_connection,
 )
 from app.models import (
     ClassCapacityReservation,
@@ -222,19 +219,24 @@ def eligible_nodes_for_machine(
     這裡只列出**建機端今天真的做得到**的節點，不是理論上可行的節點。多列一個
     就會讓容量計畫規劃出建機不會遵守的落點（檢查說可行、機器卻建在別處）。
 
-    - LXC 範本克隆：linked clone 必須與範本同節點同 storage（PVE 限制），
-      只有範本節點一個選擇。
-    - VM（範本與自訂）：批次建機的 create_vm 與 clone_service 一律在範本節點
-      上 clone，不接受指定節點。要放寬成整個連線，得先讓那兩條路徑支援跨節點
-      full clone 與失敗退回。
+    - 平台範本（VM 與 LXC）：範本節點，加上同叢集裡有共享儲存的節點。平台
+      範本一律 full clone，PVE 允許 clone 到同叢集的其他節點，條件是目標
+      儲存區是共享儲存（範本母機放在哪不影響）。批次建機的 clone_service
+      照預留的落點與儲存區建，跨節點失敗才退回範本節點。
+    - 自訂 VM（直接用 PVE 範本建）：與平台範本相同，範本節點加上同叢集有共享
+      儲存的節點；create_vm 照預留落點跨節點 clone，失敗退回範本節點。
     - 自訂 LXC：只有 iso_storage 看得到該 vztmpl 的節點；create_lxc 接受指定
-      節點，所以這是目前唯一能在叢集內分散的來源。
+      節點。
     """
     if machine_node.source_type == "template":
         template = session.get(VMTemplate, machine_node.source_template_id)
         if template is None:
             raise LookupError("template not found")
-        return {template.node}
+        return {template.node} | _shared_clone_nodes(
+            session,
+            template_node=template.node,
+            resource_type=_storage_resource_type(machine_node),
+        )
 
     if machine_node.resource_type == "lxc":
         node_map = proxmox_service.get_lxc_template_node_map()
@@ -243,11 +245,45 @@ def eligible_nodes_for_machine(
             return {provisioning_service.get_lxc_target_node()}
         return set(node_map.get(str(machine_node.custom_image_ref or ""), set()))
 
+    template_node = provisioning_service.get_vm_target_node(
+        int(machine_node.custom_image_ref or "0")
+    )
+    return {template_node} | _shared_clone_nodes(
+        session, template_node=template_node, resource_type="vm"
+    )
+
+
+def _shared_clone_nodes(
+    session: Session, *, template_node: str, resource_type: ResourceType
+) -> set[str]:
+    """同叢集裡、有可放這種機器的共享儲存的其他節點（範本可以跨節點 clone 過去）。
+
+    儲存區資訊來自受管儲存的同步紀錄；沒有紀錄時無從判斷是否共享，回空集合
+    （維持只在範本節點建）。
+    """
+    nodes = get_nodes_for_connection(get_connection_id_for_node(template_node))
+    others = sorted(nodes - {template_node})
+    if not others:
+        return set()
+    pools_by_node, has_managed_storage = placement_support.build_storage_pool_state(
+        session=session, node_names=others
+    )
+    if not has_managed_storage:
+        return set()
     return {
-        provisioning_service.get_vm_target_node(
-            int(machine_node.custom_image_ref or "0")
-        )
+        name
+        for name, pools in pools_by_node.items()
+        if any(_shared_pool_usable(pool, resource_type) for pool in pools)
     }
+
+
+def _shared_pool_usable(pool: object, resource_type: ResourceType) -> bool:
+    return bool(
+        getattr(pool, "is_shared", False)
+        and getattr(pool, "active", False)
+        and getattr(pool, "enabled", False)
+        and getattr(pool, "can_lxc" if resource_type == "lxc" else "can_vm", False)
+    )
 
 
 def class_eligibility(
@@ -607,6 +643,7 @@ def _evaluate_cluster_capacity(
     try:
         cluster_nodes, resources = placement_support.load_cluster_state()
         cpu_ratio, disk_ratio = placement_service.get_overcommit_ratios(session)
+        memory_ratio = placement_service.get_memory_overcommit_ratio(session)
         capacities = {
             row.node: row
             for row in placement_support.build_live_node_capacities(
@@ -614,17 +651,21 @@ def _evaluate_cluster_capacity(
                 resources=resources,
                 cpu_overcommit_ratio=cpu_ratio,
                 disk_overcommit_ratio=disk_ratio,
+                memory_overcommit_ratio=memory_ratio,
             )
         }
     except Exception:
         logger.exception("Failed to fetch Proxmox capacity for class reservation")
         return {}, {}, [t("class_capacity.capacity_check_failed")]
 
-    _apply_committed_allocations(
+    # build_live_node_capacities 已經套過一次；這裡用本次 session 的 DB 再套一次
+    # 範本母機的排除名單（重複套用結果不變）
+    placement_support.apply_committed_allocations(
         capacities,
-        cluster_nodes=cluster_nodes,
+        nodes=cluster_nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_ratio,
+        memory_overcommit_ratio=memory_ratio,
         excluded_vmids=_template_guest_vmids(session),
     )
     # 已預留、還沒建出來的機器 PVE 上看不到，要另外扣；已建出來的上面已經算過
@@ -710,56 +751,8 @@ def _evaluate_cluster_capacity(
 
 
 def _template_guest_vmids(session: Session) -> set[int]:
-    """平台範本母機的 VMID：關機、永不開機，不算進已承諾的用量。
-
-    查不到時回空集合，等於把母機也算進去——寧可算嚴，不要放行。
-    """
-    try:
-        return proxmox_service.platform_template_vmids(db_engine=session.get_bind())
-    except Exception:
-        logger.warning("Failed to load platform template VMIDs", exc_info=True)
-        return set()
-
-
-def _apply_committed_allocations(
-    capacities: Mapping[str, NodeCapacity],
-    *,
-    cluster_nodes: list[NodeSnapshot],
-    resources: list[ResourceSnapshot],
-    cpu_overcommit_ratio: float,
-    excluded_vmids: set[int],
-) -> None:
-    """可用 CPU／RAM 改以「已分配給機器的規格」計算，關機的機器也算。
-
-    即時容量看的是此刻的 CPU 使用率與記憶體用量：下課時段整班關機，那些
-    機器就像不存在，新班級照樣通過預檢，等兩班同時上課才擠不下。這裡把
-    每台機器（範本母機除外）分配到的 vCPU 與記憶體加總，和即時值取較嚴的
-    那個——即時值仍要看，主機自己（PVE、ZFS ARC 等）也會吃記憶體。
-    CPU 套超賣倍率，RAM 不超賣；兩者都保留與即時容量相同比例的安全餘裕。
-    """
-    committed_cpu: dict[str, float] = defaultdict(float)
-    committed_mem: dict[str, int] = defaultdict(int)
-    for guest in resources:
-        if int(guest.vmid) in excluded_vmids:
-            continue
-        committed_cpu[guest.node] += float(getattr(guest, "maxcpu", 0) or 0)
-        committed_mem[guest.node] += int(getattr(guest, "maxmem_bytes", 0) or 0)
-
-    headroom = placement_settings.placement_headroom_ratio
-    for node in cluster_nodes:
-        capacity = capacities.get(node.node)
-        if capacity is None:
-            continue
-        total_cpu = float(node.maxcpu) * max(cpu_overcommit_ratio, 1.0)
-        cpu_left = total_cpu - committed_cpu[node.node] - total_cpu * headroom
-        total_mem = int(node.maxmem_bytes)
-        mem_left = total_mem - committed_mem[node.node] - int(total_mem * headroom)
-        capacity.allocatable_cpu_cores = max(
-            0.0, min(float(capacity.allocatable_cpu_cores), cpu_left)
-        )
-        capacity.allocatable_memory_bytes = max(
-            0, min(int(capacity.allocatable_memory_bytes), mem_left)
-        )
+    """平台範本母機的 VMID（查不到時回空集合，等於把母機也算進去）。"""
+    return placement_support.template_guest_vmids(db_engine=session.get_bind())
 
 
 def _subtract_capacity(
@@ -856,11 +849,26 @@ def _storage_pool_issues(
 
     _cpu_ratio, disk_ratio = placement_service.get_overcommit_ratios(session)
     tuning = placement_service.get_placement_tuning(session=session)
+    template_nodes: dict[uuid.UUID | None, str | None] = {}
+
+    def _template_node(machine_node: TeachingClassMachineNode) -> str | None:
+        if machine_node.source_type != "template":
+            return None
+        key = machine_node.source_template_id
+        if key not in template_nodes:
+            template = session.get(VMTemplate, key) if key else None
+            template_nodes[key] = template.node if template else None
+        return template_nodes[key]
 
     def _place(target_node: str, machine_node: TeachingClassMachineNode) -> bool:
         disk_gb = int(machine_node.disk_gb)
+        pools = pools_by_node.get(target_node, [])
+        source_node = _template_node(machine_node)
+        if source_node is not None and target_node != source_node:
+            # 範本 clone 到其他節點只能放共享儲存（與批次建機挑的一致）
+            pools = [pool for pool in pools if pool.is_shared]
         selection = placement_storage.select_best_storage_for_request(
-            storage_pools=pools_by_node.get(target_node, []),
+            storage_pools=pools,
             resource_type=_storage_resource_type(machine_node),
             disk_gb=disk_gb,
             disk_overcommit_ratio=disk_ratio,
