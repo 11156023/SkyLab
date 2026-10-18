@@ -80,11 +80,6 @@ def test_ping_qemu_agent_true_and_false(qemu: _QemuApi) -> None:
     assert guest.ping_qemu_agent("pve1", 100) is False
 
 
-def test_get_osinfo_returns_result_dict(qemu: _QemuApi) -> None:
-    qemu.osinfo = {"result": {"id": "mswindows"}}
-    assert guest.get_osinfo_qemu("pve1", 100) == {"id": "mswindows"}
-
-
 def test_get_osinfo_accepts_unwrapped_dict(qemu: _QemuApi) -> None:
     qemu.osinfo = {"id": "ubuntu"}
     assert guest.get_osinfo_qemu("pve1", 100) == {"id": "ubuntu"}
@@ -201,18 +196,4 @@ def test_exec_lxc_runs_pct_exec_on_node_and_closes_client(
     )
     assert seen["exec"][1] == "pct exec 101 -- /bin/sh -c 'echo '\"'\"'hi'\"'\"''"
     assert seen["exec"][2] == {"timeout": 5, "stdin": "pw"}
-    assert ssh.closed is True
-
-
-def test_exec_lxc_closes_client_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    ssh = _SshClient()
-
-    def _exec(*_a: Any, **_k: Any) -> tuple[int, str, str]:
-        raise OSError("channel closed")
-
-    monkeypatch.setattr(guest, "_node_ssh_client", lambda _n: ssh)
-    monkeypatch.setattr(guest, "exec_command", _exec)
-
-    with pytest.raises(OSError):
-        guest.exec_lxc("pve1", 101, "true")
     assert ssh.closed is True

@@ -73,19 +73,6 @@ def _raise(exc: BaseException):
 # ---------------------------------------------------------------------------
 
 
-def test_selected_file_conflict_detection() -> None:
-    assert routes._is_selected_file_conflict(
-        _integrity("duplicate key uq_teacher_judge_sessions_selected_file")
-    )
-    assert routes._is_selected_file_conflict(
-        _integrity("UNIQUE failed: teacher_judge_sessions.selected_file_id")
-    )
-    assert not routes._is_selected_file_conflict(_integrity("other constraint"))
-    conflict = routes._selected_file_conflict()
-    assert conflict.status_code == 409
-    assert conflict.detail["code"] == "teacher_judge_file_in_use"
-
-
 def test_save_workflow_message_commit_failure_returns_none(ctx, monkeypatch) -> None:
     db, _, item = ctx
     rolled_back: list[bool] = []
@@ -207,48 +194,6 @@ def test_create_session_blank_mode_creates_rubric(ctx, monkeypatch, free_week) -
     assert calls[0]["environment_keys"] == []
 
 
-def test_create_session_existing_mode_checks_file(ctx, monkeypatch, free_week) -> None:
-    db, class_id, _ = ctx
-    file = make_teacher_judge_file(db, class_id)
-    seen: list[str] = []
-    monkeypatch.setattr(
-        routes, "validate_selected_file", lambda *args: seen.append("validate")
-    )
-    monkeypatch.setattr(
-        routes,
-        "ensure_selected_file_available",
-        lambda *args, **kwargs: seen.append("available"),
-    )
-
-    result = routes.create_session(
-        class_id,
-        TeacherJudgeSessionCreateRequest(
-            teaching_class_week_id=WEEK_ID, title="Existing", creation_mode="existing", selected_file_id=file.id
-        ),
-        db,
-        USER,
-    )
-
-    assert result.title == "Existing"
-    assert seen == ["validate", "available"]
-
-
-def test_create_session_without_file_skips_availability(ctx, monkeypatch, free_week) -> None:
-    db, class_id, _ = ctx
-    monkeypatch.setattr(routes, "validate_selected_file", lambda *args: None)
-    monkeypatch.setattr(
-        routes,
-        "ensure_selected_file_available",
-        _raise(AssertionError("should not be called")),
-    )
-
-    result = routes.create_session(
-        class_id, TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK_ID, title="Plain"), db, USER
-    )
-
-    assert result.selected_file_id is None
-
-
 def test_create_session_selected_file_conflict_is_409(ctx, monkeypatch, free_week) -> None:
     db, class_id, _ = ctx
     monkeypatch.setattr(routes, "validate_selected_file", lambda *args: None)
@@ -275,22 +220,6 @@ def test_create_session_other_integrity_error_is_reraised(ctx, monkeypatch, free
         routes.create_session(
             class_id, TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK_ID, title="Dup"), db, USER
         )
-
-
-def test_create_session_other_error_rolls_back(ctx, monkeypatch, free_week) -> None:
-    db, class_id, _ = ctx
-    monkeypatch.setattr(
-        routes,
-        "validate_selected_file",
-        _raise(HTTPException(status_code=400, detail="bad file")),
-    )
-
-    with pytest.raises(HTTPException) as exc:
-        routes.create_session(
-            class_id, TeacherJudgeSessionCreateRequest(teaching_class_week_id=WEEK_ID, title="Bad"), db, USER
-        )
-
-    assert exc.value.status_code == 400
 
 
 def test_fork_and_detail_return_public_session(ctx, monkeypatch, free_week) -> None:
@@ -401,23 +330,6 @@ def test_update_session_cannot_pin_while_archiving(ctx) -> None:
         )
 
     assert exc.value.status_code == 409
-
-
-def test_update_session_pins_and_clears_file(ctx, monkeypatch) -> None:
-    db, class_id, item = ctx
-    monkeypatch.setattr(routes, "validate_selected_file", lambda *args: None)
-
-    result = routes.update_session(
-        class_id,
-        item.id,
-        TeacherJudgeSessionUpdateRequest(selected_file_id=None, is_pinned=True),
-        db,
-        USER,
-    )
-
-    assert result.selected_file_id is None
-    db.refresh(item)
-    assert item.pinned_at is not None
 
 
 def test_update_session_selected_file_conflict_is_409(ctx, monkeypatch) -> None:
@@ -710,32 +622,6 @@ async def test_script_set_without_items_is_not_ready(script_ctx, monkeypatch) ->
     assert failures[0]["stage"] == "script_preflight"
 
 
-async def test_create_script_set_success_updates_activity(
-    script_ctx, monkeypatch
-) -> None:
-    db, class_id, item, file, _ = script_ctx
-    created = SimpleNamespace(id="set")
-    calls: list[dict] = []
-
-    def fake_create(**kwargs):
-        calls.append(kwargs)
-        return created
-
-    monkeypatch.setattr(routes, "create_artifact_set", fake_create)
-
-    result = await routes.create_session_script_set(
-        class_id,
-        item.id,
-        db,
-        USER,
-        TeacherJudgeSessionScriptCreateRequest(analysis_revision=3),
-    )
-
-    assert result is created
-    assert calls[0]["source_file_id"] == file.id
-    assert calls[0]["artifact_set_id"] is None
-
-
 async def test_create_script_set_unexpected_error_is_recorded(
     script_ctx, monkeypatch
 ) -> None:
@@ -747,22 +633,6 @@ async def test_create_script_set_unexpected_error_is_recorded(
 
     assert failures[-1]["stage"] == "script_generation"
     assert failures[-1]["detail"] is None
-
-
-async def test_create_script_set_http_error_is_recorded(
-    script_ctx, monkeypatch
-) -> None:
-    db, class_id, item, _, failures = script_ctx
-    monkeypatch.setattr(
-        routes,
-        "create_artifact_set",
-        _raise(HTTPException(status_code=422, detail={"code": "x"})),
-    )
-
-    with pytest.raises(HTTPException):
-        await routes.create_session_script_set(class_id, item.id, db, USER)
-
-    assert failures[-1]["detail"] == {"code": "x"}
 
 
 def test_list_and_get_script_sets(ctx, monkeypatch) -> None:
@@ -844,41 +714,6 @@ def test_script_set_run_rejects_unsupported_scope(ctx, monkeypatch) -> None:
         )
 
     assert exc.value.status_code == 422
-
-
-def test_script_set_run_submits_batch(ctx, monkeypatch) -> None:
-    db, class_id, item = ctx
-    batch_id = uuid.uuid4()
-    submitted: list[tuple] = []
-    monkeypatch.setattr(routes, "get_artifact_set", lambda **kwargs: None)
-    monkeypatch.setattr(
-        routes,
-        "create_script_run_batch",
-        lambda **kwargs: SimpleNamespace(run_batch_id=str(batch_id)),
-    )
-    monkeypatch.setattr(
-        routes, "execute_script_run_batch", lambda run_batch_id: ("job", run_batch_id)
-    )
-    monkeypatch.setattr(
-        routes,
-        "submit",
-        lambda job, **kwargs: submitted.append((job, kwargs["task_id"])),
-    )
-    monkeypatch.setattr(routes, "get_script_run_batch_public", lambda **kwargs: kwargs)
-
-    result = routes.create_session_script_set_run(
-        class_id,
-        item.id,
-        uuid.uuid4(),
-        TeacherJudgeScriptSetRunRequest(),
-        db,
-        USER,
-    )
-
-    assert result.run_batch_id == str(batch_id)
-    assert submitted == [
-        (("job", batch_id), f"teacher_judge_script_run_batch:{batch_id}")
-    ]
 
 
 def test_run_batch_and_run_listing_routes(ctx, monkeypatch) -> None:

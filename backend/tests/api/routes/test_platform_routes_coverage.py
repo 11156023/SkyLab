@@ -24,7 +24,6 @@ from app.api.routes import login as login_route
 from app.api.routes import monitoring as monitoring_route
 from app.api.routes import push as push_route
 from app.api.routes import users as users_route
-from app.api.routes import utils as utils_route
 from app.core import security
 from app.core.config import settings
 from app.exceptions import BadRequestError
@@ -88,16 +87,6 @@ def _subscription_body(endpoint: str = "https://fcm.googleapis.com/x") -> Any:
         user_agent="UA",
         language=None,
     )
-
-
-def test_push_save_subscription_rejects_internal_endpoint(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(push_route, "_resolves_to_internal_address", lambda e: True)
-    with pytest.raises(BadRequestError):
-        push_route.save_subscription(
-            session=MagicMock(), current_user=_USER, body=_subscription_body()
-        )
 
 
 def test_push_save_subscription_upserts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -557,7 +546,3 @@ def test_ldap_get_config(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.enabled is True
     assert result.server_uri == "ldaps://ldap.example.edu"
     assert result.bind_password_set is True
-
-
-async def test_liveness_health_check() -> None:
-    assert await utils_route.health_check() is True

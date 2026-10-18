@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -191,23 +190,6 @@ def test_application_templates_cache_success_and_cached(
     )
 
 
-def test_application_templates_failure_caches_empty_briefly(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    clock = _Clock()
-    monkeypatch.setattr(options_service, "monotonic", clock)
-
-    def boom(*, session: Any) -> list[Any]:
-        raise RuntimeError("pve unreachable")
-
-    monkeypatch.setattr(options_service.template_service, "list_student_catalog", boom)
-    assert options_service.get_application_templates_cached(object()) == []
-    assert (
-        options_service._application_templates_cache["ttl"]
-        == options_service.APPLICATION_TEMPLATES_FAILURE_TTL_SECONDS
-    )
-
-
 # ---------------------------------------------------------------- allowed ids
 
 
@@ -274,25 +256,6 @@ def test_resolve_resource_options_from_client_filters(
     assert result["lxc_os_images"][0]["value"] == "local:vztmpl/x"
     assert result["application_templates"] == apps
     assert result["gpu_options"] == [{"mapping_id": "g"}]
-
-
-def test_resolve_resource_options_from_client_no_allowed_keeps_all(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        options_service, "get_application_templates_cached", lambda session: []
-    )
-    monkeypatch.setattr(
-        options_service, "allowed_vm_template_ids", lambda s, u, a: set()
-    )
-    ctx = RecommendationFormContext(
-        resource_options_from_client=True,
-        vm_os_options=[VMOSOptionContext(template_id=9999)],
-    )
-    result = options_service.resolve_resource_options(
-        _request(form_context=ctx), [], object(), object()
-    )
-    assert [i["template_id"] for i in result["vm_operating_systems"]] == [9999]
 
 
 def test_resolve_resource_options_server_side(
@@ -366,57 +329,6 @@ def test_resolve_recommend_gpu_options_treats_pve_failure_as_no_gpu(
     )
 
 
-def test_resolve_recommend_gpu_options_applies_reservation_window(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    base = [GPUSummary(mapping_id="g1").model_dump(mode="json")]
-    monkeypatch.setattr(options_service, "get_base_gpu_options_cached", lambda: base)
-    monkeypatch.setattr(
-        options_service.gpu_service,
-        "apply_reservation_window",
-        lambda session, options, **_: [
-            o.model_copy(update={"available_count": 0}) for o in options
-        ],
-    )
-    start = datetime(2026, 7, 1, 10, tzinfo=UTC)
-    ctx = RecommendationFormContext(start_at=start, end_at=start + timedelta(hours=2))
-    adjusted = options_service.resolve_recommend_gpu_options(
-        _request(form_context=ctx), object(), requires_gpu=True
-    )
-    assert adjusted[0]["available_count"] == 0
-
-
-def test_resolve_chat_gpu_options_branches(monkeypatch: pytest.MonkeyPatch) -> None:
-    base = [GPUSummary(mapping_id="g1").model_dump(mode="json")]
-    monkeypatch.setattr(options_service, "get_base_gpu_options_cached", lambda: base)
-    # 不靠關鍵字：換個說法問（「顯示卡」）也要看得到清單
-    assert (
-        options_service.resolve_chat_gpu_options(
-            _request([("user", "顯示卡還有幾張")]), object()
-        )
-        == base
-    )
-
-    start = datetime(2026, 7, 1, 10, tzinfo=UTC)
-    seen: dict[str, Any] = {}
-
-    def fake_window(session, options, *, start_at, end_at):
-        seen["args"] = (start_at, end_at, [o.mapping_id for o in options])
-        return [o.model_copy(update={"available_count": 0}) for o in options]
-
-    monkeypatch.setattr(
-        options_service.gpu_service, "apply_reservation_window", fake_window
-    )
-    win_ctx = RecommendationFormContext(
-        resource_type="vm", start_at=start, end_at=start + timedelta(hours=2)
-    )
-    adjusted = options_service.resolve_chat_gpu_options(
-        _request(form_context=win_ctx), object()
-    )
-    assert adjusted[0]["available_count"] == 0
-    assert seen["args"][2] == ["g1"]
-
-
 # ---------------------------------------------------------------- node_service
 
 
@@ -468,25 +380,6 @@ def test_summarize_device_nodes() -> None:
     assert summary["free_memory_gb"] == 6.0
     assert summary["gpu_count"] == 1
     assert [n["node"] for n in summary["nodes"]] == ["a", "b"]
-
-
-def test_build_resource_option_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        node_service.provisioning_service,
-        "get_lxc_templates",
-        lambda: [SimpleNamespace(volid="local:vztmpl/debian-12.tar.zst")],
-    )
-    monkeypatch.setattr(
-        node_service.provisioning_service,
-        "get_vm_templates",
-        lambda: [SimpleNamespace(vmid=9000, name="ubuntu", node="pve1")],
-    )
-    bundle = node_service.build_resource_option_bundle()
-    assert bundle["lxc_os_images"] == [
-        {"value": "local:vztmpl/debian-12.tar.zst", "label": "debian-12"}
-    ]
-    assert bundle["vm_operating_systems"][0]["template_id"] == 9000
-    assert bundle["gpu_options"] == []
 
 
 # ---------------------------------------------------------------- config

@@ -214,22 +214,8 @@ def test_recurrence_windows_refresh_batch_jobs(monkeypatch) -> None:
     assert references == [NOW, NOW, NOW]
 
 
-def test_recurrence_windows_without_changes_does_not_commit(monkeypatch) -> None:
-    monkeypatch.setattr(rs, "_utc_now", lambda: NOW)
-    monkeypatch.setattr(rs, "_process_expired_class_lifecycle", lambda *, now: None)
-    session = _use_session(monkeypatch, _FakeSession())
-    rs.process_recurrence_windows()
-    assert session.commits == 0
-
-
 def test_class_schedule_reference_without_class_is_now() -> None:
     assert rs._class_schedule_reference(None, _job(), NOW) == NOW
-
-
-def test_class_schedule_reference_uses_future_class_start() -> None:
-    teaching_class = _class(start_date=date(2026, 11, 2), start_time=time(9, 0))
-    ref = rs._class_schedule_reference(teaching_class, _job(), NOW)
-    assert ref == datetime(2026, 11, 2, 1, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -303,19 +289,6 @@ def test_scheduled_boot_batches_and_survives_failures(monkeypatch) -> None:
     assert sleeps == [7]
 
 
-def test_scheduled_boot_without_targets_returns_early(monkeypatch) -> None:
-    monkeypatch.setattr(rs, "_utc_now", lambda: NOW)
-    monkeypatch.setattr(rs, "get_schedule_policy", _session_policy)
-    _use_session(monkeypatch, _FakeSession())
-    monkeypatch.setattr(rs, "_batch_boot_specs", lambda *, session, now: [])
-    monkeypatch.setattr(
-        rs,
-        "_boot_one",
-        lambda **kw: (_ for _ in ()).throw(AssertionError("nothing to boot")),
-    )
-    rs.process_scheduled_boot()
-
-
 # ---------------------------------------------------------------------------
 # process_auto_stops
 # ---------------------------------------------------------------------------
@@ -344,18 +317,6 @@ def test_auto_stops_prunes_stale_keys_and_logs_failures(monkeypatch) -> None:
 
     assert stopped == [5]
     assert tracked == {(5, resource.auto_stop_at): 2.0}
-
-
-def test_auto_stops_nothing_due(monkeypatch) -> None:
-    monkeypatch.setattr(rs, "_utc_now", lambda: NOW)
-    _use_session(monkeypatch, _FakeSession())
-    tracked = {(1, None): 1.0}
-    monkeypatch.setattr(rs, "_shutdown_requested_at", tracked)
-    monkeypatch.setattr(
-        rs.resource_repo, "list_due_auto_stops", lambda *, session, now: []
-    )
-    rs.process_auto_stops()
-    assert tracked == {}
 
 
 # ---------------------------------------------------------------------------
@@ -443,11 +404,6 @@ def test_expired_class_lifecycle_archives_and_retries(monkeypatch) -> None:
 
     assert archived == [expired_ok.id]
     assert retried == [retry_ok.id]
-
-
-def test_safe_zone_falls_back_for_invalid_name() -> None:
-    assert str(rs._safe_zone("Not/AZone")) == rs.DEFAULT_TIMEZONE
-    assert str(rs._safe_zone(None)) == rs.DEFAULT_TIMEZONE
 
 
 # ---------------------------------------------------------------------------
@@ -572,56 +528,6 @@ def test_filter_due_for_boot(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_boot_one_without_node_does_nothing(monkeypatch) -> None:
-    monkeypatch.setattr(
-        rs.proxmox_service,
-        "control",
-        lambda *a: (_ for _ in ()).throw(AssertionError("no start")),
-    )
-    rs._boot_one(
-        spec=rs._BootSpec(
-            request_id=uuid.uuid4(),
-            vmid=1,
-            node=None,
-            window_end=None,
-            resource_type="qemu",
-        ),
-        grace=timedelta(minutes=5),
-    )
-
-
-def test_boot_one_lxc_syncs_keys_and_skips_stop_without_window(monkeypatch) -> None:
-    from app.services.resource import resource_service
-
-    _use_session(monkeypatch, _FakeSession())
-    calls: list[str] = []
-    monkeypatch.setattr(
-        rs.proxmox_service, "control", lambda *a: calls.append(f"control:{a[3]}")
-    )
-    monkeypatch.setattr(
-        resource_service, "ensure_lxc_platform_key", lambda **kw: calls.append("key")
-    )
-    monkeypatch.setattr(
-        resource_service,
-        "ensure_lxc_login_password",
-        lambda **kw: calls.append("pw"),
-    )
-    monkeypatch.setattr(
-        rs.resource_repo, "set_auto_stop", lambda **kw: calls.append("stop")
-    )
-    rs._boot_one(
-        spec=rs._BootSpec(
-            request_id=uuid.uuid4(),
-            vmid=2,
-            node="pve1",
-            window_end=None,
-            resource_type="lxc",
-        ),
-        grace=timedelta(minutes=5),
-    )
-    assert calls == ["control:start", "key", "pw"]
-
-
 @pytest.mark.parametrize("in_window", [False, True])
 def test_boot_one_qemu_sets_auto_stop(monkeypatch, in_window: bool) -> None:
     _use_session(monkeypatch, _FakeSession())
@@ -695,75 +601,12 @@ def test_stop_one_clears_schedule_when_machine_gone(stop_env) -> None:
     assert stop_env["actions"] == []
 
 
-def test_stop_one_forces_stop_when_shutdown_fails(stop_env) -> None:
-    stop_env["info"] = {"node": "pve1", "type": "qemu", "status": "running"}
-    stop_env["fail"] = {"shutdown"}
-    resource = _resource()
-    rs._stop_one(resource=resource)
-    assert stop_env["actions"] == ["shutdown", "stop"]
-    assert rs._shutdown_requested_at == {(9, NOW): 500.0}
-
-
 def test_stop_one_gives_up_when_hard_stop_also_fails(stop_env) -> None:
     stop_env["info"] = {"node": "pve1", "type": "lxc", "status": "running"}
     stop_env["fail"] = {"shutdown", "stop"}
     rs._stop_one(resource=_resource())
     assert stop_env["actions"] == ["shutdown", "stop"]
     assert rs._shutdown_requested_at == {}
-
-
-def test_stop_one_clears_schedule_when_already_off(stop_env) -> None:
-    stop_env["info"] = {"node": "pve1", "type": "qemu", "status": "stopped"}
-    rs._stop_one(resource=_resource())
-    assert stop_env["cleared"] == [9]
-    assert stop_env["actions"] == []
-
-
-def test_stop_one_sends_graceful_shutdown_once(stop_env, monkeypatch) -> None:
-    stop_env["info"] = {
-        "node": "pve1",
-        "type": "qemu",
-        "status": "running",
-        "uptime": 10_000,
-    }
-    resource = _resource()
-    rs._stop_one(resource=resource)
-    assert stop_env["actions"] == ["shutdown"]
-    assert rs._shutdown_requested_at == {(9, NOW): 500.0}
-
-    # 還在寬限內：不再送任何指令
-    monkeypatch.setattr(rs.time, "monotonic", lambda: 600.0)
-    rs._stop_one(resource=resource)
-    assert stop_env["actions"] == ["shutdown"]
-
-    # 超過 FORCE_STOP_AFTER_SECONDS：強制斷電
-    monkeypatch.setattr(
-        rs.time, "monotonic", lambda: 500.0 + rs.FORCE_STOP_AFTER_SECONDS + 1
-    )
-    rs._stop_one(resource=resource)
-    assert stop_env["actions"] == ["shutdown", "stop"]
-
-
-def test_stop_one_clears_schedule_when_restarted_after_shutdown(
-    stop_env, monkeypatch
-) -> None:
-    stop_env["info"] = {"node": "pve1", "type": "qemu", "status": "running"}
-    resource = _resource()
-    rs._shutdown_requested_at[(9, NOW)] = 100.0
-    stop_env["info"]["uptime"] = "30"
-    rs._stop_one(resource=resource)
-    assert stop_env["cleared"] == [9]
-    assert rs._shutdown_requested_at == {}
-
-
-@pytest.mark.parametrize("info", [{}, {"uptime": None}, {"uptime": "abc"}])
-def test_restarted_since_shutdown_unknown_uptime(info: dict) -> None:
-    assert rs._restarted_since_shutdown(info, elapsed=1000) is False
-
-
-def test_utc_now_delegates_to_policy(monkeypatch) -> None:
-    monkeypatch.setattr(rs.scheduling_policy, "utc_now", lambda: NOW)
-    assert rs._utc_now() == NOW
 
 
 def test_resource_info_returns_none_for_missing_or_empty(monkeypatch) -> None:

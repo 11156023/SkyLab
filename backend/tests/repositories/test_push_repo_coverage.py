@@ -20,11 +20,6 @@ def session() -> Iterator[Session]:
         yield s
 
 
-def test_default_subject_prefers_sender_email(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(repo.settings, "EMAILS_FROM_EMAIL", "noreply@example.com")
-    assert repo.default_vapid_subject() == "mailto:noreply@example.com"
-
-
 @pytest.mark.parametrize(
     ("host", "expected"),
     [

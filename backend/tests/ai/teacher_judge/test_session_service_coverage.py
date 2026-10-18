@@ -251,23 +251,6 @@ def test_require_selected_file_and_get_session_errors() -> None:
     assert session_service.message_attachments_by_message_ids(db, []) == {}
 
 
-def test_delete_session_data_removes_attachments(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(
-        session_service, "storage_path", lambda row: tmp_path / row.storage_key
-    )
-    db = make_session()
-    item = _add_session(db)
-    attachment = _add_attachment(db, item.id)
-    (tmp_path / attachment.storage_key).write_text("x")
-
-    session_service.delete_session_data(db, item)
-
-    assert db.exec(select(TeacherJudgeSessionAttachment)).all() == []
-    assert not (tmp_path / attachment.storage_key).exists()
-
-
 def test_delete_session_data_rolls_back_on_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

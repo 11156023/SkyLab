@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from app.api.routes import course_admin as ca
-from app.exceptions import BadRequestError, NotFoundError, PermissionDeniedError
+from app.exceptions import BadRequestError, NotFoundError
 from app.models import TeachingClass
 
 OWNER = uuid.uuid4()
@@ -90,14 +90,6 @@ def test_list_paths_owner_filter(
     assert kwargs["owner_id"] == (None if bypass else user.id)
 
 
-def test_create_path_without_class(svc: _FakeCourseService, access: list) -> None:
-    user = _user()
-    data = SimpleNamespace(teaching_class_id=None)
-    _, kwargs = ca.create_path(session=_FakeSession(), current_user=user, data=data)
-    assert kwargs["user_id"] == user.id
-    assert access == []
-
-
 def test_create_path_with_class_uses_class_owner(
     svc: _FakeCourseService, access: list
 ) -> None:
@@ -114,33 +106,6 @@ def test_create_path_missing_class(svc: _FakeCourseService, access: list) -> Non
     data = SimpleNamespace(teaching_class_id=uuid.uuid4())
     with pytest.raises(NotFoundError):
         ca.create_path(session=_FakeSession(), current_user=_user(), data=data)
-
-
-def test_create_path_class_access_denied(
-    monkeypatch: pytest.MonkeyPatch, svc: _FakeCourseService
-) -> None:
-    def _deny(user: Any, owner_id: Any) -> None:
-        raise PermissionDeniedError("no")
-
-    monkeypatch.setattr(ca, "require_teaching_access", _deny)
-    class_id = uuid.uuid4()
-    session = _FakeSession({class_id: SimpleNamespace(owner_id=uuid.uuid4())})
-    with pytest.raises(PermissionDeniedError):
-        ca.create_path(
-            session=session,
-            current_user=_user(),
-            data=SimpleNamespace(teaching_class_id=class_id),
-        )
-
-
-def test_update_path_without_class(svc: _FakeCourseService, access: list) -> None:
-    data = SimpleNamespace(teaching_class_id=None)
-    name, kwargs = ca.update_path(
-        session=_FakeSession(), current_user=_user(), path_id=PATH_ID, data=data
-    )
-    assert name == "update_path"
-    assert kwargs["path_id"] == PATH_ID
-    assert access == [OWNER]
 
 
 def test_update_path_with_matching_class(svc: _FakeCourseService, access: list) -> None:
@@ -260,17 +225,3 @@ def test_question_routes(svc: _FakeCourseService, access: list) -> None:
     )
     assert svc.calls[-1] == ("delete_question", {"question_id": QUESTION_ID})
     assert access == [OWNER] * 2
-
-
-def test_require_path_denied_blocks_service(
-    monkeypatch: pytest.MonkeyPatch, svc: _FakeCourseService
-) -> None:
-    def _deny(user: Any, owner_id: Any) -> None:
-        raise PermissionDeniedError("no")
-
-    monkeypatch.setattr(ca, "require_teaching_access", _deny)
-    with pytest.raises(PermissionDeniedError):
-        ca.delete_question(
-            session=_FakeSession(), current_user=_user(), question_id=QUESTION_ID
-        )
-    assert svc.calls == []

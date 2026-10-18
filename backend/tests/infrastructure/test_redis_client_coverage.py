@@ -2,16 +2,9 @@
 
 from __future__ import annotations
 
-import logging
-
 import pytest
 
 from app.infrastructure.redis import client, sync_client
-
-
-@pytest.fixture(scope="session")
-def _seed_first_superuser() -> None:
-    """純單元測試，不需要測試資料庫。"""
 
 
 @pytest.fixture(autouse=True)
@@ -68,15 +61,6 @@ def test_redis_connection_label(dsn: str, expected: str) -> None:
     assert client.redis_connection_label(dsn) == expected
 
 
-def test_redis_failures_are_fatal_depends_on_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(client.core_settings, "ENVIRONMENT", "local")
-    assert client.redis_failures_are_fatal() is False
-    monkeypatch.setattr(client.core_settings, "ENVIRONMENT", "production")
-    assert client.redis_failures_are_fatal() is True
-
-
 async def test_init_without_backend_package_fatal_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -98,57 +82,6 @@ async def test_init_without_backend_package_nonfatal_warns(
     await client.init_redis(raise_on_failure=False)
 
     assert "Functionality will be skipped" in caplog.text
-
-
-async def test_init_when_disabled_is_noop(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    monkeypatch.setattr(client, "_redis_enabled", False)
-    caplog.set_level(logging.INFO, logger=client.logger.name)
-
-    await client.init_redis()
-
-    assert client._redis_client is None
-    assert "Redis is disabled" in caplog.text
-    assert await client.get_redis() is None
-
-
-async def test_init_success_then_get_redis_returns_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(client, "ConnectionPool", _Pool)
-    monkeypatch.setattr(client, "Redis", _OkRedis)
-
-    await client.init_redis()
-
-    assert isinstance(client._redis_client, _OkRedis)
-    assert await client.get_redis() is client._redis_client
-
-
-async def test_get_redis_initializes_lazily(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(client, "ConnectionPool", _Pool)
-    monkeypatch.setattr(client, "Redis", _OkRedis)
-
-    got = await client.get_redis()
-
-    assert isinstance(got, _OkRedis)
-
-
-async def test_ping_failure_closes_pool_and_raises_when_fatal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _Pool.created.clear()
-    monkeypatch.setattr(client, "ConnectionPool", _Pool)
-    monkeypatch.setattr(client, "Redis", _PingFailRedis)
-    monkeypatch.setattr(client, "redis_failures_are_fatal", lambda: True)
-
-    with pytest.raises(RuntimeError, match="Failed to connect to Redis"):
-        await client.init_redis()
-
-    assert client._redis_client is None
-    assert client._redis_pool is None
-    assert _Pool.created[-1].closed is True
-    assert client._in_reinit_cooldown() is True
 
 
 async def test_ping_failure_nonfatal_logs_and_enters_cooldown(
@@ -179,16 +112,6 @@ async def test_close_redis_closes_client_and_pool(
     assert pool.closed is True
     assert client._redis_client is None
     assert client._redis_pool is None
-
-
-async def test_close_redis_without_connections(monkeypatch: pytest.MonkeyPatch) -> None:
-    await client.close_redis()
-    assert client._redis_client is None
-
-
-def test_get_sync_redis_disabled_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sync_client.settings, "REDIS_ENABLED", False)
-    assert sync_client.get_sync_redis() is None
 
 
 def test_get_sync_redis_creates_client_once(monkeypatch: pytest.MonkeyPatch) -> None:

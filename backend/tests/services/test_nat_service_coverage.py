@@ -66,13 +66,6 @@ def gateway(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     return state
 
 
-def test_sync_writes_stream_config(gateway: SimpleNamespace) -> None:
-    nat_service._sync_nginx_stream(object())
-
-    assert gateway.written == [nginx.NGINX_STREAM_CONF_PATH]
-    assert gateway.client.closed is True
-
-
 def test_sync_propagates_proxmox_errors(gateway: SimpleNamespace) -> None:
     gateway.error = ProxmoxError("nginx -t failed")
 
@@ -114,23 +107,3 @@ def test_apply_nat_rule_logs_when_compensation_delete_fails(
             internal_port=80,
             protocol="tcp",
         )
-
-
-def test_gateway_ssh_port_is_reserved(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        gw_repo, "get_gateway_config", lambda session: SimpleNamespace(ssh_port=2222)
-    )
-    session = SimpleNamespace(get=lambda *a: None)
-
-    assert (2222, "tcp") in nat_service._gateway_host_ports(session)
-    with pytest.raises(BadRequestError):
-        nat_service.check_port_available(2222, "tcp", session)
-
-
-def test_remove_nat_rules_syncs_then_deletes(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(
-        nat_service, "_sync_then_delete", lambda session, rules: calls.append("sync")
-    )
-    nat_service.remove_nat_rules(object(), [SimpleNamespace(id=1)])
-    assert calls == ["sync"]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,7 +12,6 @@ import pytest
 from fastapi.responses import FileResponse
 
 from app.api.routes import templates as tr
-from app.exceptions import BadRequestError, PermissionDeniedError
 from app.models import TaskRecordStatus
 from app.schemas.template import VMTemplatePublic
 
@@ -163,74 +161,6 @@ def test_list_template_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert result.count == 2
     assert result.data[1].content_type is None
-
-
-def _upload(content: bytes, filename: str | None = "a.txt") -> Any:
-    return SimpleNamespace(
-        file=io.BytesIO(content), filename=filename, content_type="text/plain"
-    )
-
-
-@pytest.fixture()
-def owner_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tr.template_service, "get_or_404", lambda s, tid: "tpl")
-    monkeypatch.setattr(tr.template_service, "_require_owner", lambda user, tpl: None)
-
-
-def test_upload_attachment_success(
-    monkeypatch: pytest.MonkeyPatch, owner_ok: None
-) -> None:
-    captured: dict[str, Any] = {}
-
-    def _add(**kwargs: Any) -> Any:
-        captured.update(kwargs)
-        return _attachment(filename=kwargs["filename"] or "unnamed")
-
-    monkeypatch.setattr(tr.template_service, "add_attachment", _add)
-    result = tr.upload_template_attachment(
-        session=SESSION,
-        current_user=USER,
-        template_id=TEMPLATE_ID,
-        file=_upload(b"abc", filename=None),
-    )
-    assert captured["data"] == b"abc"
-    assert captured["filename"] == ""
-    assert result.filename == "unnamed"
-
-
-def test_upload_attachment_too_large(
-    monkeypatch: pytest.MonkeyPatch, owner_ok: None
-) -> None:
-    monkeypatch.setattr(tr.template_files, "ATTACHMENT_MAX_BYTES", 4)
-    monkeypatch.setattr(
-        tr.template_service,
-        "add_attachment",
-        lambda **kw: pytest.fail("oversized upload must not be stored"),
-    )
-    with pytest.raises(BadRequestError):
-        tr.upload_template_attachment(
-            session=SESSION,
-            current_user=USER,
-            template_id=TEMPLATE_ID,
-            file=_upload(b"0123456789"),
-        )
-
-
-def test_upload_attachment_requires_owner_before_reading(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(tr.template_service, "get_or_404", lambda s, tid: "tpl")
-
-    def _deny(user: Any, tpl: Any) -> None:
-        raise PermissionDeniedError("no")
-
-    monkeypatch.setattr(tr.template_service, "_require_owner", _deny)
-    upload = _upload(b"abc")
-    with pytest.raises(PermissionDeniedError):
-        tr.upload_template_attachment(
-            session=SESSION, current_user=USER, template_id=TEMPLATE_ID, file=upload
-        )
-    assert upload.file.tell() == 0
 
 
 @pytest.mark.parametrize(

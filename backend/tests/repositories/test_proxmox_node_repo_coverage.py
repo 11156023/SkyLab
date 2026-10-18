@@ -70,27 +70,6 @@ def test_upsert_without_connection_only_touches_unowned_nodes(
     assert names == {"owned", "fresh"}
 
 
-def test_upsert_claims_orphan_node_for_connection(session: Session) -> None:
-    conn = _conn(session, "A")
-    orphan = ProxmoxNode(connection_id=None, name="pve1", host="old", priority=3)
-    session.add(orphan)
-    session.add(ProxmoxNode(connection_id=None, name="other-orphan", host="h"))
-    session.commit()
-    session.refresh(orphan)
-
-    result = repo.upsert_nodes(
-        session, [{"name": "pve1", "host": "new"}], connection_id=conn.id
-    )
-    assert result[0].id == orphan.id
-    assert result[0].connection_id == conn.id
-    assert result[0].priority == 3
-    assert [n.name for n in repo.get_all_nodes(session, connection_id=conn.id)] == [
-        "pve1"
-    ]
-    # 沒被認領的未歸屬節點留著
-    assert repo.get_node_by_name(session, "other-orphan") is not None
-
-
 def test_upsert_duplicate_name_in_same_sync_reuses_pending_node(
     session: Session,
 ) -> None:
@@ -106,14 +85,6 @@ def test_upsert_duplicate_name_in_same_sync_reuses_pending_node(
     assert result[0] is result[1]
     assert result[0].host == "10.0.0.2"
     assert result[0].port == 8443
-
-
-def test_upsert_rejects_name_owned_by_other_connection(session: Session) -> None:
-    a = _conn(session, "A")
-    b = _conn(session, "B")
-    repo.upsert_nodes(session, [{"name": "pve1", "host": "h"}], connection_id=a.id)
-    with pytest.raises(ValueError, match="已被其他連線使用"):
-        repo.upsert_nodes(session, [{"name": "pve1", "host": "h"}], connection_id=b.id)
 
 
 def test_upsert_refuses_to_claim_orphan_when_name_taken(

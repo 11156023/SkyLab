@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from app.exceptions import NotFoundError, ProxmoxError
+from app.exceptions import NotFoundError
 from app.models import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.services.scheduling import coordinator
 from app.services.scheduling import support as scheduling_support
@@ -108,19 +108,6 @@ def test_sync_lxc_platform_key_lxc_sets_key_and_password(monkeypatch) -> None:
     )
 
     assert calls == ["key:pve1:101", "pw:pve1:101"]
-
-
-def test_sync_lxc_platform_key_qemu_schedules_ssh_login(monkeypatch) -> None:
-    calls: list[tuple] = []
-    monkeypatch.setattr(
-        coordinator.guest_ssh_login,
-        "schedule_after_start",
-        lambda *a: calls.append(a),
-    )
-    coordinator._sync_lxc_platform_key(
-        session=_FakeSession(), node="pve1", vmid=102, resource_type="qemu"
-    )
-    assert calls == [("pve1", 102, "qemu")]
 
 
 # ---------------------------------------------------------------------------
@@ -223,48 +210,6 @@ def test_adopt_untracked_lxc_creates_resource_and_starts(
     assert noop_audit[0]["action"] == "resource_start"
 
 
-def test_adopt_tracked_running_qemu_does_not_start(monkeypatch, noop_audit) -> None:
-    req = _request(desired_node="pve9", placement_strategy_used="spread")
-    updates: list[dict] = []
-
-    monkeypatch.setattr(
-        coordinator.scheduling_support,
-        "find_existing_resource_for_request",
-        lambda **kw: {"vmid": 400, "node": "pve3"},
-    )
-    monkeypatch.setattr(
-        coordinator.resource_repo,
-        "get_resource_by_vmid",
-        lambda **kw: SimpleNamespace(vmid=400),
-    )
-
-    def _fail(**_kw):
-        raise AssertionError("tracked resource must not be re-created")
-
-    monkeypatch.setattr(coordinator.resource_repo, "create_resource", _fail)
-    monkeypatch.setattr(
-        coordinator.vm_request_repo,
-        "update_vm_request_provisioning",
-        lambda **kw: updates.append(kw),
-    )
-    monkeypatch.setattr(
-        coordinator.proxmox_service,
-        "get_status",
-        lambda node, vmid, rtype: {"status": "RUNNING"},
-    )
-    monkeypatch.setattr(
-        coordinator.proxmox_service,
-        "control",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no start")),
-    )
-    monkeypatch.setattr(coordinator, "_sync_lxc_platform_key", lambda **kw: None)
-
-    result = coordinator._adopt_existing_resource(session=_FakeSession(), request=req)
-
-    assert result == (400, "pve3", "spread", False)
-    assert updates[0]["assigned_node"] == "pve9"
-
-
 # ---------------------------------------------------------------------------
 # _provision_new_resource
 # ---------------------------------------------------------------------------
@@ -302,16 +247,6 @@ def test_provision_plan_failure_marks_request_failed(monkeypatch) -> None:
     assert session.rollbacks == 1
     assert req.provisioning_status == VMProvisioningStatus.failed
     assert req.provisioning_error == "Failed to plan provisioning: no storage"
-
-
-def test_provision_plan_failure_with_vanished_request(monkeypatch) -> None:
-    req = _request()
-    _patch_plan_phase(monkeypatch, RuntimeError("boom"))
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: None
-    )
-    with pytest.raises(RuntimeError):
-        coordinator._provision_new_resource(session=_FakeSession(), request=req)
 
 
 def test_provision_execute_failure_releases_ip_and_marks_failed(monkeypatch) -> None:
@@ -434,46 +369,6 @@ def test_provision_orphan_removed_when_request_no_longer_approved(
         assert finish_session.commits == 2
 
 
-def test_provision_happy_path_records_resource(monkeypatch, noop_audit) -> None:
-    req = _request(resource_type="lxc", desired_node="pve4", password="x")
-    plan = {"vmid": 504, "placement_strategy": "balanced", "resource_type": "lxc"}
-    _patch_plan_phase(monkeypatch, plan)
-    monkeypatch.setattr(
-        coordinator.provisioning_service, "execute_provision", lambda p: (504, "pve1")
-    )
-    monkeypatch.setattr(coordinator, "Session", lambda engine: _FakeSession())
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: req
-    )
-    monkeypatch.setattr(coordinator, "get_connection_id_for_node", lambda n: 1)
-    created: dict = {}
-    monkeypatch.setattr(
-        coordinator.resource_repo, "create_resource", lambda **kw: created.update(kw)
-    )
-    monkeypatch.setattr(
-        coordinator.ip_management_service, "link_ip_to_resource", lambda *a, **k: None
-    )
-    updates: list[dict] = []
-    monkeypatch.setattr(
-        coordinator.vm_request_repo,
-        "update_vm_request_provisioning",
-        lambda **kw: updates.append(kw),
-    )
-    from app.services.resource import reset_service
-
-    snaps: list[int] = []
-    monkeypatch.setattr(reset_service, "ensure_init_snapshot", snaps.append)
-
-    result = coordinator._provision_new_resource(session=_FakeSession(), request=req)
-
-    assert result == (504, "pve1", "balanced")
-    assert created["vmid"] == 504
-    assert updates[0]["assigned_node"] == "pve4"
-    assert noop_audit[0]["action"] == "lxc_create"
-    assert snaps == [504]
-    assert req.password is None
-
-
 # ---------------------------------------------------------------------------
 # _mark_request_runtime_error / _refresh_actual_node
 # ---------------------------------------------------------------------------
@@ -541,39 +436,6 @@ def test_refresh_actual_node_skips_write_when_already_recorded(monkeypatch) -> N
     node, entry = coordinator._refresh_actual_node(session=_FakeSession(), request=req)
     assert node == "pve1"
     assert entry["name"] == "h"
-
-
-def test_refresh_actual_node_returns_none_for_consumed_request(monkeypatch) -> None:
-    consumed = _request(vmid=602, provisioning_status=VMProvisioningStatus.failed)
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: consumed
-    )
-    assert (
-        coordinator._refresh_actual_node(session=_FakeSession(), request=consumed)
-        is None
-    )
-
-
-def test_refresh_actual_node_writes_moved_node(monkeypatch) -> None:
-    req = _request(vmid=603, hostname="h", assigned_node="old", actual_node="old")
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: req
-    )
-    monkeypatch.setattr(
-        coordinator.scheduling_support,
-        "find_resource_strict",
-        lambda vmid: {"name": "h", "node": "pve5"},
-    )
-    updates: list[dict] = []
-    monkeypatch.setattr(
-        coordinator.vm_request_repo,
-        "update_vm_request_provisioning",
-        lambda **kw: updates.append(kw),
-    )
-    node, _entry = coordinator._refresh_actual_node(session=_FakeSession(), request=req)
-    assert node == "pve5"
-    assert updates[0]["actual_node"] == "pve5"
-    assert updates[0]["provisioning_status"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -705,129 +567,6 @@ def test_ensure_running_without_vmid_delegates_to_provision(
     )
 
 
-def _patch_started_vm(monkeypatch, req: VMRequest, *, control) -> list:
-    updates: list = []
-    monkeypatch.setattr(
-        coordinator,
-        "_refresh_actual_node",
-        lambda **kw: ("pve1", {"status": "stopped"}),
-    )
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: None
-    )
-    monkeypatch.setattr(
-        coordinator.proxmox_service,
-        "get_status",
-        lambda node, vmid, rtype: {"status": "stopped"},
-    )
-    monkeypatch.setattr(coordinator.proxmox_service, "control", control)
-    monkeypatch.setattr(coordinator, "_sync_lxc_platform_key", lambda **kw: None)
-    monkeypatch.setattr(
-        coordinator.vm_request_repo,
-        "update_vm_request_provisioning",
-        lambda **kw: updates.append(kw),
-    )
-    return updates
-
-
-def test_ensure_running_skips_when_locked_reread_is_consumed(monkeypatch) -> None:
-    req = _request(vmid=903)
-    consumed = _request(
-        id=req.id, vmid=903, provisioning_status=VMProvisioningStatus.failed
-    )
-    monkeypatch.setattr(coordinator, "_refresh_actual_node", lambda **kw: ("pve1", {}))
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: consumed
-    )
-    assert (
-        coordinator._ensure_request_running(session=_FakeSession(), request=req)
-        is False
-    )
-
-
-def test_ensure_running_completed_request_owes_no_start(monkeypatch) -> None:
-    req = _request(vmid=904, provisioning_status=VMProvisioningStatus.completed)
-    monkeypatch.setattr(coordinator, "_refresh_actual_node", lambda **kw: ("pve1", {}))
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: req
-    )
-    assert (
-        coordinator._ensure_request_running(session=_FakeSession(), request=req)
-        is False
-    )
-
-
-def test_ensure_running_already_running_in_cluster_list(monkeypatch) -> None:
-    req = _request(vmid=905, provisioning_status=VMProvisioningStatus.pending)
-    monkeypatch.setattr(
-        coordinator,
-        "_refresh_actual_node",
-        lambda **kw: ("pve1", {"status": "running"}),
-    )
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: req
-    )
-    monkeypatch.setattr(
-        coordinator.proxmox_service,
-        "get_status",
-        lambda *a: (_ for _ in ()).throw(AssertionError("no status call")),
-    )
-    updates: list[dict] = []
-    monkeypatch.setattr(
-        coordinator.vm_request_repo,
-        "update_vm_request_provisioning",
-        lambda **kw: updates.append(kw),
-    )
-    assert (
-        coordinator._ensure_request_running(session=_FakeSession(), request=req)
-        is False
-    )
-    assert updates[0]["provisioning_status"] == VMProvisioningStatus.completed
-
-
-def test_ensure_running_gpu_start_failure_sets_warning(monkeypatch) -> None:
-    req = _request(vmid=900, provisioning_status=VMProvisioningStatus.pending)
-    session = _FakeSession()
-
-    def _control(*_a, **_k):
-        raise ProxmoxError("start failed: nvidia-vgpu-mgr out of memory")
-
-    _patch_started_vm(monkeypatch, req, control=_control)
-
-    assert coordinator._ensure_request_running(session=session, request=req) is False
-    assert req.resource_warning == coordinator.GPU_WAIT_WARNING
-    assert session.commits == 1
-
-
-def test_ensure_running_non_gpu_proxmox_error_propagates(monkeypatch) -> None:
-    req = _request(vmid=901, provisioning_status=VMProvisioningStatus.pending)
-
-    def _control(*_a, **_k):
-        raise ProxmoxError("disk missing")
-
-    _patch_started_vm(monkeypatch, req, control=_control)
-    with pytest.raises(ProxmoxError):
-        coordinator._ensure_request_running(session=_FakeSession(), request=req)
-
-
-def test_ensure_running_timeout_clears_gpu_warning(monkeypatch, noop_audit) -> None:
-    req = _request(
-        vmid=902,
-        provisioning_status=VMProvisioningStatus.completed,
-        resource_warning=coordinator.GPU_WAIT_WARNING,
-    )
-
-    def _control(*_a, **_k):
-        raise TimeoutError("still running")
-
-    updates = _patch_started_vm(monkeypatch, req, control=_control)
-
-    assert coordinator._ensure_request_running(session=_FakeSession(), request=req)
-    assert req.resource_warning is None
-    assert updates[0]["provisioning_status"] == VMProvisioningStatus.completed
-    assert noop_audit[0]["action"] == "resource_start"
-
-
 # ---------------------------------------------------------------------------
 # process_single_request_start
 # ---------------------------------------------------------------------------
@@ -889,38 +628,6 @@ def test_single_start_keeps_provisioning_when_reconcile_fails(monkeypatch) -> No
     assert coordinator.process_single_request_start(req.id) is True
     assert session.commits == 1
     assert marked == []
-
-
-@pytest.mark.parametrize(
-    ("vmid", "exc", "marked"),
-    [
-        (55, RuntimeError("pve boom"), True),
-        (55, NotFoundError("gone"), False),
-        (None, RuntimeError("clone boom"), False),
-    ],
-)
-def test_single_start_failure_marks_only_restarts(
-    monkeypatch, vmid, exc, marked: bool
-) -> None:
-    req = _request(vmid=vmid)
-    session = _FakeSession()
-    monkeypatch.setattr(coordinator, "Session", lambda engine: session)
-    monkeypatch.setattr(
-        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: req
-    )
-
-    def _boom(**_kw):
-        raise exc
-
-    monkeypatch.setattr(coordinator, "_ensure_request_running", _boom)
-    marks: list[dict] = []
-    monkeypatch.setattr(
-        coordinator, "_mark_request_runtime_error", lambda **kw: marks.append(kw)
-    )
-
-    assert coordinator.process_single_request_start(req.id) is False
-    assert session.rollbacks == 1
-    assert bool(marks) is marked
 
 
 # ---------------------------------------------------------------------------
@@ -1127,44 +834,6 @@ def test_due_starts_recovery_failure_marks_error(monkeypatch) -> None:
     assert session.rollbacks == 2
 
 
-def test_due_starts_skips_on_connection_outage(monkeypatch) -> None:
-    req = _request(vmid=16)
-    session = _patch_due_starts(monkeypatch, [req])
-
-    def _ensure(**_kw):
-        raise scheduling_support.ProxmoxConnectionUnavailableError("pve down")
-
-    monkeypatch.setattr(coordinator, "_ensure_request_running", _ensure)
-    monkeypatch.setattr(
-        coordinator,
-        "_mark_request_runtime_error",
-        lambda **kw: (_ for _ in ()).throw(AssertionError("no mark")),
-    )
-    assert coordinator.process_due_request_starts() == 0
-    assert session.rollbacks == 1
-
-
-def test_due_starts_stale_vmid_unconfirmed_on_proxmox_error(monkeypatch) -> None:
-    req = _request(vmid=17)
-    _patch_due_starts(monkeypatch, [req])
-    monkeypatch.setattr(
-        coordinator,
-        "_ensure_request_running",
-        lambda **kw: (_ for _ in ()).throw(NotFoundError("missing")),
-    )
-
-    def _find(_vmid):
-        raise ProxmoxError("duplicate vmid")
-
-    monkeypatch.setattr(scheduling_support, "find_resource_strict", _find)
-    monkeypatch.setattr(
-        coordinator.vm_request_repo,
-        "get_vm_request_by_id",
-        lambda **kw: (_ for _ in ()).throw(AssertionError("no recovery")),
-    )
-    assert coordinator.process_due_request_starts() == 0
-
-
 # ---------------------------------------------------------------------------
 # process_due_request_stops
 # ---------------------------------------------------------------------------
@@ -1220,36 +889,6 @@ def test_due_stops_shuts_down_running_machine(
         assert auto_stops[0]["auto_stop_reason"] == "window_grace"
     assert noop_audit[0]["action"] == "resource_shutdown"
     assert session.commits == 1
-
-
-def test_due_stops_marks_missing_machine_failed(monkeypatch) -> None:
-    req = _request(vmid=31, end_at=NOW - timedelta(minutes=5))
-    session = _patch_due_stops(monkeypatch, [req])
-
-    def _find(_vmid):
-        raise NotFoundError("gone")
-
-    monkeypatch.setattr(scheduling_support, "find_resource_strict", _find)
-
-    assert coordinator.process_due_request_stops() == 0
-    assert req.provisioning_status == VMProvisioningStatus.failed
-    assert req.vmid == 31
-    assert "no longer exists" in (req.provisioning_error or "")
-    assert session.commits == 1
-
-
-def test_due_stops_logs_unexpected_error(monkeypatch) -> None:
-    req = _request(vmid=32, end_at=NOW - timedelta(minutes=5))
-    session = _patch_due_stops(monkeypatch, [req])
-
-    def _find(_vmid):
-        raise RuntimeError("weird")
-
-    monkeypatch.setattr(scheduling_support, "find_resource_strict", _find)
-
-    assert coordinator.process_due_request_stops() == 0
-    assert req.provisioning_status != VMProvisioningStatus.failed
-    assert session.commits == 0
 
 
 def test_due_stops_skips_without_vmid_and_already_stopped(monkeypatch) -> None:

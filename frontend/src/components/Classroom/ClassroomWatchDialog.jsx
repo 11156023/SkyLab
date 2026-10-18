@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { VncScreen } from "react-vnc";
 import { useTranslation } from "react-i18next";
 import styles from "./Classroom.module.scss";
 import MIcon from "../MIcon";
 import Modal from "../Modal/Modal";
+import NoVncScreen from "../NoVncScreen/NoVncScreen";
 import { AuthStorage } from "../../services/auth";
 import { ClassroomService } from "../../services/classroom";
 import { wsBaseUrl } from "../../utils/wsUrl";
@@ -54,7 +54,7 @@ export default function ClassroomWatchDialog({
   }, []);
 
   /* 掛載時把連線網址定下來：token 每次 render 都重讀，
-     續期後字串一變 VncScreen 就會斷線重連，畫面會閃一下。 */
+     續期後字串一變 NoVncScreen 就會斷線重連，畫面會閃一下。 */
   const [wsUrl] = useState(() => {
     if (!sessionId) return "";
     const token = AuthStorage.getAccessToken() || "";
@@ -75,6 +75,11 @@ export default function ClassroomWatchDialog({
   function toggleFullscreen() {
     if (!document.fullscreenElement) dialogRef.current?.requestFullscreen?.();
     else document.exitFullscreen?.();
+  }
+
+  /* 工具列按鈕用滑鼠按時不搶走學生畫面的鍵盤焦點 */
+  function keepScreenFocus(event) {
+    event.preventDefault();
   }
 
   const handleControl = async () => {
@@ -138,6 +143,7 @@ export default function ClassroomWatchDialog({
             type="button"
             className={`${styles.headerBtn} ${controlling ? styles.headerBtnActive : ""}`}
             disabled={!connected || controlBusy}
+            onMouseDown={keepScreenFocus}
             onClick={handleControl}
           >
             <MIcon name="back_hand" size={14} />
@@ -151,6 +157,7 @@ export default function ClassroomWatchDialog({
             ? t("ClassroomWatchDialog.exitFullscreen")
             : t(isKeyboardLockSupported() ? "ClassroomWatchDialog.fullscreenKeyboardHint" : "ClassroomWatchDialog.fullscreen")}
           aria-label={isFullscreen ? t("ClassroomWatchDialog.exitFullscreen") : t("ClassroomWatchDialog.fullscreen")}
+          onMouseDown={keepScreenFocus}
           onClick={toggleFullscreen}
         >
           <MIcon name={isFullscreen ? "fullscreen_exit" : "fullscreen"} size={14} />
@@ -169,12 +176,12 @@ export default function ClassroomWatchDialog({
         )}
         {wsUrl && (
           <div ref={surfaceRef} className={styles.vncSurface}>
-            <VncScreen
+            {/* viewOnly 隨接管狀態切換，NoVncScreen 會即時套到連線上 */}
+            <NoVncScreen
               ref={vncRef}
               url={wsUrl}
               scaleViewport
               viewOnly={viewOnly}
-              focusOnClick
               onConnect={() => setConnected(true)}
               onDisconnect={() => setConnected(false)}
               style={{ width: "100%", height: "100%", background: "#000" }}

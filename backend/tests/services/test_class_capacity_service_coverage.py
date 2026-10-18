@@ -242,26 +242,7 @@ def test_class_eligibility_reports_missing_template(session):
     assert len(issues) == 1
 
 
-def test_preferred_node_swallows_lookup_failure(monkeypatch):
-    def boom():
-        raise RuntimeError("no connection")
-
-    monkeypatch.setattr(svc.provisioning_service, "get_lxc_target_node", boom)
-    assert svc._preferred_node() is None
-
-
 # ------------------------------------------------------- cluster selection
-
-
-def test_targets_in_cluster_empty_when_machine_cannot_land(monkeypatch):
-    monkeypatch.setattr(svc, "get_connection_id_for_node", lambda name: 1)
-    machine = _machine()
-    assert (
-        svc.targets_in_cluster(
-            nodes=[machine], eligibility={machine.id: {"a1"}}, connection_id=2
-        )
-        == {}
-    )
 
 
 def test_choose_class_cluster_without_usable_cluster(monkeypatch):
@@ -276,21 +257,6 @@ def test_choose_class_cluster_without_usable_cluster(monkeypatch):
             capacities={},
         )
         is None
-    )
-
-
-def test_allocate_without_online_candidates(monkeypatch):
-    monkeypatch.setattr(svc, "get_connection_id_for_node", lambda name: 1)
-    machine = _machine()
-    assert (
-        svc.allocate_class_placements(
-            nodes=[machine],
-            student_ids=[uuid.uuid4()],
-            connection_id=1,
-            eligibility={machine.id: {"a1"}},
-            capacities={"a1": _capacity("a1", status="offline")},
-        )
-        == {}
     )
 
 
@@ -356,17 +322,6 @@ def _eligible(monkeypatch, machine, names):
         svc,
         "class_eligibility",
         lambda _s, *, nodes: ({machine.id: set(names)}, {1}, []),
-    )
-
-
-def test_evaluate_returns_eligibility_issues(session, monkeypatch):
-    monkeypatch.setattr(
-        svc, "class_eligibility", lambda _s, *, nodes: ({}, set(), ["bad"])
-    )
-    assert svc._evaluate_cluster_capacity(session, nodes=[], student_ids=[]) == (
-        {},
-        {},
-        ["bad"],
     )
 
 

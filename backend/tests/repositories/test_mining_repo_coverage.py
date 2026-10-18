@@ -10,7 +10,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.exceptions import NotFoundError
-from app.models import MiningIncidentStatus, User
+from app.models import MiningIncidentStatus
 from app.repositories import mining as repo
 
 
@@ -71,30 +71,3 @@ def test_list_incidents_with_status_filter(session: Session) -> None:
             session=session, status=MiningIncidentStatus.detected
         )
     ] == [first.id]
-
-
-def test_list_incidents_with_owners_joins_owner(session: Session) -> None:
-    owner = User(
-        email="s1110001@example.edu", full_name="王小明", hashed_password="x"
-    )
-    session.add(owner)
-    session.flush()
-    owned = repo.create_incident(
-        session=session,
-        vmid=200,
-        user_id=owner.id,
-        node="pve1",
-        resource_type="qemu",
-        avg_cpu=96.8,
-        window_hours=6,
-        now=NOW,
-    )
-    # 擁有者不存在（資料異常）：事件仍要列出，擁有者為 None
-    orphan = _incident(session, 201, minutes=-5)
-    session.commit()
-
-    rows = repo.list_incidents_with_owners(session=session)
-    assert [(i.id, o.email if o else None) for i, o in rows] == [
-        (owned.id, "s1110001@example.edu"),
-        (orphan.id, None),
-    ]

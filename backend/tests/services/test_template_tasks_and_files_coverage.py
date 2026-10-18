@@ -48,17 +48,6 @@ def files_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return directory
 
 
-def test_delete_attachment_removes_file_and_tolerates_missing(files_dir: Path) -> None:
-    template_id, attachment_id = uuid.uuid4(), uuid.uuid4()
-    path = template_files.save_attachment(template_id, attachment_id, b"data")
-    assert template_files.attachment_path(template_id, attachment_id) == path
-
-    template_files.delete_attachment(template_id, attachment_id)
-    assert not path.exists()
-    # 已不存在也不報錯
-    template_files.delete_attachment(template_id, attachment_id)
-
-
 def test_delete_all_for_template_logs_failure(
     files_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

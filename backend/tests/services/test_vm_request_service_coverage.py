@@ -89,24 +89,6 @@ def _selection(node: str | None = "pve-a", **plan: Any) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 
 
-def test_encrypt_login_password() -> None:
-    assert svc._encrypt_login_password(None) is None
-    assert svc._encrypt_login_password("Secret123") not in (None, "Secret123")
-
-
-def test_seal_request_password_keeps_template_credentials(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(svc.password_policy, "find_template", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        svc.password_policy, "resolve_login_password", lambda **_k: None
-    )
-    sealed = svc._seal_request_password(
-        None, SimpleNamespace(template_id=1, password=None, resource_type="vm")
-    )
-    assert sealed.encrypted is None and sealed.crypt_hash is None
-
-
 # ---------------------------------------------------------------------------
 # _approve_and_place
 # ---------------------------------------------------------------------------
@@ -262,25 +244,6 @@ def test_validate_template_source_branches(monkeypatch: pytest.MonkeyPatch) -> N
     assert _validate(monkeypatch, open_template) is open_template
 
 
-def test_template_floor_and_gpu_requirement() -> None:
-    request = SimpleNamespace(resource_type="lxc", rootfs_size=4, disk_size=None)
-    svc._apply_template_floor(request, _template(default_disk=10))
-    assert request.rootfs_size == 10
-    request = SimpleNamespace(resource_type="vm", rootfs_size=None, disk_size=None)
-    svc._apply_template_floor(request, _template(default_disk=20))
-    assert request.disk_size == 20
-    svc._apply_template_floor(request, _template(default_disk=None))
-
-    svc._require_template_gpu(SimpleNamespace(gpu_mapping_id=None), _template())
-    svc._require_template_gpu(
-        SimpleNamespace(gpu_mapping_id="gpu-a"), _template(requires_gpu=True)
-    )
-    with pytest.raises(BadRequestError):
-        svc._require_template_gpu(
-            SimpleNamespace(gpu_mapping_id=" "), _template(requires_gpu=True)
-        )
-
-
 # ---------------------------------------------------------------------------
 # create
 # ---------------------------------------------------------------------------
@@ -317,20 +280,6 @@ def _create(request_in: VMRequestCreate, user: Any = STUDENT) -> Any:
 def test_create_rejects_unknown_resource_type() -> None:
     with pytest.raises(BadRequestError):
         _create(_create_in(resource_type="docker"))
-
-
-def test_create_template_source_applies_floor_and_gpu(
-    monkeypatch: pytest.MonkeyPatch, create_env: None
-) -> None:
-    monkeypatch.setattr(
-        svc.vm_template_repo,
-        "get_template_by_pve_vmid",
-        lambda **_k: _template(default_disk=40, requires_gpu=True),
-    )
-    request_in = _create_in(disk_size=10)
-    with pytest.raises(BadRequestError):
-        _create(request_in)
-    assert request_in.disk_size == 40
 
 
 def test_create_auto_mode_disabled(

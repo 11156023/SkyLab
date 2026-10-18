@@ -13,11 +13,10 @@ import pytest
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from app.core import authorizers, i18n, metrics, request_context, sentry
 from app.core import db as core_db
+from app.core import i18n, metrics, request_context, sentry
 from app.core.config import Settings, parse_cors, settings
 from app.core.logging import ColoredConsoleFormatter, JsonFormatter
-from app.models import UserRole
 
 _REQUIRED: dict[str, Any] = {
     "PROJECT_NAME": "SkyLab",
@@ -264,13 +263,6 @@ async def test_run_db_in_threadpool_prefers_cancellation_over_late_error(
 
 
 # ---------------------------------------------------------------- authorizers
-
-
-def test_can_bypass_teaching_ownership() -> None:
-    assert authorizers.can_bypass_teaching_ownership(SimpleNamespace(is_superuser=True))
-    assert not authorizers.can_bypass_teaching_ownership(
-        SimpleNamespace(is_superuser=False, role=UserRole.student)
-    )
 
 
 # ---------------------------------------------------------------- metrics

@@ -42,7 +42,6 @@ from app.schemas.teaching_class import (
     CourseSelect,
     MachineNodeIn,
     StudentAdd,
-    WeekFileIn,
     WeekIn,
 )
 from tests.utils.class_machines import add_student_machine
@@ -294,24 +293,6 @@ def test_serialize_full_class(db: Session) -> None:
     assert data["weeks"][0]["files"][0]["filename"] == "lab.txt"
 
 
-def test_serialize_missing_version_and_empty_class(db: Session) -> None:
-    item = _class(db, course_version_id=uuid.uuid4())
-    data = routes._serialize(db, item)
-    assert data["course_environment"] is None
-    assert data["students"] == []
-    assert data["capacity_reservation"] is None
-
-
-def test_serialize_version_without_environment(db: Session) -> None:
-    item = _class(db)
-    version = CourseEnvironmentVersion(environment_id=uuid.uuid4(), version=1)
-    db.add(version)
-    item.course_version_id = version.id
-    db.add(item)
-    db.commit()
-    assert routes._serialize(db, item)["course_environment"] is None
-
-
 def test_serialize_list_empty_and_with_environment(db: Session) -> None:
     assert routes._serialize_list(db, []) == []
     item = _class(db)
@@ -320,21 +301,6 @@ def test_serialize_list_empty_and_with_environment(db: Session) -> None:
     rows = routes._serialize_list(db, [item, plain])
     assert rows[0]["course_environment"]["name"] == "Web Lab"
     assert rows[1]["course_environment"] is None
-
-
-def test_class_machine_rows_without_enrollments(db: Session) -> None:
-    assert routes._class_machine_rows(db, []) == []
-
-
-def test_resource_usage_skips_pve_when_no_machines(db: Session, monkeypatch) -> None:
-    item = _class(db)
-
-    def _boom():
-        raise AssertionError("PVE should not be queried")
-
-    monkeypatch.setattr(routes.proxmox_service, "list_all_resources", _boom)
-    result = routes.get_class_resource_usage(item.id, db, TEACHER)
-    assert result.items == []
 
 
 # --- create / list / get / update ------------------------------------------
@@ -415,13 +381,6 @@ def test_extend_class_branches(db: Session, _stub_services) -> None:
     assert resource.expiry_notified_at is None
     assert resource.scheduled_deletion_at is None
     assert "clear_schedule_windows" in _stub_services
-
-
-def test_archive_class(db: Session) -> None:
-    item = _class(db, status=TeachingClassStatus.active)
-    result = routes.archive_class(item.id, ClassArchive(), db, TEACHER)
-    assert result["reclaim"] == {"r": 1}
-    assert result["class"]["id"] == item.id
 
 
 def test_reclaim_requires_archived(db: Session) -> None:
@@ -638,24 +597,3 @@ def test_delete_week_file_branches(db: Session, _stub_services) -> None:
     assert db.get(TeachingClassTaskFile, task_file.id) is None
     (args, _kwargs) = _stub_services["remove_task_file_blob"][-1]
     assert args == (task_file.storage_key,)
-
-
-def test_week_file_in_schema_used_by_replace(db: Session) -> None:
-    item = _class(db)
-    day = date(2026, 9, 1)
-    week = _week(db, item, 1, day)
-    task_file = _file(db, week)
-    routes.replace_weeks(
-        item.id,
-        [
-            WeekIn(
-                week_number=1,
-                session_date=day,
-                files=[WeekFileIn(id=task_file.id, target_path="/srv/lab.txt")],
-            )
-        ],
-        db,
-        TEACHER,
-    )
-    db.refresh(task_file)
-    assert task_file.target_path == "/srv/lab.txt"

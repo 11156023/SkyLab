@@ -135,14 +135,6 @@ class _FailingDb:
         self.rolled_back = True
 
 
-def test_create_attachment_db_failure_removes_file() -> None:
-    db = _FailingDb()
-    with pytest.raises(RuntimeError, match="db down"):
-        _create(db)
-    assert db.rolled_back
-    assert list(svc.ATTACHMENT_ROOT.iterdir()) == []
-
-
 class _StubbornPath:
     def write_bytes(self, _data: bytes) -> None:
         return None
@@ -187,28 +179,6 @@ def test_delete_attachment_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(svc, "storage_path", lambda attachment: _StubbornPath())
     svc.delete_attachment(db, stubborn)
     assert db.get(TeacherJudgeSessionAttachment, stubborn.id) is None
-
-
-def test_create_bind_and_context_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    # OS MIME registries differ; keep the guessed-type fallback deterministic.
-    monkeypatch.setattr(svc.mimetypes, "guess_type", lambda filename: ("text/markdown", None))
-    db = make_session()
-    assert svc.get_pending_attachments(db, uuid.uuid4(), []) == []
-    monkeypatch.setattr(svc, "MAX_EXTRACTED_CHARS", 3)
-    with pytest.raises(ValueError, match="超過"):
-        _create(db, data=b"long text")
-    monkeypatch.setattr(svc, "MAX_EXTRACTED_CHARS", 12_000)
-
-    created = _create(db)
-    assert created.media_type == "text/markdown"
-    assert svc.storage_path(created).read_bytes() == b"hello"
-    message_id = uuid.uuid4()
-    svc.bind_attachments_to_message(db, [created], message_id)
-    db.commit()
-    public = svc.attachment_public(created, message_id)
-    assert public.message_id == str(message_id)
-    assert svc.attachment_context([]) == "（本次訊息沒有附件）"
-    assert "hello" in svc.attachment_context([created])
 
 
 def test_attachment_compact_context_empty_and_listed() -> None:

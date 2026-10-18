@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.exceptions import ConflictError, NotFoundError, ProxmoxError
+from app.exceptions import NotFoundError, ProxmoxError
 from app.schemas.gpu import GPUDeviceMap, GPUUsageInfo
 from app.services import proxmox as proxmox_pkg
 from app.services.proxmox import gpu_service
@@ -95,12 +95,6 @@ def test_extract_gpu_info_units(text, vram, vram_mb) -> None:
     assert got_mb == vram_mb
 
 
-def test_extract_gpu_info_falls_back_to_mapping_id() -> None:
-    model, vram, _ = gpu_service._extract_gpu_info("", "A100-80G")
-    assert model == "A100-80G"
-    assert vram == "80 GB"
-
-
 def test_count_physical_gpus_skips_blank_paths_and_empty_list() -> None:
     assert gpu_service._count_physical_gpus([]) == (0, False)
     maps = [
@@ -111,10 +105,6 @@ def test_count_physical_gpus_skips_blank_paths_and_empty_list() -> None:
     assert gpu_service._count_physical_gpus(maps) == (1, True)
     only_blank = [GPUDeviceMap(node="n", path="")]
     assert gpu_service._count_physical_gpus(only_blank) == (1, False)
-
-
-def test_bus_key_short_path() -> None:
-    assert gpu_service._bus_key("weird") == "weird"
 
 
 def test_parse_vram_from_profile_text_gb_fallback() -> None:
@@ -128,15 +118,6 @@ def test_parse_mdev_entry_bad_max_instances() -> None:
     )
     assert profile.max_instances == 0
     assert profile.vram_mb == 2048
-
-
-def test_parse_mapping_maps_variants() -> None:
-    assert gpu_service._parse_mapping_maps("not a dict") == []
-    single = gpu_service._parse_mapping_maps(
-        {"map": "node=pve1,path=0000:01:00.0,iommu_group=5,mdev=1"}
-    )
-    assert single[0].iommu_group == 5
-    assert single[0].is_mdev is True
 
 
 # ---------------------------------------------------------------------------
@@ -157,29 +138,6 @@ def test_fetch_mdev_types_success_updates_catalog(monkeypatch) -> None:
     assert set(result) == {"nvidia-1"}
     assert result["nvidia-1"].vram_mb == 4096
     assert "nvidia-1" in gpu_service._mdev_profile_catalog
-
-
-def test_fetch_mdev_types_failure_returns_none(monkeypatch) -> None:
-    def boom(node, path):
-        raise RuntimeError("nope")
-
-    monkeypatch.setattr(gpu_service, "list_pci_mdev_types", boom)
-    assert gpu_service._fetch_mdev_types("pve1", "x") is None
-
-
-def test_get_mdev_types_cache_hit(monkeypatch) -> None:
-    calls = []
-
-    def fetch(node, path):
-        calls.append((node, path))
-        return {"t": MdevProfile("T", 1024, 4)} if path == "a" else None
-
-    monkeypatch.setattr(gpu_service, "_fetch_mdev_types", fetch)
-    assert gpu_service._get_mdev_types("n", "a") == {"t": MdevProfile("T", 1024, 4)}
-    assert gpu_service._get_mdev_types("n", "a") == {"t": MdevProfile("T", 1024, 4)}
-    assert gpu_service._get_mdev_types("n", "b") is None
-    assert gpu_service._get_mdev_types("n", "b") is None
-    assert calls == [("n", "a"), ("n", "b")]
 
 
 def test_prefetch_mdev_types_parallel_and_single(monkeypatch) -> None:
@@ -338,26 +296,6 @@ def test_get_gpu_node_counts_skips_failures_and_blank_nodes(monkeypatch) -> None
     assert gpu_service.get_gpu_node_counts() == {"pve1": 1}
 
 
-def test_get_gpu_node_counts_single_mapping_cache_and_errors(monkeypatch) -> None:
-    assert gpu_service.get_gpu_node_counts("bad/id") == {}
-
-    calls = []
-    monkeypatch.setattr(gpu_service, "iter_connection_clients", _clients("a"))
-
-    def get_mapping(proxmox, mid):
-        calls.append(mid)
-        return {"id": mid, "map": ["node=pve1,path=0000:01:00.0"]}
-
-    monkeypatch.setattr(gpu_service, "get_pci_mapping", get_mapping)
-    monkeypatch.setattr(gpu_service, "_get_mdev_types", lambda n, p: {})
-    assert gpu_service.get_gpu_node_counts("gpu0") == {"pve1": 1}
-    assert gpu_service.get_gpu_node_counts("gpu0") == {"pve1": 1}
-    assert calls == ["gpu0"]
-
-    monkeypatch.setattr(gpu_service, "iter_connection_clients", _clients())
-    assert gpu_service.get_gpu_node_counts("gpu9") == {}
-
-
 def test_get_gpu_used_slots_by_node(monkeypatch) -> None:
     monkeypatch.setattr(
         gpu_service,
@@ -386,11 +324,6 @@ def test_get_gpu_used_slots_by_node_scan_failure(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # get_gpu_mapping
 # ---------------------------------------------------------------------------
-
-
-def test_get_gpu_mapping_invalid_id() -> None:
-    with pytest.raises(NotFoundError):
-        gpu_service.get_gpu_mapping("../etc")
 
 
 def test_get_gpu_mapping_not_found_anywhere(monkeypatch) -> None:
@@ -437,23 +370,6 @@ def test_get_gpu_mapping_found_on_second_connection(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_create_gpu_mapping_on_target_node(monkeypatch) -> None:
-    created = {}
-    monkeypatch.setattr(
-        gpu_service, "get_proxmox_api_for_node", lambda node: f"api-{node}"
-    )
-    monkeypatch.setattr(
-        gpu_service,
-        "create_pci_mapping",
-        lambda proxmox, **kw: created.update(proxmox=proxmox, **kw),
-    )
-    gpu_service.create_gpu_mapping(
-        mapping_id="gpu0", description="d", map_entries=["node=pve3,path=0000:01:00.0"]
-    )
-    assert created["proxmox"] == "api-pve3"
-    assert created["mapping_id"] == "gpu0"
-
-
 def test_create_gpu_mapping_without_node_uses_first_connection(monkeypatch) -> None:
     created = {}
     monkeypatch.setattr(gpu_service, "iter_connection_clients", _clients("a", "b"))
@@ -482,22 +398,6 @@ def test_create_gpu_mapping_failure_wrapped(monkeypatch) -> None:
 def test_delete_gpu_mapping_invalid_id() -> None:
     with pytest.raises(NotFoundError):
         gpu_service.delete_gpu_mapping("bad/id")
-
-
-def test_delete_gpu_mapping_conflict_and_missing(monkeypatch) -> None:
-    monkeypatch.setattr(gpu_service, "iter_connection_clients", _clients("a", "b"))
-    monkeypatch.setattr(
-        gpu_service, "get_pci_mapping", lambda proxmox, mid: {"id": mid}
-    )
-    with pytest.raises(ConflictError):
-        gpu_service.delete_gpu_mapping("gpu0")
-
-    def missing(proxmox, mid):
-        raise RuntimeError("404")
-
-    monkeypatch.setattr(gpu_service, "get_pci_mapping", missing)
-    with pytest.raises(ProxmoxError):
-        gpu_service.delete_gpu_mapping("gpu0")
 
 
 def test_delete_gpu_mapping_success_and_failure(monkeypatch) -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import uuid
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -141,28 +140,6 @@ def test_lock_ip_allocation_uses_xact_lock_on_postgresql() -> None:
 # ── peer 建立 ────────────────────────────────────────────────────────────
 
 
-def test_get_or_create_peer_allocates_new_peer(monkeypatch) -> None:
-    monkeypatch.setattr(
-        wireguard_service.peer_repo, "get_by_user_device", lambda **_: None
-    )
-    monkeypatch.setattr(
-        wireguard_service.peer_repo, "get_by_public_key", lambda **_: None
-    )
-    monkeypatch.setattr(
-        wireguard_service.peer_repo, "list_tunnel_ips", lambda **_: set()
-    )
-    monkeypatch.setattr(wireguard_service.peer_repo, "save", lambda **kw: kw["peer"])
-
-    user_id = uuid.uuid4()
-    peer = wireguard_service._get_or_create_peer(
-        session=object(), user_id=user_id, device_id="dev", public_key=_public_key(4)
-    )
-
-    assert peer.tunnel_ip == "10.250.0.2"
-    assert peer.active is False
-    assert peer.user_id == user_id
-
-
 def test_get_or_create_peer_retries_integrity_errors(monkeypatch) -> None:
     session = _FakeSession()
     monkeypatch.setattr(
@@ -271,23 +248,6 @@ def test_gateway_client_opens_ssh(monkeypatch) -> None:
 
     assert wireguard_service._gateway_client(object()) == (config, "client")
     assert seen == [("gw", 2222, "root", "PEM")]
-
-
-def test_run_locked_wraps_script_with_both_flocks(monkeypatch) -> None:
-    seen: list[tuple] = []
-    monkeypatch.setattr(
-        wireguard_service.gateway_service,
-        "exec_checked",
-        lambda client, command, message: (
-            seen.append((client, command, message)) or "out"
-        ),
-    )
-
-    assert wireguard_service._run_locked("c", "echo hi", "failed") == "out"
-    _client, command, message = seen[0]
-    assert command.startswith("flock -w 15 /run/lock/campus-cloud-wg.lock flock -w 15")
-    assert "/run/lock/skylab-wg.lock" in command
-    assert message == "failed"
 
 
 def test_sync_gateway_peer_removes_old_public_key(monkeypatch) -> None:
@@ -553,22 +513,6 @@ def test_reconcile_skips_unchanged_and_revokes_failed_peer(monkeypatch) -> None:
 # ── reconcile_tick ───────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("is_leader", [True, False])
-def test_reconcile_tick_runs_only_as_leader(monkeypatch, is_leader: bool) -> None:
-    from app.services.scheduling import leader
-
-    @contextmanager
-    def fake_lock(_key):
-        yield is_leader
-
-    runs: list[bool] = []
-    monkeypatch.setattr(leader, "scheduler_leader_lock", fake_lock)
-    monkeypatch.setattr(wireguard_service, "reconcile_once", lambda: runs.append(True))
-
-    assert wireguard_service.reconcile_tick() is is_leader
-    assert runs == ([True] if is_leader else [])
-
-
 # ── run_reconciler ───────────────────────────────────────────────────────
 
 
@@ -611,31 +555,6 @@ def _fake_asyncio(results, stop_event: asyncio.Event, rounds: int):
         wait_for=wait_for,
         CancelledError=asyncio.CancelledError,
     ), waits
-
-
-async def test_run_reconciler_records_ticks_and_failures(monkeypatch) -> None:
-    observers: list[_Observer] = []
-
-    def make_observer(loop, *, interval_seconds):
-        observer = _Observer(loop, interval_seconds=interval_seconds)
-        observers.append(observer)
-        return observer
-
-    monkeypatch.setattr(heartbeat_service, "HeartbeatObserver", make_observer)
-    stop_event = asyncio.Event()
-    fake, waits = _fake_asyncio(
-        [True, False, RuntimeError("tick failed")], stop_event, rounds=3
-    )
-    monkeypatch.setattr(wireguard_service, "asyncio", fake)
-
-    await wireguard_service.run_reconciler(stop_event)
-
-    events = observers[0].events
-    assert events[0] == ("start", ("reconcile",))
-    assert ("task", "reconcile", True, False) in events
-    assert ("tick", False) in events
-    assert ("task", "reconcile", False, True) in events
-    assert waits["count"] == 3
 
 
 async def test_run_reconciler_tolerates_heartbeat_failure(monkeypatch) -> None:

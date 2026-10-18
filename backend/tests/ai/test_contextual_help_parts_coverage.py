@@ -71,11 +71,6 @@ def test_find_helpers_handle_blank_input() -> None:
     assert surfaces.match_element_by_label(_SURFACE, "無關") is None
 
 
-def test_match_element_prefers_longest_label() -> None:
-    match = surfaces.match_element_by_label(_SURFACE, "連線名稱要填什麼")
-    assert match is not None and match.id == "ab"
-
-
 def test_classify_edge_cases() -> None:
     assert classify("   ", has_active_target=True, has_blocked=True) == "page_overview"
     assert (

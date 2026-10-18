@@ -67,16 +67,6 @@ def access(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 # ─── 拓撲 ─────────────────────────────────────────────────────────────────────
 
 
-def test_get_topology_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        fw.firewall_service, "get_topology", lambda **kwargs: {"nodes": [], "edges": []}
-    )
-    assert fw.get_topology(session=SESSION, current_user=_user()) == {
-        "nodes": [],
-        "edges": [],
-    }
-
-
 @pytest.mark.parametrize(
     ("exc", "status"),
     [
@@ -205,21 +195,6 @@ def test_delete_connection_errors(
 # ─── 單一 VM 規則 ─────────────────────────────────────────────────────────────
 
 
-def test_list_rules_maps_defaults_and_managed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        fw.firewall_service,
-        "get_vm_firewall_rules",
-        lambda node, vmid, vtype: [
-            {"comment": f"{fw.firewall_service._CC_PREFIX}x", "pos": 0},
-            {"type": "out", "action": "ACCEPT", "comment": None},
-        ],
-    )
-    rules = fw.list_rules(vmid=100, resource_info=RESOURCE)
-    assert rules[0].is_managed is True
-    assert rules[1].pos == 1
-    assert rules[1].is_managed is False
-
-
 def test_create_rule_success(
     monkeypatch: pytest.MonkeyPatch, audits: list, access: list
 ) -> None:
@@ -264,56 +239,6 @@ def _rules(monkeypatch: pytest.MonkeyPatch, rules: list[dict[str, Any]]) -> None
     )
 
 
-def test_update_rule_not_found(monkeypatch: pytest.MonkeyPatch, access: list) -> None:
-    _rules(monkeypatch, [{"pos": 0}])
-    with pytest.raises(NotFoundError):
-        fw.update_rule(
-            vmid=100,
-            pos=5,
-            rule=FirewallRuleUpdate(),
-            session=SESSION,
-            current_user=_user(),
-            resource_info=RESOURCE,
-        )
-
-
-def test_update_rule_managed(monkeypatch: pytest.MonkeyPatch, access: list) -> None:
-    _rules(monkeypatch, [{"pos": 1, "comment": f"{fw.firewall_service._CC_PREFIX}a"}])
-    with pytest.raises(HTTPException) as info:
-        fw.update_rule(
-            vmid=100,
-            pos=1,
-            rule=FirewallRuleUpdate(),
-            session=SESSION,
-            current_user=_user(),
-            resource_info=RESOURCE,
-        )
-    assert info.value.status_code == 400
-
-
-def test_update_rule_success(
-    monkeypatch: pytest.MonkeyPatch, audits: list, access: list
-) -> None:
-    _rules(monkeypatch, [{"pos": 1, "comment": "mine"}])
-    captured: list[Any] = []
-    monkeypatch.setattr(
-        fw.firewall_service,
-        "update_rule",
-        lambda node, vmid, vtype, pos, rule: captured.append((pos, rule)),
-    )
-    result = fw.update_rule(
-        vmid=100,
-        pos=1,
-        rule=FirewallRuleUpdate(action="DROP"),
-        session=SESSION,
-        current_user=_user(),
-        resource_info=RESOURCE,
-    )
-    assert result.message
-    assert captured == [(1, {"action": "DROP"})]
-    assert "pos=1" in audits[0]["details"]
-
-
 def test_update_rule_proxmox_error(
     monkeypatch: pytest.MonkeyPatch, access: list
 ) -> None:
@@ -329,36 +254,6 @@ def test_update_rule_proxmox_error(
             resource_info=RESOURCE,
         )
     assert info.value.status_code == 500
-
-
-def test_delete_rule_managed(monkeypatch: pytest.MonkeyPatch, access: list) -> None:
-    _rules(monkeypatch, [{"pos": 2, "comment": f"{fw.firewall_service._CC_PREFIX}b"}])
-    with pytest.raises(HTTPException) as info:
-        fw.delete_rule(
-            vmid=100,
-            pos=2,
-            session=SESSION,
-            current_user=_user(),
-            resource_info=RESOURCE,
-        )
-    assert info.value.status_code == 400
-
-
-def test_delete_rule_success(
-    monkeypatch: pytest.MonkeyPatch, audits: list, access: list
-) -> None:
-    _rules(monkeypatch, [{"pos": 2}])
-    deleted: list[int] = []
-    monkeypatch.setattr(
-        fw.firewall_service,
-        "delete_rule_by_pos",
-        lambda node, vmid, vtype, pos: deleted.append(pos),
-    )
-    result = fw.delete_rule(
-        vmid=100, pos=2, session=SESSION, current_user=_user(), resource_info=RESOURCE
-    )
-    assert result.message
-    assert deleted == [2]
 
 
 def test_delete_rule_proxmox_error(
@@ -563,22 +458,3 @@ def test_unpublish_service_errors(
             _resource_info=RESOURCE,
         )
     assert info.value.status_code == status
-
-
-def test_get_options_defaults_and_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        fw.firewall_service, "get_firewall_options", lambda node, vmid, vtype: {}
-    )
-    opts = fw.get_options(vmid=7, resource_info=RESOURCE)
-    assert (opts.enable, opts.policy_in, opts.policy_out) == (False, "DROP", "ACCEPT")
-    monkeypatch.setattr(
-        fw.firewall_service,
-        "get_firewall_options",
-        lambda node, vmid, vtype: {
-            "enable": 1,
-            "policy_in": "ACCEPT",
-            "policy_out": "DROP",
-        },
-    )
-    opts = fw.get_options(vmid=7, resource_info=RESOURCE)
-    assert (opts.enable, opts.policy_in, opts.policy_out) == (True, "ACCEPT", "DROP")

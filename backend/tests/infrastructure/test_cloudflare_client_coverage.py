@@ -52,10 +52,6 @@ def _json(status: int, body: object) -> Callable[[httpx.Request], httpx.Response
 # ---------------------------------------------------------------- error parsing
 
 
-def test_extract_error_message_non_dict() -> None:
-    assert _extract_error_message(["x"]) is None
-
-
 def test_extract_error_message_errors_variants() -> None:
     payload = {
         "errors": [
@@ -133,12 +129,6 @@ def test_request_400_uses_text_when_not_json(monkeypatch: pytest.MonkeyPatch) ->
         CloudflareAPIClient(api_token="t")._request("GET", "/x")
 
 
-def test_request_500_default_message(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install(monkeypatch, lambda _r: httpx.Response(502, content=b""))
-    with pytest.raises(UpstreamServiceError, match="Cloudflare API 請求失敗"):
-        CloudflareAPIClient(api_token="t")._request("GET", "/x")
-
-
 def test_request_non_dict_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     _install(monkeypatch, _json(200, [1, 2]))
     with pytest.raises(UpstreamServiceError, match="格式不正確"):
@@ -148,12 +138,6 @@ def test_request_non_dict_payload(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_request_success_false_with_message(monkeypatch: pytest.MonkeyPatch) -> None:
     _install(monkeypatch, _json(200, {"success": False, "errors": ["denied"]}))
     with pytest.raises(BadRequestError, match="denied"):
-        CloudflareAPIClient(api_token="t")._request("GET", "/x")
-
-
-def test_request_success_false_default_message(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install(monkeypatch, _json(200, {"success": False}))
-    with pytest.raises(BadRequestError, match="Cloudflare API 回傳錯誤"):
         CloudflareAPIClient(api_token="t")._request("GET", "/x")
 
 

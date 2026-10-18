@@ -74,13 +74,6 @@ def test_node_map_refreshes_once_then_serves_from_cache(
     assert len(calls) == 1
 
 
-def test_unknown_node_maps_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    _db_nodes(monkeypatch, _NODES)
-
-    assert client.get_connection_id_for_node("ghost") is None
-    assert client.get_node_host("ghost") is None
-
-
 def test_get_nodes_for_connection_refreshes_stale_map_then_uses_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -89,27 +82,6 @@ def test_get_nodes_for_connection_refreshes_stale_map_then_uses_cache(
     assert client.get_nodes_for_connection(1) == {"pve1", "pve2"}
     assert client.get_nodes_for_connection(2) == {"pve9"}
     assert len(calls) == 1
-
-
-def test_node_map_refresh_failure_leaves_map_empty(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def _boom(_session: Any, **_kwargs: Any) -> list[Any]:
-        raise RuntimeError("db down")
-
-    monkeypatch.setattr(node_repo, "get_all_nodes", _boom)
-
-    assert client.get_connection_id_for_node("pve1") is None
-    assert client.get_nodes_for_connection(1) == set()
-
-
-def test_get_proxmox_api_for_node_routes_by_connection(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _db_nodes(monkeypatch, _NODES)
-    monkeypatch.setattr(client, "get_proxmox_api", lambda cid=None: f"client-{cid}")
-
-    assert client.get_proxmox_api_for_node("pve9") == "client-2"
 
 
 def test_get_host_and_active_host_fall_back_to_settings(

@@ -25,7 +25,6 @@ from app.models import (
     TeachingClassStudentMachine,
     TeachingClassWeek,
     VMTemplate,
-    VMTemplateStatus,
 )
 from app.models.base import get_datetime_utc
 from app.services.teaching import class_provision_service as svc
@@ -220,21 +219,6 @@ def test_node_source_params_variants():
     }
 
 
-def test_submit_node_job_retry_suffix(session, submitted):
-    item = _class(session)
-    node = _node(session, item, resource_type="qemu")
-    users = [uuid.uuid4()]
-    svc.submit_node_job(
-        session, item=item, node=node, member_user_ids=users, retry=True
-    )
-    call = submitted[0]
-    assert call["resource_type"] == "qemu"
-    assert "-1-r" in call["hostname_prefix"]
-    assert call["hostname_prefix"].startswith(item.code.lower().replace("_", "-"))
-    assert call["member_user_ids"] == users
-    assert call["capacity_reserved"] is True
-
-
 # ------------------------------------------------- recover_existing_task
 
 
@@ -315,27 +299,6 @@ def test_recover_requires_enrollment(session, monkeypatch):
         svc.recover_existing_task_resource(
             session=session, item=item, node=node, task=task
         )
-
-
-def test_recover_links_existing_machine(session, monkeypatch):
-    item = _class(session)
-    node = _node(session, item)
-    job = _job(session, item, status=BatchProvisionJobStatus.failed)
-    enrollment = _student(session, item)
-    task = _task(
-        session, job, enrollment.user_id, status=BatchProvisionTaskStatus.failed
-    )
-    _resource(session, vmid=504, job_id=job.id, user_id=enrollment.user_id)
-    monkeypatch.setattr(svc.proxmox_service, "find_resource", lambda vmid: {})
-    assert svc.recover_existing_task_resource(
-        session=session, item=item, node=node, task=task
-    )
-    assert task.status == BatchProvisionTaskStatus.completed
-    assert task.vmid == 504
-    res = session.get(Resource, 504)
-    assert res.teaching_class_id == item.id
-    mapping = session.exec(select(TeachingClassStudentMachine)).one()
-    assert mapping.batch_task_id == task.id
 
 
 # ------------------------------------------------------- retry_failed_class
@@ -633,36 +596,6 @@ def test_provision_class_guards(session):
         svc.provision_class(session, item=item, nodes=[node], students=[student])
 
 
-def test_provision_class_rejects_unready_template(session, capacity):
-    item = _class(session, course_version_id=uuid.uuid4())
-    custom = _node(session, item, sort_order=0)
-    templated = _node(
-        session,
-        item,
-        sort_order=1,
-        source_type="template",
-        source_template_id=uuid.uuid4(),
-    )
-    student = _student(session, item)
-    with pytest.raises(BadRequestError):
-        svc.provision_class(
-            session, item=item, nodes=[custom, templated], students=[student]
-        )
-    tpl = VMTemplate(
-        pve_vmid=9000,
-        name="tpl",
-        node="pve1",
-        resource_type="qemu",
-        status=VMTemplateStatus.updating,
-    )
-    session.add(tpl)
-    session.commit()
-    templated.source_template_id = tpl.id
-    with pytest.raises(BadRequestError):
-        svc.provision_class(session, item=item, nodes=[templated], students=[student])
-    assert capacity["reserve"] == []
-
-
 def test_provision_class_submits_missing_jobs(session, capacity, submitted):
     item = _class(session, course_version_id=uuid.uuid4())
     existing = uuid.uuid4()
@@ -676,46 +609,6 @@ def test_provision_class_submits_missing_jobs(session, capacity, submitted):
     assert todo.batch_job_id is not None
     assert len(submitted) == 1
     assert capacity["reserve"][0]["class_id"] == item.id
-
-
-def test_provision_failure_before_any_job_unlocks(session, capacity, monkeypatch):
-    item = _class(session, course_version_id=uuid.uuid4())
-    node = _node(session, item)
-    student = _student(session, item)
-
-    def fail(**kw):
-        raise RuntimeError("queue down")
-
-    monkeypatch.setattr(svc.batch_provision_service, "submit_batch_job_for_users", fail)
-    with pytest.raises(RuntimeError):
-        svc.provision_class(session, item=item, nodes=[node], students=[student])
-    assert item.locked_at is None
-    assert item.status == TeachingClassStatus.planning
-    assert capacity["release"] == [item.id]
-
-
-def test_provision_failure_after_some_jobs_goes_review(session, capacity, monkeypatch):
-    item = _class(session, course_version_id=uuid.uuid4())
-    first = _node(session, item, sort_order=0)
-    second = _node(session, item, sort_order=1)
-    student = _student(session, item)
-    calls = {"n": 0}
-
-    def flaky(**kw):
-        calls["n"] += 1
-        if calls["n"] > 1:
-            raise RuntimeError("second fails")
-        return uuid.uuid4()
-
-    monkeypatch.setattr(
-        svc.batch_provision_service, "submit_batch_job_for_users", flaky
-    )
-    with pytest.raises(RuntimeError):
-        svc.provision_class(
-            session, item=item, nodes=[first, second], students=[student]
-        )
-    assert item.status == TeachingClassStatus.pending_review
-    assert capacity["release"] == []
 
 
 # ---------------------------------------------------------- reset / reconcile

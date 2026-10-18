@@ -1,0 +1,138 @@
+name: Docs Site
+
+# Builds the documentation site (website/) and deploys it to Cloudflare Pages.
+# The site contains all documentation of the repository and renders the
+# backend's OpenAPI schema, so backend changes trigger a build too. Pull requests get a preview deployment
+# (branch alias on *.pages.dev); pushes to main deploy production.
+#
+# Required repository secrets (deploy is skipped without them, the build still
+# runs as a check): CLOUDFLARE_API_TOKEN (Cloudflare Pages: Edit) and
+# CLOUDFLARE_ACCOUNT_ID. The Pages project is created on first deploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "backend/app/**"
+      - "backend/scripts/export_openapi.py"
+      - ".env.example"
+      - ".github/workflows/docs-site.yml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "backend/app/**"
+      - "backend/scripts/export_openapi.py"
+      - ".env.example"
+      - ".github/workflows/docs-site.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-site-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CLOUDFLARE_PAGES_PROJECT: skylab-docs
+
+jobs:
+  build-and-deploy:
+    name: build + deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The changelog page is generated from the full git history.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Sync backend dependencies
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Export OpenAPI schema
+        working-directory: backend
+        # The app is imported, not started; these values only satisfy the
+        # settings loader (see backend/scripts/export_openapi.py).
+        env:
+          SECRET_KEY: docs-build-secret-key-not-for-production-32
+          FIRST_SUPERUSER: admin@example.com
+          FIRST_SUPERUSER_PASSWORD: docs-build-password-not-for-production
+          EMAILS_FROM_EMAIL: noreply@example.com
+          ENVIRONMENT: local
+          PROJECT_NAME: SkyLab
+          POSTGRES_SERVER: localhost
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: unused
+          POSTGRES_DB: unused
+          REDIS_ENABLED: "false"
+          LOG_LEVEL: WARNING
+          LOG_JSON: "false"
+        run: uv run --no-sync python scripts/export_openapi.py ../website/public/openapi.json
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install site dependencies
+        working-directory: website
+        run: bun install --frozen-lockfile
+
+      - name: Build site
+        working-directory: website
+        run: bun run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site
+          path: website/.vitepress/dist
+          retention-days: 7
+
+      - name: Check Cloudflare credentials
+        id: cloudflare
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set; the site was built but not deployed."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        # Pull requests from forks have no access to secrets; the build above is their check.
+        if: >-
+          steps.cloudflare.outputs.configured == 'true' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy website/.vitepress/dist
+            --project-name=${{ env.CLOUDFLARE_PAGES_PROJECT }}
+            --branch=${{ github.head_ref || github.ref_name }}
+            --commit-hash=${{ github.sha }}
+            --commit-dirty=true
+
+      - name: Summary
+        if: steps.deploy.outcome == 'success'
+        run: |
+          echo "Deployed to: ${{ steps.deploy.outputs.deployment-url }}" >> "$GITHUB_STEP_SUMMARY"

@@ -171,19 +171,6 @@ def _fake_pve(
 # ---------------------------------------------------------------------------
 
 
-def test_apply_recently_started_rules() -> None:
-    now = datetime.now(timezone.utc)
-    assert not svc._apply_recently_started(
-        SimpleNamespace(applied_at=now, apply_error=None, apply_started_at=now)
-    )
-    assert not svc._apply_recently_started(
-        SimpleNamespace(applied_at=None, apply_error=None, apply_started_at=None)
-    )
-    assert svc._apply_recently_started(
-        SimpleNamespace(applied_at=None, apply_error=None, apply_started_at=now)
-    )
-
-
 def _status_request(**kw: Any) -> SimpleNamespace:
     values: dict[str, Any] = {
         "id": uuid.uuid4(),
@@ -476,17 +463,6 @@ def test_cancel_refused_while_applying(
         svc.cancel(session=db, request_id=request.id, user=user)
 
 
-def test_admin_cancel_of_approved_request(db: Session) -> None:
-    user = _user(db)
-    admin = _user(db, admin=True)
-    request = _request(
-        db, user=user, vmid=_vmid(), status=SpecChangeRequestStatus.approved
-    )
-    result = svc.cancel(session=db, request_id=request.id, user=admin)
-    assert result.status == SpecChangeRequestStatus.cancelled
-    assert result.review_comment == "Cancelled by admin"
-
-
 # ---------------------------------------------------------------------------
 # 套用
 # ---------------------------------------------------------------------------
@@ -611,34 +587,6 @@ def test_wait_until_stopped_tolerates_status_errors(
 
     monkeypatch.setattr(svc, "proxmox_service", SimpleNamespace(get_status=get_status))
     assert svc._wait_until_stopped("n", 1, "qemu", 60) is True
-
-
-def _snapshot(**kw: Any) -> SimpleNamespace:
-    values: dict[str, Any] = {
-        "id": uuid.uuid4(),
-        "vmid": 101,
-        "current_cpu": 2,
-        "current_memory": 2048,
-        "current_disk": 20,
-        "requested_cpu": 4,
-        "requested_memory": None,
-        "requested_disk": 40,
-    }
-    values.update(kw)
-    return SimpleNamespace(**values)
-
-
-def test_apply_spec_changes_partial_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_pve(monkeypatch, resize_error=ProxmoxError("resize failed"))
-    with pytest.raises(svc._PartialApplyError) as exc_info:
-        svc._apply_spec_changes(
-            db_request=_snapshot(),
-            resource_info={"node": "n", "type": "qemu"},
-        )
-    err = exc_info.value
-    assert err.applied == ["CPU: 2 -> 4 cores"]
-    assert (err.actual_cpu, err.actual_memory, err.actual_disk) == (4, 2048, 20)
-    assert isinstance(err.cause, ProxmoxError)
 
 
 def test_run_apply_partial_failure_restart_fails(

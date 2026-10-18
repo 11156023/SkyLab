@@ -5,7 +5,7 @@ no-ops and ``/metrics`` returns 503, so this module is safe to wire up
 unconditionally.
 
 只放「應用程式本身」的指標。Proxmox 節點／VM 的資源用量由 PVE 內建的
-Metric Server 直接推到 InfluxDB，不經過後端（見 docs/monitoring.md）。
+Metric Server 直接推到 InfluxDB，不經過後端（見 website/guides/monitoring.md）。
 
 ``/metrics`` 抓取前會先跑 ``register_collect_hook`` 註冊的非同步 hook，讓
 service 層把「抓取當下才有意義」的 gauge（佇列長度、DB/Redis 是否可用…）

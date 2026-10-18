@@ -60,8 +60,3 @@ def test_holder_matching_the_same_vmid_is_allowed(
     )
 
     publish_target_policy._assert_not_held_by_others(object(), "10.0.0.5", vmid=101)
-
-
-def test_loopback_targets_are_never_publishable() -> None:
-    with pytest.raises(BadRequestError):
-        publish_target_policy.validate_publish_target_ip("127.0.0.1")

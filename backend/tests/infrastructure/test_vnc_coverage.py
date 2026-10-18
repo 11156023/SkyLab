@@ -16,18 +16,10 @@ from app.infrastructure.vnc.handshake import (
 )
 from app.infrastructure.vnc.messages import (
     CLIENT_QEMU_TYPE,
-    MAX_CLIENT_BUFFER,
-    ClientMessageSplitter,
     RfbStreamError,
     _NeedMore,
     _Reader,
-    filter_client_bytes,
 )
-
-
-@pytest.fixture(scope="session")
-def _seed_first_superuser() -> None:
-    """純單元測試，不需要測試資料庫。"""
 
 
 class _Upstream:
@@ -100,43 +92,4 @@ def test_reader_u32_and_need_more() -> None:
         reader.u32()
 
 
-def test_client_splitter_pending_holds_partial_message() -> None:
-    splitter = ClientMessageSplitter()
-    assert splitter.feed(b"\x04\x01\x00") == []
-    assert splitter.pending == b"\x04\x01\x00"
-
-
-def test_client_splitter_buffer_overflow_clears_and_raises() -> None:
-    splitter = ClientMessageSplitter()
-    with pytest.raises(RfbStreamError, match="buffer exceeded"):
-        splitter.feed(b"\x06" + bytes(MAX_CLIENT_BUFFER))
-    assert splitter.pending == b""
-
-
 _QEMU_KEY = bytes([CLIENT_QEMU_TYPE, 0]) + bytes(10)
-
-
-def test_client_splitter_qemu_extended_key_event() -> None:
-    splitter = ClientMessageSplitter()
-    assert splitter.feed(_QEMU_KEY) == [(CLIENT_QEMU_TYPE, _QEMU_KEY)]
-
-
-def test_client_splitter_rejects_unknown_qemu_submessage() -> None:
-    splitter = ClientMessageSplitter()
-    with pytest.raises(RfbStreamError, match="unsupported QEMU client submessage 7"):
-        splitter.feed(bytes([CLIENT_QEMU_TYPE, 7]))
-
-
-def test_filter_client_bytes_drops_input_only_when_blocked() -> None:
-    key_event = b"\x04" + bytes(7)
-    update_request = b"\x03" + bytes(9)
-    data = key_event + _QEMU_KEY + update_request
-
-    assert filter_client_bytes(ClientMessageSplitter(), data, blocked=True) == [
-        update_request
-    ]
-    assert filter_client_bytes(ClientMessageSplitter(), data, blocked=False) == [
-        key_event,
-        _QEMU_KEY,
-        update_request,
-    ]

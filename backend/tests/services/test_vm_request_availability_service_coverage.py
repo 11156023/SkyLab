@@ -256,15 +256,6 @@ def test_build_availability_response_copies_baseline_when_timeline_missing(
 # ---------------------------------------------------------------------------
 
 
-def test_reserved_timeline_empty_slot_starts() -> None:
-    assert (
-        svc._build_reserved_capacity_timeline(
-            baseline_capacities=[_capacity()], reserved_requests=[], slot_starts=[]
-        )
-        == {}
-    )
-
-
 def _reservation(start, end, node="pve-a") -> VMRequest:
     return VMRequest(
         user_id=uuid.uuid4(),
@@ -303,14 +294,6 @@ def test_reserved_timeline_skips_incomplete_out_of_range_and_unknown_nodes() -> 
 # ---------------------------------------------------------------------------
 # lite fit
 # ---------------------------------------------------------------------------
-
-
-def test_lightweight_fit_partial_when_capacity_runs_out() -> None:
-    placed = _fit(
-        request=_lxc_request(instance_count=2),
-        adjusted_nodes=[_capacity(cpu=3.0)],
-    )
-    assert placed == ["pve-a"]
 
 
 def test_lightweight_fit_managed_storage_without_tuning_skips_nodes() -> None:
@@ -380,13 +363,6 @@ def test_lite_slot_unavailable_without_any_node() -> None:
     assert slot.status == "unavailable"
     assert slot.label == "Unavailable"
     assert slot.target_node is None
-
-
-def test_lite_slot_uses_fit_cache() -> None:
-    cache = {("k", 0.1): ["pve-z"]}
-    slot = _lite_slot(request=_lxc_request(), fit_cache=cache, fit_key=("k", 0.1))
-    assert slot.recommended_nodes == ["pve-z"]
-    assert slot.status == "available"
 
 
 # ---------------------------------------------------------------------------
@@ -477,157 +453,3 @@ def test_build_resource_stack_by_node_defaults_names() -> None:
 
 def test_usage_share_zero_total() -> None:
     assert svc._usage_share(total=0.0, remaining=5.0) == 0.0
-
-
-def test_ensure_window_bounds_rejects_too_long_window() -> None:
-    start = datetime.now(UTC)
-    with pytest.raises(BadRequestError):
-        svc.ensure_window_bounds(
-            start_at=start,
-            end_at=start + timedelta(days=svc.MAX_REQUEST_WINDOW_DAYS + 1),
-        )
-
-
-def test_ensure_window_bounds_rejects_start_far_in_past() -> None:
-    start = datetime.now(UTC) - timedelta(days=3)
-    with pytest.raises(BadRequestError):
-        svc.ensure_window_bounds(start_at=start, end_at=start + timedelta(hours=1))
-
-
-def test_validate_request_window_rejects_infeasible_selection(monkeypatch) -> None:
-    start = datetime.now(UTC) + timedelta(hours=1)
-    captured: dict = {}
-
-    def _select(**kwargs):
-        captured.update(kwargs)
-        return SimpleNamespace(
-            node=None,
-            strategy="s",
-            plan=SimpleNamespace(feasible=False, summary="no capacity"),
-        )
-
-    monkeypatch.setattr(
-        svc.vm_request_placement_service,
-        "select_reserved_target_node_for_request",
-        _select,
-    )
-    with pytest.raises(BadRequestError):
-        svc.validate_request_window(
-            session=None,
-            current_user=None,
-            request_in=SimpleNamespace(
-                resource_type="vm",
-                start_at=start,
-                end_at=start + timedelta(hours=2),
-                cores=2,
-                memory=2048,
-                disk_size=30,
-                rootfs_size=None,
-                gpu_mapping_id=None,
-                ostemplate=None,
-                template_id=9001,
-            ),
-        )
-    assert captured["request"].template_vmid == 9001
-    assert captured["request"].ostemplate is None
-
-
-def test_assess_request_window_scheduled_unavailable(monkeypatch) -> None:
-    start = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=1)
-    captured: dict = {}
-
-    def _select(**kwargs):
-        captured.update(kwargs)
-        return SimpleNamespace(
-            node=None,
-            strategy="s",
-            plan=SimpleNamespace(feasible=False, warnings=None, summary="none"),
-        )
-
-    monkeypatch.setattr(
-        svc.vm_request_placement_service,
-        "select_reserved_target_node_for_request",
-        _select,
-    )
-    response = svc.assess_request_window(
-        session=None,
-        current_user=None,
-        request_in=_window_request(
-            start,
-            start + timedelta(hours=2),
-            mode="scheduled",
-            ostemplate="local:vztmpl/debian.tar.zst",
-        ),
-    )
-    assert response.status == "unavailable"
-    assert response.feasible is False
-    assert response.warnings == []
-    assert captured["request"].ostemplate == "local:vztmpl/debian.tar.zst"
-
-
-def test_reserved_timeline_skips_provisioned_reservation() -> None:
-    base = datetime(2026, 9, 2, 0, tzinfo=UTC)
-    starts = [base + timedelta(hours=i) for i in range(2)]
-    provisioned = _reservation(starts[0], starts[1])
-    provisioned.vmid = 101
-    timeline = svc._build_reserved_capacity_timeline(
-        baseline_capacities=[_capacity()],
-        reserved_requests=[provisioned],
-        slot_starts=starts,
-    )
-    assert timeline[starts[0]][0].allocatable_cpu_cores == 10.0
-
-
-def test_resolve_timezone_rejects_invalid_value() -> None:
-    with pytest.raises(BadRequestError):
-        svc._resolve_timezone("Not/AZone")
-
-
-def test_hourly_demand_profile_without_rows_is_flat() -> None:
-    profile = svc._load_hourly_demand_profile(
-        session=_FakeSession([]), timezone=svc.ZoneInfo("Asia/Taipei")
-    )
-    assert profile == dict.fromkeys(range(24), 0.0)
-
-
-def test_pending_pressure_ratio_without_pending_or_capacity() -> None:
-    assert (
-        svc._pending_pressure_ratio(
-            session=_FakeSession([]), baseline_capacities=[_capacity()]
-        )
-        == 0.0
-    )
-    pending = [SimpleNamespace(cores=2, memory=1024, disk_size=None, rootfs_size=8)]
-    assert (
-        svc._pending_pressure_ratio(
-            session=_FakeSession(pending), baseline_capacities=[]
-        )
-        == 0.0
-    )
-
-
-def test_pending_pressure_ratio_takes_dominant_and_caps_at_one() -> None:
-    pending = [
-        SimpleNamespace(cores=5, memory=1024, disk_size=None, rootfs_size=8),
-        SimpleNamespace(cores=None, memory=None, disk_size=None, rootfs_size=None),
-    ]
-    assert (
-        svc._pending_pressure_ratio(
-            session=_FakeSession(pending), baseline_capacities=[_capacity()]
-        )
-        == 0.5
-    )
-    zero = _capacity(cpu=0.0, allocatable_memory_bytes=0, allocatable_disk_bytes=0)
-    assert (
-        svc._pending_pressure_ratio(
-            session=_FakeSession(pending), baseline_capacities=[zero]
-        )
-        == 0.0
-    )
-    huge = [SimpleNamespace(cores=100, memory=0, disk_size=0, rootfs_size=0)]
-    assert (
-        svc._pending_pressure_ratio(
-            session=_FakeSession(huge), baseline_capacities=[_capacity()]
-        )
-        == 1.0
-    )

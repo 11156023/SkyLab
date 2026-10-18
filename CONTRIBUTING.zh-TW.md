@@ -2,18 +2,18 @@
 
 > [English](./CONTRIBUTING.md) | **繁體中文**
 
-感謝你願意投入時間貢獻。本頁說明專案的基本規範；開發環境的建置請見 [`docs/development.zh-TW.md`](docs/development.zh-TW.md)。
+感謝你願意投入時間貢獻。本頁說明專案的基本規範；開發環境的建置請見 [`website/zh-TW/guides/development.md`](website/zh-TW/guides/development.md)。
 
 ## 開始之前
 
 - **錯誤回報與小修正**（錯字、lint 警告、附測試的可重現 bug）可以直接開 pull request。
 - **較大的變更**（新功能、schema 變更、任何動到建置、網路或認證的改動）請先開 GitHub issue 說明問題與預計做法，先對設計取得共識再投入時間。
-- 這套平台實際部署在教室裡。會改變既有行為的變更（預設值、API 回應、閘道規則）需要提供升級路徑，並在 `docs/` 對應文件補上說明。
+- 這套平台實際部署在教室裡。會改變既有行為的變更（預設值、API 回應、閘道規則）需要提供升級路徑，並在 `website/` 對應文件補上說明。
 
 ## 開發流程
 
 1. Fork 本 repo，從 `main` 開分支。
-2. 依 [`docs/development.zh-TW.md`](docs/development.zh-TW.md) 建好環境。
+2. 依 [`website/zh-TW/guides/development.md`](website/zh-TW/guides/development.md) 建好環境。
 3. 進行修改，並遵守架構規則：
    - 後端採 **Routes → Services → Infrastructure** 分層。Route 是薄控制器，業務邏輯放 `services/`，外部系統（Proxmox、SSH、Redis、LLM）只在 `infrastructure/` 呼叫。
    - DB 資料表放 `backend/app/models/`，API schema 放 `backend/app/schemas/`，不要混用。
@@ -42,7 +42,7 @@
 - 一個 PR 只做一件事。重構與行為變更分開送。
 - 說明改了什麼、為什麼改，並連結相關 issue。
 - 行為變更要補或更新測試。後端測試在 `backend/tests/`，前端 service 測試與 service 檔放在一起。
-- 變更設定、部署步驟或維運流程時，同步更新 `docs/` 的文件。英文版是主要版本；有 `*.zh-TW.md` 對應檔時請一起更新。
+- 變更設定、部署步驟或維運流程時，同步更新 `website/` 的文件。英文版是主要版本；有 `*.zh-TW.md` 對應檔時請一起更新。
 - CI 必須通過（後端測試、前端測試、桌面端測試、AI service 測試、migration 檢查、CodeQL）。
 
 ## 貢獻的授權

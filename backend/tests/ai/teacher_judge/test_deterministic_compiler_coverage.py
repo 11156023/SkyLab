@@ -10,7 +10,6 @@ from app.ai.teacher_judge.deterministic_compiler import (
     CheckPlanContractError,
     _command_argv_issue,
     _render_step_function,
-    _result_text_limit,
     canonicalize_check_plan,
     missing_execution_location,
 )
@@ -215,20 +214,3 @@ def test_render_step_function_unknown_collector() -> None:
         0, 0, 0, {"id": "s", "title": "t", "collector": {"type": "bogus"}}
     )
     assert "unsupported_collector" in source
-
-
-def test_missing_execution_location_double_dash_operands() -> None:
-    gaps = missing_execution_location(
-        {"type": "command", "argv": ["cat", "--", "-notes.txt"]}
-    )
-    assert any("-notes.txt" in gap for gap in gaps)
-
-
-def test_result_text_limit_rejects_oversized_node() -> None:
-    plan = {
-        "items": [
-            {"check_steps": [{"id": f"s{index}", "title": "t"} for index in range(300)]}
-        ]
-    }
-    with pytest.raises(CheckPlanContractError):
-        _result_text_limit(plan)

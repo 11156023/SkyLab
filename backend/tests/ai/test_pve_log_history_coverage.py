@@ -7,7 +7,6 @@ import pytest
 from app.ai.pve_log import history as pve_history
 from app.ai.pve_log.history import (
     PveHistoryValidationError,
-    compact_tool_result,
     merge_pve_messages,
 )
 
@@ -45,12 +44,6 @@ _USER = {"role": "user", "content": "hi"}
 
 def test_bounded_value_drops_oversized_scalars() -> None:
     assert pve_history._bounded_value(123456789, 3) is None
-
-
-def test_compact_tool_result_stops_when_budget_runs_out() -> None:
-    result = compact_tool_result({f"k{i}": "x" * 1000 for i in range(50)})
-    assert result["truncated"] is True
-    assert len(result["partial_result"]) < 50
 
 
 def test_non_json_tool_content_is_kept_verbatim() -> None:

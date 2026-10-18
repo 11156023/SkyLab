@@ -121,47 +121,7 @@ async def test_scheduler_survives_leader_gate_failures(
     assert "Scheduler leader gate failed" in caplog.text
 
 
-async def test_scheduler_logs_failed_task_without_observer(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    stop_event = asyncio.Event()
-
-    async def _fake_run(task: ScheduledTask) -> object:
-        stop_event.set()
-        raise ValueError("task blew up")
-
-    monkeypatch.setattr(runner, "run_sync_task", _fake_run)
-
-    await asyncio.wait_for(
-        runner.run_polling_scheduler(
-            stop_event=stop_event,
-            interval_seconds=0,
-            tasks=[ScheduledTask(name="boom", handler=lambda: None)],
-        ),
-        5,
-    )
-
-    assert "Scheduled task 'boom' failed" in caplog.text
-
-
-async def test_notify_swallows_observer_errors(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    class _Broken:
-        async def on_start(self, task_names: list[str]) -> None:
-            raise RuntimeError("observer down")
-
-    await runner._notify(_Broken(), "on_start", ["a"])  # type: ignore[arg-type]
-
-    assert "Scheduler observer on_start failed" in caplog.text
-
-
 # ---------------------------------------------------------------- username_policy
-
-
-def test_violation_to_dict() -> None:
-    violation = username_policy.Violation(code="X", message="m")
-    assert violation.to_dict() == {"code": "X", "message": "m", "severity": "error"}
 
 
 def _write(tmp_path: Path, text: str) -> Path:

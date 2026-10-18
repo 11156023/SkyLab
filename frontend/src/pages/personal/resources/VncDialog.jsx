@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { VncScreen } from "react-vnc";
 import { AuthStorage } from "../../../services/auth";
 import { useAuth } from "../../../contexts/AuthContext";
 import { recordMachineUse } from "../../../services/recentMachines";
 import { ResourcesService } from "../../../services/resources";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
+import NoVncScreen from "../../../components/NoVncScreen/NoVncScreen";
 import { useClassroomTakeover } from "../../../components/Classroom/ClassroomStudentLayer";
 import useConsoleKeyboard, { isKeyboardLockSupported } from "../../../hooks/useConsoleKeyboard";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -123,7 +123,7 @@ export default function VncDialog({ resource, onClose }) {
     closeTimerRef.current = window.setTimeout(onClose, 150);
   }
 
-  /* noVNC 在連線時就把監聽器抓走，之後不會再更新，所以這個回呼必須是穩定的 */
+  /* 機器內複製的文字回填到剪貼簿面板 */
   const handleGuestClipboard = useCallback((event) => {
     const text = event?.detail?.text;
     if (typeof text !== "string") return;
@@ -146,11 +146,18 @@ export default function VncDialog({ resource, onClose }) {
     if (!clipboardText) return;
     vncRef.current?.clipboardPaste?.(clipboardText);
     setClipboardSent(true);
+    /* 送進機器剪貼簿後下一步是在機器裡貼上，焦點直接還給遠端畫面 */
+    vncRef.current?.focus?.();
   }
 
   function toggleFullscreen(containerEl) {
     if (!document.fullscreenElement) containerEl?.requestFullscreen?.();
     else document.exitFullscreen?.();
+  }
+
+  /* 工具列按鈕用滑鼠按時不搶走遠端畫面的鍵盤焦點：按完直接繼續打字，不必再點畫面 */
+  function keepScreenFocus(event) {
+    event.preventDefault();
   }
 
   return (
@@ -174,7 +181,7 @@ export default function VncDialog({ resource, onClose }) {
         </span>
         {connected && (
           <>
-            <button type="button" className={styles.headerBtn} title="Ctrl+Alt+Del" onClick={() => vncRef.current?.sendCtrlAltDel?.()}>
+            <button type="button" className={styles.headerBtn} title="Ctrl+Alt+Del" onMouseDown={keepScreenFocus} onClick={() => vncRef.current?.sendCtrlAltDel?.()}>
               <MIcon name="keyboard" size={16} />
               <span style={{ fontSize: 11 }}>Ctrl+Alt+Del</span>
             </button>
@@ -184,6 +191,7 @@ export default function VncDialog({ resource, onClose }) {
               className={`${styles.headerBtn} ${clipboardOpen ? styles.headerBtnActive : ""}`}
               title={t("VncDialog.clipboard")}
               aria-expanded={clipboardOpen}
+              onMouseDown={keepScreenFocus}
               onClick={() => setClipboardOpen((open) => !open)}
             >
               <MIcon name="content_paste" size={16} />
@@ -191,7 +199,7 @@ export default function VncDialog({ resource, onClose }) {
             </button>
           </>
         )}
-        <button type="button" className={styles.headerBtn} title={isFullscreen ? t("VncDialog.exitFullscreen") : t(isKeyboardLockSupported() ? "VncDialog.fullscreenKeyboardHint" : "VncDialog.fullscreen")} onClick={() => toggleFullscreen(dialogRef.current)}>
+        <button type="button" className={styles.headerBtn} title={isFullscreen ? t("VncDialog.exitFullscreen") : t(isKeyboardLockSupported() ? "VncDialog.fullscreenKeyboardHint" : "VncDialog.fullscreen")} onMouseDown={keepScreenFocus} onClick={() => toggleFullscreen(dialogRef.current)}>
           <MIcon name={isFullscreen ? "fullscreen_exit" : "fullscreen"} size={16} />
         </button>
         <button type="button" className={styles.closeBtn} onClick={handleClose} aria-label={t("Modal.close", { ns: "common" })}>
@@ -249,20 +257,12 @@ export default function VncDialog({ resource, onClose }) {
           )}
           {/* 鍵盤接管的範圍只到遠端畫面，剪貼簿面板的文字框照常可用瀏覽器快捷鍵 */}
           <div ref={surfaceRef} className={styles.vncSurface}>
-            <VncScreen
+            <NoVncScreen
               ref={vncRef}
               url={wsUrl}
-              rfbOptions={{
-                credentials: {
-                  username: "",
-                  password: vncTicket,
-                  target: "",
-                },
-              }}
+              password={vncTicket}
               style={{ width: "100%", height: "100%" }}
-              /* react-vnc 只在滑鼠「移進」畫面時給焦點；對話框開在游標底下不會觸發，
-                 連上前移進來也因為還沒有 RFB 而無效，所以連上就主動給焦點，點畫面也會拿回焦點 */
-              focusOnClick
+              /* 對話框常開在游標底下，連上就主動給焦點；之後點畫面拿焦點，游標離開不收回 */
               onConnect={() => {
                 if (!mountedRef.current) return;
                 setConnected(true);

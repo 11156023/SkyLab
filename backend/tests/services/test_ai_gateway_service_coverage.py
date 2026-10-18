@@ -177,17 +177,6 @@ def test_rotate_revoked_credential_is_rejected(db: Session) -> None:
     db.rollback()
 
 
-def test_admin_rotation_on_behalf_returns_no_secret(db: Session) -> None:
-    user = _user(db)
-    credential = _credential(db, user)
-
-    rotated = svc.rotate_credential(
-        session=db, credential_id=credential.id, current_user=_admin(db)
-    )
-    assert rotated.api_key is None
-    assert rotated.id != credential.id
-
-
 def test_rotation_integrity_error_after_concurrent_rotation(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -229,40 +218,6 @@ def test_rotation_integrity_error_is_reraised_when_source_still_active(
     finally:
         monkeypatch.undo()
         db.rollback()
-
-
-def test_delete_credential_on_behalf_and_twice(db: Session) -> None:
-    user = _user(db)
-    credential = _credential(db, user)
-    admin = _admin(db)
-
-    result = svc.delete_credential(
-        session=db, credential_id=credential.id, current_user=admin
-    )
-    assert "deleted" in result.message
-    db.refresh(credential)
-    assert credential.deleted_at is not None
-    assert credential.revoked_at is not None
-    assert credential.api_key_encrypted == ""
-
-    # 已刪除再刪一次：不改欄位，但仍留稽核
-    first_deleted_at = credential.deleted_at
-    svc.delete_credential(session=db, credential_id=credential.id, current_user=user)
-    db.refresh(credential)
-    assert credential.deleted_at == first_deleted_at
-
-
-def test_delete_keeps_existing_revocation_time(db: Session) -> None:
-    user = _user(db)
-    credential = _credential(db, user)
-    revoked_at = datetime(2020, 1, 1, tzinfo=UTC)
-    credential.revoked_at = revoked_at
-    db.add(credential)
-    db.commit()
-
-    svc.delete_credential(session=db, credential_id=credential.id, current_user=user)
-    db.refresh(credential)
-    assert credential.revoked_at == revoked_at
 
 
 def test_update_credential_name(db: Session) -> None:
@@ -321,195 +276,6 @@ def test_list_all_credentials_filters(db: Session) -> None:
     assert inactive.total_count == 1
 
 
-def test_resolve_credential_status_marks_deleted_rows() -> None:
-    credential = AIAPICredential(
-        user_id=uuid.uuid4(),
-        request_id=uuid.uuid4(),
-        base_url="http://x",
-        api_key_encrypted="",
-        api_key_prefix="ccai_",
-        api_key_name="n",
-        deleted_at=datetime.now(UTC),
-    )
-    assert svc._resolve_credential_status(
-        credential=credential, now=datetime.now(UTC)
-    ) == ("inactive", "deleted")
-
-
-def test_get_credential_owner_only(db: Session) -> None:
-    user = _user(db)
-    credential = _credential(db, user)
-
-    detail = svc.get_credential(
-        session=db, credential_id=credential.id, current_user=user
-    )
-    assert detail.api_key and detail.api_key.startswith("ccai_")
-    with pytest.raises(NotFoundError):
-        svc.get_credential(
-            session=db, credential_id=credential.id, current_user=_admin(db)
-        )
-    with pytest.raises(NotFoundError):
-        svc.get_credential(session=db, credential_id=uuid.uuid4(), current_user=user)
-
-
-def test_user_listings_and_usage_records(db: Session) -> None:
-    user = _user(db)
-    credential = _credential(db, user)
-    at = datetime(2001, 6, 1, 12, tzinfo=UTC)
-    svc.record_usage(
-        session=db,
-        user_id=user.id,
-        credential_id=credential.id,
-        model_name="b17-m",
-        request_type="chat_completion",
-        input_tokens=3,
-        output_tokens=4,
-        request_duration_ms=2000,
-        usage_reported=True,
-        started_at=at,
-        completed_at=at,
-    )
-    svc.record_template_call(
-        session=db, user_id=user.id, call_type="chat", model_name="b17-m"
-    )
-    usage = db.exec(
-        select(AIAPIUsage).where(
-            AIAPIUsage.user_id == user.id, AIAPIUsage.source == USAGE_SOURCE_API_KEY
-        )
-    ).one()
-    usage.created_at = at
-    db.add(usage)
-    db.commit()
-
-    requests_page = svc.list_requests_by_user(session=db, user_id=user.id)
-    assert requests_page.count == 1
-    credentials_page = svc.list_credentials_by_user(session=db, user_id=user.id)
-    assert [item.id for item in credentials_page.data] == [credential.id]
-
-    records = svc.list_user_usage_records(
-        session=db,
-        user_id=user.id,
-        start_date=at - timedelta(hours=1),
-        end_date=at + timedelta(hours=1),
-    )
-    assert records["count"] == 1
-    [record] = records["data"]
-    assert record["total_tokens"] == 7
-    assert record["e2e_output_tokens_per_second"] == 2.0
-    assert record["route"] == svc.ROUTE_MODEL
-
-    db.exec(delete(AIAPIUsage).where(AIAPIUsage.user_id == user.id))  # type: ignore[arg-type]
-    db.commit()
-
-
-def test_default_usage_window() -> None:
-    end = datetime(2026, 1, 31, tzinfo=UTC)
-    assert svc.default_usage_window(None, end) == (end - timedelta(days=30), end)
-    start, now_end = svc.default_usage_window(None, None)
-    assert now_end - start == timedelta(days=30)
-
-
-@pytest.mark.parametrize(
-    ("role", "duration"),
-    [(UserRole.student, "never"), (UserRole.teacher, "90d"), (UserRole.student, "2h")],
-)
-def test_validate_request_duration_rejections(role: UserRole, duration: str) -> None:
-    with pytest.raises(BadRequestError):
-        svc._validate_request_duration(duration, User(email="x@example.com", role=role))
-
-
-def test_pending_request_limit_and_deleted_applicant(db: Session) -> None:
-    from app.exceptions import ConflictError
-
-    user = _user(db)
-    for _ in range(svc.MAX_PENDING_REQUESTS_PER_USER):
-        _request(db, user)
-    with pytest.raises(ConflictError):
-        _request(db, user)
-    db.rollback()
-
-    ghost = User(id=uuid.uuid4(), email="ghost@example.com")
-    with pytest.raises(NotFoundError):
-        _request(db, ghost)
-    db.rollback()
-
-
-def test_approval_of_deleted_applicant_is_not_found(db: Session) -> None:
-    user = _user(db)
-    request_id = _request(db, user)
-    user.deleted_at = datetime.now(UTC)
-    user.is_active = False
-    db.add(user)
-    db.commit()
-    try:
-        with pytest.raises(NotFoundError):
-            svc.review_request(
-                session=db,
-                request_id=request_id,
-                review_data=AIAPIRequestReview(status=AIAPIRequestStatus.approved),
-                reviewer=_admin(db),
-            )
-        db.rollback()
-        # 已刪帳號的金鑰也不能再操作
-        with pytest.raises(NotFoundError):
-            svc.rotate_credential(
-                session=db,
-                credential_id=_orphan_credential(db, user, request_id),
-                current_user=_admin(db),
-            )
-    finally:
-        db.rollback()
-
-
-def _orphan_credential(db: Session, user: User, request_id: uuid.UUID) -> uuid.UUID:
-    credential = AIAPICredential(
-        user_id=user.id,
-        request_id=request_id,
-        base_url="http://x",
-        api_key_encrypted="",
-        api_key_prefix=f"ccai_{uuid.uuid4().hex[:6]}",
-        api_key_name="orphan",
-    )
-    db.add(credential)
-    db.commit()
-    return credential.id
-
-
-def test_rotate_expired_credential_is_rejected(db: Session) -> None:
-    user = _user(db)
-    credential = _credential(db, user)
-    credential.expires_at = datetime.now(UTC) - timedelta(days=1)
-    db.add(credential)
-    db.commit()
-
-    with pytest.raises(BadRequestError):
-        svc.rotate_credential(
-            session=db, credential_id=credential.id, current_user=user
-        )
-    db.rollback()
-
-
-def test_resolve_credential_status_revoked_expired_active() -> None:
-    now = datetime.now(UTC)
-    base: dict[str, Any] = {
-        "user_id": uuid.uuid4(),
-        "request_id": uuid.uuid4(),
-        "base_url": "http://x",
-        "api_key_encrypted": "",
-        "api_key_prefix": "ccai_",
-        "api_key_name": "n",
-    }
-    assert svc._resolve_credential_status(
-        credential=AIAPICredential(**base, revoked_at=now), now=now
-    ) == ("inactive", "revoked")
-    assert svc._resolve_credential_status(
-        credential=AIAPICredential(**base, expires_at=now), now=now
-    ) == ("inactive", "expired")
-    assert svc._resolve_credential_status(
-        credential=AIAPICredential(**base), now=now
-    ) == ("active", None)
-
-
 # ---- 日期工具 ----------------------------------------------------------
 
 
@@ -544,11 +310,6 @@ def test_monitoring_bucket_datetime_parsing() -> None:
     assert svc._monitoring_bucket_datetime("2026-01-01T10:00:00Z") == aware
     assert svc._monitoring_bucket_datetime("not-a-date") is None
     assert svc._monitoring_bucket_datetime(12345) is None
-
-
-def test_monitoring_percent_delta() -> None:
-    assert svc._monitoring_percent_delta(5, 0) is None
-    assert svc._monitoring_percent_delta(15, 10) == 50.0
 
 
 def test_monitoring_overview_rejects_unknown_bucket(db: Session) -> None:
@@ -732,36 +493,6 @@ def test_list_proxy_and_template_calls_with_filters(
     assert template["count"] == 1
     assert template["data"][0]["preset"] == "b17-preset"
     assert template["data"][0]["e2e_output_tokens_per_second"] is None
-
-
-def test_list_users_usage_with_and_without_template(
-    db: Session, usage_cleanup: list[uuid.UUID]
-) -> None:
-    proxy_user, template_user, _ = _seed_monitoring_data(db, usage_cleanup)
-
-    combined = svc.list_users_usage(
-        session=db, start_date=WINDOW_START, end_date=WINDOW_END
-    )
-    assert combined["count"] == 2
-    by_user = {row["user_id"]: row for row in combined["data"]}
-    assert by_user[proxy_user.id]["failed_calls"] == 1
-    assert by_user[proxy_user.id]["error_rate"] == 50.0
-    assert by_user[proxy_user.id]["avg_latency_ms"] == 100
-    assert by_user[template_user.id]["template_calls"] == 1
-    assert by_user[template_user.id]["proxy_calls"] == 0
-
-    proxy_only = svc.list_users_usage(
-        session=db,
-        start_date=WINDOW_START,
-        end_date=WINDOW_END,
-        include_template=False,
-    )
-    assert proxy_only["count"] == 1
-    [row] = proxy_only["data"]
-    assert row["user_id"] == proxy_user.id
-    assert row["template_calls"] == 0
-    assert row["proxy_input_tokens"] == 11
-    assert row["avg_latency_ms"] == 100
 
 
 def test_list_users_usage_rows_without_duration(

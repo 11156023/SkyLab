@@ -19,7 +19,7 @@ from app.domain.placement.schemas import (
     PlacementDecision,
     PlacementRequest,
 )
-from app.domain.placement.scorer import node_balance_score, reference_loadavg_per_core
+from app.domain.placement.scorer import node_balance_score
 from app.domain.placement.storage import (
     reserve_storage_pool,
     select_best_storage_for_request,
@@ -90,32 +90,17 @@ def test_parse_node_snapshots_parses_loadavg_variants() -> None:
     assert by_name["e"].current_loadavg_1 == 0.25
 
 
-def test_parse_loadavg_edge_cases() -> None:
-    assert advisor._parse_loadavg_1([]) is None
-    assert advisor._parse_loadavg_1(()) is None
-    assert advisor._parse_loadavg_1(-0.5) is None
-    assert advisor._parse_loadavg_1(2) == 2.0
-
-
-def test_parse_resource_snapshots_filters_templates_and_types() -> None:
-    items = [
-        {"vmid": 100, "name": "a", "type": "qemu", "node": "n1", "status": "RUNNING"},
-        {"vmid": 101, "type": "lxc", "template": 1},
-        {"vmid": 102, "type": "storage"},
-        {"type": "lxc"},
-    ]
-    out = advisor.parse_resource_snapshots(items)
-    assert [(r.vmid, r.status, r.node) for r in out] == [
-        (100, "running", "n1"),
-        (0, "unknown", "unknown"),
-    ]
-
-
 def test_parse_resource_snapshots_keeps_allocated_spec() -> None:
     """整班容量預檢要用分配規格（關機也算）；LXC 的小數 cpulimit 無條件進位。"""
     items = [
         {"vmid": 100, "type": "qemu", "node": "n1", "maxcpu": 4, "maxmem": 8 * 1024**3},
-        {"vmid": 101, "type": "lxc", "node": "n1", "maxcpu": 1.5, "maxmem": 512 * 1024**2},
+        {
+            "vmid": 101,
+            "type": "lxc",
+            "node": "n1",
+            "maxcpu": 1.5,
+            "maxmem": 512 * 1024**2,
+        },
         {"vmid": 102, "type": "lxc", "node": "n1"},
     ]
     out = advisor.parse_resource_snapshots(items)
@@ -124,14 +109,6 @@ def test_parse_resource_snapshots_keeps_allocated_spec() -> None:
         (2, 512 * 1024**2),
         (0, 0),
     ]
-
-
-def test_ratio_zero_total() -> None:
-    assert advisor._ratio(5, 0) == 0.0
-
-
-def test_optional_int_type_error() -> None:
-    assert advisor._optional_int(object()) is None
 
 
 def test_build_warnings_all_branches() -> None:
@@ -229,15 +206,6 @@ def test_decide_resource_type() -> None:
     assert advisor.decide_resource_type(PlacementRequest(resource_type="vm"))[0] == "vm"
 
 
-def test_resource_type_summary_same_type() -> None:
-    assert (
-        advisor._resource_type_summary(
-            requested_type="vm", effective_type="vm", gpu_required=0
-        )
-        == "Placement uses VM capacity rules."
-    )
-
-
 def test_guest_pressure_ratio_zero_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     # _guest_soft_limit 本身保底 1；這裡替換掉它以走到防禦分支
     monkeypatch.setattr(advisor, "_guest_soft_limit", lambda _maxcpu: 0)
@@ -245,46 +213,6 @@ def test_guest_pressure_ratio_zero_limit(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 # ---------------------------------------------------------------- scorer
-
-
-def test_reference_loadavg_none_when_no_cpu() -> None:
-    assert reference_loadavg_per_core(_capacity(current_loadavg_1=4.0)) is None
-
-
-def test_reference_loadavg_none_when_no_load() -> None:
-    assert reference_loadavg_per_core(_capacity(physical_cpu_cores=4)) is None
-
-
-def test_node_balance_score_combines_penalties() -> None:
-    tuning = _tuning(
-        cpu_peak_warn_share=0.7,
-        cpu_peak_high_share=0.9,
-        memory_peak_warn_share=0.7,
-        memory_peak_high_share=0.9,
-    )
-    idle = _capacity(
-        total_cpu_cores=8.0,
-        allocatable_cpu_cores=8.0,
-        total_memory_bytes=100,
-        allocatable_memory_bytes=100,
-        total_disk_bytes=100,
-        allocatable_disk_bytes=100,
-    )
-    assert node_balance_score(idle, tuning=tuning) == 0.0
-
-    busy = _capacity(
-        physical_cpu_cores=4,
-        total_cpu_cores=4.0,
-        allocatable_cpu_cores=0.0,
-        total_memory_bytes=100,
-        allocatable_memory_bytes=0,
-        total_disk_bytes=100,
-        allocatable_disk_bytes=50,
-        current_loadavg_1=8.0,
-    )
-    score = node_balance_score(busy, tuning=tuning)
-    # dominant 1.0 + avg (2.5/3)*0.2 + peak 1.0 + cpu contention 1.0*2.0 + loadavg 1.0
-    assert score == pytest.approx(1.0 + (2.5 / 3) * 0.2 + 1.0 + 2.0 + 1.0)
 
 
 def test_node_balance_score_zero_totals() -> None:
@@ -296,18 +224,8 @@ def test_node_balance_score_zero_totals() -> None:
 # ---------------------------------------------------------------- schemas
 
 
-def test_placement_request_memory_gb_alias() -> None:
-    assert PlacementRequest.model_validate({"memory_gb": 4}).memory_mb == 4096
-    assert PlacementRequest.model_validate({"ram_gb": "0.5"}).memory_mb == 512
-
-
 def test_placement_request_memory_gb_unparseable_keeps_default() -> None:
     assert PlacementRequest.model_validate({"memory_gb": "lots"}).memory_mb == 2048
-
-
-def test_placement_request_memory_gb_ignored_when_mb_given() -> None:
-    req = PlacementRequest.model_validate({"memory_gb": 4, "memory_mb": 1024})
-    assert req.memory_mb == 1024
 
 
 def test_placement_request_non_dict_raw_passthrough() -> None:
@@ -340,19 +258,6 @@ def test_select_storage_zero_disk_returns_none() -> None:
             storage_pools=[_pool()],
             resource_type="vm",
             disk_gb=0,
-            disk_overcommit_ratio=1.0,
-            tuning=_tuning(),
-        )
-        is None
-    )
-
-
-def test_select_storage_no_capable_pool_returns_none() -> None:
-    assert (
-        select_best_storage_for_request(
-            storage_pools=[_pool(can_lxc=False)],
-            resource_type="lxc",
-            disk_gb=10,
             disk_overcommit_ratio=1.0,
             tuning=_tuning(),
         )

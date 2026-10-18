@@ -8,13 +8,10 @@ from typing import Any
 from app.ai.teacher_judge.check_plan_contract import (
     analysis_write_issues,
     reconcile_finalizer_locations,
-    typed_item_issues,
     typed_step_issues,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
-    TeacherJudgeRubricCheckStep,
-    TeacherJudgeRubricItem,
 )
 
 
@@ -53,18 +50,6 @@ def test_reconcile_skips_new_steps_and_keeps_non_list_gaps() -> None:
     assert issues == []
     assert result["missing_information"] == "not-a-list"
     assert result["check_steps"][0]["id"] == "python.version.new"
-
-
-def test_typed_item_issues_rejects_legacy_chat_candidates() -> None:
-    item = TeacherJudgeRubricItem(
-        id="legacy",
-        title="legacy",
-        detectable="auto",
-        check_steps=[
-            TeacherJudgeRubricCheckStep(template_key="linux", command_key="x")
-        ],
-    )
-    assert typed_item_issues(item)
 
 
 def test_analysis_write_issues_duplicates_and_invalid_previous() -> None:

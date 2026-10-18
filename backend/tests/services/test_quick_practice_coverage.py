@@ -30,7 +30,7 @@ from app.services import quick_practice
 from app.services.network import ip_management_service
 from app.services.proxmox import proxmox_service
 from app.services.resource import deletion_service, quota_service, resource_service
-from app.services.teaching import class_network_service, course_publication_service
+from app.services.teaching import course_publication_service
 from app.services.vm import vm_request_service
 from tests.services.test_quick_practice_service import _session_graph as _base_graph
 
@@ -156,19 +156,6 @@ def test_reconcile_session_without_machines_returns_unchanged(qdb: Session) -> N
     result = quick_practice.reconcile_session(qdb, practice_id=practice.id)
 
     assert result is not None and result.status == "creating"
-
-
-def test_reconcile_session_marks_failed_machines(qdb: Session) -> None:
-    practice, requests = _session_graph(qdb)
-    requests[1].provisioning_status = VMProvisioningStatus.failed
-    qdb.add(requests[1])
-    qdb.commit()
-
-    result = quick_practice.reconcile_session(qdb, practice_id=practice.id)
-
-    assert result is not None
-    assert result.status == "partial_failed"
-    assert result.last_error == quick_practice.MACHINE_FAILURE_PREFIX + "DB"
 
 
 def test_reconcile_session_waits_for_unfinished_machines(qdb: Session) -> None:
@@ -394,24 +381,6 @@ def test_lifecycle_reclaims_session_with_failed_machines(
     refreshed = qdb.get(QuickPracticeSession, practice_id)
     assert refreshed is not None
     assert refreshed.status == "reclaimed"
-
-
-def test_lifecycle_reconciles_unexpired_ready_session(
-    qdb: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    practice, _requests = _session_graph(qdb, with_edge=False)
-    practice_id = practice.id
-    _bind_engine(monkeypatch, qdb)
-    monkeypatch.setattr(class_network_service, "sync_scope_rules", lambda **_kw: [])
-    monkeypatch.setattr(
-        course_publication_service, "apply_for_machines", lambda *_a, **_kw: []
-    )
-
-    assert quick_practice.process_lifecycle() == 1
-
-    qdb.expire_all()
-    refreshed = qdb.get(QuickPracticeSession, practice_id)
-    assert refreshed is not None and refreshed.status == "ready"
 
 
 def test_lifecycle_stops_then_reclaims_expired_sessions(

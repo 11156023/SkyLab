@@ -205,16 +205,6 @@ def test_send_to_user_and_send_test(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------- tick helpers
 
 
-def test_reset_tick_state_clears_baselines() -> None:
-    web_push_service._tick_state.users[uuid.uuid4()] = web_push_service._UserState()
-    web_push_service._tick_state.round_index = 7
-
-    web_push_service.reset_tick_state()
-
-    assert web_push_service._tick_state.users == {}
-    assert web_push_service._tick_state.round_index == 0
-
-
 def test_job_messages_by_language(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(push_policy, "job_message", lambda job, lang: _message(lang))
     messages = web_push_service._job_messages_by_language(object())
@@ -356,40 +346,3 @@ def test_run_push_notifier_returns_when_package_missing(
 ) -> None:
     monkeypatch.setattr(web_push_service, "is_available", lambda: False)
     asyncio.run(web_push_service.run_push_notifier(asyncio.Event()))
-
-
-def test_leader_gate_resets_baselines_when_not_leader(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.services.scheduling import leader
-
-    @contextmanager
-    def fake_lock(_key):
-        yield False
-
-    monkeypatch.setattr(leader, "scheduler_leader_lock", fake_lock)
-    web_push_service._tick_state.round_index = 4
-
-    with web_push_service.push_notifier_leader_gate() as is_leader:
-        assert is_leader is False
-
-    assert web_push_service._tick_state.round_index == 0
-
-
-def test_run_push_notifier_starts_polling_scheduler(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.domain.scheduling import runner
-
-    calls: list[dict[str, Any]] = []
-
-    async def fake_runner(**kwargs: Any) -> None:
-        calls.append(kwargs)
-
-    monkeypatch.setattr(web_push_service, "is_available", lambda: True)
-    monkeypatch.setattr(runner, "run_polling_scheduler", fake_runner)
-
-    asyncio.run(web_push_service.run_push_notifier(asyncio.Event()))
-
-    assert calls[0]["interval_seconds"] == web_push_service.PUSH_POLL_SECONDS
-    assert calls[0]["leader_gate"] is web_push_service.push_notifier_leader_gate

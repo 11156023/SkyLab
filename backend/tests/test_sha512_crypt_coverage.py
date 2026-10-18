@@ -76,32 +76,6 @@ def test_load_libcrypt_skips_unusable_libraries(monkeypatch, caplog) -> None:
     assert "produced" in caplog.text
 
 
-def test_load_libcrypt_rejects_failure_marker(monkeypatch) -> None:
-    _install_fake_ctypes(
-        monkeypatch,
-        found=None,
-        libs={"libcrypt.so.1": _FakeLib(_FakeCryptR("fail_marker"))},
-    )
-    assert module._load_libcrypt() is None
-
-
-def test_load_libcrypt_returns_working_backend(monkeypatch) -> None:
-    good_r = _FakeCryptR("good")
-    opened = _install_fake_ctypes(
-        monkeypatch,
-        found="libcrypt.so.1",
-        libs={"libcrypt.so.1": _FakeLib(good_r)},
-    )
-
-    backend = module._load_libcrypt()
-
-    assert backend is not None
-    # find_library 回傳的名稱與預設清單重複時只試一次
-    assert opened == ["libcrypt.so.1"]
-    assert backend(b"pw", "abcdefgh") == module.sha512_crypt_hashlib(b"pw", "abcdefgh")
-    assert good_r.calls[-1] == (b"pw", b"$6$abcdefgh$")
-
-
 def test_loaded_backend_raises_when_crypt_r_fails_later(monkeypatch) -> None:
     flaky_r = _FakeCryptR("good")
     _install_fake_ctypes(

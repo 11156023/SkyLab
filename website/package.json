@@ -1,0 +1,16 @@
+{
+  "name": "skylab-docs",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "dev": "node scripts/generate.mjs && vitepress dev",
+    "build": "node scripts/generate.mjs && vitepress build && node scripts/check-anchors.mjs",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3",
+    "vue": "^3.5.0"
+  }
+}

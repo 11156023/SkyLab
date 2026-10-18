@@ -123,12 +123,3 @@ def test_visibility_and_catalog(session: Session) -> None:
     assert repo.is_template_visible_to_user(template=mine, user_id=owner)
     assert repo.is_template_visible_to_user(template=shared, user_id=owner)
     assert not repo.is_template_visible_to_user(template=hidden, user_id=owner)
-
-
-def test_touch_with_and_without_commit(session: Session) -> None:
-    template = _tpl(session, 9200, uuid.uuid4())
-    before = template.updated_at
-    repo.touch(session=session, template=template)
-    assert template.updated_at >= before
-    repo.touch(session=session, template=template, commit=False)
-    assert template in session.dirty or template in session

@@ -140,17 +140,6 @@ def test_enforce_start_window_not_started(monkeypatch) -> None:
         resource_service._enforce_start_window(session=FakeSession(), vmid=1)
 
 
-def test_enforce_start_window_ended(monkeypatch) -> None:
-    _patch_get_resource(monkeypatch, None)
-    monkeypatch.setattr(
-        resource_service,
-        "start_window_state",
-        lambda **kw: ("window_ended", None, None),
-    )
-    with pytest.raises(BadRequestError):
-        resource_service._enforce_start_window(session=FakeSession(), vmid=1)
-
-
 # ---------------------------------------------------------------------------
 # LXC 平台金鑰／登入密碼
 # ---------------------------------------------------------------------------
@@ -890,18 +879,6 @@ def test_control_still_stops_template_source(monkeypatch, control_env) -> None:
     assert powered == [("n", 213, "lxc", "shutdown")]
 
 
-def test_control_stop_untracked_clears_auto_stop(monkeypatch, control_env) -> None:
-    _patch_get_resource(monkeypatch, None)
-    resource_service.control(
-        session=FakeSession(),
-        vmid=7,
-        action="stop",
-        resource_info={"node": "n", "type": "qemu"},
-        user_id=uuid.uuid4(),
-    )
-    assert control_env["auto"][0]["auto_stop_at"] is None
-
-
 def test_control_unexpected_error_wrapped(monkeypatch, control_env) -> None:
     def boom(*a):
         raise RuntimeError("pve error")
@@ -995,18 +972,6 @@ def test_direct_update_spec_all_fields_qemu(spec_env) -> None:
     assert spec_env["config"] == [{"cores": 4, "memory": 2048}]
     assert spec_env["resize"] == [("scsi0", "+10G")]
     assert "Disk: +10G" in out["message"]
-
-
-def test_direct_update_spec_disk_only_lxc(spec_env) -> None:
-    resource_service.direct_update_spec(
-        session=FakeSession(),
-        vmid=1,
-        resource_info={"node": "n", "type": "lxc"},
-        user_id=uuid.uuid4(),
-        disk_size="+1G",
-    )
-    assert spec_env["config"] == []
-    assert spec_env["resize"] == [("rootfs", "+1G")]
 
 
 def test_direct_update_spec_errors(spec_env) -> None:

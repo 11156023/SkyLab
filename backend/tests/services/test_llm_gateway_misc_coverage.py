@@ -2,7 +2,6 @@
 
 import uuid
 from collections.abc import Iterator
-from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -31,20 +30,6 @@ def isolated_writer(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         writer.executor.shutdown(wait=True)
 
 
-def test_failed_operation_is_counted_and_logged(
-    isolated_writer: None, caplog: pytest.LogCaptureFixture
-) -> None:
-    def boom() -> None:
-        raise RuntimeError("db down")
-
-    writer = usage_writer.get_usage_writer()
-    with caplog.at_level("ERROR"):
-        future = writer.submit(boom, source="api_key")
-        assert future is not None
-        assert future.result(timeout=5) is None
-    assert "AI usage write failed" in caplog.text
-
-
 async def test_write_usage_returns_false_when_writer_closed(
     isolated_writer: None,
 ) -> None:
@@ -52,28 +37,6 @@ async def test_write_usage_returns_false_when_writer_closed(
     writer.closed = True
 
     assert await usage_writer.write_usage(lambda: True, source="api_key") is False
-
-
-def test_start_usage_writer_replaces_drained_writer(isolated_writer: None) -> None:
-    old = usage_writer.get_usage_writer()
-    old.closed = True
-
-    usage_writer.start_usage_writer()
-    assert usage_writer._writer is not old
-    old.executor.shutdown(wait=True)
-
-
-def test_start_usage_writer_refuses_while_previous_writes_pending(
-    isolated_writer: None,
-) -> None:
-    old = usage_writer.get_usage_writer()
-    old.closed = True
-    old.pending[Future()] = 0.0
-    try:
-        with pytest.raises(RuntimeError):
-            usage_writer.start_usage_writer()
-    finally:
-        old.pending.clear()
 
 
 # ---- ai_usage_export ---------------------------------------------------

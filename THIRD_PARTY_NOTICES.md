@@ -1,6 +1,6 @@
 # Third-party notices
 
-SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`uv.lock`, `frontend/bun.lock`, `desktop-client/package-lock.json`).
+SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`uv.lock`, `bun.lock`, `desktop-client/package-lock.json`).
 
 Generated with `pip-licenses` / `importlib.metadata` (backend) and `license-report` (frontend, desktop client) on 2026-10-04, then curated by hand. When you add or upgrade a direct dependency, update the matching table.
 
@@ -54,7 +54,7 @@ Development tooling (uv, pytest, ruff, mypy, prek, coverage) is not distributed 
 | React, React DOM | MIT | https://github.com/facebook/react |
 | react-router-dom | MIT | https://github.com/remix-run/react-router |
 | i18next, react-i18next | MIT | https://github.com/i18next/i18next |
-| react-vnc (noVNC) | MIT | https://github.com/roerohan/react-vnc |
+| @novnc/novnc (noVNC) | MPL-2.0 | https://github.com/novnc/noVNC |
 | @xterm/xterm, addon-fit, addon-web-links | MIT | https://github.com/xtermjs/xterm.js |
 | @xyflow/react | MIT | https://github.com/xyflow/xyflow |
 | Recharts | MIT | https://github.com/recharts/recharts |

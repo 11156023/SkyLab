@@ -9,12 +9,24 @@ import path from "node:path";
 
 /* package.json 沒寫 license 欄位、或寫的是一段說明文字而不是 SPDX 代號的套件 */
 const LICENSE_OVERRIDES = {
-  "react-vnc": "MIT",
   gsap: "GSAP Standard License",
 };
 
 function readJson(file) {
   return JSON.parse(readFileSync(file, "utf8"));
+}
+
+/* 套件的 package.json：從前端目錄往上找 node_modules（bun workspace 會把套件提升到根目錄），
+   不用 require.resolve 是因為 exports 沒開放 package.json 的套件（例如 @novnc/novnc）會被擋 */
+function findPackageMeta(root, name) {
+  let dir = root;
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", name, "package.json");
+    if (existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 function normalizeRepository(repository) {
@@ -45,11 +57,11 @@ export function buildAboutInfo(root) {
   const dependencies = Object.keys(pkg.dependencies ?? {})
     .sort((a, b) => a.localeCompare(b))
     .map((name) => {
-      const metaFile = path.join(root, "node_modules", name, "package.json");
+      const metaFile = findPackageMeta(root, name);
       let version = String(pkg.dependencies[name]).replace(/^[\^~]/, "");
       let license = "";
       let repository = "";
-      if (existsSync(metaFile)) {
+      if (metaFile) {
         const meta = readJson(metaFile);
         version = meta.version ?? version;
         license = typeof meta.license === "string" ? meta.license : meta.license?.type ?? "";

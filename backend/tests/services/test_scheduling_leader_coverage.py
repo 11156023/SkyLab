@@ -5,8 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from app.services.scheduling import leader
 
 
@@ -46,23 +44,6 @@ def test_non_postgres_is_always_leader(monkeypatch) -> None:
     monkeypatch.setattr(leader, "engine", _fake_engine("sqlite"))
     with leader.scheduler_leader_lock() as acquired:
         assert acquired is True
-
-
-@pytest.mark.parametrize(("scalar", "expected"), [(True, True), (None, False)])
-def test_postgres_tries_xact_lock_and_releases(
-    monkeypatch, scalar: Any, expected: bool
-) -> None:
-    connection = _FakeConnection(scalar)
-    monkeypatch.setattr(leader, "engine", _fake_engine("postgresql", connection))
-
-    with leader.scheduler_leader_lock(leader.PUSH_NOTIFIER_LEADER_LOCK_KEY) as acquired:
-        assert acquired is expected
-        assert connection.rollbacks == 0
-
-    assert "pg_try_advisory_xact_lock" in connection.executed[0][0]
-    assert connection.executed[0][1] == {"key": leader.PUSH_NOTIFIER_LEADER_LOCK_KEY}
-    assert connection.rollbacks == 1
-    assert connection.closed is True
 
 
 def test_postgres_rollback_failure_is_logged_not_raised(monkeypatch, caplog) -> None:

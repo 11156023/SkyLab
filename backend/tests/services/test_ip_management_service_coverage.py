@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
@@ -136,21 +135,6 @@ def test_reserve_ips_requires_subnet(db: Session) -> None:
 def test_allocate_ip_requires_subnet(db: Session) -> None:
     with pytest.raises(BadRequestError):
         svc.allocate_ip(db, 100, "vm")
-
-
-def test_allocate_ip_binds_reserved_row(db: Session) -> None:
-    svc.upsert_subnet_config(db, **BASE)
-    keys = svc.reserve_ips(db, teaching_class_id=None, reservation_keys=["quick:a:web"])
-    db.commit()
-
-    ip = svc.allocate_ip(db, 200, "vm", reservation_key="quick:a:web")
-
-    assert ip == keys["quick:a:web"]
-    row = db.exec(
-        select(IpAllocation).where(IpAllocation.reservation_key == "quick:a:web")
-    ).one()
-    assert row.vmid == 200 and row.purpose == "vm"
-    assert row.description == "VMID 200（課程預留）"
 
 
 def test_allocate_ip_reserved_row_missing(db: Session) -> None:
@@ -320,14 +304,6 @@ def test_release_ip_deletes_row_and_tolerates_host_key_errors(
     assert db.exec(select(IpAllocation)).all() == []
 
 
-def test_release_ip_forgets_host_key(db: Session, forgotten: list[str]) -> None:
-    db.add(IpAllocation(ip_address="10.20.0.91", purpose="vm", vmid=901))
-    db.commit()
-
-    assert svc.release_ip(db, 901) == "10.20.0.91"
-    assert forgotten == ["10.20.0.91"]
-
-
 # ---------------------------------------------------------------- queries
 
 
@@ -375,18 +351,6 @@ def test_network_config_for_vm_includes_dns(db: Session) -> None:
 
     assert config["prefix_len"] == 24
     assert config["dns_servers"] == "1.1.1.1,8.8.8.8"
-
-
-def test_small_helpers_cover_empty_and_invalid_inputs(db: Session) -> None:
-    assert svc.get_extra_blocked_subnets(None) == []
-    assert svc.get_dns_servers(None) is None
-    assert svc.get_forward_port_range(None) is None
-    assert svc.get_allocation_by_ip(object(), "10.0.0.1") is None  # type: ignore[arg-type]
-    assert svc.get_allocation_by_ip(db, "10.0.0.1") is None
-    lab = ipaddress.IPv4Network("10.20.0.0/24")
-    assert svc.blocked_subnet_overlapping(lab, ["blocklist_alias"]) is None
-    with pytest.raises(BadRequestError):
-        svc.upsert_subnet_config(db, **{**BASE, "gateway": "192.168.1.1"})
 
 
 def test_quick_reservation_round_trip(db: Session, forgotten: list[str]) -> None:

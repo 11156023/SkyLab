@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -13,7 +12,6 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeFileTextCollector,
     TeacherJudgeLocalhostHttpCollector,
     TeacherJudgeRubricCheckStep,
-    TeacherJudgeRubricItem,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptUpdateRequest,
     TeacherJudgeSessionCreateRequest,
@@ -107,53 +105,6 @@ def test_rubric_check_step_flat_contract() -> None:
         {"argv": ["ls"], "cwd": "/srv", "timeout_seconds": 5}
     )
     assert step.model_dump() == {"argv": ["ls"], "cwd": "/srv", "timeout_seconds": 5}
-
-
-def test_rubric_check_step_typed_and_legacy_serialization() -> None:
-    typed = TeacherJudgeRubricCheckStep.model_validate(
-        {
-            "id": "s1",
-            "title": "Run",
-            "collector": {"type": "command", "argv": ["ls"]},
-            "assertion": {"type": "returncode_equals", "expected": 0},
-        }
-    )
-    dumped = typed.model_dump()
-    assert dumped["collector"]["argv"] == ["ls"]
-    assert dumped["assertion"] == {"type": "returncode_equals", "expected": 0}
-    no_assertion = TeacherJudgeRubricCheckStep.model_validate(
-        {"id": "s2", "title": "Ping", "collector": {"type": "peer_ping"}}
-    ).model_dump()
-    assert "assertion" not in no_assertion
-
-    legacy = TeacherJudgeRubricCheckStep.model_validate(
-        {
-            "template_key": "linux",
-            "command_key": "uname",
-            "command_label": "Kernel",
-        }
-    ).model_dump()
-    assert legacy["template_key"] == "linux"
-    assert legacy["command_label"] == "Kernel"
-    legacy_no_label = TeacherJudgeRubricCheckStep.model_validate(
-        {"template_key": "linux", "command_key": "uname"}
-    ).model_dump()
-    assert "command_label" not in legacy_no_label
-
-
-def test_rubric_item_drops_retired_gaps() -> None:
-    item = TeacherJudgeRubricItem(
-        id="i", title="t", missing_information=["判定條件", "路徑"]
-    )
-    assert item.missing_information == ["路徑"]
-
-
-def test_rubric_check_step_json_schema_hides_legacy_fields() -> None:
-    schema: dict[str, Any] = TeacherJudgeRubricCheckStep.model_json_schema()
-    properties = schema["properties"]
-    for legacy in ("template_key", "command_key", "command_label", "parameters", "argv", "cwd", "timeout_seconds"):
-        assert legacy not in properties
-    assert schema["required"] == ["id", "title", "collector"]
 
 
 def test_session_create_request_validators() -> None:

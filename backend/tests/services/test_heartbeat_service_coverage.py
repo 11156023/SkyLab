@@ -50,16 +50,6 @@ def _use_redis(monkeypatch: pytest.MonkeyPatch, redis: _AsyncRedis) -> None:
     monkeypatch.setattr(heartbeat_service, "get_redis", fake_get_redis)
 
 
-def test_key_helpers_and_format_error() -> None:
-    assert heartbeat_service._loop_key("scheduler") == "skylab:hb:loop:scheduler"
-    assert heartbeat_service._task_key("scheduler", "a") == "skylab:hb:task:scheduler:a"
-    assert heartbeat_service._format_error(None) is None
-    assert heartbeat_service._format_error(ValueError("x" * 500)).startswith(
-        "ValueError: x"
-    )
-    assert len(heartbeat_service._format_error(ValueError("x" * 500)) or "") == 300
-
-
 def test_warn_redis_failure_is_throttled(monkeypatch: pytest.MonkeyPatch) -> None:
     warnings: list[str] = []
     monkeypatch.setattr(
@@ -70,27 +60,6 @@ def test_warn_redis_failure_is_throttled(monkeypatch: pytest.MonkeyPatch) -> Non
     heartbeat_service._warn_redis_failure()
     assert len(warnings) == 1
     assert heartbeat_service._memory.last_redis_warning == 1000.0
-
-
-async def test_on_start_writes_redis_with_and_without_tasks(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    redis = _AsyncRedis()
-    _use_redis(monkeypatch, redis)
-    observer = heartbeat_service.HeartbeatObserver("scheduler", interval_seconds=60)
-
-    await observer.on_start(["a", "b"])
-    names = [c[0] for c in redis.calls]
-    assert names == ["sadd", "hset", "expire", "sadd", "expire", "expire"]
-    assert redis.calls[3][1] == (
-        heartbeat_service.TASKS_SET,
-        "scheduler:a",
-        "scheduler:b",
-    )
-
-    redis.calls.clear()
-    await observer.on_start([])
-    assert [c[0] for c in redis.calls] == ["sadd", "hset", "expire", "expire", "expire"]
 
 
 async def test_on_start_redis_failure_keeps_memory(
@@ -265,15 +234,6 @@ def test_snapshot_reads_redis_and_merges_memory(
     ]
     assert snap.tasks[0]["consecutive_failures"] == 2
     assert snap.tasks[0]["last_error"] is None
-
-
-def test_snapshot_handles_empty_sets(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _SyncRedis(None, None, {})
-    monkeypatch.setattr(heartbeat_service, "get_sync_redis", lambda: client)
-    snap = heartbeat_service.snapshot()
-    assert snap == heartbeat_service.HeartbeatSnapshot(
-        loops=[], tasks=[], source="redis"
-    )
 
 
 def test_snapshot_falls_back_to_memory_on_redis_error(

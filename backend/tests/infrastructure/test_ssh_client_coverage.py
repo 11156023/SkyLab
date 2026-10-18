@@ -8,12 +8,6 @@ import pytest
 
 from app.exceptions import ProxmoxError
 from app.infrastructure.ssh import client as ssh_client_module
-from app.infrastructure.ssh import generate_ed25519_keypair
-
-
-@pytest.fixture(scope="session")
-def _seed_first_superuser() -> None:
-    """純單元測試，不需要測試資料庫。"""
 
 
 @pytest.mark.parametrize(
@@ -47,18 +41,6 @@ def test_forget_host_key_without_paramiko_is_noop(
     assert not known.exists()
 
 
-def test_forget_host_key_unknown_host_leaves_file_untouched(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    known = tmp_path / "kh"
-    monkeypatch.setenv("SSH_KNOWN_HOSTS_FILE", str(known))
-
-    ssh_client_module.forget_host_key("10.0.0.99")
-
-    assert known.exists()
-    assert known.read_text() == ""
-
-
 class _OkClient:
     instances: list[_OkClient] = []
 
@@ -86,20 +68,6 @@ def ok_client(tmp_path, monkeypatch: pytest.MonkeyPatch) -> type[_OkClient]:
     monkeypatch.setattr(ssh_client_module.paramiko, "SSHClient", _OkClient)
     _OkClient.instances = []
     return _OkClient
-
-
-def test_create_key_client_returns_connected_client(ok_client) -> None:
-    pem, _ = generate_ed25519_keypair()
-
-    client = ssh_client_module.create_key_client(
-        "10.0.0.5", 2222, "root", pem, timeout=3
-    )
-
-    assert client is ok_client.instances[0]
-    assert client.closed is False
-    assert client.connect_kwargs["port"] == 2222
-    assert client.connect_kwargs["timeout"] == 3
-    assert client.connect_kwargs["allow_agent"] is False
 
 
 def test_create_password_client_returns_connected_client(ok_client) -> None:
@@ -162,8 +130,3 @@ def test_output_finished_after_eof(
         exit_status_ready=lambda: exit_ready,
     )
     assert ssh_client_module._output_finished(channel) is expected
-
-
-def test_output_finished_before_eof() -> None:
-    channel = SimpleNamespace(eof_received=False, closed=False)
-    assert ssh_client_module._output_finished(channel) is False

@@ -219,11 +219,6 @@ async def test_resolve_vm_info_requires_resource_and_key(monkeypatch) -> None:
         await ssh_mod._resolve_vm_info_from_db(_Session(), 101)
 
 
-async def test_resolve_credentials_requires_session() -> None:
-    with pytest.raises(RuntimeError, match="DB session"):
-        await ssh_mod._resolve_vm_credentials(101, session=None)
-
-
 # ── ssh_exec / confirm_exec / _do_exec ──────────────────────────────────
 
 

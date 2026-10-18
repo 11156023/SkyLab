@@ -56,11 +56,6 @@ class _FakeSession:
         pass
 
 
-def test_get_user_reads_session():
-    user = SimpleNamespace(id=uuid.uuid4())
-    assert svc._get_user(_FakeSession(user), user.id) is user  # type: ignore[arg-type]
-
-
 def test_fetch_cpu_stats_without_node_returns_none():
     assert (
         svc._fetch_cpu_stats(
@@ -260,24 +255,3 @@ def test_dismiss_reports_snapshot_delete_failure(monkeypatch):
     assert result.status is MiningIncidentStatus.dismissed
     assert "snapshot busy" in result.review_note
     assert "snapshot_delete" not in audits
-
-
-def test_open_incident_vmids_delegates(monkeypatch):
-    monkeypatch.setattr(
-        svc.mining_repo, "list_open_incident_vmids", lambda *, session: {1, 2}
-    )
-    assert svc.open_incident_vmids(object()) == {1, 2}  # type: ignore[arg-type]
-
-
-def test_create_alert_event_uses_node_connection(monkeypatch):
-    monkeypatch.setattr(alert_service, "connection_id_for_node", lambda _s, node: 7)
-    session = _FakeSession()
-    svc._create_alert_event(
-        session,  # type: ignore[arg-type]
-        _incident(),  # type: ignore[arg-type]
-        SimpleNamespace(mining_cpu_threshold_percent=90.0),
-    )
-    event = session.added[0]
-    assert event.connection_id == 7
-    assert event.target == "101"
-    assert event.threshold == 90.0

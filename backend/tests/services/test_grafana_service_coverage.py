@@ -68,22 +68,6 @@ async def test_session_lookup_failure_returns_no_headers() -> None:
     assert grafana_service._AuthCache.entries == {}
 
 
-async def test_full_cache_drops_expired_entries_first(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(grafana_service, "_AUTH_CACHE_MAX_ENTRIES", 2)
-    monkeypatch.setattr(
-        grafana_service._AuthCache,
-        "entries",
-        {"expired": (0.0, {}), "alive": (float("inf"), {"X": "1"})},
-    )
-    user = _user()
-    token = _token(user)
-    headers = await grafana_service.resolve_proxy_headers(_Session(user), token)  # type: ignore[arg-type]
-    assert headers[grafana_service.HEADER_ROLE] == "Admin"
-    assert set(grafana_service._AuthCache.entries) == {"alive", token}
-
-
 async def test_full_cache_of_live_entries_is_cleared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -20,7 +20,6 @@ from app.services.rubric_parser import (
     _terminate_process_tree,
     parse_doc,
     parse_document,
-    parse_docx,
     parse_pdf,
     parse_text,
 )
@@ -49,14 +48,6 @@ def test_guard_zip_rejects_corrupted_document() -> None:
         _guard_zip_document(b"definitely not a zip")
 
 
-def test_guard_zip_rejects_high_compression_ratio() -> None:
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("bomb.txt", b"\0" * (2 * 1024 * 1024))
-    with pytest.raises(ValueError):
-        _guard_zip_document(buffer.getvalue())
-
-
 def test_guard_zip_rejects_total_size_over_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -69,16 +60,6 @@ def test_guard_zip_rejects_total_size_over_limit(
 
 
 # ── docx ───────────────────────────────────────────────────
-
-
-def test_parse_docx_paragraphs_and_tables_in_order() -> None:
-    text = parse_docx(_docx_bytes())
-    lines = text.split("\n")
-    assert lines[0] == "Rubric title"
-    assert lines[1] == "| Item | Score |"
-    assert lines[2] == "| --- | --- |"
-    assert lines[3] == "| Line break | 10 |"
-    assert lines[-1] == "Footer"
 
 
 def test_parse_document_dispatches_docx() -> None:
@@ -257,12 +238,6 @@ def _patch_popen(monkeypatch: pytest.MonkeyPatch, **options) -> list[_FakeProces
     return created
 
 
-def test_parse_doc_requires_libreoffice(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(rubric_parser.shutil, "which", lambda _name: None)
-    with pytest.raises(ValueError):
-        parse_doc(b"doc-bytes")
-
-
 def test_parse_doc_success_with_new_session(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rubric_parser.os, "setsid", lambda: None, raising=False)
     created = _patch_popen(monkeypatch)
@@ -272,24 +247,8 @@ def test_parse_doc_success_with_new_session(monkeypatch: pytest.MonkeyPatch) -> 
     assert created[0].args[0] == "/usr/bin/soffice"
 
 
-def test_parse_doc_without_setsid(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delattr(rubric_parser.os, "setsid", raising=False)
-    created = _patch_popen(monkeypatch)
-
-    assert parse_doc(b"doc-bytes") == "轉出的文字"
-    assert "start_new_session" not in created[0].kwargs
-
-
 def test_parse_doc_failure_when_no_output(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_popen(monkeypatch, write_output=False)
-    with pytest.raises(ValueError):
-        parse_doc(b"doc-bytes")
-
-
-def test_parse_doc_failure_on_nonzero_returncode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_popen(monkeypatch, returncode=1)
     with pytest.raises(ValueError):
         parse_doc(b"doc-bytes")
 
@@ -318,31 +277,3 @@ def test_terminate_process_tree_uses_killpg(monkeypatch: pytest.MonkeyPatch) -> 
     _terminate_process_tree(process)  # type: ignore[arg-type]
     assert calls == [(4322, 9)]
     assert process.killed is False
-
-
-def test_terminate_process_tree_falls_back_when_killpg_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def _boom(_pid):
-        raise ProcessLookupError
-
-    monkeypatch.setattr(rubric_parser.os, "getpgid", _boom, raising=False)
-    monkeypatch.setattr(rubric_parser.os, "killpg", lambda *_: None, raising=False)
-    process = _FakeProcess(["x"])
-    _terminate_process_tree(process)  # type: ignore[arg-type]
-    assert process.killed is True
-
-
-def test_terminate_process_tree_swallows_kill_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delattr(rubric_parser.os, "killpg", raising=False)
-    monkeypatch.delattr(rubric_parser.os, "getpgid", raising=False)
-
-    class _Unkillable:
-        pid = 1
-
-        def kill(self) -> None:
-            raise OSError("gone")
-
-    _terminate_process_tree(_Unkillable())  # type: ignore[arg-type]

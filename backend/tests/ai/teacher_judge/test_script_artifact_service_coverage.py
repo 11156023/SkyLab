@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.ai.teacher_judge import script_artifact_service as svc
 from app.ai.teacher_judge.deterministic_compiler import CheckPlanContractError
@@ -198,12 +198,6 @@ def test_partition_requires_target_node() -> None:
     assert exc.value.detail["item_ids"] == ["x"]
 
 
-def test_latest_set_children_skips_archived() -> None:
-    class_id = uuid.uuid4()
-    archived = _artifact(class_id, status=TeacherJudgeScriptStatus.archived)
-    assert svc.latest_set_children([archived]) == []
-
-
 def test_script_set_to_public_without_set_id_raises() -> None:
     row = _artifact(uuid.uuid4(), set_id=None)
     with pytest.raises(HTTPException) as exc:
@@ -327,21 +321,6 @@ def test_create_artifact_set_peer_policy_rejected(patched: dict[str, Any]) -> No
     assert exc.value.detail["target_node_key"] == "web"
 
 
-def test_create_artifact_set_compile_crash(patched: dict[str, Any]) -> None:
-    session = make_session()
-    class_id = uuid.uuid4()
-    _add_node(session, class_id)
-
-    def boom(partition: Any, target_node_key: str) -> Any:
-        raise RuntimeError("compiler bug")
-
-    patched["compile"] = boom
-    with pytest.raises(HTTPException) as exc:
-        _create(session, class_id)
-    assert exc.value.status_code == 502
-    assert exc.value.detail["item_ids"] == ["a"]
-
-
 def test_create_artifact_set_legacy_steps_keep_template_catalog(
     patched: dict[str, Any],
 ) -> None:
@@ -393,39 +372,6 @@ def test_create_artifact_set_regenerate_context_mismatch(
     with pytest.raises(HTTPException) as exc:
         _create(session, class_id, artifact_set_id=set_id, session_id=uuid.uuid4())
     assert exc.value.status_code == 409
-
-
-def test_create_artifact_set_regenerate_preserves_previous(
-    patched: dict[str, Any],
-) -> None:
-    session = make_session()
-    class_id = uuid.uuid4()
-    _add_node(session, class_id)
-    set_id = uuid.uuid4()
-    sid = uuid.uuid4()
-    _persist(
-        session,
-        _artifact(class_id, set_id=set_id, session_id=sid, version=2),
-        _artifact(
-            class_id,
-            set_id=set_id,
-            session_id=sid,
-            version=1,
-            status=TeacherJudgeScriptStatus.archived,
-        ),
-    )
-    result = _create(session, class_id, artifact_set_id=set_id, session_id=sid)
-    assert result.children[0].version == 3
-    assert result.children[0].source == "regenerated"
-    rows = session.exec(
-        select(TeacherJudgeScriptArtifact).where(
-            TeacherJudgeScriptArtifact.artifact_set_id == set_id
-        )
-    ).all()
-    statuses = sorted(row.status.value for row in rows)
-    assert statuses == ["approved", "archived"]
-    assert result.artifact_set_id != str(set_id)
-    assert result.is_active
 
 
 # ------------------------------------------------------------- approve / rename

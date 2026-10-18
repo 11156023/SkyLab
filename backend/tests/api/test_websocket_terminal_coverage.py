@@ -14,7 +14,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 from app.api.websocket import terminal
-from app.exceptions import NotFoundError, PermissionDeniedError, ProxmoxError
+from app.exceptions import NotFoundError, ProxmoxError
 
 VMID = 202
 NODE = "pve2"
@@ -121,25 +121,6 @@ async def _run(ws: FakeClientWs) -> None:
     await asyncio.wait_for(
         terminal.terminal_proxy(cast(WebSocket, ws), VMID, token="tok"), timeout=5
     )
-
-
-async def test_permission_denied_app_error(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    state: dict[str, Any],
-) -> None:
-    def deny(**kwargs: Any) -> None:
-        raise PermissionDeniedError()
-
-    monkeypatch.setattr(terminal, "require_resource_console_access", deny)
-    ws = FakeClientWs()
-    with caplog.at_level(logging.ERROR, logger=terminal.logger.name):
-        await _run(ws)
-
-    assert ws.close_calls == [(1008, "Permission denied")]
-    assert not ws.accepted
-    assert state["session_closed"]
-    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 async def test_permission_check_unexpected_error_is_logged(

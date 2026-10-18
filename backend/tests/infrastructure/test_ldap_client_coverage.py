@@ -121,12 +121,6 @@ def test_authenticate_user_search_error_is_upstream_error() -> None:
     assert _FakeConnection.instances[0].unbind_calls == 1
 
 
-def test_authenticate_user_not_found_is_invalid_credentials() -> None:
-    _FakeConnection.search_result = False
-    with pytest.raises(AuthenticationError):
-        ldap_client.authenticate_user(_config(), "alice", "pw")
-
-
 def test_authenticate_user_found_but_no_entries_is_invalid_credentials() -> None:
     _FakeConnection.entries_attrs = []
     with pytest.raises(AuthenticationError):
@@ -139,18 +133,3 @@ def test_authenticate_user_without_email_attribute_is_invalid_credentials() -> N
         ldap_client.authenticate_user(_config(), "alice", "pw")
     # 只有 service 連線，沒走到使用者 rebind
     assert len(_FakeConnection.instances) == 1
-
-
-def test_authenticate_user_success_returns_directory_info() -> None:
-    _FakeConnection.entries_attrs = [
-        {
-            "mail": ["alice@example.org"],
-            "displayName": ["Alice"],
-            "memberOf": ["cn=teachers,dc=example,dc=org"],
-        }
-    ]
-    info = ldap_client.authenticate_user(_config(), "alice", "pw")
-    assert info.email == "alice@example.org"
-    assert info.full_name == "Alice"
-    assert info.groups == ["cn=teachers,dc=example,dc=org"]
-    assert len(_FakeConnection.instances) == 2

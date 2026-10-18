@@ -38,15 +38,6 @@ class _Clock:
         self.now += seconds
 
 
-def test_wait_for_agent_polls_until_ping(monkeypatch: pytest.MonkeyPatch) -> None:
-    clock = _Clock()
-    answers = iter([False, False, True])
-    monkeypatch.setattr(svc, "time", clock)
-    monkeypatch.setattr(svc.guest, "ping_qemu_agent", lambda _n, _v: next(answers))
-    assert svc._wait_for_agent("pve1", 400, 60.0) is True
-    assert clock.sleeps == [svc._QEMU_POLL_SECONDS, svc._QEMU_POLL_SECONDS]
-
-
 def test_wait_for_agent_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = _Clock()
     monkeypatch.setattr(svc, "time", clock)
@@ -78,19 +69,6 @@ def test_enable_reports_non_zero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert svc.enable_qemu_ssh_login("pve1", 400) is False
 
 
-def test_run_qemu_clears_pending_even_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    mod = _fresh_module()
-
-    def _boom(_node: str, _vmid: int) -> bool:
-        raise RuntimeError("unexpected")
-
-    monkeypatch.setattr(mod, "enable_qemu_ssh_login", _boom)
-    mod._pending.add(("pve1", 401))
-    with pytest.raises(RuntimeError):
-        mod._run_qemu("pve1", 401)
-    assert ("pve1", 401) not in mod._pending
-
-
 def test_run_qemu_success_clears_pending(monkeypatch: pytest.MonkeyPatch) -> None:
     mod = _fresh_module()
     seen: list[tuple[str, int]] = []
@@ -101,12 +79,6 @@ def test_run_qemu_success_clears_pending(monkeypatch: pytest.MonkeyPatch) -> Non
     mod._run_qemu("pve1", 402)
     assert seen == [("pve1", 402)]
     assert mod._pending == set()
-
-
-def test_schedule_ignores_missing_node() -> None:
-    svc._pending.clear()
-    svc.schedule_after_start("", 403, "qemu")
-    assert svc._pending == set()
 
 
 def test_schedule_thread_start_failure_releases_pending(

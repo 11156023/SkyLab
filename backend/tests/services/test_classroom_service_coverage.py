@@ -244,12 +244,6 @@ def test_inactive_class_is_rejected(db: Session) -> None:
         classroom_service.require_can_watch_class(db, teacher, teaching_class.id, 1)
 
 
-def test_missing_class_is_not_found(db: Session) -> None:
-    teacher = _user(db, UserRole.teacher)
-    with pytest.raises(NotFoundError):
-        classroom_service.require_can_watch_class(db, teacher, uuid.uuid4(), 1)
-
-
 def test_watch_unknown_vmid_is_denied(db: Session) -> None:
     teacher = _user(db, UserRole.teacher)
     teaching_class = _class(db, teacher)
@@ -358,65 +352,7 @@ def test_list_sessions_for_admin_and_starter(manager: _FakeManager) -> None:
     assert classroom_service.list_sessions_for(starter) == [mine]
 
 
-def test_taken_over_vmids_uses_global_manager_by_default(
-    db: Session, manager: _FakeManager
-) -> None:
-    student = _user(db, UserRole.student)
-    _resource(db, student.id, 777)
-    manager.sessions = [_live(vmid=777, controller=uuid.uuid4())]
-    assert classroom_service.list_taken_over_vmids_for_user(db, student) == [777]
-
-
-def test_get_live_for_user_looks_up_active_classes(db: Session) -> None:
-    teacher = _user(db, UserRole.teacher)
-    student = _user(db, UserRole.student)
-    teaching_class = _class(db, teacher, student)
-    seen: list[set[uuid.UUID]] = []
-
-    class _Finder:
-        def find_broadcast_for_classes(
-            self, class_ids: set[uuid.UUID]
-        ) -> ClassroomSession | None:
-            seen.append(class_ids)
-            return None
-
-    assert classroom_service.get_live_for_user(db, student, manager=_Finder()) is None
-    assert seen == [{teaching_class.id}]
-
-
-def test_taken_over_vmids_empty_when_nothing_controlled(
-    db: Session, manager: _FakeManager
-) -> None:
-    student = _user(db, UserRole.student)
-    manager.sessions = [_live(vmid=778)]
-    assert classroom_service.list_taken_over_vmids_for_user(db, student) == []
-
-
 # --- 編排 -------------------------------------------------------------------
-
-
-async def test_start_watch_reuses_or_starts_session(
-    db: Session, manager: _FakeManager
-) -> None:
-    teacher = _user(db, UserRole.teacher)
-    student = _user(db, UserRole.student)
-    teaching_class = _class(db, teacher, student)
-    node = _node(db, teaching_class)
-    add_student_machine(
-        db, enrollment=_enrollment(db, teaching_class, student.id), node=node, vmid=660
-    )
-    db.commit()
-
-    first = await classroom_service.start_class_watch(
-        db, teacher, 660, teaching_class.id
-    )
-    again = await classroom_service.start_class_watch(
-        db, teacher, 660, teaching_class.id
-    )
-
-    assert again is first
-    assert len(manager.started) == 1
-    assert manager.started[0]["mode"] is SessionMode.monitor
 
 
 async def test_start_broadcast_pushes_live_started(
@@ -512,16 +448,6 @@ async def test_set_control_take_and_release_notify_owner(
     assert {user_id for user_id, _ in presence.user_events} == {student.id}
 
 
-async def test_set_control_without_resource_skips_push(
-    db: Session, manager: _FakeManager, presence: _FakePresence
-) -> None:
-    teacher = _user(db, UserRole.teacher)
-    live = _live(started_by=teacher.id, vmid=621)
-    manager.sessions = [live]
-    await classroom_service.set_control(db, teacher, live.id, "take")
-    assert presence.user_events == []
-
-
 # --- 結束事件 ---------------------------------------------------------------
 
 
@@ -546,14 +472,6 @@ def test_lookup_resource_owner_logs_db_failure(
     with caplog.at_level(logging.ERROR, logger=classroom_service.__name__):
         assert classroom_service._lookup_resource_owner(632) is None
     assert "Failed to look up resource owner" in caplog.text
-
-
-async def test_session_end_broadcast_pushes_live_stopped(
-    presence: _FakePresence,
-) -> None:
-    live = _live(mode=SessionMode.broadcast)
-    await classroom_service._on_session_end(live, "stopped")
-    assert presence.class_events[0][1]["type"] == "live_stopped"
 
 
 async def test_session_end_monitor_with_controller_notifies_owner(

@@ -6,7 +6,7 @@
 # Proxmox 節點／VM 的用量由 PVE 內建 Metric Server 直接推到 InfluxDB，不在這裡。
 #
 # 只負責收集給 Grafana 畫圖，不設告警規則；平台異常的通知由 SkyLab 內建的
-# 系統告警處理（見 docs/monitoring.md）。
+# 系統告警處理（見 website/guides/monitoring.md）。
 
 global:
   scrape_interval: 15s

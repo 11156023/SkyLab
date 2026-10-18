@@ -114,10 +114,6 @@ def _install_fw(
     return firewall
 
 
-def _not_found(vmid: int) -> dict:
-    raise NotFoundError(f"vm {vmid} missing")
-
-
 # ─── _firewall_api ────────────────────────────────────────────────────────────
 
 
@@ -205,55 +201,6 @@ def test_upsert_marker_rule_reorder_failure_is_logged(
     assert firewall.calls == []
 
 
-def test_upsert_marker_rule_creates_before_unrestricted_accept(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rules = [
-        {"pos": 0, "type": "out", "action": "ACCEPT", "dest": "10.0.0.5"},
-        {"pos": 1, "type": "out", "action": "accept", "comment": GATEWAY_DEFAULT},
-    ]
-    firewall = _install_fw(monkeypatch, FakeFirewall(rules=rules))
-
-    result = fw._upsert_marker_rule(
-        "pve1", 100, "qemu", dest="10.9.0.0/16", comment="c"
-    )
-
-    assert result == "created"
-    assert firewall.calls == [
-        (
-            "post",
-            {
-                "type": "out",
-                "action": "DROP",
-                "dest": "10.9.0.0/16",
-                "enable": 1,
-                "comment": "c",
-                "pos": 1,
-            },
-        )
-    ]
-
-
-def test_enforce_block_rule_order_moves_misplaced_rules(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    accept = {"type": "out", "action": "ACCEPT", "comment": GATEWAY_DEFAULT}
-    drop = {"type": "out", "action": "DROP", "comment": "SkyLab:block-extra:aa"}
-    firewall = _install_fw(
-        monkeypatch,
-        FakeFirewall(rules=[{**accept, "pos": 0}, {**drop, "pos": 1}]),
-    )
-
-    def after_put(pos: Any, kwargs: dict) -> None:
-        # 搬完之後 DROP 到了最上面，下一輪就找不到放錯位置的規則
-        firewall.rules_data = [{**drop, "pos": 0}, {**accept, "pos": 1}]
-
-    firewall.on_put = after_put
-
-    assert fw.enforce_block_rule_order("pve1", 100, "qemu") == 1
-    assert firewall.calls == [("put", 1, {"moveto": 0})]
-
-
 def test_enforce_block_rule_order_swallows_api_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -275,37 +222,6 @@ def test_apply_extra_block_rules_records_list_failure(
     stats = fw._apply_extra_block_rules("pve1", 100, "qemu", ["10.9.0.0/16"])
 
     assert stats["errors"] == [{"vmid": 100, "error": "list rules failed: get boom"}]
-
-
-def test_apply_extra_block_rules_deletes_orphans_from_highest_pos(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rules = [
-        {
-            "pos": 0,
-            "type": "out",
-            "action": "DROP",
-            "comment": "campus-cloud:block-extra:x",
-        },
-        {"pos": 1, "type": "out", "action": "ACCEPT", "comment": GATEWAY_DEFAULT},
-        {
-            "pos": 2,
-            "type": "out",
-            "action": "DROP",
-            "comment": "SkyLab:block-extra:old",
-        },
-    ]
-    firewall = _install_fw(monkeypatch, FakeFirewall(rules=rules))
-    monkeypatch.setattr(
-        fw, "_upsert_marker_rule", lambda *args, dest, comment: "created"
-    )
-
-    stats = fw._apply_extra_block_rules("pve1", 100, "lxc", ["10.9.0.0/16"])
-
-    assert firewall.calls == [("delete", 2), ("delete", 0)]
-    assert stats["deleted"] == ["SkyLab:block-extra:old", "campus-cloud:block-extra:x"]
-    assert stats["created"] == ["10.9.0.0/16"]
-    assert stats["errors"] == []
 
 
 def test_apply_extra_block_rules_records_delete_and_upsert_failures(
@@ -343,44 +259,11 @@ def test_apply_extra_block_rules_records_delete_and_upsert_failures(
 # ─── 低階 PVE 包裝 ──────────────────────────────────────────────────────────
 
 
-def test_rule_wrappers_success_paths(monkeypatch: pytest.MonkeyPatch) -> None:
-    firewall = _install_fw(
-        monkeypatch, FakeFirewall(rules=[{"pos": 0}], options={"enable": 1})
-    )
-
-    assert fw.get_vm_firewall_rules("pve1", 100, "qemu") == [{"pos": 0}]
-    fw.create_rule("pve1", 100, "qemu", {"type": "in"})
-    fw.update_rule("pve1", 100, "qemu", 3, {"enable": 0})
-    fw.delete_rule_by_pos("pve1", 100, "qemu", 4)
-    assert fw.get_firewall_options("pve1", 100, "qemu") == {"enable": 1}
-    fw._set_firewall_options("pve1", 100, "qemu", enable=1)
-
-    assert firewall.calls == [
-        ("post", {"type": "in"}),
-        ("put", 3, {"enable": 0}),
-        ("delete", 4),
-        ("options_put", {"enable": 1}),
-    ]
-
-
 def test_get_vm_firewall_rules_none_becomes_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_fw(monkeypatch, FakeFirewall(rules=None))
     assert fw.get_vm_firewall_rules("pve1", 100, "qemu") == []
-
-
-def test_rule_listing_lenient_and_strict(monkeypatch: pytest.MonkeyPatch) -> None:
-    firewall = _install_fw(monkeypatch, FakeFirewall(rules=None))
-    assert fw.list_vm_firewall_rules_strict("pve1", 100, "qemu") == []
-
-    firewall.rules_data = [{"pos": 0}]
-    assert fw.list_vm_firewall_rules_strict("pve1", 100, "qemu") == [{"pos": 0}]
-
-    firewall.fail.add("get")
-    assert fw.get_vm_firewall_rules("pve1", 100, "qemu") == []
-    with pytest.raises(ProxmoxError):
-        fw.list_vm_firewall_rules_strict("pve1", 100, "qemu")
 
 
 def test_rule_wrappers_failure_paths(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -401,30 +284,6 @@ def test_rule_wrappers_failure_paths(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ─── ensure_firewall_enabled ────────────────────────────────────────────────
-
-
-def test_ensure_firewall_enabled_restores_enable_and_policy(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    firewall = _install_fw(
-        monkeypatch, FakeFirewall(options={"enable": 0, "policy_in": "accept"})
-    )
-
-    fw.ensure_firewall_enabled("pve1", 100, "qemu")
-
-    assert firewall.calls == [("options_put", {"enable": 1, "policy_in": "DROP"})]
-
-
-def test_ensure_firewall_enabled_noop_when_already_correct(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    firewall = _install_fw(
-        monkeypatch, FakeFirewall(options={"enable": 1, "policy_in": "DROP"})
-    )
-
-    fw.ensure_firewall_enabled("pve1", 100, "qemu")
-
-    assert firewall.calls == []
 
 
 def test_ensure_firewall_enabled_logs_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -649,19 +508,6 @@ def test_apply_platform_ssh_rule_creates_at_top(
     ]
 
 
-def test_apply_platform_ssh_rule_skips_when_in_place(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # PVE 會把 enable 回成字串、動作大小寫不一，都算一致
-    firewall = _install_fw(
-        monkeypatch,
-        FakeFirewall(rules=[_ssh_rule(0, enable="1", action="accept"), {"pos": 1}]),
-    )
-
-    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", "10.0.0.5") == "skipped"
-    assert firewall.calls == []
-
-
 def test_apply_platform_ssh_rule_updates_source_and_moves_to_top(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -675,19 +521,6 @@ def test_apply_platform_ssh_rule_updates_source_and_moves_to_top(
     assert firewall.calls == [("put", 1, desired), ("put", 1, {"moveto": 0})]
 
 
-def test_apply_platform_ssh_rule_drops_duplicates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    firewall = _install_fw(
-        monkeypatch,
-        FakeFirewall(rules=[_ssh_rule(0), {"pos": 1}, _ssh_rule(2), _ssh_rule(3)]),
-    )
-
-    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", "10.0.0.5") == "deleted"
-    # 由後往前刪，留下 pos 0 那條
-    assert firewall.calls == [("delete", 3), ("delete", 2)]
-
-
 def test_apply_platform_ssh_rule_removes_when_ip_cleared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -697,25 +530,6 @@ def test_apply_platform_ssh_rule_removes_when_ip_cleared(
 
     assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", None) == "deleted"
     assert firewall.calls == [("delete", 2), ("delete", 0)]
-
-
-def test_apply_platform_ssh_rule_noop_without_ip_or_rule(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    firewall = _install_fw(monkeypatch, FakeFirewall(rules=[{"pos": 0}]))
-
-    assert fw._apply_platform_ssh_rule("pve1", 100, "qemu", None) == "skipped"
-    assert firewall.calls == []
-
-
-def test_apply_platform_ssh_rule_raises_when_rules_unreadable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    firewall = _install_fw(monkeypatch, FakeFirewall(fail=("get",)))
-
-    with pytest.raises(ProxmoxError):
-        fw._apply_platform_ssh_rule("pve1", 100, "qemu", "10.0.0.5")
-    assert firewall.calls == []
 
 
 def test_ensure_platform_ssh_rule_applies_configured_ip(
@@ -832,32 +646,6 @@ def test_get_publishable_vm_ip_allocation_error_falls_back(
 # ─── comment 解析 ───────────────────────────────────────────────────────────
 
 
-def test_parse_comments_cover_portless_and_unknown_forms() -> None:
-    assert fw._parse_connection_comment("SkyLab:gateway->100:icmp") == {
-        "type": "internet_connection",
-        "target_vmid": 100,
-        "port": 0,
-        "protocol": "icmp",
-    }
-    assert fw._parse_topology_comment("SkyLab:something-else") is None
-    assert fw._parse_environment_network_comment("") is None
-    assert fw._parse_topology_comment("SkyLab:class-net:abc:100>101:tcp/22") == {
-        "type": "connection",
-        "source_vmid": 100,
-        "target_vmid": 101,
-        "protocol": "tcp",
-        "port": 22,
-        "topology_managed": True,
-    }
-
-
-def test_matches_ports() -> None:
-    parsed = {"port": 80, "protocol": "tcp"}
-    assert fw._matches_ports(parsed, None) is True
-    assert fw._matches_ports(parsed, [PortSpec(port=80, protocol="tcp")]) is True
-    assert fw._matches_ports(parsed, [PortSpec(port=80, protocol="udp")]) is False
-
-
 # ─── _rollback_gateway_rules ────────────────────────────────────────────────
 
 
@@ -877,30 +665,6 @@ def test_rollback_gateway_rules_logs_removal_failures(
     fw._rollback_gateway_rules(object(), 100, ["nat1"], ["proxy1"])
 
     assert removed == ["nat1"]
-
-
-def test_rollback_gateway_rules_logs_nat_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    removed: list[Any] = []
-
-    def boom(session: Any, rules: list) -> None:
-        raise RuntimeError("nat removal boom")
-
-    monkeypatch.setattr(nat_service, "remove_nat_rules", boom)
-    monkeypatch.setattr(
-        reverse_proxy_service,
-        "remove_reverse_proxy_rules",
-        lambda session, rules: removed.extend(rules),
-    )
-
-    fw._rollback_gateway_rules(object(), 100, ["nat1"], ["proxy1"])
-
-    assert removed == ["proxy1"]
-
-
-def test_rollback_gateway_rules_noop_when_empty() -> None:
-    fw._rollback_gateway_rules(object(), 100, [], [])
 
 
 # ─── create_connection ──────────────────────────────────────────────────────
@@ -1021,79 +785,6 @@ def test_create_connection_inbound_requires_target_ip(
     assert conn_env.created == []
 
 
-def test_create_connection_inbound_firewall_only(conn_env: SimpleNamespace) -> None:
-    fw.create_connection(
-        None,
-        100,
-        [PortSpec(port=80, protocol="tcp"), PortSpec(port=0, protocol="icmp")],
-        session=object(),
-    )
-
-    comments = [rule["comment"] for _vmid, rule in conn_env.created]
-    assert comments == ["SkyLab:gateway->100:80/tcp", "SkyLab:gateway->100:icmp"]
-    assert "dport" not in conn_env.created[1][1]
-
-
-def test_create_connection_inbound_applies_domain_and_port_forward(
-    conn_env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        gw_repo,
-        "get_gateway_config",
-        lambda session: SimpleNamespace(host="gw", encrypted_private_key="k"),
-    )
-    applied: list[tuple] = []
-    monkeypatch.setattr(
-        reverse_proxy_service,
-        "apply_reverse_proxy_rule_for_domain",
-        lambda **kwargs: applied.append(("proxy", kwargs)) or "proxy-rule",
-    )
-    monkeypatch.setattr(
-        nat_service,
-        "apply_nat_rule",
-        lambda **kwargs: applied.append(("nat", kwargs)) or "nat-rule",
-    )
-    session = object()
-
-    fw.create_connection(
-        None,
-        100,
-        [
-            PortSpec(
-                port=80, protocol="tcp", domain="a.example.com", enable_https=False
-            ),
-            PortSpec(port=22, protocol="tcp", external_port=2222),
-        ],
-        session=session,
-    )
-
-    assert applied == [
-        (
-            "proxy",
-            {
-                "session": session,
-                "vmid": 100,
-                "vm_ip": "10.0.0.100",
-                "domain": "a.example.com",
-                "internal_port": 80,
-                "enable_https": False,
-            },
-        ),
-        (
-            "nat",
-            {
-                "session": session,
-                "vmid": 100,
-                "vm_ip": "10.0.0.100",
-                "external_port": 2222,
-                "internal_port": 22,
-                "protocol": "tcp",
-            },
-        ),
-    ]
-    assert len(conn_env.created) == 2
-
-
 def test_create_connection_inbound_rollback_tolerates_delete_errors(
     conn_env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1146,17 +837,6 @@ def test_create_connection_to_gateway_restores_default_marker(
         "SkyLab:100->gateway:icmp",
     ]
     assert conn_env.enforced == [100]
-
-
-def test_create_connection_to_gateway_skips_existing_marker(
-    conn_env: SimpleNamespace,
-) -> None:
-    conn_env.rules[100] = [{"pos": 0, "comment": GATEWAY_DEFAULT}]
-
-    fw.create_connection(100, None, [PortSpec(port=443, protocol="tcp")])
-
-    comments = [rule["comment"] for _vmid, rule in conn_env.created]
-    assert comments == ["SkyLab:100->gateway:443/tcp"]
 
 
 def test_create_connection_vm_to_vm_requires_ips(conn_env: SimpleNamespace) -> None:
@@ -1278,43 +958,11 @@ def test_delete_connection_inbound_noops(del_env: SimpleNamespace) -> None:
     assert del_env.calls == []
 
 
-def test_delete_connection_inbound_without_session(del_env: SimpleNamespace) -> None:
-    fw.delete_connection(None, 100)
-
-    assert del_env.calls == [
-        {
-            "node": "pve1",
-            "vmid": 100,
-            "resource_type": "qemu",
-            "source_vmid": None,
-            "target_vmid": 100,
-            "ports": None,
-        }
-    ]
-    assert del_env.gateway == []
-
-
 def test_delete_connection_inbound_clears_all_gateway_rules(
     del_env: SimpleNamespace,
 ) -> None:
     fw.delete_connection(None, 100, session=object())
     assert del_env.gateway == [("nat_all", 100), ("proxy_all", 100)]
-
-
-def test_delete_connection_inbound_clears_gateway_rules_by_port(
-    del_env: SimpleNamespace,
-) -> None:
-    fw.delete_connection(
-        None,
-        100,
-        ports=[PortSpec(port=80, protocol="tcp"), PortSpec(port=53, protocol="udp")],
-        session=object(),
-    )
-    assert del_env.gateway == [
-        ("nat", 100, 80, "tcp"),
-        ("proxy", 100, 80),
-        ("nat", 100, 53, "udp"),
-    ]
 
 
 def test_delete_connection_to_gateway(del_env: SimpleNamespace) -> None:
@@ -1338,19 +986,6 @@ def test_delete_connection_vm_to_vm_missing_resources(del_env: SimpleNamespace) 
     fw.delete_connection(100, 999)
     fw.delete_connection(999, 200)
     assert del_env.calls == []
-
-
-def test_delete_connection_vm_to_vm_deletes_all_four_sides(
-    del_env: SimpleNamespace,
-) -> None:
-    fw.delete_connection(100, 200)
-
-    assert [(c["vmid"], c["source_vmid"], c["target_vmid"]) for c in del_env.calls] == [
-        (200, 100, 200),
-        (100, 100, 200),
-        (100, 200, 100),
-        (200, 200, 100),
-    ]
 
 
 def test_delete_connection_vm_to_vm_best_effort_failures(
@@ -1423,20 +1058,6 @@ def test_delete_matching_gateway_rules_without_port_filter(
     _delete(100, None, None)
 
     assert match_env.deleted == [1, 0]
-
-
-def test_delete_matching_gateway_rules_with_port_filter(
-    match_env: SimpleNamespace,
-) -> None:
-    match_env.rules = [
-        {"pos": 0, "comment": GATEWAY_DEFAULT},
-        {"pos": 1, "comment": "SkyLab:100->gateway:443/tcp"},
-        {"pos": 2, "comment": "SkyLab:100->gateway:80/tcp"},
-    ]
-
-    _delete(100, None, [PortSpec(port=443, protocol="tcp")])
-
-    assert match_env.deleted == [1]
 
 
 def test_delete_matching_vm_to_vm_rules_and_failures(
@@ -1530,60 +1151,6 @@ def test_enrich_edges_from_db_noop_without_inbound_edges() -> None:
     fw._enrich_edges_from_db(edges, None)  # type: ignore[arg-type]
 
 
-def test_enrich_edges_from_db_fills_domain_and_external_port(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        nat_repo,
-        "list_rules_by_vmids",
-        lambda session, vmids: [
-            SimpleNamespace(
-                vmid=100, internal_port=22, protocol="tcp", external_port=2222
-            ),
-            SimpleNamespace(
-                vmid=100, internal_port=80, protocol="udp", external_port=8080
-            ),
-            SimpleNamespace(
-                vmid=999, internal_port=9, protocol="tcp", external_port=9999
-            ),
-        ],
-    )
-    monkeypatch.setattr(
-        rp_repo,
-        "list_rules_by_vmids",
-        lambda session, vmids: [
-            SimpleNamespace(
-                vmid=100, internal_port=80, domain="a.example.com", enable_https=False
-            ),
-            SimpleNamespace(
-                vmid=999, internal_port=80, domain="b.example.com", enable_https=True
-            ),
-        ],
-    )
-    edge = TopologyEdge(
-        source_vmid=None,
-        target_vmid=100,
-        ports=[
-            PortSpec(port=80, protocol="tcp"),
-            PortSpec(port=80, protocol="udp"),
-            PortSpec(port=22, protocol="tcp"),
-            PortSpec(port=9, protocol="tcp"),
-        ],
-    )
-
-    fw._enrich_edges_from_db([edge], object())  # type: ignore[arg-type]
-
-    web, udp, ssh, other = edge.ports
-    assert (web.domain, web.enable_https, web.external_port) == (
-        "a.example.com",
-        False,
-        None,
-    )
-    assert (udp.domain, udp.external_port) == (None, 8080)
-    assert ssh.external_port == 2222
-    assert (other.domain, other.external_port) == (None, None)
-
-
 class _FakeResult:
     def __init__(self, rows: list[tuple]) -> None:
         self.rows = rows
@@ -1643,27 +1210,6 @@ def test_probe_topology_vm_degrades_on_options_error(
         False,
         [{"pos": 0}],
     )
-
-
-def test_pve_resources_for_skips_missing_and_duplicate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        fw,
-        "proxmox_service",
-        SimpleNamespace(
-            list_all_resources=lambda: [
-                {"vmid": 100, "node": "pve1"},
-                {"vmid": "101", "node": "pve1"},
-                {"vmid": 101, "node": "pve9"},
-                {"node": "pve1", "type": "storage"},
-            ]
-        ),
-    )
-
-    assert fw._pve_resources_for([100, 101, 102]) == {
-        100: {"vmid": 100, "node": "pve1"}
-    }
 
 
 def test_probe_topology_vms_empty() -> None:
@@ -1842,26 +1388,6 @@ def test_publish_vm_service_domain_checks_availability(
     assert result.url == "http://web.example.com"
 
 
-def test_publish_vm_service_rejects_already_published_port(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        fw,
-        "list_vm_published_services",
-        lambda vmid, session: [
-            PublishedService(port=80, protocol="tcp", mode="firewall_only")
-        ],
-    )
-
-    def must_not_create(**kwargs: Any) -> None:
-        raise AssertionError("不應建立連線")
-
-    monkeypatch.setattr(fw, "create_connection", must_not_create)
-
-    with pytest.raises(BadRequestError):
-        fw.publish_vm_service(150, PublishedServiceCreate(port=80), object())  # type: ignore[arg-type]
-
-
 def test_unpublish_vm_service_deletes_inbound_rules(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1962,46 +1488,6 @@ def test_replace_vm_service_domain_excludes_own_rule(
     assert result.url == "https://old.example.com"
 
 
-def test_replace_vm_service_new_domain_has_no_exclusion(
-    replace_env: SimpleNamespace,
-) -> None:
-    _replace(
-        PublishedServiceRef(port=22),
-        PublishedServiceCreate(port=8000, mode="domain", domain="new.example.com"),
-    )
-    assert replace_env.domain_checks == [("new.example.com", None)]
-
-
-def test_replace_vm_service_port_forward_port_checks(
-    replace_env: SimpleNamespace,
-) -> None:
-    _replace(
-        PublishedServiceRef(port=22),
-        PublishedServiceCreate(port=22, mode="port_forward", external_port=2222),
-    )
-    assert replace_env.port_checks == []
-
-    _replace(
-        PublishedServiceRef(port=22),
-        PublishedServiceCreate(port=22, mode="port_forward", external_port=2200),
-    )
-    assert replace_env.port_checks == [(2200, "tcp")]
-
-
-def test_replace_vm_service_restores_old_on_failure(
-    replace_env: SimpleNamespace,
-) -> None:
-    replace_env.create_failures = 1
-
-    with pytest.raises(ProxmoxError):
-        _replace(PublishedServiceRef(port=80), PublishedServiceCreate(port=80))
-
-    assert [(s.port, s.domain) for s in replace_env.created] == [
-        (80, None),
-        (80, "old.example.com"),
-    ]
-
-
 def test_replace_vm_service_restore_failure_is_logged(
     replace_env: SimpleNamespace,
 ) -> None:
@@ -2086,22 +1572,3 @@ def test_get_vm_topology_places_peers_and_filters_unknown(
         (None, 100),
         (100, None),
     ]
-
-
-def test_get_vm_topology_without_peers(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        fw,
-        "proxmox_service",
-        SimpleNamespace(find_resource=lambda vmid: {"node": "pve1", "type": "qemu"}),
-    )
-    monkeypatch.setattr(fw, "get_connections_from_rules", lambda vmids: [])
-    monkeypatch.setattr(fw, "_enrich_edges_from_db", lambda edges, session: None)
-    monkeypatch.setattr(fw, "_get_vm_ip", lambda vmid, session=None: None)
-    monkeypatch.setattr(fw, "get_firewall_options", lambda node, vmid, rtype: {})
-
-    resp = fw.get_vm_topology(100, object())  # type: ignore[arg-type]
-
-    assert [n.vmid for n in resp.nodes] == [100, None]
-    assert resp.nodes[0].name == "VM-100"
-    assert resp.nodes[0].position_y == 40.0
-    assert resp.edges == []

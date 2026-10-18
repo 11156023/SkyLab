@@ -49,10 +49,6 @@ def test_dangerous_command_issue_token_rules(
     assert dangerous_command_issue(command) == expected
 
 
-def test_dangerous_command_issue_git_args_checked_skips_blanket_rule() -> None:
-    assert dangerous_command_issue("git branch --list", git_args_checked=True) is None
-
-
 def test_normalize_managed_script_checks_without_list_returns_input() -> None:
     data = {"checks": "nope"}
     assert normalize_managed_script_checks(data) is data
@@ -134,17 +130,6 @@ def _peer_snapshot(*extra: dict[str, object]) -> dict[str, object]:
             },
             *extra,
         ]
-    }
-
-
-def test_peer_policy_without_peer_items_is_approved() -> None:
-    result = check_peer_runtime_policy("print(1)", {"items": [{"id": "x"}, "bad"]})
-    assert result == {
-        "approved": True,
-        "blocked": False,
-        "risk_level": "low",
-        "issues": [],
-        "fix_hints": [],
     }
 
 

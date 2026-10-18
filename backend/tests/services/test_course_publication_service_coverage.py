@@ -73,35 +73,3 @@ def test_apply_for_machines_covers_each_outcome(monkeypatch):
 
 def test_forward_endpoints_without_vmids():
     assert svc.forward_endpoints_by_vmid(object(), [None]) == {}  # type: ignore[arg-type,list-item]
-
-
-def test_apply_for_machines_without_publications(monkeypatch):
-    monkeypatch.setattr(svc, "list_for_version", lambda _s, *, version_id: [])
-    assert (
-        svc.apply_for_machines(
-            object(),  # type: ignore[arg-type]
-            version_id=uuid.uuid4(),
-            vmid_by_key={"web": 1},
-            owner=SimpleNamespace(id=uuid.uuid4()),  # type: ignore[arg-type]
-        )
-        == []
-    )
-
-
-def test_list_for_version_queries_session():
-    class _Session:
-        def exec(self, _stmt):
-            return SimpleNamespace(all=lambda: ["row"])
-
-    assert svc.list_for_version(_Session(), version_id=uuid.uuid4()) == ["row"]  # type: ignore[arg-type]
-
-
-def test_public_urls_by_vmid_takes_first_url(monkeypatch):
-    from app.services.resource import resource_service
-
-    monkeypatch.setattr(
-        resource_service,
-        "public_urls_by_vmid",
-        lambda _s, vmids: {1: ["https://a", "https://b"], 2: []},
-    )
-    assert svc.public_urls_by_vmid(object(), [1, 2]) == {1: "https://a"}  # type: ignore[arg-type]

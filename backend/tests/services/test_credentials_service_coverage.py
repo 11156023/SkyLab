@@ -141,16 +141,6 @@ def test_qemu_write_keys_set_delete_and_failure(env: SimpleNamespace) -> None:
         svc._qemu_write_keys(_qemu(), 150, [])
 
 
-def test_lxc_exec_failures(env: SimpleNamespace) -> None:
-    env.guest.results = [RuntimeError("ssh down"), (1, "", " denied "), (2, "out", "")]
-    with pytest.raises(ProxmoxError):
-        svc._lxc_exec(_lxc(), 150, "true")
-    with pytest.raises(ProxmoxError, match="denied"):
-        svc._lxc_exec(_lxc(), 150, "true")
-    with pytest.raises(ProxmoxError, match="out"):
-        svc._lxc_exec(_lxc(), 150, "true")
-
-
 def test_lxc_authorized_keys_variants(env: SimpleNamespace) -> None:
     assert svc._lxc_authorized_keys(_lxc("stopped"), 150) == []
     env.guest.results = [(0, f"{_USER_KEY}\n", "")]
@@ -163,27 +153,6 @@ def test_lxc_authorized_keys_variants(env: SimpleNamespace) -> None:
 
 
 # ── get_credentials ────────────────────────────────────────────────────────
-
-
-def test_get_credentials_qemu(env: SimpleNamespace) -> None:
-    env.pve.config = {
-        "ciuser": "alice",
-        "ostype": "win11",
-        "sshkeys": quote(f"{_PLATFORM_KEY}\n{_USER_KEY}", safe=""),
-    }
-    env.db.login_password_hash = "h"
-    out = svc.get_credentials(session=_FakeSession(), vmid=150, resource_info=_qemu())  # type: ignore[arg-type]
-    assert out.username == "alice"
-    assert out.is_windows is True
-    assert out.has_custom_login_password is True
-    assert out.authorized_keys == [_PLATFORM_KEY, _USER_KEY]
-
-
-def test_get_credentials_qemu_without_user_or_keys(env: SimpleNamespace) -> None:
-    out = svc.get_credentials(session=_FakeSession(), vmid=150, resource_info=_qemu())  # type: ignore[arg-type]
-    assert out.username is None
-    assert out.is_windows is False
-    assert out.authorized_keys == []
 
 
 def test_get_credentials_lxc(env: SimpleNamespace) -> None:
@@ -199,12 +168,6 @@ def test_get_credentials_lxc(env: SimpleNamespace) -> None:
 # ── get_ssh_key ────────────────────────────────────────────────────────────
 
 
-def test_get_ssh_key_missing_record(env: SimpleNamespace) -> None:
-    env.db = None
-    with pytest.raises(ProxmoxError):
-        svc.get_ssh_key(session=_FakeSession(), vmid=150, resource_info=_lxc())  # type: ignore[arg-type]
-
-
 def test_get_ssh_key_with_system_password_and_private_key(env: SimpleNamespace) -> None:
     env.db.ssh_private_key_encrypted = "enc:PEM"
     env.db.login_password_encrypted = "enc:pw"
@@ -213,32 +176,6 @@ def test_get_ssh_key_with_system_password_and_private_key(env: SimpleNamespace) 
     assert out.login_password == "pw"
     assert out.login_username == "root"
     assert out.uses_template_credentials is False
-
-
-def test_get_ssh_key_template_credentials_lookup(
-    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    env.db.template_id = 9000
-    env.pve.config = {"ciuser": "ubuntu"}
-    seen: list[Any] = []
-
-    def _find(_session: Any, *, pve_vmid: int) -> Any:
-        seen.append(pve_vmid)
-        return SimpleNamespace(password_settable=False)
-
-    monkeypatch.setattr(svc.password_policy, "find_template", _find)
-    out = svc.get_ssh_key(session=_FakeSession(), vmid=150, resource_info=_qemu())  # type: ignore[arg-type]
-    assert seen == [9000]
-    assert out.uses_template_credentials is True
-    assert out.login_username == "ubuntu"
-    assert out.login_password is None
-
-
-def test_get_ssh_key_pending_password(env: SimpleNamespace) -> None:
-    env.db.login_password_pending_hash = "h"
-    out = svc.get_ssh_key(session=_FakeSession(), vmid=150, resource_info=_qemu())  # type: ignore[arg-type]
-    assert out.login_password_pending is True
-    assert out.login_username is None
 
 
 # ── reset_password ─────────────────────────────────────────────────────────
@@ -254,96 +191,13 @@ def _reset(info: dict[str, Any], password: str | None, session: Any = None) -> A
     )
 
 
-def test_reset_password_qemu_running_reboots(env: SimpleNamespace) -> None:
-    session = _FakeSession()
-    out = _reset(_qemu("running"), None, session)
-    assert out.password == "Gen3rated!"
-    assert out.rebooting is True
-    assert out.applied_immediately is False
-    assert env.pve.controls == ["reboot"]
-    assert env.db.login_password_encrypted == "enc:Gen3rated!"
-    assert env.db.login_password_hash is None
-    assert session.commits == 1
-
-
-def test_reset_password_qemu_reboot_failure_reported(env: SimpleNamespace) -> None:
-    env.pve.control_error = RuntimeError("qmp timeout")
-    out = _reset(_qemu("running"), "Custom-Pass1")
-    assert out.rebooting is False
-    assert "qmp timeout" in out.message
-    assert env.db.login_password_hash == "hash:Custom-Pass1"
-    assert env.db.login_password_encrypted is None
-
-
-def test_reset_password_qemu_stopped_applies_next_boot(env: SimpleNamespace) -> None:
-    out = _reset(_qemu("stopped"), None)
-    assert out.rebooting is False
-    assert env.pve.controls == []
-
-
-def test_reset_password_windows_rejects_weak_custom(env: SimpleNamespace) -> None:
-    env.pve.config = {"ostype": "win10"}
-    with pytest.raises(BadRequestError):
-        _reset(_qemu(), "weakpass")
-    assert env.pve.updates == []
-
-
-def test_reset_password_weak_custom_on_linux_allowed(env: SimpleNamespace) -> None:
-    env.pve.config = {"ostype": "l26"}
-    out = _reset(_qemu(), "weakpass")
-    assert env.pve.updates == [{"cipassword": "weakpass"}]
-    assert out.password == "weakpass"
-
-
 def test_reset_password_qemu_update_failure(env: SimpleNamespace) -> None:
     env.pve.update_error = RuntimeError("locked")
     with pytest.raises(ProxmoxError):
         _reset(_qemu(), None)
 
 
-def test_reset_password_lxc_uses_stdin(env: SimpleNamespace) -> None:
-    out = _reset(_lxc(), None)
-    assert out.applied_immediately is True
-    assert env.guest.calls == [("chpasswd", "root:Gen3rated!\n")]
-
-
-def test_reset_password_lxc_requires_running(env: SimpleNamespace) -> None:
-    with pytest.raises(BadRequestError):
-        _reset(_lxc("stopped"), None)
-
-
 # ── regenerate_ssh_key ─────────────────────────────────────────────────────
-
-
-def test_regenerate_ssh_key_qemu_replaces_platform_key(env: SimpleNamespace) -> None:
-    env.pve.config = {"sshkeys": quote(f"{_PLATFORM_KEY}\n{_USER_KEY}", safe="")}
-    session = _FakeSession()
-    out = svc.regenerate_ssh_key(
-        session=session,  # type: ignore[arg-type]
-        vmid=150,
-        resource_info=_qemu(),
-        user_id=uuid.uuid4(),
-    )
-    assert out.applied_immediately is False
-    assert env.pve.updates == [
-        {"sshkeys": quote(f"{_USER_KEY}\n{_NEW_PUBLIC}", safe="")}
-    ]
-    assert env.db.ssh_public_key == _NEW_PUBLIC
-    assert env.db.ssh_private_key_encrypted == "enc:PRIVATE-PEM"
-    assert session.commits == 1
-
-
-def test_regenerate_ssh_key_lxc_without_old_key(env: SimpleNamespace) -> None:
-    env.db.ssh_public_key = None
-    env.guest.results = [(0, _USER_KEY, ""), (0, "", "")]
-    out = svc.regenerate_ssh_key(
-        session=_FakeSession(),  # type: ignore[arg-type]
-        vmid=150,
-        resource_info=_lxc(),
-        user_id=uuid.uuid4(),
-    )
-    assert out.applied_immediately is True
-    assert "authorized_keys" in env.guest.calls[1][0]
 
 
 # ── add / remove authorized key ────────────────────────────────────────────

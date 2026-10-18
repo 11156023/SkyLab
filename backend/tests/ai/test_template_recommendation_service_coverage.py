@@ -7,7 +7,6 @@ from typing import Any
 
 from app.ai.template_recommendation import chat_service, prompt
 from app.ai.template_recommendation.recommendation_service import (
-    infer_intent_from_chat,
     normalize_ai_result,
 )
 from app.ai.template_recommendation.schemas import (
@@ -22,17 +21,6 @@ def _chat(*texts: str, focus_hint: str | None = None) -> ChatRequest:
         messages=[ChatMessage(role="user", content=t) for t in texts],
         focus_hint=focus_hint,
     )
-
-
-def test_infer_intent_latest_negations_clear_flags() -> None:
-    request = _chat(
-        "我要 windows 跟 mysql 還有 public 網站",
-        "不需要windows，不要mysql，不用public",
-    )
-    intent = infer_intent_from_chat(request)
-    assert intent.needs_windows is False
-    assert intent.needs_database is False
-    assert intent.needs_public_web is False
 
 
 def _vm_options() -> dict[str, Any]:

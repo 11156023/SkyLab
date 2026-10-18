@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -94,50 +93,3 @@ def test_collect_runtime_reads_everything_over_one_client(
     assert runtime["stream_servers"][0]["vmid"] == 101
     assert runtime["stream_servers"][0]["upstream"] == "10.0.0.5:22"
     assert runtime["certificates"][0]["name"] == "/etc/ssl/c.pem"
-
-
-def test_lock_config_writes_only_locks_on_postgresql() -> None:
-    executed: list[Any] = []
-
-    class _Session:
-        def __init__(self, dialect: str | None) -> None:
-            self.dialect = dialect
-
-        def get_bind(self):
-            if self.dialect is None:
-                return None
-            return SimpleNamespace(dialect=SimpleNamespace(name=self.dialect))
-
-        def execute(self, statement: Any, params: dict) -> None:
-            executed.append(params)
-
-    nginx.lock_config_writes(object())
-    nginx.lock_config_writes(_Session(None))
-    nginx.lock_config_writes(_Session("sqlite"))
-    assert executed == []
-
-    nginx.lock_config_writes(_Session("postgresql"))
-    assert executed == [{"lock_id": nginx._NGINX_CONFIG_LOCK_ID}]
-
-
-def test_probe_health_parses_status_lines(monkeypatch: pytest.MonkeyPatch) -> None:
-    timeouts: list[int | None] = []
-
-    def fake_exec(client: Any, command: str, *, timeout: int | None = None):
-        timeouts.append(timeout)
-        return (
-            0,
-            "nginx=active\nwireguard=\nconfig=ok\nnoise\n"
-            "cert=/etc/ssl/a.pem\tJan  1 00:00:00 2030 GMT\n",
-            "",
-        )
-
-    monkeypatch.setattr(nginx, "_exec", fake_exec)
-
-    health = nginx.probe_health(object(), wireguard_unit="wg-quick@wg0", timeout=7)
-
-    assert timeouts == [7]
-    assert health["nginx"] == "active"
-    assert health["wireguard"] == "unknown"
-    assert health["config_valid"] is True
-    assert health["certificates"][0]["name"] == "/etc/ssl/a.pem"

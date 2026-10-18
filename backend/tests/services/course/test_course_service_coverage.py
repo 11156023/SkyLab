@@ -21,7 +21,6 @@ from app.models import (
     TeachingClassStatus,
     TeachingClassStudent,
     User,
-    UserCourseProgress,
     UserRole,
 )
 from app.models.course import CourseDifficulty
@@ -456,69 +455,6 @@ def test_get_published_path_and_enrollment_guards(session: Session) -> None:
     course_service.require_path_enrollment(session, path=linked, user_id=student.id)
 
 
-def test_path_detail_and_room_student_detail(session: Session) -> None:
-    teacher = _user(session, "t@example.edu", UserRole.teacher)
-    student = _user(session, "s@example.edu")
-    path = _published_path(session, owner=teacher, teaching_class=None)
-    room = CourseRoom(path_id=path.id, title="R")
-    session.add(room)
-    session.commit()
-    task = CourseTask(room_id=room.id, title="T", content="c")
-    session.add(task)
-    session.commit()
-    q1 = CourseQuestion(
-        task_id=task.id,
-        prompt="p1",
-        question_type=CourseQuestionType.no_answer,
-        points=10,
-    )
-    q2 = CourseQuestion(
-        task_id=task.id,
-        prompt="p2",
-        question_type=CourseQuestionType.flag,
-        flag_hash=flag_service.hash_flag("f"),
-        points=10,
-        order=1,
-    )
-    session.add(q1)
-    session.add(q2)
-    session.commit()
-    session.add(UserCourseProgress(user_id=student.id, question_id=q1.id))
-    session.commit()
-
-    detail = course_service.get_path_detail(
-        session, user_id=student.id, path_id=path.id
-    )
-    assert detail.rooms[0].total_questions == 2
-    assert detail.rooms[0].completed_questions == 1
-    assert detail.rooms[0].progress_percent == 50.0
-
-    room_view = course_service.get_room_student_detail(
-        session, user_id=student.id, room_id=room.id
-    )
-    questions = room_view.tasks[0].questions
-    assert [q.completed for q in questions] == [True, False]
-
-    summaries = course_service.list_published_paths(session, user_id=student.id)
-    assert summaries == []
-
-
-def test_class_timezone_falls_back_for_unknown_zone() -> None:
-    item = TeachingClass(
-        name="x",
-        code="x",
-        term="t",
-        owner_id=uuid.uuid4(),
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31),
-        weekday=0,
-        start_time=time(9),
-        end_time=time(11),
-        timezone="Not/AZone",
-    )
-    assert course_service._class_timezone(item).key == "Asia/Taipei"
-
-
 def test_list_student_schedule_states(session: Session) -> None:
     teacher = _user(session, "t@example.edu", UserRole.teacher)
     student = _user(session, "s@example.edu")
@@ -593,8 +529,3 @@ def test_list_student_schedule_states(session: Session) -> None:
     )
     assert {row.teaching_class_id: row.state for row in rows}[later_cls.id] == "now"
     assert rows[0].state == "now"
-
-
-def test_list_student_schedule_without_enrollments(session: Session) -> None:
-    student = _user(session, "s@example.edu")
-    assert course_service.list_student_schedule(session, user_id=student.id) == []

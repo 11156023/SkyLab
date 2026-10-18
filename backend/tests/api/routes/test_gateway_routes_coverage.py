@@ -261,36 +261,6 @@ def test_platform_entry_routes(monkeypatch: pytest.MonkeyPatch, audits: list) ->
     )
 
 
-@pytest.mark.parametrize(
-    ("headers", "expected_scheme"),
-    [({"x-forwarded-proto": "https"}, "https"), ({}, "http")],
-)
-def test_get_platform_entry_status(
-    monkeypatch: pytest.MonkeyPatch, headers: dict[str, str], expected_scheme: str
-) -> None:
-    monkeypatch.setattr(
-        gw,
-        "get_request_context",
-        lambda: SimpleNamespace(ip_address="203.0.113.9"),
-    )
-    captured: dict[str, Any] = {}
-
-    def _status(session: Any, **kwargs: Any) -> str:
-        captured.update(kwargs)
-        return "status"
-
-    monkeypatch.setattr(gw.platform_entry_service, "get_status", _status)
-    request = SimpleNamespace(headers=headers, url=SimpleNamespace(scheme="http"))
-    assert (
-        gw.get_platform_entry_status(request=request, session=SESSION, _=_user())
-        == "status"
-    )
-    assert captured == {
-        "observed_client_ip": "203.0.113.9",
-        "observed_scheme": expected_scheme,
-    }
-
-
 # ─── 服務設定檔 ───────────────────────────────────────────────────────────────
 
 

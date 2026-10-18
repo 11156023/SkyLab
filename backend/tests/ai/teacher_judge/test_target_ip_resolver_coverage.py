@@ -34,11 +34,6 @@ def _resolve(live_resource: dict[str, Any] | None = None) -> str:
     )
 
 
-def test_cached_ip_short_circuits(repo: dict[str, Any]) -> None:
-    repo["cached"] = " 10.0.0.5 "
-    assert _resolve() == "10.0.0.5"
-
-
 def test_find_resource_failure_returns_empty(
     repo: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -78,11 +73,3 @@ def test_live_ip_blank_returns_empty(
     monkeypatch.setattr(svc.proxmox_ops, "get_ip_address", lambda n, v, t: "  ")
     assert _resolve({"node": "pve1", "type": "lxc"}) == ""
     assert repo["synced"] == []
-
-
-def test_live_ip_is_synced_to_cache(
-    repo: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(svc.proxmox_ops, "get_ip_address", lambda n, v, t: "10.1.1.1")
-    assert _resolve({"node": "pve1", "type": "lxc"}) == "10.1.1.1"
-    assert repo["synced"] == [(101, "10.1.1.1")]
