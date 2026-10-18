@@ -278,6 +278,74 @@ def clone_with_fallback(
         return "full"
 
 
+def clone_to_node(
+    *,
+    template_node: str,
+    template_vmid: int,
+    new_vmid: int,
+    hostname: str,
+    resource_type: proxmox_ops.ResourceType,
+    target_node: str | None = None,
+    target_storage: str | None = None,
+    fallback_storage: str | None = None,
+) -> tuple[str, str]:
+    """把範本 clone 到同叢集的指定節點；回傳 (clone 模式, 實際所在節點)。
+
+    跨節點只能 full clone，而且 PVE 要求目標儲存區是共享儲存（Ceph 等），
+    範本母機本身放在哪不影響。呼叫端沒給共享的 ``target_storage``、或跨節點
+    clone 失敗時，退回範本節點建（``fallback_storage`` 為空時沿用母機的儲存區）
+    ——整班仍在同一個叢集，網路與防火牆都照常運作，只是少分散到一台。
+    """
+    if target_node and target_node != template_node and target_storage:
+        cross_node_config: dict[str, Any] = {
+            "newid": new_vmid,
+            "hostname" if resource_type == "lxc" else "name": hostname,
+            "full": 1,
+            "storage": target_storage,
+            "target": target_node,
+            "pool": get_proxmox_settings_for_node(template_node).pool_name,
+        }
+        clone_fn = (
+            proxmox_ops.clone_lxc if resource_type == "lxc" else proxmox_ops.clone_vm
+        )
+        try:
+            clone_fn(template_node, template_vmid, **cross_node_config)
+            return "full", target_node
+        except Exception as exc:
+            if _is_vmid_collision(exc):
+                raise
+            logger.warning(
+                "Cross-node clone of %s -> %s on %s failed (%s); "
+                "falling back to the template node %s",
+                template_vmid,
+                new_vmid,
+                target_node,
+                exc,
+                template_node,
+            )
+            # 跨節點 clone 失敗可能在目標節點留下半成品，清掉才能用同一個 VMID 重來
+            try:
+                from app.services.proxmox import provisioning_service
+
+                provisioning_service.cleanup_provisioned_resource(new_vmid)
+            except Exception:
+                logger.debug(
+                    "Cleanup of leftover resource %s before fallback failed",
+                    new_vmid,
+                    exc_info=True,
+                )
+
+    mode = clone_with_fallback(
+        node=template_node,
+        template_vmid=template_vmid,
+        new_vmid=new_vmid,
+        hostname=hostname,
+        resource_type=resource_type,
+        full_kwargs={"storage": fallback_storage} if fallback_storage else None,
+    )
+    return mode, template_node
+
+
 def _is_vmid_collision(exc: Exception) -> bool:
     """判斷 PVE 的「CT/VM <id> already exists」而非一般克隆失敗。"""
     return bool(
@@ -541,12 +609,17 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 session.commit()
 
             report_progress(task_id, 10)
-            clone_mode = clone_with_fallback(
-                node=node,
+            # 班級批次建機會指定節點與儲存區（與容量預留同一份分配）；沒指定時
+            # 照舊在範本節點、沿用母機的儲存區
+            clone_mode, node = clone_to_node(
+                template_node=node,
                 template_vmid=template_vmid,
                 new_vmid=new_vmid,
                 hostname=hostname,
                 resource_type=resource_type,
+                target_node=payload.get("target_node"),
+                target_storage=payload.get("target_storage"),
+                fallback_storage=payload.get("fallback_storage"),
             )
             created = True
 
