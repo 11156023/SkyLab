@@ -45,7 +45,7 @@ flowchart LR
 ## 技術棧
 
 - **後端**：FastAPI、SQLModel、Alembic、PostgreSQL（經 PgBouncer）、Redis、arq worker、proxmoxer、Paramiko、PyJWT、cryptography、httpx、websockets、Sentry
-- **前端**：React 19、Vite、react-router-dom 7、SCSS Modules、react-i18next（en / zh-TW / ja）、react-vnc、xterm.js、@xyflow/react、Recharts、Monaco Editor、sonner、Vitest
+- **前端**：React 19、Vite、react-router-dom 7、SCSS Modules、react-i18next（en / zh-TW / ja）、noVNC、xterm.js、@xyflow/react、Recharts、Monaco Editor、sonner、Vitest
 - **基礎設施**：Docker Compose、nginx、PgBouncer、PostgreSQL、Redis、MailCatcher（開發用）、選用的 Prometheus / Grafana / Loki / Alloy / InfluxDB
 - **AI**：vLLM（OpenAI 相容 API）經 LiteLLM 對外，後端另內建放置建議與範本推薦
 - **套件管理**：uv（Python）、Bun（前端）

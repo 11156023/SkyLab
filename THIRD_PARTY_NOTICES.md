@@ -54,7 +54,7 @@ Development tooling (uv, pytest, ruff, mypy, prek, coverage) is not distributed 
 | React, React DOM | MIT | https://github.com/facebook/react |
 | react-router-dom | MIT | https://github.com/remix-run/react-router |
 | i18next, react-i18next | MIT | https://github.com/i18next/i18next |
-| react-vnc (noVNC) | MIT | https://github.com/roerohan/react-vnc |
+| @novnc/novnc (noVNC) | MPL-2.0 | https://github.com/novnc/noVNC |
 | @xterm/xterm, addon-fit, addon-web-links | MIT | https://github.com/xtermjs/xterm.js |
 | @xyflow/react | MIT | https://github.com/xyflow/xyflow |
 | Recharts | MIT | https://github.com/recharts/recharts |

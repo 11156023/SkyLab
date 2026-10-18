@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, forwardRef, useEffect, useImperativeHandle } from "react";
+import { act, forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -11,13 +11,15 @@ const { service, i18n, vnc, toast } = vi.hoisted(() => ({
 }));
 
 vi.mock("react-i18next", async (original) => ({ ...await original(), useTranslation: () => i18n }));
-vi.mock("react-vnc", () => ({
-  VncScreen: forwardRef(function FakeVnc(props, ref) {
+vi.mock("../../../components/NoVncScreen/NoVncScreen", () => ({
+  default: forwardRef(function FakeVnc(props, ref) {
     vnc.props = props;
     useImperativeHandle(ref, () => ({ clipboardPaste: vnc.clipboardPaste, focus: vnc.focus, sendCtrlAltDel: () => {} }));
+    /* 真的 NoVncScreen 只在連上時叫一次 onConnect，之後 re-render 不會再叫 */
+    const onConnectRef = useRef(props.onConnect);
     useEffect(() => {
-      props.onConnect?.();
-    }, [props.onConnect]);
+      onConnectRef.current?.();
+    }, []);
     return <div data-testid="vnc-screen" />;
   }),
 }));
@@ -97,6 +99,22 @@ it("sends the panel text to the guest clipboard", async () => {
   expect(host.textContent).toContain("VncDialog.clipboardSent");
 });
 
+it("hands the keyboard back to the screen after sending the clipboard", async () => {
+  await renderConnected();
+  await act(async () => click(clipboardToggle()));
+  await act(async () => typeInto(host.querySelector("textarea"), "ls"));
+  vnc.focus.mockClear();
+  await act(async () => click(host.querySelector('[data-testid="vnc-clipboard-send"]')));
+  expect(vnc.focus).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the screen focused when a toolbar button is pressed with the mouse", async () => {
+  await renderConnected();
+  const mousedown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  await act(async () => clipboardToggle().dispatchEvent(mousedown));
+  expect(mousedown.defaultPrevented).toBe(true);
+});
+
 it("does not send an empty clipboard", async () => {
   await renderConnected();
   await act(async () => click(clipboardToggle()));
@@ -157,7 +175,8 @@ it("hides the browser clipboard button when the browser cannot read the clipboar
 it("focuses the remote screen as soon as it connects so typing works without moving the mouse", async () => {
   await renderConnected();
   expect(vnc.focus).toHaveBeenCalled();
-  expect(vnc.props.focusOnClick).toBe(true);
+  /* NoVncScreen 預設點畫面就取得焦點，對話框不能把它關掉 */
+  expect(vnc.props.focusOnClick).not.toBe(false);
 });
 
 function keydown(target, init) {

@@ -81,7 +81,7 @@ server {
 
     access_log /var/log/nginx/access.log skylab;
 
-    # 回應壓縮：JS bundle（monaco、recharts、react-vnc）與 API JSON 都受惠。
+    # 回應壓縮：JS bundle（monaco、recharts、noVNC）與 API JSON 都受惠。
     # gzip_proxied any 必須開，這裡所有回應都來自上游，不開會一律略過壓縮。
     # text/event-stream 刻意不列入：串流回應壓縮會被緩衝住。
     gzip on;

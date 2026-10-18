@@ -46,7 +46,7 @@ flowchart LR
 ## Tech stack
 
 - **Backend:** FastAPI, SQLModel, Alembic, PostgreSQL (via PgBouncer), Redis, arq worker, proxmoxer, Paramiko, PyJWT, cryptography, httpx, websockets, Sentry
-- **Frontend:** React 19, Vite, react-router-dom 7, SCSS Modules, react-i18next (en / zh-TW / ja), react-vnc, xterm.js, @xyflow/react, Recharts, Monaco Editor, sonner, Vitest
+- **Frontend:** React 19, Vite, react-router-dom 7, SCSS Modules, react-i18next (en / zh-TW / ja), noVNC, xterm.js, @xyflow/react, Recharts, Monaco Editor, sonner, Vitest
 - **Infrastructure:** Docker Compose, nginx, PgBouncer, PostgreSQL, Redis, MailCatcher (dev), optional Prometheus / Grafana / Loki / Alloy / InfluxDB
 - **AI:** vLLM (OpenAI-compatible API) behind LiteLLM, plus built-in placement advice and template recommendation in the backend
 - **Package managers:** uv (Python), Bun (frontend)

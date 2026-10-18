@@ -9,7 +9,6 @@ import path from "node:path";
 
 /* package.json 沒寫 license 欄位、或寫的是一段說明文字而不是 SPDX 代號的套件 */
 const LICENSE_OVERRIDES = {
-  "react-vnc": "MIT",
   gsap: "GSAP Standard License",
 };
 

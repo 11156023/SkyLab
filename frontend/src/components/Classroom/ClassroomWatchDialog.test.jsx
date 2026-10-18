@@ -10,8 +10,8 @@ vi.mock("../../services/classroom", () => ({ ClassroomService: { setControl } })
 vi.mock("../../services/auth", () => ({ AuthStorage: { getAccessToken: () => "tok" } }));
 vi.mock("../../utils/wsUrl", () => ({ wsBaseUrl: () => "ws://test" }));
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ error: vi.fn(), success: vi.fn() }) }));
-vi.mock("react-vnc", () => ({
-  VncScreen: forwardRef(function FakeVnc({ onConnect }, ref) {
+vi.mock("../NoVncScreen/NoVncScreen", () => ({
+  default: forwardRef(function FakeVnc({ onConnect }, ref) {
     useImperativeHandle(ref, () => ({ disconnect: () => {} }));
     useEffect(() => {
       onConnect?.();
