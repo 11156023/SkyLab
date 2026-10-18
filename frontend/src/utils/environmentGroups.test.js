@@ -10,6 +10,14 @@ describe("environment group builders", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].machines[0]).toMatchObject({ name: "MySQL", status: "running", vmid: 501 });
     expect(groupedResourceKeys(groups).vmids.has(501)).toBe(true);
+    expect(groups[0].publicationPending).toBe(false);
+  });
+
+  it("flags quick sessions whose public URL is still being retried", () => {
+    const groups = buildEnvironmentGroups([], [
+      { id: "session-2", title: "網站練習", status: "running", publication_pending: true, machines: [] },
+    ]);
+    expect(groups[0].publicationPending).toBe(true);
   });
 
   it("groups teaching-class resources separately", () => {

@@ -861,7 +861,34 @@ def test_single_start_runs_and_reconciles_quick_practice(monkeypatch) -> None:
     assert coordinator.process_single_request_start(req.id) is True
     assert reconciled == [req.id]
     assert session.expired == 1
+    # 建機結果先 commit 一次，拓撲再 commit 一次
+    assert session.commits == 2
+
+
+def test_single_start_keeps_provisioning_when_reconcile_fails(monkeypatch) -> None:
+    """快速練習的拓撲／發布出錯不能把建機結果 rollback，也不能把機器標成失敗。"""
+    from app.services import quick_practice
+
+    req = _request(vmid=55)
+    session = _FakeSession()
+    monkeypatch.setattr(coordinator, "Session", lambda engine: session)
+    monkeypatch.setattr(
+        coordinator.vm_request_repo, "get_vm_request_by_id", lambda **kw: req
+    )
+    monkeypatch.setattr(coordinator, "_ensure_request_running", lambda **kw: True)
+    marked: list = []
+    monkeypatch.setattr(
+        coordinator, "_mark_request_runtime_error", lambda **kw: marked.append(kw)
+    )
+
+    def broken(_session, *, request_id):
+        raise RuntimeError("gateway down")
+
+    monkeypatch.setattr(quick_practice, "reconcile_for_request", broken)
+
+    assert coordinator.process_single_request_start(req.id) is True
     assert session.commits == 1
+    assert marked == []
 
 
 @pytest.mark.parametrize(

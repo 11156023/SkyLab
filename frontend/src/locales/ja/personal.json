@@ -378,6 +378,7 @@
   "EnvironmentMachineRow.controlFailed": "マシン操作に失敗しました",
   "EnvironmentMachineRow.commandSent": "コマンドを送信しました",
   "EnvironmentGroupRows.machineCount": "マシン{{count}}台 · グループ全体で管理",
+  "EnvironmentGroupRows.publicationPending": "公開 URL を設定中です。自動的に再試行します",
   "EnvironmentGroupRows.runningCount": "{{running}}/{{total}} 実行中",
   "EnvironmentGroupRows.startAll": "一括起動",
   "EnvironmentGroupRows.shutdownAll": "一括シャットダウン",

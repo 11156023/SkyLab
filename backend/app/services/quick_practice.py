@@ -43,6 +43,12 @@ QUICK_NETWORK_COMMENT_PREFIX = "SkyLab:practice-net:"
 QUICK_PRACTICE_SCOPES = ("quick_practice", "both")
 #: reconcile_session 寫進 last_error 的前綴；lifecycle 看到它就直接整組回收
 MACHINE_FAILURE_PREFIX = "機器建立失敗："
+#: 機器與拓撲都好了、只差對外網址：環境照常交給學生，背景重試發布
+PUBLICATION_PENDING_PREFIX = "對外網址尚未設定完成："
+#: 對外網址重試的間隔。Gateway 連不上時每次嘗試都要等 SSH 逾時，不能每輪都試
+PUBLICATION_RETRY_INTERVAL = timedelta(minutes=2)
+#: practice id → 下次可以重試發布的時間（各行程各自記；重啟後立刻重試一次無妨）
+_publication_retry_at: dict[uuid.UUID, datetime] = {}
 logger = logging.getLogger(__name__)
 
 
@@ -161,8 +167,13 @@ def _session_machine_rows(
 
 def _apply_session_topology(
     session: Session, *, practice: QuickPracticeSession
-) -> list[str]:
-    """Materialize one student's published topology as idempotent firewall rules."""
+) -> tuple[list[str], list[str]]:
+    """Materialize one student's published topology as idempotent firewall rules.
+
+    回傳 (拓撲防火牆錯誤, 對外發布錯誤)。兩者分開：防火牆沒套好代表機器之間
+    該通的不通、不該通的可能通，環境不能交出去；對外網址只是少了從外網連進來
+    的入口，機器本身可以用，交給背景重試即可。
+    """
     # Local import avoids a module cycle with the VM scheduling coordinator.
     from app.services.teaching import class_network_service
 
@@ -236,17 +247,22 @@ def _apply_session_topology(
     # 「外網 → 機器」的宣告：每位學生各配一個網址，重複執行會略過已發布的
     from app.services.teaching import course_publication_service
 
+    publication_errors: list[str] = []
     owner = session.get(User, practice.user_id)
     if owner is not None:
-        errors.extend(
-            course_publication_service.apply_for_machines(
+        try:
+            publication_errors = course_publication_service.apply_for_machines(
                 session,
                 version_id=practice.environment_version_id,
                 vmid_by_key=vmid_by_key,
                 owner=owner,
             )
-        )
-    return errors
+        except Exception:
+            logger.exception(
+                "Failed to publish quick-practice services session=%s", practice.id
+            )
+            publication_errors = ["publishing failed"]
+    return errors, publication_errors
 
 
 def reconcile_session(
@@ -293,17 +309,66 @@ def reconcile_session(
         practice.last_error = None
         session.add(practice)
         return practice
+    now = _utc_now()
+    if _publication_pending(practice) and now < _publication_retry_at.get(
+        practice.id, now
+    ):
+        # 只差對外網址、還沒到重試時間：不必每輪都重套拓撲、重連 Gateway
+        return practice
 
-    errors = _apply_session_topology(session, practice=practice)
-    if errors:
+    try:
+        topology_errors, publication_errors = _apply_session_topology(
+            session, practice=practice
+        )
+    except Exception:
+        # 讀資料或打 PVE 的意外錯誤：記成拓撲失敗，交給修復期限處理，
+        # 不讓例外往上丟把整個 callback 回滾、session 永遠停在 creating
+        logger.exception("Failed to reconcile quick-practice session %s", practice.id)
+        session.rollback()
+        practice = session.get(QuickPracticeSession, practice_id)
+        if practice is None:
+            return None
+        topology_errors, publication_errors = ["topology failed"], []
+
+    if topology_errors:
         practice.status = "partial_failed"
-        practice.last_error = "；".join(errors)[:2000]
+        practice.last_error = "；".join(topology_errors + publication_errors)[:2000]
+    elif publication_errors:
+        # 機器與防火牆都好了：環境照常交給學生，對外網址在背景補。
+        # topology_applied_at 維持空值，lifecycle 才會再進來重試發布
+        practice.status = "ready"
+        practice.last_error = (
+            PUBLICATION_PENDING_PREFIX + "；".join(publication_errors)
+        )[:2000]
+        _publication_retry_at[practice.id] = now + PUBLICATION_RETRY_INTERVAL
     else:
         practice.status = "ready"
-        practice.topology_applied_at = _utc_now()
+        practice.topology_applied_at = now
         practice.last_error = None
+        _publication_retry_at.pop(practice.id, None)
     session.add(practice)
     return practice
+
+
+def _publication_pending(practice: QuickPracticeSession) -> bool:
+    return (practice.last_error or "").startswith(PUBLICATION_PENDING_PREFIX)
+
+
+def _machines_ready_at(session: Session, practice: QuickPracticeSession) -> datetime:
+    """整組機器最後一台建好的時間；拓撲修復期限從這裡起算。
+
+    從 session 建立時間算的話，機器 clone 比較久（排隊、完整複製）時，第一次
+    套拓撲就已經超過期限，一次暫時性錯誤就整組回收，等於沒有修復時間。
+    """
+    latest = session.exec(
+        select(func.max(Resource.created_at))
+        .join(
+            QuickPracticeSessionMachine,
+            col(QuickPracticeSessionMachine.vm_request_id) == col(Resource.request_id),
+        )
+        .where(QuickPracticeSessionMachine.session_id == practice.id)
+    ).one()
+    return _ensure_utc(latest or practice.created_at)
 
 
 def reconcile_for_request(session: Session, *, request_id: uuid.UUID) -> None:
@@ -411,6 +476,7 @@ def _mark_reclaimed(session: Session, practice: QuickPracticeSession) -> None:
     )
     practice.status = "reclaimed"
     practice.reclaimed_at = _utc_now()
+    _publication_retry_at.pop(practice.id, None)
 
 
 def _queue_session_reclaim(
@@ -547,7 +613,7 @@ def process_lifecycle() -> int:
                                 MACHINE_FAILURE_PREFIX
                             )
                             or now
-                            >= _ensure_utc(reconciled.created_at)
+                            >= _machines_ready_at(session, reconciled)
                             + TOPOLOGY_REPAIR_TIMEOUT
                         )
                     ):
@@ -675,6 +741,62 @@ def _session_has_live_request(session: Session, item: QuickPracticeSession) -> b
     )
 
 
+def _assert_publications_ready(
+    session: Session, *, version_id: uuid.UUID
+) -> None:
+    """環境有「外網 → 機器」宣告時，開機器前先確認發布需要的設定都在。
+
+    只檢查設定，不實際連 Gateway：設定缺了（Gateway 沒設、Cloudflare 沒設、
+    zone 不在、配號池沒設或用完）重試也不會好，建了機器只是白開；Gateway
+    暫時連不上則交給建好後的背景重試，不擋學生開環境。
+    """
+    from app.repositories import gateway_config as gw_repo
+    from app.services.network import nat_service, reverse_proxy_service
+    from app.services.teaching import course_publication_service
+
+    publications = course_publication_service.list_for_version(
+        session, version_id=version_id
+    )
+    if not publications:
+        return
+    gateway = gw_repo.get_gateway_config(session)
+    if gateway is None or not gateway.host or not gateway.encrypted_private_key:
+        raise BadRequestError(t("quick_practice.publication_gateway_not_ready"))
+
+    domain_zones = {
+        str(item.zone_id) for item in publications if item.mode == "domain"
+    }
+    if domain_zones:
+        context = reverse_proxy_service.get_reverse_proxy_setup_context(session)
+        if not context.enabled:
+            raise BadRequestError(
+                t(
+                    "quick_practice.publication_domain_not_ready",
+                    reason="；".join(context.reasons),
+                )
+            )
+        if not domain_zones <= {zone.id for zone in context.zones}:
+            raise BadRequestError(t("quick_practice.publication_zone_missing"))
+
+    needed: dict[str, int] = {}
+    for item in publications:
+        if item.mode != "domain":
+            needed[item.protocol] = needed.get(item.protocol, 0) + 1
+    for protocol, count in needed.items():
+        free = nat_service.count_free_external_ports(session, protocol)
+        if free is None:
+            raise BadRequestError(t("quick_practice.publication_port_pool_missing"))
+        if free < count:
+            raise BadRequestError(
+                t(
+                    "quick_practice.publication_port_pool_full",
+                    protocol=protocol.upper(),
+                    needed=count,
+                    free=free,
+                )
+            )
+
+
 def launch(
     session: Session, *, user, environment_id: uuid.UUID
 ) -> QuickPracticeSession:
@@ -684,6 +806,7 @@ def launch(
     nodes = nodes_for_version(session, version_id=version.id)
     if not nodes:
         raise BadRequestError(t("quick_practice.template_no_machines"))
+    _assert_publications_ready(session, version_id=version.id)
 
     # Serialize launches for one user so simultaneous clicks cannot bypass the
     # one-active-session and rolling 24-hour limits.
@@ -939,5 +1062,7 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
         "topology_applied_at": item.topology_applied_at,
         "reclaim_started_at": item.reclaim_started_at,
         "error": item.last_error,
+        # 機器可以用、只差對外網址（背景重試中）
+        "publication_pending": _publication_pending(item),
         "machines": machines,
     }
