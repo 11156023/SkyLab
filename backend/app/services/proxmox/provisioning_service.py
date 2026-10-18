@@ -4,6 +4,7 @@ import time
 import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import quote
 
 from sqlmodel import Session, select
@@ -382,6 +383,9 @@ def _select_request_placement(
             resources=resources,
             cpu_overcommit_ratio=cpu_overcommit_ratio,
             disk_overcommit_ratio=disk_overcommit_ratio,
+            memory_overcommit_ratio=(
+                vm_request_placement_service.get_memory_overcommit_ratio(session)
+            ),
         )
         node_capacities = [
             item for item in node_capacities if item.node == str(pinned_node)
@@ -745,6 +749,49 @@ def create_lxc(
         raise ProxmoxError(f"Failed to create LXC container: {e}")
 
 
+def _clone_vm_to_node(
+    *,
+    template_node: str,
+    template_id: int,
+    new_vmid: int,
+    clone_config: dict[str, Any],
+    cross_node: str | None,
+    cross_node_storage: str | None,
+) -> tuple[str, str]:
+    """full clone 一台 VM；有指定別台節點就跨節點，失敗退回範本節點。回傳 (UPID, 節點)。"""
+    if cross_node and cross_node_storage:
+        try:
+            upid = proxmox_service.clone_vm(
+                template_node,
+                template_id,
+                **{**clone_config, "storage": cross_node_storage, "target": cross_node},
+            )
+            return upid, cross_node
+        except Exception as exc:
+            from app.services.template import clone_service
+
+            if clone_service._is_vmid_collision(exc):
+                raise
+            logger.warning(
+                "Cross-node clone of VM template %s -> %s on %s failed (%s); "
+                "falling back to the template node %s",
+                template_id,
+                new_vmid,
+                cross_node,
+                exc,
+                template_node,
+            )
+            try:
+                cleanup_provisioned_resource(new_vmid)
+            except Exception:
+                logger.debug(
+                    "Cleanup of leftover VM %s before fallback failed",
+                    new_vmid,
+                    exc_info=True,
+                )
+    return proxmox_service.clone_vm(template_node, template_id, **clone_config), template_node
+
+
 def create_vm(
     *,
     session: Session,
@@ -752,22 +799,44 @@ def create_vm(
     user_id: uuid.UUID,
     batch_job_id: uuid.UUID | None = None,
     ip_reservation_key: str | None = None,
+    target_node: str | None = None,
 ) -> VMCreateResponse:
+    """從 PVE 範本建一台 VM。
+
+    ``target_node``：班級批次建機照容量預留排好的節點。不是範本節點時，
+    有共享儲存就跨節點 full clone 過去，失敗或沒有共享儲存就在範本節點建。
+    """
     ensure_ciuser_allowed(vm_data.username)
     # 密碼不合 Windows 複雜度時才去查範本是不是 Windows（省一次 PVE 查詢）
     if windows_password_issues(vm_data.password) and template_is_windows(
         vm_data.template_id
     ):
         password_policy.require_windows_password(vm_data.password)
-    target_node = get_vm_target_node(vm_data.template_id)
+    template_node = get_vm_target_node(vm_data.template_id)
     target_storage = _resolve_managed_storage(
         session=session,
-        node=target_node,
+        node=template_node,
         resource_type="vm",
         requested_storage=vm_data.storage,
         disk_gb=int(vm_data.disk_size or 20),
         required_content="images",
     )
+    cross_node_storage = (
+        _cross_node_template_storage(
+            session=session,
+            template_node=template_node,
+            target_node=target_node,
+            resource_type="vm",
+            requested_storage=vm_data.storage,
+            disk_gb=int(vm_data.disk_size or 20),
+            required_content="images",
+        )
+        if target_node
+        else None
+    )
+    cross_node_target = target_node if cross_node_storage else None
+    # clone 完之後所有操作都在機器實際所在的節點上做（失敗回滾也是）
+    target_node = template_node
 
     # 取得網路配置並分配 IP
     net_cfg = ip_management_service.get_network_config_for_vm(session)
@@ -794,8 +863,13 @@ def create_vm(
                 "pool": get_proxmox_settings_for_node(target_node).pool_name,
             }
 
-            result = proxmox_service.clone_vm(
-                target_node, vm_data.template_id, **clone_config
+            result, target_node = _clone_vm_to_node(
+                template_node=template_node,
+                template_id=vm_data.template_id,
+                new_vmid=new_vmid,
+                clone_config=clone_config,
+                cross_node=cross_node_target,
+                cross_node_storage=cross_node_storage,
             )
             created = True
 

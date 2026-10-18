@@ -82,6 +82,14 @@ def get_overcommit_ratios(session: Session) -> tuple[float, float]:
     )
 
 
+def get_memory_overcommit_ratio(session: Session) -> float:
+    """已分配記憶體可以超過實體記憶體的倍數；沒設定時不超賣。"""
+    config = proxmox_config_repo.get_proxmox_config(session)
+    if not config:
+        return 1.0
+    return max(float(getattr(config, "memory_overcommit_ratio", 1.0) or 1.0), 1.0)
+
+
 def get_node_priorities(session: Session) -> dict[str, int]:
     return {
         item.name: int(item.priority)

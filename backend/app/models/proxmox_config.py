@@ -19,6 +19,8 @@ class ProxmoxConfig(SQLModel, table=True):
     id: int = Field(default=1, primary_key=True)
     cpu_overcommit_ratio: float = Field(default=2.0)
     disk_overcommit_ratio: float = Field(default=1.0)
+    # 已分配給機器的記憶體總量可以超過實體記憶體幾倍；實際用量仍不能超過實體
+    memory_overcommit_ratio: float = Field(default=1.0)
     placement_reassignment_cost: float = Field(default=0.15, ge=0.0, le=5.0)
     placement_peak_cpu_margin: float = Field(default=1.1, ge=1.0, le=2.0)
     placement_peak_memory_margin: float = Field(default=1.05, ge=1.0, le=2.0)

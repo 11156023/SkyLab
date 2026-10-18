@@ -9,6 +9,7 @@
   "quick_practice.active_session_exists": "You already have an active quick-practice environment",
   "quick_practice.daily_limit_reached": "You have reached the quick-practice creation limit for the past 24 hours",
   "quick_practice.environment_full": "This environment is currently full (up to {max} concurrent groups); please try again later",
+  "quick_practice.cluster_capacity_insufficient": "The cluster does not have enough capacity for this practice environment right now: {detail}",
   "quick_practice.publication_gateway_not_ready": "This practice environment needs a public URL or port, but the Gateway is not configured. Please contact an administrator.",
   "quick_practice.publication_domain_not_ready": "This practice environment needs a public URL, but the reverse proxy is not ready: {reason}",
   "quick_practice.publication_zone_missing": "The domain this practice environment uses is no longer available. Ask the teacher to update the environment.",

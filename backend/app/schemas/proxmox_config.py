@@ -12,6 +12,7 @@ class ProxmoxConfigPublic(BaseModel):
 
     cpu_overcommit_ratio: float = 2.0
     disk_overcommit_ratio: float = 1.0
+    memory_overcommit_ratio: float = 1.0
     placement_reassignment_cost: float = 0.15
     placement_peak_cpu_margin: float = 1.1
     placement_peak_memory_margin: float = 1.05
@@ -49,6 +50,8 @@ class ProxmoxConfigUpdate(BaseModel):
 
     cpu_overcommit_ratio: float = Field(default=2.0, ge=1.0, le=8.0)
     disk_overcommit_ratio: float = Field(default=1.0, ge=1.0, le=5.0)
+    # RAM 超賣上限刻意壓低：記憶體一擠就是 OOM，不像 CPU 只是變慢
+    memory_overcommit_ratio: float = Field(default=1.0, ge=1.0, le=2.0)
     placement_reassignment_cost: float = Field(default=0.15, ge=0.0, le=5.0)
     placement_peak_cpu_margin: float = Field(default=1.1, ge=1.0, le=2.0)
     placement_peak_memory_margin: float = Field(default=1.05, ge=1.0, le=2.0)

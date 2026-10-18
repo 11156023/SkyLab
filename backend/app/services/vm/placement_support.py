@@ -5,6 +5,8 @@ import re
 import threading
 import time
 import uuid
+from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -93,15 +95,94 @@ def build_live_node_capacities(
     resources: list[ResourceSnapshot],
     cpu_overcommit_ratio: float = 1.0,
     disk_overcommit_ratio: float = 1.0,
+    memory_overcommit_ratio: float = 1.0,
 ) -> list[NodeCapacity]:
-    """以當下 PVE 的 GPU 佔用計算節點容量（純計算交給 domain advisor）。"""
-    return placement_advisor.build_node_capacities(
+    """以當下 PVE 的 GPU 佔用計算節點容量，再扣掉已分配給機器的規格。
+
+    純即時容量（advisor）只看此刻的 CPU 使用率與記憶體用量；這裡再用
+    ``apply_committed_allocations`` 把關機機器的分配量也算進去。
+    """
+    capacities = placement_advisor.build_node_capacities(
         nodes=nodes,
         resources=resources,
         gpu_used=gpu_used_slots(),
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
+    apply_committed_allocations(
+        {item.node: item for item in capacities},
+        nodes=nodes,
+        resources=resources,
+        cpu_overcommit_ratio=cpu_overcommit_ratio,
+        memory_overcommit_ratio=memory_overcommit_ratio,
+        excluded_vmids=template_guest_vmids() if resources else set(),
+    )
+    return capacities
+
+
+def template_guest_vmids(db_engine: Any | None = None) -> set[int]:
+    """平台範本母機的 VMID：關機、永不開機，不算進已分配的用量。
+
+    查不到時回空集合，等於把母機也算進去——寧可算嚴，不要放行。
+    """
+    try:
+        return proxmox_service.platform_template_vmids(db_engine=db_engine)
+    except Exception:
+        logger.warning("Failed to load platform template VMIDs", exc_info=True)
+        return set()
+
+
+def apply_committed_allocations(
+    capacities: Mapping[str, NodeCapacity],
+    *,
+    nodes: list[NodeSnapshot],
+    resources: list[ResourceSnapshot],
+    cpu_overcommit_ratio: float,
+    memory_overcommit_ratio: float = 1.0,
+    excluded_vmids: set[int],
+) -> None:
+    """可用 CPU／RAM 改以「已分配給機器的規格」計算，關機的機器也算。
+
+    即時容量看的是此刻的 CPU 使用率與記憶體用量：下課時段機器關機，就像
+    不存在，新申請照樣通過，等全部開機才擠不下；CPU 超賣倍率套在使用率上
+    也形同沒擋住。這裡把每台機器（範本母機除外）分配到的 vCPU 與記憶體加總，
+    和即時值取較嚴的那個——即時值仍要看，主機自己（PVE、ZFS ARC 等）也會吃
+    記憶體。CPU 與 RAM 各套自己的超賣倍率，兩者都保留與即時容量相同比例的
+    安全餘裕。重複套用結果不變。
+    """
+    committed_cpu: dict[str, float] = defaultdict(float)
+    committed_mem: dict[str, int] = defaultdict(int)
+    for guest in resources:
+        if int(guest.vmid) in excluded_vmids:
+            continue
+        committed_cpu[guest.node] += float(guest.maxcpu or 0)
+        committed_mem[guest.node] += int(guest.maxmem_bytes or 0)
+
+    headroom = placement_settings.placement_headroom_ratio
+    for node in nodes:
+        capacity = capacities.get(node.node)
+        if capacity is None:
+            continue
+        total_cpu = float(node.maxcpu) * max(cpu_overcommit_ratio, 1.0)
+        cpu_left = total_cpu - committed_cpu[node.node] - total_cpu * headroom
+        total_mem = int(node.maxmem_bytes * max(memory_overcommit_ratio, 1.0))
+        mem_left = (
+            total_mem
+            - committed_mem[node.node]
+            - int(node.maxmem_bytes * headroom)
+        )
+        capacity.allocatable_cpu_cores = max(
+            0.0, min(float(capacity.allocatable_cpu_cores), cpu_left)
+        )
+        capacity.allocatable_memory_bytes = max(
+            0, min(int(capacity.allocatable_memory_bytes), mem_left)
+        )
+        # 只收緊 candidate；guest 密度沿用 advisor 以實體核心算的結果
+        capacity.candidate = (
+            capacity.candidate
+            and capacity.allocatable_cpu_cores > 0
+            and capacity.allocatable_memory_bytes > 0
+        )
 
 
 def _get_cached_cluster_state() -> _ClusterCacheEntry | None:

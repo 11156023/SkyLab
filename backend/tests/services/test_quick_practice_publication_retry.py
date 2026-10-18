@@ -343,3 +343,64 @@ def test_concurrent_publication_is_not_reported_as_failure(monkeypatch):
         owner=SimpleNamespace(id=uuid.uuid4()),
     )
     assert errors == []
+
+
+# ------------------------------------------------------------ 開環境前的叢集容量檢查
+
+
+def _capacity_nodes():
+    from app.models import CourseEnvironmentNode
+
+    return [
+        CourseEnvironmentNode(
+            id=uuid.uuid4(),
+            version_id=uuid.uuid4(),
+            node_key="web",
+            source_type="custom",
+            custom_image_ref="local:vztmpl/debian.tar.zst",
+            name="Web",
+            role="server",
+            resource_type="lxc",
+            cpu=2,
+            memory_mb=2048,
+            disk_gb=8,
+            network="lab-net",
+            sort_order=0,
+        )
+    ]
+
+
+def test_cluster_capacity_check_uses_the_class_algorithm(monkeypatch):
+    from app.services.teaching import class_capacity_service
+
+    seen: dict = {}
+
+    def evaluate(_session, *, nodes, student_ids):
+        seen.update(nodes=nodes, student_ids=student_ids)
+        return {}, {}, []
+
+    monkeypatch.setattr(class_capacity_service, "_evaluate_cluster_capacity", evaluate)
+    monkeypatch.setattr(quick_practice, "_node_disk_gb", lambda _s, _n: 20)
+    user_id = uuid.uuid4()
+
+    quick_practice._assert_cluster_capacity(None, nodes=_capacity_nodes(), user_id=user_id)
+
+    # 整組當成「一位學生」的班級來算；磁碟用含範本下限的實際大小
+    assert seen["student_ids"] == [user_id]
+    assert [(m.name, m.cpu, m.disk_gb) for m in seen["nodes"]] == [("Web", 2, 20)]
+
+
+def test_cluster_capacity_shortage_blocks_launch(monkeypatch):
+    from app.services.teaching import class_capacity_service
+
+    monkeypatch.setattr(
+        class_capacity_service,
+        "_evaluate_cluster_capacity",
+        lambda _s, *, nodes, student_ids: ({}, {}, ["pve1 RAM 不足：需要 2.0 GB，可用 0.5 GB"]),
+    )
+    monkeypatch.setattr(quick_practice, "_node_disk_gb", lambda _s, _n: 8)
+    with pytest.raises(BadRequestError) as exc:
+        quick_practice._assert_cluster_capacity(
+            None, nodes=_capacity_nodes(), user_id=uuid.uuid4()
+        )
+    assert "pve1" in str(exc.value.message if hasattr(exc.value, "message") else exc.value)

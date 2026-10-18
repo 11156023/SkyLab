@@ -191,6 +191,7 @@ def _select_current_for_request(
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
+        memory_overcommit_ratio=get_memory_overcommit_ratio(session),
     )
     effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
@@ -245,6 +246,7 @@ def _feasible_nodes_over_window(
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
+        memory_overcommit_ratio=get_memory_overcommit_ratio(session),
     )
     effective_resource_type, resource_type_reason = placement_advisor.decide_resource_type(
         request
@@ -645,6 +647,10 @@ def get_placement_strategy(session: Session) -> str:
 
 def get_overcommit_ratios(session: Session) -> tuple[float, float]:
     return placement_policy.get_overcommit_ratios(session)
+
+
+def get_memory_overcommit_ratio(session: Session) -> float:
+    return placement_policy.get_memory_overcommit_ratio(session)
 
 
 def get_node_priorities(session: Session) -> dict[str, int]:

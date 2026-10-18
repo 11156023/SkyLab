@@ -19,7 +19,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
  * 不必再原樣回送。
  */
 const UPDATE_KEYS = [
-  "cpu_overcommit_ratio", "disk_overcommit_ratio",
+  "cpu_overcommit_ratio", "disk_overcommit_ratio", "memory_overcommit_ratio",
   "placement_reassignment_cost", "placement_peak_cpu_margin",
   "placement_peak_memory_margin", "placement_loadavg_warn_per_core",
   "placement_loadavg_max_per_core", "placement_loadavg_penalty_weight",
@@ -60,6 +60,8 @@ function useSchedulerGroups(t) {
       fields: [
         { key: "cpu_overcommit_ratio", label: t("SettingsPage.cpuOvercommitRatio"), step: 0.1 },
         { key: "disk_overcommit_ratio", label: t("SettingsPage.diskOvercommitRatio"), step: 0.1 },
+        /* RAM 只放寬「已分配」的總量；實際用量仍不能超過實體記憶體 */
+        { key: "memory_overcommit_ratio", label: t("SettingsPage.memoryOvercommitRatio"), step: 0.1, hint: t("SettingsPage.memoryOvercommitRatioHint") },
         { key: "placement_reassignment_cost", label: t("SettingsPage.placementReassignmentCost"), step: 0.01 },
       ],
     },

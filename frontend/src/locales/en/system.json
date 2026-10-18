@@ -770,6 +770,8 @@
   "SettingsPage.disableNodeHint": "Once disabled, no new VMs are placed here; existing VMs are unaffected",
   "SettingsPage.disabled": "Disabled",
   "SettingsPage.diskOvercommitRatio": "Disk Overcommit Ratio",
+  "SettingsPage.memoryOvercommitRatio": "RAM Overcommit Ratio",
+  "SettingsPage.memoryOvercommitRatioHint": "How many times physical memory the memory allocated to machines may add up to (1–2). Actual usage still cannot exceed physical memory. 1 means no overcommit.",
   "SettingsPage.edit": "Edit",
   "SettingsPage.editConnection": "Edit Connection",
   "SettingsPage.emptyNoNodeData": "No node data yet",

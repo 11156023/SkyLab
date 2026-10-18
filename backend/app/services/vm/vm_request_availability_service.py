@@ -291,6 +291,9 @@ def _build_availability_response(
         resources=baseline_resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
+        memory_overcommit_ratio=(
+            vm_request_placement_service.get_memory_overcommit_ratio(session)
+        ),
     )
     resource_stack_by_node = _build_resource_stack_by_node(baseline_resources)
     hourly_demand = _load_hourly_demand_profile(session=session, timezone=tz)

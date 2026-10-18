@@ -20,6 +20,7 @@ from app.models import (
     QuickPracticeSession,
     QuickPracticeSessionMachine,
     Resource,
+    TeachingClassMachineNode,
     User,
     VMProvisioningStatus,
     VMRequest,
@@ -797,6 +798,46 @@ def _assert_publications_ready(
             )
 
 
+def _assert_cluster_capacity(
+    session: Session, *, nodes: list[CourseEnvironmentNode], user_id: uuid.UUID
+) -> None:
+    """開機器前先確認叢集放得下整組，放不下就直接擋下。
+
+    與班級容量預檢同一套算法（已分配規格、同叢集、逐節點、儲存區試放），
+    只是把這組機器當成「一位學生」的班級來算。不先檢查的話，要等建機失敗
+    才知道，已經建好的那幾台又得整組回收。
+    """
+    from app.services.teaching import class_capacity_service
+
+    machines = [
+        TeachingClassMachineNode(
+            id=node.id,
+            # 只用來算容量，不會寫進資料庫
+            class_id=uuid.UUID(int=0),
+            node_key=node.node_key,
+            source_type=node.source_type,
+            source_template_id=node.source_template_id,
+            custom_image_ref=node.custom_image_ref,
+            name=node.name,
+            role=node.role,
+            resource_type=node.resource_type,
+            cpu=node.cpu,
+            memory_mb=node.memory_mb,
+            disk_gb=_node_disk_gb(session, node),
+            network=node.network,
+            sort_order=node.sort_order,
+        )
+        for node in nodes
+    ]
+    _plan, _placements, issues = class_capacity_service._evaluate_cluster_capacity(
+        session, nodes=machines, student_ids=[user_id]
+    )
+    if issues:
+        raise BadRequestError(
+            t("quick_practice.cluster_capacity_insufficient", detail="；".join(issues))
+        )
+
+
 def launch(
     session: Session, *, user, environment_id: uuid.UUID
 ) -> QuickPracticeSession:
@@ -879,6 +920,7 @@ def launch(
         delta_disk_gb=sum(_node_disk_gb(session, node) for node in nodes),
         delta_instances=len(nodes),
     )
+    _assert_cluster_capacity(session, nodes=nodes, user_id=user.id)
 
     duration_hours = get_schedule_policy(session=session).practice_session_hours
     practice = QuickPracticeSession(

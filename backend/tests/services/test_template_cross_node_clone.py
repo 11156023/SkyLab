@@ -485,3 +485,96 @@ def test_batch_clone_placement_on_the_template_node_only_picks_its_storage(
     )
     assert placement["target_storage"] is None
     assert placement["fallback_storage"] == "data-ssd-1"
+
+
+# ------------------------------------------------ 自訂 VM（直接用 PVE 範本）
+
+
+@pytest.fixture
+def vm_clone(monkeypatch):
+    calls: dict = {"clone": [], "cleanup": []}
+
+    def clone(node, template_id, **config):
+        calls["clone"].append({"node": node, "template": template_id, **config})
+        if calls.get("fail") and "target" in config:
+            raise RuntimeError(calls["fail"])
+        return "UPID:1"
+
+    monkeypatch.setattr(provisioning_service.proxmox_service, "clone_vm", clone)
+    monkeypatch.setattr(
+        provisioning_service,
+        "cleanup_provisioned_resource",
+        lambda vmid: calls["cleanup"].append(vmid),
+    )
+    return calls
+
+
+def _clone_vm(**overrides):
+    kwargs = dict(
+        template_node="pve1",
+        template_id=9000,
+        new_vmid=601,
+        clone_config={"newid": 601, "name": "lab-1", "full": 1, "storage": "data-ssd-1", "pool": "skylab"},
+        cross_node="pve2",
+        cross_node_storage="ceph",
+    )
+    kwargs.update(overrides)
+    return provisioning_service._clone_vm_to_node(**kwargs)
+
+
+def test_custom_vm_clones_to_the_reserved_node(vm_clone):
+    assert _clone_vm() == ("UPID:1", "pve2")
+    call = vm_clone["clone"][0]
+    assert (call["node"], call["target"], call["storage"], call["full"]) == (
+        "pve1",
+        "pve2",
+        "ceph",
+        1,
+    )
+
+
+def test_custom_vm_falls_back_to_template_node(vm_clone):
+    vm_clone["fail"] = "can't clone VM to node 'pve2' (VM uses local storage)"
+    assert _clone_vm() == ("UPID:1", "pve1")
+    assert vm_clone["cleanup"] == [601]
+    fallback = vm_clone["clone"][1]
+    assert fallback["node"] == "pve1" and "target" not in fallback
+    assert fallback["storage"] == "data-ssd-1"
+
+
+def test_custom_vm_collision_is_not_retried(vm_clone):
+    vm_clone["fail"] = "VM 601 already exists on node 'pve2'"
+    with pytest.raises(RuntimeError):
+        _clone_vm()
+    assert len(vm_clone["clone"]) == 1 and vm_clone["cleanup"] == []
+
+
+def test_custom_vm_without_target_stays_on_template_node(vm_clone):
+    assert _clone_vm(cross_node=None) == ("UPID:1", "pve1")
+    assert "target" not in vm_clone["clone"][0]
+
+
+def test_class_custom_vm_may_use_nodes_with_shared_storage(session, monkeypatch):
+    monkeypatch.setattr(
+        class_capacity_service.provisioning_service,
+        "get_vm_target_node",
+        lambda template_id: "pve1",
+    )
+    _class_storage(monkeypatch, {"pve2": [_pool("ceph", shared=True)]})
+    machine = TeachingClassMachineNode(
+        id=uuid.uuid4(),
+        class_id=uuid.uuid4(),
+        node_key="win",
+        source_type="custom",
+        custom_image_ref="9000",
+        name="win",
+        role="target",
+        resource_type="qemu",
+        cpu=2,
+        memory_mb=4096,
+        disk_gb=40,
+        network="lab-net",
+    )
+    assert class_capacity_service.eligible_nodes_for_machine(
+        session, machine_node=machine
+    ) == {"pve1", "pve2"}

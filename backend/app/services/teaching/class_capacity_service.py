@@ -4,18 +4,14 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from collections.abc import Mapping
 from typing import Any
 
 from sqlmodel import Session, select
 
 from app.core.i18n import t
 from app.domain.placement import storage as placement_storage
-from app.domain.placement.config import settings as placement_settings
 from app.domain.placement.schemas import (
     NodeCapacity,
-    NodeSnapshot,
-    ResourceSnapshot,
     ResourceType,
 )
 from app.exceptions import BadRequestError
@@ -227,7 +223,8 @@ def eligible_nodes_for_machine(
       範本一律 full clone，PVE 允許 clone 到同叢集的其他節點，條件是目標
       儲存區是共享儲存（範本母機放在哪不影響）。批次建機的 clone_service
       照預留的落點與儲存區建，跨節點失敗才退回範本節點。
-    - 自訂 VM：create_vm 一律在範本節點上 clone，不接受指定節點。
+    - 自訂 VM（直接用 PVE 範本建）：與平台範本相同，範本節點加上同叢集有共享
+      儲存的節點；create_vm 照預留落點跨節點 clone，失敗退回範本節點。
     - 自訂 LXC：只有 iso_storage 看得到該 vztmpl 的節點；create_lxc 接受指定
       節點。
     """
@@ -248,11 +245,12 @@ def eligible_nodes_for_machine(
             return {provisioning_service.get_lxc_target_node()}
         return set(node_map.get(str(machine_node.custom_image_ref or ""), set()))
 
-    return {
-        provisioning_service.get_vm_target_node(
-            int(machine_node.custom_image_ref or "0")
-        )
-    }
+    template_node = provisioning_service.get_vm_target_node(
+        int(machine_node.custom_image_ref or "0")
+    )
+    return {template_node} | _shared_clone_nodes(
+        session, template_node=template_node, resource_type="vm"
+    )
 
 
 def _shared_clone_nodes(
@@ -645,6 +643,7 @@ def _evaluate_cluster_capacity(
     try:
         cluster_nodes, resources = placement_support.load_cluster_state()
         cpu_ratio, disk_ratio = placement_service.get_overcommit_ratios(session)
+        memory_ratio = placement_service.get_memory_overcommit_ratio(session)
         capacities = {
             row.node: row
             for row in placement_support.build_live_node_capacities(
@@ -652,17 +651,21 @@ def _evaluate_cluster_capacity(
                 resources=resources,
                 cpu_overcommit_ratio=cpu_ratio,
                 disk_overcommit_ratio=disk_ratio,
+                memory_overcommit_ratio=memory_ratio,
             )
         }
     except Exception:
         logger.exception("Failed to fetch Proxmox capacity for class reservation")
         return {}, {}, [t("class_capacity.capacity_check_failed")]
 
-    _apply_committed_allocations(
+    # build_live_node_capacities 已經套過一次；這裡用本次 session 的 DB 再套一次
+    # 範本母機的排除名單（重複套用結果不變）
+    placement_support.apply_committed_allocations(
         capacities,
-        cluster_nodes=cluster_nodes,
+        nodes=cluster_nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_ratio,
+        memory_overcommit_ratio=memory_ratio,
         excluded_vmids=_template_guest_vmids(session),
     )
     # 已預留、還沒建出來的機器 PVE 上看不到，要另外扣；已建出來的上面已經算過
@@ -748,56 +751,8 @@ def _evaluate_cluster_capacity(
 
 
 def _template_guest_vmids(session: Session) -> set[int]:
-    """平台範本母機的 VMID：關機、永不開機，不算進已承諾的用量。
-
-    查不到時回空集合，等於把母機也算進去——寧可算嚴，不要放行。
-    """
-    try:
-        return proxmox_service.platform_template_vmids(db_engine=session.get_bind())
-    except Exception:
-        logger.warning("Failed to load platform template VMIDs", exc_info=True)
-        return set()
-
-
-def _apply_committed_allocations(
-    capacities: Mapping[str, NodeCapacity],
-    *,
-    cluster_nodes: list[NodeSnapshot],
-    resources: list[ResourceSnapshot],
-    cpu_overcommit_ratio: float,
-    excluded_vmids: set[int],
-) -> None:
-    """可用 CPU／RAM 改以「已分配給機器的規格」計算，關機的機器也算。
-
-    即時容量看的是此刻的 CPU 使用率與記憶體用量：下課時段整班關機，那些
-    機器就像不存在，新班級照樣通過預檢，等兩班同時上課才擠不下。這裡把
-    每台機器（範本母機除外）分配到的 vCPU 與記憶體加總，和即時值取較嚴的
-    那個——即時值仍要看，主機自己（PVE、ZFS ARC 等）也會吃記憶體。
-    CPU 套超賣倍率，RAM 不超賣；兩者都保留與即時容量相同比例的安全餘裕。
-    """
-    committed_cpu: dict[str, float] = defaultdict(float)
-    committed_mem: dict[str, int] = defaultdict(int)
-    for guest in resources:
-        if int(guest.vmid) in excluded_vmids:
-            continue
-        committed_cpu[guest.node] += float(getattr(guest, "maxcpu", 0) or 0)
-        committed_mem[guest.node] += int(getattr(guest, "maxmem_bytes", 0) or 0)
-
-    headroom = placement_settings.placement_headroom_ratio
-    for node in cluster_nodes:
-        capacity = capacities.get(node.node)
-        if capacity is None:
-            continue
-        total_cpu = float(node.maxcpu) * max(cpu_overcommit_ratio, 1.0)
-        cpu_left = total_cpu - committed_cpu[node.node] - total_cpu * headroom
-        total_mem = int(node.maxmem_bytes)
-        mem_left = total_mem - committed_mem[node.node] - int(total_mem * headroom)
-        capacity.allocatable_cpu_cores = max(
-            0.0, min(float(capacity.allocatable_cpu_cores), cpu_left)
-        )
-        capacity.allocatable_memory_bytes = max(
-            0, min(int(capacity.allocatable_memory_bytes), mem_left)
-        )
+    """平台範本母機的 VMID（查不到時回空集合，等於把母機也算進去）。"""
+    return placement_support.template_guest_vmids(db_engine=session.get_bind())
 
 
 def _subtract_capacity(

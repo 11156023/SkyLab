@@ -1160,6 +1160,7 @@ def _provision_one(
             user_id=user_id,
             batch_job_id=batch_job_id,
             ip_reservation_key=reservation_key,
+            target_node=target_node,
         )
 
     if result.vmid is None:

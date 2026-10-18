@@ -417,14 +417,15 @@ def test_build_live_node_capacities_uses_gpu_slots(monkeypatch) -> None:
 
     def _fake_build(**kwargs):
         seen.update(kwargs)
-        return ["cap"]
+        return [SimpleNamespace(node="pve1")]
 
     monkeypatch.setattr(
         placement_support.placement_advisor, "build_node_capacities", _fake_build
     )
-    assert placement_support.build_live_node_capacities(nodes=[], resources=[]) == [
-        "cap"
-    ]
+    assert [
+        item.node
+        for item in placement_support.build_live_node_capacities(nodes=[], resources=[])
+    ] == ["pve1"]
     assert seen["gpu_used"] == {"pve1": 1}
 
 
