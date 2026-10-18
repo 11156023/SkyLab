@@ -30,6 +30,35 @@
   box-shadow: 0 24px 48px -24px rgba(43, 77, 152, 0.45);
 }
 
+/* Step screenshots in the user manual (scripts/manual-shots/). */
+.vp-doc img[src*='/manual-shots/'] {
+  display: block;
+  max-width: 100%;
+  max-height: 460px;
+  width: auto;
+  margin: 10px 0 18px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px -14px rgba(43, 77, 152, 0.5);
+  cursor: zoom-in;
+}
+.shot-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.78);
+  cursor: zoom-out;
+}
+.shot-zoom img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
 /* Tables in the guides are wide; let them scroll instead of overflowing. */
 .vp-doc table {
   display: block;
