@@ -691,7 +691,7 @@
   "UserGuide.adminUsers.add.title": "Create an account manually",
   "UserGuide.adminUsers.add.text": "Click \"Add User\" to create an account directly with an email, password and role — no email verification or approval needed. The password must be at least 8 characters and include uppercase, lowercase, a number and a symbol.",
   "UserGuide.adminUsers.registration.title": "Self-registration and approval",
-  "UserGuide.adminUsers.registration.text": "These two switches save as soon as you toggle them; there is no separate save button. \"Allow self-registration\" controls whether new accounts can sign up from the login page. With \"Require administrator approval\" on, new accounts can only be used after you approve them below. Turning registration off does not stop existing accounts from signing in.",
+  "UserGuide.adminUsers.registration.text": "These three switches save as soon as you toggle them; there is no separate save button. \"Allow self-registration\" controls whether new accounts can sign up from the login page. \"Allow account creation on first Google login\" separately controls whether a Google address without an account gets one on its first login. With \"Require administrator approval\" on, new accounts can only be used after you approve them below. Turning registration off does not stop existing accounts from signing in.",
   "UserGuide.adminUsers.pending.title": "Handle pending registrations",
   "UserGuide.adminUsers.pending.text": "New accounts waiting for administrator approval are listed here. \"Approve\" lets them sign in; \"Reject\" leaves the account unusable. When nothing is pending, this area shows an empty notice.",
   "UserGuide.adminUsers.summary.title": "Account counts at a glance",

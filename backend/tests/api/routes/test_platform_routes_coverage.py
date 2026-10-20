@@ -504,12 +504,19 @@ def test_user_registration_routes_delegate(monkeypatch: pytest.MonkeyPatch) -> N
     assert (
         users_route.write_registration_policy(
             session=session,
-            body=SimpleNamespace(signup_enabled=True, approval_required=False),
+            body=SimpleNamespace(
+                signup_enabled=True,
+                approval_required=False,
+                google_signup_enabled=True,
+            ),
         )
         is policy_service.update_policy.return_value
     )
     policy_service.update_policy.assert_called_once_with(
-        session, signup_enabled=True, approval_required=False
+        session,
+        signup_enabled=True,
+        approval_required=False,
+        google_signup_enabled=True,
     )
     assert (
         users_route.read_pending_registrations(session=session)

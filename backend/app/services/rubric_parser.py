@@ -7,9 +7,12 @@ import io
 import os
 import shutil
 import signal
+import struct
 import subprocess
 import tempfile
 import zipfile
+import zlib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +20,13 @@ from typing import Any
 # 否則一份幾百 KB 的檔案可以在解析階段吃掉數 GB 記憶體。
 MAX_ZIP_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 MAX_ZIP_COMPRESSION_RATIO = 100
+# 守門時串流解壓每次最多解出的位元組數；守門本身的記憶體上限就是
+# 這個數字加上壓縮檔本身。
+_ZIP_INFLATE_CHUNK_BYTES = 1024 * 1024
+# zip local file header（30 bytes）：簽章、版本、旗標、壓縮法、時間、日期、
+# CRC、壓縮後大小、解壓後大小、檔名長度、extra 長度
+_ZIP_LOCAL_HEADER = struct.Struct("<4sBBHHHHIIIHH")
+_ZIP_LOCAL_HEADER_SIGNATURE = b"PK\x03\x04"
 # 單份 PDF 的頁數上限：pdfplumber 逐頁抽字與表格，頁數沒有上限時
 # 一份檔案就能把 worker 佔住幾十分鐘。
 MAX_PDF_PAGES = 200
@@ -24,24 +34,62 @@ MAX_PDF_PAGES = 200
 DOC_CONVERT_TIMEOUT_SECONDS = 30
 
 
+def _iter_inflated_sizes(file_bytes: bytes, info: zipfile.ZipInfo) -> Iterator[int]:
+    """逐塊解壓一個 zip 成員，只回報每塊真正解出的位元組數，不保留內容。
+
+    zip 目錄裡的 ``file_size``／CRC 都是上傳者自己寫的，不能拿來判斷；
+    ``zipfile`` 讀取時又會把輸出截到宣告的大小，所以這裡直接對壓縮資料做
+    raw deflate，量到的才是 python-docx 真的會解出來的量。
+    """
+
+    header = _ZIP_LOCAL_HEADER.unpack_from(file_bytes, info.header_offset)
+    if header[0] != _ZIP_LOCAL_HEADER_SIGNATURE:
+        raise zipfile.BadZipFile(f"Bad magic number for file header: {info.filename}")
+    start = info.header_offset + _ZIP_LOCAL_HEADER.size + header[10] + header[11]
+    raw = file_bytes[start : start + info.compress_size]
+    if info.compress_type == zipfile.ZIP_STORED:
+        yield len(raw)
+        return
+    if info.compress_type != zipfile.ZIP_DEFLATED:
+        raise zipfile.BadZipFile(
+            f"Unsupported compression method {info.compress_type}: {info.filename}"
+        )
+    inflater = zlib.decompressobj(-zlib.MAX_WBITS)
+    pending = raw
+    while pending:
+        yield len(inflater.decompress(pending, _ZIP_INFLATE_CHUNK_BYTES))
+        pending = inflater.unconsumed_tail
+    # 輸入吃完後 bit buffer 裡可能還有解得出來的資料
+    while chunk := inflater.decompress(b"", _ZIP_INFLATE_CHUNK_BYTES):
+        yield len(chunk)
+
+
 def _guard_zip_document(file_bytes: bytes) -> None:
-    """解壓炸彈防護：先讀 zip 目錄的宣告大小，再決定要不要解析。"""
+    """解壓炸彈防護：實際把每個成員解壓一遍並計數，超過上限就立刻中止。
+
+    不能看 zip 目錄宣告的大小：宣告 1 KB 的成員實際可以解出數 GB，而
+    python-docx 讀取時是把整個成員一次解開。
+    """
     from app.core.i18n import t
 
+    compressed_size = len(file_bytes)
+    total = 0
     try:
         with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
-            total = sum(int(info.file_size) for info in archive.infolist())
-    except zipfile.BadZipFile as exc:
+            for info in archive.infolist():
+                for produced in _iter_inflated_sizes(file_bytes, info):
+                    total += produced
+                    if total > MAX_ZIP_UNCOMPRESSED_BYTES or (
+                        total / compressed_size > MAX_ZIP_COMPRESSION_RATIO
+                    ):
+                        raise ValueError(
+                            t(
+                                "rubric_parser.document_too_large",
+                                limit=MAX_ZIP_UNCOMPRESSED_BYTES // (1024 * 1024),
+                            )
+                        )
+    except (zipfile.BadZipFile, zlib.error, struct.error) as exc:
         raise ValueError(t("rubric_parser.corrupted_document")) from exc
-    if total > MAX_ZIP_UNCOMPRESSED_BYTES or (
-        file_bytes and total / len(file_bytes) > MAX_ZIP_COMPRESSION_RATIO
-    ):
-        raise ValueError(
-            t(
-                "rubric_parser.document_too_large",
-                limit=MAX_ZIP_UNCOMPRESSED_BYTES // (1024 * 1024),
-            )
-        )
 
 
 def parse_docx(file_bytes: bytes) -> str:

@@ -50,21 +50,87 @@ def test_signup_cannot_be_enabled_without_mail(school_db, monkeypatch):
     monkeypatch.setattr(settings, "SMTP_HOST", None)
     assert get_policy(school_db).signup_enabled is False
     with pytest.raises(BadRequestError):
-        update_policy(school_db, signup_enabled=True, approval_required=False)
+        update_policy(
+            school_db,
+            signup_enabled=True,
+            approval_required=False,
+            google_signup_enabled=True,
+        )
 
 
 def test_signup_and_approval_switches_are_independent(school_db):
-    update_policy(school_db, signup_enabled=True, approval_required=True)
-    policy = update_policy(school_db, signup_enabled=False, approval_required=True)
+    update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=True,
+        google_signup_enabled=True,
+    )
+    policy = update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=True,
+        google_signup_enabled=False,
+    )
     assert policy.signup_enabled is False
     assert policy.approval_required is True
-    policy = update_policy(school_db, signup_enabled=False, approval_required=False)
+    policy = update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=False,
+        google_signup_enabled=False,
+    )
     assert policy.approval_required is False
-    policy = update_policy(school_db, signup_enabled=False, approval_required=True)
+    policy = update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=True,
+        google_signup_enabled=False,
+    )
     assert policy.approval_required is True
-    policy = update_policy(school_db, signup_enabled=True, approval_required=True)
+    policy = update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=True,
+        google_signup_enabled=True,
+    )
     assert policy.signup_enabled is True
     assert policy.approval_required is True
+
+
+def test_google_signup_switch_is_independent_of_email_signup(school_db):
+    policy = update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=False,
+        google_signup_enabled=True,
+    )
+    assert policy.signup_enabled is False
+    assert policy.google_signup_enabled is True
+    policy = update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=False,
+        google_signup_enabled=False,
+    )
+    assert policy.signup_enabled is True
+    assert policy.google_signup_enabled is False
+
+
+def test_google_signup_can_be_enabled_without_mail(school_db, monkeypatch):
+    monkeypatch.setattr(settings, "SMTP_HOST", None)
+    policy = update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=False,
+        google_signup_enabled=True,
+    )
+    assert policy.google_signup_enabled is True
+
+
+def test_google_signup_default_follows_signup_default(school_db, monkeypatch):
+    assert get_policy(school_db).google_signup_enabled is True
+    monkeypatch.setattr(settings, "ENABLE_SIGNUP", False)
+    assert get_policy(school_db).google_signup_enabled is False
 
 
 def test_signup_stays_inactive_until_recipient_sets_password(school_db, monkeypatch):
@@ -104,7 +170,12 @@ def test_signup_stays_inactive_until_recipient_sets_password(school_db, monkeypa
 def test_registration_policy_blocks_signup_and_reviews_verified_email(
     school_db, monkeypatch, email
 ):
-    update_policy(school_db, signup_enabled=False, approval_required=True)
+    update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=True,
+        google_signup_enabled=False,
+    )
     with pytest.raises(BadRequestError):
         user_service.register_user(
             session=school_db, user_in=UserRegister(email="student@ntub.edu.tw")
@@ -112,7 +183,12 @@ def test_registration_policy_blocks_signup_and_reviews_verified_email(
     assert get_policy(school_db).signup_enabled is False
     assert get_policy(school_db).approval_required is True
 
-    update_policy(school_db, signup_enabled=True, approval_required=True)
+    update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=True,
+        google_signup_enabled=True,
+    )
     mails = []
     monkeypatch.setattr(user_service, "send_email", lambda **mail: mails.append(mail))
     user = user_service.register_user(
@@ -156,7 +232,12 @@ def test_registration_policy_blocks_signup_and_reviews_verified_email(
 
 @pytest.mark.asyncio
 async def test_google_first_login_waits_for_review(school_db, monkeypatch):
-    update_policy(school_db, signup_enabled=True, approval_required=True)
+    update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=True,
+        google_signup_enabled=True,
+    )
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setattr(auth_service.audit_service, "log_action", lambda **kwargs: None)
 
@@ -178,7 +259,12 @@ async def test_google_first_login_waits_for_review(school_db, monkeypatch):
 
 
 def test_rejected_registration_cannot_retry_verification(school_db, monkeypatch):
-    update_policy(school_db, signup_enabled=True, approval_required=True)
+    update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=True,
+        google_signup_enabled=True,
+    )
     mails = []
     monkeypatch.setattr(user_service, "send_email", lambda **mail: mails.append(mail))
     monkeypatch.setattr(user_service.audit_service, "log_action", lambda **kwargs: None)
@@ -207,7 +293,12 @@ def test_rejected_registration_cannot_retry_verification(school_db, monkeypatch)
 def test_soft_deleted_registration_cannot_be_confirmed_or_approved(
     school_db, monkeypatch
 ):
-    update_policy(school_db, signup_enabled=True, approval_required=True)
+    update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=True,
+        google_signup_enabled=True,
+    )
     mails = []
     monkeypatch.setattr(user_service, "send_email", lambda **mail: mails.append(mail))
     user = user_service.register_user(
@@ -303,6 +394,52 @@ async def test_google_login_accepts_school_workspace(school_db, monkeypatch):
     tokens = await auth_service.google_login(session=school_db, id_token="google-token")
     assert tokens.access_token
     user = user_repo.get_user_by_email(session=school_db, email="student@ntub.edu.tw")
+    assert user is not None and user.auth_source == "google"
+
+
+def _google_tokeninfo(monkeypatch, email):
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(auth_service.audit_service, "log_action", lambda **kwargs: None)
+
+    async def tokeninfo(_):
+        return {"aud": "client-id", "email_verified": "true", "email": email}
+
+    monkeypatch.setattr(auth_service, "fetch_id_token_info", tokeninfo)
+
+
+@pytest.mark.asyncio
+async def test_google_first_login_blocked_when_google_signup_off(
+    school_db, monkeypatch
+):
+    _google_tokeninfo(monkeypatch, "student@gmail.com")
+    update_policy(
+        school_db,
+        signup_enabled=True,
+        approval_required=False,
+        google_signup_enabled=False,
+    )
+    with pytest.raises(BadRequestError):
+        await auth_service.google_login(session=school_db, id_token="google-token")
+    assert (
+        user_repo.get_user_by_email(session=school_db, email="student@gmail.com")
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_google_first_login_creates_account_with_only_google_signup_on(
+    school_db, monkeypatch
+):
+    _google_tokeninfo(monkeypatch, "student@gmail.com")
+    update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=False,
+        google_signup_enabled=True,
+    )
+    token = await auth_service.google_login(session=school_db, id_token="google-token")
+    assert token.access_token
+    user = user_repo.get_user_by_email(session=school_db, email="student@gmail.com")
     assert user is not None and user.auth_source == "google"
 
 

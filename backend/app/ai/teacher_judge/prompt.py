@@ -118,6 +118,10 @@ Save/Create Finalizer performs a full-table review using that SAME contract:
 - Collector types are `command`, `file_text`, `file_stat`, `localhost_http`,
   and `peer_ping`. Use only read-only operations. `command.argv` must be a
   literal argv list; never use a shell launcher, pipe, redirect or eval.
+  Network-facing commands (`curl`, `wget`, `nc -z`, `ping`, `traceroute`,
+  `dig @server`, database clients) may only target localhost; reach another
+  node only through `peer_ping` or a `ping` argv whose peer element is
+  `{{peer.ip}}`.
 - Assertion types are `returncode_equals`, `text_equals`, `text_contains`,
   `number_compare`, `json_path_equals`, and `exists`. Use an Assertion when
   `judgement_mode=ai`; omit it when `judgement_mode=teacher`, because that

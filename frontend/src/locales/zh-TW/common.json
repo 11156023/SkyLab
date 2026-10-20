@@ -691,7 +691,7 @@
   "UserGuide.adminUsers.add.title": "手動建立新帳號",
   "UserGuide.adminUsers.add.text": "按「新增使用者」直接建立帳號，填 Email、密碼與角色即可，不需信箱驗證或審核。密碼必須 8 字元以上，並同時包含大寫、小寫、數字與符號。",
   "UserGuide.adminUsers.registration.title": "開放自行註冊與審核",
-  "UserGuide.adminUsers.registration.text": "這兩個開關一切換就立即儲存，沒有另外的儲存鈕。「允許自行註冊」控制登入頁能否申請新帳號；開啟「註冊後需管理員審核」時，新帳號要在下方核准後才能使用。關閉註冊不影響既有帳號登入。",
+  "UserGuide.adminUsers.registration.text": "這三個開關一切換就立即儲存，沒有另外的儲存鈕。「允許自行註冊」控制登入頁能否申請新帳號；「允許 Google 首次登入自動建帳」另外控制沒有帳號的 Google 信箱能否在首次登入時自動建帳；開啟「註冊後需管理員審核」時，新帳號要在下方核准後才能使用。關閉註冊不影響既有帳號登入。",
   "UserGuide.adminUsers.pending.title": "處理待審核的註冊",
   "UserGuide.adminUsers.pending.text": "這裡列出等待管理員核准的新帳號。按「核准」後對方即可登入；按「拒絕」則帳號無法使用。沒有待審核帳號時這裡會顯示空白提示。",
   "UserGuide.adminUsers.summary.title": "帳號數量一覽",

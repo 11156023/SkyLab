@@ -608,6 +608,15 @@ export default function AdminPage() {
             disabled={!registrationPolicy || policySaving}
             onChange={(event) => saveRegistrationPolicy({ approval_required: event.target.checked })} />
         </label>
+        <label className={styles.registrationOption}>
+          <span>
+            <strong>{t("AdminPage.googleSignupEnabled")}</strong>
+            <small>{t("AdminPage.googleSignupEnabledHint")}</small>
+          </span>
+          <input type="checkbox" checked={Boolean(registrationPolicy?.google_signup_enabled)}
+            disabled={!registrationPolicy || policySaving}
+            onChange={(event) => saveRegistrationPolicy({ google_signup_enabled: event.target.checked })} />
+        </label>
       </section>
 
       <section className={styles.registrationPanel} aria-label={t("AdminPage.pendingRegistrationsTitle")} data-guide="admin-pending">
