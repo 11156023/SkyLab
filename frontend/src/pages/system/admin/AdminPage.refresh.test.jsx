@@ -73,7 +73,7 @@ const user = (id) => ({
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.autoRefreshes = [];
-  mocks.getRegistrationPolicy.mockResolvedValue({ signup_enabled: true, approval_required: false });
+  mocks.getRegistrationPolicy.mockResolvedValue({ signup_enabled: true, approval_required: false, google_signup_enabled: true });
   mocks.listPendingRegistrations.mockResolvedValue({ data: [] });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement("div");

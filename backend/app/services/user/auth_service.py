@@ -134,10 +134,11 @@ def _complete_google_login(
     """Google ID token 已驗過之後的同步 DB 流程（查帳號或自動註冊、稽核、發 token）。"""
     user = user_repo.get_user_by_email(session=session, email=email)
     if not user:
-        # Public signup also governs Google self-registration.
+        # Google 首次登入自動建帳有自己的開關（與信箱註冊分開）；
+        # 是否進待審核沿用共同的 approval_required。
         policy = get_policy(session)
-        if not policy.signup_enabled:
-            _log_google_login_failure(session, "user not found", email)
+        if not policy.google_signup_enabled:
+            _log_google_login_failure(session, "google signup disabled", email)
             raise BadRequestError(t("auth.googleAccountNotRegistered"))
         user = _create_google_user(
             session=session, email=email, data=data,

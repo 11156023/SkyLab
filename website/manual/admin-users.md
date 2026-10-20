@@ -27,7 +27,14 @@ When self-registration is on, any email address may register from the login page
 1. In **Registration settings**, tick **Require administrator approval**.
 2. The change is saved immediately.
 
-While sign-up is open and approval is on, every new account (including school accounts) must be approved before it can be used. Accounts already waiting in the pending list still need a decision even if you turn approval off.
+While sign-up or Google account creation is open and approval is on, every new account (including school accounts) must be approved before it can be used. Accounts already waiting in the pending list still need a decision even if you turn approval off.
+
+### Allow or block account creation on first Google login
+
+1. In **Registration settings**, tick or untick **Allow account creation on first Google login**.
+2. The change is saved immediately.
+
+This switch is separate from self-registration and needs no mail server. When it is on, a Google address that has no account yet gets a student account the first time it signs in with Google, and waits for approval if approval is required. When it is off, only existing accounts can sign in with Google. It only has an effect when the deployment has Google login configured.
 
 ### Approve or reject a pending registration
 
@@ -116,6 +123,7 @@ The list shows 50 users per page; use **Previous** and **Next** below the list t
 | Require two-factor authentication | Forces the user to set up and keep an authenticator app | Shown with an explanation when ticked |
 | Allow self-registration | Lets anyone register from the login page | Saved immediately |
 | Require administrator approval | New registrations wait in Pending registrations | Saved immediately |
+| Allow account creation on first Google login | Lets a Google address without an account create a student account at its first sign-in | Saved immediately; independent of self-registration |
 
 Each row shows the name and email, an **LDAP** tag for directory-managed accounts, a **2FA** tag when two-factor authentication is set up, the role badge, the status (**Active**, **Inactive**, **Email not verified**, **Awaiting approval** or **Registration rejected**) and the creation date.
 
@@ -137,4 +145,4 @@ The summary cards above the list show **Total Users**, **Active**, **Teachers** 
 - [LDAP](/manual/ldap) — directory sign-in and role mapping
 - [Audit Log](/manual/audit) — every account change is recorded
 - [Account Settings](/manual/account) — what users see when they set up two-factor authentication
-- [Registration settings and Google login](/guides/registration-and-google-login) — how the two registration switches interact with Google sign-in
+- [Registration settings and Google login](/guides/registration-and-google-login) — how the three registration switches interact with Google sign-in
