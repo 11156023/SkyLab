@@ -87,7 +87,8 @@ _READ_ONLY_COMMANDS = frozenset(
         "date", "env", "printenv", "ps", "pgrep", "top", "free", "vmstat", "iostat",
         "lscpu", "lsblk", "lsmod", "lspci", "lsusb", "dmesg", "journalctl", "last",
         "getent", "getcap", "lsof", "nproc", "timedatectl", "loginctl",
-        # 網路觀察
+        # 網路觀察（會主動連線的工具目標只能是本機，見 _probe_issue／
+        # _dns_probe_issue／_db_host_issue）
         "ss", "netstat", "ip", "ifconfig", "ping", "ping6", "traceroute", "tracepath",
         "dig", "nslookup", "host", "curl", "wget", "nc", "ncat", "arp",
         "route", "iptables", "nft", "ufw", "resolvectl",
@@ -169,7 +170,15 @@ _GIT_CONFIG_WRITE_ACTIONS = frozenset(
 )
 _NC_DENY_LONG = frozenset(
     {"--exec", "--sh-exec", "--lua-exec", "--listen", "--output",
-     "--append-output", "--keep-open", "--broker", "--chat"}
+     "--append-output", "--keep-open", "--broker", "--chat",
+     # 經代理連線等於連到代理主機
+     "--proxy", "--proxy-type", "--proxy-auth", "--proxy-dns"}
+)
+_NC_VALUE_FLAGS = frozenset(
+    {"-w", "-p", "-s", "-i", "-q", "-I", "-O", "-T", "-m", "-M",
+     "--source", "--source-port", "--wait", "--idle-timeout", "--delay",
+     "--max-conns", "--ssl-cert", "--ssl-key", "--ssl-trustfile",
+     "--ssl-ciphers", "--ssl-alpn", "--ssl-servername"}
 )
 _IP_READ_SUBCOMMANDS = frozenset({"addr", "address", "a", "link", "l", "route", "r",
                                   "neigh", "n", "-4", "-6", "-br", "-brief", "-o", "-s"})
@@ -184,6 +193,31 @@ _FW_WRITE_PARTS = frozenset(
      "prepend", "enable", "disable", "reset"}
 )
 _LOCAL_HTTP_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+# 會主動對外連線的探測工具（ping／traceroute／nc／dig @server／資料庫客戶端）：
+# 腳本以 root 在每台學生機上跑，目標若不設限，老師（或 LLM 從第三方文件解析
+# 出的 argv）就能拿整班機器當內網掃描跳板。目標只允許本機；跨機器只有 ping
+# 可以接 {{peer.ip}}（IP 由 runtime 解析，script_policy 也只放行 ping）。
+# 旗標採白名單，不認得的一律拒絕：ping -f／-l（flood／preload）與
+# traceroute -g（來源路由）都刻意不在名單內。
+_PROBE_OPTIONS: dict[str, tuple[str, str, frozenset[str], frozenset[str]]] = {
+    # (無值短旗標, 帶值短旗標, 無值長旗標, 帶值長旗標)
+    "ping": ("46aAbBdDhLnOqrRUvV", "cCiImMNpQsStTwWe", frozenset(), frozenset()),
+    "ping6": ("46aAbBdDhLnOqrRUvV", "cCiImMNpQsStTwWe", frozenset(), frozenset()),
+    "traceroute": (
+        "46ITdnrFAEDUV", "fimNptlwqszMOP",
+        frozenset({"--icmp", "--tcp", "--udp", "--mtu", "--back"}),
+        frozenset({"--sport", "--max-hops", "--first", "--queries", "--port",
+                   "--wait", "--sendwait", "--interface", "--source", "--tos"}),
+    ),
+    "tracepath": ("nb46V", "lmp", frozenset(), frozenset()),
+}
+_DNS_PROBE_COMMANDS = frozenset({"dig", "nslookup", "host"})
+_ZONE_TRANSFER_MARKERS = ("axfr", "ixfr")
+_HOST_VALUE_FLAGS = frozenset({"-c", "-N", "-p", "-R", "-t", "-W", "-m"})
+_DB_CLIENT_COMMANDS = frozenset({"psql", "pg_isready", "mysql", "mariadb", "redis-cli"})
+_DB_HOST_FLAGS = frozenset({"-h", "--host", "--hostaddr"})
+_DB_CONNINFO_HOST = re.compile(r"\bhost(?:addr)?=([^\s]+)")
 
 # curl／wget 旗標白名單（其餘旗標一律拒絕）
 _CURL_SHORT_FLAGS = "sSfIiLkvgGNq46"
@@ -310,8 +344,16 @@ _REDIS_VALUE_FLAGS = frozenset(
 )
 _SERVER_CHECK_FLAGS = frozenset({"-t", "-T", "-v", "-V", "configtest", "-q", "-S", "-M"})
 _SERVER_VALUE_FLAGS = frozenset({"-c", "-f", "-p"})
+# openssl 只允許離線檢視：s_client 能連任意主機，所以不在名單內
+_OPENSSL_READ_SUBCOMMANDS = frozenset({"version", "x509", "verify", "rsa", "ec"})
 _OPENSSL_WRITE_FLAGS = frozenset(
     {"-out", "-keyout", "-writerand", "-sess_out", "-msgfile", "-keylogfile"}
+)
+# 會載入動態程式庫或設定檔的旗標：腳本以 root 執行，openssl 一載入 .so
+# 就是任意程式碼執行
+_OPENSSL_LOAD_FLAGS = frozenset(
+    {"-engine", "-engine_impl", "-provider", "-provider-path", "-provider_path",
+     "-module", "-config", "-conf"}
 )
 
 
@@ -974,12 +1016,117 @@ def _uniq_issue(args: list[str]) -> str | None:
 
 
 def _nc_issue(args: list[str]) -> str | None:
+    # -x／-X 是 OpenBSD nc 的代理設定，連出去的是代理主機
     if any(arg.partition("=")[0] in _NC_DENY_LONG for arg in args) or _cluster_has(
-        args, "eclok", "wpsiqxXIOT"
+        args, "eclokxX", "wpsiqIOTmM"
     ):
-        return "command collector 不允許 nc 執行程式或監聽"
+        return "command collector 不允許 nc 執行程式、監聽或經代理連線"
     if not any("z" in _short_letters(arg) for arg in args):
         return "command collector 只允許 nc -z 做連接埠探測"
+    positionals = _positionals(args, _NC_VALUE_FLAGS)
+    if not positionals or not _is_local_probe_host(positionals[0]):
+        return "command collector 的 nc 連接埠探測只允許本機"
+    return None
+
+
+def _is_local_probe_host(value: str) -> bool:
+    return value.strip("[]").lower() in _LOCAL_HTTP_HOSTS
+
+
+def _probe_issue(command: str, args: list[str]) -> str | None:
+    """ping／traceroute 系列只能探測本機；ping 另外可接 ``{{peer.ip}}``。"""
+
+    message = "command collector 的網路探測只允許本機，跨節點只能用 ping {{peer.ip}}"
+    short_flags, short_values, long_flags, long_values = _PROBE_OPTIONS[command]
+    scanned = _scan_options(
+        args,
+        short_flags=short_flags,
+        short_values=short_values,
+        long_flags=long_flags,
+        long_values=long_values,
+    )
+    if scanned is None:
+        return f"command collector 的 {command} 只允許基本的探測旗標"
+    positionals = scanned[0]
+    # traceroute 的第二個位置參數是封包長度
+    if len(positionals) != 1 and not (
+        command == "traceroute" and len(positionals) == 2 and positionals[1].isdigit()
+    ):
+        return message
+    target = positionals[0]
+    if target == PEER_IP_TOKEN:
+        return None if command == "ping" else message
+    if not _is_local_probe_host(target):
+        return message
+    return None
+
+
+def _dns_probe_issue(command: str, args: list[str], lowered: list[str]) -> str | None:
+    """dig／nslookup／host 只能問系統預設或本機的解析器，zone transfer 只能對本機。"""
+
+    message = "command collector 的 DNS 查詢只允許系統預設或本機的解析器"
+    wants_transfer = any(
+        marker in arg for arg in lowered for marker in _ZONE_TRANSFER_MARKERS
+    )
+    if command == "dig":
+        servers = [arg[1:] for arg in args if arg.startswith("@")]
+        # +trace／+nssearch 會繞過解析器直接連根伺服器或各權威伺服器
+        for arg in lowered:
+            name = arg[1:].partition("=")[0] if arg.startswith("+") else ""
+            if len(name) >= 3 and ("trace".startswith(name) or "nssearch".startswith(name)):
+                return message
+    elif command == "nslookup":
+        positionals = [arg for arg in args if not arg.startswith("-")]
+        if not positionals:
+            # 沒有查詢名稱會進入互動模式等 stdin
+            return "command collector 的 nslookup 必須指定查詢名稱"
+        servers = positionals[1:]
+    else:
+        wants_transfer = wants_transfer or _cluster_has(args, "l", "cNpRtWm")
+        servers = _positionals(args, _HOST_VALUE_FLAGS)[1:]
+    if len(servers) > 1 or not all(_is_local_probe_host(server) for server in servers):
+        return message
+    if wants_transfer and not servers:
+        return "command collector 的 DNS zone transfer 只允許對本機的伺服器"
+    return None
+
+
+def _db_host_issue(args: list[str]) -> str | None:
+    """資料庫客戶端只能連本機（localhost 或 unix socket），不能當連外跳板。"""
+
+    message = "command collector 的資料庫客戶端只允許連本機"
+    hosts: list[str] = []
+    expect_host = False
+    for arg in args:
+        if expect_host:
+            hosts.append(arg)
+            expect_host = False
+            continue
+        name, has_value, value = arg.partition("=")
+        if name in _DB_HOST_FLAGS:
+            if has_value:
+                hosts.append(value)
+            else:
+                expect_host = True
+            continue
+        if arg.startswith("-h") and not arg.startswith("--") and len(arg) > 2:
+            hosts.append(arg[2:])
+            continue
+        if arg.startswith("--cluster"):
+            # redis-cli --cluster <子命令> host:port 會連到指定節點
+            return message
+        if "://" in arg:
+            try:
+                hosts.append(urlparse(arg).hostname or "")
+            except ValueError:
+                return message
+            continue
+        hosts.extend(_DB_CONNINFO_HOST.findall(arg))
+    if any(
+        host and not host.startswith("/") and not _is_local_probe_host(host)
+        for host in hosts
+    ):
+        return message
     return None
 
 
@@ -1176,8 +1323,11 @@ def _service_tool_issue(command: str, args: list[str], lowered: list[str]) -> st
         if not has_check:
             return server_message
     if command == "openssl" and (
-        (lowered and lowered[0] not in {"version", "x509", "s_client", "verify", "rsa", "ec"})
+        # 沒有子命令會進入互動模式等 stdin
+        not lowered
+        or lowered[0] not in _OPENSSL_READ_SUBCOMMANDS
         or any(arg in _OPENSSL_WRITE_FLAGS for arg in args)
+        or any(arg.partition("=")[0] in _OPENSSL_LOAD_FLAGS for arg in args)
     ):
         return "command collector 只允許用 openssl 檢視憑證"
     if command == "ssh-keygen":
@@ -1343,6 +1493,15 @@ def _command_argv_issue(argv: list[str]) -> str | None:
             return issue
     if command in {"nc", "ncat"}:
         if issue := _nc_issue(args):
+            return issue
+    if command in _PROBE_OPTIONS:
+        if issue := _probe_issue(command, args):
+            return issue
+    if command in _DNS_PROBE_COMMANDS:
+        if issue := _dns_probe_issue(command, args, lowered):
+            return issue
+    if command in _DB_CLIENT_COMMANDS:
+        if issue := _db_host_issue(args):
             return issue
     if command == "ip":
         sub = next((part for part in lowered if not part.startswith("-")), "")

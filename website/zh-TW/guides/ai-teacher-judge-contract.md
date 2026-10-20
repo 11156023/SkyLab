@@ -292,7 +292,7 @@ Finalizer 核對同一機器、項目與步驟時，不能把已知絕對位置�
 - **入口權限與班級範圍：**由 instructor route 與 `_access` 控制，節點必須屬於本班；前端按鈕不是權限邊界。
 - **結構契約：**新提案、更新、附件合併、直接保存與製作要使用同一 typed 規則，不能只改 prompt 或只檢查其中一條入口。
 - **執行位置：**已辨識的檔案與程式路徑必須絕對定位；路徑通過驗證不代表遠端檔案已存在或可讀。
-- **命令政策：**字面 argv、命令白名單與逐命令旗標檢查；阻擋 shell launcher、管線、重導向、inline code/eval 及不允許的系統修改。
+- **命令政策：**字面 argv、命令白名單與逐命令旗標檢查；阻擋 shell launcher、管線、重導向、inline code/eval 及不允許的系統修改。會主動連線的工具（`curl`／`wget`／`nc -z`／`ping`／`traceroute`／`dig @server`／資料庫客戶端）只能指向本機，跨節點只有 `ping` 可接 `{{peer.ip}}`；`openssl` 只允許離線檢視（不含 `s_client`，也不可載入 engine／provider）。
 - **服務檢查：**查詢是否啟動可接受；`systemctl start/restart/enable` 等實際改動不屬於檢查腳本。
 - **判定契約：**collector 與 assertion 類型必須相容；teacher 步驟不能帶 assertion，ai 步驟不能漏 assertion。
 - **跨節點：**使用穩定的 peer key 與受管 runtime context；不能在 AI 提案中猜 IP，`{{peer.ip}}` 只能作為完整 argv 元素。

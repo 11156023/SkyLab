@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import struct
 import subprocess
 import sys
 import types
 import zipfile
+import zlib
 from pathlib import Path
 
 import pytest
@@ -55,6 +57,70 @@ def test_guard_zip_rejects_total_size_over_limit(
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr("a.txt", b"x" * 100)
     monkeypatch.setattr(rubric_parser, "MAX_ZIP_UNCOMPRESSED_BYTES", 10)
+    with pytest.raises(ValueError):
+        _guard_zip_document(buffer.getvalue())
+
+
+def _deflate_bomb(real_size: int, declared_size: int | None = None) -> bytes:
+    """A single-member DEFLATE archive of ``real_size`` zero bytes.
+
+    With ``declared_size`` the central directory and local header are patched
+    to claim that smaller size, with a CRC matching the truncated content, so a
+    guard that trusts ``ZipInfo.file_size`` (or ``zipfile``'s own truncating
+    reader) sees a tiny, valid-looking member.
+    """
+
+    payload = b"\0" * real_size
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", payload)
+    data = bytearray(buffer.getvalue())
+    if declared_size is None:
+        return bytes(data)
+    crc = zlib.crc32(payload[:declared_size]) & 0xFFFFFFFF
+    local = data.find(b"PK\x03\x04")
+    central = data.find(b"PK\x01\x02")
+    assert local >= 0 and central >= 0
+    struct.pack_into("<I", data, local + 14, crc)
+    struct.pack_into("<I", data, local + 22, declared_size)
+    struct.pack_into("<I", data, central + 16, crc)
+    struct.pack_into("<I", data, central + 24, declared_size)
+    return bytes(data)
+
+
+def test_guard_zip_rejects_honest_deflate_bomb_by_ratio() -> None:
+    # 200 KB of zeros deflates to a few hundred bytes: under the size cap but
+    # far above the 100x ratio cap
+    with pytest.raises(ValueError):
+        _guard_zip_document(_deflate_bomb(200 * 1024))
+
+
+def test_guard_zip_does_not_trust_declared_member_sizes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rubric_parser, "MAX_ZIP_UNCOMPRESSED_BYTES", 1024 * 1024)
+    bomb = _deflate_bomb(4 * 1024 * 1024, declared_size=1024)
+    with zipfile.ZipFile(io.BytesIO(bomb)) as archive:
+        declared = sum(info.file_size for info in archive.infolist())
+        # zipfile itself truncates to the declared size and sees a valid CRC
+        assert declared == 1024
+        assert len(archive.read("word/document.xml")) == 1024
+    with pytest.raises(ValueError, match="document_too_large|MB"):
+        _guard_zip_document(bomb)
+
+
+def test_guard_zip_accepts_small_deflated_member() -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", b"<Types/>")
+        archive.writestr("word/document.xml", b"<w:document>hello</w:document>" * 20)
+    _guard_zip_document(buffer.getvalue())
+
+
+def test_guard_zip_rejects_unsupported_compression_method() -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_BZIP2) as archive:
+        archive.writestr("word/document.xml", b"<w:document/>")
     with pytest.raises(ValueError):
         _guard_zip_document(buffer.getvalue())
 
