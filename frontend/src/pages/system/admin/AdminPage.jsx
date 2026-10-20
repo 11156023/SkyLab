@@ -15,7 +15,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import PasswordRules from "../../../components/PasswordRules/PasswordRules";
 import DataToolbar from "../../../components/DataToolbar/DataToolbar";
-import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
+import BatchBar, { BatchAction, BatchDivider } from "../../../components/DataToolbar/BatchBar";
 import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
 import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
 import useRowSelection from "../../../hooks/useRowSelection";
@@ -513,6 +513,39 @@ export default function AdminPage() {
     setBatchProgress(null);
   }
 
+  /* 批量刪除：規則同單筆刪除（帳號無法恢復、仍持有資源的後端會拒絕），逐筆呼叫同一支 API，
+     先確認並列出名字（最多 5 位）；失敗的保留勾選，錯誤原因在 toast 裡講 */
+  async function runBatchDelete() {
+    const targets = selectedUsers;
+    if (!targets.length || batchProgress) return;
+    const label = t("AdminPage.delete");
+    const names = targets.map(userDisplayName);
+    const rest = names.length - BATCH_NAME_PREVIEW;
+    const ok = await confirm({
+      title: t("AdminPage.batchDeleteTitle", { count: targets.length }),
+      message: `${t("AdminPage.batchDeleteDesc")}\n${joinList(names.slice(0, BATCH_NAME_PREVIEW))}${rest > 0 ? ` ${t("AdminPage.batchNamesMore", { count: rest })}` : ""}`,
+      confirmText: label,
+      danger: true,
+    });
+    if (!ok) return;
+    setBatchProgress({ label, done: 0, total: targets.length });
+    const res = await runBatch(targets, (item) => UsersService.delete(item.id), {
+      onProgress: ({ done, total }) => setBatchProgress((prev) => prev && { ...prev, done, total }),
+    });
+    const removed = new Set(res.results.filter((r) => r.ok).map((r) => r.item.id));
+    discardInFlightFetch();
+    setUsers((prev) => prev.filter((item) => !removed.has(item.id)));
+    if (res.failed === 0) {
+      toast.success(t("AdminPage.batchDoneToast", { count: res.succeeded, label }));
+    } else {
+      const firstError = res.results.find((r) => !r.ok)?.error;
+      toast.error(t("AdminPage.batchFailedKeptToast", { label, succeeded: res.succeeded, failed: res.failed })
+        + (firstError?.message ? `\n${firstError.message}` : ""));
+    }
+    selection.replace(res.results.filter((r) => !r.ok).map((r) => r.item.id));
+    setBatchProgress(null);
+  }
+
   async function handleSubmit(payload) {
     setSaving(true);
     try {
@@ -690,6 +723,13 @@ export default function AdminPage() {
               disabled={batchTargets(false).length === 0}
               title={batchHint(false)}
               onClick={() => runBatchActive(false)}
+            />
+            <BatchDivider />
+            <BatchAction
+              icon="delete"
+              label={t("AdminPage.delete")}
+              danger
+              onClick={runBatchDelete}
             />
           </BatchBar>
         )}

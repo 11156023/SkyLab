@@ -81,6 +81,8 @@
   "AdminPage.batchDisable": "無効化",
   "AdminPage.batchDisableTitle": "{{count}} 人のユーザーを無効化しますか？",
   "AdminPage.batchDisableDesc": "無効化したアカウントは、再度有効化するまでログインできません：",
+  "AdminPage.batchDeleteTitle": "{{count}} 人のユーザーを削除しますか？",
+  "AdminPage.batchDeleteDesc": "削除したアカウントは復元できず、同じメールアドレスで再登録もできません。使用量・申請・監査などの記録は保持されます。まだリソースを保有しているアカウントは削除が拒否され、選択されたまま残ります：",
   "AdminPage.batchNamesMore": "ほか {{count}} 人",
   "AdminPage.batchRunning": "{{label}}中… {{done}} / {{total}} 人",
   "AdminPage.batchApplicableHint": "{{count}} 人に実行し、すでにこの状態の {{skipped}} 人はスキップします",

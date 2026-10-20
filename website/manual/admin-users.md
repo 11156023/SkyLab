@@ -70,14 +70,14 @@ For an LDAP account the password field shows "Managed by LDAP" and is locked; ch
 
 A disabled account cannot sign in until it is enabled again. **Enable account** is locked for accounts that have not finished registration (email not verified yet, awaiting approval, or rejected); use **Approve** in the pending list for accounts waiting for review.
 
-### Enable or disable several accounts at once
+### Enable, disable or delete several accounts at once
 
 1. Tick the check box on the left of each row you want. Shift-click selects a range. The search bar turns into a selection bar showing how many are selected.
-2. Click **Enable** or **Disable** in the selection bar.
-3. For **Disable**, confirm in the dialog, which lists the names of the affected accounts.
-4. A progress counter shows while the accounts are updated.
+2. Click **Enable** or **Disable** in the selection bar; **Delete** sits on the far right.
+3. For **Disable** and **Delete**, confirm in the dialog, which lists the names of the affected accounts (up to five, then "and N more").
+4. A progress counter shows while the accounts are processed.
 
-Only accounts that are not already in the target state are changed; the others are skipped (hover the button to see how many apply). If some updates fail, those accounts stay selected so you can try again. Selection only covers the current page, and you cannot select your own account.
+Enable and Disable only change accounts that are not already in the target state; the others are skipped (hover the button to see how many apply). Delete follows the same rules as deleting a single user: the account cannot be restored, its email cannot register again, and accounts that still own provisioned resources are refused. If some operations fail, those accounts stay selected so you can try again. Selection only covers the current page, and you cannot select your own account.
 
 ### Require two-factor authentication for an account
 

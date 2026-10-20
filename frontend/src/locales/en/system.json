@@ -81,6 +81,8 @@
   "AdminPage.batchDisable": "Disable",
   "AdminPage.batchDisableTitle": "Disable {{count}} user(s)?",
   "AdminPage.batchDisableDesc": "These accounts won't be able to sign in until they are enabled again:",
+  "AdminPage.batchDeleteTitle": "Delete {{count}} user(s)?",
+  "AdminPage.batchDeleteDesc": "Deleted accounts cannot be restored and their email addresses cannot register again; usage, request and audit records are kept. Accounts that still own provisioned resources are refused and stay selected:",
   "AdminPage.batchNamesMore": "and {{count}} more",
   "AdminPage.batchRunning": "{{label}}… {{done}} of {{total}}",
   "AdminPage.batchApplicableHint": "Applies to {{count}}; {{skipped}} skipped because they are already in this state",

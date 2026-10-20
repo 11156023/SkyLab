@@ -81,6 +81,8 @@
   "AdminPage.batchDisable": "停用",
   "AdminPage.batchDisableTitle": "停用 {{count}} 位使用者？",
   "AdminPage.batchDisableDesc": "停用後這些帳號無法登入，之後可以再啟用：",
+  "AdminPage.batchDeleteTitle": "刪除 {{count}} 位使用者？",
+  "AdminPage.batchDeleteDesc": "刪除後帳號無法恢復，原 Email 不可重新註冊；用量、申請與稽核等紀錄會保留。仍持有已開通資源的帳號會被拒絕刪除並保留勾選：",
   "AdminPage.batchNamesMore": "等 {{count}} 位",
   "AdminPage.batchRunning": "正在{{label}}… {{done}} / {{total}} 位",
   "AdminPage.batchApplicableHint": "將對 {{count}} 位執行，略過 {{skipped}} 位已是這個狀態的帳號",
