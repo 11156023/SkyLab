@@ -12,6 +12,12 @@ import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
+import DataToolbar from "../../../components/DataToolbar/DataToolbar";
+import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
+import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
+import ResourceBatchBar from "../../../components/ResourceBatchBar/ResourceBatchBar";
+import useRowSelection from "../../../hooks/useRowSelection";
+import { filterGroups, filterResources, matchesQuery } from "../../../utils/resourceFilters";
 import { ResourcesService } from "../../../services/resources";
 import { VmRequestsService } from "../../../services/vmRequests";
 import {
@@ -161,6 +167,8 @@ function CreatingRow({ request, onCancelled }) {
 
   return <>
     <tr className={`${styles.tr} ${styles.pendingRow}`}>
+      {/* 建立中沒有實體可勾 */}
+      <td className={`${styles.td} ${styles.checkCell}`} />
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
@@ -187,7 +195,7 @@ function CreatingRow({ request, onCancelled }) {
 }
 
 /* ── Resource row ── */
-function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
+function ResourceRow({ resource, onUpdated, onDeleted, onRefresh, selected = false, selecting = false, onToggleSelect = null, onRowClick = null }) {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -298,18 +306,31 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
   }
 
   const canOpenDetail = resource.vmid > 0;
-  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
+  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁。
+     已勾了至少一台時，點整列改成勾選（useRowSelection.rowClick 回 true 就不開詳情） */
   const openDetail = (event) => {
-    if (!isRowBackgroundClick(event)) return;
+    if (onRowClick?.(resource.vmid, event)) return;
+    if (!canOpenDetail || !isRowBackgroundClick(event)) return;
     navigate(`/my-resources/${resource.vmid}`);
   };
 
   return <>
     <tr
-      className={`${styles.tr} ${canOpenDetail ? styles.trClickable : ""}`}
-      onClick={canOpenDetail ? openDetail : undefined}
+      className={`${styles.tr} ${canOpenDetail || selecting ? styles.trClickable : ""} ${selected ? styles.trSelected : ""}`}
+      onClick={canOpenDetail || selecting ? openDetail : undefined}
       data-guide="resource-card"
     >
+      {/* 勾選：整格都是點擊範圍，點偏了不會變成點進詳情頁；Shift 點選連選一段 */}
+      <td className={`${styles.td} ${styles.checkCell}`}>
+        {onToggleSelect && canControl ? (
+          <SelectCheckbox
+            cell
+            checked={selected}
+            onToggle={(shiftKey) => onToggleSelect(resource.vmid, shiftKey)}
+            ariaLabel={t("ResourcesPage.selectRowAria", { name: resource.name })}
+          />
+        ) : null}
+      </td>
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
@@ -441,6 +462,8 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
       className={`${styles.tr} ${styles.environmentMachineRow} ${canOpenDetail ? styles.trClickable : ""}`}
       onClick={canOpenDetail ? openDetail : undefined}
     >
+    {/* 環境內的機器由環境整組管理，不勾 */}
+    <td className={`${styles.td} ${styles.checkCell}`} />
     <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div><strong>{machine.name}</strong><small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
     {/* 「來源」欄佔位：群組標題列已標示來源，環境內機器不重複 */}
     <td className={styles.td}><span className={styles.muted}>—</span></td>
@@ -466,7 +489,8 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
   </>;
 }
 
-function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
+/** @param {Array} [machines] 搜尋後實際列出的機器；群組列的台數、整組電源仍看整個 group */
+function EnvironmentGroupRows({ group, machines = group.machines, onUpdated, onEnded }) {
   const { t } = useTranslation("personal");
   const confirm = useConfirm();
   const [expanded, setExpanded] = useState(true);
@@ -530,6 +554,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
         setExpanded((value) => !value);
       }}
     >
+      <td className={`${styles.td} ${styles.checkCell}`} />
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <button type="button" className={styles.environmentToggle} aria-expanded={expanded} aria-label={t("EnvironmentGroupRows.toggleAria", { name: group.title })} onClick={() => setExpanded((value) => !value)}><MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} /></button>
@@ -565,7 +590,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
         </div>}
       </div></td>
     </tr>
-    {expanded && group.machines.map((machine) => <EnvironmentMachineRow key={machine.id} machine={machine} groupStatus={group.status} onUpdated={onUpdated} />)}
+    {expanded && machines.map((machine) => <EnvironmentMachineRow key={machine.id} machine={machine} groupStatus={group.status} onUpdated={onUpdated} />)}
   </>;
 }
 
@@ -582,14 +607,33 @@ const TABLE_COLUMNS = [
   { col: "colActions", labelKey: "ResourcesPage.colActions" },
 ];
 
-function ResourceTableHead() {
+/**
+ * @param {{ checked, indeterminate, disabled, onToggle }} [selectAll] 表頭第一欄的全選框；
+ *   導覽示範表沒有勾選，不傳就留空格（兩張表的欄數才一樣）
+ */
+function ResourceTableHead({ selectAll = null }) {
   const { t } = useTranslation("personal");
   return <>
     <colgroup>
+      <col className={styles.colCheck} />
       {TABLE_COLUMNS.map(({ col }) => <col key={col} className={styles[col]} />)}
     </colgroup>
     <thead>
-      <tr>{TABLE_COLUMNS.map(({ col, labelKey }) => <th key={col} className={styles.th}>{t(labelKey)}</th>)}</tr>
+      <tr>
+        <th className={`${styles.th} ${styles.checkCell}`}>
+          {selectAll && (
+            <SelectCheckbox
+              cell
+              checked={selectAll.checked}
+              indeterminate={selectAll.indeterminate}
+              disabled={selectAll.disabled}
+              onToggle={selectAll.onToggle}
+              ariaLabel={t("ResourcesPage.selectAllAria")}
+            />
+          )}
+        </th>
+        {TABLE_COLUMNS.map(({ col, labelKey }) => <th key={col} className={styles.th}>{t(labelKey)}</th>)}
+      </tr>
     </thead>
   </>;
 }
@@ -610,6 +654,7 @@ function ResourceGuideDemoRow() {
   return (
     <>
       <tr className={`${styles.tr} ${styles.guideDemoRow}`} data-guide="resource-card">
+        <td className={`${styles.td} ${styles.checkCell}`} />
         <td className={styles.td}>
           <div className={styles.nameCell}>
             <span className={styles.nameIcon}><MIcon name="terminal" size={18} /></span>
@@ -659,6 +704,7 @@ export default function ResourcesPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
   const [guideDemo, setGuideDemo] = useState(false);
+  const [query, setQuery] = useState("");
   const pendingSigRef = useRef(null);
 
   /** silent = true 時不觸發 skeleton / error state，供背景同步使用 */
@@ -758,6 +804,19 @@ export default function ResourcesPage() {
   ));
   const visiblePending = pending.filter((request) => !grouped.requestIds.has(String(request.id)));
   const resourceListEmpty = visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0;
+  /* 搜尋過後實際列在表格上的；勾選、全選、批量都只看這些 */
+  const filters = { query };
+  const shownGroups = filterGroups(environmentGroups, filters);
+  const shownPending = visiblePending.filter((request) => matchesQuery([request.hostname, request.vmid], query));
+  const shownResources = filterResources(visibleResources, filters);
+  const nothingMatches = shownGroups.length === 0 && shownPending.length === 0 && shownResources.length === 0;
+  /* 能勾的：有實體、可操作的機器（建立中佔位列、刪除中的不勾）；環境內的機器由環境整組管理，不在這份清單 */
+  const selectableVmids = shownResources
+    .filter((r) => r.can_control !== false && !r.is_placeholder && r.vmid != null && r.vmid > 0)
+    .map((r) => r.vmid);
+  /* 看不到的機器（篩掉了、刷新後消失）自動取消勾選；交給批量列的是還在清單上的那些 */
+  const selection = useRowSelection(selectableVmids);
+  const selectedResources = shownResources.filter((r) => selection.isSelected(r.vmid));
   /* 頁首的「申請資源」等清單有東西才出現：空狀態那顆就是唯一入口，不要上下兩顆一樣的鈕。
      導覽示範列顯示時照常放（導覽要指它）；載入中也先不放，免得空清單的人看到它閃一下 */
   const showEmptyState = !error && !loading && resourceListEmpty && !guideDemo;
@@ -813,16 +872,74 @@ export default function ResourcesPage() {
             </div>
           ) : <EmptyState />
         ) : (
+          <>
+          {/* ── 表格工具列：平常是搜尋，勾選後原地換成批量操作（同一個高度，表格不會跳）── */}
+          <DataToolbar
+            data-guide="resource-toolbar"
+            className={styles.toolbar}
+            selecting={selectedResources.length > 0}
+            batch={(
+              <ResourceBatchBar
+                selected={selectedResources}
+                onDone={(failedVmids) => {
+                  if (failedVmids) selection.replace(failedVmids);
+                  fetchResources(true);
+                  refreshPending();
+                }}
+                onClear={selection.clear}
+              />
+            )}
+          >
+            <ToolbarSearch
+              value={query}
+              onChange={setQuery}
+              placeholder={t("ResourcesPage.searchPlaceholder")}
+            />
+          </DataToolbar>
+          {nothingMatches ? (
+            /* 有機器但搜不到：工具列留著讓人改字，下面給清除鈕 */
+            <SharedEmptyState
+              icon="search_off"
+              title={t("ResourcesPage.emptyFilteredTitle")}
+              action={(
+                <button type="button" className={styles.btnSecondary} onClick={() => setQuery("")}>
+                  <MIcon name="search_off" size={16} />
+                  {t("EmptyState.clearSearch", { ns: "common" })}
+                </button>
+              )}
+            />
+          ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
-              <ResourceTableHead />
+              <ResourceTableHead
+                selectAll={{
+                  checked: selection.allSelected,
+                  indeterminate: selection.someSelected,
+                  disabled: selectableVmids.length === 0,
+                  onToggle: selection.toggleAll,
+                }}
+              />
               <tbody>
-                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={() => fetchResources(true)} />)}
-                {visiblePending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
-                {visibleResources.map((r, index) => <ResourceRow key={resourceRowKey(r, index)} resource={r} onUpdated={handleUpdated} onDeleted={handleDeleted} onRefresh={refreshAfterFailedAction} />)}
+                {shownGroups.map(({ group, machines }) => <EnvironmentGroupRows key={group.id} group={group} machines={machines} onUpdated={handleUpdated} onEnded={() => fetchResources(true)} />)}
+                {shownPending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
+                {shownResources.map((r, index) => (
+                  <ResourceRow
+                    key={resourceRowKey(r, index)}
+                    resource={r}
+                    onUpdated={handleUpdated}
+                    onDeleted={handleDeleted}
+                    onRefresh={refreshAfterFailedAction}
+                    selected={selection.isSelected(r.vmid)}
+                    selecting={selection.selecting && selectableVmids.includes(r.vmid)}
+                    onToggleSelect={selection.toggle}
+                    onRowClick={selection.rowClick}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
+          )}
+          </>
         )}
       </div>
 

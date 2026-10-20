@@ -27,8 +27,8 @@ import DataToolbar from "../../../components/DataToolbar/DataToolbar";
 import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
 import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
 import useRowSelection from "../../../hooks/useRowSelection";
-import BatchActionBar from "./BatchActionBar";
-import { filterGroups, filterResources, statusCounts } from "./resourceFilters";
+import ResourceBatchBar from "../../../components/ResourceBatchBar/ResourceBatchBar";
+import { filterGroups, filterResources, statusCounts } from "../../../utils/resourceFilters";
 
 /* ── Constants ── */
 function useStatusMap() {
@@ -651,7 +651,7 @@ export default function ResourceMgmtPage() {
             className={styles.toolbar}
             selecting={selectedResources.length > 0}
             batch={(
-              <BatchActionBar
+              <ResourceBatchBar
                 selected={selectedResources}
                 onDone={(failedVmids) => {
                   if (failedVmids) selection.replace(failedVmids);

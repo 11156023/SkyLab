@@ -1,6 +1,6 @@
 /**
- * 資源管理的搜尋與狀態篩選。管理員清單本來就一次載入全部機器，在前端篩就好；
- * 機器多到要分頁時再改成後端查詢。
+ * 機器清單（資源管理、我的資源）的搜尋與狀態篩選。清單本來就一次載入全部機器，
+ * 在前端篩就好；機器多到要分頁時再改成後端查詢。
  */
 
 /* 狀態切換的分組；「全部」不在這裡，代表不過濾 */
@@ -18,6 +18,11 @@ function hits(fields, terms) {
   if (!terms.length) return true;
   const text = fields.filter((value) => value != null && value !== "").join(" ").toLowerCase();
   return terms.every((term) => text.includes(term));
+}
+
+/** 任意一列（例如建立中的申請）是否命中搜尋字：欄位全部串起來比對 */
+export function matchesQuery(fields, query = "") {
+  return hits(fields, words(query));
 }
 
 function statusMatches(status, filter) {
