@@ -59,20 +59,6 @@
   @include flex-column;
 }
 
-/* ── 表格工具列（共用 DataToolbar）：跟下方表格的間距 ── */
-.toolbar {
-  margin-bottom: $spacing-16;
-}
-
-/* ── 勾選欄（勾選框是共用 SelectCheckbox） ── */
-.checkCell {
-  width: 36px;
-}
-
-.trSelected > td {
-  @include row-selected;
-}
-
 /* ── Resource list ── */
 .tableWrap {
   @include table-wrap;
@@ -84,12 +70,11 @@
 .table {
   @include table-base;
   table-layout: fixed;
-  min-width: 1341px;
+  min-width: 1305px;
 }
 
 /* 名稱欄也給定寬度，剩餘空間依比例分給所有欄，
    否則寬螢幕時名稱欄會吸掉全部留白、其他欄擠在右側 */
-.colCheck   { width:  36px; }
 .colName    { width: 260px; }
 .colKind    { width: 190px; }
 .colEnv     { width: 160px; }

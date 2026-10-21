@@ -96,18 +96,6 @@ Prefer **Shutdown** and **Reboot**; the forced actions can lose unsaved data ins
 
 **Delete** is not offered for class machines, for machines shared with you, or for single machines inside a course or quick practice environment.
 
-### Act on several machines at once
-
-1. Tick the checkbox at the start of each row, or tick the header checkbox to select every machine currently shown. Hold Shift while clicking to select a range. Once at least one machine is ticked, clicking a row ticks it instead of opening the detail page.
-2. The search bar above the table turns into a batch bar showing how many machines are selected.
-3. Click **Start** or **Shutdown**, or open **More** for **Reboot**, **Force Stop** and **Force Reset**. **Delete** sits on the far right.
-4. Each action is sent only to the machines it applies to (for example, Shutdown only to running ones, and Delete only to machines you are allowed to delete). Hover over a button to see how many will be skipped; a button is disabled when none of the selected machines can do it.
-5. **Force Stop**, **Force Reset** and **Delete** ask for confirmation first. The delete dialog lists up to five machine names and "and N more".
-6. A progress line shows how far the batch has got. When it finishes, a message reports how many succeeded and how many were skipped. Machines that failed stay selected so you can retry.
-7. Click × next to the count (**Clear selection**), or press Esc, to leave the batch bar.
-
-Requests still being created and machines inside environments have no checkbox. Machines shared with you can be powered on and off together, but a batch delete skips them. The search bar filters the list by name, VMID or IP; machines filtered out are unticked automatically.
-
 ### Convert a machine to a template (teachers and administrators)
 
 1. Open **More actions** (⋮) on one of your own personal machines.

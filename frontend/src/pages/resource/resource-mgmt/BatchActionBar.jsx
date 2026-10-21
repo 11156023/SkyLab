@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import styles from "./ResourceBatchBar.module.scss";
-import PowerMenu from "../PowerMenu/PowerMenu";
-import BatchBar, { BatchAction, BatchDivider } from "../DataToolbar/BatchBar";
-import useDialogPresence from "../../hooks/useDialogPresence";
-import { useToast } from "../../hooks/useToast";
-import { useConfirm } from "../ConfirmDialog/ConfirmProvider";
-import { ResourcesService } from "../../services/resources";
-import { joinList } from "../../utils/joinList";
+import styles from "./ResourceMgmtPage.module.scss";
+import PowerMenu from "../../../components/PowerMenu/PowerMenu";
+import BatchBar, { BatchAction, BatchDivider } from "../../../components/DataToolbar/BatchBar";
+import useDialogPresence from "../../../hooks/useDialogPresence";
+import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
+import { ResourcesService } from "../../../services/resources";
+import { joinList } from "../../../utils/joinList";
 import { applicableVmids } from "./batchActions";
 
 /* 確認框裡最多列出幾台的名字，其餘寫「等 N 台」 */
@@ -26,19 +26,16 @@ function useActions() {
 }
 
 /**
- * 機器清單的批量列（共用 DataToolbar／BatchBar 的資源版），資源管理（管理員）與
- * 我的資源（使用者）共用同一條；文案沿用 resource 命名空間的 ResourceMgmtPage.* key。
- * - 動作只送給適用的機器（關機只送執行中的、刪除只送 can_delete 的…），全都不適用就停用；
- *   略過幾台在提示與結果裡講明
+ * 資源管理的批量列（共用 DataToolbar／BatchBar 的資源版）。
+ * - 動作只送給適用的機器（關機只送執行中的…），全都不適用就停用；略過幾台在提示與結果裡講明
  * - 常用的開機、關機放外面，重新啟動／強制停止／強制重置收進「更多」；刪除獨立放最右
- * - 走後端的批量 API（ResourcesService.batchActionInChunks），每台的授權由後端逐台判定，
- *   進度依分批回報
+ * - 走後端的批量 API（ResourcesService.batchActionInChunks），進度依分批回報
  *
- * @param {Array}    selected 勾選中的資源物件（要看 status／can_control／can_delete 判斷適用與否）
+ * @param {Array}    selected 勾選中的資源物件（要看 status 判斷適用與否）
  * @param {Function} onDone   (failedVmids: number[] | null) => void；null＝整批請求失敗，選取不動
  * @param {Function} onClear  清除選取
  */
-export default function ResourceBatchBar({ selected, onDone, onClear }) {
+export default function BatchActionBar({ selected, onDone, onClear }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const confirm = useConfirm();

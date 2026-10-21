@@ -550,7 +550,7 @@ const selected = shown.filter((r) => selection.isSelected(r.id));
 - 勾選中的列底色用 `@include row-selected;`（自己就是卡片的清單列傳 `var(--color-surface)`）
 - 導覽用的 `data-guide` 等屬性可以直接傳給 `DataToolbar`（掛在工具列外框），讓導覽步驟框住整條「篩選＋搜尋」
 - **加了勾選欄要重算寬度**：清單列用 grid 時，一行排完或分兩行要看**容器寬度**（`container-type: inline-size`＋`@container`），不要看視窗——側邊欄出現（≥1024）後內容比 992 時還窄，用視窗切會在 1024～1180 之間撐出橫向捲動
-- 目前用在：資源管理與我的資源（共用 `components/ResourceBatchBar`）、使用者管理（批量停用／啟用）、申請審核（批量拒絕）、班級管理（批量封存並回收）、班級工作區學生名單（批量移除）
+- 目前用在：資源管理、使用者管理（批量停用／啟用）、申請審核（批量拒絕）、班級管理（批量封存並回收）、班級工作區學生名單（批量移除）
 
 ### Dropdown 選單
 
