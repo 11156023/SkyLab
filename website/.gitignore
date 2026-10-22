@@ -9,3 +9,6 @@
 .vitepress/cache/
 .vitepress/dist/
 node_modules/
+
+# Manual screenshot tool: failure captures and contact sheets
+scripts/manual-shots/.debug/

@@ -87,6 +87,14 @@ Build tooling (Vite, Sass, Vitest, Babel with the React Compiler plugin) is not 
 
 The desktop client ships its own copy of these notices as `THIRD_PARTY_NOTICES.txt`, reachable from its About page.
 
+## Documentation site (`website/`, build tooling only)
+
+| Package | License | Link |
+| --- | --- | --- |
+| VitePress | MIT | https://github.com/vuejs/vitepress |
+| Vue | MIT | https://github.com/vuejs/core |
+| playwright-core (manual screenshots) | Apache-2.0 | https://github.com/microsoft/playwright |
+
 ## Infrastructure and services
 
 These run alongside SkyLab as separate containers or hosts and are not linked into the SkyLab code.

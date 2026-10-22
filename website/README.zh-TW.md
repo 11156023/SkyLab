@@ -20,6 +20,8 @@ repo 的所有文件都放在這個目錄，以 [VitePress](https://vitepress.de
 | `public/` | favicon、`openapi.json`、`public/demos/` 下的 SkyLab Connect demo |
 | `.vitepress/` | 設定（導覽列與兩個語系的側欄在 `config.mts`）、主題元件（Scalar 與 mermaid 渲染） |
 | `scripts/generate.mjs` | 每次建置前產生自動頁面 |
+| `scripts/manual-shots/` | 拍攝使用手冊的步驟截圖（見下方） |
+| `public/manual-shots/` | 這些截圖，每個小節一張：`<語系>/<頁面>/s<小節>.webp` |
 
 產生的檔案（`operations/environment.md`、`changelog.md`、`public/openapi.json` 與它們的 `zh-TW/` 版本）已 gitignore。
 
@@ -38,6 +40,22 @@ bun run preview    # 每次重建後要重啟：它會快取檔案清單
 ```
 
 `bun run generate` 只產生自動頁面。匯出腳本只匯入 FastAPI app 而不啟動它，需要專案的 `.env`（或等效的環境變數），但不需要資料庫、Redis 或 Proxmox。
+
+## 手冊截圖
+
+使用手冊操作步驟的每個小節結尾都有一張圖，以真正的前端搭配 mock API 拍攝，語言跟頁面一致。圖中每個步驟對應的元素會框起來並標上步驟編號。小節 `n` 是「操作步驟」底下第 n 個 `###` 標題；步驟 `k` 是該小節內第 k 個編號項目（沒有編號步驟的小節算作步驟 0，圖上不標編號）。每一頁有一個場景檔 `scripts/manual-shots/scenes/<頁面>.mjs`，負責開啟頁面、準備 mock 資料，並對每個步驟呼叫 `shot(步驟, 元素)`。同一個畫面上的連續步驟共用一格；畫面換了（開啟對話框、頁面捲動）就在下方接一格。
+
+```bash
+cd frontend && bun run build                         # 截圖取自 frontend/dist
+cd ../website
+npx playwright install chromium                      # 只需一次；或把 CHROME_PATH 設成 Chrome／Chromium 的路徑
+node scripts/manual-shots/shoot.mjs my-requests      # 拍一頁（不給頁名就全部）；--lang、--section 可縮小範圍
+node scripts/manual-shots/preview.mjs my-requests    # 總覽圖輸出到 scripts/manual-shots/.debug/
+node scripts/manual-shots/inject.mjs                 # 把圖片行插到各小節結尾
+node scripts/manual-shots/check.mjs --strict         # 確認兩種語言的每個小節都有圖
+```
+
+瀏覽器時鐘固定在 2026-10-12 10:00（台北），所以重跑同一個場景會得到相同的圖。修改手冊某頁的步驟時，要一併更新它的場景、重拍該頁，再跑一次 `inject.mjs`；它只會移除並重新插入自己產生的圖片行。某頁的介面改了，就重拍那一頁。
 
 ## 部署
 

@@ -273,6 +273,8 @@ export default defineConfig({
     ['meta', { name: 'theme-color', content: '#5471bf' }],
   ],
   markdown: {
+    // The manual has a screenshot under every step; load them as they scroll in.
+    image: { lazyLoading: true },
     config(md) {
       // Inline code such as `{{.SecurityOptions}}` must not be read as a Vue
       // interpolation (fenced blocks are already protected by VitePress).
