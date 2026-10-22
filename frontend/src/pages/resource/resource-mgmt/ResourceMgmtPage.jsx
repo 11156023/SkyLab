@@ -8,6 +8,7 @@ import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBa
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateFormDialog from "../templates/TemplateFormDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import useVirtualRows from "../../../hooks/useVirtualRows";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import { useToast } from "../../../hooks/useToast";
@@ -303,7 +304,8 @@ function EnvironmentGroupRows({ group, machines = group.machines, onUpdated, onR
   );
 }
 
-function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecting = false, onToggleSelect = null, onRowClick = null }) {
+/* rowRef／rowIndex：清單虛擬化時由 useVirtualRows 量列高用（data-index 是它找回列的依據） */
+function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecting = false, onToggleSelect = null, onRowClick = null, rowRef = undefined, rowIndex = undefined }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const navigate = useNavigate();
@@ -376,6 +378,8 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
   return (
     <>
       <tr
+        ref={rowRef}
+        data-index={rowIndex}
         className={`${styles.tr} ${canOpenDetail || selecting ? styles.trClickable : ""} ${selected ? styles.trSelected : ""}`}
         data-guide="resource-mgmt-row"
         onClick={handleRowClick}
@@ -622,6 +626,7 @@ export default function ResourceMgmtPage() {
   }
 
   const columns = useColumns();
+  const virtualRows = useVirtualRows({ count: shownResources.length });
 
   return (
     <div className={styles.page}>
@@ -724,18 +729,29 @@ export default function ResourceMgmtPage() {
               </thead>
               <tbody>
                 {shownGroups.map(({ group, machines }) => <EnvironmentGroupRows key={group.id} group={group} machines={machines} onUpdated={handleUpdated} onRefresh={() => fetchResources(true)} />)}
-                {shownResources.map((r, index) => (
-                  <ResourceRow
-                    key={resourceRowKey(r, index)}
-                    resource={r}
-                    onUpdated={handleUpdated}
-                    onDeleted={handleDeleted}
-                    selected={selection.isSelected(r.vmid)}
-                    selecting={selection.selecting && r.can_control !== false && r.vmid > 0}
-                    onToggleSelect={selection.toggle}
-                    onRowClick={selection.rowClick}
-                  />
-                ))}
+              </tbody>
+              {/* 散機列另開一個 tbody 給虛擬化：幾百台時只渲染視窗附近的列，上下用空白列撐高度；
+                  列數不到門檻時 items 就是全部列，行為與以前相同 */}
+              <tbody ref={virtualRows.bodyRef} data-virtualized={virtualRows.enabled ? "true" : undefined}>
+                {virtualRows.paddingTop > 0 && <tr aria-hidden="true" style={{ height: virtualRows.paddingTop }} />}
+                {virtualRows.items.map((item) => {
+                  const r = shownResources[item.index];
+                  return (
+                    <ResourceRow
+                      key={resourceRowKey(r, item.index)}
+                      rowRef={virtualRows.measureElement}
+                      rowIndex={item.index}
+                      resource={r}
+                      onUpdated={handleUpdated}
+                      onDeleted={handleDeleted}
+                      selected={selection.isSelected(r.vmid)}
+                      selecting={selection.selecting && r.can_control !== false && r.vmid > 0}
+                      onToggleSelect={selection.toggle}
+                      onRowClick={selection.rowClick}
+                    />
+                  );
+                })}
+                {virtualRows.paddingBottom > 0 && <tr aria-hidden="true" style={{ height: virtualRows.paddingBottom }} />}
               </tbody>
             </table>
           </div>

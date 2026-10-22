@@ -80,6 +80,9 @@ Vite dev server 會把 `/api` 與 `/ws` 代理到 `http://localhost:8000`；要�
 - 路由集中在 `src/App.jsx`，側欄項目在 `src/components/Sidebar/Sidebar.jsx`。
 - 頁面放在 `src/pages/<分類>/<功能>/XxxPage.jsx`，旁邊配同名 `.module.scss`。
 - 沒有自動生成的 API client。每個端點在 `src/services/*.js` 都有手寫函式，建立在 `src/services/api.js` 的 `apiGet/apiPost/...`（帶 token、401 自動 refresh）之上，並附 Vitest mock 測試。頁面不直接呼叫 `fetch`。
+- 清單頁讀伺服器資料走 `src/queries/*.js` 的 TanStack Query hook（一個領域一個檔，每個 hook 包一個 service 函式，自己管 query key 與輪詢間隔）。全站預設在 `src/queries/queryClient.js`：不重試、5 秒內視為新鮮、分頁隱藏時暫停輪詢。寫入仍直接呼叫 service，完成後用 `use…CacheUpdater` 就地改快取或讓該 key 過期重抓。頁面測試用 `src/queries/testing.jsx` 的 `withQueryClient` 包元件；查詢結果是存取追蹤的，要斷言的欄位必須在 render 期間讀過。
+- React Compiler 在建置時執行（`vite.config.js` 以 `@rolldown/plugin-babel` 掛 `reactCompilerPreset`），新元件不必再手寫 `useMemo`／`useCallback`。違反 hooks 規則的元件會被整個略過，不會壞掉。在 render 期間讀可變實例的程式（例如 TanStack Virtual）要以 `"use no memo"` 退出。
+- 長表格用 `useVirtualRows`（`src/hooks/useVirtualRows.js`，TanStack Virtual、以視窗為捲動容器）。不到 60 列時每一列照常渲染，超過才只在 DOM 裡保留視窗附近的列。
 - 樣式遵循 [`frontend-style-guide.zh-TW.md`](/zh-TW/guides/frontend-style-guide)：SCSS Modules、`_variables`／`_mixins` 由 Vite 注入、主題色用 `--color-*` 自訂屬性。
 - 文字一律走 react-i18next，key 在 `src/locales/{zh-TW,en,ja}/`，三個語系都要加。
 

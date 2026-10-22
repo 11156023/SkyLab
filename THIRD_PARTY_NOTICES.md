@@ -65,8 +65,10 @@ Development tooling (uv, pytest, ruff, mypy, prek, coverage) is not distributed 
 | GSAP | GSAP Standard License (free for commercial and non-commercial use; not OSI open source) | https://gsap.com/standard-license |
 | @material-design-icons/font | Apache-2.0 | https://github.com/marella/material-design-icons |
 | @sentry/react | MIT | https://github.com/getsentry/sentry-javascript |
+| @tanstack/react-query | MIT | https://github.com/TanStack/query |
+| @tanstack/react-virtual | MIT | https://github.com/TanStack/virtual |
 
-Build tooling (Vite, Sass, Vitest) is not distributed with the application.
+Build tooling (Vite, Sass, Vitest, Babel with the React Compiler plugin) is not distributed with the application.
 
 ## Desktop client (`desktop-client/`, SkyLab Connect)
 

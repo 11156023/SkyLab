@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./RequestsPage.module.scss";
 import { VmRequestsService } from "../../../services/vmRequests";
-import { CONSUMED_REQUEST_MARKERS, isConsumedRequest } from "../../../services/pendingResources";
+import { CONSUMED_REQUEST_MARKERS } from "../../../services/pendingResources";
 import {
   SpecChangeRequestsService,
   canApplySpecRequest,
@@ -12,8 +12,9 @@ import {
   specRequestChangeLabel,
   specRequestDisplayStatus,
 } from "../../../services/specChangeRequests";
+import { useMyActiveVmRequestsQuery, useVmRequestCacheUpdater } from "../../../queries/vmRequests";
+import { isApplying, useMySpecChangeRequestsQuery, useSpecChangeRequestCacheUpdater } from "../../../queries/specChangeRequests";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import RequestFormPage from "./RequestFormPage";
 import MIcon from "../../../components/MIcon";
@@ -118,8 +119,6 @@ const SPEC_COLUMN_KEYS = [
   "RequestsPage.colStatus",
   "RequestsPage.colActions",
 ];
-/* 套用中（關機 → 改規格 → 開機）約 1～3 分鐘，比 30 秒自動刷新更勤地跟進度 */
-const SPEC_APPLY_POLL_MS = 5000;
 /* 系統寫入 review_comment 的撤銷標記，不是審核人留言 */
 const SPEC_CANCEL_MARKERS = ["Cancelled by requester", "Cancelled by admin"];
 
@@ -508,48 +507,33 @@ function EmptyState({ onCreateClick }) {
 }
 
 /* ── Page ── */
+const EMPTY = Object.freeze([]);
+
 export default function RequestsPage() {
   const { t } = useTranslation("personal");
   /* 其他頁（如快速練習的「完整設定」）可用 navigate("/my-requests", { state: { create: true } }) 直接開表單 */
   const location = useLocation();
-  const [requests, setRequests] = useState([]);
-  const [specRequests, setSpecRequests] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(false);
   const [view, setView]         = useState(location.state?.create ? VIEW_CREATE : VIEW_LIST);
   const [returning, setReturning] = useState(false);
   /* AI 助手談完需求後會把推薦配置一起帶過來 */
   const [pendingPrefill, setPendingPrefill] = useState(location.state?.prefill ?? null);
 
-  /** silent === true 時不觸發 loading / error state，供背景自動刷新使用。
-   *  必須嚴格比對 true：直接當 onClick 傳入時第一個參數是 click event（truthy）。
-   *  任何一次成功載入都清掉錯誤狀態，背景刷新成功也能讓頁面離開錯誤畫面。 */
-  const fetchRequests = useCallback(async (silent = false) => {
-    const isSilent = silent === true;
-    if (!isSilent) {
-      setLoading(true);
-      setError(false);
-    }
-    try {
-      const [res, specRes] = await Promise.all([
-        VmRequestsService.list(),
-        /* 規格調整申請載入失敗不拖垮主列表 */
-        SpecChangeRequestsService.listMy().catch(() => null),
-      ]);
-      // 機器已被刪除／轉範本的申請單只留做稽核，不顯示
-      setRequests((res.data ?? []).filter((r) => !isConsumedRequest(r)));
-      if (specRes) setSpecRequests(specRes.data ?? []);
-      setError(false);
-    } catch {
-      if (!isSilent) setError(true);
-    } finally {
-      if (!isSilent) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (view === "list") fetchRequests();
-  }, [view, fetchRequests]);
+  /* 兩份清單走 TanStack Query：只在列表畫面抓、背景 30 秒刷新、分頁隱藏時暫停；
+     規格調整套用中時改 5 秒追進度。規格調整申請載入失敗只影響自己那一段，不拖垮主列表。
+     申請單快取與「我的資源」的建立中佔位列共用，兩頁來回不重打 API。 */
+  const listOpen = view === VIEW_LIST;
+  const specQuery = useMySpecChangeRequestsQuery({ enabled: listOpen });
+  const specRequests = specQuery.data ?? EMPTY;
+  const specApplying = isApplying(specRequests);
+  const requestsQuery = useMyActiveVmRequestsQuery({ enabled: listOpen, fastPoll: specApplying });
+  const requests = requestsQuery.data ?? EMPTY;
+  const requestCache = useVmRequestCacheUpdater();
+  const specCache = useSpecChangeRequestCacheUpdater();
+  /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料，
+     首載失敗後按重試會回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
+  const noData = requestsQuery.data === undefined;
+  const loading = noData && (requestsQuery.isPending || requestsQuery.isFetching);
+  const error = noData && requestsQuery.isError && !requestsQuery.isFetching;
 
   /* 已經停在本頁時 useState 的初值不會再跑一次，所以導覽助手在這頁按步驟
      只會換掉 location.state。兩個方向都要跟：帶 create 就開表單，沒帶就回列表
@@ -559,25 +543,17 @@ export default function RequestsPage() {
     if (location.state?.prefill) setPendingPrefill(location.state.prefill);
   }, [location.key, location.state?.create, location.state?.prefill]);
 
-  useAutoRefresh(() => {
-    if (view === "list") fetchRequests(true);
-  });
-
-  const specApplying = specRequests.some((r) => r.apply_status === "applying");
-  useEffect(() => {
-    if (view !== VIEW_LIST || !specApplying) return undefined;
-    const timer = setInterval(() => {
-      if (!document.hidden) fetchRequests(true);
-    }, SPEC_APPLY_POLL_MS);
-    return () => clearInterval(timer);
-  }, [view, specApplying, fetchRequests]);
-
   function handleUpdated(updated) {
-    setRequests((prev) => prev.map((r) => r.id === updated.id ? updated : r));
+    requestCache.update(updated);
   }
 
   function handleSpecUpdated(updated) {
-    setSpecRequests((prev) => prev.map((r) => r.id === updated.id ? updated : r));
+    specCache.update(updated);
+  }
+
+  function retryLoad() {
+    requestsQuery.refetch();
+    specQuery.refetch();
   }
 
   if (view === VIEW_CREATE) {
@@ -586,7 +562,14 @@ export default function RequestsPage() {
         key="create"
         className={styles.animSlideInRight}
         initialPrefill={pendingPrefill}
-        onBack={() => { setReturning(true); setView(VIEW_LIST); setPendingPrefill(null); }}
+        onBack={() => {
+          setReturning(true);
+          setView(VIEW_LIST);
+          setPendingPrefill(null);
+          /* 剛送出的申請要出現在列表：回來時先顯示快取，同時標記過期重抓 */
+          requestCache.invalidate();
+          specCache.invalidate();
+        }}
       />
     );
   }
@@ -612,7 +595,7 @@ export default function RequestsPage() {
 
       <div className={styles.content} data-guide="request-list">
         {error ? (
-          <ErrorState onRetry={() => fetchRequests()} />
+          <ErrorState onRetry={retryLoad} />
         ) : loading ? (
           <LoadingState fullPage />
         ) : isEmpty ? (

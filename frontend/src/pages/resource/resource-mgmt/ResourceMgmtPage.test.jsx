@@ -436,4 +436,30 @@ describe("ResourceMgmtPage 搜尋與狀態篩選", () => {
     await flush();
     expect(rowNames()).toHaveLength(3);
   });
+
+  test("超過 60 台時散機列只渲染視窗附近的列，其餘用空白列撐高度", async () => {
+    /* happy-dom 沒有版面：列高 48、視窗高 480；virtualizer 讀 window.ResizeObserver，換成不回呼的替身 */
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 48 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 480 });
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
+    class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+    const originalResizeObserver = window.ResizeObserver;
+    Object.defineProperty(window, "ResizeObserver", { configurable: true, value: ResizeObserverStub });
+    try {
+      mocks.buildEnvironmentGroups.mockReturnValue([]);
+      mocks.listAll.mockResolvedValue(Array.from({ length: 300 }, (_, i) => vm(1000 + i)));
+      await renderPage();
+
+      const rows = host.querySelectorAll("tr[data-guide='resource-mgmt-row']");
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.length).toBeLessThan(300);
+      expect(rows[0].textContent).toContain("vm-1000");
+      expect(host.querySelector("tbody[data-virtualized]")).not.toBeNull();
+      const spacer = [...host.querySelectorAll("tr[aria-hidden='true']")].pop();
+      expect(parseInt(spacer.style.height, 10)).toBeGreaterThan(0);
+    } finally {
+      delete HTMLElement.prototype.offsetHeight;
+      Object.defineProperty(window, "ResizeObserver", { configurable: true, value: originalResizeObserver });
+    }
+  });
 });

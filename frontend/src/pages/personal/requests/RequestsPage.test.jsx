@@ -27,8 +27,17 @@ vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("./RequestFormPage", () => ({ default: () => null }));
 
 const { default: RequestsPage } = await import("./RequestsPage");
+const { withQueryClient } = await import("../../../queries/testing");
 
 let host, root;
+
+/* TanStack Query 以 macrotask 批次通知，等一個 timer tick 再看畫面 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
@@ -47,11 +56,13 @@ it("clears the error state when retry succeeds after a failed first load", async
     }] });
   listMyMock.mockResolvedValue({ data: [] });
 
-  await act(async () => root.render(<MemoryRouter><RequestsPage /></MemoryRouter>));
+  await act(async () => root.render(withQueryClient(<MemoryRouter><RequestsPage /></MemoryRouter>)));
+  await flush();
   expect(host.textContent).toContain("Error.retry");
 
   const retry = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Error.retry"));
   await act(async () => retry.click());
+  await flush();
 
   expect(listMock).toHaveBeenCalledTimes(2);
   expect(host.textContent).not.toContain("Error.retry");

@@ -5,8 +5,8 @@ import { fetchAllPages } from "./pagedList";
 const VM_REQUEST_PAGE_SIZE = 100;
 
 export const VmRequestsService = {
-  list() {
-    return apiGet("/api/v1/vm-requests/my");
+  list(options) {
+    return apiGet("/api/v1/vm-requests/my", options);
   },
 
   /**

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -14,18 +15,13 @@ import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { ResourcesService } from "../../../services/resources";
 import { VmRequestsService } from "../../../services/vmRequests";
-import {
-  PENDING_IDLE_POLL_INTERVAL,
-  PENDING_POLL_INTERVAL,
-  cancelVmRequest,
-  fetchPendingResources,
-  pendingSignature,
-} from "../../../services/pendingResources";
+import { cancelVmRequest, pendingSignature } from "../../../services/pendingResources";
+import { resourceKeys, useMyResourcesQuery, useResourceCacheUpdater } from "../../../queries/resources";
+import { usePendingVmRequestsQuery, useVmRequestCacheUpdater } from "../../../queries/vmRequests";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
-import { BOOTING_POLL_INTERVAL, LIVE_STATUSES, isRowBackgroundClick, machineSpecLabel, resourceRowKey, statusAfterAction } from "./resourceRows";
+import { LIVE_STATUSES, isRowBackgroundClick, machineSpecLabel, resourceRowKey, statusAfterAction } from "./resourceRows";
 import QuotaUsageBar from "../../../components/QuotaUsageBar/QuotaUsageBar";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -650,76 +646,39 @@ function ResourceGuideDemoRow() {
 }
 
 /* ── Page ── */
+const EMPTY = Object.freeze([]);
+
 export default function ResourcesPage() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
-  const [resources, setResources] = useState([]);
-  const [quickSessions, setQuickSessions] = useState([]);
-  const [pending, setPending]     = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(false);
+  const queryClient = useQueryClient();
   const [guideDemo, setGuideDemo] = useState(false);
+
+  /* 清單與建立中的申請都走 TanStack Query：背景 30 秒刷新（開機中 5 秒、有建立中申請 5 秒）、
+     分頁隱藏時暫停、切回來超過 5 秒才重抓，換頁回來先顯示快取再背景更新 */
+  const resourcesQuery = useMyResourcesQuery();
+  const pendingQuery = usePendingVmRequestsQuery();
+  const resourceCache = useResourceCacheUpdater();
+  const requestCache = useVmRequestCacheUpdater();
+  const resources = resourcesQuery.data?.resources ?? EMPTY;
+  const quickSessions = resourcesQuery.data?.sessions ?? EMPTY;
+  const pending = pendingQuery.data ?? EMPTY;
+  /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料（原本就是靜默），
+     首載失敗後按重試會回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
+  const noData = resourcesQuery.data === undefined;
+  const loading = noData && (resourcesQuery.isPending || resourcesQuery.isFetching);
+  const error = noData && resourcesQuery.isError && !resourcesQuery.isFetching;
+
+  /** 建立中的申請階段變化（審核通過、開通完成／失敗、取消）時靜默刷新資源列表 */
   const pendingSigRef = useRef(null);
-
-  /** silent = true 時不觸發 skeleton / error state，供背景同步使用 */
-  const fetchResources = useCallback(async (silent = false, signal) => {
-    if (!silent) {
-      setLoading(true);
-      setError(false);
-    }
-    try {
-      const [data, sessions] = await Promise.all([
-        ResourcesService.list({ signal }),
-        QuickPracticeService.listMySessions({ signal }).catch(() => []),
-      ]);
-      setResources(data ?? []);
-      setQuickSessions(sessions ?? []);
-      /* 背景刷新成功也要離開錯誤畫面：首次載入失敗後資料其實已回來，不能一直卡在錯誤狀態 */
-      setError(false);
-    } catch (err) {
-      if (!silent && !err?.cancelled) setError(true);
-    } finally {
-      if (!silent && !signal?.aborted) setLoading(false);
-    }
-  }, []);
-
-  /** 輪詢建立中的申請；階段變化（開通完成／失敗／取消）時靜默刷新資源列表 */
-  const refreshPending = useCallback(async () => {
-    try {
-      const items = await fetchPendingResources();
-      // 內容沒變就不換陣列，免得整張表每 5 秒重繪
-      setPending((prev) => (JSON.stringify(prev) === JSON.stringify(items) ? prev : items));
-      const sig = pendingSignature(items);
-      if (pendingSigRef.current !== null && sig !== pendingSigRef.current) {
-        fetchResources(true);
-      }
-      pendingSigRef.current = sig;
-    } catch {
-      // 輪詢失敗靜默忽略，下一輪再試
-    }
-  }, [fetchResources]);
-
   useEffect(() => {
-    const controller = new AbortController();
-    fetchResources(false, controller.signal);
-    return () => controller.abort();
-  }, [fetchResources]);
-
-  useEffect(() => {
-    refreshPending();
-  }, [refreshPending]);
-
-  // 有建立中的申請才每 5 秒追進度，否則放慢；分頁隱藏時不輪詢
-  const hasPending = pending.length > 0;
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (!document.hidden) refreshPending();
-    }, hasPending ? PENDING_POLL_INTERVAL : PENDING_IDLE_POLL_INTERVAL);
-    return () => clearInterval(timer);
-  }, [refreshPending, hasPending]);
-
-  const anyBooting = resources.some((r) => r.status === "starting");
-  useAutoRefresh(() => fetchResources(true), anyBooting ? BOOTING_POLL_INTERVAL : undefined);
+    if (pendingQuery.data === undefined) return;
+    const sig = pendingSignature(pendingQuery.data);
+    if (pendingSigRef.current !== null && sig !== pendingSigRef.current) {
+      queryClient.invalidateQueries({ queryKey: resourceKeys.mine });
+    }
+    pendingSigRef.current = sig;
+  }, [pendingQuery.data, queryClient]);
 
   useEffect(() => {
     const handleGuideState = (event) => {
@@ -730,16 +689,24 @@ export default function ResourcesPage() {
   }, []);
 
   function handleUpdated(updated) {
-    setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
+    resourceCache.update(updated);
   }
 
   function handleDeleted(vmid) {
-    setResources((prev) => prev.filter((r) => r.vmid !== vmid));
+    resourceCache.remove(vmid);
+  }
+
+  function refreshResources() {
+    resourceCache.invalidate();
+  }
+
+  function refreshPending() {
+    requestCache.invalidate();
   }
 
   /* 建立失敗的列重建／刪除後：兩份清單都可能變（重建會回到建立中），直接重抓 */
   function refreshAfterFailedAction() {
-    fetchResources(true);
+    refreshResources();
     refreshPending();
   }
 
@@ -794,7 +761,7 @@ export default function ResourcesPage() {
 
       <div className={styles.content}>
         {error ? (
-          <ErrorState onRetry={() => fetchResources()} />
+          <ErrorState onRetry={() => resourcesQuery.refetch()} />
         ) : loading ? (
           <LoadingState fullPage />
         ) : resourceListEmpty ? (
@@ -817,7 +784,7 @@ export default function ResourcesPage() {
             <table className={styles.table}>
               <ResourceTableHead />
               <tbody>
-                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={() => fetchResources(true)} />)}
+                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={refreshResources} />)}
                 {visiblePending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
                 {visibleResources.map((r, index) => <ResourceRow key={resourceRowKey(r, index)} resource={r} onUpdated={handleUpdated} onDeleted={handleDeleted} onRefresh={refreshAfterFailedAction} />)}
               </tbody>

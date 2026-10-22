@@ -2,7 +2,8 @@
 
 export const LIVE_STATUSES = new Set(["running", "starting", "stopped", "paused"]);
 /* 有機器開機中時縮短輪詢，開完機後主控台按鈕能盡快亮起 */
-export const BOOTING_POLL_INTERVAL = 5_000;
+/* 單一來源在 queries/resources（useMyResourcesQuery 的輪詢間隔），這裡只轉出給舊的呼叫端 */
+export { BOOTING_POLL_INTERVAL } from "../../../queries/resources";
 
 /* reboot / reset 之後機器仍是開著的；原本一律當成 stopped 會讓列上的狀態說謊。
    start / reboot 會重新跑開機 task，先標 starting（主控台停用），由後端輪詢確認開完機。 */

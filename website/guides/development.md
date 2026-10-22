@@ -80,6 +80,9 @@ Frontend conventions:
 - Routing is centralised in `src/App.jsx`; sidebar entries in `src/components/Sidebar/Sidebar.jsx`.
 - Pages live under `src/pages/<area>/<Feature>/XxxPage.jsx` with a sibling `.module.scss`.
 - There is no generated API client. Every endpoint has a hand-written function in `src/services/*.js` built on `apiGet/apiPost/...` from `src/services/api.js` (token, 401 refresh), with a Vitest mock test next to it. Pages never call `fetch` directly.
+- List pages read server data through TanStack Query hooks in `src/queries/*.js` (one file per domain, each hook wraps a service function and owns its query key and polling interval). The client defaults live in `src/queries/queryClient.js`: no retries, 5 s stale time, polling paused while the tab is hidden. Writes still call the service directly, then patch the cache with the `use…CacheUpdater` helpers or invalidate the key. Page tests wrap the component with `withQueryClient` from `src/queries/testing.jsx`; because query results are access-tracked, read the fields you assert on during render.
+- The React Compiler runs at build time (`@rolldown/plugin-babel` with `reactCompilerPreset` in `vite.config.js`), so new components do not need hand-written `useMemo`/`useCallback`. Components that break the rules of hooks are skipped silently, not broken. Code that reads a mutable instance in render (TanStack Virtual, for example) must opt out with `"use no memo"`.
+- Long tables use `useVirtualRows` (`src/hooks/useVirtualRows.js`, TanStack Virtual with the window as the scroll container). Below 60 rows it renders every row as before; above that only the rows near the viewport exist in the DOM.
 - Styles follow [`frontend-style-guide.md`](/guides/frontend-style-guide): SCSS Modules, `_variables` / `_mixins` injected by Vite, theme colours via `--color-*` custom properties.
 - Text goes through react-i18next; keys live in `src/locales/{zh-TW,en,ja}/`. Add every key to all three locales.
 
