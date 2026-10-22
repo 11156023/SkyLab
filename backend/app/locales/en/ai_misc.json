@@ -41,6 +41,7 @@
   "ldap.bindPasswordDecryptFailed": "LDAP bind password cannot be decrypted",
   "ldap.serviceBindFailed": "LDAP service bind failed. Please check the bind DN and password.",
   "ldap.bindPasswordRequiredForNewTarget": "Please re-enter the bind password when changing the LDAP server URI or bind DN.",
+  "ldap.serviceBindSucceeded": "LDAP service bind succeeded",
   "guest.pathMustBeAbsolute": "The target path must be an absolute path",
   "guest.pathNoDotDot": "The target path must not contain ..",
   "guest.agentNotResponding": "The QEMU guest agent on VM {vmid} is not responding (the agent may not be installed, or the VM is not powered on)",

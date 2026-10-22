@@ -140,8 +140,10 @@
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-8;
 
-  @container (min-width: 740px) {
-    grid-template-columns: 16px 40px minmax(220px, 1fr) 88px 64px 96px auto;
+  @container (min-width: 880px) {
+    /* 角色與狀態欄要放得下英文最長的 Administrator（含圖示約 117px）與 Registration rejected（約 145px）；
+       每列各自是一個 grid，靠固定欄寬上下對齊，所以不能依內容撐開。欄位變寬，改排成一列的斷點也從 740 提到 880 */
+    grid-template-columns: 16px 40px minmax(220px, 1fr) 124px 150px 96px auto;
     grid-template-areas: "check avatar main role status date actions";
     row-gap: 0;
   }
@@ -222,7 +224,7 @@
   gap: $spacing-8;
   min-width: 0;
 
-  @container (min-width: 740px) {
+  @container (min-width: 880px) {
     display: contents;
 
     > .badge {
@@ -284,7 +286,7 @@
   font-size: $font-size-12;
   white-space: nowrap;
 
-  @container (min-width: 740px) {
+  @container (min-width: 880px) {
     display: inline;
   }
 }

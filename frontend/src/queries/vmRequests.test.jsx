@@ -87,7 +87,8 @@ describe("shared cache", () => {
     await act(async () => { root.render(withQueryClient(<Probe />, client)); });
     await flush();
 
-    act(() => { seen.updater.update({ ...creating, vmid: 202 }); });
+    /* update() 會先取消在途的背景刷新再寫入（非同步），要等它完成 */
+    await act(async () => { await seen.updater.update({ ...creating, vmid: 202 }); });
     await flush();
 
     expect(mocks.list).toHaveBeenCalledTimes(1);

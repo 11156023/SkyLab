@@ -16,6 +16,7 @@ import { useLoadError } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { formatDateTime } from "../../../utils/formatDate";
+import { joinClauses } from "../../../utils/joinList";
 
 /** 待處理＝detected／suspended（與後端 open 定義相同）；banned／dismissed 為已結案 */
 const isOpenIncident = (status) => status === "detected" || status === "suspended";
@@ -43,7 +44,7 @@ export function dismissOutcome(incident, result, submittedNote) {
     warnings = stored !== (submittedNote ?? null) && stored ? [stored] : [];
   }
   if (warnings.length > 0) {
-    return { level: "warning", key: "MiningIncidentsPanel.toastDismissedWithWarnings", message: warnings.join("；") };
+    return { level: "warning", key: "MiningIncidentsPanel.toastDismissedWithWarnings", message: joinClauses(warnings) };
   }
   return {
     level: "success",

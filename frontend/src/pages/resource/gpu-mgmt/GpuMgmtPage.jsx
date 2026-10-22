@@ -131,9 +131,10 @@ function formatVram(mb) {
   return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
 }
 
+/* 有搜尋條件時（onClearSearch）是「沒有符合的」，不是「還沒偵測到 GPU」 */
 function EmptyState({ onClearSearch }) {
   const { t } = useTranslation("resource");
-  return <SharedEmptyState icon="memory" title={t("GpuMgmtPage.emptyTitle")}
+  return <SharedEmptyState icon="memory" title={t(onClearSearch ? "GpuMgmtPage.emptyFilteredTitle" : "GpuMgmtPage.emptyTitle")}
     action={onClearSearch && <button type="button" className={styles.btnSecondary} onClick={onClearSearch}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} />;
 }
 

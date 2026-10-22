@@ -63,6 +63,8 @@ const NODE_TYPES = { gateway: GatewayNode, vm: VMNode, vmGroup: GroupNode };
 const FIT_PADDING = { top: "104px", bottom: "120px", x: "48px" };
 /* 篩到只剩一兩台時不要放大到比原尺寸大太多 */
 const FIT_MAX_ZOOM = 1.1;
+/* 右上篩選列與左上工具列之間至少要留的距離 */
+const FILTER_PANEL_GAP = 12;
 
 /* 分組模式的群組框／網際網路節點位置：自動排好的版面只是預設，
    使用者拖過的位置存在瀏覽器本機（後端只存單機位置，分組框是純前端的檢視） */
@@ -123,10 +125,29 @@ export default function FirewallPage() {
   /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
   const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
+  /* 篩選列放不放得進右上角要看實際寬度：工具列與篩選列的字串長度隨語言變（英文工具列比中文寬近 200px），
+     固定的 container query 門檻在 1440 寬的英文畫面會讓搜尋框蓋住 Mini Map／Exposed only */
+  const [flowWrapEl, setFlowWrapEl] = useState(null);
+  const [toolbarEl, setToolbarEl] = useState(null);
+  const [filterBarEl, setFilterBarEl] = useState(null);
+  const [filterCramped, setFilterCramped] = useState(false);
   /* 上網線（機器 → 網際網路的出站線）預設隱藏：幾乎每台機器都有一條，
      全畫出來會蓋掉內部互通與對外開放；對外開放是暴露面，不藏 */
   const [showInternet, setShowInternet] = useState(false);
   const [connecting,   setConnecting]   = useState(false);
+  useEffect(() => {
+    if (!flowWrapEl || !toolbarEl || !filterBarEl || typeof ResizeObserver === "undefined") return undefined;
+    const check = () => {
+      const wrap = flowWrapEl.getBoundingClientRect();
+      /* 工具列右緣＋間距＋篩選列寬＋右側留白（react-flow panel 的 15px 外距）超過畫布寬就排到工具列下方 */
+      const needed = toolbarEl.getBoundingClientRect().right - wrap.left + FILTER_PANEL_GAP + filterBarEl.getBoundingClientRect().width + 15;
+      setFilterCramped(needed > wrap.width);
+    };
+    check();
+    const observer = new ResizeObserver(check);
+    [flowWrapEl, toolbarEl, filterBarEl].forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [flowWrapEl, toolbarEl, filterBarEl]);
   const connDialog    = useDialogPresence(showDialog);
   /* 關閉細項面板時先播 0.22s 滑出動畫再卸載，時長需與 SCSS 的 panelOut 一致 */
   const rulesPanel    = useDialogPresence(selectedNode, 220);
@@ -475,6 +496,7 @@ export default function FirewallPage() {
 
         {contentView === "graph" && (
           <div
+            ref={setFlowWrapEl}
             className={`${styles.flowWrap} ${connecting || guideActive ? styles.connecting : ""}`}
             data-guide="firewall-map"
           >
@@ -521,7 +543,7 @@ export default function FirewallPage() {
 
 
               <Panel position="top-left">
-                <div className={styles.toolbarStack}>
+                <div className={styles.toolbarStack} ref={setToolbarEl}>
                   <div className={styles.toolbar} data-guide="firewall-tools">
                     <button
                       type="button"
@@ -585,10 +607,10 @@ export default function FirewallPage() {
                   篩選列改排到工具列下方（往左讓位會跟工具列撞在一起） */}
               <Panel
                 position="top-right"
-                className={`${styles.filterPanel} ${rulesPanel.open ? styles.filterPanelBelow : ""}`}
+                className={`${styles.filterPanel} ${rulesPanel.open || filterCramped ? styles.filterPanelBelow : ""}`}
               >
                 {/* 篩選列：搜尋名稱／IP、只看某個群組，兩個控制項各自成框 */}
-                <div className={styles.filterBar} role="search">
+                <div className={styles.filterBar} role="search" ref={setFilterBarEl}>
                   <label className={styles.filterSearch}>
                     <MIcon name="search" size={16} />
                     <input

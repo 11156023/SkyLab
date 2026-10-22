@@ -15,10 +15,10 @@ Administrators only.
 
 ### Change placement and overcommit
 
-1. In the **Placement & Overcommit** card, set **CPU Overcommit Ratio**, **Disk Overcommit Ratio** and **Node Reassignment Cost**.
+1. In the **Placement & Overcommit** card, set **CPU Overcommit Ratio**, **Disk Overcommit Ratio**, **RAM Overcommit Ratio** and **Node Reassignment Cost**.
 2. Click **Save Scheduling Settings**.
 
-A CPU Overcommit Ratio of 2 allows up to 2 vCPUs per physical core; a Disk Overcommit Ratio of 1 means disks are not overcommitted. The higher the Node Reassignment Cost, the more the platform prefers to keep a machine on its current node. This card is marked **Takes effect immediately**: the very next placement uses the new values.
+A CPU Overcommit Ratio of 2 allows up to 2 vCPUs per physical core; a Disk Overcommit Ratio of 1 means disks are not overcommitted. A RAM Overcommit Ratio of 1 means memory is not overcommitted; at most 2, the memory allocated to machines may add up to twice the physical memory, but actual usage still cannot exceed it. The higher the Node Reassignment Cost, the more the platform prefers to keep a machine on its current node. This card is marked **Takes effect immediately**: the very next placement uses the new values.
 
 ### Tune how busy nodes are penalized
 
@@ -54,6 +54,7 @@ If you leave the page with unsaved changes, you are asked to confirm first.
 | --- | --- | --- |
 | CPU Overcommit Ratio | vCPUs allowed per physical core | 1–8, default 2 |
 | Disk Overcommit Ratio | Disk space allowed per unit of real capacity | 1–5, default 1 (no overcommit) |
+| RAM Overcommit Ratio | Memory allocated to machines relative to physical memory; actual usage still cannot exceed physical memory | 1–2, default 1 (no overcommit) |
 | Node Reassignment Cost | Preference for keeping a machine on its current node | 0–5, default 0.15 |
 | CPU Peak Margin | Headroom reserved for CPU spikes | 1–2, default 1.1 |
 | RAM Peak Margin | Headroom reserved for memory spikes | 1–2, default 1.05 |

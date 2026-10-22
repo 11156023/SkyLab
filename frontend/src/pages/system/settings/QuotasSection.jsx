@@ -42,7 +42,7 @@ function useNumberFields() {
   const { t } = useTranslation("system");
   // fallback：取消「無限制」勾選時回填的預設值；0 = 無限制
   return [
-    { key: "max_cpu_cores", label: "CPU cores", min: 1, max: 256, fallback: 8 },
+    { key: "max_cpu_cores", label: t("QuotasTab.fieldCpuCores"), min: 1, max: 256, fallback: 8 },
     { key: "max_memory_mb", label: t("QuotasTab.fieldMemoryMb"), min: 256, max: 1048576, fallback: 16384 },
     { key: "max_disk_gb", label: t("QuotasTab.fieldDiskGb"), min: 1, max: 65536, fallback: 100 },
     { key: "max_instances", label: t("QuotasTab.fieldInstances"), min: 1, max: 100, fallback: 5 },

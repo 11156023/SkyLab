@@ -351,7 +351,8 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
           <>
             {t("SettingsPage.nodeMetricsHintPrefix")}{" "}
             <Link to="/monitoring" className={styles.inlineLink}>{t("SettingsPage.nodeMetricsHintLink")}</Link>
-            {" "}{t("SettingsPage.nodeMetricsHintSuffix")}
+            {/* 後綴前要不要空格由各語系自己決定（英文是句點，前面不能有空格） */}
+            {t("SettingsPage.nodeMetricsHintSuffix")}
           </>
         )}
       >

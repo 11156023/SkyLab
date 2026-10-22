@@ -33,6 +33,8 @@
   "ErrorBoundary.selectedToCopy": "Selected — press Ctrl+C to copy",
   "LoadingState.default": "Loading…",
   "ListFormat.separator": ", ",
+  "ListFormat.clauseSeparator": "; ",
+  "ListFormat.sentenceEnd": ".",
   "ExpiryDate.cutoff": "ends {{time}}",
   "ExpiryDate.cutoffTitle": "Actual expiry (your local time): {{datetime}}",
   "ExpiryDate.inline": "{{date}} ({{cutoff}})",

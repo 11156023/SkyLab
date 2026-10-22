@@ -108,5 +108,11 @@ describe("TemplatesPage：建立中的範本輪詢時清單 API 失敗", () => {
       await advance(10);
     }
     expect(mocks.toast.error).toHaveBeenCalledTimes(1);
+
+    /* 30 秒後的重試又失敗：同一串失敗只提示一次（後端掛著時不要每 30 秒跳一則） */
+    await advance(6_000);
+    await advance(10);
+    expect(mocks.list.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(mocks.toast.error).toHaveBeenCalledTimes(1);
   });
 });

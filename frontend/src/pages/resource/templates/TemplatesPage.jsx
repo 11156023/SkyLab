@@ -18,7 +18,7 @@ import {
 import { downloadBlob } from "../../../services/api";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
-import { useLoadError } from "../../../hooks/useQueryLoadState";
+import { useLoadError, useLoadFailureMessage } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { TemplateStatusBadge } from "./TemplateBadges";
 import TemplateCloneDialog from "./TemplateCloneDialog";
@@ -394,17 +394,18 @@ export default function TemplatesPage() {
   const toast = useToast();
   const confirm = useConfirm();
   /* 範本清單走 TanStack Query：有建立中／更新中的範本時 4 秒輪詢，否則 30 秒；分頁隱藏時暫停。
-     每次載入失敗都提示（與原本相同），已有資料時沿用原清單；首載失敗當成沒有範本 */
+     載入失敗提示一次（同一串失敗不重複提示，成功過再失敗才再提示），已有資料時沿用原清單；首載失敗當成沒有範本 */
   const templatesQuery = useTemplatesQuery();
   const templateCache = useTemplateCacheUpdater();
   const templatesData = templatesQuery.data;
-  const templatesFailure = templatesQuery.isError ? templatesQuery.error : null;
+
   /* 「首載失敗」看 useLoadError：沒資料時 v5 每次重試都把 isError 清掉，直接看它會在重試期間閃回整頁載入中 */
   const templatesLoadError = useLoadError(templatesQuery).error;
   const templates = templatesData ?? (templatesLoadError ? NO_TEMPLATES : null);
+  const templatesFailedMessage = useLoadFailureMessage(templatesQuery, t("Error.generic", { ns: "common" }));
   useEffect(() => {
-    if (templatesFailure) toast.error(templatesFailure.message ?? t("Error.generic", { ns: "common" }));
-  }, [templatesFailure, toast, t]);
+    if (templatesFailedMessage) toast.error(templatesFailedMessage);
+  }, [templatesFailedMessage, toast]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [cloneTarget, setCloneTarget] = useState(null);

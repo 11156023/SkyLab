@@ -454,6 +454,8 @@
   "ClassWorkspacePage.envFactPublic": "對外服務",
   "ClassWorkspacePage.envFactPublicCount": "{{count}} 條",
   "ClassWorkspacePage.nodePublicCount": "對外 {{count}} 條",
+  "ClassWorkspacePage.topologyPublicCount": "{{count}} 條對外服務",
+  "ClassWorkspacePage.topologyNoPublic": "無對外服務",
   "ClassWorkspacePage.publicationDomainHint": "每位學生各配一個網址（{{hostname}}）",
   "ClassWorkspacePage.publicationForwardHint": "每位學生各配一個對外 port，開課後在課程頁看得到",
   "ClassWorkspacePage.tabOverviewLabel": "班級總覽",

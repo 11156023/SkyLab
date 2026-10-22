@@ -41,6 +41,7 @@
   "ldap.bindPasswordDecryptFailed": "LDAP バインドパスワードを復号できません",
   "ldap.serviceBindFailed": "LDAP サービスバインドに失敗しました。bind DN とパスワードを確認してください。",
   "ldap.bindPasswordRequiredForNewTarget": "LDAP サーバーの URI または bind DN を変更する場合は、bind パスワードを再入力してください",
+  "ldap.serviceBindSucceeded": "LDAP サービスの bind に成功しました",
   "guest.pathMustBeAbsolute": "対象パスは絶対パスである必要があります",
   "guest.pathNoDotDot": "対象パスに .. を含めることはできません",
   "guest.agentNotResponding": "VM {vmid} の QEMU guest agent が応答しません（agent が未インストールか、VM が起動していない可能性があります）",

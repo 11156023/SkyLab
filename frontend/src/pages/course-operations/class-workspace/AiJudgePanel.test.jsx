@@ -1715,6 +1715,8 @@ describe("teacher review run-once（整組檢查點）", () => {
       const toggle = [...container.querySelectorAll("button")].find((button) => button.textContent.includes("王小明"));
       await act(async () => toggle.click());
       expect(container.textContent).toContain(message);
+      // 關機／狀態不明有自己的說明，不再同時出現「請檢查 Python、timeout」這種主機環境提示
+      expect(container.textContent).not.toContain(i18n.t("AiJudgePanel.executionEnvironmentHint", { ns: "teaching" }));
       expect(container.textContent).not.toContain("此檢查點沒有回傳可顯示的結果。");
       expect(container.textContent).not.toContain("腳本沒有回傳可顯示的檢查項目。");
       expect([...container.querySelectorAll("summary")].filter((element) => element.textContent === i18n.t("AiJudgePanel.timingTitle", { ns: "teaching" }))).toHaveLength(1);

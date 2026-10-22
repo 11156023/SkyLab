@@ -408,7 +408,7 @@ function CallTimeCell({ row }) {
   return (
     <>
       {formatDateTime(call.created_at)}
-      {call.request_id ? <small className={styles.monoCell} title={[call.request_id, call.upstream_request_id].filter(Boolean).join(" / ")}>{call.request_id.slice(0, 8)}</small> : null}
+      {call.request_id ? <small className={`${styles.monoCell} ${styles.callRequestId}`} title={[call.request_id, call.upstream_request_id].filter(Boolean).join(" / ")}>{call.request_id.slice(0, 8)}</small> : null}
     </>
   );
 }

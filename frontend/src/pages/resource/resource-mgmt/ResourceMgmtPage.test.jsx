@@ -123,6 +123,13 @@ afterEach(() => {
 });
 
 describe("ResourceMgmtPage", () => {
+  test("Create resource opens the request form, not just the request list", async () => {
+    mocks.listAll.mockResolvedValueOnce([]);
+    await renderPage();
+    await act(async () => { buttonByText("ResourceMgmtPage.createResource").click(); });
+    expect(mocks.navigate).toHaveBeenCalledWith("/my-requests", { state: { create: true } });
+  });
+
   test("Retry after a failed first load clears the error state", async () => {
     mocks.listAll
       .mockRejectedValueOnce(new Error("boom"))

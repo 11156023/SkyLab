@@ -35,7 +35,7 @@ import {
 import FileDropOverlay from "../../../components/FileDropzone/FileDropOverlay";
 import { downloadBlob } from "../../../services/api";
 import { formatDateTime } from "../../../utils/formatDate";
-import { joinList } from "../../../utils/joinList";
+import { joinClauses, joinList } from "../../../utils/joinList";
 import { createRubricAnalysisAutosave } from "./rubricAnalysisAutosave";
 import {
   AiJudgeService,
@@ -403,13 +403,12 @@ function getExecutionNodeSummary(item, machineNodes = []) {
 /** 提案列的唯讀指令預覽；以分號串接多個步驟的 argv。 */
 function proposalCommandPreview(item) {
   const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
-  return steps
+  return joinClauses(steps
     .map((step) => (Array.isArray((step?.collector ?? step?.parameters)?.argv)
       ? (step.collector ?? step.parameters).argv
         .filter((part) => typeof part === "string" && part.trim()).join(" ")
       : ""))
-    .filter(Boolean)
-    .join("；");
+    .filter(Boolean));
 }
 
 /**
@@ -3583,7 +3582,8 @@ function MachineReviewDetail({
         {row.vmid ? <small>{`VMID ${row.vmid}`}</small> : null}
         <span className={`${styles.badge} ${reviewBadgeClass(summary.kind)}`}>{summary.label}</span>
       </div>
-      <ExecutionFailure target={target} />
+      {/* 關機、狀態不明有自己的說明（下方），不要再疊一段「請檢查 Python、timeout」的主機環境提示 */}
+      {!executionBlocker && <ExecutionFailure target={target} />}
       {executionBlocker ? (
         <p className={styles.mutedText}><strong>{t(`AiJudgePanel.${executionBlocker.message}`)}</strong></p>
       ) : row.items ? (

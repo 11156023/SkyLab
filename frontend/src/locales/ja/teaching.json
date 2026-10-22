@@ -454,6 +454,8 @@
   "ClassWorkspacePage.envFactPublic": "外部公開",
   "ClassWorkspacePage.envFactPublicCount": "{{count}} 件",
   "ClassWorkspacePage.nodePublicCount": "公開 {{count}} 件",
+  "ClassWorkspacePage.topologyPublicCount": "外部公開 {{count}} 件",
+  "ClassWorkspacePage.topologyNoPublic": "外部公開なし",
   "ClassWorkspacePage.publicationDomainHint": "学生ごとに個別の URL が割り当てられます（{{hostname}}）",
   "ClassWorkspacePage.publicationForwardHint": "学生ごとに外部ポートを割り当て、開講後にコースページで確認できます",
   "ClassWorkspacePage.tabOverviewLabel": "クラス概要",

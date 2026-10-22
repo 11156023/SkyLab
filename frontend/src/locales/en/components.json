@@ -131,6 +131,7 @@
   "AiFloatingChat.resourceTypeLxc": "LXC container",
   "AiFloatingChat.resourceTypeVm": "VM",
   "AiFloatingChat.sendMessageAriaLabel": "Send message",
+  "AiFloatingChat.featureIndexIntro_one": "You have access to {{count}} feature. Pick it to go there:",
   "AiFloatingChat.featureIndexIntro": "You have access to these {{count}} features. Pick one to go there:",
   "AiPveChat.allowButton": "Allow",
   "AiPveChat.chatFailedFallback": "AI-PVE conversation failed",

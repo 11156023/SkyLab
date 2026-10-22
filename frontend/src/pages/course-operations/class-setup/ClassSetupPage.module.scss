@@ -705,8 +705,11 @@
   visibility: hidden;
 }
 
+/* 卡片被 AI 面板擠窄時（斷點看的是視窗寬，不會切到窄版），按鈕放不下就換行，不可往左溢出蓋住「上一步」 */
 .footerEnd {
   display: flex;
+  flex: 1;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   justify-content: flex-end;

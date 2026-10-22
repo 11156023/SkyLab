@@ -8,3 +8,16 @@ import i18n from "../i18n";
 export function joinList(items) {
   return items.join(i18n.t("ListFormat.separator", { ns: "common" }));
 }
+
+/**
+ * 依目前語系串接幾個分句（「已加入 3 位；找不到：…」）：中文、日文「；」，英文「; 」。
+ * 寫死全形「；」會讓英文提示出現全形標點。
+ */
+export function joinClauses(items) {
+  return items.join(i18n.t("ListFormat.clauseSeparator", { ns: "common" }));
+}
+
+/** 串接分句並補上句尾標點（中文、日文「。」，英文「.」），給一整句的提示用 */
+export function joinSentence(items) {
+  return `${joinClauses(items)}${i18n.t("ListFormat.sentenceEnd", { ns: "common" })}`;
+}

@@ -723,7 +723,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 }
 
 .rubricTable th:nth-child(2) { width: 30%; }
-.rubricTable th:nth-child(4) { width: 112px; }
+.rubricTable th:nth-child(4) { width: 136px; } /* 英文的 Supported／Not supported 徽章要約 100px，112 會被拆成 Supporte／d */
 .rubricTable th:last-child { width: 44px; }
 
 /* 序號與展開鈕同一列、垂直置中 */
@@ -2434,13 +2434,16 @@ strong.reviewStatValue { font-size: $font-size-14; }
     accent-color: var(--color-primary);
   }
 
-  > span {
+  /* 內容欄；無法勾選的列前面是狀態徽章（.detBadge），不可被撐成半列寬、圖示與文字上下分開 */
+  > span:not(.detBadge) {
     display: grid;
     gap: 3px;
     min-width: 0;
     flex: 1;
     overflow-wrap: anywhere;
   }
+
+  > .detBadge { flex: none; }
 
   b { font-size: $font-size-14; }
   small { color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.45; }

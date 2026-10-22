@@ -15,6 +15,7 @@ import TerminalDialog from "../../personal/resources/TerminalDialog";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
 import { useLoadError, useQueryView } from "../../../hooks/useQueryLoadState";
+import useRouteMessageToast from "../../../hooks/useRouteMessageToast";
 import { ClassroomService } from "../../../services/classroom";
 import { courseNodeHasUsableSource } from "../../../services/courseEnvironments";
 import { ResourcesService } from "../../../services/resources";
@@ -46,7 +47,7 @@ import NodeHandles from "../../network/firewall/nodes/NodeHandles";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
 import { routeEdges } from "../../network/firewall/utils/buildFlow";
-import { joinList } from "../../../utils/joinList";
+import { joinClauses, joinList, joinSentence } from "../../../utils/joinList";
 import { runBatch } from "../../../utils/runBatch";
 import DataToolbar from "../../../components/DataToolbar/DataToolbar";
 import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
@@ -203,7 +204,7 @@ function Overview({
     description = capacity
       ? t("ClassWorkspacePage.capacityDetailDesc", { machines: capacity.machine_count, cpu: capacity.cpu_cores, memory: mbToGb(capacity.memory_mb), disk: capacity.disk_gb, ips: capacity.ip_count })
       : t("ClassWorkspacePage.noCapacityDesc", { students: item.students.length, nodes: item.nodes.length });
-    if (capacity?.issues?.length) description = capacity.issues.join("；");
+    if (capacity?.issues?.length) description = joinClauses(capacity.issues);
     actionLabel = provisioning ? t("ClassWorkspacePage.submittingLabel") : t("ClassWorkspacePage.confirmSubmitBtn");
     actionIcon = "rocket_launch";
     action = onProvision;
@@ -345,7 +346,7 @@ function Students({ item, onRefresh }) {
       const notices = [t("ClassWorkspacePage.addedStudentsCount", { count: result.added })];
       if (result.not_found?.length) notices.push(t("ClassWorkspacePage.notFoundList", { list: joinList(result.not_found) }));
       if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.invalidRoleList", { list: joinList(result.invalid_role) }));
-      toast.success(`${notices.join("；")}。`);
+      toast.success(joinSentence(notices));
       onRefresh(result.class);
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.addStudentsFailed")); }
     finally { setBusy(false); }
@@ -359,7 +360,7 @@ function Students({ item, onRefresh }) {
       const notices = [t("ClassWorkspacePage.csvImportedCount", { count: result.added })];
       if (result.not_found?.length) notices.push(t("ClassWorkspacePage.accountsNotFoundCount", { count: result.not_found.length }));
       if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.accountsInvalidRoleCount", { count: result.invalid_role.length }));
-      toast.success(`${notices.join("；")}。`);
+      toast.success(joinSentence(notices));
       onRefresh(result.class);
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.csvImportFailed")); }
     finally { if (fileRef.current) fileRef.current.value = ""; setBusy(false); }
@@ -821,7 +822,7 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
     {item.nodes.length > 0 && <section className={styles.card}>
       <div className={styles.cardHeader}>
         <div><h2>{t("ClassWorkspacePage.topologyTitle")}</h2></div>
-        <span className={styles.topologySummary}>{t("ClassWorkspacePage.perStudentUnit", { count: item.nodes.length })} · {item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")} · {item.publications.length ? t("ClassWorkspacePage.envFactPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.envFactNoPublic")}</span>
+        <span className={styles.topologySummary}>{t("ClassWorkspacePage.perStudentUnit", { count: item.nodes.length })} · {item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")} · {item.publications.length ? t("ClassWorkspacePage.topologyPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.topologyNoPublic")}</span>
       </div>
       <TopologyPreview item={item} />
       {item.publications.length > 0 && <PublicationSummary item={item} />}
@@ -1186,6 +1187,8 @@ export default function ClassWorkspacePage() {
   const { classId, section } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  /* 建立班級第 5 步送出建機後帶著成功訊息導來這裡 */
+  useRouteMessageToast();
   const classCache = useTeachingClassCacheUpdater();
   /* 班級走 TanStack Query：首次載不到才提示（背景刷新失敗沿用上一份）；各分頁的寫入回應寫回同一份快取 */
   const classQuery = useTeachingClassQuery(classId, { select: normalizeClass });

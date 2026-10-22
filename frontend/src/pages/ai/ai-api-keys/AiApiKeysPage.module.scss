@@ -87,6 +87,8 @@
     font-size: $font-size-14;
 
     &::placeholder { color: var(--color-text-muted); }
+    /* 旁邊已有自訂的清除鈕（.clearSearch），藏掉 Chrome 原生的 ×，免得出現兩個 */
+    &::-webkit-search-cancel-button { appearance: none; display: none; }
   }
 }
 

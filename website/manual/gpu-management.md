@@ -17,7 +17,7 @@ Administrators only. The page lives in the administrator settings sidebar, and t
 
 1. Type in the search box (**Search by node, model or PCI address**). It matches the mapping name, the description, node names and PCI addresses.
 2. For example, type a node name to see only the GPUs on that host.
-3. If nothing matches, **No GPUs detected yet** is shown with a button to clear the search.
+3. If nothing matches, **No GPUs match the search** is shown with a button to clear the search.
 
 ### Read a mapping row
 

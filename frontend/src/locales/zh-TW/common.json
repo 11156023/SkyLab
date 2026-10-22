@@ -33,6 +33,8 @@
   "ErrorBoundary.selectedToCopy": "已選取，請按 Ctrl+C 複製",
   "LoadingState.default": "載入中…",
   "ListFormat.separator": "、",
+  "ListFormat.clauseSeparator": "；",
+  "ListFormat.sentenceEnd": "。",
   "ExpiryDate.cutoff": "{{time}} 截止",
   "ExpiryDate.cutoffTitle": "實際到期時間（你的本地時間）：{{datetime}}",
   "ExpiryDate.inline": "{{date}}（{{cutoff}}）",

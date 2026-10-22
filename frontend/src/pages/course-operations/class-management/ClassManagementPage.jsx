@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
@@ -7,6 +7,7 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { useTeachingClassCacheUpdater, useTeachingClassesQuery } from "../../../queries/teachingClasses";
 import { useToast } from "../../../hooks/useToast";
+import useRouteMessageToast from "../../../hooks/useRouteMessageToast";
 import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "../CourseOperations.module.scss";
@@ -106,7 +107,6 @@ function ticketTarget(item) {
 export default function ClassManagementPage() {
   const { t } = useTranslation("teaching");
   const navigate = useNavigate();
-  const location = useLocation();
   const toast = useToast();
   const confirm = useConfirm();
   const [query, setQuery] = useState("");
@@ -129,12 +129,8 @@ export default function ClassManagementPage() {
     if (loadFailedMessage) toast.error(loadFailedMessage);
   }, [loadFailedMessage, toast]);
 
-  // 導頁帶來的一次性成功訊息改用 toast，吐完即清掉 state 免得重整重播。
-  useEffect(() => {
-    if (!location.state?.message) return;
-    toast.success(location.state.message);
-    navigate(location.pathname, { replace: true, state: {} });
-  }, [location.state?.message, location.pathname, navigate, toast]);
+  // 導頁帶來的一次性成功訊息（暫停設定、送出建機）改用 toast，吐完即清掉 state 免得重整重播。
+  useRouteMessageToast();
 
   const archivedCount = useMemo(
     () => classes.filter((item) => item.status === "archived").length,

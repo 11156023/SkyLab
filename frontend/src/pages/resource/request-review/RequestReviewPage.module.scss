@@ -539,6 +539,11 @@
   font-size: $font-size-14;
 }
 
+/* 機器已刪除的說明：一般區塊讓整句換行（放在按鈕用的 .rowActions 裡會變成不能縮的 flex 項目，英文句子被截斷） */
+.goneHint {
+  overflow-wrap: anywhere;
+}
+
 %review-btn {
   padding: 6px $spacing-16;
   border-radius: $radius-8;

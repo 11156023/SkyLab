@@ -41,6 +41,7 @@
   "ldap.bindPasswordDecryptFailed": "LDAP bind 密碼無法解密",
   "ldap.serviceBindFailed": "LDAP service bind 失敗，請檢查 bind DN 與密碼",
   "ldap.bindPasswordRequiredForNewTarget": "變更 LDAP 伺服器位址或 bind DN 時，請重新輸入 bind 密碼",
+  "ldap.serviceBindSucceeded": "LDAP service bind 成功",
   "guest.pathMustBeAbsolute": "目標路徑必須為絕對路徑",
   "guest.pathNoDotDot": "目標路徑不可包含 ..",
   "guest.agentNotResponding": "VM {vmid} 的 QEMU guest agent 未回應（可能未安裝 agent 或 VM 未開機）",

@@ -757,7 +757,8 @@ export default function ResourceMgmtPage() {
       {/* ── 頁首 ── */}
       <PageHeader title={t("ResourceMgmtPage.pageTitle")}>
         <div className={styles.pageActions}>
-          <button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests")}>
+          {/* 跟其他「申請／建立」入口一樣直接打開申請表單，不是停在申請清單 */}
+          <button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests", { state: { create: true } })}>
             <MIcon name="add" size={16} />
             {t("ResourceMgmtPage.createResource")}
           </button>

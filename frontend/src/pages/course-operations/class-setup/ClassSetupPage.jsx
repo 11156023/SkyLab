@@ -17,7 +17,7 @@ import {
 } from "../../../queries/teachingClasses";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatDate } from "../../../utils/formatDate";
-import { joinList } from "../../../utils/joinList";
+import { joinClauses, joinList } from "../../../utils/joinList";
 import {
   BOOT_LEAD_OPTIONS,
   classSchedulePayload,
@@ -227,7 +227,7 @@ export default function ClassSetupPage() {
     "classsetup.student_count": { value: loading ? "未知" : String(item?.students.length ?? 0) },
     "classsetup.environment_saved": { value: loading ? "未知" : String(environmentReady) },
     "classsetup.available_environments": { value: templatesLoaded ? String(templates.length) : "未知（尚未成功載入）" },
-    "classsetup.step_review": { disabled: busy || !capacity?.ready, disabled_reason: capacity?.issues?.join("；").slice(0, 300) || null },
+    "classsetup.step_review": { disabled: busy || !capacity?.ready, disabled_reason: (capacity?.issues ? joinClauses(capacity.issues) : "").slice(0, 300) || null },
   });
 
   function applyClass(result) {
@@ -335,10 +335,10 @@ export default function ClassSetupPage() {
   function warnRejected(result) {
     const notFound = result.not_found ?? [];
     const invalidRole = result.invalid_role ?? [];
-    const problems = [
+    const problems = joinClauses([
       notFound.length && t("ClassSetupPage.notFoundList", { list: joinList(notFound) }),
       invalidRole.length && t("ClassSetupPage.invalidRoleList", { list: joinList(invalidRole) }),
-    ].filter(Boolean).join("；");
+    ].filter(Boolean));
     toast.warning(t("ClassSetupPage.addedStudentsMsg", { added: result.added, problems }));
   }
 
@@ -611,7 +611,7 @@ export default function ClassSetupPage() {
               <h3>{missingSteps.length ? t("ClassSetupPage.capacityMissingTitle") : capacity ? capacity.ready ? t("ClassSetupPage.capacityReady") : t("ClassSetupPage.capacityNotReady") : t("ClassSetupPage.capacityChecking")}</h3>
               <p>{missingSteps.length
                 ? t("ClassSetupPage.capacityMissingDetail", { list: joinList(missingSteps.map(stepLabel)) })
-                : capacity?.ready ? t("ClassSetupPage.capacitySummary", { machines: capacity.machine_count, ips: capacity.ip_count }) : capacity?.issues?.join("；") ?? t("ClassSetupPage.capacityCheckingDetail")}</p>
+                : capacity?.ready ? t("ClassSetupPage.capacitySummary", { machines: capacity.machine_count, ips: capacity.ip_count }) : capacity?.issues ? joinClauses(capacity.issues) : t("ClassSetupPage.capacityCheckingDetail")}</p>
             </div>
             {capacity?.ready && <div className={styles.capacityFacts}>
               <div><span>{t("ClassSetupPage.capacityFactMachines")}</span><strong>{capacity.machine_count}</strong></div>

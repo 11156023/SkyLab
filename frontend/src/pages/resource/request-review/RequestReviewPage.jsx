@@ -125,13 +125,29 @@ function vmSpecLabel(request, t) {
   });
 }
 
-function specChangeLabel(request, t) {
+const CHANGE_TYPE_KEYS = {
+  cpu: "RequestReviewPage.changeTypeCpu",
+  memory: "RequestReviewPage.changeTypeMemory",
+  disk: "RequestReviewPage.changeTypeDisk",
+  combined: "RequestReviewPage.changeTypeCombined",
+  expiry: "RequestReviewPage.changeTypeExpiry",
+};
+
+/** 規格調整的類型：後端的 enum 值換成三語標籤，沒見過的值照原樣顯示 */
+export function changeTypeLabel(type, t) {
+  return CHANGE_TYPE_KEYS[type] ? t(CHANGE_TYPE_KEYS[type]) : type || "-";
+}
+
+/* 記憶體跟建立申請的規格一樣以 GB 顯示（後端存 MB） */
+const memoryGb = (mb) => (mb == null ? "-" : (mb / 1024).toFixed(1));
+
+export function specChangeLabel(request, t) {
   const parts = [
     request.requested_cpu
       ? t("RequestReviewPage.specChangeCpu", { from: request.current_cpu ?? "-", to: request.requested_cpu })
       : "",
     request.requested_memory
-      ? t("RequestReviewPage.specChangeRam", { from: request.current_memory ?? "-", to: request.requested_memory })
+      ? t("RequestReviewPage.specChangeRam", { from: memoryGb(request.current_memory), to: memoryGb(request.requested_memory) })
       : "",
     request.requested_disk
       ? t("RequestReviewPage.specChangeDisk", { from: request.current_disk ?? "-", to: request.requested_disk })
@@ -143,7 +159,7 @@ function specChangeLabel(request, t) {
         })
       : "",
   ].filter(Boolean);
-  return parts.join(" / ") || request.change_type || "-";
+  return parts.join(" / ") || changeTypeLabel(request.change_type, t);
 }
 
 /* AI API 金鑰申請有專屬的 /ai-api-review 頁；刪除申請是自動處理的佇列
@@ -206,7 +222,7 @@ function normalizeSpecRequest(request, t) {
     specText: specChangeLabel(request, t),
     reason: request.reason,
     paramLabel: t("RequestReviewPage.paramLabelChangeType"),
-    paramText: request.change_type || "-",
+    paramText: changeTypeLabel(request.change_type, t),
     gpuText: "-",
     nodeText: `VMID ${request.vmid}`,
     createdAt: request.created_at,
@@ -694,7 +710,7 @@ export default function RequestReviewPage() {
                 {isPending && (
                   <div className={styles.reviewBar} data-guide="request-review-decision">
                     {specResourceGone && (
-                      <div className={styles.rowActions}>
+                      <div className={styles.goneHint}>
                         <span className={styles.doneText}>
                           {t("RequestReviewPage.specResourceGoneHint")}
                         </span>

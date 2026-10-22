@@ -166,7 +166,7 @@ export default function ClassCreateDialog({
                   ))}
                 </select>
               </label>
-              <label className={styles.field}>
+              <label className={`${styles.field} ${styles.createTimeField}`}>
                 <span>{t("ClassCreateDialog.fieldClassTime")}</span>
                 <div className={styles.timePair}>
                   <input
