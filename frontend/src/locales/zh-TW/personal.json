@@ -1241,6 +1241,7 @@
   "FirewallCard.ruleDeleted": "規則已刪除",
   "FirewallCard.saveFailed": "儲存規則失敗",
   "FirewallCard.deleteFailed": "刪除規則失敗",
+  "FirewallCard.rulesChanged": "規則清單已更新，請確認後再操作一次",
   "BootOptionsCard.title": "開機選項",
   "BootOptionsCard.loading": "載入開機選項…",
   "BootOptionsCard.saveFailed": "儲存開機選項失敗",

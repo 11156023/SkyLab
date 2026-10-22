@@ -442,6 +442,7 @@
   "RulesPanel.ruleDeleted": "ルールを削除しました",
   "RulesPanel.saveFailed": "保存に失敗しました",
   "RulesPanel.deleteFailed": "削除に失敗しました",
+  "RulesPanel.rulesChanged": "ルール一覧が更新されました。内容を確認してからもう一度操作してください",
   "RulesPanel.deleteRuleTitle": "ファイアウォールルールを削除",
   "RulesPanel.deleteRuleMessage": "ルール #{{pos}} を削除しますか？この操作は元に戻せません。",
   "RulesPanel.enableSwitch": "有効",

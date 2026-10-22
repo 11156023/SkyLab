@@ -78,3 +78,20 @@ export function useQueryView(query) {
     refreshing: !noData && query.isFetching,
   };
 }
+
+/**
+ * 讀取失敗時要提示的訊息（給 toast 的 effect 當依賴）：同一串失敗只提示一次。
+ * - 還沒有資料：用 useLoadError 的錯誤，背景重試（輪詢、切回視窗）期間不會先清掉再出現
+ * - 已有資料：最近一次重抓失敗才有；有資料時 v5 重抓不會清掉 error，持續失敗訊息不變，成功一次後清掉
+ * 回傳字串或 null。effect 要依賴這個字串，不要依賴錯誤物件：每次失敗都是新的物件，會每次都再提示。
+ *
+ *   const failed = useLoadFailureMessage(query, t("Error.generic", { ns: "common" }));
+ *   useEffect(() => { if (failed) toast.error(failed); }, [failed, toast]);
+ */
+export function useLoadFailureMessage(query, fallbackMessage) {
+  const { error } = useLoadError(query);
+  const hasData = query.data !== undefined && !query.isPlaceholderData;
+  const failure = hasData ? (query.isError ? query.error : null) : error;
+  if (!failure) return null;
+  return failure.message ?? fallbackMessage;
+}

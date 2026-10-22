@@ -8,6 +8,7 @@ import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadFailureMessage, useQueryView } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { downloadBlob } from "../../../services/api";
 import { AuditLogsService } from "../../../services/auditLogs";
@@ -196,7 +197,9 @@ export default function AuditPage() {
   const logsQuery = useAuditLogsQuery(queryParams, { refetchInterval: false });
   const logs = logsQuery.data?.data ?? EMPTY;
   const count = logsQuery.data?.count ?? 0;
-  const loadError = logsQuery.error;
+  /* 同一串失敗只提示一次、首載失敗後切回視窗不閃回整頁載入中（沒資料時 v5 每次重抓（切回視窗）都把 status 改回 pending、清掉 error） */
+  const loadFailedMessage = useLoadFailureMessage(logsQuery, t("Error.generic", { ns: "common" }));
+  const logsView = useQueryView(logsQuery);
   /* 伺服器分頁：頁碼由 page 決定查詢參數，表格只渲染當頁的列 */
   const table = useTable({
     features: baseFeatures,
@@ -205,8 +208,8 @@ export default function AuditPage() {
     getRowId: (log) => String(log.id),
   });
   useEffect(() => {
-    if (loadError) toast.error(loadError?.message ?? t("Error.generic", { ns: "common" }));
-  }, [loadError, toast, t]);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
 
   /* 日期連續改動（手動打年份會逐位觸發）時，較晚回來的舊區間摘要不能蓋掉新區間的；
      摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
@@ -226,7 +229,7 @@ export default function AuditPage() {
   );
   const totalPages = Math.max(Math.ceil(count / PAGE_SIZE), 1);
   /** 載入過之後的重新查詢：保留畫面、半透明，不整頁換成 loading 動畫 */
-  const isInitialLoading = logsQuery.data === undefined && (logsQuery.isPending || logsQuery.isFetching);
+  const isInitialLoading = logsView.loading;
   const loading = logsQuery.isFetching;
 
   function setField(name, value) {

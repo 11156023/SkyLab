@@ -7,6 +7,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError, useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UsersService } from "../../../services/users";
@@ -366,23 +367,26 @@ export default function AdminPage() {
   const users = usersQuery.data ?? EMPTY;
   const registrationPolicy = policyQuery.data ?? null;
   const pendingRegistrations = pendingQuery.data?.data ?? EMPTY;
-  const loading = usersQuery.data === undefined && (usersQuery.isPending || usersQuery.isFetching);
-
-  /* 載入失敗只在手上沒資料時提示（背景刷新失敗維持靜默、沿用舊資料）；
-     依賴用布林＋訊息字串，沒資料時的背景重試回同樣的錯誤不會再跳一次 */
-  const usersLoadFailed = usersQuery.data === undefined && usersQuery.isError;
-  const usersLoadErrorMessage = usersQuery.error?.message;
+  /* 載入失敗只在手上沒資料時提示（背景刷新失敗維持靜默、沿用舊資料）。首載失敗看 useQueryView／useLoadError：
+     沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，直接看 isError 會在每次背景重試時閃回整頁載入中、
+     重跳同一則 toast；useLoadError 的錯誤在重試期間不清掉，依訊息字串觸發，同一串失敗只提示一次 */
+  const usersView = useQueryView(usersQuery);
+  const loading = usersView.loading;
+  const usersLoadErrorMessage = usersView.error
+    ? usersView.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
   useEffect(() => {
-    if (usersLoadFailed) toast.error(usersLoadErrorMessage ?? t("Error.generic", { ns: "common" }));
-  }, [usersLoadFailed, usersLoadErrorMessage, toast, t]);
-  const registrationLoadError = (policyQuery.data === undefined && policyQuery.isError && policyQuery.error)
-    || (pendingQuery.data === undefined && pendingQuery.isError && pendingQuery.error)
-    || null;
-  const registrationLoadFailed = registrationLoadError !== null;
-  const registrationLoadErrorMessage = registrationLoadError?.message;
+    if (usersLoadErrorMessage) toast.error(usersLoadErrorMessage);
+  }, [usersLoadErrorMessage, toast]);
+  const policyLoadError = useLoadError(policyQuery).error;
+  const pendingLoadError = useLoadError(pendingQuery).error;
+  const registrationLoadError = policyLoadError ?? pendingLoadError;
+  const registrationLoadErrorMessage = registrationLoadError
+    ? registrationLoadError?.message ?? t("AdminPage.registrationLoadFailed")
+    : null;
   useEffect(() => {
-    if (registrationLoadFailed) toast.error(registrationLoadErrorMessage ?? t("AdminPage.registrationLoadFailed"));
-  }, [registrationLoadFailed, registrationLoadErrorMessage, toast, t]);
+    if (registrationLoadErrorMessage) toast.error(registrationLoadErrorMessage);
+  }, [registrationLoadErrorMessage, toast]);
 
   async function saveRegistrationPolicy(patch) {
     if (!registrationPolicy || policySaving) return;

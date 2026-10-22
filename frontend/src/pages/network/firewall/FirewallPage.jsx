@@ -21,7 +21,7 @@ import {
   deleteConnection,
   saveLayout,
 } from "../../../services/firewall";
-import { useFirewallTopologyQuery } from "../../../queries/firewall";
+import { useFirewallCacheUpdater, useFirewallTopologyQuery } from "../../../queries/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
 import EmptyState       from "../../../components/EmptyState/EmptyState";
 import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDialog";
@@ -110,7 +110,10 @@ export default function FirewallPage() {
   const error = topologyLoad.error
     ? (topologyLoad.error?.message ?? t("FirewallPage.loadTopologyFailed"))
     : "";
-  const refreshTopology = topologyQuery.refetch;
+  /* 連線增刪後不只重抓拓撲：受管規則會插進兩端機器的規則表，後面的位置跟著位移。各機器的規則快取也要
+     標成過期，否則之後打開規則面板會先顯示舊清單，依位置的停用／刪除可能打到別條規則 */
+  const firewallCache = useFirewallCacheUpdater();
+  const refreshTopology = () => firewallCache.invalidate();
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null); // { id, edge }
   const [showDialog,   setShowDialog]   = useState(false);

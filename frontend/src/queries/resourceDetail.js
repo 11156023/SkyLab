@@ -80,6 +80,8 @@ export function useSnapshotsQuery(vmid, { enabled } = {}) {
     queryKey: resourceDetailKeys.snapshots(vmid),
     queryFn: () => ResourcesService.listSnapshots(vmid),
     enabled: enabled ?? vmid != null,
+    /* 只在進分頁與操作後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤，快照／備份清單失敗還會觸發可用性重查 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -88,6 +90,8 @@ export function useBackupsQuery(vmid, { enabled } = {}) {
     queryKey: resourceDetailKeys.backups(vmid),
     queryFn: () => ResourcesService.listBackups(vmid),
     enabled: enabled ?? vmid != null,
+    /* 只在進分頁與操作後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤，快照／備份清單失敗還會觸發可用性重查 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -97,6 +101,10 @@ export function useSnapshotCapabilityQuery(vmid, { enabled } = {}) {
     queryKey: resourceDetailKeys.snapshotCapability(vmid),
     queryFn: () => ResourcesService.getSnapshotCapability(vmid),
     enabled: enabled ?? vmid != null,
+    /* 只在進頁與操作失敗後明確重查（同原本）：查不到一律當不可用，切回視窗時剛好重查失敗會把使用者
+       正在用的快照／備份分頁收掉、踢回總覽，所以不跟著切回視窗或恢復連線重抓 */
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -106,6 +114,10 @@ export function useBackupCapabilityQuery(vmid, { enabled } = {}) {
     queryKey: resourceDetailKeys.backupCapability(vmid),
     queryFn: () => ResourcesService.getBackupCapability(vmid),
     enabled: enabled ?? vmid != null,
+    /* 只在進頁與操作失敗後明確重查（同原本）：查不到一律當不可用，切回視窗時剛好重查失敗會把使用者
+       正在用的快照／備份分頁收掉、踢回總覽，所以不跟著切回視窗或恢復連線重抓 */
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -115,6 +127,8 @@ export function useSshKeyQuery(vmid, { enabled } = {}) {
     queryKey: resourceDetailKeys.sshKey(vmid),
     queryFn: () => ResourcesService.getSshKey(vmid),
     enabled: enabled ?? vmid != null,
+    /* 只在進分頁與操作後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤，快照／備份清單失敗還會觸發可用性重查 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -132,6 +146,8 @@ export function useSharesQuery(vmid, { enabled } = {}) {
     queryKey: resourceDetailKeys.shares(vmid),
     queryFn: async () => (await ResourcesService.listShares(vmid)) ?? [],
     enabled: enabled ?? vmid != null,
+    /* 只在進分頁與操作後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤，快照／備份清單失敗還會觸發可用性重查 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -140,6 +156,8 @@ export function useCredentialsQuery(vmid, { enabled } = {}) {
     queryKey: resourceDetailKeys.credentials(vmid),
     queryFn: () => ResourcesService.getCredentials(vmid),
     enabled: enabled ?? vmid != null,
+    /* 只在進分頁與操作後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤，快照／備份清單失敗還會觸發可用性重查 */
+    refetchOnWindowFocus: false,
   });
 }
 

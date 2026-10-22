@@ -61,8 +61,12 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
 
   /* 寫入後重抓這台的規則、選項（與資源詳情的迷你拓撲）；重抓失敗不打斷操作 */
   const reload = () => firewallCache.invalidateVm(node.vmid);
+  /* 停用／刪除是用規則的位置（pos）指定的：清單重抓中（例如打開時先顯示快取、連線變更後）畫面上的位置
+     可能已經不是最新的，等新清單回來才能操作，不然會改到或刪到別條規則 */
+  const rulesRefreshing = rulesQuery.isFetching;
 
   async function handleToggle(rule) {
+    if (rulesRefreshing) return;
     setBusy(true);
     try {
       await updateVmRule(node.vmid, rule.pos, { enable: rule.enable === 0 ? 1 : 0 });
@@ -81,6 +85,13 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
       danger: true,
     });
     if (!ok) return;
+    /* 確認視窗開著時清單可能已重抓（切回視窗、別人改了規則），同一個位置已不是同一條：按下確認時再對一次 */
+    const latest = firewallCache.getVmRules(node.vmid) ?? [];
+    const current = latest.find((item) => item.pos === rule.pos);
+    if (!current || JSON.stringify(current) !== JSON.stringify(rule)) {
+      toast.error(t("RulesPanel.rulesChanged"));
+      return;
+    }
     setBusy(true);
     try {
       await deleteVmRule(node.vmid, rule.pos);
@@ -200,14 +211,14 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
                           <Switch
                             checked={rule.enable !== 0}
                             onChange={() => handleToggle(rule)}
-                            disabled={busy}
+                            disabled={busy || rulesRefreshing}
                             ariaLabel={t("RulesPanel.enableSwitch")}
                             title={t("RulesPanel.enableSwitch")}
                           />
                           <button
                             type="button"
                             className={`${styles.ruleBtn} ${styles.ruleBtnDanger}`}
-                            disabled={busy}
+                            disabled={busy || rulesRefreshing}
                             title={t("RulesPanel.deleteRule")}
                             onClick={() => handleDelete(rule)}
                           >

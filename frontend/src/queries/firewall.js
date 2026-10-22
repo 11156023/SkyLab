@@ -34,6 +34,8 @@ export function useVmFirewallRulesQuery(vmid, { enabled, refetchInterval = false
     queryFn: () => getVmRules(vmid),
     enabled: enabled ?? (vmid != null),
     refetchInterval,
+    /* 只在打開時與寫入後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -44,6 +46,8 @@ export function useVmFirewallOptionsQuery(vmid, { enabled, refetchInterval = fal
     queryFn: () => getVmOptions(vmid),
     enabled: enabled ?? (vmid != null),
     refetchInterval,
+    /* 只在打開時與寫入後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -54,6 +58,8 @@ export function useVmFirewallTopologyQuery(vmid, { enabled, refetchInterval = fa
     queryFn: () => getVmTopology(vmid),
     enabled: enabled ?? (vmid != null),
     refetchInterval,
+    /* 只在打開時與寫入後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -68,8 +74,13 @@ export function useFirewallCacheUpdater() {
     invalidateVm(vmid) {
       return queryClient.invalidateQueries({ queryKey: ["firewall", "vm", String(vmid)] });
     },
+    /** 連線增刪後：拓撲與每台機器的規則都可能變（受管規則插在前面，後面的位置跟著位移），全部標成過期重抓 */
     invalidate() {
       return queryClient.invalidateQueries({ queryKey: firewallKeys.all });
+    },
+    /** 目前快取裡這台的規則（確認視窗按下確認時再對一次位置用） */
+    getVmRules(vmid) {
+      return queryClient.getQueryData(firewallKeys.vmRules(vmid));
     },
   };
 }

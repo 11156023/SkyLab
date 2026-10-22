@@ -5,7 +5,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { createTestQueryClient, withQueryClient } from "../queries/testing";
-import { useQueryView } from "./useQueryLoadState";
+import { useLoadFailureMessage, useQueryView } from "./useQueryLoadState";
 
 let host;
 let root;
@@ -137,5 +137,61 @@ describe("useQueryView", () => {
     await act(async () => reject(new Error("still down")));
     await flush();
     expect(seen.error?.message).toBe("still down");
+  });
+});
+
+function MessageProbe() {
+  const query = useQuery({ queryKey: ["probe-message"], queryFn: () => fetcher() });
+  seen = { data: query.data, message: useLoadFailureMessage(query, "fallback") };
+  return null;
+}
+
+describe("useLoadFailureMessage", () => {
+  test("without data the message stays the same through background retries", async () => {
+    fetcher.mockRejectedValueOnce(new Error("down"));
+    await render(<MessageProbe />);
+    expect(seen.message).toBe("down");
+
+    let reject;
+    fetcher.mockImplementationOnce(() => new Promise((_r, rj) => { reject = rj; }));
+    act(() => { client.refetchQueries({ queryKey: ["probe-message"] }); });
+    await flush();
+    expect(seen.message).toBe("down");
+
+    await act(async () => reject(new Error("down")));
+    await flush();
+    expect(seen.message).toBe("down");
+  });
+
+  test("with data a failing refetch reports once, and a success clears it", async () => {
+    fetcher.mockResolvedValueOnce(["row"]);
+    await render(<MessageProbe />);
+    expect(seen.message).toBeNull();
+
+    fetcher.mockRejectedValueOnce(new Error("refresh failed"));
+    await act(async () => { await client.refetchQueries({ queryKey: ["probe-message"] }); });
+    await flush();
+    expect(seen.data).toEqual(["row"]);
+    expect(seen.message).toBe("refresh failed");
+
+    let reject;
+    fetcher.mockImplementationOnce(() => new Promise((_r, rj) => { reject = rj; }));
+    act(() => { client.refetchQueries({ queryKey: ["probe-message"] }); });
+    await flush();
+    expect(seen.message).toBe("refresh failed");
+    await act(async () => reject(new Error("refresh failed")));
+    await flush();
+    expect(seen.message).toBe("refresh failed");
+
+    fetcher.mockResolvedValueOnce(["row", "row2"]);
+    await act(async () => { await client.refetchQueries({ queryKey: ["probe-message"] }); });
+    await flush();
+    expect(seen.message).toBeNull();
+  });
+
+  test("an error without a message falls back", async () => {
+    fetcher.mockRejectedValueOnce({ status: 500 });
+    await render(<MessageProbe />);
+    expect(seen.message).toBe("fallback");
   });
 });

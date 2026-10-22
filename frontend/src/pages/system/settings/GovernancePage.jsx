@@ -124,13 +124,17 @@ function GovernanceForm() {
      之後的背景重抓不會蓋掉正在編輯的欄位。載入失敗要看得見：改渲染重試區塊，不要停在轉圈畫面 */
   const configQuery = useGovernanceConfigQuery();
   const governanceCache = useGovernanceCacheUpdater();
+  /* 進頁時快取若已過期會重抓：那次重抓回來前不初始化表單（維持載入中）。不然表單會先填快取裡的舊設定，
+     之後的新資料又被「只初始化一次」略過，存檔時把別的管理員剛改的設定整份蓋回去。
+     重抓失敗時仍用手上的資料；5 秒內回到頁面不會重抓，快取就夠新 */
+  const configReady = configQuery.data !== undefined && !(configQuery.isFetching && !configQuery.isFetchedAfterMount);
   useEffect(() => {
-    if (baseline !== null || configQuery.data === undefined) return;
+    if (baseline !== null || !configReady) return;
     const next = {};
     for (const key of ALL_KEYS) next[key] = configQuery.data[key];
     setForm(next);
     setBaseline(next);
-  }, [baseline, configQuery.data, ALL_KEYS]);
+  }, [baseline, configReady, configQuery.data, ALL_KEYS]);
 
   /* 每次載入失敗提示一次：重抓時 error 會先清空再變回來，不能拿 error 物件當觸發條件 */
   useQueryErrorEffect(configQuery, (err) => {

@@ -101,7 +101,9 @@ export function useMyActiveVmRequestsQuery({ enabled = true, fastPoll = false } 
 export function useVmRequestCacheUpdater() {
   const queryClient = useQueryClient();
   return {
-    update(updated) {
+    /** 寫入回應就地換掉那一張。先取消在途的背景刷新：它在操作前送出，晚回來會把剛寫的結果蓋回舊狀態 */
+    async update(updated) {
+      await queryClient.cancelQueries({ queryKey: vmRequestKeys.mine });
       queryClient.setQueryData(vmRequestKeys.mine, (prev) => (
         prev ? prev.map((r) => (r.id === updated.id ? updated : r)) : prev
       ));

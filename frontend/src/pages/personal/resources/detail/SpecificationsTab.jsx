@@ -286,7 +286,7 @@ export default function SpecificationsTab({ vmid }) {
     try {
       const res = await SpecChangeRequestsService.apply(openRequest.id);
       /* 就地把這張改成「套用中」：通知列馬上換狀態，清單查詢也隨之改成 5 秒追進度 */
-      if (res?.request) requestCache.update(res.request);
+      if (res?.request) await requestCache.update(res.request);
       else await requestCache.invalidate();
       toast.success(t("SpecificationsTab.applyStarted"));
     } catch (e) {
@@ -309,7 +309,7 @@ export default function SpecificationsTab({ vmid }) {
     try {
       /* 回來的是撤銷後的申請（已結案）：就地換掉，通知列隨即消失 */
       const cancelled = await SpecChangeRequestsService.cancel(openRequest.id);
-      if (cancelled?.id != null) requestCache.update(cancelled);
+      if (cancelled?.id != null) await requestCache.update(cancelled);
       else await requestCache.invalidate();
       toast.success(t("SpecificationsTab.cancelSuccess"));
     } catch (e) {

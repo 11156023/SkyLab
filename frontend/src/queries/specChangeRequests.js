@@ -45,7 +45,9 @@ export function useMySpecChangeRequestsQuery({ enabled = true } = {}) {
 export function useSpecChangeRequestCacheUpdater() {
   const queryClient = useQueryClient();
   return {
-    update(updated) {
+    /** 寫入回應就地換掉那一張。先取消在途的背景刷新：它在操作前送出，晚回來會把剛寫的「套用中」蓋回「可套用」 */
+    async update(updated) {
+      await queryClient.cancelQueries({ queryKey: specChangeRequestKeys.mine });
       queryClient.setQueryData(specChangeRequestKeys.mine, (prev) => (
         prev ? prev.map((r) => (r.id === updated.id ? updated : r)) : prev
       ));

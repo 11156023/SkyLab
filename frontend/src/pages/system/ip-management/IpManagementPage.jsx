@@ -19,6 +19,7 @@ import {
 import { LIST_REFRESH_INTERVAL } from "../../../queries/queryClient";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import Pagination from "../shared/Pagination";
@@ -173,17 +174,21 @@ export default function IpManagementPage() {
   const status = statusQuery.data ?? null;
   /* 第一次載入等三份都回來（或失敗）才顯示，免得子網還沒到就先閃「尚未設定」；
      之後的重抓保留舊畫面 */
-  const loading = (allocationsQuery.data === undefined && (allocationsQuery.isPending || allocationsQuery.isFetching))
-    || subnetQuery.isPending
-    || statusQuery.isPending;
+  /* 沒資料時 v5 每次重抓都把 status 改回 pending：直接看 isPending 的話，首載失敗（例如非管理員打 subnet
+     一律 403）後每次背景重試都會閃回整頁載入中，所以三份都看 useQueryView */
+  const allocationsView = useQueryView(allocationsQuery);
+  const subnetView = useQueryView(subnetQuery);
+  const statusView = useQueryView(statusQuery);
+  const loading = allocationsView.loading || subnetView.loading || statusView.loading;
 
   /* 背景刷新失敗維持靜默、沿用舊清單；只有手上沒資料時才提示。
      依賴用布林＋訊息字串，沒資料時的背景重試回同樣的錯誤不會每 30 秒再跳一次 */
-  const allocationsLoadFailed = allocationsQuery.data === undefined && allocationsQuery.isError;
-  const allocationsLoadErrorMessage = allocationsQuery.error?.message;
+  const allocationsLoadErrorMessage = allocationsView.error
+    ? allocationsView.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
   useEffect(() => {
-    if (allocationsLoadFailed) toast.error(allocationsLoadErrorMessage ?? t("Error.generic", { ns: "common" }));
-  }, [allocationsLoadFailed, allocationsLoadErrorMessage, toast, t]);
+    if (allocationsLoadErrorMessage) toast.error(allocationsLoadErrorMessage);
+  }, [allocationsLoadErrorMessage, toast]);
 
   /* getSubnet 需要管理員權限，非管理員只能靠 status 判斷是否已設定 */
   const configured = Boolean(subnet) || Boolean(status?.configured);
@@ -280,6 +285,8 @@ export default function IpManagementPage() {
       await IpManagementService.deleteSubnet();
       toast.success(t("IpManagementPage.toastSubnetDeleted"));
       setEditing(null);
+      /* 後端已刪除：先把子網快取設成沒有，之後的重抓就算失敗也不會留著已刪的子網 */
+      await ipCache.clearSubnet();
       await ipCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("IpManagementPage.toastDeleteSubnetFailed"));

@@ -11,6 +11,7 @@ import {
 } from "../../../queries/batchProvision";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
@@ -245,17 +246,16 @@ export default function BatchReviewPage() {
   /* 結果物件是存取追蹤的：兩份查詢用到的欄位都先無條件讀出來，短路判斷才不會漏追蹤 */
   const recentJobs = recentQuery.data;
   const pendingJobs = pendingQuery.data;
-  const recentFetching = recentQuery.isFetching;
-  const pendingFetching = pendingQuery.isFetching;
-  const recentFailure = recentQuery.isError ? recentQuery.error : null;
-  const pendingFailure = pendingQuery.isError ? pendingQuery.error : null;
-  const listFetching = recentFetching || pendingFetching;
-  const listFailure = recentFailure ?? pendingFailure;
+  /* 首載失敗看各自的 useLoadError：沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，
+     看 isError／isFetching 的錯誤畫面會在每次背景重試時閃回載入中 */
+  const recentLoadError = useLoadError(recentQuery).error;
+  const pendingLoadError = useLoadError(pendingQuery).error;
+  const listFailure = recentLoadError ?? pendingLoadError;
   /* 只有「還沒有任何資料」時才顯示載入／錯誤；背景刷新失敗沿用上一筆資料 */
   const noData = recentJobs === undefined || pendingJobs === undefined;
-  const failed = noData && listFailure && !listFetching;
+  const failed = noData && Boolean(listFailure);
   const loading = noData && !failed;
-  const error = failed ? (listFailure.message ?? t("Error.generic", { ns: "common" })) : "";
+  const error = failed ? (listFailure?.message ?? t("Error.generic", { ns: "common" })) : "";
 
   const batches = useMemo(() => {
     if (noData) return NO_JOBS;

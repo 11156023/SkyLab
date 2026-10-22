@@ -4,6 +4,7 @@ import styles from "./RequestReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { SpecChangeRequestsService } from "../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../services/vmRequests";
@@ -310,21 +311,19 @@ function useTabPages(key, limit, { enabled = true } = {}) {
   const specQuery = useAllSpecChangeRequestsQuery({ status, limit }, { enabled: enabled && hasSpec });
   /* 結果物件是存取追蹤的：兩份查詢用到的欄位都先無條件讀出來，短路判斷才不會漏追蹤 */
   const vmPage = vmQuery.data;
-  const vmFetching = vmQuery.isFetching;
-  const vmError = vmQuery.isError ? vmQuery.error : null;
+  /* 首載失敗看 useLoadError：沒資料時 v5 每次重抓都清掉 error，看 isError 的錯誤會在背景重試時閃回載入中 */
+  const vmLoadError = useLoadError(vmQuery).error;
   const specData = specQuery.data;
-  const specFetching = specQuery.isFetching;
-  const specError = specQuery.isError ? specQuery.error : null;
+  const specLoadError = useLoadError(specQuery).error;
   const specPage = hasSpec ? specData : EMPTY_PAGE;
   const noData = vmPage === undefined || specPage === undefined;
-  const fetching = vmFetching || (hasSpec && specFetching);
-  const failure = vmError ?? (hasSpec ? specError : null);
+  const failure = vmLoadError ?? (hasSpec ? specLoadError : null);
   return {
     vmPage,
     specPage,
     noData,
     /* 只有「還沒有任何資料」時才算錯誤；背景刷新失敗沿用上一筆資料（與原本靜默刷新相同） */
-    error: noData && failure && !fetching ? failure : null,
+    error: noData && failure ? failure : null,
     count: noData ? undefined : pageCount(vmPage) + pageCount(specPage),
   };
 }

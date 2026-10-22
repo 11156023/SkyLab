@@ -1345,11 +1345,15 @@ export default function AiApiPage() {
   const credentials = credentialsData?.data ?? EMPTY;
   const publicBaseUrl = credentialsData?.public_base_url ?? "";
   const aiCache = useAiApiCacheUpdater();
-  /* 兩份都到齊才離開載入畫面；任一份首載失敗就顯示錯誤，按重試回到載入畫面 */
+  /* 兩份都到齊才離開載入畫面；任一份首載失敗就顯示錯誤，按重試回到載入畫面。
+     失敗看各自的 useLoadError：有待審申請時兩份都在輪詢，沒資料時 v5 每次重抓都清掉 error，
+     看 isError／isFetching 的錯誤畫面會每 30 秒閃回載入中 */
+  const credentialsLoad = useLoadError(credentialsQuery);
+  const requestsLoad = useLoadError(requestsQuery);
   const noData = credentialsData === undefined || requestsData === undefined;
+  const loadError = noData && Boolean(credentialsLoad.error || requestsLoad.error);
   const fetching = credentialsQuery.isFetching || requestsQuery.isFetching;
-  const loading = noData && (credentialsQuery.isPending || requestsQuery.isPending || fetching);
-  const loadError = noData && (credentialsQuery.isError || requestsQuery.isError) && !fetching;
+  const loading = noData && !loadError && (credentialsQuery.isPending || requestsQuery.isPending || fetching);
 
   // 待審的申請有了結果就提醒：學生常開著這頁等審核
   useEffect(() => {
@@ -1373,8 +1377,8 @@ export default function AiApiPage() {
   }, [requestsData, toast, t, aiCache]);
 
   function retryLoad() {
-    credentialsQuery.refetch();
-    requestsQuery.refetch();
+    credentialsLoad.retry();
+    requestsLoad.retry();
   }
 
   /* 操作後在背景重抓（不讓整張表閃成載入動畫），失敗時保留畫面上的資料並提醒 */

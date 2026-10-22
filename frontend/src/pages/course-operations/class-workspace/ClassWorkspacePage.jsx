@@ -19,7 +19,7 @@ import { ClassroomService } from "../../../services/classroom";
 import { courseNodeHasUsableSource } from "../../../services/courseEnvironments";
 import { ResourcesService } from "../../../services/resources";
 import { TeachingClassesService } from "../../../services/teachingClasses";
-import { useClassBroadcastSourcesQuery, useClassroomSessionsQuery } from "../../../queries/classroom";
+import { useClassBroadcastSourcesQuery, useClassroomCacheUpdater, useClassroomSessionsQuery } from "../../../queries/classroom";
 import { usePublishedCourseEnvironmentsQuery } from "../../../queries/courseEnvironments";
 import {
   useClassCapacityPreviewQuery,
@@ -918,7 +918,11 @@ export function StudentMachines({ item }) {
   /* 熱力圖用量：10 秒輪詢、分頁隱藏時暫停；最近一次沒抓到就亮「更新失敗」，畫面沿用上一份 */
   const usageQuery = useClassResourceUsageQuery(item.id, { refetchInterval: USAGE_POLL_MS, select: selectUsageByVmid });
   const usageByVmid = usageQuery.data ?? EMPTY_USAGE;
-  const usageStatus = usageQuery.isError ? "error" : usageQuery.data !== undefined ? "ready" : "loading";
+  /* 有資料時看最近一次重抓；還沒資料時 v5 每次重試都把 isError 清掉，改看 useLoadError，重試期間維持「更新失敗」 */
+  const usageLoadError = useLoadError(usageQuery).error;
+  const usageStatus = usageQuery.data !== undefined
+    ? (usageQuery.isError ? "error" : "ready")
+    : usageLoadError ? "error" : "loading";
   /* 可拿來廣播的機器；讀不到就當作沒有（與原本相同，不提示） */
   const sourcesQuery = useClassBroadcastSourcesQuery(item.id);
   const sources = sourcesQuery.data ?? EMPTY;
@@ -971,6 +975,9 @@ export function StudentMachines({ item }) {
      每個班級只找回一次，而且要是新鮮的清單（快取過期就等這次重抓回來），
      之後的開始／停止都以本地狀態為準，晚到的舊清單不會把停掉的廣播帶回來 */
   const sessionsQuery = useClassroomSessionsQuery({ refetchInterval: false });
+  /* 開始／停止廣播後把清單標成過期：不然 5 秒內切到別的分頁再切回來，會把廣播前的舊清單當成新鮮的，
+     找不回進行中的廣播，「停止廣播」按鈕就不見了 */
+  const classroomCache = useClassroomCacheUpdater();
   const sessionsFresh = sessionsQuery.data !== undefined && !sessionsQuery.isFetching
     && (sessionsQuery.isFetchedAfterMount || !sessionsQuery.isStale);
   const sessions = sessionsFresh ? sessionsQuery.data : null;
@@ -1024,6 +1031,7 @@ export function StudentMachines({ item }) {
     try {
       const session = await ClassroomService.createSession({ vmid: Number(vmid), mode: "broadcast", class_id: item.id });
       setBroadcast(session);
+      classroomCache.invalidateSessions();
       toast.success(t("ClassWorkspacePage.broadcastStartedMsg"));
     } catch (error) {
       toast.error(error?.message ?? t("ClassWorkspacePage.startBroadcastFailed"));
@@ -1038,6 +1046,7 @@ export function StudentMachines({ item }) {
     try {
       await ClassroomService.stopSession(broadcast.id);
       setBroadcast(null);
+      classroomCache.invalidateSessions();
       toast.success(t("ClassWorkspacePage.broadcastEndedMsg"));
     } catch (error) {
       toast.error(error?.message ?? t("ClassWorkspacePage.stopBroadcastFailed"));

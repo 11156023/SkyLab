@@ -442,6 +442,7 @@
   "RulesPanel.ruleDeleted": "Rule deleted",
   "RulesPanel.saveFailed": "Save failed",
   "RulesPanel.deleteFailed": "Delete failed",
+  "RulesPanel.rulesChanged": "The rule list has changed. Check it and try again.",
   "RulesPanel.deleteRuleTitle": "Delete firewall rule",
   "RulesPanel.deleteRuleMessage": "Delete rule #{{pos}}? This cannot be undone.",
   "RulesPanel.enableSwitch": "Enabled",

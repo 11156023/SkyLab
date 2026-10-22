@@ -73,12 +73,16 @@ function LdapForm() {
   const ldapCache = useLdapConfigCacheUpdater();
   /* bind 密碼欄的 placeholder 看伺服器是否已存密碼；存檔後 setConfig 會換成新回應 */
   const config = configQuery.data;
+  /* 進頁時快取若已過期會重抓：那次重抓回來前不初始化表單（維持載入中）。不然表單會先填快取裡的舊設定，
+     之後的新資料又被「只初始化一次」略過，存檔時把別的管理員剛改的設定整份蓋回去。
+     重抓失敗時仍用手上的資料；5 秒內回到頁面不會重抓，快取就夠新 */
+  const configReady = configQuery.data !== undefined && !(configQuery.isFetching && !configQuery.isFetchedAfterMount);
   useEffect(() => {
-    if (baseline !== null || configQuery.data === undefined) return;
+    if (baseline !== null || !configReady) return;
     const next = buildForm(configQuery.data);
     setForm(next);
     setBaseline(next);
-  }, [baseline, configQuery.data]);
+  }, [baseline, configReady, configQuery.data]);
 
   /* 每次載入失敗提示一次：重抓時 error 會先清空再變回來，不能拿 error 物件當觸發條件 */
   useQueryErrorEffect(configQuery, (err) => {

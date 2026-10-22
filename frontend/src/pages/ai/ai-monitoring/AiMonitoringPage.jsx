@@ -27,6 +27,7 @@ import {
   useAiUsersUsageQuery,
 } from "../../../queries/aiMonitoring";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import {
@@ -555,19 +556,24 @@ export default function AiMonitoringPage() {
 
   const overview = overviewQuery.data ?? null;
   const runtime = runtimeQuery.data ?? null;
-  const overviewLoading = overviewQuery.data === undefined && (overviewQuery.isPending || overviewQuery.isFetching);
-  const runtimeLoading = runtimeQuery.data === undefined && (runtimeQuery.isPending || runtimeQuery.isFetching);
+  /* 還沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，直接看 isPending／isError 會在首載失敗後的
+     每次背景重試閃回載入中、告警列一亮一滅；useQueryView 在重試期間維持失敗 */
+  const overviewView = useQueryView(overviewQuery);
+  const runtimeView = useQueryView(runtimeQuery);
+  const proxyView = useQueryView(proxyQuery);
+  const templateView = useQueryView(templateQuery);
+  const usersView = useQueryView(usersQuery);
+  const overviewLoading = overviewView.loading;
+  const runtimeLoading = runtimeView.loading;
   /* 失敗旗標與原本相同：最近一次抓取失敗就亮（沿用畫面上的舊資料），下一次成功才熄 */
-  const overviewError = overviewQuery.isError;
-  const runtimeError = runtimeQuery.isError;
+  const overviewError = overview !== null ? overviewQuery.isError : Boolean(overviewView.error);
+  const runtimeError = runtime !== null ? runtimeQuery.isError : Boolean(runtimeView.error);
   const proxyCalls = listRows(proxyQuery);
   const templateCalls = listRows(templateQuery);
   const users = listRows(usersQuery);
   const counts = { proxy: listCount(proxyQuery), template: listCount(templateQuery), users: listCount(usersQuery) };
-  /* 三份明細都到齊才離開載入畫面（與原本相同）；每份都要在 render 時讀過，狀態變了才會重繪 */
-  const detailLoading = [proxyQuery, templateQuery, usersQuery]
-    .map((q) => q.data === undefined && (q.isPending || q.isFetching))
-    .some(Boolean);
+  /* 三份明細都到齊（或失敗）才離開載入畫面（與原本相同） */
+  const detailLoading = proxyView.loading || templateView.loading || usersView.loading;
   /* 最後一次有回應（成功或失敗）的時間 */
   const lastUpdatedAt = Math.max(
     ...[overviewQuery, runtimeQuery, proxyQuery, templateQuery, usersQuery]
@@ -575,8 +581,9 @@ export default function AiMonitoringPage() {
   );
   const lastUpdated = lastUpdatedAt > 0 ? new Date(lastUpdatedAt) : null;
 
-  /* 這個區間的總覽一筆都還沒拿到就失敗才跳 toast（與原本的前景載入相同）；背景刷新失敗只亮告警列 */
-  const overviewFailedWithoutData = overviewQuery.data === undefined && overviewQuery.isError;
+  /* 這個區間的總覽一筆都還沒拿到就失敗才跳 toast（與原本的前景載入相同）；背景刷新失敗只亮告警列。
+     useQueryView 的錯誤在背景重試期間不會先清掉再出現，同一個區間只提示一次，換區間又失敗才再提示 */
+  const overviewFailedWithoutData = overview === null && Boolean(overviewView.error);
   useEffect(() => {
     if (overviewFailedWithoutData) toast.error(t("AiMonitoringPage.loadError"));
   }, [overviewFailedWithoutData, toast, t]);

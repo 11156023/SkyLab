@@ -173,13 +173,17 @@ export default function SchedulerPage() {
   const dirty = Object.keys(form).some((key) => form[key] !== baseline[key]);
   useUnsavedChangesGuard(dirty);
 
+  /* 進頁時快取若已過期會重抓：那次重抓回來前不初始化表單（維持載入中）。不然表單會先填快取裡的舊設定，
+     之後的新資料又被「只初始化一次」略過，存檔時把別的管理員剛改的設定整份蓋回去。
+     重抓失敗時仍用手上的資料；5 秒內回到頁面不會重抓，快取就夠新 */
+  const configReady = configQuery.data !== undefined && !(configQuery.isFetching && !configQuery.isFetchedAfterMount);
   useEffect(() => {
-    if (loaded || configQuery.data === undefined) return;
+    if (loaded || !configReady) return;
     const next = buildFormFromConfig(configQuery.data);
     setForm(next);
     setBaseline(next);
     setLoaded(true);
-  }, [loaded, configQuery.data]);
+  }, [loaded, configReady, configQuery.data]);
 
   /* 載入失敗照舊只提示，不擋表單 */
   const loadError = configQuery.error;

@@ -18,6 +18,7 @@ import {
 import { downloadBlob } from "../../../services/api";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { TemplateStatusBadge } from "./TemplateBadges";
 import TemplateCloneDialog from "./TemplateCloneDialog";
@@ -45,11 +46,14 @@ function ManualDialog({ template, closing = false, onClose }) {
      已有資料時背景重抓失敗沿用原清單 */
   const attachmentsQuery = useTemplateAttachmentsQuery(template.id);
   const attachmentsData = attachmentsQuery.data;
-  const attachmentsError = attachmentsData === undefined && attachmentsQuery.isError ? attachmentsQuery.error : null;
+  /* 首載失敗後切回視窗的重試期間仍算失敗（不閃回載入中）；依訊息字串觸發，同一個錯誤只提示一次 */
+  const attachmentsLoadError = useLoadError(attachmentsQuery).error;
+  const attachmentsError = attachmentsData === undefined ? attachmentsLoadError : null;
   const attachments = attachmentsData ?? (attachmentsError ? NO_ATTACHMENTS : null);
+  const attachmentsErrorMessage = attachmentsError ? attachmentsError.message ?? t("Error.generic", { ns: "common" }) : null;
   useEffect(() => {
-    if (attachmentsError) toast.error(attachmentsError.message ?? t("Error.generic", { ns: "common" }));
-  }, [attachmentsError, toast, t]);
+    if (attachmentsErrorMessage) toast.error(attachmentsErrorMessage);
+  }, [attachmentsErrorMessage, toast]);
 
   const handleDownload = async (attachment) => {
     setDownloadingId(attachment.id);
@@ -395,7 +399,9 @@ export default function TemplatesPage() {
   const templateCache = useTemplateCacheUpdater();
   const templatesData = templatesQuery.data;
   const templatesFailure = templatesQuery.isError ? templatesQuery.error : null;
-  const templates = templatesData ?? (templatesFailure ? NO_TEMPLATES : null);
+  /* 「首載失敗」看 useLoadError：沒資料時 v5 每次重試都把 isError 清掉，直接看它會在重試期間閃回整頁載入中 */
+  const templatesLoadError = useLoadError(templatesQuery).error;
+  const templates = templatesData ?? (templatesLoadError ? NO_TEMPLATES : null);
   useEffect(() => {
     if (templatesFailure) toast.error(templatesFailure.message ?? t("Error.generic", { ns: "common" }));
   }, [templatesFailure, toast, t]);

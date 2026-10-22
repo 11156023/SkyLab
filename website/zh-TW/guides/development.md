@@ -81,7 +81,10 @@ Vite dev server 會把 `/api` 與 `/ws` 代理到 `http://localhost:8000`；要�
 - 頁面放在 `src/pages/<分類>/<功能>/XxxPage.jsx`，旁邊配同名 `.module.scss`。
 - 沒有自動生成的 API client。每個端點在 `src/services/*.js` 都有手寫函式，建立在 `src/services/api.js` 的 `apiGet/apiPost/...`（帶 token、401 自動 refresh）之上，並附 Vitest mock 測試。頁面不直接呼叫 `fetch`。
 - 所有頁面讀伺服器資料都走 `src/queries/*.js` 的 TanStack Query hook（一個領域一個檔，每個 hook 包一個 service 函式，自己管 query key 與輪詢間隔）。全站預設在 `src/queries/queryClient.js`：不重試、5 秒內視為新鮮、分頁隱藏時暫停輪詢。寫入仍直接呼叫 service，完成後用 `use…CacheUpdater` 就地改快取或讓該 key 過期重抓。事件處理裡需要當下的伺服器狀態時，呼叫 `queryClient.fetchQuery({ ...xxxQueryOptions(), staleTime: 0 })`，結果也會寫進共用快取。
-- 載入與錯誤畫面一律用 `src/hooks/useQueryLoadState.js` 的 `useQueryView`、`useLoadError`、`useQueryErrorEffect`。不要用 `isError && !isFetching` 推導錯誤畫面：沒有資料時 TanStack Query v5 每次重抓都會把狀態改回 pending，那種寫法的錯誤畫面會在每次背景重試時閃回載入中。
+- 載入與錯誤畫面一律用 `src/hooks/useQueryLoadState.js` 的 `useQueryView`、`useLoadError`、`useQueryErrorEffect`。不要用 `isPending`、`isError` 或 `data === undefined && isError` 推導載入與錯誤狀態：沒有資料時 TanStack Query v5 每次重抓都會把狀態改回 pending、清掉 error，畫面會在每次背景重試（輪詢、切回視窗）時閃回載入中，依它觸發的 toast 也會每次重跳。
+- 失敗提示的 toast 依賴 `useLoadFailureMessage(query, 預設訊息)` 回傳的訊息字串，不要依賴錯誤物件（每次失敗都是新物件）。同一串失敗只提示一次，成功過一次之後再失敗才會再提示。
+- 全站預設切回視窗會重抓。原本只在進頁與自己寫入後才讀取的查詢（設定表單、經 SSH 讀的 Gateway 狀態、單台機器的各種清單）要設 `refetchOnWindowFocus: false`。只初始化一次的表單要等進頁那次重抓結束（`isFetchedAfterMount`）才填值，不可以從快取裡的舊值開始。
+- 拆成多支查詢的資料不會自己保持一致：一支的輪詢條件取決於另一支的資料時，狀態一變就要重抓被影響的那支。`setQueryData` 一定要在 `await cancelQueries(...)` 之後，否則在途的背景重抓會蓋掉剛寫入的值。以位置指定項目的清單操作（防火牆規則）在清單重抓期間要停用，確認視窗按下確認後也要再核對一次那一項。
 - 頁面測試用 `src/queries/testing.jsx` 的 `withQueryClient` 包元件。查詢結果是存取追蹤的，要斷言的欄位必須在 render 期間讀過；TanStack Query 以 macrotask 通知，斷言前要先等一個 timer tick。
 - React Compiler 在建置時執行（`vite.config.js` 以 `@rolldown/plugin-babel` 掛 `reactCompilerPreset`），新元件不必再手寫 `useMemo`／`useCallback`。違反 hooks 規則的元件會被整個略過，不會壞掉。在 render 期間讀可變實例的程式（例如 TanStack Virtual）要以 `"use no memo"` 退出。
 - 所有 `<table>` 都用 TanStack Table v9，經 `src/components/DataTable`（`DataTable`、`DataTableHead`、`DataTableCells`，以及 `features.js` 的 `baseFeatures`／`sortableFeatures`）建立。欄位定義放在模組層級：v9 的 `FlexRender` 會把任何函式型的 `cell` 當成元件掛載，在 render 裡建立欄位的話，每次 render 每一格都會重新掛載。儲存格是元件，可以直接用 hook；頁面層級的處理函式經 `useTable({ meta })` 傳進去。列本身有互動狀態時保留列元件，由它自己畫 `<tr>`，再用 `<DataTableCells row={row} rowState={…} />` 把狀態交給各欄的儲存格。輸出的 DOM 與手寫表格相同，風格指南的表格 mixin 照常適用。

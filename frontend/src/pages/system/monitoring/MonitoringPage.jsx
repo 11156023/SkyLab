@@ -14,6 +14,7 @@ import usePersistedToggle from "./usePersistedToggle";
 import { MonitoringService } from "../../../services/monitoring";
 import { useAlertsQuery, useMonitoringCacheUpdater, useNodeRrdQuery } from "../../../queries/monitoring";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import usePveOverview from "../../../hooks/usePveOverview";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { formatDateTime, formatTime } from "../../../utils/formatDate";
@@ -99,9 +100,11 @@ function NodeTrends({ node }) {
   ];
   const rrdQuery = useNodeRrdQuery(node, NODE_TRENDS_TIMEFRAME, { refetchInterval: NODE_TRENDS_REFRESH_INTERVAL });
   /* 首次就抓不到時當作沒有趨勢資料（同原本）；背景刷新失敗沿用上一份圖表 */
+  /* 首載失敗看 useLoadError（沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，看 isError 會在背景重試時閃回載入中） */
+  const rrdLoadError = useLoadError(rrdQuery).error;
   const data = rrdQuery.data !== undefined
     ? mapNodeRrd(rrdQuery.data)
-    : rrdQuery.isError ? EMPTY : null;
+    : rrdLoadError ? EMPTY : null;
 
   if (data === null) {
     return <LoadingState text={t("MonitoringPage.loadingTrends")} />;
@@ -145,9 +148,11 @@ export function AlertsCard({ onCountChange }) {
      背景刷新失敗沿用上一份清單 */
   const alertsQuery = useAlertsQuery(ACTIVE_ALERTS_PARAMS);
   const monitoringCache = useMonitoringCacheUpdater();
+  /* 首載失敗看 useLoadError（沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，看 isError 會在背景重試時閃回載入中） */
+  const alertsLoadError = useLoadError(alertsQuery).error;
   const alerts = alertsQuery.data !== undefined
     ? alertsQuery.data ?? EMPTY
-    : alertsQuery.isError ? EMPTY : null;
+    : alertsLoadError ? EMPTY : null;
 
   /* 分頁角標要顯示筆數，載入後回報給頁面 */
   useEffect(() => {

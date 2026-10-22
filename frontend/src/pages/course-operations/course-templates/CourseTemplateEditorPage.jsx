@@ -23,6 +23,7 @@ import { focusInvalidField } from "../../../utils/focusField";
 import { joinList } from "../../../utils/joinList";
 import { uploadSequentially } from "../../../utils/uploadSequentially";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -682,15 +683,20 @@ export default function CourseTemplateEditorPage() {
     ? t("CourseTemplateEditorPage.templatesProcessingNotice")
     : templatesState === "failed" ? t("CourseTemplateEditorPage.templatesFailedNotice") : "";
   /* VM 範本讀不到時說明寫在來源區塊（比範本處理中的提示優先），LXC 映像與 PVE 範本讀不到用 toast */
-  const vmImagesError = vmImagesQuery.data === undefined && vmImagesQuery.isError
-    ? vmImagesQuery.error?.message ?? t("CourseTemplateEditorPage.loadImagesFailed")
+  /* 三份來源清單的首載失敗看 useLoadError：沒資料時 v5 每次重抓（切回視窗）都清掉 error，
+     看 isError 的提示會先消失再出現，同一個錯誤每次切回視窗都再跳一次 */
+  const vmImagesLoadError = useLoadError(vmImagesQuery).error;
+  const lxcImagesLoadError = useLoadError(lxcImagesQuery).error;
+  const templatesLoadError = useLoadError(templatesQuery).error;
+  const vmImagesError = vmImagesLoadError
+    ? vmImagesLoadError?.message ?? t("CourseTemplateEditorPage.loadImagesFailed")
     : "";
   const sourceNotice = vmImagesError || templatesNotice;
-  const lxcImagesErrorMessage = lxcImagesQuery.data === undefined && lxcImagesQuery.isError
-    ? lxcImagesQuery.error?.message ?? t("CourseTemplateEditorPage.loadImagesFailed")
+  const lxcImagesErrorMessage = lxcImagesLoadError
+    ? lxcImagesLoadError?.message ?? t("CourseTemplateEditorPage.loadImagesFailed")
     : null;
-  const templatesErrorMessage = templatesQuery.data === undefined && templatesQuery.isError
-    ? templatesQuery.error?.message ?? t("CourseTemplateEditorPage.loadTemplatesFailedFallback")
+  const templatesErrorMessage = templatesLoadError
+    ? templatesLoadError?.message ?? t("CourseTemplateEditorPage.loadTemplatesFailedFallback")
     : null;
 
   useAiScreen(templateId ? "course-template-editor" : "course-template-new", {

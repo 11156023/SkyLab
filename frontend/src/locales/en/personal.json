@@ -1245,6 +1245,7 @@
   "FirewallCard.ruleDeleted": "Rule deleted",
   "FirewallCard.saveFailed": "Failed to save the rule",
   "FirewallCard.deleteFailed": "Failed to delete the rule",
+  "FirewallCard.rulesChanged": "The rule list has changed. Check it and try again.",
   "BootOptionsCard.title": "Boot options",
   "BootOptionsCard.loading": "Loading boot options…",
   "BootOptionsCard.saveFailed": "Failed to save boot options",

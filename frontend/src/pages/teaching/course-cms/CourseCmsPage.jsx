@@ -9,7 +9,7 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
-import { useLoadError } from "../../../hooks/useQueryLoadState";
+import { useLoadError, useQueryView } from "../../../hooks/useQueryLoadState";
 import { AuthStorage } from "../../../services/auth";
 import { connectReconnectingWebSocket } from "../../../utils/reconnectingWebSocket";
 import {
@@ -221,7 +221,8 @@ export default function CourseCmsPage() {
      讀不到就當成空清單（與原本相同，不提示） */
   const pathsQuery = useAdminCoursePathsQuery({ refetchInterval: false });
   const paths = pathsQuery.data ?? EMPTY;
-  const pathsLoading = pathsQuery.data === undefined && (pathsQuery.isPending || pathsQuery.isFetching);
+  /* 首載失敗後切回視窗重抓時不閃回載入中（沒資料時 v5 每次重抓（切回視窗）都把 status 改回 pending、清掉 error） */
+  const pathsLoading = useQueryView(pathsQuery).loading;
   const classesQuery = useTeachingClassesQuery({ refetchInterval: false });
   const teachingClasses = classesQuery.data ?? EMPTY;
   const courseAdminCache = useCourseAdminCacheUpdater();

@@ -62,6 +62,8 @@ export function useGatewayServiceStatusQuery(service, { enabled = Boolean(servic
     queryFn: () => GatewayService.getServiceStatus(service),
     enabled,
     refetchInterval,
+    /* 只在進分頁、操作後與按重新載入時抓（同原本）：每次都要經 SSH 問 Gateway，連不上時切回視窗重抓會把整塊換成轉圈、重跳錯誤 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -72,6 +74,8 @@ export function useWireGuardOverviewQuery({ enabled = true, refetchInterval = LI
     queryFn: () => GatewayService.getWireGuardOverview(),
     enabled,
     refetchInterval,
+    /* 只在進分頁、操作後與按重新載入時抓（同原本）：每次都要經 SSH 問 Gateway，連不上時切回視窗重抓會把整塊換成轉圈、重跳錯誤 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -105,6 +109,8 @@ export function useGatewayInstallStatusQuery({ enabled = true, refetchInterval }
     queryFn: () => GatewayService.getInstallStatus(),
     enabled,
     refetchInterval: refetchInterval ?? ((query) => installPollInterval(query.state.data)),
+    /* 安裝中靠輪詢追進度；其餘只在進分頁、操作後與按重新整理時抓（同原本），讀不到時切回視窗不會整塊閃成轉圈 */
+    refetchOnWindowFocus: false,
   });
 }
 

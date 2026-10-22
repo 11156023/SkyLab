@@ -10,6 +10,7 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { useCourseEnvironmentCacheUpdater, useCourseEnvironmentsQuery } from "../../../queries/courseEnvironments";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import styles from "../CourseOperations.module.scss";
 import { environmentSpecs } from "../nodeSpecs";
@@ -125,10 +126,12 @@ export default function CourseTemplateManagementPage() {
   const templatesQuery = useCourseEnvironmentsQuery();
   const envCache = useCourseEnvironmentCacheUpdater();
   const templates = templatesQuery.data ?? EMPTY;
-  const loading = templatesQuery.data === undefined && (templatesQuery.isPending || templatesQuery.isFetching);
-  /* 依訊息字串觸發：還沒有資料時輪詢重試又失敗，訊息相同就不重複提示 */
-  const loadFailedMessage = templatesQuery.data === undefined && templatesQuery.isError
-    ? templatesQuery.error?.message ?? t("Error.generic", { ns: "common" })
+  /* 用 useQueryView：首載失敗後的輪詢重試期間仍算失敗，表格不閃回載入中，同一個錯誤只提示一次
+     （沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error） */
+  const templatesView = useQueryView(templatesQuery);
+  const loading = templatesView.loading;
+  const loadFailedMessage = templatesView.error
+    ? templatesView.error?.message ?? t("Error.generic", { ns: "common" })
     : null;
   useEffect(() => {
     if (loadFailedMessage) toast.error(loadFailedMessage);

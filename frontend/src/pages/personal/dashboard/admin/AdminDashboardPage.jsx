@@ -54,6 +54,16 @@ function alertRowsOf(response) {
   return response?.data ?? NO_ALERTS;
 }
 
+/* 待辦來源的狀態不看 isPending／isError：沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，
+   一直失敗的來源會讓待辦區每 30 秒閃回「檢查中」、「資料不完整」也跟著消失。errorUpdateCount 重抓時不會歸零 */
+function neverSettled(query) {
+  return query.data === undefined && query.errorUpdateCount === 0;
+}
+
+function failing(query) {
+  return query.data === undefined ? query.errorUpdateCount > 0 : query.isError;
+}
+
 export default function AdminDashboardPage() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
@@ -88,8 +98,8 @@ export default function AdminDashboardPage() {
   ];
   /* 首次載入要等每個來源都有結果（成功或失敗）才顯示待辦，同原本 allSettled；
      之後背景重抓（包含持續失敗的來源在重試）都不回到「檢查中」。
-     用 filter 不用 some：結果物件是存取追蹤的，每支查詢的 isPending 都要在 render 時讀到 */
-  const loading = checkQueries.filter((query) => query.isPending).length > 0;
+     用 filter 不用 some：結果物件是存取追蹤的，每支查詢用到的欄位都要在 render 時讀到 */
+  const loading = checkQueries.filter(neverSettled).length > 0;
   const checks = {
     requests: countRows(vmRequestsQuery.data) + countRows(specRequestsQuery.data),
     batches: countRows(batchesQuery.data),
@@ -97,7 +107,7 @@ export default function AdminDashboardPage() {
     failedJobs: countRows(failedJobsQuery.data),
     alerts: alertRowsOf(alertsQuery.data),
     miningIncidents: countRows(detectedMiningQuery.data) + countRows(suspendedMiningQuery.data),
-    unavailable: checkQueries.filter((query) => query.isError).length,
+    unavailable: checkQueries.filter(failing).length,
   };
 
   /* 即時異常與未解除告警的門檻判斷共用同一組設定，兩邊都列會讓同一台機器

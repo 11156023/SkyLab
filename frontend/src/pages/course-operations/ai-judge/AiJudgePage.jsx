@@ -9,6 +9,7 @@ import { useClassStudentsQuery } from "../../../queries/classroom";
 import { useTeachingClassQuery } from "../../../queries/teachingClasses";
 import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import AiJudgePanel from "../class-workspace/AiJudgePanel";
 import ClassWorkflowStepper from "../class-workspace/ClassWorkflowStepper";
 import styles from "../CourseOperations.module.scss";
@@ -108,12 +109,14 @@ export default function AiJudgePage() {
     select: toAiJudgeMembers,
   });
   const members = membersQuery.data ?? EMPTY;
-  /* 只有第一次載入顯示載入中：首載失敗後的輪詢重試不可把 AiJudgePanel 換成載入畫面（會清掉面板狀態） */
-  const membersLoading = membersActive && membersQuery.isPending && membersQuery.isFetching;
+  /* 只有第一次載入顯示載入中：首載失敗後的輪詢重試不可把 AiJudgePanel 換成載入畫面（會清掉面板狀態）。
+     沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，所以用 useQueryView：失敗後重試期間仍算失敗 */
+  const membersView = useQueryView(membersQuery);
+  const membersLoading = membersActive && membersView.loading;
   /* 讀不到學生機器不能默默當成沒有機器：核查會少掉學生姓名與機器，老師要知道是載入失敗。
      依訊息字串觸發，輪詢重試又失敗時訊息相同就不重複提示 */
-  const membersFailedMessage = membersActive && membersQuery.data === undefined && membersQuery.isError
-    ? membersQuery.error?.message ?? t("Error.generic", { ns: "common" })
+  const membersFailedMessage = membersActive && membersView.error
+    ? membersView.error?.message ?? t("Error.generic", { ns: "common" })
     : null;
   useEffect(() => {
     if (membersFailedMessage) toast.error(membersFailedMessage);

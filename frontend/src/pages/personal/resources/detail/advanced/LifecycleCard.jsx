@@ -3,7 +3,7 @@
  * 固定顯示到期日、自動關機、閒置偵測與預定刪除，並提供「申請延長到期日」（走管理員審核）。
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
@@ -101,6 +101,14 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
   const openRequest = (myRequests ?? []).find(
     (r) => r.vmid === vmid && r.change_type === "expiry" && r.status === "pending",
   ) ?? null;
+  /* 待審的延期申請有了結果（核准、拒絕或撤回）就重抓機器資料：申請清單每 30 秒背景刷新，機器資料不會，
+     核准後提示消失、申請鈕亮起，到期日卻還是舊的。核准是立即生效，到期日要跟著換 */
+  const openRequestId = openRequest?.id ?? null;
+  const waitingRequestRef = useRef(openRequestId);
+  useEffect(() => {
+    if (waitingRequestRef.current !== null && openRequestId !== waitingRequestRef.current) onChanged?.();
+    waitingRequestRef.current = openRequestId;
+  }, [openRequestId, onChanged]);
 
   async function handleSubmit({ requested_expiry_date, reason }) {
     setBusy(true);
@@ -136,7 +144,7 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
     try {
       /* 回來的是撤回後的申請（已結案）：就地換掉，提示列隨即消失 */
       const cancelled = await SpecChangeRequestsService.cancel(openRequest.id);
-      if (cancelled?.id != null) requestCache.update(cancelled);
+      if (cancelled?.id != null) await requestCache.update(cancelled);
       else await requestCache.invalidate();
       toast.success(t("LifecycleCard.requestCancelled"));
       onChanged?.();

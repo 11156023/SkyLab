@@ -10,6 +10,7 @@ import { GpuService } from "../../../services/gpu";
 import { useGpuCacheUpdater, useGpuMappingsQuery } from "../../../queries/gpu";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
@@ -393,11 +394,13 @@ export default function GpuMgmtPage() {
   const gpuCache = useGpuCacheUpdater();
   const mappingsData = mappingsQuery.data;
   const rows = useMemo(() => flattenMappings(mappingsData?.data ?? []), [mappingsData]);
-  /* 只有第一次載入時顯示載入畫面；首載失敗後顯示空清單（與原本相同），輪詢重試時不閃回載入畫面 */
-  const loading = mappingsData === undefined && mappingsQuery.isPending;
+  /* 只有第一次載入時顯示載入畫面；首載失敗後顯示空清單（與原本相同），輪詢重試時不閃回載入畫面。
+     沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，所以用 useQueryView（重試期間仍算失敗） */
+  const mappingsView = useQueryView(mappingsQuery);
+  const loading = mappingsView.loading;
   /* 依訊息字串觸發：還沒有資料時輪詢重試又失敗，訊息相同就不重複提示 */
-  const loadFailedMessage = mappingsData === undefined && mappingsQuery.isError
-    ? mappingsQuery.error?.message ?? t("Error.generic", { ns: "common" })
+  const loadFailedMessage = mappingsView.error
+    ? mappingsView.error?.message ?? t("Error.generic", { ns: "common" })
     : null;
   useEffect(() => {
     if (loadFailedMessage) toast.error(loadFailedMessage);

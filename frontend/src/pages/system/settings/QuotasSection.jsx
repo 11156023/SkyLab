@@ -13,7 +13,7 @@ import { useGlobalQuotaQuery, useQuotaCacheUpdater, useQuotasQuery } from "../..
 import { useAllUsersQuery } from "../../../queries/users";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
-import { useLoadError } from "../../../hooks/useQueryLoadState";
+import { useLoadError, useLoadFailureMessage, useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 import { formatDateTime } from "../../../utils/formatDate";
@@ -31,10 +31,6 @@ const PICKER_MAX_ROWS = 50;
 
 const EMPTY = Object.freeze([]);
 
-/* 目前該提示的讀取錯誤：還沒有資料時用 useLoadError 的錯誤（重抓期間不清空）；已有資料時就是 query.error */
-function currentLoadError(query, load) {
-  return query.data === undefined ? load.error : query.error;
-}
 
 /** 上限顯示：0 = 無限制。 */
 function fmtLimit(value, t, unit = "") {
@@ -473,19 +469,21 @@ export default function QuotasSection() {
   const usersQuery = useAllUsersQuery({ refetchInterval: false });
   const quotaCache = useQuotaCacheUpdater();
   /* 載入失敗：提示一次，覆寫清單改顯示空狀態（與原本相同），全域卡片沒資料就不顯示。
-     從沒載到就失敗時錯誤取自 useLoadError：重抓期間維持空狀態、不閃回載入中，提示也不會因為
-     error 先清空再變回來而重跳；已有資料時 TanStack 重抓不會清掉錯誤，照原本直接看 error */
+     從沒載到就失敗時看 useLoadError：重抓期間維持空狀態、不閃回載入中 */
   const quotasLoad = useLoadError(quotasQuery);
-  const globalLoad = useLoadError(globalQuery);
   const quotas = quotasQuery.data ?? (quotasLoad.error ? EMPTY : null);
   const globalQuota = globalQuery.data ?? null;
-  const loadError = currentLoadError(quotasQuery, quotasLoad) ?? currentLoadError(globalQuery, globalLoad);
+  /* 提示依訊息字串觸發（useLoadFailureMessage）：同一串失敗（含切回視窗重抓又失敗）只提示一次，成功過再失敗才再提示 */
+  const quotasFailedMessage = useLoadFailureMessage(quotasQuery, t("Error.generic", { ns: "common" }));
+  const globalFailedMessage = useLoadFailureMessage(globalQuery, t("Error.generic", { ns: "common" }));
+  const loadFailedMessage = quotasFailedMessage ?? globalFailedMessage;
   useEffect(() => {
-    if (loadError) toast.error(loadError?.message ?? t("Error.generic", { ns: "common" }));
-  }, [loadError, toast, t]);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
   /* 使用者清單失敗照舊靜默（挑選器變空清單） */
   const users = usersQuery.data ?? EMPTY;
-  const loadingUsers = usersQuery.data === undefined && (usersQuery.isPending || usersQuery.isFetching);
+  /* 首載失敗後切回視窗重抓時挑選器不閃回載入中（沒資料時 v5 每次重抓（切回視窗）都把 status 改回 pending、清掉 error） */
+  const loadingUsers = useQueryView(usersQuery).loading;
 
   const candidates = useMemo(() => {
     const taken = new Set((quotas ?? []).map((q) => q.user_id));

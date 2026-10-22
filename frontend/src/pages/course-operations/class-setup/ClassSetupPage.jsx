@@ -29,6 +29,7 @@ import { capacityNodeRows, mbToGb } from "../capacityFormat";
 import styles from "./ClassSetupPage.module.scss";
 import useAiScreen from "../../../hooks/useAiScreen";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useUnsavedChanges, useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
 
@@ -165,8 +166,11 @@ export default function ClassSetupPage() {
   const publishedQuery = usePublishedCourseEnvironmentsQuery();
   const templates = publishedQuery.data ?? EMPTY;
   const templatesLoaded = publishedQuery.data !== undefined;
-  const templatesErrorMessage = !templatesLoaded && publishedQuery.isError
-    ? publishedQuery.error?.message ?? t("ClassSetupPage.loadTemplatesFailed")
+  /* 首載失敗看 useLoadError：沒資料時 v5 每次重抓（切回視窗）都清掉 error，訊息會先變 null 再回來，
+     同一個錯誤每次切回視窗都再跳一次 */
+  const templatesLoadError = useLoadError(publishedQuery).error;
+  const templatesErrorMessage = templatesLoadError
+    ? templatesLoadError?.message ?? t("ClassSetupPage.loadTemplatesFailed")
     : null;
 
   function markInvalid(key, ref) {

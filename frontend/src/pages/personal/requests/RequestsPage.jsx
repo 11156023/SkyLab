@@ -614,7 +614,12 @@ export default function RequestsPage() {
   const specCache = useSpecChangeRequestCacheUpdater();
   /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料。
      錯誤畫面在背景重試期間不閃回 skeleton，按重試才回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
-  const { loading, error, retry: retryRequests } = useQueryView(requestsQuery);
+  const requestsView = useQueryView(requestsQuery);
+  const specView = useQueryView(specQuery);
+  const { error, retry: retryRequests } = requestsView;
+  /* 主列表是空的時，規格調整清單第一次有結果（或失敗）之前也算載入中：不然沒有 VM 申請、只有延期／規格調整
+     申請的人會先看到「還沒有任何申請」（規格調整清單要問 PVE，常晚好幾秒才回來） */
+  const loading = requestsView.loading || (!error && requests.length === 0 && specView.loading);
   const requestTable = useTable({
     features: baseFeatures,
     columns: REQUEST_COLUMNS,
@@ -637,11 +642,11 @@ export default function RequestsPage() {
   }, [location.key, location.state?.create, location.state?.prefill]);
 
   function handleUpdated(updated) {
-    requestCache.update(updated);
+    return requestCache.update(updated);
   }
 
   function handleSpecUpdated(updated) {
-    specCache.update(updated);
+    return specCache.update(updated);
   }
 
   function retryLoad() {

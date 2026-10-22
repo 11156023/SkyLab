@@ -359,7 +359,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   /* 學生看到的是「全部可見」的應用範本目錄，不是完整母範本清單 */
   const catalog = isPrivileged ? EMPTY : asArray(catalogQuery.data?.data);
   const sysTemplates = useMemo(
-    () => (isPrivileged ? asArray(sysTemplatesQuery.data?.data) : catalogLxcTemplates(catalog)),
+    () => (isPrivileged ? asArray(sysTemplatesQuery.data) : catalogLxcTemplates(catalog)), // 快取存的是範本陣列（queries/templates.js）
     [isPrivileged, sysTemplatesQuery.data, catalog],
   );
   const lxcLoading = lxcView.loading;

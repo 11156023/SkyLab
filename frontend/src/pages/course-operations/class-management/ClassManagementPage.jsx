@@ -7,6 +7,7 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { useTeachingClassCacheUpdater, useTeachingClassesQuery } from "../../../queries/teachingClasses";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -117,10 +118,12 @@ export default function ClassManagementPage() {
   const classesQuery = useTeachingClassesQuery({ select: selectClasses });
   const classCache = useTeachingClassCacheUpdater();
   const classes = classesQuery.data ?? EMPTY;
-  const loading = classesQuery.data === undefined && (classesQuery.isPending || classesQuery.isFetching);
-  /* 依訊息字串觸發：還沒有資料時輪詢重試又失敗，訊息相同就不重複提示 */
-  const loadFailedMessage = classesQuery.data === undefined && classesQuery.isError
-    ? classesQuery.error?.message ?? t("Error.generic", { ns: "common" })
+  /* 沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error：用 useQueryView，首載失敗後的輪詢重試
+     期間仍算失敗，不閃回整頁載入中；錯誤訊息在重試期間不變，同一個錯誤只提示一次 */
+  const classesView = useQueryView(classesQuery);
+  const loading = classesView.loading;
+  const loadFailedMessage = classesView.error
+    ? classesView.error?.message ?? t("Error.generic", { ns: "common" })
     : null;
   useEffect(() => {
     if (loadFailedMessage) toast.error(loadFailedMessage);

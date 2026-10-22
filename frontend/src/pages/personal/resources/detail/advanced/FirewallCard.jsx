@@ -242,6 +242,9 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   const loading = firstLoading(topologyQuery) || firstLoading(rulesQuery) || firstLoading(optionsQuery);
   /* 規則、選項、迷你拓撲一起重抓（在途的舊請求會被取消） */
   const load = () => firewallCache.invalidateVm(vmid);
+  /* 停用／刪除是用規則的位置（pos）指定的：清單重抓中畫面上的位置可能已經位移（例如剛建了連線、
+     受管規則插在前面），等新清單回來才能操作，不然會改到或刪到別條規則 */
+  const rulesRefreshing = rulesQuery.isFetching;
 
   const thisVmName = topology?.nodes?.find((n) => n.vmid === vmid)?.name;
 
@@ -254,6 +257,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   }
 
   async function handleToggle(rule) {
+    if (rulesRefreshing) return;
     setBusy(true);
     try {
       await updateVmRule(vmid, rule.pos, { enable: rule.enable === 0 ? 1 : 0 });
@@ -272,6 +276,13 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
       danger: true,
     });
     if (!ok) return;
+    /* 確認視窗開著時清單可能已重抓，同一個位置已不是同一條：按下確認時再對一次 */
+    const latest = firewallCache.getVmRules(vmid) ?? [];
+    const current = latest.find((item) => item.pos === rule.pos);
+    if (!current || JSON.stringify(current) !== JSON.stringify(rule)) {
+      toast.error(t("FirewallCard.rulesChanged"));
+      return;
+    }
     setBusy(true);
     try {
       await deleteVmRule(vmid, rule.pos);
@@ -369,7 +380,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                       key={row.id}
                       row={row}
                       rule={row.original}
-                      busy={busy}
+                      busy={busy || rulesRefreshing}
                       showActions={showActionsCol}
                       onToggle={handleToggle}
                       onDelete={handleDelete}

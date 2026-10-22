@@ -12,6 +12,7 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import { MiningIncidentsService } from "../../../services/miningIncidents";
 import { useMiningIncidentCacheUpdater, useMiningIncidentsQuery } from "../../../queries/miningIncidents";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { formatDateTime } from "../../../utils/formatDate";
@@ -217,9 +218,11 @@ export default function MiningIncidentsPanel({ onCountChange }) {
      背景刷新失敗沿用上一份清單 */
   const incidentsQuery = useMiningIncidentsQuery();
   const incidentCache = useMiningIncidentCacheUpdater();
+  /* 首載失敗看 useLoadError（沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，看 isError 會在背景重試時閃回載入中） */
+  const incidentsLoadError = useLoadError(incidentsQuery).error;
   const incidents = incidentsQuery.data !== undefined
     ? incidentsQuery.data ?? EMPTY
-    : incidentsQuery.isError ? EMPTY : null;
+    : incidentsLoadError ? EMPTY : null;
 
   const open = (incidents ?? []).filter((i) => isOpenIncident(i.status));
   const closed = (incidents ?? []).filter((i) => !isOpenIncident(i.status));

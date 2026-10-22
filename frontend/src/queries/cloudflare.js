@@ -26,6 +26,8 @@ export function useCloudflareZonesQuery(params, { enabled = true } = {}) {
     queryFn: () => CloudflareService.listZones(params),
     enabled,
     placeholderData: keepPreviousData,
+    /* 只在進頁與存連線設定後抓（同原本）：沒設定 Cloudflare 時清單一律 400，切回視窗重抓會讓空狀態閃成 zone 工作區 */
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -39,6 +41,8 @@ export function useCloudflareDnsRecordsQuery(zoneId, params, { enabled = Boolean
     queryKey: cloudflareKeys.dnsRecords(zoneId, params),
     queryFn: () => CloudflareService.listDnsRecords(zoneId, params),
     enabled,
+    /* 只在選 zone、搜尋與增刪改後抓（同原本），讀不到時切回視窗不閃回載入中 */
+    refetchOnWindowFocus: false,
   });
 }
 

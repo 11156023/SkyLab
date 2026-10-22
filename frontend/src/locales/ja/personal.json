@@ -1241,6 +1241,7 @@
   "FirewallCard.ruleDeleted": "規則を削除しました",
   "FirewallCard.saveFailed": "規則の保存に失敗しました",
   "FirewallCard.deleteFailed": "規則の削除に失敗しました",
+  "FirewallCard.rulesChanged": "ルール一覧が更新されました。内容を確認してからもう一度操作してください",
   "BootOptionsCard.title": "起動オプション",
   "BootOptionsCard.loading": "起動オプションを読み込み中…",
   "BootOptionsCard.saveFailed": "起動オプションの保存に失敗しました",

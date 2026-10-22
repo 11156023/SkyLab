@@ -50,5 +50,10 @@ export function useIpManagementCacheUpdater() {
     invalidate() {
       return queryClient.invalidateQueries({ queryKey: ipManagementKeys.all });
     },
+    /** 子網刪除成功後：快取改成「未設定」（後端 GET /subnet 此時回 null）；先取消在途的重抓，免得它把舊子網寫回來 */
+    async clearSubnet() {
+      await queryClient.cancelQueries({ queryKey: ipManagementKeys.subnet });
+      queryClient.setQueryData(ipManagementKeys.subnet, null);
+    },
   };
 }

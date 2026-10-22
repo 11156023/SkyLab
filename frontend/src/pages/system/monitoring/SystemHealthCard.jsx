@@ -6,6 +6,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
 import { baseFeatures } from "../../../components/DataTable/features";
 import { useSystemHealthQuery } from "../../../queries/monitoring";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import { formatDateTime } from "../../../utils/formatDate";
 import usePersistedToggle from "./usePersistedToggle";
 
@@ -152,7 +153,8 @@ export default function SystemHealthCard() {
   /* 30 秒背景刷新、分頁隱藏時不輪詢；背景失敗時沿用上一筆，只有還沒拿到資料才顯示錯誤 */
   const healthQuery = useSystemHealthQuery();
   const health = healthQuery.data ?? null;
-  const error = healthQuery.isError;
+  /* 還沒拿到資料時的失敗看 useLoadError（沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，看 isError 會在背景重試時閃回載入中） */
+  const error = Boolean(useLoadError(healthQuery).error);
 
   /* useTable 是 hook，要在下面「還沒拿到資料」的提早 return 之前呼叫，排序也跟著提前 */
   const tasks = health === null ? EMPTY : [...health.tasks].sort(

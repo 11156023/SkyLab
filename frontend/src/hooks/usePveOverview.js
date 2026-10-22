@@ -1,4 +1,5 @@
 import { usePveOverviewQuery } from "../queries/monitoring";
+import { useLoadError } from "./useQueryLoadState";
 
 /**
  * PVE 全域監控匯總。原本住在 PveOperationsQuickLook 裡，因為首頁改成
@@ -16,11 +17,15 @@ import { usePveOverviewQuery } from "../queries/monitoring";
  */
 export default function usePveOverview() {
   const query = usePveOverviewQuery();
+  /* 沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error：首次就失敗的話，直接看 isPending／isError
+     會在每次背景重試時閃回 loading。useLoadError 在重試期間維持失敗；reload 與原本相同，不回到 loading */
+  const loadError = useLoadError(query).error;
+  const hasData = query.data !== undefined;
   return {
     overview: query.data ?? null,
-    loading: query.isPending,
-    refreshing: query.data !== undefined && query.isFetching,
-    error: query.isError,
+    loading: !hasData && !loadError && (query.isPending || query.isFetching),
+    refreshing: hasData && query.isFetching,
+    error: hasData ? query.isError : Boolean(loadError),
     reload: query.refetch,
   };
 }

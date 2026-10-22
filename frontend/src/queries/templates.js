@@ -24,8 +24,10 @@ export function templatesPollInterval(list) {
     : LIST_REFRESH_INTERVAL;
 }
 
-/* 預設參數用模組層的函式（不寫成行內箭頭），React Compiler 才編得動這支 hook */
+/* 預設參數用模組層的函式（不寫成行內箭頭），React Compiler 才編得動這支 hook。
+   最近一次失敗時退回 30 秒：失敗時快取仍是舊清單（有建立中的範本），照 4 秒重試會每 4 秒跳一次錯誤 */
 function templatesRefetchInterval(query) {
+  if (query.state.status === "error") return LIST_REFRESH_INTERVAL;
   return templatesPollInterval(query.state.data);
 }
 

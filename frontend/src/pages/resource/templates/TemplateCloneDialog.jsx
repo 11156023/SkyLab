@@ -6,6 +6,7 @@ import Modal from "../../../components/Modal/Modal";
 import { TemplatesService } from "../../../services/templates";
 import { useGpuOptionsQuery } from "../../../queries/gpu";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 
 const CORE_MIN = 1;
 const MEMORY_MIN = 512;
@@ -48,12 +49,15 @@ export default function TemplateCloneDialog({ template, closing = false, onClose
   /* GPU 不可跨 PVE 連線：只列出與範本同叢集的 GPU。需要 GPU 的範本才抓（TanStack Query，不輪詢） */
   const gpuQuery = useGpuOptionsQuery(template?.node ? { node: template.node } : undefined, { enabled: needsGpu });
   const gpuData = gpuQuery.data;
-  const gpuFailure = needsGpu && gpuData === undefined && gpuQuery.isError ? gpuQuery.error : null;
+  /* 首載失敗後切回視窗的重試期間仍算失敗（不閃回載入中、不重複提示）：沒資料時 v5 每次重抓都清掉 isError */
+  const gpuLoadError = useLoadError(gpuQuery).error;
+  const gpuFailed = needsGpu && gpuData === undefined && Boolean(gpuLoadError);
   const gpuOptions = (needsGpu ? gpuData : undefined) ?? NO_GPU_OPTIONS;
-  const gpuLoading = needsGpu && gpuData === undefined && !gpuFailure;
+  const gpuLoading = needsGpu && gpuData === undefined && !gpuFailed;
+  const gpuFailedMessage = gpuFailed ? t("Error.generic", { ns: "common" }) : null;
   useEffect(() => {
-    if (gpuFailure) toast.error(t("Error.generic", { ns: "common" }));
-  }, [gpuFailure, toast, t]);
+    if (gpuFailedMessage) toast.error(gpuFailedMessage);
+  }, [gpuFailedMessage, toast]);
   const [gpuMappingId, setGpuMappingId] = useState("");
   const [gpuProfile, setGpuProfile] = useState("");
 

@@ -9,6 +9,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadFailureMessage, useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
 import { usePveConnectionsQuery, usePveNodesQuery, useProxmoxConfigCacheUpdater } from "../../../queries/proxmoxConfig";
@@ -643,18 +644,19 @@ export default function PveConnectionsPage() {
   const proxmoxCache = useProxmoxConfigCacheUpdater();
   const connections = connectionsQuery.data ?? EMPTY;
   const nodes = nodesQuery.data ?? EMPTY;
-  const loadingConnections = connectionsQuery.data === undefined && (connectionsQuery.isPending || connectionsQuery.isFetching);
-  const loadingNodes = nodesQuery.data === undefined && (nodesQuery.isPending || nodesQuery.isFetching);
+  /* 首載失敗後切回視窗重抓時不閃回轉圈、同一串失敗只提示一次（沒資料時 v5 每次重抓（切回視窗）都把 status 改回 pending、清掉 error） */
+  const loadingConnections = useQueryView(connectionsQuery).loading;
+  const loadingNodes = useQueryView(nodesQuery).loading;
 
   /* 載入失敗照舊只提示（畫面留在空清單） */
-  const connectionsError = connectionsQuery.error;
+  const connectionsFailedMessage = useLoadFailureMessage(connectionsQuery, t("SettingsPage.toastLoadConnectionsFailed"));
   useEffect(() => {
-    if (connectionsError) toast.error(connectionsError?.message ?? t("SettingsPage.toastLoadConnectionsFailed"));
-  }, [connectionsError, toast, t]);
-  const nodesError = nodesQuery.error;
+    if (connectionsFailedMessage) toast.error(connectionsFailedMessage);
+  }, [connectionsFailedMessage, toast]);
+  const nodesFailedMessage = useLoadFailureMessage(nodesQuery, t("SettingsPage.toastLoadNodesFailed"));
   useEffect(() => {
-    if (nodesError) toast.error(nodesError?.message ?? t("SettingsPage.toastLoadNodesFailed"));
-  }, [nodesError, toast, t]);
+    if (nodesFailedMessage) toast.error(nodesFailedMessage);
+  }, [nodesFailedMessage, toast]);
 
   /* 新增／刪除／同步連線都會動到節點清單（與 Storage），一起重抓 */
   const refreshAll = () => proxmoxCache.invalidateConnections();
