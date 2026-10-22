@@ -1356,15 +1356,21 @@ export default function AiApiPage() {
     if (requestsData === undefined) return;
     const nextRequests = requestsData?.data ?? [];
     const previous = requestStatusRef.current;
+    let approved = false;
     if (previous) {
       nextRequests.forEach((item) => {
         if (previous.get(item.id) !== "pending") return;
-        if (item.status === "approved") toast.success(t("AiApiPage.requestApprovedToast", { name: item.api_key_name }));
+        if (item.status === "approved") {
+          approved = true;
+          toast.success(t("AiApiPage.requestApprovedToast", { name: item.api_key_name }));
+        }
         if (item.status === "rejected") toast.error(t("AiApiPage.requestRejectedToast", { name: item.api_key_name }));
       });
     }
     requestStatusRef.current = new Map(nextRequests.map((item) => [item.id, item.status]));
-  }, [requestsData, toast, t]);
+    /* 核准會發新金鑰：金鑰的輪詢跟著待審數歸零而停，申請先抓回來時金鑰那份可能來不及重抓，這裡補抓一次 */
+    if (approved) aiCache.refreshMyCredentials();
+  }, [requestsData, toast, t, aiCache]);
 
   function retryLoad() {
     credentialsQuery.refetch();

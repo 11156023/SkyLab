@@ -129,6 +129,10 @@ export function useAiApiCacheUpdater() {
         refetchActive(queryClient, aiApiKeys.myCredentials, options),
       ]);
     },
+    /** 申請被核准時：會多一把新金鑰，背景補抓我的憑證（失敗保留畫面上的資料，同背景輪詢） */
+    refreshMyCredentials() {
+      return refetchActive(queryClient, aiApiKeys.myCredentials);
+    },
     /** 審核後：全部申請的各種篩選都重抓 */
     invalidateAllRequests(options) {
       return refetchActive(queryClient, ["aiApi", "allRequests"], options);

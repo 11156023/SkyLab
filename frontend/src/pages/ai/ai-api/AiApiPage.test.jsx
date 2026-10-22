@@ -261,4 +261,26 @@ describe("AiApiPage keys and requests", () => {
 
     expect(mocks.toast.success).toHaveBeenCalledTimes(1);
   });
+
+  test("an approval refetches my keys so the new key shows without another poll", async () => {
+    const approved = { ...pendingRequest, status: "approved" };
+    mocks.listMyRequests
+      .mockResolvedValueOnce({ data: [pendingRequest] })
+      .mockResolvedValue({ data: [approved] });
+    mocks.listMyCredentials
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValue({ data: [credential("new", "核准後的金鑰")] });
+
+    await renderPage();
+    await flush();
+
+    /* 申請先回來已核准：待審數歸零後金鑰不再輪詢，要靠核准當下補抓 */
+    await refetch(aiApiKeys.myRequests);
+    await flush();
+    await flush(); // 補抓在核准提醒的 effect 裡才送出，再等它回來
+
+    expect(mocks.toast.success).toHaveBeenCalledTimes(1);
+    expect(mocks.listMyCredentials).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain("核准後的金鑰");
+  });
 });
