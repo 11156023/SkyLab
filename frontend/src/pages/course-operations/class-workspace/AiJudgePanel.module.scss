@@ -716,7 +716,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 /* 固定序號與操作欄；檢查點拿 30%、檢測方式使用剩餘寬度，長內容在欄內換行。 */
 .rubricTable th:first-child,
 .rubricDetailToggleCell {
-  width: 68px;
+  width: 72px; /* 序號＋展開鈕＋左右內距；68 會讓展開鈕凸出 3px */
   padding-right: 4px;
   padding-left: $spacing-16;
   white-space: nowrap;

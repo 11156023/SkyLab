@@ -99,9 +99,11 @@
     color: var(--color-text-primary);
     font-variant-numeric: tabular-nums;
     line-height: 1.1;
-    white-space: nowrap;
 
+    /* 分母放不下時整塊換到下一行（數字大時「145/206」會超出三分之一張卡、蓋到隔壁欄） */
     em {
+      display: inline-block;
+      white-space: nowrap;
       font-size: $font-size-14;
       font-style: normal;
       font-weight: $font-weight-400;
