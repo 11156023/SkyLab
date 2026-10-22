@@ -3,9 +3,12 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateFormDialog from "../../resource/templates/TemplateFormDialog";
@@ -183,8 +186,10 @@ function CreatingRow({ request, onCancelled }) {
   </>;
 }
 
-/* ── Resource row ── */
-function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
+/* ── Resource row ──
+   機器列是 TanStack 的資料列：列元件擁有選單、操作中、主控台、轉範本的狀態並自己畫 <tr>，
+   儲存格由 RESOURCE_COLUMNS 的 cell 畫，狀態與處理函式經 rowState 交給它們 */
+function ResourceRow({ row, resource, onUpdated, onDeleted, onRefresh }) {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -206,10 +211,8 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
   const [consoleOpen, setConsoleOpen]      = useState(false);
   const [convertOpen, setConvertOpen]      = useState(false);
   const convertDialog = useDialogPresence(convertOpen);
-  const menuBtnRef = useRef(null);
   const closeMenu = () => setMenuOpen(false);
 
-  const type    = TYPE_MAP[resource.type] ?? { label: resource.type, icon: "computer" };
   const isLxc   = resource.type === "lxc";
   const canControl = resource.can_control !== false && resource.vmid != null && resource.vmid > 0;
   const isLive  = canControl && LIVE_STATUSES.has(resource.status);
@@ -301,90 +304,36 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
     navigate(`/my-resources/${resource.vmid}`);
   };
 
+  /* 儲存格要的狀態與處理函式；resource 一併放進來，列資料換了儲存格才會跟著重繪 */
+  const rowState = {
+    resource,
+    showVmid,
+    displayStatus,
+    isLive,
+    isLxc,
+    isFailedPlaceholder,
+    isStartFailure,
+    actionLoading,
+    failedAction,
+    menuOpen: menu.open,
+    menuClosing: menu.closing,
+    onToggleMenu: () => setMenuOpen((value) => !value),
+    onCloseMenu: closeMenu,
+    onOpenConsole: () => setConsoleOpen(true),
+    onControl: handleControl,
+    onDeleteClick: resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); },
+    onConvertTemplate: canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined,
+    onRebuild: handleRebuild,
+    onDiscardClick: resource.can_delete === false ? undefined : () => { closeMenu(); handleDiscardFailed(); },
+  };
+
   return <>
     <tr
       className={`${styles.tr} ${canOpenDetail ? styles.trClickable : ""}`}
       onClick={canOpenDetail ? openDetail : undefined}
       data-guide="resource-card"
     >
-      <td className={styles.td}>
-        <div className={styles.nameCell}>
-          <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
-          <div>
-            {/* 導覽的 performSelector 會點這裡；點擊沿用整列點擊的 openDetail */}
-            <strong data-guide="resource-open-detail">{resource.name}</strong>
-            <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
-          </div>
-        </div>
-      </td>
-      {/* 來源：個人申請／共享／班級／快速練習／課程 */}
-      <td className={styles.td}>
-        <MachineKindBadge
-          kind={resource.machine_kind}
-          classRelation={resource.class_relation}
-          ownerName={resource.owner_name ?? resource.owner_email}
-          teachingClassName={resource.teaching_class_name}
-        />
-      </td>
-      <td className={styles.td}><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></td>
-      <td className={styles.td}><StatusBadge status={displayStatus} /></td>
-      <td className={styles.td}>
-        <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
-        {/* 反向代理發布的對外網址：和環境機器列一樣直接可點，不必進詳情頁 */}
-        {(resource.public_urls ?? []).length > 0 && (
-          <div className={styles.publicUrlList}>
-            {resource.public_urls.map((url) => (
-              <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
-                <MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{url.replace(/^https?:\/\//, "")}</span>
-              </a>
-            ))}
-          </div>
-        )}
-      </td>
-      {/* 期限：有到期日照舊；沒有到期日但有申請的使用時段，顯示時段結束日（已結束標紅），不再誤寫「無期限」 */}
-      <td className={styles.td}>
-        {resource.expiry_date ? <ExpiryDateValue value={resource.expiry_date} />
-          : resource.window_end_at ? (
-            <span className={resource.start_blocked_reason === "window_ended" ? styles.periodEnded : undefined}>
-              {formatDate(resource.window_end_at)}
-              {resource.start_blocked_reason === "window_ended" && <small>{t("ResourceRow.windowEnded")}</small>}
-            </span>
-          ) : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>}
-      </td>
-      <td className={styles.td}>{resource.node ?? "—"}</td>
-      <td className={styles.td}>
-        {isLive ? <div className={styles.rowActions}>
-          <button type="button" className={styles.terminalBtn} disabled={resource.status !== "running" || Boolean(resource.start_blocked_reason)} title={resource.start_blocked_reason === "window_ended" ? t("ResourceRow.windowEnded") : resource.status === "starting" ? t("ResourceRow.consoleBootingTitle") : undefined} onClick={() => setConsoleOpen(true)} data-guide="resource-console">
-            <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("ResourceRow.terminal") : t("ResourceRow.console")}
-          </button>
-          {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
-          <div className={styles.menuWrap}>
-            {menu.open && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menu.closing} />}
-            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menu.open ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
-          </div>
-        </div> : isFailedPlaceholder ? <div className={styles.rowActions}>
-          {/* 動作欄只有 160px，兩顆文字按鈕會擠出欄外：收進與一般列同位置的 ⋮ 選單 */}
-          {failedAction && <MIcon name="hourglass_empty" size={16} spin />}
-          <div className={styles.menuWrap}>
-            {menu.open && <PowerMenu
-              title={t("ResourceRow.moreActions")}
-              items={[{
-                action: "retry",
-                label: t(isStartFailure ? "ResourceRow.restart" : "ResourceRow.rebuild"),
-                icon: isStartFailure ? "power_settings_new" : "autorenew",
-                tone: "ok",
-              }]}
-              actionLoading={failedAction}
-              onControl={handleRebuild}
-              onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDiscardFailed(); }}
-              onClose={closeMenu}
-              anchorRef={menuBtnRef}
-              closing={menu.closing}
-            />}
-            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menu.open ? styles.menuBtnActive : ""}`} disabled={failedAction !== null} onClick={() => setMenuOpen((value) => !value)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
-          </div>
-        </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>}
-      </td>
+      <DataTableCells row={row} rowState={rowState} />
     </tr>
     {consoleOpen && isLxc && createPortal(<TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
     {consoleOpen && !isLxc && createPortal(<VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
@@ -566,29 +515,232 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
   </>;
 }
 
-/* ── Table head ──
-   導覽示範表與真正的資源表共用同一組欄位，兩張表的欄寬與標題才不會各改各的 */
-const TABLE_COLUMNS = [
-  { col: "colName", labelKey: "ResourcesPage.colName" },
-  { col: "colKind", labelKey: "ResourcesPage.colKind" },
-  { col: "colEnv", labelKey: "ResourcesPage.colEnvironment" },
-  { col: "colStatus", labelKey: "ResourcesPage.colStatus" },
-  { col: "colIp", labelKey: "ResourcesPage.colIp" },
-  { col: "colExpiry", labelKey: "ResourcesPage.colExpiry" },
-  { col: "colNode", labelKey: "ResourcesPage.colNode" },
-  { col: "colActions", labelKey: "ResourcesPage.colActions" },
+/* ── 機器列的儲存格（ResourceRow 的 rowState 帶狀態與處理函式進來） ── */
+function ResourceNameCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { resource, showVmid } = rowState;
+  const type = TYPE_MAP[resource.type] ?? { label: resource.type, icon: "computer" };
+  return (
+    <div className={styles.nameCell}>
+      <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
+      <div>
+        {/* 導覽的 performSelector 會點這裡；點擊沿用整列點擊的 openDetail */}
+        <strong data-guide="resource-open-detail">{resource.name}</strong>
+        <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
+      </div>
+    </div>
+  );
+}
+
+/* 來源：個人申請／共享／班級／快速練習／課程 */
+function ResourceKindCell({ rowState }) {
+  const { resource } = rowState;
+  return (
+    <MachineKindBadge
+      kind={resource.machine_kind}
+      classRelation={resource.class_relation}
+      ownerName={resource.owner_name ?? resource.owner_email}
+      teachingClassName={resource.teaching_class_name}
+    />
+  );
+}
+
+function ResourceEnvCell({ rowState }) {
+  const { resource } = rowState;
+  return <><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></>;
+}
+
+function ResourceStatusCell({ rowState }) {
+  return <StatusBadge status={rowState.displayStatus} />;
+}
+
+function ResourceIpCell({ rowState }) {
+  const { resource } = rowState;
+  return <>
+    <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
+    {/* 反向代理發布的對外網址：和環境機器列一樣直接可點，不必進詳情頁 */}
+    {(resource.public_urls ?? []).length > 0 && (
+      <div className={styles.publicUrlList}>
+        {resource.public_urls.map((url) => (
+          <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+            <MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{url.replace(/^https?:\/\//, "")}</span>
+          </a>
+        ))}
+      </div>
+    )}
+  </>;
+}
+
+/* 期限：有到期日照舊；沒有到期日但有申請的使用時段，顯示時段結束日（已結束標紅），不再誤寫「無期限」 */
+function ResourceExpiryCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { resource } = rowState;
+  return resource.expiry_date ? <ExpiryDateValue value={resource.expiry_date} />
+    : resource.window_end_at ? (
+      <span className={resource.start_blocked_reason === "window_ended" ? styles.periodEnded : undefined}>
+        {formatDate(resource.window_end_at)}
+        {resource.start_blocked_reason === "window_ended" && <small>{t("ResourceRow.windowEnded")}</small>}
+      </span>
+    ) : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>;
+}
+
+function ResourceNodeCell({ rowState }) {
+  return rowState.resource.node ?? "—";
+}
+
+/* 選單開關與操作中狀態在 ResourceRow；⋮ 鈕與選單都畫在這一格，錨點 ref 就放這裡 */
+function ResourceActionsCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const menuBtnRef = useRef(null);
+  const {
+    resource, isLive, isLxc, isFailedPlaceholder, isStartFailure, actionLoading, failedAction,
+    menuOpen, menuClosing, onToggleMenu, onCloseMenu, onOpenConsole, onControl, onDeleteClick,
+    onConvertTemplate, onRebuild, onDiscardClick,
+  } = rowState;
+  return isLive ? <div className={styles.rowActions}>
+    <button type="button" className={styles.terminalBtn} disabled={resource.status !== "running" || Boolean(resource.start_blocked_reason)} title={resource.start_blocked_reason === "window_ended" ? t("ResourceRow.windowEnded") : resource.status === "starting" ? t("ResourceRow.consoleBootingTitle") : undefined} onClick={onOpenConsole} data-guide="resource-console">
+      <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("ResourceRow.terminal") : t("ResourceRow.console")}
+    </button>
+    {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
+    <div className={styles.menuWrap}>
+      {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={onControl} onDeleteClick={onDeleteClick} onConvertTemplate={onConvertTemplate} onClose={onCloseMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
+      <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={onToggleMenu} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
+    </div>
+  </div> : isFailedPlaceholder ? <div className={styles.rowActions}>
+    {/* 動作欄只有 160px，兩顆文字按鈕會擠出欄外：收進與一般列同位置的 ⋮ 選單 */}
+    {failedAction && <MIcon name="hourglass_empty" size={16} spin />}
+    <div className={styles.menuWrap}>
+      {menuOpen && <PowerMenu
+        title={t("ResourceRow.moreActions")}
+        items={[{
+          action: "retry",
+          label: t(isStartFailure ? "ResourceRow.restart" : "ResourceRow.rebuild"),
+          icon: isStartFailure ? "power_settings_new" : "autorenew",
+          tone: "ok",
+        }]}
+        actionLoading={failedAction}
+        onControl={onRebuild}
+        onDeleteClick={onDiscardClick}
+        onClose={onCloseMenu}
+        anchorRef={menuBtnRef}
+        closing={menuClosing}
+      />}
+      <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} disabled={failedAction !== null} onClick={onToggleMenu} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
+    </div>
+  </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>;
+}
+
+/* ── 導覽示範列的儲存格（示範資料是常數，只有 ⋮ 選單的開關是列狀態） ── */
+function GuideDemoNameCell({ row }) {
+  const { t } = useTranslation("personal");
+  const navigate = useNavigate();
+  return (
+    <div className={styles.nameCell}>
+      <span className={styles.nameIcon}><MIcon name="terminal" size={18} /></span>
+      <div>
+        <button type="button" className={styles.nameLink} onClick={() => navigate("/my-resources/demo")} data-guide="resource-open-detail">{row.original.name}</button>
+        <small>{t("ResourcesPage.guideDemoMachineType")}</small>
+      </div>
+    </div>
+  );
+}
+
+function GuideDemoEnvCell({ row }) {
+  const demo = row.original;
+  return <><div className={styles.envPrimary}>{demo.os}</div><div className={styles.envSub}>{demo.stack}</div></>;
+}
+
+function GuideDemoActionsCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { menuOpen, onToggleMenu } = rowState;
+  return (
+    <div className={styles.rowActions}>
+      <button type="button" className={styles.terminalBtn} data-guide="resource-console">
+        <MIcon name="terminal" size={14} />{t("ResourceRow.terminal")}
+      </button>
+      <div className={styles.menuWrap}>
+        <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={onToggleMenu} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")}>
+          <MIcon name="more_vert" size={18} />
+        </button>
+        {menuOpen && (
+          <div className={styles.guideDemoMenu} data-guide="resource-power-menu">
+            <span>{t("ResourcesPage.guideDemoPowerMenu")}</span>
+            <button type="button"><MIcon name="replay" size={14} />{t("ResourcesPage.guideDemoRestart")}</button>
+            <button type="button"><MIcon name="power_settings_new" size={14} />{t("ResourcesPage.guideDemoShutdown")}</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── 欄位定義 ──
+   導覽示範表與真正的資源表共用同一組欄位（id、標題、欄寬 class），兩張表的欄寬與標題才不會各改各的；
+   兩張表只有儲存格各畫各的（示範列是靜態內容）。放模組層級：cell／header 會被當成元件掛載，
+   render 裡新建會整格重掛（選單、焦點都會掉） */
+const columnHelper = createColumnHelper();
+
+const RESOURCE_COLUMN_SPECS = [
+  { id: "name", col: "colName", labelKey: "ResourcesPage.colName" },
+  { id: "kind", col: "colKind", labelKey: "ResourcesPage.colKind" },
+  { id: "env", col: "colEnv", labelKey: "ResourcesPage.colEnvironment" },
+  { id: "status", col: "colStatus", labelKey: "ResourcesPage.colStatus" },
+  { id: "ip", col: "colIp", labelKey: "ResourcesPage.colIp" },
+  { id: "expiry", col: "colExpiry", labelKey: "ResourcesPage.colExpiry" },
+  { id: "node", col: "colNode", labelKey: "ResourcesPage.colNode" },
+  { id: "actions", col: "colActions", labelKey: "ResourcesPage.colActions" },
 ];
 
-function ResourceTableHead() {
+function ResourceHeader({ column }) {
   const { t } = useTranslation("personal");
-  return <>
+  return t(column.columnDef.meta.labelKey);
+}
+
+function buildResourceColumns(cells) {
+  return columnHelper.columns(RESOURCE_COLUMN_SPECS.map(({ id, col, labelKey }) => columnHelper.display({
+    id,
+    header: ResourceHeader,
+    cell: cells[id],
+    meta: { labelKey, colClassName: styles[col], thClassName: styles.th, tdClassName: styles.td },
+  })));
+}
+
+const RESOURCE_COLUMNS = buildResourceColumns({
+  name: ResourceNameCell,
+  kind: ResourceKindCell,
+  env: ResourceEnvCell,
+  status: ResourceStatusCell,
+  ip: ResourceIpCell,
+  expiry: ResourceExpiryCell,
+  node: ResourceNodeCell,
+  actions: ResourceActionsCell,
+});
+
+const GUIDE_DEMO_COLUMNS = buildResourceColumns({
+  name: GuideDemoNameCell,
+  kind: () => <span className={styles.muted}>—</span>,
+  env: GuideDemoEnvCell,
+  status: () => <StatusBadge status="running" />,
+  ip: ({ row }) => <span className={styles.mono}>{row.original.ip}</span>,
+  expiry: ({ row }) => row.original.expiry,
+  node: ({ row }) => row.original.node,
+  actions: GuideDemoActionsCell,
+});
+
+const GUIDE_DEMO_ROWS = Object.freeze([
+  { name: "demo-web-01", os: "Ubuntu 24.04", stack: "Docker / Nginx", ip: "10.20.0.24", expiry: "2026/12/31", node: "pve-01" },
+]);
+
+const getResourceRowId = (resource, index) => resourceRowKey(resource, index);
+const getGuideDemoRowId = (demo) => demo.name;
+
+/* 欄寬：每欄一個 <col>，class 取欄位 meta.colClassName */
+function ResourceColgroup({ table }) {
+  return (
     <colgroup>
-      {TABLE_COLUMNS.map(({ col }) => <col key={col} className={styles[col]} />)}
+      {table.getAllLeafColumns().map((column) => <col key={column.id} className={column.columnDef.meta.colClassName} />)}
     </colgroup>
-    <thead>
-      <tr>{TABLE_COLUMNS.map(({ col, labelKey }) => <th key={col} className={styles.th}>{t(labelKey)}</th>)}</tr>
-    </thead>
-  </>;
+  );
 }
 
 /* ── Empty / Error states ── */
@@ -599,50 +751,32 @@ function EmptyState() {
     action={<button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests", { state: { create: true } })} data-guide="resource-request"><MIcon name="add" size={16} />{t("ResourcesPage.requestResource")}</button>} />;
 }
 
-function ResourceGuideDemoRow() {
-  const { t } = useTranslation("personal");
-  const navigate = useNavigate();
+/* 導覽示範列：示範資料是常數、列物件不會變，⋮ 選單的開關要經 rowState 交給儲存格才會重繪 */
+function ResourceGuideDemoRow({ row }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <>
-      <tr className={`${styles.tr} ${styles.guideDemoRow}`} data-guide="resource-card">
-        <td className={styles.td}>
-          <div className={styles.nameCell}>
-            <span className={styles.nameIcon}><MIcon name="terminal" size={18} /></span>
-            <div>
-              <button type="button" className={styles.nameLink} onClick={() => navigate("/my-resources/demo")} data-guide="resource-open-detail">demo-web-01</button>
-              <small>{t("ResourcesPage.guideDemoMachineType")}</small>
-            </div>
-          </div>
-        </td>
-        <td className={styles.td}><span className={styles.muted}>—</span></td>
-        <td className={styles.td}><div className={styles.envPrimary}>Ubuntu 24.04</div><div className={styles.envSub}>Docker / Nginx</div></td>
-        <td className={styles.td}><StatusBadge status="running" /></td>
-        <td className={styles.td}><span className={styles.mono}>10.20.0.24</span></td>
-        <td className={styles.td}>2026/12/31</td>
-        <td className={styles.td}>pve-01</td>
-        <td className={styles.td}>
-          <div className={styles.rowActions}>
-            <button type="button" className={styles.terminalBtn} data-guide="resource-console">
-              <MIcon name="terminal" size={14} />{t("ResourceRow.terminal")}
-            </button>
-            <div className={styles.menuWrap}>
-              <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")}>
-                <MIcon name="more_vert" size={18} />
-              </button>
-              {menuOpen && (
-                <div className={styles.guideDemoMenu} data-guide="resource-power-menu">
-                  <span>{t("ResourcesPage.guideDemoPowerMenu")}</span>
-                  <button type="button"><MIcon name="replay" size={14} />{t("ResourcesPage.guideDemoRestart")}</button>
-                  <button type="button"><MIcon name="power_settings_new" size={14} />{t("ResourcesPage.guideDemoShutdown")}</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </td>
-      </tr>
-    </>
+    <tr className={`${styles.tr} ${styles.guideDemoRow}`} data-guide="resource-card">
+      <DataTableCells row={row} rowState={{ menuOpen, onToggleMenu: () => setMenuOpen((value) => !value) }} />
+    </tr>
+  );
+}
+
+/* 導覽示範表：沒有機器可看時給導覽指的一列，欄位與真正的資源表同一組 */
+function ResourceGuideDemoTable() {
+  const table = useTable({
+    features: baseFeatures,
+    columns: GUIDE_DEMO_COLUMNS,
+    data: GUIDE_DEMO_ROWS,
+    getRowId: getGuideDemoRowId,
+  });
+  return (
+    <DataTable
+      table={table}
+      className={styles.table}
+      colgroup={<ResourceColgroup table={table} />}
+      renderRow={(row) => <ResourceGuideDemoRow key={row.id} row={row} />}
+    />
   );
 }
 
@@ -724,6 +858,13 @@ export default function ResourcesPage() {
   ));
   const visiblePending = pending.filter((request) => !grouped.requestIds.has(String(request.id)));
   const resourceListEmpty = visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0;
+  /* 機器列是表格的資料列；環境群組列與建立中佔位列不是同一份資料，照原順序排在 tbody 最前面 */
+  const resourceTable = useTable({
+    features: baseFeatures,
+    columns: RESOURCE_COLUMNS,
+    data: visibleResources,
+    getRowId: getResourceRowId,
+  });
   /* 頁首的「申請資源」等清單有東西才出現：空狀態那顆就是唯一入口，不要上下兩顆一樣的鈕。
      導覽示範列顯示時照常放（導覽要指它）；載入中也先不放，免得空清單的人看到它閃一下 */
   const showEmptyState = !error && !loading && resourceListEmpty && !guideDemo;
@@ -771,23 +912,30 @@ export default function ResourcesPage() {
                 <span><strong>{t("ResourcesPage.guideDemoTitle")}</strong>{t("ResourcesPage.guideDemoDesc")}</span>
               </div>
               <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <ResourceTableHead />
-                  <tbody><ResourceGuideDemoRow /></tbody>
-                </table>
+                <ResourceGuideDemoTable />
               </div>
             </div>
           ) : <EmptyState />
         ) : (
           <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <ResourceTableHead />
-              <tbody>
-                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={refreshResources} />)}
-                {visiblePending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
-                {visibleResources.map((r, index) => <ResourceRow key={resourceRowKey(r, index)} resource={r} onUpdated={handleUpdated} onDeleted={handleDeleted} onRefresh={refreshAfterFailedAction} />)}
-              </tbody>
-            </table>
+            <DataTable
+              table={resourceTable}
+              className={styles.table}
+              colgroup={<ResourceColgroup table={resourceTable} />}
+              renderRow={(row) => (
+                <ResourceRow
+                  key={row.id}
+                  row={row}
+                  resource={row.original}
+                  onUpdated={handleUpdated}
+                  onDeleted={handleDeleted}
+                  onRefresh={refreshAfterFailedAction}
+                />
+              )}
+            >
+              {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={refreshResources} />)}
+              {visiblePending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
+            </DataTable>
           </div>
         )}
       </div>

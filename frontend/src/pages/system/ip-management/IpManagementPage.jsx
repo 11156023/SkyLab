@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, FlexRender, useTable } from "@tanstack/react-table";
 import styles from "./IpManagementPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SubnetConfigForm from "./SubnetConfigForm";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -68,6 +71,72 @@ function PurposeBadge({ purpose }) {
     <span className={`${styles.badge} ${styles[`badge_${purpose}`] ?? styles.badge_unknown}`}>
       {label}
     </span>
+  );
+}
+
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`IpManagementPage.${name}`);
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const allocationColumns = columnHelper.columns([
+  columnHelper.accessor("ip_address", {
+    header: () => <ColTitle name="colIpAddress" />,
+    cell: ({ row }) => (
+      <div className={styles.nameCell}>
+        <div className={styles.nameIcon}>
+          <MIcon name="device_hub" size={18} />
+        </div>
+        <div>
+          <div className={styles.namePrimary}>{row.original.ip_address}</div>
+        </div>
+      </div>
+    ),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("purpose", {
+    header: () => <ColTitle name="colPurpose" />,
+    cell: ({ row }) => <PurposeBadge purpose={row.original.purpose} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("vmid", {
+    header: "VMID",
+    cell: ({ row }) => row.original.vmid ?? "—",
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("allocated_at", {
+    header: () => <ColTitle name="colAllocatedAt" />,
+    cell: ({ row }) => formatDateTime(row.original.allocated_at),
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+  columnHelper.accessor("description", {
+    header: () => <ColTitle name="colDescription" />,
+    cell: ({ row }) => row.original.description ?? "—",
+    /* 全文放在 td 的 title，滑過可看被截斷的備註 */
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdTruncate}`, tdTitle: (a) => a.description ?? undefined },
+  }),
+]);
+
+/**
+ * 備註欄的 td 要帶逐列不同的 title，共用的 DataTableCells 只吃固定的 tdProps，
+ * 所以這裡自己畫儲存格（DOM 與 DataTableCells 相同，只多了 title）。
+ */
+function renderAllocationRow(row) {
+  return (
+    <tr key={row.id} className={styles.tr}>
+      {row.getAllCells().map((cell) => {
+        const meta = cell.column.columnDef.meta;
+        return (
+          <td key={cell.id} className={meta.tdClassName} title={meta.tdTitle?.(row.original)}>
+            <FlexRender cell={cell} />
+          </td>
+        );
+      })}
+    </tr>
   );
 }
 
@@ -153,6 +222,13 @@ export default function IpManagementPage() {
     () => visible.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
     [visible, safePage],
   );
+  /* 分頁仍由頁面切片（換頁、搜尋時回第一頁的規則照舊），表格只渲染當頁的列 */
+  const table = useTable({
+    features: baseFeatures,
+    columns: allocationColumns,
+    data: pagedAllocations,
+    getRowId: (a) => a.ip_address,
+  });
 
   const emptyVariant = !configured
     ? "unconfigured"
@@ -307,45 +383,21 @@ export default function IpManagementPage() {
           />
         ) : (
           <div className={styles.tableWrap} data-guide="ip-table">
-            <table className={styles.table}>
-              {/* 分頁與搜尋都會換掉整頁的列，欄寬固定才不會每翻一頁就跳動（樣式規範表格規則二） */}
-              <colgroup>
-                <col className={styles.colIp} />
-                <col className={styles.colPurpose} />
-                <col className={styles.colVmid} />
-                <col className={styles.colAllocatedAt} />
-                <col />
-              </colgroup>
-              <thead>
-                <tr>
-                  {[t("IpManagementPage.colIpAddress"), t("IpManagementPage.colPurpose"), "VMID", t("IpManagementPage.colAllocatedAt"), t("IpManagementPage.colDescription")].map((col) => (
-                    <th key={col} className={styles.th}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pagedAllocations.map((a) => (
-                  <tr key={a.ip_address} className={styles.tr}>
-                    <td className={styles.td}>
-                      <div className={styles.nameCell}>
-                        <div className={styles.nameIcon}>
-                          <MIcon name="device_hub" size={18} />
-                        </div>
-                        <div>
-                          <div className={styles.namePrimary}>{a.ip_address}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className={styles.td}>
-                      <PurposeBadge purpose={a.purpose} />
-                    </td>
-                    <td className={styles.td}>{a.vmid ?? "—"}</td>
-                    <td className={`${styles.td} ${styles.tdNowrap}`}>{formatDateTime(a.allocated_at)}</td>
-                    <td className={`${styles.td} ${styles.tdTruncate}`} title={a.description ?? undefined}>{a.description ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              table={table}
+              className={styles.table}
+              /* 分頁與搜尋都會換掉整頁的列，欄寬固定才不會每翻一頁就跳動（樣式規範表格規則二） */
+              colgroup={(
+                <colgroup>
+                  <col className={styles.colIp} />
+                  <col className={styles.colPurpose} />
+                  <col className={styles.colVmid} />
+                  <col className={styles.colAllocatedAt} />
+                  <col />
+                </colgroup>
+              )}
+              renderRow={renderAllocationRow}
+            />
           </div>
         )}
         {!loading && totalPages > 1 && (

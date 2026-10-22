@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -21,6 +24,63 @@ import ContentEditor from "./ContentEditor";
 
 const EMPTY = Object.freeze([]);
 
+/* ══════════════ 進度報表欄位（TanStack Table） ══════════════
+   v9 的 header／cell 會被當元件掛載，欄位定義不可以每次 render 新建（整格會重新掛載）。
+   固定的兩欄放模組層級；關卡欄依位置建、以 index 快取，關卡數不變就是同一組欄位定義：
+   表頭標題取第一位學生的關卡（同原本），每列的數字取該學生同位置的關卡 */
+const columnHelper = createColumnHelper();
+
+function StudentHeader() {
+  const { t } = useTranslation("teaching");
+  return t("CourseCmsPage.thStudent");
+}
+
+function TotalProgressHeader() {
+  const { t } = useTranslation("teaching");
+  return t("CourseCmsPage.thTotalProgress");
+}
+
+const fixedProgressColumns = [
+  columnHelper.display({
+    id: "student",
+    header: () => <StudentHeader />,
+    cell: ({ row }) => (
+      <div className={styles.studentCell}>
+        <span>{row.original.user_name ?? row.original.user_email}</span>
+        <span className={styles.studentEmail}>{row.original.user_email}</span>
+      </div>
+    ),
+  }),
+  columnHelper.accessor("progress_percent", {
+    header: () => <TotalProgressHeader />,
+    cell: ({ row }) => (
+      <div className={styles.cellProgress}>
+        <div className={styles.progressBarSm}>
+          <div
+            className={styles.progressFillSm}
+            style={{ width: `${row.original.progress_percent}%` }}
+          />
+        </div>
+        {row.original.progress_percent}%
+      </div>
+    ),
+  }),
+];
+
+const roomColumnCache = [];
+function roomColumn(index) {
+  roomColumnCache[index] ??= columnHelper.display({
+    id: `room-${index}`,
+    header: ({ table }) => table.options.meta.headerRooms[index]?.room_title,
+    cell: ({ row }) => {
+      const room = row.original.rooms[index];
+      return room ? <>{room.completed_questions}/{room.total_questions}</> : null;
+    },
+    meta: { tdClassName: styles.numCell },
+  });
+  return roomColumnCache[index];
+}
+
 /* ══════════════ 進度監控 ══════════════ */
 function ProgressPanel({ paths, initialPathId = "" }) {
   const { t } = useTranslation("teaching");
@@ -34,6 +94,21 @@ function ProgressPanel({ paths, initialPathId = "" }) {
      重抓期間維持錯誤畫面、不閃回載入中，按重試才回到載入中（見 useLoadError） */
   const { error: progressError, retry: retryProgress } = useLoadError(progressQuery);
   const failed = Boolean(progressError);
+  /* 報表表格：關卡欄的表頭跟第一位學生的關卡走 */
+  const students = report?.students ?? EMPTY;
+  const headerRooms = students[0]?.rooms ?? EMPTY;
+  const roomCount = headerRooms.length;
+  const progressColumns = useMemo(
+    () => [...fixedProgressColumns, ...Array.from({ length: roomCount }, (_, index) => roomColumn(index))],
+    [roomCount],
+  );
+  const progressTable = useTable({
+    features: baseFeatures,
+    columns: progressColumns,
+    data: students,
+    getRowId: (student) => String(student.user_id),
+    meta: { headerRooms },
+  });
   const [live, setLive] = useState(false);
   const refetchTimer = useRef(null);
   const reportRequestRef = useRef(0);
@@ -125,45 +200,7 @@ function ProgressPanel({ paths, initialPathId = "" }) {
           <EmptyState icon="insights" title={t("CourseCmsPage.noStudentRecordsText")} />
         ) : (
           <div className={styles.progressTableWrap}>
-            <table className={styles.progressTable}>
-              <thead>
-                <tr>
-                  <th>{t("CourseCmsPage.thStudent")}</th>
-                  <th>{t("CourseCmsPage.thTotalProgress")}</th>
-                  {report.students[0]?.rooms.map((r) => (
-                    <th key={r.room_id}>{r.room_title}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {report.students.map((s) => (
-                  <tr key={s.user_id}>
-                    <td>
-                      <div className={styles.studentCell}>
-                        <span>{s.user_name ?? s.user_email}</span>
-                        <span className={styles.studentEmail}>{s.user_email}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className={styles.cellProgress}>
-                        <div className={styles.progressBarSm}>
-                          <div
-                            className={styles.progressFillSm}
-                            style={{ width: `${s.progress_percent}%` }}
-                          />
-                        </div>
-                        {s.progress_percent}%
-                      </div>
-                    </td>
-                    {s.rooms.map((r) => (
-                      <td key={r.room_id} className={styles.numCell}>
-                        {r.completed_questions}/{r.total_questions}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable table={progressTable} className={styles.progressTable} />
           </div>
         )
       ) : failed ? (

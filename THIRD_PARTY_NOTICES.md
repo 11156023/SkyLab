@@ -66,6 +66,7 @@ Development tooling (uv, pytest, ruff, mypy, prek, coverage) is not distributed 
 | @material-design-icons/font | Apache-2.0 | https://github.com/marella/material-design-icons |
 | @sentry/react | MIT | https://github.com/getsentry/sentry-javascript |
 | @tanstack/react-query | MIT | https://github.com/TanStack/query |
+| @tanstack/react-table | MIT | https://github.com/TanStack/table |
 | @tanstack/react-virtual | MIT | https://github.com/TanStack/virtual |
 
 Build tooling (Vite, Sass, Vitest, Babel with the React Compiler plugin) is not distributed with the application.

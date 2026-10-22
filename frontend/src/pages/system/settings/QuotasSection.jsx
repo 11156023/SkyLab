@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./QuotasSection.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { QuotasService } from "../../../services/quotas";
@@ -375,6 +378,86 @@ function GlobalQuotaCard({ config, onSaved }) {
   );
 }
 
+/* ── 個人覆寫清單 ─────────────────────────────────────────────────────── */
+
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`QuotasTab.${name}`);
+}
+
+function LimitCell({ value }) {
+  const { t } = useTranslation("system");
+  return fmtLimit(value, t);
+}
+
+/** 編輯／刪除；處理函式在點擊當下才從 table meta 取，拿到的一定是區段最新的那一份 */
+function QuotaRowActions({ quota, deleting, table }) {
+  const { t } = useTranslation("system");
+  return (
+    <div className={styles.rowActions}>
+      <button
+        type="button"
+        className={styles.btnIcon}
+        onClick={() => table.options.meta.onEdit(quota)}
+        title={t("QuotasTab.editQuotaTitle")}
+        aria-label={t("QuotasTab.editQuotaTitle")}
+      >
+        <MIcon name="edit" size={16} />
+      </button>
+      <button
+        type="button"
+        className={styles.btnIconDanger}
+        disabled={deleting}
+        onClick={() => table.options.meta.onDelete(quota)}
+        title={t("QuotasTab.deleteQuotaTitle")}
+        aria-label={t("QuotasTab.deleteQuotaTitle")}
+      >
+        <MIcon name="delete" size={16} />
+      </button>
+    </div>
+  );
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const quotaColumns = columnHelper.columns([
+  columnHelper.accessor("user_email", {
+    header: () => <ColTitle name="colTarget" />,
+    cell: ({ row }) => row.original.user_email ?? "—",
+    meta: { thClassName: styles.colTarget },
+  }),
+  columnHelper.accessor("max_cpu_cores", {
+    header: "CPU",
+    cell: ({ row }) => <LimitCell value={row.original.max_cpu_cores} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.accessor("max_memory_mb", {
+    header: () => <ColTitle name="fieldMemoryMb" />,
+    cell: ({ row }) => <LimitCell value={row.original.max_memory_mb} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.accessor("max_disk_gb", {
+    header: () => <ColTitle name="fieldDiskGb" />,
+    cell: ({ row }) => <LimitCell value={row.original.max_disk_gb} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.accessor("max_instances", {
+    header: () => <ColTitle name="colInstanceCount" />,
+    cell: ({ row }) => <LimitCell value={row.original.max_instances} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: () => <ColTitle name="colActions" />,
+    /* 刪除中的那一列停用刪除鈕：deleting 是區段的狀態，經 rowState 傳進來（只改 table meta 不會讓儲存格重繪） */
+    cell: ({ row, table, rowState }) => (
+      <QuotaRowActions quota={row.original} deleting={rowState.deleting} table={table} />
+    ),
+  }),
+]);
+
 export default function QuotasSection() {
   const { t } = useTranslation("system");
   const toast = useToast();
@@ -431,6 +514,14 @@ export default function QuotasSection() {
     }
   };
 
+  const table = useTable({
+    features: baseFeatures,
+    columns: quotaColumns,
+    data: quotas ?? EMPTY,
+    getRowId: (q) => String(q.id),
+    meta: { onEdit: (quota) => setDialog({ mode: "edit", quota }), onDelete: handleDelete },
+  });
+
   return (
     <div className={styles.stack}>
       {globalQuota && <GlobalQuotaCard config={globalQuota} onSaved={(updated) => quotaCache.setGlobal(updated)} />}
@@ -462,52 +553,15 @@ export default function QuotasSection() {
             action={<button type="button" className={styles.btnPrimary} onClick={() => setDialog({ mode: "create" })}><MIcon name="add" size={16} />{t("QuotasTab.addQuota")}</button>} />
         ) : (
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th className={styles.colTarget}>{t("QuotasTab.colTarget")}</th>
-                  <th className={styles.num}>CPU</th>
-                  <th className={styles.num}>{t("QuotasTab.fieldMemoryMb")}</th>
-                  <th className={styles.num}>{t("QuotasTab.fieldDiskGb")}</th>
-                  <th className={styles.num}>{t("QuotasTab.colInstanceCount")}</th>
-                  <th>{t("QuotasTab.colActions")}</th>
+            <DataTable
+              table={table}
+              className={styles.table}
+              renderRow={(row) => (
+                <tr key={row.id}>
+                  <DataTableCells row={row} rowState={{ deleting: deleting === row.original.id }} />
                 </tr>
-              </thead>
-              <tbody>
-                {quotas.map((q) => (
-                  <tr key={q.id}>
-                    <td>{q.user_email ?? "—"}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_cpu_cores, t)}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_memory_mb, t)}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_disk_gb, t)}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_instances, t)}</td>
-                    <td>
-                      <div className={styles.rowActions}>
-                        <button
-                          type="button"
-                          className={styles.btnIcon}
-                          onClick={() => setDialog({ mode: "edit", quota: q })}
-                          title={t("QuotasTab.editQuotaTitle")}
-                          aria-label={t("QuotasTab.editQuotaTitle")}
-                        >
-                          <MIcon name="edit" size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.btnIconDanger}
-                          disabled={deleting === q.id}
-                          onClick={() => handleDelete(q)}
-                          title={t("QuotasTab.deleteQuotaTitle")}
-                          aria-label={t("QuotasTab.deleteQuotaTitle")}
-                        >
-                          <MIcon name="delete" size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              )}
+            />
           </div>
         )}
       </section>

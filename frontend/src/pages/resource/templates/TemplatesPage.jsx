@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import useAnchoredMenu from "../../../hooks/useAnchoredMenu";
 import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import Modal from "../../../components/Modal/Modal";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TemplatesService } from "../../../services/templates";
@@ -201,81 +204,183 @@ function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCy
   );
 }
 
-function ManagementRow({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete }) {
+/* ── 表格欄位（TanStack Table）──
+   v9 的 header／cell 會被當元件掛載，欄位定義放模組層級才不會每次 render 整格重新掛載。
+   「⋯」選單的開關狀態在 ManagementRow，經 rowState 交給動作欄 */
+const columnHelper = createColumnHelper();
+
+function useColumns() {
   const { t } = useTranslation("resource");
+  return [
+    t("TemplatesPage.columnName"),
+    t("TemplatesPage.columnVmid"),
+    t("TemplatesPage.columnType"),
+    t("TemplatesPage.columnStatus"),
+    t("TemplatesPage.columnVisibility"),
+    t("TemplatesPage.columnVersion"),
+    t("TemplatesPage.columnActions"),
+  ];
+}
+
+/* 欄名來自 useColumns() */
+function ColumnTitle({ index }) {
+  return useColumns()[index];
+}
+
+function TemplateNameCell({ template }) {
+  const { t } = useTranslation("resource");
+  return (
+    <>
+      <div className={styles.nameCell}>
+        <span className={styles.namePrimary}>{template.name}</span>
+        {template.pve_exists === false && template.status === "ready" && (
+          <span className={styles.pveMissing} title={t("TemplatesPage.pveMissingTitle")}>
+            <MIcon name="warning" size={13} />
+            {t("TemplatesPage.pveMissingLabel")}
+          </span>
+        )}
+        {template.password_settable === false && (
+          <span
+            className={`${styles.badge} ${styles.badge_muted}`}
+            title={t("TemplatesPage.passwordUnsettableTitle")}
+          >
+            <MIcon name="lock" size={13} />
+            {t("TemplatesPage.passwordUnsettableLabel")}
+          </span>
+        )}
+      </div>
+      {template.description && (
+        <p className={styles.nameDesc}>{template.description}</p>
+      )}
+      {template.error_message && (
+        <p className={styles.nameError}>{template.error_message}</p>
+      )}
+    </>
+  );
+}
+
+function VisibilityCell({ template }) {
+  const { t } = useTranslation("resource");
+  return visibilityLabel(template, t);
+}
+
+function VersionCell({ version }) {
+  const { t } = useTranslation("resource");
+  return t("TemplatesPage.versionLabel", { version });
+}
+
+function TemplateMenuCell({
+  template,
+  cycleBusy,
+  menuOpen,
+  menuClosing,
+  menuBtnRef,
+  onToggleMenu,
+  onCloseMenu,
+  onClone,
+  onEdit,
+  onManual,
+  onRetry,
+  onCycle,
+  onDelete,
+}) {
+  const { t } = useTranslation("resource");
+  return (
+    <div className={styles.menuWrap}>
+      {menuOpen && (
+        <RowMenu
+          template={template}
+          cycleBusy={cycleBusy}
+          onClone={onClone}
+          onEdit={onEdit}
+          onManual={onManual}
+          onRetry={onRetry}
+          onCycle={onCycle}
+          onDelete={onDelete}
+          onClose={onCloseMenu}
+          anchorRef={menuBtnRef}
+          closing={menuClosing}
+        />
+      )}
+      <button
+        ref={menuBtnRef}
+        type="button"
+        className={styles.menuBtn}
+        data-guide="templates-menu"
+        onClick={onToggleMenu}
+        title={t("TemplatesPage.moreActionsTitle")}
+        aria-label={t("TemplatesPage.moreActionsTitle")}
+      >
+        <MIcon name="more_vert" size={18} />
+      </button>
+    </div>
+  );
+}
+
+const templateColumns = columnHelper.columns([
+  columnHelper.accessor("name", {
+    header: () => <ColumnTitle index={0} />,
+    cell: ({ row }) => <TemplateNameCell template={row.original} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td, tdProps: { "data-guide": "templates-name" } },
+  }),
+  columnHelper.accessor("pve_vmid", {
+    header: () => <ColumnTitle index={1} />,
+    cell: ({ row }) => row.original.pve_vmid,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.monoCell}` },
+  }),
+  columnHelper.accessor("resource_type", {
+    header: () => <ColumnTitle index={2} />,
+    cell: ({ row }) => <span className={styles.typeChip}>{row.original.resource_type}</span>,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("status", {
+    header: () => <ColumnTitle index={3} />,
+    cell: ({ row }) => <TemplateStatusBadge status={row.original.status} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td, tdProps: { "data-guide": "templates-status" } },
+  }),
+  columnHelper.accessor("visibility", {
+    header: () => <ColumnTitle index={4} />,
+    cell: ({ row }) => <VisibilityCell template={row.original} />,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+  columnHelper.accessor("version", {
+    header: () => <ColumnTitle index={5} />,
+    cell: ({ row }) => <VersionCell version={row.original.version} />,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: () => <ColumnTitle index={6} />,
+    cell: ({ row, rowState }) => <TemplateMenuCell template={row.original} {...rowState} />,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdMenu}` },
+  }),
+]);
+
+/* row 是 TanStack 的列，template 是它的原始資料（一併傳進來，編譯後的元件才會跟著資料重繪） */
+function ManagementRow({ row, template, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useDialogPresence(menuOpen, 130);
   const menuBtnRef = useRef(null);
 
   return (
     <tr className={styles.tr}>
-      <td className={styles.td} data-guide="templates-name">
-        <div className={styles.nameCell}>
-          <span className={styles.namePrimary}>{template.name}</span>
-          {template.pve_exists === false && template.status === "ready" && (
-            <span className={styles.pveMissing} title={t("TemplatesPage.pveMissingTitle")}>
-              <MIcon name="warning" size={13} />
-              {t("TemplatesPage.pveMissingLabel")}
-            </span>
-          )}
-          {template.password_settable === false && (
-            <span
-              className={`${styles.badge} ${styles.badge_muted}`}
-              title={t("TemplatesPage.passwordUnsettableTitle")}
-            >
-              <MIcon name="lock" size={13} />
-              {t("TemplatesPage.passwordUnsettableLabel")}
-            </span>
-          )}
-        </div>
-        {template.description && (
-          <p className={styles.nameDesc}>{template.description}</p>
-        )}
-        {template.error_message && (
-          <p className={styles.nameError}>{template.error_message}</p>
-        )}
-      </td>
-      <td className={`${styles.td} ${styles.monoCell}`}>{template.pve_vmid}</td>
-      <td className={styles.td}>
-        <span className={styles.typeChip}>{template.resource_type}</span>
-      </td>
-      <td className={styles.td} data-guide="templates-status">
-        <TemplateStatusBadge status={template.status} />
-      </td>
-      <td className={`${styles.td} ${styles.mutedCell}`}>
-        {visibilityLabel(template, t)}
-      </td>
-      <td className={`${styles.td} ${styles.mutedCell}`}>{t("TemplatesPage.versionLabel", { version: template.version })}</td>
-      <td className={`${styles.td} ${styles.tdMenu}`}>
-        <div className={styles.menuWrap}>
-          {menu.open && (
-            <RowMenu
-              template={template}
-              cycleBusy={cycleBusy}
-              onClone={onClone}
-              onEdit={onEdit}
-              onManual={onManual}
-              onRetry={onRetry}
-              onCycle={onCycle}
-              onDelete={onDelete}
-              onClose={() => setMenuOpen(false)}
-              anchorRef={menuBtnRef}
-              closing={menu.closing}
-            />
-          )}
-          <button
-            ref={menuBtnRef}
-            type="button"
-            className={styles.menuBtn}
-            data-guide="templates-menu"
-            onClick={() => setMenuOpen((v) => !v)}
-            title={t("TemplatesPage.moreActionsTitle")}
-            aria-label={t("TemplatesPage.moreActionsTitle")}
-          >
-            <MIcon name="more_vert" size={18} />
-          </button>
-        </div>
-      </td>
+      <DataTableCells
+        row={row}
+        rowState={{
+          cycleBusy,
+          menuOpen: menu.open,
+          menuClosing: menu.closing,
+          menuBtnRef,
+          onToggleMenu: () => setMenuOpen((v) => !v),
+          onCloseMenu: () => setMenuOpen(false),
+          onClone,
+          onEdit,
+          onManual,
+          onRetry,
+          onCycle,
+          onDelete,
+        }}
+      />
     </tr>
   );
 }
@@ -376,7 +481,13 @@ export default function TemplatesPage() {
     }
   };
 
-  const list = templates ?? [];
+  const list = templates ?? NO_TEMPLATES;
+  const table = useTable({
+    features: baseFeatures,
+    columns: templateColumns,
+    data: list,
+    getRowId: (template) => String(template.id),
+  });
 
   return (
     <div className={styles.page}>
@@ -409,34 +520,24 @@ export default function TemplatesPage() {
       ) : (
         <div className={styles.card} data-guide="templates-table">
           <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.th}>{t("TemplatesPage.columnName")}</th>
-                <th className={styles.th}>{t("TemplatesPage.columnVmid")}</th>
-                <th className={styles.th}>{t("TemplatesPage.columnType")}</th>
-                <th className={styles.th}>{t("TemplatesPage.columnStatus")}</th>
-                <th className={styles.th}>{t("TemplatesPage.columnVisibility")}</th>
-                <th className={styles.th}>{t("TemplatesPage.columnVersion")}</th>
-                <th className={styles.th}>{t("TemplatesPage.columnActions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((template) => (
-                <ManagementRow
-                  key={template.id}
-                  template={template}
-                  cycleBusy={cycleBusy}
-                  onClone={setCloneTarget}
-                  onEdit={setEditTarget}
-                  onManual={setManualTarget}
-                  onRetry={handleRetry}
-                  onCycle={handleCycle}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            table={table}
+            className={styles.table}
+            renderRow={(row) => (
+              <ManagementRow
+                key={row.id}
+                row={row}
+                template={row.original}
+                cycleBusy={cycleBusy}
+                onClone={setCloneTarget}
+                onEdit={setEditTarget}
+                onManual={setManualTarget}
+                onRetry={handleRetry}
+                onCycle={handleCycle}
+                onDelete={handleDelete}
+              />
+            )}
+          />
           </div>
         </div>
       )}

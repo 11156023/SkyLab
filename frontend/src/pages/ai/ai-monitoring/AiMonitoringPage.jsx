@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import {
   CartesianGrid,
   ComposedChart,
@@ -15,6 +16,8 @@ import { formatDateTime, formatTime } from "../../../utils/formatDate";
 import i18n from "../../../i18n";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import { MonitoringService } from "../../../services/monitoring";
 import {
   useAiMonitoringOverviewQuery,
@@ -320,6 +323,165 @@ function DetailSummary({ summary, t }) {
   );
 }
 
+/* ── 明細的三張表（TanStack Table）──
+   欄位定義放模組層級：v9 的 FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會讓整格重新掛載。
+   表頭文字取 meta.headerKey 的翻譯；點模型看呼叫紀錄經 table meta 交回頁面。
+   資料沒變時表格的列不會重繪，切換語言只會重繪有用 useTranslation 的元件，
+   所以依語系格式化的格子（formatNumber／formatDateTime 讀 i18n.language）自己訂閱語系 */
+const columnHelper = createColumnHelper();
+const NUMERIC_TD = `${styles.td} ${styles.numericCell}`;
+const MONO_TD = `${styles.td} ${styles.monoCell}`;
+
+function HeaderLabel({ column }) {
+  const { t } = useTranslation("ai");
+  return t(column.columnDef.meta.headerKey);
+}
+
+function NumberCell({ getValue }) {
+  useTranslation("ai");
+  return formatNumber(getValue());
+}
+
+function columnMeta(headerKey, tdClassName = styles.td, extra) {
+  return { headerKey, thClassName: styles.th, tdClassName, ...extra };
+}
+
+function ModelNameCell({ row, table }) {
+  const { t } = useTranslation("ai");
+  const model = row.original;
+  if (!(model.total_calls > 0)) return <span>{formatModelDisplay(model.model_name)}</span>;
+  return (
+    <button type="button" className={styles.modelDrilldown} onClick={() => table.options.meta.onModelSelect(model.model_name)} title={t("AiMonitoringPage.viewModelCalls", { model: formatModelDisplay(model.model_name) })}>
+      <span>{formatModelDisplay(model.model_name)}</span>
+      <MIcon name="arrow_forward" size={15} />
+    </button>
+  );
+}
+
+function ModelRuntimeCell({ row }) {
+  const { t } = useTranslation("ai");
+  return <ModelRuntimeBadge status={row.original.runtime_status} t={t} />;
+}
+
+function ModelDeploymentsCell({ row }) {
+  const { t } = useTranslation("ai");
+  const model = row.original;
+  return model.runtime_status ? t("AiMonitoringPage.deploymentCount", { healthy: model.healthy_deployments, unhealthy: model.unhealthy_deployments }) : "—";
+}
+
+const modelColumns = columnHelper.columns([
+  columnHelper.display({ id: "model", header: HeaderLabel, cell: ModelNameCell, meta: columnMeta("AiMonitoringPage.colModel", MONO_TD) }),
+  columnHelper.display({ id: "runtime", header: HeaderLabel, cell: ModelRuntimeCell, meta: columnMeta("AiMonitoringPage.colRuntimeStatus") }),
+  columnHelper.display({ id: "deployments", header: HeaderLabel, cell: ModelDeploymentsCell, meta: columnMeta("AiMonitoringPage.colDeployments") }),
+  columnHelper.accessor("total_calls", { header: HeaderLabel, cell: NumberCell, meta: columnMeta("AiMonitoringPage.colCallCount", NUMERIC_TD) }),
+  columnHelper.accessor("total_tokens", { header: HeaderLabel, cell: ({ getValue }) => formatTokens(getValue()), meta: columnMeta("AiMonitoringPage.colTokensTotal", NUMERIC_TD) }),
+  columnHelper.accessor("error_rate", { header: HeaderLabel, cell: ({ getValue }) => formatPercent(getValue()), meta: columnMeta("AiMonitoringPage.colFailRate", NUMERIC_TD) }),
+  columnHelper.accessor("avg_latency_ms", { header: HeaderLabel, cell: ({ getValue }) => formatDuration(getValue()), meta: columnMeta("AiMonitoringPage.colAvgLatency", NUMERIC_TD) }),
+]);
+
+function userTotalCalls(user) {
+  return (user.proxy_calls ?? 0) + (user.template_calls ?? 0);
+}
+
+function userTotalTokens(user) {
+  return (user.proxy_input_tokens ?? 0) + (user.proxy_output_tokens ?? 0)
+    + (user.template_input_tokens ?? 0) + (user.template_output_tokens ?? 0);
+}
+
+const userColumns = columnHelper.columns([
+  columnHelper.display({
+    id: "user",
+    header: HeaderLabel,
+    cell: ({ row }) => <UserCell email={row.original.user_email} fullName={row.original.user_full_name} fallback={row.original.user_id} />,
+    meta: columnMeta("AiMonitoringPage.colUser"),
+  }),
+  columnHelper.accessor(userTotalCalls, { id: "calls", header: HeaderLabel, cell: NumberCell, meta: columnMeta("AiMonitoringPage.colCallCount", NUMERIC_TD) }),
+  columnHelper.accessor(userTotalTokens, { id: "tokens", header: HeaderLabel, cell: ({ getValue }) => formatTokens(getValue()), meta: columnMeta("AiMonitoringPage.colTokensTotal", NUMERIC_TD) }),
+  columnHelper.accessor("avg_latency_ms", { header: HeaderLabel, cell: ({ getValue }) => formatDuration(getValue()), meta: columnMeta("AiMonitoringPage.colAvgLatency", NUMERIC_TD) }),
+  columnHelper.accessor("error_rate", { header: HeaderLabel, cell: ({ getValue }) => formatPercent(getValue()), meta: columnMeta("AiMonitoringPage.colFailRate", NUMERIC_TD) }),
+]);
+
+function CallTimeCell({ row }) {
+  useTranslation("ai");
+  const call = row.original;
+  return (
+    <>
+      {formatDateTime(call.created_at)}
+      {call.request_id ? <small className={styles.monoCell} title={[call.request_id, call.upstream_request_id].filter(Boolean).join(" / ")}>{call.request_id.slice(0, 8)}</small> : null}
+    </>
+  );
+}
+
+function CallModelCell({ row }) {
+  const call = row.original;
+  return call.response_model && call.response_model !== call.model_name
+    ? `${formatModelDisplay(call.model_name)} → ${formatModelDisplay(call.response_model)}`
+    : formatModelDisplay(call.model_name);
+}
+
+function CallUsageCell({ row }) {
+  const { t } = useTranslation("ai");
+  return t(row.original.usage_reported ? "AiMonitoringPage.usageReported" : "AiMonitoringPage.usageMissing");
+}
+
+const callColumns = columnHelper.columns([
+  columnHelper.display({ id: "time", header: HeaderLabel, cell: CallTimeCell, meta: columnMeta("AiMonitoringPage.colTime") }),
+  columnHelper.display({
+    id: "user",
+    header: HeaderLabel,
+    cell: ({ row }) => <UserCell email={row.original.user_email} fullName={row.original.user_full_name} fallback={row.original.user_id} />,
+    meta: columnMeta("AiMonitoringPage.colUser"),
+  }),
+  columnHelper.display({
+    id: "model",
+    header: HeaderLabel,
+    cell: CallModelCell,
+    /* td 的 title 依列決定（模型 → 實際回應的模型） */
+    meta: columnMeta("AiMonitoringPage.colModel", MONO_TD, {
+      tdProps: (row) => ({ title: [row.original.model_name, row.original.response_model].filter(Boolean).join(" → ") }),
+    }),
+  }),
+  columnHelper.display({ id: "type", header: HeaderLabel, cell: ({ row }) => row.original.request_type ?? row.original.call_type ?? "—", meta: columnMeta("AiMonitoringPage.colType") }),
+  columnHelper.display({ id: "input", header: HeaderLabel, cell: ({ row }) => formatTokens(row.original.input_tokens ?? 0), meta: columnMeta("AiMonitoringPage.colInput", NUMERIC_TD) }),
+  columnHelper.display({ id: "output", header: HeaderLabel, cell: ({ row }) => formatTokens(row.original.output_tokens ?? 0), meta: columnMeta("AiMonitoringPage.colOutput", NUMERIC_TD) }),
+  columnHelper.accessor("request_duration_ms", { header: HeaderLabel, cell: ({ getValue }) => formatDuration(getValue()), meta: columnMeta("AiMonitoringPage.colDuration", NUMERIC_TD) }),
+  columnHelper.accessor("first_token_ms", { header: HeaderLabel, cell: ({ getValue }) => formatDuration(getValue()), meta: columnMeta("AiMonitoringPage.colFirstToken", NUMERIC_TD) }),
+  columnHelper.accessor("e2e_output_tokens_per_second", { header: HeaderLabel, cell: ({ getValue }) => formatTokenRate(getValue()), meta: columnMeta("AiMonitoringPage.colOutputRate", NUMERIC_TD) }),
+  columnHelper.display({ id: "usage", header: HeaderLabel, cell: CallUsageCell, meta: columnMeta("AiMonitoringPage.colUsageEvidence") }),
+  columnHelper.display({ id: "status", header: HeaderLabel, cell: ({ row }) => <StatusBadge status={row.original.status} />, meta: columnMeta("AiMonitoringPage.colStatus") }),
+]);
+
+const detailRowClassName = () => styles.tr;
+
+function ModelsTable({ models, onModelSelect }) {
+  const table = useTable({
+    features: baseFeatures,
+    columns: modelColumns,
+    data: models,
+    getRowId: (model) => `${model.model_name}:${model.runtime_name ?? "usage"}`,
+    meta: { onModelSelect },
+  });
+  return <div className={styles.tableWrap}><DataTable table={table} className={styles.table} rowClassName={detailRowClassName} /></div>;
+}
+
+function UsersTable({ users }) {
+  const table = useTable({ features: baseFeatures, columns: userColumns, data: users, getRowId: (user) => String(user.user_id) });
+  return (
+    <div className={styles.tableWrap}>
+      <DataTable table={table} className={styles.table} rowClassName={detailRowClassName} />
+    </div>
+  );
+}
+
+function CallsTable({ calls }) {
+  const table = useTable({ features: baseFeatures, columns: callColumns, data: calls, getRowId: (call) => String(call.id) });
+  return (
+    <div className={styles.tableWrap}>
+      <DataTable table={table} className={styles.table} rowClassName={detailRowClassName} />
+    </div>
+  );
+}
+
 function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onModelSelect, onClearFilters, t }) {
   const q = query.trim().toLowerCase();
   /* 搜尋或狀態篩選把資料濾光時，空狀態給一顆清除鈕；本來就沒資料則只說明 */
@@ -339,10 +501,7 @@ function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onMode
       || (model.runtime_status ?? "").toLowerCase().includes(q)
     ));
     if (!visibleModels.length) return <EmptyState icon="model_training" title={t("AiMonitoringPage.emptyModelBreakdown")} action={clearAction} />;
-    return <div className={styles.tableWrap}><table className={styles.table}>
-      <thead><tr><th className={styles.th}>{t("AiMonitoringPage.colModel")}</th><th className={styles.th}>{t("AiMonitoringPage.colRuntimeStatus")}</th><th className={styles.th}>{t("AiMonitoringPage.colDeployments")}</th><th className={styles.th}>{t("AiMonitoringPage.colCallCount")}</th><th className={styles.th}>{t("AiMonitoringPage.colTokensTotal")}</th><th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th><th className={styles.th}>{t("AiMonitoringPage.colAvgLatency")}</th></tr></thead>
-      <tbody>{visibleModels.map((model) => <tr key={`${model.model_name}:${model.runtime_name ?? "usage"}`} className={styles.tr}><td className={`${styles.td} ${styles.monoCell}`}>{model.total_calls > 0 ? <button type="button" className={styles.modelDrilldown} onClick={() => onModelSelect(model.model_name)} title={t("AiMonitoringPage.viewModelCalls", { model: formatModelDisplay(model.model_name) })}><span>{formatModelDisplay(model.model_name)}</span><MIcon name="arrow_forward" size={15} /></button> : <span>{formatModelDisplay(model.model_name)}</span>}</td><td className={styles.td}><ModelRuntimeBadge status={model.runtime_status} t={t} /></td><td className={styles.td}>{model.runtime_status ? t("AiMonitoringPage.deploymentCount", { healthy: model.healthy_deployments, unhealthy: model.unhealthy_deployments }) : "—"}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(model.total_calls)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(model.total_tokens)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatPercent(model.error_rate)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(model.avg_latency_ms)}</td></tr>)}</tbody>
-    </table></div>;
+    return <ModelsTable models={visibleModels} onModelSelect={onModelSelect} />;
   }
 
   if (tab === "users") {
@@ -352,31 +511,7 @@ function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onMode
         || (user.user_full_name ?? "").toLowerCase().includes(q);
     });
     if (!visibleUsers.length) return <EmptyState icon="groups" title={t("AiMonitoringPage.emptyUsersTitle")} action={clearAction} />;
-    return (
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead><tr>
-            <th className={styles.th}>{t("AiMonitoringPage.colUser")}</th>
-            <th className={styles.th}>{t("AiMonitoringPage.colCallCount")}</th>
-            <th className={styles.th}>{t("AiMonitoringPage.colTokensTotal")}</th>
-            <th className={styles.th}>{t("AiMonitoringPage.colAvgLatency")}</th>
-            <th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th>
-          </tr></thead>
-          <tbody>{visibleUsers.map((user) => {
-            const totalCalls = (user.proxy_calls ?? 0) + (user.template_calls ?? 0);
-            const totalTokens = (user.proxy_input_tokens ?? 0) + (user.proxy_output_tokens ?? 0)
-              + (user.template_input_tokens ?? 0) + (user.template_output_tokens ?? 0);
-            return <tr key={user.user_id} className={styles.tr}>
-              <td className={styles.td}><UserCell email={user.user_email} fullName={user.user_full_name} fallback={user.user_id} /></td>
-              <td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(totalCalls)}</td>
-              <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(totalTokens)}</td>
-              <td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(user.avg_latency_ms)}</td>
-              <td className={`${styles.td} ${styles.numericCell}`}>{formatPercent(user.error_rate)}</td>
-            </tr>;
-          })}</tbody>
-        </table>
-      </div>
-    );
+    return <UsersTable users={visibleUsers} />;
   }
 
   const visibleCalls = (calls ?? []).filter((call) => {
@@ -391,38 +526,7 @@ function DetailTable({ tab, calls, users, modelRows, query, statusFilter, onMode
   });
 
   if (!visibleCalls.length) return <EmptyState icon="analytics" title={t("AiMonitoringPage.emptyCallsTitle")} action={clearAction} />;
-  return (
-    <div className={styles.tableWrap}>
-      <table className={styles.table}>
-        <thead><tr>
-          <th className={styles.th}>{t("AiMonitoringPage.colTime")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colUser")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colModel")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colType")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colInput")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colOutput")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colDuration")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colFirstToken")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colOutputRate")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colUsageEvidence")}</th>
-          <th className={styles.th}>{t("AiMonitoringPage.colStatus")}</th>
-        </tr></thead>
-        <tbody>{visibleCalls.map((call) => <tr key={call.id} className={styles.tr}>
-          <td className={styles.td}>{formatDateTime(call.created_at)}{call.request_id ? <small className={styles.monoCell} title={[call.request_id, call.upstream_request_id].filter(Boolean).join(" / ")}>{call.request_id.slice(0, 8)}</small> : null}</td>
-          <td className={styles.td}><UserCell email={call.user_email} fullName={call.user_full_name} fallback={call.user_id} /></td>
-          <td className={`${styles.td} ${styles.monoCell}`} title={[call.model_name, call.response_model].filter(Boolean).join(" → ")}>{call.response_model && call.response_model !== call.model_name ? `${formatModelDisplay(call.model_name)} → ${formatModelDisplay(call.response_model)}` : formatModelDisplay(call.model_name)}</td>
-          <td className={styles.td}>{call.request_type ?? call.call_type ?? "—"}</td>
-          <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(call.input_tokens ?? 0)}</td>
-          <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(call.output_tokens ?? 0)}</td>
-          <td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(call.request_duration_ms)}</td>
-          <td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(call.first_token_ms)}</td>
-          <td className={`${styles.td} ${styles.numericCell}`}>{formatTokenRate(call.e2e_output_tokens_per_second)}</td>
-          <td className={styles.td}>{t(call.usage_reported ? "AiMonitoringPage.usageReported" : "AiMonitoringPage.usageMissing")}</td>
-          <td className={styles.td}><StatusBadge status={call.status} /></td>
-        </tr>)}</tbody>
-      </table>
-    </div>
-  );
+  return <CallsTable calls={visibleCalls} />;
 }
 
 export default function AiMonitoringPage() {

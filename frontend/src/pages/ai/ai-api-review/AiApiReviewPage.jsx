@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
@@ -149,6 +152,87 @@ function ReviewActions({ item, onDone }) {
   );
 }
 
+/* ── 申請表格（TanStack Table）──
+   欄位定義放模組層級：v9 的 FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會讓整格重新掛載。
+   表頭文字取 meta.headerKey 的翻譯；審核完成後的重抓經 table meta 交回頁面，
+   核准／拒絕對話框的開關狀態仍由每列的 ReviewActions 自己管 */
+const columnHelper = createColumnHelper();
+
+const STATUS_LABEL_KEYS = {
+  pending: "AiApiReviewPage.statusPending",
+  approved: "AiApiReviewPage.statusApproved",
+  rejected: "AiApiReviewPage.statusRejected",
+};
+
+function HeaderLabel({ column }) {
+  const { t } = useTranslation("ai");
+  return t(column.columnDef.meta.headerKey);
+}
+
+function ApplicantCell({ row }) {
+  const r = row.original;
+  return (
+    <div className={styles.userCell}>
+      <span className={styles.userName}>{r.user_full_name || r.user_email}</span>
+      {r.user_full_name && r.user_email && (
+        <span className={styles.userEmail}>{r.user_email}</span>
+      )}
+    </div>
+  );
+}
+
+function PurposeCell({ row }) {
+  const r = row.original;
+  return (
+    <span className={styles.purposeCell} title={r.purpose}>
+      {(r.purpose ?? "").length > 60 ? `${r.purpose.slice(0, 60)}…` : r.purpose}
+    </span>
+  );
+}
+
+function StatusCell({ row }) {
+  const { t } = useTranslation("ai");
+  const status = row.original.status;
+  const labelKey = STATUS_LABEL_KEYS[status];
+  return (
+    <span className={`${styles.badge} ${styles[`badge_${status}`]}`}>
+      <span className={styles.dot} />
+      {labelKey ? t(labelKey) : status}
+    </span>
+  );
+}
+
+function DateTimeCell({ getValue }) {
+  const { t } = useTranslation("ai");
+  return formatDateTime(getValue(), t("AiApiReviewPage.notReviewed"));
+}
+
+function ActionsCell({ row, table }) {
+  /* 審核完成時才讀 meta，拿到的是頁面當下的重抓函式 */
+  return <ReviewActions item={row.original} onDone={() => table.options.meta.onReviewed()} />;
+}
+
+function columnMeta(headerKey, extra) {
+  return { headerKey, thClassName: styles.th, tdClassName: styles.td, ...extra };
+}
+
+const requestColumns = columnHelper.columns([
+  columnHelper.display({ id: "applicant", header: HeaderLabel, cell: ApplicantCell, meta: columnMeta("AiApiReviewPage.colApplicant") }),
+  columnHelper.accessor("api_key_name", { header: HeaderLabel, cell: ({ getValue }) => getValue(), meta: columnMeta("AiApiReviewPage.colKeyName") }),
+  columnHelper.display({
+    id: "purpose",
+    header: HeaderLabel,
+    cell: PurposeCell,
+    meta: columnMeta("AiApiReviewPage.colPurpose", { tdProps: { "data-guide": "ai-review-purpose" } }),
+  }),
+  columnHelper.display({ id: "status", header: HeaderLabel, cell: StatusCell, meta: columnMeta("AiApiReviewPage.colStatus") }),
+  columnHelper.accessor("created_at", { header: HeaderLabel, cell: DateTimeCell, meta: columnMeta("AiApiReviewPage.colAppliedAt") }),
+  columnHelper.accessor("reviewed_at", { header: HeaderLabel, cell: DateTimeCell, meta: columnMeta("AiApiReviewPage.colReviewedAt") }),
+  columnHelper.display({ id: "actions", header: HeaderLabel, cell: ActionsCell, meta: columnMeta("AiApiReviewPage.colActions") }),
+]);
+
+const requestRowClassName = () => styles.tr;
+
 /* ── Main ── */
 const REQUEST_TAB_KEYS = ["pending", "approved", "rejected", "all"];
 /* 後端 /ai-api/requests 的 limit 上限 */
@@ -179,12 +263,6 @@ export default function AiApiReviewPage() {
     { key: "rejected", label: t("AiApiReviewPage.tabRejected") },
     { key: "all",      label: t("AiApiReviewPage.tabAll") },
   ];
-
-  const STATUS_LABELS = {
-    pending:  t("AiApiReviewPage.statusPending"),
-    approved: t("AiApiReviewPage.statusApproved"),
-    rejected: t("AiApiReviewPage.statusRejected"),
-  };
 
   /* 四個分頁各一份查詢（hook 固定四次、不在迴圈裡呼叫），以「狀態＋筆數上限」為 key：
      切換分頁時較晚回來的舊分頁回應只會進舊 key，不會蓋掉目前分頁，也不會提早收掉載入畫面。
@@ -242,15 +320,13 @@ export default function AiApiReviewPage() {
     return requests.filter((r) => r.status === activeTab);
   }, [requests, activeTab]);
 
-  const COLS = [
-    t("AiApiReviewPage.colApplicant"),
-    t("AiApiReviewPage.colKeyName"),
-    t("AiApiReviewPage.colPurpose"),
-    t("AiApiReviewPage.colStatus"),
-    t("AiApiReviewPage.colAppliedAt"),
-    t("AiApiReviewPage.colReviewedAt"),
-    t("AiApiReviewPage.colActions"),
-  ];
+  const table = useTable({
+    features: baseFeatures,
+    columns: requestColumns,
+    data: filtered,
+    getRowId: (r) => String(r.id),
+    meta: { onReviewed: refreshAfterReview },
+  });
 
   return (
     <div className={styles.page}>
@@ -279,46 +355,7 @@ export default function AiApiReviewPage() {
           <EmptyState />
         ) : (
           <div className={styles.tableWrap} data-guide="ai-review-table">
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  {COLS.map((col) => (
-                    <th key={col} className={styles.th}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} className={styles.tr}>
-                    <td className={styles.td}>
-                      <div className={styles.userCell}>
-                        <span className={styles.userName}>{r.user_full_name || r.user_email}</span>
-                        {r.user_full_name && r.user_email && (
-                          <span className={styles.userEmail}>{r.user_email}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className={styles.td}>{r.api_key_name}</td>
-                    <td className={styles.td} data-guide="ai-review-purpose">
-                      <span className={styles.purposeCell} title={r.purpose}>
-                        {(r.purpose ?? "").length > 60 ? `${r.purpose.slice(0, 60)}…` : r.purpose}
-                      </span>
-                    </td>
-                    <td className={styles.td}>
-                      <span className={`${styles.badge} ${styles[`badge_${r.status}`]}`}>
-                        <span className={styles.dot} />
-                        {STATUS_LABELS[r.status] ?? r.status}
-                      </span>
-                    </td>
-                    <td className={styles.td}>{formatDateTime(r.created_at, t("AiApiReviewPage.notReviewed"))}</td>
-                    <td className={styles.td}>{formatDateTime(r.reviewed_at, t("AiApiReviewPage.notReviewed"))}</td>
-                    <td className={styles.td}>
-                      <ReviewActions item={r} onDone={refreshAfterReview} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable table={table} className={styles.table} rowClassName={requestRowClassName} />
           </div>
         )}
       </div>

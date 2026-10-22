@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./AccountSettingsPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 
 /* __SKYLAB_ABOUT__ 由 vite.config.js 在建置時注入（scripts/aboutInfo.mjs）；
    測試或其他工具沒注入時退回最小資料，分頁仍能顯示授權與連結 */
@@ -40,9 +43,47 @@ function LinkRow({ icon, label, href, title, children }) {
   );
 }
 
+/* 依賴清單：欄名的翻譯 key 放 meta.labelKey，表頭元件自己取 t */
+function DependencyHeader({ column }) {
+  const { t } = useTranslation("personal");
+  return t(column.columnDef.meta.labelKey);
+}
+
+function DependencyNameCell({ row }) {
+  const dep = row.original;
+  return dep.repository ? <ExternalLink href={dep.repository}>{dep.name}</ExternalLink> : dep.name;
+}
+
+const columnHelper = createColumnHelper();
+const DEPENDENCY_COLUMNS = columnHelper.columns([
+  columnHelper.accessor("name", {
+    header: DependencyHeader,
+    cell: DependencyNameCell,
+    meta: { labelKey: "AboutTab.colPackage" },
+  }),
+  columnHelper.accessor("version", {
+    header: DependencyHeader,
+    cell: (info) => info.getValue(),
+    meta: { labelKey: "AboutTab.colVersion" },
+  }),
+  columnHelper.accessor("license", {
+    header: DependencyHeader,
+    cell: (info) => info.getValue() || "—",
+    meta: { labelKey: "AboutTab.colLicense" },
+  }),
+]);
+
+const getDependencyId = (dep) => dep.name;
+
 export default function AboutTab() {
   const { t, i18n } = useTranslation("personal");
   const info = aboutInfo;
+  const dependencyTable = useTable({
+    features: baseFeatures,
+    columns: DEPENDENCY_COLUMNS,
+    data: info.dependencies,
+    getRowId: getDependencyId,
+  });
   const repoFile = (file) => `${info.repository.replace(/\/$/, "")}/blob/main/${file}`;
   const builtAt = info.builtAt
     ? new Date(info.builtAt).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" })
@@ -87,30 +128,7 @@ export default function AboutTab() {
         <p className={styles.aboutHint}>{t("AboutTab.componentsHint", { count: info.dependencies.length })}</p>
         {info.dependencies.length > 0 && (
           <div className={styles.aboutTableWrap}>
-            <table className={styles.aboutTable}>
-              <thead>
-                <tr>
-                  <th>{t("AboutTab.colPackage")}</th>
-                  <th>{t("AboutTab.colVersion")}</th>
-                  <th>{t("AboutTab.colLicense")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {info.dependencies.map((dep) => (
-                  <tr key={dep.name}>
-                    <td>
-                      {dep.repository ? (
-                        <ExternalLink href={dep.repository}>{dep.name}</ExternalLink>
-                      ) : (
-                        dep.name
-                      )}
-                    </td>
-                    <td>{dep.version}</td>
-                    <td>{dep.license || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable table={dependencyTable} className={styles.aboutTable} />
           </div>
         )}
       </div>

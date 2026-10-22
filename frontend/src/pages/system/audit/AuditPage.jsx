@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, FlexRender, useTable } from "@tanstack/react-table";
 import styles from "./AuditPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
@@ -74,6 +77,79 @@ function EmptyState({ hasFilter, onClear }) {
   );
 }
 
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`AuditPage.${name}`);
+}
+
+function UserCell({ log }) {
+  const { t } = useTranslation("system");
+  return (
+    <div className={styles.userCell}>
+      <span>{log.user_full_name ?? (log.user_email ? "—" : t("AuditPage.systemUser"))}</span>
+      <span className={styles.userEmail}>{log.user_email ?? ""}</span>
+    </div>
+  );
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const auditColumns = columnHelper.columns([
+  columnHelper.accessor("created_at", {
+    header: () => <ColTitle name="colTime" />,
+    cell: ({ row }) => formatDateTime(row.original.created_at),
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+  columnHelper.display({
+    id: "user",
+    header: () => <ColTitle name="colUser" />,
+    cell: ({ row }) => <UserCell log={row.original} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("action", {
+    header: () => <ColTitle name="colAction" />,
+    cell: ({ row }) => <span className={styles.actionBadge}>{row.original.action}</span>,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("details", {
+    header: () => <ColTitle name="colContent" />,
+    cell: ({ row }) => row.original.details,
+    /* 全文放在 td 的 title，滑過可看被截斷的內容 */
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdDetails}`, tdTitle: (log) => log.details },
+  }),
+  columnHelper.accessor("vmid", {
+    header: "VMID",
+    cell: ({ row }) => row.original.vmid ?? "—",
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("ip_address", {
+    header: "IP",
+    cell: ({ row }) => row.original.ip_address ?? "—",
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+]);
+
+/**
+ * 內容欄的 td 要帶逐列不同的 title，共用的 DataTableCells 只吃固定的 tdProps，
+ * 所以這裡自己畫儲存格（DOM 與 DataTableCells 相同，只多了 title）。
+ */
+function renderAuditRow(row) {
+  return (
+    <tr key={row.id} className={styles.tr}>
+      {row.getAllCells().map((cell) => {
+        const meta = cell.column.columnDef.meta;
+        return (
+          <td key={cell.id} className={meta.tdClassName} title={meta.tdTitle?.(row.original)}>
+            <FlexRender cell={cell} />
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
 export default function AuditPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
@@ -121,6 +197,13 @@ export default function AuditPage() {
   const logs = logsQuery.data?.data ?? EMPTY;
   const count = logsQuery.data?.count ?? 0;
   const loadError = logsQuery.error;
+  /* 伺服器分頁：頁碼由 page 決定查詢參數，表格只渲染當頁的列 */
+  const table = useTable({
+    features: baseFeatures,
+    columns: auditColumns,
+    data: logs,
+    getRowId: (log) => String(log.id),
+  });
   useEffect(() => {
     if (loadError) toast.error(loadError?.message ?? t("Error.generic", { ns: "common" }));
   }, [loadError, toast, t]);
@@ -289,36 +372,7 @@ export default function AuditPage() {
         ) : (
           <>
             <div className={styles.tableWrap} data-guide="audit-table">
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    {[t("AuditPage.colTime"), t("AuditPage.colUser"), t("AuditPage.colAction"), t("AuditPage.colContent"), "VMID", "IP"].map((col) => (
-                      <th key={col} className={styles.th}>{col}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log) => (
-                    <tr key={log.id} className={styles.tr}>
-                      <td className={`${styles.td} ${styles.tdNowrap}`}>{formatDateTime(log.created_at)}</td>
-                      <td className={styles.td}>
-                        <div className={styles.userCell}>
-                          <span>{log.user_full_name ?? (log.user_email ? "—" : t("AuditPage.systemUser"))}</span>
-                          <span className={styles.userEmail}>{log.user_email ?? ""}</span>
-                        </div>
-                      </td>
-                      <td className={styles.td}>
-                        <span className={styles.actionBadge}>{log.action}</span>
-                      </td>
-                      <td className={`${styles.td} ${styles.tdDetails}`} title={log.details}>
-                        {log.details}
-                      </td>
-                      <td className={styles.td}>{log.vmid ?? "—"}</td>
-                      <td className={`${styles.td} ${styles.tdNowrap}`}>{log.ip_address ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable table={table} className={styles.table} renderRow={renderAuditRow} />
             </div>
 
             <Pagination

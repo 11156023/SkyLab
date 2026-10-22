@@ -2,8 +2,11 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import i18n from "../../../i18n";
 import styles from "./AiJudgePanel.module.scss";
+import { DataTableCells, DataTableHead } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState, { LoadingSpinner } from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -858,11 +861,170 @@ function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = fa
   );
 }
 
-function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
+/* ── 檢查表欄位（TanStack Table）──
+   v9 的 header／cell 會被當元件掛載，欄位定義放模組層級才不會每次 render 整格重新掛載
+   （標題 textarea 打字時不會失焦）。展開狀態在 RubricTableRow，經 rowState 交給各欄 */
+const rubricColumnHelper = createColumnHelper();
+const RUBRIC_TH_PROPS = Object.freeze({ scope: "col" });
+
+function useRubricHeaders() {
+  const { t } = useTranslation("teaching");
+  return [
+    <>#<span className={styles.srOnly}>{t("AiJudgePanel.thDetails")}</span></>,
+    t("AiJudgePanel.thCheckpoint"),
+    t("AiJudgePanel.thMethod"),
+    t("AiJudgePanel.thAutoSupport"),
+    <span className={styles.srOnly}>{t("AiJudgePanel.thActions")}</span>,
+  ];
+}
+
+function RubricHeader({ index }) {
+  return useRubricHeaders()[index];
+}
+
+function RubricIndexCell({ index, expanded, detailId, onToggle }) {
+  const { t } = useTranslation("teaching");
+  return (
+    <div className={styles.rubricIndex}>
+      <span className={styles.rubricNumber}>{index + 1}</span>
+      <button
+        type="button"
+        className={styles.detailToggle}
+        aria-expanded={expanded}
+        aria-controls={detailId}
+        aria-label={t(expanded ? "AiJudgePanel.collapseRowAria" : "AiJudgePanel.expandRowAria", { index: index + 1 })}
+        title={expanded ? t("AiJudgePanel.collapseRowTitle") : t("AiJudgePanel.expandRowTitle")}
+        onClick={onToggle}
+      >
+        <MIcon name={expanded ? "expand_less" : "expand_more"} size={17} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function RubricTitleCell({ item, index, disabled, onChange }) {
+  const { t } = useTranslation("teaching");
+  return (
+    <label className={styles.tableField}>
+      <span className={styles.srOnly}>{t("AiJudgePanel.rowTitleLabel", { index: index + 1 })}</span>
+      <textarea
+        rows={2}
+        className={styles.rubricTitleInput}
+        value={item.title}
+        onChange={(event) => onChange({ ...item, title: event.target.value })}
+        placeholder={t("AiJudgePanel.rowTitlePlaceholder")}
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
+function RubricMethodCell({ item, index }) {
+  const { t } = useTranslation("teaching");
+  const targetSummaries = getRubricTargetSummaries(item);
+  return (
+    <div className={styles.tableField}>
+      <span className={styles.srOnly}>{t("AiJudgePanel.rowMethodLabel", { index: index + 1 })}</span>
+      <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
+        {item.detection_method || t("AiJudgePanel.noMethod")}
+      </p>
+      {targetSummaries.length > 0 && (
+        <div className={styles.rubricTargetSummary} aria-label={t("AiJudgePanel.targetsLabel")}>
+          <div className={styles.rubricTargetItems}>
+            {targetSummaries.map((target) => (
+              <span
+                key={target.key}
+                className={styles.rubricTargetItem}
+                title={t("AiJudgePanel.labelValue", { label: target.label, value: target.value })}
+              >
+                <MIcon name={target.icon} size={14} aria-hidden="true" />
+                <span>{target.label}</span>
+                <code>{target.value}</code>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RubricDeleteCell({ item, index, disabled, onDelete }) {
+  const { t } = useTranslation("teaching");
+  return (
+    <div className={styles.tableActions}>
+      <button
+        type="button"
+        className={styles.rubricDeleteBtn}
+        title={t("AiJudgePanel.deleteItemTitle")}
+        aria-label={t("AiJudgePanel.deleteItemAria", { index: index + 1, title: item.title || t("AiJudgePanel.unnamedItem") })}
+        onClick={onDelete}
+        disabled={disabled}
+      >
+        <MIcon name="delete" size={16} />
+      </button>
+    </div>
+  );
+}
+
+const rubricColumns = rubricColumnHelper.columns([
+  /* 序號和展開鈕同一格：省下一整欄給檢查點與檢測方式 */
+  rubricColumnHelper.display({
+    id: "index",
+    header: () => <RubricHeader index={0} />,
+    cell: ({ rowState }) => (
+      <RubricIndexCell
+        index={rowState.index}
+        expanded={rowState.expanded}
+        detailId={rowState.detailId}
+        onToggle={rowState.onToggle}
+      />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricDetailToggleCell },
+  }),
+  rubricColumnHelper.accessor("title", {
+    header: () => <RubricHeader index={1} />,
+    cell: ({ row, rowState }) => (
+      <RubricTitleCell item={row.original} index={rowState.index} disabled={rowState.disabled} onChange={rowState.onChange} />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricTitleCell },
+  }),
+  /* data-label 是窄螢幕卡片版的欄名；寫成函式，DataTableCells 切換語系重繪時才會拿到新語系的文字 */
+  rubricColumnHelper.accessor("detection_method", {
+    header: () => <RubricHeader index={2} />,
+    cell: ({ row, rowState }) => <RubricMethodCell item={row.original} index={rowState.index} />,
+    meta: {
+      thProps: RUBRIC_TH_PROPS,
+      tdClassName: styles.rubricDescriptionCell,
+      tdProps: () => ({ "data-label": jt("thMethod") }),
+    },
+  }),
+  rubricColumnHelper.accessor("detectable", {
+    header: () => <RubricHeader index={3} />,
+    cell: ({ row, rowState }) => (
+      <DetectabilityBadge
+        detectable={row.original.detectable}
+        judgementMode={row.original.judgement_mode}
+        needsReview={rowState.needsReview}
+      />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricDetectabilityCell },
+  }),
+  rubricColumnHelper.display({
+    id: "actions",
+    header: () => <RubricHeader index={4} />,
+    cell: ({ row, rowState }) => (
+      <RubricDeleteCell item={row.original} index={rowState.index} disabled={rowState.disabled} onDelete={rowState.onDelete} />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricActionsCell },
+  }),
+]);
+
+/* row 是 TanStack 的列，item 是它的原始資料（一併傳進來，編譯後的元件才會跟著資料重繪） */
+function RubricTableRow({ row, item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
   const { t } = useTranslation("teaching");
   const [expanded, setExpanded] = useState(false);
   const checkSteps = item.check_steps ?? [];
-  const targetSummaries = getRubricTargetSummaries(item);
   const executionNode = getExecutionNodeSummary(item, machineNodes);
   const detailId = `rubric-detail-${index}`;
   const missingInformation = Array.isArray(item.missing_information)
@@ -871,90 +1033,25 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
   const hasDetails = Boolean(
     item.detection_method || item.fallback || checkSteps.length || missingInformation.length,
   );
+  const rowState = {
+    index,
+    expanded,
+    detailId,
+    onToggle: () => setExpanded((current) => !current),
+    onChange,
+    onDelete,
+    disabled,
+    needsReview,
+  };
 
   return (
     <>
       <tr className={`${styles.rubricTableRow} ${expanded ? styles.rubricTableRowExpanded : ""}`}>
-        {/* 序號和展開鈕同一格：省下一整欄給檢查點與檢測方式 */}
-        <td className={styles.rubricDetailToggleCell}>
-          <div className={styles.rubricIndex}>
-            <span className={styles.rubricNumber}>{index + 1}</span>
-            <button
-              type="button"
-              className={styles.detailToggle}
-              aria-expanded={expanded}
-              aria-controls={detailId}
-              aria-label={t(expanded ? "AiJudgePanel.collapseRowAria" : "AiJudgePanel.expandRowAria", { index: index + 1 })}
-              title={expanded ? t("AiJudgePanel.collapseRowTitle") : t("AiJudgePanel.expandRowTitle")}
-              onClick={() => setExpanded((current) => !current)}
-            >
-              <MIcon name={expanded ? "expand_less" : "expand_more"} size={17} aria-hidden="true" />
-            </button>
-          </div>
-        </td>
-        <td className={styles.rubricTitleCell}>
-          <label className={styles.tableField}>
-            <span className={styles.srOnly}>{t("AiJudgePanel.rowTitleLabel", { index: index + 1 })}</span>
-            <textarea
-              rows={2}
-              className={styles.rubricTitleInput}
-              value={item.title}
-              onChange={(event) => onChange({ ...item, title: event.target.value })}
-              placeholder={t("AiJudgePanel.rowTitlePlaceholder")}
-              disabled={disabled}
-            />
-          </label>
-        </td>
-        <td className={styles.rubricDescriptionCell} data-label={t("AiJudgePanel.thMethod")}>
-          <div className={styles.tableField}>
-            <span className={styles.srOnly}>{t("AiJudgePanel.rowMethodLabel", { index: index + 1 })}</span>
-            <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
-              {item.detection_method || t("AiJudgePanel.noMethod")}
-            </p>
-            {targetSummaries.length > 0 && (
-              <div className={styles.rubricTargetSummary} aria-label={t("AiJudgePanel.targetsLabel")}>
-                <div className={styles.rubricTargetItems}>
-                  {targetSummaries.map((target) => (
-                    <span
-                      key={target.key}
-                      className={styles.rubricTargetItem}
-                      title={t("AiJudgePanel.labelValue", { label: target.label, value: target.value })}
-                    >
-                      <MIcon name={target.icon} size={14} aria-hidden="true" />
-                      <span>{target.label}</span>
-                      <code>{target.value}</code>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </td>
-        <td className={styles.rubricDetectabilityCell}>
-          <DetectabilityBadge
-            detectable={item.detectable}
-            judgementMode={item.judgement_mode}
-            needsReview={needsReview}
-          />
-        </td>
-        <td className={styles.rubricActionsCell}>
-          <div className={styles.tableActions}>
-            <button
-              type="button"
-              className={styles.rubricDeleteBtn}
-              title={t("AiJudgePanel.deleteItemTitle")}
-              aria-label={t("AiJudgePanel.deleteItemAria", { index: index + 1, title: item.title || t("AiJudgePanel.unnamedItem") })}
-              onClick={onDelete}
-              disabled={disabled}
-            >
-              <MIcon name="delete" size={16} />
-            </button>
-          </div>
-        </td>
+        <DataTableCells row={row} rowState={rowState} />
       </tr>
       {expanded && (
         <tr className={styles.rubricDetailRow}>
-          <td id={detailId} colSpan={5}>
+          <td id={detailId} colSpan={rubricColumns.length}>
             <div className={styles.rubricDetail}>
               <div className={styles.rubricDetailHead}>
                 <div>
@@ -1051,31 +1148,29 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
   const reviewIds = needsReviewIds instanceof Set
     ? needsReviewIds
     : new Set(Array.isArray(needsReviewIds) ? needsReviewIds : []);
+  const table = useTable({
+    features: baseFeatures,
+    columns: rubricColumns,
+    data: items,
+    getRowId: (item, index) => String(item.id ?? index),
+  });
   return (
     <div className={styles.rubricTableWrap}>
+      {/* 表格外框自己組：<caption> 要排在 <thead> 前面，共用的 DataTable 沒有這個位置；表頭用 DataTableHead */}
       <table className={styles.rubricTable}>
         <caption className={styles.srOnly}>{t("AiJudgePanel.tableCaption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">
-              #<span className={styles.srOnly}>{t("AiJudgePanel.thDetails")}</span>
-            </th>
-            <th scope="col">{t("AiJudgePanel.thCheckpoint")}</th>
-            <th scope="col">{t("AiJudgePanel.thMethod")}</th>
-            <th scope="col">{t("AiJudgePanel.thAutoSupport")}</th>
-            <th scope="col"><span className={styles.srOnly}>{t("AiJudgePanel.thActions")}</span></th>
-          </tr>
-        </thead>
+        <DataTableHead table={table} />
         <tbody>
-          {items.map((item, index) => (
+          {table.getRowModel().rows.map((row) => (
             <RubricTableRow
-              key={item.id}
-              item={item}
-              index={index}
-              onChange={(updated) => onChange(index, updated)}
-              onDelete={() => onDelete(index)}
+              key={row.id}
+              row={row}
+              item={row.original}
+              index={row.index}
+              onChange={(updated) => onChange(row.index, updated)}
+              onDelete={() => onDelete(row.index)}
               disabled={disabled}
-              needsReview={reviewIds.has(item.id)}
+              needsReview={reviewIds.has(row.original.id)}
               machineNodes={machineNodes}
             />
           ))}

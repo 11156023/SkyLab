@@ -2,8 +2,11 @@ import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./ResourceMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import { DataTableCells, DataTableHead } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateFormDialog from "../templates/TemplateFormDialog";
@@ -304,13 +307,244 @@ function EnvironmentGroupRows({ group, machines = group.machines, onUpdated, onR
   );
 }
 
-/* rowRef／rowIndex：清單虛擬化時由 useVirtualRows 量列高用（data-index 是它找回列的依據） */
-function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecting = false, onToggleSelect = null, onRowClick = null, rowRef = undefined, rowIndex = undefined }) {
+/* ── 散機列的欄位（TanStack Table）──
+   v9 的 header／cell 會被當元件掛載，欄位定義放模組層級才不會每次 render 整格重新掛載。
+   列本身的狀態（選單、操作中、主控台…）在 ResourceRow，經 rowState 交給各欄；
+   環境群組列不屬於這份資料，仍由 EnvironmentGroupRows 自己畫 */
+const columnHelper = createColumnHelper();
+
+/* 欄名來自 useColumns()；index 是去掉勾選欄後的順序 */
+function ColumnTitle({ index }) {
+  return useColumns()[index];
+}
+
+function SelectAllHeader({ checked, indeterminate, disabled, onToggle }) {
+  const { t } = useTranslation("resource");
+  return (
+    <SelectCheckbox
+      cell
+      checked={checked}
+      indeterminate={indeterminate}
+      disabled={disabled}
+      onToggle={onToggle}
+      ariaLabel={t("ResourceMgmtPage.selectAllAria")}
+    />
+  );
+}
+
+function RowSelectCell({ resource, selected, canSelect, onToggleSelect }) {
+  const { t } = useTranslation("resource");
+  if (!canSelect) return null;
+  return (
+    <SelectCheckbox
+      cell
+      checked={selected}
+      onToggle={(shiftKey) => onToggleSelect(resource.vmid, shiftKey)}
+      ariaLabel={t("ResourceMgmtPage.selectRowAria", { name: resource.name })}
+    />
+  );
+}
+
+function ResourceNameCell({ resource }) {
+  const { t } = useTranslation("resource");
+  const typeMap = useTypeMap();
+  const type = typeMap[resource.type] ?? { label: resource.type, icon: "computer" };
+  return (
+    <div className={styles.nameCell}>
+      <div>
+        <div className={styles.namePrimary}>{resource.name}</div>
+        <div className={styles.nameSub}>
+          {type.label}
+          {resource.vmid > 0 && t("ResourceMgmtPage.vmidSuffix", { vmid: resource.vmid })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResourceExpiryCell({ value }) {
+  const { t } = useTranslation("resource");
+  return value
+    ? <ExpiryDateValue value={value} />
+    : <span className={styles.noExpiry}>{t("ResourceMgmtPage.noExpiry")}</span>;
+}
+
+function ResourceActionsCell({
+  resource,
+  isLive,
+  isLxc,
+  actionLoading,
+  menuOpen,
+  menuClosing,
+  menuBtnRef,
+  onToggleMenu,
+  onCloseMenu,
+  onControl,
+  onDelete,
+  onConvertTemplate,
+  onOpenConsole,
+}) {
+  const { t } = useTranslation("resource");
+  const statusMap = useStatusMap();
+  if (!isLive) {
+    return (
+      <span className={styles.noAction}>
+        {statusMap[resource.status]?.label ?? "—"}
+      </span>
+    );
+  }
+  return (
+    <div className={styles.actions}>
+      <button
+        type="button"
+        className={styles.consoleBtn}
+        title={resource.status === "starting" ? t("ResourceMgmtPage.consoleBootingTitle") : isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
+        disabled={resource.status !== "running"}
+        onClick={onOpenConsole}
+      >
+        <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
+        {isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
+      </button>
+      {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
+      <div className={styles.menuWrap}>
+        {menuOpen && (
+          <PowerMenu
+            resource={resource}
+            actionLoading={actionLoading}
+            onControl={onControl}
+            onDeleteClick={onDelete}
+            onConvertTemplate={onConvertTemplate}
+            onClose={onCloseMenu}
+            anchorRef={menuBtnRef}
+            closing={menuClosing}
+          />
+        )}
+        <button
+          ref={menuBtnRef}
+          type="button"
+          className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
+          onClick={onToggleMenu}
+          title={t("ResourceMgmtPage.powerControlTitle")}
+          aria-label={t("ResourceMgmtPage.powerControlTitle")}
+        >
+          <MIcon name="more_vert" size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const resourceColumns = columnHelper.columns([
+  /* 勾選：整格都是點擊範圍，點偏了不會變成點進詳情頁；Shift 點選連選一段。全選的狀態經 table meta 傳入 */
+  columnHelper.display({
+    id: "select",
+    header: ({ table }) => <SelectAllHeader {...table.options.meta.selectAll} />,
+    cell: ({ row, rowState }) => (
+      <RowSelectCell
+        resource={row.original}
+        selected={rowState.selected}
+        canSelect={rowState.canSelect}
+        onToggleSelect={rowState.onToggleSelect}
+      />
+    ),
+    meta: {
+      thClassName: `${styles.th} ${styles.checkCell}`,
+      tdClassName: `${styles.td} ${styles.checkCell}`,
+      tdProps: { "data-guide": "resource-mgmt-row-select" },
+    },
+  }),
+  /* 名稱 */
+  columnHelper.accessor("name", {
+    header: () => <ColumnTitle index={0} />,
+    cell: ({ row }) => <ResourceNameCell resource={row.original} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  /* 來源：管理員清單每台都標擁有者 */
+  columnHelper.display({
+    id: "kind",
+    header: () => <ColumnTitle index={1} />,
+    cell: ({ row }) => (
+      <MachineKindBadge
+        kind={row.original.machine_kind}
+        classRelation={row.original.class_relation}
+        ownerName={row.original.owner_name}
+        teachingClassName={row.original.teaching_class_name}
+        showOwner
+      />
+    ),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  /* 環境 / 系統 */
+  columnHelper.display({
+    id: "env",
+    header: () => <ColumnTitle index={2} />,
+    cell: ({ row }) => (
+      <>
+        <div className={styles.envPrimary}>{row.original.environment_type ?? "—"}</div>
+        {row.original.os_info && <div className={styles.envSub}>{row.original.os_info}</div>}
+      </>
+    ),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  /* 狀態 */
+  columnHelper.accessor("status", {
+    header: () => <ColumnTitle index={3} />,
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  /* IP；底下列出反向代理發布的對外網址，管理員不必進詳情頁就能點 */
+  columnHelper.display({
+    id: "ip",
+    header: () => <ColumnTitle index={4} />,
+    cell: ({ row }) => (
+      <>
+        <span className={styles.mono}>{row.original.ip_address ?? "N/A"}</span>
+        {(row.original.public_urls ?? []).length > 0 && (
+          <div className={styles.publicUrlList}>
+            {row.original.public_urls.map((url) => (
+              <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+                <MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{url.replace(/^https?:\/\//, "")}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </>
+    ),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  /* 到期日：日期照字面，小字附本地時間的實際截止時刻（後端以到期日 00:00 UTC 為界） */
+  columnHelper.display({
+    id: "expiry",
+    header: () => <ColumnTitle index={5} />,
+    cell: ({ row }) => <ResourceExpiryCell value={row.original.expiry_date} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  /* 節點 */
+  columnHelper.display({
+    id: "node",
+    header: () => <ColumnTitle index={6} />,
+    cell: ({ row }) => row.original.node ?? "—",
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  /* 動作：電源選單與主控台的狀態在 ResourceRow */
+  columnHelper.display({
+    id: "actions",
+    header: () => <ColumnTitle index={7} />,
+    cell: ({ row, rowState }) => <ResourceActionsCell resource={row.original} {...rowState} />,
+    meta: {
+      thClassName: styles.th,
+      tdClassName: styles.td,
+      tdProps: { "data-guide": "resource-mgmt-row-actions" },
+    },
+  }),
+]);
+
+/* rowRef／rowIndex：清單虛擬化時由 useVirtualRows 量列高用（data-index 是它找回列的依據）；
+   row 是 TanStack 的列，resource 是它的原始資料（一併傳進來，編譯後的元件才會跟著資料重繪） */
+function ResourceRow({ row, resource, onUpdated, onDeleted, selected = false, selecting = false, onToggleSelect = null, onRowClick = null, rowRef = undefined, rowIndex = undefined }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const navigate = useNavigate();
-  const typeMap = useTypeMap();
-  const statusMap = useStatusMap();
   const actionLabel = useActionLabel();
   const confirm = useConfirm();
   const [actionLoading, setActionLoading] = useState(null);
@@ -327,7 +561,6 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
   const menuBtnRef = useRef(null);
   const closeMenu = () => setMenuOpen(false);
 
-  const type  = typeMap[resource.type] ?? { label: resource.type, icon: "computer" };
   const isLxc = resource.type === "lxc";
   const canControl = resource.can_control !== false && resource.vmid != null && resource.vmid > 0;
   const isLive = canControl && LIVE_STATUSES.has(resource.status);
@@ -384,123 +617,26 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, selecti
         data-guide="resource-mgmt-row"
         onClick={handleRowClick}
       >
-        {/* 勾選：整格都是點擊範圍，點偏了不會變成點進詳情頁；Shift 點選連選一段 */}
-        <td className={`${styles.td} ${styles.checkCell}`} data-guide="resource-mgmt-row-select">
-          {onToggleSelect && canControl ? (
-            <SelectCheckbox
-              cell
-              checked={selected}
-              onToggle={(shiftKey) => onToggleSelect(resource.vmid, shiftKey)}
-              ariaLabel={t("ResourceMgmtPage.selectRowAria", { name: resource.name })}
-            />
-          ) : null}
-        </td>
-        {/* 名稱 */}
-        <td className={styles.td}>
-          <div className={styles.nameCell}>
-            <div>
-              <div className={styles.namePrimary}>{resource.name}</div>
-              <div className={styles.nameSub}>
-                {type.label}
-                {resource.vmid > 0 && t("ResourceMgmtPage.vmidSuffix", { vmid: resource.vmid })}
-              </div>
-            </div>
-          </div>
-        </td>
-
-        {/* 來源：管理員清單每台都標擁有者 */}
-        <td className={styles.td}>
-          <MachineKindBadge
-            kind={resource.machine_kind}
-            classRelation={resource.class_relation}
-            ownerName={resource.owner_name}
-            teachingClassName={resource.teaching_class_name}
-            showOwner
-          />
-        </td>
-
-        {/* 環境 / 系統 */}
-        <td className={styles.td}>
-          <div className={styles.envPrimary}>{resource.environment_type ?? "—"}</div>
-          {resource.os_info && <div className={styles.envSub}>{resource.os_info}</div>}
-        </td>
-
-        {/* 狀態 */}
-        <td className={styles.td}>
-          <StatusBadge status={resource.status} />
-        </td>
-
-        {/* IP；底下列出反向代理發布的對外網址，管理員不必進詳情頁就能點 */}
-        <td className={styles.td}>
-          <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
-          {(resource.public_urls ?? []).length > 0 && (
-            <div className={styles.publicUrlList}>
-              {resource.public_urls.map((url) => (
-                <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
-                  <MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{url.replace(/^https?:\/\//, "")}</span>
-                </a>
-              ))}
-            </div>
-          )}
-        </td>
-
-        {/* 到期日：日期照字面，小字附本地時間的實際截止時刻（後端以到期日 00:00 UTC 為界） */}
-        <td className={styles.td}>
-          {resource.expiry_date
-            ? <ExpiryDateValue value={resource.expiry_date} />
-            : <span className={styles.noExpiry}>{t("ResourceMgmtPage.noExpiry")}</span>
-          }
-        </td>
-
-        {/* 節點 */}
-        <td className={styles.td}>{resource.node ?? "—"}</td>
-
-        {/* 動作 */}
-        <td className={styles.td} data-guide="resource-mgmt-row-actions">
-          {isLive ? (
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.consoleBtn}
-                title={resource.status === "starting" ? t("ResourceMgmtPage.consoleBootingTitle") : isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
-                disabled={resource.status !== "running"}
-                onClick={() => setConsoleOpen(true)}
-              >
-                <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
-                {isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
-              </button>
-              {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
-              <div className={styles.menuWrap}>
-                {menu.open && (
-                  <PowerMenu
-                    resource={resource}
-                    actionLoading={actionLoading}
-                    onControl={handleControl}
-                    onDeleteClick={() => { closeMenu(); handleDelete(); }}
-                    onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined}
-                    onClose={closeMenu}
-                    anchorRef={menuBtnRef}
-                    closing={menu.closing}
-                  />
-                )}
-                <button
-                  ref={menuBtnRef}
-                  type="button"
-                  className={`${styles.menuBtn} ${menu.open ? styles.menuBtnActive : ""}`}
-                  onClick={() => setMenuOpen((value) => !value)}
-                  title={t("ResourceMgmtPage.powerControlTitle")}
-                  aria-label={t("ResourceMgmtPage.powerControlTitle")}
-                >
-                  <MIcon name="more_vert" size={18} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <span className={styles.noAction}>
-              {statusMap[resource.status]?.label ?? "—"}
-            </span>
-          )}
-        </td>
+        <DataTableCells
+          row={row}
+          rowState={{
+            selected,
+            canSelect: Boolean(onToggleSelect) && canControl,
+            onToggleSelect,
+            isLive,
+            isLxc,
+            actionLoading,
+            menuOpen: menu.open,
+            menuClosing: menu.closing,
+            menuBtnRef,
+            onToggleMenu: () => setMenuOpen((value) => !value),
+            onCloseMenu: closeMenu,
+            onControl: handleControl,
+            onDelete: () => { closeMenu(); handleDelete(); },
+            onConvertTemplate: canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined,
+            onOpenConsole: () => setConsoleOpen(true),
+          }}
+        />
       </tr>
 
       {consoleOpen && isLxc && createPortal(
@@ -590,7 +726,22 @@ export default function ResourceMgmtPage() {
     resourceCache.invalidate();
   }
 
-  const columns = useColumns();
+  /* 散機列交給 TanStack Table；表頭的全選框經 meta 拿勾選狀態 */
+  const table = useTable({
+    features: baseFeatures,
+    columns: resourceColumns,
+    data: shownResources,
+    getRowId: resourceRowKey,
+    meta: {
+      selectAll: {
+        checked: selection.allSelected,
+        indeterminate: selection.someSelected,
+        disabled: selectableVmids.length === 0,
+        onToggle: selection.toggleAll,
+      },
+    },
+  });
+  const rows = table.getRowModel().rows;
   /* 解構成各自的變數：React Compiler 會把「有欄位被傳給 ref」的物件整個當成 ref，讀其他欄位就整頁略過 */
   const {
     attachBody: attachVirtualBody,
@@ -683,23 +834,9 @@ export default function ResourceMgmtPage() {
                 <col className={styles.colNode} />
                 <col className={styles.colActions} />
               </colgroup>
-              <thead>
-                <tr>
-                  <th className={`${styles.th} ${styles.checkCell}`}>
-                    <SelectCheckbox
-                      cell
-                      checked={selection.allSelected}
-                      indeterminate={selection.someSelected}
-                      disabled={selectableVmids.length === 0}
-                      onToggle={selection.toggleAll}
-                      ariaLabel={t("ResourceMgmtPage.selectAllAria")}
-                    />
-                  </th>
-                  {columns.map((col) => (
-                    <th key={col} className={styles.th}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
+              <DataTableHead table={table} />
+              {/* 兩個 tbody 自己組：環境群組列不屬於散機那份資料，放第一個；
+                  散機列的 tbody 要掛虛擬化的 ref，它量的是這個 tbody 距頁頂的位置，不能跟群組列混在一起 */}
               <tbody>
                 {shownGroups.map(({ group, machines }) => <EnvironmentGroupRows key={group.id} group={group} machines={machines} onUpdated={handleUpdated} onRefresh={refreshResources} />)}
               </tbody>
@@ -708,10 +845,12 @@ export default function ResourceMgmtPage() {
               <tbody ref={attachVirtualBody} data-virtualized={virtualized ? "true" : undefined}>
                 {virtualPadTop > 0 && <tr aria-hidden="true" style={{ height: virtualPadTop }} />}
                 {virtualItems.map((item) => {
-                  const r = shownResources[item.index];
+                  const row = rows[item.index];
+                  const r = row.original;
                   return (
                     <ResourceRow
-                      key={resourceRowKey(r, item.index)}
+                      key={row.id}
+                      row={row}
                       rowRef={measureVirtualRow}
                       rowIndex={item.index}
                       resource={r}

@@ -1,7 +1,10 @@
 import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import RrdChart from "../../../components/RrdChart/RrdChart";
@@ -235,8 +238,61 @@ export function AlertsCard({ onCountChange }) {
   );
 }
 
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`MonitoringPage.${name}`);
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載。
+   CPU 與記憶體兩張排行只差最後一欄，各建一份固定的欄位 */
+function topVmColumns(metric) {
+  return columnHelper.columns([
+    columnHelper.accessor("vmid", {
+      header: "VMID",
+      cell: ({ row }) => row.original.vmid,
+      meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.monoCell}` },
+    }),
+    columnHelper.accessor("name", {
+      header: () => <ColTitle name="colName" />,
+      cell: ({ row }) => row.original.name,
+      meta: { thClassName: styles.th, tdClassName: styles.td },
+    }),
+    columnHelper.accessor("node", {
+      header: () => <ColTitle name="colNode" />,
+      cell: ({ row }) => row.original.node,
+      meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+    }),
+    columnHelper.accessor("type", {
+      header: () => <ColTitle name="colType" />,
+      cell: ({ row }) => (
+        <span className={styles.typeBadge}>
+          {row.original.type === "qemu" ? "VM" : "LXC"}
+        </span>
+      ),
+      meta: { thClassName: styles.th, tdClassName: styles.td },
+    }),
+    columnHelper.display({
+      id: metric,
+      header: metric === "cpu" ? "CPU" : () => <ColTitle name="memoryLabel" />,
+      cell: ({ row }) => (metric === "cpu" ? `${(row.original.cpu * 100).toFixed(1)}%` : formatBytes(row.original.mem)),
+      meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.numericCell}` },
+    }),
+  ]);
+}
+
+const TOP_VM_COLUMNS = Object.freeze({ cpu: topVmColumns("cpu"), mem: topVmColumns("mem") });
+
 function TopVmTable({ title, entries, metric }) {
   const { t } = useTranslation("system");
+  const table = useTable({
+    features: baseFeatures,
+    columns: TOP_VM_COLUMNS[metric],
+    data: entries,
+    getRowId: (vm) => String(vm.vmid),
+  });
   return (
     <div className={styles.card}>
       <div className={styles.cardHeader}>
@@ -246,41 +302,118 @@ function TopVmTable({ title, entries, metric }) {
         <EmptyState icon="dns" title={t("MonitoringPage.emptyNoRunningResources")} />
       ) : (
         <div className={styles.tableScroll}>
-        <table className={styles.topTable}>
-          <thead>
-            <tr>
-              <th className={styles.th}>VMID</th>
-              <th className={styles.th}>{t("MonitoringPage.colName")}</th>
-              <th className={styles.th}>{t("MonitoringPage.colNode")}</th>
-              <th className={styles.th}>{t("MonitoringPage.colType")}</th>
-              <th className={styles.th}>
-                {metric === "cpu" ? "CPU" : t("MonitoringPage.memoryLabel")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((vm) => (
-              <tr key={vm.vmid} className={styles.tr}>
-                <td className={`${styles.td} ${styles.monoCell}`}>{vm.vmid}</td>
-                <td className={styles.td}>{vm.name}</td>
-                <td className={`${styles.td} ${styles.mutedCell}`}>{vm.node}</td>
-                <td className={styles.td}>
-                  <span className={styles.typeBadge}>
-                    {vm.type === "qemu" ? "VM" : "LXC"}
-                  </span>
-                </td>
-                <td className={`${styles.td} ${styles.numericCell}`}>
-                  {metric === "cpu" ? `${(vm.cpu * 100).toFixed(1)}%` : formatBytes(vm.mem)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable table={table} className={styles.topTable} rowClassName={() => styles.tr} />
         </div>
       )}
     </div>
   );
 }
+
+function NodeNameCell({ node, online, expanded }) {
+  return (
+    <span className={styles.nodeCell}>
+      {/* 離線列沒有展開箭頭，補同寬佔位讓圖示與名稱跟其他列對齊 */}
+      {online
+        ? <MIcon name={expanded ? "expand_more" : "chevron_right"} size={16} />
+        : <span className={styles.chevronSpacer} />}
+      <MIcon name="dns" size={16} />
+      <strong>{node.node}</strong>
+      {node.connection_name && (
+        <span className={styles.typeBadge}>{node.connection_name}</span>
+      )}
+    </span>
+  );
+}
+
+function NodeStatusCell({ status }) {
+  const { t } = useTranslation("system");
+  const online = status === "online";
+  return (
+    <span
+      className={`${styles.badge} ${online ? styles.badge_success : styles.badge_danger}`}
+    >
+      {online ? t("MonitoringPage.online") : status}
+    </span>
+  );
+}
+
+function NodeCpuCell({ cpu, maxcpu }) {
+  const { t } = useTranslation("system");
+  const nodeCpu = maxcpu > 0 ? cpu * 100 : 0;
+  return (
+    <div className={styles.usageCell}>
+      <div className={styles.usageMeta}>
+        <span>{nodeCpu.toFixed(1)}%</span>
+        <span className={styles.mutedText}>{t("MonitoringPage.coresLabel", { count: maxcpu })}</span>
+      </div>
+      <UsageBar pct={nodeCpu} />
+    </div>
+  );
+}
+
+function NodeBytesCell({ used, max }) {
+  const pct = max > 0 ? (used / max) * 100 : 0;
+  return (
+    <div className={styles.usageCell}>
+      <div className={styles.usageMeta}>
+        <span>{pct.toFixed(1)}%</span>
+        <span className={styles.mutedText}>
+          {formatBytes(used)} / {formatBytes(max)}
+        </span>
+      </div>
+      <UsageBar pct={pct} />
+    </div>
+  );
+}
+
+function NodeUptimeCell({ uptime }) {
+  const { t } = useTranslation("system");
+  return formatUptime(uptime, t);
+}
+
+/* 節點列的展開狀態由頁面管（同時只展開一台），經 rowState 傳進儲存格 */
+const nodeColumns = columnHelper.columns([
+  columnHelper.accessor("node", {
+    header: () => <ColTitle name="colNode" />,
+    cell: ({ row, rowState }) => (
+      <NodeNameCell node={row.original} online={rowState.online} expanded={rowState.expanded} />
+    ),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("status", {
+    header: () => <ColTitle name="colStatus" />,
+    cell: ({ row }) => <NodeStatusCell status={row.original.status} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.display({
+    id: "cpu",
+    header: "CPU",
+    cell: ({ row }) => <NodeCpuCell cpu={row.original.cpu} maxcpu={row.original.maxcpu} />,
+    meta: { thClassName: `${styles.th} ${styles.thWide}`, tdClassName: styles.td },
+  }),
+  columnHelper.display({
+    id: "memory",
+    header: () => <ColTitle name="memoryLabel" />,
+    cell: ({ row }) => <NodeBytesCell used={row.original.mem} max={row.original.maxmem} />,
+    meta: { thClassName: `${styles.th} ${styles.thWide}`, tdClassName: styles.td },
+  }),
+  columnHelper.display({
+    id: "disk",
+    header: () => <ColTitle name="diskLabel" />,
+    cell: ({ row }) => <NodeBytesCell used={row.original.disk} max={row.original.maxdisk} />,
+    meta: { thClassName: `${styles.th} ${styles.thWide}`, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("vm_count", {
+    header: "VM / LXC",
+    cell: ({ row }) => row.original.vm_count,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.numericCell}` },
+  }),
+  columnHelper.accessor("uptime", {
+    header: () => <ColTitle name="colUptime" />,
+    cell: ({ row }) => <NodeUptimeCell uptime={row.original.uptime} />,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+]);
 
 export default function MonitoringPage() {
   const { t } = useTranslation("system");
@@ -318,6 +451,13 @@ export default function MonitoringPage() {
   const memPct = ready && overview.mem_total > 0 ? (overview.mem_used / overview.mem_total) * 100 : 0;
   const diskPct =
     ready && overview.disk_total > 0 ? (overview.disk_used / overview.disk_total) * 100 : 0;
+
+  const nodeTable = useTable({
+    features: baseFeatures,
+    columns: nodeColumns,
+    data: overview?.nodes ?? EMPTY,
+    getRowId: (node) => node.node,
+  });
 
   return (
     <div className={styles.page}>
@@ -449,102 +589,33 @@ export default function MonitoringPage() {
         </button>
         {nodesOpen && (<>
         <div className={styles.tableScroll}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.th}>{t("MonitoringPage.colNode")}</th>
-              <th className={styles.th}>{t("MonitoringPage.colStatus")}</th>
-              <th className={`${styles.th} ${styles.thWide}`}>CPU</th>
-              <th className={`${styles.th} ${styles.thWide}`}>{t("MonitoringPage.memoryLabel")}</th>
-              <th className={`${styles.th} ${styles.thWide}`}>{t("MonitoringPage.diskLabel")}</th>
-              <th className={styles.th}>VM / LXC</th>
-              <th className={styles.th}>{t("MonitoringPage.colUptime")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {overview.nodes.map((node) => {
-              const online = node.status === "online";
-              const nodeCpu = node.maxcpu > 0 ? node.cpu * 100 : 0;
-              const nodeMem = node.maxmem > 0 ? (node.mem / node.maxmem) * 100 : 0;
-              const nodeDisk = node.maxdisk > 0 ? (node.disk / node.maxdisk) * 100 : 0;
-              /* 離線節點沒有趨勢可看：列不可展開，也不給可點的 hover 暗示 */
-              const expanded = online && expandedNode === node.node;
-              return (
-                <Fragment key={node.node}>
-                  <tr
-                    className={`${styles.tr} ${online ? styles.trClickable : ""}`}
-                    onClick={online ? () => setExpandedNode(expanded ? null : node.node) : undefined}
-                  >
-                    <td className={styles.td}>
-                      <span className={styles.nodeCell}>
-                        {/* 離線列沒有展開箭頭，補同寬佔位讓圖示與名稱跟其他列對齊 */}
-                        {online
-                          ? <MIcon name={expanded ? "expand_more" : "chevron_right"} size={16} />
-                          : <span className={styles.chevronSpacer} />}
-                        <MIcon name="dns" size={16} />
-                        <strong>{node.node}</strong>
-                        {node.connection_name && (
-                          <span className={styles.typeBadge}>{node.connection_name}</span>
-                        )}
-                      </span>
-                    </td>
-                    <td className={styles.td}>
-                      <span
-                        className={`${styles.badge} ${online ? styles.badge_success : styles.badge_danger}`}
-                      >
-                        {online ? t("MonitoringPage.online") : node.status}
-                      </span>
-                    </td>
-                    <td className={styles.td}>
-                      <div className={styles.usageCell}>
-                        <div className={styles.usageMeta}>
-                          <span>{nodeCpu.toFixed(1)}%</span>
-                          <span className={styles.mutedText}>{t("MonitoringPage.coresLabel", { count: node.maxcpu })}</span>
-                        </div>
-                        <UsageBar pct={nodeCpu} />
-                      </div>
-                    </td>
-                    <td className={styles.td}>
-                      <div className={styles.usageCell}>
-                        <div className={styles.usageMeta}>
-                          <span>{nodeMem.toFixed(1)}%</span>
-                          <span className={styles.mutedText}>
-                            {formatBytes(node.mem)} / {formatBytes(node.maxmem)}
-                          </span>
-                        </div>
-                        <UsageBar pct={nodeMem} />
-                      </div>
-                    </td>
-                    <td className={styles.td}>
-                      <div className={styles.usageCell}>
-                        <div className={styles.usageMeta}>
-                          <span>{nodeDisk.toFixed(1)}%</span>
-                          <span className={styles.mutedText}>
-                            {formatBytes(node.disk)} / {formatBytes(node.maxdisk)}
-                          </span>
-                        </div>
-                        <UsageBar pct={nodeDisk} />
-                      </div>
-                    </td>
-                    <td className={`${styles.td} ${styles.numericCell}`}>
-                      {node.vm_count}
-                    </td>
-                    <td className={`${styles.td} ${styles.mutedCell}`}>
-                      {formatUptime(node.uptime, t)}
+        <DataTable
+          table={nodeTable}
+          className={styles.table}
+          renderRow={(row) => {
+            const node = row.original;
+            const online = node.status === "online";
+            /* 離線節點沒有趨勢可看：列不可展開，也不給可點的 hover 暗示 */
+            const expanded = online && expandedNode === node.node;
+            return (
+              <Fragment key={row.id}>
+                <tr
+                  className={`${styles.tr} ${online ? styles.trClickable : ""}`}
+                  onClick={online ? () => setExpandedNode(expanded ? null : node.node) : undefined}
+                >
+                  <DataTableCells row={row} rowState={{ online, expanded }} />
+                </tr>
+                {expanded && (
+                  <tr className={styles.trExpand}>
+                    <td colSpan={7} className={styles.tdExpand}>
+                      <NodeTrends node={node.node} />
                     </td>
                   </tr>
-                  {expanded && (
-                    <tr className={styles.trExpand}>
-                      <td colSpan={7} className={styles.tdExpand}>
-                        <NodeTrends node={node.node} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+                )}
+              </Fragment>
+            );
+          }}
+        />
         </div>
         </>)}
       </div>

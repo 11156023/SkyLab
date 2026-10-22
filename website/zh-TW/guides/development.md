@@ -84,6 +84,7 @@ Vite dev server 會把 `/api` 與 `/ws` 代理到 `http://localhost:8000`；要�
 - 載入與錯誤畫面一律用 `src/hooks/useQueryLoadState.js` 的 `useQueryView`、`useLoadError`、`useQueryErrorEffect`。不要用 `isError && !isFetching` 推導錯誤畫面：沒有資料時 TanStack Query v5 每次重抓都會把狀態改回 pending，那種寫法的錯誤畫面會在每次背景重試時閃回載入中。
 - 頁面測試用 `src/queries/testing.jsx` 的 `withQueryClient` 包元件。查詢結果是存取追蹤的，要斷言的欄位必須在 render 期間讀過；TanStack Query 以 macrotask 通知，斷言前要先等一個 timer tick。
 - React Compiler 在建置時執行（`vite.config.js` 以 `@rolldown/plugin-babel` 掛 `reactCompilerPreset`），新元件不必再手寫 `useMemo`／`useCallback`。違反 hooks 規則的元件會被整個略過，不會壞掉。在 render 期間讀可變實例的程式（例如 TanStack Virtual）要以 `"use no memo"` 退出。
+- 所有 `<table>` 都用 TanStack Table v9，經 `src/components/DataTable`（`DataTable`、`DataTableHead`、`DataTableCells`，以及 `features.js` 的 `baseFeatures`／`sortableFeatures`）建立。欄位定義放在模組層級：v9 的 `FlexRender` 會把任何函式型的 `cell` 當成元件掛載，在 render 裡建立欄位的話，每次 render 每一格都會重新掛載。儲存格是元件，可以直接用 hook；頁面層級的處理函式經 `useTable({ meta })` 傳進去。列本身有互動狀態時保留列元件，由它自己畫 `<tr>`，再用 `<DataTableCells row={row} rowState={…} />` 把狀態交給各欄的儲存格。輸出的 DOM 與手寫表格相同，風格指南的表格 mixin 照常適用。
 - 長表格用 `useVirtualRows`（`src/hooks/useVirtualRows.js`，TanStack Virtual、以視窗為捲動容器）。不到 60 列時每一列照常渲染，超過才只在 DOM 裡保留視窗附近的列。
 - 樣式遵循 [`frontend-style-guide.zh-TW.md`](/zh-TW/guides/frontend-style-guide)：SCSS Modules、`_variables`／`_mixins` 由 Vite 注入、主題色用 `--color-*` 自訂屬性。
 - 文字一律走 react-i18next，key 在 `src/locales/{zh-TW,en,ja}/`，三個語系都要加。

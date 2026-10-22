@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
+import DataTable, { DataTableCells } from "../../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../../components/DataTable/features";
 import Modal from "../../../../components/Modal/Modal";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
@@ -21,6 +24,108 @@ const INIT_SNAPSHOT_NAME = "skylab-init";
 const MINING_SNAPSHOT_PREFIX = "mining-";
 
 const isMiningEvidence = (name) => typeof name === "string" && name.startsWith(MINING_SNAPSHOT_PREFIX);
+const EMPTY = Object.freeze([]);
+
+/* ── 快照清單的欄位（模組層級：cell／header 會被當成元件掛載，render 裡新建會整格重掛） ── */
+function SnapshotHeader({ column }) {
+  const { t } = useTranslation("personal");
+  return t(column.columnDef.meta.labelKey);
+}
+
+function SnapshotNameCell({ row }) {
+  const { t } = useTranslation("personal");
+  const { name } = row.original;
+  return (
+    <span className={styles.snapName}>
+      {name}
+      {name === INIT_SNAPSHOT_NAME && (
+        <span className={`${styles.badge} ${styles.badge_info}`}>
+          <MIcon name="verified_user" size={12} />
+          {t("SnapshotsTab.protected")}
+        </span>
+      )}
+      {isMiningEvidence(name) && (
+        <span
+          className={`${styles.badge} ${styles.badge_danger}`}
+          title={t("SnapshotsTab.evidenceHint")}
+        >
+          <MIcon name="policy" size={12} />
+          {t("SnapshotsTab.evidence")}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/* 操作中狀態與處理函式是分頁層級的，經 SnapshotRow 的 rowState 傳進來 */
+function SnapshotActionsCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { busy, canDelete, onRollback, onDelete } = rowState;
+  return (
+    <>
+      <button type="button" className={styles.btnSecondary} disabled={busy} onClick={onRollback}>
+        <MIcon name="history" size={14} />
+        {t("SnapshotsTab.restore")}
+      </button>
+      {canDelete && (
+        <button type="button" className={styles.btnDangerOutline} disabled={busy} onClick={onDelete}>
+          <MIcon name="delete_outline" size={14} />
+          {t("SnapshotsTab.delete")}
+        </button>
+      )}
+    </>
+  );
+}
+
+const columnHelper = createColumnHelper();
+const SNAPSHOT_COLUMNS = columnHelper.columns([
+  columnHelper.accessor("name", {
+    header: SnapshotHeader,
+    cell: SnapshotNameCell,
+    meta: { labelKey: "SnapshotsTab.colName", thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("description", {
+    header: SnapshotHeader,
+    cell: (info) => info.getValue() || "—",
+    meta: { labelKey: "SnapshotsTab.colDesc", thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+  columnHelper.accessor("snaptime", {
+    header: SnapshotHeader,
+    cell: (info) => (info.getValue() ? formatDateTime(info.getValue() * 1000) : "—"),
+    meta: {
+      labelKey: "SnapshotsTab.colCreatedAt",
+      thClassName: styles.th,
+      tdClassName: `${styles.td} ${styles.mutedCell} ${styles.nowrapCell}`,
+    },
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: SnapshotHeader,
+    cell: SnapshotActionsCell,
+    meta: { labelKey: "SnapshotsTab.colActions", thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdActions}` },
+  }),
+]);
+
+const getSnapshotId = (snap) => snap.name;
+
+/* busy／isAdmin 是分頁層級的、清單資料沒變也會變：經列元件的 props 進 rowState，cell 才會跟著重繪 */
+function SnapshotRow({ row, snap, busy, isAdmin, onRollback, onDelete }) {
+  /* 初始快照不可刪；反挖礦存證快照只有管理員能刪 */
+  const canDelete = snap.name !== INIT_SNAPSHOT_NAME && (isAdmin || !isMiningEvidence(snap.name));
+  return (
+    <tr className={styles.tr}>
+      <DataTableCells
+        row={row}
+        rowState={{
+          busy,
+          canDelete,
+          onRollback: () => onRollback(snap.name),
+          onDelete: () => onDelete(snap.name),
+        }}
+      />
+    </tr>
+  );
+}
 
 /**
  * 快照分頁。只有機器當下能用快照時才會被掛載（由 ResourceDetailPage 依後端的
@@ -54,6 +159,12 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
   });
   const snapshots = snapshotsQuery.data ?? (snapshotsQuery.isError ? [] : null);
   const load = () => snapshotsQuery.refetch();
+  const snapshotTable = useTable({
+    features: baseFeatures,
+    columns: SNAPSHOT_COLUMNS,
+    data: snapshots ?? EMPTY,
+    getRowId: getSnapshotId,
+  });
 
   const hasInitSnapshot = (snapshots ?? []).some((s) => s.name === INIT_SNAPSHOT_NAME);
 
@@ -174,70 +285,21 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
             action={<button type="button" className={styles.btnPrimary} onClick={() => { setNameInvalid(false); setCreateOpen(true); }}><MIcon name="add" size={14} />{t("SnapshotsTab.createSnapshot")}</button>} />
         ) : (
           <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.th}>{t("SnapshotsTab.colName")}</th>
-                <th className={styles.th}>{t("SnapshotsTab.colDesc")}</th>
-                <th className={styles.th}>{t("SnapshotsTab.colCreatedAt")}</th>
-                <th className={styles.th}>{t("SnapshotsTab.colActions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {snapshots.map((snap) => (
-                <tr key={snap.name} className={styles.tr}>
-                  <td className={styles.td}>
-                    <span className={styles.snapName}>
-                      {snap.name}
-                      {snap.name === INIT_SNAPSHOT_NAME && (
-                        <span className={`${styles.badge} ${styles.badge_info}`}>
-                          <MIcon name="verified_user" size={12} />
-                          {t("SnapshotsTab.protected")}
-                        </span>
-                      )}
-                      {isMiningEvidence(snap.name) && (
-                        <span
-                          className={`${styles.badge} ${styles.badge_danger}`}
-                          title={t("SnapshotsTab.evidenceHint")}
-                        >
-                          <MIcon name="policy" size={12} />
-                          {t("SnapshotsTab.evidence")}
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  <td className={`${styles.td} ${styles.mutedCell}`}>
-                    {snap.description || "—"}
-                  </td>
-                  <td className={`${styles.td} ${styles.mutedCell} ${styles.nowrapCell}`}>
-                    {snap.snaptime ? formatDateTime(snap.snaptime * 1000) : "—"}
-                  </td>
-                  <td className={`${styles.td} ${styles.tdActions}`}>
-                    <button
-                      type="button"
-                      className={styles.btnSecondary}
-                      disabled={busy}
-                      onClick={() => handleRollback(snap.name)}
-                    >
-                      <MIcon name="history" size={14} />
-                      {t("SnapshotsTab.restore")}
-                    </button>
-                    {snap.name !== INIT_SNAPSHOT_NAME && (isAdmin || !isMiningEvidence(snap.name)) && (
-                      <button
-                        type="button"
-                        className={styles.btnDangerOutline}
-                        disabled={busy}
-                        onClick={() => handleDeleteSnap(snap.name)}
-                      >
-                        <MIcon name="delete_outline" size={14} />
-                        {t("SnapshotsTab.delete")}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            table={snapshotTable}
+            className={styles.table}
+            renderRow={(row) => (
+              <SnapshotRow
+                key={row.id}
+                row={row}
+                snap={row.original}
+                busy={busy}
+                isAdmin={isAdmin}
+                onRollback={handleRollback}
+                onDelete={handleDeleteSnap}
+              />
+            )}
+          />
           </div>
         )}
       </div>

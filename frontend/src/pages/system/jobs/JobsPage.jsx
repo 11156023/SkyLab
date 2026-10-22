@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./JobsPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -85,6 +88,71 @@ function Progress({ value }) {
   );
 }
 
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`JobsPage.${name}`);
+}
+
+function KindCell({ kind }) {
+  const KIND_LABELS = useKindLabels();
+  return KIND_LABELS[kind] ?? kind;
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const jobColumns = columnHelper.columns([
+  columnHelper.accessor("title", {
+    header: () => <ColTitle name="colTask" />,
+    cell: ({ row }) => {
+      const j = row.original;
+      return (
+        <div className={styles.nameCell}>
+          <div className={styles.nameIcon}>
+            <MIcon name="task" size={18} />
+          </div>
+          <div>
+            <div className={styles.namePrimary} title={j.title ?? j.id}>{j.title ?? j.id}</div>
+            <div className={styles.nameSub}>{j.id}</div>
+          </div>
+        </div>
+      );
+    },
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("kind", {
+    header: () => <ColTitle name="colKind" />,
+    cell: ({ row }) => <KindCell kind={row.original.kind} />,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+  columnHelper.accessor("status", {
+    header: () => <ColTitle name="colStatus" />,
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("progress", {
+    header: () => <ColTitle name="colProgress" />,
+    cell: ({ row }) => <Progress value={row.original.progress} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("created_at", {
+    header: () => <ColTitle name="colCreatedAt" />,
+    cell: ({ row }) => formatDateTime(row.original.created_at),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("updated_at", {
+    header: () => <ColTitle name="colUpdatedAt" />,
+    cell: ({ row }) => formatDateTime(row.original.updated_at),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("user_email", {
+    header: () => <ColTitle name="colApplicant" />,
+    cell: ({ row }) => row.original.user_email ?? "—",
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+]);
+
 export default function JobsPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
@@ -109,6 +177,12 @@ export default function JobsPage() {
   const filterKey = `${kind}|${status}`;
   const jobsQuery = useJobsQuery(buildListParams(kind, status), { placeholderData: keepPreviousData });
   const jobs = jobsQuery.data?.items ?? EMPTY;
+  const table = useTable({
+    features: baseFeatures,
+    columns: jobColumns,
+    data: jobs,
+    getRowId: (j) => String(j.id),
+  });
   /* 錯誤畫面在背景重試期間不閃回載入中；換篩選後新 key 的失敗照樣顯示（見 useQueryView） */
   const { loading, error, retry: retryJobs } = useQueryView(jobsQuery);
 
@@ -203,46 +277,12 @@ export default function JobsPage() {
           <EmptyState onClear={kind !== "all" || status !== "all" ? () => { setKind("all"); setStatus("all"); } : undefined} />
         ) : (
           <div className={styles.tableWrap} data-guide="jobs-table">
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  {[t("JobsPage.colTask"), t("JobsPage.colKind"), t("JobsPage.colStatus"), t("JobsPage.colProgress"), t("JobsPage.colCreatedAt"), t("JobsPage.colUpdatedAt"), t("JobsPage.colApplicant")].map((col) => (
-                    <th key={col} className={styles.th}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((j) => (
-                  <tr
-                    key={j.id}
-                    className={styles.tr}
-                    onClick={() => setFocusJobId(j.id)}
-                  >
-                    <td className={styles.td}>
-                      <div className={styles.nameCell}>
-                        <div className={styles.nameIcon}>
-                          <MIcon name="task" size={18} />
-                        </div>
-                        <div>
-                          <div className={styles.namePrimary} title={j.title ?? j.id}>{j.title ?? j.id}</div>
-                          <div className={styles.nameSub}>{j.id}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className={`${styles.td} ${styles.tdNowrap}`}>{KIND_LABELS[j.kind] ?? j.kind}</td>
-                    <td className={styles.td}>
-                      <StatusBadge status={j.status} />
-                    </td>
-                    <td className={styles.td}>
-                      <Progress value={j.progress} />
-                    </td>
-                    <td className={styles.td}>{formatDateTime(j.created_at)}</td>
-                    <td className={styles.td}>{formatDateTime(j.updated_at)}</td>
-                    <td className={styles.td}>{j.user_email ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              table={table}
+              className={styles.table}
+              rowClassName={() => styles.tr}
+              rowProps={(row) => ({ onClick: () => setFocusJobId(row.original.id) })}
+            />
           </div>
         )}
       </div>

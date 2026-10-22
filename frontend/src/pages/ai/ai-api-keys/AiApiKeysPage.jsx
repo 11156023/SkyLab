@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./AiApiKeysPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
@@ -61,6 +64,86 @@ function StatusBadge({ item }) {
     </span>
   );
 }
+
+/* 憑證表格的欄位（TanStack Table）。欄位定義放模組層級：v9 的 FlexRender 把函式型的 header／cell
+   當元件掛載，render 裡新建會讓整格重新掛載。表頭文字取 meta.headerKey 的翻譯；撤銷經 table meta 交回頁面。
+   資料沒變時表格的列不會重繪，切換語言只會重繪有用 useTranslation 的元件，
+   所以依語系格式化日期的格子（formatDate 讀 i18n.language）自己訂閱語系 */
+const columnHelper = createColumnHelper();
+
+function HeaderLabel({ column }) {
+  const { t } = useTranslation("ai");
+  return t(column.columnDef.meta.headerKey);
+}
+
+function NameCell({ row }) {
+  const item = row.original;
+  return (
+    <div className={styles.nameCell}>
+      <div className={styles.rowIcon}>
+        <MIcon name="vpn_key" size={20} />
+      </div>
+      <div className={styles.rowMain}>
+        <span className={styles.rowName} title={item.api_key_name || undefined}>{item.api_key_name || "—"}</span>
+        <span className={styles.rowMeta} title={item.user_email || undefined}>{item.user_email || "—"}</span>
+      </div>
+    </div>
+  );
+}
+
+function TextCell({ getValue }) {
+  const value = getValue();
+  return <span className={styles.cellText} title={value || undefined}>{value || "—"}</span>;
+}
+
+function ActivityCell({ row }) {
+  const { t } = useTranslation("ai");
+  const lastUsedAt = row.original.last_used_at;
+  return lastUsedAt ? formatDateTime(lastUsedAt) : <span className={styles.cellMuted}>{t("AiApiKeysPage.detailNeverUsed")}</span>;
+}
+
+function CreatedAtCell({ getValue }) {
+  useTranslation("ai");
+  return formatDate(getValue());
+}
+
+function RevokeCell({ row, table }) {
+  const { t } = useTranslation("ai");
+  const item = row.original;
+  if (item.status !== "active") return "—";
+  return (
+    <button
+      type="button"
+      className={styles.rowRevokeBtn}
+      data-guide="ai-keys-admin-revoke"
+      onClick={() => table.options.meta.onRevoke(item)}
+    >
+      <MIcon name="block" size={16} />
+      {t("AiApiKeysPage.revokeAction")}
+    </button>
+  );
+}
+
+function columnMeta(headerKey, extra) {
+  return { headerKey, thClassName: styles.th, tdClassName: styles.td, ...extra };
+}
+
+const credentialColumns = columnHelper.columns([
+  columnHelper.display({ id: "name", header: HeaderLabel, cell: NameCell, meta: columnMeta("AiApiKeysPage.colName") }),
+  columnHelper.accessor("user_full_name", { header: HeaderLabel, cell: TextCell, meta: columnMeta("AiApiKeysPage.detailOwner") }),
+  columnHelper.accessor("request_purpose", { header: HeaderLabel, cell: TextCell, meta: columnMeta("AiApiKeysPage.detailPurpose") }),
+  columnHelper.display({
+    id: "activity",
+    header: HeaderLabel,
+    cell: ActivityCell,
+    meta: columnMeta("AiApiKeysPage.detailActivity", { tdProps: { "data-guide": "ai-keys-admin-activity" } }),
+  }),
+  columnHelper.display({ id: "status", header: HeaderLabel, cell: ({ row }) => <StatusBadge item={row.original} />, meta: columnMeta("AiApiKeysPage.colStatus") }),
+  columnHelper.accessor("created_at", { header: HeaderLabel, cell: CreatedAtCell, meta: columnMeta("AiApiKeysPage.colCreatedAt") }),
+  columnHelper.display({ id: "actions", header: HeaderLabel, cell: RevokeCell, meta: columnMeta("AiApiKeysPage.colActions") }),
+]);
+
+const credentialRowClassName = () => styles.tr;
 
 function EmptyState({ hasFilters, onClear }) {
   const { t } = useTranslation("ai");
@@ -215,6 +298,14 @@ export default function AiApiKeysPage() {
   const { error: loadError, retry: retryCredentials } = useLoadError(credentialsQuery);
   const loading = res === undefined && !loadError && (credentialsQuery.isPending || credentialsQuery.isFetching);
   const rows = res?.data ?? EMPTY;
+  /* 伺服器分頁：頁碼由頁面管（決定查詢參數），表格只渲染當頁的列 */
+  const table = useTable({
+    features: baseFeatures,
+    columns: credentialColumns,
+    data: rows,
+    getRowId: (item) => String(item.id),
+    meta: { onRevoke: setDeletingItem },
+  });
   const total = res?.count ?? 0;
   const allCount = res?.total_count ?? res?.count ?? 0;
   const activeCount = res?.active_count ?? 0;
@@ -299,60 +390,7 @@ export default function AiApiKeysPage() {
           }} /> : (
             <>
               <div className={styles.tableWrap} data-guide="ai-keys-admin-table">
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th className={styles.th}>{t("AiApiKeysPage.colName")}</th>
-                      <th className={styles.th}>{t("AiApiKeysPage.detailOwner")}</th>
-                      <th className={styles.th}>{t("AiApiKeysPage.detailPurpose")}</th>
-                      <th className={styles.th}>{t("AiApiKeysPage.detailActivity")}</th>
-                      <th className={styles.th}>{t("AiApiKeysPage.colStatus")}</th>
-                      <th className={styles.th}>{t("AiApiKeysPage.colCreatedAt")}</th>
-                      <th className={styles.th}>{t("AiApiKeysPage.colActions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((item) => (
-                      <tr key={item.id} className={styles.tr}>
-                        <td className={styles.td}>
-                          <div className={styles.nameCell}>
-                            <div className={styles.rowIcon}>
-                              <MIcon name="vpn_key" size={20} />
-                            </div>
-                            <div className={styles.rowMain}>
-                              <span className={styles.rowName} title={item.api_key_name || undefined}>{item.api_key_name || "—"}</span>
-                              <span className={styles.rowMeta} title={item.user_email || undefined}>{item.user_email || "—"}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className={styles.td}>
-                          <span className={styles.cellText} title={item.user_full_name || undefined}>{item.user_full_name || "—"}</span>
-                        </td>
-                        <td className={styles.td}>
-                          <span className={styles.cellText} title={item.request_purpose || undefined}>{item.request_purpose || "—"}</span>
-                        </td>
-                        <td className={styles.td} data-guide="ai-keys-admin-activity">
-                          {item.last_used_at ? formatDateTime(item.last_used_at) : <span className={styles.cellMuted}>{t("AiApiKeysPage.detailNeverUsed")}</span>}
-                        </td>
-                        <td className={styles.td}><StatusBadge item={item} /></td>
-                        <td className={styles.td}>{formatDate(item.created_at)}</td>
-                        <td className={styles.td}>
-                          {item.status === "active" ? (
-                            <button
-                              type="button"
-                              className={styles.rowRevokeBtn}
-                              data-guide="ai-keys-admin-revoke"
-                              onClick={() => setDeletingItem(item)}
-                            >
-                              <MIcon name="block" size={16} />
-                              {t("AiApiKeysPage.revokeAction")}
-                            </button>
-                          ) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable table={table} className={styles.table} rowClassName={credentialRowClassName} />
               </div>
 
               {totalPages > 1 && <div className={styles.pagination}><span className={styles.paginationInfo}>{t("AiApiKeysPage.paginationInfo", { page: page + 1, totalPages, total })}</span><div className={styles.paginationBtns}><button type="button" className={styles.btnSecondary} disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{t("AiApiKeysPage.prevPage")}</button><button type="button" className={styles.btnSecondary} disabled={page + 1 >= totalPages} onClick={() => setPage((current) => current + 1)}>{t("AiApiKeysPage.nextPage")}</button></div></div>}

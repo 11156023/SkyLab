@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
+import DataTable, { DataTableCells } from "../../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../../components/DataTable/features";
 import Modal from "../../../../components/Modal/Modal";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
@@ -18,6 +21,70 @@ import { useBackupsQuery, useQueryErrorEffect } from "../../../../queries/resour
 /* 入列後到任務出現在「執行中任務」之間的空窗：超過這段時間還沒看到任務，就當它已經跑完 */
 const QUEUED_FALLBACK_MS = 20000;
 const DESCRIPTION_MAX_LENGTH = 120;
+const EMPTY = Object.freeze([]);
+
+/* ── 備份清單的欄位（模組層級：cell／header 會被當成元件掛載，render 裡新建會整格重掛） ── */
+function BackupHeader({ column }) {
+  const { t } = useTranslation("personal");
+  return t(column.columnDef.meta.labelKey);
+}
+
+/* 操作鈕的鎖定狀態與處理函式是分頁層級的，經 BackupRow 的 rowState 傳進來 */
+function BackupActionsCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { locked, onRestore, onDelete } = rowState;
+  return (
+    <>
+      <button type="button" className={styles.btnSecondary} disabled={locked} onClick={onRestore}>
+        <MIcon name="history" size={14} />
+        {t("BackupsTab.restore")}
+      </button>
+      <button type="button" className={styles.btnDangerOutline} disabled={locked} onClick={onDelete}>
+        <MIcon name="delete_outline" size={14} />
+        {t("BackupsTab.delete")}
+      </button>
+    </>
+  );
+}
+
+const columnHelper = createColumnHelper();
+const BACKUP_COLUMNS = columnHelper.columns([
+  columnHelper.accessor("created_at", {
+    header: BackupHeader,
+    cell: (info) => (info.getValue() ? formatDateTime(info.getValue() * 1000) : "—"),
+    meta: { labelKey: "BackupsTab.colCreatedAt", thClassName: styles.th, tdClassName: `${styles.td} ${styles.nowrapCell}` },
+  }),
+  columnHelper.accessor("description", {
+    header: BackupHeader,
+    cell: (info) => info.getValue() || "—",
+    meta: { labelKey: "BackupsTab.colDesc", thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+  columnHelper.accessor("size", {
+    header: BackupHeader,
+    cell: (info) => formatBackupSize(info.getValue()),
+    meta: { labelKey: "BackupsTab.colSize", thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: BackupHeader,
+    cell: BackupActionsCell,
+    meta: { labelKey: "BackupsTab.colActions", thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdActions}` },
+  }),
+]);
+
+const getBackupId = (backup) => backup.volid;
+
+/* 鎖定狀態是分頁層級的、清單資料沒變也會變：經列元件的 props 進 rowState，cell 才會跟著重繪 */
+function BackupRow({ row, backup, locked, onRestore, onDelete }) {
+  return (
+    <tr className={styles.tr}>
+      <DataTableCells
+        row={row}
+        rowState={{ locked, onRestore: () => onRestore(backup), onDelete: () => onDelete(backup) }}
+      />
+    </tr>
+  );
+}
 
 /**
  * 備份分頁：快照不能用的機器以備份當還原點（由 ResourceDetailPage 依後端的
@@ -51,6 +118,12 @@ export default function BackupsTab({ vmid, toolbar, capability, onOperationFaile
   });
   const backups = backupsQuery.data ?? (backupsQuery.isError ? [] : null);
   const { refetch } = backupsQuery;
+  const backupTable = useTable({
+    features: baseFeatures,
+    columns: BACKUP_COLUMNS,
+    data: backups ?? EMPTY,
+    getRowId: getBackupId,
+  });
 
   /* 這台機器的備份／還原任務跑完（從執行中清單消失）就重抓清單 */
   const taskActive = Boolean(findActiveBackupJob(jobs, vmid));
@@ -187,47 +260,20 @@ export default function BackupsTab({ vmid, toolbar, capability, onOperationFaile
           />
         ) : (
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th className={styles.th}>{t("BackupsTab.colCreatedAt")}</th>
-                  <th className={styles.th}>{t("BackupsTab.colDesc")}</th>
-                  <th className={styles.th}>{t("BackupsTab.colSize")}</th>
-                  <th className={styles.th}>{t("BackupsTab.colActions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {backups.map((backup) => (
-                  <tr key={backup.volid} className={styles.tr}>
-                    <td className={`${styles.td} ${styles.nowrapCell}`}>
-                      {backup.created_at ? formatDateTime(backup.created_at * 1000) : "—"}
-                    </td>
-                    <td className={`${styles.td} ${styles.mutedCell}`}>{backup.description || "—"}</td>
-                    <td className={`${styles.td} ${styles.mutedCell}`}>{formatBackupSize(backup.size)}</td>
-                    <td className={`${styles.td} ${styles.tdActions}`}>
-                      <button
-                        type="button"
-                        className={styles.btnSecondary}
-                        disabled={locked}
-                        onClick={() => handleRestore(backup)}
-                      >
-                        <MIcon name="history" size={14} />
-                        {t("BackupsTab.restore")}
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.btnDangerOutline}
-                        disabled={locked}
-                        onClick={() => handleDelete(backup)}
-                      >
-                        <MIcon name="delete_outline" size={14} />
-                        {t("BackupsTab.delete")}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              table={backupTable}
+              className={styles.table}
+              renderRow={(row) => (
+                <BackupRow
+                  key={row.id}
+                  row={row}
+                  backup={row.original}
+                  locked={locked}
+                  onRestore={handleRestore}
+                  onDelete={handleDelete}
+                />
+              )}
+            />
           </div>
         )}
       </div>

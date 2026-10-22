@@ -1,9 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./AiApiPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -367,8 +370,161 @@ function KeyDetailDialog({ credential, apiKey, state, closing = false, onClose }
   );
 }
 
-/* ── Credential row：一把金鑰一列，名稱開詳細視窗，其餘動作收進 ⋮ ── */
-function CredentialRow({ item, state, onRefresh, onDeleted, onShowDetails, onRotated }) {
+/* ── 金鑰與申請紀錄的表格（TanStack Table）──
+   欄位定義放模組層級：v9 的 FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會讓整格重新掛載
+   （改名輸入框的焦點、選單都會掉）。表頭文字取 meta.headerKey 的翻譯。
+   資料沒變時表格的列不會重繪，切換語言只會重繪有用 useTranslation 的元件，
+   所以依語系格式化日期的格子（formatDateTime 讀 i18n.language）自己訂閱語系 */
+const columnHelper = createColumnHelper();
+
+function HeaderLabel({ column }) {
+  const { t } = useTranslation("ai");
+  return t(column.columnDef.meta.headerKey);
+}
+
+function DateTimeCell({ getValue }) {
+  useTranslation("ai");
+  return formatDateTime(getValue());
+}
+
+function columnMeta(headerKey, extra) {
+  return { headerKey, thClassName: styles.th, tdClassName: styles.td, ...extra };
+}
+
+/* 金鑰列的各欄：改名、選單、操作中等狀態由 CredentialRow 擁有，經 rowState 傳進來 */
+function CredentialNameCell({ row, rowState }) {
+  const { t } = useTranslation("ai");
+  const item = row.original;
+  const { deprecated, busy, editing, nameInput, nameInvalid, onNameInput, onRename, onCancelRename, onShowDetails } = rowState;
+  return (
+    <div className={styles.rowMain}>
+      {editing ? (
+        <div className={styles.renameRow}>
+          <input
+            type="text"
+            className={`${styles.renameInput} ${nameInvalid ? styles.fieldInvalid : ""}`}
+            value={nameInput}
+            maxLength={20}
+            aria-label={t("AiApiPage.formLabelKeyName")}
+            aria-invalid={nameInvalid}
+            title={nameInvalid ? t("AiApiPage.formErrorKeyName") : undefined}
+            onChange={(e) => onNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onRename();
+              if (e.key === "Escape") onCancelRename();
+            }}
+            autoFocus
+          />
+          <button type="button" className={styles.iconBtn} onClick={onRename} disabled={busy} aria-label={t("AiApiPage.actionRename")}>
+            <MIcon name="check" size={16} />
+          </button>
+          <button type="button" className={styles.iconBtn} onClick={onCancelRename} aria-label={t("AiApiPage.cancel")}>
+            <MIcon name="close" size={16} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={`${styles.rowName} ${styles.keyDetailLink} ${deprecated ? styles.rowNameDeprecated : ""}`}
+          onClick={() => onShowDetails(item)}
+          title={t("AiApiPage.openKeyDetails", { name: item.api_key_name })}
+          aria-label={t("AiApiPage.openKeyDetails", { name: item.api_key_name })}
+        >{item.api_key_name}</button>
+      )}
+      <span
+        className={`${styles.rowKey} ${deprecated ? styles.rowKeyDeprecated : ""}`}
+        title={deprecated ? undefined : t("AiApiPage.keyHiddenHint")}
+      >
+        {maskPrefix(item.api_key_prefix)}
+      </span>
+    </div>
+  );
+}
+
+function CredentialStatusCell({ rowState }) {
+  const { t } = useTranslation("ai");
+  const { state, deprecated } = rowState;
+  return (
+    <span className={`${styles.badge} ${deprecated ? styles.badge_muted : styles.badge_active}`}>
+      <span className={styles.dot} />
+      {t(CREDENTIAL_STATE_LABEL_KEYS[state])}
+    </span>
+  );
+}
+
+function CredentialExpiryCell({ row, rowState }) {
+  const { t } = useTranslation("ai");
+  const item = row.original;
+
+  function fmtExpiry(value) {
+    if (!value) return t("AiApiPage.durationOptionNever");
+    const label = formatDateTime(value);
+    return isExpired(value) ? t("AiApiPage.expiredFormat", { date: label }) : label;
+  }
+
+  return (
+    <>
+      <span className={rowState.state === "expired" ? styles.textDanger : ""}>{fmtExpiry(item.expires_at)}</span>
+      {item.revoked_at && (
+        <div className={styles.cellSubline}>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</div>
+      )}
+    </>
+  );
+}
+
+function CredentialActionsCell({ rowState }) {
+  const { t } = useTranslation("ai");
+  const {
+    state, busy, hasMenu, menuOpen, menuMounted, menuClosing, menuBtnRef,
+    onToggleMenu, onCloseMenu, onStartRename, onRotate, onDelete,
+  } = rowState;
+  if (!hasMenu) return null;
+  return (
+    <div className={styles.rowActions} data-guide="ai-key-actions">
+      {menuMounted && (
+        <KeyMenu
+          state={state}
+          busy={busy}
+          onRename={onStartRename}
+          onRotate={onRotate}
+          onDelete={onDelete}
+          onClose={onCloseMenu}
+          anchorRef={menuBtnRef}
+          closing={menuClosing}
+        />
+      )}
+      <button
+        ref={menuBtnRef}
+        type="button"
+        className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
+        onClick={onToggleMenu}
+        title={t("AiApiPage.moreActions")}
+        aria-label={t("AiApiPage.moreActions")}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+      >
+        <MIcon name="more_vert" size={18} />
+      </button>
+    </div>
+  );
+}
+
+const credentialColumns = columnHelper.columns([
+  columnHelper.display({ id: "key", header: HeaderLabel, cell: CredentialNameCell, meta: columnMeta("AiApiPage.colKey") }),
+  columnHelper.display({ id: "status", header: HeaderLabel, cell: CredentialStatusCell, meta: columnMeta("AiApiPage.colStatus") }),
+  columnHelper.accessor("created_at", { header: HeaderLabel, cell: DateTimeCell, meta: columnMeta("AiApiPage.colCreated") }),
+  columnHelper.display({ id: "expiry", header: HeaderLabel, cell: CredentialExpiryCell, meta: columnMeta("AiApiPage.colExpiry") }),
+  columnHelper.display({
+    id: "actions",
+    header: HeaderLabel,
+    cell: CredentialActionsCell,
+    meta: columnMeta("AiApiPage.colActions", { thClassName: `${styles.th} ${styles.tdActions}`, tdClassName: `${styles.td} ${styles.tdActions}` }),
+  }),
+]);
+
+/* ── Credential row：一把金鑰一列，名稱開詳細視窗，其餘動作收進 ⋮ ──
+   列自己畫 <tr> 並擁有改名、選單、操作中等狀態，儲存格由欄位定義畫（DataTableCells） */
+function CredentialRow({ row, item, state, onRefresh, onDeleted, onShowDetails, onRotated }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const confirm = useConfirm();
@@ -382,12 +538,6 @@ function CredentialRow({ item, state, onRefresh, onDeleted, onShowDetails, onRot
   const deprecated = state !== "active";
   // 被替換的金鑰沒有任何可做的事；過期的仍可刪除（重新產生會說明為什麼不行）
   const hasMenu = state === "active" || state === "expired";
-
-  function fmtExpiry(value) {
-    if (!value) return t("AiApiPage.durationOptionNever");
-    const label = formatDateTime(value);
-    return isExpired(value) ? t("AiApiPage.expiredFormat", { date: label }) : label;
-  }
 
   const doRotate = async () => {
     const ok = await confirm({
@@ -456,92 +606,31 @@ function CredentialRow({ item, state, onRefresh, onDeleted, onShowDetails, onRot
 
   return (
     <tr className={`${styles.tr} ${deprecated ? styles.trDeprecated : ""}`}>
-      <td className={styles.td}>
-        <div className={styles.rowMain}>
-          {editing ? (
-            <div className={styles.renameRow}>
-              <input
-                type="text"
-                className={`${styles.renameInput} ${nameInvalid ? styles.fieldInvalid : ""}`}
-                value={nameInput}
-                maxLength={20}
-                aria-label={t("AiApiPage.formLabelKeyName")}
-                aria-invalid={nameInvalid}
-                title={nameInvalid ? t("AiApiPage.formErrorKeyName") : undefined}
-                onChange={(e) => { setNameInput(e.target.value); setNameInvalid(false); }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") doRename();
-                  if (e.key === "Escape") cancelRename();
-                }}
-                autoFocus
-              />
-              <button type="button" className={styles.iconBtn} onClick={doRename} disabled={busy} aria-label={t("AiApiPage.actionRename")}>
-                <MIcon name="check" size={16} />
-              </button>
-              <button type="button" className={styles.iconBtn} onClick={cancelRename} aria-label={t("AiApiPage.cancel")}>
-                <MIcon name="close" size={16} />
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className={`${styles.rowName} ${styles.keyDetailLink} ${deprecated ? styles.rowNameDeprecated : ""}`}
-              onClick={() => onShowDetails(item)}
-              title={t("AiApiPage.openKeyDetails", { name: item.api_key_name })}
-              aria-label={t("AiApiPage.openKeyDetails", { name: item.api_key_name })}
-            >{item.api_key_name}</button>
-          )}
-          <span
-            className={`${styles.rowKey} ${deprecated ? styles.rowKeyDeprecated : ""}`}
-            title={deprecated ? undefined : t("AiApiPage.keyHiddenHint")}
-          >
-            {maskPrefix(item.api_key_prefix)}
-          </span>
-        </div>
-      </td>
-      <td className={styles.td}>
-        <span className={`${styles.badge} ${deprecated ? styles.badge_muted : styles.badge_active}`}>
-          <span className={styles.dot} />
-          {t(CREDENTIAL_STATE_LABEL_KEYS[state])}
-        </span>
-      </td>
-      <td className={styles.td}>{formatDateTime(item.created_at)}</td>
-      <td className={styles.td}>
-        <span className={state === "expired" ? styles.textDanger : ""}>{fmtExpiry(item.expires_at)}</span>
-        {item.revoked_at && (
-          <div className={styles.cellSubline}>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</div>
-        )}
-      </td>
-      <td className={`${styles.td} ${styles.tdActions}`}>
-        {hasMenu && (
-          <div className={styles.rowActions} data-guide="ai-key-actions">
-            {menu.open && (
-              <KeyMenu
-                state={state}
-                busy={busy}
-                onRename={startRename}
-                onRotate={doRotate}
-                onDelete={doDelete}
-                onClose={() => setMenuOpen(false)}
-                anchorRef={menuBtnRef}
-                closing={menu.closing}
-              />
-            )}
-            <button
-              ref={menuBtnRef}
-              type="button"
-              className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
-              onClick={() => setMenuOpen((v) => !v)}
-              title={t("AiApiPage.moreActions")}
-              aria-label={t("AiApiPage.moreActions")}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-            >
-              <MIcon name="more_vert" size={18} />
-            </button>
-          </div>
-        )}
-      </td>
+      <DataTableCells
+        row={row}
+        rowState={{
+          state,
+          deprecated,
+          busy,
+          hasMenu,
+          editing,
+          nameInput,
+          nameInvalid,
+          onNameInput: (value) => { setNameInput(value); setNameInvalid(false); },
+          onRename: doRename,
+          onCancelRename: cancelRename,
+          onShowDetails,
+          menuOpen,
+          menuMounted: menu.open,
+          menuClosing: menu.closing,
+          menuBtnRef,
+          onToggleMenu: () => setMenuOpen((v) => !v),
+          onCloseMenu: () => setMenuOpen(false),
+          onStartRename: startRename,
+          onRotate: doRotate,
+          onDelete: doDelete,
+        }}
+      />
     </tr>
   );
 }
@@ -726,46 +815,61 @@ function QuickStartModal({ closing = false, credentials, publicBaseUrl, onClose 
   );
 }
 
-/* ── Request row ── */
-function RequestRow({ item }) {
-  const { t } = useTranslation("ai");
+/* ── 申請紀錄表格的各欄 ── */
+function RequestNameCell({ row }) {
+  const item = row.original;
+  return <span className={styles.rowName} title={item.api_key_name || undefined}>{item.api_key_name || "—"}</span>;
+}
 
-  function statusLabel(status) {
+function RequestPurposeCell({ row }) {
+  const item = row.original;
+  return <span className={styles.cellClamp} title={item.purpose || undefined}>{item.purpose || "—"}</span>;
+}
+
+function RequestStatusCell({ row }) {
+  const { t } = useTranslation("ai");
+  const status = row.original.status;
+
+  function statusLabel() {
     if (status === "approved") return t("AiApiPage.statusApproved");
     if (status === "rejected") return t("AiApiPage.statusRejected");
     return t("AiApiPage.statusPending");
   }
 
-  const st = statusStyle(item.status);
   return (
-    <tr className={styles.tr}>
-      <td className={styles.td}>
-        <span className={styles.rowName} title={item.api_key_name || undefined}>{item.api_key_name || "—"}</span>
-      </td>
-      <td className={styles.td}>
-        <span className={styles.cellClamp} title={item.purpose || undefined}>{item.purpose || "—"}</span>
-      </td>
-      <td className={styles.td}>
-        <span className={`${styles.badge} ${styles[`badge_${st}`]}`}>
-          <span className={styles.dot} />
-          {statusLabel(item.status)}
-        </span>
-      </td>
-      <td className={styles.td}>{formatDateTime(item.created_at)}</td>
-      <td className={styles.td}>
-        {item.reviewed_at
-          ? formatDateTime(item.reviewed_at)
-          : <span className={styles.cellMuted}>{t("AiApiPage.requestNotReviewed")}</span>}
-      </td>
-      <td className={styles.td}>
-        {/* 審核意見整段顯示：被拒絕的原因是下一步的依據，觸控裝置看不到 title */}
-        {item.review_comment
-          ? <span className={`${styles.cellWrap} ${st === "rejected" ? styles.textDanger : ""}`}>{item.review_comment}</span>
-          : <span className={styles.cellMuted}>—</span>}
-      </td>
-    </tr>
+    <span className={`${styles.badge} ${styles[`badge_${statusStyle(status)}`]}`}>
+      <span className={styles.dot} />
+      {statusLabel()}
+    </span>
   );
 }
+
+function RequestReviewedCell({ row }) {
+  const { t } = useTranslation("ai");
+  const reviewedAt = row.original.reviewed_at;
+  return reviewedAt
+    ? formatDateTime(reviewedAt)
+    : <span className={styles.cellMuted}>{t("AiApiPage.requestNotReviewed")}</span>;
+}
+
+function RequestCommentCell({ row }) {
+  const item = row.original;
+  /* 審核意見整段顯示：被拒絕的原因是下一步的依據，觸控裝置看不到 title */
+  return item.review_comment
+    ? <span className={`${styles.cellWrap} ${statusStyle(item.status) === "rejected" ? styles.textDanger : ""}`}>{item.review_comment}</span>
+    : <span className={styles.cellMuted}>—</span>;
+}
+
+const requestColumns = columnHelper.columns([
+  columnHelper.display({ id: "name", header: HeaderLabel, cell: RequestNameCell, meta: columnMeta("AiApiPage.colKeyName") }),
+  columnHelper.display({ id: "purpose", header: HeaderLabel, cell: RequestPurposeCell, meta: columnMeta("AiApiPage.colPurpose") }),
+  columnHelper.display({ id: "status", header: HeaderLabel, cell: RequestStatusCell, meta: columnMeta("AiApiPage.colStatus") }),
+  columnHelper.accessor("created_at", { header: HeaderLabel, cell: DateTimeCell, meta: columnMeta("AiApiPage.colAppliedAt") }),
+  columnHelper.display({ id: "reviewed", header: HeaderLabel, cell: RequestReviewedCell, meta: columnMeta("AiApiPage.colReviewedAt") }),
+  columnHelper.display({ id: "comment", header: HeaderLabel, cell: RequestCommentCell, meta: columnMeta("AiApiPage.colComment") }),
+]);
+
+const requestRowClassName = () => styles.tr;
 
 /* ── Usage stat card ── */
 function UsageStatCard({ label, value }) {
@@ -1281,6 +1385,18 @@ export default function AiApiPage() {
   const inactiveCredentials = credentials.filter((item) => credentialStates.get(item.id) !== "active");
   // 失效的金鑰預設收起來：每重新產生一次就多一列同名的舊金鑰
   const visibleCredentials = showInactive ? [...activeCredentials, ...inactiveCredentials] : activeCredentials;
+  const credentialsTable = useTable({
+    features: baseFeatures,
+    columns: credentialColumns,
+    data: visibleCredentials,
+    getRowId: (item) => String(item.id),
+  });
+  const requestsTable = useTable({
+    features: baseFeatures,
+    columns: requestColumns,
+    data: requests,
+    getRowId: (item) => String(item.id),
+  });
   /* 目前分頁正顯示帶「新增金鑰」的空狀態時，頁首那顆先藏起來，不要上下兩顆一樣的鈕；
      導覽的 ai-add-key 標記改掛在空狀態那顆上。金鑰／紀錄分頁載入中也先不放，免得閃一下 */
   const listTab = activeTab === "keys" || activeTab === "records";
@@ -1434,33 +1550,25 @@ export default function AiApiPage() {
                 />
               ) : (
                 <div className={styles.tableWrap}>
-                  <table className={styles.table}>
-                    <thead>
-                      <tr>
-                        <th className={styles.th}>{t("AiApiPage.colKey")}</th>
-                        <th className={styles.th}>{t("AiApiPage.colStatus")}</th>
-                        <th className={styles.th}>{t("AiApiPage.colCreated")}</th>
-                        <th className={styles.th}>{t("AiApiPage.colExpiry")}</th>
-                        <th className={`${styles.th} ${styles.tdActions}`}>{t("AiApiPage.colActions")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleCredentials.map((item) => (
-                        <CredentialRow
-                          key={item.id}
-                          item={item}
-                          state={credentialStates.get(item.id)}
-                          onRefresh={refreshAfterChange}
-                          onDeleted={async (credentialId) => {
-                            setKeyDetail((current) => current?.credential?.id === credentialId ? null : current);
-                            await aiCache.removeMyCredential(credentialId);
-                          }}
-                          onShowDetails={(credential) => setKeyDetail({ credential, apiKey: null })}
-                          onRotated={(credential) => setKeyDetail({ credential, apiKey: credential.api_key || null })}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable
+                    table={credentialsTable}
+                    className={styles.table}
+                    renderRow={(row) => (
+                      <CredentialRow
+                        key={row.id}
+                        row={row}
+                        item={row.original}
+                        state={credentialStates.get(row.original.id)}
+                        onRefresh={refreshAfterChange}
+                        onDeleted={async (credentialId) => {
+                          setKeyDetail((current) => current?.credential?.id === credentialId ? null : current);
+                          await aiCache.removeMyCredential(credentialId);
+                        }}
+                        onShowDetails={(credential) => setKeyDetail({ credential, apiKey: null })}
+                        onRotated={(credential) => setKeyDetail({ credential, apiKey: credential.api_key || null })}
+                      />
+                    )}
+                  />
                 </div>
               )}
               {inactiveCredentials.length > 0 && (
@@ -1500,23 +1608,7 @@ export default function AiApiPage() {
             />
           ) : (
             <div className={styles.tableWrap} data-guide="ai-records-content">
-              <table className={`${styles.table} ${styles.tableRecords}`}>
-                <thead>
-                  <tr>
-                    <th className={styles.th}>{t("AiApiPage.colKeyName")}</th>
-                    <th className={styles.th}>{t("AiApiPage.colPurpose")}</th>
-                    <th className={styles.th}>{t("AiApiPage.colStatus")}</th>
-                    <th className={styles.th}>{t("AiApiPage.colAppliedAt")}</th>
-                    <th className={styles.th}>{t("AiApiPage.colReviewedAt")}</th>
-                    <th className={styles.th}>{t("AiApiPage.colComment")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {requests.map((item) => (
-                    <RequestRow key={item.id} item={item} />
-                  ))}
-                </tbody>
-              </table>
+              <DataTable table={requestsTable} className={`${styles.table} ${styles.tableRecords}`} rowClassName={requestRowClassName} />
             </div>
           )
         )}

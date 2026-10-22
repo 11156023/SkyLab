@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./RequestsPage.module.scss";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import { VmRequestsService } from "../../../services/vmRequests";
 import { CONSUMED_REQUEST_MARKERS } from "../../../services/pendingResources";
 import {
@@ -98,28 +101,6 @@ function getDisplayStatus(req, t) {
 const VIEW_LIST   = "list";
 const VIEW_CREATE = "create";
 
-const LIST_COLUMN_KEYS = [
-  "RequestsPage.colResource",
-  "RequestsPage.colOs",
-  "RequestsPage.fieldAccount",
-  "RequestsPage.colSpec",
-  "RequestsPage.colGpu",
-  "RequestsPage.colReason",
-  "RequestsPage.colRequestedAt",
-  "RequestsPage.colPeriod",
-  "RequestsPage.colStatus",
-  "RequestsPage.colActions",
-];
-
-const SPEC_COLUMN_KEYS = [
-  "RequestsPage.specColMachine",
-  "RequestsPage.specColChange",
-  "RequestsPage.colReason",
-  "RequestsPage.colRequestedAt",
-  "RequestsPage.specColAppliedAt",
-  "RequestsPage.colStatus",
-  "RequestsPage.colActions",
-];
 /* 系統寫入 review_comment 的撤銷標記，不是審核人留言 */
 const SPEC_CANCEL_MARKERS = ["Cancelled by requester", "Cancelled by admin"];
 
@@ -193,8 +174,270 @@ function ErrorLogModal({ req, closing, onClose }) {
   );
 }
 
-/* ── RequestRow ── */
-function RequestRow({ req, onUpdated }) {
+/* ── 兩張表共用的儲存格／表頭（cell 從 rowState.req 取申請單，列資料換了才會跟著重繪） ── */
+function RequestHeader({ column }) {
+  const { t } = useTranslation("personal");
+  return t(column.columnDef.meta.labelKey);
+}
+
+function RequestReasonCell({ rowState }) {
+  const { req } = rowState;
+  return (
+    <span className={styles.reasonCell} title={req.reason || undefined}>
+      {req.reason || "—"}
+    </span>
+  );
+}
+
+function RequestCreatedCell({ rowState }) {
+  return formatDate(rowState.req.created_at);
+}
+
+/* ── VM 申請表的儲存格 ── */
+function RequestResourceCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { req, showVmid } = rowState;
+  const type = RESOURCE_TYPE_MAP[req.resource_type] ?? { label: req.resource_type, icon: "computer" };
+  return (
+    <div className={styles.nameCell}>
+      <div className={styles.nameIcon}>
+        <MIcon name={type.icon} size={18} />
+      </div>
+      <div className={styles.nameMeta}>
+        <span className={styles.namePrimary} title={req.hostname}>{req.hostname}</span>
+        <span className={styles.nameSub}>
+          {t(type.labelKey ?? type.label)}
+          {showVmid && req.vmid != null && t("RequestRow.numberSuffix", { vmid: req.vmid })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RequestOsCell({ rowState }) {
+  const osDisplay = getOsDisplay(rowState.req);
+  return <span className={styles.osCell} title={osDisplay ?? undefined}>{osDisplay ?? "—"}</span>;
+}
+
+function RequestAccountCell({ rowState }) {
+  const { username } = rowState.req;
+  return <span className={styles.osCell} title={username ?? undefined}>{username ?? "—"}</span>;
+}
+
+function RequestSpecCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  return <span className={styles.specCell}>{getSpecDisplay(rowState.req, t)}</span>;
+}
+
+function RequestGpuCell({ rowState }) {
+  const gpu = rowState.req.gpu_mapping_id;
+  return <span className={styles.osCell} title={gpu ?? undefined}>{gpu ?? "—"}</span>;
+}
+
+function RequestPeriodCell({ rowState }) {
+  const { req } = rowState;
+  /* 無值時回 null（不是「—」），依此決定要不要顯示時段 */
+  const startFmt = formatDateTime(req.start_at, null);
+  const endFmt   = formatDateTime(req.end_at, null);
+  return startFmt ? (
+    <div className={styles.periodCell}>
+      <span>{startFmt}</span>
+      {endFmt && <span>~ {endFmt}</span>}
+    </div>
+  ) : (
+    <span className={styles.periodCell}>—</span>
+  );
+}
+
+function RequestStatusCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { req, showFailureLog, onOpenLog } = rowState;
+  const showRejection = req.status === "rejected" && req.review_comment;
+  const showWaiting = isWaitingForResources(req);
+  return (
+    <div className={styles.statusCell}>
+      <StatusBadge req={req} />
+      {/* 展開明細已移除：退件備註／等待資源說明改掛在小圖示的 tooltip */}
+      {showRejection && (
+        <span className={styles.statusNote} title={req.review_comment}>
+          <MIcon name="comment" size={14} />
+        </span>
+      )}
+      {showWaiting && (
+        <span className={styles.statusNote} title={req.resource_warning}>
+          <MIcon name="hourglass_empty" size={14} />
+        </span>
+      )}
+      {showFailureLog && (
+        <button
+          type="button"
+          className={styles.logBtn}
+          title={t("RequestRow.viewErrorLog")}
+          aria-label={t("RequestRow.viewErrorLog")}
+          onClick={onOpenLog}
+        >
+          <MIcon name="receipt_long" size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RequestActionsCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { req, cancelling, retrying, onRetry, onCancel, onGoToResources } = rowState;
+  const hasAction = canRetry(req) || canCancel(req) || isProvisionedButFailed(req);
+  return (
+    <div className={styles.rowActions}>
+      {!hasAction && <span className={styles.emptyAction}>—</span>}
+      {canRetry(req) && (
+        <button type="button" className={styles.retryBtn} disabled={retrying} onClick={onRetry}>
+          <MIcon name="refresh" size={13} spin={retrying} />
+          {retrying ? "…" : t("RequestRow.retry")}
+        </button>
+      )}
+      {canCancel(req) && (
+        <button type="button" className={styles.cancelBtn} disabled={cancelling} onClick={onCancel}>
+          <MIcon name="close" size={13} />
+          {t("RequestRow.cancelRequest")}
+        </button>
+      )}
+      {isProvisionedButFailed(req) && (
+        <button type="button" className={styles.retryBtn} onClick={onGoToResources}>
+          <MIcon name="inventory_2" size={13} />
+          {t("RequestRow.goToResources")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── 規格調整申請表的儲存格 ── */
+function SpecMachineCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { req, showVmid } = rowState;
+  const machineName = req.resource_name || t("SpecRequestRow.machineFallback", { vmid: req.vmid });
+  return (
+    <div className={styles.nameCell}>
+      <div className={styles.nameIcon}>
+        <MIcon name="tune" size={18} />
+      </div>
+      <div className={styles.nameMeta}>
+        <span className={styles.namePrimary} title={machineName}>{machineName}</span>
+        <span className={styles.nameSub}>
+          {t("SpecRequestRow.kindLabel")}
+          {showVmid && t("RequestRow.numberSuffix", { vmid: req.vmid })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SpecChangeCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  return <span className={styles.specCell}>{specRequestChangeLabel(rowState.req, t)}</span>;
+}
+
+function SpecAppliedCell({ rowState }) {
+  return <span className={styles.dateTimeCell}>{formatDateTime(rowState.req.applied_at)}</span>;
+}
+
+function SpecStatusCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { req } = rowState;
+  const display     = specRequestDisplayStatus(req);
+  const statusLabel = display.labelKey ? t(display.labelKey) : display.key;
+  /* 機器刪除時系統會把處理中的申請自動取消，備註是系統標記不是審核人留言 */
+  const deletedByMachine = CONSUMED_REQUEST_MARKERS.includes(req.review_comment);
+  const reviewNote =
+    !deletedByMachine && req.review_comment && !SPEC_CANCEL_MARKERS.includes(req.review_comment)
+      ? req.review_comment
+      : null;
+  const applyNote = req.apply_error || null;
+  return (
+    <div className={styles.statusCell}>
+      <span className={`${styles.badge} ${styles[`badge_${display.color}`]}`}>{statusLabel}</span>
+      {/* 展開明細已移除（比照上方申請表）：審核備註／機器已刪除／套用失敗訊息改掛在小圖示的 tooltip */}
+      {reviewNote && (
+        <span className={styles.statusNote} title={reviewNote}>
+          <MIcon name="comment" size={14} />
+        </span>
+      )}
+      {deletedByMachine && (
+        <span className={styles.statusNote} title={t("SpecRequestRow.deletedNote")}>
+          <MIcon name="info" size={14} />
+        </span>
+      )}
+      {applyNote && (
+        <span className={styles.statusNote} title={applyNote}>
+          <MIcon name={req.applied_at ? "warning" : "error_outline"} size={14} />
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SpecActionsCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  const { req, busy, onApply, onCancel } = rowState;
+  const display    = specRequestDisplayStatus(req);
+  const showApply  = canApplySpecRequest(req);
+  const showCancel = canCancelSpecRequest(req);
+  const hasAction  = showApply || showCancel;
+  return (
+    <div className={styles.rowActions}>
+      {!hasAction && <span className={styles.emptyAction}>—</span>}
+      {showApply && (
+        <button type="button" className={styles.applyBtn} disabled={busy} onClick={onApply}>
+          <MIcon name="play_arrow" size={13} />
+          {display.key === "ready" ? t("SpecRequestRow.apply") : t("SpecRequestRow.reapply")}
+        </button>
+      )}
+      {showCancel && (
+        <button type="button" className={styles.cancelBtn} disabled={busy} onClick={onCancel}>
+          <MIcon name="close" size={13} />
+          {t("SpecRequestRow.cancel")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── 欄位定義（模組層級：cell／header 會被當成元件掛載，render 裡新建會整格重掛） ── */
+const columnHelper = createColumnHelper();
+
+function requestColumn(id, labelKey, cell) {
+  return columnHelper.display({ id, header: RequestHeader, cell, meta: { labelKey, thClassName: styles.th, tdClassName: styles.td } });
+}
+
+const REQUEST_COLUMNS = columnHelper.columns([
+  requestColumn("resource", "RequestsPage.colResource", RequestResourceCell),
+  requestColumn("os", "RequestsPage.colOs", RequestOsCell),
+  requestColumn("account", "RequestsPage.fieldAccount", RequestAccountCell),
+  requestColumn("spec", "RequestsPage.colSpec", RequestSpecCell),
+  requestColumn("gpu", "RequestsPage.colGpu", RequestGpuCell),
+  requestColumn("reason", "RequestsPage.colReason", RequestReasonCell),
+  requestColumn("requestedAt", "RequestsPage.colRequestedAt", RequestCreatedCell),
+  requestColumn("period", "RequestsPage.colPeriod", RequestPeriodCell),
+  requestColumn("status", "RequestsPage.colStatus", RequestStatusCell),
+  requestColumn("actions", "RequestsPage.colActions", RequestActionsCell),
+]);
+
+const SPEC_COLUMNS = columnHelper.columns([
+  requestColumn("machine", "RequestsPage.specColMachine", SpecMachineCell),
+  requestColumn("change", "RequestsPage.specColChange", SpecChangeCell),
+  requestColumn("reason", "RequestsPage.colReason", RequestReasonCell),
+  requestColumn("requestedAt", "RequestsPage.colRequestedAt", RequestCreatedCell),
+  requestColumn("appliedAt", "RequestsPage.specColAppliedAt", SpecAppliedCell),
+  requestColumn("status", "RequestsPage.colStatus", SpecStatusCell),
+  requestColumn("actions", "RequestsPage.colActions", SpecActionsCell),
+]);
+
+const getRequestId = (req) => String(req.id);
+
+/* ── RequestRow ──
+   列元件擁有取消、重試、錯誤紀錄對話框的狀態並自己畫 <tr>，儲存格經 rowState 拿狀態與處理函式 */
+function RequestRow({ row, req, onUpdated }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const navigate = useNavigate();
@@ -209,17 +452,8 @@ function RequestRow({ req, onUpdated }) {
   const [logOpen, setLogOpen]             = useState(false);
   const logPresence = useDialogPresence(logOpen);
 
-  const type      = RESOURCE_TYPE_MAP[req.resource_type] ?? { label: req.resource_type, icon: "computer" };
-  const osDisplay = getOsDisplay(req);
-  /* 無值時回 null（不是「—」），下方依此決定要不要顯示時段 */
-  const startFmt  = formatDateTime(req.start_at, null);
-  const endFmt    = formatDateTime(req.end_at, null);
-
-  const showRejection = req.status === "rejected" && req.review_comment;
   const showFailureLog =
     isAdmin && (canRetry(req) || isProvisionedButFailed(req)) && req.provisioning_error;
-  const showWaiting = isWaitingForResources(req);
-  const hasAction = canRetry(req) || canCancel(req) || isProvisionedButFailed(req);
 
   async function handleCancel() {
     const ok = await confirm({
@@ -257,98 +491,20 @@ function RequestRow({ req, onUpdated }) {
   return (
     <>
       <tr className={styles.tr}>
-        <td className={styles.td}>
-          <div className={styles.nameCell}>
-            <div className={styles.nameIcon}>
-              <MIcon name={type.icon} size={18} />
-            </div>
-            <div className={styles.nameMeta}>
-              <span className={styles.namePrimary} title={req.hostname}>{req.hostname}</span>
-              <span className={styles.nameSub}>
-                {t(type.labelKey ?? type.label)}
-                {showVmid && req.vmid != null && t("RequestRow.numberSuffix", { vmid: req.vmid })}
-              </span>
-            </div>
-          </div>
-        </td>
-        <td className={styles.td}>
-          <span className={styles.osCell} title={osDisplay ?? undefined}>{osDisplay ?? "—"}</span>
-        </td>
-        <td className={styles.td}>
-          <span className={styles.osCell} title={req.username ?? undefined}>{req.username ?? "—"}</span>
-        </td>
-        <td className={styles.td}>
-          <span className={styles.specCell}>{getSpecDisplay(req, t)}</span>
-        </td>
-        <td className={styles.td}>
-          <span className={styles.osCell} title={req.gpu_mapping_id ?? undefined}>{req.gpu_mapping_id ?? "—"}</span>
-        </td>
-        <td className={styles.td}>
-          <span className={styles.reasonCell} title={req.reason || undefined}>
-            {req.reason || "—"}
-          </span>
-        </td>
-        <td className={styles.td}>{formatDate(req.created_at)}</td>
-        <td className={styles.td}>
-          {startFmt ? (
-            <div className={styles.periodCell}>
-              <span>{startFmt}</span>
-              {endFmt && <span>~ {endFmt}</span>}
-            </div>
-          ) : (
-            <span className={styles.periodCell}>—</span>
-          )}
-        </td>
-        <td className={styles.td}>
-          <div className={styles.statusCell}>
-            <StatusBadge req={req} />
-            {/* 展開明細已移除：退件備註／等待資源說明改掛在小圖示的 tooltip */}
-            {showRejection && (
-              <span className={styles.statusNote} title={req.review_comment}>
-                <MIcon name="comment" size={14} />
-              </span>
-            )}
-            {showWaiting && (
-              <span className={styles.statusNote} title={req.resource_warning}>
-                <MIcon name="hourglass_empty" size={14} />
-              </span>
-            )}
-            {showFailureLog && (
-              <button
-                type="button"
-                className={styles.logBtn}
-                title={t("RequestRow.viewErrorLog")}
-                aria-label={t("RequestRow.viewErrorLog")}
-                onClick={() => setLogOpen(true)}
-              >
-                <MIcon name="receipt_long" size={14} />
-              </button>
-            )}
-          </div>
-        </td>
-        <td className={styles.td}>
-          <div className={styles.rowActions}>
-            {!hasAction && <span className={styles.emptyAction}>—</span>}
-            {canRetry(req) && (
-              <button type="button" className={styles.retryBtn} disabled={retrying} onClick={handleRetry}>
-                <MIcon name="refresh" size={13} spin={retrying} />
-                {retrying ? "…" : t("RequestRow.retry")}
-              </button>
-            )}
-            {canCancel(req) && (
-              <button type="button" className={styles.cancelBtn} disabled={cancelling} onClick={handleCancel}>
-                <MIcon name="close" size={13} />
-                {t("RequestRow.cancelRequest")}
-              </button>
-            )}
-            {isProvisionedButFailed(req) && (
-              <button type="button" className={styles.retryBtn} onClick={() => navigate("/my-resources")}>
-                <MIcon name="inventory_2" size={13} />
-                {t("RequestRow.goToResources")}
-              </button>
-            )}
-          </div>
-        </td>
+        <DataTableCells
+          row={row}
+          rowState={{
+            req,
+            showVmid,
+            showFailureLog,
+            cancelling,
+            retrying,
+            onOpenLog: () => setLogOpen(true),
+            onRetry: handleRetry,
+            onCancel: handleCancel,
+            onGoToResources: () => navigate("/my-resources"),
+          }}
+        />
       </tr>
 
       {logPresence.open && <ErrorLogModal req={req} closing={logPresence.closing} onClose={() => setLogOpen(false)} />}
@@ -356,27 +512,15 @@ function RequestRow({ req, onUpdated }) {
   );
 }
 
-/* ── 規格調整申請列 ── */
-function SpecRequestRow({ req, onUpdated }) {
+/* ── 規格調整申請列 ──
+   列元件擁有套用／撤銷中的狀態並自己畫 <tr>，儲存格經 rowState 拿狀態與處理函式 */
+function SpecRequestRow({ row, req, onUpdated }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const { user } = useAuth();
   const showVmid = canTeachUser(user);
   const confirm = useConfirm();
   const [busy, setBusy]                   = useState(false);
-
-  const display     = specRequestDisplayStatus(req);
-  const statusLabel = display.labelKey ? t(display.labelKey) : display.key;
-  const showApply   = canApplySpecRequest(req);
-  const showCancel  = canCancelSpecRequest(req);
-  const hasAction   = showApply || showCancel;
-  /* 機器刪除時系統會把處理中的申請自動取消，備註是系統標記不是審核人留言 */
-  const deletedByMachine = CONSUMED_REQUEST_MARKERS.includes(req.review_comment);
-  const reviewNote =
-    !deletedByMachine && req.review_comment && !SPEC_CANCEL_MARKERS.includes(req.review_comment)
-      ? req.review_comment
-      : null;
-  const applyNote = req.apply_error || null;
 
   async function handleApply() {
     const ok = await confirm({
@@ -417,74 +561,12 @@ function SpecRequestRow({ req, onUpdated }) {
     }
   }
 
-  const machineName = req.resource_name || t("SpecRequestRow.machineFallback", { vmid: req.vmid });
-
   return (
     <tr className={styles.tr}>
-      <td className={styles.td}>
-        <div className={styles.nameCell}>
-          <div className={styles.nameIcon}>
-            <MIcon name="tune" size={18} />
-          </div>
-          <div className={styles.nameMeta}>
-            <span className={styles.namePrimary} title={machineName}>{machineName}</span>
-            <span className={styles.nameSub}>
-              {t("SpecRequestRow.kindLabel")}
-              {showVmid && t("RequestRow.numberSuffix", { vmid: req.vmid })}
-            </span>
-          </div>
-        </div>
-      </td>
-      <td className={styles.td}>
-        <span className={styles.specCell}>{specRequestChangeLabel(req, t)}</span>
-      </td>
-      <td className={styles.td}>
-        <span className={styles.reasonCell} title={req.reason || undefined}>
-          {req.reason || "—"}
-        </span>
-      </td>
-      <td className={styles.td}>{formatDate(req.created_at)}</td>
-      <td className={styles.td}>
-        <span className={styles.dateTimeCell}>{formatDateTime(req.applied_at)}</span>
-      </td>
-      <td className={styles.td}>
-        <div className={styles.statusCell}>
-          <span className={`${styles.badge} ${styles[`badge_${display.color}`]}`}>{statusLabel}</span>
-          {/* 展開明細已移除（比照上方申請表）：審核備註／機器已刪除／套用失敗訊息改掛在小圖示的 tooltip */}
-          {reviewNote && (
-            <span className={styles.statusNote} title={reviewNote}>
-              <MIcon name="comment" size={14} />
-            </span>
-          )}
-          {deletedByMachine && (
-            <span className={styles.statusNote} title={t("SpecRequestRow.deletedNote")}>
-              <MIcon name="info" size={14} />
-            </span>
-          )}
-          {applyNote && (
-            <span className={styles.statusNote} title={applyNote}>
-              <MIcon name={req.applied_at ? "warning" : "error_outline"} size={14} />
-            </span>
-          )}
-        </div>
-      </td>
-      <td className={styles.td}>
-        <div className={styles.rowActions}>
-          {!hasAction && <span className={styles.emptyAction}>—</span>}
-          {showApply && (
-            <button type="button" className={styles.applyBtn} disabled={busy} onClick={handleApply}>
-              <MIcon name="play_arrow" size={13} />
-              {display.key === "ready" ? t("SpecRequestRow.apply") : t("SpecRequestRow.reapply")}
-            </button>
-          )}
-          {showCancel && (
-            <button type="button" className={styles.cancelBtn} disabled={busy} onClick={handleCancel}>
-              <MIcon name="close" size={13} />
-              {t("SpecRequestRow.cancel")}
-            </button>
-          )}
-        </div>
-      </td>
+      <DataTableCells
+        row={row}
+        rowState={{ req, showVmid, busy, onApply: handleApply, onCancel: handleCancel }}
+      />
     </tr>
   );
 }
@@ -533,6 +615,18 @@ export default function RequestsPage() {
   /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料。
      錯誤畫面在背景重試期間不閃回 skeleton，按重試才回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
   const { loading, error, retry: retryRequests } = useQueryView(requestsQuery);
+  const requestTable = useTable({
+    features: baseFeatures,
+    columns: REQUEST_COLUMNS,
+    data: requests,
+    getRowId: getRequestId,
+  });
+  const specTable = useTable({
+    features: baseFeatures,
+    columns: SPEC_COLUMNS,
+    data: specRequests,
+    getRowId: getRequestId,
+  });
 
   /* 已經停在本頁時 useState 的初值不會再跑一次，所以導覽助手在這頁按步驟
      只會換掉 location.state。兩個方向都要跟：帶 create 就開表單，沒帶就回列表
@@ -603,20 +697,11 @@ export default function RequestsPage() {
           <>
             {requests.length > 0 && (
               <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      {LIST_COLUMN_KEYS.map((columnKey) => (
-                        <th key={columnKey} className={styles.th}>{t(columnKey)}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {requests.map((r) => (
-                      <RequestRow key={r.id} req={r} onUpdated={handleUpdated} />
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable
+                  table={requestTable}
+                  className={styles.table}
+                  renderRow={(row) => <RequestRow key={row.id} row={row} req={row.original} onUpdated={handleUpdated} />}
+                />
               </div>
             )}
 
@@ -625,20 +710,11 @@ export default function RequestsPage() {
                 <h2 className={styles.sectionTitle}>{t("RequestsPage.specSectionTitle")}</h2>
                 <p className={styles.sectionDesc}>{t("RequestsPage.specSectionDesc")}</p>
                 <div className={styles.tableWrap}>
-                  <table className={styles.table}>
-                    <thead>
-                      <tr>
-                        {SPEC_COLUMN_KEYS.map((columnKey) => (
-                          <th key={columnKey} className={styles.th}>{t(columnKey)}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {specRequests.map((r) => (
-                        <SpecRequestRow key={r.id} req={r} onUpdated={handleSpecUpdated} />
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable
+                    table={specTable}
+                    className={styles.table}
+                    renderRow={(row) => <SpecRequestRow key={row.id} row={row} req={row.original} onUpdated={handleSpecUpdated} />}
+                  />
                 </div>
               </section>
             )}
