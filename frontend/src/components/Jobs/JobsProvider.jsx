@@ -15,8 +15,9 @@ import {
   setEnabled as setDesktopPref,
   showNotification as showDesktopNotification,
 } from "../../services/browserNotifications";
-import { CoursesService } from "../../services/courses";
-import { connectJobsWebSocket, JobsService } from "../../services/jobs";
+import { connectJobsWebSocket } from "../../services/jobs";
+import { useJobsQuery } from "../../queries/jobs";
+import { useCourseRemindersQuery } from "../../queries/courses";
 import {
   isPushSupported,
   isPushSubscribed,
@@ -31,6 +32,9 @@ import { isAdminUser } from "../../utils/roles";
 
 const NOTIFY_ONLY_MINE_KEY = "jobs:notifyOnlyMine";
 const DESKTOP_PROMPT_TOAST_ID = "desktop-notifications-prompt";
+/* REST fallback：只抓執行中任務；WS 斷線期間每 15 秒補抓一次 */
+const RUNNING_JOBS_PARAMS = Object.freeze({ statuses: ["running"], limit: 200, historyDays: 30 });
+const REST_FALLBACK_POLL_INTERVAL = 15_000;
 // 登入後稍等再問通知權限，避免跟首頁載入的其他 toast 擠在一起
 const DESKTOP_PROMPT_DELAY_MS = 2500;
 
@@ -193,29 +197,30 @@ export default function JobsProvider({ children }) {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // WS 連著時 snapshot 每幾秒就來一次，REST 輪詢只在斷線時補位
-  const wsConnectedRef = useRef(false);
+  const [wsConnected, setWsConnected] = useState(false);
 
   useEffect(() => {
     seenReminderIdsRef.current = null;
   }, [myUserId]);
 
-  /* REST fallback：WS 斷線期間每 15 秒抓一次執行中任務 */
-  const load = useCallback(async () => {
-    try {
-      const res = await JobsService.list({ statuses: ["running"], limit: 200, historyDays: 30 });
-      setItems((prev) => keepIfUnchanged(prev, res?.items ?? []));
-    } catch {
-      // 靜默失敗，維持現有畫面；WS 重連後會補上
-    }
-  }, []);
+  /* REST fallback（TanStack Query）：掛載時抓一次執行中任務，WS 斷線期間每 15 秒補抓
+     （分頁隱藏時暫停）；WS 連著時完全不打 REST，切回視窗也不重抓。
+     失敗靜默、維持現有畫面，WS 重連後會補上。 */
+  const runningJobsQuery = useJobsQuery(RUNNING_JOBS_PARAMS, {
+    refetchInterval: wsConnected ? false : REST_FALLBACK_POLL_INTERVAL,
+    refetchOnWindowFocus: false,
+  });
+  const refetchRunningJobs = runningJobsQuery.refetch;
+  const runningJobsData = runningJobsQuery.data;
+  const runningJobsUpdatedAt = runningJobsQuery.dataUpdatedAt;
 
+  /* REST 結果併進與 WS 共用的 items（同原本 setItems 的合併方式）。
+     依 dataUpdatedAt 觸發：內容與上次 REST 相同時 query 會沿用同一個物件，
+     但這期間 WS 可能已改過 items，每次成功的 REST 都要照原本一樣寫回去 */
   useEffect(() => {
-    load();
-    const timer = setInterval(() => {
-      if (!document.hidden && !wsConnectedRef.current) load();
-    }, 15000);
-    return () => clearInterval(timer);
-  }, [load]);
+    if (runningJobsData === undefined) return;
+    setItems((prev) => keepIfUnchanged(prev, runningJobsData?.items ?? []));
+  }, [runningJobsData, runningJobsUpdatedAt]);
 
   /* WebSocket 即時推送。token 用函式取：access token 過期後 refresh 會換新值，
      重連時要拿當下的，否則後端 1008 拒絕、前端每 5 秒重連卻永遠連不上。 */
@@ -263,9 +268,9 @@ export default function JobsProvider({ children }) {
       }
     }, {
       onStatusChange: (connected) => {
-        wsConnectedRef.current = connected;
-        // 剛斷線：立刻用 REST 補一次，不必等下一個 15 秒
-        if (!connected) load();
+        setWsConnected(connected);
+        // 剛斷線：立刻用 REST 補一次，不必等下一個 15 秒（refetch 是 query observer 的穩定方法）
+        if (!connected) refetchRunningJobs();
       },
     });
   }, []);
@@ -323,22 +328,33 @@ export default function JobsProvider({ children }) {
     };
   }, [user?.id]);
 
-  /* 提醒（機器期限、審核結果、近期課堂任務）：登入後載入一次，popover 開啟時再刷新 */
-  const refreshReminders = useCallback(async () => {
-    try {
-      const res = await CoursesService.listReminders();
-      setReminders(Array.isArray(res) ? res : []);
-    } catch {
-      // 靜默失敗：沒有提醒權限或暫時取不到時，維持現有清單
-      setReminders((current) => current ?? []);
-    }
-  }, []);
+  /* 提醒（機器期限、審核結果、近期課堂任務）：登入後載入一次，popover 開啟時再刷新；
+     平常靠 WS snapshot 附帶的提醒更新，所以不定期輪詢。
+     換帳號時 AuthContext 會清掉整個 query 快取，新身分自然重抓。 */
+  /* 原本只在掛載與手動 refresh 時抓：不輪詢、切回分頁也不重抓 */
+  const remindersQuery = useCourseRemindersQuery({ refetchInterval: false, refetchOnWindowFocus: false });
+  const refetchReminders = remindersQuery.refetch;
+  const remindersData = remindersQuery.data;
+  const remindersUpdatedAt = remindersQuery.dataUpdatedAt;
+  const remindersFailed = remindersQuery.isError;
 
-  /* 依身分（而非 user 物件引用）重載：token refresh 會換新 user 物件，不該重打 API */
+  /* REST 結果併進與 WS 共用的 reminders；依 dataUpdatedAt 觸發，理由同上方的 items */
   useEffect(() => {
-    refreshReminders();
+    if (remindersData === undefined) return;
+    setReminders(Array.isArray(remindersData) ? remindersData : []);
+  }, [remindersData, remindersUpdatedAt]);
+
+  /* 靜默失敗：沒有提醒權限或暫時取不到時，維持現有清單（還沒有清單就當作沒有提醒） */
+  useEffect(() => {
+    if (remindersFailed) setReminders((current) => current ?? []);
+  }, [remindersFailed]);
+
+  const refreshReminders = useCallback(() => refetchReminders(), [refetchReminders]);
+
+  /* 依身分（而非 user 物件引用）重載已讀紀錄：token refresh 會換新 user 物件 */
+  useEffect(() => {
     setReadReminderIds(loadReadReminderIds(user));
-  }, [refreshReminders, user?.id]);
+  }, [user?.id]);
 
   const persistReadReminderIds = useCallback((ids) => {
     setReadReminderIds(ids);

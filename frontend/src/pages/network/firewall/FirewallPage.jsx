@@ -18,10 +18,10 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import {
-  getTopology,
   deleteConnection,
   saveLayout,
 } from "../../../services/firewall";
+import { useFirewallTopologyQuery } from "../../../queries/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
 import EmptyState       from "../../../components/EmptyState/EmptyState";
 import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDialog";
@@ -42,10 +42,10 @@ import {
   listGroupKeys,
 } from "./utils/grouping";
 import { useTheme } from "../../../contexts/ThemeContext";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "./FirewallPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -99,9 +99,18 @@ export default function FirewallPage() {
   const confirm = useConfirm();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [topology,     setTopology]     = useState(null);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState("");
+  /* 拓撲走 TanStack Query：背景 30 秒刷新、分頁隱藏時暫停；刪線、改規則後 refetch 會取消在途的舊請求，
+     舊拓撲（例如已刪的線）不會蓋回來。只有「還沒有任何拓撲」時才顯示 spinner／錯誤畫面，
+     背景刷新失敗沿用上一份（原本就是靜默），首載失敗後按重試會回到 spinner */
+  const topologyQuery = useFirewallTopologyQuery();
+  const topology = topologyQuery.data ?? null;
+  /* 錯誤畫面在背景重試期間不閃回 spinner（見 useQueryView） */
+  const topologyLoad = useQueryView(topologyQuery);
+  const loading = topologyLoad.loading;
+  const error = topologyLoad.error
+    ? (topologyLoad.error?.message ?? t("FirewallPage.loadTopologyFailed"))
+    : "";
+  const refreshTopology = topologyQuery.refetch;
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null); // { id, edge }
   const [showDialog,   setShowDialog]   = useState(false);
@@ -207,39 +216,6 @@ export default function FirewallPage() {
     }
   }, [showInternet]);
 
-  /* 只採用最後一次發出的拓撲請求：刪除連線、改規則前送出的背景刷新若比之後的重新載入晚回來，
-     舊拓撲（例如已刪的線）不能蓋回去。前景載入被背景刷新超車時，由最新那次接手收 loading／
-     顯示錯誤，首次載入失敗不會被吞掉 */
-  const fetchSeqRef = useRef(0);
-  const foregroundPendingRef = useRef(false);
-
-  /* ── 載入拓撲（silent = true 時不觸發 loading、失敗也不設 error，供背景自動刷新使用） ── */
-  const fetchTopology = useCallback(async (silent = false, signal) => {
-    const seq = ++fetchSeqRef.current;
-    const isLatest = () => seq === fetchSeqRef.current;
-    if (!silent) {
-      foregroundPendingRef.current = true;
-      setLoading(true);
-      setError("");
-    }
-    try {
-      const data = await getTopology({ signal });
-      if (!isLatest()) return;
-      setTopology(data ?? { nodes: [], edges: [] });
-      /* 背景刷新成功也要清掉先前的錯誤，否則首次載入失敗後錯誤畫面會一直留著 */
-      setError("");
-    } catch (err) {
-      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
-        setError(err?.message ?? t("FirewallPage.loadTopologyFailed"));
-      }
-    } finally {
-      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
-        foregroundPendingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, [t]);
-
   useEffect(() => {
     if (!topology) return;
     const flow = buildFlow(topology, {
@@ -291,13 +267,6 @@ export default function FirewallPage() {
     pendingFitRef.current = false;
     rfInstance.current?.fitView({ padding: FIT_PADDING, maxZoom: FIT_MAX_ZOOM, duration: 250 });
   }, [nodes]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchTopology(false, controller.signal);
-    return () => controller.abort();
-  }, [fetchTopology]);
-  useAutoRefresh(() => fetchTopology(true));
 
   /* ── 自動排列 ── */
   const autoArrange = useCallback(() => {
@@ -429,7 +398,7 @@ export default function FirewallPage() {
   /* ── 對話框送出成功（連線或自訂規則都由對話框自己呼叫 API）── */
   const handleDialogDone = () => {
     setShowDialog(false);
-    fetchTopology();
+    refreshTopology();
   };
 
   /* ── 刪除邊：先確認再送出；送出期間上鎖，連按兩下不會送兩筆 ── */
@@ -454,7 +423,7 @@ export default function FirewallPage() {
         ports: null,
       });
       setSelectedEdge(null);
-      fetchTopology();
+      refreshTopology();
     } catch (err) {
       toast.error(err?.message ?? t("FirewallPage.deleteFailed"));
     } finally {
@@ -494,8 +463,8 @@ export default function FirewallPage() {
           <div className={styles.centerState}>
             <MIcon name="error_outline" size={36} />
             <span>{error}</span>
-            {/* 不能直接綁 fetchTopology：MouseEvent 會被當成 silent=true，error 永遠清不掉 */}
-            <button type="button" className={styles.btnSecondary} onClick={() => fetchTopology()}>
+            {/* 不直接綁 refetch：它會把 MouseEvent 當成選項物件 */}
+            <button type="button" className={styles.btnSecondary} onClick={() => topologyLoad.retry()}>
               {t("FirewallPage.retry")}
             </button>
           </div>
@@ -708,7 +677,7 @@ export default function FirewallPage() {
                 canManage={canManageNode(rulesPanel.item.data)}
                 closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
-                onChanged={() => fetchTopology(true)}
+                onChanged={() => refreshTopology()}
               />
             )}
 
@@ -733,7 +702,7 @@ export default function FirewallPage() {
           initialSource={dialogPreset?.source}
           initialTarget={dialogPreset?.target}
           onDone={handleDialogDone}
-          onChanged={() => fetchTopology(true)}
+          onChanged={() => refreshTopology()}
           onClose={() => setShowDialog(false)}
           closing={connDialog.closing}
         />

@@ -4,6 +4,7 @@ import styles from "./settings.module.scss";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { useToast } from "../../../hooks/useToast";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
+import { usePveConfigQuery, useProxmoxConfigCacheUpdater } from "../../../queries/proxmoxConfig";
 import { useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
@@ -161,23 +162,31 @@ function SchedulerForm({ form, setField, onSave, saving, dirty, onRestore }) {
 export default function SchedulerPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
+  /* 設定走 TanStack Query 讀（不輪詢、不因切回分頁重抓）；表單只在第一次拿到資料時初始化，
+     之後的背景重抓不會蓋掉正在編輯的欄位 */
+  const configQuery = usePveConfigQuery();
+  const configCache = useProxmoxConfigCacheUpdater();
   const [form, setForm] = useState(buildFormFromConfig(null));
   const [baseline, setBaseline] = useState(form);
-  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const dirty = Object.keys(form).some((key) => form[key] !== baseline[key]);
   useUnsavedChangesGuard(dirty);
 
   useEffect(() => {
-    ProxmoxConfigService.getConfig()
-      .then((cfg) => {
-        const next = buildFormFromConfig(cfg);
-        setForm(next);
-        setBaseline(next);
-      })
-      .catch((err) => toast.error(err?.message ?? t("SettingsPage.toastLoadSchedulerFailed")))
-      .finally(() => setLoading(false));
-  }, [toast, t]);
+    if (loaded || configQuery.data === undefined) return;
+    const next = buildFormFromConfig(configQuery.data);
+    setForm(next);
+    setBaseline(next);
+    setLoaded(true);
+  }, [loaded, configQuery.data]);
+
+  /* 載入失敗照舊只提示，不擋表單 */
+  const loadError = configQuery.error;
+  useEffect(() => {
+    if (loadError) toast.error(loadError?.message ?? t("SettingsPage.toastLoadSchedulerFailed"));
+  }, [loadError, toast, t]);
+  const loading = !loaded && !configQuery.isError;
 
   const setField = useCallback((name, value) => {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -188,6 +197,7 @@ export default function SchedulerPage() {
     setSaving(true);
     try {
       const updated = await ProxmoxConfigService.updateConfig(buildPayload(form));
+      configCache.setConfig(updated);
       const next = buildFormFromConfig(updated);
       setForm(next);
       setBaseline(next);

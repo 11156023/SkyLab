@@ -23,7 +23,6 @@ vi.mock("../../../services/specChangeRequests", () => ({
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { role: "student" } }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }) }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => vi.fn() }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("./RequestFormPage", () => ({ default: () => null }));
 
 const { default: RequestsPage } = await import("./RequestsPage");

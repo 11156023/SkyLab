@@ -5,13 +5,16 @@
  * 表單驗證與送出內容和閘道頁的「平台入口」分頁共用（platformEntryForm.js）。
  * 系統不簽發 HTTPS 憑證：要開 HTTPS 而 Gateway 還沒設定憑證時，在這裡順便填
  * 管理員自備的憑證／私鑰路徑（之後在閘道頁「HTTPS 憑證」分頁管理）。
+ * 目前的設定走 TanStack Query（queries/setup.js）。
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
+import { useQueryView } from "../../hooks/useQueryLoadState";
 import { useToast } from "../../hooks/useToast";
+import { useSetupCacheUpdater, useSetupPlatformEntryQuery } from "../../queries/setup";
 import { SetupService } from "../../services/setup";
 import {
   SUGGESTED_CERT_PATH,
@@ -51,36 +54,25 @@ export default function PlatformEntryStep({ gatewayReady, onSaved, onSkip, onBac
   /* 欄位名稱與錯誤訊息沿用閘道頁那一份，兩邊用語才會一致 */
   const { t: ts } = useTranslation("system");
   const toast = useToast();
-  const [loading, setLoading] = useState(gatewayReady);
-  const [config, setConfig] = useState(null);
-  const [form, setForm] = useState(null);
+  const setupCache = useSetupCacheUpdater();
+  /* 使用者改過的欄位；沒改過（null）就照目前的設定顯示 */
+  const [formDraft, setFormDraft] = useState(null);
   const [cert, setCert] = useState({ ssl_certificate_path: "", ssl_certificate_key_path: "" });
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!gatewayReady) return undefined;
-    let cancelled = false;
-    SetupService.getPlatformEntry()
-      .then((current) => {
-        if (cancelled) return;
-        setConfig(current);
-        // 精靈裡存檔就是要啟用，不提供「存成草稿」
-        setForm(withDetectedUpstream({ ...toPlatformForm(current), enabled: true }));
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err?.message ?? t("SetupPage.platformLoadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [gatewayReady, t]);
+  const entryQuery = useSetupPlatformEntryQuery({ enabled: gatewayReady });
+  const config = entryQuery.data ?? null;
+  const { loading, error: loadError } = useQueryView(entryQuery);
+  const loadErrorText = loadError ? (loadError.message ?? t("SetupPage.platformLoadFailed")) : "";
+  // 精靈裡存檔就是要啟用，不提供「存成草稿」
+  const loadedForm = config ? withDetectedUpstream({ ...toPlatformForm(config), enabled: true }) : null;
+  const form = formDraft ?? loadedForm;
 
   function setField(name, value) {
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setFormDraft((prev) => ({ ...(prev ?? loadedForm), [name]: value }));
     if (name === "upstream_host" || name === "upstream_port") setTestResult(null);
   }
 
@@ -123,7 +115,9 @@ export default function PlatformEntryStep({ gatewayReady, onSaved, onSkip, onBac
     try {
       const payload = { ...toPlatformPayload(form), ...(needsCert ? toCertificatePayload(cert) : {}) };
       const result = await SetupService.savePlatformEntry(payload);
-      setConfig(result);
+      // 表單留著剛送出的內容（不改回伺服器整理過的值），只換掉比對用的設定
+      setFormDraft(form);
+      setupCache.setPlatformEntry(result);
       toast.success(t("SetupPage.platformSaved"));
       onSaved(result);
     } catch (err) {
@@ -152,13 +146,14 @@ export default function PlatformEntryStep({ gatewayReady, onSaved, onSkip, onBac
     );
   }
 
-  if (loading || !form) {
+  /* 沒有設定可比對時（讀不到，或換身分清快取後重讀失敗）一律停在這裡，草稿留著 */
+  if (loading || !form || !config) {
     return (
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>{t("SetupPage.platformTitle")}</h2>
         {loading
           ? <div className={styles.center}><LoadingSpinner size={32} /></div>
-          : <p className={styles.error}>{error}</p>}
+          : <p className={styles.error}>{loadErrorText}</p>}
         <div className={styles.actions}>
           <button type="button" className={styles.btnSecondary} onClick={onBack}>
             <MIcon name="arrow_back" size={18} />

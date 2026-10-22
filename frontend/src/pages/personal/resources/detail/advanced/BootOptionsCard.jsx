@@ -5,7 +5,7 @@
  * （開機→啟用、關機→停用），卡片上只用一行說明告知。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
@@ -17,6 +17,13 @@ import useDragReorder from "../../../../../hooks/useDragReorder";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { ResourcesService } from "../../../../../services/resources";
 import { isNotFound } from "../../../../../services/api";
+import {
+  useBootOptionsQuery,
+  useIsoImagesQuery,
+  useLoadError,
+  useQueryErrorEffect,
+  useResourceDetailCacheUpdater,
+} from "../../../../../queries/resourceDetail";
 
 const KIND_ICON = { disk: "storage", cdrom: "album", network: "lan", other: "memory" };
 
@@ -30,46 +37,41 @@ export default function BootOptionsCard({ vmid, canManage }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
-  const [options, setOptions] = useState(null);
-  const [isoImages, setIsoImages] = useState([]);
-  const [order, setOrder] = useState([]);
-  const [selectedIso, setSelectedIso] = useState("");
-  const [loading, setLoading] = useState(true);
+  const detailCache = useResourceDetailCacheUpdater();
   const [busy, setBusy] = useState(false);
-  /* 第一次就載入失敗時要換成錯誤狀態（可重試），不能讓轉圈圈一直轉 */
-  const [loadError, setLoadError] = useState(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const opts = await ResourcesService.getBootOptions(vmid);
-      setOptions(opts);
-      setOrder(opts.boot_order ?? []);
-      if (opts.supports_cdrom) {
-        const images = await ResourcesService.listIsoImages(vmid).catch(() => []);
-        setIsoImages(images ?? []);
-        setSelectedIso(opts.cdrom_iso ?? "");
-      }
-    } catch (err) {
-      setLoadError(err ?? true);
-      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      setLoading(false);
-    }
-  }, [vmid, toast, t]);
+  /* 卡片是編輯器：查詢不輪詢、切回視窗也不重抓，不會蓋掉排到一半的順序。
+     每次載入失敗都提示；第一次就失敗時換成錯誤狀態（可重試），不能讓轉圈圈一直轉 */
+  const optionsQuery = useBootOptionsQuery(vmid);
+  useQueryErrorEffect(optionsQuery, (err) => {
+    toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+  });
+  const options = optionsQuery.data ?? null;
+  /* 錯誤狀態在之後的重抓期間維持、不閃轉圈圈，按重試才回到載入中（見 useLoadError） */
+  const { error: loadError, retry: retryOptions } = useLoadError(optionsQuery);
+  /* ISO 清單只有支援 CD-ROM 的機器才查；查不到當成沒有 */
+  const isoQuery = useIsoImagesQuery(vmid, { enabled: options?.supports_cdrom === true });
+  const isoImages = isoQuery.data ?? [];
+  const loading = (!options && (optionsQuery.isPending || optionsQuery.isFetching))
+    || (options?.supports_cdrom === true && isoQuery.data === undefined);
 
+  /* 編輯中的順序與 ISO 選擇；null＝沿用伺服器上的設定。存檔或重抓到新設定時清掉 */
+  const [orderDraft, setOrderDraft] = useState(null);
+  const [isoDraft, setSelectedIso] = useState(null);
   useEffect(() => {
-    load();
-  }, [load]);
+    setOrderDraft(null);
+    setSelectedIso(null);
+  }, [options]);
+  const order = orderDraft ?? options?.boot_order ?? [];
+  const selectedIso = isoDraft ?? options?.cdrom_iso ?? "";
+  const setOrder = (update) => setOrderDraft((prev) => update(prev ?? options?.boot_order ?? []));
 
   async function save(body, successKey) {
     setBusy(true);
     try {
       const updated = await ResourcesService.updateBootOptions(vmid, body);
-      setOptions(updated);
-      setOrder(updated.boot_order ?? []);
-      setSelectedIso(updated.cdrom_iso ?? "");
+      /* 存回來的設定就地寫進快取；編輯中的順序與 ISO 選擇隨之回到新設定 */
+      detailCache.setBootOptions(vmid, updated);
       toast.success(t(successKey));
     } catch (err) {
       toast.error(err?.message ?? t("BootOptionsCard.saveFailed"));
@@ -139,7 +141,7 @@ export default function BootOptionsCard({ vmid, canManage }) {
       </div>
       <div className={styles.cardBody}>
         {loadError && !options ? (
-          isNotFound(loadError) ? <NotFoundState /> : <ErrorState onRetry={load} />
+          isNotFound(loadError) ? <NotFoundState /> : <ErrorState onRetry={() => retryOptions()} />
         ) : loading || !options ? (
           <LoadingState text={t("BootOptionsCard.loading")} />
         ) : (

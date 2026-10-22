@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import QuotasSection from "./QuotasSection";
+import { withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -54,6 +55,8 @@ afterEach(async () => {
 
 async function flush() {
   await act(async () => {
+    /* TanStack Query 以 macrotask 批次通知，先等一個 timer tick */
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 10; i += 1) await Promise.resolve();
   });
 }
@@ -66,7 +69,7 @@ async function typeInto(input, value) {
 }
 
 test("刪除個人覆寫後重抓全域設定，全域卡片尚未儲存的修改不會被洗掉", async () => {
-  await act(async () => root.render(<QuotasSection />));
+  await act(async () => root.render(withQueryClient(<QuotasSection />)));
   await flush();
 
   const cpu = host.querySelector("#global-max_cpu_cores");
@@ -88,7 +91,7 @@ test("新增個人配額時挑不到管理員（管理員不受配額限制）",
     { id: "t1", email: "teacher@example.edu", role: "teacher" },
     { id: "a1", email: "admin@example.edu", role: "admin", is_superuser: true },
   ]);
-  await act(async () => root.render(<QuotasSection />));
+  await act(async () => root.render(withQueryClient(<QuotasSection />)));
   await flush();
 
   const addBtn = [...host.querySelectorAll("button")].find((b) => b.textContent.includes("QuotasTab.addQuota"));
@@ -103,7 +106,7 @@ test("新增個人配額時挑不到管理員（管理員不受配額限制）",
 });
 
 test("全域設定的數值真的變了才重設表單", async () => {
-  await act(async () => root.render(<QuotasSection />));
+  await act(async () => root.render(withQueryClient(<QuotasSection />)));
   await flush();
 
   mocks.getGlobal.mockImplementation(async () => ({ ...GLOBAL, max_cpu_cores: 12 }));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -7,9 +7,13 @@ import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { CoursesService } from "../../../services/courses";
+import { useCoursePathQuery, usePracticeMachinesQuery, useWeeklyTasksQuery } from "../../../queries/courses";
 import styles from "./StudentWeekPage.module.scss";
 import { feedbackFor } from "./studentWeekFeedback";
+
+const EMPTY = [];
 
 const STATUS_ICONS = {
   completed: "check_circle",
@@ -66,36 +70,32 @@ export default function StudentWeekPage() {
   const navigate = useNavigate();
   const { pathId, weekId } = useParams();
   const isGuideDemo = pathId === "demo" || weekId === "demo-week-1";
-  const [view, setView] = useState({ loading: true, failed: false, path: null, week: null, machines: [] });
   const [openingFileId, setOpeningFileId] = useState(null);
 
-  useEffect(() => {
-    if (isGuideDemo) {
-      setView(createGuideDemoWeek(t));
-      return undefined;
-    }
-    let cancelled = false;
-    async function load() {
-      const [pathResult, weeksResult, machinesResult] = await Promise.allSettled([
-        CoursesService.getPath(pathId),
-        CoursesService.getWeeklyTasks(pathId),
-        CoursesService.getPracticeMachines(pathId),
-      ]);
-      if (cancelled) return;
-      const weeks = weeksResult.status === "fulfilled" && Array.isArray(weeksResult.value)
-        ? weeksResult.value : [];
-      setView({
-        loading: false,
-        failed: weeksResult.status === "rejected",
-        path: pathResult.status === "fulfilled" ? pathResult.value : null,
-        week: weeks.find((item) => String(item.id) === String(weekId)) ?? null,
-        machines: machinesResult.status === "fulfilled" && Array.isArray(machinesResult.value)
-          ? machinesResult.value : [],
-      });
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [isGuideDemo, pathId, t, weekId]);
+  /* 與課程頁共用快取（從課程頁點進來直接有資料）；導覽示範模式不讀 API */
+  const live = !isGuideDemo && pathId != null;
+  const pathQuery = useCoursePathQuery(pathId, { enabled: live });
+  const weeksQuery = useWeeklyTasksQuery(pathId, { enabled: live });
+  const machinesQuery = usePracticeMachinesQuery(pathId, { enabled: live });
+  /* 首次載入還沒有資料才算載入中／載入失敗；背景刷新失敗沿用上一份。
+     首載失敗後背景重試期間維持失敗畫面，不閃回載入中（見 useQueryView） */
+  const pathView = useQueryView(pathQuery);
+  const weeksView = useQueryView(weeksQuery);
+  const machinesView = useQueryView(machinesQuery);
+
+  let view;
+  if (isGuideDemo) {
+    view = createGuideDemoWeek(t);
+  } else {
+    const weeks = Array.isArray(weeksQuery.data) ? weeksQuery.data : EMPTY;
+    view = {
+      loading: live && (pathView.loading || weeksView.loading || machinesView.loading),
+      failed: Boolean(weeksView.error),
+      path: pathQuery.data ?? null,
+      week: weeks.find((item) => String(item.id) === String(weekId)) ?? null,
+      machines: Array.isArray(machinesQuery.data) ? machinesQuery.data : EMPTY,
+    };
+  }
 
   async function openDocument(file) {
     if (isGuideDemo) return;

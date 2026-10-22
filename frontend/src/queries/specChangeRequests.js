@@ -9,7 +9,19 @@ export const SPEC_APPLY_POLL_INTERVAL = 5_000;
 export const specChangeRequestKeys = Object.freeze({
   all: ["specChangeRequests"],
   mine: ["specChangeRequests", "mine"],
+  everyone: (params) => ["specChangeRequests", "everyone", params ?? {}],
 });
+
+/** 管理員：全部規格調整申請；params 與 SpecChangeRequestsService.listAll 相同 */
+export function useAllSpecChangeRequestsQuery(params, { enabled = true, refetchInterval = LIST_REFRESH_INTERVAL, select } = {}) {
+  return useQuery({
+    queryKey: specChangeRequestKeys.everyone(params),
+    queryFn: () => SpecChangeRequestsService.listAll(params),
+    enabled,
+    refetchInterval,
+    select,
+  });
+}
 
 async function fetchMySpecChangeRequests() {
   const res = await SpecChangeRequestsService.listMy();
@@ -40,6 +52,9 @@ export function useSpecChangeRequestCacheUpdater() {
     },
     invalidate() {
       return queryClient.invalidateQueries({ queryKey: specChangeRequestKeys.mine });
+    },
+    invalidateEveryone() {
+      return queryClient.invalidateQueries({ queryKey: ["specChangeRequests", "everyone"] });
     },
   };
 }

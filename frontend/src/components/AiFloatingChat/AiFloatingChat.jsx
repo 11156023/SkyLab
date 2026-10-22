@@ -5,8 +5,9 @@ import { useAuth } from "../../contexts/AuthContext";
 import { LayoutContext } from "../../layout/layoutContext";
 import { AiNavigationService } from "../../services/aiNavigation";
 import { AiTemplateRecommendationApi } from "../../services/aiTemplateRecommendation";
-import { ResourcesService } from "../../services/resources";
-import { VmRequestsService } from "../../services/vmRequests";
+import { queryClient } from "../../queries/queryClient";
+import { myResourcesQueryOptions } from "../../queries/resources";
+import { myVmRequestsQueryOptions } from "../../queries/vmRequests";
 import { newTask, taskRoute, withTaskMemory, recentMessages, intakeFactsPayload, planErrorKey, markStep, requestIsReady, TEACHING_PATTERN, SIDE_QUESTION_PATTERN, shouldContinueIntake, rememberWorkflow, addWorkflows, flowOwnsPath, environmentStepPath } from "./taskState";
 import {
   AiContextualHelpService,
@@ -678,9 +679,13 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       return true;
     }
     if (task.stage === "submitted") {
-      const [requests, resources] = await Promise.all([VmRequestsService.list(), ResourcesService.list()]);
-      const request = requests.data?.find((item) => item.id === task.requestId);
-      if (!requestIsReady(request, resources ?? [])) {
+      /* 要的是當下的伺服器狀態：staleTime 0 一定重抓，結果寫回共用快取，「我的資源」「我的申請」頁也跟著更新 */
+      const [requests, mine] = await Promise.all([
+        queryClient.fetchQuery({ ...myVmRequestsQueryOptions(), staleTime: 0 }),
+        queryClient.fetchQuery({ ...myResourcesQueryOptions(), staleTime: 0 }),
+      ]);
+      const request = requests?.find((item) => item.id === task.requestId);
+      if (!requestIsReady(request, mine?.resources ?? [])) {
         appendAssistant(t("AiFloatingChat.requestNotReady", {
           status: request?.status ?? "unknown", provisioning: request?.provisioning_status ?? "unknown",
         }), {
@@ -751,7 +756,9 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       if (data.flow_id === "publish_service") {
         taskRef.current.returnFlow = flowRef.current;
         let resources;
-        try { resources = await ResourcesService.list(); } catch { /* Ask instead of assuming empty. */ }
+        try {
+          resources = (await queryClient.fetchQuery({ ...myResourcesQueryOptions(), staleTime: 0 })).resources;
+        } catch { /* Ask instead of assuming empty. */ }
         if (Array.isArray(resources) && resources.length === 0) return startIntake(nextHistory);
         if (!Array.isArray(resources)) {
           appendAssistant(t("AiFloatingChat.machineCheckFailed"), {

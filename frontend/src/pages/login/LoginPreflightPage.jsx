@@ -8,14 +8,16 @@
  *   可以重新檢查、登出，或仍要繼續進入（並請他們通知管理員）
  * - 管理員：看到真實服務名稱與錯誤細節，失敗時可以略過繼續，或直接前往資源監控
  * 全部通過就自動進入系統。
+ * 檢查本身走 TanStack Query（queries/preflight.js，每一輪一個 key、用完即丟），逐項打勾的動畫在這裡。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import { useAuth } from "../../contexts/AuthContext";
-import { AccountService } from "../../services/account";
+import { useLoadError } from "../../hooks/useQueryLoadState";
+import { useLoginPreflightQuery } from "../../queries/preflight";
 import { isAdminUser } from "../../utils/roles";
 import shell from "../setup/SetupPage.module.scss";
 import styles from "./LoginPreflightPage.module.scss";
@@ -40,6 +42,10 @@ const REVEAL_STEP_MS = 260;
 const DONE_PAUSE_MS = 700;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/* 第一輪檢查用後端快取（同一批人同時登入不會各探測一次）；管理員按重新檢查才略過快取 */
+const FIRST_RUN = Object.freeze({ attempt: 0, refresh: false });
+const CHECKING = Object.freeze({ phase: "checking", result: null, revealed: 0, error: null });
 
 /** 單項的狀態：checking（圈圈轉）／ok／fail／skipped */
 function rowStatus(key, index, state) {
@@ -73,53 +79,55 @@ export default function LoginPreflightPage() {
   const navigate = useNavigate();
   const { user, logout, finishLoginPreflight } = useAuth();
   const admin = isAdminUser(user);
-  const [state, setState] = useState({ phase: "checking", result: null, revealed: 0, error: null });
-  const runRef = useRef(0);
+  /* 第幾輪檢查：按「重新檢查」換下一輪（新的 query key），畫面回到全部轉圈圈 */
+  const [run, setRun] = useState(FIRST_RUN);
+  /* 結果回來後逐項打勾的進度；只對應拿到它的那一份結果 */
+  const [reveal, setReveal] = useState(null);
 
-  const run = useCallback(
-    async ({ refresh = false } = {}) => {
-      const id = ++runRef.current;
-      const alive = () => runRef.current === id;
-      setState({ phase: "checking", result: null, revealed: 0, error: null });
-
-      let result;
-      try {
-        [result] = await Promise.all([AccountService.preflight({ refresh }), wait(MIN_CHECK_MS)]);
-      } catch (error) {
-        if (!alive()) return;
-        // 舊版後端沒有這個端點：不能因此擋住所有人
-        if (error?.status === 404) {
-          finishLoginPreflight();
-          return;
-        }
-        setState({ phase: "error", result: null, revealed: CHECK_KEYS.length, error });
-        return;
-      }
-
-      for (let revealed = 1; revealed <= CHECK_KEYS.length; revealed += 1) {
-        if (!alive()) return;
-        setState({ phase: "checking", result, revealed, error: null });
-        await wait(REVEAL_STEP_MS);
-      }
-      if (!alive()) return;
-
-      if (result?.ok) {
-        setState({ phase: "passed", result, revealed: CHECK_KEYS.length, error: null });
-        await wait(DONE_PAUSE_MS);
-        if (alive()) finishLoginPreflight();
-      } else {
-        setState({ phase: "failed", result, revealed: CHECK_KEYS.length, error: null });
-      }
-    },
-    [finishLoginPreflight],
-  );
+  const preflightQuery = useLoginPreflightQuery({
+    attempt: run.attempt,
+    refresh: run.refresh,
+    minDurationMs: MIN_CHECK_MS,
+  });
+  const result = preflightQuery.data;
+  const { error: loadError } = useLoadError(preflightQuery);
+  // 舊版後端沒有這個端點：不能因此擋住所有人（不顯示錯誤，直接進入）
+  const unsupported = loadError?.status === 404;
 
   useEffect(() => {
-    void run();
+    if (unsupported) finishLoginPreflight();
+  }, [unsupported, finishLoginPreflight]);
+
+  useEffect(() => {
+    if (result === undefined) return undefined;
+    let alive = true;
+    (async () => {
+      for (let revealed = 1; revealed <= CHECK_KEYS.length; revealed += 1) {
+        if (!alive) return;
+        setReveal({ phase: "checking", result, revealed, error: null });
+        await wait(REVEAL_STEP_MS);
+      }
+      if (!alive) return;
+
+      if (result?.ok) {
+        setReveal({ phase: "passed", result, revealed: CHECK_KEYS.length, error: null });
+        await wait(DONE_PAUSE_MS);
+        if (alive) finishLoginPreflight();
+      } else {
+        setReveal({ phase: "failed", result, revealed: CHECK_KEYS.length, error: null });
+      }
+    })();
     return () => {
-      runRef.current += 1;
+      alive = false;
     };
-  }, [run]);
+  }, [result, finishLoginPreflight]);
+
+  let state = CHECKING;
+  if (loadError && !unsupported) {
+    state = { phase: "error", result: null, revealed: CHECK_KEYS.length, error: loadError };
+  } else if (result !== undefined && reveal?.result === result) {
+    state = reveal;
+  }
 
   const checking = state.phase === "checking";
   const failed = state.phase === "failed" || state.phase === "error";
@@ -248,7 +256,7 @@ export default function LoginPreflightPage() {
               <button
                 type="button"
                 className={shell.btnSecondary}
-                onClick={() => run({ refresh: admin })}
+                onClick={() => setRun((prev) => ({ attempt: prev.attempt + 1, refresh: admin }))}
               >
                 <MIcon name="refresh" size={18} />
                 {t("LoginPreflight.retry")}

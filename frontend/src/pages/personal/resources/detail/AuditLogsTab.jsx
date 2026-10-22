@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
@@ -6,24 +5,20 @@ import EmptyState from "../../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
 import { isNotFound } from "../../../../services/api";
-import { AuditLogsService } from "../../../../services/auditLogs";
+import { useResourceAuditLogsQuery } from "../../../../queries/auditLogs";
+import { useLoadError } from "../../../../hooks/useQueryLoadState";
 import { formatDateTime } from "../../../../utils/formatDate";
 import { actionBadgeClass, actionLabel } from "./auditActions";
 
+const LOG_PARAMS = Object.freeze({ skip: 0, limit: 100 });
+
 export default function AuditLogsTab({ vmid }) {
   const { t } = useTranslation("personal");
-  const [logs, setLogs] = useState(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    AuditLogsService.listForResource(vmid, { skip: 0, limit: 100 })
-      .then((res) => !cancelled && setLogs(res))
-      .catch((e) => !cancelled && setError(e ?? true));
-    return () => {
-      cancelled = true;
-    };
-  }, [vmid]);
+  /* 進分頁時抓一次（與原本相同不輪詢）；回到分頁時先顯示快取，過期才在背景重抓 */
+  const logsQuery = useResourceAuditLogsQuery(vmid, LOG_PARAMS, { refetchInterval: false });
+  const logs = logsQuery.data ?? null;
+  /* 從沒載到就失敗才顯示錯誤；切回視窗等重抓期間維持錯誤畫面、不閃轉圈圈（見 useLoadError） */
+  const { error } = useLoadError(logsQuery);
 
   if (error) return isNotFound(error) ? <NotFoundState /> : <ErrorState />;
   if (!logs) return <LoadingState />;

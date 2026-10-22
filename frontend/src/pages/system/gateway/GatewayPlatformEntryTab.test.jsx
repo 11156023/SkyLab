@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import GatewayPlatformEntryTab from "./GatewayPlatformEntryTab";
+import { withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   getPlatformEntry: vi.fn(),
@@ -31,8 +32,10 @@ vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm
 let root;
 let host;
 
+/* TanStack Query 以 macrotask 批次通知，先等一個 timer tick 再看畫面 */
 async function flush() {
   await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 8; i += 1) await Promise.resolve();
   });
 }
@@ -85,7 +88,9 @@ describe("GatewayPlatformEntryTab status check", () => {
       .mockReturnValueOnce(preSave.promise)
       .mockResolvedValueOnce(status(true));
 
-    await act(async () => { root.render(<GatewayPlatformEntryTab gatewayReady onGoToConnection={() => {}} onGoToCertificate={() => {}} />); });
+    await act(async () => {
+      root.render(withQueryClient(<GatewayPlatformEntryTab gatewayReady onGoToConnection={() => {}} onGoToCertificate={() => {}} />));
+    });
     await flush();
     expect(mocks.getPlatformEntryStatus).toHaveBeenCalledTimes(1);
 
@@ -105,5 +110,27 @@ describe("GatewayPlatformEntryTab status check", () => {
     expect(mocks.getPlatformEntryStatus).toHaveBeenCalledTimes(2);
     expect(host.textContent).not.toContain("GatewayPage.platformWarnDrift");
     expect(host.textContent).toContain("lab.example.edu");
+  });
+
+  test("a load failure shows the retry state, and retrying fills the form", async () => {
+    mocks.getPlatformEntry
+      .mockRejectedValueOnce(new Error("ssh down"))
+      .mockResolvedValueOnce(config);
+    mocks.getPlatformEntryStatus.mockResolvedValue(status(true));
+
+    await act(async () => {
+      root.render(withQueryClient(<GatewayPlatformEntryTab gatewayReady onGoToConnection={() => {}} onGoToCertificate={() => {}} />));
+    });
+    await flush();
+    expect(mocks.toast.error).toHaveBeenCalledWith("ssh down");
+    expect(mocks.getPlatformEntryStatus).not.toHaveBeenCalled();
+
+    const retry = [...host.querySelectorAll("button")].find((b) => b.textContent.includes("Error.retry"));
+    await act(async () => { retry.click(); });
+    await flush();
+
+    expect(host.querySelector("form")).toBeTruthy();
+    expect(host.querySelector('input[placeholder="skylab.example.com"]').value).toBe("lab.example.edu");
+    expect(mocks.getPlatformEntryStatus).toHaveBeenCalledTimes(1);
   });
 });

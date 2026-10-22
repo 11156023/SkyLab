@@ -10,6 +10,10 @@ export const BOOTING_POLL_INTERVAL = 5_000;
 export const resourceKeys = Object.freeze({
   all: ["resources"],
   mine: ["resources", "mine"],
+  everyone: ["resources", "everyone"],
+  lxcOsImages: ["resources", "lxcOsImages"],
+  vmOsTemplates: ["resources", "vmOsTemplates"],
+  mySessionStatuses: ["resources", "mySessionStatuses"],
 });
 
 /** 快速練習 session 失敗不拖垮機器清單（與原頁面相同） */
@@ -27,12 +31,58 @@ export function bootingPollInterval(data) {
     : LIST_REFRESH_INTERVAL;
 }
 
+/**
+ * 我的機器的 query 設定（key＋queryFn）。hook 與「事件處理裡要當下最新清單」的
+ * `queryClient.fetchQuery(myResourcesQueryOptions())` 共用，快取格式只寫在這裡。
+ */
+export function myResourcesQueryOptions() {
+  return { queryKey: resourceKeys.mine, queryFn: fetchMyResources };
+}
+
 /** 我的機器＋我的快速練習 session（一次抓齊，背景 30 秒刷新、開機中 5 秒） */
-export function useMyResourcesQuery() {
+export function useMyResourcesQuery({ enabled = true } = {}) {
   return useQuery({
-    queryKey: resourceKeys.mine,
-    queryFn: fetchMyResources,
+    ...myResourcesQueryOptions(),
+    enabled,
     refetchInterval: (query) => bootingPollInterval(query.state.data),
+  });
+}
+
+/** 管理員：全部機器＋全部快速練習 session（資源管理頁） */
+async function fetchAllResources({ signal }) {
+  const [resources, sessions] = await Promise.all([
+    ResourcesService.listAll({ signal }),
+    QuickPracticeService.listAllSessions({ signal }).catch(() => []),
+  ]);
+  return { resources: resources ?? [], sessions: sessions ?? [] };
+}
+
+export function useAllResourcesQuery({ enabled = true } = {}) {
+  return useQuery({
+    queryKey: resourceKeys.everyone,
+    queryFn: fetchAllResources,
+    enabled,
+    refetchInterval: (query) => bootingPollInterval(query.state.data),
+  });
+}
+
+/** LXC 作業系統映像（申請表單、教學環境編輯器；很少變，不輪詢） */
+export function useLxcOsImagesQuery({ enabled = true } = {}) {
+  return useQuery({ queryKey: resourceKeys.lxcOsImages, queryFn: () => ResourcesService.listLxcOsImages(), enabled });
+}
+
+/** VM 作業系統範本 */
+export function useVmOsTemplatesQuery({ enabled = true } = {}) {
+  return useQuery({ queryKey: resourceKeys.vmOsTemplates, queryFn: () => ResourcesService.listVmOsTemplates(), enabled });
+}
+
+/** 我的機器的使用時段狀態（到期提醒） */
+export function useMySessionStatusesQuery({ enabled = true, refetchInterval = LIST_REFRESH_INTERVAL } = {}) {
+  return useQuery({
+    queryKey: resourceKeys.mySessionStatuses,
+    queryFn: () => ResourcesService.mySessionStatuses(),
+    enabled,
+    refetchInterval,
   });
 }
 

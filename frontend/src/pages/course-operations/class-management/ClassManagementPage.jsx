@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { useTeachingClassCacheUpdater, useTeachingClassesQuery } from "../../../queries/teachingClasses";
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "../CourseOperations.module.scss";
@@ -55,6 +56,8 @@ const WEEKDAY_KEYS = [
 ];
 
 
+const EMPTY = Object.freeze([]);
+
 function normalizeClass(item) {
   return {
     ...item,
@@ -70,6 +73,11 @@ function normalizeClass(item) {
     readyMachines: item.ready_machines ?? 0,
     totalMachines: item.total_machines ?? 0,
   };
+}
+
+/* 後端回 {data: [...]} 或純陣列都接；模組層級的函式讓 useQuery 的 select 結果能被快取 */
+function selectClasses(rows) {
+  return (rows?.data ?? rows ?? []).map(normalizeClass);
 }
 
 export function setupChecklist(item) {
@@ -100,25 +108,23 @@ export default function ClassManagementPage() {
   const location = useLocation();
   const toast = useToast();
   const confirm = useConfirm();
-  const [classes, setClasses] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
 
-  const loadClasses = useCallback(
-    () => TeachingClassesService.list().then((rows) => (rows?.data ?? rows ?? []).map(normalizeClass)),
-    [],
-  );
-
+  /* 班級清單走 TanStack Query（老師首頁、課程 CMS 共用同一份快取）：
+     首次載不到才提示，背景刷新失敗沿用上一份 */
+  const classesQuery = useTeachingClassesQuery({ select: selectClasses });
+  const classCache = useTeachingClassCacheUpdater();
+  const classes = classesQuery.data ?? EMPTY;
+  const loading = classesQuery.data === undefined && (classesQuery.isPending || classesQuery.isFetching);
+  /* 依訊息字串觸發：還沒有資料時輪詢重試又失敗，訊息相同就不重複提示 */
+  const loadFailedMessage = classesQuery.data === undefined && classesQuery.isError
+    ? classesQuery.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
   useEffect(() => {
-    let active = true;
-    loadClasses()
-      .then((rows) => active && setClasses(rows))
-      .catch((reason) => active && toast.error(reason?.message ?? t("Error.generic", { ns: "common" })))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [loadClasses, toast, t]);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
 
   // 導頁帶來的一次性成功訊息改用 toast，吐完即清掉 state 免得重整重播。
   useEffect(() => {
@@ -192,7 +198,8 @@ export default function ClassManagementPage() {
     }
     selection.replace(res.results.filter((result) => !result.ok).map((result) => result.item.id));
     setBatchProgress(null);
-    try { setClasses(await loadClasses()); } catch { /* 下次進頁面再載入 */ }
+    /* 重抓失敗不會丟例外（沿用舊清單，下次進頁面再載入） */
+    await classCache.invalidate();
   }
 
   return <div className={`${styles.page} ${styles.listPage}`}>

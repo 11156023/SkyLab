@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./IpManagementPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -7,9 +7,15 @@ import SubnetConfigForm from "./SubnetConfigForm";
 import { useAuth } from "../../../contexts/AuthContext";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { IpManagementService } from "../../../services/ipManagement";
+import {
+  useIpAllocationsQuery,
+  useIpManagementCacheUpdater,
+  useIpStatusQuery,
+  useSubnetQuery,
+} from "../../../queries/ipManagement";
+import { LIST_REFRESH_INTERVAL } from "../../../queries/queryClient";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import Pagination from "../shared/Pagination";
@@ -67,6 +73,8 @@ function PurposeBadge({ purpose }) {
 
 const PAGE_SIZE = 50;
 
+const EMPTY = Object.freeze([]);
+
 /** 佔用網段、CIDR 不能再改的配發用途（與後端 ip_management_service 一致） */
 const CIDR_LOCKING_PURPOSES = new Set(["vm", "lxc", "class_reserved", "quick_practice_reserved"]);
 
@@ -77,39 +85,36 @@ export default function IpManagementPage() {
   const { user } = useAuth();
   const isAdmin = isAdminUser(user);
 
-  const [allocations, setAllocations] = useState([]);
-  const [subnet, setSubnet] = useState(null);
-  const [status, setStatus] = useState(null);
   const [filter, setFilter] = useState("");
-  const [loading, setLoading] = useState(true);
   /* 開窗時快照 config：Modal 內表單自持狀態，背景刷新不會洗掉輸入 */
   const [editing, setEditing] = useState(null); // null | { config }
   const editPresence = useDialogPresence(editing);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const [allocRes, subnetRes, statusRes] = await Promise.all([
-        IpManagementService.listAllocations(),
-        IpManagementService.getSubnet().catch(() => null),
-        IpManagementService.getStatus().catch(() => null),
-      ]);
-      setAllocations(allocRes?.allocations ?? []);
-      setSubnet(subnetRes ?? null);
-      setStatus(statusRes ?? null);
-    } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [toast, t]);
+  /* 三份資料走 TanStack Query，背景 30 秒刷新、分頁隱藏時暫停；
+     表單已改 Modal 且開窗時快照 config，背景刷新不會影響輸入。
+     子網設定與狀態取不到時靜默當成沒有（與原本相同），配發清單失敗才提示 */
+  const allocationsQuery = useIpAllocationsQuery();
+  const subnetQuery = useSubnetQuery({ refetchInterval: LIST_REFRESH_INTERVAL });
+  const statusQuery = useIpStatusQuery();
+  const ipCache = useIpManagementCacheUpdater();
+  const allocations = allocationsQuery.data?.allocations ?? EMPTY;
+  const subnet = subnetQuery.data ?? null;
+  const status = statusQuery.data ?? null;
+  /* 第一次載入等三份都回來（或失敗）才顯示，免得子網還沒到就先閃「尚未設定」；
+     之後的重抓保留舊畫面 */
+  const loading = (allocationsQuery.data === undefined && (allocationsQuery.isPending || allocationsQuery.isFetching))
+    || subnetQuery.isPending
+    || statusQuery.isPending;
 
-  useEffect(() => { load(); }, [load]);
-  /* 表單已改 Modal 且開窗時快照 config，背景刷新不會影響輸入 */
-  useAutoRefresh(() => load(true));
+  /* 背景刷新失敗維持靜默、沿用舊清單；只有手上沒資料時才提示。
+     依賴用布林＋訊息字串，沒資料時的背景重試回同樣的錯誤不會每 30 秒再跳一次 */
+  const allocationsLoadFailed = allocationsQuery.data === undefined && allocationsQuery.isError;
+  const allocationsLoadErrorMessage = allocationsQuery.error?.message;
+  useEffect(() => {
+    if (allocationsLoadFailed) toast.error(allocationsLoadErrorMessage ?? t("Error.generic", { ns: "common" }));
+  }, [allocationsLoadFailed, allocationsLoadErrorMessage, toast, t]);
 
   /* getSubnet 需要管理員權限，非管理員只能靠 status 判斷是否已設定 */
   const configured = Boolean(subnet) || Boolean(status?.configured);
@@ -178,7 +183,7 @@ export default function IpManagementPage() {
         toast.success(t("IpManagementPage.toastSubnetSaved"));
       }
       setEditing(null);
-      await load();
+      await ipCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("IpManagementPage.toastSaveSubnetFailed"));
     } finally {
@@ -199,7 +204,7 @@ export default function IpManagementPage() {
       await IpManagementService.deleteSubnet();
       toast.success(t("IpManagementPage.toastSubnetDeleted"));
       setEditing(null);
-      await load();
+      await ipCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("IpManagementPage.toastDeleteSubnetFailed"));
     } finally {

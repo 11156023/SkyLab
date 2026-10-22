@@ -16,6 +16,7 @@ import { useMyActiveVmRequestsQuery, useVmRequestCacheUpdater } from "../../../q
 import { isApplying, useMySpecChangeRequestsQuery, useSpecChangeRequestCacheUpdater } from "../../../queries/specChangeRequests";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import RequestFormPage from "./RequestFormPage";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
@@ -529,11 +530,9 @@ export default function RequestsPage() {
   const requests = requestsQuery.data ?? EMPTY;
   const requestCache = useVmRequestCacheUpdater();
   const specCache = useSpecChangeRequestCacheUpdater();
-  /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料，
-     首載失敗後按重試會回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
-  const noData = requestsQuery.data === undefined;
-  const loading = noData && (requestsQuery.isPending || requestsQuery.isFetching);
-  const error = noData && requestsQuery.isError && !requestsQuery.isFetching;
+  /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料。
+     錯誤畫面在背景重試期間不閃回 skeleton，按重試才回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
+  const { loading, error, retry: retryRequests } = useQueryView(requestsQuery);
 
   /* 已經停在本頁時 useState 的初值不會再跑一次，所以導覽助手在這頁按步驟
      只會換掉 location.state。兩個方向都要跟：帶 create 就開表單，沒帶就回列表
@@ -552,7 +551,7 @@ export default function RequestsPage() {
   }
 
   function retryLoad() {
-    requestsQuery.refetch();
+    retryRequests();
     specQuery.refetch();
   }
 

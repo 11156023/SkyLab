@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import AdminPage from "./AdminPage";
+import { withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   listAll: vi.fn(),
@@ -28,7 +29,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "me" } }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => vi.fn() }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => null }));
@@ -36,8 +36,10 @@ vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () =>
 let root;
 let host;
 
+/* TanStack Query 以 macrotask 批次通知，先等一個 timer tick 再看畫面 */
 async function flush() {
   await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
 }
@@ -70,7 +72,7 @@ describe("AdminPage registration settings", () => {
       signup_enabled: false, approval_required: true, google_signup_enabled: false,
     });
 
-    await act(async () => { root.render(<AdminPage />); });
+    await act(async () => { root.render(withQueryClient(<AdminPage />)); });
     await flush();
 
     const box = policyCheckbox("AdminPage.googleSignupEnabled");

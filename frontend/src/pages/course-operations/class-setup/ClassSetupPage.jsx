@@ -6,10 +6,15 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import Stepper from "../../../components/Stepper/Stepper";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
-import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import EnvironmentChoice from "../EnvironmentChoice";
 import shared from "../CourseOperations.module.scss";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { usePublishedCourseEnvironmentsQuery } from "../../../queries/courseEnvironments";
+import {
+  useClassCapacityPreviewQuery,
+  useTeachingClassCacheUpdater,
+  useTeachingClassQuery,
+} from "../../../queries/teachingClasses";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatDate } from "../../../utils/formatDate";
 import { joinList } from "../../../utils/joinList";
@@ -96,6 +101,8 @@ export function furthestReachableStep({ saved, hasStudents, hasEnvironment }) {
   return 5;
 }
 
+const EMPTY = Object.freeze([]);
+
 function titledWeekCount(weeks) {
   return (weeks ?? []).filter((week) => String(week.title ?? "").trim()).length;
 }
@@ -130,24 +137,37 @@ export default function ClassSetupPage() {
   const [initialForm] = useState(() => createClassScheduleForm());
   const [form, setForm] = useState(initialForm);
   const [item, setItem] = useState(null);
-  const [loadError, setLoadError] = useState("");
-  const [loadRetryable, setLoadRetryable] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [templates, setTemplates] = useState([]);
-  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [templateId, setTemplateId] = useState("");
   const [emails, setEmails] = useState("");
   const [weeks, setWeeks] = useState([]);
   const [publishWeeks, setPublishWeeks] = useState(true);
-  const [capacity, setCapacity] = useState(null);
-  const [loading, setLoading] = useState(Boolean(classId));
   const [busy, setBusy] = useState(false);
   const [invalidField, setInvalidField] = useState("");
   const [draftOpen, setDraftOpen] = useState(false);
   const nameRef = useRef(null);
   const emailsRef = useRef(null);
   const fileRef = useRef(null);
-  const loadedClassIdRef = useRef("");
+  const classCache = useTeachingClassCacheUpdater();
+
+  /* 班級草稿走 TanStack Query：進頁向伺服器拿最新的一份，回來後初始化表單一次；之後畫面上的班級只來自
+     本頁寫入的回應，背景資料不會蓋掉打到一半的表單。第一步剛建好班級時網址才補上 classId，
+     資料已經在手上（item 就是這個班級），不必再載 */
+  const needsLoad = Boolean(classId) && item?.id !== classId;
+  const classQuery = useTeachingClassQuery(classId || null, { enabled: needsLoad, forEditing: true });
+  const classSettled = needsLoad && classQuery.isFetchedAfterMount && !classQuery.isFetching;
+  const loadedClass = classSettled && classQuery.status === "success" ? classQuery.data : null;
+  const loadFailure = classSettled && classQuery.status === "error" ? classQuery.error : null;
+  const loadError = loadFailure ? loadFailure.message ?? t("ClassSetupPage.loadDraftFailed") : "";
+  const loadRetryable = Boolean(loadFailure) && ![403, 404].includes(loadFailure.status);
+  const loading = needsLoad && !loadFailure;
+
+  /* 可選的教學環境（已發布）；環境編輯器發布後會把這份清單標成過期，回到第三步時就會重抓 */
+  const publishedQuery = usePublishedCourseEnvironmentsQuery();
+  const templates = publishedQuery.data ?? EMPTY;
+  const templatesLoaded = publishedQuery.data !== undefined;
+  const templatesErrorMessage = !templatesLoaded && publishedQuery.isError
+    ? publishedQuery.error?.message ?? t("ClassSetupPage.loadTemplatesFailed")
+    : null;
 
   function markInvalid(key, ref) {
     setInvalidField(key);
@@ -182,6 +202,21 @@ export default function ClassSetupPage() {
   ];
   useUnsavedChangesGuard(stepDirty.some(Boolean));
 
+  /* 容量預檢只在第五步做。缺學生或缺環境根本不必問後端：直接說缺什麼，不要讓標題一直停在
+     「正在執行容量預檢」。檢查中（含重新檢查）一律顯示檢查中，不拿上一次的結果當準 */
+  const capacityWanted = step === 5 && Boolean(classId) && Boolean(item);
+  const capacityMissing = [];
+  if (!item?.students.length) capacityMissing.push(t("ClassSetupPage.needAtLeastOneStudent"));
+  if (!item?.nodes.length) capacityMissing.push(t("ClassWorkspacePage.noEnvSelected"));
+  const capacityQuery = useClassCapacityPreviewQuery(classId || null, { enabled: capacityWanted && capacityMissing.length === 0 });
+  let capacity = null;
+  if (capacityWanted && capacityMissing.length) capacity = { ready: false, issues: capacityMissing };
+  else if (capacityWanted && !capacityQuery.isFetching) {
+    capacity = capacityQuery.isError
+      ? { ready: false, issues: [capacityQuery.error?.message ?? t("ClassSetupPage.capacityCheckFailed")] }
+      : capacityQuery.data ?? null;
+  }
+
   useAiScreen("class-setup", {
     "classsetup.current_step": { value: `${step}. ${t(STEPS[step - 1][1])}` },
     "classsetup.saved": { value: loading ? "載入中" : String(Boolean(item)) },
@@ -193,25 +228,23 @@ export default function ClassSetupPage() {
 
   function applyClass(result) {
     const normalized = normalizeClass(result);
-    loadedClassIdRef.current = normalized.id;
     setItem(normalized);
     setWeeks(normalized.weeks);
     setTemplateId(normalized.course_version_id ? String(normalized.course_version_id) : "");
     setForm(createClassScheduleForm(normalized));
   }
 
-  const createdTemplateId = location.state?.createdTemplateId;
+  /* 寫入回來的班級：畫面套用，同時寫回快取（班級清單、容量預覽跟著過期） */
+  function applySaved(result) {
+    classCache.update(result);
+    applyClass(result);
+  }
+
   useEffect(() => {
-    let active = true;
-    CourseEnvironmentsService.listPublished()
-      .then((rows) => {
-        if (!active) return;
-        setTemplates(rows);
-        setTemplatesLoaded(true);
-      })
-      .catch((reason) => active && toast.error(reason?.message ?? t("ClassSetupPage.loadTemplatesFailed")));
-    return () => { active = false; };
-  }, [createdTemplateId, t, toast]);
+    if (templatesErrorMessage) toast.error(templatesErrorMessage);
+  }, [templatesErrorMessage, toast]);
+
+  const createdTemplateId = location.state?.createdTemplateId;
 
   // 剛建好的環境要等班級載完才幫忙選：班級載入（applyClass）會把選擇重設成已存的環境，
   // 環境清單先回來時先選的會被蓋掉
@@ -226,58 +259,22 @@ export default function ClassSetupPage() {
   }, [createdTemplateId, templates, templatesLoaded, loading, t, toast]);
 
   useEffect(() => {
-    if (!classId) { setLoading(false); return undefined; }
-    // 第一步剛建好班級時網址才補上 classId，資料已經在手上，不必整頁重新載入
-    if (loadedClassIdRef.current === classId) { setLoading(false); return undefined; }
-    let active = true;
-    setLoading(true);
-    setLoadError("");
-    TeachingClassesService.get(classId)
-      .then((result) => {
-        if (!active) return;
-        // 送出建機後學生、環境與課表都鎖定了，精靈不再適用，直接回班級頁。
-        // 導走前先停掉這次載入：否則 finally 會把載入畫面收掉、畫出空的精靈，
-        // 網址校正再把網址改回第一步，反而蓋掉這次導頁
-        if (result?.status && result.status !== "planning") {
-          active = false;
-          navigate(`/class-management/${result.id ?? classId}`, { replace: true });
-          return;
-        }
-        applyClass(result);
-      })
-      .catch((reason) => {
-        if (!active) return;
-        setLoadError(reason?.message ?? t("ClassSetupPage.loadDraftFailed"));
-        setLoadRetryable(![403, 404].includes(reason?.status));
-      })
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [classId, navigate, t, reloadKey]);
+    if (!loadedClass) return;
+    // 送出建機後學生、環境與課表都鎖定了，精靈不再適用，直接回班級頁。
+    // 導走時維持載入畫面（不套用這份班級）：否則會畫出空的精靈，
+    // 網址校正再把網址改回第一步，反而蓋掉這次導頁
+    if (loadedClass.status && loadedClass.status !== "planning") {
+      navigate(`/class-management/${loadedClass.id ?? classId}`, { replace: true });
+      return;
+    }
+    applyClass(loadedClass);
+  }, [loadedClass, classId, navigate]);
 
   // 網址指到還不能去的步驟時，把網址也改成實際顯示的那一步，上一頁／重新整理才不會跳來跳去
   useEffect(() => {
     if (loading || loadError || step === wantedStep) return;
     setParams(classId ? { classId, step: String(step) } : { step: String(step) }, { replace: true });
   }, [loading, loadError, step, wantedStep, classId, setParams]);
-
-  const classLoaded = Boolean(item);
-  useEffect(() => {
-    if (step !== 5 || !classId || !classLoaded) return undefined;
-    /* 缺學生或缺環境根本不必問後端；直接說缺什麼，不要讓標題一直停在「正在執行容量預檢」 */
-    const missing = [];
-    if (!item?.students.length) missing.push(t("ClassSetupPage.needAtLeastOneStudent"));
-    if (!item?.nodes.length) missing.push(t("ClassWorkspacePage.noEnvSelected"));
-    if (missing.length) {
-      setCapacity({ ready: false, issues: missing });
-      return undefined;
-    }
-    let active = true;
-    setCapacity(null);
-    TeachingClassesService.capacityPreview(classId)
-      .then((result) => active && setCapacity(result))
-      .catch((reason) => active && setCapacity({ ready: false, issues: [reason?.message ?? t("ClassSetupPage.capacityCheckFailed")] }));
-    return () => { active = false; };
-  }, [step, classId, classLoaded, item?.students.length, item?.nodes.length, t]);
 
   function updateForm(key, value) { setForm((current) => ({ ...current, [key]: value })); clearInvalid(key); }
   function go(nextStep) { setParams(classId ? { classId, step: String(nextStep) } : { step: String(nextStep) }); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -317,7 +314,7 @@ export default function ClassSetupPage() {
     if (!form.name.trim()) { markInvalid("name", nameRef); return false; }
     const payload = classSchedulePayload(form);
     const saved = classId ? await TeachingClassesService.update(classId, payload) : await TeachingClassesService.create(payload);
-    applyClass(saved);
+    applySaved(saved);
     if (!classId) {
       // 沒有 classId 的這筆歷史先換成新班級的第一步再前往第二步：按上一頁回到的是這個班級，
       // 不是網址沒有 classId、畫面卻還是這個班級的表單（那裡按儲存會再建一個重複的班級）
@@ -346,7 +343,7 @@ export default function ClassSetupPage() {
     if (!item?.students.length && !parsed.length) { markInvalid("emails", emailsRef); return false; }
     if (parsed.length) {
       const result = await TeachingClassesService.addStudents(classId, parsed);
-      applyClass(result.class);
+      applySaved(result.class);
       // 找不到或不是學生身分的帳號不能默默略過就進下一步：留在輸入框讓老師修正或刪除
       const rejected = rejectedEmails(result);
       if (rejected.length) {
@@ -366,7 +363,7 @@ export default function ClassSetupPage() {
     setBusy(true);
     try {
       const result = await TeachingClassesService.importStudents(classId, file);
-      applyClass(result.class);
+      applySaved(result.class);
       const rejected = rejectedEmails(result);
       if (rejected.length) {
         // 加不進去的帳號併進輸入框（保留老師原本打到一半的內容），跟手動貼上走同一套修正流程
@@ -390,19 +387,19 @@ export default function ClassSetupPage() {
     });
     if (!ok) return;
     setBusy(true);
-    try { applyClass(await TeachingClassesService.removeStudent(classId, student.id)); }
+    try { applySaved(await TeachingClassesService.removeStudent(classId, student.id)); }
     catch (reason) { toast.error(reason?.message ?? t("ClassSetupPage.removeStudentFailed")); }
     finally { setBusy(false); }
   }
 
   async function saveEnvironment() {
     if (!templateId) { toast.warning(t("ClassSetupPage.selectEnvironmentPrompt")); return false; }
-    applyClass(await TeachingClassesService.selectCourse(classId, templateId));
+    applySaved(await TeachingClassesService.selectCourse(classId, templateId));
     return true;
   }
 
   async function saveTasks() {
-    applyClass(await TeachingClassesService.replaceWeeks(classId, weekPayload(weeks, { publish: publishWeeks })));
+    applySaved(await TeachingClassesService.replaceWeeks(classId, weekPayload(weeks, { publish: publishWeeks })));
     return true;
   }
 
@@ -420,6 +417,8 @@ export default function ClassSetupPage() {
     setBusy(true);
     try {
       const result = await TeachingClassesService.provision(classId);
+      /* 送出後狀態變成審核／建機中：先寫進快取，班級頁一進去就是新狀態（不會先閃一下「準備中」） */
+      classCache.update(result);
       navigate(`/class-management/${result.id}`, { replace: true, state: { message: t("ClassSetupPage.provisionSuccessMsg") } });
     } catch (reason) { toast.error(reason?.message ?? t("ClassSetupPage.provisionFailed")); }
     finally { setBusy(false); }
@@ -435,7 +434,7 @@ export default function ClassSetupPage() {
     <PageHeader title={t("ClassSetupPage.defaultPageTitle")}>{backButton}</PageHeader>
     <section className={styles.card}><EmptyState icon="error_outline" title={t("ClassSetupPage.loadFailedTitle")} description={loadError}
       action={loadRetryable
-        ? <button type="button" className={styles.btnSecondary} onClick={() => setReloadKey((key) => key + 1)}><MIcon name="refresh" size={16} />{t("Error.retry", { ns: "common" })}</button>
+        ? <button type="button" className={styles.btnSecondary} onClick={() => classQuery.refetch()}><MIcon name="refresh" size={16} />{t("Error.retry", { ns: "common" })}</button>
         : <button type="button" className={styles.btnSecondary} onClick={() => leaveTo("/class-management")}><MIcon name="arrow_back" size={16} />{t("ClassSetupPage.backToClassManagement")}</button>} /></section>
   </div>;
 

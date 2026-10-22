@@ -55,11 +55,22 @@ import {
 } from "../../../services/aiJudge";
 import i18n from "../../../i18n";
 import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
+import { notifyManager } from "@tanstack/react-query";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
+let queryClient;
+
+beforeEach(() => {
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；改成同步通知，讀取結果在同一個 act 裡就上畫面 */
+  notifyManager.setScheduler((callback) => callback());
+  queryClient = createTestQueryClient();
+});
 
 afterEach(() => {
   Element.prototype.scrollIntoView = originalScrollIntoView;
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  queryClient.clear();
   vi.restoreAllMocks();
 });
 
@@ -372,14 +383,15 @@ describe("RubricsTab 製作腳本流程", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(
+      root.render(withQueryClient(
         <ConfirmProvider>
           <RubricsTab
             classId="class-1"
             judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
           />
         </ConfirmProvider>,
-      );
+        queryClient,
+      ));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -492,14 +504,15 @@ describe("RubricsTab 製作腳本流程", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(
+      root.render(withQueryClient(
         <ConfirmProvider>
           <RubricsTab
             classId="class-1"
             judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
           />
         </ConfirmProvider>,
-      );
+        queryClient,
+      ));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1643,7 +1656,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1690,7 +1703,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     const root = createRoot(container);
     try {
       await act(async () => {
-        root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members.map((member) => ({ ...member, vm_status: "running" }))} /></ConfirmProvider>);
+        root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members.map((member) => ({ ...member, vm_status: "running" }))} /></ConfirmProvider>, queryClient));
         await new Promise((resolve) => setTimeout(resolve, 30));
       });
       expect(container.textContent).toContain(label);
@@ -1725,7 +1738,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
     const toggle = [...container.querySelectorAll("button")]
@@ -1756,7 +1769,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1780,7 +1793,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1820,7 +1833,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
-    const render = (active) => root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} active={active} /></ConfirmProvider>);
+    const render = (active) => root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} active={active} /></ConfirmProvider>, queryClient));
     await act(async () => {
       render(true);
       await new Promise((resolve) => setTimeout(resolve, 30));
@@ -1866,7 +1879,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -1940,8 +1953,8 @@ describe("teacher review run-once（整組檢查點）", () => {
     const root = createRoot(container);
     const onDirtyChange = vi.fn();
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1"
-        members={members} onDirtyChange={onDirtyChange} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1"
+        members={members} onDirtyChange={onDirtyChange} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
     await act(async () => {
@@ -2038,7 +2051,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={failedMembers} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={failedMembers} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -2103,7 +2116,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -2252,7 +2265,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={members} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -2428,7 +2441,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -2471,7 +2484,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
@@ -2508,7 +2521,7 @@ describe("導師核查：全班當週回報與指定檢查", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} weekPublished={false} onGoToPublish={goToPublish} /></ConfirmProvider>);
+      root.render(withQueryClient(<ConfirmProvider><TeacherReviewTab classId="class-1" sessionId="session-1" members={[]} weekPublished={false} onGoToPublish={goToPublish} /></ConfirmProvider>, queryClient));
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
     const publishButton = [...container.querySelectorAll("button")]

@@ -25,6 +25,19 @@ vi.mock("../../../services/policies", () => ({ PoliciesService: mocks.policies }
 vi.mock("../../../components/AvailabilityPanel/AvailabilityPanel", () => ({ default: () => null }));
 
 const { default: RequestFormPage } = await import("./RequestFormPage");
+const { withQueryClient } = await import("../../../queries/testing");
+
+/* TanStack Query 以 macrotask 批次通知，等一個 timer tick 再看畫面 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
+async function renderForm() {
+  await act(async () => root.render(withQueryClient(<RequestFormPage onBack={() => {}} />)));
+  await flush();
+}
 
 let host, root;
 beforeEach(() => {
@@ -49,7 +62,7 @@ function typeInto(element, value) {
 }
 
 it("locks the submit button while the last-moment username check is still in flight", async () => {
-  await act(async () => root.render(<RequestFormPage onBack={() => {}} />));
+  await renderForm();
 
   const button = (label) => [...host.querySelectorAll("button")].find((el) => el.textContent.includes(label));
   await act(async () => button("RequestFormPage.modeImmediate").click());
@@ -77,7 +90,7 @@ it("locks the submit button while the last-moment username check is still in fli
 });
 
 it("unlocks the submit button again when validation fails", async () => {
-  await act(async () => root.render(<RequestFormPage onBack={() => {}} />));
+  await renderForm();
   const submit = host.querySelector('button[type="submit"][form="request-form"]');
 
   await act(async () => {
@@ -86,4 +99,40 @@ it("unlocks the submit button again when validation fails", async () => {
 
   expect(mocks.vmRequests.create).not.toHaveBeenCalled();
   expect(submit.disabled).toBe(false);
+});
+
+it("loads GPU options for a GPU template on its node once the OS is chosen", async () => {
+  const { GpuService } = await import("../../../services/gpu");
+  GpuService.listOptions.mockResolvedValue([{ mapping_id: "gpu-a", description: "H200", available_count: 1, device_count: 1 }]);
+  mocks.resources.listVmOsTemplates.mockResolvedValue([{ vmid: 9002, name: "ubuntu-gpu", node: "pve2", disk_gb: 20 }]);
+  await renderForm();
+
+  const button = (label) => [...host.querySelectorAll("button")].find((el) => el.textContent.includes(label));
+  await act(async () => button("RequestFormPage.modeImmediate").click());
+  await act(async () => typeInto(host.querySelector("select"), "vm:9002"));
+  await flush();
+  await flush();
+
+  expect(GpuService.listOptions).toHaveBeenCalledWith({ node: "pve2" });
+  expect(host.querySelector('option[value="gpu-a"]')).toBeTruthy();
+  expect(host.textContent).not.toContain("RequestFormPage.gpuRecalculatingHint");
+  expect(host.textContent).not.toContain("RequestFormPage.noGpuAvailableHint");
+});
+
+it("offers a retry when an OS source fails and re-fetches only the list that has no data", async () => {
+  mocks.resources.listLxcOsImages
+    .mockRejectedValueOnce(new Error("500"))
+    .mockResolvedValue([{ volid: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst" }]);
+  await renderForm();
+
+  const retry = [...host.querySelectorAll("button")].find((el) => el.textContent.includes("RequestFormPage.retry"));
+  expect(retry).toBeTruthy();
+  expect(mocks.resources.listVmOsTemplates).toHaveBeenCalledTimes(1);
+
+  await act(async () => retry.click());
+  await flush();
+
+  expect(mocks.resources.listLxcOsImages).toHaveBeenCalledTimes(2);
+  expect(mocks.resources.listVmOsTemplates).toHaveBeenCalledTimes(1);
+  expect([...host.querySelectorAll("button")].some((el) => el.textContent.includes("RequestFormPage.retry"))).toBe(false);
 });

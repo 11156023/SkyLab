@@ -5,6 +5,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
+import { useCourseEnvironmentCacheUpdater, useCourseEnvironmentsQuery } from "../../../queries/courseEnvironments";
 import { useToast } from "../../../hooks/useToast";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import styles from "../CourseOperations.module.scss";
@@ -14,6 +15,7 @@ import SegmentedControl from "../../../components/SegmentedControl/SegmentedCont
 
 const STATUS_LABEL_KEYS = { published: "CourseTemplateManagementPage.statusPublished", draft: "CourseTemplateManagementPage.statusDraft", retired: "CourseTemplateManagementPage.statusRetired" };
 const USAGE_LABEL_KEYS = { course: "CourseTemplateManagementPage.usageCourse", quick_practice: "CourseTemplateManagementPage.usageQuickPractice", both: "CourseTemplateManagementPage.usageBoth" };
+const EMPTY = Object.freeze([]);
 
 export default function CourseTemplateManagementPage() {
   const { t } = useTranslation("teaching");
@@ -26,16 +28,18 @@ export default function CourseTemplateManagementPage() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const toast = useToast();
-  const [templates, setTemplates] = useState([]);
-  const [loading, setLoading] = useState(true);
+  /* 教學環境清單走 TanStack Query：首次載不到才提示，背景刷新失敗沿用上一份 */
+  const templatesQuery = useCourseEnvironmentsQuery();
+  const envCache = useCourseEnvironmentCacheUpdater();
+  const templates = templatesQuery.data ?? EMPTY;
+  const loading = templatesQuery.data === undefined && (templatesQuery.isPending || templatesQuery.isFetching);
+  /* 依訊息字串觸發：還沒有資料時輪詢重試又失敗，訊息相同就不重複提示 */
+  const loadFailedMessage = templatesQuery.data === undefined && templatesQuery.isError
+    ? templatesQuery.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
   useEffect(() => {
-    let active = true;
-    CourseEnvironmentsService.list()
-      .then((rows) => active && setTemplates(rows))
-      .catch((reason) => active && toast.error(reason?.message ?? t("Error.generic", { ns: "common" })))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [toast, t]);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
   async function remove(template) {
     const ok = await confirm({
       title: t("CourseTemplateManagementPage.removeConfirmTitle", { name: displayName(template) }),
@@ -47,7 +51,7 @@ export default function CourseTemplateManagementPage() {
     setBusyId(template.id);
     try {
       await CourseEnvironmentsService.remove(template.id);
-      setTemplates((prev) => prev.filter((row) => row.id !== template.id));
+      await envCache.remove(template.id);
     } catch (reason) {
       toast.error(reason?.message ?? t("CourseTemplateManagementPage.removeFailed"));
     } finally {

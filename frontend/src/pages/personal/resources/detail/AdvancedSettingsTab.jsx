@@ -8,13 +8,12 @@
  * 「轉成範本」不在這裡：老師／管理員從資源列表每列的「更多」選單操作。
  */
 
-import { useCallback, useEffect, useState } from "react";
 import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
 import { isNotFound } from "../../../../services/api";
-import { ResourcesService } from "../../../../services/resources";
+import { useLoadError, useRefreshResourceDetail, useResourceQuery } from "../../../../queries/resourceDetail";
 import LifecycleCard from "./advanced/LifecycleCard";
 import FirewallCard from "./advanced/FirewallCard";
 import BootOptionsCard from "./advanced/BootOptionsCard";
@@ -22,25 +21,19 @@ import CredentialsCard from "./advanced/CredentialsCard";
 import SharingCard from "./advanced/SharingCard";
 
 export default function AdvancedSettingsTab({ vmid, backTo, onShowOverview }) {
-  const [resource, setResource] = useState(null);
-  const [error, setError] = useState(false);
-
-  const loadResource = useCallback(async () => {
-    try {
-      setResource(await ResourcesService.get(vmid));
-    } catch (e) {
-      setError(e ?? true);
-    }
-  }, [vmid]);
-
-  useEffect(() => {
-    loadResource();
-  }, [loadResource]);
+  /* 與頁面、總覽共用同一份詳情快取；這裡不輪詢，卡片操作改了機器（撤回延期、建了對外連線）才重抓，
+     新資料同時寫回機器清單。重抓失敗沿用上一筆，不把整個分頁換成錯誤畫面 */
+  const resourceQuery = useResourceQuery(vmid, { refetchInterval: false });
+  const refreshDetail = useRefreshResourceDetail();
+  const reloadResource = () => refreshDetail(vmid);
+  const resource = resourceQuery.data ?? null;
+  /* 從沒載到就失敗才顯示錯誤；切回視窗等重抓期間維持錯誤畫面、不閃轉圈圈，按重試才回到載入中 */
+  const { error, retry } = useLoadError(resourceQuery);
 
   if (error) {
     /* 資源不存在時重試沒有意義，顯示「找不到」；其餘錯誤保留重試 */
     if (isNotFound(error)) return <NotFoundState />;
-    return <ErrorState onRetry={() => { setError(false); loadResource(); }} />;
+    return <ErrorState onRetry={() => retry()} />;
   }
   if (!resource) return <LoadingState />;
 
@@ -49,7 +42,7 @@ export default function AdvancedSettingsTab({ vmid, backTo, onShowOverview }) {
 
   return (
     <div className={styles.tabStack}>
-      <div data-guide="resource-setting-lifecycle"><LifecycleCard vmid={vmid} resource={resource} canManage={canManage} onChanged={loadResource} /></div>
+      <div data-guide="resource-setting-lifecycle"><LifecycleCard vmid={vmid} resource={resource} canManage={canManage} onChanged={reloadResource} /></div>
 
       {!isShared && (
         <div data-guide="resource-setting-firewall">
@@ -57,7 +50,7 @@ export default function AdvancedSettingsTab({ vmid, backTo, onShowOverview }) {
             vmid={vmid}
             canManage={canManage}
             publicUrls={resource.public_urls ?? []}
-            onChanged={loadResource}
+            onChanged={reloadResource}
           />
         </div>
       )}

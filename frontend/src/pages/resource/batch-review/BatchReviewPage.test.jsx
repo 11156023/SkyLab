@@ -4,25 +4,30 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import BatchReviewPage from "./BatchReviewPage";
+import { batchProvisionKeys } from "../../../queries/batchProvision";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   listAll: vi.fn(),
   review: vi.fn(),
+  getRecurrencePreview: vi.fn(),
   confirm: vi.fn(),
-  autoRefresh: null,
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("../../../services/batchProvision", () => ({
-  BatchProvisionService: { listAll: mocks.listAll, review: mocks.review },
+  BatchProvisionService: {
+    listAll: mocks.listAll,
+    review: mocks.review,
+    getRecurrencePreview: mocks.getRecurrencePreview,
+  },
 }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: (refresh) => { mocks.autoRefresh = refresh; } }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
@@ -54,9 +59,21 @@ function job(id, status, createdAt) {
 
 let root;
 let host;
+/* 每個測試自己的 QueryClient；背景刷新在測試裡用 refreshList() 觸發（原本是 useAutoRefresh 的回呼） */
+let client;
+
+function refreshList() {
+  return client.refetchQueries({ queryKey: batchProvisionKeys.all });
+}
+
+async function renderPage() {
+  await act(async () => { root.render(withQueryClient(<BatchReviewPage />, client)); });
+}
 
 async function flush() {
   await act(async () => {
+    /* TanStack Query 以 macrotask 批次通知，先等一個 timer tick */
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 8; i += 1) await Promise.resolve();
   });
 }
@@ -74,6 +91,7 @@ function buttonByText(text) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  client = createTestQueryClient();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement("div");
   document.body.append(host);
@@ -93,10 +111,8 @@ describe("BatchReviewPage", () => {
       params.status === "pending_review" ? [oldPending] : recent
     ));
 
-    await act(async () => { root.render(<BatchReviewPage />); });
-    await act(async () => {
-      for (let i = 0; i < 8; i += 1) await Promise.resolve();
-    });
+    await renderPage();
+    await flush();
 
     expect(mocks.listAll).toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
     expect(host.textContent).toContain("prefix-old");
@@ -117,12 +133,12 @@ describe("BatchReviewPage", () => {
     mocks.confirm.mockResolvedValue(true);
     mocks.review.mockResolvedValue({});
 
-    await act(async () => { root.render(<BatchReviewPage />); });
+    await renderPage();
     await flush();
     expect(host.textContent).toContain("prefix-j1");
 
     let refresh;
-    act(() => { refresh = mocks.autoRefresh(); });
+    act(() => { refresh = refreshList(); });
 
     await act(async () => { buttonByText("prefix-j1").click(); });
     await act(async () => { buttonByText("BatchReviewPage.approve").click(); });
@@ -135,28 +151,99 @@ describe("BatchReviewPage", () => {
     expect(host.textContent).not.toContain("prefix-j1");
   });
 
-  test("a first-load failure still shows the error when a background refresh overtook it", async () => {
+  test("a background refresh during the first load joins it instead of firing a second request", async () => {
     const firstLoad = deferred();
-    const background = deferred();
-    mocks.listAll
-      .mockReturnValueOnce(firstLoad.promise)
-      .mockReturnValueOnce(firstLoad.promise)
-      .mockReturnValueOnce(background.promise)
-      .mockReturnValueOnce(background.promise);
+    mocks.listAll.mockReturnValue(firstLoad.promise);
 
-    await act(async () => { root.render(<BatchReviewPage />); });
+    await renderPage();
     expect(host.querySelector('[data-testid="loading"]')).toBeTruthy();
+    expect(mocks.listAll).toHaveBeenCalledTimes(2);
 
     let refresh;
-    act(() => { refresh = mocks.autoRefresh(); });
-    await act(async () => { background.reject(new Error("boom")); await refresh; });
-    await flush();
+    act(() => { refresh = refreshList(); });
+    expect(mocks.listAll).toHaveBeenCalledTimes(2);
 
+    await act(async () => { firstLoad.resolve([job("late", "pending_review", "2026-09-20T00:00:00Z")]); await refresh; });
+    await flush();
+    expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+    expect(host.textContent).toContain("prefix-late");
+  });
+
+  test("a failed first load shows the error; a failed background refresh keeps the list", async () => {
+    mocks.listAll.mockRejectedValue(new Error("boom"));
+
+    await renderPage();
+    await flush();
     expect(host.querySelector('[data-testid="loading"]')).toBeNull();
     expect(host.textContent).toContain("boom");
 
-    await act(async () => { firstLoad.resolve([job("late", "pending_review", "2026-09-20T00:00:00Z")]); });
+    mocks.listAll.mockResolvedValue([job("j1", "pending_review", "2026-09-20T00:00:00Z")]);
+    await act(async () => { buttonByText("BatchReviewPage.retry").click(); });
     await flush();
-    expect(host.textContent).not.toContain("prefix-late");
+    expect(host.textContent).not.toContain("boom");
+    expect(host.textContent).toContain("prefix-j1");
+
+    mocks.listAll.mockRejectedValue(new Error("pve down"));
+    await act(async () => { await refreshList(); });
+    await flush();
+    expect(host.textContent).not.toContain("pve down");
+    expect(host.textContent).toContain("prefix-j1");
+  });
+
+  test("recurrence preview loads on demand once and re-expanding reuses it", async () => {
+    mocks.listAll.mockResolvedValue([{
+      ...job("r1", "pending_review", "2026-09-20T00:00:00Z"),
+      recurrence_rule: "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0",
+    }]);
+    const preview = deferred();
+    mocks.getRecurrencePreview.mockReturnValue(preview.promise);
+
+    await renderPage();
+    await flush();
+    await act(async () => { buttonByText("prefix-r1").click(); });
+    await flush();
+    expect(mocks.getRecurrencePreview).not.toHaveBeenCalled();
+
+    await act(async () => { buttonByText("BatchReviewPage.recurPreviewToggle").click(); });
+    await flush();
+    expect(mocks.getRecurrencePreview).toHaveBeenCalledWith("r1", 5);
+    expect(host.textContent).toContain("BatchReviewPage.previewLoading");
+
+    await act(async () => {
+      preview.resolve({ windows: [["2026-09-21T01:00:00Z", "2026-09-21T03:00:00Z"]] });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    await flush();
+    expect(host.textContent).not.toContain("BatchReviewPage.previewLoading");
+    expect(host.querySelectorAll("ul li").length).toBeGreaterThan(0);
+
+    // 收合再展開：沿用快取，不重抓
+    await act(async () => { buttonByText("BatchReviewPage.recurPreviewToggle").click(); });
+    await act(async () => { buttonByText("BatchReviewPage.recurPreviewToggle").click(); });
+    await flush();
+    expect(mocks.getRecurrencePreview).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failed recurrence preview shows a toast and can be retried", async () => {
+    mocks.listAll.mockResolvedValue([{
+      ...job("r1", "pending_review", "2026-09-20T00:00:00Z"),
+      recurrence_rule: "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0",
+    }]);
+    mocks.getRecurrencePreview.mockRejectedValueOnce(new Error("preview down"));
+
+    await renderPage();
+    await flush();
+    await act(async () => { buttonByText("prefix-r1").click(); });
+    await act(async () => { buttonByText("BatchReviewPage.recurPreviewToggle").click(); });
+    await flush();
+
+    expect(mocks.toast.error).toHaveBeenCalledWith("preview down");
+    expect(host.textContent).not.toContain("BatchReviewPage.previewLoading");
+
+    mocks.getRecurrencePreview.mockResolvedValue({ windows: [] });
+    await act(async () => { buttonByText("BatchReviewPage.recurPreviewToggle").click(); });
+    await flush();
+    expect(mocks.getRecurrencePreview).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain("BatchReviewPage.noScheduledWindows");
   });
 });

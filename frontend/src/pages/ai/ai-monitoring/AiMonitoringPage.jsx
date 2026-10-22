@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   CartesianGrid,
@@ -15,10 +15,15 @@ import { formatDateTime, formatTime } from "../../../utils/formatDate";
 import i18n from "../../../i18n";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
-import { AiMonitoringService } from "../../../services/aiMonitoring";
 import { MonitoringService } from "../../../services/monitoring";
+import {
+  useAiMonitoringOverviewQuery,
+  useAiMonitoringRuntimeQuery,
+  useAiProxyCallsQuery,
+  useAiTemplateCallsQuery,
+  useAiUsersUsageQuery,
+} from "../../../queries/aiMonitoring";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import {
@@ -28,8 +33,18 @@ import {
   formatTokens,
   isOkStatus,
   presetToBucket,
-  presetToRange,
 } from "../aiFormat";
+
+const EMPTY = Object.freeze([]);
+
+/* 明細查詢的清單與筆數（count 缺席時用清單長度） */
+function listRows(listQuery) {
+  return listQuery.data?.data ?? EMPTY;
+}
+
+function listCount(listQuery) {
+  return listQuery.data?.count ?? listQuery.data?.data?.length ?? 0;
+}
 
 function modelKey(modelName) {
   return formatModelDisplay(modelName).toLocaleLowerCase();
@@ -418,24 +433,50 @@ export default function AiMonitoringPage() {
   const [detailTab, setDetailTab] = useState("models");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [overview, setOverview] = useState(null);
-  const [runtime, setRuntime] = useState(null);
-  const [proxyCalls, setProxyCalls] = useState([]);
-  const [templateCalls, setTemplateCalls] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [counts, setCounts] = useState({ proxy: 0, template: 0, users: 0 });
-  const [overviewLoading, setOverviewLoading] = useState(true);
-  const [runtimeLoading, setRuntimeLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(true);
-  const [overviewError, setOverviewError] = useState(false);
-  const [runtimeError, setRuntimeError] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [detailFocusRequest, setDetailFocusRequest] = useState(0);
   /* 監控 stack 有啟用且目前是管理員才顯示「SkyLab AI」儀表板連結（查詢失敗或 403 就不顯示）；
      同一支 API 會設定 Grafana 免密碼登入的 cookie，頁面開著時定期續期 */
   const [grafanaUrl, setGrafanaUrl] = useState(null);
   const detailSectionRef = useRef(null);
-  const loadSeqRef = useRef(0);
+
+  /* 五份資料各走一個 TanStack Query，背景 30 秒刷新、分頁隱藏時暫停。
+     區間相關的四份以 preset 為 key（起訖在每次抓取時才算，刷新會跟著現在往前滑）：
+     快速切換區間時較慢的舊區間回應只會進舊 key，不會蓋掉新區間；換區間時先沿用上一個區間的資料。
+     總覽、執行狀態與明細各自獨立：慢或連不上的 gateway 不會讓已到的用量資料卡在載入畫面。 */
+  const overviewQuery = useAiMonitoringOverviewQuery({ preset, bucket: presetToBucket(preset), compare: true, source: "all" });
+  const runtimeQuery = useAiMonitoringRuntimeQuery();
+  const proxyQuery = useAiProxyCallsQuery({ preset, limit: 100 });
+  const templateQuery = useAiTemplateCallsQuery({ preset, limit: 100 });
+  const usersQuery = useAiUsersUsageQuery({ preset, limit: 100, source: "all" });
+
+  const overview = overviewQuery.data ?? null;
+  const runtime = runtimeQuery.data ?? null;
+  const overviewLoading = overviewQuery.data === undefined && (overviewQuery.isPending || overviewQuery.isFetching);
+  const runtimeLoading = runtimeQuery.data === undefined && (runtimeQuery.isPending || runtimeQuery.isFetching);
+  /* 失敗旗標與原本相同：最近一次抓取失敗就亮（沿用畫面上的舊資料），下一次成功才熄 */
+  const overviewError = overviewQuery.isError;
+  const runtimeError = runtimeQuery.isError;
+  const proxyCalls = listRows(proxyQuery);
+  const templateCalls = listRows(templateQuery);
+  const users = listRows(usersQuery);
+  const counts = { proxy: listCount(proxyQuery), template: listCount(templateQuery), users: listCount(usersQuery) };
+  /* 三份明細都到齊才離開載入畫面（與原本相同）；每份都要在 render 時讀過，狀態變了才會重繪 */
+  const detailLoading = [proxyQuery, templateQuery, usersQuery]
+    .map((q) => q.data === undefined && (q.isPending || q.isFetching))
+    .some(Boolean);
+  /* 最後一次有回應（成功或失敗）的時間 */
+  const lastUpdatedAt = Math.max(
+    ...[overviewQuery, runtimeQuery, proxyQuery, templateQuery, usersQuery]
+      .map((q) => Math.max(q.dataUpdatedAt, q.errorUpdatedAt)),
+  );
+  const lastUpdated = lastUpdatedAt > 0 ? new Date(lastUpdatedAt) : null;
+
+  /* 這個區間的總覽一筆都還沒拿到就失敗才跳 toast（與原本的前景載入相同）；背景刷新失敗只亮告警列 */
+  const overviewFailedWithoutData = overviewQuery.data === undefined && overviewQuery.isError;
+  useEffect(() => {
+    if (overviewFailedWithoutData) toast.error(t("AiMonitoringPage.loadError"));
+  }, [overviewFailedWithoutData, toast, t]);
+
   const modelRows = useMemo(
     () => mergeModelRows(overview?.model_breakdown, runtime?.models),
     [overview?.model_breakdown, runtime?.models],
@@ -465,79 +506,6 @@ export default function AiMonitoringPage() {
     { value: "latency", label: t("AiMonitoringPage.chartLatency") },
   ];
 
-  const load = useCallback(async (silent = false) => {
-    if (!silent) {
-      setOverviewLoading(true);
-      setRuntimeLoading(true);
-      setDetailLoading(true);
-    }
-    /* 快速切換時間範圍時，較慢的舊範圍回應不可蓋掉新範圍的資料：
-       只有最後一次 load 的結果寫入 state */
-    const seq = ++loadSeqRef.current;
-    const isCurrent = () => seq === loadSeqRef.current;
-    const range = presetToRange(preset);
-    const shared = { ...range, limit: 100 };
-
-    // The overview and runtime cards are independent of the detail tables.
-    // Resolve each group separately so a slow/unreachable gateway does not
-    // keep already available usage data behind the page-level loading state.
-    const overviewRequest = AiMonitoringService.overview({
-      ...range,
-      bucket: presetToBucket(preset),
-      compare: true,
-      source: "all",
-    })
-      .then((value) => {
-        if (!isCurrent()) return;
-        setOverview(value);
-        setOverviewError(false);
-      })
-      .catch(() => {
-        if (!isCurrent()) return;
-        setOverviewError(true);
-        if (!silent) toast.error(t("AiMonitoringPage.loadError"));
-      })
-      .finally(() => { if (isCurrent()) setOverviewLoading(false); });
-
-    const runtimeRequest = AiMonitoringService.runtime()
-      .then((value) => {
-        if (!isCurrent()) return;
-        setRuntime(value);
-        setRuntimeError(false);
-      })
-      .catch(() => {
-        if (isCurrent()) setRuntimeError(true);
-      })
-      .finally(() => { if (isCurrent()) setRuntimeLoading(false); });
-
-    const detailRequest = Promise.allSettled([
-      AiMonitoringService.listProxyCalls(shared),
-      AiMonitoringService.listTemplateCalls(shared),
-      AiMonitoringService.listUsersUsage({ ...shared, source: "all" }),
-    ]).then(([proxyResult, templateResult, usersResult]) => {
-      if (!isCurrent()) return;
-      if (proxyResult.status === "fulfilled") {
-        setProxyCalls(proxyResult.value?.data ?? []);
-        setCounts((current) => ({ ...current, proxy: proxyResult.value?.count ?? proxyResult.value?.data?.length ?? 0 }));
-      }
-      if (templateResult.status === "fulfilled") {
-        setTemplateCalls(templateResult.value?.data ?? []);
-        setCounts((current) => ({ ...current, template: templateResult.value?.count ?? templateResult.value?.data?.length ?? 0 }));
-      }
-      if (usersResult.status === "fulfilled") {
-        setUsers(usersResult.value?.data ?? []);
-        setCounts((current) => ({ ...current, users: usersResult.value?.count ?? usersResult.value?.data?.length ?? 0 }));
-      }
-    }).finally(() => {
-      if (isCurrent()) setDetailLoading(false);
-    });
-
-    await Promise.allSettled([overviewRequest, runtimeRequest, detailRequest]);
-    if (isCurrent()) setLastUpdated(new Date());
-  }, [preset, t, toast]);
-
-  useEffect(() => { load(); }, [load]);
-
   useEffect(() => {
     const controller = new AbortController();
     const refresh = () =>
@@ -553,7 +521,6 @@ export default function AiMonitoringPage() {
       clearInterval(timer);
     };
   }, []);
-  useAutoRefresh(() => load(true));
 
   useEffect(() => {
     if (!detailFocusRequest) return undefined;

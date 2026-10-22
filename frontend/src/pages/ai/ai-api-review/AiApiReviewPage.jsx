@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import { AiApiService } from "../../../services/aiApi";
+import { useAiApiCacheUpdater, useAllAiRequestsQuery } from "../../../queries/aiApi";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
@@ -151,16 +153,25 @@ function ReviewActions({ item, onDone }) {
 const REQUEST_TAB_KEYS = ["pending", "approved", "rejected", "all"];
 /* 後端 /ai-api/requests 的 limit 上限 */
 const REQUEST_LIST_LIMIT = 100;
+const EMPTY = Object.freeze([]);
+
+/* 狀態篩選交給後端：清單上限 100 筆且新到舊，前端自己篩會讓比最新 100 筆還舊的待審申請看不到。
+   非目前分頁只取 1 筆，拿 count 給角標。 */
+function tabParams(key, activeTab) {
+  return {
+    status: key === "all" ? undefined : key,
+    limit: key === activeTab ? REQUEST_LIST_LIMIT : 1,
+  };
+}
+
+function tabCount(query) {
+  return query.data?.count ?? query.data?.data?.length ?? 0;
+}
 
 export default function AiApiReviewPage() {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("pending");
-  const [requests, setRequests] = useState([]);
-  const [counts, setCounts] = useState({});
-  const [loading, setLoading] = useState(true);
-  /* 切換分頁時舊請求可能較晚回來，只讓最新一次載入寫入畫面 */
-  const loadSeqRef = useRef(0);
 
   const TABS = [
     { key: "pending",  label: t("AiApiReviewPage.tabPending") },
@@ -175,37 +186,56 @@ export default function AiApiReviewPage() {
     rejected: t("AiApiReviewPage.statusRejected"),
   };
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const load = useCallback(async (silent = false) => {
-    const seq = ++loadSeqRef.current;
-    const isCurrent = () => seq === loadSeqRef.current;
-    if (!silent) setLoading(true);
-    try {
-      /* 狀態篩選交給後端：清單上限 100 筆且新到舊，前端自己篩會讓
-         比最新 100 筆還舊的待審申請看不到。非目前分頁只取筆數給角標。 */
-      const pages = await Promise.all(
-        REQUEST_TAB_KEYS.map((key) => AiApiService.listAllRequests({
-          status: key === "all" ? undefined : key,
-          limit: key === activeTab ? REQUEST_LIST_LIMIT : 1,
-        })),
-      );
-      if (!isCurrent()) return;
-      const activePage = pages[REQUEST_TAB_KEYS.indexOf(activeTab)];
-      setRequests(activePage?.data ?? []);
-      setCounts(Object.fromEntries(REQUEST_TAB_KEYS.map((key, i) => [
-        key,
-        pages[i]?.count ?? pages[i]?.data?.length ?? 0,
-      ])));
-    } catch (e) {
-      if (!silent && isCurrent()) toast.error(e?.message ?? t("AiApiReviewPage.loadError"));
-    } finally {
-      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
-      if (isCurrent()) setLoading(false);
-    }
-  }, [activeTab, toast, t]);
+  /* 四個分頁各一份查詢（hook 固定四次、不在迴圈裡呼叫），以「狀態＋筆數上限」為 key：
+     切換分頁時較晚回來的舊分頁回應只會進舊 key，不會蓋掉目前分頁，也不會提早收掉載入畫面。
+     背景 30 秒刷新、分頁隱藏時暫停；角標在換分頁時沿用上一份筆數（keepPreviousData）。 */
+  const pendingQuery = useAllAiRequestsQuery(tabParams("pending", activeTab));
+  const approvedQuery = useAllAiRequestsQuery(tabParams("approved", activeTab));
+  const rejectedQuery = useAllAiRequestsQuery(tabParams("rejected", activeTab));
+  const allQuery = useAllAiRequestsQuery(tabParams("all", activeTab));
+  const aiCache = useAiApiCacheUpdater();
+  const tabQueries = { pending: pendingQuery, approved: approvedQuery, rejected: rejectedQuery, all: allQuery };
+  const activeQuery = tabQueries[activeTab];
+  const counts = {
+    pending: tabCount(pendingQuery),
+    approved: tabCount(approvedQuery),
+    rejected: tabCount(rejectedQuery),
+    all: tabCount(allQuery),
+  };
 
-  useEffect(() => { load(); }, [load]);
-  useAutoRefresh(() => load(true));
+  /* 清單要等這個分頁自己的完整資料（上限 100 筆）回來才顯示：佔位資料是上一個 key（只取 1 筆的角標查詢） */
+  const rowsReady = activeQuery.data !== undefined && !activeQuery.isPlaceholderData;
+  /* 四個查詢各自記錯誤狀態（見 useLoadError）：背景重試期間錯誤畫面維持，按重試才回到載入中。
+     沒有資料時每次重抓 TanStack 都會把佔位資料放回來，所以佔位資料也當成沒資料交給它 */
+  const pendingLoad = useLoadError(pendingQuery);
+  const approvedLoad = useLoadError(approvedQuery);
+  const rejectedLoad = useLoadError(rejectedQuery);
+  const allLoad = useLoadError(allQuery);
+  const tabLoads = { pending: pendingLoad, approved: approvedLoad, rejected: rejectedLoad, all: allLoad };
+  const activeLoadError = tabLoads[activeTab].error;
+  const loadError = !rowsReady && Boolean(activeLoadError);
+  const loading = !rowsReady && !loadError && (activeQuery.isPending || activeQuery.isFetching);
+  const requests = rowsReady ? activeQuery.data?.data ?? EMPTY : EMPTY;
+
+  /* 重試：四個分頁一起重抓（與原本重抓全部清單相同），沒資料的回到載入中 */
+  function retryLoad() {
+    Object.values(tabLoads).forEach((load) => load.retry());
+  }
+
+  /* 目前分頁一筆資料都還沒拿到就失敗才提醒（與原本的前景載入相同）；背景刷新失敗不跳 toast。
+     錯誤取自 useLoadError：背景重試期間不會先清空再變回來，同一個錯誤不會每輪重跳 */
+  const loadErrorMessage = activeLoadError
+    ? activeLoadError.message ?? t("AiApiReviewPage.loadError")
+    : null;
+  useEffect(() => {
+    if (loadErrorMessage) toast.error(loadErrorMessage);
+  }, [loadErrorMessage, toast]);
+
+  /* 審核後在背景重抓所有分頁（清單留在畫面上），重抓失敗照原本提醒 */
+  function refreshAfterReview() {
+    aiCache.invalidateAllRequests({ throwOnError: true })
+      .catch((e) => toast.error(e?.message ?? t("AiApiReviewPage.loadError")));
+  }
 
   const filtered = useMemo(() => {
     if (activeTab === "all") return requests;
@@ -243,6 +273,8 @@ export default function AiApiReviewPage() {
       <div className={styles.content}>
         {loading ? (
           <LoadingState fullPage />
+        ) : loadError ? (
+          <ErrorState onRetry={retryLoad} />
         ) : filtered.length === 0 ? (
           <EmptyState />
         ) : (
@@ -281,7 +313,7 @@ export default function AiApiReviewPage() {
                     <td className={styles.td}>{formatDateTime(r.created_at, t("AiApiReviewPage.notReviewed"))}</td>
                     <td className={styles.td}>{formatDateTime(r.reviewed_at, t("AiApiReviewPage.notReviewed"))}</td>
                     <td className={styles.td}>
-                      <ReviewActions item={r} onDone={() => load()} />
+                      <ReviewActions item={r} onDone={refreshAfterReview} />
                     </td>
                   </tr>
                 ))}

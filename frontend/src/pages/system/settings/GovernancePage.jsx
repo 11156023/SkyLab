@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -6,7 +6,9 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import QuotasSection from "./QuotasSection";
 import { GovernanceService } from "../../../services/governance";
+import { useGovernanceCacheUpdater, useGovernanceConfigQuery } from "../../../queries/governance";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError, useQueryErrorEffect } from "../../../hooks/useQueryLoadState";
 import { useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
 
 /**
@@ -115,34 +117,28 @@ function GovernanceForm() {
   const [form, setForm] = useState(null);
   const [baseline, setBaseline] = useState(null);
   const [saving, setSaving] = useState(false);
-  /* 載入失敗要看得見：記下錯誤訊息改渲染重試區塊，不要停在轉圈畫面 */
-  const [loadError, setLoadError] = useState(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const dirty = Boolean(form && baseline && ALL_KEYS.some((key) => form[key] !== baseline[key]));
   useUnsavedChangesGuard(dirty);
 
+  /* 設定走 TanStack Query 讀（不輪詢、不因切回分頁重抓）；表單只在第一次拿到資料時初始化，
+     之後的背景重抓不會蓋掉正在編輯的欄位。載入失敗要看得見：改渲染重試區塊，不要停在轉圈畫面 */
+  const configQuery = useGovernanceConfigQuery();
+  const governanceCache = useGovernanceCacheUpdater();
   useEffect(() => {
-    let cancelled = false;
-    setLoadError(null);
-    GovernanceService.getConfig()
-      .then((config) => {
-        if (cancelled) return;
-        const next = {};
-        for (const key of ALL_KEYS) next[key] = config[key];
-        setForm(next);
-        setBaseline(next);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setLoadError(err?.message ?? t("Error.generic", { ns: "common" }));
-        toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [toast, t, ALL_KEYS, reloadKey]);
+    if (baseline !== null || configQuery.data === undefined) return;
+    const next = {};
+    for (const key of ALL_KEYS) next[key] = configQuery.data[key];
+    setForm(next);
+    setBaseline(next);
+  }, [baseline, configQuery.data, ALL_KEYS]);
 
-  const retryLoad = useCallback(() => setReloadKey((n) => n + 1), []);
+  /* 每次載入失敗提示一次：重抓時 error 會先清空再變回來，不能拿 error 物件當觸發條件 */
+  useQueryErrorEffect(configQuery, (err) => {
+    toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+  });
+
+  /* 重試區塊在重抓期間維持、不閃回轉圈，按重試才回到載入中（見 useLoadError） */
+  const { error: loadError, retry: retryLoad } = useLoadError(configQuery);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -151,6 +147,7 @@ function GovernanceForm() {
     setSaving(true);
     try {
       const updated = await GovernanceService.updateConfig(form);
+      governanceCache.setConfig(updated);
       const next = {};
       for (const key of ALL_KEYS) next[key] = updated[key];
       setForm(next);
@@ -164,7 +161,7 @@ function GovernanceForm() {
   }
 
   if (!form && loadError) {
-    return <ErrorState onRetry={retryLoad} />;
+    return <ErrorState onRetry={() => retryLoad()} />;
   }
   if (!form) return <LoadingState text={t("GovernanceTab.loading")} />;
 

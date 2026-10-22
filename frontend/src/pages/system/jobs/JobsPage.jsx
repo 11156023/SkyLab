@@ -1,19 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import styles from "./JobsPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
-import { JobsService } from "../../../services/jobs";
+import ErrorState from "../../../components/ErrorState/ErrorState";
+import { useJobsQuery } from "../../../queries/jobs";
 import JobDetailDialog from "../../../components/Jobs/JobDetailDialog";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { formatDateTime } from "../../../utils/formatDate";
 
 /** 仍視為「進行中」的狀態；需與後端 schemas/jobs.py 的 ACTIVE_JOB_STATUSES 一致 */
 const ACTIVE_STATUSES = new Set(["pending", "running", "blocked"]);
+
+const EMPTY = Object.freeze([]);
+
+/** 篩選 → JobsService.list 的參數（同一組篩選產生同一個 query key） */
+function buildListParams(kind, status) {
+  const params = { limit: 200 };
+  if (kind !== "all") params.kinds = [kind];
+  if (status === "active") params.activeOnly = true;
+  else if (status !== "all") params.statuses = [status];
+  return params;
+}
 
 function useKindLabels() {
   const { t } = useTranslation("system");
@@ -86,38 +99,31 @@ export default function JobsPage() {
     { value: "active", label: t("JobsPage.statusActive") },
     ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
   ];
-  const [jobs, setJobs] = useState([]);
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
-  const [loading, setLoading] = useState(true);
   const [focusJobId, setFocusJobId] = useState(null);
 
-  /* 快速切換篩選時舊條件的回應可能較晚回來，只讓最新一次載入寫入畫面 */
-  const loadSeqRef = useRef(0);
+  /* 每組篩選各自一份快取（key 不同），快速切換時較晚回來的舊條件結果只會寫進它自己的 key，
+     不會蓋掉目前篩選的清單。換篩選時先留著上一份清單（keepPreviousData），不閃回載入畫面；
+     背景 30 秒刷新、分頁隱藏時暫停 */
+  const filterKey = `${kind}|${status}`;
+  const jobsQuery = useJobsQuery(buildListParams(kind, status), { placeholderData: keepPreviousData });
+  const jobs = jobsQuery.data?.items ?? EMPTY;
+  /* 錯誤畫面在背景重試期間不閃回載入中；換篩選後新 key 的失敗照樣顯示（見 useQueryView） */
+  const { loading, error, retry: retryJobs } = useQueryView(jobsQuery);
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const load = useCallback(async (silent = false) => {
-    const seq = ++loadSeqRef.current;
-    const isCurrent = () => seq === loadSeqRef.current;
-    if (!silent) setLoading(true);
-    try {
-      const params = { limit: 200 };
-      if (kind !== "all") params.kinds = [kind];
-      if (status === "active") params.activeOnly = true;
-      else if (status !== "all") params.statuses = [status];
-      const res = await JobsService.list(params);
-      if (!isCurrent()) return;
-      setJobs(res?.items ?? []);
-    } catch (e) {
-      if (!silent && isCurrent()) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
-      if (isCurrent()) setLoading(false);
-    }
-  }, [kind, status, toast, t]);
-
-  useEffect(() => { load(); }, [load]);
-  useAutoRefresh(() => load(true));
+  /* 首次載入或換篩選失敗才跳 toast（同原本只有非靜默載入才提示）；
+     同一組篩選在背景重試又失敗不重複跳，換篩選後重新計算 */
+  const toastedFilterRef = useRef(null);
+  useEffect(() => {
+    toastedFilterRef.current = null;
+  }, [filterKey]);
+  const loadError = error ? jobsQuery.error : null;
+  useEffect(() => {
+    if (!loadError || toastedFilterRef.current === filterKey) return;
+    toastedFilterRef.current = filterKey;
+    toast.error(loadError?.message ?? t("Error.generic", { ns: "common" }));
+  }, [loadError, filterKey, toast, t]);
 
   /* 三張卡的口徑要一致：後端只回全域的 active_count，沒有全域的
      completed／failed，所以三個數字一律用目前這份清單算，並在卡片上
@@ -188,7 +194,10 @@ export default function JobsPage() {
       </div>
 
       <div className={styles.content}>
-        {loading ? (
+        {error ? (
+          /* 這組篩選一筆都還沒抓到就失敗：不能顯示成「沒有結果」 */
+          <ErrorState onRetry={retryJobs} />
+        ) : loading ? (
           <LoadingState fullPage text={t("JobsPage.loading")} />
         ) : jobs.length === 0 ? (
           <EmptyState onClear={kind !== "all" || status !== "all" ? () => { setKind("all"); setStatus("all"); } : undefined} />

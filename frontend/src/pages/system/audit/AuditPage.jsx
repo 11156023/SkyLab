@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AuditPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -8,6 +8,12 @@ import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { downloadBlob } from "../../../services/api";
 import { AuditLogsService } from "../../../services/auditLogs";
+import {
+  useAuditActionsQuery,
+  useAuditLogsQuery,
+  useAuditStatsQuery,
+  useAuditUsersQuery,
+} from "../../../queries/auditLogs";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import Pagination from "../shared/Pagination";
 import { formatDateTime } from "../../../utils/formatDate";
@@ -17,6 +23,8 @@ const PAGE_SIZE = 50;
 const EXPORT_LIMIT = 10000;
 /** 搜尋框即時查詢的防抖間隔（ms）；下拉與日期改變則立即查詢 */
 const SEARCH_DEBOUNCE = 300;
+
+const EMPTY = Object.freeze([]);
 
 /** date input（yyyy-mm-dd）轉 ISO；end 補到當日 23:59:59 */
 function toIso(dateStr, endOfDay = false) {
@@ -70,13 +78,6 @@ export default function AuditPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
-  const [logs, setLogs] = useState([]);
-  const [count, setCount] = useState(0);
-  const [stats, setStats] = useState(null);
-  const [actionOptions, setActionOptions] = useState([]);
-  const [userOptions, setUserOptions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [hasLoaded, setHasLoaded] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(0);
 
@@ -89,8 +90,6 @@ export default function AuditPage() {
     endDate: "",
   });
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  /** 最新一次查詢的序號：回應順序錯亂時只採用最後一次的結果 */
-  const requestSeq = useRef(0);
   /** 目前生效的搜尋字串：用來判斷是否真的變了，不在 setState updater 裡做副作用 */
   const debouncedSearchRef = useRef("");
 
@@ -115,53 +114,37 @@ export default function AuditPage() {
     endTime: toIso(filters.endDate, true) || undefined,
   }), [debouncedSearch, filters.action, filters.userId, filters.startDate, filters.endDate, page]);
 
-  const fetchLogs = useCallback(async () => {
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    try {
-      const res = await AuditLogsService.list(queryParams);
-      if (seq !== requestSeq.current) return;
-      setLogs(res?.data ?? []);
-      setCount(res?.count ?? 0);
-    } catch (err) {
-      if (seq !== requestSeq.current) return;
-      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      if (seq === requestSeq.current) {
-        setLoading(false);
-        setHasLoaded(true);
-      }
-    }
-  }, [queryParams, toast, t]);
-
+  /* 清單與摘要走 TanStack Query：每組篩選一份快取，換條件時保留上一組畫面（半透明）直到新資料回來；
+     較晚回來的舊條件結果只會寫進它自己那份快取，蓋不掉目前條件的畫面。
+     原本只在條件改變時查詢，不背景輪詢，這裡照舊 */
+  const logsQuery = useAuditLogsQuery(queryParams, { refetchInterval: false });
+  const logs = logsQuery.data?.data ?? EMPTY;
+  const count = logsQuery.data?.count ?? 0;
+  const loadError = logsQuery.error;
   useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+    if (loadError) toast.error(loadError?.message ?? t("Error.generic", { ns: "common" }));
+  }, [loadError, toast, t]);
 
-  useEffect(() => {
-    /* 日期連續改動（手動打年份會逐位觸發）時，較晚回來的舊區間摘要不能蓋掉新區間的 */
-    let cancelled = false;
-    AuditLogsService.stats({
-      startTime: toIso(filters.startDate) || undefined,
-      endTime: toIso(filters.endDate, true) || undefined,
-    })
-      .then((next) => { if (!cancelled) setStats(next); })
-      /* 摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
-      .catch(() => { if (!cancelled) setStats(null); });
-    return () => { cancelled = true; };
-  }, [filters.startDate, filters.endDate]);
+  /* 日期連續改動（手動打年份會逐位觸發）時，較晚回來的舊區間摘要不能蓋掉新區間的；
+     摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
+  const statsParams = useMemo(() => ({
+    startTime: toIso(filters.startDate) || undefined,
+    endTime: toIso(filters.endDate, true) || undefined,
+  }), [filters.startDate, filters.endDate]);
+  const statsQuery = useAuditStatsQuery(statsParams, { refetchInterval: false });
+  const stats = statsQuery.isError ? null : statsQuery.data ?? null;
 
-  useEffect(() => {
-    AuditLogsService.actions().then(setActionOptions).catch(() => {});
-    AuditLogsService.users().then(setUserOptions).catch(() => {});
-  }, []);
+  /* 篩選選單；抓不到就留空選單（靜默） */
+  const actionOptions = useAuditActionsQuery().data ?? EMPTY;
+  const userOptions = useAuditUsersQuery().data ?? EMPTY;
 
   const hasFilter = Boolean(
     filters.search.trim() || filters.action || filters.userId || filters.startDate || filters.endDate,
   );
   const totalPages = Math.max(Math.ceil(count / PAGE_SIZE), 1);
   /** 載入過之後的重新查詢：保留畫面、半透明，不整頁換成 loading 動畫 */
-  const isInitialLoading = loading && !hasLoaded;
+  const isInitialLoading = logsQuery.data === undefined && (logsQuery.isPending || logsQuery.isFetching);
+  const loading = logsQuery.isFetching;
 
   function setField(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));

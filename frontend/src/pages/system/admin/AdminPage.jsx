@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AdminPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -7,10 +7,16 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UsersService } from "../../../services/users";
+import {
+  useAllUsersQuery,
+  usePendingRegistrationsQuery,
+  useRegistrationPolicyQuery,
+  useUserCacheUpdater,
+} from "../../../queries/users";
+import { LIST_REFRESH_INTERVAL } from "../../../queries/queryClient";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import PasswordRules from "../../../components/PasswordRules/PasswordRules";
@@ -34,6 +40,8 @@ const ROLE_ICONS = {
 const PAGE_SIZE = 50;
 /* 批量確認框裡最多列出幾位的名字，其餘寫「等 N 位」 */
 const BATCH_NAME_PREVIEW = 5;
+
+const EMPTY = Object.freeze([]);
 
 function initialForm(user = null) {
   return {
@@ -338,79 +346,50 @@ export default function AdminPage() {
   const { user: currentUser } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
-  const [users, setUsers] = useState([]);
-  const [registrationPolicy, setRegistrationPolicy] = useState(null);
-  const [pendingRegistrations, setPendingRegistrations] = useState([]);
   const [policySaving, setPolicySaving] = useState(false);
   const [reviewingId, setReviewingId] = useState(null);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(null);
   const modalPresence  = useDialogPresence(modal);
 
-  /* 只採用最後一次發出的請求：較早送出卻較晚回來的舊清單不能蓋掉新的。
-     前景載入被背景刷新超車時，由最新那次接手收 loading、提示錯誤 */
-  const fetchSeqRef = useRef(0);
-  const foregroundPendingRef = useRef(false);
+  /* 使用者清單、註冊政策與待審核註冊走 TanStack Query：背景 30 秒刷新、分頁隱藏時暫停。
+     service 逐頁取回全部使用者（原本寫死 limit 100，第 101 位之後在這頁根本管不到）；
+     清單改由前端分頁呈現，搜尋因此能掃到全部帳號。
+     較早送出卻較晚回來的舊清單由 Query 作廢（新的重抓會取消舊的），
+     增刪改經 useUserCacheUpdater 就地寫入，寫入前先取消還在路上的刷新 */
+  const usersQuery = useAllUsersQuery();
+  const pendingQuery = usePendingRegistrationsQuery();
+  /* 開關是按下就存、沒有草稿，跟著清單一起背景刷新 */
+  const policyQuery = useRegistrationPolicyQuery({ refetchInterval: LIST_REFRESH_INTERVAL });
+  const userCache = useUserCacheUpdater();
+  const users = usersQuery.data ?? EMPTY;
+  const registrationPolicy = policyQuery.data ?? null;
+  const pendingRegistrations = pendingQuery.data?.data ?? EMPTY;
+  const loading = usersQuery.data === undefined && (usersQuery.isPending || usersQuery.isFetching);
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用。
-      逐頁取回全部使用者（原本寫死 limit 100，第 101 位之後在這頁根本管不到）；
-      清單改由前端分頁呈現，搜尋因此能掃到全部帳號。 */
-  const fetchUsers = useCallback(async (silent = false) => {
-    const seq = ++fetchSeqRef.current;
-    const isLatest = () => seq === fetchSeqRef.current;
-    if (!silent) {
-      foregroundPendingRef.current = true;
-      setLoading(true);
-    }
-    try {
-      const data = await UsersService.listAll();
-      if (isLatest()) setUsers(data);
-    } catch (err) {
-      if (isLatest() && foregroundPendingRef.current) toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      if (isLatest() && foregroundPendingRef.current) {
-        foregroundPendingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, [toast, t]);
-
-  /* 本地套用了增刪改：改動前送出、還在路上的清單回應回來時不能把它蓋回去。
-     前景載入中就改發一次背景重抓接手（舊的作廢，loading 交給新的收） */
-  const discardInFlightFetch = useCallback(() => {
-    if (foregroundPendingRef.current) fetchUsers(true);
-    else fetchSeqRef.current += 1;
-  }, [fetchUsers]);
-
+  /* 載入失敗只在手上沒資料時提示（背景刷新失敗維持靜默、沿用舊資料）；
+     依賴用布林＋訊息字串，沒資料時的背景重試回同樣的錯誤不會再跳一次 */
+  const usersLoadFailed = usersQuery.data === undefined && usersQuery.isError;
+  const usersLoadErrorMessage = usersQuery.error?.message;
   useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
-  useAutoRefresh(() => fetchUsers(true));
-
-  const fetchRegistrationSettings = useCallback(async (silent = false) => {
-    try {
-      const [policy, pending] = await Promise.all([
-        UsersService.getRegistrationPolicy(),
-        UsersService.listPendingRegistrations(),
-      ]);
-      setRegistrationPolicy(policy);
-      setPendingRegistrations(pending.data);
-    } catch (err) {
-      if (!silent) toast.error(err?.message ?? t("AdminPage.registrationLoadFailed"));
-    }
-  }, [toast, t]);
-
-  useEffect(() => { fetchRegistrationSettings(); }, [fetchRegistrationSettings]);
-  useAutoRefresh(() => fetchRegistrationSettings(true));
+    if (usersLoadFailed) toast.error(usersLoadErrorMessage ?? t("Error.generic", { ns: "common" }));
+  }, [usersLoadFailed, usersLoadErrorMessage, toast, t]);
+  const registrationLoadError = (policyQuery.data === undefined && policyQuery.isError && policyQuery.error)
+    || (pendingQuery.data === undefined && pendingQuery.isError && pendingQuery.error)
+    || null;
+  const registrationLoadFailed = registrationLoadError !== null;
+  const registrationLoadErrorMessage = registrationLoadError?.message;
+  useEffect(() => {
+    if (registrationLoadFailed) toast.error(registrationLoadErrorMessage ?? t("AdminPage.registrationLoadFailed"));
+  }, [registrationLoadFailed, registrationLoadErrorMessage, toast, t]);
 
   async function saveRegistrationPolicy(patch) {
     if (!registrationPolicy || policySaving) return;
     setPolicySaving(true);
     try {
       const saved = await UsersService.saveRegistrationPolicy({ ...registrationPolicy, ...patch });
-      setRegistrationPolicy(saved);
+      await userCache.setRegistrationPolicy(saved);
       toast.success(t("AdminPage.registrationSettingsSaved"));
     } catch (err) {
       toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
@@ -424,9 +403,7 @@ export default function AdminPage() {
     setReviewingId(user.id);
     try {
       const updated = await UsersService.reviewRegistration(user.id, approve);
-      setPendingRegistrations((prev) => prev.filter((item) => item.id !== user.id));
-      discardInFlightFetch();
-      setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+      await Promise.all([userCache.removePendingRegistration(user.id), userCache.update(updated)]);
       toast.success(t(approve ? "AdminPage.registrationApproved" : "AdminPage.registrationRejected"));
     } catch (err) {
       toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
@@ -500,9 +477,7 @@ export default function AdminPage() {
     const res = await runBatch(targets, (item) => UsersService.update(item.id, { is_active: active }), {
       onProgress: ({ done, total }) => setBatchProgress((prev) => prev && { ...prev, done, total }),
     });
-    const updated = new Map(res.results.filter((r) => r.ok && r.value).map((r) => [r.value.id, r.value]));
-    discardInFlightFetch();
-    setUsers((prev) => prev.map((item) => updated.get(item.id) ?? item));
+    await userCache.updateMany(res.results.filter((r) => r.ok && r.value).map((r) => r.value));
     if (res.failed === 0) {
       toast.success(t("AdminPage.batchDoneToast", { count: res.succeeded, label }));
     } else {
@@ -532,9 +507,9 @@ export default function AdminPage() {
     const res = await runBatch(targets, (item) => UsersService.delete(item.id), {
       onProgress: ({ done, total }) => setBatchProgress((prev) => prev && { ...prev, done, total }),
     });
-    const removed = new Set(res.results.filter((r) => r.ok).map((r) => r.item.id));
-    discardInFlightFetch();
-    setUsers((prev) => prev.filter((item) => !removed.has(item.id)));
+    /* 成功的先就地拿掉，再整份重抓（刪帳號會連帶影響其他欄位與待審清單） */
+    await userCache.removeMany(res.results.filter((r) => r.ok).map((r) => r.item.id));
+    userCache.invalidate();
     if (res.failed === 0) {
       toast.success(t("AdminPage.batchDoneToast", { count: res.succeeded, label }));
     } else {
@@ -551,13 +526,11 @@ export default function AdminPage() {
     try {
       if (modal?.mode === "edit") {
         const updated = await UsersService.update(modal.user.id, payload);
-        discardInFlightFetch();
-        setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+        await userCache.update(updated);
         toast.success(t("AdminPage.toastUpdated"));
       } else {
         const created = await UsersService.create(payload);
-        discardInFlightFetch();
-        setUsers((prev) => [created, ...prev]);
+        await userCache.prepend(created);
         toast.success(t("AdminPage.toastCreated"));
       }
       setModal(null);
@@ -580,8 +553,7 @@ export default function AdminPage() {
     if (!ok) return;
     try {
       await UsersService.delete(user.id);
-      discardInFlightFetch();
-      setUsers((prev) => prev.filter((item) => item.id !== user.id));
+      await userCache.remove(user.id);
       toast.success(t("AdminPage.toastDeleted"));
     } catch (err) {
       toast.error(err?.message ?? t("AdminPage.toastDeleteFailed"));
@@ -599,10 +571,7 @@ export default function AdminPage() {
     if (!ok) return;
     try {
       await UsersService.resetTotp(user.id);
-      discardInFlightFetch();
-      setUsers((prev) =>
-        prev.map((item) => (item.id === user.id ? { ...item, totp_enabled: false } : item)),
-      );
+      await userCache.patchUser(user.id, { totp_enabled: false });
       setModal((prev) =>
         prev?.user?.id === user.id ? { ...prev, user: { ...prev.user, totp_enabled: false } } : prev,
       );

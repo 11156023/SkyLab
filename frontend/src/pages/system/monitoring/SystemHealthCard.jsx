@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
-import { MonitoringService } from "../../../services/monitoring";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useSystemHealthQuery } from "../../../queries/monitoring";
 import { formatDateTime } from "../../../utils/formatDate";
 import usePersistedToggle from "./usePersistedToggle";
 
@@ -69,26 +67,11 @@ const TASK_ORDER = { failing: 0, stale: 1, warning: 2, pending: 3, ok: 4 };
 
 export default function SystemHealthCard() {
   const { t } = useTranslation("system");
-  const [health, setHealth] = useState(null);
-  const [error, setError] = useState(false);
   const [open, toggleOpen] = usePersistedToggle(OPEN_STORAGE_KEY);
-
-  const load = useCallback(async (signal) => {
-    try {
-      setHealth(await MonitoringService.getSystemHealth({ signal }));
-      setError(false);
-    } catch (err) {
-      if (!err?.cancelled) setError(true);
-    }
-  }, []);
-
-  /* 首次載入可中止（離開頁面時）；之後交給 useAutoRefresh，分頁隱藏時不輪詢 */
-  useEffect(() => {
-    const controller = new AbortController();
-    load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
-  useAutoRefresh(() => load());
+  /* 30 秒背景刷新、分頁隱藏時不輪詢；背景失敗時沿用上一筆，只有還沒拿到資料才顯示錯誤 */
+  const healthQuery = useSystemHealthQuery();
+  const health = healthQuery.data ?? null;
+  const error = healthQuery.isError;
 
   if (health === null) {
     return (

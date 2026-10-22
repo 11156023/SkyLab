@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import useAnchoredMenu from "../../../hooks/useAnchoredMenu";
@@ -7,6 +7,11 @@ import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TemplatesService } from "../../../services/templates";
+import {
+  useTemplateAttachmentsQuery,
+  useTemplateCacheUpdater,
+  useTemplatesQuery,
+} from "../../../queries/templates";
 import { downloadBlob } from "../../../services/api";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -24,27 +29,24 @@ function visibilityLabel(template, t) {
     : t("TemplatesPage.visibilityPrivate");
 }
 
+const NO_ATTACHMENTS = Object.freeze([]);
+const NO_TEMPLATES = Object.freeze([]);
+
 /** 使用手冊（附件）瀏覽與下載 */
 function ManualDialog({ template, closing = false, onClose }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
-  const [attachments, setAttachments] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
 
+  /* 附件清單走 TanStack Query（與編輯對話框共用同一份快取）；載不到時提示並當成沒有附件，
+     已有資料時背景重抓失敗沿用原清單 */
+  const attachmentsQuery = useTemplateAttachmentsQuery(template.id);
+  const attachmentsData = attachmentsQuery.data;
+  const attachmentsError = attachmentsData === undefined && attachmentsQuery.isError ? attachmentsQuery.error : null;
+  const attachments = attachmentsData ?? (attachmentsError ? NO_ATTACHMENTS : null);
   useEffect(() => {
-    let cancelled = false;
-    TemplatesService.listAttachments(template.id)
-      .then((res) => !cancelled && setAttachments(res?.data ?? []))
-      .catch((e) => {
-        if (!cancelled) {
-          toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-          setAttachments([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [template.id, toast, t]);
+    if (attachmentsError) toast.error(attachmentsError.message ?? t("Error.generic", { ns: "common" }));
+  }, [attachmentsError, toast, t]);
 
   const handleDownload = async (attachment) => {
     setDownloadingId(attachment.id);
@@ -282,7 +284,16 @@ export default function TemplatesPage() {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const confirm = useConfirm();
-  const [templates, setTemplates] = useState(null);
+  /* 範本清單走 TanStack Query：有建立中／更新中的範本時 4 秒輪詢，否則 30 秒；分頁隱藏時暫停。
+     每次載入失敗都提示（與原本相同），已有資料時沿用原清單；首載失敗當成沒有範本 */
+  const templatesQuery = useTemplatesQuery();
+  const templateCache = useTemplateCacheUpdater();
+  const templatesData = templatesQuery.data;
+  const templatesFailure = templatesQuery.isError ? templatesQuery.error : null;
+  const templates = templatesData ?? (templatesFailure ? NO_TEMPLATES : null);
+  useEffect(() => {
+    if (templatesFailure) toast.error(templatesFailure.message ?? t("Error.generic", { ns: "common" }));
+  }, [templatesFailure, toast, t]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [cloneTarget, setCloneTarget] = useState(null);
@@ -292,42 +303,9 @@ export default function TemplatesPage() {
   const manualDialog  = useDialogPresence(manualTarget);
   const cloneDialog   = useDialogPresence(cloneTarget);
   const [cycleBusy, setCycleBusy] = useState(false);
-  const timerRef = useRef(null);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await TemplatesService.list();
-      setTemplates(res?.data ?? []);
-      return res?.data ?? [];
-    } catch (e) {
-      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-      setTemplates((prev) => prev ?? []);
-      return [];
-    }
-  }, [toast, t]);
-
-  /** 有 creating/updating 中的範本時 4 秒輪詢，否則 30 秒 */
-  useEffect(() => {
-    let cancelled = false;
-
-    const tick = async () => {
-      // 分頁隱藏時不打 API，只排下一輪
-      if (document.hidden) {
-        timerRef.current = setTimeout(tick, 4_000);
-        return;
-      }
-      const list = await load();
-      if (cancelled) return;
-      const active = list.some((tpl) => tpl.status === "creating" || tpl.status === "updating");
-      timerRef.current = setTimeout(tick, active ? 4_000 : 30_000);
-    };
-
-    tick();
-    return () => {
-      cancelled = true;
-      clearTimeout(timerRef.current);
-    };
-  }, [load]);
+  /** 操作後重抓清單（畫面沿用現有資料不閃）；呼叫端等它完成才解除忙碌狀態 */
+  const reload = () => templateCache.invalidate();
 
   const handleCycle = async (templateId, action) => {
     if (action === "finish") {
@@ -351,7 +329,7 @@ export default function TemplatesPage() {
             ? t("TemplatesPage.cycleFinishedToast")
             : t("TemplatesPage.cycleCancelledToast"),
       );
-      await load();
+      await reload();
     } catch (e) {
       toast.error(e?.message ?? t("TemplatesPage.cycleActionFailed"));
     } finally {
@@ -371,7 +349,7 @@ export default function TemplatesPage() {
     try {
       await TemplatesService.retry(templateId);
       toast.success(t("TemplatesPage.retryToast"));
-      await load();
+      await reload();
     } catch (e) {
       toast.error(e?.message ?? t("TemplatesPage.retryFailed"));
     } finally {
@@ -392,7 +370,7 @@ export default function TemplatesPage() {
     try {
       await TemplatesService.remove(template.id);
       toast.success(t("TemplatesPage.deleteQueuedToast"));
-      await load();
+      await reload();
     } catch (e) {
       toast.error(e?.message ?? t("TemplatesPage.deleteFailed"));
     }
@@ -467,7 +445,7 @@ export default function TemplatesPage() {
         <TemplateFormDialog
           closing={createDialog.closing}
           onClose={() => setCreateOpen(false)}
-          onSaved={() => load()}
+          onSaved={() => reload()}
         />
       )}
       {editDialog.open && (
@@ -475,7 +453,7 @@ export default function TemplatesPage() {
           template={editDialog.item}
           closing={editDialog.closing}
           onClose={() => setEditTarget(null)}
-          onSaved={() => load()}
+          onSaved={() => reload()}
         />
       )}
       {manualDialog.open && (

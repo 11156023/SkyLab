@@ -5,7 +5,7 @@
  * 「新增規則」開的是共用的 ConnectionDialog（預設停在「自訂規則」分頁，也能切到「連線」做對外發布）。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
@@ -15,14 +15,17 @@ import ConnectionDialog from "../../../../../components/ConnectionDialog/Connect
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
+import { deleteVmRule, updateVmRule } from "../../../../../services/firewall";
 import {
-  deleteVmRule,
-  getVmOptions,
-  getVmRules,
-  getVmTopology,
-  updateVmRule,
-} from "../../../../../services/firewall";
+  useFirewallCacheUpdater,
+  useVmFirewallOptionsQuery,
+  useVmFirewallRulesQuery,
+  useVmFirewallTopologyQuery,
+} from "../../../../../queries/firewall";
+import { useQueryErrorEffect } from "../../../../../queries/resourceDetail";
 import MiniTopology from "./MiniTopology";
+
+const EMPTY = Object.freeze([]);
 
 const POLICY_LABEL_KEYS = {
   ACCEPT: "FirewallCard.policyAccept",
@@ -57,35 +60,26 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
-  const [topology, setTopology] = useState(null);
-  const [rules, setRules] = useState([]);
-  const [options, setOptions] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const firewallCache = useFirewallCacheUpdater();
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const addPresence = useDialogPresence(showAdd);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [topo, ruleList, opts] = await Promise.all([
-        getVmTopology(vmid).catch(() => null),
-        getVmRules(vmid),
-        getVmOptions(vmid).catch(() => null),
-      ]);
-      setTopology(topo);
-      setRules(ruleList ?? []);
-      setOptions(opts);
-    } catch (err) {
-      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      setLoading(false);
-    }
-  }, [vmid, toast, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  /* 迷你拓撲與防火牆選項查不到就不顯示；規則表查不到時提示，已有清單沿用、從沒載到就是空的 */
+  const topologyQuery = useVmFirewallTopologyQuery(vmid);
+  const rulesQuery = useVmFirewallRulesQuery(vmid);
+  const optionsQuery = useVmFirewallOptionsQuery(vmid);
+  useQueryErrorEffect(rulesQuery, (err) => {
+    toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+  });
+  const topology = topologyQuery.isError ? null : topologyQuery.data ?? null;
+  const rules = rulesQuery.data ?? EMPTY;
+  const options = optionsQuery.isError ? null : optionsQuery.data ?? null;
+  /* 三個都第一次載完（成功或失敗）才畫內容；之後的重抓沿用舊資料，不再閃轉圈圈 */
+  const firstLoading = (q) => q.data === undefined && !q.isError && (q.isPending || q.isFetching);
+  const loading = firstLoading(topologyQuery) || firstLoading(rulesQuery) || firstLoading(optionsQuery);
+  /* 規則、選項、迷你拓撲一起重抓（在途的舊請求會被取消） */
+  const load = () => firewallCache.invalidateVm(vmid);
 
   const thisVmName = topology?.nodes?.find((n) => n.vmid === vmid)?.name;
 

@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { ClassroomService } from "../../services/classroom";
+import { useClassroomLiveQuery } from "../../queries/classroom";
 import { useClassroomSocket } from "../../hooks/useClassroomSocket";
 import LiveBanner from "./LiveBanner";
 
@@ -39,24 +39,37 @@ export default function ClassroomStudentLayer({ children }) {
   const liveSessionIdRef = useRef(null);
   liveSessionIdRef.current = liveSessionId;
 
+  /* 目前對自己生效的廣播走 TanStack Query，但不自動抓：信令事件才是主要訊號，
+     只在初次掛載、重新連上、目前這場結束時重查（與原本相同），查回來的快照再併進本地狀態 */
+  const { refetch: refetchLive } = useClassroomLiveQuery({ enabled: false });
+  /* 重查期間又要求重查時，舊的那次會被取消、改等較新的那次（兩邊拿到同一份快照）；
+     先套用的那次一併做還沒做的接管校正 */
+  const pendingResyncRef = useRef(false);
+
   /* resyncTakeover：斷線重連時一併校正「老師接管中」狀態。
      後端若在 /classroom/live 回傳 taken_over_vmids 就以它為準；
      沒有這個欄位或查詢失敗時退回清空，避免覆蓋層卡住到重新整理。 */
   const refreshLive = useCallback(async ({ resyncTakeover = false } = {}) => {
-    try {
-      const res = await ClassroomService.getLive();
-      setLiveSessionId(res.session?.id ?? null);
-      if (!res.session) setBannerDismissed(false);
-      if (Array.isArray(res.taken_over_vmids)) {
+    if (resyncTakeover) pendingResyncRef.current = true;
+    const result = await refetchLive();
+    /* 保險：回來時還有更新的重查在路上，就交給那一次套用 */
+    if (result.fetchStatus === "fetching") return;
+    const resync = pendingResyncRef.current;
+    pendingResyncRef.current = false;
+    if (result.status === "success") {
+      const res = result.data;
+      setLiveSessionId(res?.session?.id ?? null);
+      if (!res?.session) setBannerDismissed(false);
+      if (Array.isArray(res?.taken_over_vmids)) {
         setTakenOverVmids(new Set(res.taken_over_vmids));
-      } else if (resyncTakeover) {
+      } else if (resync) {
         setTakenOverVmids(new Set());
       }
-    } catch {
+    } else {
       setLiveSessionId(null);
-      if (resyncTakeover) setTakenOverVmids(new Set());
+      if (resync) setTakenOverVmids(new Set());
     }
-  }, []);
+  }, [refetchLive]);
 
   const handleEvent = useCallback((event) => {
     switch (event.type) {

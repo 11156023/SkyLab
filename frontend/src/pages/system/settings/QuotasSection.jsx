@@ -6,9 +6,11 @@ import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { QuotasService } from "../../../services/quotas";
-import { UsersService } from "../../../services/users";
+import { useGlobalQuotaQuery, useQuotaCacheUpdater, useQuotasQuery } from "../../../queries/quotas";
+import { useAllUsersQuery } from "../../../queries/users";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 import { formatDateTime } from "../../../utils/formatDate";
@@ -23,6 +25,13 @@ import { isAdminUser } from "../../../utils/roles";
 const FIELD_KEYS = ["max_cpu_cores", "max_memory_mb", "max_disk_gb", "max_instances"];
 
 const PICKER_MAX_ROWS = 50;
+
+const EMPTY = Object.freeze([]);
+
+/* 目前該提示的讀取錯誤：還沒有資料時用 useLoadError 的錯誤（重抓期間不清空）；已有資料時就是 query.error */
+function currentLoadError(query, load) {
+  return query.data === undefined ? load.error : query.error;
+}
 
 /** 上限顯示：0 = 無限制。 */
 function fmtLimit(value, t, unit = "") {
@@ -370,48 +379,30 @@ export default function QuotasSection() {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
-  const [quotas, setQuotas] = useState(null);
-  const [globalQuota, setGlobalQuota] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
   const [dialog, setDialog] = useState(null);
   const dialogPresence = useDialogPresence(dialog);
   const [deleting, setDeleting] = useState(null);
 
-  const load = useCallback(async () => {
-    try {
-      const [list, config] = await Promise.all([
-        QuotasService.list(),
-        QuotasService.getGlobal(),
-      ]);
-      setQuotas(list);
-      setGlobalQuota(config);
-    } catch (e) {
-      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-      setQuotas((prev) => prev ?? []);
-    }
-  }, [toast, t]);
-
+  /* 個人覆寫、全域預設與使用者清單走 TanStack Query；原本只在進頁與增刪改後重抓，不背景輪詢。
+     增刪改後 invalidate 讓清單與全域設定一起重抓（全域卡片只在數值真的變了才重設表單） */
+  const quotasQuery = useQuotasQuery();
+  const globalQuery = useGlobalQuotaQuery();
+  const usersQuery = useAllUsersQuery({ refetchInterval: false });
+  const quotaCache = useQuotaCacheUpdater();
+  /* 載入失敗：提示一次，覆寫清單改顯示空狀態（與原本相同），全域卡片沒資料就不顯示。
+     從沒載到就失敗時錯誤取自 useLoadError：重抓期間維持空狀態、不閃回載入中，提示也不會因為
+     error 先清空再變回來而重跳；已有資料時 TanStack 重抓不會清掉錯誤，照原本直接看 error */
+  const quotasLoad = useLoadError(quotasQuery);
+  const globalLoad = useLoadError(globalQuery);
+  const quotas = quotasQuery.data ?? (quotasLoad.error ? EMPTY : null);
+  const globalQuota = globalQuery.data ?? null;
+  const loadError = currentLoadError(quotasQuery, quotasLoad) ?? currentLoadError(globalQuery, globalLoad);
   useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    let cancelled = false;
-    UsersService.listAll()
-      .then((list) => {
-        if (!cancelled) setUsers(list);
-      })
-      .catch(() => {
-        if (!cancelled) setUsers([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingUsers(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (loadError) toast.error(loadError?.message ?? t("Error.generic", { ns: "common" }));
+  }, [loadError, toast, t]);
+  /* 使用者清單失敗照舊靜默（挑選器變空清單） */
+  const users = usersQuery.data ?? EMPTY;
+  const loadingUsers = usersQuery.data === undefined && (usersQuery.isPending || usersQuery.isFetching);
 
   const candidates = useMemo(() => {
     const taken = new Set((quotas ?? []).map((q) => q.user_id));
@@ -432,7 +423,7 @@ export default function QuotasSection() {
     try {
       await QuotasService.remove(quota.id);
       toast.success(t("QuotasTab.toastDeleted"));
-      load();
+      quotaCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("QuotasTab.toastDeleteFailed"));
     } finally {
@@ -442,7 +433,7 @@ export default function QuotasSection() {
 
   return (
     <div className={styles.stack}>
-      {globalQuota && <GlobalQuotaCard config={globalQuota} onSaved={setGlobalQuota} />}
+      {globalQuota && <GlobalQuotaCard config={globalQuota} onSaved={(updated) => quotaCache.setGlobal(updated)} />}
 
       <section className={styles.card} data-guide="governance-quota-overrides">
         <header className={styles.cardHeader}>
@@ -532,7 +523,7 @@ export default function QuotasSection() {
           onClose={() => setDialog(null)}
           onSaved={() => {
             setDialog(null);
-            load();
+            quotaCache.invalidate();
           }}
         />
       )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
@@ -13,6 +13,7 @@ import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider
 import { useJobs } from "../../../../components/Jobs/JobsProvider";
 import { formatDateTime } from "../../../../utils/formatDate";
 import { findActiveBackupJob, formatBackupSize } from "./backupFormat";
+import { useBackupsQuery, useQueryErrorEffect } from "../../../../queries/resourceDetail";
 
 /* 入列後到任務出現在「執行中任務」之間的空窗：超過這段時間還沒看到任務，就當它已經跑完 */
 const QUEUED_FALLBACK_MS = 20000;
@@ -31,49 +32,43 @@ export default function BackupsTab({ vmid, toolbar, capability, onOperationFaile
   const toast = useToast();
   const confirm = useConfirm();
   const jobs = useJobs()?.items;
-  const [backups, setBackups] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [queued, setQueued] = useState(false);
   const createDialog = useDialogPresence(createOpen);
-  /* 用 ref 持有 callback：不讓它的 identity 進 load 的依賴而觸發重抓 */
+  /* 用 ref 持有 callback：不讓它的 identity 進 effect 的依賴 */
   const onOperationFailedRef = useRef(onOperationFailed);
   useEffect(() => {
     onOperationFailedRef.current = onOperationFailed;
   }, [onOperationFailed]);
 
-  const load = useCallback(async () => {
-    try {
-      setBackups(await ResourcesService.listBackups(vmid));
-    } catch (e) {
-      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-      setBackups((prev) => prev ?? []);
-      onOperationFailedRef.current?.();
-    }
-  }, [vmid, toast, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  /* 備份清單：每次載入失敗都提示並請上層重查可用性；已有清單時沿用，從沒載到就當成空的 */
+  const backupsQuery = useBackupsQuery(vmid);
+  useQueryErrorEffect(backupsQuery, (e) => {
+    toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
+    onOperationFailedRef.current?.();
+  });
+  const backups = backupsQuery.data ?? (backupsQuery.isError ? [] : null);
+  const { refetch } = backupsQuery;
 
   /* 這台機器的備份／還原任務跑完（從執行中清單消失）就重抓清單 */
   const taskActive = Boolean(findActiveBackupJob(jobs, vmid));
   const wasActiveRef = useRef(false);
   useEffect(() => {
     if (taskActive) setQueued(false);
-    if (wasActiveRef.current && !taskActive) load();
+    if (wasActiveRef.current && !taskActive) refetch();
     wasActiveRef.current = taskActive;
-  }, [taskActive, load]);
+  }, [taskActive, refetch]);
 
   useEffect(() => {
     if (!queued) return undefined;
     const timer = window.setTimeout(() => {
       setQueued(false);
-      load();
+      refetch();
     }, QUEUED_FALLBACK_MS);
     return () => window.clearTimeout(timer);
-  }, [queued, load]);
+  }, [queued, refetch]);
 
   const taskRunning = taskActive || queued;
   const locked = busy || taskRunning;
@@ -87,7 +82,7 @@ export default function BackupsTab({ vmid, toolbar, capability, onOperationFaile
       toast.success(successMsg);
       after?.();
       if (queuesTask) setQueued(true);
-      else await load();
+      else await refetch();
     } catch (e) {
       toast.error(e?.message ?? t("BackupsTab.operationFailed"));
       onOperationFailedRef.current?.();

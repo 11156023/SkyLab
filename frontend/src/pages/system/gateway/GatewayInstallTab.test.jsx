@@ -4,13 +4,14 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import GatewayInstallTab from "./GatewayInstallTab";
+import { withQueryClient } from "../../../queries/testing";
+import { INSTALL_POLL_INTERVAL } from "../../../queries/gateway";
 
 const mocks = vi.hoisted(() => ({
   getInstallStatus: vi.fn(),
   startInstall: vi.fn(),
   syncRules: vi.fn(),
   confirm: vi.fn(),
-  autoRefresh: null,
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -26,16 +27,18 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: (refresh) => { mocks.autoRefresh = refresh; } }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 
 let root;
 let host;
 
-async function flush() {
-  await act(async () => {
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
-  });
+/* 輪詢間隔走真的 refetchInterval：用假計時器推進時間；TanStack Query 以 macrotask 批次通知，flush 推 0 毫秒 */
+async function advance(ms) {
+  await act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+}
+
+function flush() {
+  return advance(0);
 }
 
 function deferred() {
@@ -70,7 +73,7 @@ function buttonByText(text) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.autoRefresh = null;
+  vi.useFakeTimers();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mocks.syncRules.mockResolvedValue({ message: "synced" });
   host = document.createElement("div");
@@ -81,6 +84,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.useRealTimers();
 });
 
 describe("GatewayInstallTab", () => {
@@ -94,9 +98,13 @@ describe("GatewayInstallTab", () => {
     mocks.startInstall.mockResolvedValue(status("running"));
     mocks.confirm.mockResolvedValue(true);
 
-    await act(async () => { root.render(<GatewayInstallTab gatewayReady onGoToConnection={() => {}} />); });
+    await act(async () => { root.render(withQueryClient(<GatewayInstallTab gatewayReady onGoToConnection={() => {}} />)); });
     await flush();
     expect(host.textContent).toContain("GatewayPage.installState_succeeded");
+
+    // 已經裝好、不在安裝中：不輪詢
+    await advance(INSTALL_POLL_INTERVAL);
+    expect(mocks.getInstallStatus).toHaveBeenCalledTimes(1);
 
     // 手動重新整理還在路上時按下重新安裝
     await act(async () => { buttonByText("GatewayPage.installRefresh").click(); });
@@ -112,21 +120,48 @@ describe("GatewayInstallTab", () => {
     expect(mocks.syncRules).not.toHaveBeenCalled();
     expect(host.textContent).toContain("GatewayPage.installState_running");
 
-    await act(async () => { await mocks.autoRefresh(); });
-    await flush();
+    // 安裝中每 3 秒問一次
+    await advance(INSTALL_POLL_INTERVAL);
     expect(mocks.getInstallStatus).toHaveBeenCalledTimes(3);
     expect(mocks.syncRules).not.toHaveBeenCalled();
 
     // 真的裝完：提示一次成功並同步規則一次
-    await act(async () => { await mocks.autoRefresh(); });
-    await flush();
+    await advance(INSTALL_POLL_INTERVAL);
     expect(mocks.getInstallStatus).toHaveBeenCalledTimes(4);
     expect(mocks.toast.success).toHaveBeenCalledWith("GatewayPage.toastInstallSucceeded");
     expect(mocks.syncRules).toHaveBeenCalledTimes(1);
 
-    await act(async () => { await mocks.autoRefresh(); });
-    await flush();
+    // 裝完就不再輪詢
+    await advance(INSTALL_POLL_INTERVAL * 2);
     expect(mocks.getInstallStatus).toHaveBeenCalledTimes(4);
     expect(mocks.syncRules).toHaveBeenCalledTimes(1);
+  });
+
+  test("a background poll failure keeps the last status on screen", async () => {
+    mocks.getInstallStatus
+      .mockResolvedValueOnce(status("running"))
+      .mockRejectedValueOnce(new Error("ssh timeout"));
+
+    await act(async () => { root.render(withQueryClient(<GatewayInstallTab gatewayReady onGoToConnection={() => {}} />)); });
+    await flush();
+    await advance(INSTALL_POLL_INTERVAL);
+
+    expect(mocks.getInstallStatus).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain("GatewayPage.installState_running");
+    expect(host.textContent).not.toContain("GatewayPage.installConnectErrorTitle");
+  });
+
+  test("a first-load failure shows the error with a retry button", async () => {
+    mocks.getInstallStatus
+      .mockRejectedValueOnce(new Error("ssh refused"))
+      .mockResolvedValueOnce(status("idle"));
+
+    await act(async () => { root.render(withQueryClient(<GatewayInstallTab gatewayReady onGoToConnection={() => {}} />)); });
+    await flush();
+    expect(host.textContent).toContain("ssh refused");
+
+    await act(async () => { buttonByText("GatewayPage.installRetry").click(); });
+    await flush();
+    expect(host.textContent).toContain("GatewayPage.installState_idle");
   });
 });

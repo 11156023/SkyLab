@@ -1,19 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiKeysPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import { AiApiService } from "../../../services/aiApi";
+import { useAiApiCacheUpdater, useAllAiCredentialsQuery } from "../../../queries/aiApi";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { formatDate, formatDateTime } from "../../../utils/formatDate";
 
 const PAGE_SIZE = 50;
+const EMPTY = Object.freeze([]);
 const ROLE_OPTIONS = ["student", "teacher", "admin"];
 const CREATED_OPTIONS = ["all", "7d", "30d"];
 
@@ -166,12 +169,6 @@ export default function AiApiKeysPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [deletingItem, setDeletingItem] = useState(null);
   const [page, setPage] = useState(0);
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [allCount, setAllCount] = useState(0);
-  const [activeCount, setActiveCount] = useState(0);
-  const [inactiveCount, setInactiveCount] = useState(0);
-  const [loading, setLoading] = useState(true);
   const deleteDialog = useDialogPresence(deletingItem);
 
   useEffect(() => {
@@ -198,37 +195,46 @@ export default function AiApiKeysPage() {
     };
   }, [filterOpen]);
 
-  /* 快速切換分頁／篩選時舊條件的回應可能較晚回來，只讓最新一次載入寫入畫面 */
-  const loadSeqRef = useRef(0);
+  /* 清單走 TanStack Query，以查詢條件為 key：快速切換分頁／篩選時舊條件較晚回來的回應只會進舊 key，
+     不會蓋掉目前的清單；換條件時先留著上一份（keepPreviousData），不閃回載入畫面。
+     背景 30 秒刷新、分頁隱藏時暫停。條件在變動時才組一次：建立時間篩選的起點固定在那一刻，
+     不能每次 render 都重算（key 會一直換）。 */
+  const listParams = useMemo(() => buildCredentialListParams({
+    status: statusFilter,
+    query,
+    roles: roleFilters,
+    createdRange,
+    page,
+  }), [statusFilter, query, roleFilters, createdRange, page]);
+  const credentialsQuery = useAllAiCredentialsQuery(listParams);
+  const aiCache = useAiApiCacheUpdater();
+  const res = credentialsQuery.data;
+  /* 錯誤畫面在背景重試期間不閃回載入中，按重試才回到載入中（見 useLoadError）。
+     換條件時沿用上一份清單照常顯示；但這組條件失敗後，沒有資料時每次重抓 TanStack 都會把上一組條件的
+     清單放回來當佔位資料，所以判斷錯誤時佔位資料不算資料，錯誤畫面才不會閃成上一組條件的清單 */
+  const { error: loadError, retry: retryCredentials } = useLoadError(credentialsQuery);
+  const loading = res === undefined && !loadError && (credentialsQuery.isPending || credentialsQuery.isFetching);
+  const rows = res?.data ?? EMPTY;
+  const total = res?.count ?? 0;
+  const allCount = res?.total_count ?? res?.count ?? 0;
+  const activeCount = res?.active_count ?? 0;
+  const inactiveCount = res?.inactive_count ?? 0;
 
-  const load = useCallback(async (silent = false) => {
-    const seq = ++loadSeqRef.current;
-    const isCurrent = () => seq === loadSeqRef.current;
-    if (!silent) setLoading(true);
-    try {
-      const res = await AiApiService.listAllCredentials(buildCredentialListParams({
-        status: statusFilter,
-        query,
-        roles: roleFilters,
-        createdRange,
-        page,
-      }));
-      if (!isCurrent()) return;
-      setRows(res?.data ?? []);
-      setTotal(res?.count ?? 0);
-      setAllCount(res?.total_count ?? res?.count ?? 0);
-      setActiveCount(res?.active_count ?? 0);
-      setInactiveCount(res?.inactive_count ?? 0);
-    } catch (error) {
-      if (!silent && isCurrent()) toast.error(error?.message ?? t("AiApiKeysPage.loadError"));
-    } finally {
-      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
-      if (isCurrent()) setLoading(false);
-    }
-  }, [createdRange, page, query, roleFilters, statusFilter, t, toast]);
+  /* 這組條件一筆資料都還沒拿到就失敗才提醒（與原本的前景載入相同）；
+     背景刷新失敗沿用畫面上的資料、不跳 toast。以訊息字串為依賴，同一個錯誤重試失敗不重複跳
+     （錯誤取自 useLoadError：背景重試期間不會先清空再變回來，才不會每輪重跳） */
+  const loadErrorMessage = loadError
+    ? loadError.message ?? t("AiApiKeysPage.loadError")
+    : null;
+  useEffect(() => {
+    if (loadErrorMessage) toast.error(loadErrorMessage);
+  }, [loadErrorMessage, toast]);
 
-  useEffect(() => { load(); }, [load]);
-  useAutoRefresh(() => load(true));
+  /* 撤銷後在背景重抓（清單留在畫面上），重抓失敗照原本提醒 */
+  function refreshAfterRevoke() {
+    aiCache.invalidateAllCredentials({ throwOnError: true })
+      .catch((error) => toast.error(error?.message ?? t("AiApiKeysPage.loadError")));
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   useEffect(() => {
@@ -284,7 +290,7 @@ export default function AiApiKeysPage() {
       </div>
 
       <div className={styles.content}>
-        {loading ? <LoadingState fullPage /> : (
+        {loading ? <LoadingState fullPage /> : loadError ? <ErrorState onRetry={() => retryCredentials()} /> : (
           rows.length === 0 ? <EmptyState hasFilters={hasFilters} onClear={() => {
             setStatusFilter("all");
             setSearchInput("");
@@ -355,7 +361,7 @@ export default function AiApiKeysPage() {
         )}
       </div>
 
-      {deleteDialog.open && <RevokeDialog item={deleteDialog.item} closing={deleteDialog.closing} onClose={() => setDeletingItem(null)} onDone={() => load()} />}
+      {deleteDialog.open && <RevokeDialog item={deleteDialog.item} closing={deleteDialog.closing} onClose={() => setDeletingItem(null)} onDone={refreshAfterRevoke} />}
     </div>
   );
 }

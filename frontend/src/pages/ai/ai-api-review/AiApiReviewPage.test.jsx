@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import AiApiReviewPage from "./AiApiReviewPage";
 
 const mocks = vi.hoisted(() => ({
@@ -23,7 +24,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../hooks/useDialogPresence", () => ({
   default: (open) => ({ open, closing: false }),
 }));
@@ -73,6 +73,18 @@ function request(id, status, createdAt) {
 let root;
 let host;
 
+/* TanStack Query 的通知排在 setTimeout(0)：先讓回應的 microtask 跑完（通知的 timer 才會先排進去），
+   再等 timer tick 與 microtask；跑兩輪，涵蓋「回應 → 通知 → 重繪 → 下一個查詢」 */
+async function settle() {
+  for (let round = 0; round < 2; round += 1) {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+}
+
+const renderPage = () => root.render(withQueryClient(<AiApiReviewPage />));
+
 beforeEach(() => {
   vi.resetAllMocks();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -97,10 +109,8 @@ describe("AiApiReviewPage", () => {
       return { data: newest, count: 101 };
     });
 
-    await act(async () => { root.render(<AiApiReviewPage />); });
-    await act(async () => {
-      for (let i = 0; i < 8; i += 1) await Promise.resolve();
-    });
+    await act(async () => { renderPage(); });
+    await act(settle);
 
     expect(mocks.listAllRequests).toHaveBeenCalledWith({ status: "pending", limit: 100 });
     expect(host.textContent).toContain("key-old");
@@ -122,22 +132,23 @@ describe("AiApiReviewPage", () => {
       else if (params?.status === "rejected") resolve({ data: [], count: 0 });
       else resolve({ data: [approvedRow, pendingRow], count: 2 });
     });
-    const flush = async () => {
-      for (let i = 0; i < 8; i += 1) await Promise.resolve();
-    };
 
-    await act(async () => { root.render(<AiApiReviewPage />); });
+    await act(async () => { renderPage(); });
     const pendingBatch = calls.splice(0);
     expect(pendingBatch).toHaveLength(4);
 
     await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
     const approvedBatch = calls.splice(0);
+    /* 只有筆數上限變了的兩個分頁換 key 重抓（待審 100→1、已核准 1→100）；其餘兩個沿用原查詢 */
+    expect(approvedBatch).toHaveLength(2);
     expect(approvedBatch.find(({ params }) => params?.status === "approved").params.limit).toBe(100);
 
-    await act(async () => { respond(approvedBatch); await flush(); });
+    await act(async () => { respond(approvedBatch); });
+    await act(settle);
     expect(host.textContent).toContain("key-ok1");
 
-    await act(async () => { respond(pendingBatch); await flush(); });
+    await act(async () => { respond(pendingBatch); });
+    await act(settle);
 
     expect(host.textContent).toContain("key-ok1");
     expect(host.textContent).not.toContain("key-p1");
@@ -154,20 +165,19 @@ describe("AiApiReviewPage", () => {
       if (params?.status === "approved") resolve({ data: [approvedRow], count: 1 });
       else resolve({ data: [], count: 0 });
     });
-    const flush = async () => {
-      for (let i = 0; i < 8; i += 1) await Promise.resolve();
-    };
 
-    await act(async () => { root.render(<AiApiReviewPage />); });
+    await act(async () => { renderPage(); });
     const pendingBatch = calls.splice(0);
 
     await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
     const approvedBatch = calls.splice(0);
 
-    await act(async () => { respond(pendingBatch); await flush(); });
+    await act(async () => { respond(pendingBatch); });
+    await act(settle);
     expect(host.querySelector('[data-testid="loading"]')).not.toBeNull();
 
-    await act(async () => { respond(approvedBatch); await flush(); });
+    await act(async () => { respond(approvedBatch); });
+    await act(settle);
     expect(host.querySelector('[data-testid="loading"]')).toBeNull();
     expect(host.textContent).toContain("key-ok1");
   });
@@ -179,13 +189,72 @@ describe("AiApiReviewPage", () => {
       return { data: [], count: 0 };
     });
 
-    const flush = async () => {
-      for (let i = 0; i < 8; i += 1) await Promise.resolve();
-    };
+    await act(async () => { renderPage(); });
+    await act(settle);
 
-    await act(async () => { root.render(<AiApiReviewPage />); await flush(); });
-
+    expect(host.textContent).toContain("key-p1");
     expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(host.textContent).not.toContain("AiApiReviewPage.bulkReject");
+  });
+
+  test("a failed first load shows a retry instead of an empty list and toasts once", async () => {
+    const pendingRow = request("p1", "pending", "2026-09-01T00:00:00Z");
+    let failing = true;
+    mocks.listAllRequests.mockImplementation(async ({ status } = {}) => {
+      if (failing) throw new Error("gateway down");
+      return status === "pending" ? { data: [pendingRow], count: 1 } : { data: [], count: 0 };
+    });
+
+    await act(async () => { renderPage(); });
+    await act(settle);
+    expect(host.textContent).toContain("Error.retry");
+    expect(host.textContent).not.toContain("AiApiReviewPage.emptyTitle");
+    expect(mocks.toast.error).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.error).toHaveBeenCalledWith("gateway down");
+
+    failing = false;
+    const retry = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Error.retry"));
+    await act(async () => { retry.click(); });
+    await act(settle);
+    expect(host.textContent).toContain("key-p1");
+    expect(mocks.toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  test("after a tab switch fails, a background retry keeps the error instead of flashing back to loading", async () => {
+    /* 換分頁後新 key 失敗：TanStack v5 沒資料時重抓會把 status 改回 pending，還會把上一個 key 的
+       佔位資料放回來；錯誤畫面要維持到這次的結果，不能閃成載入中，也不重複提醒 */
+    const pendingRow = request("p1", "pending", "2026-09-01T00:00:00Z");
+    const okResponse = (status) => (status === "pending" ? { data: [pendingRow], count: 1 } : { data: [], count: 0 });
+    mocks.listAllRequests.mockImplementation(async ({ status, limit } = {}) => {
+      if (status === "approved" && limit === 100) throw new Error("approved down");
+      return okResponse(status);
+    });
+    const client = createTestQueryClient();
+
+    await act(async () => { root.render(withQueryClient(<AiApiReviewPage />, client)); });
+    await act(settle);
+    expect(host.textContent).toContain("key-p1");
+
+    await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
+    await act(settle);
+    expect(host.textContent).toContain("Error.retry");
+    expect(mocks.toast.error).toHaveBeenCalledTimes(1);
+
+    let reject;
+    mocks.listAllRequests.mockImplementation(({ status, limit } = {}) => {
+      if (status === "approved" && limit === 100) return new Promise((_resolve, fail) => { reject = fail; });
+      return Promise.resolve(okResponse(status));
+    });
+    act(() => { client.refetchQueries({ queryKey: ["aiApi", "allRequests"] }); });
+    await act(settle);
+    /* 重抓還在途中：錯誤畫面照樣在 */
+    expect(reject).toBeTypeOf("function");
+    expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+    expect(host.textContent).toContain("Error.retry");
+
+    await act(async () => reject(new Error("approved down")));
+    await act(settle);
+    expect(host.textContent).toContain("Error.retry");
+    expect(mocks.toast.error).toHaveBeenCalledTimes(1);
   });
 });

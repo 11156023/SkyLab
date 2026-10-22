@@ -6,6 +6,8 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import { useToast } from "../../../hooks/useToast";
 import { LayoutContext } from "../../../layout/layoutContext";
 import { QuickPracticeService } from "../../../services/quickPractice";
+import { useQuickPracticeTemplateQuery } from "../../../queries/quickPractice";
+import { useResourceCacheUpdater } from "../../../queries/resources";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { folderTotals, nodeMemoryGb } from "./templateFolder";
 import styles from "./QuickTemplateFormPage.module.scss";
@@ -17,25 +19,20 @@ export default function QuickTemplateFormPage() {
   const location = useLocation();
   const toast = useToast();
   const { setCompactFooter } = useContext(LayoutContext);
-  const [template, setTemplate] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const submitLockRef = useRef(false);
+  const resourceCache = useResourceCacheUpdater();
 
   useEffect(() => {
     setCompactFooter(true);
     return () => setCompactFooter(false);
   }, [setCompactFooter]);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    QuickPracticeService.getTemplate(id)
-      .then((result) => active && setTemplate(result))
-      .catch(() => active && setTemplate(null))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [id]);
+  /* 範本內容只讀一次（不輪詢）；載不到就當成找不到這個環境 */
+  const templateQuery = useQuickPracticeTemplateQuery(id);
+  const template = templateQuery.data ?? null;
+  const loading = id != null && templateQuery.data === undefined
+    && (templateQuery.isPending || templateQuery.isFetching);
 
   const onBack = () => navigate(location.state?.from ?? "/dashboard");
 
@@ -46,6 +43,8 @@ export default function QuickTemplateFormPage() {
     try {
       await QuickPracticeService.launch(template.id);
       toast.success(t("QuickTemplateFormPage.launchSuccess", { name: template.name, count: template.nodes.length }));
+      /* 「我的資源」讀快取：新的練習環境要立刻出現，不能等下一輪刷新 */
+      resourceCache.invalidate();
       navigate("/my-resources");
     } catch (error) {
       toast.error(error?.message ?? t("QuickTemplateFormPage.launchFailed"));

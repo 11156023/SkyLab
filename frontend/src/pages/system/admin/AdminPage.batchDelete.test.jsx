@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import AdminPage from "./AdminPage";
+import { withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   listAll: vi.fn(),
@@ -31,7 +32,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "me" } }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
@@ -39,8 +39,10 @@ vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () =>
 let root;
 let host;
 
+/* TanStack Query 以 macrotask 批次通知，先等一個 timer tick 再看畫面 */
 async function flush() {
   await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
 }
@@ -59,10 +61,22 @@ function buttonByText(text) {
   return [...host.querySelectorAll("button")].find((button) => button.textContent.includes(text));
 }
 
+/* 假後端：刪除成功的帳號從伺服器清單拿掉，批量刪除後的重抓才會跟真的一樣 */
+let serverUsers;
+
 async function renderWith(list) {
-  mocks.listAll.mockResolvedValue(list);
-  await act(async () => { root.render(<AdminPage />); });
+  serverUsers = [...list];
+  mocks.listAll.mockImplementation(async () => [...serverUsers]);
+  await act(async () => { root.render(withQueryClient(<AdminPage />)); });
   await flush();
+}
+
+function deleteOnServer(failIds = []) {
+  mocks.deleteUser.mockImplementation(async (id) => {
+    if (failIds.includes(id)) throw new Error("still owns resources");
+    serverUsers = serverUsers.filter((item) => item.id !== id);
+    return {};
+  });
 }
 
 beforeEach(() => {
@@ -91,7 +105,7 @@ describe("AdminPage batch delete", () => {
     expect(host.textContent).toContain("AdminPage.selectedCount:2");
 
     mocks.confirm.mockResolvedValue(true);
-    mocks.deleteUser.mockResolvedValue({});
+    deleteOnServer();
     await act(async () => { buttonByText("AdminPage.delete").click(); });
     await flush();
 
@@ -106,6 +120,8 @@ describe("AdminPage batch delete", () => {
     expect(host.textContent).not.toContain("user-b");
     expect(mocks.toast.success).toHaveBeenCalledWith("AdminPage.batchDoneToast:2");
     expect(buttonByText("AdminPage.delete")).toBeUndefined();
+    /* 刪完整份重抓一次 */
+    expect(mocks.listAll).toHaveBeenCalledTimes(2);
   });
 
   test("取消確認就不刪", async () => {
@@ -126,9 +142,7 @@ describe("AdminPage batch delete", () => {
     await flush();
 
     mocks.confirm.mockResolvedValue(true);
-    mocks.deleteUser.mockImplementation((id) => (
-      id === "b" ? Promise.reject(new Error("still owns resources")) : Promise.resolve({})
-    ));
+    deleteOnServer(["b"]);
     await act(async () => { buttonByText("AdminPage.delete").click(); });
     await flush();
 

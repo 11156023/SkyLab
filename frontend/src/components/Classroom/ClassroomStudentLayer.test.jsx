@@ -26,6 +26,7 @@ vi.mock("./ClassroomWatchDialog", () => ({
 }));
 
 import ClassroomStudentLayer, { useClassroomTakeover } from "./ClassroomStudentLayer";
+import { createTestQueryClient, withQueryClient } from "../../queries/testing";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -35,6 +36,7 @@ function Probe() {
 
 let host;
 let root;
+let client;
 
 beforeEach(() => {
   socket.handler = null;
@@ -44,6 +46,8 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
+  /* 每個測試一個 QueryClient；同一個測試裡重畫要沿用同一個，否則等於重新掛載 */
+  client = createTestQueryClient();
 });
 
 afterEach(async () => {
@@ -53,11 +57,12 @@ afterEach(async () => {
 
 const render = () =>
   act(async () =>
-    root.render(
+    root.render(withQueryClient(
       <ClassroomStudentLayer>
         <Probe />
       </ClassroomStudentLayer>,
-    ),
+      client,
+    )),
   );
 const emit = (event) => act(async () => socket.handler(event));
 const q = (id) => document.querySelector(`[data-testid='${id}']`);

@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import SnapshotsTab from "./SnapshotsTab";
+import { withQueryClient } from "../../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   listSnapshots: vi.fn(),
@@ -57,10 +58,19 @@ afterEach(async () => {
   toolbar.remove();
 });
 
-async function renderTab() {
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick，再把 microtask 清掉 */
+async function flush() {
   await act(async () => {
-    root.render(<SnapshotsTab vmid={105} toolbar={toolbar} onOperationFailed={vi.fn()} />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
+}
+
+async function renderTab(onOperationFailed = vi.fn()) {
+  await act(async () => {
+    root.render(withQueryClient(<SnapshotsTab vmid={105} toolbar={toolbar} onOperationFailed={onOperationFailed} />));
+  });
+  await flush();
 }
 
 const rowFor = (name) =>
@@ -98,6 +108,28 @@ describe("SnapshotsTab 挖礦存證快照", () => {
     await act(async () => deleteButton.click());
 
     expect(mocks.deleteSnapshot).toHaveBeenCalledWith(105, EVIDENCE.name);
+  });
+
+  test("刪除後重抓清單，畫面換成新的清單", async () => {
+    await renderTab();
+    mocks.listSnapshots.mockResolvedValue([EVIDENCE, INIT]);
+    const [deleteButton] = buttonsByText(rowFor(OWN.name), "SnapshotsTab.delete");
+    await act(async () => deleteButton.click());
+    await flush();
+
+    expect(mocks.deleteSnapshot).toHaveBeenCalledWith(105, OWN.name);
+    expect(mocks.listSnapshots).toHaveBeenCalledTimes(2);
+    expect(rowFor(OWN.name)).toBeUndefined();
+  });
+
+  test("清單載入失敗時提示、顯示空清單，並通知上層重查可用性", async () => {
+    mocks.listSnapshots.mockRejectedValue(new Error("boom"));
+    const onOperationFailed = vi.fn();
+    await renderTab(onOperationFailed);
+
+    expect(mocks.toast.error).toHaveBeenCalledWith("boom");
+    expect(onOperationFailed).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain("SnapshotsTab.emptyTitle");
   });
 
   test("名稱中間帶 mining 的一般快照不算存證", async () => {

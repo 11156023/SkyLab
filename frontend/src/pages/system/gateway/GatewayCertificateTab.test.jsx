@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import GatewayCertificateTab from "./GatewayCertificateTab";
+import { withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   getCertificate: vi.fn(),
@@ -31,8 +32,10 @@ vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm
 let root;
 let host;
 
+/* TanStack Query 以 macrotask 批次通知，先等一個 timer tick 再看畫面 */
 async function flush() {
   await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 8; i += 1) await Promise.resolve();
   });
 }
@@ -87,7 +90,7 @@ describe("GatewayCertificateTab status check", () => {
       .mockReturnValueOnce(preSave.promise)
       .mockResolvedValueOnce(healthyStatus);
 
-    await act(async () => { root.render(<GatewayCertificateTab gatewayReady onGoToConnection={() => {}} />); });
+    await act(async () => { root.render(withQueryClient(<GatewayCertificateTab gatewayReady onGoToConnection={() => {}} />)); });
     await flush();
     expect(mocks.getCertificateStatus).toHaveBeenCalledTimes(1);
 
@@ -111,7 +114,7 @@ describe("GatewayCertificateTab status check", () => {
       .mockReturnValueOnce(first.promise)
       .mockResolvedValue(healthyStatus);
 
-    await act(async () => { root.render(<GatewayCertificateTab gatewayReady onGoToConnection={() => {}} />); });
+    await act(async () => { root.render(withQueryClient(<GatewayCertificateTab gatewayReady onGoToConnection={() => {}} />)); });
     await flush();
 
     const refreshButton = buttonByText("GatewayPage.installRefresh");

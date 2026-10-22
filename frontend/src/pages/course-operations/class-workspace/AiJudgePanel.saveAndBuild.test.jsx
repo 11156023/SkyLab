@@ -5,15 +5,24 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { notifyManager } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import AiJudgePanel, { RubricsTab } from "./AiJudgePanel";
 import { AiJudgeService, RUBRIC_POLISH_PROMPT } from "../../../services/aiJudge";
 import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UnsavedChangesProvider } from "../../../contexts/UnsavedChangesContext";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import i18n from "../../../i18n";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 const mounted = new Map();
+let queryClient;
+
+beforeEach(() => {
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；改成同步通知，讀取結果在同一個 act 裡就上畫面 */
+  notifyManager.setScheduler((callback) => callback());
+  queryClient = createTestQueryClient();
+});
 
 afterEach(async () => {
   for (const [root, container] of mounted) {
@@ -22,6 +31,8 @@ afterEach(async () => {
   }
   mounted.clear();
   Element.prototype.scrollIntoView = originalScrollIntoView;
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  queryClient.clear();
   vi.restoreAllMocks();
 });
 
@@ -122,7 +133,7 @@ async function mount(element) {
   document.body.appendChild(container);
   const root = createRoot(container);
   mounted.set(root, container);
-  await act(async () => root.render(element));
+  await act(async () => root.render(withQueryClient(element, queryClient)));
   return {
     container,
     unmount: async () => {

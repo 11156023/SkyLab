@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -6,7 +6,9 @@ import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { LdapConfigService } from "../../../services/ldapConfig";
+import { useLdapConfigCacheUpdater, useLdapConfigQuery } from "../../../queries/ldapConfig";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError, useQueryErrorEffect } from "../../../hooks/useQueryLoadState";
 import { useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
 
 /**
@@ -58,37 +60,33 @@ function buildForm(config) {
 function LdapForm() {
   const { t } = useTranslation("system");
   const toast = useToast();
-  const [config, setConfig] = useState(null);
   const [form, setForm] = useState(null);
+  const [baseline, setBaseline] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  /* 載入失敗要看得見：記下錯誤訊息改渲染重試區塊，不要停在轉圈畫面 */
-  const [loadError, setLoadError] = useState(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const baseline = useMemo(() => (config ? buildForm(config) : null), [config]);
   const dirty = Boolean(form && baseline && Object.keys(form).some((key) => form[key] !== baseline[key]));
   useUnsavedChangesGuard(dirty);
 
+  /* 設定走 TanStack Query 讀（不輪詢、不因切回分頁重抓）；表單只在第一次拿到資料時初始化，
+     之後的背景重抓不會蓋掉正在編輯的欄位。載入失敗要看得見：改渲染重試區塊，不要停在轉圈畫面 */
+  const configQuery = useLdapConfigQuery();
+  const ldapCache = useLdapConfigCacheUpdater();
+  /* bind 密碼欄的 placeholder 看伺服器是否已存密碼；存檔後 setConfig 會換成新回應 */
+  const config = configQuery.data;
   useEffect(() => {
-    let cancelled = false;
-    setLoadError(null);
-    LdapConfigService.get()
-      .then((cfg) => {
-        if (cancelled) return;
-        setConfig(cfg);
-        setForm(buildForm(cfg));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setLoadError(err?.message ?? t("Error.generic", { ns: "common" }));
-        toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [toast, t, reloadKey]);
+    if (baseline !== null || configQuery.data === undefined) return;
+    const next = buildForm(configQuery.data);
+    setForm(next);
+    setBaseline(next);
+  }, [baseline, configQuery.data]);
 
-  const retryLoad = useCallback(() => setReloadKey((n) => n + 1), []);
+  /* 每次載入失敗提示一次：重抓時 error 會先清空再變回來，不能拿 error 物件當觸發條件 */
+  useQueryErrorEffect(configQuery, (err) => {
+    toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+  });
+
+  /* 重試區塊在重抓期間維持、不閃回轉圈，按重試才回到載入中（見 useLoadError） */
+  const { error: loadError, retry: retryLoad } = useLoadError(configQuery);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -97,8 +95,10 @@ function LdapForm() {
     setSaving(true);
     try {
       const updated = await LdapConfigService.update(toPayload(form));
-      setConfig(updated);
-      setForm(buildForm(updated));
+      ldapCache.setConfig(updated);
+      const next = buildForm(updated);
+      setForm(next);
+      setBaseline(next);
       toast.success(t("LdapTab.toastSaved"));
     } catch (err) {
       toast.error(t("LdapTab.toastSaveFailed", { message: err?.message ?? t("LdapTab.unknownError") }));
@@ -121,7 +121,7 @@ function LdapForm() {
   }
 
   if (!form && loadError) {
-    return <ErrorState onRetry={retryLoad} />;
+    return <ErrorState onRetry={() => retryLoad()} />;
   }
   if (!form) return <LoadingState text={t("LdapTab.loading")} />;
 

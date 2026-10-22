@@ -19,6 +19,7 @@ import { cancelVmRequest, pendingSignature } from "../../../services/pendingReso
 import { resourceKeys, useMyResourcesQuery, useResourceCacheUpdater } from "../../../queries/resources";
 import { usePendingVmRequestsQuery, useVmRequestCacheUpdater } from "../../../queries/vmRequests";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
 import { LIVE_STATUSES, isRowBackgroundClick, machineSpecLabel, resourceRowKey, statusAfterAction } from "./resourceRows";
@@ -663,11 +664,9 @@ export default function ResourcesPage() {
   const resources = resourcesQuery.data?.resources ?? EMPTY;
   const quickSessions = resourcesQuery.data?.sessions ?? EMPTY;
   const pending = pendingQuery.data ?? EMPTY;
-  /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料（原本就是靜默），
-     首載失敗後按重試會回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
-  const noData = resourcesQuery.data === undefined;
-  const loading = noData && (resourcesQuery.isPending || resourcesQuery.isFetching);
-  const error = noData && resourcesQuery.isError && !resourcesQuery.isFetching;
+  /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料（原本就是靜默）。
+     錯誤畫面在背景重試期間不閃回 skeleton，按重試才回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
+  const { loading, error, retry: retryResources } = useQueryView(resourcesQuery);
 
   /** 建立中的申請階段變化（審核通過、開通完成／失敗、取消）時靜默刷新資源列表 */
   const pendingSigRef = useRef(null);
@@ -761,7 +760,7 @@ export default function ResourcesPage() {
 
       <div className={styles.content}>
         {error ? (
-          <ErrorState onRetry={() => resourcesQuery.refetch()} />
+          <ErrorState onRetry={retryResources} />
         ) : loading ? (
           <LoadingState fullPage />
         ) : resourceListEmpty ? (

@@ -3,7 +3,7 @@
  * 固定顯示到期日、自動關機、閒置偵測與預定刪除，並提供「申請延長到期日」（走管理員審核）。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
@@ -12,6 +12,7 @@ import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { SpecChangeRequestsService } from "../../../../../services/specChangeRequests";
+import { useMySpecChangeRequestsQuery, useSpecChangeRequestCacheUpdater } from "../../../../../queries/specChangeRequests";
 import { focusInvalidField } from "../../../../../utils/focusField";
 import { AUTO_STOP_REASON_KEYS, effectiveExpiryIso, formatDate, formatDateTime } from "../lifecycleFormat";
 
@@ -90,39 +91,30 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
   const toast = useToast();
   const confirm = useConfirm();
   const lang = i18n.language || "zh-TW";
-  const [openRequest, setOpenRequest] = useState(null);
   const [showExtend, setShowExtend] = useState(false);
   const [busy, setBusy] = useState(false);
   const presence = useDialogPresence(showExtend);
 
-  const loadRequests = useCallback(async () => {
-    try {
-      const res = await SpecChangeRequestsService.listMy();
-      const pending = (res?.data ?? []).find(
-        (r) => r.vmid === vmid && r.change_type === "expiry" && r.status === "pending",
-      );
-      setOpenRequest(pending ?? null);
-    } catch {
-      /* 申請進度載入失敗不影響卡片本身 */
-    }
-  }, [vmid]);
-
-  useEffect(() => {
-    loadRequests();
-  }, [loadRequests]);
+  /* 這台還在審核中的延期申請；申請進度載入失敗不影響卡片本身 */
+  const requestCache = useSpecChangeRequestCacheUpdater();
+  const myRequests = useMySpecChangeRequestsQuery().data;
+  const openRequest = (myRequests ?? []).find(
+    (r) => r.vmid === vmid && r.change_type === "expiry" && r.status === "pending",
+  ) ?? null;
 
   async function handleSubmit({ requested_expiry_date, reason }) {
     setBusy(true);
     try {
-      const created = await SpecChangeRequestsService.create({
+      await SpecChangeRequestsService.create({
         vmid,
         change_type: "expiry",
         reason,
         requested_expiry_date,
       });
-      setOpenRequest(created);
       setShowExtend(false);
       toast.success(t("LifecycleCard.requestSubmitted"));
+      /* 新申請要出現在卡片上：重抓「我的申請」（期間 busy 擋住重複送出） */
+      await requestCache.invalidate();
     } catch (err) {
       toast.error(err?.message ?? t("LifecycleCard.submitFailed"));
     } finally {
@@ -142,8 +134,10 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
     if (!ok) return;
     setBusy(true);
     try {
-      await SpecChangeRequestsService.cancel(openRequest.id);
-      setOpenRequest(null);
+      /* 回來的是撤回後的申請（已結案）：就地換掉，提示列隨即消失 */
+      const cancelled = await SpecChangeRequestsService.cancel(openRequest.id);
+      if (cancelled?.id != null) requestCache.update(cancelled);
+      else await requestCache.invalidate();
       toast.success(t("LifecycleCard.requestCancelled"));
       onChanged?.();
     } catch (err) {

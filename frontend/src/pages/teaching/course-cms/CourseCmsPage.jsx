@@ -6,23 +6,34 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import { AuthStorage } from "../../../services/auth";
 import { connectReconnectingWebSocket } from "../../../utils/reconnectingWebSocket";
 import {
   CourseAdminService,
   courseProgressWsUrl,
 } from "../../../services/courses";
-import { TeachingClassesService } from "../../../services/teachingClasses";
+import { useAdminCoursePathsQuery, useCourseAdminCacheUpdater, usePathProgressQuery } from "../../../queries/courses";
+import { useTeachingClassesQuery } from "../../../queries/teachingClasses";
 import styles from "./CourseCmsPage.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import ContentEditor from "./ContentEditor";
+
+const EMPTY = Object.freeze([]);
 
 /* ══════════════ 進度監控 ══════════════ */
 function ProgressPanel({ paths, initialPathId = "" }) {
   const { t } = useTranslation("teaching");
   const [pathId, setPathId] = useState(initialPathId);
-  const [report, setReport] = useState(null);
-  const [failed, setFailed] = useState(false);
+  /* 報表走 TanStack Query：換路徑時有快取就先顯示那條路徑的上一份；即時推播（WebSocket）觸發的
+     快照由下面自己排先後再寫進快取，所以這裡不輪詢、切回分頁也不重抓 */
+  const progressQuery = usePathProgressQuery(pathId || null, { refetchInterval: false, refetchOnWindowFocus: false });
+  const courseAdminCache = useCourseAdminCacheUpdater();
+  const report = pathId ? progressQuery.data ?? null : null;
+  /* 第一次就讀不到才顯示錯誤；已有報表時即時更新失敗就沿用舊報表。
+     重抓期間維持錯誤畫面、不閃回載入中，按重試才回到載入中（見 useLoadError） */
+  const { error: progressError, retry: retryProgress } = useLoadError(progressQuery);
+  const failed = Boolean(progressError);
   const [live, setLive] = useState(false);
   const refetchTimer = useRef(null);
   const reportRequestRef = useRef(0);
@@ -35,35 +46,25 @@ function ProgressPanel({ paths, initialPathId = "" }) {
     if (initialPathId) setPathId(initialPathId);
   }, [initialPathId]);
 
+  /* 推播觸發的快照：同時可能有好幾支在路上，晚送出的先回來就以它為準，慢回來的舊快照不可以蓋掉；
+     已經回來的那份不等更新的請求，先顯示。失敗就沿用目前的報表（首次載入的錯誤由 query 自己顯示） */
   const fetchReport = useCallback((id) => {
     const requestId = ++reportRequestRef.current;
     CourseAdminService.getPathProgress(id)
       .then((data) => {
         if (activePathIdRef.current === id && requestId > appliedReportRequestRef.current) {
           appliedReportRequestRef.current = requestId;
-          setReport(data);
-          setFailed(false);
+          return courseAdminCache.setPathProgress(id, data);
         }
+        return undefined;
       })
-      /* 第一次就讀不到才顯示錯誤；已有報表時即時更新失敗就沿用舊報表 */
-      .catch(() => {
-        if (activePathIdRef.current === id && requestId > appliedReportRequestRef.current) {
-          appliedReportRequestRef.current = requestId;
-          setFailed(true);
-        }
-      });
-  }, []);
+      .catch(() => {});
+  }, [courseAdminCache]);
 
   useEffect(() => {
     setLive(false);
-    if (!pathId) {
-      setReport(null);
-      return undefined;
-    }
-    /* 先清掉上一條路徑的報表，免得新報表還沒回來前顯示的是別條路徑的進度 */
-    setReport(null);
-    setFailed(false);
-    fetchReport(pathId);
+    if (!pathId) return undefined;
+    /* 首次載入交給 query（換路徑就是換 key，不會顯示別條路徑的進度）；這裡只接推播 */
 
     // 合併 800 ms 內的事件；持續推播不能無限延後快照更新。
     const stop = connectReconnectingWebSocket(() => {
@@ -166,7 +167,7 @@ function ProgressPanel({ paths, initialPathId = "" }) {
           </div>
         )
       ) : failed ? (
-        <ErrorState onRetry={() => { setFailed(false); fetchReport(pathId); }} />
+        <ErrorState onRetry={() => retryProgress()} />
       ) : (
         <LoadingState />
       )}
@@ -179,19 +180,19 @@ export default function CourseCmsPage() {
   const { t } = useTranslation("teaching");
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(searchParams.get("tab") === "progress" ? "progress" : "editor");
-  const [pathsLoading, setPathsLoading] = useState(true);
-  const [paths, setPaths] = useState([]);
-  const [teachingClasses, setTeachingClasses] = useState([]);
+  /* 路徑清單與班級清單走 TanStack Query。這是編輯頁：不輪詢，改動後由內容編輯區要求重抓；
+     讀不到就當成空清單（與原本相同，不提示） */
+  const pathsQuery = useAdminCoursePathsQuery({ refetchInterval: false });
+  const paths = pathsQuery.data ?? EMPTY;
+  const pathsLoading = pathsQuery.data === undefined && (pathsQuery.isPending || pathsQuery.isFetching);
+  const classesQuery = useTeachingClassesQuery({ refetchInterval: false });
+  const teachingClasses = classesQuery.data ?? EMPTY;
+  const courseAdminCache = useCourseAdminCacheUpdater();
 
   const { confirmLeave } = useUnsavedChanges();
 
-  /* 回傳 promise：新增路徑後要等清單更新完再選中它 */
-  const reloadPaths = useCallback(() => {
-    return CourseAdminService.listPaths()
-      .then(setPaths)
-      .catch(() => {})
-      .finally(() => setPathsLoading(false));
-  }, []);
+  /* 回傳 promise：新增路徑後要等清單重抓完再選中它（重抓失敗沿用舊清單，不丟例外） */
+  const reloadPaths = useCallback(() => courseAdminCache.invalidatePaths(), [courseAdminCache]);
 
   /* 內容編輯有未儲存的修改時，切分頁先確認（會卸載編輯區） */
   async function changeTab(nextTab) {
@@ -203,11 +204,6 @@ export default function CourseCmsPage() {
     if (nextTab !== "progress") next.delete("pathId");
     setSearchParams(next, { replace: true });
   }
-
-  useEffect(() => {
-    reloadPaths();
-    TeachingClassesService.list().then(setTeachingClasses).catch(() => {});
-  }, [reloadPaths]);
 
   return (
     <div className={styles.page}>

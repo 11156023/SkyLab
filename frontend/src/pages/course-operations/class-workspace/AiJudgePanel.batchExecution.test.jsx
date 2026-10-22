@@ -3,14 +3,17 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { notifyManager } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { TeacherReviewTab } from "./AiJudgePanel";
 import { AiJudgeService } from "../../../services/aiJudge";
 import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import { toast } from "sonner";
 
 let root;
 let container;
+let queryClient;
 const pending = (id) => ({
   run_batch_id: id, status: "pending", summary: { targets: 100, completed: 0, failed: 0 },
   nodes: [{ run_id: "run-1", target_node_key: "web", status: "pending", progress_json: { stage: "preparing", done: 0, total: 100 } }],
@@ -19,6 +22,9 @@ const pending = (id) => ({
 
 beforeEach(() => {
   vi.useFakeTimers();
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；這裡的 timer 是假的，改成同步通知 */
+  notifyManager.setScheduler((callback) => callback());
+  queryClient = createTestQueryClient();
   vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
     { artifact_set_id: "set-1", is_active: true, status: "approved", children: [{ id: "script-1", target_node_key: "web" }] },
   ]);
@@ -36,6 +42,8 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   vi.useRealTimers();
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  queryClient.clear();
   vi.restoreAllMocks();
 });
 
@@ -44,9 +52,10 @@ async function flush(ms = 50) {
 }
 
 async function mount(classId = "class-1", sessionId = "session-1") {
-  await act(async () => root.render(
+  await act(async () => root.render(withQueryClient(
     <ConfirmProvider><TeacherReviewTab classId={classId} sessionId={sessionId} members={[]} /></ConfirmProvider>,
-  ));
+    queryClient,
+  )));
   await flush();
 }
 

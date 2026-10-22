@@ -11,7 +11,7 @@ function Table({ count }) {
   const rows = useVirtualRows({ count, estimateSize: ROW });
   return (
     <table>
-      <tbody ref={rows.bodyRef} data-enabled={String(rows.enabled)}>
+      <tbody ref={rows.attachBody} data-enabled={String(rows.enabled)}>
         {rows.paddingTop > 0 && <tr data-pad="top" style={{ height: rows.paddingTop }} />}
         {rows.items.map((item) => (
           <tr key={item.index} ref={rows.measureElement} data-index={item.index}>

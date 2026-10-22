@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -9,8 +9,8 @@ import MiningIncidentsPanel from "./MiningIncidentsPanel";
 import SystemHealthCard from "./SystemHealthCard";
 import usePersistedToggle from "./usePersistedToggle";
 import { MonitoringService } from "../../../services/monitoring";
+import { useAlertsQuery, useMonitoringCacheUpdater, useNodeRrdQuery } from "../../../queries/monitoring";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import usePveOverview from "../../../hooks/usePveOverview";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { formatDateTime, formatTime } from "../../../utils/formatDate";
@@ -51,6 +51,13 @@ function mapNodeRrd(points) {
 /* 節點用量整卡收合的偏好記在本機，重整後維持使用者的選擇 */
 const NODES_OPEN_STORAGE_KEY = "skylab.monitoringNodesOpen";
 
+/* 節點趨勢每 60 秒刷新一次（分頁隱藏時暫停）；固定看最近 1 天 */
+const NODE_TRENDS_REFRESH_INTERVAL = 60_000;
+const NODE_TRENDS_TIMEFRAME = "day";
+/* 未解除的告警（分頁角標與清單共用） */
+const ACTIVE_ALERTS_PARAMS = Object.freeze({ active: true });
+const EMPTY = Object.freeze([]);
+
 function UsageBar({ pct }) {
   return (
     <div className={styles.usageBar}>
@@ -87,25 +94,11 @@ function NodeTrends({ node }) {
     { key: "cpu",    label: "CPU %",    color: "--color-info" },
     { key: "memory", label: t("MonitoringPage.memoryPercentLabel"), color: "--color-success" },
   ];
-  const [data, setData] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const rrd = await MonitoringService.getNodeRrd(node, "day");
-        if (!cancelled) setData(mapNodeRrd(rrd));
-      } catch {
-        if (!cancelled) setData([]);
-      }
-    };
-    load();
-    const timer = setInterval(() => { if (!document.hidden) load(); }, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [node]);
+  const rrdQuery = useNodeRrdQuery(node, NODE_TRENDS_TIMEFRAME, { refetchInterval: NODE_TRENDS_REFRESH_INTERVAL });
+  /* 首次就抓不到時當作沒有趨勢資料（同原本）；背景刷新失敗沿用上一份圖表 */
+  const data = rrdQuery.data !== undefined
+    ? mapNodeRrd(rrdQuery.data)
+    : rrdQuery.isError ? EMPTY : null;
 
   if (data === null) {
     return <LoadingState text={t("MonitoringPage.loadingTrends")} />;
@@ -144,21 +137,14 @@ export function AlertsCard({ onCountChange }) {
     vm: "VM",
     system: t("MonitoringPage.scopeSystem"),
   };
-  const [alerts, setAlerts] = useState(null);
   const [ackBusy, setAckBusy] = useState(null);
-
-  const load = useCallback(async () => {
-    try {
-      setAlerts(await MonitoringService.listAlerts({ active: true }));
-    } catch {
-      setAlerts((prev) => prev ?? []);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-  useAutoRefresh(load);
+  /* 30 秒背景刷新、分頁隱藏時暫停。首次就抓不到時當作沒有告警（同原本，不擋住面板）；
+     背景刷新失敗沿用上一份清單 */
+  const alertsQuery = useAlertsQuery(ACTIVE_ALERTS_PARAMS);
+  const monitoringCache = useMonitoringCacheUpdater();
+  const alerts = alertsQuery.data !== undefined
+    ? alertsQuery.data ?? EMPTY
+    : alertsQuery.isError ? EMPTY : null;
 
   /* 分頁角標要顯示筆數，載入後回報給頁面 */
   useEffect(() => {
@@ -169,7 +155,8 @@ export function AlertsCard({ onCountChange }) {
     setAckBusy(alertId);
     try {
       await MonitoringService.ackAlert(alertId);
-      await load();
+      /* 重抓完才解除按鈕的忙碌狀態（同原本 await load()）；告警清單的各種參數（含管理首頁）一起過期 */
+      await monitoringCache.invalidateAlerts();
     } catch (e) {
       toast.error(e?.message ?? t("MonitoringPage.toastAckFailed"));
     } finally {

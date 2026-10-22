@@ -16,11 +16,41 @@ import { LIST_REFRESH_INTERVAL } from "./queryClient";
 export const vmRequestKeys = Object.freeze({
   all: ["vmRequests"],
   mine: ["vmRequests", "mine"],
+  everyone: (status, params) => ["vmRequests", "everyone", status ?? null, params ?? {}],
+  reviewContext: (requestId) => ["vmRequests", "reviewContext", String(requestId)],
 });
+
+/** 管理員：全部申請單（審核頁、管理首頁）；參數與 VmRequestsService.listAll 相同 */
+export function useAllVmRequestsQuery(status, params, { enabled = true, refetchInterval = LIST_REFRESH_INTERVAL, select } = {}) {
+  return useQuery({
+    queryKey: vmRequestKeys.everyone(status, params),
+    queryFn: () => VmRequestsService.listAll(status, params),
+    enabled,
+    refetchInterval,
+    select,
+  });
+}
+
+/** 審核單一申請時的脈絡（配額、衝突…） */
+export function useVmRequestReviewContextQuery(requestId, { enabled } = {}) {
+  return useQuery({
+    queryKey: vmRequestKeys.reviewContext(requestId),
+    queryFn: () => VmRequestsService.getReviewContext(requestId),
+    enabled: enabled ?? (requestId != null),
+  });
+}
 
 async function fetchMyVmRequests({ signal }) {
   const res = await VmRequestsService.list({ signal });
   return res?.data ?? [];
+}
+
+/**
+ * 我的申請單的 query 設定（key＋queryFn）。hook 與事件處理裡的
+ * `queryClient.fetchQuery(myVmRequestsQueryOptions())` 共用，快取格式只寫在這裡。
+ */
+export function myVmRequestsQueryOptions() {
+  return { queryKey: vmRequestKeys.mine, queryFn: fetchMyVmRequests };
 }
 
 /** 建立中（尚未開通完成）的申請：資源列表 placeholder 用 */
@@ -46,8 +76,7 @@ export function creatingPollInterval(items) {
  */
 export function useMyVmRequestsQuery({ select, enabled = true, refetchInterval } = {}) {
   return useQuery({
-    queryKey: vmRequestKeys.mine,
-    queryFn: fetchMyVmRequests,
+    ...myVmRequestsQueryOptions(),
     select,
     enabled,
     refetchInterval: refetchInterval ?? ((query) => creatingPollInterval(query.state.data)),
@@ -79,6 +108,10 @@ export function useVmRequestCacheUpdater() {
     },
     invalidate() {
       return queryClient.invalidateQueries({ queryKey: vmRequestKeys.mine });
+    },
+    /** 審核／重試後：全部申請單的各種篩選都重抓 */
+    invalidateEveryone() {
+      return queryClient.invalidateQueries({ queryKey: ["vmRequests", "everyone"] });
     },
   };
 }

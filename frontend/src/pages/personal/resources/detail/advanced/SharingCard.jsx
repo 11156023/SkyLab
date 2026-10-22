@@ -3,7 +3,7 @@
  * 授權同學開關機／開主控台（共享），或把整台機器交給別人（轉移）。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import styles from "../ResourceDetailPage.module.scss";
@@ -14,6 +14,14 @@ import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { ResourcesService } from "../../../../../services/resources";
+import {
+  useQueryErrorEffect,
+  useResourceDetailCacheUpdater,
+  useSharesQuery,
+} from "../../../../../queries/resourceDetail";
+import { resourceKeys, useResourceCacheUpdater } from "../../../../../queries/resources";
+
+const EMPTY = Object.freeze([]);
 
 function TransferModal({ resource, closing, loading, onClose, onSubmit }) {
   const { t } = useTranslation("personal");
@@ -70,27 +78,22 @@ export default function SharingCard({ vmid, resource, backTo }) {
   const toast = useToast();
   const confirm = useConfirm();
   const navigate = useNavigate();
-  const [shares, setShares] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const detailCache = useResourceDetailCacheUpdater();
+  const myResourcesCache = useResourceCacheUpdater(resourceKeys.mine);
+  const allResourcesCache = useResourceCacheUpdater(resourceKeys.everyone);
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [showTransfer, setShowTransfer] = useState(false);
   const transferPresence = useDialogPresence(showTransfer);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setShares((await ResourcesService.listShares(vmid)) ?? []);
-    } catch (err) {
-      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      setLoading(false);
-    }
-  }, [vmid, toast, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  /* 載入失敗時提示，清單當成空的（輸入框照常可用） */
+  const sharesQuery = useSharesQuery(vmid);
+  useQueryErrorEffect(sharesQuery, (err) => {
+    toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+  });
+  const shares = sharesQuery.data ?? EMPTY;
+  const loading = sharesQuery.data === undefined && (sharesQuery.isPending || sharesQuery.isFetching);
+  const load = () => detailCache.invalidateShares(vmid);
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -133,6 +136,11 @@ export default function SharingCard({ vmid, resource, backTo }) {
       const res = await ResourcesService.transferOwnership(vmid, target, keepAccess);
       toast.success(res.message);
       setShowTransfer(false);
+      /* 機器換了主人：不保留權限就先從「我的資源」快取拿掉，兩份清單都標成過期，
+         回到清單時會重抓，不會先閃一下已經不是自己的那台 */
+      if (!keepAccess) await myResourcesCache.remove(vmid);
+      myResourcesCache.invalidate();
+      allResourcesCache.invalidate();
       navigate(backTo ?? "/my-resources");
     } catch (err) {
       toast.error(err?.message ?? t("SharingCard.transferFailed"));

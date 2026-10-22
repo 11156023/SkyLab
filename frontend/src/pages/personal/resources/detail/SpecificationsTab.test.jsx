@@ -24,12 +24,23 @@ vi.mock("../../../../contexts/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("../../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => async () => true }));
 
 import SpecificationsTab from "./SpecificationsTab";
+import { createTestQueryClient, withQueryClient } from "../../../../queries/testing";
+import { specChangeRequestKeys } from "../../../../queries/specChangeRequests";
 
 let host, root;
 
-async function render() {
-  await act(async () => root.render(<SpecificationsTab vmid={300} />));
-  await act(async () => {});
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick，再把 microtask 清掉 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
+
+async function render(client = createTestQueryClient()) {
+  await act(async () => root.render(withQueryClient(<SpecificationsTab vmid={300} />, client)));
+  await flush();
+  await flush();
 }
 
 const valueSetter = (el) => Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value").set;
@@ -54,7 +65,8 @@ async function submit() {
   const button = [...host.querySelectorAll("button")].find((b) =>
     /SpecificationsTab\.(submitRequest|applyChanges)/.test(b.textContent));
   await act(async () => button.click());
-  await act(async () => {});
+  await flush();
+  await flush();
 }
 
 const coresNumberInput = () => host.querySelector('input[type="number"][aria-label="SpecificationsTab.cpuCoresLabel"]');
@@ -169,5 +181,85 @@ describe("已設核心上限", () => {
     await submit();
     expect(resources.updateSpecDirect).not.toHaveBeenCalled();
     expect(toastApi.error).toHaveBeenCalledWith("SpecificationsTab.noChanges");
+  });
+
+  it("管理員直接套用後重抓規格，表單回到新的目前值", async () => {
+    auth.user = { id: "a1", role: "admin" };
+    await render();
+    resources.getSpecs.mockResolvedValue({
+      vmid: 300, resource_type: "lxc", cpu_cores: 2, memory_mb: 2048, disk_gb: 8,
+    });
+    await slide("spec-memory", 2048);
+    await submit();
+    expect(resources.updateSpecDirect).toHaveBeenCalledTimes(1);
+    expect(resources.getSpecs).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain("SpecificationsTab.currentMemoryLabel:2");
+  });
+});
+
+describe("規格調整申請的進度", () => {
+  const applying = {
+    id: "r1", vmid: 300, status: "approved", apply_status: "applying",
+    change_type: "combined", requested_memory: 2048, created_at: "2026-10-20T00:00:00Z",
+  };
+
+  beforeEach(() => {
+    resources.getSpecs.mockResolvedValue({
+      vmid: 300, resource_type: "lxc", cpu_cores: 2, memory_mb: 1024, disk_gb: 8,
+    });
+  });
+
+  it("送出後重抓我的申請：通知列出現、表單鎖住", async () => {
+    await render();
+    specRequests.listMy.mockResolvedValue({
+      data: [{ id: "r1", vmid: 300, status: "pending", change_type: "combined", created_at: "2026-10-20T00:00:00Z" }],
+    });
+    await slide("spec-memory", 2048);
+    await typeReason("需要更多記憶體跑課程作業");
+    await submit();
+
+    expect(specRequests.create).toHaveBeenCalledTimes(1);
+    expect(specRequests.listMy).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain("SpecificationsTab.noticePending");
+    expect(host.querySelector("#spec-reason").disabled).toBe(true);
+    /* 送出後剩餘配額會變：重抓一次 */
+    expect(quotas.getMyUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("套用中結束後重抓規格，「目前」數字更新、通知列消失", async () => {
+    specRequests.listMy.mockResolvedValue({ data: [applying] });
+    const client = createTestQueryClient();
+    await render(client);
+    expect(host.textContent).toContain("SpecificationsTab.noticeApplying");
+    expect(host.textContent).toContain("SpecificationsTab.currentMemoryLabel:1");
+
+    specRequests.listMy.mockResolvedValue({ data: [{ ...applying, apply_status: "applied" }] });
+    resources.getSpecs.mockResolvedValue({
+      vmid: 300, resource_type: "lxc", cpu_cores: 2, memory_mb: 2048, disk_gb: 8,
+    });
+    /* 模擬 5 秒一輪的進度輪詢 */
+    await act(async () => { await client.refetchQueries({ queryKey: specChangeRequestKeys.mine }); });
+    await flush();
+    await flush();
+
+    expect(resources.getSpecs).toHaveBeenCalledTimes(2);
+    expect(host.textContent).not.toContain("SpecificationsTab.noticeApplying");
+    expect(host.textContent).toContain("SpecificationsTab.currentMemoryLabel:2");
+  });
+
+  it("撤銷後就地換成已結案的申請，不必重抓清單", async () => {
+    const pending = { id: "r2", vmid: 300, status: "pending", change_type: "combined", created_at: "2026-10-20T00:00:00Z" };
+    specRequests.listMy.mockResolvedValue({ data: [pending] });
+    specRequests.cancel.mockResolvedValue({ ...pending, status: "cancelled" });
+    await render();
+    expect(host.textContent).toContain("SpecificationsTab.noticePending");
+
+    const cancelButton = [...host.querySelectorAll("button")].find((b) => b.textContent.includes("SpecificationsTab.cancelRequest"));
+    await act(async () => cancelButton.click());
+    await flush();
+
+    expect(specRequests.cancel).toHaveBeenCalledWith("r2");
+    expect(specRequests.listMy).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain("SpecificationsTab.noticePending");
   });
 });

@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import BackupsTab from "./BackupsTab";
+import { createTestQueryClient, withQueryClient } from "../../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   listBackups: vi.fn(),
@@ -40,10 +41,20 @@ let host;
 let toolbar;
 let root;
 let onOperationFailed;
+let client;
+
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick，再把 microtask 清掉 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  client = createTestQueryClient();
   mocks.jobs = { items: [] };
   mocks.listBackups.mockResolvedValue([NEW, OLD]);
   mocks.confirm.mockResolvedValue(true);
@@ -65,11 +76,14 @@ afterEach(async () => {
 });
 
 async function renderTab(capability = { available: true, requires_shutdown: false, max_count: 3 }) {
+  /* 同一個 client：重繪（例如任務清單變了）時沿用同一份快取，不會被當成重新掛載 */
   await act(async () => {
-    root.render(
+    root.render(withQueryClient(
       <BackupsTab vmid={105} toolbar={toolbar} capability={capability} onOperationFailed={onOperationFailed} />,
-    );
+      client,
+    ));
   });
+  await flush();
   return capability;
 }
 
@@ -154,6 +168,7 @@ describe("BackupsTab", () => {
     await renderTab();
     mocks.listBackups.mockResolvedValue([OLD]);
     await act(async () => buttonsByText(rows()[0], "BackupsTab.delete")[0].click());
+    await flush();
 
     expect(mocks.deleteBackup).toHaveBeenCalledWith(105, NEW.volid);
     expect(mocks.listBackups).toHaveBeenCalledTimes(2);

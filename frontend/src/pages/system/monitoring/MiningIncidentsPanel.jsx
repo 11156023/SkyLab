@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import styles from "./MonitoringPage.module.scss";
@@ -7,14 +7,16 @@ import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { MiningIncidentsService } from "../../../services/miningIncidents";
+import { useMiningIncidentCacheUpdater, useMiningIncidentsQuery } from "../../../queries/miningIncidents";
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { formatDateTime } from "../../../utils/formatDate";
 
 /** 待處理＝detected／suspended（與後端 open 定義相同）；banned／dismissed 為已結案 */
 const isOpenIncident = (status) => status === "detected" || status === "suspended";
+
+const EMPTY = Object.freeze([]);
 
 /** 待處理顯示紅色，已結案中性 */
 function statusBadgeClass(status) {
@@ -57,25 +59,18 @@ export default function MiningIncidentsPanel({ onCountChange }) {
     banned: t("MiningIncidentsPanel.statusBanned"),
     dismissed: t("MiningIncidentsPanel.statusDismissed"),
   };
-  const [incidents, setIncidents] = useState(null);
   const [dismissTarget, setDismissTarget] = useState(null);
   const [dismissExempt, setDismissExempt] = useState(false);
   const [dismissNote, setDismissNote] = useState("");
   const [busy, setBusy] = useState(false);
   const dismissDialog = useDialogPresence(dismissTarget);
-
-  const load = useCallback(async () => {
-    try {
-      setIncidents(await MiningIncidentsService.list());
-    } catch {
-      setIncidents((prev) => prev ?? []);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-  useAutoRefresh(load);
+  /* 30 秒背景刷新、分頁隱藏時暫停。首次就抓不到時當作沒有事件（同原本，不擋住面板）；
+     背景刷新失敗沿用上一份清單 */
+  const incidentsQuery = useMiningIncidentsQuery();
+  const incidentCache = useMiningIncidentCacheUpdater();
+  const incidents = incidentsQuery.data !== undefined
+    ? incidentsQuery.data ?? EMPTY
+    : incidentsQuery.isError ? EMPTY : null;
 
   const open = (incidents ?? []).filter((i) => isOpenIncident(i.status));
   const closed = (incidents ?? []).filter((i) => !isOpenIncident(i.status));
@@ -100,7 +95,8 @@ export default function MiningIncidentsPanel({ onCountChange }) {
     try {
       await MiningIncidentsService.ban(incident.id);
       toast.success(t("MiningIncidentsPanel.toastBanSuccess"));
-      await load();
+      /* 重抓完才解除 busy（同原本 await load()）；管理首頁的待處理數也一起過期 */
+      await incidentCache.invalidate();
     } catch (e) {
       toast.error(t("MiningIncidentsPanel.toastBanFailed", { message: e?.message ?? t("MiningIncidentsPanel.unknownError") }));
     } finally {
@@ -129,7 +125,7 @@ export default function MiningIncidentsPanel({ onCountChange }) {
         toast.success(t(outcome.key));
       }
       closeDismiss();
-      await load();
+      await incidentCache.invalidate();
     } catch (e) {
       toast.error(t("MiningIncidentsPanel.toastDismissFailed", { message: e?.message ?? t("MiningIncidentsPanel.unknownError") }));
     } finally {

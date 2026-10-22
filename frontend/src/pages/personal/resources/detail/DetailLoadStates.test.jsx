@@ -24,7 +24,6 @@ vi.mock("react-i18next", async (original) => ({ ...await original(),
 }));
 vi.mock("../../../../services/resources", () => ({ ResourcesService: service }));
 vi.mock("../../../../hooks/useToast", () => ({ useToast: () => toastApi }));
-vi.mock("../../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "u1", role: "student" } }) }));
 vi.mock("../../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => async () => false }));
 vi.mock("../../../../components/RrdChart/RrdChart", () => ({ default: () => null }));
@@ -38,11 +37,25 @@ import OverviewTab from "./OverviewTab";
 import MonitoringTab from "./MonitoringTab";
 import BootOptionsCard from "./advanced/BootOptionsCard";
 import CredentialsCard from "./advanced/CredentialsCard";
+import { withQueryClient } from "../../../../queries/testing";
 
 let host, root;
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick，再把 microtask 清掉 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
+/* 詳情 → 憑證這類相依的讀取要等兩輪 */
 async function render(element) {
-  await act(async () => root.render(element));
-  await act(async () => {});
+  await act(async () => root.render(withQueryClient(element)));
+  await flush();
+  await flush();
+}
+async function clickRetry() {
+  await act(async () => retryButton().click());
+  await flush();
 }
 const retryButton = () => [...host.querySelectorAll("button")].find((b) => b.textContent.includes("Error.retry"));
 
@@ -161,7 +174,7 @@ describe("first load failures show a retryable error, not an endless spinner", (
     expect(host.textContent).not.toContain("BootOptionsCard.loading");
     expect(retryButton()).toBeTruthy();
     service.getBootOptions.mockResolvedValueOnce({ boot_order: [], boot_devices: [], supports_boot_order: true });
-    await act(async () => retryButton().click());
+    await clickRetry();
     expect(retryButton()).toBeFalsy();
     expect(host.textContent).toContain("BootOptionsCard.bootOrderDefault");
   });
@@ -172,7 +185,7 @@ describe("first load failures show a retryable error, not an endless spinner", (
     expect(host.textContent).not.toContain("CredentialsCard.loading");
     expect(retryButton()).toBeTruthy();
     service.getCredentials.mockResolvedValueOnce({ authorized_keys: [], username: "student" });
-    await act(async () => retryButton().click());
+    await clickRetry();
     expect(host.textContent).toContain("student");
   });
 
@@ -182,8 +195,7 @@ describe("first load failures show a retryable error, not an endless spinner", (
     expect(host.textContent).not.toContain("MonitoringTab.loadingData");
     expect(retryButton()).toBeTruthy();
     service.getCurrentStats.mockResolvedValueOnce({ cpu: 0.5, maxcpu: 2 });
-    await act(async () => retryButton().click());
-    await act(async () => {});
+    await clickRetry();
     expect(retryButton()).toBeFalsy();
     expect(host.textContent).toContain("MonitoringTab.cpuUsage");
   });

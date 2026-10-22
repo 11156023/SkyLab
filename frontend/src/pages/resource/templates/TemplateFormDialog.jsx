@@ -4,8 +4,9 @@ import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import { useAuth } from "../../../contexts/AuthContext";
-import { ResourcesService } from "../../../services/resources";
 import { TemplatesService } from "../../../services/templates";
+import { useAllResourcesQuery, useMyResourcesQuery } from "../../../queries/resources";
+import { useTemplateAttachmentsQuery, useTemplateCacheUpdater } from "../../../queries/templates";
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { focusInvalidField } from "../../../utils/focusField";
@@ -34,19 +35,66 @@ const fileExt = (name) => {
   return idx >= 0 ? String(name).slice(idx).toLowerCase() : "";
 };
 
+const NO_RESOURCES = Object.freeze([]);
+const NO_ATTACHMENTS = Object.freeze([]);
+
+/* 來源機器清單只在「建立、來源沒鎖定」時才需要：把讀取放在只有那時才掛載的外層元件，
+   編輯模式與從資源列表開啟時完全不抓（hook 不能有條件呼叫，所以分成兩個元件）。
+   清單與資源頁共用同一份 TanStack Query 快取，對話框開著時跟著背景刷新 */
+function MySourceResourcesDialog(props) {
+  const query = useMyResourcesQuery();
+  const data = query.data;
+  const failed = query.isError;
+  return (
+    <TemplateFormDialogBody
+      {...props}
+      sourceResources={data?.resources ?? NO_RESOURCES}
+      sourceResourcesLoading={data === undefined && !failed}
+    />
+  );
+}
+
+/** 管理員：可從全部機器挑來源 */
+function AllSourceResourcesDialog(props) {
+  const query = useAllResourcesQuery();
+  const data = query.data;
+  const failed = query.isError;
+  return (
+    <TemplateFormDialogBody
+      {...props}
+      sourceResources={data?.resources ?? NO_RESOURCES}
+      sourceResourcesLoading={data === undefined && !failed}
+    />
+  );
+}
+
 /**
  * 建立（從 VM 轉換）或編輯範本的 dialog，也是唯一的「轉成範本」對話框。
  * template 有值 = 編輯模式。
  * sourceResource 有值 = 從資源列表「更多」選單開啟：來源機器預選且鎖定，名稱預填機器名稱。
  * 附件可一次選多個：編輯模式依序即時上傳；建立模式先暫存，create 成功後補上傳。
  */
-export default function TemplateFormDialog({ template, sourceResource = null, closing = false, onClose, onSaved }) {
+export default function TemplateFormDialog(props) {
+  const { user } = useAuth();
+  const needsSourceList = !props.template && !props.sourceResource;
+  if (!needsSourceList) return <TemplateFormDialogBody {...props} />;
+  return isAdminUser(user) ? <AllSourceResourcesDialog {...props} /> : <MySourceResourcesDialog {...props} />;
+}
+
+function TemplateFormDialogBody({
+  template,
+  sourceResource = null,
+  closing = false,
+  onClose,
+  onSaved,
+  sourceResources = NO_RESOURCES,
+  sourceResourcesLoading = false,
+}) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const confirm = useConfirm();
-  const { user } = useAuth();
+  const templateCache = useTemplateCacheUpdater();
   const isEdit = Boolean(template);
-  const isAdmin = isAdminUser(user);
 
   const sourceLocked = !isEdit && Boolean(sourceResource);
 
@@ -64,38 +112,21 @@ export default function TemplateFormDialog({ template, sourceResource = null, cl
   const [defaultCores, setDefaultCores] = useState(template?.default_cores || 2);
   const [defaultMemory, setDefaultMemory] = useState(template?.default_memory || 2048);
   const [requiresGpu, setRequiresGpu] = useState(Boolean(template?.requires_gpu));
-  const [resources, setResources] = useState(sourceLocked ? [sourceResource] : []);
-  const [resourcesLoading, setResourcesLoading] = useState(!isEdit && !sourceLocked);
+  const resources = sourceLocked ? [sourceResource] : sourceResources;
+  const resourcesLoading = sourceResourcesLoading;
   const [busy, setBusy] = useState(false);
 
-  // 編輯模式：既有附件（即時操作）
-  const [attachments, setAttachments] = useState([]);
+  // 編輯模式：既有附件（即時操作；清單在 TanStack Query 快取裡，上傳／刪除後就地改，
+  // 操作手冊對話框看到的是同一份）。載入失敗維持原本的靜默，當成沒有附件
+  const attachmentsQuery = useTemplateAttachmentsQuery(template?.id, { enabled: isEdit });
+  const attachmentsData = attachmentsQuery.data;
+  const attachments = (isEdit ? attachmentsData : undefined) ?? NO_ATTACHMENTS;
   const [attachBusy, setAttachBusy] = useState(false);
   // 上傳中才顯示上傳區塊的載入動畫（{ current, total }，多檔時顯示進度）；
   // 刪除附件也會 attachBusy，但不算上傳
   const [uploadProgress, setUploadProgress] = useState(null);
   // 建立模式：暫存檔案，create 成功後補上傳
   const [pendingAttachments, setPendingAttachments] = useState([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!isEdit) {
-      // 來源已由呼叫端指定時不用再抓機器清單
-      if (!sourceLocked) {
-        (isAdmin ? ResourcesService.listAll() : ResourcesService.list())
-          .then((res) => !cancelled && setResources(res ?? []))
-          .catch(() => {})
-          .finally(() => !cancelled && setResourcesLoading(false));
-      }
-    } else {
-      TemplatesService.listAttachments(template.id)
-        .then((res) => !cancelled && setAttachments(res?.data ?? []))
-        .catch(() => {});
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [isEdit, isAdmin, sourceLocked, template?.id]);
 
   // 來源機類型決定可否設定 GPU（hostpci 僅 qemu 支援）
   const selectedResource = resources.find((r) => String(r.vmid) === sourceVmid);
@@ -150,7 +181,7 @@ export default function TemplateFormDialog({ template, sourceResource = null, cl
       accepted,
       async (file) => {
         const created = await TemplatesService.uploadAttachment(template.id, file);
-        setAttachments((prev) => [...prev, created]);
+        await templateCache.addAttachment(template.id, created);
       },
       setUploadProgress,
     );
@@ -174,7 +205,7 @@ export default function TemplateFormDialog({ template, sourceResource = null, cl
     setAttachBusy(true);
     try {
       await TemplatesService.removeAttachment(template.id, attachmentId);
-      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      await templateCache.removeAttachment(template.id, attachmentId);
     } catch (e) {
       toast.error(e?.message ?? t("TemplateFormDialog.attachmentDeleteFailed"));
     } finally {

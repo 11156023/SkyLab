@@ -6,15 +6,15 @@
  * SkyLab: 受管規則上鎖，只能由連線／拓撲管理（與資源詳情的 FirewallCard 同規則）。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { deleteVmRule, updateVmRule } from "../../services/firewall";
 import {
-  deleteVmRule,
-  getVmRules,
-  getVmOptions,
-  updateVmRule,
-} from "../../services/firewall";
+  useFirewallCacheUpdater,
+  useVmFirewallOptionsQuery,
+  useVmFirewallRulesQuery,
+} from "../../queries/firewall";
 import styles from "./RulesPanel.module.scss";
 import MIcon from "../MIcon";
 import Switch from "../Switch/Switch";
@@ -26,6 +26,8 @@ import { useConfirm } from "../ConfirmDialog/ConfirmProvider";
 import { useAuth } from "../../contexts/AuthContext";
 import { isAdminUser } from "../../utils/roles";
 
+const EMPTY = Object.freeze([]);
+
 function Badge({ label, variant }) {
   return <span className={`${styles.badge} ${styles[`badge_${variant}`]}`}>{label}</span>;
 }
@@ -36,50 +38,35 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
   const confirm = useConfirm();
   const { user } = useAuth();
   const isAdmin = isAdminUser(user);
-  const [rules,   setRules]   = useState([]);
-  const [options, setOptions] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState("");
   const [busy,    setBusy]    = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const addPresence = useDialogPresence(showAdd);
-  /* 面板在切換 VM 時不會重掛；前一台 VM 較慢回來的回應不能蓋掉目前這台，
-     否則清單顯示 A 的規則、刪除／停用卻打到 B 的同一個 pos。 */
-  const vmidRef = useRef(node?.vmid);
-  vmidRef.current = node?.vmid;
-  const seqRef = useRef(0);
+  /* 規則與選項走 TanStack Query，以 vmid 為 key。面板在切換 VM 時不會重掛；前一台 VM 較慢回來的回應
+     只會進那台的 key，不會蓋掉目前這台（否則清單顯示 A 的規則、刪除／停用卻打到 B 的同一個 pos）。
+     刻意不沿用上一台的資料當佔位：換機器時先顯示載入中。不輪詢，寫入後才重抓。 */
+  const vmid = node?.vmid ?? null;
+  const rulesQuery = useVmFirewallRulesQuery(vmid);
+  const optionsQuery = useVmFirewallOptionsQuery(vmid);
+  const firewallCache = useFirewallCacheUpdater();
+  const rules = rulesQuery.data ?? EMPTY;
+  const options = optionsQuery.data ?? null;
+  /* 兩份都到齊才顯示；首載失敗顯示錯誤，寫入後的背景重抓失敗保留畫面上的資料（與原本相同） */
+  const noData = rulesQuery.data === undefined || optionsQuery.data === undefined;
+  const fetching = rulesQuery.isFetching || optionsQuery.isFetching;
+  const loading = noData && (rulesQuery.isPending || optionsQuery.isPending || fetching);
+  const failed = noData && (rulesQuery.isError || optionsQuery.isError) && !fetching;
+  const error = failed
+    ? ((rulesQuery.error ?? optionsQuery.error)?.message ?? t("Error.generic", { ns: "common" }))
+    : "";
 
-  const load = useCallback(async (silent = false) => {
-    if (!node?.vmid) return;
-    const vmid = node.vmid;
-    const seq = ++seqRef.current;
-    const isCurrent = () => seq === seqRef.current && vmid === vmidRef.current;
-    if (!silent) {
-      setLoading(true);
-      setError("");
-    }
-    try {
-      const [r, o] = await Promise.all([getVmRules(vmid), getVmOptions(vmid)]);
-      if (!isCurrent()) return;
-      setRules(r ?? []);
-      setOptions(o);
-    } catch (err) {
-      if (!silent && isCurrent()) setError(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      // 靜默重載若接手了被取代的一般載入，也要負責收掉 loading
-      if (isCurrent()) setLoading(false);
-    }
-  }, [node?.vmid, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  /* 寫入後重抓這台的規則、選項（與資源詳情的迷你拓撲）；重抓失敗不打斷操作 */
+  const reload = () => firewallCache.invalidateVm(node.vmid);
 
   async function handleToggle(rule) {
     setBusy(true);
     try {
       await updateVmRule(node.vmid, rule.pos, { enable: rule.enable === 0 ? 1 : 0 });
-      await load(true);
+      await reload();
     } catch (err) {
       toast.error(err?.message ?? t("RulesPanel.saveFailed"));
     } finally {
@@ -98,7 +85,7 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
     try {
       await deleteVmRule(node.vmid, rule.pos);
       toast.success(t("RulesPanel.ruleDeleted"));
-      await load(true);
+      await reload();
     } catch (err) {
       toast.error(err?.message ?? t("RulesPanel.deleteFailed"));
     } finally {
@@ -110,7 +97,7 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
   function handleDialogDone(result) {
     toast.success(result?.kind === "rule" ? t("RulesPanel.ruleAdded") : t("RulesPanel.connectionAdded"));
     setShowAdd(false);
-    load(true);
+    reload();
     if (result?.kind !== "rule") onChanged?.();
   }
 

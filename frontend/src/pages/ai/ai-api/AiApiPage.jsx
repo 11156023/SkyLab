@@ -13,7 +13,16 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
+import {
+  useAiApiCacheUpdater,
+  useAiCredentialQuery,
+  useMyAiCredentialsQuery,
+  useMyAiRequestsQuery,
+  useMyAiUsageQuery,
+  useMyAiUsageRecordsInfiniteQuery,
+} from "../../../queries/aiApi";
+import { LIST_REFRESH_INTERVAL } from "../../../queries/queryClient";
 import { focusInvalidField } from "../../../utils/focusField";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import RrdChart from "../../../components/RrdChart/RrdChart";
@@ -25,6 +34,13 @@ const ReadOnlyCode = lazy(() => import("../../../components/ReadOnlyCode/ReadOnl
 const AiApiChatTab = lazy(() => import("./AiApiChatTab"));
 
 /* ── helpers ── */
+
+const EMPTY = Object.freeze([]);
+
+/* listMyRequests 的回應裡有沒有待審的申請（決定要不要背景輪詢） */
+function hasPendingRequest(response) {
+  return (response?.data ?? []).some((item) => item.status === "pending");
+}
 
 function isExpired(value) {
   if (!value) return false;
@@ -248,39 +264,24 @@ function KeyDetailDialog({ credential, apiKey, state, closing = false, onClose }
   const { t } = useTranslation("ai");
   const copy = useCopyToClipboard();
   const usable = state === "active";
-  const [loadedKey, setLoadedKey] = useState(apiKey || "");
-  const [keyLoading, setKeyLoading] = useState(!apiKey && usable);
-  const [keyError, setKeyError] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  const requestRef = useRef(null);
+  /* 輪替剛拿到的明文直接顯示；其餘可用的金鑰開視窗時才向擁有者端點取回完整金鑰
+     （查詢 gcTime 0，視窗一關就從快取丟掉）。已失效的不取回、也不給複製。 */
+  const needsFetch = usable && !apiKey;
+  const keyQuery = useAiCredentialQuery(credential.id, { enabled: needsFetch && !closing });
+  const { cancelCredential } = useAiApiCacheUpdater();
+  const loadedKey = keyQuery.data?.api_key || "";
+  const keyFetching = keyQuery.isFetching;
+  const keyLoading = needsFetch && !loadedKey && (keyQuery.isPending || keyFetching);
+  /* 回應裡沒有金鑰也算失敗：不能拿前綴當金鑰給人複製 */
+  const keyError = needsFetch && !keyFetching
+    && (keyQuery.isError || (keyQuery.data !== undefined && !keyQuery.data?.api_key));
   const displayApiKey = usable ? apiKey || loadedKey : "";
   const baseUrl = buildAiProxyBaseUrl(credential.base_url);
 
-  useEffect(() => {
-    if (apiKey || !usable) return undefined;
-    const controller = new AbortController();
-    requestRef.current = controller;
-    setKeyLoading(true);
-    setKeyError(false);
-    const loadKey = async () => {
-      try {
-        const detail = await AiApiService.getCredential(credential.id, { signal: controller.signal });
-        if (!detail?.api_key) throw new Error("Missing API key");
-        if (!controller.signal.aborted) setLoadedKey(detail.api_key);
-      } catch {
-        if (!controller.signal.aborted) setKeyError(true);
-      } finally {
-        if (!controller.signal.aborted) setKeyLoading(false);
-      }
-    };
-    loadKey();
-    return () => controller.abort();
-  }, [credential.id, apiKey, usable, attempt]);
-
   /* 一按關閉（離場動畫期間）就取消請求，晚回來的金鑰不會再出現在畫面上 */
   useEffect(() => {
-    if (closing) requestRef.current?.abort();
-  }, [closing]);
+    if (closing && needsFetch) cancelCredential(credential.id);
+  }, [closing, needsFetch, cancelCredential, credential.id]);
 
   return (
     <Modal
@@ -332,7 +333,7 @@ function KeyDetailDialog({ credential, apiKey, state, closing = false, onClose }
             <>
               <dd role="alert" className={styles.keyDetailError}>{t("AiApiPage.keyDetailLoadError")}</dd>
               <dd>
-                <button type="button" className={styles.btnSecondary} onClick={() => setAttempt((value) => value + 1)}>
+                <button type="button" className={styles.btnSecondary} onClick={() => keyQuery.refetch()}>
                   <MIcon name="refresh" size={16} />
                   {t("AiApiPage.retry")}
                 </button>
@@ -422,7 +423,8 @@ function CredentialRow({ item, state, onRefresh, onDeleted, onShowDetails, onRot
     try {
       await AiApiService.deleteCredential(item.id);
       toast.success(t("AiApiPage.deleteSuccess"));
-      onDeleted(item.id);
+      /* 先從快取拿掉再重抓：背景重抓失敗也不會把刪掉的金鑰放回來 */
+      await onDeleted(item.id);
       onRefresh();
     } catch (e) {
       toast.error(e?.message ?? t("AiApiPage.deleteError"));
@@ -919,66 +921,45 @@ function MyUsageTab() {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const [preset, setPreset] = useState("30d");
-  const [usageData, setUsageData] = useState(null);
-  const [usageError, setUsageError] = useState(false);
-  const [records, setRecords] = useState([]);
-  const [recordsCount, setRecordsCount] = useState(0);
-  const [recordsError, setRecordsError] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
 
   const { startDate: start, endDate: end } = useMemo(() => presetToRange(preset), [preset]);
 
-  /* 快速切換區間時只採用最後一次 load 的結果；進行中的「載入更多」
-     在區間改變後也要丟掉，不能把舊區間的紀錄接到新清單後面 */
-  const loadSeqRef = useRef(0);
+  /* 統計與明細走 TanStack Query，以區間為 key：快速切換區間時較慢的舊區間回應只會進舊 key，
+     不會蓋掉新區間；明細的「載入更多」是 infinite query，換區間後舊區間的下一頁也不會接到新清單後面。
+     換區間時先沿用上一個區間的資料（不閃回載入動畫），背景刷新失敗保留畫面上的資料。 */
+  const range = useMemo(() => ({ start_date: start, end_date: end }), [start, end]);
+  const recordParams = useMemo(() => ({ ...range, limit: USAGE_RECORD_PAGE_SIZE }), [range]);
+  const usageQuery = useMyAiUsageQuery(range);
+  const recordsQuery = useMyAiUsageRecordsInfiniteQuery(recordParams);
 
-  const load = useCallback(async () => {
-    const seq = ++loadSeqRef.current;
-    setLoading(true);
-    setUsageError(false);
-    setRecordsError(false);
-    const [usageRes, recRes] = await Promise.allSettled([
-      AiApiService.getMyUsage({ start_date: start, end_date: end }),
-      AiApiService.getMyUsageRecords({ start_date: start, end_date: end, limit: USAGE_RECORD_PAGE_SIZE }),
-    ]);
-    if (seq !== loadSeqRef.current) return;
-    if (usageRes.status === "fulfilled") setUsageData(usageRes.value);
-    else setUsageError(true);
-    if (recRes.status === "fulfilled") {
-      setRecords(recRes.value?.data ?? []);
-      setRecordsCount(recRes.value?.count ?? 0);
-    } else {
-      setRecords([]);
-      setRecordsCount(0);
-      setRecordsError(true);
-    }
-    setLoading(false);
-  }, [start, end]);
+  const usageData = usageQuery.data;
+  /* 錯誤畫面在背景重試期間不閃回載入動畫，按重試才回到載入中（見 useLoadError）。
+     換區間時沿用上一個區間的資料照常顯示；但這個區間失敗後，沒有資料時每次重抓 TanStack 都會把
+     上一個區間的資料放回來當佔位資料，所以判斷錯誤時佔位資料不算資料，錯誤畫面才不會閃成舊區間的數字 */
+  const usageLoad = useLoadError(usageQuery);
+  const usageError = Boolean(usageLoad.error);
+  const usageLoading = usageData === undefined && !usageError && (usageQuery.isPending || usageQuery.isFetching);
+  const recordPages = recordsQuery.data?.pages;
+  const recordsLoad = useLoadError(recordsQuery);
+  const recordsError = Boolean(recordsLoad.error);
+  const recordsLoading = recordPages === undefined && !recordsError && (recordsQuery.isPending || recordsQuery.isFetching);
+  const records = useMemo(() => (recordPages ?? []).flatMap((page) => page?.data ?? []), [recordPages]);
+  const recordsCount = recordPages?.length ? recordPages[recordPages.length - 1]?.count ?? 0 : 0;
+  const loading = usageLoading || recordsLoading;
+  const loadingMore = recordsQuery.isFetchingNextPage;
 
-  useEffect(() => { load(); }, [load]);
+  /* 重試：兩份一起重抓（與原本相同），沒資料的回到載入中 */
+  function retryLoad() {
+    usageLoad.retry();
+    recordsLoad.retry();
+  }
 
   const hasMoreRecords = !recordsError && records.length > 0 && records.length < recordsCount;
 
   const loadMore = async () => {
-    const seq = loadSeqRef.current;
-    setLoadingMore(true);
-    try {
-      const res = await AiApiService.getMyUsageRecords({
-        start_date: start,
-        end_date: end,
-        skip: records.length,
-        limit: USAGE_RECORD_PAGE_SIZE,
-      });
-      if (seq !== loadSeqRef.current) return;
-      setRecords((prev) => [...prev, ...(res?.data ?? [])]);
-      setRecordsCount(res?.count ?? 0);
-    } catch (e) {
-      /* 維持現有清單，不覆蓋成功資料；但要讓使用者知道沒載到 */
-      if (seq === loadSeqRef.current) toast.error(e?.message ?? t("AiApiPage.recordsLoadMoreError"));
-    } finally {
-      setLoadingMore(false);
-    }
+    const result = await recordsQuery.fetchNextPage();
+    /* 維持現有清單，不覆蓋成功資料；但要讓使用者知道沒載到 */
+    if (result.isFetchNextPageError) toast.error(result.error?.message ?? t("AiApiPage.recordsLoadMoreError"));
   };
 
   const PRESETS = [
@@ -1003,7 +984,7 @@ function MyUsageTab() {
       {loading ? (
         <LoadingState />
       ) : usageError && recordsError ? (
-        <ErrorState onRetry={load} />
+        <ErrorState onRetry={retryLoad} />
       ) : (
         <>
           {/* ── 申請金鑰 API 用量總覽 ── */}
@@ -1013,7 +994,7 @@ function MyUsageTab() {
               <p className={styles.usagePanelDesc}>{t("AiApiPage.usageDesc")}</p>
             </div>
             {usageError ? (
-              <ErrorState onRetry={load} />
+              <ErrorState onRetry={retryLoad} />
             ) : (
               <>
                 <div className={styles.usageStatsGrid}>
@@ -1033,7 +1014,7 @@ function MyUsageTab() {
               <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageRecordsTitle")}</h3>
             </div>
             {recordsError ? (
-              <ErrorState onRetry={load} />
+              <ErrorState onRetry={retryLoad} />
             ) : records.length === 0 ? (
               <SharedEmptyState
                 icon="receipt_long"
@@ -1061,7 +1042,7 @@ function MyUsageTab() {
                 </div>
                 {hasMoreRecords && (
                   <div className={styles.usageRecordsMoreRow}>
-                    <button type="button" className={styles.btnSecondary} onClick={loadMore} disabled={loadingMore}>
+                    <button type="button" className={styles.btnSecondary} onClick={loadMore} disabled={loadingMore || recordsQuery.isPlaceholderData}>
                       {loadingMore ? (
                         <>
                           <MIcon name="hourglass_empty" size={16} spin />
@@ -1240,72 +1221,57 @@ export default function AiApiPage() {
   const quickStartDialog = useDialogPresence(showQuickStart);
 
   /* ── Data ── */
-  const [credentials, setCredentials] = useState([]);
-  const [publicBaseUrl, setPublicBaseUrl] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [keyDetail, setKeyDetail] = useState(null);
   const keyDetailDialog = useDialogPresence(keyDetail);
   const closeKeyDetail = useCallback(() => setKeyDetail(null), []);
-  const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
   const requestStatusRef = useRef(null);
 
-  /* 只採用最後一次發出的請求：自動更新與操作後的重抓交錯時，較早送出卻較晚回來的舊清單
-     不能蓋掉新的（也不能讓已提醒過的審核結果再跳一次）。前景載入被背景重抓超車時，
-     由最新那次接手收 loading／顯示錯誤 */
-  const loadSeqRef = useRef(0);
-  const foregroundPendingRef = useRef(false);
-
-  /* silent：操作後、自動更新時在背景重抓，不讓整張表閃成載入動畫，失敗時保留畫面上的資料；
-     quiet：自動更新失敗不跳 toast（網路斷線時每 30 秒一則會轟炸） */
-  const load = useCallback(async ({ silent = false, quiet = false } = {}) => {
-    const seq = ++loadSeqRef.current;
-    const isLatest = () => seq === loadSeqRef.current;
-    if (!silent) {
-      foregroundPendingRef.current = true;
-      setLoading(true);
-      setLoadError(false);
-    }
-    try {
-      const [credRes, reqRes] = await Promise.all([
-        AiApiService.listMyCredentials(),
-        AiApiService.listMyRequests(),
-      ]);
-      if (!isLatest()) return;
-      const nextRequests = reqRes?.data ?? [];
-      // 待審的申請有了結果就提醒：學生常開著這頁等審核
-      const previous = requestStatusRef.current;
-      if (previous) {
-        nextRequests.forEach((item) => {
-          if (previous.get(item.id) !== "pending") return;
-          if (item.status === "approved") toast.success(t("AiApiPage.requestApprovedToast", { name: item.api_key_name }));
-          if (item.status === "rejected") toast.error(t("AiApiPage.requestRejectedToast", { name: item.api_key_name }));
-        });
-      }
-      requestStatusRef.current = new Map(nextRequests.map((item) => [item.id, item.status]));
-      setCredentials(credRes?.data ?? []);
-      setPublicBaseUrl(credRes?.public_base_url ?? "");
-      setRequests(nextRequests);
-    } catch (e) {
-      if (!isLatest()) return;
-      if (foregroundPendingRef.current) setLoadError(true);
-      else if (!quiet) toast.error(e?.message ?? t("AiApiPage.loadError"));
-    } finally {
-      if (isLatest() && foregroundPendingRef.current) {
-        foregroundPendingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, [toast, t]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const pendingCount = requests.filter((item) => item.status === "pending").length;
-  // 有待審申請時自動更新，審核結果不用整頁重新整理
-  useAutoRefresh(() => {
-    if (pendingCount > 0) load({ silent: true, quiet: true });
+  /* 我的申請與憑證走 TanStack Query。有待審申請時 30 秒背景刷新（審核結果不用整頁重新整理），
+     沒有就不輪詢；背景刷新失敗保留畫面上的資料、不跳 toast（網路斷線時每 30 秒一則會轟炸）。
+     重抓交錯時較早送出的舊清單會被取消，不會蓋掉新的，也不會讓已提醒過的審核結果再跳一次 */
+  const requestsQuery = useMyAiRequestsQuery({
+    refetchInterval: (query) => (hasPendingRequest(query.state.data) ? LIST_REFRESH_INTERVAL : false),
   });
+  const requestsData = requestsQuery.data;
+  const requests = requestsData?.data ?? EMPTY;
+  const pendingCount = requests.filter((item) => item.status === "pending").length;
+  const credentialsQuery = useMyAiCredentialsQuery({ refetchInterval: pendingCount > 0 ? LIST_REFRESH_INTERVAL : false });
+  const credentialsData = credentialsQuery.data;
+  const credentials = credentialsData?.data ?? EMPTY;
+  const publicBaseUrl = credentialsData?.public_base_url ?? "";
+  const aiCache = useAiApiCacheUpdater();
+  /* 兩份都到齊才離開載入畫面；任一份首載失敗就顯示錯誤，按重試回到載入畫面 */
+  const noData = credentialsData === undefined || requestsData === undefined;
+  const fetching = credentialsQuery.isFetching || requestsQuery.isFetching;
+  const loading = noData && (credentialsQuery.isPending || requestsQuery.isPending || fetching);
+  const loadError = noData && (credentialsQuery.isError || requestsQuery.isError) && !fetching;
+
+  // 待審的申請有了結果就提醒：學生常開著這頁等審核
+  useEffect(() => {
+    if (requestsData === undefined) return;
+    const nextRequests = requestsData?.data ?? [];
+    const previous = requestStatusRef.current;
+    if (previous) {
+      nextRequests.forEach((item) => {
+        if (previous.get(item.id) !== "pending") return;
+        if (item.status === "approved") toast.success(t("AiApiPage.requestApprovedToast", { name: item.api_key_name }));
+        if (item.status === "rejected") toast.error(t("AiApiPage.requestRejectedToast", { name: item.api_key_name }));
+      });
+    }
+    requestStatusRef.current = new Map(nextRequests.map((item) => [item.id, item.status]));
+  }, [requestsData, toast, t]);
+
+  function retryLoad() {
+    credentialsQuery.refetch();
+    requestsQuery.refetch();
+  }
+
+  /* 操作後在背景重抓（不讓整張表閃成載入動畫），失敗時保留畫面上的資料並提醒 */
+  function refreshAfterChange() {
+    aiCache.invalidateMine({ throwOnError: true })
+      .catch((e) => toast.error(e?.message ?? t("AiApiPage.loadError")));
+  }
 
   const credentialStates = useMemo(
     () => new Map(credentials.map((item) => [item.id, getCredentialState(item, credentials)])),
@@ -1353,7 +1319,7 @@ export default function AiApiPage() {
       // 申請要等審核，送出後帶到申請紀錄，才看得到它在等
       setActiveTab("records");
       toast.success(t("AiApiPage.submitSuccess"));
-      load({ silent: true });
+      refreshAfterChange();
     } catch (e) {
       toast.error(e?.message ?? t("AiApiPage.submitError"));
     } finally {
@@ -1426,7 +1392,7 @@ export default function AiApiPage() {
           loading ? (
             <LoadingState />
           ) : loadError ? (
-            <ErrorState onRetry={() => load()} />
+            <ErrorState onRetry={retryLoad} />
           ) : credentials.length === 0 ? (
             pendingCount > 0 ? (
               <EmptyState
@@ -1484,10 +1450,10 @@ export default function AiApiPage() {
                           key={item.id}
                           item={item}
                           state={credentialStates.get(item.id)}
-                          onRefresh={() => load({ silent: true })}
-                          onDeleted={(credentialId) => {
-                            setCredentials((current) => current.filter((credential) => credential.id !== credentialId));
+                          onRefresh={refreshAfterChange}
+                          onDeleted={async (credentialId) => {
                             setKeyDetail((current) => current?.credential?.id === credentialId ? null : current);
+                            await aiCache.removeMyCredential(credentialId);
                           }}
                           onShowDetails={(credential) => setKeyDetail({ credential, apiKey: null })}
                           onRotated={(credential) => setKeyDetail({ credential, apiKey: credential.api_key || null })}
@@ -1519,7 +1485,7 @@ export default function AiApiPage() {
           loading ? (
             <LoadingState />
           ) : loadError ? (
-            <ErrorState onRetry={() => load()} />
+            <ErrorState onRetry={retryLoad} />
           ) : requests.length === 0 ? (
             <EmptyState
               icon="history"

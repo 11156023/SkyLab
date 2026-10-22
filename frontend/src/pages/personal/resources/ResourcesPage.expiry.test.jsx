@@ -23,7 +23,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "u1", role: "student" } }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }) }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => vi.fn() }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/QuotaUsageBar/QuotaUsageBar", () => ({ default: () => null }));

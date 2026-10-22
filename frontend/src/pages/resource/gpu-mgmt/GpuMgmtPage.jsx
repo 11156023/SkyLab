@@ -1,12 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./GpuMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { GpuService } from "../../../services/gpu";
+import { useGpuCacheUpdater, useGpuMappingsQuery } from "../../../queries/gpu";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
@@ -176,9 +176,22 @@ export default function GpuMgmtPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const columns = useColumns();
-  const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState("");
-  const [loading, setLoading] = useState(true);
+  /* GPU 對應清單走 TanStack Query：背景 30 秒刷新、分頁隱藏時暫停；
+     首次載不到才提示，背景刷新失敗沿用上一份（與原本靜默刷新相同） */
+  const mappingsQuery = useGpuMappingsQuery();
+  const gpuCache = useGpuCacheUpdater();
+  const mappingsData = mappingsQuery.data;
+  const rows = useMemo(() => flattenMappings(mappingsData?.data ?? []), [mappingsData]);
+  /* 只有第一次載入時顯示載入畫面；首載失敗後顯示空清單（與原本相同），輪詢重試時不閃回載入畫面 */
+  const loading = mappingsData === undefined && mappingsQuery.isPending;
+  /* 依訊息字串觸發：還沒有資料時輪詢重試又失敗，訊息相同就不重複提示 */
+  const loadFailedMessage = mappingsData === undefined && mappingsQuery.isError
+    ? mappingsQuery.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
+  useEffect(() => {
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
   /* 刪除進行中：擋住重複點擊，等重新載入完成才解除 */
   const [deleting, setDeleting] = useState(false);
   const [expandedIds, setExpandedIds] = useState(() => new Set());
@@ -191,22 +204,6 @@ export default function GpuMgmtPage() {
       return next;
     });
   };
-
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const res = await GpuService.listMappings();
-      setRows(flattenMappings(res?.data ?? []));
-    } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [toast, t]);
-
-  useEffect(() => { load(); }, [load]);
-  useAutoRefresh(() => load(true));
 
   const handleDelete = async (id) => {
     if (deleting) return;
@@ -221,8 +218,8 @@ export default function GpuMgmtPage() {
     try {
       await GpuService.deleteMapping(id);
       toast.success(t("GpuMgmtPage.deletedToast"));
-      /* 等清單重新載入完才解鎖，避免使用者對已刪掉的舊列再按一次 */
-      await load(true);
+      /* 等清單重新載入完才解鎖，避免使用者對已刪掉的舊列再按一次（重抓失敗沿用舊清單、不提示） */
+      await gpuCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("GpuMgmtPage.deleteFailed"));
     } finally {

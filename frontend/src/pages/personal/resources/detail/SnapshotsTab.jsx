@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
@@ -14,6 +14,7 @@ import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider
 import { formatDateTime } from "../../../../utils/formatDate";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { isAdminUser } from "../../../../utils/roles";
+import { useQueryErrorEffect, useSnapshotsQuery } from "../../../../queries/resourceDetail";
 
 const INIT_SNAPSHOT_NAME = "skylab-init";
 /* 反挖礦自動建立的存證快照（後端 MINING_SNAPSHOT_PREFIX）：只有管理員能刪，不佔快照配額 */
@@ -32,12 +33,11 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
   const confirm = useConfirm();
   const { user } = useAuth();
   const isAdmin = isAdminUser(user);
-  /* 用 ref 持有 callback：不讓它的 identity 進 load 的依賴而觸發重抓 */
+  /* 用 ref 持有 callback：不讓它的 identity 進 effect 的依賴 */
   const onOperationFailedRef = useRef(onOperationFailed);
   useEffect(() => {
     onOperationFailedRef.current = onOperationFailed;
   }, [onOperationFailed]);
-  const [snapshots, setSnapshots] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [snapname, setSnapname] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
@@ -46,19 +46,14 @@ export default function SnapshotsTab({ vmid, toolbar, onOperationFailed }) {
   const [busy, setBusy] = useState(false);
   const createDialog    = useDialogPresence(createOpen);
 
-  const load = useCallback(async () => {
-    try {
-      setSnapshots(await ResourcesService.listSnapshots(vmid));
-    } catch (e) {
-      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-      setSnapshots((prev) => prev ?? []);
-      onOperationFailedRef.current?.();
-    }
-  }, [vmid, toast, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  /* 快照清單：每次載入失敗都提示並請上層重查可用性；已有清單時沿用，從沒載到就當成空的 */
+  const snapshotsQuery = useSnapshotsQuery(vmid);
+  useQueryErrorEffect(snapshotsQuery, (e) => {
+    toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
+    onOperationFailedRef.current?.();
+  });
+  const snapshots = snapshotsQuery.data ?? (snapshotsQuery.isError ? [] : null);
+  const load = () => snapshotsQuery.refetch();
 
   const hasInitSnapshot = (snapshots ?? []).some((s) => s.name === INIT_SNAPSHOT_NAME);
 

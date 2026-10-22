@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -9,18 +9,18 @@ import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateFormDialog from "../templates/TemplateFormDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useVirtualRows from "../../../hooks/useVirtualRows";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { ResourcesService } from "../../../services/resources";
+import { resourceKeys, useAllResourcesQuery, useResourceCacheUpdater } from "../../../queries/resources";
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import VncDialog from "../../personal/resources/VncDialog";
-import { BOOTING_POLL_INTERVAL, LIVE_STATUSES, machineSpecLabel, resourceRowKey, statusAfterAction } from "../../personal/resources/resourceRows";
+import { LIVE_STATUSES, machineSpecLabel, resourceRowKey, statusAfterAction } from "../../personal/resources/resourceRows";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
-import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
 import { formatExpiryDate } from "../../../utils/formatDate";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
@@ -534,15 +534,25 @@ function EmptyState() {
 }
 
 /* ── Page ── */
+const EMPTY = Object.freeze([]);
+
 export default function ResourceMgmtPage() {
   const { t } = useTranslation("resource");
   const navigate = useNavigate();
-  const [resources, setResources] = useState([]);
-  const [quickSessions, setQuickSessions] = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  /* 清單走 TanStack Query：背景 30 秒刷新（有機器開機中時 5 秒）、分頁隱藏時暫停、
+     換頁回來先顯示快取再背景更新。同一份快取同時只會有一個請求在路上，
+     不再需要自己記請求序號；單列操作就地改快取前會先取消在途的背景刷新，
+     操作前送出的舊快照不會把剛改好的那一列蓋回去 */
+  const resourcesQuery = useAllResourcesQuery();
+  const resourceCache = useResourceCacheUpdater(resourceKeys.everyone);
+  const resources = resourcesQuery.data?.resources ?? EMPTY;
+  const quickSessions = resourcesQuery.data?.sessions ?? EMPTY;
+  /* 只有「還沒有任何資料」時才顯示 skeleton／錯誤畫面；背景刷新失敗沿用上一筆資料。
+     錯誤畫面在背景重試期間不閃回 skeleton，按重試才回到 skeleton，背景刷新成功也會自動離開錯誤畫面 */
+  const { loading, error, retry: retryResources } = useQueryView(resourcesQuery);
 
   const environmentGroups = buildEnvironmentGroups(resources, quickSessions);
   const grouped = groupedResourceKeys(environmentGroups);
@@ -566,67 +576,30 @@ export default function ResourceMgmtPage() {
     setStatusFilter("all");
   };
 
-  /* 只採用最後一次發出的清單請求：清單經 PVE 要好幾秒，操作前送出的背景刷新可能比
-     操作後的重新載入晚回來，舊快照不能蓋掉新清單。前景載入被背景刷新超車時，
-     由最新那次接手收掉 loading／顯示錯誤，首次載入失敗不會被吞掉 */
-  const fetchSeqRef = useRef(0);
-  const foregroundPendingRef = useRef(false);
-
-  /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
-  const fetchResources = useCallback(async (silent = false, signal) => {
-    const seq = ++fetchSeqRef.current;
-    const isLatest = () => seq === fetchSeqRef.current;
-    if (!silent) {
-      foregroundPendingRef.current = true;
-      setLoading(true);
-      setError(false);
-    }
-    try {
-      const [data, sessions] = await Promise.all([
-        ResourcesService.listAll({ signal }),
-        QuickPracticeService.listAllSessions({ signal }).catch(() => []),
-      ]);
-      if (!isLatest()) return;
-      setResources(data ?? []);
-      setQuickSessions(sessions ?? []);
-      /* 背景刷新成功也要能把先前的錯誤畫面收掉 */
-      setError(false);
-    } catch (err) {
-      if (isLatest() && foregroundPendingRef.current && !err?.cancelled) setError(true);
-    } finally {
-      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
-        foregroundPendingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  /* 單列操作後就地更新了清單：操作前送出、還在路上的背景刷新回來時不能把它蓋回去 */
-  const discardInFlightRefresh = useCallback(() => {
-    if (!foregroundPendingRef.current) fetchSeqRef.current += 1;
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchResources(false, controller.signal);
-    return () => controller.abort();
-  }, [fetchResources]);
-  const anyBooting = resources.some((r) => r.status === "starting");
-  useAutoRefresh(() => fetchResources(true), anyBooting ? BOOTING_POLL_INTERVAL : undefined);
-
   function handleUpdated(updated) {
-    discardInFlightRefresh();
-    setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
+    resourceCache.update(updated);
   }
 
   /* 刪掉的那台若勾著，從清單消失時 useRowSelection 會自動取消勾選 */
   function handleDeleted(vmid) {
-    discardInFlightRefresh();
-    setResources((prev) => prev.filter((r) => r.vmid !== vmid));
+    resourceCache.remove(vmid);
+  }
+
+  /** 群組操作、批量操作做完：整份清單標記過期，背景重抓（畫面沿用現有資料不閃） */
+  function refreshResources() {
+    resourceCache.invalidate();
   }
 
   const columns = useColumns();
-  const virtualRows = useVirtualRows({ count: shownResources.length });
+  /* 解構成各自的變數：React Compiler 會把「有欄位被傳給 ref」的物件整個當成 ref，讀其他欄位就整頁略過 */
+  const {
+    attachBody: attachVirtualBody,
+    measureElement: measureVirtualRow,
+    enabled: virtualized,
+    items: virtualItems,
+    paddingTop: virtualPadTop,
+    paddingBottom: virtualPadBottom,
+  } = useVirtualRows({ count: shownResources.length });
 
   return (
     <div className={styles.page}>
@@ -643,7 +616,7 @@ export default function ResourceMgmtPage() {
       {/* ── 內容 ── */}
       <div className={styles.content}>
         {error ? (
-          <ErrorState onRetry={() => fetchResources()} />
+          <ErrorState onRetry={retryResources} />
         ) : loading ? (
           <LoadingState fullPage />
         ) : visibleResources.length === 0 && environmentGroups.length === 0 ? (
@@ -660,7 +633,7 @@ export default function ResourceMgmtPage() {
                 selected={selectedResources}
                 onDone={(failedVmids) => {
                   if (failedVmids) selection.replace(failedVmids);
-                  fetchResources(true);
+                  refreshResources();
                 }}
                 onClear={selection.clear}
               />
@@ -728,18 +701,18 @@ export default function ResourceMgmtPage() {
                 </tr>
               </thead>
               <tbody>
-                {shownGroups.map(({ group, machines }) => <EnvironmentGroupRows key={group.id} group={group} machines={machines} onUpdated={handleUpdated} onRefresh={() => fetchResources(true)} />)}
+                {shownGroups.map(({ group, machines }) => <EnvironmentGroupRows key={group.id} group={group} machines={machines} onUpdated={handleUpdated} onRefresh={refreshResources} />)}
               </tbody>
               {/* 散機列另開一個 tbody 給虛擬化：幾百台時只渲染視窗附近的列，上下用空白列撐高度；
                   列數不到門檻時 items 就是全部列，行為與以前相同 */}
-              <tbody ref={virtualRows.bodyRef} data-virtualized={virtualRows.enabled ? "true" : undefined}>
-                {virtualRows.paddingTop > 0 && <tr aria-hidden="true" style={{ height: virtualRows.paddingTop }} />}
-                {virtualRows.items.map((item) => {
+              <tbody ref={attachVirtualBody} data-virtualized={virtualized ? "true" : undefined}>
+                {virtualPadTop > 0 && <tr aria-hidden="true" style={{ height: virtualPadTop }} />}
+                {virtualItems.map((item) => {
                   const r = shownResources[item.index];
                   return (
                     <ResourceRow
                       key={resourceRowKey(r, item.index)}
-                      rowRef={virtualRows.measureElement}
+                      rowRef={measureVirtualRow}
                       rowIndex={item.index}
                       resource={r}
                       onUpdated={handleUpdated}
@@ -751,7 +724,7 @@ export default function ResourceMgmtPage() {
                     />
                   );
                 })}
-                {virtualRows.paddingBottom > 0 && <tr aria-hidden="true" style={{ height: virtualRows.paddingBottom }} />}
+                {virtualPadBottom > 0 && <tr aria-hidden="true" style={{ height: virtualPadBottom }} />}
               </tbody>
             </table>
           </div>
