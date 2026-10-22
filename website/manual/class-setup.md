@@ -24,6 +24,8 @@ Class setup is a five-step wizard that creates a class: its fixed weekly schedul
 5. On steps 1–4, the **Class draft** panel shows each step's progress, the **Estimated machines** (students × machines per student) and **Ready to provision N/2 complete**. Click a row to jump to any unlocked step.
 6. **Back to class management** leaves the wizard. Saved steps stay as a draft in [Class Management](/manual/class-management).
 
+![Move through the wizard (numbers match the steps above)](/manual-shots/en/class-setup/s01.webp)
+
 ### Step 1: Class and schedule
 
 1. Enter the **Class name** (required).
@@ -35,6 +37,8 @@ Class setup is a five-step wizard that creates a class: its fixed weekly schedul
    - **Shutdown after class** — when machines shut down: **At class end**, or 10, 30 or 60 minutes after.
 5. Click **Save and continue**. The class is created as a draft, and one session per week between the start and end dates is generated from the schedule.
 
+![Step 1: Class and schedule (numbers match the steps above)](/manual-shots/en/class-setup/s02.webp)
+
 ### Step 2: Student list
 
 1. Paste student emails into **Student email**, separated by new lines, commas or semicolons. The label shows **Ready to add N emails**.
@@ -44,6 +48,8 @@ Class setup is a five-step wizard that creates a class: its fixed weekly schedul
 5. Click **Save and continue**. Accounts that cannot be added stay in the box, highlighted in red, and a message lists which were **not found** and which are **not student accounts**. Fix or delete them, then continue.
 
 You need at least one student to continue.
+
+![Step 2: Student list (numbers match the steps above)](/manual-shots/en/class-setup/s03.webp)
 
 ### Step 3: Teaching environment
 
@@ -58,11 +64,15 @@ If no environment fits:
 
 When no environment has been published at all, the page shows **No published class templates yet** with **Create a template now**.
 
+![Step 3: Teaching environment (numbers match the steps above)](/manual-shots/en/class-setup/s04.webp)
+
 ### Step 4: Weekly tasks
 
 1. Each row is one week, with its number and date taken from the schedule. Type a topic or checkpoint for the weeks you want; the header shows **N/M weeks configured**.
 2. Leave **Publish weeks that have a topic** ticked to make those weeks visible to students right away. Untick it to keep them as drafts; you can publish them one by one later in the class's **Weekly Content**.
 3. Click **Save and continue**. This step is optional, and course files can be added later in the class.
+
+![Step 4: Weekly tasks (numbers match the steps above)](/manual-shots/en/class-setup/s05.webp)
 
 ### Step 5: Confirm and submit
 
@@ -77,9 +87,13 @@ When no environment has been published at all, the page shows **No published cla
 
 If you are not ready, click **Submit later**; the class opens in its workspace and you can submit from there.
 
+![Step 5: Confirm and submit (numbers match the steps above)](/manual-shots/en/class-setup/s06.webp)
+
 ### Use the AI Assistant
 
 While you are on this page, the **AI Assistant** knows which step you are on, whether the class is saved, how many students it has, whether an environment is saved, how many published environments are available and, on the last step, why submitting is blocked. Ask it what to do next and it answers from that state. It only guides you; it never saves, creates or submits anything for you. See [Navigation AI: teaching workflows](/guides/ai-navigation-teaching-workflows).
+
+![Use the AI Assistant](/manual-shots/en/class-setup/s07.webp)
 
 ## Fields and options
 

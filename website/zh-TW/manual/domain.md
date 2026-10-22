@@ -27,6 +27,8 @@
 
 之後要修改設定時，按頁首的「連線設定」。「API Token」留空表示沿用目前的 Token。
 
+![連上 Cloudflare（圖中編號對應上方步驟）](/manual-shots/zh-TW/domain/s01.webp)
+
 ### 瀏覽 Zone 的 DNS 紀錄
 
 1. 左側的「Zones」清單列出帳號中的每個網域與其狀態，標題中的數字是網域數量。
@@ -38,6 +40,8 @@
    - 「Proxied」或「DNS only」：流量是否經過 Cloudflare。
 5. 要找某筆紀錄時，在搜尋框輸入名稱的一部分並按 Enter。
 
+![瀏覽 Zone 的 DNS 紀錄（圖中編號對應上方步驟）](/manual-shots/zh-TW/domain/s02.webp)
+
 ### 新增 DNS 紀錄
 
 1. 選好 Zone 後按「新增紀錄」。
@@ -47,10 +51,14 @@
 5. 視需要填寫「備註」，並勾選「經由 Cloudflare Proxy（橘色雲）」。
 6. 按「儲存」。
 
+![新增 DNS 紀錄（圖中編號對應上方步驟）](/manual-shots/zh-TW/domain/s03.webp)
+
 ### 編輯或刪除 DNS 紀錄
 
 1. 按紀錄上的編輯按鈕，修改欄位後按「儲存」。清空「備註」會移除備註。
 2. 按紀錄上的刪除按鈕，再按「刪除」確認。此操作無法復原。
+
+![編輯或刪除 DNS 紀錄（圖中編號對應上方步驟）](/manual-shots/zh-TW/domain/s04.webp)
 
 ### 讓機器擁有自己的網址
 
@@ -61,6 +69,8 @@
 3. SkyLab 會確認網址沒有被使用，在 Zone 中建立指向預設 DNS 目標的 DNS 紀錄，並把轉發規則加到 Gateway 的 nginx。HTTPS 使用閘道 VM 頁設定的憑證。
 
 新的紀錄之後會出現在這裡，並帶有「本系統 · VM」徽章。在防火牆頁刪除那條連線時，它的 DNS 紀錄也會一併刪除。
+
+![讓機器擁有自己的網址（圖中編號對應上方步驟）](/manual-shots/zh-TW/domain/s05.webp)
 
 ## 欄位與選項
 

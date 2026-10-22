@@ -63,12 +63,16 @@ function findChrome() {
   return null; // fall back to an installed Google Chrome
 }
 
-export async function launchBrowser() {
+// lang: the UI language of the pages this browser shoots. Native date and time inputs follow the
+// browser's own locale (--lang), not the context locale, so without it English shots show 年/月/日.
+export async function launchBrowser(lang) {
   const executablePath = findChrome();
+  const args = ["--hide-scrollbars", "--font-render-hinting=none", "--disable-gpu-vsync"];
+  if (lang) args.push(`--lang=${lang === "en" ? "en-US" : lang}`);
   return chromium.launch({
     ...(executablePath ? { executablePath } : { channel: "chrome" }),
     headless: true,
-    args: ["--hide-scrollbars", "--font-render-hinting=none", "--disable-gpu-vsync"],
+    args,
   });
 }
 

@@ -30,6 +30,8 @@ A template is a read-only master image made from a machine whose software and se
 
 What the conversion does: the source machine is shut down, any GPU passed through to it is detached, and it is protected on PVE so it cannot be deleted by accident. Nothing is converted into a PVE template: the machine stays on PVE as a powered-off, protected machine, and SkyLab records it as a template. It is removed from your resource list, and its IP address and port forwarding rules are released. The disk size and whether the platform can set passwords are detected at the same time.
 
+![Create a template from a VM (numbers match the steps above)](/manual-shots/en/templates/s01.webp)
+
 ### Clone machines from a template
 
 1. Open the **⋯** menu of a **Ready** template and choose **Clone**.
@@ -41,6 +43,8 @@ What the conversion does: the source machine is shut down, any GPU passed throug
 7. Leave **Power on automatically after cloning** ticked, or untick it.
 8. Click **Start Cloning**. Each machine becomes a background job whose progress you can follow on Background Jobs; the machines appear in My Resources when they are ready.
 
+![Clone machines from a template (numbers match the steps above)](/manual-shots/en/templates/s02.webp)
+
 ### Edit a template or change its visibility
 
 1. Open the **⋯** menu and choose **Edit / Visibility**.
@@ -50,12 +54,16 @@ What the conversion does: the source machine is shut down, any GPU passed throug
 
 Setting the visibility to **Private** removes the template from the request form; machines already made from it are not affected.
 
+![Edit a template or change its visibility (numbers match the steps above)](/manual-shots/en/templates/s03.webp)
+
 ### Read or download a template's manual
 
 1. When a template has attachments, its **⋯** menu shows **Manual (n)**.
 2. Choose it and click **Download** next to a file.
 
 People who own a machine cloned from the template can also download these files from that machine's Overview tab, even if the template later becomes private.
+
+![Read or download a template's manual (numbers match the steps above)](/manual-shots/en/templates/s04.webp)
 
 ### Update a template with an update cycle
 
@@ -69,11 +77,15 @@ A template is read-only. To change what is installed in it:
 
 To abandon your changes, choose **Cancel Update Cycle**. The staging machine is deleted and the template returns to **Ready** with its old content.
 
+![Update a template with an update cycle (numbers match the steps above)](/manual-shots/en/templates/s05.webp)
+
 ### Retry a failed conversion
 
 1. When the status is **Failed**, the reason is shown under the template name.
 2. Fix the cause (for example, make sure the source machine still exists on PVE).
 3. Open the **⋯** menu, choose **Retry Conversion** and confirm with **Shut Down and Convert**.
+
+![Retry a failed conversion (numbers match the steps above)](/manual-shots/en/templates/s06.webp)
 
 ### Delete a template
 
@@ -89,6 +101,8 @@ The template's machine on PVE is deleted together with its disk, and the attachm
 - a teaching environment (including drafts and retired versions) uses the template as a source.
 
 Remove or finish those first, then try again.
+
+![Delete a template (numbers match the steps above)](/manual-shots/en/templates/s07.webp)
 
 ## Fields and options
 

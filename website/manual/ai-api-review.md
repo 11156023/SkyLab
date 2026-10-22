@@ -19,9 +19,13 @@ Administrators only. The page is not in the sidebar for other roles, and the bac
 2. Switch to **Approved**, **Rejected** or **All** to look back at history. The number on each tab is the count of requests in that status.
 3. The list refreshes automatically, so new requests appear without reloading the page.
 
+![Find requests that need a decision (numbers match the steps above)](/manual-shots/en/ai-api-review/s01.webp)
+
 ### Read a request
 
 Each row shows the **Requester** (name and email), **Key Name**, **Purpose**, **Status**, **Requested At** and **Reviewed At**. A purpose longer than 60 characters is cut off; hover over it to read the whole text, or open the review dialog, which shows it in full.
+
+![Read a request](/manual-shots/en/ai-api-review/s02.webp)
 
 ### Approve a request
 
@@ -32,6 +36,8 @@ Each row shows the **Requester** (name and email), **Key Name**, **Purpose**, **
 
 The key is issued at once and appears in the applicant's **API Keys** tab. Its validity period (the one chosen in the request) starts counting from the moment of approval, and it gets the default rate limit of 20 requests per minute.
 
+![Approve a request (numbers match the steps above)](/manual-shots/en/ai-api-review/s03.webp)
+
 ### Reject a request
 
 1. Click **Reject** in the **Actions** column of a pending request.
@@ -39,6 +45,8 @@ The key is issued at once and appears in the applicant's **API Keys** tab. Its v
 3. Click **Confirm Rejection**.
 
 The applicant sees the request as rejected, with your notes, in their **Request History** tab.
+
+![Reject a request (numbers match the steps above)](/manual-shots/en/ai-api-review/s04.webp)
 
 ## Fields and options
 

@@ -24,11 +24,15 @@ A teaching environment is the set of 1 to 3 machines each student gets, plus the
 4. Each row shows **Environment name**, **Machines per student**, **Total resources** (CPU and RAM), **Version**, **Availability** (**Formal course**, **Quick practice** or **Course + quick practice**), **Classes using it** and **Status**. A draft without a name is listed as **Untitled environment**.
 5. Click a row, or the arrow at its end, to open it in the editor.
 
+![Browse the list (numbers match the steps above)](/manual-shots/en/course-templates/s01.webp)
+
 ### Create an environment
 
 1. Click **Create teaching environment**. The editor opens with two steps: **Basic Info** and **Machine Configuration**.
 2. Every change to a draft is saved automatically, so you can stop and come back later. If syncing fails, **Draft not synced. Retry; edits are retained in this tab.** appears with a **Retry** button.
 3. **Back** returns to the list.
+
+![Create an environment (numbers match the steps above)](/manual-shots/en/course-templates/s02.webp)
 
 ### Fill in the basic info
 
@@ -41,6 +45,8 @@ A teaching environment is the set of 1 to 3 machines each student gets, plus the
 4. Under **Documents**, drop or choose one or more files. Uploads and deletions take effect immediately. A brand-new environment accepts uploads only after its first autosave has created it (**Documents can be uploaded once the environment exists.**). Click a file name to download it; click **×** to remove it after confirming.
 5. Click **View machine configuration** to go to the next step.
 
+![Fill in the basic info (numbers match the steps above)](/manual-shots/en/course-templates/s03.webp)
+
 ### Add machines
 
 1. In **Machine Configuration**, choose the **Source**:
@@ -51,6 +57,8 @@ A teaching environment is the set of 1 to 3 machines each student gets, plus the
 
 If no template is ready, a notice tells you whether templates are still processing or failed, and suggests **② Add a new VM/LXC spec** instead.
 
+![Add machines (numbers match the steps above)](/manual-shots/en/course-templates/s04.webp)
+
 ### Edit a machine
 
 1. Click a machine on the map. The panel on the right shows its source and type.
@@ -58,6 +66,8 @@ If no template is ready, a notice tells you whether templates are still processi
 3. Drag the **CPU**, **RAM** and **Disk** sliders. Disk can only grow beyond the size of its source.
 4. **Remove node** removes the machine together with its connections and published services.
 5. Drag machines on the map to arrange them; positions are saved with the draft.
+
+![Edit a machine (numbers match the steps above)](/manual-shots/en/course-templates/s05.webp)
 
 ### Connect machines
 
@@ -68,6 +78,8 @@ If no template is ready, a notice tells you whether templates are still processi
 
 Internet access is open for every machine by default, so you do not add it. Click **Internet Lines** on the map to show or hide those outbound lines.
 
+![Connect machines (numbers match the steps above)](/manual-shots/en/course-templates/s06.webp)
+
 ### Publish a service
 
 1. Drag a line from a machine to the **Internet** node, or click **Add connection** and choose **Expose a service**.
@@ -76,10 +88,14 @@ Internet access is open for every machine by default, so you do not add it. Clic
    - **External port** — enter the internal port(s) and protocol (TCP or UDP). Each student gets an external port assigned at class start.
 3. Click **Add to environment**. The service appears as an inbound line from the Internet node, and the machine shows a badge with the number of published services.
 
+![Publish a service (numbers match the steps above)](/manual-shots/en/course-templates/s07.webp)
+
 ### Review or delete a connection
 
 1. Click a line on the map. A detail panel explains what it opens and in which direction.
 2. Delete it from the panel. Lines cannot be edited; delete and draw them again.
+
+![Review or delete a connection (numbers match the steps above)](/manual-shots/en/course-templates/s08.webp)
 
 ### Publish the environment
 
@@ -90,16 +106,22 @@ Internet access is open for every machine by default, so you do not add it. Clic
 
 If you came here from class setup (a note reads **Class draft saved.**), publishing takes you back to the class setup with the new environment selected.
 
+![Publish the environment (numbers match the steps above)](/manual-shots/en/course-templates/s09.webp)
+
 ### Change a published environment
 
 1. Open the environment. **Basic Info** still lets you change the **Environment name**, **Usage** and **Environment purpose**, and manage **Documents**.
 2. Click **Save basics** to send the changes. Published environments are not saved automatically.
 3. **View machine configuration** shows the frozen map read-only. To change machines, create a separate environment.
 
+![Change a published environment (numbers match the steps above)](/manual-shots/en/course-templates/s10.webp)
+
 ### Delete an environment
 
 1. Click the trash icon at the end of the row.
 2. Confirm **Delete "`<name>`"?**. Only environments that have never been used by a class or practice session can be deleted, and this cannot be undone.
+
+![Delete an environment (numbers match the steps above)](/manual-shots/en/course-templates/s11.webp)
 
 ## Fields and options
 

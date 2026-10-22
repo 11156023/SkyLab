@@ -27,16 +27,22 @@ The page only collects and displays status. It does not send alert notifications
 
 If Redis is unavailable, a note says that only the heartbeats recorded by the backend process serving you are shown.
 
+![Check the health of the platform (numbers match the steps above)](/manual-shots/en/monitoring/s01.webp)
+
 ### Read the cluster overview
 
 1. Below the health card, three cards show **CPU Usage**, **Memory Usage** and **Disk Usage** summed across all PVE connections. A fourth card shows **Nodes Online**, **VM Running** and **LXC Running**; the number after the slash is the total.
 2. If PVE cannot be reached, the message "Unable to fetch monitoring data; please check the Proxmox connection status." replaces these cards. The health card and the alert tabs stay available.
+
+![Read the cluster overview (numbers match the steps above)](/manual-shots/en/monitoring/s02.webp)
 
 ### Review and acknowledge active alerts
 
 1. Open the **Active Alerts** tab. The number on the tab is the count of active alerts.
 2. Each alert shows its scope (**Cluster**, **Node**, VM or **Platform**), the cluster it belongs to when there are several, the target, and either the metric value with its threshold or, for platform alerts, the message from the backend.
 3. Click **Acknowledge** to mark an alert as seen. The alert then shows "Acknowledged" but stays on the list until the condition clears.
+
+![Review and acknowledge active alerts (numbers match the steps above)](/manual-shots/en/monitoring/s03.webp)
 
 ### Handle a mining incident
 
@@ -49,20 +55,28 @@ Machines whose CPU stays maxed out for a long time are detected automatically. W
    - If it is a false positive, click **Dismiss as False Positive**. In the dialog, optionally tick **Also add this resource to the exemption list (won't be detected again)** and enter a **Note (optional)**, then click **Confirm Dismiss**. The platform tries to resume the machine and deletes the evidence snapshot.
 4. Closed incidents stay on the list with status **Banned** or **Dismissed**. If resuming the machine or deleting the snapshot failed, a warning notice appears and the reason is shown under the status; start the machine by hand in that case.
 
+![Handle a mining incident (numbers match the steps above)](/manual-shots/en/monitoring/s04.webp)
+
 ### Look at usage per node
 
 1. The **Node Usage** card shows "online/total online" in its title bar. Click the title bar to expand or collapse the card; the choice is remembered in this browser.
 2. Each row shows the node with the PVE connection it belongs to, **Status**, CPU, **Memory** and **Disk** usage, the number of VMs and LXCs, and **Uptime**.
 3. Click an online node's row to expand its CPU and memory trend for the last day. Click it again to close it. Offline nodes cannot be expanded.
 
+![Look at usage per node (numbers match the steps above)](/manual-shots/en/monitoring/s05.webp)
+
 ### Find the heaviest machines
 
 1. At the bottom, **Top 5 CPU Usage** and **Top 5 Memory Usage** list the running VMs and LXCs that use the most, with **VMID**, **Name**, **Node** and **Type**.
+
+![Find the heaviest machines (numbers match the steps above)](/manual-shots/en/monitoring/s06.webp)
 
 ### Open Grafana
 
 1. Click **View details in Grafana** in the page header.
 2. Grafana opens in a new tab and signs you in as an administrator, so you can browse longer-term metrics and dashboards.
+
+![Open Grafana (numbers match the steps above)](/manual-shots/en/monitoring/s07.webp)
 
 ## Fields and options
 

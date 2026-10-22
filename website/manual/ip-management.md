@@ -22,6 +22,8 @@ Administrators only. Teachers and students never see this page; their machines s
 4. Optionally fill in **VLAN ID**, **Main system IP**, **DNS Servers**, the external port pool, **Public entry host** and **Default Blocked Subnets / IPs** (see the table below).
 5. Click **Create Config**. A "Subnet configuration saved" notice appears and the platform starts assigning addresses from the new subnet.
 
+![Create the subnet configuration (numbers match the steps above)](/manual-shots/en/ip-management/s01.webp)
+
 ### Change the subnet configuration
 
 1. Click **Edit Subnet Config** in the page header.
@@ -29,11 +31,15 @@ Administrators only. Teachers and students never see this page; their machines s
 3. If **Subnet CIDR** is greyed out, the subnet is in use (see "Limits and behaviour to know"); hover over it to see why.
 4. When you save, the blocked subnets are applied to every machine's firewall. If some machines could not be updated, an error notice lists how many failed and their VMIDs; those machines are not blocked yet. Save again later or check the PVE connection.
 
+![Change the subnet configuration (numbers match the steps above)](/manual-shots/en/ip-management/s02.webp)
+
 ### Delete the subnet configuration
 
 1. Click **Edit Subnet Config**, then **Delete Subnet Config**.
 2. Confirm with **Delete**.
 3. Deletion only succeeds when no VM or LXC still holds an address and no class or quick practice reservation is left. Afterwards VM and LXC creation is disabled site-wide until a new subnet is created.
+
+![Delete the subnet configuration (numbers match the steps above)](/manual-shots/en/ip-management/s03.webp)
 
 ### Look up who uses an address
 
@@ -42,6 +48,8 @@ Administrators only. Teachers and students never see this page; their machines s
 3. The table shows **IP Address**, **Purpose**, **VMID**, **Allocated At** and **Description**, 50 rows per page. Use **Previous** and **Next** to page through.
 
 The table is read-only. Addresses are assigned when a machine is created and released automatically when it is deleted.
+
+![Look up who uses an address (numbers match the steps above)](/manual-shots/en/ip-management/s04.webp)
 
 ## Fields and options
 

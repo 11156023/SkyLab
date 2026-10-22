@@ -22,12 +22,16 @@ There is no separate "superuser" switch: an account with the **Administrator** r
 
 When self-registration is on, any email address may register from the login page. Turning it off only stops new sign-ups; existing accounts can still log in, and the approval setting is kept.
 
+![Turn self-registration on or off (numbers match the steps above)](/manual-shots/en/admin-users/s01.webp)
+
 ### Require approval for new accounts
 
 1. In **Registration settings**, tick **Require administrator approval**.
 2. The change is saved immediately.
 
 While sign-up or Google account creation is open and approval is on, every new account (including school accounts) must be approved before it can be used. Accounts already waiting in the pending list still need a decision even if you turn approval off.
+
+![Require approval for new accounts (numbers match the steps above)](/manual-shots/en/admin-users/s02.webp)
 
 ### Allow or block account creation on first Google login
 
@@ -36,11 +40,15 @@ While sign-up or Google account creation is open and approval is on, every new a
 
 This switch is separate from self-registration and needs no mail server. When it is on, a Google address that has no account yet gets a student account the first time it signs in with Google, and waits for approval if approval is required. When it is off, only existing accounts can sign in with Google. It only has an effect when the deployment has Google login configured.
 
+![Allow or block account creation on first Google login (numbers match the steps above)](/manual-shots/en/admin-users/s03.webp)
+
 ### Approve or reject a pending registration
 
 1. Look at the **Pending registrations** panel. The number in the title is how many accounts are waiting.
 2. For each account, click **Approve** to let it sign in, or **Reject** to leave it unusable.
 3. When nothing is pending, the panel shows "No registrations await review".
+
+![Approve or reject a pending registration (numbers match the steps above)](/manual-shots/en/admin-users/s04.webp)
 
 ### Add a user
 
@@ -53,6 +61,8 @@ This switch is separate from self-registration and needs no mail server. When it
 
 An account created here needs no email verification and no approval. The password must meet the platform's complexity rules; the rule list under the field turns red for any rule that is not met.
 
+![Add a user (numbers match the steps above)](/manual-shots/en/admin-users/s05.webp)
+
 ### Edit a user
 
 1. Click the pencil icon (**Edit**) on the user's row.
@@ -62,6 +72,8 @@ An account created here needs no email verification and no approval. The passwor
 
 For an LDAP account the password field shows "Managed by LDAP" and is locked; change that password in the directory instead.
 
+![Edit a user (numbers match the steps above)](/manual-shots/en/admin-users/s06.webp)
+
 ### Disable or enable an account
 
 1. Click **Edit** on the row.
@@ -69,6 +81,8 @@ For an LDAP account the password field shows "Managed by LDAP" and is locked; ch
 3. Click **Save**.
 
 A disabled account cannot sign in until it is enabled again. **Enable account** is locked for accounts that have not finished registration (email not verified yet, awaiting approval, or rejected); use **Approve** in the pending list for accounts waiting for review.
+
+![Disable or enable an account (numbers match the steps above)](/manual-shots/en/admin-users/s07.webp)
 
 ### Enable, disable or delete several accounts at once
 
@@ -79,6 +93,8 @@ A disabled account cannot sign in until it is enabled again. **Enable account** 
 
 Enable and Disable only change accounts that are not already in the target state; the others are skipped (hover the button to see how many apply). Delete follows the same rules as deleting a single user: the account cannot be restored, its email cannot register again, and accounts that still own provisioned resources are refused. If some operations fail, those accounts stay selected so you can try again. Selection only covers the current page, and you cannot select your own account.
 
+![Enable, disable or delete several accounts at once (numbers match the steps above)](/manual-shots/en/admin-users/s08.webp)
+
 ### Require two-factor authentication for an account
 
 1. Click **Edit** on the row.
@@ -86,6 +102,8 @@ Enable and Disable only change accounts that are not already in the target state
 3. Click **Save**.
 
 If the user has not set up two-factor authentication yet, they must finish setting it up right after their next sign-in. Afterwards they cannot turn it off themselves.
+
+![Require two-factor authentication for an account (numbers match the steps above)](/manual-shots/en/admin-users/s09.webp)
 
 ### Reset a user's two-factor authentication
 
@@ -97,6 +115,8 @@ Use this when a user has lost the phone with their authenticator app.
 
 All of the user's sessions are signed out immediately. Their next sign-in only needs the password, and they can set up two-factor authentication again themselves (or are asked to, if it is required for the account).
 
+![Reset a user's two-factor authentication (numbers match the steps above)](/manual-shots/en/admin-users/s10.webp)
+
 ### Delete a user
 
 1. Click the trash icon (**Delete**) on the row.
@@ -104,12 +124,16 @@ All of the user's sessions are signed out immediately. Their next sign-in only n
 
 After deletion the account cannot sign in or use any service, and its AI API keys are revoked. Usage, request and audit records are kept. The account cannot be restored, and its email cannot be registered again.
 
+![Delete a user (numbers match the steps above)](/manual-shots/en/admin-users/s11.webp)
+
 ### Find a user
 
 1. Type in the search box ("Search by name, email, or role").
 2. The list filters as you type. Click **Clear search** in the empty state to reset it.
 
 The list shows 50 users per page; use **Previous** and **Next** below the list to move between pages.
+
+![Find a user (numbers match the steps above)](/manual-shots/en/admin-users/s12.webp)
 
 ## Fields and options
 

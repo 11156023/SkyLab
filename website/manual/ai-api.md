@@ -21,11 +21,15 @@ Every signed-in user: students, teachers and administrators. Each person only se
 4. Choose the **Key Validity Period**.
 5. Click **Submit Request**. The dialog closes and the **Request History** tab opens, where the request shows **Pending Review**.
 
+![Request a key (numbers match the steps above)](/manual-shots/en/ai-api/s01.webp)
+
 ### Wait for approval
 
 1. Keep the page open, or come back later. While a request is pending, the page refreshes itself and pops up a message when it is approved or rejected.
 2. **Approved**: the key appears in the **API Keys** tab with the status **In Use**. The validity period counts from the moment of approval.
 3. **Rejected**: read the **Review comment** in **Request History**, adjust the purpose and submit a new request.
+
+![Wait for approval (numbers match the steps above)](/manual-shots/en/ai-api/s02.webp)
 
 ### View and copy your key
 
@@ -36,6 +40,8 @@ Every signed-in user: students, teachers and administrators. Each person only se
 
 The details also show the **Status**, **Created**, **Expires** and **Rate limit** (requests per minute) of the key. The full key is only shown for keys that are **In Use**.
 
+![View and copy your key (numbers match the steps above)](/manual-shots/en/ai-api/s03.webp)
+
 ### Make your first call with API Quick Start
 
 1. Click **API Quick Start**.
@@ -45,6 +51,8 @@ The details also show the **Status**, **Created**, **Expires** and **Rate limit*
 5. If a call fails, open **Got an error?** at the bottom for the meaning of 401, 429, 413 and 502.
 
 The Base URL ends with `/api/v1/ai-proxy`. The examples use the official OpenAI SDKs, so any OpenAI-compatible tool works with the same Base URL and key. More curl examples are in the [AI API user manual](/guides/ai-api-user-manual).
+
+![Make your first call with API Quick Start (numbers match the steps above)](/manual-shots/en/ai-api/s04.webp)
 
 ### Chat with a model in the browser
 
@@ -57,10 +65,14 @@ If you have no usable key, the tab shows a **Campus API key** field where you ca
 
 Conversations are stored only in this browser. They do not move to other devices and are lost when you clear the browser data. Calls made here count toward your usage like any other call.
 
+![Chat with a model in the browser (numbers match the steps above)](/manual-shots/en/ai-api/s05.webp)
+
 ### Rename a key
 
 1. In **API Keys**, open the **⋮** menu of the key and choose **Rename**.
 2. Type the new name and press Enter (or click the check mark). Press Esc to cancel.
+
+![Rename a key (numbers match the steps above)](/manual-shots/en/ai-api/s06.webp)
 
 ### Regenerate a key
 
@@ -70,6 +82,8 @@ Conversations are stored only in this browser. They do not move to other devices
 
 The new key keeps the same name, rate limit and expiry date. An expired key cannot be regenerated; submit a new request instead.
 
+![Regenerate a key (numbers match the steps above)](/manual-shots/en/ai-api/s07.webp)
+
 ### Delete a key
 
 1. Open the **⋮** menu and choose **Delete**.
@@ -77,9 +91,13 @@ The new key keeps the same name, rate limit and expiry date. An expired key cann
 
 The key disappears from your list and new calls with it fail at once. Calls already accepted finish and their usage is recorded.
 
+![Delete a key (numbers match the steps above)](/manual-shots/en/ai-api/s08.webp)
+
 ### See inactive keys
 
 Keys that no longer work are hidden below the table. Click **Show inactive keys (n)** to list them, and **Hide inactive keys** to collapse them again.
+
+![See inactive keys](/manual-shots/en/ai-api/s09.webp)
 
 ### Check your usage
 
@@ -90,6 +108,8 @@ Keys that no longer work are hidden below the table. Click **Show inactive keys 
 5. Click **Load More** to load 20 more calls.
 
 Only calls made with your own keys are counted.
+
+![Check your usage (numbers match the steps above)](/manual-shots/en/ai-api/s10.webp)
 
 ## Fields and options
 

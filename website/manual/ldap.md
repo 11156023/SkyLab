@@ -22,6 +22,8 @@ Administrators only.
 2. Adjust **Connect Timeout (seconds)** if needed.
 3. With an `ldap://` address, tick **Use StartTLS** to encrypt the connection; an `ldaps://` address does not need it.
 
+![Set the server address (numbers match the steps above)](/manual-shots/en/ldap/s01.webp)
+
 ### Set the service account and user search
 
 1. In the **Service Account & User Search** card, enter **Bind DN** (for example `CN=svc-skylab,OU=Service,DC=example,DC=edu`).
@@ -32,12 +34,16 @@ Administrators only.
 
 The platform first binds to the directory with the service account, searches for the user under the Base DN with the filter, and then verifies the password the user entered.
 
+![Set the service account and user search (numbers match the steps above)](/manual-shots/en/ldap/s02.webp)
+
 ### Set account creation and role mapping
 
 1. In the **Account Creation & Role Mapping** card, tick **Auto-create Accounts** if people should get an account automatically on their first LDAP sign-in.
 2. Optionally enter **Teacher Group DN (optional)** and **Administrator Group DN (optional)**.
 
 New accounts are students by default. Members of the teacher group become teachers, and members of the administrator group become administrators (the administrator group wins if a user is in both). Group DNs are compared in full, ignoring case.
+
+![Set account creation and role mapping (numbers match the steps above)](/manual-shots/en/ldap/s03.webp)
 
 ### Test the settings
 
@@ -46,10 +52,14 @@ New accounts are students by default. Members of the teacher group become teache
 
 The test uses the values currently in the form, including unsaved changes, and saves nothing.
 
+![Test the settings (numbers match the steps above)](/manual-shots/en/ldap/s04.webp)
+
 ### Enable LDAP sign-in
 
 1. After a successful test, tick **Enable LDAP Login** in the first card.
 2. Click **Save LDAP Settings**.
+
+![Enable LDAP sign-in (numbers match the steps above)](/manual-shots/en/ldap/s05.webp)
 
 ### Discard unsaved changes
 
@@ -57,6 +67,8 @@ The test uses the values currently in the form, including unsaved changes, and s
 2. The form returns to the last saved values.
 
 If you leave the page with unsaved changes, you are asked to confirm first.
+
+![Discard unsaved changes (numbers match the steps above)](/manual-shots/en/ldap/s06.webp)
 
 ## Fields and options
 

@@ -20,6 +20,8 @@ Class Management lists the classes you teach as tickets, from planning through r
 2. The five-step [Class setup](/manual/class-setup) opens: **Class & Schedule**, **Student List**, **Teaching Environment**, **Weekly Tasks** and **Confirm Creation**. The address `/class-management/new` leads to the same place.
 3. Saved steps are kept as a draft; the class appears here in **Planning** and you can come back to it later.
 
+![Create a class (numbers match the steps above)](/manual-shots/en/class-management/s01.webp)
+
 ### Filter and search
 
 1. Use the status tabs; the number on each is the count:
@@ -30,6 +32,8 @@ Class Management lists the classes you teach as tickets, from planning through r
    - **Ready to teach** — the class is active.
 2. Type a class name in **Search classes**.
 3. Ended classes are hidden. Tick **Show ended (N)** to list them; the option appears only when there are ended classes.
+
+![Filter and search (numbers match the steps above)](/manual-shots/en/class-management/s02.webp)
 
 ### Read a class ticket
 
@@ -42,11 +46,15 @@ Each ticket shows:
    - For a class in planning, **Class setup** counts finished setup items out of 3: students added, an environment chosen, at least one week with a topic.
    - For other classes, **Machine provisioning** counts machines already built out of the total.
 
+![Read a class ticket (numbers match the steps above)](/manual-shots/en/class-management/s03.webp)
+
 ### Open a class
 
 1. Click a ticket.
 2. A class in **Planning** opens class setup at the next unfinished step.
 3. Any other class opens its [Class workspace](/manual/class-workspace), where you manage students, machines, weekly content, monitoring and checks.
+
+![Open a class (numbers match the steps above)](/manual-shots/en/class-management/s04.webp)
 
 ### Archive and reclaim classes in bulk
 
@@ -60,6 +68,8 @@ Each ticket shows:
    - If some classes failed to archive, they stay selected so you can try again.
 
 While tickets are selected, clicking a ticket toggles its selection instead of opening it. Clear the selection to go back to normal.
+
+![Archive and reclaim classes in bulk (numbers match the steps above)](/manual-shots/en/class-management/s05.webp)
 
 ## Fields and options
 

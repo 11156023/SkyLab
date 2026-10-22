@@ -19,6 +19,8 @@ Administrators only. The page lives in the administrator settings sidebar, and r
 2. Type in the search box (**Search by name, node, or type**). It matches the storage name, its node (every node, for shared storage), the connection name and the storage type.
 3. If nothing matches, **No storage found** is shown with a button to clear the filters.
 
+![Find a storage (numbers match the steps above)](/manual-shots/en/storage/s01.webp)
+
 ### Read a storage row
 
 1. The first line shows the storage name and where it lives:
@@ -28,11 +30,15 @@ Administrators only. The page lives in the administrator settings sidebar, and r
 2. The second line shows the storage type, used / total capacity in GB, and its purposes: **VM**, **LXC**, **ISO**, **Backup**, or **No purpose**.
 3. Only storage marked **VM** is chosen for VM disks, and only storage marked **LXC** for container disks.
 
+![Read a storage row (numbers match the steps above)](/manual-shots/en/storage/s02.webp)
+
 ### Set the speed tier
 
 1. Open **Speed tier** on the row and choose **NVMe**, **SSD**, **HDD** or **Unknown**.
 2. The choice is saved immediately and a message confirms it ("… updated").
 3. Placement compares speed tier first (NVMe → SSD → HDD → Unknown) and then usage. Newly synced storage starts as **Unknown**, so set the correct tier after each sync that adds storage.
+
+![Set the speed tier (numbers match the steps above)](/manual-shots/en/storage/s03.webp)
 
 ### Set the user priority
 
@@ -41,15 +47,21 @@ Administrators only. The page lives in the administrator settings sidebar, and r
 3. Values outside 1–10, blanks or decimals revert to the saved value. If saving fails, the field also reverts.
 4. Priority only breaks ties when speed tier and usage are about the same.
 
+![Set the user priority (numbers match the steps above)](/manual-shots/en/storage/s04.webp)
+
 ### Enable or disable a storage
 
 1. Tick or untick **Enabled** on the row. The change is saved immediately.
 2. A disabled storage is never chosen for new machines' disks.
 
+![Enable or disable a storage (numbers match the steps above)](/manual-shots/en/storage/s05.webp)
+
 ### Change shared storage
 
 1. Change the speed tier, priority or **Enabled** on a shared storage row as usual.
 2. The change is applied to every node in that cluster where the storage is mounted, and the message says how many nodes it was applied to ("… updated (applied to N nodes)").
+
+![Change shared storage (numbers match the steps above)](/manual-shots/en/storage/s06.webp)
 
 ## Fields and options
 

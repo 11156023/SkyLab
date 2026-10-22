@@ -23,6 +23,8 @@ Every signed-in user: students, teachers and administrators. All of them see the
 
 If the list fails to load, click **Retry**.
 
+![Pick an environment (numbers match the steps above)](/manual-shots/en/quick-practice/s01.webp)
+
 ### Review the launch confirmation
 
 The **Launch Quick Practice** page shows:
@@ -33,6 +35,8 @@ The **Launch Quick Practice** page shows:
 
 To leave without creating anything, click **Back** in the page header or **Cancel** at the bottom. You return to the page you came from.
 
+![Review the launch confirmation (numbers match the steps above)](/manual-shots/en/quick-practice/s02.webp)
+
 ### Launch the environment
 
 1. On the confirmation page, click **Launch `<n>` Machines**.
@@ -41,16 +45,22 @@ To leave without creating anything, click **Back** in the page header or **Cance
 
 If you are over quota, the environment is full, you already have an active practice environment, or you have reached the launch limit, a message explains why and no machines are created.
 
+![Launch the environment (numbers match the steps above)](/manual-shots/en/quick-practice/s03.webp)
+
 ### Reach the machines
 
 1. In **My Resources**, the environment appears as one group row labelled **Quick Practice Environment**, with "`<n>` machines · managed as a group" and how many are running.
 2. Click the row to expand it and see each machine. Follow the creation progress there; open a machine to use its console.
 3. Students also find the machines under **Recently used machines** on the home page, where **Enter Machine** opens the console directly.
 
+![Reach the machines (numbers match the steps above)](/manual-shots/en/quick-practice/s04.webp)
+
 ### Start or shut down the whole set
 
 1. In **My Resources**, open the group's power menu (**Group power**) on the environment row.
 2. Choose **Start all** or **Shut down all**.
+
+![Start or shut down the whole set (numbers match the steps above)](/manual-shots/en/quick-practice/s05.webp)
 
 ### End the practice early
 
@@ -58,6 +68,8 @@ If you are over quota, the environment is full, you already have an active pract
 2. Confirm in **End this practice session?** All machines in the group are reclaimed immediately and unsaved content is lost.
 
 Ending early frees your quota and lets you launch another environment, but the launch still counts toward the 24-hour limit.
+
+![End the practice early (numbers match the steps above)](/manual-shots/en/quick-practice/s06.webp)
 
 ## Fields and options
 

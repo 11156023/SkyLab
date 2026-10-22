@@ -19,11 +19,15 @@ Administrators only. Other roles do not see the page in the sidebar.
 2. The summary, the trend chart and the call details below all change together.
 3. **Last updated** next to the switch shows when the data was last loaded. The page also refreshes on its own.
 
+![Choose the time range (numbers match the steps above)](/manual-shots/en/ai-monitoring/s01.webp)
+
 ### Read the summary metrics
 
 - **Call Count**: total calls in the period. The line below compares it with the previous period of the same length, as a percentage.
 - **Total Tokens**: tokens used in the selected period only.
 - **Error rate**: share of failed calls. The line below shows the change from the previous period in percentage points (pp); a rise is shown in red.
+
+![Read the summary metrics](/manual-shots/en/ai-monitoring/s02.webp)
 
 ### Read the trend chart
 
@@ -31,6 +35,8 @@ Administrators only. Other roles do not see the page in the sidebar.
 2. Hover over the chart to see all five figures for that time slot.
 
 The last 7 days are plotted by hour; 30 and 90 days are plotted by day.
+
+![Read the trend chart (numbers match the steps above)](/manual-shots/en/ai-monitoring/s03.webp)
 
 ### Act on problems in System status
 
@@ -45,6 +51,8 @@ The last 7 days are plotted by hour; 30 and 90 days are plotted by day.
 
 Click an item to jump to the matching details below.
 
+![Act on problems in System status](/manual-shots/en/ai-monitoring/s04.webp)
+
 ### Check model status
 
 1. In **Call details**, open the **Models** tab.
@@ -52,6 +60,8 @@ Click an item to jump to the matching details below.
 3. Click a model name that has calls to open **API Key Calls** filtered to that model.
 
 A model that only appears in past usage and is not known to the gateway shows "â€”" for runtime status and deployments.
+
+![Check model status (numbers match the steps above)](/manual-shots/en/ai-monitoring/s05.webp)
 
 ### Inspect individual calls
 
@@ -62,15 +72,21 @@ A model that only appears in past usage and is not known to the gateway shows "â
 
 When **Token evidence** says **Missing upstream**, the model did not report its token usage: tokens are recorded as 0 and no output rate is computed.
 
+![Inspect individual calls (numbers match the steps above)](/manual-shots/en/ai-monitoring/s06.webp)
+
 ### Find the heaviest users
 
 1. Open **User Usage**.
 2. Each row adds up a user's key calls and built-in AI calls: **Call Count**, **Total Tokens**, **Avg. Latency** and **Failure Rate**.
 3. Search by name or email.
 
+![Find the heaviest users (numbers match the steps above)](/manual-shots/en/ai-monitoring/s07.webp)
+
 ### Open the Grafana dashboard
 
 Click **View details in Grafana**. The SkyLab AI dashboard opens in a new tab, already signed in.
+
+![Open the Grafana dashboard](/manual-shots/en/ai-monitoring/s08.webp)
 
 ## Fields and options
 

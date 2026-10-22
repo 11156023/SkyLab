@@ -23,6 +23,8 @@ Administrators only.
 
 When a node's or machine's CPU, memory or disk usage crosses its threshold, an alert event is created. The same metric on the same target is not raised again within the cooldown.
 
+![Configure resource alerts (numbers match the steps above)](/manual-shots/en/governance/s01.webp)
+
 ### Configure expiry reclamation (TTL lifecycle)
 
 1. In the **TTL Lifecycle** card, tick **Enable TTL Reclamation**.
@@ -30,6 +32,8 @@ When a node's or machine's CPU, memory or disk usage crosses its threshold, an a
 3. Click **Save Governance Settings**.
 
 The lifecycle is: notify before expiry → shut down at expiry → delete after the grace period. Owners are emailed the set number of days before their machine expires; the machine shuts down automatically when it expires; it is deleted only after the deletion grace period, which counts from the expiry shutdown.
+
+![Configure expiry reclamation (TTL lifecycle) (numbers match the steps above)](/manual-shots/en/governance/s02.webp)
 
 ### Shut down idle machines automatically
 
@@ -39,12 +43,16 @@ The lifecycle is: notify before expiry → shut down at expiry → delete after 
 
 A machine counts as idle only after it has stayed on with average CPU below the threshold for the whole observation window; a reboot resets the count. The owner is notified after the notification delay, and the machine shuts down when the shutdown grace period ends. Idle machines are only shut down, never deleted.
 
+![Shut down idle machines automatically (numbers match the steps above)](/manual-shots/en/governance/s03.webp)
+
 ### Turn VM / LXC auto-detection on or off
 
 1. In the **VM / LXC Auto-Detection** card, tick or untick **Enable Auto-Detection**.
 2. Click **Save Governance Settings**.
 
 When it is off, people filling in a request form must choose the machine type themselves.
+
+![Turn VM / LXC auto-detection on or off (numbers match the steps above)](/manual-shots/en/governance/s04.webp)
 
 ### Configure anti-mining detection
 
@@ -55,6 +63,8 @@ When it is off, people filling in a request form must choose the machine type th
 
 Machines whose CPU stays above the threshold throughout the observation window are treated as suspected mining. Accounts are never suspended automatically: an administrator reviews the incident and confirms any account suspension under Resource Monitoring → Mining Incidents (see [Resource Monitoring](/manual/monitoring)).
 
+![Configure anti-mining detection (numbers match the steps above)](/manual-shots/en/governance/s05.webp)
+
 ### Configure snapshot governance
 
 1. In the **Snapshot Governance** card, tick **Enable Automatic Snapshot Cleanup** to have old snapshots deleted.
@@ -63,6 +73,8 @@ Machines whose CPU stays above the threshold throughout the observation window a
 
 Snapshots older than the retention period are deleted by the scheduler, and the owner is notified. The `skylab-init` initial snapshot is never cleaned up and does not count toward the limit. The two maximums apply per machine to every user except administrators (despite the "Student" in their names); anyone who reaches a limit must delete an old snapshot or backup before creating another.
 
+![Configure snapshot governance (numbers match the steps above)](/manual-shots/en/governance/s06.webp)
+
 ### Limit clone concurrency
 
 1. In the **Clone Concurrency** card, set **Concurrency Limit**.
@@ -70,12 +82,16 @@ Snapshots older than the retention period are deleted by the scheduler, and the 
 
 This is the number of machine clones that may run at the same time. Cloning is heavy on disk I/O, so a value that is too high can overwhelm storage. The change takes effect on the next scheduler cycle.
 
+![Limit clone concurrency (numbers match the steps above)](/manual-shots/en/governance/s07.webp)
+
 ### Discard unsaved governance changes
 
 1. Click **Restore** next to **Save Governance Settings** (shown only when something has changed).
 2. All governance cards return to the last saved values.
 
 If you leave the page with unsaved changes, you are asked to confirm first.
+
+![Discard unsaved governance changes (numbers match the steps above)](/manual-shots/en/governance/s08.webp)
 
 ### Change the global default quota
 
@@ -85,6 +101,8 @@ If you leave the page with unsaved changes, you are asked to confirm first.
 
 Users without a personal override get these limits. Changes only affect later creation and expansion; existing resources are not changed. The card shows when it was last updated.
 
+![Change the global default quota (numbers match the steps above)](/manual-shots/en/governance/s09.webp)
+
 ### Give a user their own quota
 
 1. In **Per-user Overrides**, click **Add Quota**.
@@ -92,10 +110,14 @@ Users without a personal override get these limits. Changes only affect later cr
 3. Adjust the limits. The fields start from the current global defaults.
 4. Click **Create**.
 
+![Give a user their own quota (numbers match the steps above)](/manual-shots/en/governance/s10.webp)
+
 ### Edit or delete a user's quota
 
 1. In the overrides table, click the pencil icon (**Edit Quota**), change the limits and click **Save**.
 2. To remove an override, click the trash icon (**Delete Quota**) and confirm. The user then falls back to the global default.
+
+![Edit or delete a user's quota (numbers match the steps above)](/manual-shots/en/governance/s11.webp)
 
 ## Fields and options
 

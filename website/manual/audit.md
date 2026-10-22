@@ -15,6 +15,8 @@ Administrators only. The sidebar entry and the page are hidden from teachers and
 
 If the summary cannot be loaded, the row is hidden instead of showing old numbers.
 
+![Read the summary for a period (numbers match the steps above)](/manual-shots/en/audit/s01.webp)
+
 ### Find specific records
 
 1. Type in the search box ("Search action details, IP..."). It looks for your text in the **Details** column and runs on its own shortly after you stop typing.
@@ -24,6 +26,8 @@ If the summary cannot be loaded, the row is hidden instead of showing old number
 5. Combine any of these filters; the table updates as soon as you change one.
 6. Click **Clear** to remove every filter.
 
+![Find specific records (numbers match the steps above)](/manual-shots/en/audit/s02.webp)
+
 ### Read the records
 
 1. The table lists records newest first, 50 per page, with **Time**, **User**, **Action**, **Details**, **VMID** and **IP**.
@@ -31,12 +35,16 @@ If the summary cannot be loaded, the row is hidden instead of showing old number
 3. Long **Details** are cut off; hover over the cell to read the full text.
 4. Use **Previous** and **Next** below the table to page through. The line next to them shows the total count and the current page.
 
+![Read the records (numbers match the steps above)](/manual-shots/en/audit/s03.webp)
+
 ### Export to CSV
 
 1. Set the filters you want (or none).
 2. Click **Export CSV** in the page header.
 3. If no filter is set, confirm the "Export the entire audit log?" question; the export then covers the most recent 10000 entries.
 4. The browser downloads a file named `audit-logs-` followed by today's date. A "CSV exported" notice appears.
+
+![Export to CSV (numbers match the steps above)](/manual-shots/en/audit/s04.webp)
 
 ## Fields and options
 

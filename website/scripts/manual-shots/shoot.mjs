@@ -40,7 +40,9 @@ for (const lang of LANGS) {
 }
 
 const server = await startServer(dist);
-const browser = await launchBrowser();
+// One browser per UI language (see launchBrowser), started when first needed.
+const browsers = {};
+const browserFor = async (lang) => (browsers[lang] ??= await launchBrowser(lang));
 const failures = [];
 let shots = 0;
 const t0 = Date.now();
@@ -57,6 +59,7 @@ for (const page of pages) {
       const run = typeof def === "function" ? def : def.run;
       const role = def.role !== undefined ? def.role : scene.role;
       const label = `${lang} ${page} s${section}`;
+      const browser = await browserFor(lang);
       const { s, context, mock } = await runSection({
         browser, baseUrl: server.url, lang, page, section, role,
         mocks: (m) => { scene.mocks?.(m); def.mocks?.(m); },
@@ -83,7 +86,7 @@ for (const page of pages) {
   }
 }
 
-await browser.close();
+for (const b of Object.values(browsers)) await b.close();
 server.close();
 console.log(`\n${shots} section picture(s) in ${Math.round((Date.now() - t0) / 1000)} s`);
 if (failures.length) {

@@ -27,6 +27,8 @@ Nothing is required. The sections fill up as you get machines, join classes or (
 
 The page refreshes itself every 30 seconds and pauses while the browser tab is hidden.
 
+![Check how fresh the data is (numbers match the steps above)](/manual-shots/en/home/s01.webp)
+
 ### Read the platform numbers
 
 The three cards at the top cover every PVE connection:
@@ -36,12 +38,16 @@ The three cards at the top cover every PVE connection:
 
 The cards are not shown until the first PVE overview has been collected.
 
+![Read the platform numbers](/manual-shots/en/home/s02.webp)
+
 ### Ask the AI Operations Assistant
 
 1. Type a question, or the name of a VM you want checked, in the **AI Operations Assistant** box. You can also click one of the suggested questions (for example "Which nodes or VMs are currently abnormal?"); it only fills in the box.
 2. Click **Start Asking**. Nothing is sent before that.
 3. While the conversation is open, click **Expand Chat** to let it fill the page (the cards and to-do lists are hidden), and **Back to Overview** to shrink it again.
 4. Click **Ask Another Question** to clear the conversation and start over.
+
+![Ask the AI Operations Assistant (numbers match the steps above)](/manual-shots/en/home/s03.webp)
 
 ### Work through "Handle now"
 
@@ -53,6 +59,8 @@ The cards are not shown until the first PVE overview has been collected.
 - **Background jobs failed or blocked** in the last 7 days.
 
 A problem reported both live and as an alert is listed only once. Click a row to go to that machine or the related page. **View platform monitoring** at the bottom opens Resource Monitoring. When the list is empty it reads **Nothing needs immediate attention**.
+
+![Work through "Handle now"](/manual-shots/en/home/s04.webp)
 
 ### Clear the reviews in "Sometime today"
 
@@ -66,6 +74,8 @@ A problem reported both live and as an alert is listed only once. Click a row to
 
 Click a row to open that review list. When there is nothing to review it reads **No requests awaiting review**.
 
+![Clear the reviews in "Sometime today"](/manual-shots/en/home/s05.webp)
+
 ## Step by step: teacher home
 
 ### Create a class
@@ -73,12 +83,16 @@ Click a row to open that review list. When there is nothing to review it reads *
 1. Click **Create Class** in the page header.
 2. The class setup flow opens, where you choose the students, the schedule and the machines each student gets. After you submit, an administrator has to approve the class before its machines are created.
 
+![Create a class (numbers match the steps above)](/manual-shots/en/home/s06.webp)
+
 ### Read the summary cards
 
 - **Active Classes**: the number of classes in session. The line below (for example "2 preparing") counts classes that are still being set up, waiting for review, being provisioned or partially failed. Click the card to open Class Management.
 - **Next Class**: the date of your nearest session and the class name. Click it to open that class; if there is no upcoming session it shows **No upcoming classes** and opens Class Management.
 
 If the data could not be loaded, both cards show "—".
+
+![Read the summary cards](/manual-shots/en/home/s07.webp)
 
 ### Follow your upcoming classes
 
@@ -90,6 +104,8 @@ If the data could not be loaded, both cards show "—".
 - for classes in session, the share of machines that are ready (for example "93% machines ready"); for classes still in planning, **Continue setup**.
 
 Click a row to open the class. Click **All Classes** to see every class.
+
+![Follow your upcoming classes](/manual-shots/en/home/s08.webp)
 
 ## Step by step: student home
 
@@ -105,15 +121,21 @@ Click a row to open the class. Click **All Classes** to see every class.
 
 If the machine is still starting after a while, the page asks you to try again shortly. Hover over **Time window ended** or **Window not started** to see why the machine cannot be started.
 
+![Enter one of your machines (numbers match the steps above)](/manual-shots/en/home/s09.webp)
+
 ### Shut down a machine
 
 1. On a running machine's card, click the power button.
 2. Confirm **Shut down** in the dialog. A graceful shutdown is sent, so save your work on the machine first.
 
+![Shut down a machine (numbers match the steps above)](/manual-shots/en/home/s10.webp)
+
 ### Open a machine's details or all your machines
 
 - Click the info button on a card to open that machine's page in My Resources.
 - Click **My resources** in the page header to see every machine you have.
+
+![Open a machine's details or all your machines](/manual-shots/en/home/s11.webp)
 
 ### Open a class
 
@@ -122,13 +144,19 @@ If the machine is still starting after a while, the page asks you to try again s
 1. Click a ticket to open that course.
 2. Click **View all courses** to see all your courses.
 
+![Open a class (numbers match the steps above)](/manual-shots/en/home/s12.webp)
+
 ### Start a quick practice environment
 
 **Quick Practice Environments** shows the environments teachers have opened for quick practice, as folders. Click a folder to review it before anything is created. See [Quick Practice](/manual/quick-practice).
 
+![Start a quick practice environment](/manual-shots/en/home/s13.webp)
+
 ### Request your own research environment
 
 For projects or experiments that are not part of a class, click **Build Your Own Research Environment** (**Start a request**) at the bottom. The request form in My Requests opens directly.
+
+![Request your own research environment](/manual-shots/en/home/s14.webp)
 
 ## Limits and behaviour to know
 
