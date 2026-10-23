@@ -49,7 +49,7 @@ Available only while the class is still being set up (before you submit for prov
 
 ### Add students
 
-The roster can only be changed while the class is being set up. After you submit for provisioning, the **Import CSV** and **Add students** buttons are disabled.
+The roster can only be changed while the class is being set up. After you submit for provisioning, the **Import CSV**, **Import from group** and **Add students** buttons are disabled.
 
 To paste email addresses:
 
@@ -62,6 +62,14 @@ To import a CSV file:
 1. Click **Import CSV** and choose a `.csv` file.
 2. The first column of each row is read as an email or a student ID. A bare student ID gets the school's email domain appended; a header row named `email`, `學號` or `帳號` is skipped.
 3. A notice reports how many were added and how many accounts don't exist or aren't student accounts.
+
+To import a group:
+
+1. Click **Import from group**.
+2. Choose a group an administrator has set up (for example one school class); the menu shows how many students each group has.
+3. Click **Import**. The group's current students are added and anyone already on the roster is skipped. Teacher or administrator accounts in the group are listed in the notice and not added.
+
+The import copies the group as it is now: later changes to the group, or deleting it, do not change this class.
 
 ### Find and remove students
 
@@ -160,6 +168,7 @@ After archiving, **Weekly Content** becomes read-only and the **⋯** menu disap
 | Shutdown after class | Grace period before machines shut down after class | Options: **At class end**, 10, 30 or 60 minutes after |
 | Emails (Add students) | Student emails, separated by commas or line breaks | Only registered student accounts are added |
 | CSV file | First column: email or student ID | Maximum 1 MB; UTF-8 or Big5 |
+| Group (Import from group) | A group set up by an administrator | Only its student accounts are added |
 | Topic / task | Title of the week shown to students | Required before a week can be published |
 | Task files | Files attached to the week | Up to 100 MB per file |
 | Draft / Publish | Whether students can see the week | Saved with **Save weekly content** |

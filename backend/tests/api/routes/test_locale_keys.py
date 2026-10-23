@@ -32,6 +32,9 @@ B1_SOURCES = [
     "app/ai/teacher_judge/session_chat_service.py",
     "app/services/teaching/class_capacity_service.py",
     "app/services/teaching/class_lifecycle_service.py",
+    "app/services/user/roster_csv.py",
+    "app/services/user/user_group_service.py",
+    "app/schemas/user_group.py",
 ]
 
 # t("key") 與跨行的 t(\n    "key", ...)

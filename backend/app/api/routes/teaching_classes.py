@@ -1,7 +1,5 @@
 """Teacher-facing classes, weekly content and multi-machine orchestration."""
 
-import csv
-import io
 import uuid
 
 from fastapi import APIRouter, File, UploadFile
@@ -50,6 +48,7 @@ from app.schemas.teaching_class import (
     InstructorMachineIn,
     MachineNodeIn,
     StudentAdd,
+    StudentGroupImport,
     WeekIn,
 )
 from app.services.course import course_service, weekly_task_service
@@ -61,14 +60,15 @@ from app.services.teaching import (
     class_provision_service,
     class_status_service,
 )
+from app.services.user import roster_csv, user_group_service
 
 router = APIRouter(prefix="/teaching-classes", tags=["teaching-classes"])
 
 # 教材檔的根目錄只定義在 weekly_task_service.TASK_FILE_ROOT（學生下載也讀它）；
 # 這裡一律在呼叫當下讀該模組屬性，換掉它就同時涵蓋上傳、刪除與下載。
 MAX_TASK_FILE_BYTES = 100 * 1024 * 1024
-# 學生名單 CSV：一行一個帳號，1 MB 已足夠放上萬筆
-MAX_STUDENT_CSV_BYTES = 1024 * 1024
+# 學生名單 CSV 的解析與大小上限在 roster_csv（使用者群組匯入共用同一套）
+MAX_STUDENT_CSV_BYTES = roster_csv.MAX_ROSTER_CSV_BYTES
 PUBLIC_PROVISION_ERROR = (
     "Machine provisioning failed. Retry or contact an administrator."
 )
@@ -645,42 +645,46 @@ async def import_students(
     item = await run_in_threadpool(_get_class, session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.studentsLocked"))
-    try:
-        raw = await file.read(MAX_STUDENT_CSV_BYTES + 1)
-    finally:
-        await file.close()
-    if len(raw) > MAX_STUDENT_CSV_BYTES:
-        raise BadRequestError(
-            t(
-                "teachingClasses.csvTooLarge",
-                size=MAX_STUDENT_CSV_BYTES // (1024 * 1024),
-            )
-        )
-    content = None
-    # UTF-8 要先試：Excel「CSV UTF-8」開頭的 BOM 加一個英文字母剛好是兩個
-    # 合法的 Big5 字，先用 cp950 解不會報錯，第一格就被解成亂碼（標題列
-    # 沒被跳過、或第一位學生被默默漏掉）。真正的 Big5 位元組幾乎一定不是
-    # 合法的 UTF-8，所以舊的 cp950 檔案仍會落到第二順位解出來。
-    for encoding in ("utf-8-sig", "cp950"):
-        try:
-            content = raw.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            continue
-    if content is None:
-        raise BadRequestError(t("teachingClasses.csvDecodeFailed"))
-    emails = []
-    for index, row in enumerate(csv.reader(io.StringIO(content))):
-        if not row:
-            continue
-        value = row[0].strip().lstrip("\ufeff").strip()
-        if index == 0 and value.lower() in {"email", "學號", "帳號"}:
-            continue
-        if value:
-            emails.append(value if "@" in value else f"{value}@ntub.edu.tw")
+    emails = await roster_csv.read_roster_upload(file)
     return await run_in_threadpool(
         add_students, class_id, StudentAdd(emails=emails), session, current_user
     )
+
+
+@router.post("/{class_id}/students/import-group")
+def import_group_students(
+    class_id: uuid.UUID,
+    body: StudentGroupImport,
+    session: SessionDep,
+    current_user: InstructorUser,
+):
+    """把管理員建的群組（例如某一班）的學生一次加進名單。
+
+    只複製匯入當下的成員：之後群組再異動不會改到這個班級。群組裡的老師、
+    管理員不會被加進來，和逐筆輸入一樣列在 invalid_role。
+    """
+    item = _get_class(session, current_user, class_id)
+    if item.status != TeachingClassStatus.planning:
+        raise BadRequestError(t("teachingClasses.studentsLocked"))
+    members = user_group_service.get_member_users(
+        session=session, group_id=body.group_id
+    )
+    existing = {row.user_id for row in _students(session, class_id)}
+    added, invalid_role = 0, []
+    for user in members:
+        if user.role != UserRole.student:
+            invalid_role.append(user.email)
+        elif user.id not in existing:
+            session.add(TeachingClassStudent(class_id=class_id, user_id=user.id))
+            existing.add(user.id)
+            added += 1
+    session.commit()
+    return {
+        "added": added,
+        "not_found": [],
+        "invalid_role": invalid_role,
+        "class": _serialize(session, item),
+    }
 
 
 @router.post("/{class_id}/generate-weeks")

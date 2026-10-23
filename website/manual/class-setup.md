@@ -39,9 +39,10 @@ Class setup is a five-step wizard that creates a class: its fixed weekly schedul
 
 1. Paste student emails into **Student email**, separated by new lines, commas or semicolons. The label shows **Ready to add N emails**.
 2. Or click **Import CSV** and choose a file. It is imported immediately, without clicking save.
-3. **Current class students** lists the students already saved to the class. Duplicate accounts are skipped automatically.
-4. To remove a student, click the icon next to them and confirm **Remove student**.
-5. Click **Save and continue**. Accounts that cannot be added stay in the box, highlighted in red, and a message lists which were **not found** and which are **not student accounts**. Fix or delete them, then continue.
+3. Or click **Import from group**, choose a group an administrator has set up (for example one school class) and click **Import**. The menu shows how many students each group has. Only the group's students are added; teacher or administrator accounts in the group are listed in the notice and skipped.
+4. **Current class students** lists the students already saved to the class. Duplicate accounts are skipped automatically.
+5. To remove a student, click the icon next to them and confirm **Remove student**.
+6. Click **Save and continue**. Accounts that cannot be added stay in the box, highlighted in red, and a message lists which were **not found** and which are **not student accounts**. Fix or delete them, then continue.
 
 You need at least one student to continue.
 
@@ -95,11 +96,13 @@ While you are on this page, the **AI Assistant** knows which step you are on, wh
 | Shutdown after class | Minutes machines run after class | **At class end**, 10, 30, 60; default 30 |
 | Student email | Emails to add | New lines, commas or semicolons |
 | Import CSV | File of students | First column only; see below |
+| Import from group | A group set up by an administrator | Adds the group's students as they are now |
 | Publish weeks that have a topic | Make filled-in weeks visible to students | On by default |
 
 ## Limits and behaviour to know
 
 - CSV import reads the first column of each row. A header row of `email`, `學號` or `帳號` is skipped. A value without `@` is treated as a student ID and `@ntub.edu.tw` is added. The file must be UTF-8 or Big5 and at most 1 MB.
+- Importing from a group copies its students at that moment. Adding people to the group or deleting it later does not change the class roster. Only administrators can create groups and change their members (see [User Management](/manual/admin-users)).
 - Students can be added only while the class is still being set up.
 - A new class starts on the coming Monday and runs for four months by default; change the dates as needed.
 - Submitting locks the students, the environment and the schedule. After that, opening the class's setup address takes you to the class workspace instead.

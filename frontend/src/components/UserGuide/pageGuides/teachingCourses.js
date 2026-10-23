@@ -228,6 +228,12 @@ export const TEACHING_COURSE_GUIDES = {
         textKey: "UserGuide.classSetup.csv.text",
       },
       {
+        selector: '[data-guide="class-setup-group-import"]',
+        optional: true,
+        titleKey: "UserGuide.classSetup.groupImport.title",
+        textKey: "UserGuide.classSetup.groupImport.text",
+      },
+      {
         selector: '[data-guide="class-setup-roster"]',
         optional: true,
         titleKey: "UserGuide.classSetup.roster.title",

@@ -11,6 +11,8 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UsersService } from "../../../services/users";
+import { UserGroupsService } from "../../../services/userGroups";
+import { GroupManagerDialog, GroupPickDialog } from "./UserGroupDialogs";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import PasswordRules from "../../../components/PasswordRules/PasswordRules";
@@ -405,6 +407,78 @@ export default function AdminPage() {
   useEffect(() => { fetchRegistrationSettings(); }, [fetchRegistrationSettings]);
   useAutoRefresh(() => fetchRegistrationSettings(true));
 
+  /* 群組（例如一個班）：篩選選單、群組管理對話框、批量加入／移出都用同一份清單 */
+  const [groups, setGroups] = useState([]);
+  const [groupFilter, setGroupFilter] = useState("");
+  const [groupMembers, setGroupMembers] = useState(null); // { groupId, ids: Set }
+  const [showGroupManager, setShowGroupManager] = useState(false);
+  const groupManagerPresence = useDialogPresence(showGroupManager);
+  const [groupPick, setGroupPick] = useState(null); // { mode: "add" | "remove", count }
+  const groupPickPresence = useDialogPresence(groupPick);
+  const [groupSaving, setGroupSaving] = useState(false);
+  const groupMembersSeqRef = useRef(0);
+
+  const fetchGroups = useCallback(async (silent = false) => {
+    try {
+      const res = await UserGroupsService.list();
+      setGroups(res?.data ?? []);
+    } catch (err) {
+      if (!silent) toast.error(err?.message ?? t("UserGroups.loadFailed"));
+    }
+  }, [toast, t]);
+
+  useEffect(() => { fetchGroups(); }, [fetchGroups]);
+  useAutoRefresh(() => fetchGroups(true));
+
+  const fetchGroupMembers = useCallback(async (groupId) => {
+    const seq = ++groupMembersSeqRef.current;
+    if (!groupId) { setGroupMembers(null); return; }
+    try {
+      const res = await UserGroupsService.members(groupId);
+      if (seq === groupMembersSeqRef.current) {
+        setGroupMembers({ groupId, ids: new Set((res?.data ?? []).map((member) => member.id)) });
+      }
+    } catch (err) {
+      if (seq !== groupMembersSeqRef.current) return;
+      toast.error(err?.message ?? t("UserGroups.loadFailed"));
+      setGroupFilter("");
+    }
+  }, [toast, t]);
+
+  useEffect(() => { fetchGroupMembers(groupFilter); }, [groupFilter, fetchGroupMembers]);
+
+  /* 篩選中的群組被刪掉了：回到全部使用者 */
+  useEffect(() => {
+    if (groupFilter && !groups.some((group) => group.id === groupFilter)) setGroupFilter("");
+  }, [groups, groupFilter]);
+
+  async function refreshGroups() {
+    await fetchGroups(true);
+    if (groupFilter) await fetchGroupMembers(groupFilter);
+  }
+
+  async function submitGroupPick(group) {
+    const ids = selectedUsers.map((item) => item.id);
+    if (!ids.length || !groupPick || groupSaving) return;
+    const isAdd = groupPick.mode === "add";
+    setGroupSaving(true);
+    try {
+      const res = isAdd
+        ? await UserGroupsService.addMembers(group.id, { userIds: ids })
+        : await UserGroupsService.removeMembers(group.id, ids);
+      toast.success(isAdd
+        ? t("UserGroups.addedToast", { name: group.name, count: res.added })
+        : t("UserGroups.removedToast", { name: group.name, count: res.removed }));
+      setGroupPick(null);
+      selection.clear();
+      await refreshGroups();
+    } catch (err) {
+      toast.error(err?.message ?? t("UserGroups.saveFailed"));
+    } finally {
+      setGroupSaving(false);
+    }
+  }
+
   async function saveRegistrationPolicy(patch) {
     if (!registrationPolicy || policySaving) return;
     setPolicySaving(true);
@@ -437,17 +511,21 @@ export default function AdminPage() {
 
   const visibleUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    if (!keyword) return users;
+    /* 選了群組但成員還沒載回來時先顯示空清單，不要閃一下全部使用者 */
+    const memberIds = groupFilter
+      ? (groupMembers?.groupId === groupFilter ? groupMembers.ids : new Set())
+      : null;
     return users.filter((item) =>
-      [item.email, item.full_name, item.role]
+      (!memberIds || memberIds.has(item.id))
+      && (!keyword || [item.email, item.full_name, item.role]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword)),
+        .some((value) => String(value).toLowerCase().includes(keyword))),
     );
-  }, [query, users]);
+  }, [query, users, groupFilter, groupMembers]);
 
   /* 前端分頁：搜尋過濾後再切頁；條件一改就回到第一頁 */
   const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [query]);
+  useEffect(() => { setPage(0); }, [query, groupFilter]);
   const totalPages = Math.max(1, Math.ceil(visibleUsers.length / PAGE_SIZE));
   /* 背景刷新後人數變少時 page 可能超出範圍，切片、頁碼與按鈕停用一律用夾過的值 */
   const safePage = Math.min(page, totalPages - 1);
@@ -615,6 +693,10 @@ export default function AdminPage() {
   return (
     <div className={styles.page}>
       <PageHeader title={t("AdminPage.pageTitle")}>
+        <button type="button" className={styles.btnSecondary} data-guide="admin-groups" onClick={() => setShowGroupManager(true)}>
+          <MIcon name="groups" size={16} />
+          {t("UserGroups.manage")}
+        </button>
         <button type="button" className={styles.btnPrimary} onClick={() => setModal({ mode: "create" })}>
           <MIcon name="person_add" size={16} />
           {t("AdminPage.addUser")}
@@ -726,6 +808,21 @@ export default function AdminPage() {
             />
             <BatchDivider />
             <BatchAction
+              icon="group_add"
+              label={t("UserGroups.batchAdd")}
+              disabled={groups.length === 0}
+              title={groups.length === 0 ? t("UserGroups.emptyCreateFirst") : undefined}
+              onClick={() => setGroupPick({ mode: "add", count: selectedUsers.length })}
+            />
+            <BatchAction
+              icon="group_remove"
+              label={t("UserGroups.batchRemove")}
+              disabled={groups.length === 0}
+              title={groups.length === 0 ? t("UserGroups.emptyCreateFirst") : undefined}
+              onClick={() => setGroupPick({ mode: "remove", count: selectedUsers.length })}
+            />
+            <BatchDivider />
+            <BatchAction
               icon="delete"
               label={t("AdminPage.delete")}
               danger
@@ -734,6 +831,22 @@ export default function AdminPage() {
           </BatchBar>
         )}
       >
+        {groups.length > 0 && (
+          <select
+            className={styles.groupFilter}
+            value={groupFilter}
+            onChange={(event) => setGroupFilter(event.target.value)}
+            aria-label={t("UserGroups.filterAria")}
+            data-guide="admin-group-filter"
+          >
+            <option value="">{t("UserGroups.filterAll")}</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {t("UserGroups.filterOption", { name: group.name, count: group.member_count })}
+              </option>
+            ))}
+          </select>
+        )}
         <ToolbarSearch value={query} onChange={setQuery} placeholder={t("AdminPage.searchPlaceholder")} />
       </DataToolbar>
 
@@ -741,7 +854,7 @@ export default function AdminPage() {
         {loading ? (
           <LoadingState fullPage text={t("AdminPage.loading")} />
         ) : visibleUsers.length === 0 ? (
-          <EmptyState hasQuery={Boolean(query.trim())} onClearSearch={() => setQuery("")} onCreate={() => setModal({ mode: "create" })} />
+          <EmptyState hasQuery={Boolean(query.trim() || groupFilter)} onClearSearch={() => { setQuery(""); setGroupFilter(""); }} onCreate={() => setModal({ mode: "create" })} />
         ) : (
           <>
             <div className={styles.list}>
@@ -783,6 +896,28 @@ export default function AdminPage() {
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
           onResetTotp={handleResetTotp}
+        />
+      )}
+
+      {groupManagerPresence.open && (
+        <GroupManagerDialog
+          groups={groups}
+          closing={groupManagerPresence.closing}
+          onClose={() => setShowGroupManager(false)}
+          onChanged={refreshGroups}
+        />
+      )}
+
+      {groupPickPresence.open && (
+        <GroupPickDialog
+          mode={groupPickPresence.item.mode}
+          groups={groups}
+          defaultGroupId={groupFilter}
+          count={groupPickPresence.item.count}
+          busy={groupSaving}
+          closing={groupPickPresence.closing}
+          onClose={() => setGroupPick(null)}
+          onSubmit={submitGroupPick}
         />
       )}
     </div>

@@ -117,6 +117,7 @@ from .teaching_class import (
     TeachingClassWeek,
 )
 from .user import User, UserBase, UserRole
+from .user_group import USER_GROUP_NAME_MAX_LENGTH, UserGroup, UserGroupMember
 from .vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from .vm_template import (
     TemplateAttachment,
@@ -134,6 +135,9 @@ __all__ = [
     "UserBase",
     "User",
     "UserRole",
+    "USER_GROUP_NAME_MAX_LENGTH",
+    "UserGroup",
+    "UserGroupMember",
     # AI API
     "API_KEY_PREFIX_LENGTH",
     "LEGACY_API_KEY_PREFIX_LENGTH",

@@ -1,0 +1,5 @@
+{
+  "userGroup.notFound": "找不到群組",
+  "userGroup.nameExists": "已有名為「{name}」的群組",
+  "userGroup.nameRequired": "群組名稱不可空白"
+}

@@ -57,6 +57,11 @@ class AuditAction(str, enum.Enum):
     user_create = "user_create"
     user_update = "user_update"
     user_delete = "user_delete"
+    user_group_create = "user_group_create"
+    user_group_update = "user_group_update"
+    user_group_delete = "user_group_delete"
+    user_group_member_add = "user_group_member_add"
+    user_group_member_remove = "user_group_member_remove"
 
     # 反挖礦（模組D）
     mining_detected = "mining_detected"

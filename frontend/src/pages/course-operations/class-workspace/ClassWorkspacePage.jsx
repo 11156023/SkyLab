@@ -21,6 +21,7 @@ import { TeachingClassesService } from "../../../services/teachingClasses";
 import { formatDate } from "../../../utils/formatDate";
 import ClassCreateDialog from "./ClassCreateDialog";
 import EnvironmentChoice from "../EnvironmentChoice";
+import GroupImportDialog from "../GroupImportDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { focusInvalidField } from "../../../utils/focusField";
 import {
@@ -269,6 +270,8 @@ function Students({ item, onRefresh }) {
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const addDialog = useDialogPresence(showAdd);
+  const [showGroupImport, setShowGroupImport] = useState(false);
+  const groupImportDialog = useDialogPresence(showGroupImport);
   const fileRef = useRef(null);
   const [emailsInvalid, setEmailsInvalid] = useState(false);
   const emailsInputRef = useRef(null);
@@ -348,6 +351,18 @@ function Students({ item, onRefresh }) {
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.csvImportFailed")); }
     finally { if (fileRef.current) fileRef.current.value = ""; setBusy(false); }
   }
+  async function importGroup(group) {
+    setBusy(true);
+    try {
+      const result = await TeachingClassesService.importGroup(item.id, group.id);
+      setShowGroupImport(false);
+      const notices = [t("ClassWorkspacePage.groupImportedCount", { name: group.name, count: result.added })];
+      if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.groupSkippedNonStudents", { list: joinList(result.invalid_role) }));
+      toast.success(`${notices.join("；")}。`);
+      onRefresh(result.class);
+    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.groupImportFailed")); }
+    finally { setBusy(false); }
+  }
   async function remove(studentId) {
     const ok = await confirm({
       title: t("ClassWorkspacePage.removeStudentConfirmTitle"),
@@ -365,6 +380,7 @@ function Students({ item, onRefresh }) {
       <div className={styles.memberActions} data-guide="class-students-actions">
         <input ref={fileRef} className={styles.hiddenFileInput} disabled={locked} type="file" accept=".csv,text/csv" onChange={importCsv} />
         <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => fileRef.current?.click()}><MIcon name="upload" size={16} />{t("ClassWorkspacePage.importCsvBtn")}</button>
+        <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => setShowGroupImport(true)}><MIcon name="groups" size={16} />{t("ClassWorkspacePage.importGroupBtn")}</button>
         {/* 還沒有學生時，下方空狀態的「新增學生」就是入口，這裡不再放一顆 */}
         {item.students.length > 0 && <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => setShowAdd(true)}><MIcon name="person_add" size={16} />{t("ClassWorkspacePage.addStudentsBtn")}</button>}
       </div>
@@ -427,6 +443,7 @@ function Students({ item, onRefresh }) {
     </section>
 
     {addDialog.open && <Modal bare size="md" className={`${styles.createDialog} ${styles.studentDialog}`} closing={addDialog.closing} onClose={() => setShowAdd(false)} busy={busy} aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea ref={emailsInputRef} className={emailsInvalid ? styles.fieldInvalid : undefined} rows={6} value={emails} onChange={(event) => { setEmails(event.target.value); setEmailsInvalid(false); }} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></Modal>}
+    {groupImportDialog.open && <GroupImportDialog closing={groupImportDialog.closing} busy={busy} onClose={() => setShowGroupImport(false)} onImport={importGroup} />}
   </div>;
 }
 
