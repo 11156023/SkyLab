@@ -8,6 +8,6 @@
 const trimSlash = (url) => url.replace(/\/+$/, "");
 
 export const SITE_URL = trimSlash(process.env.SITE_URL || "https://skylab-tw.com");
-export const DOCS_URL = trimSlash(process.env.DOCS_URL || "https://skylab-docs.pages.dev");
+export const DOCS_URL = trimSlash(process.env.DOCS_URL || "https://docs.skylab-tw.com");
 export const CONTACT_EMAIL = "contact@skylab-tw.com";
 export const GITHUB_URL = "https://github.com/ntubclass/SkyLab";

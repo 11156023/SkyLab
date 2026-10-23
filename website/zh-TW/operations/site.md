@@ -49,7 +49,7 @@ Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration
 1. 選 `ntubclass/SkyLab`。repo 要裝好 Cloudflare Workers & Pages 的 GitHub App，跟文件站用的是同一個。
 2. 專案名稱 `skylab-site`，production branch `main`，framework preset 選 None。
 3. Build command `cd site && bun install --frozen-lockfile && bun run test && bun run build`，build output directory `site/dist`，root directory 留空（建置會讀 `site/` 外面的 `frontend/src/assets/styles`）。
-4. 環境變數 `BUN_VERSION` = `1.4.4` 與 `SKIP_DEPENDENCY_INSTALL` = `1`。選用：網址不是 `https://skylab-tw.com` 時設 `SITE_URL`；文件站有自己的網域後設 `DOCS_URL`（預設 `https://skylab-docs.pages.dev`）。
+4. 環境變數 `BUN_VERSION` = `1.4.4` 與 `SKIP_DEPENDENCY_INSTALL` = `1`。選用：網址不是 `https://skylab-tw.com` 時設 `SITE_URL`；文件站不在 `https://docs.skylab-tw.com` 時設 `DOCS_URL`。
 5. 第一次部署後，到 Settings → Build → Build watch paths，include paths 設為 `site/*, frontend/src/assets/styles/*`。
 6. 到 Custom domains 加上 `skylab-tw.com`。根網域要求 `skylab-tw.com` 這個 zone 在 Cloudflare 上。如果也加了 `www.skylab-tw.com`，用 redirect rule 把它轉到 `https://skylab-tw.com`，讓搜尋引擎只收錄一個網址。
 7. 第一次正式部署後，把網站加進 Google Search Console 並提交 `https://skylab-tw.com/sitemap.xml`。

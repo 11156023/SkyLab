@@ -1,3 +1,7 @@
+---
+description: "Two layers of monitoring: built-in health checks and system alerts, and an optional Prometheus, Grafana, Loki and InfluxDB stack for metrics, logs and Proxmox usage."
+---
+
 # SkyLab System Monitoring
 
 SkyLab monitoring has two layers:

@@ -1,3 +1,7 @@
+---
+description: "SkyLab 的監控分兩層：內建的平台健康檢查與系統告警，以及選用的 Prometheus、Grafana、Loki、InfluxDB 監控 stack，收集指標、日誌與 Proxmox 用量。"
+---
+
 # SkyLab 系統監控
 
 SkyLab 的監控分成兩層：

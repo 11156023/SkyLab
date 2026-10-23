@@ -41,7 +41,7 @@ flowchart LR
 | Desktop client | `desktop-client/` | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway |
 | vLLM service | `vllm-service/` | Single-model service, multi-model vLLM cluster and the LiteLLM gateway that exposes them |
 | Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
-| Documentation | `website/` | All guides, the user manual and the API reference, as a VitePress site deployed to Cloudflare Pages; index in [`website/guides/index.md`](website/guides/index.md), site setup in [`website/README.md`](website/README.md) |
+| Documentation | `website/` | All guides, the user manual and the API reference, as a VitePress site at [docs.skylab-tw.com](https://docs.skylab-tw.com) deployed to Cloudflare Pages; index in [`website/guides/index.md`](website/guides/index.md), site setup in [`website/README.md`](website/README.md) |
 | Public site | `site/` | The introduction site at [skylab-tw.com](https://skylab-tw.com) with contact details, prerendered in three languages and deployed to Cloudflare Pages; see [`website/operations/site.md`](website/operations/site.md) |
 
 ## Tech stack

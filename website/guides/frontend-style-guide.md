@@ -1,3 +1,7 @@
+---
+description: "Frontend styling rules: SCSS Modules, the colour system and theme variables, shared mixins, icons, naming, page layout, component conventions, animation and dark mode."
+---
+
 # SkyLab Frontend — Style Guide
 
 > This document describes the frontend styling architecture and the rules for writing styles. It applies to every page and component in the frontend: new pages and components must follow it so that the visual result and the code style stay consistent. If you want to change `_variables.scss` or `_themes.scss` yourself, discuss it with the frontend team first.

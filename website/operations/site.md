@@ -49,7 +49,7 @@ One-time setup, in Workers & Pages → Create → Pages → Connect to Git:
 1. Select `ntubclass/SkyLab`. The Cloudflare Workers & Pages GitHub App has to be installed on the repository; this is the same app the documentation site uses.
 2. Project name `skylab-site`, production branch `main`, framework preset None.
 3. Build command `cd site && bun install --frozen-lockfile && bun run test && bun run build`, build output directory `site/dist`, root directory left empty (the build reads `frontend/src/assets/styles` outside `site/`).
-4. Environment variables `BUN_VERSION` = `1.4.4` and `SKIP_DEPENDENCY_INSTALL` = `1`. Optional: `SITE_URL` if the address is not `https://skylab-tw.com`, and `DOCS_URL` once the documentation site has its own domain (default `https://skylab-docs.pages.dev`).
+4. Environment variables `BUN_VERSION` = `1.4.4` and `SKIP_DEPENDENCY_INSTALL` = `1`. Optional: `SITE_URL` if the address is not `https://skylab-tw.com`, and `DOCS_URL` if the documentation site is not at `https://docs.skylab-tw.com`.
 5. After the first deploy, open Settings → Build → Build watch paths and set the include paths to `site/*, frontend/src/assets/styles/*`.
 6. Open Custom domains and add `skylab-tw.com`. An apex domain needs the `skylab-tw.com` zone to be on Cloudflare. If you also add `www.skylab-tw.com`, redirect it to `https://skylab-tw.com` with a redirect rule so that search engines index a single address.
 7. After the first production deploy, add the site to Google Search Console and submit `https://skylab-tw.com/sitemap.xml`.

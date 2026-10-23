@@ -1,3 +1,7 @@
+---
+description: "The registration switches (self-registration, account creation on first Google login, approval), preparing to open registration, and setting up Google login."
+---
+
 # Registration Settings and Google Login
 
 ## The three registration switches

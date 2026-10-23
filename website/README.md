@@ -84,9 +84,18 @@ Setting it up once, in Workers & Pages → Create → Pages → Connect to Git:
 3. Build command `bash website/scripts/cloudflare-pages-build.sh`, build output directory `website/.vitepress/dist`, root directory left empty.
 4. Environment variables `BUN_VERSION` = `1.4.4`, the Bun version of the lock file and of CI (the build image's default is older), and `SKIP_DEPENDENCY_INSTALL` = `1`, because the script installs the dependencies itself.
 5. After the first deploy, open Settings → Build → Build watch paths and set the include paths to `website/*, backend/app/*, backend/scripts/export_openapi.py, .env.example`, so that commits touching only other parts of the repository do not rebuild the documentation.
-6. Open Custom domains and add the documentation domain; the DNS record is created automatically when the zone is on Cloudflare.
+6. Open Custom domains and add `docs.skylab-tw.com`; the DNS record is created automatically when the zone is on Cloudflare.
+7. After the first production deploy, add the site to Google Search Console and submit `https://docs.skylab-tw.com/sitemap.xml`.
 
 A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git.
+
+### SEO
+
+VitePress prerenders every page. `.vitepress/config.mts` adds the rest, with absolute URLs on `https://docs.skylab-tw.com` (the `DOCS_URL` environment variable overrides it):
+
+- `sitemap.xml`, where every page lists its English and 繁體中文 versions as hreflang alternates, and `robots.txt` pointing to it.
+- On every page a canonical URL, hreflang links to the other language when the page exists in both, and Open Graph / Twitter card tags with the share image `public/og-image.jpg` or `og-image-zh-TW.jpg` (1200×630 screenshots of the home page; retake them when it changes). The 404 page is `noindex`.
+- A description per page: front matter `description` when present, the hero tagline on the home pages, otherwise the first paragraph of the page as plain text, shortened to what search results show.
 
 ## Conventions
 

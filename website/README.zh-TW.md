@@ -84,9 +84,18 @@ Cloudflare Pages 專案 `skylab-docs` 直接連到 GitHub repo（Git integration
 3. Build command `bash website/scripts/cloudflare-pages-build.sh`，build output directory `website/.vitepress/dist`，root directory 留空。
 4. 環境變數 `BUN_VERSION` = `1.4.4`，與鎖檔和 CI 用的 Bun 版本一致（建置環境的預設版本較舊）；`SKIP_DEPENDENCY_INSTALL` = `1`，因為腳本自己安裝套件。
 5. 第一次部署後，到 Settings → Build → Build watch paths，include paths 設為 `website/*, backend/app/*, backend/scripts/export_openapi.py, .env.example`，只動到 repo 其他部分的 commit 就不會重建文件站。
-6. 到 Custom domains 加上文件網域；zone 在 Cloudflare 上時 DNS 紀錄會自動建立。
+6. 到 Custom domains 加上 `docs.skylab-tw.com`；zone 在 Cloudflare 上時 DNS 紀錄會自動建立。
+7. 第一次正式部署後，把網站加進 Google Search Console 並提交 `https://docs.skylab-tw.com/sitemap.xml`。
 
 用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。
+
+### SEO
+
+VitePress 會預先產生每一頁的 HTML。其餘由 `.vitepress/config.mts` 補上，絕對網址都以 `https://docs.skylab-tw.com` 為準（環境變數 `DOCS_URL` 可覆寫）：
+
+- `sitemap.xml`，每頁都列出英文與繁體中文版本互為 hreflang 對應；`robots.txt` 指向它。
+- 每頁都有 canonical 網址；中英兩版都存在的頁面有指向另一語言的 hreflang；Open Graph／Twitter card 標籤帶分享縮圖 `public/og-image.jpg` 或 `og-image-zh-TW.jpg`（1200×630 的首頁截圖，首頁改了要重拍）。404 頁設為 `noindex`。
+- 每頁的描述：有 front matter `description` 就用它，首頁用 hero 的 tagline，其餘取該頁第一段文字轉成純文字，再截到搜尋結果顯示得下的長度。
 
 ## 慣例
 
