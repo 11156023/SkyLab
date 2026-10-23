@@ -20,6 +20,7 @@ SkyLab repo 的所有文件都在本站，位於 repo 的 `website/` 目錄。�
 | [升級與 migration](/zh-TW/operations/upgrade) | 標準升級、migration 狀態、回退、重大變更 |
 | [備份與還原](/zh-TW/operations/backup) | 要備份什麼、資料庫匯出與還原、災難復原 |
 | [環境變數對照表](/zh-TW/operations/environment) | `.env.example` 的每個變數，建置時產生 |
+| [官網](/zh-TW/operations/site) | skylab-tw.com 介紹網站：預渲染、SEO、聯繫方式、Cloudflare Pages 部署 |
 | [系統監控](/zh-TW/guides/monitoring) | 內建健康檢查、心跳與系統告警；選用的 Prometheus／Grafana／Loki／InfluxDB stack；Proxmox Metric Server、閘道與 AI 監控 |
 | [註冊設定與 Google 登入](/zh-TW/guides/registration-and-google-login) | 自助註冊與管理員審核開關、Google 登入與 Google Cloud 的「Audience」設定 |
 | [AI API 使用與部署手冊](/zh-TW/guides/ai-api-user-manual) | LiteLLM 部署、模型路由、金鑰、接管獨立閘道、呼叫對外 AI API |

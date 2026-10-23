@@ -1,6 +1,16 @@
 {
   "brand": "SkyLab",
-  "topLogin": "登入",
+  "seo": {
+    "title": "SkyLab — 校園私有雲管理平台",
+    "description": "SkyLab 是開源的校園私有雲平台,以 Proxmox VE 為基礎,涵蓋 VM 與容器的申請、審核與自動建置、整班上課環境一鍵準備、防火牆與閘道管理,以及 AI 輔助維運。歡迎學校來信洽詢到校試用。",
+    "imageAlt": "SkyLab 官網:夜空下的校園與私有雲"
+  },
+  "contact": {
+    "cta": "聯繫我們",
+    "subject": "SkyLab 試用洽詢",
+    "note": "想在貴校試用 SkyLab?寫信告訴我們,我們可以協助到校架設。",
+    "emailLabel": "聯絡信箱"
+  },
   "modeToDay": "切換日間模式",
   "modeToNight": "切換夜間模式",
   "scrollHint": "滾動探索",
@@ -55,7 +65,7 @@
   },
   "outro": {
     "title": "準備好把實驗室搬上雲了嗎?",
-    "loginCta": "登入 SkyLab",
+    "githubCta": "GitHub 原始碼",
     "docsCta": "部署指南"
   },
   "footer": "© 2026 SkyLab — 校園資源管理平台"

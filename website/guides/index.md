@@ -20,6 +20,7 @@ Every document of the SkyLab repository lives on this site, under `website/` in 
 | [Upgrading and migrations](/operations/upgrade) | Standard upgrade, migration state, rollback, breaking changes |
 | [Backup and restore](/operations/backup) | What to back up, database dump and restore, disaster recovery |
 | [Environment variables](/operations/environment) | Every variable of `.env.example`, generated at build time |
+| [Public site](/operations/site) | The introduction site at skylab-tw.com: prerendering, SEO, contact details, Cloudflare Pages deployment |
 | [Monitoring](/guides/monitoring) | Built-in health checks, heartbeats and system alerts; the optional Prometheus / Grafana / Loki / InfluxDB stack; Proxmox Metric Server, gateway and AI monitoring |
 | [Registration and Google login](/guides/registration-and-google-login) | Self-registration and administrator-approval switches, Google login and the Google Cloud "Audience" setting |
 | [AI API user manual](/guides/ai-api-user-manual) | LiteLLM deployment, model routing, keys, taking over a standalone gateway, calling the user-facing AI API |

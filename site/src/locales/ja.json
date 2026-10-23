@@ -1,6 +1,16 @@
 {
   "brand": "SkyLab",
-  "topLogin": "ログイン",
+  "seo": {
+    "title": "SkyLab — キャンパス向けプライベートクラウド基盤",
+    "description": "SkyLab は Proxmox VE を基盤とするオープンソースのキャンパス向けプライベートクラウドです。VM とコンテナの申請・審査・自動構築,クラス全員の演習環境の一括準備,ファイアウォールとゲートウェイの管理,AI による運用支援をひとつに。学内での試用はお気軽にお問い合わせください。",
+    "imageAlt": "SkyLab 公式サイト:夜空の下のキャンパスとプライベートクラウド"
+  },
+  "contact": {
+    "cta": "お問い合わせ",
+    "subject": "SkyLab 試用のお問い合わせ",
+    "note": "貴校で SkyLab を試してみませんか?メールでご連絡いただければ,キャンパスへの導入をお手伝いします。",
+    "emailLabel": "メール"
+  },
   "modeToDay": "デイモードに切替",
   "modeToNight": "ナイトモードに切替",
   "scrollHint": "スクロールして探索",
@@ -55,7 +65,7 @@
   },
   "outro": {
     "title": "ラボをクラウドへ移す準備はできましたか?",
-    "loginCta": "SkyLab にログイン",
+    "githubCta": "GitHub のソース",
     "docsCta": "デプロイガイド"
   },
   "footer": "© 2026 SkyLab — キャンパスリソース管理プラットフォーム"

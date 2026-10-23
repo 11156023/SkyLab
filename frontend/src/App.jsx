@@ -14,8 +14,6 @@ import { useModalScrollLock } from "./hooks/useBodyScrollLock";
 import { canTeachUser, canViewStudentCourses, isAdminUser } from "./utils/roles";
 import styles from "./App.module.scss";
 
-// 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
-const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
 // 兩步驟驗證綁定與首次引導只有少數人會看到，而且都帶著 qrcode：不放進入口 chunk
 const TotpEnrollPage = lazy(() => import("./pages/login/TotpEnrollPage"));
 const OnboardingPage = lazy(() => import("./pages/onboarding/OnboardingPage"));
@@ -146,14 +144,6 @@ function App() {
     (window.location.pathname === "/login" || window.location.pathname === "/reset-password") &&
     hasResetToken(window.location.search);
 
-  /* 導入頁是純靜態內容，不依賴 session 檢查：
-     後端連不上或 session 驗證中時，/ 照樣直接呈現，其餘路徑維持原本的啟動畫面。 */
-  const landingElement = (
-    <Suspense fallback={null}>
-      <LandingPage />
-    </Suspense>
-  );
-
   if (window.location.pathname === "/verify-email-change") {
     return <Suspense fallback={<AuthBootstrapState />}><VerifyEmailChangePage /></Suspense>;
   }
@@ -162,29 +152,10 @@ function App() {
   }
 
   if (!user && (authStatus === AuthSessionStatus.UNAVAILABLE || reconnecting)) {
-    return (
-      <Routes>
-        <Route path="/" element={landingElement} />
-        <Route
-          path="*"
-          element={
-            <AuthBootstrapState
-              unavailable
-              retrying={reconnecting}
-              onRetry={retrySession}
-            />
-          }
-        />
-      </Routes>
-    );
+    return <AuthBootstrapState unavailable retrying={reconnecting} onRetry={retrySession} />;
   }
   if (loading && !user) {
-    return (
-      <Routes>
-        <Route path="/" element={landingElement} />
-        <Route path="*" element={<AuthBootstrapState />} />
-      </Routes>
-    );
+    return <AuthBootstrapState />;
   }
 
   /* 每次登入後先跑服務檢查（DB／Redis／worker／PVE／Gateway／AI）：學生與老師檢查沒過就停在
@@ -353,11 +324,8 @@ function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       ) : (
-        <>
-          {/* 未登入的 / 是導入介紹首頁,其餘路徑照舊導向登入 */}
-          <Route path="/" element={landingElement} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </>
+        /* 未登入時所有路徑（含 /）都導向登入；對外的介紹頁是獨立的官網（site/） */
+        <Route path="*" element={<Navigate to="/login" replace />} />
       )}
     </Routes>
   );

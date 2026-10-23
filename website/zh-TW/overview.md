@@ -40,6 +40,7 @@ flowchart LR
 | vLLM Service | `vllm-service/` | 單模型主服務、多模型 vLLM cluster，以及對外的 LiteLLM gateway |
 | 監控 stack | `monitoring/` | 選用的 Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
 | 文件 | `website/` | 所有指南、使用手冊與 API 參考，以 VitePress 網站形式部署到 Cloudflare Pages；索引見[文件索引](/zh-TW/guides/)，網站建置見 [`website/README.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/website/README.zh-TW.md) |
+| 官網 | `site/` | [skylab-tw.com](https://skylab-tw.com) 介紹網站與聯繫方式，三種語言預渲染並部署到 Cloudflare Pages；見[官網](/zh-TW/operations/site) |
 
 ## 技術棧
 

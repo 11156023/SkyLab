@@ -1,6 +1,6 @@
 # Third-party notices
 
-SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`uv.lock`, `bun.lock`, `desktop-client/package-lock.json`, `website/bun.lock`).
+SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`uv.lock`, `bun.lock`, `desktop-client/package-lock.json`, `website/bun.lock`, `site/bun.lock`).
 
 Licenses are taken from each package's own metadata (`License-Expression` / `License` of the installed Python distribution, `license` in the npm `package.json`). When you add, remove or upgrade a direct dependency, update the matching table.
 
@@ -63,7 +63,6 @@ Development tooling (uv, pytest, ruff, mypy, prek, coverage) is not distributed 
 | react-markdown, remark-gfm, rehype-sanitize | MIT | https://github.com/remarkjs/react-markdown |
 | sonner | MIT | https://github.com/emilkowalski/sonner |
 | qrcode | MIT | https://github.com/soldair/node-qrcode |
-| GSAP | GSAP Standard License (free for commercial and non-commercial use; not OSI open source) | https://gsap.com/standard-license |
 | @material-design-icons/font | Apache-2.0 | https://github.com/marella/material-design-icons |
 | @sentry/react | MIT | https://github.com/getsentry/sentry-javascript |
 | @tanstack/react-query | MIT | https://github.com/TanStack/query |
@@ -89,6 +88,16 @@ Build tooling (Vite, Sass, Vitest, Babel with the React Compiler plugin) is not 
 | WireGuard for Windows (bundled MSI) | MIT | https://git.zx2c4.com/wireguard-windows/ — see `desktop-client/vendor/wireguard/THIRD_PARTY_NOTICES.txt`, shipped in the app resources |
 
 The desktop client ships its own copy of these notices as `THIRD_PARTY_NOTICES.txt`, reachable from its About page.
+
+## Public site (`site/`, JavaScript)
+
+| Package | License | Link |
+| --- | --- | --- |
+| React, React DOM | MIT | https://github.com/facebook/react |
+| i18next, react-i18next | MIT | https://github.com/i18next/i18next |
+| GSAP | GSAP Standard License (free for commercial and non-commercial use; not OSI open source) | https://gsap.com/standard-license |
+
+Build tooling (Vite, Sass, Vitest) is not distributed with the site.
 
 ## Documentation site (`website/`, build tooling only)
 
@@ -120,5 +129,5 @@ These run alongside SkyLab as separate containers or hosts and are not linked in
 ## Notes
 
 - LGPL (psycopg, Paramiko, ldap3) and MPL-2.0 (pywebpush, py-vapid, noVNC) components are used unmodified as packages; SkyLab's AGPL-3.0 license is compatible with them.
-- GSAP is used under its free Standard License; it is not an open-source license, so forks that must stay 100 % OSI-licensed should replace it.
+- GSAP (public site only) is used under its free Standard License; it is not an open-source license, so forks that must stay 100 % OSI-licensed should replace it.
 - Trademarks and logos of the listed projects belong to their respective owners.

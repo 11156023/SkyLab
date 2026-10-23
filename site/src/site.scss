@@ -1,0 +1,14 @@
+/* 官網的全域樣式：主題變數與 reset 直接用平台前端的（vite.config.js 的 loadPaths 指到 frontend 的 styles） */
+@use "themes";
+@use "reset";
+
+/* 捲動回彈時露出的底色跟著導入頁的日夜配色（同 LandingPage.module.scss 的 --landing-bg） */
+html,
+body {
+  background: #0a0e18;
+}
+
+html:has([data-mode="day"]),
+body:has([data-mode="day"]) {
+  background: #dbe7f8;
+}

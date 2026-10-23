@@ -1,18 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import CampusScene from "./CampusScene";
-import MIcon from "../../components/MIcon";
 import { CAMERA_DURATION, CAMERA_LEAD, SECTIONS, TOTAL_LENGTH, cameraState } from "./cameraScript";
-import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
+import { LANGUAGES, languageInfo } from "../languages";
+import { CONTACT_EMAIL, DOCS_URL, GITHUB_URL } from "../config";
+import STATS from "../stats.json";
 import styles from "./LandingPage.module.scss";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const LANG_LABELS = { "zh-TW": "中", en: "EN", ja: "日" };
 const MODE_STORAGE_KEY = "skylab.landing.mode";
+
+function contactHref(t) {
+  return `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(t("contact.subject"))}`;
+}
+
+/* 日/夜切換鈕的圖示:官網不載圖示字型,直接畫 SVG */
+function ModeIcon({ mode }) {
+  return (
+    <svg className={styles.modeIcon} viewBox="0 0 24 24" aria-hidden="true">
+      {mode === "night" ? (
+        <>
+          <circle cx="12" cy="12" r="4.2" />
+          <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M5.3 18.7 7 17M17 7l1.7-1.7" />
+        </>
+      ) : (
+        <path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z" />
+      )}
+    </svg>
+  );
+}
 
 function HudCard({ title, wide = false, children }) {
   return (
@@ -241,24 +260,30 @@ function TerminalContent({ t }) {
   );
 }
 
-/* 收尾:雲海合攏後浮出的 CTA,構圖呼應開場 hero */
-function OutroContent({ t }) {
+/* 收尾:雲海合攏後浮出的 CTA,構圖呼應開場 hero。
+   官網的訪客是想到校試用的學校:主要動作是寫信聯繫,其次看原始碼與部署指南 */
+function OutroContent({ t, lang }) {
+  const docsHref = `${DOCS_URL}${languageInfo(lang).docsPath}guides/deployment`;
   return (
     <div className={styles.outro}>
       <p className={styles.heroKicker} data-hud>{t("hero.tagline")}</p>
       <h2 className={styles.outroTitle} data-hud>{t("outro.title")}</h2>
+      <p className={styles.outroNote} data-hud>{t("contact.note")}</p>
       <div className={styles.ctaRow} data-hud>
-        <Link className={styles.btnPrimary} to="/login">{t("outro.loginCta")}</Link>
-        <a
-          className={styles.btnSecondary}
-          href="https://github.com/ntubclass/SkyLab"
-          target="_blank"
-          rel="noreferrer"
-        >
+        <a className={styles.btnPrimary} href={contactHref(t)}>{t("contact.cta")}</a>
+        <a className={styles.btnSecondary} href={GITHUB_URL} target="_blank" rel="noreferrer">
+          {t("outro.githubCta")}
+        </a>
+        <a className={styles.btnSecondary} href={docsHref} target="_blank" rel="noreferrer">
           {t("outro.docsCta")}
         </a>
       </div>
-      <p className={styles.footer} data-hud>{t("footer")}</p>
+      <p className={styles.footer} data-hud>
+        {t("footer")}
+        <span className={styles.footerSep} aria-hidden="true">·</span>
+        {t("contact.emailLabel")}{" "}
+        <a className={styles.footerLink} href={contactHref(t)}>{CONTACT_EMAIL}</a>
+      </p>
     </div>
   );
 }
@@ -272,16 +297,18 @@ export default function LandingPage() {
   const worldRef = useRef(null);
   const cloudLayerRef = useRef(null);
   const hazeRef = useRef(null);
-  const [stats, setStats] = useState(null);
+  const stats = STATS;
   const [viewportTick, setViewportTick] = useState(0);
-  /* 日/夜模式:預設夜間(主視覺),選擇記在 localStorage */
-  const [mode, setMode] = useState(() => {
+  /* 日/夜模式:預設夜間(主視覺),選擇記在 localStorage。
+     頁面是預渲染再 hydrate 的,首次 render 要跟預渲染的夜間一致,讀到日間再於 paint 前切過去 */
+  const [mode, setMode] = useState("night");
+  useLayoutEffect(() => {
     try {
-      return window.localStorage.getItem(MODE_STORAGE_KEY) === "day" ? "day" : "night";
+      if (window.localStorage.getItem(MODE_STORAGE_KEY) === "day") setMode("day");
     } catch {
-      return "night";
+      // 無痕模式等 localStorage 不可用時維持夜間
     }
-  });
+  }, []);
 
   const toggleMode = () => {
     setMode((current) => {
@@ -296,26 +323,13 @@ export default function LandingPage() {
   };
 
   /* 行動版與 prefers-reduced-motion 一律關閉運鏡:場景停在全景、HUD 直接可見。
-     只在掛載時判定一次;跨過門檻的視窗縮放屬邊緣情境,重新整理即可。 */
-  const motionEnabled = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
-      window.innerWidth >= 768,
-    [],
-  );
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/landing/stats.json")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (alive && data) setStats(data);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+     只在掛載時判定一次;跨過門檻的視窗縮放屬邊緣情境,重新整理即可。
+     預渲染沒有視窗,一律畫成桌機的運鏡版(多數訪客,hydrate 時不必換畫面),行動版在 paint 前切成靜態 */
+  const [motionEnabled, setMotionEnabled] = useState(true);
+  useLayoutEffect(() => {
+    setMotionEnabled(
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches && window.innerWidth >= 768,
+    );
   }, []);
 
   /* 視窗尺寸變更後重建運鏡 timeline(相機位移量與視窗大小綁定) */
@@ -350,7 +364,7 @@ export default function LandingPage() {
     const ctx = gsap.context(() => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const pad = {};
+      const pad = { done: 0 }; // 只拿來撐 timeline 長度;屬性要先存在,gsap 才不會警告 Missing plugin
 
       gsap.set(world, { ...cameraState(SECTIONS[0], vw, vh), transformOrigin: "0 0" });
 
@@ -449,8 +463,7 @@ export default function LandingPage() {
   }, [motionEnabled, viewportTick]);
 
   /* S4:教室座位隨滾動逐排點亮(=整班機器上線)。
-     亮的座位(data-seat)數量來自 stats.json,掛載時還沒回來、一個都沒有,
-     所以獨立成一段、資料到了再重建,不然座位永遠不會亮 */
+     亮的座位(data-seat)數量來自 stats.json;獨立成一段,運鏡開關或視窗尺寸變了就重建 */
   useEffect(() => {
     if (!motionEnabled) return undefined;
     const ctx = gsap.context(() => {
@@ -465,7 +478,7 @@ export default function LandingPage() {
       });
     }, rootRef);
     return () => ctx.revert();
-  }, [motionEnabled, viewportTick, stats]);
+  }, [motionEnabled, viewportTick]);
 
   const contentFor = (id) => {
     switch (id) {
@@ -477,7 +490,7 @@ export default function LandingPage() {
       case "network": return <NetworkContent t={t} stats={stats} />;
       case "ai": return <AiContent t={t} stats={stats} />;
       case "terminal": return <TerminalContent t={t} />;
-      case "outro": return <OutroContent t={t} />;
+      case "outro": return <OutroContent t={t} lang={i18n.language} />;
       default: return null;
     }
   };
@@ -518,15 +531,17 @@ export default function LandingPage() {
       <header className={styles.topBar}>
         <span className={styles.brand}>{t("brand")}</span>
         <div className={styles.topActions}>
-          {SUPPORTED_LANGUAGES.map((lang) => (
-            <button
-              key={lang}
-              type="button"
-              className={`${styles.langBtn} ${i18n.language === lang ? styles.langBtnActive : ""}`}
-              onClick={() => setLanguage(lang)}
+          {/* 每個語言是獨立的預渲染網址,切換語言就是換頁 */}
+          {LANGUAGES.map((lang) => (
+            <a
+              key={lang.code}
+              href={lang.path}
+              hrefLang={lang.code}
+              aria-current={i18n.language === lang.code ? "page" : undefined}
+              className={`${styles.langBtn} ${i18n.language === lang.code ? styles.langBtnActive : ""}`}
             >
-              {LANG_LABELS[lang] ?? lang}
-            </button>
+              {lang.label}
+            </a>
           ))}
           <button
             type="button"
@@ -534,9 +549,9 @@ export default function LandingPage() {
             aria-label={t(mode === "night" ? "modeToDay" : "modeToNight")}
             onClick={toggleMode}
           >
-            <MIcon name={mode === "night" ? "wb_sunny" : "nights_stay"} size={16} />
+            <ModeIcon mode={mode} />
           </button>
-          <Link className={styles.topLogin} to="/login">{t("topLogin")}</Link>
+          <a className={styles.topContact} href={contactHref(t)}>{t("contact.cta")}</a>
         </div>
       </header>
 

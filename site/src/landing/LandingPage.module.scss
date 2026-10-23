@@ -1,4 +1,4 @@
-/* 導入頁(Landing)專用樣式:固定深夜配色,不跟全站主題連動。
+/* 官網導入頁樣式:固定深夜配色(另有日間模式),不跟平台前端的主題連動。
    透過覆寫 CSS 變數,讓共用 mixin(glass-surface、btn-*)在深色底上直接可用。 */
 .landing {
   --color-surface: #141a28;
@@ -1127,6 +1127,7 @@
 
 .langBtn {
   @include btn-ghost;
+  flex-shrink: 0;
   min-height: 32px;
   padding: 3px 10px;
 }
@@ -1136,8 +1137,20 @@
   background: var(--color-row-hover);
 }
 
-.topLogin {
+.modeIcon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.topContact {
   @include btn-primary;
+  flex-shrink: 0;
   text-decoration: none;
 }
 
@@ -1688,12 +1701,28 @@
   text-align: center;
 }
 
+.outroNote {
+  max-width: 560px;
+  margin: $spacing-16 auto 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-16;
+  line-height: $line-height-base;
+  text-shadow: 0 2px 14px rgba(5, 9, 18, 0.65);
+}
+
 .outro .ctaRow { margin-top: $spacing-32; }
 
-.outro .footer { text-shadow: 0 2px 12px rgba(5, 9, 18, 0.7); }
+/* 頁尾壓在雲海上,又帶著聯絡信箱:用次要文字色加貼字的深色陰影,淺色雲上也讀得到 */
+.outro .footer {
+  color: var(--color-text-secondary);
+  text-shadow: 0 1px 3px rgba(5, 9, 18, 0.85), 0 2px 12px rgba(5, 9, 18, 0.7);
+}
+
+.outro .footerLink { color: var(--color-text-primary); }
 
 .ctaRow {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: $spacing-16;
   margin-top: $spacing-16;
@@ -1713,6 +1742,18 @@
   margin-top: $spacing-48;
   color: var(--color-text-muted);
   font-size: $font-size-12;
+}
+
+.footerSep {
+  margin: 0 $spacing-8;
+}
+
+.footerLink {
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:hover { color: var(--color-text-primary); }
 }
 
 /* ── 段落連動(LandingPage 依滾動位置設定根節點 data-active) ── */
@@ -1989,7 +2030,7 @@ $focus-map: (
   .fwShield path:first-child { fill: rgba(255, 255, 255, 0.75); }
 
   /* 文字陰影換成淡的日光暈 */
-  .heroKicker, .heroSub, .scrollHint, .outro .footer { text-shadow: 0 2px 12px rgba(255, 255, 255, 0.65); }
+  .heroKicker, .heroSub, .scrollHint, .outroNote, .outro .footer { text-shadow: 0 2px 12px rgba(255, 255, 255, 0.65); }
   .heroTitle,
   .overviewTitle,
   .outroTitle { text-shadow: 0 4px 24px rgba(255, 255, 255, 0.55); }
@@ -2014,6 +2055,18 @@ $focus-map: (
 
 /* ── 行動版 ── */
 @include respond-below(md) {
+  /* 頂列在 360–400px 寬要塞下品牌、三個語言、日夜與聯繫鈕 */
+  .topBar {
+    gap: $spacing-8;
+    padding: $spacing-16;
+  }
+
+  .topActions { gap: 6px; }
+
+  .langBtn { padding: 3px 8px; }
+
+  .topContact { padding: 6px 12px; }
+
   .sticky {
     justify-content: center;
     padding: 0 $spacing-16;

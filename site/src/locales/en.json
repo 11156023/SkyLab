@@ -1,6 +1,16 @@
 {
   "brand": "SkyLab",
-  "topLogin": "Sign in",
+  "seo": {
+    "title": "SkyLab — Private cloud platform for campuses",
+    "description": "SkyLab is an open-source private cloud for campuses, built on Proxmox VE: request and auto-provision VMs and containers, set up whole-class labs in one go, manage firewalls and gateways, with AI-assisted operations. Contact us for a trial at your school.",
+    "imageAlt": "SkyLab website: a campus and its private cloud under the night sky"
+  },
+  "contact": {
+    "cta": "Contact us",
+    "subject": "SkyLab trial inquiry",
+    "note": "Want to try SkyLab at your school? Email us and we can help set it up on your campus.",
+    "emailLabel": "Email"
+  },
   "modeToDay": "Switch to day mode",
   "modeToNight": "Switch to night mode",
   "scrollHint": "Scroll to explore",
@@ -55,7 +65,7 @@
   },
   "outro": {
     "title": "Ready to move your lab to the cloud?",
-    "loginCta": "Sign in to SkyLab",
+    "githubCta": "Source on GitHub",
     "docsCta": "Deployment guide"
   },
   "footer": "© 2026 SkyLab — Campus resource management platform"
