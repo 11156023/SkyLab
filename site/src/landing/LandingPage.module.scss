@@ -1695,6 +1695,158 @@
   50% { opacity: 0; }
 }
 
+/* ── 實際操作:瀏覽器視窗框裡輪播平台的真實畫面 ── */
+
+/* 這一段把整個校園場景調暗,讓前景的影片面板好讀 */
+.vignette::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 9, 18, 0.62);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.landing[data-active="demo"] .vignette::after { opacity: 1; }
+
+.demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-16;
+  /* 標題＋瀏覽器框＋分頁要塞進固定頂列下方的一個視窗高:寬度同時受視窗高度限制(影片 16:10,
+     其餘約 330px 是頂列、標題、網址列、分頁與間距);上方 margin 讓置中的面板讓開頂列 */
+  width: min(1080px, 92vw, calc((100vh - 330px) * 1.6));
+  margin-top: 48px;
+}
+
+.demoTitle {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: clamp(24px, 2.6vw, 36px);
+  font-weight: $font-weight-700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-shadow: 0 4px 24px rgba(5, 9, 18, 0.6);
+}
+
+.browser {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(137, 165, 224, 0.3);
+  border-radius: 14px;
+  background: #0d1424;
+  box-shadow: 0 30px 90px rgba(2, 6, 16, 0.65), 0 0 60px rgba(91, 127, 212, 0.18);
+}
+
+.browserBar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(137, 165, 224, 0.16);
+  background: linear-gradient(#1c2539, #151d2f);
+
+  > span {
+    flex: none;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #ff5f57;
+
+    &:nth-child(2) { background: #febc2e; }
+    &:nth-child(3) { background: #28c840; }
+  }
+}
+
+.browserUrl {
+  flex: 0 1 420px;
+  margin: 0 auto;
+  overflow: hidden;
+  padding: 3px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.demoVideo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: #e8f0fd;
+  object-fit: cover;
+}
+
+.demoTabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: $spacing-8;
+  width: 100%;
+}
+
+.demoTab {
+  position: relative;
+  overflow: hidden;
+  padding: 11px 14px 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-glass);
+  backdrop-filter: var(--glass-backdrop-filter);
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+
+  strong {
+    display: block;
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+    font-weight: $font-weight-700;
+  }
+
+  span {
+    display: block;
+    margin-top: 3px;
+    font-size: $font-size-12;
+    line-height: 1.5;
+  }
+
+  &:hover { border-color: var(--color-row-hover); }
+
+  &:focus-visible {
+    outline: 2px solid var(--landing-glow);
+    outline-offset: 2px;
+  }
+}
+
+.demoTabActive {
+  border-color: rgba(137, 165, 224, 0.6);
+  background: rgba(91, 127, 212, 0.2);
+}
+
+/* 矮的視窗(筆電 720p):面板變窄、說明會折成好幾行,只留分頁標題 */
+@media (max-height: 820px) and (min-width: 768px) {
+  .demoTab span { display: none; }
+  .demoTitle { font-size: 24px; }
+}
+
+.demoTabProgress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--landing-glow);
+  transform-origin: left;
+  transition: transform 0.3s linear;
+}
+
 /* ── 收尾:雲海上的 CTA(構圖比照 hero) ── */
 .outro {
   max-width: 820px;
@@ -2084,6 +2236,21 @@ $focus-map: (
     width: 100%;
     max-width: 420px;
   }
+
+  /* 手機:分頁改成可橫滑的一列 */
+  .demo { width: 100%; }
+
+  .demoTabs {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 4px;
+  }
+
+  .demoTab {
+    flex: 0 0 72%;
+    scroll-snap-align: start;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2116,6 +2283,22 @@ $focus-map: (
   .movingCar,
   .meteor { display: none; }
 }
+
+/* 日間:實際操作段的調暗改成淡淡的晴空色,標題陰影換成日光暈 */
+.landing[data-mode="day"] .vignette::after { background: rgba(219, 231, 248, 0.6); }
+.landing[data-mode="day"] .demoTitle { text-shadow: 0 4px 24px rgba(255, 255, 255, 0.55); }
+.landing[data-mode="day"] .browser {
+  border-color: rgba(84, 113, 191, 0.25);
+  background: #f4f7fd;
+  box-shadow: 0 30px 80px rgba(43, 77, 152, 0.28);
+}
+
+.landing[data-mode="day"] .browserBar {
+  border-bottom-color: rgba(84, 113, 191, 0.18);
+  background: linear-gradient(#f7f9fe, #e9eef8);
+}
+
+.landing[data-mode="day"] .browserUrl { background: rgba(84, 113, 191, 0.1); }
 
 /* 日間的黑板預設色寫在日間區塊(權重同段落連動規則且較後),classroom 段亮起要再蓋回來 */
 .landing[data-mode="day"][data-active="classroom"] .classBoard { fill: #2f66d0; }

@@ -63,6 +63,25 @@
     "title": "Open it — it's a real machine",
     "desc": "VNC desktops and terminals run right in the browser. Nothing to install."
   },
+  "demo": {
+    "title": "See it in action",
+    "console": {
+      "title": "Real machines in the browser",
+      "caption": "Open a VM desktop or a container terminal right in the page."
+    },
+    "class": {
+      "title": "A whole class at once",
+      "caption": "Submit the class; every student's machines are built and monitored live."
+    },
+    "review": {
+      "title": "Request, approve, provision",
+      "caption": "Once an administrator approves, the student's machine is built automatically."
+    },
+    "firewall": {
+      "title": "Networking by drag and drop",
+      "caption": "Draw a line on the map and the firewall rules are written for you."
+    }
+  },
   "outro": {
     "title": "Ready to move your lab to the cloud?",
     "githubCta": "Source on GitHub",

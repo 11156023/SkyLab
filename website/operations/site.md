@@ -6,6 +6,7 @@ The public introduction site lives in `site/` and is published at `https://skyla
 
 - The animated introduction (React + GSAP, 繁體中文 / English / 日本語, day and night mode) that used to be the platform's `/` page.
 - "Contact us" buttons that open an e-mail to the address in `site/site.config.js`, a link to the GitHub repository and one to the deployment guide on the documentation site.
+- A "See it in action" showcase that plays four short clips of the real interface in a browser frame. The clips are recorded with mock data by `website/scripts/manual-shots/clips.mjs` (see `website/README.md`, "Demo clips") into `site/public/demo/<lang>/`; the 繁體中文 page plays the 繁體中文 recordings, the English and 日本語 pages the English ones. They load only when the showcase is near the screen and do not play by themselves for visitors who prefer reduced motion.
 - The figures on the page (nodes, classroom seats, firewall rules and so on) are illustrative and come from `site/src/stats.json`.
 
 | Path | Purpose |
@@ -53,6 +54,7 @@ One-time setup, in Workers & Pages → Create → Pages → Connect to Git:
 5. After the first deploy, open Settings → Build → Build watch paths and set the include paths to `site/*, frontend/src/assets/styles/*`.
 6. Open Custom domains and add `skylab-tw.com`. An apex domain needs the `skylab-tw.com` zone to be on Cloudflare. If you also add `www.skylab-tw.com`, redirect it to `https://skylab-tw.com` with a redirect rule so that search engines index a single address.
 7. After the first production deploy, add the site to Google Search Console and submit `https://skylab-tw.com/sitemap.xml`.
+8. Set up the contact address, `contact@skylab-tw.com`, with Cloudflare Email Routing: in the `skylab-tw.com` zone open Email → Email Routing and enable it (it adds the MX and TXT records), add the team's mailbox under Destination addresses and confirm it from the verification mail, then create a routing rule that sends `contact@skylab-tw.com` to it. Email Routing only receives mail: a reply sent from that mailbox shows the mailbox's own address unless it is set up to send as `contact@skylab-tw.com`.
 
 A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git.
 
@@ -60,7 +62,7 @@ A school's platform, such as `ntub.skylab-tw.com`, is not deployed from here; it
 
 ## Changing the contact e-mail or links
 
-Edit `site/site.config.js`. The buttons, the footer and the JSON-LD all read the contact e-mail and the GitHub URL from it, and it holds the defaults of `SITE_URL` and `DOCS_URL`.
+Edit `site/site.config.js`. The buttons, the footer and the JSON-LD all read the contact e-mail and the GitHub URL from it, and it holds the defaults of `SITE_URL` and `DOCS_URL`. Keep a role address there, not a personal one: the page and the git history are public. To hand the inbox to someone else, change the routing rule in Cloudflare; the site does not change.
 
 ## Related
 

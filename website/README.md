@@ -67,6 +67,21 @@ Things to know when writing or fixing a scene:
 - The floating AI assistant button can end up in the corner of a frame. Scenes hide it with `s.page.addStyleTag({ content: '[class*="_fab_"]{visibility:hidden !important}' })` where it gets in the way.
 - Open each changed picture itself before committing; the contact sheets from `preview.mjs` are too small to judge outlines and text.
 
+### Demo clips
+
+`scripts/manual-shots/clips.mjs` records the short videos of the README and of the public site's showcase, against the same frontend build and mock API:
+
+```bash
+cd website
+FFMPEG=/path/to/ffmpeg node scripts/manual-shots/clips.mjs        # every clip, en and zh-TW
+node scripts/manual-shots/clips.mjs --lang en firewall            # one clip in one language
+```
+
+- Each file in `scripts/manual-shots/clips/` scripts one flow. Headless Chrome paints no mouse pointer, so a drawn cursor glides to every click (`rec.click`, `rec.type`, `rec.drag`), and `rec.speed(n)` plays a waiting part n times faster.
+- Output: `site/public/demo/<lang>/<clip>.mp4` with a poster `.jpg` for the public site, and for English `.github/readme/<clip>.gif` for the README. ffmpeg needs libx264.
+- Clips run with a running clock (`clockRuns`): pages that poll for progress compare when data arrived, which never changes while the clock is frozen as it is for the manual screenshots.
+- Watch every clip before committing. The screencast only delivers frames when the page repaints, so a clip that waited for the wrong thing looks like a frozen screen instead of failing.
+
 ## Deployment
 
 The Cloudflare Pages project `skylab-docs` is connected to the GitHub repository (Git integration), so Cloudflare builds and deploys the site by itself. Pushes to `main` become the production deployment; pull requests from this repository get a preview at `<branch>.skylab-docs.pages.dev`; pull requests from forks get no preview. The build command is `website/scripts/cloudflare-pages-build.sh`:

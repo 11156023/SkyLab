@@ -260,6 +260,97 @@ function TerminalContent({ t }) {
   );
 }
 
+/* 實際操作:平台真實介面錄成的影片(website/scripts/manual-shots/clips.mjs 產生),
+   放在瀏覽器視窗框裡輪播。接近畫面才載入與播放;減少動態效果時不自動播放,改給播放控制 */
+export const DEMOS = [
+  { id: "console", path: "/my-resources" },
+  { id: "class", path: "/class-management" },
+  { id: "review", path: "/request-review" },
+  { id: "firewall", path: "/firewall" },
+];
+
+function DemoContent({ t, lang }) {
+  const rootRef = useRef(null);
+  const videoRef = useRef(null);
+  const [active, setActive] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [near, setNear] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const demo = DEMOS[active];
+  const base = `/demo/${lang === "zh-TW" ? "zh-TW" : "en"}`;
+
+  useLayoutEffect(() => {
+    setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }, []);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return undefined;
+    const io = new IntersectionObserver(([entry]) => setNear(entry.isIntersecting), { rootMargin: "300px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  /* 換片或進出畫面時播放/暫停;muted 要設在屬性上,瀏覽器才允許自動播放 */
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = true;
+    if (near && !reduceMotion) video.play().catch(() => {});
+    else video.pause();
+  }, [near, active, reduceMotion]);
+
+  const select = (index) => {
+    setActive(index);
+    setProgress(0);
+  };
+
+  return (
+    <div className={styles.demo} ref={rootRef}>
+      <h2 className={styles.demoTitle} data-hud>{t("demo.title")}</h2>
+      <div className={styles.browser} data-hud>
+        <div className={styles.browserBar} aria-hidden="true">
+          <span /><span /><span />
+          <div className={styles.browserUrl}>ntub.skylab-tw.com{demo.path}</div>
+        </div>
+        <video
+          key={`${base}/${demo.id}`}
+          ref={videoRef}
+          className={styles.demoVideo}
+          src={near ? `${base}/${demo.id}.mp4` : undefined}
+          poster={`${base}/${demo.id}.jpg`}
+          muted
+          playsInline
+          preload="none"
+          controls={reduceMotion}
+          aria-label={t(`demo.${demo.id}.title`)}
+          onTimeUpdate={(e) => {
+            const v = e.currentTarget;
+            if (v.duration) setProgress(v.currentTime / v.duration);
+          }}
+          onEnded={() => select((active + 1) % DEMOS.length)}
+        />
+      </div>
+      <div className={styles.demoTabs} role="tablist" aria-label={t("demo.title")} data-hud>
+        {DEMOS.map((d, index) => (
+          <button
+            key={d.id}
+            type="button"
+            role="tab"
+            aria-selected={index === active}
+            className={`${styles.demoTab} ${index === active ? styles.demoTabActive : ""}`}
+            onClick={() => select(index)}
+          >
+            <strong>{t(`demo.${d.id}.title`)}</strong>
+            <span>{t(`demo.${d.id}.caption`)}</span>
+            <i className={styles.demoTabProgress} style={{ transform: `scaleX(${index === active ? progress : 0})` }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* 收尾:雲海合攏後浮出的 CTA,構圖呼應開場 hero。
    官網的訪客是想到校試用的學校:主要動作是寫信聯繫,其次看原始碼與部署指南 */
 function OutroContent({ t, lang }) {
@@ -490,6 +581,7 @@ export default function LandingPage() {
       case "network": return <NetworkContent t={t} stats={stats} />;
       case "ai": return <AiContent t={t} stats={stats} />;
       case "terminal": return <TerminalContent t={t} />;
+      case "demo": return <DemoContent t={t} lang={i18n.language} />;
       case "outro": return <OutroContent t={t} lang={i18n.language} />;
       default: return null;
     }

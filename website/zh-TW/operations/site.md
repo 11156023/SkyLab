@@ -6,6 +6,7 @@
 
 - 原本是平台 `/` 頁面的捲動動畫介紹（React + GSAP，繁體中文／English／日本語，日夜模式）。
 - 「聯繫我們」按鈕會開信寄到 `site/site.config.js` 裡的信箱，另有 GitHub repo 與文件站部署指南的連結。
+- 「實際操作畫面」展示區，在瀏覽器視窗框裡輪播四段真實介面的短片。短片由 `website/scripts/manual-shots/clips.mjs` 以 mock 資料錄製（見 `website/README.zh-TW.md`「示範短片」），放在 `site/public/demo/<語言>/`；繁體中文頁播繁中版，英文與日文頁播英文版。展示區接近畫面才載入，偏好減少動態效果的訪客不會自動播放。
 - 頁面上的數字（節點、教室座位、防火牆規則等）是示意用，來自 `site/src/stats.json`。
 
 | 路徑 | 用途 |
@@ -53,6 +54,7 @@ Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration
 5. 第一次部署後，到 Settings → Build → Build watch paths，include paths 設為 `site/*, frontend/src/assets/styles/*`。
 6. 到 Custom domains 加上 `skylab-tw.com`。根網域要求 `skylab-tw.com` 這個 zone 在 Cloudflare 上。如果也加了 `www.skylab-tw.com`，用 redirect rule 把它轉到 `https://skylab-tw.com`，讓搜尋引擎只收錄一個網址。
 7. 第一次正式部署後，把網站加進 Google Search Console 並提交 `https://skylab-tw.com/sitemap.xml`。
+8. 用 Cloudflare Email Routing 設定聯絡信箱 `contact@skylab-tw.com`：在 `skylab-tw.com` 這個 zone 打開 Email → Email Routing 並啟用（會加上 MX 與 TXT 紀錄），在 Destination addresses 加入團隊的收件信箱並點驗證信確認，再建立一條把 `contact@skylab-tw.com` 轉寄過去的 routing rule。Email Routing 只負責收信：從收件信箱回信時，對方看到的是收件信箱本身的地址，除非另外設定以 `contact@skylab-tw.com` 寄出。
 
 用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。
 
@@ -60,7 +62,7 @@ Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration
 
 ## 修改聯絡信箱或連結
 
-改 `site/site.config.js`。按鈕、頁尾與 JSON-LD 的聯絡信箱和 GitHub 網址都從這裡讀，`SITE_URL` 與 `DOCS_URL` 的預設值也在這裡。
+改 `site/site.config.js`。按鈕、頁尾與 JSON-LD 的聯絡信箱和 GitHub 網址都從這裡讀，`SITE_URL` 與 `DOCS_URL` 的預設值也在這裡。這裡要放角色信箱，不放個人信箱：網頁與 git 紀錄都是公開的。要換人收信，改 Cloudflare 的轉寄規則即可，網站不用改。
 
 ## 相關
 

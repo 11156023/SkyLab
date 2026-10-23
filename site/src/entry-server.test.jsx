@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { LANGUAGES, render } from "./entry-server";
 import { CONTACT_EMAIL } from "./config";
+import { DEMOS } from "./landing/LandingPage";
 import zhTW from "./locales/zh-TW.json";
 import en from "./locales/en.json";
 import ja from "./locales/ja.json";
@@ -25,6 +26,18 @@ test("三個語言都有預渲染,分享縮圖也都在 public/", () => {
   expect(LANGUAGES.map((l) => l.code)).toEqual(["zh-TW", "en", "ja"]);
   for (const { ogImage } of LANGUAGES) {
     expect(existsSync(path.join(import.meta.dirname, "..", "public", ogImage)), ogImage).toBe(true);
+  }
+});
+
+/* 影片由 website/scripts/manual-shots/clips.mjs 錄製;少一支,展示區就會停在空白的框 */
+test("實際操作影片與封面圖兩種語言都在 public/demo/", () => {
+  for (const dir of ["en", "zh-TW"]) {
+    for (const { id } of DEMOS) {
+      for (const ext of ["mp4", "jpg"]) {
+        const file = path.join(import.meta.dirname, "..", "public", "demo", dir, `${id}.${ext}`);
+        expect(existsSync(file), `${dir}/${id}.${ext}`).toBe(true);
+      }
+    }
   }
 });
 

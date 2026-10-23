@@ -67,6 +67,21 @@ node scripts/manual-shots/check.mjs --strict         # 確認兩種語言的每�
 - 右下角的 AI 助手浮動按鈕可能落在某一格的角落。礙事的場景用 `s.page.addStyleTag({ content: '[class*="_fab_"]{visibility:hidden !important}' })` 把它藏起來。
 - 提交前要逐張打開有變動的圖本身來看；`preview.mjs` 的總覽圖縮得太小，看不清框線與文字。
 
+### 示範短片
+
+`scripts/manual-shots/clips.mjs` 用同一份前端建置與 mock API，錄製 README 與官網展示區的短片：
+
+```bash
+cd website
+FFMPEG=/path/to/ffmpeg node scripts/manual-shots/clips.mjs        # 全部短片，英文與繁中
+node scripts/manual-shots/clips.mjs --lang en firewall            # 只錄一支、一種語言
+```
+
+- `scripts/manual-shots/clips/` 每個檔案是一段操作腳本。無頭 Chrome 不會畫滑鼠游標，所以每次點擊都由畫出來的游標滑過去（`rec.click`、`rec.type`、`rec.drag`），`rec.speed(n)` 讓等待的段落快轉 n 倍。
+- 輸出：官網用的 `site/public/demo/<語言>/<短片>.mp4` 與封面 `.jpg`，英文另產生 README 用的 `.github/readme/<短片>.gif`。ffmpeg 需要支援 libx264。
+- 短片以會走的時鐘錄製（`clockRuns`）：會輪詢進度的頁面比對資料到達的時間，手冊截圖那樣把時鐘凍結，這個時間就永遠不會變。
+- 提交前每支都要實際看過。畫面重繪時才會送出影格，等錯東西的短片只會看起來像畫面卡住，不會報錯。
+
 ## 部署
 
 Cloudflare Pages 專案 `skylab-docs` 直接連到 GitHub repo（Git integration），由 Cloudflare 自己建置與部署。推送到 `main` 成為正式部署；本 repo 的 pull request 會得到 `<branch>.skylab-docs.pages.dev` 的預覽；來自 fork 的 pull request 沒有預覽。建置指令是 `website/scripts/cloudflare-pages-build.sh`：

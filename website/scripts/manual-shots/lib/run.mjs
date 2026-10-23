@@ -221,8 +221,11 @@ async function composeSection(browser, frames) {
 // ---------------------------------------------------------------- session
 
 // Runs one manual section in a fresh browser context.
-// opts: { browser, baseUrl, lang, page, section, role, mocks, scene }
-export async function runSection({ browser, baseUrl, lang, page, section, role, mocks }) {
+// opts: { browser, baseUrl, lang, page, section, role, mocks, scene, contextOptions, clockRuns }
+// contextOptions override the context defaults (the demo clips use their own viewport and keep motion on).
+// clockRuns: the clock starts at NOW and keeps going instead of standing still; pages that
+// compare when data arrived (progress polling) need time to pass.
+export async function runSection({ browser, baseUrl, lang, page, section, role, mocks, contextOptions = {}, clockRuns = false }) {
   const m = createMock(lang);
   registerCommon(m);
   if (role) m.state.role = role;
@@ -235,8 +238,12 @@ export async function runSection({ browser, baseUrl, lang, page, section, role, 
     timezoneId: "Asia/Taipei",
     colorScheme: "light",
     reducedMotion: "reduce",
+    ...contextOptions,
   });
-  await context.clock.setFixedTime(new Date(NOW));
+  if (clockRuns) {
+    await context.clock.install({ time: new Date(NOW) });
+    await context.clock.resume();
+  } else await context.clock.setFixedTime(new Date(NOW));
   await context.addInitScript({ content: initScript(lang, role ? m.users[role].id : null) });
   await context.route(/\/api\/v1\//, async (route) => {
     const req = route.request();

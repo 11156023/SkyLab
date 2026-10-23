@@ -17,6 +17,7 @@ export const CAMERA_DURATION = 0.8;
  * 相機用反向偏置讓焦點建築讓開卡片:卡在右→建築偏左、卡在上→建築下沉。
  * workflow 拉遠框住「宿舍 → 行政樓 → 機房」整條申請管線;ai 框住 AI 核心與機房屋頂節點
  * (道具座標見 sceneLayout.js)。
+ * demo 回到全景並調暗,前景是實際操作影片的展示面板。
  * outro 拉回全景後雲海合攏(開場穿雲降落的倒帶),CTA 浮在雲海上,見 LandingPage 收尾區塊。
  */
 
@@ -29,6 +30,7 @@ export const SECTIONS = [
   { id: "network",   length: 1.5, focus: worldPixel(720, 1390, 20), zoom: 2.6,  align: "right",  valign: "bottom" },
   { id: "ai",        length: 1.0, focus: worldPixel(237, 843, 0),   zoom: 2.4,  align: "left",   valign: "bottom" },
   { id: "terminal",  length: 1.5, focus: worldPixel(960, 200, 160), zoom: 2.4,  align: "left",   valign: "center" },
+  { id: "demo",      length: 1.6, focus: worldPixel(700, 700, 0),   zoom: 1.0,  align: "center", valign: "center" },
   { id: "outro",     length: 1.5, focus: worldPixel(700, 700, 0),   zoom: 0.95, align: "center", valign: "center" },
 ];
 

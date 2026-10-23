@@ -13,6 +13,10 @@ SkyLab is a full-stack management platform for Proxmox VE (PVE) built for campus
 
 **Who it is for:** schools, departments and labs that already run (or plan to run) Proxmox VE and want to hand out machines to students and courses without giving everyone access to the PVE web UI.
 
+<p align="center">
+  <img src=".github/readme/console.gif" width="900" alt="A student opens a VM's desktop and then a container's terminal, both inside the browser">
+</p>
+
 ## Architecture
 
 ```mermaid
@@ -67,6 +71,22 @@ flowchart LR
 - Authentication: password, Google, LDAP/AD, optional per-account TOTP, Cloudflare Turnstile, login pre-flight service check
 - Platform health monitoring, system alerts, Web Push notifications, Prometheus `/metrics`
 - Full audit log; roles: student / teacher / admin; trilingual UI (en / zh-TW / ja)
+
+## See it in action
+
+**A whole class at once.** The teacher submits the class; every student's machines are built, and the class opens on a live usage heatmap.
+
+<img src=".github/readme/class.gif" width="900" alt="A teacher submits a class, 90 machines are built and the class usage heatmap appears">
+
+**Request, approve, provision.** An administrator approves a student's request, and the machine shows up in the student's list on its own.
+
+<img src=".github/readme/review.gif" width="900" alt="An administrator approves a request; the student's resource list shows the machine being created and then running">
+
+**Networking by drag and drop.** Drawing a line between two machines on the map writes the firewall rules for that connection.
+
+<img src=".github/readme/firewall.gif" width="900" alt="A student drags a connection from one machine to another on the firewall map and sets the port">
+
+These clips are recorded from the real interface with mock data by `website/scripts/manual-shots/clips.mjs`.
 
 ## Requirements
 

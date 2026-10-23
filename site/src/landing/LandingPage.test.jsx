@@ -114,6 +114,25 @@ test.each([
   expect(host.querySelector(`a[href="${DOCS_URL}${docsPath}"]`)).not.toBeNull();
 });
 
+test.each([
+  ["zh-TW", "zh-TW"],
+  ["en", "en"],
+  ["ja", "en"],
+])("實際操作影片用對應語言的畫面,分頁可以切換(%s)", async (lang, dir) => {
+  root = createRoot(host);
+  await act(async () => { root.render(page(lang)); });
+
+  expect(host.querySelector("video").getAttribute("poster")).toBe(`/demo/${dir}/console.jpg`);
+  // 還沒捲到附近前不載入影片
+  expect(host.querySelector("video").getAttribute("src")).toBeNull();
+  const tabs = [...host.querySelectorAll('[role="tab"]')];
+  expect(tabs).toHaveLength(4);
+  await act(async () => { tabs[3].click(); });
+  expect(host.querySelector("video").getAttribute("poster")).toBe(`/demo/${dir}/firewall.jpg`);
+  expect(tabs[3].getAttribute("aria-selected")).toBe("true");
+  expect(tabs[0].getAttribute("aria-selected")).toBe("false");
+});
+
 test("語言切換是連到各語言的網址,目前語言標成 aria-current", async () => {
   root = createRoot(host);
   await act(async () => { root.render(page("ja")); });
