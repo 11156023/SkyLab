@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import Date, and_, case, cast, distinct, func, literal, or_
+from sqlalchemy import Date, and_, case, cast, func, literal, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, col, select
@@ -1554,13 +1554,13 @@ def get_monitoring_stats(
     # 活躍使用者（proxy + template 的 distinct user_id 合集）
     proxy_user_ids: set[uuid.UUID] = set(
         session.exec(
-            select(distinct(col(AIAPIUsage.user_id))).where(*proxy_filters)
+            select(col(AIAPIUsage.user_id)).where(*proxy_filters).distinct()
         ).all()
     )
     template_user_ids: set[uuid.UUID] = (
         set(
             session.exec(
-                select(distinct(col(AIAPIUsage.user_id))).where(*template_filters)
+                select(col(AIAPIUsage.user_id)).where(*template_filters).distinct()
             ).all()
         )
         if include_template
@@ -1572,7 +1572,7 @@ def get_monitoring_stats(
     template_models: set[str] = (
         set(
             session.exec(
-                select(distinct(col(AIAPIUsage.model_name))).where(*template_filters)
+                select(col(AIAPIUsage.model_name)).where(*template_filters).distinct()
             ).all()
         )
         if include_template
@@ -1580,7 +1580,7 @@ def get_monitoring_stats(
     )
     proxy_models: set[str] = set(
         session.exec(
-            select(distinct(col(AIAPIUsage.model_name))).where(*proxy_filters)
+            select(col(AIAPIUsage.model_name)).where(*proxy_filters).distinct()
         ).all()
     )
     models = sorted(proxy_models | template_models)

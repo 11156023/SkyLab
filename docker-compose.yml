@@ -155,7 +155,7 @@ services:
   #     承接（PgBouncer ≥ 1.21）
   #   - alembic migration 走 prestart 直連 db
   pgbouncer:
-    image: edoburu/pgbouncer:v1.26.0-p0
+    image: edoburu/pgbouncer:v1.26.1-p0
     logging: *default-logging
     restart: always
     environment:
@@ -386,7 +386,7 @@ services:
   # Prometheus：抓 backend /metrics 與各 exporter，保留 15 天
   # -------------------------
   prometheus:
-    image: prom/prometheus:v3.15.0
+    image: prom/prometheus:v3.15.1
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -414,7 +414,7 @@ services:
   # Grafana：儀表板（平台、基礎設施、日誌、Proxmox）
   # -------------------------
   grafana:
-    image: grafana/grafana:13.2.3
+    image: grafana/grafana:13.2.4
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -488,7 +488,7 @@ services:
   # Loki + Alloy：所有容器的日誌集中查詢，保留 14 天
   # -------------------------
   loki:
-    image: grafana/loki:3.7.8
+    image: grafana/loki:3.7.9
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -506,7 +506,7 @@ services:
       start_period: 30s
 
   alloy:
-    image: grafana/alloy:v1.20.1
+    image: grafana/alloy:v1.21.2
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -580,7 +580,7 @@ services:
       - skylab
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.93.0
+    image: oliver006/redis_exporter:v1.95.0
     logging: *default-logging
     profiles: ["monitoring"]
     restart: unless-stopped
