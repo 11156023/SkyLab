@@ -2,7 +2,7 @@
 
 > [English](./README.md) | **繁體中文**
 
-repo 的所有文件都放在這個目錄，以 [VitePress](https://vitepress.dev/) 建成網站，由 `.github/workflows/docs-site.yml` 部署到 Cloudflare Pages。目錄外只保留根目錄的 `README.md` 和 GitHub 本身會讀的檔案（`CONTRIBUTING`、`SECURITY`、`CODE_OF_CONDUCT`、`THIRD_PARTY_NOTICES`、`.github/` 的範本）。
+repo 的所有文件都放在這個目錄，以 [VitePress](https://vitepress.dev/) 建成網站，發布在 Cloudflare Pages（見下方「部署」）。目錄外只保留根目錄的 `README.md` 和 GitHub 本身會讀的檔案（`CONTRIBUTING`、`SECURITY`、`CODE_OF_CONDUCT`、`THIRD_PARTY_NOTICES`、`.github/` 的範本）。
 
 ## 結構
 
@@ -69,20 +69,24 @@ node scripts/manual-shots/check.mjs --strict         # 確認兩種語言的每�
 
 ## 部署
 
-workflow 在推送到 `main`、以及動到 `website/`、`backend/app/`、`.env.example` 或匯出腳本的 pull request 時執行：
+Cloudflare Pages 專案 `skylab-docs` 直接連到 GitHub repo（Git integration），由 Cloudflare 自己建置與部署。推送到 `main` 成為正式部署；本 repo 的 pull request 會得到 `<branch>.skylab-docs.pages.dev` 的預覽；來自 fork 的 pull request 沒有預覽。建置指令是 `website/scripts/cloudflare-pages-build.sh`：
 
-1. 在 `backend/` 跑 `uv sync` 並匯出 `openapi.json`。
-2. 在 `website/` 跑 `bun install --frozen-lockfile` 與 `bun run build`（建置前先產生環境變數與更新紀錄頁；checkout 會抓完整 git 歷史給更新紀錄用）。
-3. 以 `wrangler pages deploy` 部署到 Cloudflare Pages 專案 `skylab-docs`。推送到 `main` 成為正式部署；本 repo 的 pull request 會得到 `<branch>.skylab-docs.pages.dev` 的預覽。來自 fork 的 pull request 只建置不部署。
+1. 抓完整 git 歷史。Pages 是淺層 clone，而更新紀錄頁由歷史產生。
+2. 沒有 uv 就安裝，在 `backend/` 跑 `uv sync` 並匯出 `openapi.json`。
+3. 在 `website/` 跑 `bun install --frozen-lockfile` 與 `bun run build`（建置前先產生環境變數與更新紀錄頁）。
 
-一次性設定：
+`.github/workflows/docs-site.yml` 在 `main` 與 pull request（含來自 fork 的）上跑同一支腳本當檢查，不負責部署。
 
-1. 在 Cloudflare 後台建立一個具「Cloudflare Pages: Edit」權限的 API token，並記下 account id。
-2. 把 `CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID` 加為 repo secrets。沒有這兩個值時 workflow 只建置、略過部署。
-3. 第一次部署會自動建立專案。之後到 Workers & Pages → `skylab-docs` → Custom domains 加上文件網域；zone 在 Cloudflare 上時 DNS 紀錄會自動建立。
-4. 把專案的 production branch 設成 `main`，預覽與正式才不會互換。
+一次性設定，在 Workers & Pages → Create → Pages → Connect to Git：
 
-要改專案名稱，修改 workflow 裡的 `CLOUDFLARE_PAGES_PROJECT`。
+1. 在 repo 安裝 Cloudflare Workers & Pages 的 GitHub App 並選 `ntubclass/SkyLab`。要由組織 owner 或具 GitHub Apps Manager 角色的成員來做。
+2. 專案名稱 `skylab-docs`，production branch `main`，framework preset 選 None。
+3. Build command `bash website/scripts/cloudflare-pages-build.sh`，build output directory `website/.vitepress/dist`，root directory 留空。
+4. 環境變數 `BUN_VERSION` = `1.4.4`，與鎖檔和 CI 用的 Bun 版本一致（建置環境的預設版本較舊）；`SKIP_DEPENDENCY_INSTALL` = `1`，因為腳本自己安裝套件。
+5. 第一次部署後，到 Settings → Build → Build watch paths，include paths 設為 `website/*, backend/app/*, backend/scripts/export_openapi.py, .env.example`，只動到 repo 其他部分的 commit 就不會重建文件站。
+6. 到 Custom domains 加上文件網域；zone 在 Cloudflare 上時 DNS 紀錄會自動建立。
+
+用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。
 
 ## 慣例
 

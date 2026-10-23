@@ -2,7 +2,7 @@
 
 > **English** | [繁體中文](./README.zh-TW.md)
 
-All documentation of the repository lives in this directory and is published as a [VitePress](https://vitepress.dev/) site on Cloudflare Pages by `.github/workflows/docs-site.yml`. The only Markdown files kept outside are the root `README.md` and the files GitHub itself reads (`CONTRIBUTING`, `SECURITY`, `CODE_OF_CONDUCT`, `THIRD_PARTY_NOTICES`, the `.github/` templates).
+All documentation of the repository lives in this directory and is published as a [VitePress](https://vitepress.dev/) site on Cloudflare Pages (see "Deployment" below). The only Markdown files kept outside are the root `README.md` and the files GitHub itself reads (`CONTRIBUTING`, `SECURITY`, `CODE_OF_CONDUCT`, `THIRD_PARTY_NOTICES`, the `.github/` templates).
 
 ## Layout
 
@@ -69,20 +69,24 @@ Things to know when writing or fixing a scene:
 
 ## Deployment
 
-The workflow runs on pushes to `main` and on pull requests that touch `website/`, `backend/app/`, `.env.example` or the export script:
+The Cloudflare Pages project `skylab-docs` is connected to the GitHub repository (Git integration), so Cloudflare builds and deploys the site by itself. Pushes to `main` become the production deployment; pull requests from this repository get a preview at `<branch>.skylab-docs.pages.dev`; pull requests from forks get no preview. The build command is `website/scripts/cloudflare-pages-build.sh`:
 
-1. `uv sync` in `backend/` and export `openapi.json`.
-2. `bun install --frozen-lockfile` and `bun run build` in `website/` (the build generates the environment and changelog pages first; the checkout uses the full git history for the changelog).
-3. `wrangler pages deploy` to the Cloudflare Pages project `skylab-docs`. Pushes to `main` become the production deployment; pull requests from this repository get a preview at `<branch>.skylab-docs.pages.dev`. Pull requests from forks are built but not deployed.
+1. Fetch the full git history. Pages clones shallowly, and the changelog page is generated from the history.
+2. Install uv if it is missing, run `uv sync` in `backend/` and export `openapi.json`.
+3. Run `bun install --frozen-lockfile` and `bun run build` in `website/` (the build generates the environment and changelog pages first).
 
-Setting it up once:
+`.github/workflows/docs-site.yml` runs the same script as a check on `main` and on pull requests, including those from forks. It does not deploy.
 
-1. In the Cloudflare dashboard create an API token with the "Cloudflare Pages: Edit" permission and note the account id.
-2. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets. Without them the workflow builds the site and skips the deploy.
-3. The first deploy creates the project. Then open Workers & Pages → `skylab-docs` → Custom domains and add the documentation domain; the DNS record is created automatically when the zone is on Cloudflare.
-4. Set the production branch of the project to `main` so preview and production do not swap.
+Setting it up once, in Workers & Pages → Create → Pages → Connect to Git:
 
-To change the project name, edit `CLOUDFLARE_PAGES_PROJECT` in the workflow.
+1. Install the Cloudflare Workers & Pages GitHub App on the repository and select `ntubclass/SkyLab`. An owner of the organization, or a member with the GitHub Apps Manager role, has to do this.
+2. Project name `skylab-docs`, production branch `main`, framework preset None.
+3. Build command `bash website/scripts/cloudflare-pages-build.sh`, build output directory `website/.vitepress/dist`, root directory left empty.
+4. Environment variables `BUN_VERSION` = `1.4.4`, the Bun version of the lock file and of CI (the build image's default is older), and `SKIP_DEPENDENCY_INSTALL` = `1`, because the script installs the dependencies itself.
+5. After the first deploy, open Settings → Build → Build watch paths and set the include paths to `website/*, backend/app/*, backend/scripts/export_openapi.py, .env.example`, so that commits touching only other parts of the repository do not rebuild the documentation.
+6. Open Custom domains and add the documentation domain; the DNS record is created automatically when the zone is on Cloudflare.
+
+A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git.
 
 ## Conventions
 
