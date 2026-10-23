@@ -72,4 +72,4 @@ The CSV file contains the columns `id`, `created_at`, `action`, `user_email`, `u
 
 - [User Management](/manual/admin-users) — act on suspicious accounts found in the log
 - [Resource Monitoring](/manual/monitoring) — live status and alerts
-- [Background Tasks](/manual/jobs) — progress of the long-running operations that appear here
+- [Background Jobs](/manual/jobs) — progress of the long-running operations that appear here

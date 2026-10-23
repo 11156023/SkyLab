@@ -16,7 +16,7 @@ After sign-in, the service check screen looks different for administrators (real
 
 ## Before you start
 
-- You need an account: one an administrator created for you, an LDAP campus account (when LDAP is enabled), a Google account that is already registered in SkyLab, or one you registered yourself.
+- You need an account: one an administrator created for you, an LDAP campus account (when LDAP is enabled), a Google account (already registered in SkyLab, or created at the first Google sign-in when Google sign-up is enabled), or one you registered yourself.
 - If your account requires two-factor authentication, keep the phone with your authenticator app at hand.
 
 ## Step by step
@@ -47,7 +47,7 @@ After sign-in, the service check screen looks different for administrators (real
 2. Choose your Google account in the pop-up window.
 3. While SkyLab checks the account, **Signing in with Google…** is shown under the button.
 
-If the Google address has no SkyLab account yet, the page says so and asks you to create an account first. If the account has not been activated (for example it is still waiting for administrator approval), the page tells you to wait for approval.
+If the Google address has no SkyLab account yet, the first sign-in creates one when an administrator has enabled Google sign-up; otherwise the page says the account is not registered and asks you to create an account first. If the account has not been activated (for example it is still waiting for administrator approval), the page tells you to wait for approval.
 
 ![Sign in with Google (numbers match the steps above)](/manual-shots/en/login/s03.webp)
 
@@ -175,10 +175,10 @@ Password rules for setting or resetting a SkyLab password (the checklist under t
 
 ## Limits and behaviour to know
 
-- Sign-in attempts are rate-limited per account and per network address. After too many failed attempts you have to wait a minute before trying again.
+- Sign-in attempts are rate-limited per account (10 per minute by default) and per network address. After too many attempts you have to wait a minute before trying again.
 - In the two-factor step, after three wrong codes the step becomes invalid and you are sent back to sign in with your password again; five wrong codes within 15 minutes lock two-factor sign-in for that account for 15 minutes. The two-factor step itself expires after 5 minutes; if it does, you are returned to the sign-in form.
 - If your phone's clock is wrong, codes will be rejected. Check the time on your phone first.
-- Password reset emails are limited to a few per address per minute. The reset link is valid for a limited time (48 hours by default).
+- Password reset emails are limited to three per address per minute. The reset link is valid for a limited time (48 hours by default).
 - The registration verification link is valid for 24 hours. The link for confirming a new email address is valid for 1 hour.
 - Old passwords that do not meet the current rules still work for signing in; the rules apply the next time you change the password.
 - The service check never blocks you: students and teachers can continue with a warning, and administrators can skip it.

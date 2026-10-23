@@ -161,7 +161,7 @@
 ## 相關頁面
 
 - [登入](/zh-TW/manual/login) — 兩步驟驗證登入、重設密碼與首次設定引導
-- [首頁](/zh-TW/manual/home) — 存檔後回到的頁面
+- [首頁](/zh-TW/manual/home) — 登入後看到的第一個頁面
 - [我的資源](/zh-TW/manual/my-resources) — 刪除帳號前先移除你的機器
 - [使用者管理](/zh-TW/manual/admin-users) — 管理員要求或重設兩步驟驗證的地方
 - [AI API](/zh-TW/manual/ai-api) — 你的 AI API 金鑰，刪除帳號時會被撤銷

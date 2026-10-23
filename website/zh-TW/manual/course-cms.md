@@ -112,5 +112,5 @@
 ## 相關頁面
 
 - [班級管理](/zh-TW/manual/class-management)：可以連結路徑的班級
-- [班級工作區](/zh-TW/manual/class-workspace)：班級的每週內容、檢查與機器
+- [班級工作頁](/zh-TW/manual/class-workspace)：班級的每週內容、檢查與機器
 - [課程](/zh-TW/manual/courses)：學生看到的畫面

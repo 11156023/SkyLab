@@ -6,7 +6,7 @@ Failures people have actually hit while deploying and running SkyLab, with the c
 
 ### The backend exits immediately with a message about `changethis`
 
-`ENVIRONMENT` is not `local` and `SECRET_KEY`, `FIRST_SUPERUSER_PASSWORD` or `POSTGRES_PASSWORD` still holds the template value. Set real values in `.env` and start again. `SECRET_KEY` must be at least 32 characters.
+`ENVIRONMENT` is not `local` and `SECRET_KEY`, `FIRST_SUPERUSER_PASSWORD` or `POSTGRES_PASSWORD` still holds the template value (an unset `SECRET_KEY` is refused as well). Set real values in `.env` and start again. Use at least 32 characters for `SECRET_KEY`; a shorter one only logs a warning.
 
 ### Stored credentials stopped working after editing `SECRET_KEY`
 
@@ -14,8 +14,8 @@ Failures people have actually hit while deploying and running SkyLab, with the c
 
 ```bash
 cd backend
-python -m scripts.rotate_secret_key            # preview
-python -m scripts.rotate_secret_key --apply    # re-encrypt and update ../.env
+uv run python -m scripts.rotate_secret_key            # preview
+uv run python -m scripts.rotate_secret_key --apply    # re-encrypt and update ../.env
 ```
 
 Restart the backend and the worker afterwards. Everyone has to log in again.
@@ -26,7 +26,7 @@ The default is 8082 on purpose: rootless Docker cannot bind ports below 1024, an
 
 ### The scheduler logs an error every minute
 
-On a database with no Proxmox connection every scheduler task fails and says so. It stops as soon as the setup wizard or the "PVE connections" page has a working connection.
+On a database with no Proxmox connection every scheduler task fails and says so. It stops as soon as the setup wizard or the "PVE Management" page has a working connection.
 
 ### Nothing arrives in MailCatcher during development
 
@@ -34,7 +34,7 @@ An `.env` copied from a server carries `SMTP_PORT=587` and `SMTP_TLS=True`. Mail
 
 ### Running the backend on the host fails with "SSH backend is unavailable"
 
-A globally installed `fastapi` was used instead of the project's virtual environment, so `paramiko` and other dependencies are missing. Run `uv sync` in `backend/` and activate `.venv` before `fastapi dev app/main.py`.
+A globally installed `fastapi` was used instead of the project's virtual environment, so `paramiko` and other dependencies are missing. Run `uv sync` in `backend/`, then start it with `uv run fastapi dev app/main.py` (or activate the `.venv` in the repository root first).
 
 ## Proxmox
 
@@ -87,10 +87,10 @@ The host in the LDAP URI must appear in the certificate's subjectAltName (DNS or
 ### An administrator lost their TOTP device
 
 ```bash
-docker compose exec backend uv run python app/reset_totp.py <email>
+docker compose exec backend python app/reset_totp.py <email>
 ```
 
-Other users are reset by an administrator from the user list.
+Do not wrap it in `uv run` inside the container: the image lacks the workspace lock file, so `uv run` tries to resolve the dependencies again and fails. Other users are reset by an administrator from the user list.
 
 ### Login works in the browser but scripts calling `/api/v1/login/access-token` are rejected
 
@@ -98,7 +98,7 @@ Cloudflare Turnstile is enabled (both `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET
 
 ### Grafana asks for a password
 
-Grafana's own login is disabled. Open `/grafana/` while logged into SkyLab as an administrator; nginx passes the identity to Grafana. The built-in `admin` password is generated on the first start and only needed for `grafana cli`; see the "Logging in to Grafana" section of [Monitoring](/guides/monitoring).
+Grafana's own login is disabled. Log into SkyLab as an administrator and open the "Resource Monitoring" page first: it issues the cookie that nginx checks before passing your identity to Grafana. Then use "View details in Grafana" or open `/grafana/`. The built-in `admin` account cannot log in; the emergency procedure is in the "Logging in to Grafana" section of [Monitoring](/guides/monitoring).
 
 ## Gateway and network
 
@@ -108,7 +108,7 @@ The installer supports Debian 13 (trixie) only. Its nftables rules use `nft dest
 
 ### nginx on the gateway fails to reload after publishing many teaching environments
 
-`nginx -t` reports `could not build server_names_hash`. Many long host names exceed the default 64-byte hash bucket. SkyLab now writes `server_names_hash_bucket_size` into the generated `http.conf`; upgrade and re-sync the gateway from the "Gateway VM" page. A single server block never triggers this, so it only shows up at scale.
+`nginx -t` reports `could not build server_names_hash`. Many long host names exceed the default 64-byte hash bucket. SkyLab writes a large enough `server_names_hash_bucket_size` into the generated `http.conf`; if you see the error on an older build, upgrade and re-sync the gateway from the "Gateway VM" page. A single server block never triggers this, so it only shows up at scale.
 
 ### Users arriving through the platform entry are logged with the gateway's address
 
@@ -128,10 +128,22 @@ Three things are needed: the rootless socket and data root in `.env` (`DOCKER_SO
 
 PVE node and guest metrics do not pass through the backend. Each PVE node's built-in Metric Server must push to SkyLab's InfluxDB, which means `INFLUXDB_BIND_ADDRESS` has to be reachable from the nodes. The steps are in "Proxmox VE Metric Server setup" of [Monitoring](/guides/monitoring).
 
+### Every page slows down or times out under heavy load
+
+Compare the two health endpoints while it is happening:
+
+| What you see | Likely cause |
+| --- | --- |
+| `/api/v1/utils/health-check/` answers at once, `/api/v1/utils/health-check/ready` is slow or returns 503 | The database connections (the PgBouncer pool) are used up |
+| `/api/v1/utils/health-check/` is slow as well | The backend's event loop is blocked by a synchronous call |
+| Only AI API calls are slow or return 429 / 503 | Model capacity: see the limits in the [AI API user manual](/guides/ai-api-user-manual) and the LiteLLM and vLLM dashboards |
+
+To see what holds the connections, open `docker compose exec db psql -U postgres -d app` (the `.env.example` defaults) and run `SELECT pid, state, now() - xact_start AS xact_age, wait_event, left(query, 160) FROM pg_stat_activity WHERE datname = current_database() ORDER BY xact_start NULLS LAST;`. Many `idle in transaction` rows whose age grows with traffic mean a code path keeps its transaction open across a slow call; see [Backend](/guides/backend).
+
 ## Getting more information
 
 - `GET /api/v1/utils/health-check/ready` tells you whether the database and Redis are reachable (503 otherwise).
 - The "System health" card on the Resource Monitoring page shows every component SkyLab checks, including Proxmox, the gateway and the AI gateway.
-- Every response carries an `X-Request-ID` header. Search for that value in `docker compose logs backend worker nginx` (JSON logs include it as `request_id`).
+- Every API response carries an `X-Request-ID` header. Search for that value in `docker compose logs backend worker nginx` (JSON logs include it as `request_id`).
 - Scheduler tasks write heartbeats to Redis; a task that has not run for a while is reported as a system alert.
 - When you report a bug, include the SkyLab commit (shown under Account settings → About), the PVE version and the request id.

@@ -99,7 +99,7 @@
 
 ## 限制與注意事項
 
-- 每個呼叫分頁只載入這段期間最新的 100 筆，搜尋也只在這些資料裡找。
+- 每個呼叫分頁只載入這段期間最新的 100 筆，**使用者用量** 只列出 Tokens 用量最多的 100 位使用者；搜尋也只在這些資料裡找。
 - 切換明細分頁會清空搜尋框。
 - 這一頁只負責收集與呈現資料，不會發送告警。
 
@@ -109,4 +109,4 @@
 - [AI API 審核](/zh-TW/manual/ai-api-review) — 核准金鑰申請
 - [資源監控](/zh-TW/manual/monitoring) — 平台與機器的健康狀況
 - [監控指南](/zh-TW/guides/monitoring) — 選用的監控 stack 與 Grafana
-- [LiteLLM](/guides/litellm) — 提供模型服務的 AI Gateway
+- [LiteLLM](/zh-TW/guides/litellm) — 提供模型服務的 AI Gateway

@@ -21,7 +21,7 @@ Every signed-in user: students, teachers and administrators.
 ### Check your quota
 
 1. Look at the **My resource quota** card at the top. It shows four meters: **CPU** (cores), **Memory** (GB), **Disk** (GB) and **Instances**.
-2. Each meter reads "used / limit". When there is no limit it shows "(unlimited)".
+2. Each meter reads "used / limit". When there is no limit (for example for administrators) it shows "(unlimited)".
 3. When any meter reaches 90% it turns red and a hint appears with a **View my requests** link. To get more resources, request a spec change on an existing machine or free up a machine you no longer need.
 
 Only personal machines count toward the quota. Class and course machines do not.
@@ -106,7 +106,7 @@ Prefer **Shutdown** and **Reboot**; the forced actions can lose unsaved data ins
 
 1. Open **More actions** (⋮) and click **Delete**.
 2. Confirm in the dialog. Deletion cannot be undone.
-3. The deletion is queued. You can follow or cancel it on the [Jobs](/manual/jobs) page.
+3. The deletion is queued. You can follow its progress on the [Background Jobs](/manual/jobs) page.
 
 **Delete** is not offered for class machines, for machines shared with you, or for single machines inside a course or quick practice environment.
 
@@ -190,7 +190,7 @@ Click **Request Resource** at the top right (or in the middle of the page when t
 
 - Your personal machines count toward the quota shown at the top. The instance count also includes requests still waiting for review.
 - **Start** is disabled outside the approved time window of a personal request. The menu explains why: "The time window hasn't started yet" or "The time window has ended, so it can't be started". To keep using a machine whose window has ended, request an expiry extension under **Advanced Settings › Lifecycle** on the detail page, or submit a new request.
-- When a time window ends, the machine is shut down but not deleted. When an expiry date passes, the machine is stopped first and then queued for deletion after a grace period set by the administrator (see [Governance](/manual/governance)).
+- When a time window ends, the machine is shut down but not deleted. When an expiry date passes, the machine is stopped first and then queued for deletion after a grace period set by the administrator (see [Resource Policies](/manual/governance)).
 - Machines shared with you, and machines inside environments, cannot be deleted from this page.
 - Power actions are refused when you are not allowed to control the machine; in that case the **Actions** column only repeats the status.
 
@@ -199,5 +199,5 @@ Click **Request Resource** at the top right (or in the middle of the page when t
 - [Resource Detail](/manual/resource-detail) — everything you can do with one machine
 - [My Requests](/manual/my-requests) — request a new machine and follow its review
 - [Quick Practice](/manual/quick-practice) — start a ready-made practice environment
-- [Jobs](/manual/jobs) — follow or cancel queued deletions and other background jobs
+- [Background Jobs](/manual/jobs) — follow queued deletions and other background jobs
 - [Concepts](/concepts) — VMs, containers, quotas and time windows explained

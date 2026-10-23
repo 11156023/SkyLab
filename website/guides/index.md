@@ -24,7 +24,7 @@ Every document of the SkyLab repository lives on this site, under `website/` in 
 | [Registration and Google login](/guides/registration-and-google-login) | Self-registration and administrator-approval switches, Google login and the Google Cloud "Audience" setting |
 | [AI API user manual](/guides/ai-api-user-manual) | LiteLLM deployment, model routing, keys, taking over a standalone gateway, calling the user-facing AI API |
 | [WireGuard and SkyLab Connect](/guides/wireguard-desktop-architecture) | WireGuard tunnel from the desktop client to the gateway VM, ACLs, gateway installation |
-| [vLLM service](/guides/vllm-service), [project overview](/guides/vllm-project-overview), [ShareGPT benchmark](/guides/vllm-sharegpt-quickstart), [LiteLLM gateway](/guides/litellm) (English only) | The self-hosted model services and the gateway that exposes them |
+| [vLLM service](/guides/vllm-service), [ShareGPT benchmark](/guides/vllm-sharegpt-quickstart), [LiteLLM gateway](/guides/litellm) | The self-hosted model services and the gateway that exposes them |
 
 ## Reference
 
@@ -51,26 +51,15 @@ Every document of the SkyLab repository lives on this site, under `website/` in 
 
 | Page | What it covers |
 | --- | --- |
-| [Multi-machine environment SOP](/guides/multi-machine-environment-sop) | Formal SOP (v1.0, 2026-08-31) for building, publishing and using multi-machine teaching environments |
+| [Multi-machine environment SOP](/guides/multi-machine-environment-sop) | Formal SOP for building, publishing and using multi-machine teaching environments |
 | [AI navigation in teaching workflows](/guides/ai-navigation-teaching-workflows) | Design notes for the AI navigation assistant in the class-creation and environment-editing wizards |
 | [AI Teacher Judge workflow and contracts](/zh-TW/guides/ai-teacher-judge-contract) (繁體中文 only) | Canonical workflow for proposals, AI edits, full-table review, persistence and script compilation |
-| [Page guide content audit](/zh-TW/guides/user-guide-content-audit) (繁體中文 only) | Audit and rewrite of the in-app page guide texts |
-
-## Archive
-
-Reports written for a specific date. Useful as history, not as current specification; kept in their original language.
-
-| Page | What it covers |
-| --- | --- |
-| [2026-09-09 UI consistency audit](/guides/archive/2026-09-09-ui-consistency-audit) | 28 UI consistency and usability findings, with root causes and estimates |
-| [2026-10-03 AI API concurrency analysis](/guides/archive/2026-10-03-ai-api-concurrency-analysis) | Root-cause analysis and fix plan for the AI API concurrency incident |
-| [2026-10-06 AI page guide](/guides/archive/2026-10-06-ai-page-guide) (繁體中文) | Extending the AI assistant's page guides and dialog explanations |
-| [SkyLab Connect UI proposal](/guides/archive/skylab-connect-ui-proposal) (繁體中文) | The original interactive design proposal for the desktop client |
+| [Page guide content audit](/zh-TW/guides/user-guide-content-audit) (繁體中文 only) | Proposed rewrites of the in-app page guide texts (not applied yet) |
 
 ## Conventions for writing docs
 
 - English page first (`website/<section>/<name>.md`), then the 繁體中文 page at the same path under `website/zh-TW/`, translated sentence by sentence; a page that exists in one language only is marked in the sidebar.
-- Plain descriptive file names without date prefixes; dated reports go to `guides/archive/`.
+- Plain descriptive file names without date prefixes. A one-off report or audit leaves the site once it has been acted on; git history keeps the original.
 - Code comments and configuration files (`.env.example`, `docker-compose.yml`, Prometheus configs) link to the English file by repository path, for example `website/guides/monitoring.md`.
 - Commands, paths, variable names and tables stay identical in both languages.
 - A new page needs an entry in the sidebar in `website/.vitepress/config.mts`, in both languages.

@@ -6,7 +6,7 @@
 
 ### 後端一啟動就結束，訊息提到 `changethis`
 
-`ENVIRONMENT` 不是 `local`，而 `SECRET_KEY`、`FIRST_SUPERUSER_PASSWORD` 或 `POSTGRES_PASSWORD` 還是範本值。在 `.env` 填入真實值再重新啟動。`SECRET_KEY` 至少要 32 個字元。
+`ENVIRONMENT` 不是 `local`，而 `SECRET_KEY`、`FIRST_SUPERUSER_PASSWORD` 或 `POSTGRES_PASSWORD` 還是範本值（沒設 `SECRET_KEY` 也一樣會被拒絕）。在 `.env` 填入真實值再重新啟動。`SECRET_KEY` 請用至少 32 個字元；比這短只會記一筆警告。
 
 ### 改了 `SECRET_KEY` 之後存好的憑證全部失效
 
@@ -14,8 +14,8 @@
 
 ```bash
 cd backend
-python -m scripts.rotate_secret_key            # 預覽
-python -m scripts.rotate_secret_key --apply    # 重新加密並更新 ../.env
+uv run python -m scripts.rotate_secret_key            # 預覽
+uv run python -m scripts.rotate_secret_key --apply    # 重新加密並更新 ../.env
 ```
 
 之後重新啟動後端與 worker，所有人要重新登入。
@@ -26,7 +26,7 @@ python -m scripts.rotate_secret_key --apply    # 重新加密並更新 ../.env
 
 ### 排程器每分鐘記一筆錯誤
 
-資料庫裡沒有 Proxmox 連線時，每個排程任務都會失敗並照實記錄。初始化精靈或「PVE 連線」頁有一條可用連線後就停了。
+資料庫裡沒有 Proxmox 連線時，每個排程任務都會失敗並照實記錄。初始化精靈或「PVE 管理」頁有一條可用連線後就停了。
 
 ### 開發時 MailCatcher 收不到任何郵件
 
@@ -34,7 +34,7 @@ python -m scripts.rotate_secret_key --apply    # 重新加密並更新 ../.env
 
 ### 在主機上跑後端出現「SSH backend is unavailable」
 
-用到的是全域安裝的 `fastapi` 而不是專案的虛擬環境，所以 `paramiko` 等相依套件不在。在 `backend/` 跑 `uv sync`，啟用 `.venv` 後再 `fastapi dev app/main.py`。
+用到的是全域安裝的 `fastapi` 而不是專案的虛擬環境，所以 `paramiko` 等相依套件不在。在 `backend/` 跑 `uv sync`，再用 `uv run fastapi dev app/main.py` 啟動（或先啟用 repo 根目錄的 `.venv`）。
 
 ## Proxmox
 
@@ -87,10 +87,10 @@ LDAP URI 裡的主機必須出現在憑證的 subjectAltName（DNS 或 IP 項目
 ### 管理員的 TOTP 裝置遺失
 
 ```bash
-docker compose exec backend uv run python app/reset_totp.py <email>
+docker compose exec backend python app/reset_totp.py <email>
 ```
 
-其他使用者由管理員從使用者清單重設。
+在容器裡不要包 `uv run`：映像裡沒有 workspace 的鎖檔，`uv run` 會重新解析相依套件而失敗。其他使用者由管理員從使用者清單重設。
 
 ### 瀏覽器登入正常，但腳本呼叫 `/api/v1/login/access-token` 被拒
 
@@ -98,7 +98,7 @@ Cloudflare Turnstile 已啟用（`TURNSTILE_SITE_KEY` 與 `TURNSTILE_SECRET_KEY`
 
 ### Grafana 要求輸入密碼
 
-Grafana 自己的登入已關閉。以 SkyLab 管理員登入後開啟 `/grafana/`，nginx 會把身分交給 Grafana。內建 `admin` 密碼在第一次啟動時產生，只有 `grafana cli` 會用到；見[系統監控](/zh-TW/guides/monitoring)的「登入 Grafana」一節。
+Grafana 自己的登入已關閉。以 SkyLab 管理員登入後先開「資源監控」頁：它會核發 nginx 檢查用的 cookie，nginx 才會把你的身分交給 Grafana。之後再按「在 Grafana 查看詳細」或開啟 `/grafana/`。內建 `admin` 帳號無法登入；緊急處理程序見[系統監控](/zh-TW/guides/monitoring)的「登入 Grafana」一節。
 
 ## 閘道與網路
 
@@ -108,7 +108,7 @@ Grafana 自己的登入已關閉。以 SkyLab 管理員登入後開啟 `/grafana
 
 ### 發布很多教學環境後閘道上的 nginx 無法重新載入
 
-`nginx -t` 回報 `could not build server_names_hash`。許多長主機名超過了預設 64 位元組的雜湊桶。SkyLab 現在會把 `server_names_hash_bucket_size` 寫進產生的 `http.conf`；升級後從「閘道 VM」頁重新同步。單一 server 區塊永遠不會觸發，所以只有規模大了才看得到。
+`nginx -t` 回報 `could not build server_names_hash`。許多長主機名超過了預設 64 位元組的雜湊桶。SkyLab 會把夠大的 `server_names_hash_bucket_size` 寫進產生的 `http.conf`；在舊版上看到這個錯誤時，升級後從「閘道 VM」頁重新同步。單一 server 區塊永遠不會觸發，所以只有規模大了才看得到。
 
 ### 經平台入口進來的使用者被記成閘道的位址
 
@@ -128,10 +128,22 @@ Grafana 自己的登入已關閉。以 SkyLab 管理員登入後開啟 `/grafana
 
 PVE 節點與機器的指標不經過後端。每個 PVE 節點內建的 Metric Server 必須推送到 SkyLab 的 InfluxDB，也就是 `INFLUXDB_BIND_ADDRESS` 要讓節點連得到。步驟在[系統監控](/zh-TW/guides/monitoring)的「Proxmox VE Metric Server 設定」。
 
+### 負載高時每個頁面都變慢或逾時
+
+發生時比對兩個健康檢查端點：
+
+| 看到的情況 | 可能原因 |
+| --- | --- |
+| `/api/v1/utils/health-check/` 馬上回應，`/api/v1/utils/health-check/ready` 很慢或回 503 | 資料庫連線（PgBouncer 連線池）用完了 |
+| `/api/v1/utils/health-check/` 也很慢 | 後端的 event loop 被同步呼叫卡住 |
+| 只有 AI API 呼叫變慢或回 429／503 | 模型端容量不足：看 [AI API 使用手冊](/zh-TW/guides/ai-api-user-manual)裡的限制，以及 LiteLLM 與 vLLM 儀表板 |
+
+要看是誰佔著連線，進入 `docker compose exec db psql -U postgres -d app`（`.env.example` 的預設值）後執行 `SELECT pid, state, now() - xact_start AS xact_age, wait_event, left(query, 160) FROM pg_stat_activity WHERE datname = current_database() ORDER BY xact_start NULLS LAST;`。`idle in transaction` 的列很多、而且存在時間隨流量增加時，代表有程式路徑在慢速呼叫期間沒有結束交易，見[後端](/zh-TW/guides/backend)。
+
 ## 取得更多資訊
 
 - `GET /api/v1/utils/health-check/ready` 告訴你資料庫與 Redis 是否連得到（否則回 503）。
 - 資源監控頁的「系統健康」卡片列出 SkyLab 檢查的每個元件，包括 Proxmox、閘道與 AI 閘道。
-- 每個回應都帶 `X-Request-ID` 標頭。拿這個值到 `docker compose logs backend worker nginx` 搜尋（JSON 日誌裡是 `request_id`）。
+- 每個 API 回應都帶 `X-Request-ID` 標頭。拿這個值到 `docker compose logs backend worker nginx` 搜尋（JSON 日誌裡是 `request_id`）。
 - 排程任務會把心跳寫進 Redis；太久沒跑的任務會以系統告警回報。
 - 回報問題時請附上 SkyLab 的 commit（帳號設定 → 關於可看到）、PVE 版本與 request id。

@@ -14,7 +14,7 @@ Class and course machines are assigned by your teacher; you do not request them 
 
 ## Before you start
 
-- Check your remaining quota on [My Resources](/manual/my-resources). The form will not let you ask for more than what is left, and the number of machines includes requests still waiting for review.
+- Check your remaining quota on [My Resources](/manual/my-resources). The form will not let you ask for more than what is left, and the number of machines includes requests still waiting for review. Administrators have no quota.
 - Have a short reason ready (at least 10 characters) that tells the reviewer what the machine is for.
 - If you are unsure what to ask for, open the AI assistant at the bottom right and describe your goal. It can fill the form for you; you still review every field and enter the username and password yourself.
 
@@ -32,8 +32,8 @@ Class and course machines are assigned by your teacher; you do not request them 
 
 1. Enter a **Resource Name**. Only lowercase letters, digits and hyphens are allowed, and it cannot start or end with a hyphen; other characters are turned into hyphens when you leave the field (up to 63 characters).
 2. Open **Operating System** and pick one entry. The list is grouped:
-   - **Environment Templates by Teacher / Official**: ready-made environments; once created they are ready to use. The hint under the field shows the template's description and recommended specs.
-   - **OS Images (Virtual Machine)** (teachers see **VM Templates**): a VM with a fresh operating system.
+   - **Environment Templates by Teacher / Official** (students only): ready-made environments; once created they are ready to use. The hint under the field shows the template's description and recommended specs.
+   - **OS Images (Virtual Machine)** (teachers and administrators see **VM Templates**): a VM with a fresh operating system.
    - **Container Templates (Clone)**: teachers and administrators only.
    - **Container Images**: an LXC container with a fresh operating system.
 3. Your choice decides whether a **Virtual Machine** or an **LXC Container** is created ("One machine per request; it will be created as …"). Entries marked **(GPU required)** need a GPU.

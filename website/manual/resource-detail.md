@@ -19,7 +19,7 @@ The VMID is shown only to teachers and administrators.
 ## Before you start
 
 - Power actions (start, shut down, reboot), the console and deletion are on the [My Resources](/manual/my-resources) list, not on this page.
-- Many actions run in the background. Their progress is visible on the [Jobs](/manual/jobs) page.
+- Many actions run in the background. Their progress is visible on the [Background Jobs](/manual/jobs) page.
 
 ## Step by step
 
@@ -219,5 +219,5 @@ Class machines cannot be shared or transferred. The new owner's quota must have 
 - [My Resources](/manual/my-resources) — power actions, console and deletion
 - [My Requests](/manual/my-requests) — your spec change and extension requests in one list
 - [Firewall](/manual/firewall) — the network topology and connection model
-- [Jobs](/manual/jobs) — progress of resets, backups and deletions
-- [Governance](/manual/governance) — expiry, idle and snapshot policies set by administrators
+- [Background Jobs](/manual/jobs) — progress of resets, backups and deletions
+- [Resource Policies](/manual/governance) — expiry, idle and snapshot policies set by administrators

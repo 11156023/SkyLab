@@ -79,11 +79,11 @@
 - 使用者重新產生過的金鑰，舊的那把會以已停用的狀態和新金鑰並列。
 - 頁面開著時清單會自動更新。
 - 刪除金鑰會記錄在稽核日誌，標明是代替該使用者進行的操作。
-- AI API 背後的模型與上游 LiteLLM 閘道不在這一頁設定，請參考 [LiteLLM 指南](/guides/litellm)。
+- AI API 背後的模型與上游 LiteLLM 閘道不在這一頁設定，請參考 [LiteLLM 指南](/zh-TW/guides/litellm)。
 
 ## 相關頁面
 
 - [AI API 審核](/zh-TW/manual/ai-api-review) — 核准申請以發放金鑰
 - [AI API](/zh-TW/manual/ai-api) — 使用者看到的畫面與金鑰用法
 - [AI 用量監控](/zh-TW/manual/ai-monitoring) — 依金鑰、模型與使用者查看呼叫、Tokens 與錯誤
-- [LiteLLM](/guides/litellm) — 提供模型服務的閘道
+- [LiteLLM](/zh-TW/guides/litellm) — 提供模型服務的閘道

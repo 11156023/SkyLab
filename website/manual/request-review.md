@@ -17,7 +17,7 @@ Administrators only. Listing all requests, loading the resource assessment and s
 
 ### Pick a list
 
-1. The page opens on **Pending**, your work queue. Every pending request is listed, without truncation.
+1. The page opens on **Pending**, your work queue. Pending requests are listed in full (up to 1,000 creation requests and 1,000 spec changes).
 2. Switch to **Approved**, **Rejected**, **Expired** or **All** to look at past decisions. These tabs show up to the latest 100 creation requests and 100 spec changes.
 3. The number on each tab is the request count for that status. Spec changes never become **Expired**, so that tab only holds creation requests.
 4. The list refreshes automatically in the background.

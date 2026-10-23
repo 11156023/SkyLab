@@ -8,7 +8,7 @@ Administrators only. The page is not in the sidebar for other roles, and the bac
 
 ## Before you start
 
-- The platform's public AI API URL must be configured. If it is missing, approval fails and no key is issued.
+- The platform's public AI API URL (`AI_API_PUBLIC_BASE_URL` in the deployment host's `.env`) must be set. If it is empty, approval fails and no key is issued.
 - Users submit requests from [AI API](/manual/ai-api). Each request carries a key name, a purpose and the validity period the applicant chose.
 
 ## Step by step

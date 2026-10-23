@@ -1,6 +1,6 @@
 # Resource Management
 
-Resource Management lists every VM and LXC container on the platform: personal, shared, class and quick practice machines, across all PVE connections. From here an administrator can power machines on and off, open a console, convert a machine to a template, delete machines one by one or in bulk, and open any machine's detail page. Sidebar: Resources → Resource Management. Path: `/resource-mgmt`.
+Resource Management lists every VM and LXC container on the platform: personal, shared, class, course lab and quick practice machines, across all PVE connections. From here an administrator can power machines on and off, open a console, convert a machine to a template, delete machines one by one or in bulk, and open any machine's detail page. Sidebar: Resources → Resource Management. Path: `/resource-mgmt`.
 
 ## Who can use it
 
@@ -26,10 +26,10 @@ Administrators only. The sidebar item is hidden for teachers and students, and t
 Each row shows:
 
 1. **Name**, with the machine type (**Virtual Machine (VM)** or **Container (LXC)**) and its VMID underneath.
-2. **Source**: whether the machine is personal, shared, a class machine or a quick practice machine, together with its owner.
+2. **Source**: whether the machine is personal, shared, a class machine, a course lab machine or a quick practice machine, together with its owner.
 3. **Environment / OS**.
 4. **Status** (see the table below).
-5. **IP Address**. If the machine has public URLs published through the reverse proxy, they are listed under the IP as links that open in a new tab.
+5. **IP Address**. If the machine has services published by URL, the URLs are listed under the IP as links that open in a new tab.
 6. **Expiry Date**. The small text under the date is the actual cutoff converted to your local time. **∞ No expiry** means no expiry date is set.
 7. **Node**: the PVE node the machine runs on.
 8. **Actions**: console and power menu, shown only while the machine is in a state that can be controlled; otherwise the column repeats the status.
@@ -124,7 +124,7 @@ What is different for an administrator on the detail page:
 | Status: Running / Stopped / Paused | Current power state from PVE | Decides which power actions are enabled |
 | Status: Creation Failed | Provisioning failed | No power actions |
 | Status: Unknown Status | State could not be read | |
-| Source | Personal, shared, class or quick practice, with the owner | Group rows show the class or environment instead |
+| Source | Personal, shared, class, course lab or quick practice, with the owner | Group rows show the class or environment instead |
 | Expiry Date | Last day of use; small text is the cutoff in local time | **∞ No expiry** when none is set |
 | Search | Matches name, VMID, IP, owner name and owner email | All space-separated words must match; group names match too |
 

@@ -58,7 +58,7 @@ const manualTeachers = {
     templates: '範本',
     'class-setup': '建立班級',
     'class-management': '班級清單',
-    'class-workspace': '班級工作區',
+    'class-workspace': '班級工作頁',
     'ai-judge': 'AI 導師檢查',
     'course-templates': '多機教學環境',
     'course-cms': '課程內容',
@@ -121,7 +121,6 @@ const operations = {
     'guides/ai-api-user-manual': 'AI API: LiteLLM and vLLM',
     'guides/wireguard-desktop-architecture': 'WireGuard and SkyLab Connect',
     'guides/vllm-service': 'vLLM service',
-    'guides/vllm-project-overview': 'vLLM service: project overview',
     'guides/vllm-sharegpt-quickstart': 'vLLM service: ShareGPT benchmark',
     'guides/litellm': 'LiteLLM gateway',
   },
@@ -135,9 +134,8 @@ const operations = {
     'guides/ai-api-user-manual': 'AI API：LiteLLM 與 vLLM',
     'guides/wireguard-desktop-architecture': 'WireGuard 與 SkyLab Connect',
     'guides/vllm-service': 'vLLM 服務',
-    'guides/vllm-project-overview': 'vLLM 服務：專案總覽',
     'guides/vllm-sharegpt-quickstart': 'vLLM 服務：ShareGPT 基準測試',
-    'guides/litellm': 'LiteLLM 閘道（English）',
+    'guides/litellm': 'LiteLLM 閘道',
   },
 }
 
@@ -169,13 +167,6 @@ const design = {
     'guides/ai-teacher-judge-contract': 'AI 導師檢查流程與不可破壞契約',
     'guides/user-guide-content-audit': '頁面導覽文案盤點',
   },
-}
-
-const archive = {
-  'guides/archive/2026-09-09-ui-consistency-audit': '2026-09-09 UI consistency audit',
-  'guides/archive/2026-10-03-ai-api-concurrency-analysis': '2026-10-03 AI API concurrency analysis',
-  'guides/archive/2026-10-06-ai-page-guide': '2026-10-06 AI page guide (繁體中文)',
-  'guides/archive/skylab-connect-ui-proposal': 'SkyLab Connect UI proposal (繁體中文)',
 }
 
 function sidebar(locale: 'en' | 'zh-TW'): DefaultTheme.Sidebar {
@@ -241,7 +232,6 @@ function sidebar(locale: 'en' | 'zh-TW'): DefaultTheme.Sidebar {
               { text: 'AI Teacher Judge contract (繁體中文)', link: '/zh-TW/guides/ai-teacher-judge-contract' },
               { text: 'Page guide content audit (繁體中文)', link: '/zh-TW/guides/user-guide-content-audit' },
             ]),
-        { text: zh ? '歷史報告' : 'Archive', collapsed: true, items: items('/', archive) },
       ],
     },
     { text: zh ? '疑難排解' : 'Troubleshooting', link: `${p}troubleshooting` },

@@ -4,11 +4,11 @@
 
 核心契約：**老師說明在哪台機器、檢查什麼，必要時補充檔案位置；系統先確認如何取證及由誰判定，形成合格提案。老師接受後才寫回檢查表；製作前核對目前檢查點的全部項目，保存同一份通過核對的內容，再由後端驗證與編譯。**
 
-本文整合原有中英文提案、儲存與製作契約，作為 Teacher Judge 的主要流程與契約文件。「產品契約」是應維持的行為；「目前實作」與「落差」分開標示。程式核對日期為 2026-10-16，參照本機版本 `f7949963`，不代表已部署版本。
+契約是應維持的行為；描述目前程式做法的段落會標明「目前」，尚未修正的落差集中在第 9 節。
 
 ## 每週唯一生效腳本組
 
-每個週次仍只有一個工作區。`teacher_judge_sessions.active_artifact_set_id` 是新執行資格的唯一來源；核准狀態與生效資格分開處理。
+每個週次只有一個工作區。`teacher_judge_sessions.active_artifact_set_id` 是新執行資格的唯一來源；核准狀態與生效資格分開處理。
 
 - 每次製作或重新製作都建立新的 `artifact_set_id`；全組節點編譯、契約驗證與來源版本核對成功後，所有 child 與生效指標在同一交易提交。失敗保留原組。
 - 提交前重新核對工作區、選定來源、`analysis_revision` 與原生效指標；競爭中的舊候選回傳 `409`，不能覆蓋已切換的新組。
@@ -17,7 +17,7 @@
 - 老師目前核查、學生作業與判定僅採用生效組的 child；同組分批重跑可補齊結果，跨組結果保留於歷史查詢。學生自評與每週回覆保留。
 - 生效組，以及已有 run 或已受理 batch 引用的腳本，不能個別封存或刪除。
 
-部署時先在隔離資料庫驗證 `tjactive01` migration，再透過既有部署流程更新資料庫及 backend／frontend。migration 只回填來源 revision 一致、必要執行節點與項目完整且全部核准的最新組；無法證明完整的工作區保留空指標，須重新製作後才能執行。migration 不刪除或改寫歷史腳本與執行結果；不應讓舊 backend 與新版本長時間混用，舊版不會維護生效指標。
+`tjactive01` migration 只為來源 revision 一致、必要執行節點與項目完整且全部核准的最新組回填生效指標；無法證明完整的工作區保留空指標，須重新製作後才能執行。migration 不刪除或改寫歷史腳本與執行結果。
 
 回歸入口：`tests/ai/teacher_judge/test_active_script_set.py`；包含失敗回滾、來源／指標競爭、全部 HTTP 執行入口、切換中的已受理批次、排隊執行及 migration 回填。SQLite 模擬不等於 PostgreSQL 實際鎖定驗證。
 
@@ -351,22 +351,21 @@ SSH 維持每 run 最多 50 台、單一 backend process 共用最多 200 worker
 
 ## 9. 目前落差與需保留的限制
 
-以下是本次程式核對結果，不是已完成修正。
+以下落差在目前程式中仍然存在，不是已完成的修正。
 
 | 發現 | 目前證據 | 對後續修改的要求 |
 | --- | --- | --- |
-| 前端潤飾指令與後端路徑契約不一致 | `aiJudge.js` 的 `EXECUTION_LOCATION_INSTRUCTION` 仍寫可使用 cwd + 相對路徑、可填 null；後端 `TeacherJudgeTypedCheckStep`、prompt 與編譯器已拒絕 cwd | 對齊所有提示來源，維持絕對路徑契約；不能為配合舊文案放寬後端 |
 | 全表機器驗證不等於全表 AI 語意審查 | `_run_proposal_tool_loop` 強制第一次 list，之後 auto；`test_refine_tool_loop.py` 明確容許 list 後直接說明 | 若產品要求每項均由 AI 深讀，需另補可驗證的完整內容覆蓋機制；本文件不宣稱目前已有 |
 | 製作 API 不要求 Finalizer 完成證明 | `_session_rubric_for_script_set` 重讀保存內容、檢查版本與 blockers，沒有驗證同 revision 必須有先前 Finalizer 成功紀錄；revision 在 API schema 亦可省略 | 正常 UI 已維持完整順序，但不能把 UI 流程說成所有 API client 都被強制走過 AI 核對 |
 | 絕對程式路徑不能保證程式的工作目錄依賴 | 編譯器不設定 cwd；遠端從受管暫存目錄啟動 script.py | 需要專案目錄才可執行的作業不能被靜默判為資訊已足夠；不要重新偷偷加入 cwd 相容層 |
 | 程式執行不是沙箱 | 允許指定語言的學生原始碼，executor 使用 root SSH | 不把靜態政策當作學生程式的副作用隔離；進一步隔離屬另一次明確的安全設計工作 |
 | 文案可能沿用舊模型審查描述 | 前端部分註解仍說「靜態與 AI 導師檢查」；artifact 的 review 實際 mode 為 deterministic compiler | 區分製作前 AI 整理與編譯後確定性驗證，不能宣稱存在額外的腳本 LLM 審查 |
 
-文件建立與整合僅調整流程紀錄及文件索引，不修改上述 runtime 行為。後續實作應逐項依真實需求修正，不能把文件當成修正已完成的證據。
+後續修正應逐項依真實需求處理，修正後再從本表移除。
 
 ## 10. 維護入口與資料依據
 
-所有下列程式連結均相對 repository 根目錄。
+下列連結指向 GitHub 上 `main` 分支的原始碼。
 
 | 邊界 | 主要入口與責任 |
 | --- | --- |
@@ -424,9 +423,9 @@ Teacher Judge 屬於內建 System AI，模型 transport 經共用 `VLLMClient` �
 | 跨節點檢查 | 正確區分 target／peer，不借用其他節點位置 |
 | teacher 取證成功／命令失敗 | 分別呈現 collected／錯誤，不當成同一種作業通過 |
 
-## 12. 驗證紀錄與重跑方式
+## 12. 回歸測試與現場診斷
 
-2026-10-16 流程分析階段在上述本機工作樹執行下列既有 focused tests：後端 **96 passed**，前端 **49 passed**。後端有 4 個環境／套件警告，無測試失敗。後續文件整合未修改程式或測試，僅檢查連結、格式與內容涵蓋範圍，未重跑這些測試。
+修改本文涉及的流程後，至少重跑下列聚焦測試：
 
 ```powershell
 # backend/
@@ -440,7 +439,7 @@ bun run test src/pages/course-operations/class-workspace/AiJudgePanel.saveAndBui
 
 ### 12.1 修改契約時的擴大回歸
 
-涉及新寫入格式、附件合併、保存或製作入口時，應依影響範圍擴大至下列既有測試。這是重跑指引，不能引用上一段的 focused 通過數字宣稱全部已通過。
+涉及新寫入格式、附件合併、保存或製作入口時，應依影響範圍擴大至下列既有測試。
 
 ```powershell
 # backend/
@@ -454,6 +453,6 @@ bun run test src/pages/course-operations/class-workspace/AiJudgePanel.test.jsx s
 
 ### 12.2 現場診斷
 
-流程分析與文件整合均未執行真實模型生成、SSH/PVE、正式資料庫或部署測試。現場驗證應追同一條鏈：`session_id -> source_file_id / analysis_revision -> proposal / blockers -> artifact_set / source_analysis_revision -> run / target evidence`，並逐項比對老師意圖與實際結果。
+上述測試都不涵蓋真實模型生成、SSH／PVE、正式資料庫或部署環境。現場驗證應追同一條鏈：`session_id -> source_file_id / analysis_revision -> proposal / blockers -> artifact_set / source_analysis_revision -> run / target evidence`，並逐項比對老師意圖與實際結果。
 
 診斷時同時核對部署版本、工具參數及結果、`target_node_key`、collector、`missing_information`、`reason_code` 與 `script_ready`。若尚未產生 artifact，先追提案與核對；已有 artifact 且實際取證失敗，才追學生 VM 的檔案、工具與權限。紀錄不得包含憑證、SSH 密碼或學生檔案內容。

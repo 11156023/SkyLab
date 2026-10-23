@@ -38,20 +38,19 @@ Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建�
 
 ### 系統告警
 
-排程任務 `process_system_health_alerts` 每分鐘（依「治理設定 → 告警檢查間隔」，最少 60 秒）評估一次，發現下列問題時寫入 `scope=system` 的告警，出現在「資源監控 → 活動警告」，並依「告警 Email」開關寄信給所有管理員：
+排程任務 `process_system_health_alerts` 依告警檢查間隔（「資源政策」頁「資源警告」區的「檢查間隔（秒）」，最少 60 秒）評估一次，而且只在同一區的「啟用警告」打開時執行。發現下列問題時寫入 `scope=system` 的告警，出現在「資源監控 → 活動警告」；同一區的「Email 通知」打開時也會寄信給所有管理員：
 
 - 排程任務連續失敗 ≥ 3 次，或停擺
 - 背景迴圈停擺（沒有任何行程拿到 leader）
 - worker 沒有心跳、Redis 連不上、某個 PVE 連線連不上
-- Gateway：SSH 連不上、nginx 或 WireGuard 沒在跑、`nginx -t` 失敗（狀態「無法連線」）；HTTPS 憑證剩不到 14 天或已過期（狀態「需要處理」——憑證由管理員自備、自己續期，見 deployment.md「Gateway 的 HTTPS 憑證」）
-
+- Gateway：SSH 連不上、nginx 或 WireGuard 沒在跑、`nginx -t` 失敗（狀態「無法連線」）；HTTPS 憑證剩不到 14 天或已過期（狀態「需要處理」；憑證由管理員自備、自己續期，見[Gateway 的 HTTPS 憑證](/zh-TW/guides/deployment#_5-gateway-的-https-憑證-管理員自備)）
 - AI：LiteLLM 連不上或它的資料庫斷線（`component:ai_gateway`，使用者 API 與內建 AI 功能都會失敗）；某個模型的上游推論服務（例如 DGX 上的 vLLM）健康檢查失敗（`component:ai_model:<alias>`，全部部署異常為「無法連線」、部分異常為「需要處理」）
 
 Gateway 的檢查是後端用 SSH 在 Gateway 上跑一條指令（`systemctl is-active`、`nginx -t`、讀 `http.conf` 引用的憑證到期日，自簽備援憑證不算），結果快取 60 秒；Gateway 沒設定時卡片顯示「停用」。
 
 AI 的檢查是後端用受限的 runtime key（`LITELLM_RUNTIME_API_KEY`，不需要 master key）問 LiteLLM：`/health/liveliness`、`/health/readiness`（DB 是否連線）、`/model/info`（公開模型名稱）與 `/health`（LiteLLM 每 60 秒背景健康檢查的結果，讀快取、不會為了探測去打推論服務），結果快取 60 秒。沒設 runtime key 時卡片顯示「停用」；LiteLLM 剛啟動、背景檢查還沒跑完的模型顯示「尚未執行」，不影響整體狀態也不發告警。
 
-同一個問題要**連續兩輪**都出現才開告警（吸收部署時 worker 晚起、PVE 瞬斷）；問題消失就自動解除；冷卻時間沿用資源告警的設定。
+同一個問題要**連續兩輪**都出現才開告警（吸收部署時 worker 晚起、PVE 瞬斷）；問題消失就自動解除；冷卻期和資源告警共用同一個「冷卻期（分鐘）」設定。
 
 **資料庫掛掉、或整個 backend 掛掉時，告警本身寫不進去也寄不出去**；這兩種情況在「系統健康」卡與 Grafana 的「SkyLab 平台」儀表板看得到，但不會主動通知。需要時可以在另一台機器用任何外部探測服務監看 `/api/v1/utils/health-check/ready`（非 200 即異常）。
 
@@ -62,20 +61,21 @@ nginx 為每個請求產生 `$request_id`，以 `X-Request-ID` 轉給 backend �
 ### Sentry
 
 - 後端與 worker：`.env` 設 `SENTRY_DSN`（可另設 `SENTRY_RELEASE`、`SENTRY_TRACES_SAMPLE_RATE`）。
-- 前端（瀏覽器）：`.env` 設 `VITE_SENTRY_DSN` 後**重新建置 frontend 映像**（`docker compose build frontend`）。沒設時 SDK 在建置階段就被移除，不增加 bundle。建議在 Sentry 另開一個 Browser 專案，和後端分開看。
+- 前端（瀏覽器）：`.env` 設 `VITE_SENTRY_DSN` 後**重新建置 frontend 映像**（`docker compose build frontend`）。SDK 是獨立的 chunk，只有建置時設了 DSN 才會載入。建議在 Sentry 另開一個 Browser 專案，和後端分開看。
 - 兩邊都不送個資（`send_default_pii=False`）。測試（pytest）一律停用 Sentry，不會把測試產生的例外送到正式專案。
 
 ### 容器日誌輪替
 
-`docker-compose.yml` 所有服務都套用 `x-logging`：json-file、單檔 10 MB、保留 5 個（`DOCKER_LOG_MAX_SIZE`／`DOCKER_LOG_MAX_FILE` 可調）。應用程式自己的 `logs/app.log`（每日輪替、30 天）與 `logs/error.log` 不變。
+`docker-compose.yml` 所有服務都套用 `x-logging`：json-file、單檔 10 MB、保留 5 個（`DOCKER_LOG_MAX_SIZE`／`DOCKER_LOG_MAX_FILE` 可調）。應用程式另外在 `logs/` 寫自己的檔案：`app.log`（每日輪替、保留 30 天）與 `error.log`（只記 ERROR 以上、每週輪替、保留約三個月）。
 
 ### 容器 healthcheck
 
-db、pgbouncer、redis、backend 原本就有；新增：
-
+- **db**、**pgbouncer**：`pg_isready`；**redis**：`redis-cli ping`
+- **backend**：`/api/v1/utils/health-check/`
 - **worker**：檢查 arq 每 60 秒寫進 Redis 的 `skylab:tasks:health-check`（TTL 61 秒）
 - **nginx**：`/nginx-health`
 - **frontend**：首頁 200
+- **litellm**：`/health/liveliness`；監控 stack 裡的 prometheus、grafana、loki、influxdb 各自檢查自己的健康端點
 
 `docker compose ps` 會顯示 `(healthy)`／`(unhealthy)`。注意 Docker Compose 本身**不會**自動重啟 unhealthy 的容器（程序直接結束時才會依 `restart` 政策重啟）。
 
@@ -89,12 +89,12 @@ db、pgbouncer、redis、backend 原本就有；新增：
 # 先在 .env 設好（至少）：
 #   INFLUXDB_ADMIN_PASSWORD、INFLUXDB_ADMIN_TOKEN
 #（GRAFANA_ADMIN_PASSWORD 可以留空：Grafana 自己的帳密登入已關閉，見「登入 Grafana」）
-docker compose --profile monitoring up -d
+docker compose --profile monitoring up -d   # 還沒設定 AI stack 時加上 --scale litellm=0
 ```
 
 之後每次 `docker compose up -d` 都要帶 `--profile monitoring`（或在 `.env` 設 `COMPOSE_PROFILES=monitoring`），否則監控容器不會一起起來。
 
-**用 CI 部署（`Deploy to PVE Test` workflow）時**：workflow 只執行 `docker compose up -d`，並把部署機的 `/opt/skylab/.env` 複製進來，所以要在那份 `.env` 加上 `COMPOSE_PROFILES=monitoring`（連同上面的密碼／token），重新跑一次部署監控才會起來。
+**用 CI 部署（`Deploy to PVE Test` workflow）時**：workflow 用的是部署機的 `/opt/skylab/.env`，所以要在那份檔案加上 `COMPOSE_PROFILES=monitoring`（連同上面的密碼／token），再重新跑一次部署。
 
 ### rootless Docker
 
@@ -113,7 +113,7 @@ node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟�
 
 | 服務 | 用途 | 入口 |
 |---|---|---|
-| Grafana | 儀表板 | `http://<SkyLab>/grafana/`（經 nginx）；本機也可 `http://127.0.0.1:3000/grafana/` |
+| Grafana | 儀表板 | `http://<SkyLab>/grafana/`（經 nginx）；主機上的 `http://127.0.0.1:3000/grafana/` 只在下方的內建 admin 緊急登入時有用 |
 | Prometheus | 指標收集（不設告警規則） | `http://127.0.0.1:9090`（只綁本機，SSH tunnel 使用） |
 | Loki + Alloy | 所有容器日誌，保留 14 天 | 在 Grafana 查 |
 | InfluxDB 2 | Proxmox Metric Server 推送目的地 | `:8086`（見下方設定） |
@@ -121,7 +121,7 @@ node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟�
 
 SkyLab「資源監控」頁右上角的「在 Grafana 查看詳細」按鈕只在監控 stack 有啟用時出現：後端（`POST /api/v1/monitoring/grafana/session`）探測 `GRAFANA_INTERNAL_URL`（預設 `http://grafana:3000/grafana`）的 `/api/health`，連得到才顯示，結果快取一分鐘；按鈕連到 `.env` 的 `GRAFANA_ROOT_URL`，沒設時連同網域的 `/grafana/`。
 
-監控 stack 只負責**收集與呈現**，不發告警通知（沒有 Prometheus 告警規則、Alertmanager 或 Grafana alerting）。平台本身的異常由內建的「系統告警」處理（見上方，出現在「活動警告」並依「告警 Email」開關寄信）。
+監控 stack 只負責**收集與呈現**，不發告警通知（沒有 Prometheus 告警規則、Alertmanager 或 Grafana alerting）。平台本身的異常由內建的「系統告警」處理（見上方）。
 
 ### Grafana 儀表板（已自動匯入，資料夾「SkyLab」）
 
@@ -206,7 +206,7 @@ Gateway 主機由 `gateway/install.sh` 安裝兩個 exporter（Debian 套件）�
 sudo MONITORING_ALLOW_FROM=192.0.2.20 bash install.sh
 ```
 
-沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（「SkyLab Gateway」儀表板的 exporter 狀態顯示 DOWN）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。
+沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（「SkyLab Gateway」儀表板的 exporter 狀態顯示 DOWN）。從「閘道 VM」頁的「安裝服務」分頁執行安裝時，改填「監控放行來源」欄位。已經裝好的 Gateway 帶著這個位址重跑一次安裝即可補上。
 
 exporter 裝不起來或啟動失敗（例如 port 被占用）時，安裝腳本只會警告並繼續，nginx 與 WireGuard 照樣裝好；用 `journalctl -u prometheus-node-exporter -u prometheus-nginx-exporter` 查原因，修好後重跑 `install.sh`。
 
@@ -220,7 +220,7 @@ AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prom
 
 | job | 來源 | 內容 |
 |---|---|---|
-| `skylab-backend` | backend `/metrics` 的 `skylab_ai_*` | Campus 這一側：每次使用者 API 金鑰（`source=api_key`）與內建 AI 功能（`source=platform`）呼叫的結果、延遲、首字延遲、token |
+| `skylab-backend` | backend `/metrics` 的 `skylab_ai_*` | SkyLab 這一側：每次使用者 API 金鑰（`source=api_key`）與內建 AI 功能（`source=platform`）呼叫的結果、延遲、首字延遲、token |
 | `litellm` | `litellm:4000/metrics`（Compose 內網） | LiteLLM 的 prometheus callback：請求與狀態碼、上游部署成功／失敗、上游延遲、gateway 自身開銷、部署狀態 |
 | `vllm` | 每台 vLLM 的 `/metrics` | 引擎本身：執行中／排隊請求、KV cache、prefill／decode 吞吐、TTFT、token 間延遲、搶占 |
 
@@ -237,7 +237,7 @@ AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prom
 
 1. `.env` 設 `METRICS_TOKEN=<隨機字串>`
 2. 把同一個字串寫進 `monitoring/prometheus/metrics_token`（單行，勿提交到 git）
-3. 取消 `monitoring/prometheus/prometheus.yml` 中 `authorization` 三行的註解，重啟 prometheus
+3. 取消 `monitoring/prometheus/prometheus.yml` 中 `skylab-backend` job 那三行 `authorization` 的註解，並在 `gateway-node`、`gateway-nginx` 兩個 job 的 `http_sd_configs` 加上同樣的區塊（`/metrics/gateway-targets` 也驗同一個 token），再重啟 prometheus
 
 ### 指標一覽（backend `/metrics`）
 
@@ -262,9 +262,12 @@ AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prom
 
 `skylab_ai_*` 的 `model` 只保留 LiteLLM 成功服務過、或健康檢查查到的模型名稱（上限 100 個），呼叫端亂填的名稱一律歸為 `other`，時間序列數量才有上限。
 
-更新 metrics schema／buckets 時，backend instances 與 dashboards 必須同步；最後一個舊 instance 退出後，至少等待最長查詢窗（目前 15 分鐘）再比較。Queue 舊版是每次 acquire 樣本，新版是每筆 logical request 累積，不能直接拼接 P95 趨勢。空樣本顯示無資料；P95 落入 `+Inf` 會截在最大有限上界，應並看 >600 秒比例、樣本數與 waiting。
+判讀 AI 面板：
 
-`ai_relay_finished` 與 `ai_workflow_finished` structured logs 保留 root／child request IDs、有限終止原因與階段時間，沒有 prompt／回答／工具 payload。這些 ID 只用於 logs，不放進 metric labels。PVE 一筆 HTTP 可能含多次生成／adherence 與工具；不要相加各階段的 P95。Auth／DB／usage backlog、retry 與 event-loop lag panel 可協助對照同一時間窗；最新 lag 沒尖峰不能排除 scrape 間的短暫阻塞。
+- 改指標名稱或 bucket 時，所有 backend instance 與儀表板要一起更新。要比較改版前後，等最後一個舊 instance 退出、且過了最長查詢窗（15 分鐘）之後再看。
+- 面板空白代表沒有樣本。分位數落在 `+Inf` 時會被截在最大的有限 bucket，所以要一併看超過 600 秒的比例、樣本數與等待中的請求。
+- structured logs `ai_relay_finished` 與 `ai_workflow_finished` 會把 root／child request ID 對應到有限的終止原因與各階段耗時，不含 prompt、回答或工具 payload；這些 ID 不會放進 metric label。PVE 助手的一筆 HTTP 請求可能包含多次生成／adherence 呼叫與工具執行，不要把各階段的 P95 相加。
+- 認證、DB 連線、用量 backlog、retry 與 event-loop lag 面板可以用來解釋某段時間為什麼變慢；scrape 之間短暫的 event loop 阻塞可能抓不到。
 
 ### 資源與保留期
 

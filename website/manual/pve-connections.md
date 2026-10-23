@@ -69,7 +69,7 @@ Only one connection is the default; the previous default loses its **Default** t
 1. Click the trash icon (**Delete**) on the row.
 2. Confirm in the **Delete PVE Connection** dialog. The connection's node and storage records are removed as well.
 
-The deletion is refused when the platform finds machines still running on that connection; delete or move those machines first. It is also refused for the default connection while other connections exist; make another connection the default first.
+The deletion is refused when the platform finds machines still on that connection; delete or move those machines first. It is also refused for the default connection while other connections exist; make another connection the default first.
 
 ![Delete a connection (numbers match the steps above)](/manual-shots/en/pve-connections/s06.webp)
 
@@ -130,7 +130,7 @@ Each connection row shows the name (with a **Default** tag for the default conne
 ## Limits and behaviour to know
 
 - The pool, storage, gateway IP, subnet and default node apply only to machines created through that connection, so each cluster can use different values. Cross-cluster placement and scheduling parameters are on [Resource Scheduling](/manual/scheduler).
-- **Online** and **Offline** reflect the most recent sync, not a live check.
+- **Online** and **Offline** show the result of the platform's most recent connection to the node (a sync, or opening an API connection to that cluster), not a live check.
 - While a row is testing, syncing or deleting, its buttons are disabled.
 - For live node usage, trends and alerts, open [Resource Monitoring](/manual/monitoring); the link is also in the page header.
 - Storage speed tiers, priorities and enabling individual storages are managed on [Storage](/manual/storage).

@@ -10,14 +10,14 @@ repo 的所有文件都放在這個目錄，以 [VitePress](https://vitepress.de
 | --- | --- |
 | `index.md`、`getting-started.md`、`concepts.md`、`troubleshooting.md` | 首頁與入門頁 |
 | `manual/` | 使用手冊，每個功能一頁；`manual/index.md` 依角色分組 |
-| `guides/` | 維運、開發與設計指南（原本的 `docs/`），`guides/index.md` 是索引，`guides/archive/` 放有日期的報告 |
+| `guides/` | 維運、開發與設計指南，`guides/index.md` 是索引 |
 | `operations/` | 升級與備份指南；`operations/environment.md` 是產生的 |
 | `reference/` | REST API（`public/openapi.json` 以 Scalar 呈現）、WebSocket 端點、治理設定欄位、帳號命名政策 |
 | `development/` | 多語系 |
 | `project/` | 授權頁 |
 | `changelog.md` | 從 git 歷史產生 |
 | `zh-TW/` | 同一棵樹的繁體中文版 |
-| `public/` | favicon、`openapi.json`、`public/demos/` 下的 SkyLab Connect demo |
+| `public/` | favicon、`openapi.json`、`public/screenshots/` 下的首頁截圖 |
 | `.vitepress/` | 設定（導覽列與兩個語系的側欄在 `config.mts`）、主題元件（Scalar 與 mermaid 渲染） |
 | `scripts/generate.mjs` | 每次建置前產生自動頁面 |
 | `scripts/manual-shots/` | 拍攝使用手冊的步驟截圖（見下方） |

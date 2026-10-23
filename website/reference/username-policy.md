@@ -9,9 +9,10 @@ Windows templates are not covered: Proxmox ignores `ciuser` for Windows guests a
 - The name must match the pattern: lower-case letters, digits, `_` and `-`, starting with a letter, 1 to 32 characters.
 - Names reserved by the platform (`skylab`, `ansible`, `provision`) are refused.
 - Names and prefixes used by system accounts on common distributions (`root`, `daemon`, `www-data`, `systemd-…`, …) are refused; the full list is below.
+- Default users of cloud images (`ubuntu`, `debian`, `ec2-user`, … in `default_user_warn`) are allowed but produce a warning.
 - Lists are de-duplicated on load.
 
-A name that fails is rejected by the form before the request is submitted, and again by the backend before provisioning.
+A name that breaks a rule is rejected by the form before the request is submitted, and again by the backend before provisioning; warnings never block.
 
 ## The policy file
 

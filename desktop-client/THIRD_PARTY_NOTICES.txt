@@ -20,6 +20,7 @@ Runtime
   electron-log                      MIT      https://github.com/megahertz/electron-log
   tree-kill                         MIT      https://github.com/pkrumins/node-tree-kill
   animate.css                       MIT      https://github.com/animate-css/animate.css
+  @iconify/vue                      MIT      https://github.com/iconify/iconify
   Material Symbols (@iconify)       Apache-2.0  https://github.com/google/material-design-icons
 
 Bundled installer

@@ -99,7 +99,7 @@ Click **View details in Grafana**. The SkyLab AI dashboard opens in a new tab, a
 
 ## Limits and behaviour to know
 
-- Each call tab loads only the latest 100 calls in the period, and search only looks within those.
+- Each call tab loads only the latest 100 calls in the period, and **User Usage** lists the 100 users with the most tokens; search only looks within those rows.
 - Changing the detail tab clears the search box.
 - This page only collects and shows data; it does not send alerts.
 

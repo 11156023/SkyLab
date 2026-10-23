@@ -74,7 +74,7 @@ If you leave the page with unsaved changes, you are asked to confirm first.
 
 | Field | Meaning | Notes |
 | --- | --- | --- |
-| Enable LDAP Login | Shows the "Campus Account" tab on the login page | Test first |
+| Enable LDAP Login | Shows the "Campus Account" tab on the login page | Testing first is recommended |
 | Server URI * | Directory server address | Required, up to 255 characters |
 | Connect Timeout (seconds) | How long to wait for the server | 1–60 |
 | Use StartTLS | Upgrade an `ldap://` connection to an encrypted one | Not needed for `ldaps://` |

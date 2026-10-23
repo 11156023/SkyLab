@@ -4,7 +4,7 @@
 
 ## 誰可以使用
 
-只有管理員。老師從自己的班級送出批次申請（見[班級設定](/zh-TW/manual/class-setup)與[班級工作區](/zh-TW/manual/class-workspace)），但無法開啟這頁。
+只有管理員。老師從自己的班級送出批次申請（見[班級設定](/zh-TW/manual/class-setup)與[班級工作頁](/zh-TW/manual/class-workspace)），但無法開啟這頁。
 
 ## 開始之前
 
@@ -75,7 +75,7 @@
 
 1. 開啟**已通過**分頁並點選該批次。
 2. **建立進度**顯示有幾台失敗，**批次成員**則顯示哪些學生沒有 VMID，以及其任務狀態。
-3. 部分失敗由老師在班級工作區按**重試失敗項目**重新建立。這頁沒有重試按鈕，重試開始後可以在這裡看到進度。
+3. 部分失敗由老師在班級工作頁按**重試失敗項目**重新建立。這頁沒有重試按鈕，重試開始後可以在這裡看到進度。
 4. 這次建機也會以一筆工作出現在[背景任務](/zh-TW/manual/jobs)，可以在那裡打開詳細資訊。
 
 ![追蹤失敗（圖中編號對應上方步驟）](/manual-shots/zh-TW/batch-review/s07.webp)
@@ -111,7 +111,7 @@
 ## 相關頁面
 
 - [班級設定](/zh-TW/manual/class-setup) — 老師如何把班級送出建機
-- [班級工作區](/zh-TW/manual/class-workspace) — 老師追蹤與重試建機的地方
+- [班級工作頁](/zh-TW/manual/class-workspace) — 老師追蹤與重試建機的地方
 - [申請審核](/zh-TW/manual/request-review) — 個別使用者的機器申請
 - [背景任務](/zh-TW/manual/jobs) — 建機工作的詳細資訊
 - [資源管理](/zh-TW/manual/resource-management) — 建好的機器，依環境分組顯示

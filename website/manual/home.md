@@ -99,7 +99,7 @@ If the data could not be loaded, both cards show "—".
 **Upcoming Classes** lists up to 4 classes, ordered by their next session. Each row shows:
 
 - the date and start time of the next session;
-- the class name and "`<n>` students · `<m>` machines each";
+- the class name and "Students: `<n>` · Machines per student: `<m>`";
 - the class status (**Planning**, **Pending Review**, **Provisioning**, **Partially Failed**, **In Session**, **Archived**);
 - for classes in session, the share of machines that are ready (for example "93% machines ready"); for classes still in planning, **Continue setup**.
 

@@ -161,7 +161,7 @@ Include the version shown here when you report a problem.
 ## Related
 
 - [Signing in](/manual/login) — two-factor sign-in, password reset and the first-time setup tour
-- [Home](/manual/home) — the page you return to after saving
+- [Home](/manual/home) — the page you land on after signing in
 - [My Resources](/manual/my-resources) — remove your machines before deleting the account
 - [User Management](/manual/admin-users) — where administrators require or reset two-factor authentication
 - [AI API](/manual/ai-api) — your AI API keys, which are revoked when the account is deleted

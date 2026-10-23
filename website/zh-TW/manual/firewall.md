@@ -152,4 +152,4 @@
 - [閘道 VM](/zh-TW/manual/gateway) — 網址發布與對外 port 背後的 nginx 與 HTTPS 憑證
 - [網域管理](/zh-TW/manual/domain) — 做為網址結尾的 Cloudflare Zone
 - [IP 管理](/zh-TW/manual/ip-management) — 實驗室子網與封鎖網段
-- [班級工作區](/zh-TW/manual/class-workspace) — 老師管理班級機器
+- [班級工作頁](/zh-TW/manual/class-workspace) — 老師管理班級機器

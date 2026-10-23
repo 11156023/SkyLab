@@ -1,100 +1,100 @@
 # vLLM Service
 
-`vllm-service/` is SkyLab's canonical vLLM inference service directory. It consolidates the
-earlier `vllm-inference/` single-model deployment and the `vllm-API/` multi-model gateway (neither
-of those legacy directories is in the repo; see the end of this document).
-The public multi-model API is always served by LiteLLM (`litellm/`); the early hand-written FastAPI
-gateway has been removed.
+`vllm-service/` is SkyLab's vLLM inference service. It starts and supervises the vLLM processes and holds
+the LiteLLM gateway configuration; it has no user interface of its own. The public multi-model API is
+always served by LiteLLM (`litellm/`), and people reach the models through SkyLab or any
+OpenAI-compatible client.
 
 ## Service modes
 
-| Mode | Script | Purpose | Public endpoint |
+| Mode | Start | Purpose | Endpoint |
 | --- | --- | --- | --- |
-| Single-model main service | `./start_single_model.sh` | Internal system AI, MVP, single-model debugging | `http://<API_HOST>:<API_PORT>/v1` |
-| Multi-model vLLM cluster | `./start_multi_model_cluster.sh` | Starts only the per-model instances, for LiteLLM to use | `http://127.0.0.1:8103/8104/v1` |
-| LiteLLM gateway | `bash scripts/prepare-ai-stack.sh --start` (repo root) | Public multi-model API, keys and routing | `http://127.0.0.1:4000/v1` |
+| Single-model main service | `./start_single_model.sh` (`python main.py single`) | Built-in system AI, single-model debugging | `http://<API_HOST>:<API_PORT>/v1` from `.env.interface` |
+| Multi-model vLLM cluster | `./start_multi_model_cluster.sh` (`python main.py cluster`, the default mode) | One vLLM instance per local model in `models.json`; only LiteLLM connects to them | `http://127.0.0.1:<api_port>/v1`, for example 8103 / 8104 |
+| LiteLLM gateway | `bash scripts/prepare-ai-stack.sh --start` (repo root) | Public multi-model API, keys and routing | `http://127.0.0.1:4000/v1` on the host, `http://litellm:4000` on the Compose network |
+
+The main SkyLab backend uses two separate settings in the root `.env`:
+
+- `VLLM_BASE_URL` points at the single-model main service and includes `/v1`; the built-in AI features use it.
+- `AI_API_BASE_URL` points at the LiteLLM gateway root, without `/v1`, and uses the restricted service key
+  `AI_API_API_KEY`; the public AI API goes through it.
 
 ## Quick start
 
+Work in `vllm-service/`. Install vLLM for your GPU / CUDA / platform first; `requirements.txt` only lists
+the service's own dependencies and does not pin a GPU wheel:
+
 ```bash
 cd vllm-service
-```
-
-Install vLLM first according to your GPU/CUDA/platform version; `requirements.txt` only lists the
-service's surrounding dependencies and does not pin a GPU wheel:
-
-```bash
 pip install -r requirements.txt
 pip install vllm
 ```
 
-Edit the configuration file that matches your deployment mode:
+Create the configuration from the tracked examples (the real files are ignored by Git):
 
-- Single-model mode reads `.env.interface`; the values that matter are `MODEL_NAME`, `API_PORT`, `API_KEY` and the single-model vLLM capacity parameters.
-- The multi-model cluster reads `.env.API` (deployment values shared by all models) and `models.json`.
-- `models.json` manages each model's own `model_name`, `api_port` and engine/parser parameters.
-- `models.json.example` ships two local entries as a starting point (`gemma-4-31b` on 8103 and
-  `qwen3-14b` on 8104); replace them with the models you actually deploy. The model names in the
-  rest of this document are examples, not a statement of what is running anywhere.
-- Models with a Mamba SSM cache (for example the NVIDIA Nemotron Nano family) start the cache in
-  `float32`; a 32K context / 16 concurrent requests is a reasonable initial baseline for them, and
-  their experimental prefix cache should stay disabled.
-- `.env.API` limits `MAX_JOBS` / `NINJAFLAGS` to a single job so that the second model's first
-  FlashInfer CUDA JIT compile does not exhaust host memory.
-- `API_KEY` is the Bearer key of each vLLM instance. LiteLLM obtains the same value as
-  `VLLM_UPSTREAM_API_KEY` and forwards to the local vLLM `/v1`; the separate variable name is only a
-  Docker container injection boundary, not a second set of permissions. The backend calls LiteLLM
-  with a different, restricted service key (`AI_API_API_KEY` in the root `.env`).
+- `.env.example` is the full settings reference. Copy it to `.env.interface` for single-model mode
+  (`MODEL_NAME`, `API_PORT`, `API_KEY` and the single-model capacity parameters matter most) and to
+  `.env.API` for the cluster (deployment values shared by all models).
+- Copy `models.json.example` to `models.json`; it holds each model's own `model_name`, `api_port` and
+  engine/parser parameters. The example ships two local entries (`gemma-4-31b` on 8103 and `qwen3-14b`
+  on 8104) and two remote ones; replace them with the models you actually deploy. The model names in the
+  rest of this page are examples, not a statement of what is running anywhere.
 
-### Upgrade note: `ALLOWED_LOCAL_MEDIA_PATH`
+Settings that need care:
 
-`ALLOWED_LOCAL_MEDIA_PATH` now defaults to empty (disabling `file://` local media reads), and setting
-it to `/` makes startup fail outright (configuration validation error). The old `.env.example`
-shipped with `ALLOWED_LOCAL_MEDIA_PATH=/`; any `.env.API` or `.env.interface` copied from the old
-template, and any deployment whose `models.json` entry sets `allowed_local_media_path: "/"`, must
-clear that value before restarting, or point it at a dedicated media directory (any user who can
-call the API can read the files under that directory). This affects `main.py single` / `cluster`
-and the benchmark, because they all read configuration through `Settings`.
+- `API_KEY` is the Bearer key of every vLLM instance. LiteLLM receives the same value as
+  `VLLM_UPSTREAM_API_KEY` and forwards to the local vLLM `/v1`; the separate variable name only reflects
+  which container it is injected into, not a second set of permissions. The backend calls LiteLLM with a
+  different, restricted service key (`AI_API_API_KEY` in the root `.env`).
+- `ALLOWED_LOCAL_MEDIA_PATH` (`allowed_local_media_path` in a `models.json` entry) is empty by default,
+  which disables `file://` local media reads, and setting it to `/` makes startup fail. If you need it,
+  point it at a dedicated media directory: anyone who can call the API can read the files there. An
+  `.env.API` or `.env.interface` copied from an older template may still contain `/`; clear it before
+  restarting.
+- For models with a Mamba SSM cache (for example the NVIDIA Nemotron Nano family), set
+  `mamba_ssm_cache_dtype` to `float32` and `enable_prefix_caching` to `false` in their `models.json` entry
+  (prefix caching is on by default and is experimental for these models); a 32K context and 16 concurrent
+  requests are a reasonable initial baseline.
+- `.env.API` and `.env.interface` only feed the launcher's own settings; other variables in them are
+  ignored. Build variables such as `MAX_JOBS` / `NINJAFLAGS`, used to keep the second model's first
+  FlashInfer CUDA JIT compile from exhausting host memory, must be exported in the shell that runs the
+  start script; the launcher passes its environment through to vLLM.
 
 ## Starting the single-model main service
 
 ```bash
-bash ./start_single_model.sh
+bash ./start_single_model.sh   # same as: python main.py single --env-file .env.interface
 ```
 
-This script starts the service in the background; the main output is written to `logs/main.log`
-and the launcher PID to `.runtime/single-model.pid`. If that PID is still running, starting again
-simply reports the existing process.
+The script starts the service in the background, writes the output to `logs/main.log` and the launcher
+PID to `.runtime/single-model.pid`. If that PID is still running, starting again only reports the
+existing process.
 
-Equivalent to:
-
-```bash
-python main.py single --env-file .env.interface
-```
-
-This mode starts one vLLM OpenAI-compatible server. The main backend's internal AI features can use:
+The backend's built-in AI features then use (root `.env`):
 
 ```env
-VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_API_KEY=vllm-secret-key-change-me
-VLLM_MODEL_NAME=<MODEL_NAME>
+VLLM_BASE_URL=http://<inference-host>:8000/v1
+VLLM_API_KEY=<API_KEY from .env.interface>
+VLLM_MODEL_NAME=<model ID served by the instance>
 ```
 
-## Starting the multi-model vLLM cluster (the main AI API service)
+`VLLM_MODEL_NAME` is the ID the instance serves (`SERVED_MODEL_NAME`, or the model path when that is
+empty) and must exactly match a model key in `backend/config/llm-model-profiles.yaml`. Inside the Compose
+stack `localhost` is the backend container itself, so use an address of the inference host that the
+container can reach.
+
+## Starting the multi-model vLLM cluster
 
 ```bash
-bash ./start_multi_model_cluster.sh
-LITELLM_SERVICE_API_KEY=<campus-service-key-from-secret-manager> \
-  python ./tools/generate_litellm_config.py --mode production
+bash ./start_multi_model_cluster.sh   # same as: python main.py cluster --base-env .env.API
 ```
 
-The cluster script is equivalent to `python main.py cluster --base-env .env.API` (the `--no-gateway`
-flag from the old command is still accepted but has no effect). It only manages
-starting the vLLM instances, their ready checks and graceful shutdown; model aliases / routing are
-managed by LiteLLM's generated configuration.
-Every `models.json` entry must have a unique `alias`; for local models, `served_model_name` and `api_port` must be unique as well.
-`served_model_name` is passed to vLLM's `--served-model-name`, so each instance's
-`/v1/models` does not expose the host model path.
+The launcher starts the local instances listed in `models.json` (entries with `deployment: "remote"` are
+skipped), checks that they are ready and shuts them down gracefully; its output goes to
+`logs/cluster.log` and each model's to `logs/<alias>.log`. Model aliases and routing belong to the
+generated LiteLLM configuration. Every `models.json` entry must have a unique `alias`; local entries also
+need a unique `served_model_name` and `api_port`. `served_model_name` is passed to vLLM's
+`--served-model-name`, so an instance's `/v1/models` does not expose the host model path.
 
 ### Crash recovery
 
@@ -121,38 +121,25 @@ cannot make the deployment non-reproducible, for example:
 ./.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8', revision='8bc5eece2eb5514c4bca7f2ec655b91eb554f4c0', local_dir='AImodels/NVIDIA-Nemotron-Nano-9B-v2-FP8', max_workers=4)"
 ```
 
-`generate_litellm_config.py` reads `models.json` and `litellm/config.template.yaml` and produces
-`litellm/config.yaml`. The output is ignored by Git; ordinary models use `os.environ/...` secret references,
-and if a remote model sets `apikeys`, that value is written directly into this local runtime artifact.
-For that reason both `generate_litellm_config.py` and `scripts/prepare-ai-stack.sh` write the file with mode
-`0600` (owner read/write only) every time, tightening an older world-readable copy in place. Generate it as
-the account that runs Docker: the LiteLLM container reads it as root, which under rootless Docker is that
-account.
-`integration` mode contains no database settings; `production` mode requires the deployment process
-to inject `LITELLM_SERVICE_API_KEY` first, and generates a `DATABASE_URL` reference.
+## LiteLLM configuration and gateway
 
-LiteLLM is referenced by the Campus main Compose via `include`; the original standalone Compose is retained.
-From the project root, fill in the keys first (`litellm/.env` is created from the template if missing), then start:
+From the repository root, `bash scripts/prepare-ai-stack.sh --init-env` fills in the keys (creating
+`litellm/.env` from its template when missing) and `bash scripts/prepare-ai-stack.sh --start` generates
+the configuration, creates the LiteLLM database, issues the SkyLab service key and starts the stack.
+Addresses, keys, remote models and taking over a standalone gateway are covered in the
+[AI API User Manual](/guides/ai-api-user-manual). Points specific to this directory:
 
-```bash
-cd ..
-bash scripts/prepare-ai-stack.sh --init-env
-bash scripts/prepare-ai-stack.sh --start
-```
-
-`--start` automatically creates the LiteLLM-dedicated database (`db:5432`, not through PgBouncer) and
-issues / syncs the Campus service key. The Campus backend reaches the gateway through `AI_API_BASE_URL`,
-`AI_API_API_KEY` and `LITELLM_RUNTIME_*` in the root `.env`; the Compose backend uses
-`http://litellm:4000` on the same internal network, while a backend run as a host process uses `http://127.0.0.1:4000`.
-The LiteLLM container reaches the local vLLM via `host.docker.internal`, so `API_HOST` in `.env.API`
-must be `0.0.0.0` (restrict the engine ports with a firewall). `docker compose up/down` in the root
-manages LiteLLM but does not manage the vLLM processes on the host.
-
-For cross-host models, set `deployment: "remote"` and `api_base` (including `/v1`) in `models.json`,
-and choose either `api_key_env` (value stored in `litellm/.env`) or a literal `apikeys`. When neither is
-specified, `VLLM_UPSTREAM_API_KEY` is used; `apikeys` and `api_key_env` cannot be set at the same time. The local launcher skips these entries; the generator
-merges them into the same LiteLLM routes. Full examples, taking over an existing standalone container and user API operations are in the
-[AI API User Manual](/guides/ai-api-user-manual).
+- The LiteLLM container reaches the local instances through `host.docker.internal`, so `.env.API` must
+  set `API_HOST=0.0.0.0` (restrict the engine ports with a firewall). `docker compose up/down` at the root
+  manages LiteLLM but not the vLLM processes on the host.
+- `tools/generate_litellm_config.py`, which `prepare-ai-stack.sh` also uses, renders `models.json` and
+  `litellm/config.template.yaml` into `litellm/config.yaml` (ignored by Git). Keys are written as
+  `os.environ/...` references, except a remote model's literal `apikeys`, which goes into the file itself;
+  for that reason the file is always written, or an existing copy tightened, with mode `0600` (owner
+  read/write only). Generate it as the account that runs Docker: the LiteLLM container reads it as root,
+  which under rootless Docker is that account. The script's default `--mode integration` contains no
+  database settings; `--mode production` requires `LITELLM_SERVICE_API_KEY` to be injected and adds the
+  `DATABASE_URL` reference.
 
 ## Benchmark
 
@@ -162,31 +149,31 @@ LITELLM_API_KEY=<service-key> ./run_sharegpt_benchmark.sh -n 100 -c 20 --model q
 ./run_sharegpt_benchmark.sh --target single -n 100 -c 20   # hit the single-model vLLM from .env.interface directly
 ```
 
-The ShareGPT benchmark targets LiteLLM by default (`LITELLM_BASE_URL`, default `http://127.0.0.1:4000/v1`);
-the key is read from the `LITELLM_API_KEY` and then `AI_API_API_KEY` environment variables, falling back to
-`AI_API_API_KEY` in the repo root `.env`. `python -m benchmark.async_bench` instead stress-tests the
-vLLM instance configured in `.env` directly with a single prompt. Full details are in [docs/SHAREGPT_QUICKSTART.md](/guides/vllm-sharegpt-quickstart).
+Targets, key lookup, options and the report are described in
+[ShareGPT benchmark](/guides/vllm-sharegpt-quickstart). `python -m benchmark.async_bench` instead
+stress-tests one vLLM instance directly with a single prompt, using `vllm-service/.env` (or the file
+named by `VLLM_SERVICE_ENV_FILE`).
 
 ## Directory responsibilities
 
 | Path | Responsibility |
 | --- | --- |
 | `main.py` | CLI entry point, supports `single` / `cluster` |
+| `start_single_model.sh`, `start_multi_model_cluster.sh` | Background launchers (PID in `.runtime/`, output in `logs/`) |
+| `model_deployment.py` | Local / remote deployment detection and upstream route validation |
 | `core/engine.py` | Start/stop, health check and logging of a single vLLM instance |
 | `core/cluster.py` | Multi-model instance lifecycle, including restarting a crashed model |
 | `core/supervisor.py` | Crash restart policy (attempt limit, backoff) shared by both modes |
 | `config/settings.py` | Shared vLLM settings |
 | `config/multi_model.py` | `models.json` loading and cluster resource checks |
-| `litellm/` | Git-managed LiteLLM static routing policy template |
-| `tools/` | SkyLab AI integration test (`campus_ai_integration_test.py`), plus LiteLLM deployment tools (`generate_litellm_config.py` generates the LiteLLM config; `prepare_ai_stack.py` checks key boundaries and prepares / starts the AI stack) |
-| `benchmark/` | async / ShareGPT benchmark (ShareGPT goes through LiteLLM by default) |
+| `utils/` | Logging and pre-start health checks |
+| `litellm/` | LiteLLM Compose file and the tracked routing policy template |
+| `tools/` | LiteLLM deployment tools (`generate_litellm_config.py` generates the config; `prepare_ai_stack.py` checks key boundaries and prepares / starts the AI stack) and the SkyLab AI integration test (`campus_ai_integration_test.py`) |
+| `benchmark/`, `run_sharegpt_benchmark.py`, `run_sharegpt_benchmark.sh` | async / ShareGPT benchmark (ShareGPT goes through LiteLLM by default) |
+| `tests/` | pytest suite, runs without a GPU or model service |
 
-## Frontend status
+## Legacy directories
 
-`vllm-service` only provides the inference service and the LiteLLM gateway configuration; it no longer maintains a React/Vite frontend.
-If you need an interactive interface, call the Campus backend from the SkyLab main frontend or an external OpenAI-compatible client.
-
-## Legacy directory status
-
-`vllm-API/` and `vllm-inference/` are no longer in the repo (both are ignored via `.gitignore`); they may only remain as
-untracked local copies on existing deployment hosts for migration reference, and are no longer maintained. All maintenance happens in `vllm-service/`.
+`vllm-API/` and `vllm-inference/` (the earlier multi-model gateway and single-model deployment) are not in
+the repo and are ignored via `.gitignore`. They may remain as untracked local copies on existing
+deployment hosts for migration reference only; all maintenance happens in `vllm-service/`.

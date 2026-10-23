@@ -76,5 +76,5 @@
 
 - [我的申請](/zh-TW/manual/my-requests) — 建置進度出現在這裡的 VM 申請
 - [資源詳情](/zh-TW/manual/resource-detail) — 重置、備份、還原與規格變更
-- [班級工作區](/zh-TW/manual/class-workspace) — 班級機器的批次佈建
+- [班級工作頁](/zh-TW/manual/class-workspace) — 班級機器的批次佈建
 - [帳號設定](/zh-TW/manual/account) — 個人設定

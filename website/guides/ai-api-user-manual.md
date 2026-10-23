@@ -41,8 +41,7 @@ admin UI, connect to `127.0.0.1:4000` from the deployment host itself or through
 The root `.dockerignore` excludes the inference directories and every layer's `.env` so that model weights
 and secrets never end up in the SkyLab build. The LiteLLM `.env` is deliberately not merged into the main
 `.env`: backend, worker and prestart read the main `.env`, and keeping them separate ensures that
-high-privilege keys only reach the gateway. Maintenance stays small thanks to a single Compose definition,
-one model list and the pre-flight checks.
+high-privilege keys only reach the gateway.
 
 ## 2. Filling in addresses and keys
 
@@ -60,8 +59,8 @@ BACKEND_HOST_PORT=8000
 REDIS_HOST_PORT=6379
 ```
 
-`AI_API_PUBLIC_BASE_URL` is the SkyLab root URL that users can reach; locally it defaults to
-`http://localhost:8082`. The full API base URL is that address plus `/api/v1/ai-proxy`.
+`AI_API_PUBLIC_BASE_URL` is the SkyLab root URL that users can reach (`.env.example` sets
+`http://localhost:8082`). The full API base URL is that address plus `/api/v1/ai-proxy`.
 If the backend runs directly on the host, change both gateway URLs to `http://127.0.0.1:4000`;
 in main-Compose mode always use the service name `litellm` (the pre-flight check rejects `127.0.0.1`
 and the old `host.docker.internal`).
@@ -123,16 +122,15 @@ database name in the URL (if they already exist, the role password is aligned wi
 that the role has no table-creation privilege on the SkyLab database; LiteLLM runs its own schema
 migration on startup. For a remote DB, enter that host's IP/domain and connection parameters and keep the
 existing DB and salt; external DBs are created by their own administrators and the script will not touch
-them. The integrated Compose does not migrate databases automatically. The old host-network value
-`127.0.0.1:5433` is rewritten to `db:5432` by `--init-env`.
+them. The integrated Compose does not migrate databases automatically.
 
 ## 3. Local and remote model list
 
 The example configuration (`vllm-service/models.json.example`) defines two local models, `gemma-4-31b` (8103)
-and `qwen3-14b` (8104); the model names used in this manual are examples, and the actual public names
-are whatever `models.json` and the `/models` response say. The following are
-field examples; merge them into the existing JSON array and keep the existing models' GPU, context,
-parser and other tuning parameters.
+and `qwen3-14b` (8104), plus the two remote entries shown below; the model names used in this manual are
+examples, and the actual public names are whatever `models.json` and the `/models` response say. The
+following are field examples; merge them into the existing JSON array and keep the existing models' GPU,
+context, parser and other tuning parameters.
 
 Local entries default to `deployment` = `local`:
 
@@ -230,7 +228,8 @@ automatically:
 1. Verifies root/gateway key isolation, service key consistency, local upstream key consistency with
    `.env.API`, DB name/account isolation and required remote keys (upstreams are not queried; run
    `--check-only --check-upstreams` separately when needed);
-2. Generates the production `config.yaml`;
+2. Generates the production `config.yaml` and the Prometheus vLLM targets
+   (`monitoring/prometheus/targets/vllm.json`);
 3. When the `DATABASE_URL` host is `db`, starts the main Compose PostgreSQL, waits for it to accept TCP
    connections, then creates the dedicated role and database (or aligns the password);
 4. Recreates LiteLLM to load the new routes and waits for `/health/readiness` to report the database as
@@ -278,15 +277,15 @@ The old settings `AI_API_BASE_URL=http://host.docker.internal:4000` and
 
 ### Manual deployment workflow
 
-The runner must have `/opt/skylab/.env` and `/opt/skylab/vllm-service/models.json` prepared in advance;
-with local models it also needs `/opt/skylab/vllm-service/.env.API`. The workflow first runs `--init-env`
-against `/opt/skylab` (a missing LiteLLM `.env` is created from the template; keys are written back to
-`/opt/skylab` so they persist across deployments, and nothing is written when nothing is missing) and
-fails at this step if upstream keys are still missing. It then copies the files into the checkout, and
-`--start` completes DB creation, key issuance and startup. The runner must be able to use
-`python3 -m venv` and have write access to `/opt/skylab` (when keys are filled in for the first time).
-GPU model processes should be managed independently on the deployment host, not inside the runner's
-working directory, which may be wiped by a checkout.
+The workflow itself (`.github/workflows/deploy-pve-test.yml`) is described in
+[Deployment](/guides/deployment#_8-continuous-deployment-test-environment). For the AI stack: the runner
+needs `/opt/skylab/.env`, `/opt/skylab/vllm-service/models.json` and, with local models,
+`/opt/skylab/vllm-service/.env.API`. The workflow runs `--init-env` against `/opt/skylab` first, so the
+generated keys are written back there and persist across deployments (a missing LiteLLM `.env` is created
+from the template); it fails at this step if upstream keys are still missing. It then copies the files into
+the checkout and runs `--start`. The runner needs `python3 -m venv` and, the first time keys are filled in,
+write access to `/opt/skylab`. Manage the GPU model processes on the deployment host, outside the runner's
+working directory, which a checkout may wipe.
 
 ## 5. Changing connections, restarting and rolling back
 
@@ -314,7 +313,8 @@ restarting the local inference cluster. After editing the main `.env`, run
 
 **Monitoring**: "Resource Monitoring → System Health" lists the status of the AI Gateway (LiteLLM) and of
 every model; when a model's upstream inference service (for example the DGX) is unreachable, a system
-alert is raised and emailed to administrators. With the monitoring stack enabled, the Grafana "SkyLab AI"
+alert is raised (and emailed to administrators when alert email is enabled in the governance settings).
+With the monitoring stack enabled, the Grafana "SkyLab AI"
 dashboard shows SkyLab request volume/errors/latency plus LiteLLM and vLLM engine metrics; the vLLM scrape
 targets are generated automatically by `--start` from `models.json`, and the remote host's firewall must
 allow the deployment host to reach the inference port (the same rule LiteLLM needs). See
@@ -325,21 +325,21 @@ as the routine stop command. When the config is missing, the Compose bind mount 
 accidentally creating a `config.yaml/` directory.
 
 Falling back to standalone deployment: first run `docker compose stop litellm` at the root, then run
-`docker compose up -d` from `vllm-service/litellm/`. Use the same DB URL, salt and config.
-LiteLLM is the only AI API gateway; the early hand-written FastAPI Gateway has been removed and there is
-no other fallback entry point.
+`docker compose up -d` from `vllm-service/litellm/`, keeping the same salt and config. Standalone mode has
+no `db` service, so `DATABASE_URL` must then point at a PostgreSQL host reachable from that container
+instead of `db:5432`. LiteLLM is the only AI API gateway; there is no other fallback entry point.
 
 ## 6. Requesting and calling the API as a regular user
 
-Sign in to SkyLab, open the AI API page, fill in the purpose, key name and duration, and submit the
-request. Once someone with approval rights approves it, the user can view their key and connection
-examples. The key list only returns prefixes; the single plaintext key is shown only to its owner.
-Students can choose 1, 7, 30 or 90 days (default 30); teachers and administrators can choose 1, 7 or 30
-days or permanent (default permanent). Students must explicitly provide `duration` when requesting via
-the API; the validity period starts at approval. No role may request a 1-hour key. Old pending 1-hour
-requests and pending permanent requests from students must be rejected and resubmitted; already issued
-keys keep their original expiry. After rotation the old key is invalidated immediately, so programs using
-it must be updated at the same time; users can view their own usage and revoke keys they no longer use.
+Users request a key on the AI API page; the steps, the fields and the validity periods each role can
+choose are in the [AI API page manual](/manual/ai-api). Points that matter when calling the API directly:
+
+- The key list only returns prefixes; the plaintext key is shown only to its owner.
+- When requesting through the API, students must send `duration` explicitly (the default, permanent, is
+  not allowed for students). The validity period starts at approval.
+- Approval re-checks the duration against the applicant's current role, so a pending request whose
+  duration is no longer allowed can only be rejected and submitted again.
+- After rotation the old key stops working immediately; update the programs that use it at the same time.
 
 The request-management endpoints under `/api/v1/ai-api/*` use the SkyLab login bearer token; the
 inference endpoints below use `ccai_*`. These are two different kinds of authentication. Set the
@@ -352,6 +352,8 @@ extra `/v1` segment.
 | `POST /chat/completions` | Chat with messages; SSE streaming available |
 | `POST /completions` | Prompt-based text generation; requires upstream support |
 | `POST /responses` | Responses format; requires upstream support |
+| `GET /rate-limit/status` | Current quota of this key; does not use the generation quota |
+| `GET /usage/my` | Usage statistics of the key's owner (last 30 days by default) |
 
 SkyLab does not forward LiteLLM's admin, key, DB or health APIs. Other endpoints such as embeddings are
 currently outside the public scope of the SkyLab proxy.
@@ -407,7 +409,7 @@ print(payload["choices"][0]["message"])
 
 | Layer | Default in code / contract | What it means |
 | --- | --- | --- |
-| SkyLab generation | 20 requests per 60-second sliding window for each approved request | The key's `rate_limit` takes precedence; the site-wide default applies only when it is unset. Shared by all models and the three generation endpoints |
+| SkyLab generation | 20 requests per 60-second sliding window for each approved request | The key's `rate_limit` takes precedence; the site-wide default (`AI_API_RATE_LIMIT_PER_MINUTE`) applies only when it is unset. Shared by all models and the three generation endpoints |
 | Model list | 30 requests per 60 seconds for each approved request | `/models` has its own quota and does not use the generation quota |
 | Rate-limit status | Does not use the generation quota | `/rate-limit/status` reports the credential's current quota; `disabled=true` and `error` have to be read separately |
 | Backend admission | Per process: 20 active globally, 10 active per model, 40 waiting | Concurrency and queueing limits, not RPM; the wait/cooldown budget is 70 seconds and the whole request has a 115-second deadline |
@@ -417,7 +419,7 @@ print(payload["choices"][0]["message"])
 
 The generation quota is keyed by the approved request's `request_id`, so rotating the key of the same request does not reset it, and different models do not each get their own 20 requests. A normal call and a streaming call each count once; the rate-limit check runs before body and model validation, so some invalid requests use quota as well. Upstream retries are handled by the relay, and the same logical request does not consume SkyLab RPM again. The sliding window does not reset on the hour; the `reset_at` in the status response is the query time plus one window, not the exact moment the next slot frees up, so query again when you need the remaining value.
 
-`20/60`, `30/60` and LiteLLM's `10 RPM` are the defaults and configuration sources in the current code; they do not replace measurements on a real deployment. The actual values for a credential are whatever the status response reports. The status does not expose the length of the generation window, so if a deployment changed `AI_API_RATE_LIMIT_WINDOW_SECONDS`, confirm it with the operator; LiteLLM RPM is not exposed by the public status either and also has to be confirmed by the operator. With several backend processes the total concurrency adds up, so a single sequential check cannot prove capacity.
+`20/60`, `30/60` and LiteLLM's `10 RPM` are code defaults, not measured capacity. The actual limit of a credential is whatever the status response reports. The status exposes neither the generation window length (`AI_API_RATE_LIMIT_WINDOW_SECONDS`) nor the LiteLLM RPM; ask the operator if a deployment changed them. With several backend processes the total concurrency adds up, so a single sequential check cannot prove capacity.
 
 ### Operational verification
 
@@ -431,17 +433,18 @@ export LITELLM_MASTER_KEY
 bash scripts/verify-litellm-staging.sh
 unset LITELLM_MASTER_KEY
 
-# Verify the four public endpoints with an approved SkyLab test key.
+# Smoke-test the public API with an approved SkyLab test key.
 export AI_API_SMOKE_KEY="$CAMPUS_AI_API_KEY"
-AI_API_PUBLIC_BASE_URL=http://localhost:8082/api/v1 \
-  AI_API_SMOKE_MODEL=gpt-oss-20B bash scripts/verify-ai-api-cutover.sh
+AI_API_PUBLIC_BASE_URL=http://localhost:8082/api/v1 bash scripts/verify-ai-api-cutover.sh
 unset AI_API_SMOKE_KEY
 ```
 
-`verify-ai-api-cutover.sh` sends real generation and streaming requests and therefore consumes model
-usage; use a dedicated test key. The script needs curl and jq, and the test model must support
-completions and responses. Passing everything means those paths work; it does not mean other models
-support every format. Run `unset CAMPUS_AI_API_KEY` when you are done.
+`verify-litellm-staging.sh` needs curl and jq; it checks that the gateway's model list equals the aliases
+in `models.json`, that every deployment is healthy and that the backend container reaches the gateway.
+`verify-ai-api-cutover.sh` needs curl and python3; it lists the models visible to the key and sends one
+short non-streaming chat completion to each, so it consumes a little model usage (use a dedicated test
+key). It does not test streaming, `/completions` or `/responses`. Run `unset CAMPUS_AI_API_KEY` when you
+are done.
 
 ## 7. Troubleshooting
 

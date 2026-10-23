@@ -149,7 +149,7 @@
 
 - [我的申請](/zh-TW/manual/my-requests) — 學生在申請機器時選用範本的地方
 - [我的資源](/zh-TW/manual/my-resources) — 克隆機與更新循環的暫存母機會出現在這裡
-- [資源詳細頁](/zh-TW/manual/resource-detail) — 機器的主控台、登入密碼與範本使用手冊
+- [資源詳情](/zh-TW/manual/resource-detail) — 機器的主控台、登入密碼與範本使用手冊
 - [背景任務](/zh-TW/manual/jobs) — 轉換、克隆與刪除的進度
 - [GPU 管理](/zh-TW/manual/gpu-management) — GPU 範本可以使用的 GPU
 - [教學環境](/zh-TW/manual/course-templates) — 以範本為來源的教學環境

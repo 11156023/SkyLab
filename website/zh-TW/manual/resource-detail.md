@@ -19,7 +19,7 @@
 ## 開始之前
 
 - 電源操作（啟動、關機、重新啟動）、控制台與刪除都在[我的資源](/zh-TW/manual/my-resources)清單上，不在這一頁。
-- 許多動作在背景執行，進度可以在[工作](/zh-TW/manual/jobs)頁查看。
+- 許多動作在背景執行，進度可以在[背景任務](/zh-TW/manual/jobs)頁查看。
 
 ## 操作步驟
 
@@ -219,5 +219,5 @@
 - [我的資源](/zh-TW/manual/my-resources)：電源操作、控制台與刪除
 - [我的申請](/zh-TW/manual/my-requests)：在同一份清單查看規格調整與延期申請
 - [防火牆](/zh-TW/manual/firewall)：網路拓撲與連線模型
-- [工作](/zh-TW/manual/jobs)：重置、備份與刪除的進度
-- [治理設定](/zh-TW/manual/governance)：管理員設定的到期、閒置與快照政策
+- [背景任務](/zh-TW/manual/jobs)：重置、備份與刪除的進度
+- [資源政策](/zh-TW/manual/governance)：管理員設定的到期、閒置與快照政策

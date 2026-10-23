@@ -1,10 +1,6 @@
 # SkyLab Frontend — Style Guide
 
-- Date: 2026-09-05 (Asia/Taipei; originally `frontend/src/assets/styles/STYLE_GUIDE.md`, moved into `docs/`; now lives at `docs/frontend-style-guide.md`)
-- Status: current standard, maintained continuously
-- Scope: every page and component in the frontend
-
-> This document describes the frontend styling architecture and the rules for writing styles. Every new page and component must follow it so that the visual result and the code style stay consistent. If you want to change `_variables.scss` or `_themes.scss` yourself, discuss it with the frontend team first.
+> This document describes the frontend styling architecture and the rules for writing styles. It applies to every page and component in the frontend: new pages and components must follow it so that the visual result and the code style stay consistent. If you want to change `_variables.scss` or `_themes.scss` yourself, discuss it with the frontend team first.
 
 ---
 
@@ -12,8 +8,9 @@
 
 ```
 src/assets/styles/
-├── global.scss       # Global style entry point (@use themes, reset, background glow)
+├── global.scss       # Global style entry point (@use themes, backgrounds, reset; full-page background layer, toast styles)
 ├── _themes.scss      # CSS custom properties (light / dark theme)
+├── _backgrounds.scss # Background presets selected by body[data-bg]
 ├── _variables.scss   # SCSS structural variables (spacing, fonts, breakpoints, radii)
 ├── _mixins.scss      # Reusable SCSS mixins
 └── _reset.scss       # CSS reset
@@ -106,6 +103,8 @@ Always look up and reuse what is already defined in `_variables.scss` (spacing, 
 | `--shadow-lg` | Large shadow (dialogs) |
 | `--shadow-glass` | Frosted-glass shadow |
 
+Special-purpose palettes are reserved for one component each: `--color-flow-*` (topology canvas, see Card), `--color-code-*` (code samples, see the exceptions below), `--color-terminal-*` (the terminal output on the home-page machine card), `--color-folder-*` (quick-practice folders) and `--color-kind-shared` (the machine source badge `MachineKindBadge`).
+
 ### Status colours
 
 The frontend uses the following five semantic colours. **Amber is reserved for the "pending review / pending" meaning and is not a warning colour** — warnings and errors are always red and always use `--color-danger` (there is deliberately no `--color-warning`):
@@ -120,13 +119,15 @@ The frontend uses the following five semantic colours. **Amber is reserved for t
 
 For the darker hover state of destructive actions use `--color-danger-dark` (`#b91c1c`).
 
-> **Exception**: terminal-style content areas stay dark and do not follow the theme — the VNC / xterm screen background (ConsoleDialog and Classroom's `#1e1e1e`), the task log output area (Jobs `dialogOutput`), transparent logos that need a white backing (`tplLogo`'s `#fff`), the PDF viewer iframe background (`StudentHomePage`'s `#fff` — the PDF page itself is white, so turning it dark with the theme would leave a black frame), and the white backgrounds of the error-page illustrations (`NotFoundPage`'s cloud, `CrashState`'s application window and `ConnectionLostState`'s cloud and window are all `#fff`, and their inner colour blocks are also mixed against `#fff` — the illustration is the same image in both themes; in light mode the outline comes from a drop-shadow).
+> **Exception**: terminal-style content areas stay dark and do not follow the theme — the VNC / xterm screen background (ConsoleDialog and Classroom's `#1e1e1e`), the task log output area (Jobs `dialogOutput`), and the white backgrounds of the error-page illustrations (`NotFoundPage`'s cloud, `CrashState`'s application window and `ConnectionLostState`'s cloud and window are all `#fff`, and their inner colour blocks are also mixed against `#fff` — the illustration is the same image in both themes; in light mode the outline comes from a drop-shadow).
 >
 > **Exception**: sample code blocks (the code samples in the AI API quick start and the code blocks inside API chat replies) keep a fixed dark background and do not follow the theme, mirroring a dark VS Code editor; use the `--color-code-*` palette from `_themes.scss` (bg / header / border / hover / text / muted) and do not define another dark palette inside a page.
 >
 > **Exception**: the VS Code-like config file editor on the Gateway page (`ConfigCodeEditor.module.scss`) hard-codes the whole vs-dark palette (`#1e1e1e`, `#252526`, `#007acc`, etc.) and the 13px/12px font sizes, and deliberately does not follow the theme — the frame has to match Monaco's `theme="vs-dark"`, emulating a VS Code window, which is a container with its own colour scheme.
 
 #### The standard way to write a status badge
+
+The pill shape and text come from `@include badge-base;` (inline-flex, pill radius, 12px / 500, no wrapping); add the padding and one of these colour pairs:
 
 ```scss
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
@@ -184,6 +185,16 @@ $transition-base: 0.2s ease   $transition-slow: 0.3s ease
 ```scss
 $breakpoint-sm: 576px   $breakpoint-md: 768px
 $breakpoint-lg: 992px   $breakpoint-xl: 1200px
+$breakpoint-sidebar: 1024px   // the sidebar switches from a drawer to a fixed column
+```
+
+### Others
+
+```scss
+$font-family-base   $line-height-base: 1.6   $form-control-padding-x: 12px
+$header-height: 60px   $sidebar-width: 260px   $sidebar-width-collapsed: 72px
+$content-padding: 40px   $container-max-width: 1200px
+$z-ai-assistant: 2000   $z-screen-dialog: 2100   // see z-index layers
 ```
 
 ---
@@ -230,7 +241,12 @@ The backdrop-filter of a glass surface always goes through `var(--glass-backdrop
 @include respond-to(md) {
   // applied at min-width: 768px
 }
+@include respond-below(md) {
+  // applied below 768px (max-width: 767.98px)
+}
 ```
+
+New layouts are mobile-first with `respond-to`. `respond-below` exists for existing desktop-first layouts that would cost too much to invert; use it instead of a raw `max-width` media query so the breakpoints stay on the shared scale.
 
 ---
 
@@ -245,7 +261,7 @@ import MIcon from "../components/MIcon";
 <MIcon name="star" size={16} filled />     {/* material-icons (filled, only for special emphasis) */}
 ```
 
-- Look up icon names at [Material Symbols](https://fonts.google.com/icons) (outlined and filled share the same name)
+- The font is Material Icons (`@material-design-icons/font`), not Material Symbols. Look up names in the [Material Icons set](https://fonts.google.com/icons?icon.set=Material+Icons) (outlined and filled share the same name); a name that exists only in Material Symbols renders as plain text
 - Never use `<span className="material-icons">`, `material-icons-outlined` or any other icon library directly
 - Never mix in inline SVG, emoji or any other icon system
 
@@ -297,11 +313,11 @@ The standard form:
   padding: $spacing-8 $spacing-16;
   flex: 1;
 
-  @include respond-to(md) { padding: 0; }
+  @media (min-width: $breakpoint-sidebar) { padding: 0; }
 }
 ```
 
-> **Exception**: narrow form-type pages (such as `AccountSettingsPage` with `max-width: 640px`) may constrain their width — input fields stretched across a wide screen are actually harder to use. This exception is limited to "single-column form" pages; regular content pages stay full width.
+> **Exception**: narrow form-type pages may constrain their width — input fields stretched across a wide screen are actually harder to use. This exception is limited to "single-column form" pages; regular content pages stay full width.
 
 ---
 
@@ -348,19 +364,18 @@ const presence = useDialogPresence(show);
 - Compact card (default): confirmation boxes, naming boxes, small forms; the `closeButton` variant: forms with many fields (such as the connection dialog) — a reminder whose body is only a sentence or two (such as the session warning) can add `dividers={false}` to drop the rules under the title bar and above the button row; `bare`: only the outer frame, you lay out the title bar and body yourself
 - Screens the AI cannot read, such as terminals and VNC, use `layer="screen"` (usually together with `bare`): they cover the AI assistant instead of making room for it; the keyboard is handed entirely to the screen, Esc does not close and Tab is not trapped (so Tab completion and vim's Esc work). Grab the dialog body with a `ref` when you need fullscreen
 - Guide attributes such as `data-guide` are passed straight to `Modal` (attached to the dialog body); for the × and the button row use `closeProps` and `actionsProps` respectively
-- Migrated in batches since 2026-09-26: the dialogs on the resource details page, `useConfirm`, `ConnectionDialog`, terminal / VNC, convert to template, request error log, session reminder, background task details, the system administration side (users, nodes, PVE connections, quotas, domains, subnets, mining incidents), template management (create / edit, clone, user manual), reverse proxy rules, classroom watch, AI services (one-time key, quick start, request a key, disable a key, request review), AI checks (delete script, add check, run once, adjust weeks) and the timetable editor have been converted; the remaining dialogs still use the old approach — convert them when you touch them
-- Four dialog width tiers: confirmation / naming boxes `max-width: 400px`; small single-column forms `max-width: 640px`; regular `max-width: 1100px`; wide (such as VNC) `1280px`
-- Height: `height: 88vh`
-- Fullscreen: use the `:fullscreen` pseudo-class and set `max-width: 100%; height: 100%; border-radius: 0`
-- Backdrop: `position: fixed; inset: 0; background: var(--color-overlay); backdrop-filter: blur(4px); z-index: 300`
-- The backdrop is always `createPortal`-ed to `document.body`: when an ancestor has `backdrop-filter` / `transform`, `position: fixed` gets trapped inside that layer and cannot cover the whole screen
-- Card shadow: confirmation boxes use the default `glass-surface` shadow; form-type dialogs such as create / edit may use `glass-surface($shadow: var(--shadow-lg))` so they stand out more against the backdrop
-- Accessibility: the dialog container gets `role="dialog"`, `aria-modal="true"` and `aria-labelledby` pointing at the title (id generated with `useId()`), so screen readers announce "dialog: title"
+- Every dialog in the frontend is built on `Modal`, including `useConfirm`, `ConnectionDialog` and the terminal / VNC / classroom watch screens; do not bring back a hand-written backdrop
+- Width tiers (`size`): confirmation / naming boxes `sm` 400px; small single-column forms `md` 640px; regular `lg` 1100px; wide (such as VNC) `xl` 1280px; wide content such as error logs `log` 560px
+- Height: a `Modal` card is at most `90vh` tall; the screen dialogs (VNC / terminal console, classroom watch) fix their own height at `88vh`
+- Fullscreen: the dialog that can go fullscreen styles the `:fullscreen` pseudo-class with `max-width: 100%; height: 100%; border-radius: 0` (see `ConsoleDialog.module.scss`)
+- Backdrop: `var(--color-overlay)` with `backdrop-filter: blur(4px)` at `z-index: 300`, portalled to `document.body`: when an ancestor has `backdrop-filter` / `transform`, `position: fixed` gets trapped inside that layer and cannot cover the whole screen. While the AI assistant panel is open the backdrop leaves the panel's width free (`dialog-overlay-avoid-ai`) and centres the dialog in the remaining space
+- Card shadow: the compact card uses the default `glass-surface` shadow; the `closeButton` layout uses `var(--shadow-lg)` so it stands out more against the backdrop
+- Destructive confirmations pass `role="alertdialog"` (`useConfirm` does this)
 
 #### Confirmation dialog (unified site-wide)
 
 Destructive actions and either/or confirmations **always use the shared `useConfirm()`** (`components/ConfirmDialog/ConfirmProvider`);
-do not build a local ConfirmModal inside a page (everything was consolidated on 2026-09-09; the multi-action dialog in AiJudgePanel is the only exception):
+do not build a local ConfirmModal inside a page:
 
 ```jsx
 const confirm = useConfirm();
@@ -368,28 +383,15 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 // …the dialog closes as soon as confirm is pressed; show progress with a disabled button + toast, not a spinner inside the dialog
 ```
 
-Baseline card style (the same frosted-glass card as the error log modal in "My Requests"):
+The look comes from `Modal`'s compact card: a 400px frosted-glass card with `$spacing-24` padding, and the spacing between title, body and button row handled by a `$spacing-16` gap rather than margins.
 
-```scss
-.dialog {
-  width: 100%;
-  max-width: 400px;          // the wide variant for content such as error logs may go up to 560px
-  @include glass-surface;    // frosted-glass base, not a solid surface + border
-  border-radius: $radius-16;
-  padding: $spacing-24;
-  @include flex-column;
-  gap: $spacing-16;          // spacing between title / body / button row is all handled by gap, not margin
-}
-```
-
-- Title: `$font-size-16` / `$font-weight-700`; danger dialogs carry a red `warning` icon, regular ones a `help` icon
-- Body: `$font-size-14` in the secondary colour, **must include `overflow-wrap: anywhere`** (long unbroken strings such as hostnames are often inserted)
+- Title: `$font-size-16` / `$font-weight-700`; danger dialogs carry a red `warning` icon, regular ones an amber `help` icon
+- Body: `$font-size-14` in the secondary colour with `overflow-wrap: anywhere` (long unbroken strings such as hostnames are often inserted)
 - Enter / exit: backdrop fadeIn 0.15s, card slideUp 0.18s, Esc closes
 
 ### Buttons
 
-Buttons always use the button mixin family (six variants) from `_mixins.scss`; **do not copy the whole set of styles into a page**
-(consolidated site-wide on 2026-09-15; do not let the old hand-copied duplicates come back):
+Buttons always use the button mixin family (six variants) from `_mixins.scss`; **do not copy the whole set of styles into a page**:
 
 ```scss
 .btnPrimary       { @include btn-primary; }        // primary action: at most one per screen
@@ -459,7 +461,7 @@ Enable/disable toggles that **take effect immediately always use the shared `Swi
 - In tables and list rows **show the switch alone, without an "Enabled" caption** (the column header or the row already says what it controls), and pass `ariaLabel` + `title` instead; only pass a visible `label` when it is genuinely needed, saying what the switch controls and not changing with the state
 - The current state is shown by the knob position and colour; in a list, a disabled row **swaps its status badge for a red "Disabled"** (e.g. a firewall rule's "Allow" becomes "Disabled") instead of adding a separate "Disabled" badge next to it
 - A disabled row dims only its content; **the actions cell holding the switch is not dimmed**, so it is clear it can be turned back on
-- Currently used by: the firewall rules in resource details › advanced settings, the rules panel on the firewall page, and the node list in PVE management
+- Currently used by: the firewall rules in resource details › advanced settings, the rules panel on the firewall page, and the node list on the PVE Management page
 
 ### Tables
 
@@ -476,6 +478,7 @@ List-page tables always use the table mixin family from `_mixins.scss`; **do not
 - Page-specific differences such as column widths, alignment and special cells (`.thRight`, `.tdNowrap`, …) go after the `@include`
 - The responsive behaviour is uniformly **horizontal scrolling of the container** (`table-wrap` has `overflow-x: auto` built in); tables are not turned into cards
 - When a table is embedded inside an existing card you may use only `table-base` / `table-th` / `table-tr` / `table-td` and omit the outer `table-wrap`
+- The `<table>` itself is rendered by `components/DataTable` (TanStack Table, see the [development guide](/guides/development)), and the classes still come from the page's SCSS Module: `className` for the table, `rowClassName(row)` for rows, and `meta.thClassName` / `meta.tdClassName` on each column
 
 #### Rule 1: a whole-row hover colour means the row is clickable
 
@@ -550,18 +553,18 @@ const selected = shown.filter((r) => selection.isSelected(r.id));
 - Ticked rows get `@include row-selected;` for their background (list rows that are cards themselves pass `var(--color-surface)`)
 - Guide attributes such as `data-guide` can be passed straight to `DataToolbar` (attached to the toolbar's outer frame), so a tour step can spotlight the whole filters + search bar
 - **Re-check widths after adding a checkbox column**: when list rows use grid, decide between one line and two lines by the **container width** (`container-type: inline-size` + `@container`), not the viewport — once the sidebar appears (≥1024) the content area is narrower than at 992, so a viewport switch overflows sideways between 1024 and 1180
-- Currently used on: resource management, user management (batch disable/enable), request review (batch reject), class management (batch archive and reclaim), and the class workspace student roster (batch remove)
+- Currently used on: resource management, user management (batch enable / disable / delete), request review (batch reject), class management (batch archive and reclaim), and the class workspace student roster (batch remove)
 
 ### Dropdown menus
 
-- `position: absolute; bottom: calc(100% + 6px); right: 0` (opens upward)
-- The parent element needs `position: relative`
-- The close animation uses `setTimeout` (130ms) + a CSS `transition`, not `onAnimationEnd`
+- Menus that float over lists are portalled to `document.body` with `position: fixed` and positioned by `hooks/useAnchoredMenu`: it follows the anchor button on scroll and resize, opens downward or upward depending on the space left, closes when the anchor scrolls out of view, and closes on an outside click or Esc. Used by `PowerMenu`, the port suggestions in `ConnectionDialog`, and menus on the AI API and templates pages
+- Give the menu an opaque `var(--color-surface)` background, not `glass-surface`: list rows underneath would show through
+- The close animation uses `useDialogPresence(open, 130)` + a CSS `transition`, not `onAnimationEnd`
 
 ### Stepper
 
 Flow tabs and setup steps **always use the shared `Stepper`** (`components/Stepper/Stepper`); do not hand-craft chevron segments or draw your own dots.
-Currently used in the class workspace, the course environment editor and one-click class creation (`ClassSetupPage`).
+Currently used in the class workspace, the course environment editor, one-click class creation (`ClassSetupPage`), the first-install setup wizard (`SetupPage`) and the first-login onboarding (`OnboardingPage`).
 
 ```jsx
 <Stepper
@@ -607,38 +610,19 @@ Currently used in the class workspace, the course environment editor and one-cli
 
 ### Dialog / popup enter and exit (the standard approach)
 
-Dialogs always enter with "backdrop `fadeIn` + content `slideUp`"; the exit is handled by the shared hook `hooks/useDialogPresence.js` — on close it keeps the DOM for 150ms with the `Out` class applied to play the fade-out, then unmounts:
+Dialogs always enter with "backdrop `fadeIn` + content `slideUp`" (built into `Modal`). The exit is handled by the shared hook `hooks/useDialogPresence.js`: on close it keeps the DOM for 150ms with `closing` set so the fade-out can play, then unmounts. Pass `presence.closing` to `Modal` as in the example above.
 
 ```jsx
-import useDialogPresence from "../hooks/useDialogPresence";
-
 const dialog = useDialogPresence(editTarget);   // a boolean or a data object both work
 // while closing, dialog.item keeps the last data so the content does not flicker
-{dialog.open && (
-  <div className={`${styles.modalOverlay} ${dialog.closing ? styles.modalOverlayOut : ""}`}>
-    <EditModal target={dialog.item} … />
-  </div>
-)}
+{dialog.open && <EditDialog target={dialog.item} closing={dialog.closing} … />}
 ```
 
-```scss
-.modalOverlay {
-  /* …positioning and backdrop… */
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-.modalOverlayOut {
-  animation: none;   // override the enter animation so the transition takes over
-  opacity: 0;
-  pointer-events: none;
-}
-```
-
-Shared dialog components (such as `ConnectionDialog`, `ReverseProxyRuleModal`) accept a `closing` prop that applies the Out class, controlled by the parent's `useDialogPresence`. Self-contained dialogs (such as `VncDialog`, `TerminalDialog`) call `setClosing(true)` internally and then `setTimeout(onClose, 150)`.
+Shared dialog components (such as `ConnectionDialog`) accept a `closing` prop controlled by the parent's `useDialogPresence`. Self-contained dialogs (such as `VncDialog`, `TerminalDialog`, `ClassroomWatchDialog`) call `setClosing(true)` internally and then `setTimeout(onClose, 150)`.
 
 ### Exit animations (closing)
 
-Prefer **`setTimeout` + a CSS `transition`**; do not use `onAnimationEnd` (it has known edge-case problems):
+Prefer **`setTimeout` + a CSS `transition`**; do not use `onAnimationEnd` (it has known edge-case problems). `useDialogPresence(open, 130)` packages this for menus; written out by hand it looks like this:
 
 ```jsx
 // JSX
@@ -671,15 +655,9 @@ Theme switching is implemented through the `body.dark` class; every colour alrea
 
 Component SCSS always uses the CSS custom properties, **so you do not need to write your own `body.dark &` overrides**.
 
-If a component has special dark-mode needs:
+If a component has special dark-mode needs, scope the override under `body.dark`:
 
 ```scss
-// use the data-theme attribute (some components already use this approach)
-[data-theme="dark"] & {
-  color: #xxx;
-}
-
-// or use body.dark
 :global(body.dark) & {
   color: #xxx;
 }
@@ -693,11 +671,13 @@ If a component has special dark-mode needs:
 |------|-----|------|
 | Base card | 1 | Regular cards |
 | Card hover / menus | 50 | Dropdown menus inside a container |
-| Sticky header | 100 | Page-top navigation bar |
+| Sidebar / sticky header | 100 | Sidebar and page-top bars |
 | Portalled floating menus | 150 | Dropdowns portalled to body (such as `components/PowerMenu`) |
 | Dialog / Modal | 300 | Full-page overlay dialogs |
-| Toast / Tooltip | 400 | Notifications, hints |
-| UserGuide tour | 3000–3199 | The tour spotlight layer must sit above everything, dialogs included (overlay 3100, demo window 3099; there is also the floating help button at 90, between menus and the sticky header). This range is reserved for UserGuide; regular components must not use it |
+| AI assistant | 2000 (`$z-ai-assistant`) | Stays above regular dialogs so it remains usable while one is open |
+| Screen dialogs | 2100 (`$z-screen-dialog`) | `Modal layer="screen"` (VNC, terminal, classroom watch): content the AI cannot read covers the assistant |
+| UserGuide tour | 3000–3199 | The tour spotlight layer must sit above everything, dialogs included (overlay 3100, demo window 3099). This range is reserved for UserGuide; regular components must not use it |
+| Toasts | sonner default | sonner's own toaster z-index sits above every other layer |
 
 > ⚠️ Note: elements with `backdrop-filter` or `transform` create a new stacking context, so the `z-index` of their children cannot escape to the outside. If a dropdown is hidden behind another card, check whether the parent has one of these properties.
 >

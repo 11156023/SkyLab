@@ -20,7 +20,7 @@ There is no separate "superuser" switch: an account with the **Administrator** r
 1. In the **Registration settings** panel, tick or untick **Allow self-registration**.
 2. The change is saved immediately (a "Registration settings saved" notice appears); there is no separate save button.
 
-When self-registration is on, any email address may register from the login page. Turning it off only stops new sign-ups; existing accounts can still log in, and the approval setting is kept.
+When self-registration is on, any email address may register from the login page. Turning it off only stops email sign-ups; the approval and Google settings are kept, and existing accounts can still log in.
 
 ![Turn self-registration on or off (numbers match the steps above)](/manual-shots/en/admin-users/s01.webp)
 

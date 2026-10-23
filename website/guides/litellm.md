@@ -1,54 +1,38 @@
 # LiteLLM deployment
 
-The root Campus `docker-compose.yml` includes this service definition for normal
-deployment. This file is also retained for standalone deployment. Both modes
-use the same configuration and host port 4000; run only one at a time.
+`vllm-service/litellm/` holds the LiteLLM gateway behind SkyLab's user-facing AI API. The root
+`docker-compose.yml` includes its `docker-compose.yml`, which can also be run on its own
+(standalone). Both modes use the same configuration and host port 4000; run only one at a time.
 
-Complete setup, remote routes, database/key operations, project handover and
-user API examples: [AI API User Manual](/guides/ai-api-user-manual).
+This page is a short reference for the directory. Complete setup, remote routes, database/key
+operations, taking over a standalone gateway and user API examples are in the
+[AI API User Manual](/guides/ai-api-user-manual).
 
 ## Files and secret boundaries
 
 ```text
 vllm-service/litellm/
-├── docker-compose.yml       # included by root; standalone entry point retained
+├── docker-compose.yml       # included by the root Compose; also the standalone entry point
 ├── config.template.yaml     # tracked static routing policy
 ├── config.yaml              # generated from ../models.json (ignored, written with mode 0600)
-├── .env.example             # deployment environment template
+├── .env.example             # template for .env
 └── .env                     # master, upstream, database, salt, remote keys (ignored)
 ```
 
 Keep `config.yaml` here. Edit `../models.json` for model connections and the
-template for shared policy; manual edits to generated config will be replaced.
-The root Campus `.env` holds `AI_API_*` and `LITELLM_RUNTIME_*` with a restricted
+template for shared policy; manual edits to the generated config are overwritten.
+The root `.env` holds `AI_API_*` and `LITELLM_RUNTIME_*` with a restricted
 LiteLLM service key. Never give the backend the LiteLLM master key or the upstream
-keys; never inject the Campus service key into the LiteLLM container.
+keys; never inject the SkyLab service key into the LiteLLM container.
 
-## Normal integrated deployment
+## Integrated deployment
 
-From the repository root, with local vLLM engines (if any) already running:
-
-```bash
-bash scripts/prepare-ai-stack.sh --init-env   # fill missing secrets; never overwrites
-bash scripts/prepare-ai-stack.sh --start
-docker compose ps litellm
-docker compose logs -f litellm
-```
-
-`--init-env` generates the master key, salt, `DATABASE_URL` (role `litellm` on
-`db:5432`) and the Campus service key when they are missing or still template
-values; upstream vLLM keys must be supplied. `--start` checks both `.env` files
-and Compose secret isolation, generates the production config, creates the
-dedicated role/database on the Compose PostgreSQL, recreates the gateway, waits
-for its database, registers the Campus service key (or syncs its model
-allowlist) and finally starts the whole stack. `--check-only` validates the
-current generated file without rewriting it. Remote keys named by
-`api_key_env` are injected only into LiteLLM through this directory's `.env`;
-remote `apikeys` values are written directly to the ignored generated
-`config.yaml`.
-
-After changing model routes, rerun `bash scripts/prepare-ai-stack.sh --start`
-so the gateway reloads and the service key allowlist follows the new aliases.
+From the repository root, `bash scripts/prepare-ai-stack.sh --init-env` fills in missing
+secrets, and `bash scripts/prepare-ai-stack.sh --start` checks the configuration, generates
+`config.yaml`, creates the LiteLLM database, registers the SkyLab service key and starts the
+whole stack. Rerun `--start` after changing model routes. The full procedure is in
+[Production launch](/guides/ai-api-user-manual#_4-production-launch-and-taking-over-an-existing-standalone-gateway)
+of the AI API User Manual.
 
 ## Networking
 
@@ -56,7 +40,7 @@ The gateway joins the root `skylab` network: backend/worker call
 `http://litellm:4000`, and LiteLLM connects to PostgreSQL directly as `db:5432`
 (not through PgBouncer). Port 4000 is published on `127.0.0.1` only, for health
 checks, key provisioning and admin tools (SSH tunnel for the UI). It is not
-routed through nginx; users reach models only via the Campus `/api/v1/ai-proxy`.
+routed through nginx; users reach models only via SkyLab's `/api/v1/ai-proxy`.
 Local engines (`deployment: local`) are reached as `host.docker.internal:<port>`,
 so `.env.API` must set `API_HOST=0.0.0.0` with a firewall limiting the engine ports.
 
@@ -76,7 +60,14 @@ project migrates or deletes the external database. Preserve the original
 `DATABASE_URL` and `LITELLM_SALT_KEY`. Standalone mode has no `db` service, so its
 `DATABASE_URL` must name an externally reachable PostgreSQL host.
 
-Use `/health/liveliness` for container health. `/health/readiness` checks gateway
-readiness; authenticated `/health` deliberately exercises upstream models.
-The historical `scripts/verify-litellm-staging.sh` validates the configured
-allowlist and the Campus backend connection after deployment.
+## Health checks
+
+`/health/liveliness` is the container health check. `/health/readiness` reports whether the
+gateway is ready and its database connected. The authenticated `/health` returns the results of
+LiteLLM's background model health checks, which send requests to the upstream models every 60
+seconds (`health_check_interval` in the template).
+
+After deployment, `scripts/verify-litellm-staging.sh` (needs `jq` and an exported
+`LITELLM_MASTER_KEY`) checks liveliness and readiness, that the public model list matches
+`models.json`, that every deployment is healthy, and that the backend can reach LiteLLM; see
+[Operational verification](/guides/ai-api-user-manual#operational-verification).

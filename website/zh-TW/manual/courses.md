@@ -131,4 +131,4 @@
 - [首頁](/zh-TW/manual/home)：今天的課程與提醒
 - [資源詳情](/zh-TW/manual/resource-detail)：課堂機器的完整頁面
 - [快速練習](/zh-TW/manual/quick-practice)：班級以外的練習環境
-- [班級工作區](/zh-TW/manual/class-workspace)：老師發布每週內容與執行檢查的地方
+- [班級工作頁](/zh-TW/manual/class-workspace)：老師發布每週內容與執行檢查的地方

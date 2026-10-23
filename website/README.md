@@ -10,14 +10,14 @@ All documentation of the repository lives in this directory and is published as 
 | --- | --- |
 | `index.md`, `getting-started.md`, `concepts.md`, `troubleshooting.md` | Home and the introduction pages |
 | `manual/` | User manual, one page per feature; `manual/index.md` groups them by role |
-| `guides/` | Operations, development and design guides (formerly `docs/`), `guides/index.md` is the index, `guides/archive/` the dated reports |
+| `guides/` | Operations, development and design guides; `guides/index.md` is the index |
 | `operations/` | Upgrade and backup guides; `operations/environment.md` is generated |
 | `reference/` | REST API (`public/openapi.json` rendered with Scalar), WebSocket endpoints, governance configuration, username policy |
 | `development/` | Internationalisation |
 | `project/` | License page |
 | `changelog.md` | Generated from the git history |
 | `zh-TW/` | The same tree in 繁體中文 |
-| `public/` | Favicon, `openapi.json`, the SkyLab Connect demo under `public/demos/` |
+| `public/` | Favicon, `openapi.json`, the home page screenshot under `public/screenshots/` |
 | `.vitepress/` | Configuration (navigation and both sidebars in `config.mts`), theme components (Scalar and mermaid renderers) |
 | `scripts/generate.mjs` | Builds the generated pages before every build |
 | `scripts/manual-shots/` | Takes the user manual's step screenshots (see below) |

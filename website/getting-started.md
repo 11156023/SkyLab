@@ -19,7 +19,7 @@ Nothing has to be installed on the host besides Docker. `uv` and `Bun` are only 
 git clone https://github.com/ntubclass/SkyLab.git
 cd SkyLab
 cp -n .env.example .env
-cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
+cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env   # Compose reads it even without the AI stack
 ```
 
 `.env.example` documents every variable in numbered sections. Before the first start, change at least:
@@ -43,9 +43,10 @@ Proxmox credentials are **not** environment variables. They are entered in the s
 ## 2. Start the stack
 
 ```bash
-docker compose up -d          # server
-docker compose watch          # development: rebuilds and syncs source changes
+docker compose up -d --build --scale litellm=0
 ```
+
+`--scale litellm=0` leaves out the LiteLLM service included from `vllm-service/litellm/`: it cannot start before the AI setup in step 5 has generated its `config.yaml`. To work on the code with hot reload, run the backend and frontend on the host instead; see [Development](/guides/development).
 
 The first start takes a few minutes: `prestart` waits for PostgreSQL, applies more than 200 migrations and creates the bootstrap administrator, then exits. Check progress with:
 
@@ -64,27 +65,26 @@ Open `http://<host>:8082`. On a fresh database you are redirected to `/setup`, a
 
 1. **Administrator.** Create the system administrator, or enter the `.env` administrator's e-mail to take that account over. Passwords must satisfy the complexity policy (8 to 128 characters with upper case, lower case, digits and symbols). The wizard refuses to promote an existing non-administrator account.
 2. **Proxmox connection.** Host, port, credentials and, for a private CA, the CA certificate. The connection is tested before it is saved; node names must be unique across all connections. The pool, storages and default node used for new machines are set per connection.
-3. **IP subnet.** CIDR, gateway and DNS for the machines SkyLab creates. Static addresses are allocated from this range; the firewall is not synchronised with the subnet at this point.
+3. **IP subnet.** CIDR, gateway, DNS and PVE bridge for the machines SkyLab creates. Static addresses are allocated from this range; the firewall is not synchronised with the subnet at this point.
 4. **Gateway VM.** Optional. SSH details of the gateway; the wizard can run the installer for you. Skip it in development.
 5. **Platform entry.** Optional. Expose SkyLab itself on a domain through the gateway's nginx, with an administrator-supplied HTTPS certificate. Skip it in development.
 6. **Finish.** The wizard marks the setup as completed; any later request to it returns 403.
 
-Everything the wizard sets can be changed afterwards from the administration pages ("PVE connections", "IP management", "Gateway VM").
+Everything the wizard sets can be changed afterwards from the administration pages ("PVE Management", "IP Management", "Gateway VM").
 
 ## 4. First login
 
-Log in with the administrator account. Three things happen on every login:
+Log in with the administrator account. After the password:
 
-- **Service check.** Before the dashboard opens, SkyLab verifies that the database, Redis, Proxmox and the AI gateway are reachable. Administrators can skip the screen; students are held back when a required service is down.
-- **Two-step verification.** TOTP is optional per account. An administrator can require it for individual users; a lost device is reset from the user list or with `docker compose exec backend uv run python app/reset_totp.py <email>`.
-- **Onboarding.** A short guided tour runs once per account. Language and appearance are stored in the browser.
+- **Two-step verification.** TOTP is optional per account. An administrator can require it for individual users; a lost device is reset from the user list or with `docker compose exec backend python app/reset_totp.py <email>`.
+- **Service check.** On every login SkyLab checks the database, Redis, the worker, Proxmox, the gateway and the AI gateway before the dashboard opens. When a check fails, anyone can check again or continue with a warning; administrators also see which component failed and why.
+- **First-time setup.** On an account's first login a short wizard sets the language, profile, appearance and, optionally, two-step verification. Language and appearance are stored in the browser.
 
 ## 5. Next steps
 
-- **Templates.** Machines are cloned from platform templates. A teacher prepares a base VM or container, then converts it on the "Templates" page; cloud-init (or cloudbase-init for Windows) must be present for SkyLab to set the login user, password and IP.
-- **Governance.** The "Governance" page controls TTL reclamation, idle detection, resource alerts, mining detection and provisioning concurrency.
-- **Quotas.** Per-user and per-role limits that the request forms respect.
-- **AI.** Start the vLLM models and LiteLLM, then run `bash scripts/prepare-ai-stack.sh --init-env` to fill the keys; see the [AI API user manual](/guides/ai-api-user-manual).
-- **Monitoring.** `docker compose --profile monitoring up -d` adds Prometheus, Grafana, Loki and InfluxDB; see [Monitoring](/guides/monitoring).
+- **Templates.** Machines are cloned from platform templates. A teacher prepares a base VM or container, then uses "Create from VM" on the "Templates" page; cloud-init (or cloudbase-init for Windows) must be present for SkyLab to set the login user, password and IP.
+- **Governance and quotas.** The "Resource Policies" page controls TTL reclamation, idle detection, resource alerts, mining detection and provisioning concurrency, and holds the quotas: a global default with per-user overrides, which the request forms respect.
+- **AI.** Start the vLLM models, run `bash scripts/prepare-ai-stack.sh --init-env` to fill in the keys, then `bash scripts/prepare-ai-stack.sh --start` to generate the LiteLLM configuration and start the whole stack including LiteLLM; see the [AI API user manual](/guides/ai-api-user-manual).
+- **Monitoring.** `docker compose --profile monitoring up -d` adds Prometheus, Grafana, Loki, Alloy and InfluxDB; see [Monitoring](/guides/monitoring).
 - **Registration and Google login.** Self-registration, administrator approval and Google OAuth are described in [Registration and Google login](/guides/registration-and-google-login).
-- **Production hardening.** Platform entry, HTTPS, LDAP over TLS, log rotation and the operations checklist are in [Deployment](/guides/deployment).
+- **Production hardening.** Platform entry, HTTPS, LDAP over TLS and the operations checklist are in [Deployment](/guides/deployment).
