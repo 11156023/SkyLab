@@ -48,7 +48,7 @@ Every section of the user manual's steps ends with one picture, taken from the r
 ```bash
 cd frontend && bun run build                         # the screenshots are taken from frontend/dist
 cd ../website
-npx playwright install chromium                      # once, or set CHROME_PATH to a Chrome/Chromium
+npx playwright-core install chromium                 # once (the browser for the pinned version), or set CHROME_PATH
 node scripts/manual-shots/shoot.mjs my-requests      # one page (no name: every page); --lang, --section to narrow
 node scripts/manual-shots/preview.mjs my-requests    # contact sheets in scripts/manual-shots/.debug/
 node scripts/manual-shots/inject.mjs                 # put the image lines at the end of the sections
@@ -56,6 +56,16 @@ node scripts/manual-shots/check.mjs --strict         # every section has a pictu
 ```
 
 The browser clock is frozen at 2026-10-12 10:00 (Taipei), so re-running a scene produces the same pictures. When you change a manual page's steps, update its scene, re-shoot the page and re-run `inject.mjs`; it removes and re-inserts only its own image lines. When a page's UI changes, re-shoot that page.
+
+Things to know when writing or fixing a scene:
+
+- `hasText` and `getByRole({ name })` match a case-insensitive substring, so "Name" also matches a field whose list has a "CNAME" option. Anchor the match with `` new RegExp(`^${escapeRegExp(text)}`) ``; `escapeRegExp` is in `lib/run.mjs`.
+- A mock has to answer with the same shape as the backend. An IP subnet that is not set is `200` with `null`, not `404`; a wrong shape shows up in the picture as if the frontend were broken (for example a list that does not refresh after a delete).
+- Native date and time fields follow the browser's language, not the page's. `launchBrowser(lang)` passes `--lang`, and `shoot.mjs` opens one browser per language.
+- Consecutive steps whose screens differ by less than 4% of the pixels share a frame. On a busy machine a screen is sometimes split into two frames anyway; shoot fewer pages at a time or re-shoot that page on its own.
+- A native `title` tooltip and the open list of a native `<select>` cannot be captured; outline the element that opens them instead.
+- The floating AI assistant button can end up in the corner of a frame. Scenes hide it with `s.page.addStyleTag({ content: '[class*="_fab_"]{visibility:hidden !important}' })` where it gets in the way.
+- Open each changed picture itself before committing; the contact sheets from `preview.mjs` are too small to judge outlines and text.
 
 ## Deployment
 

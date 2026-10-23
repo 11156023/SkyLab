@@ -48,7 +48,7 @@ bun run preview    # 每次重建後要重啟：它會快取檔案清單
 ```bash
 cd frontend && bun run build                         # 截圖取自 frontend/dist
 cd ../website
-npx playwright install chromium                      # 只需一次；或把 CHROME_PATH 設成 Chrome／Chromium 的路徑
+npx playwright-core install chromium                 # 只需一次（裝鎖定版本對應的瀏覽器）；或設定 CHROME_PATH
 node scripts/manual-shots/shoot.mjs my-requests      # 拍一頁（不給頁名就全部）；--lang、--section 可縮小範圍
 node scripts/manual-shots/preview.mjs my-requests    # 總覽圖輸出到 scripts/manual-shots/.debug/
 node scripts/manual-shots/inject.mjs                 # 把圖片行插到各小節結尾
@@ -56,6 +56,16 @@ node scripts/manual-shots/check.mjs --strict         # 確認兩種語言的每�
 ```
 
 瀏覽器時鐘固定在 2026-10-12 10:00（台北），所以重跑同一個場景會得到相同的圖。修改手冊某頁的步驟時，要一併更新它的場景、重拍該頁，再跑一次 `inject.mjs`；它只會移除並重新插入自己產生的圖片行。某頁的介面改了，就重拍那一頁。
+
+撰寫或修正場景時要注意：
+
+- `hasText` 與 `getByRole({ name })` 比對的是不分大小寫的子字串，所以「Name」也會比對到選單裡有「CNAME」選項的欄位。要從開頭比對時寫成 `` new RegExp(`^${escapeRegExp(text)}`) ``；`escapeRegExp` 在 `lib/run.mjs`。
+- mock 的回應格式必須跟後端一致。尚未設定的 IP 網段是回 `200` 加 `null`，不是 `404`；格式不對時，圖上看起來會像前端壞掉（例如刪除後列表沒有更新）。
+- 原生的日期、時間欄位跟著瀏覽器本身的語言，而不是頁面的語言。`launchBrowser(lang)` 會帶 `--lang`，`shoot.mjs` 每種語言各開一個瀏覽器。
+- 畫面差異小於 4% 像素的連續步驟會共用一格。機器忙的時候，同一個畫面偶爾還是會被拆成兩格；一次少拍幾頁，或單獨重拍那一頁即可。
+- 原生的 `title` 提示與原生 `<select>` 展開後的選單拍不到，改框住觸發它們的元素。
+- 右下角的 AI 助手浮動按鈕可能落在某一格的角落。礙事的場景用 `s.page.addStyleTag({ content: '[class*="_fab_"]{visibility:hidden !important}' })` 把它藏起來。
+- 提交前要逐張打開有變動的圖本身來看；`preview.mjs` 的總覽圖縮得太小，看不清框線與文字。
 
 ## 部署
 
