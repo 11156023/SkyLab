@@ -12,6 +12,9 @@ import { SHOTS_DIR, WEBSITE, sectionName } from "./manual.mjs";
 export const VIEWPORT = { width: 1440, height: 900 };
 // Two marks belong to the same frame when less than this share of the screen changed.
 export const SAME_SCREEN = 0.04;
+
+// Escapes every RegExp metacharacter, for locators that match literal text from the start or as a whole.
+export const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const DEBUG_DIR = path.join(WEBSITE, "scripts", "manual-shots", ".debug");
 
 // ---------------------------------------------------------------- static server

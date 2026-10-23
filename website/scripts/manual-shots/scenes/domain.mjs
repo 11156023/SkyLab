@@ -1,5 +1,6 @@
 // Manual page: manual/domain.md
 import { D, H, ago } from "../lib/mock.mjs";
+import { escapeRegExp } from "../lib/run.mjs";
 import { GATEWAY_PUBLIC_IP, ZONES, firewallMocks, studentTopology } from "../mocks/network.mjs";
 
 const ACCOUNT = "7c41e2b9a05d48f3b6e1d2c3a4f50918";
@@ -62,10 +63,10 @@ function domainMocks(m, { connected = true } = {}) {
 
 const dlg = (s) => s.page.getByRole("dialog");
 const btn = (s, en, zh, exact = false) => s.page.getByRole("button", { name: s.t(en, zh), exact });
-// Matched from the start of the label (none of the captions has regex characters): a plain hasText is a
-// case-insensitive substring, so "Name" would hit the Type field, whose select has a CNAME option.
-const field = (s, en, zh) => dlg(s).locator("label", { hasText: new RegExp(`^${s.t(en, zh)}`) }).first();
-const row = (s, name) => s.page.locator('[class*="_row_"]', { has: s.page.locator('[class*="_rowName_"]', { hasText: new RegExp(`^${name.replace(/\./g, "\\.")}$`) }) }).first();
+// Matched from the start of the label: a plain hasText is a case-insensitive substring, so "Name" would
+// hit the Type field, whose select has a CNAME option.
+const field = (s, en, zh) => dlg(s).locator("label", { hasText: new RegExp(`^${escapeRegExp(s.t(en, zh))}`) }).first();
+const row = (s, name) => s.page.locator('[class*="_row_"]', { has: s.page.locator('[class*="_rowName_"]', { hasText: new RegExp(`^${escapeRegExp(name)}$`) }) }).first();
 const waitToast = async (s) => {
   const t = s.page.locator("[data-sonner-toast]").first();
   await t.waitFor({ timeout: 15000 });
