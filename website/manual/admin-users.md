@@ -1,6 +1,6 @@
 # User Management
 
-User Management is where administrators manage every account on the platform: create and edit users, assign roles, enable or disable accounts, review self-registrations and require two-factor authentication per account. Sidebar: Admin Settings → User Management. Path: `/admin`.
+User Management is where administrators manage every account on the platform: create and edit users, assign roles, enable or disable accounts, organize accounts into groups, review self-registrations and require two-factor authentication per account. Sidebar: Admin Settings → User Management. Path: `/admin`.
 
 ## Who can use it
 
@@ -95,6 +95,35 @@ Enable and Disable only change accounts that are not already in the target state
 
 ![Enable, disable or delete several accounts at once (numbers match the steps above)](/manual-shots/en/admin-users/s08.webp)
 
+### Create, rename or delete groups
+
+A group is a named set of accounts, such as one school class (資管三甲). Teachers can import a group's students straight into a class roster when they set up a class (see [Create a Class](/manual/class-setup)); only administrators can create groups and change their members.
+
+1. Click **Groups** in the page header.
+2. Type a name under **New group** and click **Add**. Group names must be unique (case does not matter).
+3. To rename a group, click the pencil icon on its row, edit the name and press Enter (Esc cancels).
+4. To delete a group, click the trash icon and confirm. Only the group is removed: the accounts stay, and class rosters already imported from it do not change.
+
+When at least one group exists, a group menu appears next to the search box; choose a group to list only its members. Each row in **Groups** shows how many members and how many students the group has. A group can hold any role, but only its student accounts are added when a teacher imports it.
+
+![Create, rename or delete groups (numbers match the steps above)](/manual-shots/en/admin-users/s09.webp)
+
+### Add group members from a CSV file
+
+1. In **Groups**, click the upload icon on the group's row and choose a `.csv` file.
+2. The first column of each row is read as an email or a student ID, using the same rules as class rosters: a bare student ID gets `@ntub.edu.tw` appended, a header row of `email`, `學號` or `帳號` is skipped, and the file must be UTF-8 or Big5 and at most 1 MB.
+3. A notice reports how many were added and how many accounts were not found.
+
+![Add group members from a CSV file (numbers match the steps above)](/manual-shots/en/admin-users/s10.webp)
+
+### Add or remove selected accounts from a group
+
+1. Tick the accounts in the user list.
+2. Click **Add to group** or **Remove from group** in the selection bar.
+3. Choose the group and click **Add** or **Remove**.
+
+![Add or remove selected accounts from a group (numbers match the steps above)](/manual-shots/en/admin-users/s11.webp)
+
 ### Require two-factor authentication for an account
 
 1. Click **Edit** on the row.
@@ -103,7 +132,7 @@ Enable and Disable only change accounts that are not already in the target state
 
 If the user has not set up two-factor authentication yet, they must finish setting it up right after their next sign-in. Afterwards they cannot turn it off themselves.
 
-![Require two-factor authentication for an account (numbers match the steps above)](/manual-shots/en/admin-users/s09.webp)
+![Require two-factor authentication for an account (numbers match the steps above)](/manual-shots/en/admin-users/s12.webp)
 
 ### Reset a user's two-factor authentication
 
@@ -115,7 +144,7 @@ Use this when a user has lost the phone with their authenticator app.
 
 All of the user's sessions are signed out immediately. Their next sign-in only needs the password, and they can set up two-factor authentication again themselves (or are asked to, if it is required for the account).
 
-![Reset a user's two-factor authentication (numbers match the steps above)](/manual-shots/en/admin-users/s10.webp)
+![Reset a user's two-factor authentication (numbers match the steps above)](/manual-shots/en/admin-users/s13.webp)
 
 ### Delete a user
 
@@ -124,16 +153,16 @@ All of the user's sessions are signed out immediately. Their next sign-in only n
 
 After deletion the account cannot sign in or use any service, and its AI API keys are revoked. Usage, request and audit records are kept. The account cannot be restored, and its email cannot be registered again.
 
-![Delete a user (numbers match the steps above)](/manual-shots/en/admin-users/s11.webp)
+![Delete a user (numbers match the steps above)](/manual-shots/en/admin-users/s14.webp)
 
 ### Find a user
 
 1. Type in the search box ("Search by name, email, or role").
-2. The list filters as you type. Click **Clear search** in the empty state to reset it.
+2. The list filters as you type. To look within one group, choose it in the group menu next to the search box. Click **Clear search** in the empty state to reset both.
 
 The list shows 50 users per page; use **Previous** and **Next** below the list to move between pages.
 
-![Find a user (numbers match the steps above)](/manual-shots/en/admin-users/s12.webp)
+![Find a user (numbers match the steps above)](/manual-shots/en/admin-users/s15.webp)
 
 ## Fields and options
 
@@ -148,6 +177,7 @@ The list shows 50 users per page; use **Previous** and **Next** below the list t
 | Allow self-registration | Lets anyone register from the login page | Saved immediately |
 | Require administrator approval | New registrations wait in Pending registrations | Saved immediately |
 | Allow account creation on first Google login | Lets a Google address without an account create a student account at its first sign-in | Saved immediately; independent of self-registration |
+| Group name | Name of a group in **Groups** | Required, up to 120 characters, unique regardless of case |
 
 Each row shows the name and email, an **LDAP** tag for directory-managed accounts, a **2FA** tag when two-factor authentication is set up, the role badge, the status (**Active**, **Inactive**, **Email not verified**, **Awaiting approval** or **Registration rejected**) and the creation date.
 
@@ -161,6 +191,7 @@ The summary cards above the list show **Total Users**, **Active**, **Teachers** 
 - An account's email cannot be changed while its registration is not yet approved.
 - LDAP accounts get their role from directory groups at every LDAP sign-in when group mapping is configured, so a role you change here can be overwritten. See [LDAP](/manual/ldap).
 - Administrators are not limited by quotas; per-user quotas for other users are set on [Resource Policies](/manual/governance).
+- Deleted accounts no longer count as members of any group.
 - The list refreshes itself in the background while the page is open.
 
 ## Related

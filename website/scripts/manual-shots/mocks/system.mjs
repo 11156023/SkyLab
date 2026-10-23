@@ -73,6 +73,75 @@ export function useAccounts(m, { policy = { signup_enabled: true, approval_requi
   ]);
 }
 
+// ---------------------------------------------------------------- user groups
+
+// Administrator-managed groups, one school class each. On User Management the counts come from the
+// accounts in accountList(); the teacher's class pages have no account list and see class-sized counts.
+export function useUserGroups(m) {
+  const st = m.state;
+  let next = 1;
+  const group = (name, emails, size, days) => ({
+    id: `5b8e2f10-${String(next++).padStart(4, "0")}-4a00-9000-0000000000dd`, name, emails: [...emails], size, created_at: ago(days * D),
+  });
+  st.groups = [
+    group(m.L("IM Year 3 Class B", "資管三乙"), ["11256003@ntub.edu.tw", "11256021@ntub.edu.tw", "11256045@ntub.edu.tw", "11256052@ntub.edu.tw",
+      "11256078@ntub.edu.tw", "11256094@ntub.edu.tw", "lin@ntub.edu.tw"], [47, 46], 40),
+    group(m.L("IM Year 4 Class A", "資管四甲"), ["11156001@ntub.edu.tw", "11156012@ntub.edu.tw", "11156034@ntub.edu.tw", "11156067@ntub.edu.tw",
+      "11156083@ntub.edu.tw"], [44, 44], 40),
+    group(m.L("Course TAs", "課程助教"), ["11156012@ntub.edu.tw", "11256021@ntub.edu.tw"], [2, 2], 12),
+  ];
+  const members = (g) => (st.accounts ?? []).filter((u) => g.emails.includes(u.email));
+  const pub = (g) => {
+    const base = { id: g.id, name: g.name, created_at: g.created_at };
+    if (!st.accounts) return { ...base, member_count: g.size[0], student_count: g.size[1] };
+    const list = members(g);
+    return { ...base, member_count: list.length, student_count: list.filter((u) => u.role === "student").length };
+  };
+  const find = (id) => st.groups.find((g) => g.id === id);
+  const result = (g, extra) => ({ added: 0, removed: 0, not_found: [], ...extra, group: pub(g) });
+  const emailsOf = (ids) => (st.accounts ?? []).filter((u) => ids.includes(u.id)).map((u) => u.email);
+  m.use([
+    ["GET", /^\/api\/v1\/user-groups\/$/, () => ({ data: st.groups.map(pub), count: st.groups.length })],
+    ["POST", /^\/api\/v1\/user-groups\/$/, ({ body }) => {
+      const g = group(body.name, [], [0, 0], 0);
+      st.groups.push(g);
+      return pub(g);
+    }],
+    ["PATCH", /^\/api\/v1\/user-groups\/([^/]+)$/, ({ mt, body }) => {
+      const g = find(mt[1]);
+      g.name = body.name;
+      return pub(g);
+    }],
+    ["DELETE", /^\/api\/v1\/user-groups\/([^/]+)$/, ({ mt }) => {
+      st.groups = st.groups.filter((g) => g.id !== mt[1]);
+      return { message: "ok" };
+    }],
+    ["GET", /^\/api\/v1\/user-groups\/([^/]+)\/members$/, ({ mt }) => {
+      const data = members(find(mt[1])).map(({ id, email, full_name, role, is_active }) => ({ id, email, full_name, role, is_active }));
+      return { data, count: data.length };
+    }],
+    ["POST", /^\/api\/v1\/user-groups\/([^/]+)\/members$/, ({ mt, body }) => {
+      const g = find(mt[1]);
+      const fresh = emailsOf(body?.user_ids ?? []).filter((e) => !g.emails.includes(e));
+      g.emails.push(...fresh);
+      return result(g, { added: fresh.length });
+    }],
+    ["POST", /^\/api\/v1\/user-groups\/([^/]+)\/members\/remove$/, ({ mt, body }) => {
+      const g = find(mt[1]);
+      const gone = emailsOf(body?.user_ids ?? []).filter((e) => g.emails.includes(e));
+      g.emails = g.emails.filter((e) => !gone.includes(e));
+      return result(g, { removed: gone.length });
+    }],
+    // The scenes upload a roster of two known students and one ID that has no account.
+    ["POST", /^\/api\/v1\/user-groups\/([^/]+)\/members\/import-csv$/, ({ mt }) => {
+      const g = find(mt[1]);
+      const fresh = ["11256045@ntub.edu.tw", "11156034@ntub.edu.tw"].filter((e) => !g.emails.includes(e));
+      g.emails.push(...fresh);
+      return { __delay: 300, __body: result(g, { added: fresh.length, not_found: ["11256999@ntub.edu.tw"] }) };
+    }],
+  ]);
+}
+
 // ---------------------------------------------------------------- governance and quotas
 
 export const governanceConfig = () => ({

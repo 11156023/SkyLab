@@ -7,6 +7,8 @@ import Stepper from "../../../components/Stepper/Stepper";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EnvironmentChoice from "../EnvironmentChoice";
+import GroupImportDialog from "../GroupImportDialog";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import shared from "../CourseOperations.module.scss";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { usePublishedCourseEnvironmentsQuery } from "../../../queries/courseEnvironments";
@@ -143,6 +145,8 @@ export default function ClassSetupPage() {
   const [weeks, setWeeks] = useState([]);
   const [publishWeeks, setPublishWeeks] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [showGroupImport, setShowGroupImport] = useState(false);
+  const groupImportDialog = useDialogPresence(showGroupImport);
   const [invalidField, setInvalidField] = useState("");
   const [draftOpen, setDraftOpen] = useState(false);
   const nameRef = useRef(null);
@@ -381,6 +385,23 @@ export default function ClassSetupPage() {
     finally { if (fileRef.current) fileRef.current.value = ""; setBusy(false); }
   }
 
+  /* 群組裡的老師／管理員本來就不能當學生，不像打錯的 email 能修，提示一下就好，不塞回輸入框 */
+  async function importGroup(group) {
+    setBusy(true);
+    try {
+      const result = await TeachingClassesService.importGroup(classId, group.id);
+      applyClass(result.class);
+      setShowGroupImport(false);
+      const invalidRole = result.invalid_role ?? [];
+      if (invalidRole.length) {
+        toast.warning(t("ClassSetupPage.groupImportedSkippedMsg", { name: group.name, count: result.added, list: joinList(invalidRole) }));
+      } else {
+        toast.success(t("ClassSetupPage.groupImportedMsg", { name: group.name, count: result.added }));
+      }
+    } catch (reason) { toast.error(reason?.message ?? t("ClassSetupPage.groupImportFailed")); }
+    finally { setBusy(false); }
+  }
+
   async function removeStudent(student) {
     const name = student.full_name || student.email;
     const ok = await confirm({
@@ -530,6 +551,7 @@ export default function ClassSetupPage() {
             <div className={styles.studentTools}>
               <input ref={fileRef} className={styles.hiddenFileInput} type="file" accept=".csv,text/csv" onChange={importCsv} tabIndex={-1} aria-hidden="true" />
               <button type="button" className={styles.btnGhost} data-guide="class-setup-csv" disabled={busy} onClick={() => fileRef.current?.click()}><MIcon name="upload" size={16} />{t("ClassSetupPage.importCsvBtn")}</button>
+              <button type="button" className={styles.btnGhost} data-guide="class-setup-group-import" disabled={busy} onClick={() => setShowGroupImport(true)}><MIcon name="groups" size={16} />{t("ClassSetupPage.importGroupBtn")}</button>
             </div>
             <div className={styles.roster} data-guide="class-setup-roster">
               <div className={styles.rosterHead}><strong>{t("ClassSetupPage.currentStudentsLabel")}</strong><span>{t("ClassSetupPage.studentsCountLabel", { count: item?.students.length ?? 0 })}</span></div>
@@ -644,5 +666,7 @@ export default function ClassSetupPage() {
 
       {step < 5 && draftPanel}
     </div>
+
+    {groupImportDialog.open && <GroupImportDialog closing={groupImportDialog.closing} busy={busy} onClose={() => setShowGroupImport(false)} onImport={importGroup} />}
   </div>;
 }

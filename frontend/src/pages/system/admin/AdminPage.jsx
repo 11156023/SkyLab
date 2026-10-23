@@ -7,10 +7,11 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
-import { useLoadError, useQueryView } from "../../../hooks/useQueryLoadState";
+import { useLoadError, useQueryErrorEffect, useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UsersService } from "../../../services/users";
+import { UserGroupsService } from "../../../services/userGroups";
 import {
   useAllUsersQuery,
   usePendingRegistrationsQuery,
@@ -18,6 +19,7 @@ import {
   useUserCacheUpdater,
 } from "../../../queries/users";
 import { LIST_REFRESH_INTERVAL } from "../../../queries/queryClient";
+import { useUserGroupCacheUpdater, useUserGroupMembersQuery, useUserGroupsQuery } from "../../../queries/userGroups";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import PasswordRules from "../../../components/PasswordRules/PasswordRules";
@@ -31,6 +33,7 @@ import { formatDate } from "../../../utils/formatDate";
 import { joinList } from "../../../utils/joinList";
 import { isPasswordStrong } from "../../../utils/passwordPolicy";
 import { runBatch } from "../../../utils/runBatch";
+import { GroupManagerDialog, GroupPickDialog } from "./UserGroupDialogs";
 
 const ROLE_ICONS = {
   student: "school",
@@ -388,6 +391,31 @@ export default function AdminPage() {
     if (registrationLoadErrorMessage) toast.error(registrationLoadErrorMessage);
   }, [registrationLoadErrorMessage, toast]);
 
+  /* 群組（例如一個班）：篩選選單、群組管理對話框、批量加入／移出共用同一份清單，跟著使用者清單一起背景刷新 */
+  const groupsQuery = useUserGroupsQuery({ refetchInterval: LIST_REFRESH_INTERVAL });
+  const groupCache = useUserGroupCacheUpdater();
+  const groups = groupsQuery.data ?? EMPTY;
+  const groupsLoadError = useLoadError(groupsQuery).error;
+  const groupsLoadErrorMessage = groupsLoadError
+    ? groupsLoadError?.message ?? t("UserGroups.loadFailed")
+    : null;
+  useEffect(() => {
+    if (groupsLoadErrorMessage) toast.error(groupsLoadErrorMessage);
+  }, [groupsLoadErrorMessage, toast]);
+  const [groupFilter, setGroupFilter] = useState("");
+  /* 篩選中的群組被刪掉了（自己或別的管理員刪的）：清單回來後就當作沒選，回到全部使用者 */
+  const activeGroupId = groupsQuery.data && !groups.some((group) => group.id === groupFilter) ? "" : groupFilter;
+  const membersQuery = useUserGroupMembersQuery(activeGroupId);
+  useQueryErrorEffect(membersQuery, (err) => {
+    toast.error(err?.message ?? t("UserGroups.loadFailed"));
+    setGroupFilter("");
+  });
+  const [showGroupManager, setShowGroupManager] = useState(false);
+  const groupManagerPresence = useDialogPresence(showGroupManager);
+  const [groupPick, setGroupPick] = useState(null); // { mode: "add" | "remove", count }
+  const groupPickPresence = useDialogPresence(groupPick);
+  const [groupSaving, setGroupSaving] = useState(false);
+
   async function saveRegistrationPolicy(patch) {
     if (!registrationPolicy || policySaving) return;
     setPolicySaving(true);
@@ -416,19 +444,23 @@ export default function AdminPage() {
     }
   }
 
+  const memberData = membersQuery.data;
   const visibleUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    if (!keyword) return users;
+    /* 選了群組但成員還沒載回來時先顯示空清單，不要閃一下全部使用者 */
+    const memberIds = activeGroupId ? new Set((memberData ?? EMPTY).map((member) => member.id)) : null;
+    if (!keyword && !memberIds) return users;
     return users.filter((item) =>
-      [item.email, item.full_name, item.role]
+      (!memberIds || memberIds.has(item.id))
+      && (!keyword || [item.email, item.full_name, item.role]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword)),
+        .some((value) => String(value).toLowerCase().includes(keyword))),
     );
-  }, [query, users]);
+  }, [query, users, activeGroupId, memberData]);
 
   /* 前端分頁：搜尋過濾後再切頁；條件一改就回到第一頁 */
   const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [query]);
+  useEffect(() => { setPage(0); }, [query, activeGroupId]);
   const totalPages = Math.max(1, Math.ceil(visibleUsers.length / PAGE_SIZE));
   /* 背景刷新後人數變少時 page 可能超出範圍，切片、頁碼與按鈕停用一律用夾過的值 */
   const safePage = Math.min(page, totalPages - 1);
@@ -514,6 +546,7 @@ export default function AdminPage() {
     /* 成功的先就地拿掉，再整份重抓（刪帳號會連帶影響其他欄位與待審清單） */
     await userCache.removeMany(res.results.filter((r) => r.ok).map((r) => r.item.id));
     userCache.invalidate();
+    groupCache.invalidate();
     if (res.failed === 0) {
       toast.success(t("AdminPage.batchDoneToast", { count: res.succeeded, label }));
     } else {
@@ -523,6 +556,28 @@ export default function AdminPage() {
     }
     selection.replace(res.results.filter((r) => !r.ok).map((r) => r.item.id));
     setBatchProgress(null);
+  }
+
+  async function submitGroupPick(group) {
+    const ids = selectedUsers.map((item) => item.id);
+    if (!ids.length || !groupPick || groupSaving) return;
+    const isAdd = groupPick.mode === "add";
+    setGroupSaving(true);
+    try {
+      const res = isAdd
+        ? await UserGroupsService.addMembers(group.id, { userIds: ids })
+        : await UserGroupsService.removeMembers(group.id, ids);
+      toast.success(isAdd
+        ? t("UserGroups.addedToast", { name: group.name, count: res.added })
+        : t("UserGroups.removedToast", { name: group.name, count: res.removed }));
+      setGroupPick(null);
+      selection.clear();
+      await groupCache.invalidate();
+    } catch (err) {
+      toast.error(err?.message ?? t("UserGroups.saveFailed"));
+    } finally {
+      setGroupSaving(false);
+    }
   }
 
   async function handleSubmit(payload) {
@@ -558,6 +613,7 @@ export default function AdminPage() {
     try {
       await UsersService.delete(user.id);
       await userCache.remove(user.id);
+      groupCache.invalidate();
       toast.success(t("AdminPage.toastDeleted"));
     } catch (err) {
       toast.error(err?.message ?? t("AdminPage.toastDeleteFailed"));
@@ -588,6 +644,10 @@ export default function AdminPage() {
   return (
     <div className={styles.page}>
       <PageHeader title={t("AdminPage.pageTitle")}>
+        <button type="button" className={styles.btnSecondary} data-guide="admin-groups" onClick={() => setShowGroupManager(true)}>
+          <MIcon name="groups" size={16} />
+          {t("UserGroups.manage")}
+        </button>
         <button type="button" className={styles.btnPrimary} onClick={() => setModal({ mode: "create" })}>
           <MIcon name="person_add" size={16} />
           {t("AdminPage.addUser")}
@@ -699,6 +759,21 @@ export default function AdminPage() {
             />
             <BatchDivider />
             <BatchAction
+              icon="group_add"
+              label={t("UserGroups.batchAdd")}
+              disabled={groups.length === 0}
+              title={groups.length === 0 ? t("UserGroups.emptyCreateFirst") : undefined}
+              onClick={() => setGroupPick({ mode: "add", count: selectedUsers.length })}
+            />
+            <BatchAction
+              icon="group_remove"
+              label={t("UserGroups.batchRemove")}
+              disabled={groups.length === 0}
+              title={groups.length === 0 ? t("UserGroups.emptyCreateFirst") : undefined}
+              onClick={() => setGroupPick({ mode: "remove", count: selectedUsers.length })}
+            />
+            <BatchDivider />
+            <BatchAction
               icon="delete"
               label={t("AdminPage.delete")}
               danger
@@ -707,6 +782,22 @@ export default function AdminPage() {
           </BatchBar>
         )}
       >
+        {groups.length > 0 && (
+          <select
+            className={styles.groupFilter}
+            value={activeGroupId}
+            onChange={(event) => setGroupFilter(event.target.value)}
+            aria-label={t("UserGroups.filterAria")}
+            data-guide="admin-group-filter"
+          >
+            <option value="">{t("UserGroups.filterAll")}</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {t("UserGroups.filterOption", { name: group.name, count: group.member_count })}
+              </option>
+            ))}
+          </select>
+        )}
         <ToolbarSearch value={query} onChange={setQuery} placeholder={t("AdminPage.searchPlaceholder")} />
       </DataToolbar>
 
@@ -714,7 +805,7 @@ export default function AdminPage() {
         {loading ? (
           <LoadingState fullPage text={t("AdminPage.loading")} />
         ) : visibleUsers.length === 0 ? (
-          <EmptyState hasQuery={Boolean(query.trim())} onClearSearch={() => setQuery("")} onCreate={() => setModal({ mode: "create" })} />
+          <EmptyState hasQuery={Boolean(query.trim() || activeGroupId)} onClearSearch={() => { setQuery(""); setGroupFilter(""); }} onCreate={() => setModal({ mode: "create" })} />
         ) : (
           <>
             <div className={styles.list}>
@@ -756,6 +847,28 @@ export default function AdminPage() {
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
           onResetTotp={handleResetTotp}
+        />
+      )}
+
+      {groupManagerPresence.open && (
+        <GroupManagerDialog
+          groups={groups}
+          closing={groupManagerPresence.closing}
+          onClose={() => setShowGroupManager(false)}
+          onChanged={() => groupCache.invalidate()}
+        />
+      )}
+
+      {groupPickPresence.open && (
+        <GroupPickDialog
+          mode={groupPickPresence.item.mode}
+          groups={groups}
+          defaultGroupId={activeGroupId}
+          count={groupPickPresence.item.count}
+          busy={groupSaving}
+          closing={groupPickPresence.closing}
+          onClose={() => setGroupPick(null)}
+          onSubmit={submitGroupPick}
         />
       )}
     </div>

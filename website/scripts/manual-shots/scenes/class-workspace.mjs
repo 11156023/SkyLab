@@ -1,5 +1,6 @@
 // Manual page: manual/class-workspace.md
 import { CLASS_IDS, brokenEnvironment, desktopFrame, installClasses, patchWebSocket } from "../mocks/class.mjs";
+import { useUserGroups } from "../mocks/system.mjs";
 
 const MAIN = { x: 330, y: 0, width: 1110, height: 900 };
 const UPPER = { x: 330, y: 0, width: 1110, height: 620 };
@@ -17,6 +18,7 @@ export default {
   role: "teacher",
   mocks(m) {
     installClasses(m, { extraEnvs: { sec: brokenEnvironment(m) } });
+    useUserGroups(m);
   },
   sections: [
     // s01 Read the class overview
@@ -72,7 +74,22 @@ export default {
         await s.shot(6, toasts.filter({ hasText: "CSV" }).first(), o);
       },
     },
-    // s04 Find and remove students
+    // s04 Import students from a group
+    async (s) => {
+      await s.go(at("iot", "students"), { wait: 800 });
+      const open = btn(s, "Import from group", "從群組匯入");
+      await s.shot(1, open, { crop: UPPER });
+      await s.click(open, { wait: 600 });
+      const d = dialog(s);
+      await s.shot(2, d.locator("select"));
+      const go = btn(s, "Import", "匯入", d);
+      await s.shot(3, go);
+      await go.click();
+      await toast(s).waitFor();
+      await s.page.waitForTimeout(600);
+      await s.shot(3, toast(s), { crop: UPPER, scroll: false, newFrame: true });
+    },
+    // s05 Find and remove students
     async (s) => {
       await s.go(at("ds", "students"), { wait: 800 });
       const search = s.page.getByPlaceholder(s.t("Search name or email", "搜尋姓名或 Email"));
@@ -92,7 +109,7 @@ export default {
       await s.settle(300);
       await s.shot(3, [s.page.getByRole("button", { name: s.t("Remove", "移除"), exact: true }).first(), boxes.nth(1), boxes.nth(3), boxes.nth(4)], { crop: MAIN });
     },
-    // s05 Choose the teaching environment
+    // s06 Choose the teaching environment
     async (s) => {
       await s.go(at("ds", "machines"), { wait: 800 });
       const choose = s.page.locator('[data-guide="class-machines-choose"]');
@@ -114,12 +131,12 @@ export default {
       await s.shot(4, [s.page.locator('[data-guide="class-machines-create"] button'), cards.filter({ hasText: s.t("Docker & Kubernetes Lab", "Docker 與 Kubernetes 實作環境") }), toast(s)], { newFrame: true, crop: MAIN, scroll: false });
       await s.shot(5, s.page.locator(cls("topologySummary")), { crop: MAIN, scroll: false });
     },
-    // s06 Read the applied environment (no numbered steps)
+    // s07 Read the applied environment (no numbered steps)
     async (s) => {
       await s.go(at("cloud", "machines"), { wait: 1200 });
       await s.shot(0, s.page.locator('[data-guide="class-machines-applied"]'), { crop: MAIN, scroll: false });
     },
-    // s07 Submit for provisioning
+    // s08 Submit for provisioning
     async (s) => {
       await s.go(at("web", "overview"), { wait: 1200 });
       const card = s.page.locator('[data-guide="class-overview-status"]');
@@ -131,7 +148,7 @@ export default {
       await s.go(at("net", "overview"), { wait: 1000 });
       await s.shot(4, s.page.locator('[data-guide="class-overview-status"]'), { crop: { x: 330, y: 0, width: 1110, height: 560 } });
     },
-    // s08 Recover from a partly failed build
+    // s09 Recover from a partly failed build
     async (s) => {
       await s.go(at("ml", "overview"), { wait: 1000 });
       await s.shot(1, s.page.getByRole("button", { name: s.t("Retry failed items", "重試失敗項目") }), { crop: { x: 330, y: 0, width: 1110, height: 560 } });
@@ -142,7 +159,7 @@ export default {
       await s.click(unlock, { wait: 400 });
       await s.shot(2, btn(s, "Release and return", "釋放並返回", dialog(s)));
     },
-    // s09 Edit weekly content
+    // s10 Edit weekly content
     async (s) => {
       await s.go(at("cloud", "weekly"), { wait: 1000 });
       const rows = s.page.locator('[data-guide="class-weekly-row"]');
@@ -160,7 +177,7 @@ export default {
       await s.shot(4, [rows.nth(9).locator('[data-guide="class-weekly-visibility"]'), toast(s)], { crop: MAIN, scroll: false });
       await s.shot(5, s.page.locator('[data-guide="class-weekly-save"] button'), { min: [1110, 300] });
     },
-    // s10 Monitor the class
+    // s11 Monitor the class
     async (s) => {
       await s.go(at("cloud", "progress"), { wait: 1500 });
       await s.page.evaluate(() => window.scrollTo(0, 260));
@@ -171,7 +188,7 @@ export default {
       await s.shot(4, s.page.locator('[data-guide="class-progress-tiles"]'), o);
       await s.shot(5, s.page.locator('[data-guide="class-progress-attention"]'), o);
     },
-    // s11 Open a student's machine
+    // s12 Open a student's machine
     async (s) => {
       s.m.state.vncFrame = await desktopFrame(s.browser, s.lang);
       await s.go(at("cloud", "progress"), { wait: 1500 });
@@ -194,7 +211,7 @@ export default {
       const tb = await term.boundingBox();
       await s.shot(3, term.locator(cls("header")), { newFrame: true, crop: { x: tb.x - 16, y: Math.max(0, tb.y - 16), width: tb.width + 32, height: 440 } });
     },
-    // s12 Broadcast a demo to the class
+    // s13 Broadcast a demo to the class
     async (s) => {
       await s.go(at("cloud", "progress"), { wait: 1500 });
       const row = s.page.locator('[data-guide="class-progress-broadcast"]');
@@ -205,7 +222,7 @@ export default {
       await s.shot(2, row, { newFrame: true, crop, scroll: false });
       await s.shot(3, btn(s, "End broadcast", "結束直播", row), { crop, scroll: false });
     },
-    // s13 Start or shut down the whole class
+    // s14 Start or shut down the whole class
     {
       mocks(m) {
         // Start all is quick and two machines are locked by a backup; shutdown is slow enough to catch the progress.
@@ -232,7 +249,7 @@ export default {
         await s.shot(3, [row.locator(cls("broadcastControls")).locator("span").last(), toast(s)], { crop, scroll: false });
       },
     },
-    // s14 Extend the class
+    // s15 Extend the class
     async (s) => {
       await s.go(at("cloud", "overview"), { wait: 1000 });
       await s.click(menuBtn(s));
@@ -244,7 +261,7 @@ export default {
       await s.shot(2, d.locator('input[type="date"]'));
       await s.shot(3, btn(s, "Extend", "延長", d));
     },
-    // s15 Archive the class and reclaim machines
+    // s16 Archive the class and reclaim machines
     {
       mocks(m) { m.state.reclaimFailures = 3; },
       run: async (s) => {

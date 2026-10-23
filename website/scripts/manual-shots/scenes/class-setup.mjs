@@ -68,12 +68,13 @@ export default {
       await s.shot(1, s.page.locator('[data-guide="class-setup-emails"]'), { crop: MAIN });
       // The CSV notice (still on screen) shows the import happened right away.
       await s.shot(2, [s.page.locator('[data-guide="class-setup-csv"]'), toast(s)], { crop: MAIN });
-      await s.shot(3, s.page.locator(`[data-guide="class-setup-roster"] ${cls("rosterHead")}`), { crop: MAIN });
+      await s.shot(3, s.page.locator('[data-guide="class-setup-group-import"]'), { crop: MAIN });
+      await s.shot(4, s.page.locator(`[data-guide="class-setup-roster"] ${cls("rosterHead")}`), { crop: MAIN });
       const removeIcon = s.page.locator(`[data-guide="class-setup-roster"] li button`).nth(1);
-      await s.shot(4, removeIcon, { crop: MAIN });
+      await s.shot(5, removeIcon, { crop: MAIN });
       await s.click(removeIcon, { wait: 400 });
       const dlg = s.page.getByRole("alertdialog");
-      await s.shot(4, dlg.getByRole("button", { name: s.t("Remove", "移除"), exact: true }));
+      await s.shot(5, dlg.getByRole("button", { name: s.t("Remove", "移除"), exact: true }));
       await s.click(dlg.getByRole("button", { name: s.t("Cancel", "取消") }), { wait: 400 });
       await s.fill(s.page.locator('[data-guide="class-setup-emails"] textarea'), "11156229@ntub.edu.tw\n11156230@ntub.edu.tw\nkevin.chen99@gmail.com\nchen@ntub.edu.tw");
       await s.page.locator('[data-guide="class-setup-next"]').click();
@@ -81,7 +82,7 @@ export default {
       await rejected.waitFor();
       await s.page.waitForTimeout(300);
       // The rejected addresses stay in the box with a red border, so the box itself is not outlined.
-      await s.shot(5, [s.page.locator('[data-guide="class-setup-next"]'), rejected], { crop: MAIN });
+      await s.shot(6, [s.page.locator('[data-guide="class-setup-next"]'), rejected], { crop: MAIN });
     },
     // s04 Step 3: Teaching environment
     async (s) => {

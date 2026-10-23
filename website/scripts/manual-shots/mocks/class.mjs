@@ -299,6 +299,12 @@ export function installClasses(m, opts = {}) {
       if (st.csvRejects) { res.not_found = st.csvRejects.notFound; res.invalid_role = st.csvRejects.invalid; }
       return { __delay: 300, __body: res };
     })],
+    // A whole school class from User Management; its homeroom teacher is listed as not a student.
+    ["POST", R("/students/import-group"), wrap((c) => {
+      const emails = Array.from({ length: 6 }, (_, i) => `${c.prefix}${String(roster(c).length + i + 1).padStart(2, "0")}@ntub.edu.tw`);
+      const res = addEmails(c, [...emails, "lin@ntub.edu.tw"]);
+      return { __delay: 300, __body: res };
+    })],
     ["DELETE", R("/students/([^/]+)"), wrap((c, b, { mt }) => {
       const i = Number(String(mt[2]).split("-").pop());
       c._roster = roster(c).filter((x) => x.idx !== i);
