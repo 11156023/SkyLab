@@ -6,7 +6,7 @@
 
 - Docker Engine 與 Compose ≥ 2.20（根目錄 compose 檔用到 `include`）
 - Python 用 [uv](https://docs.astral.sh/uv/)、前端用 [Bun](https://bun.sh/)
-- 後端需要 Python **3.11 以上**（`requires-python = ">=3.11"`；程式用到 3.10 沒有的 `datetime.UTC`）。CI 以 3.11 測試，正式映像跑 3.14；系統內建的版本太舊時 `uv sync` 會自動下載合適的直譯器
+- 後端需要 Python **3.11 以上**（`requires-python = ">=3.11"`；程式用到 3.10 沒有的 `datetime.UTC`）。CI 以 3.11 測試，正式映像跑 3.15；系統內建的版本太舊時 `uv sync` 會自動下載合適的直譯器
 - 要實際建機器才需要連得到的 Proxmox VE 節點或叢集；介面、認證、文件與大多數測試不需要
 
 ## Docker Compose

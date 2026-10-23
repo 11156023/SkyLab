@@ -179,7 +179,7 @@ docker compose exec backend bash scripts/tests-start.sh -x   # inside the runnin
 
 The `db` fixture in `tests/conftest.py` refuses to run against a database whose name does not look like a test database; set `PYTEST_ALLOW_NON_TEST_DB=1` to override and `PYTEST_ENABLE_DB_CLEANUP=1` to enable cleanup. Tests disable Sentry. Pure-function layers (`domain/`, `services/*/policy.py`, `tests/performance/` tier 2) run without any external dependency.
 
-CI runs the suite on Python 3.11 (`.github/workflows/backend-tests.yml`); the production image is `python:3.14-slim`.
+CI runs the suite on Python 3.11 (`.github/workflows/backend-tests.yml`); the production image is `python:3.15-slim`.
 
 ## Code quality
 

@@ -179,7 +179,7 @@ docker compose exec backend bash scripts/tests-start.sh -x   # 在執行中的 s
 
 `tests/conftest.py` 的 `db` fixture 會拒絕對名稱不像測試庫的資料庫執行；設 `PYTEST_ALLOW_NON_TEST_DB=1` 可覆蓋、`PYTEST_ENABLE_DB_CLEANUP=1` 可啟用清理。測試一律停用 Sentry。純函式層（`domain/`、`services/*/policy.py`、`tests/performance/` 層 2）不需任何外部依賴。
 
-CI 以 Python 3.11 跑測試（`.github/workflows/backend-tests.yml`）；正式映像是 `python:3.14-slim`。
+CI 以 Python 3.11 跑測試（`.github/workflows/backend-tests.yml`）；正式映像是 `python:3.15-slim`。
 
 ## 程式碼品質
 
