@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./RequestReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { SpecChangeRequestsService } from "../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../services/vmRequests";
 import { CONSUMED_REQUEST_MARKERS } from "../../../services/pendingResources";
+import {
+  useAllVmRequestsQuery,
+  useVmRequestCacheUpdater,
+  useVmRequestReviewContextQuery,
+} from "../../../queries/vmRequests";
+import { useAllSpecChangeRequestsQuery, useSpecChangeRequestCacheUpdater } from "../../../queries/specChangeRequests";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import Modal from "../../../components/Modal/Modal";
@@ -119,13 +125,29 @@ function vmSpecLabel(request, t) {
   });
 }
 
-function specChangeLabel(request, t) {
+const CHANGE_TYPE_KEYS = {
+  cpu: "RequestReviewPage.changeTypeCpu",
+  memory: "RequestReviewPage.changeTypeMemory",
+  disk: "RequestReviewPage.changeTypeDisk",
+  combined: "RequestReviewPage.changeTypeCombined",
+  expiry: "RequestReviewPage.changeTypeExpiry",
+};
+
+/** 規格調整的類型：後端的 enum 值換成三語標籤，沒見過的值照原樣顯示 */
+export function changeTypeLabel(type, t) {
+  return CHANGE_TYPE_KEYS[type] ? t(CHANGE_TYPE_KEYS[type]) : type || "-";
+}
+
+/* 記憶體跟建立申請的規格一樣以 GB 顯示（後端存 MB） */
+const memoryGb = (mb) => (mb == null ? "-" : (mb / 1024).toFixed(1));
+
+export function specChangeLabel(request, t) {
   const parts = [
     request.requested_cpu
       ? t("RequestReviewPage.specChangeCpu", { from: request.current_cpu ?? "-", to: request.requested_cpu })
       : "",
     request.requested_memory
-      ? t("RequestReviewPage.specChangeRam", { from: request.current_memory ?? "-", to: request.requested_memory })
+      ? t("RequestReviewPage.specChangeRam", { from: memoryGb(request.current_memory), to: memoryGb(request.requested_memory) })
       : "",
     request.requested_disk
       ? t("RequestReviewPage.specChangeDisk", { from: request.current_disk ?? "-", to: request.requested_disk })
@@ -137,7 +159,7 @@ function specChangeLabel(request, t) {
         })
       : "",
   ].filter(Boolean);
-  return parts.join(" / ") || request.change_type || "-";
+  return parts.join(" / ") || changeTypeLabel(request.change_type, t);
 }
 
 /* AI API 金鑰申請有專屬的 /ai-api-review 頁；刪除申請是自動處理的佇列
@@ -200,7 +222,7 @@ function normalizeSpecRequest(request, t) {
     specText: specChangeLabel(request, t),
     reason: request.reason,
     paramLabel: t("RequestReviewPage.paramLabelChangeType"),
-    paramText: request.change_type || "-",
+    paramText: changeTypeLabel(request.change_type, t),
     gpuText: "-",
     nodeText: `VMID ${request.vmid}`,
     createdAt: request.created_at,
@@ -287,6 +309,7 @@ const LIST_LIMIT = 100;
 /* 待審分頁是審核工作佇列，不能被截斷：service 超過後端單頁上限時會自動以 skip 分頁補齊 */
 const PENDING_LIST_LIMIT = 1000;
 const EMPTY_PAGE = { data: [], count: 0 };
+const NO_REQUESTS = Object.freeze([]);
 
 function pageCount(res) {
   return res?.count ?? res?.data?.length ?? 0;
@@ -294,16 +317,31 @@ function pageCount(res) {
 
 /* 狀態篩選交給後端：清單上限 100 筆且依建立時間新到舊，前端自己篩
    會讓比最新 100 筆還舊的待審申請永遠看不到。規格調整沒有 expired 狀態，
-   傳過去會 422，直接視為空。非目前分頁只取筆數（limit=1）給角標用。 */
-async function fetchTabPage(key, limit) {
+   傳過去會 422，不送請求直接視為空。非目前分頁只取筆數（limit=1）給角標用。
+   每個分頁×每種上限各是一份快取：切分頁時舊分頁晚回來的回應只會寫進它自己的快取，
+   不會蓋掉新分頁的清單；背景刷新也只會撞上同一份快取裡最新的那次請求 */
+function useTabPages(key, limit, { enabled = true } = {}) {
   const status = key === "all" ? undefined : key;
-  const [vm, spec] = await Promise.all([
-    VmRequestsService.listAll(status, { limit }),
-    key === "expired"
-      ? EMPTY_PAGE
-      : SpecChangeRequestsService.listAll({ status, limit }),
-  ]);
-  return { vm, spec, count: pageCount(vm) + pageCount(spec) };
+  const hasSpec = key !== "expired";
+  const vmQuery = useAllVmRequestsQuery(status, { limit }, { enabled });
+  const specQuery = useAllSpecChangeRequestsQuery({ status, limit }, { enabled: enabled && hasSpec });
+  /* 結果物件是存取追蹤的：兩份查詢用到的欄位都先無條件讀出來，短路判斷才不會漏追蹤 */
+  const vmPage = vmQuery.data;
+  /* 首載失敗看 useLoadError：沒資料時 v5 每次重抓都清掉 error，看 isError 的錯誤會在背景重試時閃回載入中 */
+  const vmLoadError = useLoadError(vmQuery).error;
+  const specData = specQuery.data;
+  const specLoadError = useLoadError(specQuery).error;
+  const specPage = hasSpec ? specData : EMPTY_PAGE;
+  const noData = vmPage === undefined || specPage === undefined;
+  const failure = vmLoadError ?? (hasSpec ? specLoadError : null);
+  return {
+    vmPage,
+    specPage,
+    noData,
+    /* 只有「還沒有任何資料」時才算錯誤；背景刷新失敗沿用上一筆資料（與原本靜默刷新相同） */
+    error: noData && failure ? failure : null,
+    count: noData ? undefined : pageCount(vmPage) + pageCount(specPage),
+  };
 }
 
 export default function RequestReviewPage() {
@@ -311,20 +349,52 @@ export default function RequestReviewPage() {
   const tabs = useTabs();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("pending");
-  const [requests, setRequests] = useState([]);
-  const [tabCounts, setTabCounts] = useState({});
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   /* 切換列時詳情欄捲回頂端，避免殘留上一筆的捲動位置 */
   const detailScrollRef = useRef(null);
   useEffect(() => { detailScrollRef.current?.scrollTo({ top: 0 }); }, [selectedId]);
-  const [context, setContext] = useState(null);
-  const [contextLoading, setContextLoading] = useState(false);
-  const [contextError, setContextError] = useState("");
   const [comment, setComment] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  const vmCache = useVmRequestCacheUpdater();
+  const specCache = useSpecChangeRequestCacheUpdater();
+
+  /* 清單走 TanStack Query：目前分頁抓完整清單（待審 1000 筆、其他 100 筆），其餘分頁只抓筆數；
+     背景 30 秒刷新、分頁隱藏時暫停，切回看過的分頁先顯示快取再背景更新 */
+  const list = useTabPages(activeTab, activeTab === "pending" ? PENDING_LIST_LIMIT : LIST_LIMIT);
+  /* 角標：目前分頁的筆數取自完整清單，那個分頁的筆數查詢先停著（請求數與原本相同）。
+     hook 不能放進迴圈，五個分頁逐一寫出來 */
+  const pendingCount = useTabPages("pending", 1, { enabled: activeTab !== "pending" });
+  const approvedCount = useTabPages("approved", 1, { enabled: activeTab !== "approved" });
+  const rejectedCount = useTabPages("rejected", 1, { enabled: activeTab !== "rejected" });
+  const expiredCount = useTabPages("expired", 1, { enabled: activeTab !== "expired" });
+  const allCount = useTabPages("all", 1, { enabled: activeTab !== "all" });
+  const countPages = {
+    pending: pendingCount,
+    approved: approvedCount,
+    rejected: rejectedCount,
+    expired: expiredCount,
+    all: allCount,
+  };
+  const tabCounts = Object.fromEntries(TAB_KEYS.map((key) => [
+    key,
+    (key === activeTab ? list.count : undefined) ?? countPages[key].count,
+  ]));
+  const loading = list.noData && !list.error;
+  const error = list.error ? (list.error.message ?? t("RequestReviewPage.loadRequestsFailed")) : "";
+  const listNoData = list.noData;
+  const vmPage = list.vmPage;
+  const specPage = list.specPage;
+  const requests = useMemo(() => {
+    if (listNoData) return NO_REQUESTS;
+    return [
+      ...(vmPage?.data ?? []).map((r) => normalizeVmRequest(r, t)),
+      ...(specPage?.data ?? []).map((r) => normalizeSpecRequest(r, t)),
+    ].sort(
+      (a, b) =>
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+    );
+  }, [listNoData, vmPage, specPage, t]);
 
   /* 不 fallback 到第一筆：背景自動刷新或審核後清單變動時，詳情面板悄悄換人
      會讓審核者對沒看過的申請按下核准 */
@@ -333,96 +403,42 @@ export default function RequestReviewPage() {
     [requests, selectedId],
   );
 
-  /* 只採用最後一次發出的請求：切分頁、審核後重新載入時，較早送出卻較晚回來的
-     舊回應（別的分頁、審核前的快照）不能蓋掉新清單 */
-  const fetchSeqRef = useRef(0);
-  const foregroundLoadingRef = useRef(false);
-
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const fetchRequests = useCallback(async (tab = activeTab, silent = false) => {
-    // 前景載入進行中就不另發背景刷新，否則前景那次會被當成舊回應丟掉、loading 收不掉
-    if (silent && foregroundLoadingRef.current) return;
-    const seq = ++fetchSeqRef.current;
-    const isLatest = () => seq === fetchSeqRef.current;
-    if (!silent) {
-      foregroundLoadingRef.current = true;
-      setLoading(true);
-      setError("");
-    }
-    try {
-      const pages = await Promise.all(
-        TAB_KEYS.map((key) => fetchTabPage(key, key === tab ? (key === "pending" ? PENDING_LIST_LIMIT : LIST_LIMIT) : 1)),
-      );
-      if (!isLatest()) return;
-      const active = pages[TAB_KEYS.indexOf(tab)] ?? { vm: EMPTY_PAGE, spec: EMPTY_PAGE };
-      const items = [
-        ...(active.vm?.data ?? []).map((r) => normalizeVmRequest(r, t)),
-        ...(active.spec?.data ?? []).map((r) => normalizeSpecRequest(r, t)),
-      ].sort(
-        (a, b) =>
-          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-      );
-      setTabCounts(Object.fromEntries(TAB_KEYS.map((key, i) => [key, pages[i].count])));
-      setRequests(items);
-      /* 目前那筆不在清單裡了就清空選取，不 fallback 到別筆（理由見 selected 上方） */
-      setSelectedId((current) =>
-        current && items.some((item) => item.id === current) ? current : null,
-      );
-    } catch (err) {
-      if (!silent && isLatest()) {
-        setRequests([]);
-        setTabCounts({});
-        setSelectedId(null);
-        setError(err?.message ?? t("RequestReviewPage.loadRequestsFailed"));
-      }
-    } finally {
-      if (!silent && isLatest()) {
-        foregroundLoadingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, [activeTab, t]);
-
+  /* 目前那筆不在清單裡了（背景刷新、審核後、換分頁）就清空選取，不 fallback 到別筆
+     （理由見 selected 上方）；清單還沒有資料時先不動，等新分頁載入完再判斷 */
   useEffect(() => {
-    fetchRequests(activeTab);
-    setComment("");
-  }, [activeTab, fetchRequests]);
-
-  useAutoRefresh(() => fetchRequests(activeTab, true));
+    if (listNoData || selectedId == null) return;
+    if (!requests.some((item) => item.id === selectedId)) setSelectedId(null);
+  }, [listNoData, requests, selectedId]);
 
   /* 選取換人（含背景刷新讓原本那筆消失）時備註跟著清空，不能帶到別筆申請上 */
   useEffect(() => { setComment(""); }, [selectedId]);
 
-  useEffect(() => {
-    if (
-      !selected?.rawId ||
-      selected.source !== "vm" ||
-      selected.reviewStatus !== "pending"
-    ) {
-      setContext(null);
-      setContextError("");
-      setContextLoading(false);
-      return;
-    }
+  /* 待審的 VM 申請才查審核脈絡（可行性、預計節點）；選到別筆就換一份快取 */
+  const contextEnabled = Boolean(selected?.rawId)
+    && selected?.source === "vm"
+    && selected?.reviewStatus === "pending";
+  const contextQuery = useVmRequestReviewContextQuery(selected?.rawId, { enabled: contextEnabled });
+  const contextData = contextQuery.data;
+  const contextFetching = contextQuery.isFetching;
+  const contextFailed = contextQuery.isError;
+  const context = contextEnabled ? (contextData ?? null) : null;
+  const contextLoading = contextEnabled && contextData === undefined && contextFetching;
+  const contextError = contextEnabled && contextData === undefined && contextFailed && !contextFetching
+    ? (contextQuery.error?.message ?? t("RequestReviewPage.loadContextFailed"))
+    : "";
+  /* 核准只看最新的脈絡：換回看過的申請時先顯示快取，但重抓完之前不能按核准 */
+  const contextBusy = contextEnabled && contextFetching;
 
-    let cancelled = false;
-    setContextLoading(true);
-    setContextError("");
-    setContext(null);
-    VmRequestsService.getReviewContext(selected.rawId)
-      .then((res) => {
-        if (!cancelled) setContext(res);
-      })
-      .catch((err) => {
-        if (!cancelled) setContextError(err?.message ?? t("RequestReviewPage.loadContextFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setContextLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected?.rawId, selected?.source, selected?.reviewStatus]);
+  /** 審核、批量拒絕、重試：所有分頁的清單與角標都重抓（有資料時畫面沿用不閃載入畫面）；
+      還在路上的背景刷新會被取消，審核前送出的舊快照不會蓋回來 */
+  function refreshAll() {
+    return Promise.all([vmCache.invalidateEveryone(), specCache.invalidateEveryone()]);
+  }
+
+  function changeTab(tab) {
+    setActiveTab(tab);
+    setComment("");
+  }
 
   async function submitReview(status) {
     if (!selected?.rawId || reviewing || selected.reviewStatus !== "pending") return;
@@ -440,7 +456,8 @@ export default function RequestReviewPage() {
       toast.success(status === "approved" ? t("RequestReviewPage.approvedToast") : t("RequestReviewPage.rejectedToast"));
       setComment("");
       setSelectedId(null);
-      await fetchRequests(activeTab);
+      /* 重抓完才解除 reviewing：剛審過的那筆在清單更新前還看得到，期間不能再按一次 */
+      await refreshAll();
     } catch (err) {
       toast.error(err?.message ?? t("RequestReviewPage.reviewFailed"));
     } finally {
@@ -510,7 +527,7 @@ export default function RequestReviewPage() {
     /* 成功的取消勾選，失敗的留著可以直接再試；靜默刷新，清單不閃載入畫面 */
     selection.replace(res.results.filter((r) => !r.ok).map((r) => r.item.id));
     setBatchProgress(null);
-    await fetchRequests(activeTab, true);
+    await refreshAll();
   }
 
   return (
@@ -553,7 +570,7 @@ export default function RequestReviewPage() {
             buttonProps: key === "pending" ? { "data-guide-tab": "request-review-pending" } : undefined,
           }))}
           value={activeTab}
-          onChange={setActiveTab}
+          onChange={changeTab}
           ariaLabel={t("RequestReviewPage.tabsAriaLabel")}
         />
         <ToolbarSearch
@@ -571,7 +588,7 @@ export default function RequestReviewPage() {
             ) : error ? (
               <div className={styles.stateBox}>
                 <span>{error}</span>
-                <button type="button" className={styles.btnSecondary} onClick={() => fetchRequests(activeTab)}>
+                <button type="button" className={styles.btnSecondary} onClick={() => refreshAll()}>
                   {t("RequestReviewPage.retry")}
                 </button>
               </div>
@@ -693,7 +710,7 @@ export default function RequestReviewPage() {
                 {isPending && (
                   <div className={styles.reviewBar} data-guide="request-review-decision">
                     {specResourceGone && (
-                      <div className={styles.rowActions}>
+                      <div className={styles.goneHint}>
                         <span className={styles.doneText}>
                           {t("RequestReviewPage.specResourceGoneHint")}
                         </span>
@@ -712,7 +729,7 @@ export default function RequestReviewPage() {
                       <button
                         type="button"
                         className={styles.btnApprove}
-                        disabled={reviewing || (selected.source === "vm" && (contextLoading || !context?.feasible)) || specResourceGone}
+                        disabled={reviewing || (selected.source === "vm" && (contextBusy || !context?.feasible)) || specResourceGone}
                         onClick={() => submitReview("approved")}
                       >
                         {t("RequestReviewPage.approve")}

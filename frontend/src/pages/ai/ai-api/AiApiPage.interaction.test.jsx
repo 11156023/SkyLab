@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import AiApiPage, { getCredentialState } from "./AiApiPage";
 
 const mocks = vi.hoisted(() => ({
@@ -77,10 +78,12 @@ const newCredential = {
 
 let root;
 let host;
+let client;
 
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.user = { role: "student" };
+  client = createTestQueryClient();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement("div");
   document.body.append(host);
@@ -114,8 +117,23 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick 再等 microtask */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
+
 async function renderPage() {
-  await act(async () => root.render(<AiApiPage />));
+  await act(async () => root.render(withQueryClient(<AiApiPage />, client)));
+  await flush();
+}
+
+/* 點擊會觸發查詢（開金鑰視窗、切到用量分頁）時，點完要等查詢結果寫回畫面 */
+async function clickAndSettle(element) {
+  await act(async () => element.click());
+  await flush();
 }
 
 /* 對話框關閉有離場動畫（useDialogPresence 150ms），等它卸載 */
@@ -126,7 +144,7 @@ async function waitForExit() {
 describe("AI API 金鑰詳細資料", () => {
   test("點擊名稱直接顯示完整金鑰並可複製，清單仍只有前綴", async () => {
     await renderPage();
-    await act(async () => document.querySelector('[aria-label="AiApiPage.openKeyDetails"]').click());
+    await clickAndSettle(document.querySelector('[aria-label="AiApiPage.openKeyDetails"]'));
 
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
@@ -142,7 +160,7 @@ describe("AI API 金鑰詳細資料", () => {
   test("載入失敗時顯示錯誤且不能複製前綴作為金鑰", async () => {
     mocks.getCredential.mockRejectedValue(new Error("failed"));
     await renderPage();
-    await act(async () => document.querySelector('[aria-label="AiApiPage.openKeyDetails"]').click());
+    await clickAndSettle(document.querySelector('[aria-label="AiApiPage.openKeyDetails"]'));
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog.querySelector('[role="alert"]').textContent).toBe("AiApiPage.keyDetailLoadError");
     expect(dialog.querySelector('[aria-label="AiApiPage.actionCopyKey"]').disabled).toBe(true);
@@ -161,6 +179,7 @@ describe("AI API 金鑰詳細資料", () => {
     // 一按關閉就取消，不等離場動畫結束
     expect(signal.aborted).toBe(true);
     await act(async () => resolveKey({ api_key: "ccai_old_example_secret" }));
+    await flush();
     expect(document.body.textContent).not.toContain("ccai_old_example_secret");
     await waitForExit();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -171,7 +190,7 @@ describe("AI API 金鑰詳細資料", () => {
     await renderPage();
     const entry = document.querySelector('[aria-label="AiApiPage.openKeyDetails"]');
     entry.focus();
-    await act(async () => entry.click());
+    await clickAndSettle(entry);
     /* 外框是共用 Modal：開啟時焦點移進對話框，Tab 在對話框內循環 */
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog.contains(document.activeElement)).toBe(true);
@@ -212,6 +231,8 @@ describe("AI API 金鑰詳細資料", () => {
     expect(host.querySelector("table").textContent).not.toContain("ccai_new_example_secret");
 
     await act(async () => resolveRefresh({ data: [{ ...newCredential, api_key: undefined }, { ...oldCredential, revoked_at: "2026-09-26T00:00:00Z" }] }));
+    await flush();
+    expect(host.querySelector("table").textContent).toContain("ccai_new");
     dialog = document.querySelector('[role="dialog"]');
     expect(dialog.textContent).toContain("ccai_new_example_secret");
     await act(async () => dialog.querySelector('[aria-label="AiApiPage.actionCopyKey"]').click());
@@ -224,8 +245,8 @@ describe("AI API 金鑰詳細資料", () => {
 
     await act(async () => dialog.querySelector('[aria-label="Modal.close"]').click());
     await waitForExit();
-    await act(async () => [...host.querySelectorAll('[aria-label="AiApiPage.openKeyDetails"]')]
-      .find((button) => button.textContent === "專案金鑰").click());
+    await clickAndSettle([...host.querySelectorAll('[aria-label="AiApiPage.openKeyDetails"]')]
+      .find((button) => button.textContent === "專案金鑰"));
     dialog = document.querySelector('[role="dialog"]');
     expect(dialog.textContent).toContain("ccai_new_example_secret");
     expect(mocks.getCredential).toHaveBeenCalledWith("new-id", { signal: expect.any(AbortSignal) });
@@ -257,9 +278,13 @@ describe("AI API 金鑰狀態", () => {
       [...document.querySelectorAll('[role="menuitem"]')]
         .find((button) => button.textContent.includes("AiApiPage.actionDelete")).click();
     });
+    await flush();
 
     expect(mocks.deleteCredential).toHaveBeenCalledWith("old-id");
+    expect(mocks.listMyCredentials).toHaveBeenCalledTimes(2);
     expect(host.textContent).not.toContain("專案金鑰");
+    // 操作後的重抓失敗照原本跳 toast，畫面維持刪除後的樣子
+    expect(mocks.toast.error).toHaveBeenCalledWith("refresh failed");
   });
 
   test("失效的金鑰預設收起來，按了才顯示", async () => {
@@ -380,7 +405,7 @@ describe("AI API 細項紀錄", () => {
     await renderPage();
     const usageTab = [...host.querySelectorAll("button")]
       .find((button) => button.textContent === "AiApiPage.tabUsage");
-    await act(async () => usageTab.click());
+    await clickAndSettle(usageTab);
 
     const recordsPanel = host.querySelector('[data-guide="ai-usage-records"]');
     const summary = recordsPanel.querySelector('[aria-expanded="false"]');

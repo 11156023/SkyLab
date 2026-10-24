@@ -19,7 +19,7 @@ The VMID is shown only to teachers and administrators.
 ## Before you start
 
 - Power actions (start, shut down, reboot), the console and deletion are on the [My Resources](/manual/my-resources) list, not on this page.
-- Many actions run in the background. Their progress is visible on the [Jobs](/manual/jobs) page.
+- Many actions run in the background. Their progress is visible on the [Background Jobs](/manual/jobs) page.
 
 ## Step by step
 
@@ -29,6 +29,8 @@ The VMID is shown only to teachers and administrators.
 2. Some tabs place their buttons (time range, **Create Snapshot**, **Create Backup**) at the right end of the tab bar.
 3. **Back to list** at the top right returns to My Resources.
 
+![Move between tabs (numbers match the steps above)](/manual-shots/en/resource-detail/s01.webp)
+
 ### Read the Overview
 
 1. The top card shows the machine's name, type, node, source badge, status (**Running**, **Stopped** or **Paused**) and the expiry: the date and how many days are left (red within 7 days), **Expires today**, **Expired `<n>` days ago**, or **No expiry**. A machine whose deadline comes from an approved time window shows **Available until `<date>`** instead, with **Not started** or **Ended** when it is outside the window.
@@ -37,6 +39,8 @@ The VMID is shown only to teachers and administrators.
 4. **User Manual** appears when the machine was cloned from a template with attached documents. Click **Download** on a file.
 5. **Environment Information** lists the node, environment type, operating system, expiry date, **Time window**, **Auto shutdown** (with the reason), **Idle since**, **Scheduled deletion** and **Your access**.
 6. **Connection & Credentials** lists the IP address and public URLs (each with **Copy**) and, for everyone except shared users, the login details below.
+
+![Read the Overview (numbers match the steps above)](/manual-shots/en/resource-detail/s02.webp)
 
 ### Find the login username and password
 
@@ -51,11 +55,15 @@ In **Connection & Credentials** on the Overview tab:
    - **Not on record**: the platform has no password for this machine; reset it if you need one.
 3. **Public Key** (click **Expand** to see it whole) and **Private Key** (masked; **Show**, **Download**, **Copy**) are the platform key pair for SSH, when the machine has one.
 
+![Find the login username and password (numbers match the steps above)](/manual-shots/en/resource-detail/s03.webp)
+
 ### Watch usage on the Monitoring tab
 
 1. Choose a time range at the right of the tab bar: **Last 1 Hour**, **Last 1 Day**, **Last 1 Week**, **Last 1 Month** or **Last 1 Year**.
 2. The cards at the top show **CPU Usage**, memory, disk and network.
 3. Under **Historical Data**, switch the chart between **CPU**, memory and network (download and upload).
+
+![Watch usage on the Monitoring tab (numbers match the steps above)](/manual-shots/en/resource-detail/s04.webp)
 
 ### Request a spec change
 
@@ -71,6 +79,8 @@ If the apply fails or is interrupted by a service restart, the notice shows the 
 
 Administrators see **Apply Changes** instead: the change is applied at once without a request (a running VM needs a reboot before CPU and memory changes take effect).
 
+![Request a spec change (numbers match the steps above)](/manual-shots/en/resource-detail/s05.webp)
+
 ### Take and restore snapshots
 
 The **Snapshots** tab appears only when the storage holding the machine's disks supports snapshots.
@@ -84,12 +94,16 @@ Badges on the list:
 - **Protected**: the initial snapshot `skylab-init`, used by one-click reset. Only an administrator can delete it.
 - **Evidence**: a snapshot taken automatically when suspected mining was detected. Only an administrator can delete it, and it does not count toward your snapshot limit.
 
+![Take and restore snapshots (numbers match the steps above)](/manual-shots/en/resource-detail/s06.webp)
+
 ### Reset the machine to its initial state
 
 1. On the **Snapshots** tab, click **One-Click Reset** at the right of the tab bar.
 2. Confirm **Reset**. The machine is restored to the initial snapshot and rebooted; every change since then is lost. The reset runs in the background.
 
 **One-Click Reset** is disabled when the machine has no initial snapshot. Teachers and administrators can create one with **Create Initial Snapshot**.
+
+![Reset the machine to its initial state (numbers match the steps above)](/manual-shots/en/resource-detail/s07.webp)
 
 ### Back up and restore (when snapshots are not available)
 
@@ -101,10 +115,14 @@ When the machine's storage cannot take snapshots and the cluster has a backup st
 
 While a backup or restore runs, a notice says so and the buttons are disabled; the list refreshes when it finishes. **Create Backup** is disabled once you reach your backup limit ("Backup limit (`<n>`) reached; delete an old backup first").
 
+![Back up and restore (when snapshots are not available) (numbers match the steps above)](/manual-shots/en/resource-detail/s08.webp)
+
 ### Review the Audit Log
 
 1. Open **Audit Log**. The number on the tab is the total count of records for this machine.
 2. The table lists the latest 100 records with **Time**, **Operator** (**System** for automatic actions), **Action** and **Details**: power actions, spec changes, snapshots and backups, firewall changes, credential updates, sharing and transfers, and more.
+
+![Review the Audit Log (numbers match the steps above)](/manual-shots/en/resource-detail/s09.webp)
 
 ### Request an expiry extension
 
@@ -116,6 +134,8 @@ While a backup or restore runs, a notice says so and the buttons are disabled; t
 
 The button appears only when the machine has an expiry date or a time window, and not for class machines. The extension is refused if the new period overlaps another approved GPU reservation.
 
+![Request an expiry extension (numbers match the steps above)](/manual-shots/en/resource-detail/s10.webp)
+
 ### Manage the machine's firewall
 
 1. In **Advanced Settings**, the **Firewall** card shows whether the firewall is on, the default policy (for example "Default: inbound block, outbound allow"), the machine's public URLs, a small topology map and the rule table.
@@ -124,6 +144,8 @@ The button appears only when the machine has an expiry date or a time window, an
 4. On your own rules, use the **Enabled** switch to turn a rule off or on, or the delete icon to remove it.
 
 Rules marked **Managed by a connection** (lock icon) are created by connections and cannot be edited here; change them through the connection. See [Firewall](/manual/firewall) for the full rules model.
+
+![Manage the machine's firewall (numbers match the steps above)](/manual-shots/en/resource-detail/s11.webp)
 
 ### Change boot options (VMs only)
 
@@ -134,6 +156,8 @@ Rules marked **Managed by a connection** (lock icon) are created by connections 
 
 After a host restart, only machines that were running are started again automatically; this needs no setting.
 
+![Change boot options (VMs only) (numbers match the steps above)](/manual-shots/en/resource-detail/s12.webp)
+
 ### Reset the login password
 
 1. In **Advanced Settings › Login credentials**, click **Reset password**.
@@ -143,6 +167,8 @@ After a host restart, only machines that were running are started again automati
 
 Containers must be running to change credentials ("start it first").
 
+![Reset the login password (numbers match the steps above)](/manual-shots/en/resource-detail/s13.webp)
+
 ### Manage SSH keys
 
 1. **Regenerate key** (in the same card) creates a new platform key pair. The old private key stops working immediately. The new private key is shown once: click **Download** and keep it.
@@ -151,6 +177,8 @@ Containers must be running to change credentials ("start it first").
 
 On VMs, credentials are applied through cloud-init: key changes take effect after a reboot.
 
+![Manage SSH keys (numbers match the steps above)](/manual-shots/en/resource-detail/s14.webp)
+
 ### Share the machine or transfer ownership
 
 1. In **Advanced Settings › Sharing and transfer**, type the other person's sign-in email and click **Share**. People you share with can only power the machine on and off, use the console and view monitoring.
@@ -158,6 +186,8 @@ On VMs, credentials are applied through cloud-init: key changes take effect afte
 3. To hand the machine over, click **Transfer**. Enter the **New owner's sign-in email**, optionally tick **Keep my start/stop access after the transfer**, type the machine name to confirm, and click **Transfer ownership**. You lose all configuration rights and return to the list.
 
 Class machines cannot be shared or transferred. The new owner's quota must have room for the machine.
+
+![Share the machine or transfer ownership (numbers match the steps above)](/manual-shots/en/resource-detail/s15.webp)
 
 ## Fields and options
 
@@ -189,5 +219,5 @@ Class machines cannot be shared or transferred. The new owner's quota must have 
 - [My Resources](/manual/my-resources) — power actions, console and deletion
 - [My Requests](/manual/my-requests) — your spec change and extension requests in one list
 - [Firewall](/manual/firewall) — the network topology and connection model
-- [Jobs](/manual/jobs) — progress of resets, backups and deletions
-- [Governance](/manual/governance) — expiry, idle and snapshot policies set by administrators
+- [Background Jobs](/manual/jobs) — progress of resets, backups and deletions
+- [Resource Policies](/manual/governance) — expiry, idle and snapshot policies set by administrators

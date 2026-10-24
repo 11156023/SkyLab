@@ -96,7 +96,7 @@ def test_config(
         ldap_client.test_bind(config)
     except AppError as exc:
         return LdapTestResult(ok=False, message=exc.message)
-    return LdapTestResult(ok=True, message="LDAP service bind 成功")
+    return LdapTestResult(ok=True, message=t("ldap.serviceBindSucceeded"))
 
 
 # pytest 會把模組層級的 test_* 函式當成測試收集；這支是業務函式，不是測試

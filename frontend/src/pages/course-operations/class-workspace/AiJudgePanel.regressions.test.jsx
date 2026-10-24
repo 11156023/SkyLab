@@ -5,15 +5,27 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { notifyManager } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ChatPanel, ProposalPanel, RubricsTab } from "./AiJudgePanel";
 import { AiJudgeService } from "../../../services/aiJudge";
 import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
+import { aiJudgeKeys } from "../../../queries/aiJudge";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
+let queryClient;
+
+beforeEach(() => {
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；改成同步通知，讀取結果在同一個 act 裡就上畫面 */
+  notifyManager.setScheduler((callback) => callback());
+  queryClient = createTestQueryClient();
+});
 
 afterEach(() => {
   Element.prototype.scrollIntoView = originalScrollIntoView;
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  queryClient.clear();
   vi.restoreAllMocks();
 });
 
@@ -23,7 +35,7 @@ function mount(element) {
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(element);
+    root.render(withQueryClient(element, queryClient));
   });
   const cleanup = () => {
     act(() => root.unmount());
@@ -181,12 +193,10 @@ describe("RubricsTab 背景重抓清單與自動儲存交錯", () => {
     const titleInput = () => container.querySelector("td textarea");
     expect(titleInput().value).toBe("舊標題");
 
-    /* 切回視窗觸發背景重抓：這次清單回應拖到自動儲存完成之後才回來 */
+    /* 背景重抓：這次清單回應拖到自動儲存完成之後才回來 */
     let resolveStaleList;
     listFiles.mockReturnValueOnce(new Promise((resolve) => { resolveStaleList = resolve; }));
-    const realNow = Date.now;
-    vi.spyOn(Date, "now").mockImplementation(() => realNow.call(Date) + 60_000);
-    act(() => { window.dispatchEvent(new Event("focus")); });
+    act(() => { void queryClient.refetchQueries({ queryKey: aiJudgeKeys.files("class-1") }); });
     expect(listFiles).toHaveBeenCalledTimes(2);
 
     act(() => {

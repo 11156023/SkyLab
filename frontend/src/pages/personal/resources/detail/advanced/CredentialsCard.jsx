@@ -4,7 +4,7 @@
  * 新密碼與新私鑰只在產生後顯示一次；要再看請到總覽分頁。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
@@ -19,6 +19,12 @@ import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { ResourcesService } from "../../../../../services/resources";
 import { downloadBlob, isNotFound } from "../../../../../services/api";
+import {
+  useCredentialsQuery,
+  useLoadError,
+  useQueryErrorEffect,
+  useResourceDetailCacheUpdater,
+} from "../../../../../queries/resourceDetail";
 
 function keyIdentity(key) {
   const parts = String(key).trim().split(/\s+/);
@@ -84,11 +90,17 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
-  const [info, setInfo] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const detailCache = useResourceDetailCacheUpdater();
+  /* 每次載入失敗都提示；第一次就失敗時換成錯誤狀態（可重試），不能讓轉圈圈一直轉 */
+  const infoQuery = useCredentialsQuery(vmid);
+  useQueryErrorEffect(infoQuery, (err) => {
+    toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+  });
+  const info = infoQuery.data ?? null;
+  /* 錯誤狀態在之後的重抓期間維持、不閃轉圈圈，按重試才回到載入中（見 useLoadError） */
+  const { error: loadError, retry: retryInfo } = useLoadError(infoQuery);
+  const loading = !info && !loadError && (infoQuery.isPending || infoQuery.isFetching);
   const [busy, setBusy] = useState(false);
-  /* 第一次就載入失敗時要換成錯誤狀態（可重試），不能讓轉圈圈一直轉 */
-  const [loadError, setLoadError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const passwordPresence = useDialogPresence(showPassword);
   const [secret, setSecret] = useState(null); // { kind: "password"|"key", value, message }
@@ -96,22 +108,18 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      setInfo(await ResourcesService.getCredentials(vmid));
-    } catch (err) {
-      setLoadError(err ?? true);
-      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      setLoading(false);
-    }
-  }, [vmid, toast, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  /* 重設密碼、換金鑰後：這張卡、總覽的帳密區與詳情（是否保管密碼）一起重抓，
+     切到總覽時不會看到快取裡的舊密碼 */
+  const reloadAfterChange = () => Promise.all([
+    detailCache.invalidateCredentials(vmid),
+    detailCache.invalidateSshKey(vmid),
+    detailCache.invalidateDetail(vmid),
+  ]);
+  /* 公鑰清單由回應就地更新，不必重抓 */
+  const setAuthorizedKeys = (keys) => detailCache.setCredentials(
+    vmid,
+    (prev) => (prev ? { ...prev, authorized_keys: keys } : prev),
+  );
 
   /* 卸載時清掉「已複製」的還原計時器，不讓已消失的元件被 setState */
   useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
@@ -134,7 +142,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
       setShowPassword(false);
       setSecret({ kind: "password", value: res.password, message: res.message });
       toast.success(res.message);
-      await load();
+      await reloadAfterChange();
     } catch (err) {
       toast.error(err?.message ?? t("CredentialsCard.resetFailed"));
     } finally {
@@ -154,7 +162,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
       const res = await ResourcesService.regenerateSshKey(vmid);
       setSecret({ kind: "key", value: res.ssh_private_key, message: res.message });
       toast.success(res.message);
-      await load();
+      await reloadAfterChange();
     } catch (err) {
       toast.error(err?.message ?? t("CredentialsCard.regenerateFailed"));
     } finally {
@@ -169,7 +177,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
     setBusy(true);
     try {
       const res = await ResourcesService.addAuthorizedKey(vmid, key);
-      setInfo((prev) => (prev ? { ...prev, authorized_keys: res.authorized_keys } : prev));
+      setAuthorizedKeys(res.authorized_keys);
       setNewKey("");
       toast.success(res.message);
     } catch (err) {
@@ -189,7 +197,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
     setBusy(true);
     try {
       const res = await ResourcesService.removeAuthorizedKey(vmid, key);
-      setInfo((prev) => (prev ? { ...prev, authorized_keys: res.authorized_keys } : prev));
+      setAuthorizedKeys(res.authorized_keys);
       toast.success(res.message);
     } catch (err) {
       toast.error(err?.message ?? t("CredentialsCard.removeKeyFailed"));
@@ -237,7 +245,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
       </div>
       <div className={styles.cardBody}>
         {loadError && !info ? (
-          isNotFound(loadError) ? <NotFoundState /> : <ErrorState onRetry={load} />
+          isNotFound(loadError) ? <NotFoundState /> : <ErrorState onRetry={() => retryInfo()} />
         ) : loading || !info ? (
           <LoadingState text={t("CredentialsCard.loading")} />
         ) : (

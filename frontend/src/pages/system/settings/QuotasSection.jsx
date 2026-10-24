@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./QuotasSection.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { QuotasService } from "../../../services/quotas";
-import { UsersService } from "../../../services/users";
+import { useGlobalQuotaQuery, useQuotaCacheUpdater, useQuotasQuery } from "../../../queries/quotas";
+import { useAllUsersQuery } from "../../../queries/users";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError, useLoadFailureMessage, useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useOutsideClick from "../../../hooks/useOutsideClick";
 import { formatDateTime } from "../../../utils/formatDate";
@@ -24,6 +29,9 @@ const FIELD_KEYS = ["max_cpu_cores", "max_memory_mb", "max_disk_gb", "max_instan
 
 const PICKER_MAX_ROWS = 50;
 
+const EMPTY = Object.freeze([]);
+
+
 /** 上限顯示：0 = 無限制。 */
 function fmtLimit(value, t, unit = "") {
   if (Number(value) === 0) return t("QuotasTab.unlimited");
@@ -34,7 +42,7 @@ function useNumberFields() {
   const { t } = useTranslation("system");
   // fallback：取消「無限制」勾選時回填的預設值；0 = 無限制
   return [
-    { key: "max_cpu_cores", label: "CPU cores", min: 1, max: 256, fallback: 8 },
+    { key: "max_cpu_cores", label: t("QuotasTab.fieldCpuCores"), min: 1, max: 256, fallback: 8 },
     { key: "max_memory_mb", label: t("QuotasTab.fieldMemoryMb"), min: 256, max: 1048576, fallback: 16384 },
     { key: "max_disk_gb", label: t("QuotasTab.fieldDiskGb"), min: 1, max: 65536, fallback: 100 },
     { key: "max_instances", label: t("QuotasTab.fieldInstances"), min: 1, max: 100, fallback: 5 },
@@ -366,52 +374,116 @@ function GlobalQuotaCard({ config, onSaved }) {
   );
 }
 
+/* ── 個人覆寫清單 ─────────────────────────────────────────────────────── */
+
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`QuotasTab.${name}`);
+}
+
+function LimitCell({ value }) {
+  const { t } = useTranslation("system");
+  return fmtLimit(value, t);
+}
+
+/** 編輯／刪除；處理函式在點擊當下才從 table meta 取，拿到的一定是區段最新的那一份 */
+function QuotaRowActions({ quota, deleting, table }) {
+  const { t } = useTranslation("system");
+  return (
+    <div className={styles.rowActions}>
+      <button
+        type="button"
+        className={styles.btnIcon}
+        onClick={() => table.options.meta.onEdit(quota)}
+        title={t("QuotasTab.editQuotaTitle")}
+        aria-label={t("QuotasTab.editQuotaTitle")}
+      >
+        <MIcon name="edit" size={16} />
+      </button>
+      <button
+        type="button"
+        className={styles.btnIconDanger}
+        disabled={deleting}
+        onClick={() => table.options.meta.onDelete(quota)}
+        title={t("QuotasTab.deleteQuotaTitle")}
+        aria-label={t("QuotasTab.deleteQuotaTitle")}
+      >
+        <MIcon name="delete" size={16} />
+      </button>
+    </div>
+  );
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const quotaColumns = columnHelper.columns([
+  columnHelper.accessor("user_email", {
+    header: () => <ColTitle name="colTarget" />,
+    cell: ({ row }) => row.original.user_email ?? "—",
+    meta: { thClassName: styles.colTarget },
+  }),
+  columnHelper.accessor("max_cpu_cores", {
+    header: "CPU",
+    cell: ({ row }) => <LimitCell value={row.original.max_cpu_cores} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.accessor("max_memory_mb", {
+    header: () => <ColTitle name="fieldMemoryMb" />,
+    cell: ({ row }) => <LimitCell value={row.original.max_memory_mb} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.accessor("max_disk_gb", {
+    header: () => <ColTitle name="fieldDiskGb" />,
+    cell: ({ row }) => <LimitCell value={row.original.max_disk_gb} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.accessor("max_instances", {
+    header: () => <ColTitle name="colInstanceCount" />,
+    cell: ({ row }) => <LimitCell value={row.original.max_instances} />,
+    meta: { thClassName: styles.num, tdClassName: styles.num },
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: () => <ColTitle name="colActions" />,
+    /* 刪除中的那一列停用刪除鈕：deleting 是區段的狀態，經 rowState 傳進來（只改 table meta 不會讓儲存格重繪） */
+    cell: ({ row, table, rowState }) => (
+      <QuotaRowActions quota={row.original} deleting={rowState.deleting} table={table} />
+    ),
+  }),
+]);
+
 export default function QuotasSection() {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
-  const [quotas, setQuotas] = useState(null);
-  const [globalQuota, setGlobalQuota] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
   const [dialog, setDialog] = useState(null);
   const dialogPresence = useDialogPresence(dialog);
   const [deleting, setDeleting] = useState(null);
 
-  const load = useCallback(async () => {
-    try {
-      const [list, config] = await Promise.all([
-        QuotasService.list(),
-        QuotasService.getGlobal(),
-      ]);
-      setQuotas(list);
-      setGlobalQuota(config);
-    } catch (e) {
-      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-      setQuotas((prev) => prev ?? []);
-    }
-  }, [toast, t]);
-
+  /* 個人覆寫、全域預設與使用者清單走 TanStack Query；原本只在進頁與增刪改後重抓，不背景輪詢。
+     增刪改後 invalidate 讓清單與全域設定一起重抓（全域卡片只在數值真的變了才重設表單） */
+  const quotasQuery = useQuotasQuery();
+  const globalQuery = useGlobalQuotaQuery();
+  const usersQuery = useAllUsersQuery({ refetchInterval: false });
+  const quotaCache = useQuotaCacheUpdater();
+  /* 載入失敗：提示一次，覆寫清單改顯示空狀態（與原本相同），全域卡片沒資料就不顯示。
+     從沒載到就失敗時看 useLoadError：重抓期間維持空狀態、不閃回載入中 */
+  const quotasLoad = useLoadError(quotasQuery);
+  const quotas = quotasQuery.data ?? (quotasLoad.error ? EMPTY : null);
+  const globalQuota = globalQuery.data ?? null;
+  /* 提示依訊息字串觸發（useLoadFailureMessage）：同一串失敗（含切回視窗重抓又失敗）只提示一次，成功過再失敗才再提示 */
+  const quotasFailedMessage = useLoadFailureMessage(quotasQuery, t("Error.generic", { ns: "common" }));
+  const globalFailedMessage = useLoadFailureMessage(globalQuery, t("Error.generic", { ns: "common" }));
+  const loadFailedMessage = quotasFailedMessage ?? globalFailedMessage;
   useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    let cancelled = false;
-    UsersService.listAll()
-      .then((list) => {
-        if (!cancelled) setUsers(list);
-      })
-      .catch(() => {
-        if (!cancelled) setUsers([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingUsers(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
+  /* 使用者清單失敗照舊靜默（挑選器變空清單） */
+  const users = usersQuery.data ?? EMPTY;
+  /* 首載失敗後切回視窗重抓時挑選器不閃回載入中（沒資料時 v5 每次重抓（切回視窗）都把 status 改回 pending、清掉 error） */
+  const loadingUsers = useQueryView(usersQuery).loading;
 
   const candidates = useMemo(() => {
     const taken = new Set((quotas ?? []).map((q) => q.user_id));
@@ -432,7 +504,7 @@ export default function QuotasSection() {
     try {
       await QuotasService.remove(quota.id);
       toast.success(t("QuotasTab.toastDeleted"));
-      load();
+      quotaCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("QuotasTab.toastDeleteFailed"));
     } finally {
@@ -440,9 +512,17 @@ export default function QuotasSection() {
     }
   };
 
+  const table = useTable({
+    features: baseFeatures,
+    columns: quotaColumns,
+    data: quotas ?? EMPTY,
+    getRowId: (q) => String(q.id),
+    meta: { onEdit: (quota) => setDialog({ mode: "edit", quota }), onDelete: handleDelete },
+  });
+
   return (
     <div className={styles.stack}>
-      {globalQuota && <GlobalQuotaCard config={globalQuota} onSaved={setGlobalQuota} />}
+      {globalQuota && <GlobalQuotaCard config={globalQuota} onSaved={(updated) => quotaCache.setGlobal(updated)} />}
 
       <section className={styles.card} data-guide="governance-quota-overrides">
         <header className={styles.cardHeader}>
@@ -471,52 +551,15 @@ export default function QuotasSection() {
             action={<button type="button" className={styles.btnPrimary} onClick={() => setDialog({ mode: "create" })}><MIcon name="add" size={16} />{t("QuotasTab.addQuota")}</button>} />
         ) : (
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th className={styles.colTarget}>{t("QuotasTab.colTarget")}</th>
-                  <th className={styles.num}>CPU</th>
-                  <th className={styles.num}>{t("QuotasTab.fieldMemoryMb")}</th>
-                  <th className={styles.num}>{t("QuotasTab.fieldDiskGb")}</th>
-                  <th className={styles.num}>{t("QuotasTab.colInstanceCount")}</th>
-                  <th>{t("QuotasTab.colActions")}</th>
+            <DataTable
+              table={table}
+              className={styles.table}
+              renderRow={(row) => (
+                <tr key={row.id}>
+                  <DataTableCells row={row} rowState={{ deleting: deleting === row.original.id }} />
                 </tr>
-              </thead>
-              <tbody>
-                {quotas.map((q) => (
-                  <tr key={q.id}>
-                    <td>{q.user_email ?? "—"}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_cpu_cores, t)}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_memory_mb, t)}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_disk_gb, t)}</td>
-                    <td className={styles.num}>{fmtLimit(q.max_instances, t)}</td>
-                    <td>
-                      <div className={styles.rowActions}>
-                        <button
-                          type="button"
-                          className={styles.btnIcon}
-                          onClick={() => setDialog({ mode: "edit", quota: q })}
-                          title={t("QuotasTab.editQuotaTitle")}
-                          aria-label={t("QuotasTab.editQuotaTitle")}
-                        >
-                          <MIcon name="edit" size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.btnIconDanger}
-                          disabled={deleting === q.id}
-                          onClick={() => handleDelete(q)}
-                          title={t("QuotasTab.deleteQuotaTitle")}
-                          aria-label={t("QuotasTab.deleteQuotaTitle")}
-                        >
-                          <MIcon name="delete" size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              )}
+            />
           </div>
         )}
       </section>
@@ -532,7 +575,7 @@ export default function QuotasSection() {
           onClose={() => setDialog(null)}
           onSaved={() => {
             setDialog(null);
-            load();
+            quotaCache.invalidate();
           }}
         />
       )}

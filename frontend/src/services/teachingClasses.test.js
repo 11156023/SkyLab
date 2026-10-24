@@ -78,6 +78,18 @@ describe("TeachingClassesService", () => {
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ force: true });
   });
 
+  test("imports a user group's students into the roster", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes({ added: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await TeachingClassesService.importGroup("class-1", "group-1");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/teaching-classes/class-1/students/import-group");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ group_id: "group-1" });
+  });
+
   test("batch review listing asks for every status, not just pending", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonRes([]));
     vi.stubGlobal("fetch", fetchMock);

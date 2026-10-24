@@ -1092,6 +1092,11 @@
   grid-column: span 2;
 }
 
+/* 上課時間並排兩個時間欄：中文 12 小時制（下午 03:10＋時鐘圖示）放不進三分之一寬，會溢到提前開機的選單底下 */
+.createTimeField {
+  grid-column: span 2;
+}
+
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -2531,6 +2536,10 @@
 
   .createFormGrid {
     grid-template-columns: 1fr;
+  }
+
+  .createTimeField {
+    grid-column: auto;
   }
 
   .createNameField {

@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import ResourceDetailPage from "./ResourceDetailPage";
+import { createTestQueryClient, withQueryClient } from "../../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -68,11 +69,28 @@ vi.mock("./BackupsTab", () => ({
 
 let host;
 let root;
+let client;
+
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick，再把 microtask 清掉 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
+
+/* 點擊後可能觸發重查（invalidate → 重抓），要等兩輪才會畫到結果 */
+async function click(el) {
+  await act(async () => el.click());
+  await flush();
+  await flush();
+}
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.overviewMounts.length = 0;
+  client = createTestQueryClient();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -88,14 +106,19 @@ afterEach(async () => {
 
 async function renderPage(path = "/my-resources/105") {
   await act(async () => {
-    root.render(
+    root.render(withQueryClient(
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/my-resources/:vmid" element={<ResourceDetailPage />} />
         </Routes>
       </MemoryRouter>,
-    );
+      client,
+    ));
   });
+  /* 身分、快照可用性 → 備份可用性 → 筆數，依序相依，多等幾輪 */
+  await flush();
+  await flush();
+  await flush();
 }
 
 const snapshotTabButton = () => host.querySelector('[data-guide-tab="resource-snapshots"]');
@@ -151,6 +174,7 @@ describe("ResourceDetailPage 快照分頁", () => {
     expect(snapshotTabButton()).toBeNull();
 
     await act(async () => resolve({ available: true, reason: null }));
+    await flush();
     expect(snapshotTabButton()).not.toBeNull();
   });
 
@@ -162,7 +186,7 @@ describe("ResourceDetailPage 快照分頁", () => {
     expect(host.querySelector('[data-testid="snapshots-tab"]')).not.toBeNull();
 
     mocks.getSnapshotCapability.mockResolvedValueOnce({ available: false, reason: "unsupported" });
-    await act(async () => host.querySelector('[data-testid="snapshots-tab"]').click());
+    await click(host.querySelector('[data-testid="snapshots-tab"]'));
 
     expect(mocks.getSnapshotCapability).toHaveBeenCalledTimes(2);
     expect(snapshotTabButton()).toBeNull();
@@ -243,7 +267,7 @@ describe("ResourceDetailPage 備份分頁", () => {
     await act(async () => backupTabButton().click());
 
     mocks.getBackupCapability.mockResolvedValueOnce({ available: false, reason: "storage_unavailable" });
-    await act(async () => host.querySelector('[data-testid="backups-tab"]').click());
+    await click(host.querySelector('[data-testid="backups-tab"]'));
 
     expect(mocks.getBackupCapability).toHaveBeenCalledTimes(2);
     expect(backupTabButton()).toBeNull();
@@ -261,22 +285,25 @@ describe("ResourceDetailPage 同一頁換到另一台", () => {
     mocks.getSnapshotCapability.mockResolvedValue({ available: true, reason: null });
     mocks.listForResource.mockResolvedValueOnce({ count: 7 });
     await act(async () => {
-      root.render(
+      root.render(withQueryClient(
         <MemoryRouter initialEntries={["/my-resources/105"]}>
           <Routes>
             <Route path="/my-resources/:vmid" element={<ResourceDetailPage />} />
           </Routes>
           <GoTo path="/my-resources/106" />
         </MemoryRouter>,
-      );
+        client,
+      ));
     });
+    await flush();
+    await flush();
     const auditBadge = () => host.querySelector('[data-guide-tab="resource-auditLogs"]').textContent;
     expect(auditBadge()).toContain("7");
     expect(mocks.overviewMounts).toEqual([105]);
 
     /* 新的這台查筆數失敗：不能還掛著上一台的 7 */
     mocks.listForResource.mockRejectedValue(new Error("boom"));
-    await act(async () => host.querySelector('[data-testid="go"]').click());
+    await click(host.querySelector('[data-testid="go"]'));
 
     expect(mocks.get).toHaveBeenLastCalledWith(106);
     expect(mocks.overviewMounts).toEqual([105, 106]);

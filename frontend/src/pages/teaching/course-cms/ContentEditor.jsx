@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import MIcon from "../../../components/MIcon";
@@ -9,8 +9,16 @@ import { useUnsavedChanges, useUnsavedChangesGuard } from "../../../contexts/Uns
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useToast } from "../../../hooks/useToast";
 import { CourseAdminService } from "../../../services/courses";
+import {
+  useCourseAdminCacheUpdater,
+  useCourseQuestionsQuery,
+  useCourseRoomsQuery,
+  useCourseTasksQuery,
+} from "../../../queries/courses";
 import { focusInvalidField } from "../../../utils/focusField";
 import styles from "./CourseCmsPage.module.scss";
+
+const EMPTY = Object.freeze([]);
 
 /**
  * 課程內容編輯：左邊樹狀導覽（學習路徑 › 房間 › 任務），右邊工作區只編輯選中的那一層。
@@ -515,18 +523,17 @@ function QuestionSection({ taskId }) {
   const { t } = useTranslation("teaching");
   const toast = useToast();
   const confirm = useConfirm();
-  const [questions, setQuestions] = useState([]);
+  /* 題目清單走 TanStack Query；讀不到就當作沒有題目（與原本相同，不提示） */
+  const questionsQuery = useCourseQuestionsQuery(taskId);
+  const questions = questionsQuery.data ?? EMPTY;
+  const courseAdminCache = useCourseAdminCacheUpdater();
   /* 對話框目標：null＝關閉、"new"＝新增、題目物件＝編輯 */
   const [dialogTarget, setDialogTarget] = useState(null);
   const dialog = useDialogPresence(dialogTarget);
 
-  const reload = useCallback(() => {
-    CourseAdminService.listQuestions(taskId).then(setQuestions).catch(() => {});
-  }, [taskId]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  function reload() {
+    return courseAdminCache.invalidateQuestions(taskId);
+  }
 
   async function remove(q) {
     const ok = await confirm({
@@ -666,13 +673,100 @@ function TaskWorkspace({ path, room, task, onChanged, onDeleted }) {
   );
 }
 
+/* ══════════════ 內容樹 ══════════════ */
+
+/* 樹上的關卡列：展開時才抓自己的任務 */
+function RoomTreeItem({ path, room, open, isSelected, onToggle, onSelect, onCreateTask }) {
+  const { t } = useTranslation("teaching");
+  const tasks = useCourseTasksQuery(room.id, { enabled: open }).data;
+  return (
+    <li>
+      <TreeRow
+        level={1}
+        expandable
+        expanded={open}
+        onToggle={onToggle}
+        active={isSelected("room", room.id)}
+        onSelect={() => onSelect({ type: "room", id: room.id, pathId: path.id })}
+        label={room.title}
+      />
+      {open && (
+        <ul>
+          {tasks === undefined && <li className={styles.treeLoading} style={{ "--level": 2 }}>{t("CourseCmsPage.treeLoading")}</li>}
+          {tasks?.map((task, i) => (
+            <li key={task.id}>
+              <TreeRow
+                level={2}
+                index={i + 1}
+                active={isSelected("task", task.id)}
+                onSelect={() => onSelect({ type: "task", id: task.id, roomId: room.id, pathId: path.id })}
+                label={task.title}
+              />
+            </li>
+          ))}
+          {tasks && (
+            <TreeAddRow
+              level={2}
+              label={t("CourseCmsPage.addTaskLabel")}
+              placeholder={t("CourseCmsPage.newTaskPlaceholder")}
+              onCreate={(title) => onCreateTask(path, room, title, tasks.length)}
+            />
+          )}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/* 樹上的學習路徑列：展開時才抓自己的關卡 */
+function PathTreeItem({ path, open, openRooms, isSelected, onToggle, onToggleRoom, onSelect, onCreateRoom, onCreateTask }) {
+  const { t } = useTranslation("teaching");
+  const rooms = useCourseRoomsQuery(path.id, { enabled: open }).data;
+  return (
+    <li>
+      <TreeRow
+        level={0}
+        expandable
+        expanded={open}
+        onToggle={onToggle}
+        active={isSelected("path", path.id)}
+        onSelect={() => onSelect({ type: "path", id: path.id })}
+        label={path.title}
+      />
+      {open && (
+        <ul>
+          {rooms === undefined && <li className={styles.treeLoading} style={{ "--level": 1 }}>{t("CourseCmsPage.treeLoading")}</li>}
+          {rooms?.map((room) => (
+            <RoomTreeItem
+              key={room.id}
+              path={path}
+              room={room}
+              open={openRooms.has(room.id)}
+              isSelected={isSelected}
+              onToggle={() => onToggleRoom(room.id)}
+              onSelect={onSelect}
+              onCreateTask={onCreateTask}
+            />
+          ))}
+          {rooms && (
+            <TreeAddRow
+              level={1}
+              label={t("CourseCmsPage.addRoomLabel")}
+              placeholder={t("CourseCmsPage.newRoomPlaceholder")}
+              onCreate={(title) => onCreateRoom(path, title, rooms.length)}
+            />
+          )}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 /* ══════════════ 主元件 ══════════════ */
 export default function ContentEditor({ paths, teachingClasses, initialPathId, onReloadPaths }) {
   const { t } = useTranslation("teaching");
   const toast = useToast();
   const { confirmLeave } = useUnsavedChanges();
-  const [roomsByPath, setRoomsByPath] = useState({});
-  const [tasksByRoom, setTasksByRoom] = useState({});
   const [openPaths, setOpenPaths] = useState(() => new Set(initialPathId ? [initialPathId] : []));
   const [openRooms, setOpenRooms] = useState(() => new Set());
   /* 選中的節點：{ type: "path"|"room"|"task", id, pathId?, roomId? } */
@@ -680,29 +774,14 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
   const [newPathOpen, setNewPathOpen] = useState(false);
   const newPathDialog = useDialogPresence(newPathOpen);
   const linkedClassIds = new Set(paths.map((path) => String(path.teaching_class_id ?? "")).filter(Boolean));
+  const courseAdminCache = useCourseAdminCacheUpdater();
 
-  const loadRooms = useCallback(async (pathId) => {
-    try {
-      const rows = await CourseAdminService.listRooms(pathId);
-      setRoomsByPath((map) => ({ ...map, [pathId]: rows }));
-    } catch { /* 讀不到就維持原樣，下次展開再試 */ }
-  }, []);
-
-  const loadTasks = useCallback(async (roomId) => {
-    try {
-      const rows = await CourseAdminService.listTasks(roomId);
-      setTasksByRoom((map) => ({ ...map, [roomId]: rows }));
-    } catch { /* 同上 */ }
-  }, []);
-
-  /* 展開時才載入子節點 */
-  useEffect(() => {
-    openPaths.forEach((id) => { if (!(id in roomsByPath)) loadRooms(id); });
-  }, [openPaths]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    openRooms.forEach((id) => { if (!(id in tasksByRoom)) loadTasks(id); });
-  }, [openRooms]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* 子節點走 TanStack Query：樹上每一列展開時才抓自己的子節點（PathTreeItem／RoomTreeItem），
+     工作區要的那一層與樹共用同一份快取。讀不到就維持「載入中」，下次展開再試（與原本相同） */
+  const selectedPathId = selection?.type === "path" ? selection?.id : selection?.pathId;
+  const selectedRoomId = selection?.type === "room" ? selection.id : selection?.roomId;
+  const selectedRoomsQuery = useCourseRoomsQuery(selectedPathId ?? null, { cacheFirst: true });
+  const selectedTasksQuery = useCourseTasksQuery(selection?.type === "task" ? selection.roomId : null, { cacheFirst: true });
 
   function toggle(setter, id) {
     setter((set) => {
@@ -727,15 +806,16 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
     if (next.type !== "path") expand(setOpenRooms, next.type === "room" ? next.id : next.roomId);
   }
 
-  async function createRoom(path, title) {
+  /* order：新節點排在最後（呼叫端傳目前的子節點數） */
+  async function createRoom(path, title, order) {
     try {
       const room = await CourseAdminService.createRoom({
         path_id: path.id,
         title,
         difficulty: "easy",
-        order: (roomsByPath[path.id] ?? []).length,
+        order,
       });
-      await loadRooms(path.id);
+      await courseAdminCache.invalidateRooms(path.id);
       onReloadPaths();
       toast.success(t("CourseCmsPage.roomCreatedToast"));
       /* 建好直接選中，接著就能設難度 */
@@ -747,16 +827,16 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
     }
   }
 
-  async function createTask(path, room, title) {
+  async function createTask(path, room, title, order) {
     try {
       const task = await CourseAdminService.createTask({
         room_id: room.id,
         title,
         content: "",
-        order: (tasksByRoom[room.id] ?? []).length,
+        order,
       });
-      await loadTasks(room.id);
-      loadRooms(path.id);
+      await courseAdminCache.invalidateTasks(room.id);
+      courseAdminCache.invalidateRooms(path.id);
       toast.success(t("CourseCmsPage.taskAddedToast"));
       /* 建好直接選中，接著就能寫內容、加題目 */
       if (task?.id) select({ type: "task", id: task.id, roomId: room.id, pathId: path.id });
@@ -767,11 +847,9 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
     }
   }
 
-  const selectedPathId = selection?.type === "path" ? selection?.id : selection?.pathId;
   const selectedPath = paths.find((path) => path.id === selectedPathId);
-  const selectedRoomId = selection?.type === "room" ? selection.id : selection?.roomId;
-  const selectedRoom = selectedPathId ? roomsByPath[selectedPathId]?.find((room) => room.id === selectedRoomId) : null;
-  const selectedTask = selection?.type === "task" ? tasksByRoom[selection.roomId]?.find((task) => task.id === selection.id) : null;
+  const selectedRoom = selectedPathId ? selectedRoomsQuery.data?.find((room) => room.id === selectedRoomId) : null;
+  const selectedTask = selection?.type === "task" ? selectedTasksQuery.data?.find((task) => task.id === selection.id) : null;
 
   let workspace = <EmptyState icon="account_tree" iconSize={32} title={t("CourseCmsPage.selectNodeHint")} />;
   if (selection?.type === "path" && selectedPath) {
@@ -791,8 +869,8 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
         key={selectedRoom.id}
         path={selectedPath}
         room={selectedRoom}
-        onChanged={() => loadRooms(selectedPath.id)}
-        onDeleted={() => { setSelection({ type: "path", id: selectedPath.id }); loadRooms(selectedPath.id); onReloadPaths(); }}
+        onChanged={() => courseAdminCache.invalidateRooms(selectedPath.id)}
+        onDeleted={() => { setSelection({ type: "path", id: selectedPath.id }); courseAdminCache.invalidateRooms(selectedPath.id); onReloadPaths(); }}
       />
     );
   } else if (selection?.type === "task" && selectedPath && selectedRoom && selectedTask) {
@@ -802,11 +880,11 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
         path={selectedPath}
         room={selectedRoom}
         task={selectedTask}
-        onChanged={() => loadTasks(selectedRoom.id)}
+        onChanged={() => courseAdminCache.invalidateTasks(selectedRoom.id)}
         onDeleted={() => {
           setSelection({ type: "room", id: selectedRoom.id, pathId: selectedPath.id });
-          loadTasks(selectedRoom.id);
-          loadRooms(selectedPath.id);
+          courseAdminCache.invalidateTasks(selectedRoom.id);
+          courseAdminCache.invalidateRooms(selectedPath.id);
         }}
       />
     );
@@ -834,77 +912,20 @@ export default function ContentEditor({ paths, teachingClasses, initialPathId, o
               action={<button type="button" className={styles.btnPrimary} onClick={() => setNewPathOpen(true)}><MIcon name="add" size={16} />{t("CourseCmsPage.addPathLabel")}</button>} />
           ) : (
             <ul className={styles.tree}>
-              {paths.map((path) => {
-                const pathOpen = openPaths.has(path.id);
-                const rooms = roomsByPath[path.id];
-                return (
-                  <li key={path.id}>
-                    <TreeRow
-                      level={0}
-                      expandable
-                      expanded={pathOpen}
-                      onToggle={() => toggle(setOpenPaths, path.id)}
-                      active={isSelected("path", path.id)}
-                      onSelect={() => select({ type: "path", id: path.id })}
-                      label={path.title}
-                    />
-                    {pathOpen && (
-                      <ul>
-                        {rooms === undefined && <li className={styles.treeLoading} style={{ "--level": 1 }}>{t("CourseCmsPage.treeLoading")}</li>}
-                        {rooms?.map((room) => {
-                          const roomOpen = openRooms.has(room.id);
-                          const tasks = tasksByRoom[room.id];
-                          return (
-                            <li key={room.id}>
-                              <TreeRow
-                                level={1}
-                                expandable
-                                expanded={roomOpen}
-                                onToggle={() => toggle(setOpenRooms, room.id)}
-                                active={isSelected("room", room.id)}
-                                onSelect={() => select({ type: "room", id: room.id, pathId: path.id })}
-                                label={room.title}
-                              />
-                              {roomOpen && (
-                                <ul>
-                                  {tasks === undefined && <li className={styles.treeLoading} style={{ "--level": 2 }}>{t("CourseCmsPage.treeLoading")}</li>}
-                                  {tasks?.map((task, i) => (
-                                    <li key={task.id}>
-                                      <TreeRow
-                                        level={2}
-                                        index={i + 1}
-                                        active={isSelected("task", task.id)}
-                                        onSelect={() => select({ type: "task", id: task.id, roomId: room.id, pathId: path.id })}
-                                        label={task.title}
-                                      />
-                                    </li>
-                                  ))}
-                                  {tasks && (
-                                    <TreeAddRow
-                                      level={2}
-                                      label={t("CourseCmsPage.addTaskLabel")}
-                                      placeholder={t("CourseCmsPage.newTaskPlaceholder")}
-                                      onCreate={(title) => createTask(path, room, title)}
-                                    />
-                                  )}
-                                </ul>
-                              )}
-                            </li>
-                          );
-                        })}
-                        {rooms && (
-                          <TreeAddRow
-                            level={1}
-                            label={t("CourseCmsPage.addRoomLabel")}
-                            placeholder={t("CourseCmsPage.newRoomPlaceholder")}
-                            onCreate={(title) => createRoom(path, title)}
-                          />
-                        )}
-                      </ul>
-                    )}
-                  </li>
-                );
-              })}
+              {paths.map((path) => (
+                <PathTreeItem
+                  key={path.id}
+                  path={path}
+                  open={openPaths.has(path.id)}
+                  openRooms={openRooms}
+                  isSelected={isSelected}
+                  onToggle={() => toggle(setOpenPaths, path.id)}
+                  onToggleRoom={(roomId) => toggle(setOpenRooms, roomId)}
+                  onSelect={select}
+                  onCreateRoom={createRoom}
+                  onCreateTask={createTask}
+                />
+              ))}
             </ul>
           )}
         </div>

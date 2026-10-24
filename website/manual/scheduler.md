@@ -15,10 +15,12 @@ Administrators only.
 
 ### Change placement and overcommit
 
-1. In the **Placement & Overcommit** card, set **CPU Overcommit Ratio**, **Disk Overcommit Ratio** and **Node Reassignment Cost**.
+1. In the **Placement & Overcommit** card, set **CPU Overcommit Ratio**, **Disk Overcommit Ratio**, **RAM Overcommit Ratio** and **Node Reassignment Cost**.
 2. Click **Save Scheduling Settings**.
 
-A CPU Overcommit Ratio of 2 allows up to 2 vCPUs per physical core; a Disk Overcommit Ratio of 1 means disks are not overcommitted. The higher the Node Reassignment Cost, the more the platform prefers to keep a machine on its current node. This card is marked **Takes effect immediately**: the very next placement uses the new values.
+A CPU Overcommit Ratio of 2 allows up to 2 vCPUs per physical core; a Disk Overcommit Ratio of 1 means disks are not overcommitted. A RAM Overcommit Ratio of 1 means memory is not overcommitted; at most 2, the memory allocated to machines may add up to twice the physical memory, but actual usage still cannot exceed it. The higher the Node Reassignment Cost, the more the platform prefers to keep a machine on its current node. This card is marked **Takes effect immediately**: the very next placement uses the new values.
+
+![Change placement and overcommit (numbers match the steps above)](/manual-shots/en/scheduler/s01.webp)
 
 ### Tune how busy nodes are penalized
 
@@ -27,12 +29,16 @@ A CPU Overcommit Ratio of 2 allows up to 2 vCPUs per physical core; a Disk Overc
 
 These values decide how many points a busy node loses when the platform scores nodes for a new machine. Each "Warn" value is where a penalty starts; the penalty then grows until the matching "High" or "Max" value, where it is at its largest. This card also **Takes effect immediately**.
 
+![Tune how busy nodes are penalized (numbers match the steps above)](/manual-shots/en/scheduler/s02.webp)
+
 ### Set up scheduled boots
 
 1. In the **Scheduled Boot & Windows** card, set **Boot Lead Time (minutes)**, **Boot Batch Size**, **Batch Interval (seconds)** and **Window Grace Period (minutes)**.
 2. Click **Save Scheduling Settings**.
 
 Before a usage window starts, the platform powers machines on ahead of time, a batch at a time with a pause between batches, so storage is not overwhelmed by simultaneous boots. After the window ends, it waits for the grace period before shutting the machines down. This card is marked **Applies from the next scheduler cycle**.
+
+![Set up scheduled boots (numbers match the steps above)](/manual-shots/en/scheduler/s03.webp)
 
 ### Set practice sessions and expiry warnings
 
@@ -41,6 +47,8 @@ Before a usage window starts, the platform powers machines on ahead of time, a b
 
 When a student starts a machine outside a usage window, it shuts down automatically after the practice session, with a reminder shortly before the end. Expiry Warning only controls how early students see the expiring-soon notice; notifications, shutdown and deletion after expiry are handled by the TTL lifecycle on [Resource Policies](/manual/governance).
 
+![Set practice sessions and expiry warnings (numbers match the steps above)](/manual-shots/en/scheduler/s04.webp)
+
 ### Discard unsaved changes
 
 1. Click **Restore** next to the save button (shown only when something has changed).
@@ -48,12 +56,15 @@ When a student starts a machine outside a usage window, it shuts down automatica
 
 If you leave the page with unsaved changes, you are asked to confirm first.
 
+![Discard unsaved changes (numbers match the steps above)](/manual-shots/en/scheduler/s05.webp)
+
 ## Fields and options
 
 | Field | Meaning | Notes |
 | --- | --- | --- |
 | CPU Overcommit Ratio | vCPUs allowed per physical core | 1–8, default 2 |
 | Disk Overcommit Ratio | Disk space allowed per unit of real capacity | 1–5, default 1 (no overcommit) |
+| RAM Overcommit Ratio | Memory allocated to machines relative to physical memory; actual usage still cannot exceed physical memory | 1–2, default 1 (no overcommit) |
 | Node Reassignment Cost | Preference for keeping a machine on its current node | 0–5, default 0.15 |
 | CPU Peak Margin | Headroom reserved for CPU spikes | 1–2, default 1.1 |
 | RAM Peak Margin | Headroom reserved for memory spikes | 1–2, default 1.05 |

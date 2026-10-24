@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import ResourceMgmtPage from "./ResourceMgmtPage";
+import { resourceKeys } from "../../../queries/resources";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   listAll: vi.fn(),
@@ -13,7 +15,6 @@ const mocks = vi.hoisted(() => ({
   buildEnvironmentGroups: vi.fn(),
   navigate: vi.fn(),
   confirm: vi.fn(),
-  autoRefresh: null,
   t: (key, opts) => (opts?.count !== undefined ? `${key}:${opts.count}` : key),
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -41,7 +42,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: (refresh) => { mocks.autoRefresh = refresh; } }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
@@ -61,9 +61,18 @@ vi.mock("../../../components/PowerMenu/PowerMenu", () => ({
 
 let root;
 let host;
+/* 每個測試自己的 QueryClient；背景刷新在測試裡用 refreshList() 觸發（原本是 useAutoRefresh 的回呼） */
+let client;
+const LIST_KEY = resourceKeys.everyone;
+
+function refreshList() {
+  return client.refetchQueries({ queryKey: LIST_KEY });
+}
 
 async function flush() {
   await act(async () => {
+    /* TanStack Query 以 macrotask 批次通知，先等一個 timer tick */
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
 }
@@ -93,13 +102,13 @@ async function toggleRow(name) {
 }
 
 async function renderPage() {
-  await act(async () => { root.render(<ResourceMgmtPage />); });
+  await act(async () => { root.render(withQueryClient(<ResourceMgmtPage />, client)); });
   await flush();
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.autoRefresh = null;
+  client = createTestQueryClient();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mocks.listAllSessions.mockResolvedValue([]);
   mocks.buildEnvironmentGroups.mockReturnValue([]);
@@ -114,13 +123,19 @@ afterEach(() => {
 });
 
 describe("ResourceMgmtPage", () => {
+  test("Create resource opens the request form, not just the request list", async () => {
+    mocks.listAll.mockResolvedValueOnce([]);
+    await renderPage();
+    await act(async () => { buttonByText("ResourceMgmtPage.createResource").click(); });
+    expect(mocks.navigate).toHaveBeenCalledWith("/my-requests", { state: { create: true } });
+  });
+
   test("Retry after a failed first load clears the error state", async () => {
     mocks.listAll
       .mockRejectedValueOnce(new Error("boom"))
       .mockResolvedValueOnce([]);
 
-    await act(async () => { root.render(<ResourceMgmtPage />); });
-    await flush();
+    await renderPage();
     const retry = buttonByText("Error.retry");
     expect(retry).toBeTruthy();
 
@@ -146,7 +161,7 @@ describe("ResourceMgmtPage", () => {
     }]);
     mocks.batchActionInChunks.mockResolvedValue({ total: 2, succeeded: 1, failed: 1, results: [] });
 
-    await act(async () => { root.render(<ResourceMgmtPage />); });
+    await act(async () => { root.render(withQueryClient(<ResourceMgmtPage />, client)); });
     await flush();
 
     const menuBtn = host.querySelector('button[aria-label="ResourceMgmtPage.groupPowerTitle"]');
@@ -182,7 +197,7 @@ describe("ResourceMgmtPage", () => {
     await toggleRow("vm-103");
     expect(host.textContent).toContain("ResourceMgmtPage.selectedCount:3");
 
-    await act(async () => { await mocks.autoRefresh(); });
+    await act(async () => { await refreshList(); });
     await flush();
 
     // 102 消失、103 併進環境群組：只剩 101 還勾著
@@ -209,7 +224,7 @@ describe("ResourceMgmtPage", () => {
     await act(async () => { host.querySelector('button[data-action="stop"]').click(); });
 
     // 確認框還開著時清單刷新，102 不見了
-    await act(async () => { await mocks.autoRefresh(); });
+    await act(async () => { await refreshList(); });
     await flush();
     await act(async () => { confirmed.resolve(true); });
     await flush();
@@ -227,10 +242,11 @@ describe("ResourceMgmtPage", () => {
       .mockReturnValueOnce(newer.promise);
 
     await renderPage();
+    /* 第二次刷新會把還在路上的第一次取消掉（TanStack Query 同一份快取只留最新的請求） */
     let first;
     let second;
-    act(() => { first = mocks.autoRefresh(); });
-    act(() => { second = mocks.autoRefresh(); });
+    act(() => { first = refreshList(); });
+    act(() => { second = refreshList(); });
 
     await act(async () => { newer.resolve([vm(101)]); await second; });
     await act(async () => { older.resolve([vm(101), vm(102)]); await first; });
@@ -240,29 +256,22 @@ describe("ResourceMgmtPage", () => {
     expect(rowOf("vm-102")).toBeUndefined();
   });
 
-  test("a first-load failure still shows the error when a background refresh overtook it", async () => {
+  test("a background refresh during the first load joins it instead of firing a second request", async () => {
     const firstLoad = deferred();
-    const background = deferred();
-    mocks.listAll
-      .mockReturnValueOnce(firstLoad.promise)
-      .mockReturnValueOnce(background.promise);
+    mocks.listAll.mockReturnValueOnce(firstLoad.promise);
 
-    await act(async () => { root.render(<ResourceMgmtPage />); });
+    await act(async () => { root.render(withQueryClient(<ResourceMgmtPage />, client)); });
     expect(host.querySelector('[data-testid="loading"]')).toBeTruthy();
 
     let refresh;
-    act(() => { refresh = mocks.autoRefresh(); });
-    await act(async () => { background.reject(new Error("pve down")); await refresh; });
-    await flush();
+    act(() => { refresh = refreshList(); });
+    expect(mocks.listAll).toHaveBeenCalledTimes(1);
 
+    await act(async () => { firstLoad.resolve([vm(101)]); await refresh; });
+    await flush();
     expect(host.querySelector('[data-testid="loading"]')).toBeNull();
-    expect(buttonByText("Error.retry")).toBeTruthy();
-
-    // 被超車的首次載入晚回來也不能蓋掉
-    await act(async () => { firstLoad.resolve([vm(101)]); });
-    await flush();
-    expect(buttonByText("Error.retry")).toBeTruthy();
-    expect(rowOf("vm-101")).toBeUndefined();
+    expect(rowOf("vm-101")).toBeTruthy();
+    expect(mocks.listAll).toHaveBeenCalledTimes(1);
   });
 
   test("a background refresh sent before a row delete does not bring the row back", async () => {
@@ -275,7 +284,7 @@ describe("ResourceMgmtPage", () => {
 
     await renderPage();
     let refresh;
-    act(() => { refresh = mocks.autoRefresh(); });
+    act(() => { refresh = refreshList(); });
 
     const menuBtn = rowOf("vm-102").querySelector('button[aria-label="ResourceMgmtPage.powerControlTitle"]');
     await act(async () => { menuBtn.click(); });
@@ -319,7 +328,7 @@ describe("ResourceMgmtPage 批量操作", () => {
 
   async function renderWith(list) {
     mocks.listAll.mockResolvedValue(list);
-    await act(async () => { root.render(<ResourceMgmtPage />); });
+    await act(async () => { root.render(withQueryClient(<ResourceMgmtPage />, client)); });
     await flush();
   }
 
@@ -388,7 +397,7 @@ describe("ResourceMgmtPage 搜尋與狀態篩選", () => {
 
   async function renderWith(list) {
     mocks.listAll.mockResolvedValue(list);
-    await act(async () => { root.render(<ResourceMgmtPage />); });
+    await act(async () => { root.render(withQueryClient(<ResourceMgmtPage />, client)); });
     await flush();
   }
 
@@ -435,5 +444,31 @@ describe("ResourceMgmtPage 搜尋與狀態篩選", () => {
     await act(async () => { buttonByText("EmptyState.clearSearch").click(); });
     await flush();
     expect(rowNames()).toHaveLength(3);
+  });
+
+  test("超過 60 台時散機列只渲染視窗附近的列，其餘用空白列撐高度", async () => {
+    /* happy-dom 沒有版面：列高 48、視窗高 480；virtualizer 讀 window.ResizeObserver，換成不回呼的替身 */
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 48 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 480 });
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
+    class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+    const originalResizeObserver = window.ResizeObserver;
+    Object.defineProperty(window, "ResizeObserver", { configurable: true, value: ResizeObserverStub });
+    try {
+      mocks.buildEnvironmentGroups.mockReturnValue([]);
+      mocks.listAll.mockResolvedValue(Array.from({ length: 300 }, (_, i) => vm(1000 + i)));
+      await renderPage();
+
+      const rows = host.querySelectorAll("tr[data-guide='resource-mgmt-row']");
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.length).toBeLessThan(300);
+      expect(rows[0].textContent).toContain("vm-1000");
+      expect(host.querySelector("tbody[data-virtualized]")).not.toBeNull();
+      const spacer = [...host.querySelectorAll("tr[aria-hidden='true']")].pop();
+      expect(parseInt(spacer.style.height, 10)).toBeGreaterThan(0);
+    } finally {
+      delete HTMLElement.prototype.offsetHeight;
+      Object.defineProperty(window, "ResizeObserver", { configurable: true, value: originalResizeObserver });
+    }
   });
 });

@@ -15,31 +15,26 @@ ACL tuple 為 `client_tunnel_ip . vm_ip . tcp_port`。LXC 僅開 SSH；QEMU VM �
 
 ## Gateway VM
 
-目前配置使用：
+安裝腳本的預設值（每一項都能用 `gateway/install.sh` 開頭的同名環境變數覆寫；從「閘道 VM」頁「安裝服務」分頁一鍵安裝時，會依偵測到的網卡與後端的 `WIREGUARD_*` 設定自動填入）：
 
-- WireGuard interface：`wg0` / `10.250.0.1/16`
-- UDP listen port：`51821`（`51820` 保留給 NetBird）
-- VM network：`10.10.0.0/16`，由 `eth1` 送出
-- SNAT address：`10.10.0.2`
+- WireGuard 介面：`wg0`／`10.250.0.1/16`（`WG_INTERFACE`、`WG_ADDRESS`）
+- UDP 監聽 port：`51821`（`WG_LISTEN_PORT`；`51820` 留給 NetBird），由 `eth0` 接收（`WG_INGRESS_INTERFACE`）
+- VM 網路：`10.10.0.0/16`，由 `eth1` 送出（`WG_VM_SUBNET`、`WG_VM_INTERFACE`）
+- SNAT 位址：`10.10.0.2`，必須事先設在 `eth1` 上（`WG_SNAT_ADDRESS`）
 - nftables table：`inet skylab_wg`
 - systemd units：`wg-quick@wg0`、`skylab-wg-firewall.service`
 
-Gateway 必須是 Debian 13（trixie）；其他系統（含 Debian 12，它的 nftables 太舊、不支援 `nft destroy table`）安裝腳本會在動到任何設定前拒絕執行。在新 Gateway 上先確認介面、位址與 UDP port 沒有衝突，再以 root 執行：
+Gateway 必須是 Debian 13（trixie）；其他系統（含 Debian 12，它的 nftables 太舊、不支援 `nft destroy table`）安裝腳本會在動到任何設定前拒絕執行。在新 Gateway 上先確認介面、位址與 UDP port 沒有衝突，再從「安裝服務」分頁執行安裝，或在 Gateway 上以 root 執行：
 
 ```bash
 sudo ./gateway/install.sh
 ```
 
-這是 Gateway 的唯一安裝入口，會安裝 nginx（Port 轉發與網域反向代理）、WireGuard、nftables ACL 與 SNAT（HTTPS 憑證由管理員自備，不裝 certbot）。Installer 會先將網路、防火牆及服務設定備份到 `/root/skylab-backups/`，不會移除既有 NetBird，也不會清空整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 SkyLab 管理的檔案，Installer 會拒絕覆寫。
+這是 Gateway 的唯一安裝入口，會安裝 nginx（Port 轉發與網域反向代理）、WireGuard、nftables ACL 與 SNAT，以及 Prometheus exporter；HTTPS 憑證由管理員自備。安裝腳本會先將網路、防火牆及服務設定備份到 `/root/skylab-backups/`，不會移除既有 NetBird，也不會清空整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 SkyLab 管理的檔案，安裝腳本會拒絕覆寫。
 
 Gateway 上游防火牆或 NAT 還必須將對外的 UDP `51821` 轉送到 Gateway。若 Client 與 Gateway 位於同一個可路由網路，可直接使用 Gateway 的內部位址。
 
-既有 Gateway 請先部署新版 Backend，再從 Gateway 管理頁重新執行安裝。
-Backend 在遷移前仍可操作舊 `campus_cloud_wg` 規則；安裝器會保留 WireGuard
-金鑰、建立 `skylab_wg` 與 `skylab-wg-firewall.service`，移除舊服務依賴與
-規則表，並更新 UFW 中舊名及新名的受管規則。不要只手動改服務或規則表名稱。
-套用會重建動態 ACL，需等 Backend 重播授權或讓 APP 重新連線。
-UFW 的 IPv4 與 `(v6)` 列，以及不同 VM IP 的 SSH ACL，是不同規則。
+舊版安裝的 Gateway 仍使用 `campus_cloud_wg` 規則表。請先部署新版 Backend（它仍能操作舊規則），再從「安裝服務」分頁重新安裝。安裝腳本會保留 WireGuard 金鑰、建立 `skylab_wg` 與 `skylab-wg-firewall.service`、移除舊的 unit 與規則表，並更新 UFW 中舊名及新名的受管規則；不要手動改服務或規則表名稱。重新安裝會重建動態 ACL，需等 Backend 重播授權或讓 APP 重新連線。UFW 裡的 IPv4 與 `(v6)` 列，以及不同 VM IP 的 SSH ACL，是不同的規則，不是重複。
 
 ## Backend 設定
 
@@ -53,15 +48,15 @@ WIREGUARD_KEEPALIVE_SECONDS=25
 WIREGUARD_SESSION_TTL_SECONDS=28800
 ```
 
-`WIREGUARD_VM_SUBNET` is a bootstrap fallback. Once IP management is configured,
-the platform subnet stored in `SubnetConfig.cidr` is the source of truth for
-desktop routes, connection targets, Gateway ACLs, and SNAT installation.
+除了 `WIREGUARD_ENDPOINT_HOST`，以上都是預設值；reconciler 相關設定（`WIREGUARD_RECONCILE_*`、`WIREGUARD_REVOKED_RETENTION_DAYS`、`WIREGUARD_ALLOW_INACTIVE_PEER_TRANSFER`）列在[環境變數對照表](/zh-TW/operations/environment)。
 
-正式環境的 `WIREGUARD_ENDPOINT_HOST` 應填 Client 可以到達的 DNS 名稱或公網 IP，而不是管理用 SSH 位址。部署 Backend 前必須先套用 Alembic migration，建立 `wireguard_peers` table。
+`WIREGUARD_VM_SUBNET` 只是 IP 管理設定好之前的備援值。設定之後，桌面端路由、連線目標、Gateway ACL 與 SNAT 安裝一律以 IP 管理的平台子網為準。
+
+正式環境的 `WIREGUARD_ENDPOINT_HOST` 應填 Client 可以到達的 DNS 名稱或公網 IP。留空時，Client 拿到的是「閘道 VM」連線設定裡的 Gateway 位址，也就是管理用的 SSH 位址，外部通常連不到。
 
 ## Desktop Client
 
-目前 Windows 版本使用官方 WireGuard for Windows 的 tunnel service。正式 Setup EXE 內含經 SHA-256 與 Authenticode 驗證的官方 MSI，安裝 SkyLab Connect 時會一併安裝；portable EXE 若偵測到系統尚未安裝 WireGuard，會在第一次連線時要求 UAC 並安裝同一份 MSI。因此學生不需要事先另外下載 WireGuard。
+Windows 版本使用官方 WireGuard for Windows 的 tunnel service。正式 Setup EXE 內含經 SHA-256 與 Authenticode 驗證的官方 MSI，安裝 SkyLab Connect 時會一併安裝；portable EXE 若偵測到系統尚未安裝 WireGuard，會在第一次連線時要求 UAC 並安裝同一份 MSI。因此學生不需要事先另外下載 WireGuard。
 
 WireGuard 是共用的系統網路元件，移除 SkyLab Connect 時不會連帶移除 WireGuard，以免中斷其他應用程式的 tunnel。第三方授權聲明會一起放在 App resources 的 `wireguard/THIRD_PARTY_NOTICES.txt`。
 

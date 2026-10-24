@@ -60,7 +60,9 @@
   border-radius: $radius-8;
   background: var(--color-surface);
   color: var(--color-text-muted);
-  min-width: 260px;
+  /* 英文 placeholder（Search by node, model or PCI address）要約 300px 才不會被截 */
+  min-width: 320px;
+  max-width: 100%;
   box-shadow: var(--shadow-sm);
 }
 

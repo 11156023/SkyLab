@@ -17,7 +17,9 @@ Administrators only. The page lives in the administrator settings sidebar, and t
 
 1. Type in the search box (**Search by node, model or PCI address**). It matches the mapping name, the description, node names and PCI addresses.
 2. For example, type a node name to see only the GPUs on that host.
-3. If nothing matches, **No GPUs detected yet** is shown with a button to clear the search.
+3. If nothing matches, **No GPUs match the search** is shown with a button to clear the search.
+
+![Find a mapping (numbers match the steps above)](/manual-shots/en/gpu-management/s01.webp)
 
 ### Read a mapping row
 
@@ -28,22 +30,30 @@ Administrators only. The page lives in the administrator settings sidebar, and t
 5. **VMs In Use**: one chip per VM attached to this mapping. A green dot means the VM is running; hover over a chip to see its VMID.
 6. **Status**: **Available** (none in use), **x/y in use**, **Full**, or **Unknown** when the total is 0.
 
+![Read a mapping row (numbers match the steps above)](/manual-shots/en/gpu-management/s02.webp)
+
 ### Expand a long PCI list
 
 1. When a mapping has more than three PCI addresses, consecutive addresses on the same node are compressed into ranges such as `0000:15:00.2 – 15:03.7`.
 2. Click the chip at the end (**N VF(s)** for SR-IOV, **N device(s)** for passthrough) to open a row below with every address, grouped by node.
 3. Click the chip again to fold it.
 
+![Expand a long PCI list (numbers match the steps above)](/manual-shots/en/gpu-management/s03.webp)
+
 ### Read capacity and VRAM
 
 1. For SR-IOV, the total is the number of instances that can actually be created, which may be lower than the number of VFs. When the two differ, the VF count is shown under **Available / Total**.
 2. When VRAM information is available, it is shown under the counts: **VRAM in use** used / total, or **VRAM total … · usage unknown** when the usage cannot be read.
+
+![Read capacity and VRAM (numbers match the steps above)](/manual-shots/en/gpu-management/s04.webp)
 
 ### Remove a mapping
 
 1. Click the trash button (**Remove Mapping**) in the **Actions** column.
 2. Confirm **Delete GPU Mapping** ("Delete mapping "name"?").
 3. The mapping is deleted on PVE and the list reloads.
+
+![Remove a mapping (numbers match the steps above)](/manual-shots/en/gpu-management/s05.webp)
 
 ## Fields and options
 

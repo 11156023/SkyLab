@@ -3,14 +3,22 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, test, vi } from "vitest";
+import { notifyManager } from "@tanstack/react-query";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { RubricsTab, recoverSessionProposal } from "./AiJudgePanel";
 import { AiJudgeService } from "../../../services/aiJudge";
 import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import i18n from "../../../i18n";
 
 const mounted = new Map();
 const originalScroll = Element.prototype.scrollIntoView;
+let queryClient;
+beforeEach(() => {
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；改成同步通知，讀取結果在同一個 act 裡就上畫面（假 timer 也適用） */
+  notifyManager.setScheduler((callback) => callback());
+  queryClient = createTestQueryClient();
+});
 afterEach(async () => {
   for (const [root, container] of mounted) {
     await act(async () => root.unmount());
@@ -18,6 +26,8 @@ afterEach(async () => {
   }
   mounted.clear();
   Element.prototype.scrollIntoView = originalScroll;
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  queryClient.clear();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -65,9 +75,10 @@ async function mountWithMessages(rows) {
   document.body.appendChild(container);
   const root = createRoot(container);
   mounted.set(root, container);
-  await act(async () => root.render(
+  await act(async () => root.render(withQueryClient(
     <ConfirmProvider><RubricsTab classId="class-1" judgeSession={{ id: "session-1", selected_file_id: "file-1" }} /></ConfirmProvider>,
-  ));
+    queryClient,
+  )));
   return { container, list, save, send, build };
 }
 
@@ -144,9 +155,10 @@ test("切換到另一個檢查後，舊請求的晚到回覆不會插入目前�
   expect(send).toHaveBeenCalledTimes(1);
   list.mockResolvedValue([]);
   const [root] = mounted.keys();
-  await act(async () => root.render(
+  await act(async () => root.render(withQueryClient(
     <ConfirmProvider><RubricsTab classId="class-1" judgeSession={{ id: "session-2", selected_file_id: "file-1" }} /></ConfirmProvider>,
-  ));
+    queryClient,
+  )));
   await act(async () => finish({
     user_message: { id: "user-old", role: "user", content: "舊檢查要求" },
     assistant_message: proposalMessage(), rubric_proposal: proposalMessage().metadata_json.rubric_proposal, base_revision: 3,

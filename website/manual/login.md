@@ -16,7 +16,7 @@ After sign-in, the service check screen looks different for administrators (real
 
 ## Before you start
 
-- You need an account: one an administrator created for you, an LDAP campus account (when LDAP is enabled), a Google account that is already registered in SkyLab, or one you registered yourself.
+- You need an account: one an administrator created for you, an LDAP campus account (when LDAP is enabled), a Google account (already registered in SkyLab, or created at the first Google sign-in when Google sign-up is enabled), or one you registered yourself.
 - If your account requires two-factor authentication, keep the phone with your authenticator app at hand.
 
 ## Step by step
@@ -30,6 +30,8 @@ After sign-in, the service check screen looks different for administrators (real
 5. Click **Log in**.
 6. If your account has two-factor authentication, continue with [Enter the two-factor code](#enter-the-two-factor-code). Otherwise you go straight to the service check.
 
+![Sign in with email and password (numbers match the steps above)](/manual-shots/en/login/s01.webp)
+
 ### Sign in with a campus account (LDAP)
 
 1. Select the **Campus Account** tab.
@@ -37,13 +39,17 @@ After sign-in, the service check screen looks different for administrators (real
 3. Complete the "I am human" box if it is shown.
 4. Click **Log in**.
 
+![Sign in with a campus account (LDAP) (numbers match the steps above)](/manual-shots/en/login/s02.webp)
+
 ### Sign in with Google
 
 1. Click the Google sign-in button under **or**.
 2. Choose your Google account in the pop-up window.
 3. While SkyLab checks the account, **Signing in with Google…** is shown under the button.
 
-If the Google address has no SkyLab account yet, the page says so and asks you to create an account first. If the account has not been activated (for example it is still waiting for administrator approval), the page tells you to wait for approval.
+If the Google address has no SkyLab account yet, the first sign-in creates one when an administrator has enabled Google sign-up; otherwise the page says the account is not registered and asks you to create an account first. If the account has not been activated (for example it is still waiting for administrator approval), the page tells you to wait for approval.
+
+![Sign in with Google (numbers match the steps above)](/manual-shots/en/login/s03.webp)
 
 ### Enter the two-factor code
 
@@ -56,6 +62,8 @@ When your account has two-factor authentication enabled, a **Two-factor authenti
 
 If you have lost your phone, ask an administrator to reset two-factor authentication for your account.
 
+![Enter the two-factor code (numbers match the steps above)](/manual-shots/en/login/s04.webp)
+
 ### Reset a forgotten password
 
 1. On the sign-in form, click **Forgot your password?**
@@ -65,6 +73,8 @@ If you have lost your phone, ask an administrator to reset two-factor authentica
 5. Click **Update Password**, then **Go to Log In** and sign in with the new password.
 
 The reset link also works if you are currently signed in. If the link has expired, the page tells you to request a new one.
+
+![Reset a forgotten password (numbers match the steps above)](/manual-shots/en/login/s05.webp)
 
 ### Register a new account
 
@@ -79,6 +89,8 @@ Only available when **Sign up now** is shown under the sign-in form.
 
 If the verification link is invalid or expired, register again with the same email to get a new link.
 
+![Register a new account (numbers match the steps above)](/manual-shots/en/login/s06.webp)
+
 ### Confirm a new email address
 
 When you change your email in [Account Settings](/manual/account), SkyLab sends a link to the new address.
@@ -86,6 +98,8 @@ When you change your email in [Account Settings](/manual/account), SkyLab sends 
 1. Open the email at the new address and click the link.
 2. The **Verify email** page shows whether the change worked.
 3. Click **Continue** to return to Account Settings (or to the sign-in page if you are signed out).
+
+![Confirm a new email address (numbers match the steps above)](/manual-shots/en/login/s07.webp)
 
 ### Authorize the SkyLab Connect desktop app
 
@@ -98,6 +112,8 @@ When you click sign-in in the SkyLab Connect desktop app, it opens the SkyLab si
 
 If authorization fails (for example the link expired), go back to SkyLab Connect and sign in again to get a new link.
 
+![Authorize the SkyLab Connect desktop app (numbers match the steps above)](/manual-shots/en/login/s08.webp)
+
 ### Get through the service check after signing in
 
 Every time you sign in, SkyLab checks the services it depends on before showing the system: the database, Redis, the background worker, Proxmox VE, the gateway and the AI gateway.
@@ -105,6 +121,8 @@ Every time you sign in, SkyLab checks the services it depends on before showing 
 - **Students and teachers** see a checklist ("Opening your adventure log", "Preparing your gear" and so on), each with a one-line hint of the features it covers. If everything passes, you enter SkyLab automatically.
 - If something fails, the failing items get a red cross. You can click **Check again**, **Sign out**, or **Continue anyway**. Features marked with a cross may not work for now; please let an administrator know.
 - **Administrators** see the real service names, their status (**Healthy**, **Failing**, **Not configured**) and details such as latency. On failure they can **Check again**, **Open Resource Monitoring** or **Skip and continue**.
+
+![Get through the service check after signing in](/manual-shots/en/login/s09.webp)
 
 ### Set up two-factor authentication when it is required
 
@@ -117,6 +135,8 @@ If an administrator requires two-factor authentication for your account and you 
 
 To leave without setting it up, click **Log out** at the top left.
 
+![Set up two-factor authentication when it is required (numbers match the steps above)](/manual-shots/en/login/s10.webp)
+
 ### Complete the first-time setup tour
 
 The first time you sign in, a short setup tour appears before the main pages.
@@ -128,6 +148,8 @@ The first time you sign in, a short setup tour appears before the main pages.
 5. **Done**: review the summary of your profile, language, appearance and two-factor status, then click **Start using SkyLab**.
 
 **Set up later** in the top right corner closes the tour at any step. Either way the tour does not appear again; everything in it can be changed later in [Account Settings](/manual/account).
+
+![Complete the first-time setup tour (numbers match the steps above)](/manual-shots/en/login/s11.webp)
 
 ## Fields and options
 
@@ -153,10 +175,10 @@ Password rules for setting or resetting a SkyLab password (the checklist under t
 
 ## Limits and behaviour to know
 
-- Sign-in attempts are rate-limited per account and per network address. After too many failed attempts you have to wait a minute before trying again.
+- Sign-in attempts are rate-limited per account (10 per minute by default) and per network address. After too many attempts you have to wait a minute before trying again.
 - In the two-factor step, after three wrong codes the step becomes invalid and you are sent back to sign in with your password again; five wrong codes within 15 minutes lock two-factor sign-in for that account for 15 minutes. The two-factor step itself expires after 5 minutes; if it does, you are returned to the sign-in form.
 - If your phone's clock is wrong, codes will be rejected. Check the time on your phone first.
-- Password reset emails are limited to a few per address per minute. The reset link is valid for a limited time (48 hours by default).
+- Password reset emails are limited to three per address per minute. The reset link is valid for a limited time (48 hours by default).
 - The registration verification link is valid for 24 hours. The link for confirming a new email address is valid for 1 hour.
 - Old passwords that do not meet the current rules still work for signing in; the rules apply the next time you change the password.
 - The service check never blocks you: students and teachers can continue with a warning, and administrators can skip it.

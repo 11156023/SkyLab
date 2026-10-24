@@ -50,6 +50,8 @@ export const TeachingClassesService = {
     body.append("file", file);
     return apiPostMultipart(`/api/v1/teaching-classes/${classId}/students/import-csv`, body);
   },
+  // 只複製群組當下的學生；之後群組異動不會改到這個班級
+  importGroup(classId, groupId) { return apiPost(`/api/v1/teaching-classes/${classId}/students/import-group`, { group_id: groupId }); },
   selectCourse(classId, courseVersionId) { return apiPut(`/api/v1/teaching-classes/${classId}/course`, { course_version_id: courseVersionId }); },
   replaceWeeks(classId, weeks) { return apiPut(`/api/v1/teaching-classes/${classId}/weeks`, weeks); },
   uploadWeekFile(classId, weekId, file) {

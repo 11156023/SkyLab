@@ -1,4 +1,4 @@
-import { memo, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Background, BackgroundVariant, Controls, Panel, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -14,13 +14,25 @@ import ClassroomWatchDialog from "../../../components/Classroom/ClassroomWatchDi
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError, useQueryView } from "../../../hooks/useQueryLoadState";
+import useRouteMessageToast from "../../../hooks/useRouteMessageToast";
 import { ClassroomService } from "../../../services/classroom";
-import { courseNodeHasUsableSource, CourseEnvironmentsService } from "../../../services/courseEnvironments";
+import { courseNodeHasUsableSource } from "../../../services/courseEnvironments";
 import { ResourcesService } from "../../../services/resources";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { useClassBroadcastSourcesQuery, useClassroomCacheUpdater, useClassroomSessionsQuery } from "../../../queries/classroom";
+import { usePublishedCourseEnvironmentsQuery } from "../../../queries/courseEnvironments";
+import {
+  useClassCapacityPreviewQuery,
+  useClassProvisionStatusQuery,
+  useClassResourceUsageQuery,
+  useTeachingClassCacheUpdater,
+  useTeachingClassQuery,
+} from "../../../queries/teachingClasses";
 import { formatDate } from "../../../utils/formatDate";
 import ClassCreateDialog from "./ClassCreateDialog";
 import EnvironmentChoice from "../EnvironmentChoice";
+import GroupImportDialog from "../GroupImportDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { focusInvalidField } from "../../../utils/focusField";
 import {
@@ -36,7 +48,7 @@ import NodeHandles from "../../network/firewall/nodes/NodeHandles";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
 import { routeEdges } from "../../network/firewall/utils/buildFlow";
-import { joinList } from "../../../utils/joinList";
+import { joinClauses, joinList, joinSentence } from "../../../utils/joinList";
 import { runBatch } from "../../../utils/runBatch";
 import DataToolbar from "../../../components/DataToolbar/DataToolbar";
 import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
@@ -93,6 +105,20 @@ function normalizeClass(item) {
   };
 }
 
+const EMPTY = Object.freeze([]);
+const EMPTY_USAGE = Object.freeze({});
+/* 審核／建機中追進度的間隔；每五輪（15 秒）才請後端把建機結果寫回班級（reconcile 會實際呼叫 PVE） */
+const PROVISION_POLL_MS = 3000;
+const PROVISION_RECONCILE_EVERY = 5;
+const BUILDING_STATUSES = ["pending_review", "provisioning"];
+/* 熱力圖每 10 秒更新 */
+const USAGE_POLL_MS = 10_000;
+
+/* 用量依 vmid 建索引；沒變的那台沿用同一個物件，熱力圖格子才不會每輪都重畫 */
+function selectUsageByVmid(response) {
+  return mergeResourceUsageByVmid({}, response?.items ?? []);
+}
+
 function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
   const { t } = useTranslation("teaching");
   const [endDate, setEndDate] = useState(item.endDate);
@@ -145,24 +171,16 @@ function Overview({
   const machinesReady = Boolean(item.course_environment) && item.nodes.length > 0;
   const completed = [studentsReady, machinesReady].filter(Boolean).length;
   const canProvision = completed === 2 && item.status === "planning";
-  const [capacity, setCapacity] = useState(null);
-  const [capacityLoading, setCapacityLoading] = useState(false);
-  useEffect(() => {
-    let active = true;
-    if (!canProvision) {
-      setCapacity(null);
-      return undefined;
-    }
-    setCapacityLoading(true);
-    TeachingClassesService.capacityPreview(item.id)
-      .then((result) => active && setCapacity(result))
-      .catch((error) => active && setCapacity({
-        ready: false,
-        issues: [error?.message ?? t("ClassWorkspacePage.capacityCheckFailedFallback")],
-      }))
-      .finally(() => active && setCapacityLoading(false));
-    return () => { active = false; };
-  }, [canProvision, item.id, item.students.length, item.nodes.length, item.course_version_id, t]);
+  /* 容量預檢：可以送出建機時才問後端；改了學生、環境（寫入時快取會標成過期）就重新檢查。
+     重新檢查期間沿用上一份結果，但送出鈕先鎖住 */
+  const capacityQuery = useClassCapacityPreviewQuery(item.id, { enabled: canProvision });
+  const capacityLoading = canProvision && capacityQuery.isFetching;
+  let capacity = null;
+  if (canProvision && capacityQuery.isError) {
+    capacity = { ready: false, issues: [capacityQuery.error?.message ?? t("ClassWorkspacePage.capacityCheckFailedFallback")] };
+  } else if (canProvision) {
+    capacity = capacityQuery.data ?? null;
+  }
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: item.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const currentWeek = [...item.weeks].reverse().find((week) => week.date <= today) ?? item.weeks.find((week) => week.date > today);
   const weekLabel = currentWeek?.date === today ? t("ClassWorkspacePage.weekLabelThisWeek") : currentWeek?.date > today ? t("ClassWorkspacePage.weekLabelNextSession") : currentWeek === item.weeks.at(-1) && today > currentWeek.date ? t("ClassWorkspacePage.weekLabelLastWeek") : t("ClassWorkspacePage.weekLabelCurrentWeek");
@@ -187,7 +205,7 @@ function Overview({
     description = capacity
       ? t("ClassWorkspacePage.capacityDetailDesc", { machines: capacity.machine_count, cpu: capacity.cpu_cores, memory: mbToGb(capacity.memory_mb), disk: capacity.disk_gb, ips: capacity.ip_count })
       : t("ClassWorkspacePage.noCapacityDesc", { students: item.students.length, nodes: item.nodes.length });
-    if (capacity?.issues?.length) description = capacity.issues.join("；");
+    if (capacity?.issues?.length) description = joinClauses(capacity.issues);
     actionLabel = provisioning ? t("ClassWorkspacePage.submittingLabel") : t("ClassWorkspacePage.confirmSubmitBtn");
     actionIcon = "rocket_launch";
     action = onProvision;
@@ -269,6 +287,8 @@ function Students({ item, onRefresh }) {
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const addDialog = useDialogPresence(showAdd);
+  const [showGroupImport, setShowGroupImport] = useState(false);
+  const groupImportDialog = useDialogPresence(showGroupImport);
   const fileRef = useRef(null);
   const [emailsInvalid, setEmailsInvalid] = useState(false);
   const emailsInputRef = useRef(null);
@@ -329,7 +349,7 @@ function Students({ item, onRefresh }) {
       const notices = [t("ClassWorkspacePage.addedStudentsCount", { count: result.added })];
       if (result.not_found?.length) notices.push(t("ClassWorkspacePage.notFoundList", { list: joinList(result.not_found) }));
       if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.invalidRoleList", { list: joinList(result.invalid_role) }));
-      toast.success(`${notices.join("；")}。`);
+      toast.success(joinSentence(notices));
       onRefresh(result.class);
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.addStudentsFailed")); }
     finally { setBusy(false); }
@@ -343,10 +363,22 @@ function Students({ item, onRefresh }) {
       const notices = [t("ClassWorkspacePage.csvImportedCount", { count: result.added })];
       if (result.not_found?.length) notices.push(t("ClassWorkspacePage.accountsNotFoundCount", { count: result.not_found.length }));
       if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.accountsInvalidRoleCount", { count: result.invalid_role.length }));
-      toast.success(`${notices.join("；")}。`);
+      toast.success(joinSentence(notices));
       onRefresh(result.class);
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.csvImportFailed")); }
     finally { if (fileRef.current) fileRef.current.value = ""; setBusy(false); }
+  }
+  async function importGroup(group) {
+    setBusy(true);
+    try {
+      const result = await TeachingClassesService.importGroup(item.id, group.id);
+      setShowGroupImport(false);
+      const notices = [t("ClassWorkspacePage.groupImportedCount", { name: group.name, count: result.added })];
+      if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.groupSkippedNonStudents", { list: joinList(result.invalid_role) }));
+      toast.success(joinSentence(notices));
+      onRefresh(result.class);
+    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.groupImportFailed")); }
+    finally { setBusy(false); }
   }
   async function remove(studentId) {
     const ok = await confirm({
@@ -365,6 +397,7 @@ function Students({ item, onRefresh }) {
       <div className={styles.memberActions} data-guide="class-students-actions">
         <input ref={fileRef} className={styles.hiddenFileInput} disabled={locked} type="file" accept=".csv,text/csv" onChange={importCsv} />
         <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => fileRef.current?.click()}><MIcon name="upload" size={16} />{t("ClassWorkspacePage.importCsvBtn")}</button>
+        <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => setShowGroupImport(true)}><MIcon name="groups" size={16} />{t("ClassWorkspacePage.importGroupBtn")}</button>
         {/* 還沒有學生時，下方空狀態的「新增學生」就是入口，這裡不再放一顆 */}
         {item.students.length > 0 && <button type="button" className={styles.btnSecondary} disabled={locked || busy} onClick={() => setShowAdd(true)}><MIcon name="person_add" size={16} />{t("ClassWorkspacePage.addStudentsBtn")}</button>}
       </div>
@@ -427,6 +460,7 @@ function Students({ item, onRefresh }) {
     </section>
 
     {addDialog.open && <Modal bare size="md" className={`${styles.createDialog} ${styles.studentDialog}`} closing={addDialog.closing} onClose={() => setShowAdd(false)} busy={busy} aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea ref={emailsInputRef} className={emailsInvalid ? styles.fieldInvalid : undefined} rows={6} value={emails} onChange={(event) => { setEmails(event.target.value); setEmailsInvalid(false); }} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></Modal>}
+    {groupImportDialog.open && <GroupImportDialog closing={groupImportDialog.closing} busy={busy} onClose={() => setShowGroupImport(false)} onImport={importGroup} />}
   </div>;
 }
 
@@ -805,7 +839,7 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
     {item.nodes.length > 0 && <section className={styles.card}>
       <div className={styles.cardHeader}>
         <div><h2>{t("ClassWorkspacePage.topologyTitle")}</h2></div>
-        <span className={styles.topologySummary}>{t("ClassWorkspacePage.perStudentUnit", { count: item.nodes.length })} · {item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")} · {item.publications.length ? t("ClassWorkspacePage.envFactPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.envFactNoPublic")}</span>
+        <span className={styles.topologySummary}>{t("ClassWorkspacePage.perStudentUnit", { count: item.nodes.length })} · {item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")} · {item.publications.length ? t("ClassWorkspacePage.topologyPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.topologyNoPublic")}</span>
       </div>
       <TopologyPreview item={item} />
       {item.publications.length > 0 && <PublicationSummary item={item} />}
@@ -899,16 +933,23 @@ export function StudentMachines({ item }) {
   const toast = useToast();
   const [selectedNodeId, setSelectedNodeId] = useState(() => String(item.nodes[0]?.id ?? ""));
   const [metric, setMetric] = useState("cpu");
-  const [usageByVmid, setUsageByVmid] = useState({});
-  const [usageStatus, setUsageStatus] = useState("loading");
-  const [sources, setSources] = useState([]);
+  /* 熱力圖用量：10 秒輪詢、分頁隱藏時暫停；最近一次沒抓到就亮「更新失敗」，畫面沿用上一份 */
+  const usageQuery = useClassResourceUsageQuery(item.id, { refetchInterval: USAGE_POLL_MS, select: selectUsageByVmid });
+  const usageByVmid = usageQuery.data ?? EMPTY_USAGE;
+  /* 有資料時看最近一次重抓；還沒資料時 v5 每次重試都把 isError 清掉，改看 useLoadError，重試期間維持「更新失敗」 */
+  const usageLoadError = useLoadError(usageQuery).error;
+  const usageStatus = usageQuery.data !== undefined
+    ? (usageQuery.isError ? "error" : "ready")
+    : usageLoadError ? "error" : "loading";
+  /* 可拿來廣播的機器；讀不到就當作沒有（與原本相同，不提示） */
+  const sourcesQuery = useClassBroadcastSourcesQuery(item.id);
+  const sources = sourcesQuery.data ?? EMPTY;
   const [watch, setWatch] = useState(null);
   const [terminal, setTerminal] = useState(null);
   const [watching, setWatching] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcast, setBroadcast] = useState(null);
   const [power, setPower] = useState(null);
-  const usageByVmidRef = useRef(null);
   const confirm = useConfirm();
   const classVmids = useMemo(
     () => [...item.students, ...(item.instructorMachine ? [item.instructorMachine] : [])]
@@ -948,68 +989,29 @@ export function StudentMachines({ item }) {
   }, []);
 
   /* 廣播要跨頁面持續（老師切去別的步驟學生仍看得到），但重新整理或切回來時本地狀態已經沒了；
-     從伺服器找回這個班級進行中的廣播，「停止廣播」按鈕才會再出現 */
+     從伺服器找回這個班級進行中的廣播，「停止廣播」按鈕才會再出現。
+     每個班級只找回一次，而且要是新鮮的清單（快取過期就等這次重抓回來），
+     之後的開始／停止都以本地狀態為準，晚到的舊清單不會把停掉的廣播帶回來 */
+  const sessionsQuery = useClassroomSessionsQuery({ refetchInterval: false });
+  /* 開始／停止廣播後把清單標成過期：不然 5 秒內切到別的分頁再切回來，會把廣播前的舊清單當成新鮮的，
+     找不回進行中的廣播，「停止廣播」按鈕就不見了 */
+  const classroomCache = useClassroomCacheUpdater();
+  const sessionsFresh = sessionsQuery.data !== undefined && !sessionsQuery.isFetching
+    && (sessionsQuery.isFetchedAfterMount || !sessionsQuery.isStale);
+  const sessions = sessionsFresh ? sessionsQuery.data : null;
+  const broadcastRestoredForRef = useRef(null);
   useEffect(() => {
-    let active = true;
-    ClassroomService.listSessions()
-      .then((sessions) => {
-        if (!active || !Array.isArray(sessions)) return;
-        const live = sessions.find((session) => session.mode === "broadcast" && String(session.class_id) === String(item.id));
-        if (live) setBroadcast((current) => current ?? live);
-      })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [item.id]);
+    if (!Array.isArray(sessions) || broadcastRestoredForRef.current === item.id) return;
+    broadcastRestoredForRef.current = item.id;
+    const live = sessions.find((session) => session.mode === "broadcast" && String(session.class_id) === String(item.id));
+    if (live) setBroadcast((current) => current ?? live);
+  }, [sessions, item.id]);
 
   useEffect(() => {
     if (!item.nodes.some((node) => String(node.id) === selectedNodeId)) {
       setSelectedNodeId(String(item.nodes[0]?.id ?? ""));
     }
   }, [item.nodes, selectedNodeId]);
-
-  useEffect(() => {
-    let active = true;
-    let timer = null;
-    usageByVmidRef.current = null;
-    setUsageByVmid({});
-    setUsageStatus("loading");
-
-    async function loadUsage() {
-      // 分頁隱藏時不打 API，只排下一輪
-      if (document.hidden && usageByVmidRef.current !== null) {
-        timer = window.setTimeout(loadUsage, 10_000);
-        return;
-      }
-      try {
-        const response = await TeachingClassesService.resourceUsage(item.id);
-        if (!active) return;
-        const nextUsage = mergeResourceUsageByVmid(usageByVmidRef.current ?? {}, response?.items);
-        if (usageByVmidRef.current === null || nextUsage !== usageByVmidRef.current) {
-          usageByVmidRef.current = nextUsage;
-          startTransition(() => setUsageByVmid(nextUsage));
-        }
-        setUsageStatus("ready");
-      } catch {
-        if (active) setUsageStatus("error");
-      } finally {
-        if (active) timer = window.setTimeout(loadUsage, 10_000);
-      }
-    }
-
-    loadUsage();
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [item.id]);
-
-  useEffect(() => {
-    let active = true;
-    ClassroomService.listClassBroadcastSources(item.id)
-      .then((result) => { if (active) setSources(result); })
-      .catch(() => { if (active) setSources([]); });
-    return () => { active = false; };
-  }, [item.id]);
 
   const openWatch = useCallback(async (student, machine, node) => {
     if (!machine?.vmid) return;
@@ -1047,6 +1049,7 @@ export function StudentMachines({ item }) {
     try {
       const session = await ClassroomService.createSession({ vmid: Number(vmid), mode: "broadcast", class_id: item.id });
       setBroadcast(session);
+      classroomCache.invalidateSessions();
       toast.success(t("ClassWorkspacePage.broadcastStartedMsg"));
     } catch (error) {
       toast.error(error?.message ?? t("ClassWorkspacePage.startBroadcastFailed"));
@@ -1061,6 +1064,7 @@ export function StudentMachines({ item }) {
     try {
       await ClassroomService.stopSession(broadcast.id);
       setBroadcast(null);
+      classroomCache.invalidateSessions();
       toast.success(t("ClassWorkspacePage.broadcastEndedMsg"));
     } catch (error) {
       toast.error(error?.message ?? t("ClassWorkspacePage.stopBroadcastFailed"));
@@ -1200,13 +1204,39 @@ export default function ClassWorkspacePage() {
   const { classId, section } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const [item, setItem] = useState(null);
+  /* 建立班級第 5 步送出建機後帶著成功訊息導來這裡 */
+  useRouteMessageToast();
+  const classCache = useTeachingClassCacheUpdater();
+  /* 班級走 TanStack Query：首次載不到才提示（背景刷新失敗沿用上一份）；各分頁的寫入回應寫回同一份快取 */
+  const classQuery = useTeachingClassQuery(classId, { select: normalizeClass });
+  const item = classQuery.data ?? null;
+  /* 首載失敗後背景重試期間維持失敗畫面、不閃回載入中，同一個錯誤也不會每輪重跳 toast（見 useQueryView） */
+  const classView = useQueryView(classQuery);
+  const loading = classView.loading;
+  const loadErrorMessage = classView.error
+    ? classView.error.message ?? t("ClassWorkspacePage.loadClassFailed")
+    : null;
+  /* 審核／建機中追進度：3 秒一次、分頁隱藏時暫停、失敗就等下一輪（不提示）；
+     每五輪那一次改請後端把建機結果寫回班級。進度回來的是整個班級，寫進班級快取，畫面跟著更新 */
+  const building = BUILDING_STATUSES.includes(item?.status);
+  const provisionQuery = useClassProvisionStatusQuery(classId, {
+    enabled: building,
+    refetchInterval: building ? PROVISION_POLL_MS : false,
+    reconcileEvery: PROVISION_RECONCILE_EVERY,
+  });
+  const provisionData = provisionQuery.data;
+  const provisionUpdatedAt = provisionQuery.dataUpdatedAt;
+  const classUpdatedAt = classQuery.dataUpdatedAt;
+  useEffect(() => {
+    /* 只收比班級快取新的進度：上次留在快取裡的舊進度不能蓋掉剛載入的班級 */
+    if (provisionData === undefined || provisionUpdatedAt <= classUpdatedAt) return;
+    classCache.setDetail(provisionData);
+  }, [provisionData, provisionUpdatedAt, classUpdatedAt, classCache]);
   // 從班級連結（沒帶分頁）進來時：可以上課的班級直接進課堂監看；
   // 還在設定、建機、已封存的班級要看狀態面板，停在班級總覽。
   // 總覽分頁自己有 /overview 網址，點回總覽不會又被帶走。
   const landOnMonitor = !section && item?.status === "active";
   const tab = section === "classroom" ? "progress" : section ?? (landOnMonitor ? "progress" : "overview");
-  const [loading, setLoading] = useState(true);
   const [provisioning, setProvisioning] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
@@ -1216,27 +1246,33 @@ export default function ClassWorkspacePage() {
   const extendDialog = useDialogPresence(extendOpen);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
-  const [templateId, setTemplateId] = useState("");
-  const [templates, setTemplates] = useState([]);
+  /* 目前套用的教學環境：班級有環境就跟著班級（換了環境才更新），選環境時先換成選到的那個 */
+  const envId = item?.course_environment?.id ? String(item.course_environment.id) : "";
+  const [templateId, setTemplateId] = useState(envId);
+  const [syncedEnvId, setSyncedEnvId] = useState(envId);
+  if (envId !== syncedEnvId) {
+    setSyncedEnvId(envId);
+    if (envId) setTemplateId(envId);
+  }
+  const publishedQuery = usePublishedCourseEnvironmentsQuery();
+  const templates = publishedQuery.data ?? EMPTY;
+  /* 錯誤取自 useLoadError：背景重試期間不會先清空再變回來，同一個錯誤不會每輪重跳 toast */
+  const { error: publishedError } = useLoadError(publishedQuery);
+  const templatesErrorMessage = publishedError
+    ? publishedError.message ?? t("ClassWorkspacePage.loadPublishedCoursesFailed")
+    : null;
   const template = templates.find((row) => row.id === templateId);
 
+  /* 寫入回來的班級寫進快取（班級清單、容量預覽跟著過期），畫面從快取重新推導 */
   function refresh(result) {
-    const normalized = normalizeClass(result);
-    setItem(normalized);
-    if (normalized.course_environment?.id) setTemplateId(String(normalized.course_environment.id));
+    classCache.update(result);
   }
   useEffect(() => {
-    let active = true;
-    TeachingClassesService.get(classId).then((result) => active && refresh(result)).catch((reason) => active && toast.error(reason?.message ?? t("ClassWorkspacePage.loadClassFailed"))).finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [classId, toast, t]);
+    if (loadErrorMessage) toast.error(loadErrorMessage);
+  }, [loadErrorMessage, toast]);
   useEffect(() => {
-    let active = true;
-    CourseEnvironmentsService.listPublished()
-      .then((rows) => active && setTemplates(rows))
-      .catch((reason) => active && toast.error(reason?.message ?? t("ClassWorkspacePage.loadPublishedCoursesFailed")));
-    return () => { active = false; };
-  }, [toast, t]);
+    if (templatesErrorMessage) toast.error(templatesErrorMessage);
+  }, [templatesErrorMessage, toast]);
   // 直接顯示課堂監看之外，網址也換成 /progress，重新整理或加書籤才會停在同一頁
   useEffect(() => {
     if (landOnMonitor) navigate(`/class-management/${classId}/progress`, { replace: true });
@@ -1252,22 +1288,6 @@ export default function ClassWorkspacePage() {
     window.addEventListener("keydown", dismiss);
     return () => { window.removeEventListener("mousedown", dismiss); window.removeEventListener("keydown", dismiss); };
   }, [menuOpen]);
-  useEffect(() => {
-    if (!item || !["pending_review", "provisioning"].includes(item.status)) return undefined;
-    // 進度本身是純讀取；每五輪（15 秒）才請後端把建機結果寫回班級，
-    // 那一支會實際呼叫 PVE，不適合每三秒打一次。
-    let ticks = 0;
-    const timer = window.setInterval(() => {
-      if (document.hidden) return;
-      ticks += 1;
-      const request = ticks % 5 === 1
-        ? TeachingClassesService.reconcile(item.id)
-        : TeachingClassesService.provisionStatus(item.id);
-      request.then(refresh).catch(() => {});
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [item?.id, item?.status]);
-
   async function provision() {
     const ok = await confirm({
       title: t("ClassWorkspacePage.submitReviewConfirmTitle"),
@@ -1341,7 +1361,8 @@ export default function ClassWorkspacePage() {
     setLifecycleBusy(true);
     try {
       const result = await TeachingClassesService.reclaim(classId, { force: true });
-      refresh(await TeachingClassesService.get(classId));
+      /* 回收結果不帶班級：重抓這個班（重抓失敗沿用目前畫面，不當成回收失敗） */
+      await classCache.invalidate(classId);
       const failed = result.failed?.length ?? 0;
       if (failed) toast.error(t("ClassWorkspacePage.reclaimStillFailedMsg", { count: failed }));
       else toast.success(t("ClassWorkspacePage.reclaimSuccessMsg"));

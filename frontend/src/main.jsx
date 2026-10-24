@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
 import "@material-design-icons/font/outlined.css";
 import "@material-design-icons/font/filled.css";
 import App from "./App";
@@ -13,6 +14,7 @@ import AppToaster from "./components/AppToaster";
 import "./assets/styles/global.scss";
 import { i18nReady } from "./i18n";
 import { initSentry } from "./utils/sentry";
+import { queryClient } from "./queries/queryClient";
 
 // 建置時有 VITE_SENTRY_DSN 才會載入 SDK（動態 import，不影響首屏）
 initSentry();
@@ -20,20 +22,23 @@ initSentry();
 function renderApp() {
   ReactDOM.createRoot(document.getElementById("root")).render(
     <ThemeProvider>
-      <AuthProvider>
-        <ConfirmProvider>
-          <BrowserRouter>
-            <UnsavedChangesProvider>
-              {/* 根層 boundary：保住 DashboardLayout 以外的頁面（登入、導入、setup），
-                  避免整頁白畫面；頁面內容另有 DashboardLayout 的 ErrorBoundary 先攔 */}
-              <ErrorBoundary fullPage>
-                <App />
-              </ErrorBoundary>
-            </UnsavedChangesProvider>
-            <AppToaster />
-          </BrowserRouter>
-        </ConfirmProvider>
-      </AuthProvider>
+      {/* 伺服器資料快取（TanStack Query）：放在 AuthProvider 外層，登出清快取由 AuthContext 呼叫 queryClient.clear() */}
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ConfirmProvider>
+            <BrowserRouter>
+              <UnsavedChangesProvider>
+                {/* 根層 boundary：保住 DashboardLayout 以外的頁面（登入、導入、setup），
+                    避免整頁白畫面；頁面內容另有 DashboardLayout 的 ErrorBoundary 先攔 */}
+                <ErrorBoundary fullPage>
+                  <App />
+                </ErrorBoundary>
+              </UnsavedChangesProvider>
+              <AppToaster />
+            </BrowserRouter>
+          </ConfirmProvider>
+        </AuthProvider>
+      </QueryClientProvider>
     </ThemeProvider>,
   );
 }

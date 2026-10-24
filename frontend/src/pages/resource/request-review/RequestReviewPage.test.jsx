@@ -4,6 +4,9 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import RequestReviewPage from "./RequestReviewPage";
+import { vmRequestKeys } from "../../../queries/vmRequests";
+import { specChangeRequestKeys } from "../../../queries/specChangeRequests";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   vmListAll: vi.fn(),
@@ -11,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   vmReview: vi.fn(),
   specListAll: vi.fn(),
   specReview: vi.fn(),
-  refresh: null,
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -32,9 +34,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({
-  default: (fn) => { mocks.refresh = fn; },
-}));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
 vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
@@ -73,9 +72,24 @@ function vmRequest(id, status, createdAt = "2026-09-01T00:00:00Z") {
 
 let root;
 let host;
+/* 每個測試自己的 QueryClient；背景刷新在測試裡用 refreshLists() 觸發（原本是 useAutoRefresh 的回呼） */
+let client;
+
+function refreshLists() {
+  return Promise.all([
+    client.refetchQueries({ queryKey: vmRequestKeys.all }),
+    client.refetchQueries({ queryKey: specChangeRequestKeys.all }),
+  ]);
+}
+
+async function renderPage() {
+  await act(async () => { root.render(withQueryClient(<RequestReviewPage />, client)); });
+}
 
 async function flush() {
   await act(async () => {
+    /* TanStack Query 以 macrotask 批次通知，先等一個 timer tick */
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 8; i += 1) await Promise.resolve();
   });
 }
@@ -88,9 +102,15 @@ function buttonByText(text) {
   return [...host.querySelectorAll("button")].find((b) => b.textContent === text);
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.refresh = null;
+  client = createTestQueryClient();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mocks.specListAll.mockResolvedValue({ data: [], count: 0 });
   mocks.getReviewContext.mockResolvedValue({ feasible: true });
@@ -114,7 +134,7 @@ describe("RequestReviewPage", () => {
       return { data: [], count: status === "approved" ? 100 : 0 };
     });
 
-    await act(async () => { root.render(<RequestReviewPage />); });
+    await renderPage();
     await flush();
 
     /* 待審是審核工作佇列，用較大的上限；其他分頁只取筆數給角標 */
@@ -133,7 +153,7 @@ describe("RequestReviewPage", () => {
   test("history tabs keep the smaller list limit when active", async () => {
     mocks.vmListAll.mockResolvedValue({ data: [], count: 0 });
 
-    await act(async () => { root.render(<RequestReviewPage />); });
+    await renderPage();
     await flush();
     mocks.vmListAll.mockClear();
     mocks.specListAll.mockClear();
@@ -155,7 +175,7 @@ describe("RequestReviewPage", () => {
       status === "pending" ? { data: pending, count: pending.length } : { data: [], count: 0 }
     ));
 
-    await act(async () => { root.render(<RequestReviewPage />); });
+    await renderPage();
     await flush();
     expect(host.textContent).toContain("RequestReviewPage.selectARequest");
 
@@ -164,7 +184,7 @@ describe("RequestReviewPage", () => {
     expect(host.querySelector("h2").textContent).toBe("host-A");
 
     pending = [b];
-    await act(async () => { await mocks.refresh(); });
+    await act(async () => { await refreshLists(); });
     await flush();
 
     expect(host.querySelector("h2")).toBeNull();
@@ -185,7 +205,7 @@ describe("RequestReviewPage", () => {
       return { data: [], count: 0 };
     });
 
-    await act(async () => { root.render(<RequestReviewPage />); });
+    await renderPage();
     await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
     await flush();
     expect(rowButtons().map((b) => b.textContent)).toEqual([expect.stringContaining("host-A")]);
@@ -203,11 +223,84 @@ describe("RequestReviewPage", () => {
     ));
     mocks.getReviewContext.mockReturnValue(new Promise(() => {}));
 
-    await act(async () => { root.render(<RequestReviewPage />); });
+    await renderPage();
     await flush();
     await act(async () => { rowButtons()[0].click(); });
     await flush();
 
     expect(buttonByText("RequestReviewPage.approve").disabled).toBe(true);
+  });
+
+  test("approving refreshes the lists in place: no loading screen and buttons stay locked until the refresh lands", async () => {
+    let pending = [vmRequest("A", "pending"), vmRequest("B", "pending", "2026-08-01T00:00:00Z")];
+    const refreshGate = deferred();
+    let gateNextPending = false;
+    mocks.vmListAll.mockImplementation(async (status, { limit }) => {
+      if (status === "pending" && limit === 1000) {
+        if (gateNextPending) { gateNextPending = false; await refreshGate.promise; }
+        return { data: pending, count: pending.length };
+      }
+      return { data: [], count: 0 };
+    });
+    mocks.vmReview.mockResolvedValue({});
+
+    await renderPage();
+    await flush();
+    await act(async () => { rowButtons()[0].click(); });
+    await flush();
+    expect(buttonByText("RequestReviewPage.approve").disabled).toBe(false);
+
+    pending = [pending[1]];
+    gateNextPending = true;
+    await act(async () => { buttonByText("RequestReviewPage.approve").click(); });
+    await flush();
+
+    expect(mocks.vmReview).toHaveBeenCalledWith("A", { status: "approved", review_comment: null });
+    /* 重抓還沒回來：舊清單留在畫面上（不閃載入畫面），點舊列也不能再按核准 */
+    expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+    expect(rowButtons()).toHaveLength(2);
+    await act(async () => { rowButtons()[0].click(); });
+    await flush();
+    expect(buttonByText("RequestReviewPage.approve").disabled).toBe(true);
+
+    await act(async () => { refreshGate.resolve(); });
+    await flush();
+    expect(rowButtons().map((b) => b.textContent)).toEqual([expect.stringContaining("host-B")]);
+    expect(host.querySelector('[data-tab="pending"]').dataset.badge).toBe("1");
+  });
+
+  test("a failed background refresh keeps the current list instead of showing the error", async () => {
+    mocks.vmListAll
+      .mockImplementation(async (status) => (
+        status === "pending" ? { data: [vmRequest("A", "pending")], count: 1 } : { data: [], count: 0 }
+      ));
+
+    await renderPage();
+    await flush();
+    expect(rowButtons()).toHaveLength(1);
+
+    mocks.vmListAll.mockRejectedValue(new Error("pve down"));
+    await act(async () => { await refreshLists(); });
+    await flush();
+
+    expect(rowButtons()).toHaveLength(1);
+    expect(host.textContent).not.toContain("pve down");
+  });
+
+  test("a failed first load shows the error and Retry reloads the list", async () => {
+    mocks.vmListAll.mockRejectedValue(new Error("boom"));
+
+    await renderPage();
+    await flush();
+    expect(host.textContent).toContain("boom");
+
+    mocks.vmListAll.mockImplementation(async (status) => (
+      status === "pending" ? { data: [vmRequest("A", "pending")], count: 1 } : { data: [], count: 0 }
+    ));
+    await act(async () => { buttonByText("RequestReviewPage.retry").click(); });
+    await flush();
+
+    expect(host.textContent).not.toContain("boom");
+    expect(rowButtons()).toHaveLength(1);
   });
 });

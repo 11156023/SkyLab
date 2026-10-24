@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import AiApiKeysPage from "./AiApiKeysPage";
 
 const mocks = vi.hoisted(() => ({
@@ -14,7 +15,6 @@ vi.mock("../../../services/aiApi", () => ({
   AiApiService: { listAllCredentials: mocks.listAllCredentials, deleteCredential: vi.fn() },
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
 vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
@@ -61,9 +61,11 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
+/* setTimeout 是假的（搜尋框 debounce）：TanStack Query 的通知排在 setTimeout(0)，要推進假時鐘 0ms 才會送出 */
 async function flush() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
 }
 
@@ -79,8 +81,9 @@ test("快速切換狀態分頁時，較晚回來的舊分頁結果不會蓋掉�
     .mockReturnValueOnce(older.promise)
     .mockReturnValueOnce(newer.promise);
 
-  await act(async () => root.render(<AiApiKeysPage />));
+  await act(async () => root.render(withQueryClient(<AiApiKeysPage />, createTestQueryClient())));
   await flush();
+  expect(host.textContent).toContain("key-active");
 
   await pickStatus("inactive");
   await pickStatus("all");
@@ -94,4 +97,38 @@ test("快速切換狀態分頁時，較晚回來的舊分頁結果不會蓋掉�
   expect(host.textContent).toContain("key-all");
   expect(host.textContent).not.toContain("key-inactive");
   expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+});
+
+test("換分頁後這組條件載入失敗，背景重抓期間維持錯誤畫面，不閃回載入中或上一組條件的清單", async () => {
+  /* TanStack v5 沒有資料時重抓會把 status 改回 pending，還會把上一組條件的清單放回來當佔位資料；
+     錯誤畫面要維持到這次重抓的結果，同一個錯誤也不重複提示 */
+  mocks.listAllCredentials
+    .mockResolvedValueOnce(page("key-active", "active"))
+    .mockRejectedValueOnce(new Error("inactive down"));
+  const client = createTestQueryClient();
+
+  await act(async () => root.render(withQueryClient(<AiApiKeysPage />, client)));
+  await flush();
+  expect(host.textContent).toContain("key-active");
+
+  await pickStatus("inactive");
+  await flush();
+  expect(host.textContent).toContain("Error.retry");
+  expect(host.textContent).not.toContain("key-active");
+  expect(mocks.toast.error).toHaveBeenCalledTimes(1);
+
+  let reject;
+  mocks.listAllCredentials.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+  act(() => { client.refetchQueries({ queryKey: ["aiApi", "allCredentials"], type: "active" }); });
+  await flush();
+  /* 重抓還在途中：錯誤畫面照樣在 */
+  expect(reject).toBeTypeOf("function");
+  expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+  expect(host.textContent).not.toContain("key-active");
+  expect(host.textContent).toContain("Error.retry");
+
+  await act(async () => reject(new Error("inactive down")));
+  await flush();
+  expect(host.textContent).toContain("Error.retry");
+  expect(mocks.toast.error).toHaveBeenCalledTimes(1);
 });

@@ -27,12 +27,17 @@ Thanks for taking the time to contribute. This page covers the house rules; the 
    cd backend
    uv run ruff check .
    uv run ruff format --check .
-   bash ./scripts/test.sh
+   uv run bash ./scripts/test.sh
 
    # frontend
-   cd frontend
+   cd ../frontend
    bun run test
    bun run build
+
+   # desktop client (only when you changed desktop-client/)
+   cd ../desktop-client
+   npm run lint
+   npm run build
    ```
 
    Pre-commit hooks are managed with prek: `uv run prek install -f` once, then they run on every commit.
@@ -42,7 +47,7 @@ Thanks for taking the time to contribute. This page covers the house rules; the 
 - Keep each PR focused on one change. Separate refactors from behaviour changes.
 - Describe what changed and why, and reference the related issue.
 - Add or update tests when behaviour changes. Backend tests are under `backend/tests/`, frontend service tests sit next to the service file.
-- Update the documentation under `website/` when you change configuration, deployment steps or an operator-facing workflow. English documents are the primary version; keep the `*.zh-TW.md` counterpart in sync when one exists.
+- Update the documentation under `website/` when you change configuration, deployment steps or an operator-facing workflow. English pages (`website/<section>/<name>.md`) are the primary version; update the Traditional Chinese page at `website/zh-TW/<section>/<name>.md` in the same change (the community files in the repository root use a `.zh-TW.md` suffix instead).
 - CI must pass (backend tests, frontend tests, desktop client tests, AI service tests, migration check, CodeQL).
 
 ## Licensing of contributions
@@ -52,7 +57,7 @@ SkyLab is licensed under the AGPL-3.0, and the maintainers also offer it under c
 - You certify the [Developer Certificate of Origin](https://developercertificate.org/) for every commit by signing it off (`git commit -s`, which adds a `Signed-off-by: Your Name <email>` trailer). Pull requests with unsigned commits will be asked to be amended.
 - By submitting a contribution you license it to the project under the AGPL-3.0 **and** grant the SkyLab maintainers a perpetual, worldwide, royalty-free right to distribute it as part of SkyLab under other license terms, including commercial licenses. You keep the copyright to your work.
 - Only submit code you have the right to contribute. Code copied from elsewhere must carry a compatible license and be attributed in `NOTICE`.
-- When you add or upgrade a direct dependency, add it to [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) (and to `desktop-client/THIRD_PARTY_NOTICES.txt` for the desktop client). Avoid licenses that are incompatible with the AGPL-3.0.
+- When you add, remove or upgrade a direct dependency, update [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) (and `desktop-client/THIRD_PARTY_NOTICES.txt` for the desktop client). Avoid licenses that are incompatible with the AGPL-3.0.
 
 ## Commit messages
 

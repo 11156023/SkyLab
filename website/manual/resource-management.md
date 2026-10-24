@@ -1,6 +1,6 @@
 # Resource Management
 
-Resource Management lists every VM and LXC container on the platform: personal, shared, class and quick practice machines, across all PVE connections. From here an administrator can power machines on and off, open a console, convert a machine to a template, delete machines one by one or in bulk, and open any machine's detail page. Sidebar: Resources → Resource Management. Path: `/resource-mgmt`.
+Resource Management lists every VM and LXC container on the platform: personal, shared, class, course lab and quick practice machines, across all PVE connections. From here an administrator can power machines on and off, open a console, convert a machine to a template, delete machines one by one or in bulk, and open any machine's detail page. Sidebar: Resources → Resource Management. Path: `/resource-mgmt`.
 
 ## Who can use it
 
@@ -19,18 +19,22 @@ Administrators only. The sidebar item is hidden for teachers and students, and t
 2. Type in the search box (**Search name, VMID, IP or owner**). Separate several words with spaces: every word must match. For example, an owner's name followed by the start of an IP address narrows the list to that owner's machine on that subnet. The owner's email also matches.
 3. If nothing matches, the page shows **No machines match the filters**. Click the button under it to clear the search or the status filter.
 
+![Find a machine (numbers match the steps above)](/manual-shots/en/resource-management/s01.webp)
+
 ### Read the table
 
 Each row shows:
 
 1. **Name**, with the machine type (**Virtual Machine (VM)** or **Container (LXC)**) and its VMID underneath.
-2. **Source**: whether the machine is personal, shared, a class machine or a quick practice machine, together with its owner.
+2. **Source**: whether the machine is personal, shared, a class machine, a course lab machine or a quick practice machine, together with its owner.
 3. **Environment / OS**.
 4. **Status** (see the table below).
-5. **IP Address**. If the machine has public URLs published through the reverse proxy, they are listed under the IP as links that open in a new tab.
+5. **IP Address**. If the machine has services published by URL, the URLs are listed under the IP as links that open in a new tab.
 6. **Expiry Date**. The small text under the date is the actual cutoff converted to your local time. **∞ No expiry** means no expiry date is set.
 7. **Node**: the PVE node the machine runs on.
 8. **Actions**: console and power menu, shown only while the machine is in a state that can be controlled; otherwise the column repeats the status.
+
+![Read the table (numbers match the steps above)](/manual-shots/en/resource-management/s02.webp)
 
 ### Work with course and quick practice environments
 
@@ -41,11 +45,15 @@ Machines that belong to a course teaching environment or a quick practice enviro
 3. To power the whole group, click ⋮ on the group row (**Group power**) and choose **Start all** or **Shut down all**. **Start all** is disabled when every machine is already running; **Shut down all** is disabled when none is running.
 4. Each machine inside the group has its own **Console** / **Terminal** button and ⋮ power menu. Machines in a group show **Managed as part of the environment** in the expiry column and cannot be deleted one by one.
 
+![Work with course and quick practice environments (numbers match the steps above)](/manual-shots/en/resource-management/s03.webp)
+
 ### Open a machine's console
 
 1. Make sure the machine is **Running**.
 2. Click **Console** (VM) or **Terminal** (LXC) in the **Actions** column. The console opens in a dialog.
 3. While the machine is **Starting**, the button stays disabled until boot finishes.
+
+![Open a machine's console (numbers match the steps above)](/manual-shots/en/resource-management/s04.webp)
 
 ### Power a single machine on or off
 
@@ -55,6 +63,8 @@ Machines that belong to a course teaching environment or a quick practice enviro
    - **Shutdown**, **Reboot** and **Force reset** need a running machine.
    - **Force stop** works on a running machine and also on one that is still **Starting** (a way out when boot hangs).
 3. A message confirms that the command was sent, and the status updates in place.
+
+![Power a single machine on or off (numbers match the steps above)](/manual-shots/en/resource-management/s05.webp)
 
 ### Act on several machines at once
 
@@ -66,17 +76,23 @@ Machines that belong to a course teaching environment or a quick practice enviro
 6. A progress line shows how far the batch has got. When it finishes, a message reports how many succeeded and how many were skipped. Machines that failed stay selected so you can retry.
 7. Click × next to the count (**Clear selection**), or press Esc, to leave the batch bar.
 
+![Act on several machines at once (numbers match the steps above)](/manual-shots/en/resource-management/s06.webp)
+
 ### Delete a machine
 
 1. Click ⋮ on the row and choose **Delete**.
 2. Confirm in **Delete this resource?**. The machine and all its data cannot be recovered.
 3. A deletion request is queued and the row disappears from the list. The deletion itself runs as a background job (see [Background Jobs](/manual/jobs)).
 
+![Delete a machine (numbers match the steps above)](/manual-shots/en/resource-management/s07.webp)
+
 ### Convert a machine to a template
 
 1. Click ⋮ on the row and choose **Convert to template**. This option does not appear for class machines, for placeholder rows of requests still being provisioned, or inside environment groups.
 2. The template form opens with this machine preselected and locked as the source and its name prefilled. Fill in the rest of the form (see [Templates](/manual/templates)).
 3. After you save, the machine leaves this list and you are taken to the Templates page.
+
+![Convert a machine to a template (numbers match the steps above)](/manual-shots/en/resource-management/s08.webp)
 
 ### Open a machine's detail page
 
@@ -90,10 +106,14 @@ What is different for an administrator on the detail page:
 - **Specifications**: the new CPU, memory and disk are applied directly with **Apply Changes**. There is no request to submit, no reason to write and no quota cap. A running VM needs a reboot before CPU and memory changes take effect, and the disk can only grow.
 - **Snapshots**: you can delete evidence snapshots (marked **Evidence**) that the platform takes automatically when it detects suspected mining. Owners cannot delete them.
 
+![Open a machine's detail page (numbers match the steps above)](/manual-shots/en/resource-management/s09.webp)
+
 ### Create a machine
 
 1. Click **Create Resource** at the top right.
 2. You are taken to the request form on [My Requests](/manual/my-requests), where you fill in specs and a usage window the same way other users do. This page does not create machines by itself.
+
+![Create a machine (numbers match the steps above)](/manual-shots/en/resource-management/s10.webp)
 
 ## Fields and options
 
@@ -104,7 +124,7 @@ What is different for an administrator on the detail page:
 | Status: Running / Stopped / Paused | Current power state from PVE | Decides which power actions are enabled |
 | Status: Creation Failed | Provisioning failed | No power actions |
 | Status: Unknown Status | State could not be read | |
-| Source | Personal, shared, class or quick practice, with the owner | Group rows show the class or environment instead |
+| Source | Personal, shared, class, course lab or quick practice, with the owner | Group rows show the class or environment instead |
 | Expiry Date | Last day of use; small text is the cutoff in local time | **∞ No expiry** when none is set |
 | Search | Matches name, VMID, IP, owner name and owner email | All space-separated words must match; group names match too |
 

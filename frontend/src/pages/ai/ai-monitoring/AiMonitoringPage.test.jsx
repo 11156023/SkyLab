@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { withQueryClient } from "../../../queries/testing";
 import AiMonitoringPage from "./AiMonitoringPage";
 
 const mocks = vi.hoisted(() => ({
@@ -34,7 +35,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({ t: mocks.t }),
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
@@ -72,10 +72,16 @@ function overviewWith(totalCalls) {
 let root;
 let host;
 
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick 再等 microtask */
 async function flush() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
+}
+
+async function renderPage() {
+  await act(async () => { root.render(withQueryClient(<AiMonitoringPage />)); });
 }
 
 beforeEach(() => {
@@ -104,12 +110,17 @@ describe("AiMonitoringPage", () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
 
-    await act(async () => { root.render(<AiMonitoringPage />); });
+    await renderPage();
     await flush();
     const ninety = host.querySelector('[data-group="AiMonitoringPage.rangeLabel"] [data-value="90d"]');
     await act(async () => { ninety.click(); });
     await flush();
     expect(mocks.overview).toHaveBeenCalledTimes(2);
+    // 起訖在抓取時才算，key 只放區間代號；執行狀態與區間無關，換區間不重抓
+    expect(mocks.overview.mock.calls[1][0]).toEqual({
+      startDate: expect.any(String), endDate: expect.any(String), bucket: "day", compare: true, source: "all",
+    });
+    expect(mocks.runtime).toHaveBeenCalledTimes(1);
 
     await act(async () => { second.resolve(overviewWith(9090)); });
     await flush();
@@ -124,7 +135,7 @@ describe("AiMonitoringPage", () => {
     mocks.overview.mockResolvedValue(overviewWith(1));
     mocks.runtime.mockRejectedValue(new Error("gateway down"));
 
-    await act(async () => { root.render(<AiMonitoringPage />); });
+    await renderPage();
     await flush();
 
     const proxyTab = [...host.querySelectorAll('[role="tab"]')].find((b) => b.textContent.includes("AiMonitoringPage.tabProxy"));

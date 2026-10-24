@@ -31,6 +31,8 @@ When a student tries to draw a line to or from a class machine, a message says t
 
 The map refreshes on its own about every 30 seconds.
 
+![Read the map (numbers match the steps above)](/manual-shots/en/firewall/s01.webp)
+
 ### Create a connection by dragging
 
 1. Hover over the source machine; connection dots appear on its edges.
@@ -38,16 +40,22 @@ The map refreshes on its own about every 30 seconds.
 3. The **New connection** dialog opens with the right kind already chosen: machine to machine opens **Connect two machines**, **Internet** to machine opens **Expose a service**, machine to **Internet** opens **Let a machine reach the internet**.
 4. Fill in the ports and click **Create connection** (or **Publish**).
 
+![Create a connection by dragging (numbers match the steps above)](/manual-shots/en/firewall/s02.webp)
+
 ### Create a connection with the button
 
 1. Click **Add Connection** in the page header.
 2. Under "What do you want to do?", choose one of the four kinds described below, then fill in the form.
+
+![Create a connection with the button (numbers match the steps above)](/manual-shots/en/firewall/s03.webp)
 
 ### Let a machine reach the internet
 
 1. Choose **Let a machine reach the internet**.
 2. Pick the machine in **Which machine**.
 3. Click **Create connection**. The machine may then open outbound connections on any port.
+
+![Let a machine reach the internet (numbers match the steps above)](/manual-shots/en/firewall/s04.webp)
 
 ### Connect two machines
 
@@ -56,6 +64,8 @@ The map refreshes on its own about every 30 seconds.
 3. Choose **Direction**: **One-way** (only From can connect to To) or **Bidirectional**.
 4. Enter at least one port with its protocol; use **Add port** for more rows. ICMP-type protocols need no port.
 5. Click **Create connection**.
+
+![Connect two machines (numbers match the steps above)](/manual-shots/en/firewall/s05.webp)
 
 ### Expose a service to the outside
 
@@ -68,6 +78,8 @@ The map refreshes on its own about every 30 seconds.
 
 If several ports are published at once and one of them fails, the ones that succeeded are kept and removed from the form, and the message tells you which port failed.
 
+![Expose a service to the outside (numbers match the steps above)](/manual-shots/en/firewall/s06.webp)
+
 ### Write a raw firewall rule
 
 1. Choose **Write a rule myself** (or click **Add Rule** in a machine's rules panel, which opens this directly with the machine fixed).
@@ -76,6 +88,8 @@ If several ports are published at once and one of them fails, the ones that succ
 4. Click **Add rule**.
 
 Raw rules are written straight to the machine's Proxmox firewall and do not appear on the map. If you write an inbound allow rule with no source restriction, the dialog suggests **Use "Expose a service" instead**, because only connections created that way are tracked and drawn.
+
+![Write a raw firewall rule (numbers match the steps above)](/manual-shots/en/firewall/s07.webp)
 
 ### Manage a machine's rules
 
@@ -88,12 +102,16 @@ Raw rules are written straight to the machine's Proxmox firewall and do not appe
 
 On a class machine, a student sees "This is a class machine. Rules are view-only here; ask your class teacher to change the firewall." and no buttons.
 
+![Manage a machine's rules (numbers match the steps above)](/manual-shots/en/firewall/s08.webp)
+
 ### Delete a connection
 
 1. Click the line to open **Connection details**.
 2. Click **Delete connection** and confirm with **Delete**. Every port the connection opened is removed.
 
 Connections marked **Managed by environment template** belong to a teaching environment and cannot be deleted here.
+
+![Delete a connection (numbers match the steps above)](/manual-shots/en/firewall/s09.webp)
 
 ### Arrange and filter the map
 
@@ -103,6 +121,8 @@ Connections marked **Managed by environment template** belong to a teaching envi
 4. Use the search box ("Search name or IP") and, when there is more than one group, the **All groups** list to narrow the map. A note at the bottom says how many machines are hidden; click **Clear filters** to show them again.
 
 None of these buttons change any firewall rule.
+
+![Arrange and filter the map (numbers match the steps above)](/manual-shots/en/firewall/s10.webp)
 
 ## Fields and options
 

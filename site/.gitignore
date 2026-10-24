@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# vite build --ssr 的中間產物，scripts/prerender.mjs 用完即刪
+dist-ssr/

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./DomainPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -9,6 +9,12 @@ import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
+import {
+  useCloudflareCacheUpdater,
+  useCloudflareConfigQuery,
+  useCloudflareDnsRecordsQuery,
+  useCloudflareZonesQuery,
+} from "../../../queries/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { formatDateTime, formatShortDateTime } from "../../../utils/formatDate";
@@ -55,6 +61,10 @@ export function pickSelectedZone(prev, items) {
   const kept = prev ? items.find((z) => z.id === prev.id) : undefined;
   return kept ?? items[0] ?? null;
 }
+
+const EMPTY = Object.freeze([]);
+/* 側欄的 zone 清單只取第一頁 50 個（與原本相同） */
+const ZONE_PARAMS = Object.freeze({ per_page: 50 });
 
 /* 兩個 Modal 共用的「取消／儲存」列；儲存鈕是 submit，交給外層 form 處理 */
 function ModalActions({ loading, onClose }) {
@@ -289,81 +299,84 @@ export default function DomainPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
-  const [config, setConfig] = useState(null);
-  const [zones, setZones] = useState([]);
-  const [selectedZone, setSelectedZone] = useState(null);
-  const [records, setRecords] = useState([]);
-  const [loadingZones, setLoadingZones] = useState(true);
-  const [loadingRecords, setLoadingRecords] = useState(false);
+  /* 使用者點選的 zone id；實際選取由 pickSelectedZone 對照目前清單算出（不在了就改選第一個） */
+  const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState("");
+  /* 輸入框的字與按 Enter 送出、實際拿去查詢的關鍵字，都記下是哪個 zone 的：
+     換 zone（點選，或原本的 zone 在重新載入後不見了）時兩者自動變回空字串 */
+  const [searchDraft, setSearchDraft] = useState({ zoneId: null, text: "" });
+  const [submittedSearch, setSubmittedSearch] = useState({ zoneId: null, text: "" });
   const [modal, setModal] = useState(null); // { kind: "config" } | { kind: "record", record? }
   const modalPresence = useDialogPresence(modal);
+  const cloudflareCache = useCloudflareCacheUpdater();
 
-  const fetchConfig = useCallback(async () => {
-    try {
-      setConfig(await CloudflareService.getConfig());
-    } catch (err) {
-      toast.error(err?.message ?? t("DomainPage.toastLoadConfigFailed"));
-    }
-  }, [toast, t]);
-
-  const fetchZones = useCallback(async () => {
-    setLoadingZones(true);
-    try {
-      const res = await CloudflareService.listZones({ per_page: 50 });
-      const items = res?.items ?? [];
-      setZones(items);
-      setSelectedZone((prev) => pickSelectedZone(prev, items));
-    } catch (err) {
-      // 未設定連線時後端會回錯誤，front 只顯示空狀態
-      if (err?.status !== 400) toast.error(err?.message ?? t("DomainPage.toastLoadZonesFailed"));
-    } finally {
-      setLoadingZones(false);
-    }
-  }, [toast, t]);
-
-  /* 只套用最後一次請求的結果：快速切換 zone 時，較晚回來的舊 zone 回應不能蓋掉目前 zone 的紀錄
-     （否則編輯／刪除會拿 A 的 record id 打到 B 的 zone） */
-  const recordsSeq = useRef(0);
-  const fetchRecords = useCallback(async (zoneId, keyword) => {
-    const seq = ++recordsSeq.current;
-    setLoadingRecords(true);
-    try {
-      const res = await CloudflareService.listDnsRecords(zoneId, {
-        per_page: 100,
-        search: keyword || undefined,
-      });
-      if (seq === recordsSeq.current) setRecords(res?.items ?? []);
-    } catch (err) {
-      if (seq === recordsSeq.current) {
-        setRecords([]);
-        toast.error(err?.message ?? t("DomainPage.toastLoadRecordsFailed"));
-      }
-    } finally {
-      if (seq === recordsSeq.current) setLoadingRecords(false);
-    }
-  }, [toast, t]);
-
+  /* 連線設定、zone 清單、DNS 紀錄走 TanStack Query；原本只在進頁與操作後重抓，不背景輪詢 */
+  const configQuery = useCloudflareConfigQuery();
+  const config = configQuery.data ?? null;
+  const configError = configQuery.error;
   useEffect(() => {
-    fetchConfig();
-    fetchZones();
-  }, [fetchConfig, fetchZones]);
+    if (configError) toast.error(configError?.message ?? t("DomainPage.toastLoadConfigFailed"));
+  }, [configError, toast, t]);
 
+  const zonesQuery = useCloudflareZonesQuery(ZONE_PARAMS);
+  const zones = zonesQuery.data?.items ?? EMPTY;
+  const loadingZones = zonesQuery.data === undefined && (zonesQuery.isPending || zonesQuery.isFetching);
+  const zonesError = zonesQuery.error;
   useEffect(() => {
-    if (selectedZone) fetchRecords(selectedZone.id, "");
-    setSearch("");
-  }, [selectedZone, fetchRecords]);
+    // 未設定連線時後端會回錯誤，front 只顯示空狀態
+    if (zonesError && zonesError.status !== 400) toast.error(zonesError?.message ?? t("DomainPage.toastLoadZonesFailed"));
+  }, [zonesError, toast, t]);
+  const selectedZone = pickSelectedZone(selectedZoneId == null ? null : { id: selectedZoneId }, zones);
+  const currentZoneId = selectedZone?.id ?? null;
+  const search = searchDraft.zoneId === currentZoneId ? searchDraft.text : "";
+  const recordKeyword = submittedSearch.zoneId === currentZoneId ? submittedSearch.text : "";
+  const setSearch = (text) => setSearchDraft({ zoneId: currentZoneId, text });
+  const setRecordKeyword = (text) => setSubmittedSearch({ zoneId: currentZoneId, text });
+
+  /* 每個 zone＋關鍵字一份快取，畫面只看目前那組：快速切換 zone 時，較晚回來的舊 zone 回應
+     只會寫進舊 zone 的快取，蓋不掉目前 zone 的紀錄（否則編輯／刪除會拿 A 的 record id 打到 B 的 zone） */
+  const recordsQuery = useCloudflareDnsRecordsQuery(selectedZone?.id, {
+    per_page: 100,
+    search: recordKeyword || undefined,
+  });
+  const records = recordsQuery.data?.items ?? EMPTY;
+  const loadingRecords = recordsQuery.data === undefined && (recordsQuery.isPending || recordsQuery.isFetching);
+  const recordsError = recordsQuery.error;
+  useEffect(() => {
+    if (recordsError) toast.error(recordsError?.message ?? t("DomainPage.toastLoadRecordsFailed"));
+  }, [recordsError, toast, t]);
+
+  /* 換 zone 時清掉搜尋框與關鍵字（A → B → A 也不會把 A 先前打的字帶回來）；點同一個 zone 不動 */
+  function selectZone(zone) {
+    if (zone.id === currentZoneId) return;
+    setSelectedZoneId(zone.id);
+    setSearchDraft({ zoneId: zone.id, text: "" });
+    setSubmittedSearch({ zoneId: zone.id, text: "" });
+  }
+
+  /* 按 Enter：關鍵字沒變就重抓，變了換 key 自然會抓 */
+  function submitSearch() {
+    if (search === recordKeyword) recordsQuery.refetch();
+    else setRecordKeyword(search);
+  }
+
+  /* 新增／修改／刪除後：用輸入框目前的字重查，並把該 zone 其他關鍵字的快取一起標成過期 */
+  function refreshRecords(zoneId) {
+    setRecordKeyword(search);
+    cloudflareCache.invalidateDnsRecords(zoneId);
+  }
 
   async function handleSaveConfig(body) {
     setSaving(true);
     try {
       const updated = await CloudflareService.updateConfig(body);
-      setConfig(updated);
+      cloudflareCache.setConfig(updated);
       toast.success(t("DomainPage.toastConfigSaved"));
       setModal(null);
-      fetchZones();
+      /* 換了 Token 可能是另一個帳號：zone 與紀錄都重抓 */
+      cloudflareCache.invalidateZones();
+      cloudflareCache.invalidateDnsRecords();
     } catch (err) {
       toast.error(err?.message ?? t("DomainPage.toastSaveConfigFailed"));
     } finally {
@@ -377,7 +390,7 @@ export default function DomainPage() {
       const res = await CloudflareService.testConfig();
       if (res.success) toast.success(res.message || t("DomainPage.toastConnectSuccess"));
       else toast.error(res.message || t("DomainPage.toastConnectFailed"));
-      fetchConfig();
+      configQuery.refetch();
     } catch (err) {
       toast.error(err?.message ?? t("DomainPage.toastConnectTestFailed"));
     } finally {
@@ -397,7 +410,7 @@ export default function DomainPage() {
         toast.success(t("DomainPage.toastRecordCreated"));
       }
       setModal(null);
-      fetchRecords(selectedZone.id, search);
+      refreshRecords(selectedZone.id);
     } catch (err) {
       toast.error(err?.message ?? t("DomainPage.toastSaveRecordFailed"));
     } finally {
@@ -420,7 +433,7 @@ export default function DomainPage() {
     try {
       await CloudflareService.deleteDnsRecord(selectedZone.id, record.id);
       toast.success(t("DomainPage.toastRecordDeleted"));
-      fetchRecords(selectedZone.id, search);
+      refreshRecords(selectedZone.id);
     } catch (err) {
       toast.error(err?.message ?? t("DomainPage.toastDeleteFailed"));
     } finally {
@@ -502,7 +515,7 @@ export default function DomainPage() {
                     key={zone.id}
                     type="button"
                     className={selectedZone?.id === zone.id ? styles.zoneItemActive : styles.zoneItem}
-                    onClick={() => setSelectedZone(zone)}
+                    onClick={() => selectZone(zone)}
                   >
                     <span className={styles.zoneName}>{zone.name}</span>
                     <span className={`${styles.badge} ${zone.status === "active" ? styles.badge_success : styles.badge_muted}`}>
@@ -523,7 +536,7 @@ export default function DomainPage() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && selectedZone) fetchRecords(selectedZone.id, search);
+                    if (e.key === "Enter" && selectedZone) submitSearch();
                   }}
                   placeholder={t("DomainPage.recordSearchPlaceholder")}
                   disabled={!selectedZone}

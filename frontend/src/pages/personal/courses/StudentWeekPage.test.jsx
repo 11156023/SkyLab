@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { toast } from "sonner";
 import { CoursesService } from "../../../services/courses";
+import { withQueryClient } from "../../../queries/testing";
 import StudentWeekPage from "./StudentWeekPage";
 
 const translation = { t: (key) => key, i18n: { language: "zh-TW" } };
@@ -18,13 +19,21 @@ const week = (extra) => ({
   id: "week-1", title: "Linux", week_number: 1, session_date: "2026-10-16",
   checkpoints: [], files: [], ...extra,
 });
+/* TanStack Query 以 macrotask 批次通知，等一個 timer tick 再看畫面 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
 async function render(extra) {
   vi.spyOn(CoursesService, "getWeeklyTasks").mockResolvedValue([week(extra)]);
   await act(async () => {
-    root.render(<MemoryRouter initialEntries={["/courses/path-1/weeks/week-1"]}>
+    root.render(withQueryClient(<MemoryRouter initialEntries={["/courses/path-1/weeks/week-1"]}>
       <Routes><Route path="/courses/:pathId/weeks/:weekId" element={<StudentWeekPage />} /></Routes>
-    </MemoryRouter>);
+    </MemoryRouter>));
   });
+  await flush();
 }
 
 beforeEach(() => {
@@ -69,6 +78,19 @@ test("每週教材與 AI 任務 PDF 同時顯示，各自走正確的預覽端�
   await act(async () => buttons[0].click());
   expect(weekly).toHaveBeenCalledExactlyOnceWith("path-1", "week-1", "file-1");
   expect(source).not.toHaveBeenCalled();
+});
+
+test("每週任務載不到時顯示錯誤狀態，不當成找不到這週", async () => {
+  vi.spyOn(CoursesService, "getWeeklyTasks").mockRejectedValue(new Error("500"));
+  await act(async () => {
+    root.render(withQueryClient(<MemoryRouter initialEntries={["/courses/path-1/weeks/week-1"]}>
+      <Routes><Route path="/courses/:pathId/weeks/:weekId" element={<StudentWeekPage />} /></Routes>
+    </MemoryRouter>));
+  });
+  await flush();
+  expect(host.textContent).not.toContain("StudentWeekPage.loading");
+  expect(host.textContent).not.toContain("StudentWeekPage.notFoundTitle");
+  expect(host.textContent).toContain("StudentWeekPage.back");
 });
 
 test("PDF 無法開啟時關閉空白預覽並恢復按鈕", async () => {

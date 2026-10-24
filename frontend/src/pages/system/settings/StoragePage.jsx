@@ -7,8 +7,11 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { useToast } from "../../../hooks/useToast";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
+import { usePveStoragesQuery, useProxmoxConfigCacheUpdater } from "../../../queries/proxmoxConfig";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { joinList } from "../../../utils/joinList";
+
+const EMPTY = Object.freeze([]);
 
 /**
  * Storage（系統管理 → Storage）：各 PVE Storage 的速度等級、使用者優先度與啟用狀態，
@@ -35,18 +38,20 @@ export function parsePriorityDraft(raw) {
 function StorageList() {
   const { t } = useTranslation("system");
   const toast = useToast();
-  const [storages, setStorages] = useState([]);
-  const [loading, setLoading] = useState(true);
+  /* 清單走 TanStack Query；不背景輪詢，免得蓋掉輸入中的優先度草稿 */
+  const storagesQuery = usePveStoragesQuery();
+  const storageCache = useProxmoxConfigCacheUpdater();
+  const storages = storagesQuery.data ?? EMPTY;
+  const loading = storagesQuery.data === undefined && (storagesQuery.isPending || storagesQuery.isFetching);
   const [savingId, setSavingId] = useState(null);
   const [status, setStatus] = useState("all"); // all | enabled | disabled
   const [query, setQuery] = useState("");
 
+  /* 載入失敗照舊只提示（畫面留在空清單） */
+  const loadError = storagesQuery.error;
   useEffect(() => {
-    ProxmoxConfigService.getStorages()
-      .then(setStorages)
-      .catch((err) => toast.error(err?.message ?? t("SettingsPage.toastLoadStorageFailed")))
-      .finally(() => setLoading(false));
-  }, [toast, t]);
+    if (loadError) toast.error(loadError?.message ?? t("SettingsPage.toastLoadStorageFailed"));
+  }, [loadError, toast, t]);
 
   // 只有一組 PVE 連線時不必再標註連線名稱
   const multiConnection = useMemo(
@@ -81,7 +86,7 @@ function StorageList() {
         speed_tier: patch.speed_tier ?? storage.speed_tier,
         user_priority: patch.user_priority ?? storage.user_priority,
       });
-      setStorages((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      storageCache.updateStorage(updated);
       const nodeCount = updated.node_names?.length ?? 1;
       toast.success(
         updated.is_shared && nodeCount > 1

@@ -14,7 +14,7 @@ Class and course machines are assigned by your teacher; you do not request them 
 
 ## Before you start
 
-- Check your remaining quota on [My Resources](/manual/my-resources). The form will not let you ask for more than what is left, and the number of machines includes requests still waiting for review.
+- Check your remaining quota on [My Resources](/manual/my-resources). The form will not let you ask for more than what is left, and the number of machines includes requests still waiting for review. Administrators have no quota.
 - Have a short reason ready (at least 10 characters) that tells the reviewer what the machine is for.
 - If you are unsure what to ask for, open the AI assistant at the bottom right and describe your goal. It can fill the form for you; you still review every field and enter the username and password yourself.
 
@@ -26,18 +26,22 @@ Class and course machines are assigned by your teacher; you do not request them 
 2. The **Request VM / Container** form opens, with a summary card on the right that updates as you fill it.
 3. To leave without submitting, click **Back** or **Cancel**.
 
+![Open the request form (numbers match the steps above)](/manual-shots/en/my-requests/s01.webp)
+
 ### Name the machine and choose an operating system
 
 1. Enter a **Resource Name**. Only lowercase letters, digits and hyphens are allowed, and it cannot start or end with a hyphen; other characters are turned into hyphens when you leave the field (up to 63 characters).
 2. Open **Operating System** and pick one entry. The list is grouped:
-   - **Environment Templates by Teacher / Official**: ready-made environments; once created they are ready to use. The hint under the field shows the template's description and recommended specs.
-   - **OS Images (Virtual Machine)** (teachers see **VM Templates**): a VM with a fresh operating system.
+   - **Environment Templates by Teacher / Official** (students only): ready-made environments; once created they are ready to use. The hint under the field shows the template's description and recommended specs.
+   - **OS Images (Virtual Machine)** (teachers and administrators see **VM Templates**): a VM with a fresh operating system.
    - **Container Templates (Clone)**: teachers and administrators only.
    - **Container Images**: an LXC container with a fresh operating system.
 3. Your choice decides whether a **Virtual Machine** or an **LXC Container** is created ("One machine per request; it will be created as …"). Entries marked **(GPU required)** need a GPU.
 4. If the list fails to load, click **Retry** under the field.
 
 Before you pick an operating system, the platform suggests VM or container from your reason and specs; once you pick one, the operating system decides.
+
+![Name the machine and choose an operating system (numbers match the steps above)](/manual-shots/en/my-requests/s02.webp)
 
 ### Set the login account and password
 
@@ -51,11 +55,15 @@ The fields appear after you choose an operating system.
 
 The platform does not keep the password you choose. If you forget it, you can only reset it from the machine's detail page.
 
+![Set the login account and password (numbers match the steps above)](/manual-shots/en/my-requests/s03.webp)
+
 ### Choose CPU, memory and disk
 
 1. Under **Hardware Configuration**, set **CPU Cores**, **Memory (RAM)** and **Disk Space** with the sliders or the number boxes. A template fills in its recommended specs first.
 2. When your remaining quota is the limit, the hint reads "Based on your remaining quota, you can request up to …". The sliders cannot go further.
 3. If your quota cannot cover even the minimum, a red message explains which part is short. Free up a machine or ask an administrator to adjust your quota.
+
+![Choose CPU, memory and disk (numbers match the steps above)](/manual-shots/en/my-requests/s04.webp)
 
 ### Choose a GPU (when required)
 
@@ -66,6 +74,8 @@ The **GPU Acceleration** section appears only for a VM whose operating system is
 3. If the GPU offers several sizes, pick a **vGPU Profile**. The smallest one that can be created is selected by default.
 4. If no GPU is free in that period, choose another period or operating system.
 
+![Choose a GPU (when required) (numbers match the steps above)](/manual-shots/en/my-requests/s05.webp)
+
 ### Set the rental period
 
 1. Under **Rental Period**, enter a **Start Time** and an **End Time**, both within the next three months.
@@ -74,12 +84,16 @@ The **GPU Acceleration** section appears only for a VM whose operating system is
 
 Teachers and administrators in **Immediate Mode** see **Immediate Mode Settings** instead: no start time, and either **No end date** or an **End Time**.
 
+![Set the rental period (numbers match the steps above)](/manual-shots/en/my-requests/s06.webp)
+
 ### Explain the reason and submit
 
 1. Under **Reason for Request**, describe what the machine is for (at least 10 characters). The character count is shown below the box.
 2. Check the summary card on the right: type, name, operating system, username, cores, memory, disk and period.
 3. Click **Submit Request**. Before sending, the platform checks again that the GPU is still free and that the period has enough capacity; if not, a message asks you to choose another period or adjust the specs.
 4. You return to the list, where the request shows **Pending Review**.
+
+![Explain the reason and submit (numbers match the steps above)](/manual-shots/en/my-requests/s07.webp)
 
 ### Follow a request
 
@@ -95,6 +109,8 @@ The table lists every request with **Resource**, **OS**, **Account**, **Specs**,
 8. **Cancelled**: you (or the system) cancelled it.
 9. **Expired**: the period ended before the request was approved or before a machine was created.
 
+![Follow a request (numbers match the steps above)](/manual-shots/en/my-requests/s08.webp)
+
 ### Cancel a request
 
 1. Click **Cancel** in the **Actions** column.
@@ -102,12 +118,16 @@ The table lists every request with **Resource**, **OS**, **Account**, **Specs**,
 
 You can cancel while a request is pending, or approved but not yet created. Once the machine exists, delete the machine on My Resources instead; that also closes the request.
 
+![Cancel a request (numbers match the steps above)](/manual-shots/en/my-requests/s09.webp)
+
 ### Retry a failed creation
 
 1. A request showing **Provisioning Failed** has a **Retry** button.
 2. Click it; creation starts again and the status updates by itself.
 
 If the status is **Machine Error**, the machine was created but something went wrong afterwards. Retry is not possible: click **Go to My Resources** and start or delete the machine there.
+
+![Retry a failed creation (numbers match the steps above)](/manual-shots/en/my-requests/s10.webp)
 
 ### Apply or cancel a spec change
 
@@ -118,6 +138,8 @@ When you have spec change or expiry extension requests, a second table, **Spec C
 3. Click **Cancel** to withdraw a request that is pending or approved but not applied yet.
 
 An approved expiry extension takes effect immediately and shows **Applied**. If the machine was deleted, its open request is cancelled automatically (the info icon says so).
+
+![Apply or cancel a spec change (numbers match the steps above)](/manual-shots/en/my-requests/s11.webp)
 
 ## Fields and options
 

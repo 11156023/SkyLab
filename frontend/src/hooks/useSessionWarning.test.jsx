@@ -12,12 +12,14 @@ vi.mock("../services/resources", () => ({
 }));
 
 import { ResourcesService } from "../services/resources";
+import { createTestQueryClient, withQueryClient } from "../queries/testing";
 import useSessionWarning from "./useSessionWarning";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let host;
 let root;
+let client;
 
 const warnings = [
   {
@@ -40,15 +42,21 @@ function Harness({ userId, onValue }) {
   return null;
 }
 
+// TanStack Query notifies on a zero-delay timer: wait one tick, then drain microtasks.
 async function flush() {
   await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
+}
+
+function renderHarness(userId, onValue) {
+  return act(async () => root.render(withQueryClient(<Harness userId={userId} onValue={onValue} />, client)));
 }
 
 beforeEach(() => {
   localStorage.clear();
+  client = createTestQueryClient();
   ResourcesService.list.mockReset();
   ResourcesService.sessionStatus.mockReset();
   ResourcesService.mySessionStatuses.mockReset();
@@ -66,7 +74,7 @@ afterEach(async () => {
 test("loads all owned machine statuses with one batch request", async () => {
   let latest;
   const onValue = (value) => { latest = value; };
-  await act(async () => root.render(<Harness userId="user-1" onValue={onValue} />));
+  await renderHarness("user-1", onValue);
   await flush();
 
   expect(ResourcesService.mySessionStatuses).toHaveBeenCalledTimes(1);
@@ -78,7 +86,7 @@ test("loads all owned machine statuses with one batch request", async () => {
 test("shows machines individually and records each warning as soon as it is displayed", async () => {
   let latest;
   const onValue = (value) => { latest = value; };
-  await act(async () => root.render(<Harness userId="user-1" onValue={onValue} />));
+  await renderHarness("user-1", onValue);
   await flush();
 
   expect(latest.active?.vmid).toBe(101);
@@ -95,17 +103,45 @@ test("shows machines individually and records each warning as soon as it is disp
 test("does not repeat an event after remount but keeps acknowledgement isolated by user", async () => {
   let latest;
   const onValue = (value) => { latest = value; };
-  await act(async () => root.render(<Harness userId="user-1" onValue={onValue} />));
+  await renderHarness("user-1", onValue);
   await flush();
   expect(latest.active?.vmid).toBe(101);
 
   await act(async () => root.unmount());
   root = createRoot(host);
-  await act(async () => root.render(<Harness userId="user-1" onValue={onValue} />));
+  await renderHarness("user-1", onValue);
   await flush();
   expect(latest.active?.vmid).toBe(102);
 
-  await act(async () => root.render(<Harness userId="user-2" onValue={onValue} />));
+  await renderHarness("user-2", onValue);
   await flush();
+  expect(latest.active?.vmid).toBe(101);
+});
+
+test("does not poll before a user is signed in", async () => {
+  let latest;
+  const onValue = (value) => { latest = value; };
+  await renderHarness(null, onValue);
+  await flush();
+
+  expect(ResourcesService.mySessionStatuses).not.toHaveBeenCalled();
+  expect(latest.active).toBeNull();
+});
+
+test("a failed poll keeps the current warning and the next poll retries", async () => {
+  let latest;
+  const onValue = (value) => { latest = value; };
+  await renderHarness("user-1", onValue);
+  await flush();
+  expect(latest.active?.vmid).toBe(101);
+
+  ResourcesService.mySessionStatuses.mockRejectedValueOnce(new Error("503"));
+  await act(async () => { await client.refetchQueries(); });
+  await flush();
+  expect(latest.active?.vmid).toBe(101);
+
+  await act(async () => { await client.refetchQueries(); });
+  await flush();
+  expect(ResourcesService.mySessionStatuses).toHaveBeenCalledTimes(3);
   expect(latest.active?.vmid).toBe(101);
 });

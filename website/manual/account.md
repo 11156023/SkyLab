@@ -24,6 +24,8 @@ The page has three tabs: **Profile**, **Appearance** and **About**. The **Profil
 1. On the **Profile** tab, drop an image onto the upload box next to your avatar, or click the box to choose a file.
 2. The image is shrunk and uploaded right away; "Avatar updated" confirms it. No **Save** is needed.
 
+![Change your avatar (numbers match the steps above)](/manual-shots/en/account/s01.webp)
+
 ### Edit your name, email or avatar URL
 
 1. In the **Profile** card, click **Edit**.
@@ -31,6 +33,8 @@ The page has three tabs: **Profile**, **Appearance** and **About**. The **Profil
 3. Click **Save**, or **Cancel** to discard the changes.
 
 If you changed the email, SkyLab sends a verification link to the new address and shows "Waiting for verification at `<email>`. Your current email is still in use." Open the link from the new inbox to finish the change (see [Signing in](/manual/login#confirm-a-new-email-address)).
+
+![Edit your name, email or avatar URL (numbers match the steps above)](/manual-shots/en/account/s02.webp)
 
 ### Change your password
 
@@ -43,6 +47,8 @@ This changes the password you use to sign in to SkyLab, not the login password o
 
 After the update, every signed-in session (including this one) ends and you sign in again with the new password.
 
+![Change your password (numbers match the steps above)](/manual-shots/en/account/s03.webp)
+
 ### Turn on two-factor authentication
 
 1. In **Two-factor authentication**, click **Link authenticator app**.
@@ -50,6 +56,8 @@ After the update, every signed-in session (including this one) ends and you sign
 3. Click **Enable two-factor authentication**.
 
 The card now shows **Enabled**. From the next sign-in on, SkyLab asks for a 6-digit code after your password.
+
+![Turn on two-factor authentication (numbers match the steps above)](/manual-shots/en/account/s04.webp)
 
 ### Turn off two-factor authentication
 
@@ -59,6 +67,8 @@ The card now shows **Enabled**. From the next sign-in on, SkyLab asks for a 6-di
 
 The button is disabled when an administrator requires two-factor authentication for your account. If you lost your phone, ask an administrator to reset it.
 
+![Turn off two-factor authentication (numbers match the steps above)](/manual-shots/en/account/s05.webp)
+
 ### Delete your account
 
 1. In **Delete Account**, click **Delete Account**.
@@ -66,6 +76,8 @@ The button is disabled when an administrator requires two-factor authentication 
 3. Click **Confirm Delete**. You are signed out.
 
 Deleting stops sign-in and service access and revokes your AI API keys. Usage, request and audit records are kept. The account cannot be restored, and its email cannot be registered again.
+
+![Delete your account (numbers match the steps above)](/manual-shots/en/account/s06.webp)
 
 ### Change colors and background
 
@@ -78,12 +90,16 @@ On the **Appearance** tab, the **Colors** group:
 
 Changes apply immediately.
 
+![Change colors and background (numbers match the steps above)](/manual-shots/en/account/s07.webp)
+
 ### Change the interface style and color mode
 
 In the **Interface** group of the **Appearance** tab:
 
 1. **Style**: **Frosted Glass**, **Liquid Glass**, **Light Background** (only in light mode) or **Dark Background** (only in dark mode).
 2. **Color Mode**: **Light**, **Dark** or **System** (follows your operating system).
+
+![Change the interface style and color mode (numbers match the steps above)](/manual-shots/en/account/s08.webp)
 
 ### Apply a color theme
 
@@ -92,14 +108,20 @@ The **Color themes** card on the **Appearance** tab groups ready-made themes int
 1. Click a theme. Its primary color, background color and background pattern are applied together, and the **Colors** fields above update to match.
 2. The selected theme shows a check mark. If you change any of its colors afterwards, no theme is selected.
 
+![Apply a color theme (numbers match the steps above)](/manual-shots/en/account/s09.webp)
+
 ### Reset the appearance
 
 1. On the **Appearance** tab, click **Reset to Defaults** at the right of the tab bar.
 2. Confirm **Reset**. Primary color, background, interface style and color mode return to the system defaults. An uploaded background image is deleted as well and cannot be recovered.
 
+![Reset the appearance (numbers match the steps above)](/manual-shots/en/account/s10.webp)
+
 ### Change the interface language
 
 The language is not on this page. Click **語言 / Language** at the bottom of the sidebar and choose **繁體中文**, **English** or **日本語**.
+
+![Change the interface language](/manual-shots/en/account/s11.webp)
 
 ### Check the version and licenses
 
@@ -109,6 +131,8 @@ Open the **About** tab:
 - **Frontend open-source components** lists the packages the web interface uses directly, with **Package**, **Version** and **License**.
 
 Include the version shown here when you report a problem.
+
+![Check the version and licenses](/manual-shots/en/account/s12.webp)
 
 ## Fields and options
 
@@ -137,7 +161,7 @@ Include the version shown here when you report a problem.
 ## Related
 
 - [Signing in](/manual/login) — two-factor sign-in, password reset and the first-time setup tour
-- [Home](/manual/home) — the page you return to after saving
+- [Home](/manual/home) — the page you land on after signing in
 - [My Resources](/manual/my-resources) — remove your machines before deleting the account
 - [User Management](/manual/admin-users) — where administrators require or reset two-factor authentication
 - [AI API](/manual/ai-api) — your AI API keys, which are revoked when the account is deleted

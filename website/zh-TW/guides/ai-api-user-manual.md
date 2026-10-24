@@ -37,7 +37,7 @@ SkyLab `/api/v1/ai-proxy` 由 backend 驗證 `ccai_*` 金鑰與限流後轉送�
 `config.yaml`、`models.json` 與實際 `.env` 均受 Git 忽略。範例與 template 可提交。
 根目錄 `.dockerignore` 排除推論目錄與各層 `.env`，避免將模型權重／機密帶入 SkyLab build。
 不將 LiteLLM `.env` 合併到主 `.env`：backend、worker、prestart 會讀取主 `.env`，
-分開可讓高權限金鑰只進入 gateway。減少維護工作靠單一 Compose 定義、模型清單與預檢查。
+分開可讓高權限金鑰只進入 gateway。
 
 ## 2. 位址與金鑰怎麼填
 
@@ -55,8 +55,8 @@ BACKEND_HOST_PORT=8000
 REDIS_HOST_PORT=6379
 ```
 
-`AI_API_PUBLIC_BASE_URL` 是使用者可以連線的 SkyLab 根網址；本機預設為
-`http://localhost:8082`。API 完整 base URL 為該網址加上 `/api/v1/ai-proxy`。
+`AI_API_PUBLIC_BASE_URL` 是使用者可以連線的 SkyLab 根網址（`.env.example` 填的是
+`http://localhost:8082`）。API 完整 base URL 為該網址加上 `/api/v1/ai-proxy`。
 如果 backend 直接跑在主機上，兩個 gateway URL 改用 `http://127.0.0.1:4000`；
 主 Compose 模式一律用服務名稱 `litellm`（預檢查會擋 `127.0.0.1` 與舊的 `host.docker.internal`）。
 
@@ -108,13 +108,13 @@ REMOTE_LAB_API_KEY=<遠端 vLLM 的 API_KEY>
 主機為 `db` 時，`--start` 會以 URL 內的帳號、密碼、資料庫名稱自動建立專用角色與資料庫（已存在則把角色
 密碼對齊 URL），並驗證該角色對 SkyLab 資料庫沒有建表權限；LiteLLM 啟動時自行跑 schema migration。
 使用遠端 DB 時填該主機的 IP／網域及連線參數，保留既有 DB 與 salt 即可；外部 DB 由其管理者建立，腳本不會碰。
-整合 Compose 不會自動搬移資料庫。舊版 host network 設定的 `127.0.0.1:5433` 會由 `--init-env` 改寫為 `db:5432`。
+整合 Compose 不會自動搬移資料庫。
 
 ## 3. 本機與遠端模型清單
 
 範例設定（`vllm-service/models.json.example`）定義兩個本機模型 `gemma-4-31b`（8103）與
-`qwen3-14b`（8104）；本手冊出現的模型名稱都是範例，實際對外名稱以 `models.json` 與
-`/models` 回應為準。以下為欄位範例，請合併到現有
+`qwen3-14b`（8104），另有下方示範的兩個遠端項目；本手冊出現的模型名稱都是範例，實際對外名稱以
+`models.json` 與 `/models` 回應為準。以下為欄位範例，請合併到現有
 JSON 陣列，保留原有模型的 GPU、context、parser 等調校參數。
 
 本機項目預設 `deployment` 為 `local`：
@@ -209,7 +209,8 @@ bash scripts/prepare-ai-stack.sh --start
 
 1. 核對 root／gateway 金鑰隔離、service key 一致性、local upstream key 與 `.env.API`
    一致性、DB 名稱／帳號隔離、必要遠端 key（不查詢上游；需要時另跑 `--check-only --check-upstreams`）；
-2. 產生 production `config.yaml`；
+2. 產生 production `config.yaml` 與 Prometheus 的 vLLM 抓取目標
+   （`monitoring/prometheus/targets/vllm.json`）；
 3. `DATABASE_URL` 主機為 `db` 時，啟動主 Compose PostgreSQL，等它接受 TCP 連線後
    建立（或對齊密碼）專用角色與資料庫；
 4. 重建 LiteLLM 以載入新路由，等 `/health/readiness` 回報資料庫已連線（首次會先跑 migration）；
@@ -252,12 +253,13 @@ LiteLLM 在容器內，本機 vLLM 須監聽 Docker 可達的介面：`.env.API`
 
 ### 手動部署 workflow
 
-runner 需預先配置 `/opt/skylab/.env` 與 `/opt/skylab/vllm-service/models.json`；有本機模型時還需要
-`/opt/skylab/vllm-service/.env.API`。workflow 會先對 `/opt/skylab` 執行 `--init-env`
-（缺少的 LiteLLM `.env` 由範本建立；金鑰寫回 `/opt/skylab` 才能跨次部署保留，什麼都不缺時不寫檔），
-上游金鑰仍缺時在此步驟失敗；接著把檔案複製進 checkout，由 `--start` 完成建 DB、核發 key 與啟動。
-runner 需能使用 `python3 -m venv`，並對 `/opt/skylab` 有寫入權限（首次補金鑰時）。
-GPU 模型程序應由部署主機獨立管理，不放在可能被 checkout 清除的 runner 工作目錄。
+workflow 本身（`.github/workflows/deploy-pve-test.yml`）見
+[部署](/zh-TW/guides/deployment#_8-持續部署-測試環境)。AI stack 的部分：runner 需要
+`/opt/skylab/.env`、`/opt/skylab/vllm-service/models.json`，有本機模型時還需要
+`/opt/skylab/vllm-service/.env.API`。workflow 先對 `/opt/skylab` 執行 `--init-env`，讓產生的金鑰寫回
+該處、跨次部署保留（缺少的 LiteLLM `.env` 由範本建立）；上游金鑰仍缺時在此步驟失敗。接著把檔案複製進
+checkout 並執行 `--start`。runner 需能使用 `python3 -m venv`，首次補金鑰時還要對 `/opt/skylab` 有寫入權限。
+GPU 模型程序請在部署主機上獨立管理，不要放在可能被 checkout 清除的 runner 工作目錄。
 
 ## 5. 修改連線、重啟與回滾
 
@@ -283,7 +285,7 @@ alias 清單，不必另外呼叫 `/key/update`。只用 `docker compose up -d -
 | 停止主 Docker stack | `docker compose down`，包含已接管的 LiteLLM |
 
 **監控**：「資源監控 → 系統健康」會列出 AI Gateway（LiteLLM）與每個模型的狀態，模型的上游推論服務
-（例如 DGX）連不到時發系統告警並寄信給管理員。有啟用監控 stack 時，Grafana「SkyLab AI」儀表板顯示
+（例如 DGX）連不到時發系統告警（治理設定開啟告警 Email 時另寄信給管理員）。有啟用監控 stack 時，Grafana「SkyLab AI」儀表板顯示
 SkyLab 請求量／錯誤／延遲、LiteLLM 與 vLLM 引擎指標；vLLM 的抓取目標由 `--start` 依 `models.json`
 自動產生，遠端主機防火牆要放行部署機連推論埠（與 LiteLLM 同一條規則）。細節見
 [系統監控](/zh-TW/guides/monitoring#ai-模組監控)。
@@ -292,17 +294,19 @@ SkyLab 請求量／錯誤／延遲、LiteLLM 與 vLLM 引擎指標；vLLM 的抓
 缺少 config 時 Compose 的 bind mount 會直接失敗，不會誤建 `config.yaml/` 目錄。
 
 退回獨立部署：先在 root `docker compose stop litellm`，再從
-`vllm-service/litellm/` 執行 `docker compose up -d`。使用同一份 DB URL、salt 與 config。
-LiteLLM 是唯一的 AI API gateway；早期自寫的 FastAPI Gateway 已移除，沒有其他回退入口。
+`vllm-service/litellm/` 執行 `docker compose up -d`，salt 與 config 沿用同一份。獨立模式沒有 `db` 服務，
+`DATABASE_URL` 必須改指向該容器連得到的 PostgreSQL 主機，不能再用 `db:5432`。
+LiteLLM 是唯一的 AI API gateway，沒有其他回退入口。
 
 ## 6. 一般使用者申請與呼叫 API
 
-登入 SkyLab 的 AI API 頁面，填用途、金鑰名稱與期限，送出申請。具審核權限的人員核准後，
-使用者可查看自己的 key 與連線範例。key 清單只回傳前綴；單把明文僅提供擁有者。
-學生可選 1、7、30、90 天，預設 30 天；教師與管理員可選 1、7、30 天或永久，預設永久。
-API 申請時學生必須明確提供 `duration`；有效期限從核准時起算。所有身分都不能申請 1 小時。
-舊的 1 小時待審申請與學生永久待審申請須駁回後重新申請；已核發金鑰維持原到期日。
-輪替後舊 key 立即失效，需同步更新使用它的程式；可查看個人用量並撤銷不再使用的 key。
+使用者在 AI API 頁面申請金鑰；操作步驟、欄位與各身分可選的有效期限見
+[AI API 頁面手冊](/zh-TW/manual/ai-api)。直接呼叫 API 時要注意：
+
+- key 清單只回傳前綴；明文只提供給擁有者本人。
+- 透過 API 申請時，學生必須明確送出 `duration`（預設值「永久」學生不能用）。有效期限從核准時起算。
+- 核准時會依申請人目前的身分重新檢查期限，期限已不被允許的待審申請只能駁回後重新申請。
+- 輪替後舊 key 立即失效，使用它的程式要同步更新。
 
 管理申請的 `/api/v1/ai-api/*` 使用 SkyLab 登入 bearer token；下列推論端點使用 `ccai_*`。
 兩者不是同一種認證。SDK 或相容客戶端的 `base_url` 設為
@@ -314,6 +318,8 @@ API 申請時學生必須明確提供 `duration`；有效期限從核准時起�
 | `POST /chat/completions` | messages 對話，可使用 SSE 串流 |
 | `POST /completions` | prompt 文字生成，需上游支援 |
 | `POST /responses` | Responses 格式，需上游支援 |
+| `GET /rate-limit/status` | 這把 key 目前的額度；不消耗生成配額 |
+| `GET /usage/my` | key 擁有者的用量統計（預設最近 30 天） |
 
 SkyLab 不轉送 LiteLLM 的管理、key、DB 或 health API。embedding 等其他 endpoint
 目前不在 SkyLab proxy 的公開範圍。
@@ -368,7 +374,7 @@ print(payload["choices"][0]["message"])
 
 | 層級 | 程式預設／契約 | 實際含義 |
 | --- | --- | --- |
-| SkyLab 生成 | 每個核准申請 20 次／60 秒滑動視窗 | 金鑰的 `rate_limit` 優先，未設定才用全站預設；所有模型與三種生成 endpoint 共用 |
+| SkyLab 生成 | 每個核准申請 20 次／60 秒滑動視窗 | 金鑰的 `rate_limit` 優先，未設定才用全站預設（`AI_API_RATE_LIMIT_PER_MINUTE`）；所有模型與三種生成 endpoint 共用 |
 | 模型清單 | 每個核准申請 30 次／60 秒 | `/models` 獨立額度，不消耗生成配額 |
 | 限流狀態 | 不消耗生成配額 | `/rate-limit/status` 回報憑證當下額度；`disabled=true` 或 `error` 需分別判讀 |
 | Backend admission | 每個 process 全域 active 20、每個模型 active 10、等待 40 | 併發與排隊限制，不是 RPM；等待／cooldown 預算 70 秒、整次請求 deadline 115 秒 |
@@ -382,10 +388,9 @@ print(payload["choices"][0]["message"])
 滑動視窗不是整點重置；目前 status 的 `reset_at` 是查詢時間加上一個視窗，不是精確的
 下一個 slot 釋放時間，需要剩餘值時請重新查詢。
 
-`20/60`、`30/60` 與 LiteLLM `10 RPM` 是目前原始碼的預設／設定來源，不能替代部署實測。
-實際憑證值以 status 回應為準；status 沒有暴露 generation window 秒數，若部署調整了
-`AI_API_RATE_LIMIT_WINDOW_SECONDS`，需由部署端確認。LiteLLM RPM 不由公開 status 暴露，
-同樣需要部署端確認。backend 多 process 的總併發相加，單次順序檢查不能證明容量。
+`20/60`、`30/60` 與 LiteLLM `10 RPM` 是程式預設值，不是實測容量。憑證的實際上限以 status 回應為準。
+status 不會揭露生成視窗秒數（`AI_API_RATE_LIMIT_WINDOW_SECONDS`）與 LiteLLM RPM，部署調整過時請向維運人員確認。
+backend 多 process 的總併發相加，單次順序檢查不能證明容量。
 
 ### 維運驗證
 
@@ -399,16 +404,16 @@ export LITELLM_MASTER_KEY
 bash scripts/verify-litellm-staging.sh
 unset LITELLM_MASTER_KEY
 
-# 使用已核准的 SkyLab 測試 key 驗證四種公開 endpoint。
+# 使用已核准的 SkyLab 測試 key 對公開 API 做煙霧測試。
 export AI_API_SMOKE_KEY="$CAMPUS_AI_API_KEY"
-AI_API_PUBLIC_BASE_URL=http://localhost:8082/api/v1 \
-  AI_API_SMOKE_MODEL=gpt-oss-20B bash scripts/verify-ai-api-cutover.sh
+AI_API_PUBLIC_BASE_URL=http://localhost:8082/api/v1 bash scripts/verify-ai-api-cutover.sh
 unset AI_API_SMOKE_KEY
 ```
 
-`verify-ai-api-cutover.sh` 包含實際生成與串流請求，會產生模型用量；請用專用測試 key。
-該腳本需要 curl、jq，且測試模型要支援 completions 與 responses。全部通過表示對應
-路徑正常，不代表其他模型也支援所有格式。操作結束可 `unset CAMPUS_AI_API_KEY`。
+`verify-litellm-staging.sh` 需要 curl 與 jq，會核對 gateway 的模型清單是否等於 `models.json` 的 alias、
+每個 deployment 是否健康，以及 backend 容器能否連到 gateway。`verify-ai-api-cutover.sh` 需要 curl 與
+python3，會列出這把 key 看得到的模型，對每個模型送一次簡短的非串流 chat completion，因此會產生少量
+模型用量（請用專用測試 key）。它不測串流、`/completions` 與 `/responses`。操作結束可 `unset CAMPUS_AI_API_KEY`。
 
 ## 7. 常見問題
 

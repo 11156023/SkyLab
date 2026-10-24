@@ -2,8 +2,11 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import i18n from "../../../i18n";
 import styles from "./AiJudgePanel.module.scss";
+import { DataTableCells, DataTableHead } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState, { LoadingSpinner } from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -14,13 +17,25 @@ import SegmentedControl from "../../../components/SegmentedControl/SegmentedCont
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useUnsavedChanges, useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useFileDrop from "../../../hooks/useFileDrop";
+import { useQueryErrorEffect, useQueryView } from "../../../hooks/useQueryLoadState";
+import {
+  getActiveScriptSet,
+  getProcessingSessionMessage,
+  isTerminalRunStatus,
+  keepNewerRubricFiles,
+  useAiJudgeCacheUpdater,
+  useAiJudgeFilesQuery,
+  useAiJudgeReviewQuery,
+  useAiJudgeRunBatchQuery,
+  useAiJudgeSessionMessagesQuery,
+  useAiJudgeSessionsQuery,
+} from "../../../queries/aiJudge";
 import FileDropOverlay from "../../../components/FileDropzone/FileDropOverlay";
 import { downloadBlob } from "../../../services/api";
 import { formatDateTime } from "../../../utils/formatDate";
-import { joinList } from "../../../utils/joinList";
+import { joinClauses, joinList } from "../../../utils/joinList";
 import { createRubricAnalysisAutosave } from "./rubricAnalysisAutosave";
 import {
   AiJudgeService,
@@ -28,6 +43,15 @@ import {
   getTemplateLabel,
   shouldDisplayChatMessage,
 } from "../../../services/aiJudge";
+
+/* 生效腳本集與檢查表清單的合併規則跟著查詢模組走（核查讀取、清單快取都用同一套），這裡沿用原本的匯出 */
+export { getActiveScriptSet, keepNewerRubricFiles };
+
+/* 沒有資料時的穩定空陣列：每次 render 給新的 [] 會讓依賴它的 memo／effect 一直重跑 */
+const NO_RUBRIC_FILES = Object.freeze([]);
+const NO_SESSION_MESSAGES = Object.freeze([]);
+const NO_JUDGE_SESSIONS = Object.freeze([]);
+const NO_SCRIPT_SETS = Object.freeze([]);
 
 /* 元件外的純函式（狀態文字、擋下原因等）用 i18n.t；元件內一律 useTranslation，切換語系才會重繪 */
 function jt(key, options) {
@@ -379,13 +403,12 @@ function getExecutionNodeSummary(item, machineNodes = []) {
 /** 提案列的唯讀指令預覽；以分號串接多個步驟的 argv。 */
 function proposalCommandPreview(item) {
   const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
-  return steps
+  return joinClauses(steps
     .map((step) => (Array.isArray((step?.collector ?? step?.parameters)?.argv)
       ? (step.collector ?? step.parameters).argv
         .filter((part) => typeof part === "string" && part.trim()).join(" ")
       : ""))
-    .filter(Boolean)
-    .join("；");
+    .filter(Boolean));
 }
 
 /**
@@ -408,11 +431,6 @@ export function getRubricReviewItemIds(analysis, candidateIds = null) {
     return currentIds;
   }
   return new Set([...reviewIds].filter((itemId) => currentIds.has(itemId)));
-}
-
-export function getActiveScriptSet(sets) {
-  const active = (Array.isArray(sets) ? sets : []).filter((set) => set?.is_active === true && set.status === "approved");
-  return active.length === 1 ? active[0] : null;
 }
 
 export function getScriptCreationBlocker({ analysis, pendingProposal = null, pendingReviewIds = new Set() }) {
@@ -842,11 +860,170 @@ function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = fa
   );
 }
 
-function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
+/* ── 檢查表欄位（TanStack Table）──
+   v9 的 header／cell 會被當元件掛載，欄位定義放模組層級才不會每次 render 整格重新掛載
+   （標題 textarea 打字時不會失焦）。展開狀態在 RubricTableRow，經 rowState 交給各欄 */
+const rubricColumnHelper = createColumnHelper();
+const RUBRIC_TH_PROPS = Object.freeze({ scope: "col" });
+
+function useRubricHeaders() {
+  const { t } = useTranslation("teaching");
+  return [
+    <>#<span className={styles.srOnly}>{t("AiJudgePanel.thDetails")}</span></>,
+    t("AiJudgePanel.thCheckpoint"),
+    t("AiJudgePanel.thMethod"),
+    t("AiJudgePanel.thAutoSupport"),
+    <span className={styles.srOnly}>{t("AiJudgePanel.thActions")}</span>,
+  ];
+}
+
+function RubricHeader({ index }) {
+  return useRubricHeaders()[index];
+}
+
+function RubricIndexCell({ index, expanded, detailId, onToggle }) {
+  const { t } = useTranslation("teaching");
+  return (
+    <div className={styles.rubricIndex}>
+      <span className={styles.rubricNumber}>{index + 1}</span>
+      <button
+        type="button"
+        className={styles.detailToggle}
+        aria-expanded={expanded}
+        aria-controls={detailId}
+        aria-label={t(expanded ? "AiJudgePanel.collapseRowAria" : "AiJudgePanel.expandRowAria", { index: index + 1 })}
+        title={expanded ? t("AiJudgePanel.collapseRowTitle") : t("AiJudgePanel.expandRowTitle")}
+        onClick={onToggle}
+      >
+        <MIcon name={expanded ? "expand_less" : "expand_more"} size={17} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function RubricTitleCell({ item, index, disabled, onChange }) {
+  const { t } = useTranslation("teaching");
+  return (
+    <label className={styles.tableField}>
+      <span className={styles.srOnly}>{t("AiJudgePanel.rowTitleLabel", { index: index + 1 })}</span>
+      <textarea
+        rows={2}
+        className={styles.rubricTitleInput}
+        value={item.title}
+        onChange={(event) => onChange({ ...item, title: event.target.value })}
+        placeholder={t("AiJudgePanel.rowTitlePlaceholder")}
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
+function RubricMethodCell({ item, index }) {
+  const { t } = useTranslation("teaching");
+  const targetSummaries = getRubricTargetSummaries(item);
+  return (
+    <div className={styles.tableField}>
+      <span className={styles.srOnly}>{t("AiJudgePanel.rowMethodLabel", { index: index + 1 })}</span>
+      <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
+        {item.detection_method || t("AiJudgePanel.noMethod")}
+      </p>
+      {targetSummaries.length > 0 && (
+        <div className={styles.rubricTargetSummary} aria-label={t("AiJudgePanel.targetsLabel")}>
+          <div className={styles.rubricTargetItems}>
+            {targetSummaries.map((target) => (
+              <span
+                key={target.key}
+                className={styles.rubricTargetItem}
+                title={t("AiJudgePanel.labelValue", { label: target.label, value: target.value })}
+              >
+                <MIcon name={target.icon} size={14} aria-hidden="true" />
+                <span>{target.label}</span>
+                <code>{target.value}</code>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RubricDeleteCell({ item, index, disabled, onDelete }) {
+  const { t } = useTranslation("teaching");
+  return (
+    <div className={styles.tableActions}>
+      <button
+        type="button"
+        className={styles.rubricDeleteBtn}
+        title={t("AiJudgePanel.deleteItemTitle")}
+        aria-label={t("AiJudgePanel.deleteItemAria", { index: index + 1, title: item.title || t("AiJudgePanel.unnamedItem") })}
+        onClick={onDelete}
+        disabled={disabled}
+      >
+        <MIcon name="delete" size={16} />
+      </button>
+    </div>
+  );
+}
+
+const rubricColumns = rubricColumnHelper.columns([
+  /* 序號和展開鈕同一格：省下一整欄給檢查點與檢測方式 */
+  rubricColumnHelper.display({
+    id: "index",
+    header: () => <RubricHeader index={0} />,
+    cell: ({ rowState }) => (
+      <RubricIndexCell
+        index={rowState.index}
+        expanded={rowState.expanded}
+        detailId={rowState.detailId}
+        onToggle={rowState.onToggle}
+      />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricDetailToggleCell },
+  }),
+  rubricColumnHelper.accessor("title", {
+    header: () => <RubricHeader index={1} />,
+    cell: ({ row, rowState }) => (
+      <RubricTitleCell item={row.original} index={rowState.index} disabled={rowState.disabled} onChange={rowState.onChange} />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricTitleCell },
+  }),
+  /* data-label 是窄螢幕卡片版的欄名；寫成函式，DataTableCells 切換語系重繪時才會拿到新語系的文字 */
+  rubricColumnHelper.accessor("detection_method", {
+    header: () => <RubricHeader index={2} />,
+    cell: ({ row, rowState }) => <RubricMethodCell item={row.original} index={rowState.index} />,
+    meta: {
+      thProps: RUBRIC_TH_PROPS,
+      tdClassName: styles.rubricDescriptionCell,
+      tdProps: () => ({ "data-label": jt("thMethod") }),
+    },
+  }),
+  rubricColumnHelper.accessor("detectable", {
+    header: () => <RubricHeader index={3} />,
+    cell: ({ row, rowState }) => (
+      <DetectabilityBadge
+        detectable={row.original.detectable}
+        judgementMode={row.original.judgement_mode}
+        needsReview={rowState.needsReview}
+      />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricDetectabilityCell },
+  }),
+  rubricColumnHelper.display({
+    id: "actions",
+    header: () => <RubricHeader index={4} />,
+    cell: ({ row, rowState }) => (
+      <RubricDeleteCell item={row.original} index={rowState.index} disabled={rowState.disabled} onDelete={rowState.onDelete} />
+    ),
+    meta: { thProps: RUBRIC_TH_PROPS, tdClassName: styles.rubricActionsCell },
+  }),
+]);
+
+/* row 是 TanStack 的列，item 是它的原始資料（一併傳進來，編譯後的元件才會跟著資料重繪） */
+function RubricTableRow({ row, item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
   const { t } = useTranslation("teaching");
   const [expanded, setExpanded] = useState(false);
   const checkSteps = item.check_steps ?? [];
-  const targetSummaries = getRubricTargetSummaries(item);
   const executionNode = getExecutionNodeSummary(item, machineNodes);
   const detailId = `rubric-detail-${index}`;
   const missingInformation = Array.isArray(item.missing_information)
@@ -855,90 +1032,25 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
   const hasDetails = Boolean(
     item.detection_method || item.fallback || checkSteps.length || missingInformation.length,
   );
+  const rowState = {
+    index,
+    expanded,
+    detailId,
+    onToggle: () => setExpanded((current) => !current),
+    onChange,
+    onDelete,
+    disabled,
+    needsReview,
+  };
 
   return (
     <>
       <tr className={`${styles.rubricTableRow} ${expanded ? styles.rubricTableRowExpanded : ""}`}>
-        {/* 序號和展開鈕同一格：省下一整欄給檢查點與檢測方式 */}
-        <td className={styles.rubricDetailToggleCell}>
-          <div className={styles.rubricIndex}>
-            <span className={styles.rubricNumber}>{index + 1}</span>
-            <button
-              type="button"
-              className={styles.detailToggle}
-              aria-expanded={expanded}
-              aria-controls={detailId}
-              aria-label={t(expanded ? "AiJudgePanel.collapseRowAria" : "AiJudgePanel.expandRowAria", { index: index + 1 })}
-              title={expanded ? t("AiJudgePanel.collapseRowTitle") : t("AiJudgePanel.expandRowTitle")}
-              onClick={() => setExpanded((current) => !current)}
-            >
-              <MIcon name={expanded ? "expand_less" : "expand_more"} size={17} aria-hidden="true" />
-            </button>
-          </div>
-        </td>
-        <td className={styles.rubricTitleCell}>
-          <label className={styles.tableField}>
-            <span className={styles.srOnly}>{t("AiJudgePanel.rowTitleLabel", { index: index + 1 })}</span>
-            <textarea
-              rows={2}
-              className={styles.rubricTitleInput}
-              value={item.title}
-              onChange={(event) => onChange({ ...item, title: event.target.value })}
-              placeholder={t("AiJudgePanel.rowTitlePlaceholder")}
-              disabled={disabled}
-            />
-          </label>
-        </td>
-        <td className={styles.rubricDescriptionCell} data-label={t("AiJudgePanel.thMethod")}>
-          <div className={styles.tableField}>
-            <span className={styles.srOnly}>{t("AiJudgePanel.rowMethodLabel", { index: index + 1 })}</span>
-            <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
-              {item.detection_method || t("AiJudgePanel.noMethod")}
-            </p>
-            {targetSummaries.length > 0 && (
-              <div className={styles.rubricTargetSummary} aria-label={t("AiJudgePanel.targetsLabel")}>
-                <div className={styles.rubricTargetItems}>
-                  {targetSummaries.map((target) => (
-                    <span
-                      key={target.key}
-                      className={styles.rubricTargetItem}
-                      title={t("AiJudgePanel.labelValue", { label: target.label, value: target.value })}
-                    >
-                      <MIcon name={target.icon} size={14} aria-hidden="true" />
-                      <span>{target.label}</span>
-                      <code>{target.value}</code>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </td>
-        <td className={styles.rubricDetectabilityCell}>
-          <DetectabilityBadge
-            detectable={item.detectable}
-            judgementMode={item.judgement_mode}
-            needsReview={needsReview}
-          />
-        </td>
-        <td className={styles.rubricActionsCell}>
-          <div className={styles.tableActions}>
-            <button
-              type="button"
-              className={styles.rubricDeleteBtn}
-              title={t("AiJudgePanel.deleteItemTitle")}
-              aria-label={t("AiJudgePanel.deleteItemAria", { index: index + 1, title: item.title || t("AiJudgePanel.unnamedItem") })}
-              onClick={onDelete}
-              disabled={disabled}
-            >
-              <MIcon name="delete" size={16} />
-            </button>
-          </div>
-        </td>
+        <DataTableCells row={row} rowState={rowState} />
       </tr>
       {expanded && (
         <tr className={styles.rubricDetailRow}>
-          <td id={detailId} colSpan={5}>
+          <td id={detailId} colSpan={rubricColumns.length}>
             <div className={styles.rubricDetail}>
               <div className={styles.rubricDetailHead}>
                 <div>
@@ -1035,31 +1147,29 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
   const reviewIds = needsReviewIds instanceof Set
     ? needsReviewIds
     : new Set(Array.isArray(needsReviewIds) ? needsReviewIds : []);
+  const table = useTable({
+    features: baseFeatures,
+    columns: rubricColumns,
+    data: items,
+    getRowId: (item, index) => String(item.id ?? index),
+  });
   return (
     <div className={styles.rubricTableWrap}>
+      {/* 表格外框自己組：<caption> 要排在 <thead> 前面，共用的 DataTable 沒有這個位置；表頭用 DataTableHead */}
       <table className={styles.rubricTable}>
         <caption className={styles.srOnly}>{t("AiJudgePanel.tableCaption")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">
-              #<span className={styles.srOnly}>{t("AiJudgePanel.thDetails")}</span>
-            </th>
-            <th scope="col">{t("AiJudgePanel.thCheckpoint")}</th>
-            <th scope="col">{t("AiJudgePanel.thMethod")}</th>
-            <th scope="col">{t("AiJudgePanel.thAutoSupport")}</th>
-            <th scope="col"><span className={styles.srOnly}>{t("AiJudgePanel.thActions")}</span></th>
-          </tr>
-        </thead>
+        <DataTableHead table={table} />
         <tbody>
-          {items.map((item, index) => (
+          {table.getRowModel().rows.map((row) => (
             <RubricTableRow
-              key={item.id}
-              item={item}
-              index={index}
-              onChange={(updated) => onChange(index, updated)}
-              onDelete={() => onDelete(index)}
+              key={row.id}
+              row={row}
+              item={row.original}
+              index={row.index}
+              onChange={(updated) => onChange(row.index, updated)}
+              onDelete={() => onDelete(row.index)}
               disabled={disabled}
-              needsReview={reviewIds.has(item.id)}
+              needsReview={reviewIds.has(row.original.id)}
               machineNodes={machineNodes}
             />
           ))}
@@ -1681,18 +1791,6 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
   );
 }
 
-/**
- * 背景重抓的清單可能在自動儲存回應之前就產生：同一份檢查表保留 analysis_revision 較新的那筆，
- * 否則舊清單會把畫面上的修改與版本號一起退回，下一次儲存就撞 409。
- */
-export function keepNewerRubricFiles(current, rows) {
-  const currentById = new Map((Array.isArray(current) ? current : []).map((entry) => [entry.id, entry]));
-  return (Array.isArray(rows) ? rows : []).map((row) => {
-    const existing = currentById.get(row.id);
-    return existing && Number(existing.analysis_revision) > Number(row.analysis_revision) ? existing : row;
-  });
-}
-
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
 export function RubricsTab({
@@ -1711,18 +1809,28 @@ export function RubricsTab({
   // 製作腳本要等很久：途中切到別的檢查（這個分頁已卸載）就不能再把上層帶去腳本／核查分頁
   const mountedRef = useRef(true);
   const [chatHasDraft, setChatHasDraft] = useState(false);
+  const judgeCache = useAiJudgeCacheUpdater();
+  const sessionId = judgeSession?.id ?? null;
+  const selectedFileId = judgeSession?.selected_file_id ?? null;
 
-  const [files, setFiles] = useState([]);
-  const [filesLoaded, setFilesLoaded] = useState(false);
+  /* 班級的檢查表清單：背景每 30 秒刷新；自動儲存寫回的較新版本不會被較早送出的重抓蓋掉 */
+  const filesQuery = useAiJudgeFilesQuery(classId);
+  const files = filesQuery.data ?? NO_RUBRIC_FILES;
+  const filesLoaded = filesQuery.data !== undefined;
+  const refetchFiles = filesQuery.refetch;
+  const filesRequestedRef = useRef(false);
 
   const [analysis, setAnalysis] = useState(null);
-  const [messages, setMessages] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isSendingMessage, setIsChatting] = useState(false);
-  const latestMessage = messages.at(-1);
-  const processingMessage = latestMessage?.role === "user" && latestMessage.metadata_json?.processing
-    ? latestMessage : null;
+  /* 對話紀錄：查詢快取就是畫面上的對話（送出中的訊息、AI 回覆、忽略提案都寫進快取）。
+     伺服器還在處理上一輪時每 30 秒背景重抓；自己傳送中暫停，免得重抓蓋掉剛送出的訊息 */
+  const messagesQuery = useAiJudgeSessionMessagesQuery(classId, sessionId, selectedFileId, {
+    paused: isSendingMessage,
+  });
+  const messages = messagesQuery.data ?? NO_SESSION_MESSAGES;
+  const processingMessage = getProcessingSessionMessage(messages);
   const isServerProcessing = Boolean(processingMessage
     && processingMessage.metadata_json.processing_deadline * 1000 > Date.now());
   const isChatting = isSendingMessage || isServerProcessing;
@@ -1766,6 +1874,17 @@ export function RubricsTab({
     return () => { mountedRef.current = false; };
   }, []);
 
+  /* 改寫畫面上的對話（寫進這個檢查的對話快取）；非同步回來才寫的呼叫端都先用 activeContextRef
+     確認還是同一個檢查與檢查表，跟原本的 setMessages 一樣 */
+  function setMessages(next) {
+    judgeCache.setSessionMessages(classId, sessionId, selectedFileId, next);
+  }
+
+  // 進來（或換檢查表）時讀對話失敗才提示；處理中的背景重抓失敗維持靜默
+  useQueryErrorEffect(messagesQuery, () => {
+    if (messagesQuery.data === undefined) toast.error(t("AiJudgePanel.loadChatFailed"));
+  });
+
   function clearPendingProposal() {
     setPendingProposal(null);
     setSelectedProposalIds(new Set());
@@ -1800,6 +1919,8 @@ export function RubricsTab({
     }
   }
 
+  /* 送訊息、製作腳本完成或失敗後的同步：呼叫端要知道同步成不成功（決定提示文字），
+     merge 時還要跟畫面上的訊息合併，所以直接讀一次再寫進對話快取，不經查詢的重抓 */
   async function refreshSessionMessages({ silent = false, replace = false } = {}) {
     if (!judgeSession?.id) return false;
     const context = activeContextRef.current;
@@ -1813,13 +1934,6 @@ export function RubricsTab({
       return false;
     }
   }
-
-  useAutoRefresh(() => {
-    if (processingMessage && !isSendingMessage) {
-      return refreshSessionMessages({ silent: true, replace: true });
-    }
-    return undefined;
-  });
 
   useEffect(() => {
     if (!sourcesOpen) return undefined;
@@ -1849,20 +1963,14 @@ export function RubricsTab({
         lastSavedItemsRef.current.set(fileId, Array.isArray(savedAnalysis.items) ? savedAnalysis.items : []);
         lastSavedNeedsReviewRef.current.set(fileId, Boolean(savedAnalysis.detectability_needs_review));
         pendingReviewIdsByFileRef.current.set(fileId, getRubricReviewItemIds(savedAnalysis));
-        setFiles((current) => current.map((entry) => (
-          entry.id === updated.id ? updated : entry
-        )));
+        judgeCache.updateFile(classIdRef.current, updated);
       },
       onError(error, { conflict, announce }) {
         if (conflict) {
           clearPendingProposal();
           toastRef.current.error(jt("rubricConflict"));
-          void AiJudgeService.listFiles(classIdRef.current)
-            .then((rows) => {
-              setFiles(rows);
-              setFilesLoaded(true);
-            })
-            .catch(() => {});
+          // 別人改過了：靜默重抓清單換成伺服器上的版本（失敗就等背景刷新）
+          void judgeCache.invalidateFiles(classIdRef.current);
           return;
         }
         // 其他失敗：修改保留在畫面上並標成未儲存（見上方提示），自動重試的失敗不再逐次跳通知
@@ -1881,40 +1989,23 @@ export function RubricsTab({
     };
   }, []);
 
-  /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
-  const fetchFiles = useCallback(async (silent = false) => {
-    try {
-      const rows = await AiJudgeService.listFiles(classId);
-      setFiles((current) => keepNewerRubricFiles(current, rows));
-      setFilesLoaded(true);
-    } catch {
-      if (!silent) toast.error(t("AiJudgePanel.loadSourcesFailed"));
-    }
-  }, [classId, toast]);
-
+  /* 進到這個檢查、換了檢查表時向伺服器重抓一次清單（第一次併入掛載時的讀取，不多打一次）；
+     這幾次讀取失敗才提示，背景刷新失敗維持靜默 */
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles, judgeSession?.selected_file_id]);
-  useAutoRefresh(() => fetchFiles(true));
+    const options = filesRequestedRef.current ? undefined : { cancelRefetch: false };
+    filesRequestedRef.current = true;
+    void refetchFiles(options).then((result) => {
+      if (result.isError) toastRef.current.error(jt("loadSourcesFailed"));
+    });
+  }, [refetchFiles, classId, selectedFileId]);
 
+  /* 換了檢查或檢查表：對話換成新的 key 重新讀取（見 useAiJudgeSessionMessagesQuery），
+     這裡清掉跟舊對話綁在一起的附件與提案 */
   useEffect(() => {
-    let cancelled = false;
-    setMessages([]);
     recoveredProposalIdRef.current = null;
     setPendingAttachments([]);
     clearPendingProposal();
-    if (!judgeSession?.id) return undefined;
-    AiJudgeService.listSessionMessages(classId, judgeSession.id)
-      .then((rows) => {
-        if (!cancelled) setMessages(rows);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("AiJudgePanel.loadChatFailed"));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [classId, judgeSession?.id, judgeSession?.selected_file_id, toast]);
+  }, [classId, sessionId, selectedFileId]);
 
   useEffect(() => {
     function clearSelectedSourceState() {
@@ -2612,12 +2703,8 @@ export function getScriptCreationDestination(artifact) {
 
 /* ── 執行結果／核查共用的結果顯示元件 ───────────────────── */
 
-function runIsTerminal(status) {
-  return status === "completed"
-    || status === "completed_with_failures"
-    || status === "failed"
-    || status === "cancelled";
-}
+/* 整批／單次執行是否已結束：與核查讀取、進度輪詢（queries/aiJudge）同一套判斷 */
+const runIsTerminal = isTerminalRunStatus;
 
 function newRunBatchId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -3249,6 +3336,19 @@ function reviewDraftFromTeacherReview(review) {
   };
 }
 
+/* 整份核查結果換上畫面時的草稿：批次模式舊到新套用，同一位學生以較新的那批為準（跟畫面上採用的那批一致） */
+function draftsFromReviewState(state) {
+  const nextDrafts = {};
+  if (state?.mode === "batch") {
+    for (const entry of [...state.batches].reverse()) Object.assign(nextDrafts, draftsFromBatch(entry));
+  } else if (state?.mode === "run") {
+    for (const target of state.run?.target_results_json?.targets ?? []) {
+      nextDrafts[String(target.vmid)] = reviewDraftFromTeacherReview(target?.teacher_review);
+    }
+  }
+  return nextDrafts;
+}
+
 export function buildBatchReviewRows(batch, members = []) {
   const runIdByNodeKey = new Map(
     (Array.isArray(batch?.nodes) ? batch.nodes : []).map((node) => [
@@ -3482,7 +3582,8 @@ function MachineReviewDetail({
         {row.vmid ? <small>{`VMID ${row.vmid}`}</small> : null}
         <span className={`${styles.badge} ${reviewBadgeClass(summary.kind)}`}>{summary.label}</span>
       </div>
-      <ExecutionFailure target={target} />
+      {/* 關機、狀態不明有自己的說明（下方），不要再疊一段「請檢查 Python、timeout」的主機環境提示 */}
+      {!executionBlocker && <ExecutionFailure target={target} />}
       {executionBlocker ? (
         <p className={styles.mutedText}><strong>{t(`AiJudgePanel.${executionBlocker.message}`)}</strong></p>
       ) : row.items ? (
@@ -3636,9 +3737,6 @@ export function TeacherReviewTab({
   const [progress, setProgress] = useState(null);
   // 每位學生這週回覆的草稿（user_id → 文字）；存好就拿掉
   const [replyDrafts, setReplyDrafts] = useState({});
-  const [scriptSets, setScriptSets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
   const [expandedKey, setExpandedKey] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [savingKey, setSavingKey] = useState(null);
@@ -3646,98 +3744,55 @@ export function TeacherReviewTab({
   const [sortMode, setSortMode] = useState("pending");
   const [runOnceOpen, setRunOnceOpen] = useState(false);
   const [creatingBatch, setCreatingBatch] = useState(false);
-  const [activeBatch, setActiveBatch] = useState(null);
+  // 接手追蹤的整批執行（建立回應、恢復、或載入時發現還在跑的那批）；畫面用的最新進度見下方 activeBatch
+  const [trackedBatch, setActiveBatch] = useState(null);
   const [pendingBatch, setPendingBatch] = useState(null);
   const submissionRef = useRef(null);
   // 整批執行完成時老師還有沒存的核查：先不換結果（草稿會套到新結果上），存完再自動載入
   const [newResultsWaiting, setNewResultsWaiting] = useState(false);
-  const loadRequestRef = useRef(0);
   const runOnceDialog = useDialogPresence(runOnceOpen);
   const batchStatusRef = useRef(null);
   const hasDirtyDraftsRef = useRef(false);
   const wasActiveRef = useRef(active);
+  // 這個檢查的核查結果已經第一次換上畫面（之後的讀取都是背景更新）
+  const appliedReviewContextRef = useRef(null);
+  const judgeCache = useAiJudgeCacheUpdater();
 
-  /* silent：背景更新（整批執行完成、切回這個分頁），不蓋掉畫面；
-     老師還有沒存的核查時只更新腳本集，結果留到存完再換 */
-  const loadReview = useCallback(async ({ silent = false } = {}) => {
-    const requestId = ++loadRequestRef.current;
-    if (!silent) {
-      setLoading(true);
-      setLoadError(false);
+  /* 核查資料（腳本集、全班回報、最近的批次結果）：掛載時讀一次，之後只在下面幾種時機 refetch
+     （切回這個分頁、整批跑完、存完草稿）。讀取失敗且畫面上還沒有資料時顯示錯誤畫面 */
+  const reviewQuery = useAiJudgeReviewQuery(classId, sessionId);
+  const { loading, error: loadError, retry: retryLoadReview } = useQueryView(reviewQuery);
+  const reviewData = reviewQuery.data;
+  const scriptSets = reviewData?.scriptSets ?? NO_SCRIPT_SETS;
+  const refetchReview = reviewQuery.refetch;
+  /* 背景更新：不蓋掉畫面；老師還有沒存的核查時只更新腳本集與回報，結果留到存完再換 */
+  const loadReview = useCallback(() => {
+    void refetchReview();
+  }, [refetchReview]);
+
+  /* 每讀到新的一份就換上畫面（layout effect：跟資料同一次繪製，不會先閃一下空狀態）。
+     第一次一律換上；之後老師有沒存的核查時，只更新回報與進行中的批次，生效組換了才提示 */
+  useLayoutEffect(() => {
+    if (!reviewData) return;
+    const context = `${classId}:${sessionId}`;
+    const firstLoad = appliedReviewContextRef.current !== context;
+    appliedReviewContextRef.current = context;
+    setProgress(reviewData.progress);
+    // 離開再回來時整批還在跑：接回進度輪詢，「一次執行」維持停用，避免重複執行
+    if (reviewData.runningBatch) {
+      batchStatusRef.current = reviewData.runningBatch.status;
+      setActiveBatch(reviewData.runningBatch);
     }
-    try {
-      const [sets, nextProgress] = await Promise.all([
-        AiJudgeService.listSessionScriptSets(classId, sessionId),
-        AiJudgeService.getSessionProgress(classId, sessionId).catch(() => null),
-      ]);
-      const activeSet = getActiveScriptSet(sets);
-      const [runs, batchSummaries] = activeSet ? await Promise.all([
-        AiJudgeService.listSessionRuns(classId, sessionId, activeSet.artifact_set_id),
-        AiJudgeService.listSessionRunBatches(classId, sessionId, 10, activeSet.artifact_set_id),
-      ]) : [[], []];
-      if (loadRequestRef.current !== requestId) return;
-      setScriptSets(Array.isArray(sets) ? sets : []);
-      setProgress(nextProgress);
-      const orderedRuns = Array.isArray(runs) ? runs : [];
-      const latest = orderedRuns[0] ?? null;
-      const latestBatchId = (Array.isArray(batchSummaries) ? batchSummaries : [])
-        .find((batch) => !runIsTerminal(batch.status))?.run_batch_id
-        ?? batchSummaries?.[0]?.run_batch_id ?? latest?.run_batch_id;
-      let nextState = null;
-      const nextDrafts = {};
-      if (latestBatchId) {
-        const batch = await AiJudgeService.getSessionRunBatch(
-          classId,
-          sessionId,
-          latestBatchId,
-        );
-        if (loadRequestRef.current !== requestId) return;
-        // 離開再回來時整批還在跑：接回進度輪詢，「一次執行」維持停用，避免重複執行
-        if (batch?.run_batch_id && !runIsTerminal(batch.status)) {
-          batchStatusRef.current = batch.status;
-          setActiveBatch(batch);
-        }
-        // 最新一批只檢查了部分學生時，往前補較舊的批次，其他人的結果才不會消失
-        const batches = [batch];
-        const totalStudents = nextProgress?.students?.length ?? 0;
-        const covered = new Set((batch?.students ?? []).map((student) => String(student?.student_id)));
-        for (const summary of Array.isArray(batchSummaries) ? batchSummaries : []) {
-          if (batches.length >= 5 || covered.size >= totalStudents) break;
-          if (!summary?.run_batch_id || summary.run_batch_id === batch?.run_batch_id) continue;
-          const older = await AiJudgeService.getSessionRunBatch(classId, sessionId, summary.run_batch_id);
-          if (loadRequestRef.current !== requestId) return;
-          batches.push(older);
-          for (const student of older?.students ?? []) covered.add(String(student?.student_id));
-        }
-        nextState = { mode: "batch", batches };
-        // 舊到新套用，同一位學生以較新的那批為準（跟畫面上採用的那批一致）
-        for (const entry of [...batches].reverse()) Object.assign(nextDrafts, draftsFromBatch(entry));
-      } else {
-        const preferred = orderedRuns.find((item) => item.status === "completed") ?? latest;
-        if (preferred) {
-          const detail = await AiJudgeService.getSessionRun(classId, sessionId, preferred.id);
-          if (loadRequestRef.current !== requestId) return;
-          nextState = { mode: "run", run: detail };
-          for (const target of detail?.target_results_json?.targets ?? []) {
-            nextDrafts[String(target.vmid)] = reviewDraftFromTeacherReview(target?.teacher_review);
-          }
-        }
-      }
-      if (silent && hasDirtyDraftsRef.current) {
-        if (reviewSetIdRef.current !== (activeSet?.artifact_set_id ?? null)) setNewResultsWaiting(true);
-        return;
-      }
-      reviewSetIdRef.current = activeSet?.artifact_set_id ?? null;
-      setReviewSetId(activeSet?.artifact_set_id ?? null);
-      setReviewState(nextState);
-      setDrafts(nextDrafts);
-      setNewResultsWaiting(false);
-    } catch {
-      if (loadRequestRef.current === requestId && !silent) setLoadError(true);
-    } finally {
-      if (loadRequestRef.current === requestId && !silent) setLoading(false);
+    if (!firstLoad && hasDirtyDraftsRef.current) {
+      if (reviewSetIdRef.current !== reviewData.activeSetId) setNewResultsWaiting(true);
+      return;
     }
-  }, [classId, sessionId]);
+    reviewSetIdRef.current = reviewData.activeSetId;
+    setReviewSetId(reviewData.activeSetId);
+    setReviewState(reviewData.review);
+    setDrafts(draftsFromReviewState(reviewData.review));
+    setNewResultsWaiting(false);
+  }, [classId, sessionId, reviewData]);
 
   useEffect(() => {
     setReviewState(null);
@@ -3745,7 +3800,6 @@ export function TeacherReviewTab({
     reviewSetIdRef.current = null;
     setProgress(null);
     setReplyDrafts({});
-    setScriptSets([]);
     setExpandedKey(null);
     setActiveBatch(null);
     setPendingBatch(null);
@@ -3753,17 +3807,15 @@ export function TeacherReviewTab({
     submissionRef.current = null;
     setNewResultsWaiting(false);
     batchStatusRef.current = null;
-    loadReview();
     return () => {
-      loadRequestRef.current += 1;
       submissionRef.current = null;
     };
-  }, [loadReview]);
+  }, [classId, sessionId]);
 
   /* 分頁一直掛著（草稿才不會消失），切回來時靜默更新：
      例如剛在腳本總覽核准腳本，這裡要能馬上一次執行 */
   useEffect(() => {
-    if (active && !wasActiveRef.current) loadReview({ silent: true });
+    if (active && !wasActiveRef.current) loadReview();
     wasActiveRef.current = active;
   }, [active, loadReview]);
 
@@ -3774,7 +3826,7 @@ export function TeacherReviewTab({
     setRunOnceOpen(false);
     onRunStarted?.();
     if (batch.status === "failed") toast.error(batch.error_message ?? t("AiJudgePanel.batchFailed"));
-    if (runIsTerminal(batch.status)) loadReview({ silent: true });
+    if (runIsTerminal(batch.status)) loadReview();
   }, [loadReview, onRunStarted, t, toast]);
 
   // A lost acknowledgement is an unknown outcome. Query its stable ID before
@@ -3798,7 +3850,7 @@ export function TeacherReviewTab({
             if (!cancelled) {
               setPendingBatch(null);
               toast.error(pendingBatch.errorMessage ?? t("AiJudgePanel.batchCreateFailed"));
-              loadReview({ silent: true });
+              loadReview();
             }
             return;
           }
@@ -3826,33 +3878,14 @@ export function TeacherReviewTab({
     };
   }, [classId, sessionId, pendingBatch, creatingBatch, acceptBatch, loadReview, t, toast]);
 
-  /* 「一次執行」輪詢：整批到終態後重新載入核查資料 */
-  useEffect(() => {
-    if (!activeBatch?.run_batch_id || runIsTerminal(activeBatch.status)) return undefined;
-    let cancelled = false;
-    let timer = null;
-
-    async function poll() {
-      try {
-        const next = await AiJudgeService.getSessionRunBatch(
-          classId,
-          sessionId,
-          activeBatch.run_batch_id,
-        );
-        if (cancelled) return;
-        setActiveBatch(next);
-        if (!runIsTerminal(next.status)) timer = setTimeout(poll, 2000);
-      } catch {
-        if (!cancelled) timer = setTimeout(poll, 5000);
-      }
-    }
-
-    timer = setTimeout(poll, 1500);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [classId, sessionId, activeBatch?.run_batch_id, activeBatch?.status]);
+  /* 「一次執行」進度輪詢：接手的那批先照原樣顯示，1.5 秒後開始問，之後每 2 秒（失敗 5 秒後再試），
+     到終態就停；畫面上的進度是最新一次的回應。整批到終態後下面的 effect 重新載入核查資料 */
+  const pollBatchId = trackedBatch?.run_batch_id && !runIsTerminal(trackedBatch.status)
+    ? trackedBatch.run_batch_id : null;
+  const batchProgressQuery = useAiJudgeRunBatchQuery(classId, sessionId, pollBatchId, {
+    initialData: pollBatchId ? trackedBatch : undefined,
+  });
+  const activeBatch = pollBatchId && batchProgressQuery.data ? batchProgressQuery.data : trackedBatch;
 
   useEffect(() => {
     const previous = batchStatusRef.current;
@@ -3877,7 +3910,7 @@ export function TeacherReviewTab({
         toast.success(t("AiJudgePanel.batchDone"));
       }
       setActiveBatch(null);
-      loadReview({ silent: true });
+      loadReview();
     }
   }, [activeBatch, loadReview, t, toast]);
 
@@ -3943,7 +3976,7 @@ export function TeacherReviewTab({
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   useEffect(() => {
-    if (newResultsWaiting && dirtyCount + dirtyReplyCount === 0 && savingKey === null) loadReview({ silent: true });
+    if (newResultsWaiting && dirtyCount + dirtyReplyCount === 0 && savingKey === null) loadReview();
   }, [newResultsWaiting, dirtyCount, dirtyReplyCount, savingKey, loadReview]);
 
   async function discardDraftsAndLoad() {
@@ -3956,7 +3989,7 @@ export function TeacherReviewTab({
     if (!ok) return;
     setReplyDrafts({});
     hasDirtyDraftsRef.current = false;
-    loadReview({ silent: true });
+    loadReview();
   }
 
   // 老師只需要兩件事：全班多少人打勾完成；檢查過的學生裡成功幾位、失敗幾位
@@ -4090,7 +4123,8 @@ export function TeacherReviewTab({
     if (submissionRef.current || creatingBatch || (batchRunning && !retry) || (!activeSet && !retry)) return;
     const attempt = retry ?? { runBatchId: newRunBatchId(), artifactSetId: activeSet.artifact_set_id, userIds };
     submissionRef.current = attempt;
-    loadRequestRef.current += 1;
+    // 還在路上的核查讀取作廢：送出前的舊結果不能在建立後才蓋上來
+    void judgeCache.cancelReview(classId, sessionId);
     setCreatingBatch(true);
     try {
       const next = await AiJudgeService.createSessionScriptSetRun(
@@ -4172,7 +4206,7 @@ export function TeacherReviewTab({
   }
 
   if (loading) return <LoadingState text={t("AiJudgePanel.loadingReview")} />;
-  if (loadError) return <ErrorState onRetry={() => loadReview()} />;
+  if (loadError) return <ErrorState onRetry={() => retryLoadReview()} />;
   // 讀得到全班名單就直接列出全班，看得到誰回報完成；
   // 要有核准的腳本、而且這週內容已發布（作業跟著每週內容發布）才可以檢查
   const showRoster = (progress?.students?.length ?? 0) > 0;
@@ -4562,9 +4596,13 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
   // 換週次才整組重來
   const [visitedTabs, setVisitedTabs] = useState({ sessionId: null, tabs: NO_VISITED_TABS });
   const [dirtyTabs, setDirtyTabs] = useState({ rubrics: false, review: false });
-  const [sessions, setSessions] = useState([]);
+  /* 班級的檢查會話（一週一個）；製作腳本、開始執行後靜默重抓，讀取失敗時清單當成空的並提示 */
+  const sessionsQuery = useAiJudgeSessionsQuery(classId);
+  const sessions = sessionsQuery.data ?? NO_JUDGE_SESSIONS;
+  const { loading } = useQueryView(sessionsQuery);
+  useQueryErrorEffect(sessionsQuery, (error) => toast.error(error?.message ?? jt("loadChecksFailed")));
+  const judgeCache = useAiJudgeCacheUpdater();
   const [activeWeekId, setActiveWeekId] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [creatingWeekId, setCreatingWeekId] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [sessionMenuPosition, setSessionMenuPosition] = useState(null);
@@ -4576,7 +4614,6 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
   const [weekPickerId, setWeekPickerId] = useState("");
   // 只在第一次掛上時讀；之後拖拉直接改 DOM 上的 CSS 變數，不經過 React
   const [initialColumnWidths] = useState(readStoredColumnWidths);
-  const requestVersionRef = useRef(0);
   const classIdRef = useRef(classId);
   const closeSessionMenu = useCallback(() => {
     setOpenMenuId(null);
@@ -4639,34 +4676,19 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
     setActiveWeekId(String(weekId));
   }
 
-  /* silent：製作腳本、執行後的背景更新，不讓整個清單閃成轉圈 */
-  const loadSessions = useCallback(async ({ silent = false } = {}) => {
-    const requestVersion = ++requestVersionRef.current;
-    const requestClassId = classId;
-    if (!silent) setLoading(true);
-    try {
-      const rows = await AiJudgeService.listSessions(classId);
-      if (requestVersion !== requestVersionRef.current || classIdRef.current !== requestClassId) return;
-      setSessions(rows);
-    } catch (error) {
-      if (requestVersion === requestVersionRef.current && classIdRef.current === requestClassId) {
-        setSessions([]);
-        toast.error(error?.message ?? jt("loadChecksFailed"));
-      }
-    } finally {
-      if (requestVersion === requestVersionRef.current && classIdRef.current === requestClassId) setLoading(false);
-    }
-  }, [classId, toast]);
+  /* 製作腳本、執行後的背景更新：已有清單時不閃成轉圈 */
+  const reloadSessions = useCallback(() => {
+    void judgeCache.invalidateSessions(classId);
+  }, [judgeCache, classId]);
 
+  // 換班級：清掉跟上一個班級綁在一起的選取與對話框（清單本身依班級各自一份快取）
   useEffect(() => {
     classIdRef.current = classId;
     setCreatingWeekId(null);
     setWeekPicker(null);
     setActiveWeekId(null);
     closeSessionMenu();
-    loadSessions();
-    return () => { requestVersionRef.current += 1; };
-  }, [closeSessionMenu, loadSessions]);
+  }, [classId, closeSessionMenu]);
 
   // 預設選週次：網址指定的有效週次 > 第一週；目前選的週次不見了才重選
   useEffect(() => {
@@ -4745,11 +4767,11 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
 
   function updateSessionInList(updated) {
     if (classIdRef.current !== classId) return;
-    setSessions((current) => current.map((item) => item.id === updated.id ? updated : item));
+    judgeCache.updateSession(classId, updated);
   }
 
   function upsertSession(item) {
-    setSessions((current) => [item, ...current.filter((entry) => entry.id !== item.id)]);
+    judgeCache.upsertSession(classId, item);
   }
 
   /* 這一週還沒有檢查：建立（伺服器端保證一週只會有一個，重複按也拿回同一個） */
@@ -4782,7 +4804,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
       if (classIdRef.current !== requestClassId) return null;
       if (updated) {
         if (updated.status === "deleted") {
-          setSessions((current) => current.filter((entry) => entry.id !== item.id));
+          judgeCache.removeSession(classId, item.id);
         } else {
           updateSessionInList(updated);
         }
@@ -4984,7 +5006,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
                   onDirtyChange={reportRubricsDirty}
                   machineNodes={machineNodes}
                   onScriptCreated={(artifact) => {
-                    loadSessions({ silent: true });
+                    reloadSessions();
                     selectTab(getScriptCreationDestination(artifact));
                   }}
                 />
@@ -5001,7 +5023,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
                   onDirtyChange={reportReviewDirty}
                   onGoToSettings={() => selectTab("rubrics")}
                   onGoToPublish={goToWeeklyContent}
-                  onRunStarted={() => loadSessions({ silent: true })}
+                  onRunStarted={reloadSessions}
                 />
               ), activeTab === "review", styles.checkTabPanelPadded)}
             </>

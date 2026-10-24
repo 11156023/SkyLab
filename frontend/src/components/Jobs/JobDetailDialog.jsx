@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
 import Modal from "../Modal/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import useDialogPresence from "../../hooks/useDialogPresence";
-import { JobsService } from "../../services/jobs";
+import { useJobDetailQuery } from "../../queries/jobs";
 import { JOB_STATUS_META_KEYS, JobLoading } from "./JobRow";
 import styles from "./Jobs.module.scss";
 import { formatDate, formatDateTime, formatExpiryDate } from "../../utils/formatDate";
@@ -89,9 +88,6 @@ const EXTRA_LABEL_KEYS = {
   applied_at: "JobDetailDialog.extraAppliedAt",
 };
 
-/** 任務還在跑就每 3 秒刷新詳情 */
-const ACTIVE_STATUSES = new Set(["pending", "running", "blocked"]);
-
 export default function JobDetailDialog({ jobId, onClose }) {
   const { t } = useTranslation("components");
   const open = jobId !== null;
@@ -99,56 +95,17 @@ export default function JobDetailDialog({ jobId, onClose }) {
   const presence = useDialogPresence(jobId);
   const { user } = useAuth();
   const showVmid = canTeachUser(user);
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  // 完全關閉（離場動畫結束）後才清空內容
-  useEffect(() => {
-    if (!presence.open) {
-      setData(null);
-      setError(null);
-    }
-  }, [presence.open]);
-
-  useEffect(() => {
-    if (!open) return;
-    // 換成另一筆任務（對話框開著時又 openJob 別筆）時，不能把上一筆的內容掛在新 id 底下
-    setData(null);
-    setError(null);
-    let cancelled = false;
-    let timer = null;
-
-    const load = async (silent = false) => {
-      if (!silent) setLoading(true);
-      try {
-        const res = await JobsService.detail(jobId);
-        if (cancelled) return;
-        setData(res);
-        setError(null);
-        if (ACTIVE_STATUSES.has(res?.item?.status)) {
-          timer = setTimeout(function poll() {
-            // 分頁隱藏時先不打 API，切回來後下一輪再刷新
-            if (document.hidden) timer = setTimeout(poll, 3000);
-            else load(true);
-          }, 3000);
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setError(e?.message ?? t("JobDetailDialog.unknownError"));
-        // 背景刷新偶發失敗（後端重啟、502）不停止輪詢，放慢間隔再試，恢復後錯誤自動消失
-        if (silent) timer = setTimeout(() => load(true), 6000);
-      } finally {
-        if (!cancelled && !silent) setLoading(false);
-      }
-    };
-    load();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [open, jobId]);
+  /* 開著時看目前的 jobId（換成另一筆時直接換 key，上一筆的內容不會掛在新 id 底下）；
+     離場動畫期間 jobId 已是 null，改用 presence 保留的那一筆，內容不會先消失。
+     任務還在跑就 3 秒刷新、背景刷新失敗放慢到 6 秒再試、到終態就停（見 queries/jobs）；
+     關閉後 enabled 為 false，輪詢跟著停 */
+  const detailQuery = useJobDetailQuery(jobId ?? presence.item, { enabled: open });
+  const data = detailQuery.data ?? null;
+  const loading = detailQuery.isFetching;
+  /* 最近一次抓取失敗就顯示錯誤；背景刷新失敗時照舊顯示上一份內容，恢復後錯誤自動消失 */
+  const error = detailQuery.isError
+    ? detailQuery.error?.message ?? t("JobDetailDialog.unknownError")
+    : null;
 
   if (!presence.open) return null;
 

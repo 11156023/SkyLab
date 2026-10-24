@@ -507,6 +507,12 @@
   font-size: $font-size-12;
 }
 
+/* 呼叫時間下方的 Request ID：自成一行，不跟時間黏成「09:56:007443be10」 */
+.callRequestId {
+  display: block;
+  color: var(--color-text-muted);
+}
+
 .modelDrilldown {
   display: inline-flex;
   max-width: 100%;

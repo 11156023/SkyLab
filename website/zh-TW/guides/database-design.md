@@ -66,11 +66,11 @@ schema 維持在第三正規化（3NF）。每個階段各解決一類問題：
 | `nat_rule.vm_ip`、`reverse_proxy_rule.vm_ip` | 已對照 IP 配發紀錄驗證過、並寫進 Gateway 的位址。若改成每次重新推導，就會再次信任 guest agent 回報的 IP，Gateway 同步也會依賴 Proxmox 連得上。`vmid → vm_ip` 在設計上本來就不成立。 | 建立時由 `publish_target_policy` 驗證。 |
 | `teaching_class_machine_nodes`（從課程環境節點複製） | 班級會調整版本的節點，例如把 `disk_gb` 拉到範本的大小、記下自己的建機工作 | 班級切換課程版本時整批重建。 |
 | `class_capacity_reservations` 的總量 | 保留量是某個時間點做出的承諾 | 重新保留時整批替換。 |
-| 逐節點的 `proxmox_storages` | Proxmox storage 清單的同步副本，以 `(node_name, storage)` 為鍵供放置查詢使用 | 由 `sync_storages` 整批改寫；共享 storage 的設定由 `update_storage_settings` 一次套用到所有節點。 |
+| 逐節點的 `proxmox_storages` | Proxmox storage 清單的同步副本，以 `(node_name, storage)` 為鍵供放置查詢使用 | 每次同步連線時由 `upsert_storages`（`repositories/proxmox_storage.py`）整批改寫，保留使用者設定、刪掉已消失的 storage；共享 storage 的設定由 `update_storage_settings` 一次套用到所有節點。 |
 | `ai_api_credentials.api_key_name / rate_limit` | 核發金鑰時從申請單複製，之後可以單獨修改，所以是金鑰自己的屬性 | 不相依於申請單。 |
 | `resources.expiry_date` 與 `vm_requests.end_at` | 兩個不同的期限（資源使用期限與核准使用時段），實際生效的是較早的那個 | 延期時兩者一起更新（見申請流程）。 |
 | `resource_networks.ip_address` 與 `ip_allocation.ip_address` | 觀測到的位址（guest agent 快取）和配發的位址是兩件不同的事 | `resource_networks` 是帶 `cached_at` 的快取。 |
-| `resources.allocation_scope` | 班級連結被清除後仍保持 `teaching_class`，因此不是由 `teaching_class_id` 決定 | 由 resource repository 與 `control_policy` 一起設定。 |
+| `resources.allocation_scope` | 班級連結被清除後仍保持 `teaching_class`，因此不是由 `teaching_class_id` 決定 | 由 resource repository 連同 `control_policy` 一起設定。 |
 | JSON 文件（`task_records.payload / result`、`teacher_judge_*_json`、`batch_provision_jobs.template_params`、`course_environment_versions.draft_data`、`resources.guest_os`） | 整份存取的不透明文件，不會逐項查詢 | 視為單一值；一旦需要逐項查詢就改成子表。 |
 
 單列設定表（`governance_config`、`proxmox_config`、`quota_config`、`ldap_config` 等）欄位很多，但只有一列 `id = 1`，列與列之間不存在相依。

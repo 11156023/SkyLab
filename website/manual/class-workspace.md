@@ -39,6 +39,8 @@ Opening an active class from the class list (without a section in the address) t
 4. The machine row shows either how many machines will be provisioned (before submission) or how many are ready (after). Click it to open **Teaching Environment**.
 5. Expand **Class info** to see the **Course period**, the **Boot lead time** before class and the **Shutdown after class** grace period.
 
+![Read the class overview (numbers match the steps above)](/manual-shots/en/class-workspace/s01.webp)
+
 ### Edit the class and schedule
 
 Available only while the class is still being set up (before you submit for provisioning).
@@ -47,9 +49,11 @@ Available only while the class is still being set up (before you submit for prov
 2. Change the class information (**Class name**, **Term**, **Class location**, **Start date**, **End date**) or the **Fixed class schedule** (**Weekly class day**, **Class time**, **Boot lead time**, **Shutdown after class**).
 3. Click **Save changes**.
 
+![Edit the class and schedule (numbers match the steps above)](/manual-shots/en/class-workspace/s02.webp)
+
 ### Add students
 
-The roster can only be changed while the class is being set up. After you submit for provisioning, the **Import CSV** and **Add students** buttons are disabled.
+The roster can only be changed while the class is being set up. After you submit for provisioning, the **Import CSV**, **Import from group** and **Add students** buttons are disabled.
 
 To paste email addresses:
 
@@ -63,6 +67,18 @@ To import a CSV file:
 2. The first column of each row is read as an email or a student ID. A bare student ID gets the school's email domain appended; a header row named `email`, `學號` or `帳號` is skipped.
 3. A notice reports how many were added and how many accounts don't exist or aren't student accounts.
 
+![Add students (numbers match the steps above)](/manual-shots/en/class-workspace/s03.webp)
+
+### Import students from a group
+
+1. Click **Import from group**.
+2. Choose a group an administrator has set up (for example one school class); the menu shows how many students each group has.
+3. Click **Import**. The group's current students are added and anyone already on the roster is skipped. Teacher or administrator accounts in the group are listed in the notice and not added.
+
+The import copies the group as it is now: later changes to the group, or deleting it, do not change this class.
+
+![Import students from a group (numbers match the steps above)](/manual-shots/en/class-workspace/s04.webp)
+
 ### Find and remove students
 
 1. Type a name or email in the search box above the list to filter it.
@@ -70,6 +86,8 @@ To import a CSV file:
 3. To remove several, tick their check boxes (or the box in the header to select every visible row). The search bar turns into a batch bar; click **Remove** and confirm. If some removals fail, the failed students stay selected so you can retry.
 
 Each row shows the student, the **VMID** of their class machines, the **Machines** column (how many of their machines are ready, or **Not built yet**) and the **Joined** date.
+
+![Find and remove students (numbers match the steps above)](/manual-shots/en/class-workspace/s05.webp)
 
 ### Choose the teaching environment
 
@@ -79,6 +97,8 @@ Each row shows the student, the **VMID** of their class machines, the **Machines
 4. If none fits, click **Create new course environment**. The course environment editor opens; after you publish, you return here with the new environment marked as suggested. Click it to apply.
 5. Below the cards, the **Machines and topology** card shows how many machines each student gets, the number of links between machines and the number of public services.
 
+![Choose the teaching environment (numbers match the steps above)](/manual-shots/en/class-workspace/s06.webp)
+
 ### Read the applied environment
 
 After you submit for provisioning, the environment is locked (**Settings locked**) and the tab shows:
@@ -87,12 +107,16 @@ After you submit for provisioning, the environment is locked (**Settings locked*
 - The public services the environment declares. Each student gets their own URL or their own external port, and sees the connection details on the course page once the class starts.
 - A read-only topology canvas. Click a line to see its port details; click **Internet Lines** at the top left to show each machine's outbound internet connection. The legend shows **Inbound**, **Outbound** and **Internal** lines.
 
+![Read the applied environment](/manual-shots/en/class-workspace/s07.webp)
+
 ### Submit for provisioning
 
 1. Make sure the roster and the teaching environment are set. The status card runs a capacity check and shows the machines, CPU, memory, disk and IP addresses the class needs.
 2. If the check passes, click **Confirm and submit for provisioning**. If it does not pass, the card lists the issues and the button stays disabled.
 3. Confirm **Submit for review**. The roster, course environment and schedule are locked and the request goes to an administrator (see [Class Review](/manual/batch-review)).
 4. After approval, the class shows **Building the environment for the whole class** until every machine is built.
+
+![Submit for provisioning (numbers match the steps above)](/manual-shots/en/class-workspace/s08.webp)
 
 ### Recover from a partly failed build
 
@@ -101,6 +125,8 @@ When the status card says **Some machines or network settings failed**:
 1. Click **Retry failed items** to resubmit only the students whose machines aren't complete. If the retry finishes the class, it becomes active.
 2. If no machine was created at all, you can instead click **Unlock and return to editing** and confirm **Release and return**. Reserved capacity and IP addresses are released and you can change the students, environment or schedule and submit again.
 
+![Recover from a partly failed build (numbers match the steps above)](/manual-shots/en/class-workspace/s09.webp)
+
 ### Edit weekly content
 
 1. Open **Weekly Content**. Every class session from the schedule is one row; the top right shows how many weeks students can currently see.
@@ -108,6 +134,8 @@ When the status card says **Some machines or network settings failed**:
 3. Drag files into **Task files** or click to choose them. Each file is saved to the server as soon as its upload finishes. Click **×** next to a file name to delete it immediately.
 4. Switch the week between **Draft** and **Publish**. Students only see a published week's topic and files. If the topic is empty when you click **Publish**, the topic field is highlighted and you are asked to add one first.
 5. Click **Save weekly content**. Topics and publishing status are stored only when you save; leaving without saving loses them (uploaded files are already stored).
+
+![Edit weekly content (numbers match the steps above)](/manual-shots/en/class-workspace/s10.webp)
 
 ### Monitor the class
 
@@ -119,6 +147,8 @@ When the status card says **Some machines or network settings failed**:
 4. Each tile is one student (seat number and name). Darker means busier; light red is high load (80% or more); a dashed border means powered off; a dotted border means no data yet. Hover a tile to see the email, machine and value.
 5. The **Needs attention** list shows students under high load (highest first) and students whose machine is off while others are on. If every machine is off, it shows a single note instead.
 
+![Monitor the class (numbers match the steps above)](/manual-shots/en/class-workspace/s11.webp)
+
 ### Open a student's machine
 
 1. In the heatmap or the **Needs attention** list, click a running student machine.
@@ -126,11 +156,15 @@ When the status card says **Some machines or network settings failed**:
 3. For an LXC container, a terminal to the container opens.
 4. Close the window when you are done; control is released automatically when the view closes.
 
+![Open a student's machine (numbers match the steps above)](/manual-shots/en/class-workspace/s12.webp)
+
 ### Broadcast a demo to the class
 
 1. In **Demo broadcast**, pick one of your own running VMs from the drop-down. If none is running, the drop-down says no VM is available.
 2. The VM's screen is broadcast to the class. The broadcast continues while you switch to other tabs.
 3. Click **End broadcast** to stop it.
+
+![Broadcast a demo to the class (numbers match the steps above)](/manual-shots/en/class-workspace/s13.webp)
 
 ### Start or shut down the whole class
 
@@ -138,11 +172,15 @@ When the status card says **Some machines or network settings failed**:
 2. **Shut down all** asks for confirmation first, because students may lose unsaved work.
 3. The commands are sent in batches; progress is shown next to the buttons, and a notice reports how many succeeded or failed.
 
+![Start or shut down the whole class (numbers match the steps above)](/manual-shots/en/class-workspace/s14.webp)
+
 ### Extend the class
 
 1. Click **⋯** → **Extend**.
 2. In **Extend the course**, pick a new **Extend class end date** later than the current end date.
 3. Click **Extend**. New sessions are added to the schedule and the machines' expiry dates are pushed back to the new end date.
+
+![Extend the class (numbers match the steps above)](/manual-shots/en/class-workspace/s15.webp)
 
 ### Archive the class and reclaim machines
 
@@ -152,6 +190,8 @@ When the status card says **Some machines or network settings failed**:
 
 After archiving, **Weekly Content** becomes read-only and the **⋯** menu disappears.
 
+![Archive the class and reclaim machines (numbers match the steps above)](/manual-shots/en/class-workspace/s16.webp)
+
 ## Fields and options
 
 | Field | Meaning | Notes |
@@ -160,6 +200,7 @@ After archiving, **Weekly Content** becomes read-only and the **⋯** menu disap
 | Shutdown after class | Grace period before machines shut down after class | Options: **At class end**, 10, 30 or 60 minutes after |
 | Emails (Add students) | Student emails, separated by commas or line breaks | Only registered student accounts are added |
 | CSV file | First column: email or student ID | Maximum 1 MB; UTF-8 or Big5 |
+| Group (Import from group) | A group set up by an administrator | Only its student accounts are added |
 | Topic / task | Title of the week shown to students | Required before a week can be published |
 | Task files | Files attached to the week | Up to 100 MB per file |
 | Draft / Publish | Whether students can see the week | Saved with **Save weekly content** |

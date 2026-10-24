@@ -1,14 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
-import { ClassroomService } from "../../../services/classroom";
-import { TeachingClassesService } from "../../../services/teachingClasses";
+import { useClassStudentsQuery } from "../../../queries/classroom";
+import { useTeachingClassQuery } from "../../../queries/teachingClasses";
 import { useUnsavedChanges } from "../../../contexts/UnsavedChangesContext";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import AiJudgePanel from "../class-workspace/AiJudgePanel";
 import ClassWorkflowStepper from "../class-workspace/ClassWorkflowStepper";
 import styles from "../CourseOperations.module.scss";
@@ -46,6 +47,15 @@ export function normalizeAiJudgeClass(item) {
 }
 
 const MEMBERS_REFRESH_MS = 15_000;
+const EMPTY = Object.freeze([]);
+
+/* 讀不到班級：找不到／沒權限直接說原因；網路或伺服器錯誤給重試，不要一律說成「找不到班級」 */
+function classLoadError(reason) {
+  if (!reason) return null;
+  if (reason.status === 404) return { kind: "not_found" };
+  if (reason.status === 403) return { kind: "forbidden", message: reason.message };
+  return { kind: "failed" };
+}
 
 export function toAiJudgeMembers(students) {
   return (Array.isArray(students) ? students : []).flatMap((student) =>
@@ -83,82 +93,34 @@ export default function AiJudgePage() {
   const navigate = useNavigate();
   const { confirmLeave } = useUnsavedChanges();
   const toast = useToast();
-  const [item, setItem] = useState(null);
-  const [loading, setLoading] = useState(true);
-  // 讀不到班級：找不到／沒權限直接說原因；網路或伺服器錯誤給重試，不要一律說成「找不到班級」
-  const [loadError, setLoadError] = useState(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [members, setMembers] = useState([]);
-  const [membersLoading, setMembersLoading] = useState(false);
 
+  /* 班級只在進頁時讀一次：AI 核查是長時間互動的工作流，切回分頁不重抓，免得週次等 props 在操作中被換掉 */
+  const classQuery = useTeachingClassQuery(classId, { select: normalizeAiJudgeClass, refetchOnWindowFocus: false });
+  const item = classQuery.data ?? null;
+  const loading = classQuery.data === undefined && (classQuery.isPending || classQuery.isFetching);
+  const loadError = classQuery.data === undefined && !classQuery.isFetching ? classLoadError(classQuery.error) : null;
+
+  /* 老師上課中途才開學生機器，機器標籤的開機燈號要跟著變：15 秒刷新、分頁隱藏時暫停、
+     背景刷新失敗保留上一份；內容沒變時 structural sharing 讓 members 維持同一個參考，不重繪 */
+  const membersActive = item?.status === "active";
+  const membersQuery = useClassStudentsQuery(item?.id, {
+    enabled: membersActive,
+    refetchInterval: MEMBERS_REFRESH_MS,
+    select: toAiJudgeMembers,
+  });
+  const members = membersQuery.data ?? EMPTY;
+  /* 只有第一次載入顯示載入中：首載失敗後的輪詢重試不可把 AiJudgePanel 換成載入畫面（會清掉面板狀態）。
+     沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，所以用 useQueryView：失敗後重試期間仍算失敗 */
+  const membersView = useQueryView(membersQuery);
+  const membersLoading = membersActive && membersView.loading;
+  /* 讀不到學生機器不能默默當成沒有機器：核查會少掉學生姓名與機器，老師要知道是載入失敗。
+     依訊息字串觸發，輪詢重試又失敗時訊息相同就不重複提示 */
+  const membersFailedMessage = membersActive && membersView.error
+    ? membersView.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
   useEffect(() => {
-    let active = true;
-    setItem(null);
-    setLoadError(null);
-    setLoading(true);
-    TeachingClassesService.get(classId)
-      .then((result) => active && setItem(normalizeAiJudgeClass(result)))
-      .catch((reason) => {
-        if (!active) return;
-        if (reason?.status === 404) setLoadError({ kind: "not_found" });
-        else if (reason?.status === 403) setLoadError({ kind: "forbidden", message: reason.message });
-        else setLoadError({ kind: "failed" });
-      })
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [classId, reloadKey]);
-
-  useEffect(() => {
-    let active = true;
-    if (!item?.id || item.status !== "active") {
-      setMembers([]);
-      setMembersLoading(false);
-      return () => { active = false; };
-    }
-
-    let timer = null;
-    let lastSnapshot = null;
-    setMembersLoading(true);
-    ClassroomService.listClassStudents(item.id)
-      .then((students) => {
-        if (!active) return;
-        const next = toAiJudgeMembers(students);
-        lastSnapshot = JSON.stringify(next);
-        setMembers(next);
-        timer = window.setTimeout(refreshPower, MEMBERS_REFRESH_MS);
-      })
-      .catch((reason) => {
-        if (!active) return;
-        // 讀不到學生機器不能默默當成沒有機器：核查會少掉學生姓名與機器，老師要知道是載入失敗
-        setMembers([]);
-        toast.error(reason?.message ?? t("Error.generic", { ns: "common" }));
-      })
-      .finally(() => active && setMembersLoading(false));
-
-    /* 老師上課中途才開學生機器，機器標籤的開機燈號要跟著變；
-       之後的刷新不顯示載入中、分頁隱藏時不打 API、失敗就保留上一份，內容沒變不重繪 */
-    async function refreshPower() {
-      if (!document.hidden) {
-        try {
-          const next = toAiJudgeMembers(await ClassroomService.listClassStudents(item.id));
-          if (!active) return;
-          const snapshot = JSON.stringify(next);
-          if (snapshot !== lastSnapshot) {
-            lastSnapshot = snapshot;
-            setMembers(next);
-          }
-        } catch {
-          // 下一輪再試
-        }
-      }
-      if (active) timer = window.setTimeout(refreshPower, MEMBERS_REFRESH_MS);
-    }
-
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [item?.id, item?.status, t, toast]);
+    if (membersFailedMessage) toast.error(membersFailedMessage);
+  }, [membersFailedMessage, toast]);
 
   if (loading) return <LoadingState fullPage text={t("ClassWorkspacePage.loadingClassText")} />;
   if (!item) {
@@ -168,7 +130,7 @@ export default function AiJudgePage() {
           <MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}
         </button>
         {loadError?.kind === "failed"
-          ? <ErrorState onRetry={() => setReloadKey((key) => key + 1)} />
+          ? <ErrorState onRetry={() => classQuery.refetch()} />
           : <p className={styles.errorMessage}>{loadError?.kind === "forbidden" && loadError.message ? loadError.message : t("ClassWorkspacePage.classNotFoundText")}</p>}
       </div>
     );

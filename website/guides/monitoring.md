@@ -1,3 +1,7 @@
+---
+description: "Two layers of monitoring: built-in health checks and system alerts, and an optional Prometheus, Grafana, Loki and InfluxDB stack for metrics, logs and Proxmox usage."
+---
+
 # SkyLab System Monitoring
 
 SkyLab monitoring has two layers:
@@ -38,44 +42,44 @@ Note: some tasks swallow exceptions internally and return 0 (for example `proces
 
 ### System alerts
 
-The scheduler task `process_system_health_alerts` evaluates once a minute (per "Governance settings → alert check interval", minimum 60 seconds). When it finds any of the following it writes an alert with `scope=system`, which appears under "Resource Monitoring → Active alerts" and is emailed to all administrators according to the "Alert email" switch:
+The scheduler task `process_system_health_alerts` evaluates at the alert check interval ("Check Interval (seconds)" under "Resource Alerts" on the "Resource Policies" page, minimum 60 seconds), and only while "Enable Alerts" in that section is on. When it finds any of the following it writes an alert with `scope=system`, which appears under "Resource Monitoring → Active Alerts" and is emailed to all administrators when the "Email Notifications" switch in the same section is on:
 
 - A scheduler task has failed ≥ 3 times in a row, or is stale
 - A background loop is stale (no process holds the leader lock)
 - The worker has no heartbeat, Redis is unreachable, or one of the PVE connections is unreachable
-- Gateway: SSH unreachable, nginx or WireGuard not running, `nginx -t` failing (status "Unreachable"); HTTPS certificate expiring within 14 days or already expired (status "Needs attention" — the certificate is supplied and renewed by the administrator, see `deployment.md` under "Gateway HTTPS certificate")
-
+- Gateway: SSH unreachable, nginx or WireGuard not running, `nginx -t` failing (status "Unreachable"); HTTPS certificate expiring within 14 days or already expired (status "Needs attention"; the administrator supplies and renews the certificate, see [Gateway HTTPS certificate](/guides/deployment#_5-gateway-https-certificate-supplied-by-the-administrator))
 - AI: LiteLLM unreachable or its database disconnected (`component:ai_gateway`; both the user API and the built-in AI features fail); the upstream inference service of some model (for example vLLM on a DGX) failing its health check (`component:ai_model:<alias>`; "Unreachable" when every deployment is down, "Needs attention" when only some are)
 
 The Gateway check is one command the backend runs on the Gateway over SSH (`systemctl is-active`, `nginx -t`, reading the expiry date of the certificate referenced by `http.conf`; the self-signed fallback certificate does not count), with the result cached for 60 seconds. When no Gateway is configured the card shows "Disabled".
 
 The AI check asks LiteLLM using the restricted runtime key (`LITELLM_RUNTIME_API_KEY`; no master key required): `/health/liveliness`, `/health/readiness` (whether the DB is connected), `/model/info` (public model names) and `/health` (the result of LiteLLM's own background health check that runs every 60 seconds; it reads the cache and never hits an inference service just to probe), with the result cached for 60 seconds. When no runtime key is set the card shows "Disabled"; models whose background check has not completed yet right after LiteLLM starts show "Not yet run", which neither affects the overall status nor raises an alert.
 
-The same problem has to show up in **two consecutive rounds** before an alert is opened (this absorbs a worker starting late during deployment or a brief PVE blip); it resolves automatically once the problem disappears, and the cooldown reuses the resource-alert setting.
+The same problem has to show up in **two consecutive rounds** before an alert is opened (this absorbs a worker starting late during deployment or a brief PVE blip); it resolves automatically once the problem disappears, and the cooldown is the same "Cooldown (minutes)" setting as for resource alerts.
 
-**When the database is down, or the whole backend is down, the alert itself can neither be written nor emailed**; both situations are visible on the "System health" card and on the Grafana "SkyLab Platform" dashboard, but no notification is sent. If you need one, point any external probing service on another machine at `/api/v1/utils/health-check/ready` (anything other than 200 means unhealthy).
+**When the database is down, or the whole backend is down, the alert itself can neither be written nor emailed**; both situations are visible on the "System health" card and on the Grafana "SkyLab 平台" (platform) dashboard, but no notification is sent. If you need one, point any external probing service on another machine at `/api/v1/utils/health-check/ready` (anything other than 200 means unhealthy).
 
 ### Request ID
 
-nginx generates a `$request_id` for every request, forwards it to the backend as `X-Request-ID` and writes it into the nginx access log (`rid=...`); the backend puts it in the `request_id` field of its JSON logs and in the Sentry tag, and returns it in the `X-Request-ID` response header. When a user reports an error, the id they see in the browser DevTools can be looked up directly in the Request ID field of the Grafana "SkyLab Logs" dashboard to follow the whole path.
+nginx generates a `$request_id` for every request, forwards it to the backend as `X-Request-ID` and writes it into the nginx access log (`rid=...`); the backend puts it in the `request_id` field of its JSON logs and in the Sentry tag, and returns it in the `X-Request-ID` response header. When a user reports an error, the id they see in the browser DevTools can be looked up directly in the Request ID field of the Grafana "SkyLab 日誌" (logs) dashboard to follow the whole path.
 
 ### Sentry
 
 - Backend and worker: set `SENTRY_DSN` in `.env` (optionally `SENTRY_RELEASE` and `SENTRY_TRACES_SAMPLE_RATE`).
-- Frontend (browser): set `VITE_SENTRY_DSN` in `.env`, then **rebuild the frontend image** (`docker compose build frontend`). When it is unset the SDK is stripped at build time and adds nothing to the bundle. We recommend a separate Browser project in Sentry so it can be viewed apart from the backend.
+- Frontend (browser): set `VITE_SENTRY_DSN` in `.env`, then **rebuild the frontend image** (`docker compose build frontend`). The SDK is a separate chunk that is only loaded when a DSN was set at build time. We recommend a separate Browser project in Sentry so it can be viewed apart from the backend.
 - Neither side sends personal data (`send_default_pii=False`). Tests (pytest) always disable Sentry, so exceptions raised by tests never reach the production project.
 
 ### Container log rotation
 
-Every service in `docker-compose.yml` uses `x-logging`: json-file, 10 MB per file, 5 files kept (adjustable with `DOCKER_LOG_MAX_SIZE` / `DOCKER_LOG_MAX_FILE`). The application's own `logs/app.log` (daily rotation, 30 days) and `logs/error.log` are unchanged.
+Every service in `docker-compose.yml` uses `x-logging`: json-file, 10 MB per file, 5 files kept (adjustable with `DOCKER_LOG_MAX_SIZE` / `DOCKER_LOG_MAX_FILE`). The application also writes its own files under `logs/`: `app.log` (rotated daily, 30 days kept) and `error.log` (ERROR and above, rotated weekly, about three months kept).
 
 ### Container healthchecks
 
-db, pgbouncer, redis and backend already had one; newly added:
-
+- **db**, **pgbouncer**: `pg_isready`; **redis**: `redis-cli ping`
+- **backend**: `/api/v1/utils/health-check/`
 - **worker**: checks the `skylab:tasks:health-check` key that arq writes into Redis every 60 seconds (TTL 61 seconds)
 - **nginx**: `/nginx-health`
 - **frontend**: home page returns 200
+- **litellm**: `/health/liveliness`; in the monitoring stack, prometheus, grafana, loki and influxdb check their own health endpoints
 
 `docker compose ps` shows `(healthy)` / `(unhealthy)`. Note that Docker Compose itself **does not** restart unhealthy containers automatically (the `restart` policy only kicks in when the process exits).
 
@@ -89,12 +93,12 @@ db, pgbouncer, redis and backend already had one; newly added:
 # First set (at least) these in .env:
 #   INFLUXDB_ADMIN_PASSWORD, INFLUXDB_ADMIN_TOKEN
 # (GRAFANA_ADMIN_PASSWORD can stay empty: Grafana's own login is disabled, see "Logging in to Grafana")
-docker compose --profile monitoring up -d
+docker compose --profile monitoring up -d   # add --scale litellm=0 when the AI stack is not set up
 ```
 
 From then on every `docker compose up -d` must include `--profile monitoring` (or set `COMPOSE_PROFILES=monitoring` in `.env`), otherwise the monitoring containers do not come up with the rest.
 
-**When deploying through CI (the `Deploy to PVE Test` workflow)**: the workflow only runs `docker compose up -d` and copies in the deployment host's `/opt/skylab/.env`, so add `COMPOSE_PROFILES=monitoring` (together with the passwords / token above) to that `.env` and run the deployment again before the monitoring stack starts.
+**When deploying through CI (the `Deploy to PVE Test` workflow)**: the workflow uses the deployment host's `/opt/skylab/.env`, so add `COMPOSE_PROFILES=monitoring` (together with the passwords / token above) to that file and run the deployment again.
 
 ### Rootless Docker
 
@@ -113,7 +117,7 @@ node-exporter still reads the host's CPU, memory and disks under rootless (rootl
 
 | Service | Purpose | Entry point |
 |---|---|---|
-| Grafana | Dashboards | `http://<SkyLab>/grafana/` (through nginx); locally also `http://127.0.0.1:3000/grafana/` |
+| Grafana | Dashboards | `http://<SkyLab>/grafana/` (through nginx); `http://127.0.0.1:3000/grafana/` on the host is only useful for the emergency admin login below |
 | Prometheus | Metric collection (no alert rules) | `http://127.0.0.1:9090` (bound to localhost only; use an SSH tunnel) |
 | Loki + Alloy | Logs of all containers, kept 14 days | Query in Grafana |
 | InfluxDB 2 | Destination for the Proxmox Metric Server push | `:8086` (see setup below) |
@@ -121,16 +125,18 @@ node-exporter still reads the host's CPU, memory and disks under rootless (rootl
 
 The "View details in Grafana" button in the top-right corner of the SkyLab "Resource Monitoring" page only appears when the monitoring stack is enabled: the backend (`POST /api/v1/monitoring/grafana/session`) probes `/api/health` on `GRAFANA_INTERNAL_URL` (default `http://grafana:3000/grafana`) and shows the button only when reachable, caching the result for one minute; the button links to `GRAFANA_ROOT_URL` from `.env`, or to `/grafana/` on the same domain when unset.
 
-The monitoring stack is only responsible for **collecting and displaying**; it sends no alert notifications (no Prometheus alert rules, Alertmanager or Grafana alerting). Problems with the platform itself are handled by the built-in "System alerts" (see above; they appear under "Active alerts" and are emailed according to the "Alert email" switch).
+The monitoring stack is only responsible for **collecting and displaying**; it sends no alert notifications (no Prometheus alert rules, Alertmanager or Grafana alerting). Problems with the platform itself are handled by the built-in "System alerts" (see above).
 
 ### Grafana dashboards (imported automatically, folder "SkyLab")
 
-- **SkyLab Platform** (home): backend status, request volume, 5xx ratio, p95 latency, WebSocket connections, queue backlog, slowest / most error-prone routes, scheduler task status table, task failures and duration, background task records, dependency status and latency
-- **SkyLab Infrastructure**: per-container CPU / memory / network, PostgreSQL (connections, transactions, cache hit ratio, deadlocks, size), Redis, SkyLab host CPU / memory / disk (only `job="node"`, excluding the Gateway)
-- **SkyLab Logs**: filter by service and keyword, error logs, tracing by Request ID
-- **Proxmox VE (Metric Server)**: node CPU / memory / IO wait / load, the VMs / LXCs with the highest CPU and memory, usage of each storage; the bottom row "Gateway VM (reported by PVE)" shows the CPU, memory, network and disk IO of the Gateway VM itself (choose it in the "Gateway VM" dropdown at the top; names containing gateway are sorted first automatically)
+The dashboard and panel titles are in Chinese; the English name is given in parentheses.
+
+- **SkyLab 平台** (Platform, the home dashboard): backend status, request volume, 5xx ratio, p95 latency, WebSocket connections, queue backlog, slowest / most error-prone routes, scheduler task status table, task failures and duration, background task records, dependency status and latency
+- **SkyLab 基礎設施** (Infrastructure): per-container CPU / memory / network, PostgreSQL (connections, transactions, cache hit ratio, deadlocks, size), Redis, SkyLab host CPU / memory / disk (only `job="node"`, excluding the Gateway)
+- **SkyLab 日誌** (Logs): filter by service and keyword, error logs, tracing by Request ID
+- **Proxmox VE（Metric Server）**: node CPU / memory / IO wait / load, the VMs / LXCs with the highest CPU and memory, usage of each storage; the bottom row "Gateway VM（PVE 回報）" (reported by PVE) shows the CPU, memory, network and disk IO of the Gateway VM itself (choose it in the "Gateway VM" dropdown at the top; names containing gateway are sorted first automatically)
 - **SkyLab Gateway**: data from the exporters on the Gateway host — SkyLab health probe / exporter / nginx status, nginx active connections, uptime, CPU / memory / disk, traffic per NIC (`wg0` is WireGuard), TCP connection count, nginx connection states and request rate (see "Gateway monitoring" below)
-- **SkyLab AI**: AI Gateway / LiteLLM / inference engine status, number of available models, requests per minute and platform error rate; on the Campus side (user API keys and built-in AI features) request volume per model, outcome categories, end-to-end and time-to-first-token latency, token throughput, source; for vLLM, running / queued requests, KV cache usage, prefill / decode throughput, TTFT, inter-token latency, end-to-end latency, finish reasons, preemption count; for LiteLLM, status codes, upstream deployment successes / failures, upstream and gateway-side latency, deployment status (see "AI module monitoring" below). The "View details in Grafana" button in the top-right corner of the "AI Usage Monitoring" page opens this dashboard directly (shown only to admins and only when the monitoring stack is enabled)
+- **SkyLab AI**: AI Gateway / LiteLLM / inference engine status, number of available models, requests per minute and platform error rate; in the "Campus 端" row (the SkyLab side: user API keys and built-in AI features) request volume per model, outcome categories, end-to-end and time-to-first-token latency, token throughput, source; for vLLM, running / queued requests, KV cache usage, prefill / decode throughput, TTFT, inter-token latency, end-to-end latency, finish reasons, preemption count; for LiteLLM, status codes, upstream deployment successes / failures, upstream and gateway-side latency, deployment status (see "AI module monitoring" below). The "View details in Grafana" button in the top-right corner of the "AI Usage Monitoring" page opens this dashboard directly (shown only to admins and only when the monitoring stack is enabled)
 
 When the public URL is not `http://localhost`, set `GRAFANA_ROOT_URL=https://your-domain/grafana/`.
 
@@ -206,7 +212,7 @@ At install time, use `MONITORING_ALLOW_FROM` to specify the IP of the host runni
 sudo MONITORING_ALLOW_FROM=192.0.2.20 bash install.sh
 ```
 
-Without it the exporters are still installed but Prometheus cannot reach them, so the `gateway-node` / `gateway-nginx` jobs stay down (the exporter status on the "SkyLab Gateway" dashboard shows DOWN). On a Gateway that is already installed, just re-run `install.sh` with this variable to add it.
+Without it the exporters are still installed but Prometheus cannot reach them, so the `gateway-node` / `gateway-nginx` jobs stay down (the exporter status on the "SkyLab Gateway" dashboard shows DOWN). When the installer runs from the "Install services" tab of the "Gateway VM" page, enter the address under "Monitoring sources" instead. On a Gateway that is already installed, re-run the installer with the address to add it.
 
 If the exporters fail to install or start (for example a port is already in use), the installer only prints a warning and carries on, so nginx and WireGuard are still installed; check `journalctl -u prometheus-node-exporter -u prometheus-nginx-exporter` and re-run `install.sh` once fixed.
 
@@ -220,12 +226,12 @@ AI data comes from three places, all scraped automatically by Prometheus without
 
 | job | Source | Content |
 |---|---|---|
-| `skylab-backend` | `skylab_ai_*` on the backend `/metrics` | The Campus side: the outcome, latency, time to first token and tokens of every call made with a user API key (`source=api_key`) or by a built-in AI feature (`source=platform`) |
+| `skylab-backend` | `skylab_ai_*` on the backend `/metrics` | The SkyLab side: the outcome, latency, time to first token and tokens of every call made with a user API key (`source=api_key`) or by a built-in AI feature (`source=platform`) |
 | `litellm` | `litellm:4000/metrics` (Compose internal network) | LiteLLM's prometheus callback: requests and status codes, upstream deployment successes / failures, upstream latency, the gateway's own overhead, deployment status |
 | `vllm` | `/metrics` of every vLLM instance | The engine itself: running / queued requests, KV cache, prefill / decode throughput, TTFT, inter-token latency, preemptions |
 
 - **vLLM targets** are written by `bash scripts/prepare-ai-stack.sh` into `monitoring/prometheus/targets/vllm.json` (ignored by Git) based on `vllm-service/models.json`; each upstream host is scraped only once. After changing a model or IP, redeploy and Prometheus switches targets within a minute. Local models reach the host through `host.docker.internal` (same as LiteLLM).
-- **Firewalls on remote inference hosts (DGX etc.)** must allow the host running Prometheus (usually the SkyLab deployment host) to reach the inference port; it is the same rule LiteLLM needs. vLLM's `/metrics` requires no API key (only `/v1` is protected). When the "Inference engine" panel on the "SkyLab AI" dashboard shows DOWN, first run `curl http://<DGX_IP>:8103/metrics` on the deployment host to confirm.
+- **Firewalls on remote inference hosts (DGX etc.)** must allow the host running Prometheus (usually the SkyLab deployment host) to reach the inference port; it is the same rule LiteLLM needs. vLLM's `/metrics` requires no API key (only `/v1` is protected). When the "推論引擎" (inference engine) panel on the "SkyLab AI" dashboard shows DOWN, first run `curl http://<DGX_IP>:8103/metrics` on the deployment host to confirm.
 - **LiteLLM `/metrics` is unauthenticated**: `config.template.yaml` sets `require_auth_for_metrics_endpoint: false`, otherwise only the master key could read it (and the master key must not go into Prometheus). LiteLLM is only on the Compose internal network and the host's `127.0.0.1:4000`, and nginx does not forward it, so it is not exposed publicly. The `litellm` job drops unbounded labels such as `requested_model`, `client_ip`, `user_agent` and key hashes; for a per-model view use the deployment-level `litellm_model_name` / `model` instead.
 - **The GPU itself** (temperature, VRAM, utilization) is not covered here; when needed, run the NVIDIA DCGM exporter on the DGX separately and add a Prometheus job the same way as for the Gateway.
 
@@ -237,7 +243,7 @@ Notifications for unhealthy models, or for LiteLLM or its database being down, c
 
 1. Set `METRICS_TOKEN=<random string>` in `.env`
 2. Write the same string into `monitoring/prometheus/metrics_token` (single line; do not commit it to git)
-3. Uncomment the three `authorization` lines in `monitoring/prometheus/prometheus.yml` and restart prometheus
+3. Uncomment the three `authorization` lines of the `skylab-backend` job in `monitoring/prometheus/prometheus.yml`, add the same block to the `http_sd_configs` of the `gateway-node` and `gateway-nginx` jobs (`/metrics/gateway-targets` checks the same token), and restart prometheus
 
 ### Metric reference (backend `/metrics`)
 
@@ -262,9 +268,12 @@ Dependency and queue metrics are refreshed only when Prometheus scrapes (at most
 
 The `model` label of `skylab_ai_*` keeps only model names that LiteLLM has actually served or that the health check discovered (up to 100); arbitrary names sent by callers are folded into `other`, so the number of time series stays bounded.
 
-Deploy metric schema/bucket changes together with dashboards across all backend instances. After the last old instance exits, wait at least the longest query window (currently 15 minutes) before comparing. Queue samples changed from each acquire to each logical request's cumulative wait; do not splice their P95 trends. Empty samples mean no data. A quantile in `+Inf` clips at the largest finite bucket; inspect the >600s ratio, sample counts and waiting too.
+Reading the AI panels:
 
-Structured `ai_relay_finished` and `ai_workflow_finished` logs link root/child request IDs to bounded terminal reasons and phase timings without prompts, answers or tool payloads. IDs are not metric labels. One PVE HTTP request can contain several generation/adherence calls and tools; do not add their P95 values. Auth/DB/usage backlog, retry and latest event-loop lag panels support same-window diagnosis; scrapes can miss brief lag spikes.
+- Change metric names or buckets together with the dashboards, on every backend instance. Compare before and after only once the last old instance is gone and the longest query window (15 minutes) has passed.
+- An empty panel means no samples. A quantile that falls into `+Inf` is clipped at the largest finite bucket, so also look at the share of requests over 600 seconds, the sample counts and the waiting requests.
+- The structured logs `ai_relay_finished` and `ai_workflow_finished` link root and child request IDs to a bounded terminal reason and phase timings, without prompts, answers or tool payloads; the IDs are not metric labels. One PVE assistant HTTP request can contain several generation / adherence calls and tool runs, so do not add up their P95 values.
+- The auth, DB connection, usage backlog, retry and event-loop lag panels help explain a slow period; a scrape can miss a brief event-loop stall.
 
 ### Resources and retention
 

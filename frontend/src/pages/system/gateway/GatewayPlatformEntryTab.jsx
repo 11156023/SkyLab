@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./GatewayPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -7,7 +7,13 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryErrorEffect, useQueryView } from "../../../hooks/useQueryLoadState";
 import { GatewayService } from "../../../services/gateway";
+import {
+  useGatewayCacheUpdater,
+  usePlatformEntryQuery,
+  usePlatformEntryStatusQuery,
+} from "../../../queries/gateway";
 import {
   isPlatformFormDirty,
   toPlatformForm,
@@ -164,70 +170,43 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
-  const [config, setConfig] = useState(null);
-  const [form, setForm] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
-  const [status, setStatus] = useState(null);
-  const [statusError, setStatusError] = useState(null);
-  const [statusLoading, setStatusLoading] = useState(false);
-  const statusInFlightRef = useRef(false);
-  const statusRerunRef = useRef(false);
+  const gatewayCache = useGatewayCacheUpdater();
 
-  /* 檢查進行中又被要求刷新（例如儲存後）時不能丟掉，否則卡片停在儲存前的狀態：
-     排一次重跑，進行中那次的結果已經過時就不顯示，直接再查一次（連按多次也只多跑一次） */
-  const refreshStatus = useCallback(async () => {
-    if (statusInFlightRef.current) {
-      statusRerunRef.current = true;
-      return;
-    }
-    statusInFlightRef.current = true;
-    setStatusLoading(true);
-    try {
-      do {
-        statusRerunRef.current = false;
-        try {
-          const next = await GatewayService.getPlatformEntryStatus();
-          if (!statusRerunRef.current) {
-            setStatus(next);
-            setStatusError(null);
-          }
-        } catch (err) {
-          if (!statusRerunRef.current) {
-            setStatus(null);
-            setStatusError(err?.message ?? t("Error.generic", { ns: "common" }));
-          }
-        }
-      } while (statusRerunRef.current);
-    } finally {
-      statusInFlightRef.current = false;
-      setStatusLoading(false);
-    }
-  }, [t]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const next = await GatewayService.getPlatformEntry();
-      setConfig(next);
-      setForm(toPlatformForm(next));
-      setLoadFailed(false);
-      if (next.gateway_ready) refreshStatus();
-    } catch (err) {
-      setLoadFailed(true);
-      toast.error(err?.message ?? t("GatewayPage.toastPlatformLoadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshStatus, t, toast]);
-
+  /* 平台入口設定走 TanStack Query（不輪詢、不因切回分頁重抓）；表單連同它所根據的那份設定一起記：
+     沒有未存的修改時，重新抓回來的設定才換進表單（換分頁回來時先顯示快取、背景再更新） */
+  const entryQuery = usePlatformEntryQuery({ enabled: gatewayReady });
+  const entry = entryQuery.data;
+  const [editor, setEditor] = useState(() => (
+    entry === undefined ? { config: null, form: null } : { config: entry, form: toPlatformForm(entry) }
+  ));
+  const { config, form } = editor;
   useEffect(() => {
-    if (gatewayReady) load();
-    else setLoading(false);
-  }, [gatewayReady, load]);
+    if (entry === undefined) return;
+    setEditor((prev) => (
+      prev.form && prev.config && isPlatformFormDirty(prev.form, prev.config)
+        ? prev
+        : { config: entry, form: toPlatformForm(entry) }
+    ));
+  }, [entry]);
+  /* 錯誤畫面在重抓期間維持、不閃回載入中，按重試才回到載入中（見 useQueryView） */
+  const entryView = useQueryView(entryQuery);
+  const loading = entryView.loading;
+  const loadFailed = Boolean(entryView.error);
+  /* 每次載入失敗提示一次：重抓時 error 會先清空再變回來，不能拿 error 物件當觸發條件 */
+  useQueryErrorEffect(entryQuery, (err) => {
+    toast.error(err?.message ?? t("GatewayPage.toastPlatformLoadFailed"));
+  });
+
+  /* Gateway 上實際套用的狀態：設定讀到、且 Gateway 就緒才查。檢查進行中又被要求刷新（例如儲存後）時
+     不能丟掉，否則卡片停在儲存前的狀態：進行中那次的結果作廢，等它跑完再查一次（連按多次也只多跑一次） */
+  const statusQuery = usePlatformEntryStatusQuery({ enabled: gatewayReady && Boolean(entry?.gateway_ready) });
+  const status = statusQuery.isError ? null : statusQuery.data ?? null;
+  const statusError = statusQuery.isError ? statusQuery.error?.message ?? t("Error.generic", { ns: "common" }) : null;
+  const statusLoading = statusQuery.isFetching;
+  const refreshStatus = () => gatewayCache.refreshPlatformEntryStatus();
 
   const dirty = Boolean(form && config && isPlatformFormDirty(form, config));
 
@@ -238,7 +217,7 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   function setField(name, value) {
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setEditor((prev) => ({ ...prev, form: { ...prev.form, [name]: value } }));
     // 上游欄位一改，之前的測試結果就不算數
     if (name === "upstream_host" || name === "upstream_port") setTestResult(null);
   }
@@ -275,8 +254,8 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
     setSaving(true);
     try {
       const next = await GatewayService.updatePlatformEntry(payload);
-      setConfig(next);
-      setForm(toPlatformForm(next));
+      setEditor({ config: next, form: toPlatformForm(next) });
+      gatewayCache.setPlatformEntry(next);
       setTestResult(null);
       if (disabling) toast.success(t("GatewayPage.toastPlatformDisabled"));
       else if (next.enabled) toast.success(t("GatewayPage.toastPlatformSaved"));
@@ -298,7 +277,7 @@ export default function GatewayPlatformEntryTab({ gatewayReady, onGoToConnection
   }
 
   if (!config || !form) {
-    return loadFailed ? <ErrorState onRetry={load} /> : null;
+    return loadFailed ? <ErrorState onRetry={() => entryView.retry()} /> : null;
   }
 
   const formError = validatePlatformForm(form);

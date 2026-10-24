@@ -1,10 +1,10 @@
+---
+description: "SkyLab 前端的樣式規範：SCSS Modules、色彩系統與主題變數、共用 mixin、圖示、命名、頁面版面、元件慣例、動畫與深色模式。"
+---
+
 # SkyLab Frontend — 樣式規範
 
-- 日期：2026-09-05（Asia/Taipei；原 `frontend/src/assets/styles/STYLE_GUIDE.md` 移入 docs）
-- 狀態：現行規範，持續維護
-- 適用範圍：前端所有頁面與元件
-
-> 本文件說明前端樣式架構與撰寫規範，所有新頁面、元件都應遵循此指南，確保視覺與程式碼風格一致。若想自行變更_variables.scss、_themes.scss兩檔案，請事先與前端討論。
+> 本文件說明前端樣式架構與撰寫規範，適用於前端所有頁面與元件：新頁面、元件都應遵循此指南，確保視覺與程式碼風格一致。若想自行變更 `_variables.scss`、`_themes.scss` 兩個檔案，請事先與前端討論。
 
 ---
 
@@ -12,8 +12,9 @@
 
 ```
 src/assets/styles/
-├── global.scss       # 全域樣式入口（@use themes、reset，背景暈染）
+├── global.scss       # 全域樣式入口（@use themes、backgrounds、reset；全頁背景層、toast 樣式）
 ├── _themes.scss      # CSS 自訂屬性（亮色 / 深色主題）
+├── _backgrounds.scss # 背景花色，由 body[data-bg] 切換
 ├── _variables.scss   # SCSS 結構變數（間距、字體、斷點、圓角）
 ├── _mixins.scss      # 可重用的 SCSS mixin
 └── _reset.scss       # CSS Reset
@@ -106,6 +107,8 @@ src/pages/personal/resources/
 | `--shadow-lg` | 大陰影（Dialog） |
 | `--shadow-glass` | 毛玻璃陰影 |
 
+專用色票各自只給一個元件用：`--color-flow-*`（拓撲畫布，見「卡片」）、`--color-code-*`（範例程式碼，見下方例外）、`--color-terminal-*`（首頁機器卡的終端輸出）、`--color-folder-*`（快速練習資料夾）、`--color-kind-shared`（機器來源徽章 `MachineKindBadge`）。
+
 ### 狀態色
 
 前端使用以下五種語意顏色，**黃橙色僅限「待審核 / pending」語意，不作為警示色**——警示、錯誤一律紅色，統一走 `--color-danger`（不另設 `--color-warning`）：
@@ -120,13 +123,15 @@ src/pages/personal/resources/
 
 危險操作的 hover 加深色用 `--color-danger-dark`（`#b91c1c`）。
 
-> **例外**：終端機式的內容面固定深色、不隨主題切換——VNC / xterm 畫面底（ConsoleDialog、Classroom 的 `#1e1e1e`）、任務 log 輸出區（Jobs `dialogOutput`），以及需要白底墊圖的透明 logo（`tplLogo` 的 `#fff`）、PDF 檢視器的 iframe 底（`StudentHomePage` 的 `#fff`——PDF 頁面本身即白底，跟著主題轉深會有黑框）、錯誤頁插圖的白底（`NotFoundPage` 的雲朵、`CrashState` 的應用程式視窗、`ConnectionLostState` 的雲與視窗皆為 `#fff`，內部色塊也跟 `#fff` 混色——插圖在亮暗主題是同一張圖，亮色模式靠 drop-shadow 描輪廓）。
+> **例外**：終端機式的內容面固定深色、不隨主題切換——VNC / xterm 畫面底（ConsoleDialog、Classroom 的 `#1e1e1e`）、任務 log 輸出區（Jobs `dialogOutput`），以及錯誤頁插圖的白底（`NotFoundPage` 的雲朵、`CrashState` 的應用程式視窗、`ConnectionLostState` 的雲與視窗皆為 `#fff`，內部色塊也跟 `#fff` 混色——插圖在亮暗主題是同一張圖，亮色模式靠 drop-shadow 描輪廓）。
 >
 > **例外**：範例程式碼區塊（AI API 快速開始的程式碼範例、API 聊天回覆裡的程式碼區塊）固定深底、不隨主題切換，比照 VS Code 深色編輯器；色票統一用 `_themes.scss` 的 `--color-code-*`（bg／header／border／hover／text／muted），不要在頁面裡另寫一組深色。
 >
 > **例外**：Gateway 頁的類 VSCode 設定檔編輯器（`ConfigCodeEditor.module.scss`）整組寫死 vs-dark 色票（`#1e1e1e`、`#252526`、`#007acc` 等）與 13px/12px 字級，刻意不隨主題切換——外框需與 Monaco `theme="vs-dark"` 一致，模擬 VSCode 視窗本身即為獨立配色的容器。
 
 #### 狀態 Badge 的標準寫法
+
+膠囊外形與字級由 `@include badge-base;` 提供（inline-flex、膠囊圓角、12px／500、不換行），再加上內距與下面其中一組顏色：
 
 ```scss
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
@@ -184,6 +189,16 @@ $transition-base: 0.2s ease   $transition-slow: 0.3s ease
 ```scss
 $breakpoint-sm: 576px   $breakpoint-md: 768px
 $breakpoint-lg: 992px   $breakpoint-xl: 1200px
+$breakpoint-sidebar: 1024px   // 側邊欄在抽屜與固定欄之間切換的寬度
+```
+
+### 其他
+
+```scss
+$font-family-base   $line-height-base: 1.6   $form-control-padding-x: 12px
+$header-height: 60px   $sidebar-width: 260px   $sidebar-width-collapsed: 72px
+$content-padding: 40px   $container-max-width: 1200px
+$z-ai-assistant: 2000   $z-screen-dialog: 2100   // 見 z-index 層級
 ```
 
 ---
@@ -230,7 +245,12 @@ $breakpoint-lg: 992px   $breakpoint-xl: 1200px
 @include respond-to(md) {
   // min-width: 768px 時套用
 }
+@include respond-below(md) {
+  // 小於 768px 時套用（max-width: 767.98px）
+}
 ```
+
+新版面一律 mobile-first，用 `respond-to`。`respond-below` 是給既有的 desktop-first 版面用的：反轉成 mobile-first 成本太高時，用它取代直接寫 `max-width` media query，讓斷點對齊共用級距。
 
 ---
 
@@ -245,7 +265,7 @@ import MIcon from "../components/MIcon";
 <MIcon name="star" size={16} filled />     {/* material-icons（filled，特別強調時才用） */}
 ```
 
-- Icon 名稱請至 [Material Symbols](https://fonts.google.com/icons) 查詢（outlined 與 filled 同名）
+- 字型是 Material Icons（`@material-design-icons/font`），不是 Material Symbols。Icon 名稱請到 [Material Icons 圖示集](https://fonts.google.com/icons?icon.set=Material+Icons) 查詢（outlined 與 filled 同名）；只有 Material Symbols 才有的名稱會直接顯示成文字
 - 禁止直接使用 `<span className="material-icons">`、`material-icons-outlined` 或其他 Icon 庫
 - 禁止使用 SVG inline、emoji、或其他圖示系統混搭
 
@@ -297,11 +317,11 @@ import MIcon from "../components/MIcon";
   padding: $spacing-8 $spacing-16;
   flex: 1;
 
-  @include respond-to(md) { padding: 0; }
+  @media (min-width: $breakpoint-sidebar) { padding: 0; }
 }
 ```
 
-> **例外**：表單型窄頁（如 `AccountSettingsPage` 的 `max-width: 640px`）可限制寬度——輸入欄位拉滿寬螢幕反而難用。這類例外限於「單欄表單」頁面，一般內容頁請維持滿寬。
+> **例外**：表單型窄頁可限制寬度——輸入欄位拉滿寬螢幕反而難用。這類例外限於「單欄表單」頁面，一般內容頁請維持滿寬。
 
 ---
 
@@ -348,19 +368,18 @@ const presence = useDialogPresence(show);
 - 精簡卡（預設）：確認框、命名框、小表單；`closeButton` 版：欄位多的表單（如連線對話框），內容只有一兩句的提醒（如工作階段提醒）可加 `dividers={false}` 拿掉標題列與按鈕列的分隔線；`bare`：只給外框，標題列與內容自己排
 - 終端機、VNC 這類 AI 讀不到的畫面用 `layer="screen"`（通常搭 `bare`）：蓋過 AI 助手、不讓位；鍵盤全部交給畫面，Esc 不關、Tab 不鎖（Tab 補全、vim 的 Esc 才能用）。全螢幕要的對話框本體用 `ref` 拿
 - 導覽用的 `data-guide` 等屬性直接傳給 `Modal`（掛在對話框本體），×、按鈕列分別用 `closeProps`、`actionsProps`
-- 2026-09-26 起逐批換上：資源詳情頁的對話框、`useConfirm`、`ConnectionDialog`、終端機／VNC、轉成範本、申請錯誤記錄、工作階段提醒、背景任務詳情、系統管理端（使用者、節點、PVE 連線、配額、網域、子網路、挖礦事件）、範本管理（建立／編輯、克隆、使用手冊）、反向代理規則、課堂觀看、AI 服務（一次性金鑰、快速開始、申請金鑰、停用金鑰、申請審核）、AI導師檢查（刪除腳本、新增檢查、一次執行、調整週次）、編輯課表已換；其餘仍是舊寫法的對話框，改到時順手換
-- Dialog 寬度四級：確認框／命名框 `max-width: 400px`；小型單欄表單 `max-width: 640px`；一般 `max-width: 1100px`；寬版（如 VNC）`1280px`
-- 高度：`height: 88vh`
-- 全螢幕：使用 `:fullscreen` 偽類，設 `max-width: 100%; height: 100%; border-radius: 0`
-- 遮罩：`position: fixed; inset: 0; background: var(--color-overlay); backdrop-filter: blur(4px); z-index: 300`
-- 遮罩一律 `createPortal` 到 `document.body`：祖先有 `backdrop-filter`／`transform` 時，`position: fixed` 會被困在那一層、蓋不滿整個畫面
-- 卡片陰影：確認框用 `glass-surface` 預設陰影；新增／編輯這類表單型 Dialog 可用 `glass-surface($shadow: var(--shadow-lg))`，浮在遮罩上比較突出
-- 無障礙：Dialog 容器加 `role="dialog"`、`aria-modal="true"`，`aria-labelledby` 指向標題（`useId()` 產生 id），讀屏軟體才會唸出「對話框：標題」
+- 前端所有對話框都建在 `Modal` 上，包括 `useConfirm`、`ConnectionDialog` 與終端機／VNC／課堂觀看畫面；不要再手寫遮罩
+- 寬度分級（`size`）：確認框／命名框 `sm` 400px；小型單欄表單 `md` 640px；一般 `lg` 1100px；寬版（如 VNC）`xl` 1280px；錯誤 log 等寬內容 `log` 560px
+- 高度：`Modal` 卡片最高 `90vh`；畫面型對話框（VNC／終端機主控台、課堂觀看）自己把高度固定在 `88vh`
+- 全螢幕：可以全螢幕的對話框用 `:fullscreen` 偽類設 `max-width: 100%; height: 100%; border-radius: 0`（見 `ConsoleDialog.module.scss`）
+- 遮罩：`var(--color-overlay)` 加 `backdrop-filter: blur(4px)`、`z-index: 300`，portal 到 `document.body`：祖先有 `backdrop-filter`／`transform` 時，`position: fixed` 會被困在那一層、蓋不滿整個畫面。AI 助手面板開著時，遮罩會讓出面板的寬度（`dialog-overlay-avoid-ai`），對話框改在剩下的空間置中
+- 卡片陰影：精簡卡用 `glass-surface` 預設陰影；`closeButton` 版用 `var(--shadow-lg)`，浮在遮罩上比較突出
+- 危險操作的確認傳 `role="alertdialog"`（`useConfirm` 已經這樣做）
 
 #### 確認彈窗（全站統一）
 
 危險操作／二選一確認**一律用共用的 `useConfirm()`**（`components/ConfirmDialog/ConfirmProvider`），
-不要在頁面內自建本地 ConfirmModal（2026-09-09 已全數整合，AiJudgePanel 的多動作對話框為唯一例外）：
+不要在頁面內自建本地 ConfirmModal：
 
 ```jsx
 const confirm = useConfirm();
@@ -368,28 +387,15 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 // …按下確認後彈窗即關閉，進度用按鈕 disabled + toast 呈現，不在彈窗內轉圈
 ```
 
-卡片樣式基準（與「我的申請」錯誤記錄 modal 同構的毛玻璃卡）：
+外觀來自 `Modal` 的精簡卡：400px 的毛玻璃卡、`$spacing-24` 內距，標題／內文／按鈕列之間的間距全交給 `$spacing-16` 的 gap，不用 margin。
 
-```scss
-.dialog {
-  width: 100%;
-  max-width: 400px;          // 錯誤 log 等寬內容款可放寬到 560px
-  @include glass-surface;    // 毛玻璃底，不用實色 surface + 邊框
-  border-radius: $radius-16;
-  padding: $spacing-24;
-  @include flex-column;
-  gap: $spacing-16;          // 標題／內文／按鈕列間距全交給 gap，不用 margin
-}
-```
-
-- 標題：`$font-size-16` / `$font-weight-700`，danger 帶紅色 `warning` 圖示、一般帶 `help` 圖示
-- 內文：`$font-size-14` 次要色，**必加 `overflow-wrap: anywhere`**（常插入主機名稱等連續長字串）
+- 標題：`$font-size-16` / `$font-weight-700`，danger 帶紅色 `warning` 圖示、一般帶琥珀色 `help` 圖示
+- 內文：`$font-size-14` 次要色，加 `overflow-wrap: anywhere`（常插入主機名稱等連續長字串）
 - 進出場：遮罩 fadeIn 0.15s、卡片 slideUp 0.18s，Esc 可關閉
 
 ### 按鈕
 
-按鈕一律使用 `_mixins.scss` 的按鈕 mixin 組（六款），**不要在頁面內重抄整組樣式**
-（2026-09-15 已全站收斂，舊的手抄複製體不要再回來）：
+按鈕一律使用 `_mixins.scss` 的按鈕 mixin 組（六款），**不要在頁面內重抄整組樣式**：
 
 ```scss
 .btnPrimary       { @include btn-primary; }        // 主要動作：每個畫面至多一顆
@@ -459,7 +465,7 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 - 表格、清單列裡**只放開關本體，不寫「啟用」字樣**（欄名或列內容已交代控制什麼），改用 `ariaLabel`＋`title`；真的需要可見文字才給 `label`，寫「控制什麼」、不隨狀態改字
 - 目前狀態由軌道位置與顏色表達；列表上停用的那一列，**狀態徽章直接換成紅色「停用」**（例如防火牆規則的「允許」換成「停用」），不另外並排「已停用」徽章
 - 停用的那一列只淡化內容，**開關所在的操作欄不淡化**，才看得出能再打開
-- 目前用在：資源詳情進階設定的防火牆規則、防火牆頁規則面板、PVE 管理的節點列表
+- 目前用在：資源詳情進階設定的防火牆規則、防火牆頁規則面板、「PVE 管理」頁的節點列表
 
 ### 表格（Table）
 
@@ -476,6 +482,7 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 - 欄寬、對齊、特殊儲存格（`.thRight`、`.tdNowrap`…）等頁面差異寫在 `@include` 之後
 - RWD 行為統一為 **容器橫向卷動**（`table-wrap` 內建 `overflow-x: auto`），不做表格轉卡片
 - 表格嵌在既有卡片內時可只用 `table-base` / `table-th` / `table-tr` / `table-td`，省略外層 `table-wrap`
+- `<table>` 本身由 `components/DataTable`（TanStack Table，見[開發指南](/zh-TW/guides/development)）輸出，class 仍來自頁面自己的 SCSS Module：表格用 `className`、列用 `rowClassName(row)`、各欄在欄位定義的 `meta.thClassName`／`meta.tdClassName`
 
 #### 規則一：整列 hover 變色 = 這一列可以點
 
@@ -550,18 +557,18 @@ const selected = shown.filter((r) => selection.isSelected(r.id));
 - 勾選中的列底色用 `@include row-selected;`（自己就是卡片的清單列傳 `var(--color-surface)`）
 - 導覽用的 `data-guide` 等屬性可以直接傳給 `DataToolbar`（掛在工具列外框），讓導覽步驟框住整條「篩選＋搜尋」
 - **加了勾選欄要重算寬度**：清單列用 grid 時，一行排完或分兩行要看**容器寬度**（`container-type: inline-size`＋`@container`），不要看視窗——側邊欄出現（≥1024）後內容比 992 時還窄，用視窗切會在 1024～1180 之間撐出橫向捲動
-- 目前用在：資源管理、使用者管理（批量停用／啟用）、申請審核（批量拒絕）、班級管理（批量封存並回收）、班級工作區學生名單（批量移除）
+- 目前用在：資源管理、使用者管理（批量啟用／停用、加入／移出群組、刪除）、申請審核（批量拒絕）、班級管理（批量封存並回收）、班級工作頁學生名單（批量移除）
 
 ### Dropdown 選單
 
-- `position: absolute; bottom: calc(100% + 6px); right: 0`（向上展開）
-- 父元素需有 `position: relative`
-- 關閉動畫用 `setTimeout`（130ms）+ CSS `transition`，不用 `onAnimationEnd`
+- 浮在清單上方的選單 portal 到 `document.body`、用 `position: fixed`，由 `hooks/useAnchoredMenu` 定位：捲動與縮放時跟著錨點按鈕重算，依剩餘空間往下或往上展開，錨點捲出視窗就收起，點外面或按 Esc 也會關閉。`PowerMenu`、`ConnectionDialog` 的連接埠建議，以及 AI API 頁與範本頁的選單都用它
+- 選單底色用不透明的 `var(--color-surface)`，不要套 `glass-surface`：底下的清單列會透出來
+- 關閉動畫用 `useDialogPresence(open, 130)` + CSS `transition`，不用 `onAnimationEnd`
 
 ### 步驟列（Stepper）
 
 流程分頁／設定步驟**一律用共用的 `Stepper`**（`components/Stepper/Stepper`），不要再手刻箭頭分段（chevron）或自己畫圓點。
-目前用在班級工作區、教學環境編輯頁、一鍵建立班級（`ClassSetupPage`）。
+目前用在班級工作頁、教學環境編輯頁、一鍵建立班級（`ClassSetupPage`）、首次安裝初始化精靈（`SetupPage`）與首次登入引導（`OnboardingPage`）。
 
 ```jsx
 <Stepper
@@ -607,38 +614,19 @@ const selected = shown.filter((r) => selection.isSelected(r.id));
 
 ### Dialog / Popup 的進出場（標準作法）
 
-Dialog 一律「遮罩 `fadeIn` + 內容 `slideUp`」進場；離場由共用 hook `hooks/useDialogPresence.js` 處理——關閉時先保留 DOM 150ms 套上 `Out` class 播放淡出，再卸載：
+Dialog 一律「遮罩 `fadeIn` + 內容 `slideUp`」進場（`Modal` 已內建）。離場由共用 hook `hooks/useDialogPresence.js` 處理：關閉時先保留 DOM 150ms、設好 `closing` 讓淡出播完，再卸載。照上面的範例把 `presence.closing` 傳給 `Modal` 即可。
 
 ```jsx
-import useDialogPresence from "../hooks/useDialogPresence";
-
 const dialog = useDialogPresence(editTarget);   // 布林或資料物件皆可
 // 關閉期間 dialog.item 會保留最後一筆資料，避免內容閃爍
-{dialog.open && (
-  <div className={`${styles.modalOverlay} ${dialog.closing ? styles.modalOverlayOut : ""}`}>
-    <EditModal target={dialog.item} … />
-  </div>
-)}
+{dialog.open && <EditDialog target={dialog.item} closing={dialog.closing} … />}
 ```
 
-```scss
-.modalOverlay {
-  /* …定位與遮罩… */
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-.modalOverlayOut {
-  animation: none;   // 覆蓋入場 animation，讓 transition 接管
-  opacity: 0;
-  pointer-events: none;
-}
-```
-
-共用 Dialog 元件（如 `ConnectionDialog`、`ReverseProxyRuleModal`）接受 `closing` prop 套用 Out class，由父層的 `useDialogPresence` 控制。自含式 Dialog（如 `VncDialog`、`TerminalDialog`）則在內部 `setClosing(true)` 後 `setTimeout(onClose, 150)`。
+共用 Dialog 元件（如 `ConnectionDialog`）接受 `closing` prop，由父層的 `useDialogPresence` 控制。自含式 Dialog（如 `VncDialog`、`TerminalDialog`、`ClassroomWatchDialog`）則在內部 `setClosing(true)` 後 `setTimeout(onClose, 150)`。
 
 ### 離場動畫（關閉）
 
-優先使用 **`setTimeout` + CSS `transition`**，不使用 `onAnimationEnd`（有已知邊界問題）：
+優先使用 **`setTimeout` + CSS `transition`**，不使用 `onAnimationEnd`（有已知邊界問題）。選單可以直接用 `useDialogPresence(open, 130)`，手寫的話長這樣：
 
 ```jsx
 // JSX
@@ -671,15 +659,9 @@ function closeMenu() {
 
 元件 SCSS 一律使用 CSS 自訂屬性，**不需要自行寫 `body.dark &` 覆蓋**。
 
-如果某元件有特殊深色需求：
+如果某元件有特殊深色需求，把覆寫寫在 `body.dark` 底下：
 
 ```scss
-// 使用 data-theme 屬性（已有部分元件採用此方式）
-[data-theme="dark"] & {
-  color: #xxx;
-}
-
-// 或使用 body.dark
 :global(body.dark) & {
   color: #xxx;
 }
@@ -693,11 +675,13 @@ function closeMenu() {
 |------|-----|------|
 | 基礎卡片 | 1 | 一般卡片 |
 | 卡片 hover / 選單 | 50 | 容器內的 Dropdown 選單 |
-| Sticky Header | 100 | 頁面頂部導覽列 |
+| 側邊欄／Sticky Header | 100 | 側邊欄與頁面頂部的列 |
 | Portal 浮層選單 | 150 | portal 到 body 的 Dropdown（如 `components/PowerMenu`） |
 | Dialog / Modal | 300 | 全頁覆蓋 Dialog |
-| Toast / Tooltip | 400 | 通知、提示 |
-| 導覽 UserGuide | 3000–3199 | 導覽聚光層必須壓過含 Dialog 在內的一切（overlay 3100、示範視窗 3099；另有浮動求助鈕 90，介於選單與 Sticky Header 之間）。此區段保留給 UserGuide，一般元件勿用 |
+| AI 助手 | 2000（`$z-ai-assistant`） | 高於一般對話框，對話框開著時仍可使用 |
+| 畫面型對話框 | 2100（`$z-screen-dialog`） | `Modal layer="screen"`（VNC、終端機、課堂觀看）：AI 讀不到的內容直接蓋過助手 |
+| 導覽 UserGuide | 3000–3199 | 導覽聚光層必須壓過含 Dialog 在內的一切（overlay 3100、示範視窗 3099）。此區段保留給 UserGuide，一般元件勿用 |
+| Toast | sonner 預設值 | sonner 自己的 toaster z-index 高於其他所有層級 |
 
 > ⚠️ 注意：使用 `backdrop-filter` 或 `transform` 的元素會建立新的 stacking context，子元素的 `z-index` 無法穿透至外層。若發現 Dropdown 被其他卡片遮住，請確認父元素是否有這類屬性。
 >

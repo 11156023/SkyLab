@@ -15,17 +15,19 @@ import MIcon from "../../../components/MIcon";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { downloadBlob } from "../../../services/api";
-import { ResourcesService } from "../../../services/resources";
-import { ReverseProxyService } from "../../../services/reverseProxy";
+import { usableZones, useReverseProxySetupContextQuery } from "../../../queries/reverseProxy";
+import { useCourseEnvironmentCacheUpdater, useCourseEnvironmentQuery } from "../../../queries/courseEnvironments";
+import { useLxcOsImagesQuery, useVmOsTemplatesQuery } from "../../../queries/resources";
+import { useTemplatesQuery } from "../../../queries/templates";
 import { focusInvalidField } from "../../../utils/focusField";
 import { joinList } from "../../../utils/joinList";
 import { uploadSequentially } from "../../../utils/uploadSequentially";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
-import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import GatewayNode from "../../network/firewall/nodes/GatewayNode";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
@@ -51,6 +53,30 @@ const TABS = [
 
 function makeEmptyTemplate() {
   return { id: "new", name: "", description: "", usageScope: "course", status: "draft", classes: 0, updatedAt: i18n.t("CourseTemplateEditorPage.notSavedYet", { ns: "teaching" }), nodes: [], edges: [], publications: [], peerPolicy: "explicit" };
+}
+
+const EMPTY = Object.freeze([]);
+
+/**
+ * 一次編輯階段要載入哪個既有環境：路由上的 id，或「新增」頁的暫存草稿已經自動儲存過、拿到的 id。
+ * 草稿在階段開始時讀一次就固定，編輯中草稿寫回 sessionStorage 的新 id 不會讓它跟著變。
+ */
+function createLoadSession(templateId, draft) {
+  const existingId = templateId || (draft?.id !== "new" && draft?.id) || null;
+  return { templateId, draft, existingId };
+}
+
+/* PVE 範本只取已就緒的；沒有就緒的時候說明原因（處理中／失敗）。模組層級的函式讓 select 結果能被快取 */
+function selectTemplateSources(result) {
+  const rows = result?.data ?? result ?? [];
+  const ready = rows.filter((item) => item.status === "ready");
+  let state = "ready";
+  if (!ready.length) {
+    if (rows.some((item) => item.status === "creating" || item.status === "updating")) state = "processing";
+    else if (rows.some((item) => item.status === "failed")) state = "failed";
+    else state = "none";
+  }
+  return { ready, state };
 }
 
 /* 課程環境只有「開放服務」與「互通」：上網預設全開、自己寫規則沒有可樣板化的語意 */
@@ -581,14 +607,8 @@ export default function CourseTemplateEditorPage() {
   const returnTo = sanitizeReturnTo(params.get("returnTo"));
   const tab = TABS.some(([key]) => key === requestedTab) ? requestedTab : "basic";
   const [template, setTemplate] = useState(() => makeEmptyTemplate());
-  const [pveTemplates, setPveTemplates] = useState([]);
-  const [vmImages, setVmImages] = useState([]);
-  const [lxcImages, setLxcImages] = useState([]);
-  const [zones, setZones] = useState([]);
-  const [sourceNotice, setSourceNotice] = useState("");
-  const [loading, setLoading] = useState(Boolean(templateId));
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
+  /* 反向代理沒設定好或查詢失敗時是空陣列，發布方式只留「僅開防火牆」 */
+  const zones = usableZones(useReverseProxySetupContextQuery().data);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [saveError, setSaveError] = useState("");
@@ -618,15 +638,6 @@ export default function CourseTemplateEditorPage() {
     edge.protocol !== "any"
     && (!Number.isInteger(Number(edge.port)) || Number(edge.port) < 1 || Number(edge.port) > 65535)
   ));
-  useAiScreen(templateId ? "course-template-editor" : "course-template-new", {
-    "coursetpl.tab": { value: tab },
-    "coursetpl.status": { value: loading ? "loading" : template.status },
-    "coursetpl.name": { value: template.name.slice(0, 500), error: invalidField === "name" ? t("CourseTemplateEditorPage.nameRequiredError") : null },
-    "coursetpl.usage_scope": { value: template.usageScope ?? "course" },
-    "coursetpl.node_count": { value: String(template.nodes?.length ?? 0) },
-    "coursetpl.return_to_class": { value: String(Boolean(returnTo)) },
-    "coursetpl.publish": { disabled: saving || closing || template.status !== "draft" },
-  });
   /* 不小心跳離（點側欄、重新整理）時保留未儲存的編輯：
      每次編輯寫入 sessionStorage，進頁還原，成功儲存／發布才清除 */
   const draftKey = `courseTemplateEditorDraft:${AuthStorage.getSnapshot().sessionId ?? "anonymous"}:${templateId ?? "new"}`;
@@ -638,63 +649,107 @@ export default function CourseTemplateEditorPage() {
     try { sessionStorage.removeItem(draftKey); } catch { /* sessionStorage 不可用就不保留 */ }
   }
 
-  useEffect(() => {
-    const draft = readDraft();
-    let active = true;
-    let autosave = null;
-    function initialize(value, restored) {
-      if (value.id === "new" && !value.draftRequestId) value = { ...value, draftRequestId: crypto.randomUUID() };
-      templateRef.current = value;
-      setTemplate(value);
-      setSaveState(value.id === "new" ? "idle" : "saved");
-      autosave = createEnvironmentAutosave({
-        id: value.id === "new" ? null : value.id,
-        save: (id, snapshot) => CourseEnvironmentsService.saveDraft(id, snapshot),
-        onState: (state, error) => {
-          if (active) { setSaveState(state); setSaveError(error?.message ?? ""); }
-        },
-        onSaved: (saved, snapshot) => {
-          // A response must never replace edits typed while the request ran.
-          const next = { ...(active ? templateRef.current : snapshot), id: saved.id, versionId: saved.versionId, version: saved.version, updatedAt: saved.updatedAt };
-          if (active || !autosaveRef.current) {
-            try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Server copy is saved. */ }
-          }
-          if (active) { templateRef.current = next; setTemplate(next); }
-        },
-      });
-      autosaveRef.current = autosave;
-      if (restored && value.status === "draft") {
-        try { sessionStorage.setItem(draftKey, JSON.stringify(value)); } catch { /* Server autosave remains available. */ }
-        autosave.schedule(value);
-      }
-      setLoading(false);
-    }
-    const existingId = templateId || (draft?.id !== "new" && draft?.id);
-    setLoadFailed(false);
-    if (!existingId) {
-      initialize(draft ?? makeEmptyTemplate(), Boolean(draft));
-    } else {
-      setLoading(true);
-      CourseEnvironmentsService.get(existingId)
-      .then((result) => {
-        if (!active) return;
-        /* 只有草稿可編輯；已發布版本忽略殘留草稿 */
-        if (draft && result.status === "draft") {
-          initialize({ ...draft, id: result.id }, true);
-          toast.success(t("CourseTemplateEditorPage.draftRestoredMsg"));
-        } else {
-          initialize(result, false);
+  /* 編輯階段：換路由 id 時開新的一段（render 期間調整 state，不多畫一輪舊環境） */
+  const [loadSession, setLoadSession] = useState(() => createLoadSession(templateId, readDraft()));
+  let session = loadSession;
+  if (loadSession.templateId !== templateId) {
+    session = createLoadSession(templateId, readDraft());
+    setLoadSession(session);
+  }
+  /* 這段編輯已經用哪一段的資料初始化過（null＝還沒） */
+  const [readySession, setReadySession] = useState(null);
+  const sessionCtxRef = useRef(null);
+  const envCache = useCourseEnvironmentCacheUpdater();
+
+  /* 既有環境走 TanStack Query：每次進頁都拿伺服器最新的一份（不吃快取裡的舊資料），
+     之後不輪詢、切回分頁也不重抓；初始化只做一次，存檔回寫快取也不會蓋掉編輯中的內容 */
+  const detailQuery = useCourseEnvironmentQuery(session.existingId, { forEditing: true });
+  const detailSettled = session.existingId != null && detailQuery.isFetchedAfterMount && !detailQuery.isFetching;
+  const detailResult = detailSettled && detailQuery.status === "success" ? detailQuery.data : null;
+  const loadFailed = detailSettled && detailQuery.status === "error" && readySession !== session;
+  const loading = session.existingId != null && readySession !== session && !loadFailed;
+  const loadErrorMessage = loadFailed ? detailQuery.error?.message ?? t("CourseTemplateEditorPage.loadTemplateFailed") : null;
+
+  /* 機器來源清單：PVE 範本、VM 範本、LXC 映像各自載入，其中一支失敗不拖垮另外兩支。
+     很少變動，不輪詢 */
+  const templatesQuery = useTemplatesQuery({ refetchInterval: false, select: selectTemplateSources });
+  const vmImagesQuery = useVmOsTemplatesQuery();
+  const lxcImagesQuery = useLxcOsImagesQuery();
+  const pveTemplates = templatesQuery.data?.ready ?? EMPTY;
+  const vmImages = useMemo(() => (vmImagesQuery.data ?? EMPTY).map((item) => ({ value: String(item.vmid), label: t("CourseTemplateEditorPage.vmImageLabel", { name: item.name, vmid: item.vmid, node: item.node }), cores: item.cores, memoryMb: item.memory_mb, diskGb: item.disk_gb })), [vmImagesQuery.data, t]);
+  const lxcImages = useMemo(() => (lxcImagesQuery.data ?? EMPTY).map((item) => ({ value: item.volid, label: item.volid.split("/").pop() ?? item.volid })), [lxcImagesQuery.data]);
+  const templatesState = templatesQuery.data?.state;
+  const templatesNotice = templatesState === "processing"
+    ? t("CourseTemplateEditorPage.templatesProcessingNotice")
+    : templatesState === "failed" ? t("CourseTemplateEditorPage.templatesFailedNotice") : "";
+  /* VM 範本讀不到時說明寫在來源區塊（比範本處理中的提示優先），LXC 映像與 PVE 範本讀不到用 toast */
+  /* 三份來源清單的首載失敗看 useLoadError：沒資料時 v5 每次重抓（切回視窗）都清掉 error，
+     看 isError 的提示會先消失再出現，同一個錯誤每次切回視窗都再跳一次 */
+  const vmImagesLoadError = useLoadError(vmImagesQuery).error;
+  const lxcImagesLoadError = useLoadError(lxcImagesQuery).error;
+  const templatesLoadError = useLoadError(templatesQuery).error;
+  const vmImagesError = vmImagesLoadError
+    ? vmImagesLoadError?.message ?? t("CourseTemplateEditorPage.loadImagesFailed")
+    : "";
+  const sourceNotice = vmImagesError || templatesNotice;
+  const lxcImagesErrorMessage = lxcImagesLoadError
+    ? lxcImagesLoadError?.message ?? t("CourseTemplateEditorPage.loadImagesFailed")
+    : null;
+  const templatesErrorMessage = templatesLoadError
+    ? templatesLoadError?.message ?? t("CourseTemplateEditorPage.loadTemplatesFailedFallback")
+    : null;
+
+  useAiScreen(templateId ? "course-template-editor" : "course-template-new", {
+    "coursetpl.tab": { value: tab },
+    "coursetpl.status": { value: loading ? "loading" : template.status },
+    "coursetpl.name": { value: template.name.slice(0, 500), error: invalidField === "name" ? t("CourseTemplateEditorPage.nameRequiredError") : null },
+    "coursetpl.usage_scope": { value: template.usageScope ?? "course" },
+    "coursetpl.node_count": { value: String(template.nodes?.length ?? 0) },
+    "coursetpl.return_to_class": { value: String(Boolean(returnTo)) },
+    "coursetpl.publish": { disabled: saving || closing || template.status !== "draft" },
+  });
+
+  /* 用環境資料初始化編輯器並建立這段編輯的自動儲存；ctx 是這段編輯的生命週期（離開時 active=false） */
+  function initializeEditor(ctx, value, restored) {
+    if (value.id === "new" && !value.draftRequestId) value = { ...value, draftRequestId: crypto.randomUUID() };
+    templateRef.current = value;
+    setTemplate(value);
+    setSaveState(value.id === "new" ? "idle" : "saved");
+    const autosave = createEnvironmentAutosave({
+      id: value.id === "new" ? null : value.id,
+      save: (id, snapshot) => CourseEnvironmentsService.saveDraft(id, snapshot),
+      onState: (state, error) => {
+        if (ctx.active) { setSaveState(state); setSaveError(error?.message ?? ""); }
+      },
+      onSaved: (saved, snapshot) => {
+        /* 伺服器那份寫回快取（環境清單那一列跟著換），編輯器自己的內容照下面的規則合併 */
+        envCache.update(saved);
+        // A response must never replace edits typed while the request ran.
+        const next = { ...(ctx.active ? templateRef.current : snapshot), id: saved.id, versionId: saved.versionId, version: saved.version, updatedAt: saved.updatedAt };
+        if (ctx.active || !autosaveRef.current) {
+          try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Server copy is saved. */ }
         }
-      })
-      .catch((reason) => {
-        if (!active) return;
-        setLoadFailed(true);
-        toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadTemplateFailed"));
-      })
-      .finally(() => active && setLoading(false));
+        if (ctx.active) { templateRef.current = next; setTemplate(next); }
+      },
+    });
+    ctx.autosave = autosave;
+    autosaveRef.current = autosave;
+    if (restored && value.status === "draft") {
+      try { sessionStorage.setItem(draftKey, JSON.stringify(value)); } catch { /* Server autosave remains available. */ }
+      autosave.schedule(value);
     }
+    ctx.ready = true;
+    setReadySession(ctx.session);
+  }
+
+  /* 編輯階段的生命週期：新環境（沒有既有 id）直接初始化；離開或換環境時把自動儲存送完再釋放 */
+  useEffect(() => {
+    const ctx = { session, active: true, ready: false, autosave: null };
+    sessionCtxRef.current = ctx;
+    if (!session.existingId) initializeEditor(ctx, session.draft ?? makeEmptyTemplate(), Boolean(session.draft));
     return () => {
-      active = false;
+      ctx.active = false;
+      const { autosave } = ctx;
       if (autosaveRef.current === autosave) autosaveRef.current = null;
       if (autosave) void autosave.flush().then((saved) => {
         if (saved && !autosaveRef.current) clearDraft();
@@ -702,58 +757,32 @@ export default function CourseTemplateEditorPage() {
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId, reloadKey]);
+  }, [session]);
+
+  /* 既有環境：這次進頁抓到的那一份回來後初始化一次；之後快取再變（存檔回寫）都不理 */
   useEffect(() => {
-    let active = true;
-    TemplatesService.list()
-      .then((result) => {
-        if (!active) return;
-        const rows = result?.data ?? result ?? [];
-        const ready = rows.filter((item) => item.status === "ready");
-        setPveTemplates(ready);
-        if (ready.length) setSourceNotice("");
-        else if (rows.some((item) => item.status === "creating" || item.status === "updating")) {
-          setSourceNotice(t("CourseTemplateEditorPage.templatesProcessingNotice"));
-        } else if (rows.some((item) => item.status === "failed")) {
-          setSourceNotice(t("CourseTemplateEditorPage.templatesFailedNotice"));
-        } else {
-          setSourceNotice("");
-        }
-      })
-      .catch((reason) => {
-        if (active) toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadTemplatesFailedFallback"));
-      });
-    return () => { active = false; };
-  }, [toast, t]);
+    const ctx = sessionCtxRef.current;
+    if (!detailResult || !ctx || ctx.session !== session || ctx.ready) return;
+    /* 只有草稿可編輯；已發布版本忽略殘留草稿 */
+    if (session.draft && detailResult.status === "draft") {
+      initializeEditor(ctx, { ...session.draft, id: detailResult.id }, true);
+      toast.success(t("CourseTemplateEditorPage.draftRestoredMsg"));
+    } else {
+      initializeEditor(ctx, detailResult, false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailResult, session]);
+
+  /* 讀取失敗的提示：依訊息字串觸發，每次重試失敗各提示一次（重試中訊息會先清掉） */
   useEffect(() => {
-    let active = true;
-    // 反向代理沒設定好時回空陣列，發布方式只留「僅開防火牆」
-    ReverseProxyService.setupContext()
-      .then((context) => { if (active) setZones(context?.enabled ? (context.zones ?? []) : []); })
-      .catch(() => { if (active) setZones([]); });
-    return () => { active = false; };
-  }, []);
-  // 兩份清單分開載：VM 與 LXC 各自可能失敗，別讓其中一支把另一支也拖成空的
+    if (loadErrorMessage) toast.error(loadErrorMessage);
+  }, [loadErrorMessage, toast]);
   useEffect(() => {
-    let active = true;
-    ResourcesService.listVmOsTemplates()
-      .then((vms) => {
-        if (!active) return;
-        setVmImages((vms ?? []).map((item) => ({ value: String(item.vmid), label: t("CourseTemplateEditorPage.vmImageLabel", { name: item.name, vmid: item.vmid, node: item.node }), cores: item.cores, memoryMb: item.memory_mb, diskGb: item.disk_gb })));
-      })
-      .catch((reason) => {
-        if (active) setSourceNotice(reason?.message ?? t("CourseTemplateEditorPage.loadImagesFailed"));
-      });
-    ResourcesService.listLxcOsImages()
-      .then((lxcs) => {
-        if (!active) return;
-        setLxcImages((lxcs ?? []).map((item) => ({ value: item.volid, label: item.volid.split("/").pop() ?? item.volid })));
-      })
-      .catch((reason) => {
-        if (active) toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadImagesFailed"));
-      });
-    return () => { active = false; };
-  }, [toast, t]);
+    if (templatesErrorMessage) toast.error(templatesErrorMessage);
+  }, [templatesErrorMessage, toast]);
+  useEffect(() => {
+    if (lxcImagesErrorMessage) toast.error(lxcImagesErrorMessage);
+  }, [lxcImagesErrorMessage, toast]);
   function update(patch) {
     if (locked || publishingRef.current) return;
     const next = { ...templateRef.current, ...patch };
@@ -785,6 +814,7 @@ export default function CourseTemplateEditorPage() {
     setSaving(true);
     try {
       const saved = await CourseEnvironmentsService.saveBasics(next.id, next);
+      envCache.update(saved);
       templateRef.current = saved;
       setTemplate(saved);
       setBasicsDirty(false);
@@ -804,6 +834,7 @@ export default function CourseTemplateEditorPage() {
       files,
       async (file) => {
         const saved = await CourseEnvironmentsService.uploadFile(template.id, file);
+        envCache.update(saved);
         templateRef.current = { ...templateRef.current, files: saved.files };
         setTemplate(templateRef.current);
       },
@@ -845,6 +876,7 @@ export default function CourseTemplateEditorPage() {
     setSaving(true);
     try {
       const saved = await CourseEnvironmentsService.removeFile(template.id, file.id);
+      envCache.update(saved);
       templateRef.current = { ...templateRef.current, files: saved.files };
       setTemplate(templateRef.current);
     } catch (reason) {
@@ -885,6 +917,7 @@ export default function CourseTemplateEditorPage() {
       autosaveRef.current.schedule(templateRef.current);
       if (!(await autosaveRef.current.flush())) return;
       const published = await CourseEnvironmentsService.publish(autosaveRef.current.getId());
+      envCache.update(published);
       clearDraft();
       templateRef.current = published;
       setTemplate(published);
@@ -904,7 +937,7 @@ export default function CourseTemplateEditorPage() {
      下次進來還原時會連同空的機器清單一起自動儲存，蓋掉伺服器上的草稿 */
   if (loadFailed) return <div className={styles.page}>
     <PageHeader title={t("CourseTemplateEditorPage.loadTemplateFailed")}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
-    <section className={styles.card}><ErrorState onRetry={() => setReloadKey((key) => key + 1)} /></section>
+    <section className={styles.card}><ErrorState onRetry={() => detailQuery.refetch()} /></section>
   </div>;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
     <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : (template.name.trim() || t("CourseTemplateEditorPage.unnamedEnv"))} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>

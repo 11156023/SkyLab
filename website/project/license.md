@@ -13,7 +13,7 @@ The application shows its version, commit and the list of bundled open-source co
 
 ## Notices
 
-- [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE) keeps the MIT notices of the templates the project started from: the Full Stack FastAPI Template (backend and the original frontend) and an Electron + Vue template (desktop client).
+- [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE) keeps the MIT notices of the templates the project started from: the Full Stack FastAPI Template (parts of the backend scaffolding, the Docker Compose layout and the e-mail templates) and an Electron + Vue 3 + Vite template (desktop client).
 - [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) lists the direct open-source dependencies with their licenses. The desktop client bundles its own list, `desktop-client/THIRD_PARTY_NOTICES.txt`, with the installer.
 - "SkyLab" and the SkyLab logo are names of this project; the license covers the code, not the name.
 

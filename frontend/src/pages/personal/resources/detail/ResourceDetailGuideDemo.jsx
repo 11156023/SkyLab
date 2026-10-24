@@ -7,10 +7,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./ResourceDetailPage.module.scss";
 import ov from "./OverviewTab.module.scss";
 import sl from "./SpecificationsTab.module.scss";
 import MIcon from "../../../../components/MIcon";
+import DataTable, { DataTableCells } from "../../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../../components/DataTable/features";
 import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 import RrdChart from "../../../../components/RrdChart/RrdChart";
 import SegmentedControl from "../../../../components/SegmentedControl/SegmentedControl";
@@ -492,8 +495,239 @@ function DemoSpecifications({ t }) {
   );
 }
 
+/* ── 示範表格的欄位（模組層級：cell／header 會被當成元件掛載，render 裡新建會整格重掛）。
+   示範資料的欄位跟正式分頁不同（time、descKey、managed…），所以各自一份定義，class 與正式分頁相同 ── */
+function DemoHeader({ column }) {
+  const { t } = useTranslation("personal");
+  return t(column.columnDef.meta.labelKey);
+}
+
+function DemoSnapshotNameCell({ row }) {
+  const { t } = useTranslation("personal");
+  const snap = row.original;
+  return (
+    <span className={styles.snapName}>
+      {snap.name}
+      {snap.protected && (
+        <span className={`${styles.badge} ${styles.badge_info}`}>
+          <MIcon name="verified_user" size={12} />
+          {t("SnapshotsTab.protected")}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function DemoSnapshotDescCell({ row }) {
+  const { t } = useTranslation("personal");
+  return t(row.original.descKey);
+}
+
+function DemoSnapshotActionsCell({ row }) {
+  const { t } = useTranslation("personal");
+  return (
+    <>
+      <button type="button" className={styles.btnSecondary}><MIcon name="history" size={14} />{t("SnapshotsTab.restore")}</button>
+      {!row.original.protected && (
+        <button type="button" className={styles.btnDangerOutline}><MIcon name="delete_outline" size={14} />{t("SnapshotsTab.delete")}</button>
+      )}
+    </>
+  );
+}
+
+const columnHelper = createColumnHelper();
+const DEMO_SNAPSHOT_COLUMNS = columnHelper.columns([
+  columnHelper.accessor("name", {
+    header: DemoHeader,
+    cell: DemoSnapshotNameCell,
+    meta: { labelKey: "SnapshotsTab.colName", thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.display({
+    id: "desc",
+    header: DemoHeader,
+    cell: DemoSnapshotDescCell,
+    meta: { labelKey: "SnapshotsTab.colDesc", thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+  columnHelper.accessor("time", {
+    header: DemoHeader,
+    cell: (info) => formatDateTime(info.getValue()),
+    meta: {
+      labelKey: "SnapshotsTab.colCreatedAt",
+      thClassName: styles.th,
+      tdClassName: `${styles.td} ${styles.mutedCell} ${styles.nowrapCell}`,
+    },
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: DemoHeader,
+    cell: DemoSnapshotActionsCell,
+    meta: { labelKey: "SnapshotsTab.colActions", thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdActions}` },
+  }),
+]);
+
+function DemoAuditActionCell({ row }) {
+  const { t } = useTranslation("personal");
+  const { action } = row.original;
+  return (
+    <span className={`${styles.badge} ${styles[actionBadgeClass(action)]}`}>
+      {actionLabel(action, t)}
+    </span>
+  );
+}
+
+const DEMO_AUDIT_COLUMNS = columnHelper.columns([
+  columnHelper.accessor("time", {
+    header: DemoHeader,
+    cell: (info) => formatDateTime(info.getValue()),
+    meta: { labelKey: "AuditLogsTab.colTime", thClassName: styles.th, tdClassName: `${styles.td} ${styles.nowrapCell}` },
+  }),
+  columnHelper.display({
+    id: "operator",
+    header: DemoHeader,
+    cell: () => (
+      <div className={styles.userCell}>
+        <span className={styles.userName}>{DEMO_USER}</span>
+      </div>
+    ),
+    meta: { labelKey: "AuditLogsTab.colOperator", thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.display({
+    id: "action",
+    header: DemoHeader,
+    cell: DemoAuditActionCell,
+    meta: { labelKey: "AuditLogsTab.colAction", thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("details", {
+    header: DemoHeader,
+    cell: (info) => info.getValue(),
+    meta: { labelKey: "AuditLogsTab.colDetails", thClassName: styles.th, tdClassName: `${styles.td} ${styles.detailCell}` },
+  }),
+]);
+
+function DemoRuleDirectionCell({ row }) {
+  const { t } = useTranslation("personal");
+  const inbound = row.original.type === "in";
+  return (
+    <span className={`${styles.badge} ${inbound ? styles.badge_info : styles.badge_muted}`}>
+      {inbound ? t("FirewallCard.directionIn") : t("FirewallCard.directionOut")}
+    </span>
+  );
+}
+
+function DemoRulePeerCell({ row }) {
+  const { t } = useTranslation("personal");
+  return row.original.peer ?? t("FirewallCard.any");
+}
+
+/* 規則的開關狀態是示範頁自己的 state，經 DemoRuleRow 的 rowState 傳進來 */
+function DemoRuleActionCell({ rowState }) {
+  const { t } = useTranslation("personal");
+  return rowState.off ? (
+    <span className={`${styles.badge} ${styles.badge_danger}`}>{t("FirewallCard.ruleDisabled")}</span>
+  ) : (
+    <span className={`${styles.badge} ${styles.badge_success}`}>{t("FirewallCard.policyAccept")}</span>
+  );
+}
+
+function DemoRuleNoteCell({ row }) {
+  const { t } = useTranslation("personal");
+  const rule = row.original;
+  return rule.managed ? (
+    <span className={styles.hintLine}>
+      <MIcon name="lock" size={12} />
+      {t("FirewallCard.managedByService")}
+    </span>
+  ) : rule.comment;
+}
+
+function DemoRuleActionsCell({ row, rowState }) {
+  const { t } = useTranslation("personal");
+  if (row.original.managed) return null;
+  return (
+    <>
+      <Switch
+        checked={!rowState.off}
+        onChange={rowState.onToggle}
+        ariaLabel={t("FirewallCard.enableSwitch")}
+        title={t("FirewallCard.enableSwitch")}
+      />
+      <button type="button" className={`${styles.rpIconBtn} ${styles.rpIconBtnDanger}`} title={t("FirewallCard.deleteRule")}>
+        <MIcon name="delete" size={16} />
+      </button>
+    </>
+  );
+}
+
+const DEMO_RULE_COLUMNS = columnHelper.columns([
+  columnHelper.accessor("pos", {
+    header: "#",
+    cell: (info) => info.getValue() + 1,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.mutedCell}` },
+  }),
+  columnHelper.display({
+    id: "direction",
+    header: DemoHeader,
+    cell: DemoRuleDirectionCell,
+    meta: { labelKey: "FirewallCard.direction", thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("proto", {
+    header: DemoHeader,
+    cell: (info) => info.getValue(),
+    meta: { labelKey: "FirewallCard.protocol", thClassName: styles.th, tdClassName: `${styles.td} ${styles.nowrapCell}` },
+  }),
+  columnHelper.accessor("port", {
+    header: DemoHeader,
+    cell: (info) => info.getValue(),
+    meta: { labelKey: "FirewallCard.port", thClassName: styles.th, tdClassName: `${styles.td} ${styles.nowrapCell}` },
+  }),
+  columnHelper.display({
+    id: "peer",
+    header: DemoHeader,
+    cell: DemoRulePeerCell,
+    meta: { labelKey: "FirewallCard.sourceCol", thClassName: styles.th, tdClassName: `${styles.td} ${styles.monoText}` },
+  }),
+  columnHelper.display({
+    id: "action",
+    header: DemoHeader,
+    cell: DemoRuleActionCell,
+    meta: { labelKey: "FirewallCard.action", thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.display({
+    id: "note",
+    header: DemoHeader,
+    cell: DemoRuleNoteCell,
+    meta: { labelKey: "FirewallCard.noteCol", thClassName: styles.th, tdClassName: `${styles.td} ${styles.detailCell}` },
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: DemoHeader,
+    cell: DemoRuleActionsCell,
+    meta: { labelKey: "FirewallCard.actionsCol", thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdActions}` },
+  }),
+]);
+
+const getNameId = (item) => item.name;
+const getDemoAuditId = (log) => String(log.id);
+const getDemoRuleId = (rule) => String(rule.pos);
+const demoRowClassName = () => styles.tr;
+
+/* 示範資料是常數、列物件不會變：規則開關的狀態要經列元件的 props 進 rowState，儲存格才會跟著重繪 */
+function DemoRuleRow({ row, rule, off, onToggle }) {
+  return (
+    <tr className={`${styles.tr} ${rule.managed ? styles.lockedRow : ""} ${off ? styles.ruleOffRow : ""}`}>
+      <DataTableCells row={row} rowState={{ off, onToggle: () => onToggle(rule.pos) }} />
+    </tr>
+  );
+}
+
 /* ── 快照：表格＋分頁列右側的一鍵重置／建立快照 ── */
 function DemoSnapshots({ t, toolbar }) {
+  const snapshotTable = useTable({
+    features: baseFeatures,
+    columns: DEMO_SNAPSHOT_COLUMNS,
+    data: DEMO_SNAPSHOTS,
+    getRowId: getNameId,
+  });
   return (
     <div className={styles.tabStack}>
       {toolbar && createPortal(
@@ -505,41 +739,7 @@ function DemoSnapshots({ t, toolbar }) {
       )}
       <div className={styles.card}>
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.th}>{t("SnapshotsTab.colName")}</th>
-                <th className={styles.th}>{t("SnapshotsTab.colDesc")}</th>
-                <th className={styles.th}>{t("SnapshotsTab.colCreatedAt")}</th>
-                <th className={styles.th}>{t("SnapshotsTab.colActions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DEMO_SNAPSHOTS.map((snap) => (
-                <tr key={snap.name} className={styles.tr}>
-                  <td className={styles.td}>
-                    <span className={styles.snapName}>
-                      {snap.name}
-                      {snap.protected && (
-                        <span className={`${styles.badge} ${styles.badge_info}`}>
-                          <MIcon name="verified_user" size={12} />
-                          {t("SnapshotsTab.protected")}
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  <td className={`${styles.td} ${styles.mutedCell}`}>{t(snap.descKey)}</td>
-                  <td className={`${styles.td} ${styles.mutedCell} ${styles.nowrapCell}`}>{formatDateTime(snap.time)}</td>
-                  <td className={`${styles.td} ${styles.tdActions}`}>
-                    <button type="button" className={styles.btnSecondary}><MIcon name="history" size={14} />{t("SnapshotsTab.restore")}</button>
-                    {!snap.protected && (
-                      <button type="button" className={styles.btnDangerOutline}><MIcon name="delete_outline" size={14} />{t("SnapshotsTab.delete")}</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable table={snapshotTable} className={styles.table} rowClassName={demoRowClassName} />
         </div>
       </div>
     </div>
@@ -547,39 +747,18 @@ function DemoSnapshots({ t, toolbar }) {
 }
 
 /* ── 操作紀錄：四欄表格，動作用徽章 ── */
-function DemoAuditLogs({ t }) {
+function DemoAuditLogs() {
+  const auditTable = useTable({
+    features: baseFeatures,
+    columns: DEMO_AUDIT_COLUMNS,
+    data: DEMO_AUDIT,
+    getRowId: getDemoAuditId,
+  });
   return (
     <div className={styles.tabStack}>
       <div className={styles.card}>
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.th}>{t("AuditLogsTab.colTime")}</th>
-                <th className={styles.th}>{t("AuditLogsTab.colOperator")}</th>
-                <th className={styles.th}>{t("AuditLogsTab.colAction")}</th>
-                <th className={styles.th}>{t("AuditLogsTab.colDetails")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DEMO_AUDIT.map((log) => (
-                <tr key={log.id} className={styles.tr}>
-                  <td className={`${styles.td} ${styles.nowrapCell}`}>{formatDateTime(log.time)}</td>
-                  <td className={styles.td}>
-                    <div className={styles.userCell}>
-                      <span className={styles.userName}>{DEMO_USER}</span>
-                    </div>
-                  </td>
-                  <td className={styles.td}>
-                    <span className={`${styles.badge} ${styles[actionBadgeClass(log.action)]}`}>
-                      {actionLabel(log.action, t)}
-                    </span>
-                  </td>
-                  <td className={`${styles.td} ${styles.detailCell}`}>{log.details}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable table={auditTable} className={styles.table} rowClassName={demoRowClassName} />
         </div>
       </div>
     </div>
@@ -619,6 +798,12 @@ function DemoAdvanced({ t, lang, onShowOverview }) {
     return next;
   });
   const policy = (key) => t(`FirewallCard.${key}`);
+  const ruleTable = useTable({
+    features: baseFeatures,
+    columns: DEMO_RULE_COLUMNS,
+    data: DEMO_RULES,
+    getRowId: getDemoRuleId,
+  });
 
   return (
     <div className={styles.tabStack}>
@@ -671,68 +856,19 @@ function DemoAdvanced({ t, lang, onShowOverview }) {
           </div>
           <div className={styles.cardBody}>
             <div className={styles.tableScroll}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th className={styles.th}>#</th>
-                    <th className={styles.th}>{t("FirewallCard.direction")}</th>
-                    <th className={styles.th}>{t("FirewallCard.protocol")}</th>
-                    <th className={styles.th}>{t("FirewallCard.port")}</th>
-                    <th className={styles.th}>{t("FirewallCard.sourceCol")}</th>
-                    <th className={styles.th}>{t("FirewallCard.action")}</th>
-                    <th className={styles.th}>{t("FirewallCard.noteCol")}</th>
-                    <th className={styles.th}>{t("FirewallCard.actionsCol")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {DEMO_RULES.map((rule) => (
-                    <tr
-                      key={rule.pos}
-                      className={`${styles.tr} ${rule.managed ? styles.lockedRow : ""} ${rulesOff.has(rule.pos) ? styles.ruleOffRow : ""}`}
-                    >
-                      <td className={`${styles.td} ${styles.mutedCell}`}>{rule.pos + 1}</td>
-                      <td className={styles.td}>
-                        <span className={`${styles.badge} ${rule.type === "in" ? styles.badge_info : styles.badge_muted}`}>
-                          {rule.type === "in" ? t("FirewallCard.directionIn") : t("FirewallCard.directionOut")}
-                        </span>
-                      </td>
-                      <td className={`${styles.td} ${styles.nowrapCell}`}>{rule.proto}</td>
-                      <td className={`${styles.td} ${styles.nowrapCell}`}>{rule.port}</td>
-                      <td className={`${styles.td} ${styles.monoText}`}>{rule.peer ?? t("FirewallCard.any")}</td>
-                      <td className={styles.td}>
-                        {rulesOff.has(rule.pos) ? (
-                          <span className={`${styles.badge} ${styles.badge_danger}`}>{t("FirewallCard.ruleDisabled")}</span>
-                        ) : (
-                          <span className={`${styles.badge} ${styles.badge_success}`}>{policy("policyAccept")}</span>
-                        )}
-                      </td>
-                      <td className={`${styles.td} ${styles.detailCell}`}>
-                        {rule.managed ? (
-                          <span className={styles.hintLine}>
-                            <MIcon name="lock" size={12} />
-                            {t("FirewallCard.managedByService")}
-                          </span>
-                        ) : rule.comment}
-                      </td>
-                      <td className={`${styles.td} ${styles.tdActions}`}>
-                        {rule.managed ? null : (
-                          <>
-                            <Switch
-                              checked={!rulesOff.has(rule.pos)}
-                              onChange={() => toggleRule(rule.pos)}
-                              ariaLabel={t("FirewallCard.enableSwitch")}
-                              title={t("FirewallCard.enableSwitch")}
-                            />
-                            <button type="button" className={`${styles.rpIconBtn} ${styles.rpIconBtnDanger}`} title={t("FirewallCard.deleteRule")}>
-                              <MIcon name="delete" size={16} />
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                table={ruleTable}
+                className={styles.table}
+                renderRow={(row) => (
+                  <DemoRuleRow
+                    key={row.id}
+                    row={row}
+                    rule={row.original}
+                    off={rulesOff.has(row.original.pos)}
+                    onToggle={toggleRule}
+                  />
+                )}
+              />
             </div>
           </div>
         </div>
@@ -933,6 +1069,6 @@ export default function ResourceDetailGuideDemo({ tab, toolbar, onShowOverview }
   if (tab === "monitoring") return <DemoMonitoring t={t} toolbar={toolbar} />;
   if (tab === "specifications") return <DemoSpecifications t={t} />;
   if (tab === "snapshots") return <DemoSnapshots t={t} toolbar={toolbar} />;
-  if (tab === "auditLogs") return <DemoAuditLogs t={t} />;
+  if (tab === "auditLogs") return <DemoAuditLogs />;
   return <DemoAdvanced t={t} lang={lang} onShowOverview={onShowOverview} />;
 }

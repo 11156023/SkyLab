@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { useTeachingClassCacheUpdater, useTeachingClassesQuery } from "../../../queries/teachingClasses";
 import { useToast } from "../../../hooks/useToast";
+import useRouteMessageToast from "../../../hooks/useRouteMessageToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -55,6 +58,8 @@ const WEEKDAY_KEYS = [
 ];
 
 
+const EMPTY = Object.freeze([]);
+
 function normalizeClass(item) {
   return {
     ...item,
@@ -70,6 +75,11 @@ function normalizeClass(item) {
     readyMachines: item.ready_machines ?? 0,
     totalMachines: item.total_machines ?? 0,
   };
+}
+
+/* 後端回 {data: [...]} 或純陣列都接；模組層級的函式讓 useQuery 的 select 結果能被快取 */
+function selectClasses(rows) {
+  return (rows?.data ?? rows ?? []).map(normalizeClass);
 }
 
 export function setupChecklist(item) {
@@ -97,35 +107,30 @@ function ticketTarget(item) {
 export default function ClassManagementPage() {
   const { t } = useTranslation("teaching");
   const navigate = useNavigate();
-  const location = useLocation();
   const toast = useToast();
   const confirm = useConfirm();
-  const [classes, setClasses] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
 
-  const loadClasses = useCallback(
-    () => TeachingClassesService.list().then((rows) => (rows?.data ?? rows ?? []).map(normalizeClass)),
-    [],
-  );
-
+  /* 班級清單走 TanStack Query（老師首頁、課程 CMS 共用同一份快取）：
+     首次載不到才提示，背景刷新失敗沿用上一份 */
+  const classesQuery = useTeachingClassesQuery({ select: selectClasses });
+  const classCache = useTeachingClassCacheUpdater();
+  const classes = classesQuery.data ?? EMPTY;
+  /* 沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error：用 useQueryView，首載失敗後的輪詢重試
+     期間仍算失敗，不閃回整頁載入中；錯誤訊息在重試期間不變，同一個錯誤只提示一次 */
+  const classesView = useQueryView(classesQuery);
+  const loading = classesView.loading;
+  const loadFailedMessage = classesView.error
+    ? classesView.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
   useEffect(() => {
-    let active = true;
-    loadClasses()
-      .then((rows) => active && setClasses(rows))
-      .catch((reason) => active && toast.error(reason?.message ?? t("Error.generic", { ns: "common" })))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [loadClasses, toast, t]);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
 
-  // 導頁帶來的一次性成功訊息改用 toast，吐完即清掉 state 免得重整重播。
-  useEffect(() => {
-    if (!location.state?.message) return;
-    toast.success(location.state.message);
-    navigate(location.pathname, { replace: true, state: {} });
-  }, [location.state?.message, location.pathname, navigate, toast]);
+  // 導頁帶來的一次性成功訊息（暫停設定、送出建機）改用 toast，吐完即清掉 state 免得重整重播。
+  useRouteMessageToast();
 
   const archivedCount = useMemo(
     () => classes.filter((item) => item.status === "archived").length,
@@ -192,7 +197,8 @@ export default function ClassManagementPage() {
     }
     selection.replace(res.results.filter((result) => !result.ok).map((result) => result.item.id));
     setBatchProgress(null);
-    try { setClasses(await loadClasses()); } catch { /* 下次進頁面再載入 */ }
+    /* 重抓失敗不會丟例外（沿用舊清單，下次進頁面再載入） */
+    await classCache.invalidate();
   }
 
   return <div className={`${styles.page} ${styles.listPage}`}>

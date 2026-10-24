@@ -291,6 +291,10 @@ async def test_generation_deadline_covers_prefill_and_stalled_body(
 
 async def test_catalogue_discovery_uses_same_bounded_reservation(monkeypatch, runtime):
     admission, records = runtime
+    # The eight held requests wait for the catalogue within their queue wait
+    # budget. With the fixture's 1 s a stalled CI runner let them time out in the
+    # middle of the assertions, and their queue_timeout records came last.
+    admission.wait_timeout_seconds = 60
     started = asyncio.Event()
     release = asyncio.Event()
 
@@ -314,7 +318,8 @@ async def test_catalogue_discovery_uses_same_bounded_reservation(monkeypatch, ru
         rejected = await generation(req)
         assert rejected.status_code == 503
         assert json.loads(rejected.body)["error"]["code"] == "server_busy"
-        assert records[-1]["error_message"] == "queue_full"
+        # Only the rejected request has finished; the eight are still held.
+        assert [r["error_message"] for r in records] == ["queue_full"]
         release.set()
         assert all(
             response.status_code == 200 for response in await asyncio.gather(*tasks)

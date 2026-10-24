@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
-import { MonitoringService } from "../../../services/monitoring";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import DataTable, { DataTableCells } from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
+import { useSystemHealthQuery } from "../../../queries/monitoring";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import { formatDateTime } from "../../../utils/formatDate";
 import usePersistedToggle from "./usePersistedToggle";
 
@@ -67,28 +69,106 @@ function Ago({ ts, now, t }) {
 /* 任務排序：有問題的排前面，其餘照迴圈／名稱 */
 const TASK_ORDER = { failing: 0, stale: 1, warning: 2, pending: 3, ok: 4 };
 
+const EMPTY = Object.freeze([]);
+
+/** 表頭文字（header 是元件，可以直接用 hook）；key 是完整的翻譯鍵 */
+function ColTitle({ i18nKey }) {
+  const { t } = useTranslation("system");
+  return t(i18nKey);
+}
+
+function TaskNameCell({ task }) {
+  const { t } = useTranslation("system");
+  return (
+    <>
+      <span className={styles.healthTaskName}>{task.task}</span>
+      <span className={styles.healthTaskLoop}>
+        {t(`SystemHealth.loop.${task.loop}`, { defaultValue: task.loop })}
+      </span>
+    </>
+  );
+}
+
+function TaskStatusCell({ status }) {
+  const { t } = useTranslation("system");
+  return <StatusBadge status={status} t={t} />;
+}
+
+function TaskAgoCell({ ts, now }) {
+  const { t } = useTranslation("system");
+  return <Ago ts={ts} now={now} t={t} />;
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載。
+   「多久以前」的基準時間 now 跟著每次健康資料變，經 rowState 傳進儲存格 */
+const taskColumns = columnHelper.columns([
+  columnHelper.accessor("task", {
+    header: () => <ColTitle i18nKey="SystemHealth.colTask" />,
+    cell: ({ row }) => <TaskNameCell task={row.original} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("status", {
+    header: () => <ColTitle i18nKey="MonitoringPage.colStatus" />,
+    cell: ({ row }) => <TaskStatusCell status={row.original.status} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("last_run_at", {
+    header: () => <ColTitle i18nKey="SystemHealth.colLastRun" />,
+    cell: ({ row, rowState }) => <TaskAgoCell ts={row.original.last_run_at} now={rowState.now} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("last_success_at", {
+    header: () => <ColTitle i18nKey="SystemHealth.colLastSuccess" />,
+    cell: ({ row, rowState }) => <TaskAgoCell ts={row.original.last_success_at} now={rowState.now} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("consecutive_failures", {
+    header: () => <ColTitle i18nKey="SystemHealth.colFailures" />,
+    cell: ({ row }) => row.original.consecutive_failures,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.numericCell}` },
+  }),
+  columnHelper.accessor("last_duration_ms", {
+    header: () => <ColTitle i18nKey="SystemHealth.colDuration" />,
+    cell: ({ row }) => (row.original.last_duration_ms != null ? `${Math.round(row.original.last_duration_ms)} ms` : "—"),
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.numericCell}` },
+  }),
+  columnHelper.accessor("last_error", {
+    header: () => <ColTitle i18nKey="SystemHealth.colLastError" />,
+    cell: ({ row }) => (row.original.last_error ? (
+      <span className={styles.healthError} title={row.original.last_error}>
+        {row.original.last_error}
+      </span>
+    ) : (
+      <span className={styles.mutedText}>—</span>
+    )),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+]);
+
 export default function SystemHealthCard() {
   const { t } = useTranslation("system");
-  const [health, setHealth] = useState(null);
-  const [error, setError] = useState(false);
   const [open, toggleOpen] = usePersistedToggle(OPEN_STORAGE_KEY);
+  /* 30 秒背景刷新、分頁隱藏時不輪詢；背景失敗時沿用上一筆，只有還沒拿到資料才顯示錯誤 */
+  const healthQuery = useSystemHealthQuery();
+  const health = healthQuery.data ?? null;
+  /* 還沒拿到資料時的失敗看 useLoadError（沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，看 isError 會在背景重試時閃回載入中） */
+  const error = Boolean(useLoadError(healthQuery).error);
 
-  const load = useCallback(async (signal) => {
-    try {
-      setHealth(await MonitoringService.getSystemHealth({ signal }));
-      setError(false);
-    } catch (err) {
-      if (!err?.cancelled) setError(true);
-    }
-  }, []);
-
-  /* 首次載入可中止（離開頁面時）；之後交給 useAutoRefresh，分頁隱藏時不輪詢 */
-  useEffect(() => {
-    const controller = new AbortController();
-    load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
-  useAutoRefresh(() => load());
+  /* useTable 是 hook，要在下面「還沒拿到資料」的提早 return 之前呼叫，排序也跟著提前 */
+  const tasks = health === null ? EMPTY : [...health.tasks].sort(
+    (a, b) =>
+      (TASK_ORDER[a.status] ?? 9) - (TASK_ORDER[b.status] ?? 9) ||
+      a.loop.localeCompare(b.loop) ||
+      a.task.localeCompare(b.task),
+  );
+  const table = useTable({
+    features: baseFeatures,
+    columns: taskColumns,
+    data: tasks,
+    getRowId: (task) => `${task.loop}/${task.task}`,
+  });
 
   if (health === null) {
     return (
@@ -108,12 +188,6 @@ export default function SystemHealthCard() {
   const now = new Date(health.generated_at).getTime() / 1000;
   const problemTasks = health.tasks.filter((task) =>
     ["failing", "stale", "warning"].includes(task.status),
-  );
-  const tasks = [...health.tasks].sort(
-    (a, b) =>
-      (TASK_ORDER[a.status] ?? 9) - (TASK_ORDER[b.status] ?? 9) ||
-      a.loop.localeCompare(b.loop) ||
-      a.task.localeCompare(b.task),
   );
 
   return (
@@ -189,64 +263,26 @@ export default function SystemHealthCard() {
           )}
 
           <div className={styles.tableScroll}>
-            <table className={`${styles.table} ${styles.healthTable}`}>
-              <colgroup>
-                <col className={styles.healthColTask} />
-                <col className={styles.healthColStatus} />
-                <col className={styles.healthColTime} />
-                <col className={styles.healthColTime} />
-                <col className={styles.healthColNum} />
-                <col className={styles.healthColNum} />
-                <col />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th className={styles.th}>{t("SystemHealth.colTask")}</th>
-                  <th className={styles.th}>{t("MonitoringPage.colStatus")}</th>
-                  <th className={styles.th}>{t("SystemHealth.colLastRun")}</th>
-                  <th className={styles.th}>{t("SystemHealth.colLastSuccess")}</th>
-                  <th className={styles.th}>{t("SystemHealth.colFailures")}</th>
-                  <th className={styles.th}>{t("SystemHealth.colDuration")}</th>
-                  <th className={styles.th}>{t("SystemHealth.colLastError")}</th>
+            <DataTable
+              table={table}
+              className={`${styles.table} ${styles.healthTable}`}
+              colgroup={(
+                <colgroup>
+                  <col className={styles.healthColTask} />
+                  <col className={styles.healthColStatus} />
+                  <col className={styles.healthColTime} />
+                  <col className={styles.healthColTime} />
+                  <col className={styles.healthColNum} />
+                  <col className={styles.healthColNum} />
+                  <col />
+                </colgroup>
+              )}
+              renderRow={(row) => (
+                <tr key={row.id} className={styles.tr}>
+                  <DataTableCells row={row} rowState={{ now }} />
                 </tr>
-              </thead>
-              <tbody>
-                {tasks.map((task) => (
-                  <tr key={`${task.loop}/${task.task}`} className={styles.tr}>
-                    <td className={styles.td}>
-                      <span className={styles.healthTaskName}>{task.task}</span>
-                      <span className={styles.healthTaskLoop}>
-                        {t(`SystemHealth.loop.${task.loop}`, { defaultValue: task.loop })}
-                      </span>
-                    </td>
-                    <td className={styles.td}>
-                      <StatusBadge status={task.status} t={t} />
-                    </td>
-                    <td className={styles.td}>
-                      <Ago ts={task.last_run_at} now={now} t={t} />
-                    </td>
-                    <td className={styles.td}>
-                      <Ago ts={task.last_success_at} now={now} t={t} />
-                    </td>
-                    <td className={`${styles.td} ${styles.numericCell}`}>
-                      {task.consecutive_failures}
-                    </td>
-                    <td className={`${styles.td} ${styles.numericCell}`}>
-                      {task.last_duration_ms != null ? `${Math.round(task.last_duration_ms)} ms` : "—"}
-                    </td>
-                    <td className={styles.td}>
-                      {task.last_error ? (
-                        <span className={styles.healthError} title={task.last_error}>
-                          {task.last_error}
-                        </span>
-                      ) : (
-                        <span className={styles.mutedText}>—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              )}
+            />
           </div>
         </>
       )}

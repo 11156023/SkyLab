@@ -13,6 +13,10 @@ SkyLab is a full-stack management platform for Proxmox VE (PVE) built for campus
 
 **Who it is for:** schools, departments and labs that already run (or plan to run) Proxmox VE and want to hand out machines to students and courses without giving everyone access to the PVE web UI.
 
+<p align="center">
+  <img src=".github/readme/console.gif" width="900" alt="A student opens a VM's desktop and then a container's terminal, both inside the browser">
+</p>
+
 ## Architecture
 
 ```mermaid
@@ -40,13 +44,14 @@ flowchart LR
 | Gateway installer | `gateway/` | `install.sh` for the campus egress gateway VM: nginx (port forwarding, domain reverse proxy), WireGuard, nftables ACL |
 | Desktop client | `desktop-client/` | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway |
 | vLLM service | `vllm-service/` | Single-model service, multi-model vLLM cluster and the LiteLLM gateway that exposes them |
-| Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / InfluxDB profile |
-| Documentation | `website/` | All guides, the user manual and the API reference, as a VitePress site deployed to Cloudflare Pages; index in [`website/guides/index.md`](website/guides/index.md), site setup in [`website/README.md`](website/README.md) |
+| Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
+| Documentation | `website/` | All guides, the user manual and the API reference, as a VitePress site at [docs.skylab-tw.com](https://docs.skylab-tw.com) deployed to Cloudflare Pages; index in [`website/guides/index.md`](website/guides/index.md), site setup in [`website/README.md`](website/README.md) |
+| Public site | `site/` | The introduction site at [skylab-tw.com](https://skylab-tw.com) with contact details, prerendered in three languages and deployed to Cloudflare Pages; see [`website/operations/site.md`](website/operations/site.md) |
 
 ## Tech stack
 
 - **Backend:** FastAPI, SQLModel, Alembic, PostgreSQL (via PgBouncer), Redis, arq worker, proxmoxer, Paramiko, PyJWT, cryptography, httpx, websockets, Sentry
-- **Frontend:** React 19, Vite, react-router-dom 7, SCSS Modules, react-i18next (en / zh-TW / ja), noVNC, xterm.js, @xyflow/react, Recharts, Monaco Editor, sonner, Vitest
+- **Frontend:** React 19 (React Compiler), Vite, react-router-dom 7, TanStack Query / Table / Virtual, SCSS Modules, react-i18next (en / zh-TW / ja), noVNC, xterm.js, @xyflow/react, Recharts, Monaco Editor, sonner, Vitest
 - **Infrastructure:** Docker Compose, nginx, PgBouncer, PostgreSQL, Redis, MailCatcher (dev), optional Prometheus / Grafana / Loki / Alloy / InfluxDB
 - **AI:** vLLM (OpenAI-compatible API) behind LiteLLM, plus built-in placement advice and template recommendation in the backend
 - **Package managers:** uv (Python), Bun (frontend)
@@ -65,13 +70,29 @@ flowchart LR
 - AI assistants for administrators (PVE operations) and for teaching workflows (navigation, contextual help, template recommendation)
 - Authentication: password, Google, LDAP/AD, optional per-account TOTP, Cloudflare Turnstile, login pre-flight service check
 - Platform health monitoring, system alerts, Web Push notifications, Prometheus `/metrics`
-- Full audit log; roles: superuser / admin / instructor / student; trilingual UI (en / zh-TW / ja)
+- Full audit log; roles: student / teacher / admin; trilingual UI (en / zh-TW / ja)
+
+## See it in action
+
+**A whole class at once.** The teacher submits the class; every student's machines are built, and the class opens on a live usage heatmap.
+
+<img src=".github/readme/class.gif" width="900" alt="A teacher submits a class, 90 machines are built and the class usage heatmap appears">
+
+**Request, approve, provision.** An administrator approves a student's request, and the machine shows up in the student's list on its own.
+
+<img src=".github/readme/review.gif" width="900" alt="An administrator approves a request; the student's resource list shows the machine being created and then running">
+
+**Networking by drag and drop.** Drawing a line between two machines on the map writes the firewall rules for that connection.
+
+<img src=".github/readme/firewall.gif" width="900" alt="A student drags a connection from one machine to another on the firewall map and sets the port">
+
+These clips are recorded from the real interface with mock data by `website/scripts/manual-shots/clips.mjs`.
 
 ## Requirements
 
 - A Linux host with Docker Engine and Docker Compose ≥ 2.20 (the root compose file uses `include`)
 - A reachable Proxmox VE node or cluster to provision machines; the UI, authentication and most tests work without one
-- Optional: a Linux VM to act as the gateway (port forwarding, domains, WireGuard), and GPU hosts running vLLM for the AI features
+- Optional: a Debian 13 VM to act as the gateway (port forwarding, domains, WireGuard), and GPU hosts running vLLM for the AI features
 
 ## Quick start (Docker Compose)
 
@@ -79,18 +100,19 @@ flowchart LR
 git clone https://github.com/ntubclass/SkyLab.git
 cd SkyLab
 cp -n .env.example .env
+cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env   # Compose reads this file even without the AI stack
 # edit .env: at least SECRET_KEY, FIRST_SUPERUSER, FIRST_SUPERUSER_PASSWORD and POSTGRES_PASSWORD
-docker compose up -d --build
+docker compose up -d --build --scale litellm=0
 ```
 
-Then open http://localhost:8082. On first launch the setup wizard (`/setup`) creates the administrator, tests the Proxmox connection, and configures the IP subnet, gateway and platform entry.
+`--scale litellm=0` leaves out the included LiteLLM service, which cannot start until the AI stack has generated its `config.yaml` (see below). Then open http://localhost:8082. On first launch the setup wizard (`/setup`) creates the administrator, tests the Proxmox connection, and configures the IP subnet, gateway and platform entry.
 
-Default URLs:
+Default URLs (everything except the nginx entry point is bound to 127.0.0.1):
 
 | Service | URL |
 | --- | --- |
 | SkyLab entry point (nginx) | http://localhost:8082 |
-| Frontend dev server | http://localhost:5173 |
+| Frontend container (built bundle, bypassing nginx) | http://localhost:5173 |
 | Backend API | http://localhost:8000 |
 | Swagger UI | http://localhost:8000/docs |
 | MailCatcher (dev inbox; set `SMTP_HOST` in production) | http://localhost:1080 |
@@ -98,11 +120,11 @@ Default URLs:
 
 ### Optional: AI stack
 
-The root `docker-compose.yml` already includes LiteLLM. To enable the AI features, start your vLLM models first (`vllm-service/start_multi_model_cluster.sh`), fill in the LiteLLM `.env` (model routing and keys are explained in the [AI API User Manual](website/guides/ai-api-user-manual.md)), then let the helper script wire everything up:
+The root `docker-compose.yml` already includes LiteLLM. To enable the AI features, start your vLLM models first (`vllm-service/start_multi_model_cluster.sh`), then let the helper script fill in the keys and wire everything up; upstream keys, model routing and `models.json` are explained in the [AI API User Manual](website/guides/ai-api-user-manual.md):
 
 ```bash
-cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
-bash scripts/prepare-ai-stack.sh --start
+bash scripts/prepare-ai-stack.sh --init-env   # fill in missing keys in both .env files
+bash scripts/prepare-ai-stack.sh --start      # generate the LiteLLM config, create its database, issue the service key, start everything
 ```
 
 For production deployment (platform entry, HTTPS, LDAP, CI) see [`website/guides/deployment.md`](website/guides/deployment.md).
@@ -113,9 +135,8 @@ Backend:
 
 ```bash
 cd backend
-uv sync
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-fastapi dev app/main.py
+uv sync                            # the virtual environment is created in the repository root (.venv)
+uv run fastapi dev app/main.py     # http://localhost:8000, Swagger UI at /docs
 ```
 
 Frontend:
@@ -132,25 +153,26 @@ See [`website/guides/development.md`](website/guides/development.md) for the ful
 
 ## Database migrations
 
-Schema changes are managed with Alembic. Every change to `backend/app/models/` needs a migration:
+Schema changes are managed with Alembic. Every change to `backend/app/models/` needs a migration. Generate it on the host: the backend container has no source mount, so a file written there never reaches your checkout.
 
 ```bash
-docker compose exec backend bash
-alembic revision --autogenerate -m "Describe the change"
-alembic upgrade head
+cd backend
+export POSTGRES_SERVER=localhost POSTGRES_PORT=5433   # the db container's host port (POSTGRES_HOST_PORT)
+uv run alembic revision --autogenerate -m "Describe the change"
+uv run alembic upgrade head
 ```
 
-`scripts/prestart.sh` runs `alembic upgrade head` automatically when the container starts.
+The `prestart` container runs `alembic upgrade head` automatically when the stack starts.
 
 ## Tests
 
-- **Backend:** `bash ./scripts/test.sh` from `backend/` (pytest; coverage report in `backend/htmlcov/`), or `docker compose exec backend bash scripts/tests-start.sh -x` inside the running stack
+- **Backend:** `uv run bash ./scripts/test.sh` from `backend/` (pytest; coverage report in `backend/htmlcov/`). The tests are not part of the backend image, so they run on the host, not inside the container.
 - **Frontend:** `bun run test` from `frontend/` (Vitest)
 - **CI:** GitHub Actions runs backend tests, frontend tests, desktop client tests, AI service tests, a migration check and CodeQL
 
 ## Proxmox configuration
 
-Proxmox connections are **not** configured in `.env`. Enter them in the setup wizard on first install, then add, edit or sync them on the "PVE Connections" page; credentials are encrypted and stored in the database. Several PVE entry points (standalone nodes or clusters) can be attached at once, and hosts inside a cluster fail over automatically (TCP ping).
+Proxmox connections are **not** configured in `.env`. Enter them in the setup wizard on first install, then add, edit or sync them on the "PVE Management" page; credentials are encrypted and stored in the database. Several PVE entry points (standalone nodes or clusters) can be attached at once, and hosts inside a cluster fail over automatically (TCP ping).
 
 ## Documentation
 

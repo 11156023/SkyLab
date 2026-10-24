@@ -4,23 +4,18 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import ResourcesPage from "./ResourcesPage";
+import { withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   listMySessions: vi.fn(),
-  fetchPendingResources: vi.fn(),
+  listRequests: vi.fn(),
   t: (key) => key,
 }));
 
 vi.mock("../../../services/resources", () => ({ ResourcesService: { list: mocks.list } }));
 vi.mock("../../../services/quickPractice", () => ({ QuickPracticeService: { listMySessions: mocks.listMySessions } }));
-vi.mock("../../../services/pendingResources", () => ({
-  PENDING_IDLE_POLL_INTERVAL: 60_000,
-  PENDING_POLL_INTERVAL: 5_000,
-  cancelVmRequest: vi.fn(),
-  fetchPendingResources: mocks.fetchPendingResources,
-  pendingSignature: () => "",
-}));
+vi.mock("../../../services/vmRequests", () => ({ VmRequestsService: { list: mocks.listRequests } }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
@@ -28,7 +23,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "u1", role: "student" } }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }) }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => vi.fn() }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/QuotaUsageBar/QuotaUsageBar", () => ({ default: () => null }));
@@ -39,6 +33,8 @@ let host;
 
 async function flush() {
   await act(async () => {
+    /* TanStack Query 以 macrotask 批次通知，先等一個 timer tick */
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
 }
@@ -47,7 +43,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mocks.listMySessions.mockResolvedValue([]);
-  mocks.fetchPendingResources.mockResolvedValue([]);
+  mocks.listRequests.mockResolvedValue({ data: [] });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -66,7 +62,7 @@ describe("ResourcesPage expiry column", () => {
       mocks.list.mockResolvedValue([{
         vmid: 101, name: "my-vm", type: "qemu", status: "stopped", request_id: 1, expiry_date: "2026-10-15",
       }]);
-      await act(async () => { root.render(<ResourcesPage />); });
+      await act(async () => { root.render(withQueryClient(<ResourcesPage />)); });
       await flush();
 
       const row = [...host.querySelectorAll("tr")].find((tr) => tr.textContent.includes("my-vm"));

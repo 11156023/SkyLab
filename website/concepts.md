@@ -33,11 +33,11 @@ flowchart LR
 
 ## How a request becomes a machine
 
-1. A student fills in a **VM request**: template, size, time window, login password. Quotas cap the form; the password is stored only as a hash.
+1. A student fills in a **VM request**: template, size, time window, login password. Quotas cap the form; the password is kept only as a hash (Windows excepted, see [Where data lives](#where-data-lives)).
 2. A reviewer approves it. SkyLab checks GPU and capacity for the requested window before it accepts the approval.
 3. The **scheduler** (a 60-second loop in the backend) notices that the window has started and enqueues a provisioning job. The job id is unique per request, so a request is never built twice.
 4. The **worker** clones the platform template on the chosen node, allocates a static IP from the IP subnet, writes user, password hash and network into cloud-init, applies the firewall rules and starts the guest. Concurrency is limited by the governance configuration.
-5. The machine appears under **My resources** with its login user, console, snapshots and backups. At the end of the window, or when the TTL expires, governance stops or reclaims it.
+5. The machine appears under **My Resources** with its login user, console, snapshots and backups. At the end of the window, or when the TTL expires, governance stops or reclaims it.
 
 Teaching classes and multi-machine environments go through the same worker in batches; a batch task record tracks every machine.
 
@@ -57,7 +57,7 @@ Authentication can be local password, Google, or LDAP / Active Directory. Two-st
 | --- | --- |
 | **Resource** | A VM or LXC container managed by SkyLab. Identified by its PVE `vmid`; carries an owner, an expiry date, a login user and a source badge (personal, shared, teaching class, quick practice or course). |
 | **Platform template** | A VM or container marked as a template in SkyLab's database. It is not converted on the PVE side (thick-provisioned LVM cannot hold PVE templates); SkyLab protects the source machine and full-clones it. Whether the login password can be set depends on cloud-init being present in the image. |
-| **PVE connection** | One Proxmox API endpoint: a standalone node or a cluster. Pool, storages, bridge, default node and the gateway of the machine subnet are configured per connection. Clones never cross connections. |
+| **PVE connection** | One Proxmox API endpoint: a standalone node or a cluster. Pool, storages, default node, gateway IP and local subnet are configured per connection; the PVE bridge belongs to the IP subnet. Clones never cross connections. |
 | **IP subnet** | The range from which static addresses are allocated. CIDR, gateway and DNS always come from the IP management service; there is no silent fallback to DHCP. |
 | **VM request** | A student's application for a machine with a time window. Approval reserves capacity; the scheduler provisions at the start of the window. Extending the expiry also extends the approved window. |
 | **Spec change request** | A request to resize or extend an existing machine. Pending increments count against the quota. |
@@ -68,9 +68,9 @@ Authentication can be local password, Google, or LDAP / Active Directory. Two-st
 | **Gateway VM** | The campus egress host managed by SkyLab over SSH. Provides WireGuard access, port forwarding, domain reverse proxy and the platform entry. |
 | **Platform entry** | SkyLab itself exposed on a domain through the gateway's nginx with an administrator-supplied certificate; optionally proxied through Cloudflare. |
 | **Firewall topology** | The per-machine and per-class rules SkyLab applies on PVE, visualised as a graph. Teachers see their students' machines; students see their own. |
-| **Governance configuration** | One settings object controlling TTL reclamation, idle detection, resource alerts, mining detection, auto-stop and provisioning concurrency. |
-| **Quota** | Limits on CPU, memory, disk and machine count per user or per role. Request forms are capped by the remaining quota. |
-| **Job** | A task record for background work (clone, batch provisioning, reset, deletion) shown on the Jobs page and pushed live over WebSocket and Web Push. |
+| **Governance configuration** | One settings object controlling TTL reclamation, idle detection, resource alerts, mining detection, provisioning concurrency and snapshot and backup limits. See [Governance configuration](/reference/governance-config). |
+| **Quota** | Limits on CPU, memory, disk and machine count: a global default with per-user overrides. Request forms are capped by the remaining quota. |
+| **Job** | A task record for background work (clone, batch provisioning, reset, deletion) shown on the Background Jobs page and pushed live over WebSocket and Web Push. |
 | **AI API credential** | A `ccai_*` key requested by a user and approved by an administrator. Requests to `/api/v1/ai-proxy/*` are forwarded to a restricted LiteLLM service key with sliding-window rate limits. |
 | **SkyLab Connect** | The Electron desktop client that logs a device in and opens a WireGuard tunnel to the gateway so that machines on the lab network are reachable from anywhere. |
 
@@ -78,7 +78,7 @@ Authentication can be local password, Google, or LDAP / Active Directory. Two-st
 
 The backend runs three loops under a PostgreSQL advisory lock, so with several replicas only one process runs each loop:
 
-- **Scheduler** (every 60 seconds): request start and stop, auto-stop, the deletion queue, resource alerts, TTL lifecycle, idle detection, mining detection and system health alerts.
+- **Scheduler** (every 60 seconds): request start and stop, scheduled boot and auto-stop, the deletion queue, quick practice lifecycle, resource alerts, TTL lifecycle, idle detection, mining detection, snapshot cleanup and system health alerts.
 - **Web Push notifier**: delivers task notifications to the browsers of the task owner.
 - **WireGuard reconciler**: keeps the peers on the gateway in step with the database.
 
@@ -90,7 +90,7 @@ Long operations (template conversion, cloning, batch provisioning, one-click res
 | --- | --- |
 | Users, requests, resources, classes, courses, firewall rules, audit log, settings | PostgreSQL |
 | PVE, LDAP and gateway credentials, TOTP secrets, system-generated machine passwords | PostgreSQL, encrypted with a key derived from `SECRET_KEY` |
-| User-chosen machine passwords | Only as a SHA-512 crypt hash; they cannot be shown again, only reset |
+| User-chosen machine passwords | Only as a SHA-512 crypt hash; they cannot be shown again, only reset. For Windows the password is held encrypted until the machine is built, then cleared |
 | Rate limits, revoked tokens, queue, heartbeats | Redis |
 | Machine disks, snapshots, backups | Proxmox VE storage |
 | Metrics and logs (optional) | Prometheus, Loki and InfluxDB in the monitoring profile |

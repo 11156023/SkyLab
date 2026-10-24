@@ -25,11 +25,15 @@ AI Check helps a teacher check assignments on every student's class machines: yo
 
 You can drag the borders between the columns to resize them; the widths are remembered in your browser.
 
+![Find your way around the page](/manual-shots/en/ai-judge/s01.webp)
+
 ### Create this week's check
 
 1. Click a week in the left column.
 2. If it has no check yet, click **Create this week's check**. Each week has exactly one check.
 3. The **Task settings** tab opens with an empty checklist.
+
+![Create this week's check (numbers match the steps above)](/manual-shots/en/ai-judge/s02.webp)
 
 ### Ask the assistant for check items
 
@@ -39,6 +43,8 @@ You can drag the borders between the columns to resize them; the widths are reme
 4. The assistant replies in the chat. When information that only you know is missing (the machine, a file location, a service name, the pass condition), it asks instead of guessing. Answer in the chat.
 5. When the request is complete, a proposal appears above the checklist.
 
+![Ask the assistant for check items (numbers match the steps above)](/manual-shots/en/ai-judge/s03.webp)
+
 ### Apply or ignore a proposal
 
 1. The **AI proposal** box shows how many items are ready and how many are selected. Each row says the item will be added or changed, and may show a preview of the command.
@@ -47,6 +53,8 @@ You can drag the borders between the columns to resize them; the widths are reme
 4. Or click **Ignore** and confirm. Nothing from the proposal is applied; you need to ask the AI again to get a new one.
 
 You must apply or ignore the current proposal before you can build scripts.
+
+![Apply or ignore a proposal (numbers match the steps above)](/manual-shots/en/ai-judge/s04.webp)
 
 ### Read and adjust the checklist
 
@@ -66,6 +74,8 @@ An item whose badge shows **Missing info** with a **Needs update** tag has check
 
 Checklist changes are saved automatically. If a save fails, a **Not saved** banner appears with the reason and a **Retry save** button; your edits stay on screen. Until the save succeeds, messages are not sent to the assistant.
 
+![Read and adjust the checklist](/manual-shots/en/ai-judge/s05.webp)
+
 ### Build the check scripts
 
 1. Click **Build scripts** under the checklist. The button goes through **Saving…**, **Reviewing items…** and **Building scripts…**.
@@ -74,6 +84,8 @@ Checklist changes are saved automatically. If a save fails, a **Not saved** bann
 4. If something is still missing or cannot be collected safely, building stops. The notice and the chat explain what is missing; an **AI review proposal** may appear with suggested changes. Apply them, add the missing details in the chat, and click **Build scripts** again.
 
 The button looks dimmed while a proposal is waiting or the checklist is empty; clicking it tells you what to do first.
+
+![Build the check scripts (numbers match the steps above)](/manual-shots/en/ai-judge/s06.webp)
 
 ### Run the checks
 
@@ -85,6 +97,8 @@ The button looks dimmed while a proposal is waiting or the checklist is empty; c
 3. While the run is in progress, each machine shows its status (**Waiting**, **Running**, **Completed**, **Failed**, **Cancelled**), **Preparing machines…** at first, and how many steps are done.
 4. Only one run per week can be in progress. If the page could not confirm that a run was accepted, it shows a notice and reconnects to the run by itself; **Confirm this run again** retries the same run without starting another one.
 
+![Run the checks (numbers match the steps above)](/manual-shots/en/ai-judge/s07.webp)
+
 ### Review the results
 
 1. The summary shows how many students **Marked done** and the **Check results**: passed, failed, execution errors and items still to confirm.
@@ -94,11 +108,15 @@ The button looks dimmed while a proposal is waiting or the checklist is empty; c
 5. For a check marked **Awaiting teacher review** or **Needs attention**, click **Passed** or **Failed**. Click **View raw evidence** to see the collected output.
 6. If a machine was off, it shows **Error: powered off**; turn it on and run the check again. Other execution errors (SSH connection, host environment, timeout, result transfer) are shown separately from the student's grade, with a hint on what to check.
 
+![Review the results (numbers match the steps above)](/manual-shots/en/ai-judge/s08.webp)
+
 ### Reply to a student and save
 
 1. Under the student's results, type **This week's reply to the student** (optional). The student sees it on this week's page.
 2. Click **Save** (or press Ctrl+Enter in the reply box). Your pass/fail decisions and the reply for that student are saved together.
 3. If new results arrive while you have unsaved decisions, a notice asks you to save first; **Discard unsaved reviews and load** drops the drafts and loads the new results.
+
+![Reply to a student and save (numbers match the steps above)](/manual-shots/en/ai-judge/s09.webp)
 
 ### Move, copy or delete a week's check
 
@@ -109,10 +127,14 @@ The button looks dimmed while a proposal is waiting or the checklist is empty; c
    - **Delete** — confirm. The check, its scripts and its results are deleted and cannot be restored.
 3. Moving and copying are disabled when every week already has a check.
 
+![Move, copy or delete a week's check (numbers match the steps above)](/manual-shots/en/ai-judge/s10.webp)
+
 ### Clear the conversation or view the source file
 
 - Click **Clear chat** in the assistant header and confirm **Clear the conversation?** to remove the conversation, pending attachments and unapplied proposals. The checklist is not affected.
 - When the checklist was created from an uploaded rubric file, a **Sources** button appears in the assistant header; it lets you download the original file.
+
+![Clear the conversation or view the source file](/manual-shots/en/ai-judge/s11.webp)
 
 ## Fields and options
 

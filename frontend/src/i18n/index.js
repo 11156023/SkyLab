@@ -18,7 +18,6 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
 import commonZhTW from "../locales/zh-TW/common.json";
-import landingZhTW from "../locales/zh-TW/landing.json";
 import componentsZhTW from "../locales/zh-TW/components.json";
 import servicesZhTW from "../locales/zh-TW/services.json";
 import loginZhTW from "../locales/zh-TW/login.json";
@@ -35,7 +34,6 @@ export const LANGUAGE_STORAGE_KEY = "skylab.lang";
 
 export const NAMESPACES = [
   "common",
-  "landing",
   "components",
   "services",
   "login",
@@ -82,7 +80,6 @@ export const i18nReady = i18n.use(lazyLocaleBackend).use(initReactI18next).init(
   resources: {
     "zh-TW": {
       common: commonZhTW,
-      landing: landingZhTW,
       components: componentsZhTW,
       services: servicesZhTW,
       login: loginZhTW,

@@ -16,11 +16,15 @@ The **Background Jobs** button with the bell icon in the sidebar is a quick view
 2. Each row shows **Task** (the task name with its ID underneath), **Type**, **Status**, **Progress**, **Created At**, **Updated At** and **Applicant**.
 3. The three cards at the top, **In Progress**, **Completed** and **Failed**, are counted from the list as it is currently filtered (each card says "Current filter"), not from the whole site.
 
+![Follow your tasks (numbers match the steps above)](/manual-shots/en/jobs/s01.webp)
+
 ### Filter the list
 
 1. Use the type bar to show one kind of task: **All Types**, **VM Request**, **Spec Change**, **Deletion**, **Template**, **Reset**, **Batch provisioning**, **Backup** or **Restore backup**.
 2. Use the status bar to show one state: **All Statuses**, **In Progress**, **Pending**, **Running**, **Completed**, **Failed**, **Blocked** or **Cancelled**. **In Progress** covers Pending, Running and Blocked.
 3. If nothing matches, the page says "No tasks match the filter"; click **Clear filters** to go back to all tasks.
+
+![Filter the list (numbers match the steps above)](/manual-shots/en/jobs/s02.webp)
 
 ### Open the details of a task
 
@@ -30,6 +34,8 @@ The **Background Jobs** button with the bell icon in the sidebar is a quick view
 4. **Message** shows the latest message from the task, **Details** lists the task's own fields (for example node, name, requested CPU and memory, expiry date), **Error** shows the error output of a failed task and **Output** shows its output.
 5. While the task is still pending, running or blocked, the dialog refreshes every 3 seconds. Close it with the close button.
 
+![Open the details of a task (numbers match the steps above)](/manual-shots/en/jobs/s03.webp)
+
 ### Use the quick view in the sidebar
 
 1. Click **Background Jobs** (bell icon) near the bottom of the sidebar. The count badge adds up running tasks and unread reminders.
@@ -37,12 +43,16 @@ The **Background Jobs** button with the bell icon in the sidebar is a quick view
 3. The **Reminders** tab lists machine expirations, review results and upcoming class tasks. Click a reminder to open the related page, or **Mark all as read**.
 4. **View all jobs and history** opens this page.
 
+![Use the quick view in the sidebar (numbers match the steps above)](/manual-shots/en/jobs/s04.webp)
+
 ### Turn on desktop notifications
 
 1. In the sidebar quick view, click the settings icon (**Notification settings**).
 2. Tick **Desktop notifications** and allow notifications when the browser asks. When this tab is in the background, finished jobs and new reminders then appear as system notifications.
 3. Read the line under the switch. "Background push is on" means you are notified even after the tab is closed. Other messages explain why only open tabs are notified (the browser does not support it, the server has not enabled background push, or the subscription failed; turn the switch off and on to retry).
 4. Administrators also see **Only notify my jobs**, which stops notifications about other users' tasks.
+
+![Turn on desktop notifications (numbers match the steps above)](/manual-shots/en/jobs/s05.webp)
 
 ## Fields and options
 

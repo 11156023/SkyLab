@@ -20,11 +20,12 @@ SkyLab repo 的所有文件都在本站，位於 repo 的 `website/` 目錄。�
 | [升級與 migration](/zh-TW/operations/upgrade) | 標準升級、migration 狀態、回退、重大變更 |
 | [備份與還原](/zh-TW/operations/backup) | 要備份什麼、資料庫匯出與還原、災難復原 |
 | [環境變數對照表](/zh-TW/operations/environment) | `.env.example` 的每個變數，建置時產生 |
+| [官網](/zh-TW/operations/site) | skylab-tw.com 介紹網站：預渲染、SEO、聯繫方式、Cloudflare Pages 部署 |
 | [系統監控](/zh-TW/guides/monitoring) | 內建健康檢查、心跳與系統告警；選用的 Prometheus／Grafana／Loki／InfluxDB stack；Proxmox Metric Server、閘道與 AI 監控 |
 | [註冊設定與 Google 登入](/zh-TW/guides/registration-and-google-login) | 自助註冊與管理員審核開關、Google 登入與 Google Cloud 的「Audience」設定 |
 | [AI API 使用與部署手冊](/zh-TW/guides/ai-api-user-manual) | LiteLLM 部署、模型路由、金鑰、接管獨立閘道、呼叫對外 AI API |
 | [WireGuard 與 SkyLab Connect](/zh-TW/guides/wireguard-desktop-architecture) | 桌面端到閘道 VM 的 WireGuard 隧道、ACL、閘道安裝 |
-| [vLLM 服務](/zh-TW/guides/vllm-service)、[專案總覽](/zh-TW/guides/vllm-project-overview)、[ShareGPT 基準測試](/zh-TW/guides/vllm-sharegpt-quickstart)、[LiteLLM 閘道](/guides/litellm)（僅英文） | 自架模型服務與對外的閘道 |
+| [vLLM 服務](/zh-TW/guides/vllm-service)、[ShareGPT 基準測試](/zh-TW/guides/vllm-sharegpt-quickstart)、[LiteLLM 閘道](/zh-TW/guides/litellm) | 自架模型服務與對外的閘道 |
 
 ## 參考
 
@@ -51,26 +52,15 @@ SkyLab repo 的所有文件都在本站，位於 repo 的 `website/` 目錄。�
 
 | 頁面 | 內容 |
 | --- | --- |
-| [多機教學環境 SOP](/zh-TW/guides/multi-machine-environment-sop) | 建構、發布與使用多機教學環境的正式 SOP（v1.0，2026-08-31） |
+| [多機教學環境 SOP](/zh-TW/guides/multi-machine-environment-sop) | 建構、發布與使用多機教學環境的正式 SOP |
 | [導覽 AI 與教學流程](/zh-TW/guides/ai-navigation-teaching-workflows) | 建班與環境編輯精靈中導覽 AI 的設計筆記 |
 | [AI 導師檢查流程與不可破壞契約](/zh-TW/guides/ai-teacher-judge-contract)（僅中文） | 提案、AI 編輯、全表核對、保存與腳本編譯的標準流程 |
-| [頁面導覽文案盤點](/zh-TW/guides/user-guide-content-audit)（僅中文） | 應用內頁面導覽文案的盤點與改寫 |
-
-## 歷史報告
-
-特定日期寫的報告。當歷史看，不是現行規格；只保留原文語言。
-
-| 頁面 | 內容 |
-| --- | --- |
-| [2026-09-09 UI 一致性稽核](/guides/archive/2026-09-09-ui-consistency-audit)（英文） | 28 項 UI 一致性與可用性發現，含根因與估時 |
-| [2026-10-03 AI API 併發分析](/guides/archive/2026-10-03-ai-api-concurrency-analysis)（英文） | AI API 併發事故的根因分析與修復計畫 |
-| [2026-10-06 AI 頁面導覽](/guides/archive/2026-10-06-ai-page-guide) | 擴充 AI 助手的頁面導覽與對話框說明 |
-| [SkyLab Connect 介面提案](/guides/archive/skylab-connect-ui-proposal) | 桌面端最初的互動設計提案 |
+| [頁面導覽文案盤點](/zh-TW/guides/user-guide-content-audit)（僅中文） | 應用內頁面導覽文案的改寫建議（尚未套用） |
 
 ## 撰寫文件的慣例
 
 - 先寫英文頁（`website/<section>/<name>.md`），再在 `website/zh-TW/` 的同一路徑放繁體中文頁，逐句翻譯；只有單一語言的頁面在側欄標示。
-- 檔名用純描述、不加日期前綴；有日期的報告放 `guides/archive/`。
+- 檔名用純描述、不加日期前綴。一次性的報告或稽核處理完就從網站移除，原文留在 git 歷史。
 - 程式註解與設定檔（`.env.example`、`docker-compose.yml`、Prometheus 設定）以 repo 路徑連到英文檔，例如 `website/guides/monitoring.md`。
 - 指令、路徑、變數名稱與表格在兩種語言中保持一致。
 - 新頁面要在 `website/.vitepress/config.mts` 的側欄加項目，兩種語言都要。

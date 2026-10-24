@@ -18,10 +18,10 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import {
-  getTopology,
   deleteConnection,
   saveLayout,
 } from "../../../services/firewall";
+import { useFirewallCacheUpdater, useFirewallTopologyQuery } from "../../../queries/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
 import EmptyState       from "../../../components/EmptyState/EmptyState";
 import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDialog";
@@ -42,10 +42,10 @@ import {
   listGroupKeys,
 } from "./utils/grouping";
 import { useTheme } from "../../../contexts/ThemeContext";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "./FirewallPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -63,6 +63,8 @@ const NODE_TYPES = { gateway: GatewayNode, vm: VMNode, vmGroup: GroupNode };
 const FIT_PADDING = { top: "104px", bottom: "120px", x: "48px" };
 /* 篩到只剩一兩台時不要放大到比原尺寸大太多 */
 const FIT_MAX_ZOOM = 1.1;
+/* 右上篩選列與左上工具列之間至少要留的距離 */
+const FILTER_PANEL_GAP = 12;
 
 /* 分組模式的群組框／網際網路節點位置：自動排好的版面只是預設，
    使用者拖過的位置存在瀏覽器本機（後端只存單機位置，分組框是純前端的檢視） */
@@ -99,9 +101,21 @@ export default function FirewallPage() {
   const confirm = useConfirm();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [topology,     setTopology]     = useState(null);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState("");
+  /* 拓撲走 TanStack Query：背景 30 秒刷新、分頁隱藏時暫停；刪線、改規則後 refetch 會取消在途的舊請求，
+     舊拓撲（例如已刪的線）不會蓋回來。只有「還沒有任何拓撲」時才顯示 spinner／錯誤畫面，
+     背景刷新失敗沿用上一份（原本就是靜默），首載失敗後按重試會回到 spinner */
+  const topologyQuery = useFirewallTopologyQuery();
+  const topology = topologyQuery.data ?? null;
+  /* 錯誤畫面在背景重試期間不閃回 spinner（見 useQueryView） */
+  const topologyLoad = useQueryView(topologyQuery);
+  const loading = topologyLoad.loading;
+  const error = topologyLoad.error
+    ? (topologyLoad.error?.message ?? t("FirewallPage.loadTopologyFailed"))
+    : "";
+  /* 連線增刪後不只重抓拓撲：受管規則會插進兩端機器的規則表，後面的位置跟著位移。各機器的規則快取也要
+     標成過期，否則之後打開規則面板會先顯示舊清單，依位置的停用／刪除可能打到別條規則 */
+  const firewallCache = useFirewallCacheUpdater();
+  const refreshTopology = () => firewallCache.invalidate();
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null); // { id, edge }
   const [showDialog,   setShowDialog]   = useState(false);
@@ -111,10 +125,29 @@ export default function FirewallPage() {
   /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
   const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
+  /* 篩選列放不放得進右上角要看實際寬度：工具列與篩選列的字串長度隨語言變（英文工具列比中文寬近 200px），
+     固定的 container query 門檻在 1440 寬的英文畫面會讓搜尋框蓋住 Mini Map／Exposed only */
+  const [flowWrapEl, setFlowWrapEl] = useState(null);
+  const [toolbarEl, setToolbarEl] = useState(null);
+  const [filterBarEl, setFilterBarEl] = useState(null);
+  const [filterCramped, setFilterCramped] = useState(false);
   /* 上網線（機器 → 網際網路的出站線）預設隱藏：幾乎每台機器都有一條，
      全畫出來會蓋掉內部互通與對外開放；對外開放是暴露面，不藏 */
   const [showInternet, setShowInternet] = useState(false);
   const [connecting,   setConnecting]   = useState(false);
+  useEffect(() => {
+    if (!flowWrapEl || !toolbarEl || !filterBarEl || typeof ResizeObserver === "undefined") return undefined;
+    const check = () => {
+      const wrap = flowWrapEl.getBoundingClientRect();
+      /* 工具列右緣＋間距＋篩選列寬＋右側留白（react-flow panel 的 15px 外距）超過畫布寬就排到工具列下方 */
+      const needed = toolbarEl.getBoundingClientRect().right - wrap.left + FILTER_PANEL_GAP + filterBarEl.getBoundingClientRect().width + 15;
+      setFilterCramped(needed > wrap.width);
+    };
+    check();
+    const observer = new ResizeObserver(check);
+    [flowWrapEl, toolbarEl, filterBarEl].forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [flowWrapEl, toolbarEl, filterBarEl]);
   const connDialog    = useDialogPresence(showDialog);
   /* 關閉細項面板時先播 0.22s 滑出動畫再卸載，時長需與 SCSS 的 panelOut 一致 */
   const rulesPanel    = useDialogPresence(selectedNode, 220);
@@ -207,39 +240,6 @@ export default function FirewallPage() {
     }
   }, [showInternet]);
 
-  /* 只採用最後一次發出的拓撲請求：刪除連線、改規則前送出的背景刷新若比之後的重新載入晚回來，
-     舊拓撲（例如已刪的線）不能蓋回去。前景載入被背景刷新超車時，由最新那次接手收 loading／
-     顯示錯誤，首次載入失敗不會被吞掉 */
-  const fetchSeqRef = useRef(0);
-  const foregroundPendingRef = useRef(false);
-
-  /* ── 載入拓撲（silent = true 時不觸發 loading、失敗也不設 error，供背景自動刷新使用） ── */
-  const fetchTopology = useCallback(async (silent = false, signal) => {
-    const seq = ++fetchSeqRef.current;
-    const isLatest = () => seq === fetchSeqRef.current;
-    if (!silent) {
-      foregroundPendingRef.current = true;
-      setLoading(true);
-      setError("");
-    }
-    try {
-      const data = await getTopology({ signal });
-      if (!isLatest()) return;
-      setTopology(data ?? { nodes: [], edges: [] });
-      /* 背景刷新成功也要清掉先前的錯誤，否則首次載入失敗後錯誤畫面會一直留著 */
-      setError("");
-    } catch (err) {
-      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
-        setError(err?.message ?? t("FirewallPage.loadTopologyFailed"));
-      }
-    } finally {
-      if (isLatest() && foregroundPendingRef.current && !signal?.aborted) {
-        foregroundPendingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, [t]);
-
   useEffect(() => {
     if (!topology) return;
     const flow = buildFlow(topology, {
@@ -291,13 +291,6 @@ export default function FirewallPage() {
     pendingFitRef.current = false;
     rfInstance.current?.fitView({ padding: FIT_PADDING, maxZoom: FIT_MAX_ZOOM, duration: 250 });
   }, [nodes]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchTopology(false, controller.signal);
-    return () => controller.abort();
-  }, [fetchTopology]);
-  useAutoRefresh(() => fetchTopology(true));
 
   /* ── 自動排列 ── */
   const autoArrange = useCallback(() => {
@@ -429,7 +422,7 @@ export default function FirewallPage() {
   /* ── 對話框送出成功（連線或自訂規則都由對話框自己呼叫 API）── */
   const handleDialogDone = () => {
     setShowDialog(false);
-    fetchTopology();
+    refreshTopology();
   };
 
   /* ── 刪除邊：先確認再送出；送出期間上鎖，連按兩下不會送兩筆 ── */
@@ -454,7 +447,7 @@ export default function FirewallPage() {
         ports: null,
       });
       setSelectedEdge(null);
-      fetchTopology();
+      refreshTopology();
     } catch (err) {
       toast.error(err?.message ?? t("FirewallPage.deleteFailed"));
     } finally {
@@ -494,8 +487,8 @@ export default function FirewallPage() {
           <div className={styles.centerState}>
             <MIcon name="error_outline" size={36} />
             <span>{error}</span>
-            {/* 不能直接綁 fetchTopology：MouseEvent 會被當成 silent=true，error 永遠清不掉 */}
-            <button type="button" className={styles.btnSecondary} onClick={() => fetchTopology()}>
+            {/* 不直接綁 refetch：它會把 MouseEvent 當成選項物件 */}
+            <button type="button" className={styles.btnSecondary} onClick={() => topologyLoad.retry()}>
               {t("FirewallPage.retry")}
             </button>
           </div>
@@ -503,6 +496,7 @@ export default function FirewallPage() {
 
         {contentView === "graph" && (
           <div
+            ref={setFlowWrapEl}
             className={`${styles.flowWrap} ${connecting || guideActive ? styles.connecting : ""}`}
             data-guide="firewall-map"
           >
@@ -549,7 +543,7 @@ export default function FirewallPage() {
 
 
               <Panel position="top-left">
-                <div className={styles.toolbarStack}>
+                <div className={styles.toolbarStack} ref={setToolbarEl}>
                   <div className={styles.toolbar} data-guide="firewall-tools">
                     <button
                       type="button"
@@ -613,10 +607,10 @@ export default function FirewallPage() {
                   篩選列改排到工具列下方（往左讓位會跟工具列撞在一起） */}
               <Panel
                 position="top-right"
-                className={`${styles.filterPanel} ${rulesPanel.open ? styles.filterPanelBelow : ""}`}
+                className={`${styles.filterPanel} ${rulesPanel.open || filterCramped ? styles.filterPanelBelow : ""}`}
               >
                 {/* 篩選列：搜尋名稱／IP、只看某個群組，兩個控制項各自成框 */}
-                <div className={styles.filterBar} role="search">
+                <div className={styles.filterBar} role="search" ref={setFilterBarEl}>
                   <label className={styles.filterSearch}>
                     <MIcon name="search" size={16} />
                     <input
@@ -708,7 +702,7 @@ export default function FirewallPage() {
                 canManage={canManageNode(rulesPanel.item.data)}
                 closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
-                onChanged={() => fetchTopology(true)}
+                onChanged={() => refreshTopology()}
               />
             )}
 
@@ -733,7 +727,7 @@ export default function FirewallPage() {
           initialSource={dialogPreset?.source}
           initialTarget={dialogPreset?.target}
           onDone={handleDialogDone}
-          onChanged={() => fetchTopology(true)}
+          onChanged={() => refreshTopology()}
           onClose={() => setShowDialog(false)}
           closing={connDialog.closing}
         />

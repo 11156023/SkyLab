@@ -4,7 +4,7 @@
  * 執行中每 10 秒更新即時用量）＋ 環境資訊、連線與憑證、來源範本的使用手冊。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../../contexts/AuthContext";
 import styles from "./ResourceDetailPage.module.scss";
@@ -20,9 +20,15 @@ import { daysUntil } from "../../dashboard/terminalLines";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
-import useAutoRefresh from "../../../../hooks/useAutoRefresh";
 import { ResourcesService } from "../../../../services/resources";
 import { downloadBlob, isNotFound } from "../../../../services/api";
+import {
+  useCurrentStatsQuery,
+  useLoadError,
+  useResourceQuery,
+  useSshKeyQuery,
+  useTemplateManualQuery,
+} from "../../../../queries/resourceDetail";
 import { useToast } from "../../../../hooks/useToast";
 import { canTeachUser } from "../../../../utils/roles";
 
@@ -46,7 +52,6 @@ const ROLE_KEYS = {
 };
 
 const LIVE_INTERVAL = 10_000;
-const RESOURCE_INTERVAL = 30_000;
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
 export const MASK = "••••••••••••";
@@ -168,75 +173,33 @@ export default function OverviewTab({ vmid, access = null }) {
   /* VMID 是系統內部編號，僅管理員／老師看得到 */
   const showVmid = canTeachUser(user);
 
-  const [resource, setResource] = useState(null);
-  const [live, setLive] = useState(null);
-  const [sshKey, setSshKey] = useState(null);
-  /* 憑證抓不到 ≠ 這台沒有憑證：分開記，才不會把載入失敗講成「無憑證」 */
-  const [sshKeyError, setSshKeyError] = useState(false);
-  const [manual, setManual] = useState(null);
   const [copied, setCopied] = useState("");
   const [downloadingId, setDownloadingId] = useState(null);
-  const [error, setError] = useState(false);
   const copiedTimerRef = useRef(null);
 
   /* 卸載時清掉「已複製」的還原計時器 */
   useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
 
-  useEffect(() => {
-    let cancelled = false;
-    setResource(null);
-    setLive(null);
-    setSshKey(null);
-    setSshKeyError(false);
-    setError(false);
-    ResourcesService.get(vmid)
-      .then((r) => {
-        if (cancelled) return;
-        setResource(r);
-        /* 被分享的使用者拿不到擁有者的憑證（端點只給擁有者），不要去抓，免得顯示成載入錯誤。
-           擁有者一律抓：就算沒有代管的密碼或金鑰，也要顯示登入帳號與密碼的狀態 */
-        if (r.access_role !== "shared") {
-          ResourcesService.getSshKey(vmid)
-            .then((k) => !cancelled && setSshKey(k))
-            .catch(() => !cancelled && setSshKeyError(true));
-        }
-      })
-      .catch((e) => !cancelled && setError(e ?? true));
-    // 來源範本手冊（非克隆機或無附件時 count=0，不顯示區塊）
-    ResourcesService.getTemplateManual(vmid)
-      .then((m) => !cancelled && setManual(m))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [vmid]);
+  /* 狀態、到期、自動關機等會在別處改變：每 30 秒靜默重抓，背景失敗沿用上一筆。
+     從沒載到就失敗時顯示錯誤畫面，之後的輪詢照常重試（期間不閃轉圈圈），成功就自動恢復 */
+  const resourceQuery = useResourceQuery(vmid);
+  const resource = resourceQuery.data ?? null;
+  const { error } = useLoadError(resourceQuery);
 
-  /* 即時用量：一進來先抓一次（拿磁碟容量），之後只在執行中時每 10 秒更新 */
-  const loadLive = useCallback(async () => {
-    try {
-      setLive(await ResourcesService.getCurrentStats(vmid));
-    } catch {
-      /* 下一輪再試 */
-    }
-  }, [vmid]);
+  /* 被分享的使用者拿不到擁有者的憑證（端點只給擁有者），不要去抓，免得顯示成載入錯誤。
+     擁有者一律抓：就算沒有代管的密碼或金鑰，也要顯示登入帳號與密碼的狀態 */
+  const sshKeyQuery = useSshKeyQuery(vmid, { enabled: resource !== null && resource.access_role !== "shared" });
+  const sshKey = sshKeyQuery.data ?? null;
+  /* 憑證抓不到 ≠ 這台沒有憑證：分開記，才不會把載入失敗講成「無憑證」。
+     看 errorUpdateCount 而非 isError：切回視窗重抓時提示不會閃掉 */
+  const sshKeyError = sshKeyQuery.data === undefined && sshKeyQuery.errorUpdateCount > 0;
 
-  useEffect(() => {
-    loadLive();
-  }, [loadLive]);
+  /* 來源範本手冊（非克隆機或無附件時 count=0，不顯示區塊）；查不到就不顯示 */
+  const manual = useTemplateManualQuery(vmid).data ?? null;
 
+  /* 即時用量：一進來先抓一次（拿磁碟容量），之後只在執行中時每 10 秒更新；失敗下一輪再試 */
   const isRunning = resource?.status === "running";
-  useAutoRefresh(() => {
-    if (isRunning) loadLive();
-  }, LIVE_INTERVAL);
-
-  /* 狀態、到期、自動關機等會在別處改變，靜默重抓讓卡片跟得上 */
-  useAutoRefresh(async () => {
-    try {
-      setResource(await ResourcesService.get(vmid));
-    } catch {
-      /* 保留上一筆 */
-    }
-  }, RESOURCE_INTERVAL);
+  const live = useCurrentStatsQuery(vmid, { refetchInterval: isRunning ? LIVE_INTERVAL : false }).data ?? null;
 
   const downloadManual = async (attachment) => {
     setDownloadingId(attachment.id);

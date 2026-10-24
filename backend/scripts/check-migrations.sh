@@ -32,7 +32,7 @@ docker run --rm -d \
   -e POSTGRES_PASSWORD="$DB_PASSWORD" \
   -e POSTGRES_DB="$DB_NAME" \
   -p "$PG_PORT:5432" \
-  postgres:16-alpine >/dev/null
+  postgres:18-alpine >/dev/null
 
 echo "[2/4] waiting for postgres to accept connections"
 # Probe over TCP: during first-run init the image's temporary server listens on

@@ -21,10 +21,12 @@ Every signed-in user: students, teachers and administrators.
 ### Check your quota
 
 1. Look at the **My resource quota** card at the top. It shows four meters: **CPU** (cores), **Memory** (GB), **Disk** (GB) and **Instances**.
-2. Each meter reads "used / limit". When there is no limit it shows "(unlimited)".
+2. Each meter reads "used / limit". When there is no limit (for example for administrators) it shows "(unlimited)".
 3. When any meter reaches 90% it turns red and a hint appears with a **View my requests** link. To get more resources, request a spec change on an existing machine or free up a machine you no longer need.
 
 Only personal machines count toward the quota. Class and course machines do not.
+
+![Check your quota (numbers match the steps above)](/manual-shots/en/my-resources/s01.webp)
 
 ### Read the machine list
 
@@ -39,10 +41,14 @@ Each row is one machine. The columns are:
 7. **Node**: the server the machine runs on.
 8. **Actions**: the console button and the **More actions** (⋮) menu.
 
+![Read the machine list (numbers match the steps above)](/manual-shots/en/my-resources/s02.webp)
+
 ### Open a machine's detail page
 
 1. Click anywhere on the machine's row (not on a button or link).
 2. The [Resource Detail](/manual/resource-detail) page opens at `/my-resources/<vmid>`.
+
+![Open a machine's detail page (numbers match the steps above)](/manual-shots/en/my-resources/s03.webp)
 
 ### Open the console or terminal
 
@@ -51,6 +57,8 @@ Each row is one machine. The columns are:
 3. A terminal or a remote desktop window opens over the page. Close it with the × in its title bar.
 
 The button is disabled while the machine is starting ("The console will be available once it finishes booting"), stopped, or outside its approved time window.
+
+![Open the console or terminal (numbers match the steps above)](/manual-shots/en/my-resources/s04.webp)
 
 ### Use the VM console
 
@@ -66,6 +74,8 @@ The **Console — `<name>`** window shows the VM's screen. Its title bar shows *
 
 During a class, if the teacher takes over your screen, an overlay reads "The teacher is taking over this screen" and your keyboard and mouse are disabled until the teacher releases it.
 
+![Use the VM console (numbers match the steps above)](/manual-shots/en/my-resources/s05.webp)
+
 ### Use the container terminal
 
 The **Terminal — `<name>`** window is a shell inside the container.
@@ -74,6 +84,8 @@ The **Terminal — `<name>`** window is a shell inside the container.
 2. The **Clear** button empties the screen; the **Reset** button resets the terminal.
 3. The fullscreen icon works as in the VM console.
 4. If the connection drops, the window shows **Connection Lost**. Close it and open the terminal again.
+
+![Use the container terminal (numbers match the steps above)](/manual-shots/en/my-resources/s06.webp)
 
 ### Power a machine on or off
 
@@ -88,18 +100,24 @@ The **Terminal — `<name>`** window is a shell inside the container.
 
 Prefer **Shutdown** and **Reboot**; the forced actions can lose unsaved data inside the machine.
 
+![Power a machine on or off (numbers match the steps above)](/manual-shots/en/my-resources/s07.webp)
+
 ### Delete a machine
 
 1. Open **More actions** (⋮) and click **Delete**.
 2. Confirm in the dialog. Deletion cannot be undone.
-3. The deletion is queued. You can follow or cancel it on the [Jobs](/manual/jobs) page.
+3. The deletion is queued. You can follow its progress on the [Background Jobs](/manual/jobs) page.
 
 **Delete** is not offered for class machines, for machines shared with you, or for single machines inside a course or quick practice environment.
+
+![Delete a machine (numbers match the steps above)](/manual-shots/en/my-resources/s08.webp)
 
 ### Convert a machine to a template (teachers and administrators)
 
 1. Open **More actions** (⋮) on one of your own personal machines.
 2. Click **Convert to template** and fill in the template dialog. See [Templates](/manual/templates).
+
+![Convert a machine to a template (teachers and administrators) (numbers match the steps above)](/manual-shots/en/my-resources/s09.webp)
 
 ### Follow a request that is being created
 
@@ -113,12 +131,16 @@ A request you submitted appears as a greyed row with the source **Resource Reque
 
 The row shows the requested cores and memory, the start time, and the assigned node (**Not yet assigned** until there is one). To withdraw the request, click **Cancel Request** and confirm. You will need a new request if you change your mind.
 
+![Follow a request that is being created (numbers match the steps above)](/manual-shots/en/my-resources/s10.webp)
+
 ### Retry or remove a machine that failed
 
 A row with **Creation Failed** (the machine could not be created) or **Start failed** (it was created but could not start) has a **More actions** (⋮) menu with two choices:
 
 1. **Rebuild** (creation failed) or **Restart** (start failed): tries again.
 2. **Delete**: removes the failed machine and cancels its request. Submit a new request if you still need one.
+
+![Retry or remove a machine that failed (numbers match the steps above)](/manual-shots/en/my-resources/s11.webp)
 
 ### Work with course and quick practice environments
 
@@ -131,13 +153,19 @@ Machines of a course teaching environment or a quick practice environment are gr
 
 Each machine inside a group has its own **Terminal** / **Console** button and power menu (no **Delete**). Its **Expiry Date** column reads **Managed by environment**. Its IP column may also list a public URL and external ports; "External port `<n>` (ask your teacher for the entry host)" means you connect through that port on the entry host your teacher gives you.
 
+![Work with course and quick practice environments (numbers match the steps above)](/manual-shots/en/my-resources/s12.webp)
+
 ### Download the connection app
 
 Click **Download Connection App** at the top right to download the SkyLab Connect desktop client, which connects your computer to your machines through a secure tunnel.
 
+![Download the connection app](/manual-shots/en/my-resources/s13.webp)
+
 ### Request a new resource
 
 Click **Request Resource** at the top right (or in the middle of the page when the list is empty). It opens the request form on [My Requests](/manual/my-requests).
+
+![Request a new resource](/manual-shots/en/my-resources/s14.webp)
 
 ## Fields and options
 
@@ -162,7 +190,7 @@ Click **Request Resource** at the top right (or in the middle of the page when t
 
 - Your personal machines count toward the quota shown at the top. The instance count also includes requests still waiting for review.
 - **Start** is disabled outside the approved time window of a personal request. The menu explains why: "The time window hasn't started yet" or "The time window has ended, so it can't be started". To keep using a machine whose window has ended, request an expiry extension under **Advanced Settings › Lifecycle** on the detail page, or submit a new request.
-- When a time window ends, the machine is shut down but not deleted. When an expiry date passes, the machine is stopped first and then queued for deletion after a grace period set by the administrator (see [Governance](/manual/governance)).
+- When a time window ends, the machine is shut down but not deleted. When an expiry date passes, the machine is stopped first and then queued for deletion after a grace period set by the administrator (see [Resource Policies](/manual/governance)).
 - Machines shared with you, and machines inside environments, cannot be deleted from this page.
 - Power actions are refused when you are not allowed to control the machine; in that case the **Actions** column only repeats the status.
 
@@ -171,5 +199,5 @@ Click **Request Resource** at the top right (or in the middle of the page when t
 - [Resource Detail](/manual/resource-detail) — everything you can do with one machine
 - [My Requests](/manual/my-requests) — request a new machine and follow its review
 - [Quick Practice](/manual/quick-practice) — start a ready-made practice environment
-- [Jobs](/manual/jobs) — follow or cancel queued deletions and other background jobs
+- [Background Jobs](/manual/jobs) — follow queued deletions and other background jobs
 - [Concepts](/concepts) — VMs, containers, quotas and time windows explained

@@ -19,6 +19,8 @@ Administrators only. Other roles do not see the page in the sidebar.
 2. Choose **Disabled** to see keys that expired, were revoked or were deleted, or **All** to ignore the status.
 3. The number on each tab follows the current search and filters.
 
+![Switch between active and disabled keys (numbers match the steps above)](/manual-shots/en/ai-api-keys/s01.webp)
+
 ### Filter by role and creation time
 
 1. Click **Filter**.
@@ -27,6 +29,8 @@ Administrators only. Other roles do not see the page in the sidebar.
 4. Changes apply immediately. The button shows how many conditions are in effect, for example **Filter 2**.
 5. Click **Clear filters** to remove them. Click outside the panel or press Esc to close it.
 
+![Filter by role and creation time (numbers match the steps above)](/manual-shots/en/ai-api-keys/s02.webp)
+
 ### Find a specific key
 
 1. Type in the search box: a key name, user name, email or key prefix.
@@ -34,9 +38,13 @@ Administrators only. Other roles do not see the page in the sidebar.
 
 If someone reports that a key leaked, search for the prefix they give you to find exactly which key it is.
 
+![Find a specific key (numbers match the steps above)](/manual-shots/en/ai-api-keys/s03.webp)
+
 ### Check how a key is used
 
 Read the **Activity** column. It shows the time of the key's most recent call, or **Never used**. Keys that have been unused for a long time are good candidates for deletion. For call-by-call details, use [AI Usage Monitoring](/manual/ai-monitoring).
+
+![Check how a key is used](/manual-shots/en/ai-api-keys/s04.webp)
 
 ### Delete a key
 
@@ -45,9 +53,13 @@ Read the **Activity** column. It shows the time of the key's most recent call, o
 
 New calls with the key fail immediately and the key disappears from the user's AI API page. Calls already in progress finish, and the management and usage records are kept. This cannot be undone; if the user still needs access, they submit a new request.
 
+![Delete a key (numbers match the steps above)](/manual-shots/en/ai-api-keys/s05.webp)
+
 ### Page through a long list
 
 The list shows 50 keys per page, newest first. When there are more, use **Previous** and **Next** at the bottom; the text next to them shows the current page and the total.
+
+![Page through a long list](/manual-shots/en/ai-api-keys/s06.webp)
 
 ## Fields and options
 

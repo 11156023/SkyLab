@@ -28,6 +28,8 @@ The student side of a class: the list of courses you are enrolled in, one course
 
 If you see **No courses yet**, your teacher has not published a course for a class you belong to.
 
+![Find your course (numbers match the steps above)](/manual-shots/en/courses/s01.webp)
+
 ### Read the course page
 
 The course page has two columns.
@@ -41,12 +43,16 @@ The course page has two columns.
 3. **Your Class Machines** (right, below) lists the machines of this course.
 4. **Back to My Courses** returns to the course list.
 
+![Read the course page (numbers match the steps above)](/manual-shots/en/courses/s02.webp)
+
 ### Mark a week as done
 
 1. In **All Tasks Due Today**, tick the checkbox at the right end of the week row (**Mark week done**).
 2. A message confirms **Weekly task marked complete**. Tick it again to undo it.
 
 Ticking only tells your teacher you have finished; it does not start an AI check and does not change the **checks passed** count. The checkbox appears only on weeks that have tasks to complete.
+
+![Mark a week as done (numbers match the steps above)](/manual-shots/en/courses/s03.webp)
 
 ### Read an AI task's requirements
 
@@ -55,6 +61,8 @@ Some tasks are not attached to a week. Their rows expand in place instead of ope
 1. Click the row to expand it.
 2. Read the **AI Summary of Task Highlights** and the numbered check items.
 3. Each item has a badge that tells you how it will be checked: **AI can suggest checks**, **AI-assisted + teacher confirmation** or **Teacher Confirmation Required**.
+
+![Read an AI task's requirements (numbers match the steps above)](/manual-shots/en/courses/s04.webp)
 
 ### Enter a class machine
 
@@ -67,10 +75,14 @@ Some tasks are not attached to a week. Their rows expand in place instead of ope
 3. If it is still booting after about 90 seconds you see **The machine is still starting up. Please try again shortly.** Click the card again later.
 4. Click the **info** button next to a card to open the machine's full page in [My Resources](/manual/resource-detail).
 
+![Enter a class machine (numbers match the steps above)](/manual-shots/en/courses/s05.webp)
+
 ### Open a week
 
 1. Click a week row in **All Tasks Due Today**, or **Open this week** in **This week**.
 2. The header shows the course name, the week title, the week number and the date. **Back to course** returns to the course page.
+
+![Open a week (numbers match the steps above)](/manual-shots/en/courses/s06.webp)
 
 ### Read check feedback
 
@@ -83,6 +95,8 @@ The **Check feedback** panel shows your latest result for each checkpoint of the
 
 Opening the page only shows results; it does not run a check again.
 
+![Read check feedback (numbers match the steps above)](/manual-shots/en/courses/s07.webp)
+
 ### Use the machines and materials of a week
 
 1. **Class machines** lists all machines available in the course, with role and VMID.
@@ -91,6 +105,8 @@ Opening the page only shows results; it does not run a check again.
    - **URL not published** means the machine has no public URL or port.
    - **Machine and console** opens the machine's page in My Resources.
 2. **Week materials** lists the files for the week. Click a file to open it in a new tab.
+
+![Use the machines and materials of a week (numbers match the steps above)](/manual-shots/en/courses/s08.webp)
 
 ## Fields and options
 

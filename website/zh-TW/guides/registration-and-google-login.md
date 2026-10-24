@@ -1,3 +1,7 @@
+---
+description: "「使用者管理」頁的三個註冊開關（自行註冊、Google 首次登入自動建帳、管理員審核）、開放註冊前的準備，以及如何設定 Google 登入。"
+---
+
 # 註冊設定與 Google 登入
 
 ## 後台的三個註冊開關
@@ -12,15 +16,14 @@
 
 ## 開放註冊前的準備
 
-- 後端必須已設定可寄信的 SMTP，「允許自行註冊」才能啟用；Google 開關沒有這個限制。
-- 正式環境請先設定 Cloudflare Turnstile。
-- 首次部署或更新後先執行資料庫遷移。新增 Google 開關的遷移會把「允許自行註冊」當時的值複製過去，升級不會改變誰能登入。
-- 未曾在後台儲存設定時，「允許自行註冊」的初始值沿用 `.env` 的 `ENABLE_SIGNUP`，Google 開關也從同一個值開始；儲存後以後台設定為準。
+- 後端要能寄信（設好 `SMTP_HOST` 與 `EMAILS_FROM_EMAIL`），「允許自行註冊」才能啟用。不是 `local` 環境時，還要填好兩把 Cloudflare Turnstile 金鑰，而且 SMTP 不能是 `mailcatcher`；`ENABLE_SIGNUP=true` 卻缺這些設定時，後端會拒絕啟動（見[部署指南](/zh-TW/guides/deployment#_2-環境變數)）。Google 開關沒有這些限制。
+- 未曾在後台儲存設定時，「允許自行註冊」的初始值沿用 `.env` 的 `ENABLE_SIGNUP`（上述條件不齊時一律關閉），Google 開關也從同一個值開始；儲存後以後台設定為準。
+- 從還沒有 Google 開關的版本升級時，對應的 migration 會把「允許自行註冊」當時的值複製過去，升級不會改變誰能登入。
 
 ## 設定 Google 登入
 
 1. 在 Google Cloud Console 的 **Google Auth Platform → Clients（用戶端）** 建立或選用 Web application OAuth client，設定網站的 Authorized JavaScript origins。
-2. 將 OAuth **Client ID** 填到 `.env` 的 `GOOGLE_CLIENT_ID`，重新建置前端並重啟後端。這不是 API key，也不需把 Client secret 放到前端。
+2. 將 OAuth **Client ID** 填到 `.env` 的 `GOOGLE_CLIENT_ID`，再重新建置前端並重建後端（`docker compose up -d --build frontend backend`）。這不是 API key，也用不到 Client secret。
 
 後端會驗證 Google ID token 的 audience 與已驗證信箱，但不依學校或教育網域過濾帳號。哪些 Google 帳號可以授權，由 **Google Auth Platform → Audience（目標對象）** 決定：
 

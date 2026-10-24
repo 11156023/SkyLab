@@ -10,6 +10,6 @@
     "test": "bun run --filter frontend test"
   },
   "overrides": {
-    "dompurify": "^3.4.14"
+    "dompurify": "^3.4.17"
   }
 }

@@ -4,18 +4,21 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
+import { withQueryClient } from "../../../queries/testing";
+
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  ban: vi.fn(),
+  confirm: vi.fn(),
   t: (key, params) => (params?.vmid ? `${key}:${params.vmid}` : key),
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
 vi.mock("../../../services/miningIncidents", () => ({
-  MiningIncidentsService: { list: mocks.list, ban: vi.fn(), dismiss: vi.fn() },
+  MiningIncidentsService: { list: mocks.list, ban: mocks.ban, dismiss: vi.fn() },
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
-vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => vi.fn() }));
+vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal(),
   useTranslation: () => ({ t: mocks.t }),
@@ -50,8 +53,18 @@ afterEach(async () => {
 
 async function flush() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
+}
+
+async function renderPanel(props = {}) {
+  await act(async () => root.render(withQueryClient(
+    <MemoryRouter>
+      <MiningIncidentsPanel {...props} />
+    </MemoryRouter>,
+  )));
+  await flush();
 }
 
 test("顯示擁有者並把 VMID 連到資源詳情", async () => {
@@ -60,12 +73,7 @@ test("顯示擁有者並把 VMID 連到資源詳情", async () => {
     { ...BASE, id: "i2", vmid: 30215, owner_email: "s1120001@example.edu", owner_full_name: null },
     { ...BASE, id: "i3", vmid: 20419, owner_email: null, owner_full_name: null },
   ]);
-  await act(async () => root.render(
-    <MemoryRouter>
-      <MiningIncidentsPanel />
-    </MemoryRouter>,
-  ));
-  await flush();
+  await renderPanel();
 
   const rows = [...host.querySelectorAll("tbody tr")];
   const link = rows[0].querySelector("a");
@@ -77,4 +85,33 @@ test("顯示擁有者並把 VMID 連到資源詳情", async () => {
   expect(ownerCell(rows[0])).toBe("王小明s1110001@example.edu");
   expect(ownerCell(rows[1])).toBe("s1120001@example.edu");
   expect(ownerCell(rows[2])).toBe("MiningIncidentsPanel.ownerUnknown");
+});
+
+test("首次就抓不到事件時顯示空狀態並回報 0 筆待處理", async () => {
+  mocks.list.mockRejectedValue(new Error("503"));
+  const onCountChange = vi.fn();
+  await renderPanel({ onCountChange });
+
+  expect(host.textContent).toContain("MiningIncidentsPanel.emptyNone");
+  expect(onCountChange).toHaveBeenLastCalledWith(0);
+});
+
+test("停權後重抓清單，待處理數跟著更新", async () => {
+  mocks.list
+    .mockResolvedValueOnce([{ ...BASE, id: "i1", vmid: 10388, owner_email: null, owner_full_name: null }])
+    .mockResolvedValueOnce([{ ...BASE, id: "i1", vmid: 10388, status: "banned", owner_email: null, owner_full_name: null }]);
+  mocks.confirm.mockResolvedValue(true);
+  mocks.ban.mockResolvedValue({});
+  const onCountChange = vi.fn();
+  await renderPanel({ onCountChange });
+  expect(onCountChange).toHaveBeenLastCalledWith(1);
+
+  const banButton = [...host.querySelectorAll("button")].find((b) => b.textContent.includes("MiningIncidentsPanel.ban"));
+  await act(async () => banButton.click());
+  await flush();
+
+  expect(mocks.ban).toHaveBeenCalledWith("i1");
+  expect(mocks.list).toHaveBeenCalledTimes(2);
+  expect(onCountChange).toHaveBeenLastCalledWith(0);
+  expect(host.textContent).toContain("MiningIncidentsPanel.statusBanned");
 });

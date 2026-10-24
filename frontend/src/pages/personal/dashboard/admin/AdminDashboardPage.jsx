@@ -1,18 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AiPveChat from "../../../../components/AiPveChat/AiPveChat";
 import MIcon from "../../../../components/MIcon";
-import useAutoRefresh from "../../../../hooks/useAutoRefresh";
 import usePveOverview from "../../../../hooks/usePveOverview";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { AiApiService } from "../../../../services/aiApi";
-import { BatchProvisionService } from "../../../../services/batchProvision";
-import { JobsService } from "../../../../services/jobs";
-import { MiningIncidentsService } from "../../../../services/miningIncidents";
-import { MonitoringService } from "../../../../services/monitoring";
-import { SpecChangeRequestsService } from "../../../../services/specChangeRequests";
-import { VmRequestsService } from "../../../../services/vmRequests";
+import { useAllAiRequestsQuery } from "../../../../queries/aiApi";
+import { usePendingBatchProvisionQuery } from "../../../../queries/batchProvision";
+import { useJobsQuery } from "../../../../queries/jobs";
+import { useMiningIncidentsQuery } from "../../../../queries/miningIncidents";
+import { useAlertsQuery } from "../../../../queries/monitoring";
+import { useAllSpecChangeRequestsQuery } from "../../../../queries/specChangeRequests";
+import { useAllVmRequestsQuery } from "../../../../queries/vmRequests";
 import {
   buildFyiStats,
   buildTodayRows,
@@ -36,6 +35,35 @@ export function normalizeAssistantPrompt(value) {
   return String(value ?? "").trim();
 }
 
+/* 待辦來源的查詢參數（模組常數：同一組參數產生同一個 query key） */
+const PENDING_SPEC_PARAMS = Object.freeze({ status: "pending" });
+/* 待審數量交給後端依狀態過濾後回 count；不帶條件只會拿到最新一頁（上限 100），
+   較舊的待審件會被擠出去而漏算 */
+const PENDING_AI_PARAMS = Object.freeze({ status: "pending", limit: 1 });
+const FAILED_JOBS_PARAMS = Object.freeze({ statuses: ["failed", "blocked"], historyDays: 7, limit: 50 });
+const ACTIVE_ALERTS_PARAMS = Object.freeze({ active: true, limit: 100 });
+/* 只算還沒被管理員定奪的事件（detected 待判斷、suspended 已凍結待處置）；
+   由後端依狀態過濾，不在全部事件的前幾筆裡找，才不會漏掉較舊的未結事件 */
+const DETECTED_MINING_PARAMS = Object.freeze({ status: "detected", limit: 1000 });
+const SUSPENDED_MINING_PARAMS = Object.freeze({ status: "suspended", limit: 1000 });
+
+const NO_ALERTS = Object.freeze([]);
+
+function alertRowsOf(response) {
+  if (Array.isArray(response)) return response;
+  return response?.data ?? NO_ALERTS;
+}
+
+/* 待辦來源的狀態不看 isPending／isError：沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，
+   一直失敗的來源會讓待辦區每 30 秒閃回「檢查中」、「資料不完整」也跟著消失。errorUpdateCount 重抓時不會歸零 */
+function neverSettled(query) {
+  return query.data === undefined && query.errorUpdateCount === 0;
+}
+
+function failing(query) {
+  return query.data === undefined ? query.errorUpdateCount > 0 : query.isError;
+}
+
 export default function AdminDashboardPage() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
@@ -46,54 +74,41 @@ export default function AdminDashboardPage() {
   const [conversationPrompt, setConversationPrompt] = useState("");
   /* 放大模式：對話佔滿版面，統計卡與待辦暫時收起來 */
   const [focusMode, setFocusMode] = useState(false);
-  const [checks, setChecks] = useState({ alerts: [], failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, miningIncidents: 0, unavailable: 0 });
-  const [loading, setLoading] = useState(true);
-  const checksInFlightRef = useRef(false);
-
-  /* 待辦來源每 30 秒靜默重抓一次（同 PVE 概況，分頁隱藏時暫停）。背景更新不顯示載入中；
-     個別來源失敗時沿用上一次的數字，免得待辦列在 0 與實際值之間跳動，缺漏照樣記進 unavailable。 */
-  const loadChecks = useCallback(async (silent = false) => {
-    if (checksInFlightRef.current) return;
-    checksInFlightRef.current = true;
-    if (!silent) setLoading(true);
-    try {
-      const settled = await Promise.allSettled([
-        VmRequestsService.listAll("pending"),
-        SpecChangeRequestsService.listAll({ status: "pending" }),
-        BatchProvisionService.listPending(),
-        /* 待審數量交給後端依狀態過濾後回 count；不帶條件只會拿到最新一頁（上限 100），
-           較舊的待審件會被擠出去而漏算 */
-        AiApiService.listAllRequests({ status: "pending", limit: 1 }),
-        JobsService.list({ statuses: ["failed", "blocked"], historyDays: 7, limit: 50 }),
-        MonitoringService.listAlerts({ active: true, limit: 100 }),
-        /* 只算還沒被管理員定奪的事件（detected 待判斷、suspended 已凍結待處置）；
-           由後端依狀態過濾，不在全部事件的前幾筆裡找，才不會漏掉較舊的未結事件 */
-        MiningIncidentsService.list({ status: "detected", limit: 1000 }),
-        MiningIncidentsService.list({ status: "suspended", limit: 1000 }),
-      ]);
-      const ok = (index) => settled[index].status === "fulfilled";
-      const value = (index) => ok(index) ? settled[index].value : null;
-      const alertRows = value(5);
-      setChecks((prev) => {
-        const pick = (fresh, next, previous) => (silent && !fresh ? previous : next);
-        return {
-          requests: pick(ok(0) && ok(1), countRows(value(0)) + countRows(value(1)), prev.requests),
-          batches: pick(ok(2), countRows(value(2)), prev.batches),
-          aiRequests: pick(ok(3), countRows(value(3)), prev.aiRequests),
-          failedJobs: pick(ok(4), countRows(value(4)), prev.failedJobs),
-          alerts: pick(ok(5), Array.isArray(alertRows) ? alertRows : alertRows?.data ?? [], prev.alerts),
-          miningIncidents: pick(ok(6) && ok(7), countRows(value(6)) + countRows(value(7)), prev.miningIncidents),
-          unavailable: settled.filter((result) => result.status === "rejected").length,
-        };
-      });
-    } finally {
-      checksInFlightRef.current = false;
-      if (!silent) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadChecks(); }, [loadChecks]);
-  useAutoRefresh(() => loadChecks(true));
+  /* 待辦來源各自一支查詢（TanStack Query），每 30 秒背景刷新、分頁隱藏時暫停，互不牽連：
+     某個來源失敗只影響它自己那個數字，背景刷新失敗時沿用上一次的資料，
+     免得待辦列在 0 與實際值之間跳動；缺漏照樣記進 unavailable。
+     與審核頁、監控頁同參數時共用快取，在那邊處理完回到首頁數字就是新的。 */
+  const vmRequestsQuery = useAllVmRequestsQuery("pending");
+  const specRequestsQuery = useAllSpecChangeRequestsQuery(PENDING_SPEC_PARAMS);
+  const batchesQuery = usePendingBatchProvisionQuery();
+  const aiRequestsQuery = useAllAiRequestsQuery(PENDING_AI_PARAMS);
+  const failedJobsQuery = useJobsQuery(FAILED_JOBS_PARAMS);
+  const alertsQuery = useAlertsQuery(ACTIVE_ALERTS_PARAMS);
+  const detectedMiningQuery = useMiningIncidentsQuery(DETECTED_MINING_PARAMS);
+  const suspendedMiningQuery = useMiningIncidentsQuery(SUSPENDED_MINING_PARAMS);
+  const checkQueries = [
+    vmRequestsQuery,
+    specRequestsQuery,
+    batchesQuery,
+    aiRequestsQuery,
+    failedJobsQuery,
+    alertsQuery,
+    detectedMiningQuery,
+    suspendedMiningQuery,
+  ];
+  /* 首次載入要等每個來源都有結果（成功或失敗）才顯示待辦，同原本 allSettled；
+     之後背景重抓（包含持續失敗的來源在重試）都不回到「檢查中」。
+     用 filter 不用 some：結果物件是存取追蹤的，每支查詢用到的欄位都要在 render 時讀到 */
+  const loading = checkQueries.filter(neverSettled).length > 0;
+  const checks = {
+    requests: countRows(vmRequestsQuery.data) + countRows(specRequestsQuery.data),
+    batches: countRows(batchesQuery.data),
+    aiRequests: countRows(aiRequestsQuery.data),
+    failedJobs: countRows(failedJobsQuery.data),
+    alerts: alertRowsOf(alertsQuery.data),
+    miningIncidents: countRows(detectedMiningQuery.data) + countRows(suspendedMiningQuery.data),
+    unavailable: checkQueries.filter(failing).length,
+  };
 
   /* 即時異常與未解除告警的門檻判斷共用同一組設定，兩邊都列會讓同一台機器
      出現兩次；mergeInfraProblems 負責去重，細節見 adminAttention.js。 */

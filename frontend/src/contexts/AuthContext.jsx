@@ -14,6 +14,7 @@ import {
 } from "../services/authSession";
 import { unsubscribePush } from "../services/webPush";
 import { AiContextualHelpService } from "../services/aiContextualHelp";
+import { queryClient } from "../queries/queryClient";
 
 const AuthContext = createContext(null);
 
@@ -68,6 +69,8 @@ export function AuthProvider({ children }) {
     if (cachedSessionRef.current === sessionId) return;
     cachedSessionRef.current = sessionId;
     AiContextualHelpService.resetSurfaces();
+    /* TanStack Query 的伺服器資料快取（機器清單、申請單…）同樣綁身分 */
+    queryClient.clear();
   }, []);
 
   const clearExpiryTimer = useCallback(() => {

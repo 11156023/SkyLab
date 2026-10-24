@@ -2,7 +2,7 @@
 
 > [English](./CODE_OF_CONDUCT.md) | **繁體中文**
 
-SkyLab 採用 [Contributor Covenant 2.1 版](https://www.contributor-covenant.org/zh-tw/version/2/1/code_of_conduct/)作為行為準則。參與本專案的每個人，不論是在 issue、pull request、程式碼審查或其他專案空間，都應遵守這份準則。
+SkyLab 採用 [Contributor Covenant 2.1 版](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)（官方沒有 2.1 版的繁體中文翻譯，連結為英文原文）作為行為準則。參與本專案的每個人，不論是在 issue、pull request、程式碼審查或其他專案空間，都應遵守這份準則。
 
 ## 重點
 

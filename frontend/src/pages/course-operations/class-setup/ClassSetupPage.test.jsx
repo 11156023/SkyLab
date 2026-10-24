@@ -16,6 +16,7 @@ vi.mock("../../../contexts/UnsavedChangesContext", () => ({
 }));
 
 import ClassSetupPage from "./ClassSetupPage";
+import { withQueryClient } from "../../../queries/testing";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import i18n from "../../../i18n";
@@ -36,8 +37,10 @@ afterEach(() => {
   Object.values(toast).forEach((fn) => fn.mockClear());
 });
 
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+/* TanStack Query 的通知走 setTimeout(0)：先等一個 timer tick 再清 microtask */
+async function flush() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
 }
 
 function baseClass(overrides = {}) {
@@ -68,12 +71,15 @@ async function mount(url) {
   document.body.appendChild(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(
+    root.render(withQueryClient(
       <MemoryRouter initialEntries={[url]}>
         <ClassSetupPage />
         <LocationProbe />
       </MemoryRouter>,
-    );
+    ));
+  });
+  /* 畫面在上一個 act 結束時才掛上、開始抓資料；資料回來要另一個 act 等 TanStack Query 的通知 */
+  await act(async () => {
     await flush();
     await flush();
   });
@@ -234,13 +240,13 @@ describe("ClassSetupPage 第一步建立班級後按上一頁", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(
+      root.render(withQueryClient(
         <MemoryRouter initialEntries={["/class-management", "/class-setup"]} initialIndex={1}>
           <ClassSetupPage />
           <LocationProbe />
           <NavigateProbe />
         </MemoryRouter>,
-      );
+      ));
       await flush();
     });
     const saveAndNext = async () => {

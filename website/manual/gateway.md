@@ -27,12 +27,16 @@ For a first-time setup, work through the tabs in order: **Connection Settings**,
 
 Regenerating the keypair invalidates the old key immediately; you are asked to confirm, and the new public key has to be added to the Gateway again.
 
+![Connect to the Gateway over SSH (numbers match the steps above)](/manual-shots/en/gateway/s01.webp)
+
 ### Reset the host key after reinstalling the Gateway
 
 1. Use this only when the Gateway was reinstalled or replaced and the connection is now refused because its host key changed.
 2. Click **Reset Host Key** and confirm with **Reset**. The recorded host key is cleared and recorded again on the next connection.
 
 If the host key changed without a reason you know of, investigate first: it can be a sign of a man-in-the-middle attack.
+
+![Reset the host key after reinstalling the Gateway (numbers match the steps above)](/manual-shots/en/gateway/s02.webp)
 
 ### Install the Gateway services
 
@@ -45,6 +49,8 @@ If the host key changed without a reason you know of, investigate first: it can 
 
 The installer installs nginx, WireGuard and the monitoring exporters, rewrites `nginx.conf` and enables UFW (SSH is allowed first). Existing configuration is backed up to `/root/skylab-backups`, and forwarded connections drop while nginx restarts.
 
+![Install the Gateway services (numbers match the steps above)](/manual-shots/en/gateway/s03.webp)
+
 ### Set up the HTTPS certificate
 
 1. Put the certificate (fullchain) and the private key on the Gateway host. `/etc/ssl/skylab/` is recommended, with the private key readable by root only. A wildcard certificate covering the whole domain (for example `example.com` and `*.example.com`) is recommended.
@@ -53,6 +59,8 @@ The installer installs nginx, WireGuard and the monitoring exporters, rewrites `
 4. Read the **Certificate on the Gateway** card: **Expires**, **Private key** (whether it matches), **Certificate covers** and **HTTPS domains in use**, followed by any warnings.
 
 To renew, overwrite the files at the same paths and click **Apply again**. To stop using the certificate, clear both paths and save; after you confirm, every HTTPS domain falls back to a self-signed certificate and browsers will show a warning.
+
+![Set up the HTTPS certificate (numbers match the steps above)](/manual-shots/en/gateway/s04.webp)
 
 ### Serve the platform through the Gateway (platform entry)
 
@@ -69,6 +77,8 @@ If the domain belongs to a zone managed in Cloudflare (set on [Domain Management
 
 To turn the platform entry off, untick the first box and save, then confirm with **Disable**. SkyLab can then no longer be reached at that domain, and a DNS record SkyLab created in Cloudflare is deleted as well. Make sure you can still reach the deployment host directly first.
 
+![Serve the platform through the Gateway (platform entry) (numbers match the steps above)](/manual-shots/en/gateway/s05.webp)
+
 ### Manage nginx and edit its main configuration
 
 1. Open the **nginx** tab.
@@ -79,6 +89,8 @@ To turn the platform entry off, untick the first box and save, then confirm with
 
 The forwarding rules SkyLab generates are kept in separate files and are not edited here. If the remote file cannot be read, editing and writing are disabled; click **Reload** in the editor once the SSH connection works again.
 
+![Manage nginx and edit its main configuration (numbers match the steps above)](/manual-shots/en/gateway/s06.webp)
+
 ### Check the WireGuard VPN
 
 1. Open the **WireGuard VPN** tab.
@@ -88,6 +100,8 @@ The forwarding rules SkyLab generates are kept in separate files and are not edi
 5. **Service Logs (last 100 lines)** are shown at the bottom.
 
 This tab only shows aggregate figures. It never returns the Gateway's private key or any peer public key to the browser, and it does not list individual devices.
+
+![Check the WireGuard VPN (numbers match the steps above)](/manual-shots/en/gateway/s07.webp)
 
 ## Fields and options
 

@@ -5,13 +5,16 @@ import i18n from "../../../i18n";
 import { LayoutContext } from "../../../layout/layoutContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { VmRequestsService } from "../../../services/vmRequests";
 import { VmRequestAvailabilityService } from "../../../services/vmRequestAvailability";
 import { GpuService } from "../../../services/gpu";
-import { TemplatesService } from "../../../services/templates";
-import { ResourcesService } from "../../../services/resources";
-import { QuotasService } from "../../../services/quotas";
 import { PoliciesService } from "../../../services/policies";
+import { useGpuOptionsQuery } from "../../../queries/gpu";
+import { useTemplateCatalogQuery, useTemplatesQuery } from "../../../queries/templates";
+import { useLxcOsImagesQuery, useVmOsTemplatesQuery } from "../../../queries/resources";
+import { useMyQuotaUsageQuery } from "../../../queries/quotas";
+import { useUsernameRulesQuery } from "../../../queries/policies";
 import { quotaRemaining, sliderRange, sliderTicks, snapToRange } from "../../../utils/quotaLimits";
 import NumberInput from "../../../components/NumberInput/NumberInput";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
@@ -144,6 +147,27 @@ const GPU_OPTIONS_DEBOUNCE_MS = 300;
 const ADVISE_DEBOUNCE_MS = 500;
 /* 帳號命名政策即時檢查（後端 /policies/username/check）的輸入停頓時間 */
 const USERNAME_CHECK_DEBOUNCE_MS = 300;
+
+const EMPTY = [];
+const asArray = (value) => (Array.isArray(value) ? value : EMPTY);
+
+/* 學生的應用範本目錄裡的 LXC 範本，轉成與完整母範本清單相同的欄位 */
+function catalogLxcTemplates(rows) {
+  return rows
+    .filter((item) => item.resource_type === "lxc")
+    .map((item) => ({
+      id: item.id,
+      pve_vmid: item.pve_vmid,
+      name: item.name,
+      description: item.description,
+      resource_type: "lxc",
+      status: "ready",
+      version: item.version,
+      default_cores: item.cores,
+      default_memory: item.memory_mb,
+      default_disk: item.disk_gb,
+    }));
+}
 const formatVramMb = (mb) => (mb >= 1024 ? `${Number.isInteger(mb / 1024) ? mb / 1024 : (mb / 1024).toFixed(1)} GB` : `${mb} MB`);
 const gpuLabel = (gpu) => {
   const t = (key, opts) => i18n.t(key, { ns: "personal", ...opts });
@@ -260,11 +284,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
 
   const [closing, setClosing]   = useState(false);
 
-  /* 範本系統 2.0：LXC 可選範本，選了走克隆路徑（免映像檔） */
-  const [sysTemplates, setSysTemplates]   = useState([]);
-  /* 學生看到的是「全部可見」的應用範本目錄，不是完整母範本清單 */
-  const [catalog, setCatalog]             = useState([]);
-  const [sysTplLoading, setSysTplLoading] = useState(false);
+  /* 範本系統 2.0：LXC 可選範本，選了走克隆路徑（免映像檔）；清單見下方 API fetches */
   const [selectedTplId, setSelectedTplId] = useState("");
 
   /* Form state */
@@ -304,88 +324,53 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     };
   }, []);
 
-  /* API data */
-  const [lxcTemplates, setLxcTemplates] = useState([]);
-  const [lxcLoading, setLxcLoading]     = useState(false);
-  const [vmTemplates, setVmTemplates]   = useState([]);
-  const [vmLoading, setVmLoading]       = useState(false);
-  const [gpuOptions, setGpuOptions]     = useState([]);
   /* AI 建議的 GPU：等可用清單就緒才敢寫進表單（見下方 effect） */
   const [pendingGpu, setPendingGpu]     = useState(null);
   /* AI 配置模式選的使用時間（天）：表單開啟前規劃的配置沒有時段，等可用日期載入後再挑 */
   const [pendingDuration, setPendingDuration] = useState(null);
-  const [gpuLoading, setGpuLoading]     = useState(false);
-  const [gpuOptionsKey, setGpuOptionsKey] = useState("");
-  /* 作業系統／範本來源清單是否有任何一支載入失敗，以及按「重試」用的重拉計數 */
-  const [osSourceFailed, setOsSourceFailed] = useState(false);
-  const [osSourceReloadKey, setOsSourceReloadKey] = useState(0);
-  const retryOsSources = () => {
-    setOsSourceFailed(false);
-    setOsSourceReloadKey((n) => n + 1);
-  };
 
   /* ── API fetches ──
-     作業系統／範本來源四支清單只要有一支掛掉，下拉就會少選項而且看不出原因，
-     所以失敗一律記起來，在欄位下方顯示「載入失敗，重試」讓人自己重拉。 */
-  useEffect(() => {
-    if (lxcTemplates.length > 0) return;
-    setLxcLoading(true);
-    ResourcesService.listLxcOsImages()
-      .then(setLxcTemplates)
-      .catch(() => setOsSourceFailed(true))
-      .finally(() => setLxcLoading(false));
-  }, [osSourceReloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+     作業系統／範本來源清單走 TanStack Query（與教學環境編輯器、範本頁共用快取；表單開著時不輪詢）。
+     任何一支首次載不到，下拉就會少選項而且看不出原因，所以在欄位下方顯示「載入失敗，重試」，
+     重試只重抓還沒有資料的那幾支。
+     單機母範本只供教師／管理員組裝環境或建立管理用資源；學生的一般申請仍可選擇平台提供的
+     VM/LXC 基礎映像，但不讀取 VMTemplate 目錄，也不會取得直接克隆入口。學生／一般使用者只拿
+     教師設為「全部可見」且已就緒的範本，規格由範本決定，送出後仍走一般審核流程。 */
+  const lxcQuery = useLxcOsImagesQuery();
+  const vmQuery = useVmOsTemplatesQuery();
+  const sysTemplatesQuery = useTemplatesQuery({ enabled: isPrivileged, refetchInterval: false });
+  const catalogQuery = useTemplateCatalogQuery({ enabled: !isPrivileged });
+  const templateSourceQuery = isPrivileged ? sysTemplatesQuery : catalogQuery;
+  /* 首次載入還沒有資料才算載入中／載入失敗；背景刷新失敗沿用上一份。
+     首載失敗後切回視窗等重抓期間維持「載入失敗，重試」，不閃回載入中（見 useQueryView） */
+  const lxcView = useQueryView(lxcQuery);
+  const vmView = useQueryView(vmQuery);
+  const sysTemplatesView = useQueryView(sysTemplatesQuery);
+  const catalogView = useQueryView(catalogQuery);
+  const templateSourceView = isPrivileged ? sysTemplatesView : catalogView;
+  const osSources = [
+    { query: lxcQuery, view: lxcView },
+    { query: vmQuery, view: vmView },
+    { query: templateSourceQuery, view: templateSourceView },
+  ];
 
-  useEffect(() => {
-    if (vmTemplates.length > 0) return;
-    setVmLoading(true);
-    ResourcesService.listVmOsTemplates()
-      .then(setVmTemplates)
-      .catch(() => setOsSourceFailed(true))
-      .finally(() => setVmLoading(false));
-  }, [osSourceReloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    // 單機母範本只供教師／管理員組裝環境或建立管理用資源。
-    // 學生的一般申請仍可選擇平台提供的 VM/LXC 基礎映像，但不讀取
-    // VMTemplate 目錄，也不會取得直接克隆入口。
-    if (!isPrivileged) return;
-    setSysTplLoading(true);
-    TemplatesService.list()
-      .then((res) => setSysTemplates(res?.data ?? []))
-      .catch(() => setOsSourceFailed(true))
-      .finally(() => setSysTplLoading(false));
-  }, [isPrivileged, osSourceReloadKey]);
-
-  useEffect(() => {
-    // 學生／一般使用者：只拿教師設為「全部可見」且已就緒的範本。
-    // 規格由範本決定，送出後仍走一般審核流程。
-    if (isPrivileged) return;
-    setSysTplLoading(true);
-    TemplatesService.catalog()
-      .then((res) => {
-        const rows = res?.data ?? [];
-        setCatalog(rows);
-        setSysTemplates(
-          rows
-            .filter((item) => item.resource_type === "lxc")
-            .map((item) => ({
-              id: item.id,
-              pve_vmid: item.pve_vmid,
-              name: item.name,
-              description: item.description,
-              resource_type: "lxc",
-              status: "ready",
-              version: item.version,
-              default_cores: item.cores,
-              default_memory: item.memory_mb,
-              default_disk: item.disk_gb,
-            })),
-        );
-      })
-      .catch(() => setOsSourceFailed(true))
-      .finally(() => setSysTplLoading(false));
-  }, [isPrivileged, osSourceReloadKey]);
+  const lxcTemplates = asArray(lxcQuery.data);
+  const vmTemplates = asArray(vmQuery.data);
+  /* 學生看到的是「全部可見」的應用範本目錄，不是完整母範本清單 */
+  const catalog = isPrivileged ? EMPTY : asArray(catalogQuery.data?.data);
+  const sysTemplates = useMemo(
+    () => (isPrivileged ? asArray(sysTemplatesQuery.data) : catalogLxcTemplates(catalog)), // 快取存的是範本陣列（queries/templates.js）
+    [isPrivileged, sysTemplatesQuery.data, catalog],
+  );
+  const lxcLoading = lxcView.loading;
+  const vmLoading = vmView.loading;
+  const sysTplLoading = templateSourceView.loading;
+  const osSourceFailed = osSources.some(({ view }) => Boolean(view.error));
+  const retryOsSources = () => {
+    osSources.forEach(({ query, view }) => {
+      if (query.data === undefined) view.retry();
+    });
+  };
 
   /* 申請一律是單台；範本只是「來源」，VM 或 LXC 由範本本身決定 */
   const catalogChoices = useMemo(
@@ -435,16 +420,10 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   /* Linux 帳號（cloud-init ciuser）命名政策：規則與檢查都來自後端，
      error 擋送出、warning 只提示。檢查失敗不擋（送單時後端會再驗一次）。 */
   const checksUsername = resourceType === "vm" && !isWindowsVm;
-  const [usernameRules, setUsernameRules] = useState(null);
+  /* 規則要檢查帳號時才抓，抓到就留著；載不到不擋（訊息退回預設長度） */
+  const usernameRulesQuery = useUsernameRulesQuery({ enabled: checksUsername });
+  const usernameRules = usernameRulesQuery.data ?? null;
   const [usernameCheck, setUsernameCheck] = useState({ username: "", violations: [] });
-  useEffect(() => {
-    if (!checksUsername || usernameRules) return undefined;
-    const controller = new AbortController();
-    PoliciesService.getUsernameRules({ signal: controller.signal })
-      .then(setUsernameRules)
-      .catch(() => {});
-    return () => controller.abort();
-  }, [checksUsername, usernameRules]);
   useEffect(() => {
     const name = form.username;
     if (!checksUsername || !name) {
@@ -491,15 +470,9 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     (selectedCatalogItem ?? selectedTpl)?.password_settable === false;
 
   /* 配額：滑桿最多只能拉到剩餘配額，超出的值自動壓回上限。
-     載入失敗就維持原本的上限，送單時後端仍會擋。 */
-  const [quotaUsage, setQuotaUsage] = useState(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    QuotasService.getMyUsage({ signal: controller.signal })
-      .then(setQuotaUsage)
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
+     載入失敗就維持原本的上限，送單時後端仍會擋。與配額卡共用快取，表單開著時不輪詢。 */
+  const quotaQuery = useMyQuotaUsageQuery({ refetchInterval: false });
+  const quotaUsage = quotaQuery.data ?? null;
   const quotaLeft = useMemo(() => quotaRemaining(quotaUsage), [quotaUsage]);
   const isLxcForm = resourceType === "lxc";
   const diskKey = isLxcForm ? "rootfs_size" : "disk_size";
@@ -579,6 +552,17 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   /* 範本所在節點：GPU 不可跨 PVE 連線（叢集），只顯示與範本同叢集的 GPU */
   const selectedTemplateNode = selectedVmTemplate?.node || "";
   const gpuWindowReady = Boolean(mode === "scheduled" && form.start_at && form.end_at);
+  /* GPU 可用清單走 TanStack Query：gpuRequest 是防抖後「真的要查」的那組參數（見下方 effect），
+     查回來的清單對應 gpuRequest.key。查詢失敗照舊當成沒有可用的 GPU。 */
+  const [gpuRequest, setGpuRequest] = useState(null);
+  const activeGpuRequest = canLoadGpu ? gpuRequest : null;
+  const gpuQuery = useGpuOptionsQuery(activeGpuRequest?.params, { enabled: activeGpuRequest != null });
+  const gpuOptions = activeGpuRequest ? asArray(gpuQuery.data) : EMPTY;
+  const gpuLoading = activeGpuRequest != null && gpuQuery.isFetching;
+  const gpuOptionsKey = activeGpuRequest && !gpuQuery.isFetching
+    && (gpuQuery.data !== undefined || gpuQuery.isError)
+    ? activeGpuRequest.key
+    : "";
   const selectedGpuProfiles = useMemo(() => {
     if (!form.gpu_mapping_id) return [];
     const gpu = gpuOptions.find((g) => g.mapping_id === form.gpu_mapping_id);
@@ -601,43 +585,24 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     }
   }, [resourceType, gpuNeeded, form.gpu_mapping_id]);
 
+  /* 時段還在調整時先防抖再查；查詢本身（取消過期請求、快取）交給 TanStack Query */
   useEffect(() => {
     if (!canLoadGpu) {
-      setGpuOptions([]);
-      setGpuOptionsKey("");
-      setGpuLoading(false);
-      return;
+      setGpuRequest(null);
+      return undefined;
     }
-    let cancelled = false;
-    const requestKey = gpuOptionsRequestKey;
-    const params = {
-      ...(gpuWindowReady ? { startAt: form.start_at, endAt: form.end_at } : {}),
-      ...(selectedTemplateNode ? { node: selectedTemplateNode } : {}),
+    const request = {
+      key: gpuOptionsRequestKey,
+      params: {
+        ...(gpuWindowReady ? { startAt: form.start_at, endAt: form.end_at } : {}),
+        ...(selectedTemplateNode ? { node: selectedTemplateNode } : {}),
+      },
     };
     const timeoutId = window.setTimeout(() => {
-      if (cancelled) return;
-      setGpuLoading(true);
-      GpuService.listOptions(params)
-        .then((options) => {
-          if (cancelled) return;
-          setGpuOptions(options);
-          setGpuOptionsKey(requestKey);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setGpuOptions([]);
-          setGpuOptionsKey(requestKey);
-        })
-        .finally(() => {
-          if (!cancelled) setGpuLoading(false);
-        });
+      setGpuRequest((prev) => (prev?.key === request.key ? prev : request));
     }, gpuWindowReady ? GPU_OPTIONS_DEBOUNCE_MS : 0);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [canLoadGpu, form.start_at, form.end_at, gpuOptionsRequestKey, gpuWindowReady, mode, selectedTemplateNode]);
+    return () => window.clearTimeout(timeoutId);
+  }, [canLoadGpu, form.start_at, form.end_at, gpuOptionsRequestKey, gpuWindowReady, selectedTemplateNode]);
 
   /* ── Helpers ── */
   useEffect(() => {

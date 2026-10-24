@@ -18,6 +18,8 @@ vi.mock("../../../services/teachingClasses", () => ({ TeachingClassesService: { 
 vi.mock("../../../contexts/UnsavedChangesContext", () => ({ useUnsavedChanges: () => ({ confirmLeave: async () => true }) }));
 vi.mock("./ContentEditor", () => ({ default: () => null }));
 
+import { notifyManager } from "@tanstack/react-query";
+import { withQueryClient } from "../../../queries/testing";
 import CourseCmsPage from "./CourseCmsPage";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -26,6 +28,8 @@ let container;
 let sockets;
 beforeEach(async () => {
   vi.useFakeTimers();
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；這裡的 timer 是假的，改成同步通知 */
+  notifyManager.setScheduler((callback) => callback());
   vi.spyOn(Math, "random").mockReturnValue(0.5);
   state.token = "old";
   state.progress.mockReset().mockResolvedValue({ students: [] });
@@ -38,13 +42,14 @@ beforeEach(async () => {
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(<MemoryRouter initialEntries={["/?tab=progress&pathId=a"]}><CourseCmsPage /></MemoryRouter>);
+    root.render(withQueryClient(<MemoryRouter initialEntries={["/?tab=progress&pathId=a"]}><CourseCmsPage /></MemoryRouter>));
   });
 });
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
   container.remove();
   vi.useRealTimers();
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });

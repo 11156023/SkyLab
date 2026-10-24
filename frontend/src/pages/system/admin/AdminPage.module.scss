@@ -140,8 +140,10 @@
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-8;
 
-  @container (min-width: 740px) {
-    grid-template-columns: 16px 40px minmax(220px, 1fr) 88px 64px 96px auto;
+  @container (min-width: 880px) {
+    /* 角色與狀態欄要放得下英文最長的 Administrator（含圖示約 117px）與 Registration rejected（約 145px）；
+       每列各自是一個 grid，靠固定欄寬上下對齊，所以不能依內容撐開。欄位變寬，改排成一列的斷點也從 740 提到 880 */
+    grid-template-columns: 16px 40px minmax(220px, 1fr) 124px 150px 96px auto;
     grid-template-areas: "check avatar main role status date actions";
     row-gap: 0;
   }
@@ -222,7 +224,7 @@
   gap: $spacing-8;
   min-width: 0;
 
-  @container (min-width: 740px) {
+  @container (min-width: 880px) {
     display: contents;
 
     > .badge {
@@ -284,7 +286,7 @@
   font-size: $font-size-12;
   white-space: nowrap;
 
-  @container (min-width: 740px) {
+  @container (min-width: 880px) {
     display: inline;
   }
 }
@@ -394,5 +396,77 @@
   span {
     font-size: $font-size-12;
     color: var(--color-text-secondary);
+  }
+}
+
+/* 工具列上的群組篩選：跟搜尋框同高，寬度依群組名稱 */
+.groupFilter {
+  @include form-control;
+  width: auto;
+  min-width: 160px;
+  max-width: 240px;
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+/* 群組管理對話框：上面新增、下面清單，每列是名稱＋人數與三顆圖示鈕 */
+.groupCreate {
+  display: flex;
+  align-items: flex-end;
+  gap: $spacing-8;
+  margin-bottom: $spacing-16;
+
+  > .field {
+    flex: 1;
+  }
+}
+
+.groupList {
+  @include flex-column;
+  gap: $spacing-8;
+  margin: 0 0 $spacing-16;
+  padding: 0;
+  list-style: none;
+}
+
+.groupRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.groupRowMain {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+
+  strong {
+    @include text-truncate;
+    font-size: $font-size-14;
+    color: var(--color-text-primary);
+  }
+
+  small {
+    font-size: $font-size-12;
+    color: var(--color-text-muted);
+  }
+}
+
+.groupRename {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+
+  input {
+    @include form-control;
   }
 }

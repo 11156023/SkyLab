@@ -1,19 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "./JobsPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
-import { JobsService } from "../../../services/jobs";
+import ErrorState from "../../../components/ErrorState/ErrorState";
+import { useJobsQuery } from "../../../queries/jobs";
 import JobDetailDialog from "../../../components/Jobs/JobDetailDialog";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { formatDateTime } from "../../../utils/formatDate";
 
 /** 仍視為「進行中」的狀態；需與後端 schemas/jobs.py 的 ACTIVE_JOB_STATUSES 一致 */
 const ACTIVE_STATUSES = new Set(["pending", "running", "blocked"]);
+
+const EMPTY = Object.freeze([]);
+
+/** 篩選 → JobsService.list 的參數（同一組篩選產生同一個 query key） */
+function buildListParams(kind, status) {
+  const params = { limit: 200 };
+  if (kind !== "all") params.kinds = [kind];
+  if (status === "active") params.activeOnly = true;
+  else if (status !== "all") params.statuses = [status];
+  return params;
+}
 
 function useKindLabels() {
   const { t } = useTranslation("system");
@@ -72,6 +88,71 @@ function Progress({ value }) {
   );
 }
 
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`JobsPage.${name}`);
+}
+
+function KindCell({ kind }) {
+  const KIND_LABELS = useKindLabels();
+  return KIND_LABELS[kind] ?? kind;
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const jobColumns = columnHelper.columns([
+  columnHelper.accessor("title", {
+    header: () => <ColTitle name="colTask" />,
+    cell: ({ row }) => {
+      const j = row.original;
+      return (
+        <div className={styles.nameCell}>
+          <div className={styles.nameIcon}>
+            <MIcon name="task" size={18} />
+          </div>
+          <div>
+            <div className={styles.namePrimary} title={j.title ?? j.id}>{j.title ?? j.id}</div>
+            <div className={styles.nameSub}>{j.id}</div>
+          </div>
+        </div>
+      );
+    },
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("kind", {
+    header: () => <ColTitle name="colKind" />,
+    cell: ({ row }) => <KindCell kind={row.original.kind} />,
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+  columnHelper.accessor("status", {
+    header: () => <ColTitle name="colStatus" />,
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("progress", {
+    header: () => <ColTitle name="colProgress" />,
+    cell: ({ row }) => <Progress value={row.original.progress} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("created_at", {
+    header: () => <ColTitle name="colCreatedAt" />,
+    cell: ({ row }) => formatDateTime(row.original.created_at),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("updated_at", {
+    header: () => <ColTitle name="colUpdatedAt" />,
+    cell: ({ row }) => formatDateTime(row.original.updated_at),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("user_email", {
+    header: () => <ColTitle name="colApplicant" />,
+    cell: ({ row }) => row.original.user_email ?? "—",
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+]);
+
 export default function JobsPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
@@ -86,38 +167,37 @@ export default function JobsPage() {
     { value: "active", label: t("JobsPage.statusActive") },
     ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
   ];
-  const [jobs, setJobs] = useState([]);
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
-  const [loading, setLoading] = useState(true);
   const [focusJobId, setFocusJobId] = useState(null);
 
-  /* 快速切換篩選時舊條件的回應可能較晚回來，只讓最新一次載入寫入畫面 */
-  const loadSeqRef = useRef(0);
+  /* 每組篩選各自一份快取（key 不同），快速切換時較晚回來的舊條件結果只會寫進它自己的 key，
+     不會蓋掉目前篩選的清單。換篩選時先留著上一份清單（keepPreviousData），不閃回載入畫面；
+     背景 30 秒刷新、分頁隱藏時暫停 */
+  const filterKey = `${kind}|${status}`;
+  const jobsQuery = useJobsQuery(buildListParams(kind, status), { placeholderData: keepPreviousData });
+  const jobs = jobsQuery.data?.items ?? EMPTY;
+  const table = useTable({
+    features: baseFeatures,
+    columns: jobColumns,
+    data: jobs,
+    getRowId: (j) => String(j.id),
+  });
+  /* 錯誤畫面在背景重試期間不閃回載入中；換篩選後新 key 的失敗照樣顯示（見 useQueryView） */
+  const { loading, error, retry: retryJobs } = useQueryView(jobsQuery);
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const load = useCallback(async (silent = false) => {
-    const seq = ++loadSeqRef.current;
-    const isCurrent = () => seq === loadSeqRef.current;
-    if (!silent) setLoading(true);
-    try {
-      const params = { limit: 200 };
-      if (kind !== "all") params.kinds = [kind];
-      if (status === "active") params.activeOnly = true;
-      else if (status !== "all") params.statuses = [status];
-      const res = await JobsService.list(params);
-      if (!isCurrent()) return;
-      setJobs(res?.items ?? []);
-    } catch (e) {
-      if (!silent && isCurrent()) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      /* 由最新一次載入收掉 loading（即使它是靜默刷新），避免卡在載入畫面 */
-      if (isCurrent()) setLoading(false);
-    }
-  }, [kind, status, toast, t]);
-
-  useEffect(() => { load(); }, [load]);
-  useAutoRefresh(() => load(true));
+  /* 首次載入或換篩選失敗才跳 toast（同原本只有非靜默載入才提示）；
+     同一組篩選在背景重試又失敗不重複跳，換篩選後重新計算 */
+  const toastedFilterRef = useRef(null);
+  useEffect(() => {
+    toastedFilterRef.current = null;
+  }, [filterKey]);
+  const loadError = error ? jobsQuery.error : null;
+  useEffect(() => {
+    if (!loadError || toastedFilterRef.current === filterKey) return;
+    toastedFilterRef.current = filterKey;
+    toast.error(loadError?.message ?? t("Error.generic", { ns: "common" }));
+  }, [loadError, filterKey, toast, t]);
 
   /* 三張卡的口徑要一致：後端只回全域的 active_count，沒有全域的
      completed／failed，所以三個數字一律用目前這份清單算，並在卡片上
@@ -188,52 +268,21 @@ export default function JobsPage() {
       </div>
 
       <div className={styles.content}>
-        {loading ? (
+        {error ? (
+          /* 這組篩選一筆都還沒抓到就失敗：不能顯示成「沒有結果」 */
+          <ErrorState onRetry={retryJobs} />
+        ) : loading ? (
           <LoadingState fullPage text={t("JobsPage.loading")} />
         ) : jobs.length === 0 ? (
           <EmptyState onClear={kind !== "all" || status !== "all" ? () => { setKind("all"); setStatus("all"); } : undefined} />
         ) : (
           <div className={styles.tableWrap} data-guide="jobs-table">
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  {[t("JobsPage.colTask"), t("JobsPage.colKind"), t("JobsPage.colStatus"), t("JobsPage.colProgress"), t("JobsPage.colCreatedAt"), t("JobsPage.colUpdatedAt"), t("JobsPage.colApplicant")].map((col) => (
-                    <th key={col} className={styles.th}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((j) => (
-                  <tr
-                    key={j.id}
-                    className={styles.tr}
-                    onClick={() => setFocusJobId(j.id)}
-                  >
-                    <td className={styles.td}>
-                      <div className={styles.nameCell}>
-                        <div className={styles.nameIcon}>
-                          <MIcon name="task" size={18} />
-                        </div>
-                        <div>
-                          <div className={styles.namePrimary} title={j.title ?? j.id}>{j.title ?? j.id}</div>
-                          <div className={styles.nameSub}>{j.id}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className={`${styles.td} ${styles.tdNowrap}`}>{KIND_LABELS[j.kind] ?? j.kind}</td>
-                    <td className={styles.td}>
-                      <StatusBadge status={j.status} />
-                    </td>
-                    <td className={styles.td}>
-                      <Progress value={j.progress} />
-                    </td>
-                    <td className={styles.td}>{formatDateTime(j.created_at)}</td>
-                    <td className={styles.td}>{formatDateTime(j.updated_at)}</td>
-                    <td className={styles.td}>{j.user_email ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              table={table}
+              className={styles.table}
+              rowClassName={() => styles.tr}
+              rowProps={(row) => ({ onClick: () => setFocusJobId(row.original.id) })}
+            />
           </div>
         )}
       </div>

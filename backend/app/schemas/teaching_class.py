@@ -86,6 +86,10 @@ class StudentAdd(BaseModel):
     emails: list[str]
 
 
+class StudentGroupImport(BaseModel):
+    group_id: uuid.UUID
+
+
 class InstructorMachineIn(BaseModel):
     enabled: bool
 

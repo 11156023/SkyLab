@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import JobsPage from "./JobsPage";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
+import { jobKeys } from "../../../queries/jobs";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -13,9 +15,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../../services/jobs", () => ({ JobsService: { list: mocks.list } }));
 vi.mock("../../../components/Jobs/JobDetailDialog", () => ({ default: () => null }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: () => {} }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
+vi.mock("../../../components/ErrorState/ErrorState", () => ({
+  default: ({ onRetry }) => <button type="button" data-testid="error" onClick={onRetry}>retry</button>,
+}));
 vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
   default: ({ options = [], onChange, ariaLabel }) => (
     <div data-group={ariaLabel}>
@@ -34,8 +38,9 @@ vi.mock("react-i18next", async (importOriginal) => ({
 
 function deferred() {
   let resolve;
-  const promise = new Promise((r) => { resolve = r; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 function job(id, kind) {
@@ -60,7 +65,8 @@ afterEach(async () => {
 
 async function flush() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
 }
 
@@ -76,7 +82,7 @@ test("快速切換篩選時，較晚回來的舊條件結果不會蓋掉目前�
     .mockReturnValueOnce(older.promise)
     .mockReturnValueOnce(newer.promise);
 
-  await act(async () => root.render(<JobsPage />));
+  await act(async () => root.render(withQueryClient(<JobsPage />)));
   await flush();
 
   await pickKind("vm_request");
@@ -91,4 +97,64 @@ test("快速切換篩選時，較晚回來的舊條件結果不會蓋掉目前�
   expect(host.textContent).toContain("job-del");
   expect(host.textContent).not.toContain("job-vm");
   expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+});
+
+test("換篩選期間先留著上一份清單，不閃回載入畫面", async () => {
+  const pending = deferred();
+  mocks.list
+    .mockResolvedValueOnce({ items: [job("all", "vm_request")] })
+    .mockReturnValueOnce(pending.promise);
+
+  await act(async () => root.render(withQueryClient(<JobsPage />)));
+  await flush();
+  await pickKind("deletion");
+  await flush();
+
+  expect(host.querySelector('[data-testid="loading"]')).toBeNull();
+  expect(host.textContent).toContain("job-all");
+
+  await act(async () => pending.resolve({ items: [job("del", "deletion")] }));
+  await flush();
+  expect(host.textContent).toContain("job-del");
+  expect(host.textContent).not.toContain("job-all");
+});
+
+test("換篩選失敗時跳 toast 並顯示錯誤狀態；背景重試又失敗不重複跳", async () => {
+  mocks.list
+    .mockResolvedValueOnce({ items: [job("all", "vm_request")] })
+    .mockRejectedValueOnce(new Error("boom"))
+    .mockRejectedValueOnce(new Error("boom again"));
+  const client = createTestQueryClient();
+
+  await act(async () => root.render(withQueryClient(<JobsPage />, client)));
+  await flush();
+  await pickKind("deletion");
+  await flush();
+
+  expect(mocks.toast.error).toHaveBeenCalledTimes(1);
+  expect(mocks.toast.error).toHaveBeenCalledWith("boom");
+  expect(host.querySelector('[data-testid="error"]')).not.toBeNull();
+  /* 錯誤時不能顯示成「沒有結果」 */
+  expect(host.textContent).not.toContain("JobsPage.emptyNoResult");
+
+  await act(async () => { await client.refetchQueries({ queryKey: jobKeys.list({ limit: 200, kinds: ["deletion"] }) }); });
+  await flush();
+  expect(mocks.list).toHaveBeenCalledTimes(3);
+  expect(mocks.toast.error).toHaveBeenCalledTimes(1);
+});
+
+test("背景刷新失敗沿用現有清單、不跳 toast", async () => {
+  mocks.list
+    .mockResolvedValueOnce({ items: [job("all", "vm_request")] })
+    .mockRejectedValueOnce(new Error("503"));
+  const client = createTestQueryClient();
+
+  await act(async () => root.render(withQueryClient(<JobsPage />, client)));
+  await flush();
+  await act(async () => { await client.refetchQueries({ queryKey: jobKeys.list({ limit: 200 }) }); });
+  await flush();
+
+  expect(mocks.list).toHaveBeenCalledTimes(2);
+  expect(host.textContent).toContain("job-all");
+  expect(mocks.toast.error).not.toHaveBeenCalled();
 });

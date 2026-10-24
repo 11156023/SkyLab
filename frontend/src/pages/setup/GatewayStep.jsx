@@ -6,14 +6,20 @@
  *   2. 管理員把公鑰貼到 Gateway 後「測試連線」
  *   3. 一鍵安裝（nginx／WireGuard），安裝在 Gateway 背景跑，這裡每 3 秒讀一次日誌
  * 表單驗證與送出內容和閘道頁的「安裝服務」分頁共用（installForm.js）。
+ * 連線設定與安裝狀態都走 TanStack Query（queries/setup.js）。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
+import { useLoadError, useQueryErrorEffect, useQueryView } from "../../hooks/useQueryLoadState";
 import { useToast } from "../../hooks/useToast";
+import {
+  useSetupCacheUpdater,
+  useSetupGatewayInstallQuery,
+  useSetupGatewayQuery,
+} from "../../queries/setup";
 import { SetupService } from "../../services/setup";
 import {
   firstIpv4,
@@ -25,8 +31,16 @@ import {
 import { Notice } from "./wizardParts";
 import styles from "./SetupPage.module.scss";
 
-/* 安裝進行中每 3 秒經 SSH 讀一次日誌；其他狀態不輪詢 */
-const POLL_MS = 3_000;
+/* 安裝狀態什麼時候讀（安裝中每 3 秒經 SSH 讀一次日誌，其他狀態不輪詢）：
+   - probe：剛進這一步，連線已設定好就直接試著讀一次，讀得到代表 SSH 是通的；讀不到不提示
+   - off：剛存了新的連線設定，之前的安裝狀態作廢，要等「測試連線」通過才讀
+   - on：測試連線通過之後 */
+const INSTALL_PROBE = "probe";
+const INSTALL_OFF = "off";
+const INSTALL_ON = "on";
+
+/* 進這一步時試讀安裝狀態成功：等同測試連線通過（沒有訊息要顯示） */
+const PROBE_PASSED = Object.freeze({ success: true, message: "" });
 
 const COMPONENTS = [
   ["nginx", "nginx"],
@@ -81,68 +95,51 @@ export default function GatewayStep({ onConfigured, onSkip, onBack, onNext }) {
   /* 安裝參數的欄位名稱與錯誤訊息沿用閘道頁那一份，兩邊用語才會一致 */
   const { t: ts } = useTranslation("system");
   const toast = useToast();
-  const [loading, setLoading] = useState(true);
-  const [config, setConfig] = useState(null);
-  const [form, setForm] = useState(toConnectionForm(null));
+  const setupCache = useSetupCacheUpdater();
+  /* 使用者改過的連線欄位；沒改過（null）就照目前的設定顯示 */
+  const [formDraft, setFormDraft] = useState(null);
   const [savingConnection, setSavingConnection] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
-  const [install, setInstall] = useState(null);
+  const [installMode, setInstallMode] = useState(INSTALL_PROBE);
   const [installForm, setInstallForm] = useState(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const prevStateRef = useRef(null);
   const logRef = useRef(null);
 
-  /* 套用安裝狀態；只有親眼看到「安裝中 → 結束」才提示 */
-  const applyInstall = useCallback((next) => {
+  const gatewayQuery = useSetupGatewayQuery();
+  const config = gatewayQuery.data ?? null;
+  const { loading: configLoading } = useQueryView(gatewayQuery);
+  /* 讀不到設定才提示（之後存檔、測試會清掉）；換步驟回來的背景重抓失敗沿用畫面上的設定 */
+  useQueryErrorEffect(gatewayQuery, (err) => {
+    if (gatewayQuery.data === undefined) setError(err?.message ?? t("SetupPage.gatewayLoadFailed"));
+  });
+
+  /* 輪詢時偶發的 SSH 失敗不蓋掉畫面（沿用上一次的狀態） */
+  const installQuery = useSetupGatewayInstallQuery({
+    enabled: Boolean(config?.is_configured) && installMode !== INSTALL_OFF,
+  });
+  const install = installQuery.data ?? null;
+  const { error: probeError } = useLoadError(installQuery);
+  /* 進這一步時那一次試讀還沒結果：跟讀設定一起顯示載入中 */
+  const probing = installMode === INSTALL_PROBE && Boolean(config?.is_configured) && !install && !probeError;
+  const loading = configLoading || probing;
+
+  /* 每拿到一份安裝狀態（試讀、輪詢、測試後讀取或開始安裝的回應）：安裝參數第一次用偵測到的預設值填好；
+     只有親眼看到「安裝中 → 結束」才提示 */
+  const installUpdatedAt = installQuery.dataUpdatedAt;
+  useEffect(() => {
+    if (!install) return;
+    setInstallForm((current) => current ?? toInstallForm(install.defaults));
     const prev = prevStateRef.current;
-    prevStateRef.current = next.state;
-    setInstall(next);
-    setInstallForm((current) => current ?? toInstallForm(next.defaults));
+    prevStateRef.current = install.state;
     if (prev !== "running") return;
-    if (next.state === "succeeded") toast.success(ts("GatewayPage.toastInstallSucceeded"));
-    else if (next.state === "failed" || next.state === "interrupted") {
+    if (install.state === "succeeded") toast.success(ts("GatewayPage.toastInstallSucceeded"));
+    else if (install.state === "failed" || install.state === "interrupted") {
       toast.error(ts("GatewayPage.toastInstallFailed"));
     }
-  }, [toast, ts]);
-
-  const refreshInstall = useCallback(async ({ silent = false } = {}) => {
-    try {
-      applyInstall(await SetupService.getGatewayInstallStatus());
-      return true;
-    } catch (err) {
-      // 輪詢時偶發的 SSH 失敗不蓋掉畫面
-      if (!silent) setError(err?.message ?? t("SetupPage.gatewayInstallLoadFailed"));
-      return false;
-    }
-  }, [applyInstall, t]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const current = await SetupService.getGateway();
-        if (cancelled) return;
-        setConfig(current);
-        setForm(toConnectionForm(current));
-        // 重新整理頁面回來：連線已設定好就直接試著讀安裝狀態，讀得到代表 SSH 是通的
-        if (current.is_configured && (await refreshInstall({ silent: true })) && !cancelled) {
-          setTestResult({ success: true, message: "" });
-        }
-      } catch (err) {
-        if (!cancelled) setError(err?.message ?? t("SetupPage.gatewayLoadFailed"));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [refreshInstall, t]);
-
-  useAutoRefresh(() => {
-    if (install?.state === "running") return refreshInstall({ silent: true });
-    return undefined;
-  }, POLL_MS);
+  }, [install, installUpdatedAt, toast, ts]);
 
   // 安裝中日誌持續長出來，捲到最底
   useEffect(() => {
@@ -150,9 +147,12 @@ export default function GatewayStep({ onConfigured, onSkip, onBack, onNext }) {
     logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [install]);
 
+  const form = formDraft ?? toConnectionForm(config);
+  /* 重新整理頁面回來：連線已設定好、試讀安裝狀態也讀得到，就當作 SSH 是通的 */
+  const shownTestResult = testResult ?? (installMode === INSTALL_PROBE && install ? PROBE_PASSED : null);
   const connectionDirty = JSON.stringify(connectionPayload(form))
     !== JSON.stringify(connectionPayload(toConnectionForm(config)));
-  const connected = Boolean(testResult?.success) && !connectionDirty;
+  const connected = Boolean(shownTestResult?.success) && !connectionDirty;
   const running = install?.state === "running";
   // 安裝到一半 nginx 可能已經在了，跑完才算裝好
   const installed = !running && (install?.state === "succeeded" || hasCoreServices(install));
@@ -160,7 +160,7 @@ export default function GatewayStep({ onConfigured, onSkip, onBack, onNext }) {
   const busy = savingConnection || testing || starting;
 
   function setField(name, value) {
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setFormDraft((prev) => ({ ...(prev ?? toConnectionForm(config)), [name]: value }));
   }
 
   function setInstallField(name, value) {
@@ -179,11 +179,12 @@ export default function GatewayStep({ onConfigured, onSkip, onBack, onNext }) {
     setSavingConnection(true);
     try {
       const saved = await SetupService.saveGateway(connectionPayload(form));
-      setConfig(saved);
-      setForm(toConnectionForm(saved));
-      // 連線對象換了，之前的測試結果與安裝狀態都不算數
+      setupCache.setGateway(saved);
+      setFormDraft(null);
+      // 連線對象換了，之前的測試結果與安裝狀態都不算數（還在路上的輪詢一併作廢），測試連線通過才再讀
       setTestResult(null);
-      setInstall(null);
+      setInstallMode(INSTALL_OFF);
+      setupCache.clearGatewayInstall();
       setInstallForm(null);
       prevStateRef.current = null;
       onConfigured(saved);
@@ -201,7 +202,12 @@ export default function GatewayStep({ onConfigured, onSkip, onBack, onNext }) {
     try {
       const result = await SetupService.testGateway();
       setTestResult(result);
-      if (result.success) await refreshInstall();
+      if (result.success) {
+        // 連通了就讀安裝狀態；這次讀不到要提示（輪詢時的失敗才不提示）
+        setInstallMode(INSTALL_ON);
+        const outcome = await installQuery.refetch();
+        if (outcome.isError) setError(outcome.error?.message ?? t("SetupPage.gatewayInstallLoadFailed"));
+      }
     } catch (err) {
       setTestResult({ success: false, message: err?.message ?? t("SetupPage.testFailed") });
     } finally {
@@ -214,8 +220,9 @@ export default function GatewayStep({ onConfigured, onSkip, onBack, onNext }) {
     setStarting(true);
     try {
       const next = await SetupService.startGatewayInstall(toInstallPayload(installForm));
+      // 開始安裝前送出、還沒回來的輪詢作廢（先取消再寫入）；回來的狀態若已經不是 running（例如立刻失敗），一樣要提示
       prevStateRef.current = "running";
-      applyInstall(next);
+      await setupCache.setGatewayInstall(next);
       toast.success(ts("GatewayPage.toastInstallStarted"));
     } catch (err) {
       setError(err?.message ?? ts("GatewayPage.toastInstallStartFailed"));
@@ -321,10 +328,10 @@ export default function GatewayStep({ onConfigured, onSkip, onBack, onNext }) {
         </>
       )}
 
-      {testResult && !connectionDirty && (testResult.message || !testResult.success) && (
-        <div className={`${styles.testResult} ${testResult.success ? styles.testResult_ok : styles.testResult_fail}`}>
-          <MIcon name={testResult.success ? "check_circle" : "error"} size={20} />
-          <div><strong>{testResult.message || t("SetupPage.testFailed")}</strong></div>
+      {shownTestResult && !connectionDirty && (shownTestResult.message || !shownTestResult.success) && (
+        <div className={`${styles.testResult} ${shownTestResult.success ? styles.testResult_ok : styles.testResult_fail}`}>
+          <MIcon name={shownTestResult.success ? "check_circle" : "error"} size={20} />
+          <div><strong>{shownTestResult.message || t("SetupPage.testFailed")}</strong></div>
         </div>
       )}
 

@@ -9,6 +9,7 @@ export const SYSTEM_SETTINGS_GUIDES = {
     steps: [
       { selector: '[data-page-guide="header"]', titleKey: "UserGuide.adminUsers.intro.title", textKey: "UserGuide.adminUsers.intro.text" },
       { selector: '[data-page-guide="actions"]', titleKey: "UserGuide.adminUsers.add.title", textKey: "UserGuide.adminUsers.add.text" },
+      { selector: '[data-guide="admin-groups"]', titleKey: "UserGuide.adminUsers.groups.title", textKey: "UserGuide.adminUsers.groups.text" },
       { selector: '[data-guide="admin-registration"]', titleKey: "UserGuide.adminUsers.registration.title", textKey: "UserGuide.adminUsers.registration.text" },
       { selector: '[data-guide="admin-pending"]', titleKey: "UserGuide.adminUsers.pending.title", textKey: "UserGuide.adminUsers.pending.text" },
       { selector: '[data-guide="admin-summary"]', titleKey: "UserGuide.adminUsers.summary.title", textKey: "UserGuide.adminUsers.summary.text" },

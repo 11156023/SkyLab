@@ -4,8 +4,9 @@ import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import { TemplatesService } from "../../../services/templates";
-import { GpuService } from "../../../services/gpu";
+import { useGpuOptionsQuery } from "../../../queries/gpu";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 
 const CORE_MIN = 1;
 const MEMORY_MIN = 512;
@@ -17,6 +18,8 @@ const CLONE_COUNT_MAX = 50;
 function clampCloneCount(value) {
   return Math.min(CLONE_COUNT_MAX, Math.max(CLONE_COUNT_MIN, Math.trunc(Number(value)) || CLONE_COUNT_MIN));
 }
+
+const NO_GPU_OPTIONS = Object.freeze([]);
 
 const formatVram = (mb) =>
   mb >= 1024 ? `${Math.round(mb / 1024)}G` : `${mb}M`;
@@ -43,8 +46,18 @@ export default function TemplateCloneDialog({ template, closing = false, onClose
   const [busy, setBusy] = useState(false);
 
   const needsGpu = Boolean(template?.requires_gpu) && template?.resource_type === "qemu";
-  const [gpuOptions, setGpuOptions] = useState([]);
-  const [gpuLoading, setGpuLoading] = useState(needsGpu);
+  /* GPU 不可跨 PVE 連線：只列出與範本同叢集的 GPU。需要 GPU 的範本才抓（TanStack Query，不輪詢） */
+  const gpuQuery = useGpuOptionsQuery(template?.node ? { node: template.node } : undefined, { enabled: needsGpu });
+  const gpuData = gpuQuery.data;
+  /* 首載失敗後切回視窗的重試期間仍算失敗（不閃回載入中、不重複提示）：沒資料時 v5 每次重抓都清掉 isError */
+  const gpuLoadError = useLoadError(gpuQuery).error;
+  const gpuFailed = needsGpu && gpuData === undefined && Boolean(gpuLoadError);
+  const gpuOptions = (needsGpu ? gpuData : undefined) ?? NO_GPU_OPTIONS;
+  const gpuLoading = needsGpu && gpuData === undefined && !gpuFailed;
+  const gpuFailedMessage = gpuFailed ? t("Error.generic", { ns: "common" }) : null;
+  useEffect(() => {
+    if (gpuFailedMessage) toast.error(gpuFailedMessage);
+  }, [gpuFailedMessage, toast]);
   const [gpuMappingId, setGpuMappingId] = useState("");
   const [gpuProfile, setGpuProfile] = useState("");
 
@@ -56,19 +69,6 @@ export default function TemplateCloneDialog({ template, closing = false, onClose
   const memoryTicks = [
     ...new Set([1024, 8192, 16384, 24576, 32768, memoryMax]),
   ].sort((a, b) => a - b);
-
-  useEffect(() => {
-    if (!needsGpu) return undefined;
-    let cancelled = false;
-    /* GPU 不可跨 PVE 連線：只列出與範本同叢集的 GPU */
-    GpuService.listOptions(template?.node ? { node: template.node } : undefined)
-      .then((res) => !cancelled && setGpuOptions(res ?? []))
-      .catch(() => !cancelled && toast.error(t("Error.generic", { ns: "common" })))
-      .finally(() => !cancelled && setGpuLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [needsGpu, toast, template?.node]);
 
   const selectedGpu = gpuOptions.find((g) => g.mapping_id === gpuMappingId);
   const gpuProfiles = selectedGpu?.profiles ?? [];

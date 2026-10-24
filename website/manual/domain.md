@@ -27,6 +27,8 @@ The status row under the header shows **Connected** with the account (shortened;
 
 To change the settings later, click **Connection Settings** in the header. Leave **API Token** blank to keep the current token.
 
+![Connect Cloudflare (numbers match the steps above)](/manual-shots/en/domain/s01.webp)
+
 ### Browse the DNS records of a zone
 
 1. The **Zones** list on the left shows every domain in the account with its status; the number in the title is how many there are.
@@ -38,6 +40,8 @@ To change the settings later, click **Connection Settings** in the header. Leave
    - **Proxied** or **DNS only**: whether traffic goes through Cloudflare.
 5. To find a record, type part of its name in the search box and press Enter.
 
+![Browse the DNS records of a zone (numbers match the steps above)](/manual-shots/en/domain/s02.webp)
+
 ### Add a DNS record
 
 1. Select a zone and click **Add Record**.
@@ -47,10 +51,14 @@ To change the settings later, click **Connection Settings** in the header. Leave
 5. Optionally add a **Comment** and tick **Proxied through Cloudflare (orange cloud)**.
 6. Click **Save**.
 
+![Add a DNS record (numbers match the steps above)](/manual-shots/en/domain/s03.webp)
+
 ### Edit or delete a DNS record
 
 1. Click the edit button on a record, change the fields and click **Save**. Clearing **Comment** removes the comment.
 2. Click the delete button on a record and confirm with **Delete**. This cannot be undone.
+
+![Edit or delete a DNS record (numbers match the steps above)](/manual-shots/en/domain/s04.webp)
 
 ### Give a machine its own URL
 
@@ -61,6 +69,8 @@ Machine URLs are not created on this page. A machine owner (or their teacher, or
 3. SkyLab checks that the address is free, creates the DNS record in the zone pointing at the default DNS target, and adds the forwarding rule to the Gateway's nginx. HTTPS uses the certificate set on the Gateway VM page.
 
 The new record then appears here with the **This system · VM** badge. Deleting that connection on the Firewall page also deletes its DNS record.
+
+![Give a machine its own URL (numbers match the steps above)](/manual-shots/en/domain/s05.webp)
 
 ## Fields and options
 

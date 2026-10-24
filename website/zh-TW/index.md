@@ -53,7 +53,6 @@ features:
 - **要放上正式伺服器：**[部署指南](/zh-TW/guides/deployment)涵蓋機密值、經閘道的平台入口、HTTPS、LDAP 與 CI 部署。
 - **出問題了：**[疑難排解](/zh-TW/troubleshooting)列出實際遇過的故障、原因與解法。
 - **要呼叫 API：**[REST API](/zh-TW/reference/api)、[WebSocket 端點](/zh-TW/reference/websocket)與 [AI API 使用與部署手冊](/zh-TW/guides/ai-api-user-manual)。
-
 - **找特定頁面：**[使用手冊](/zh-TW/manual/)依角色涵蓋每個功能，[文件索引](/zh-TW/guides/)依檔案列出所有頁面。
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/ntubclass/SkyLab/blob/main/LICENSE)

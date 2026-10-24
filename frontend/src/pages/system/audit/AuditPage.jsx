@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, FlexRender, useTable } from "@tanstack/react-table";
 import styles from "./AuditPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadFailureMessage, useQueryView } from "../../../hooks/useQueryLoadState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { downloadBlob } from "../../../services/api";
 import { AuditLogsService } from "../../../services/auditLogs";
+import {
+  useAuditActionsQuery,
+  useAuditLogsQuery,
+  useAuditStatsQuery,
+  useAuditUsersQuery,
+} from "../../../queries/auditLogs";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import Pagination from "../shared/Pagination";
 import { formatDateTime } from "../../../utils/formatDate";
@@ -17,6 +27,8 @@ const PAGE_SIZE = 50;
 const EXPORT_LIMIT = 10000;
 /** 搜尋框即時查詢的防抖間隔（ms）；下拉與日期改變則立即查詢 */
 const SEARCH_DEBOUNCE = 300;
+
+const EMPTY = Object.freeze([]);
 
 /** date input（yyyy-mm-dd）轉 ISO；end 補到當日 23:59:59 */
 function toIso(dateStr, endOfDay = false) {
@@ -66,17 +78,83 @@ function EmptyState({ hasFilter, onClear }) {
   );
 }
 
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`AuditPage.${name}`);
+}
+
+function UserCell({ log }) {
+  const { t } = useTranslation("system");
+  return (
+    <div className={styles.userCell}>
+      <span>{log.user_full_name ?? (log.user_email ? "—" : t("AuditPage.systemUser"))}</span>
+      <span className={styles.userEmail}>{log.user_email ?? ""}</span>
+    </div>
+  );
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const auditColumns = columnHelper.columns([
+  columnHelper.accessor("created_at", {
+    header: () => <ColTitle name="colTime" />,
+    cell: ({ row }) => formatDateTime(row.original.created_at),
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+  columnHelper.display({
+    id: "user",
+    header: () => <ColTitle name="colUser" />,
+    cell: ({ row }) => <UserCell log={row.original} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("action", {
+    header: () => <ColTitle name="colAction" />,
+    cell: ({ row }) => <span className={styles.actionBadge}>{row.original.action}</span>,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("details", {
+    header: () => <ColTitle name="colContent" />,
+    cell: ({ row }) => row.original.details,
+    /* 全文放在 td 的 title，滑過可看被截斷的內容 */
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdDetails}`, tdTitle: (log) => log.details },
+  }),
+  columnHelper.accessor("vmid", {
+    header: "VMID",
+    cell: ({ row }) => row.original.vmid ?? "—",
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("ip_address", {
+    header: "IP",
+    cell: ({ row }) => row.original.ip_address ?? "—",
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+]);
+
+/**
+ * 內容欄的 td 要帶逐列不同的 title，共用的 DataTableCells 只吃固定的 tdProps，
+ * 所以這裡自己畫儲存格（DOM 與 DataTableCells 相同，只多了 title）。
+ */
+function renderAuditRow(row) {
+  return (
+    <tr key={row.id} className={styles.tr}>
+      {row.getAllCells().map((cell) => {
+        const meta = cell.column.columnDef.meta;
+        return (
+          <td key={cell.id} className={meta.tdClassName} title={meta.tdTitle?.(row.original)}>
+            <FlexRender cell={cell} />
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
 export default function AuditPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
-  const [logs, setLogs] = useState([]);
-  const [count, setCount] = useState(0);
-  const [stats, setStats] = useState(null);
-  const [actionOptions, setActionOptions] = useState([]);
-  const [userOptions, setUserOptions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [hasLoaded, setHasLoaded] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(0);
 
@@ -89,8 +167,6 @@ export default function AuditPage() {
     endDate: "",
   });
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  /** 最新一次查詢的序號：回應順序錯亂時只採用最後一次的結果 */
-  const requestSeq = useRef(0);
   /** 目前生效的搜尋字串：用來判斷是否真的變了，不在 setState updater 裡做副作用 */
   const debouncedSearchRef = useRef("");
 
@@ -115,53 +191,46 @@ export default function AuditPage() {
     endTime: toIso(filters.endDate, true) || undefined,
   }), [debouncedSearch, filters.action, filters.userId, filters.startDate, filters.endDate, page]);
 
-  const fetchLogs = useCallback(async () => {
-    const seq = ++requestSeq.current;
-    setLoading(true);
-    try {
-      const res = await AuditLogsService.list(queryParams);
-      if (seq !== requestSeq.current) return;
-      setLogs(res?.data ?? []);
-      setCount(res?.count ?? 0);
-    } catch (err) {
-      if (seq !== requestSeq.current) return;
-      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      if (seq === requestSeq.current) {
-        setLoading(false);
-        setHasLoaded(true);
-      }
-    }
-  }, [queryParams, toast, t]);
-
+  /* 清單與摘要走 TanStack Query：每組篩選一份快取，換條件時保留上一組畫面（半透明）直到新資料回來；
+     較晚回來的舊條件結果只會寫進它自己那份快取，蓋不掉目前條件的畫面。
+     原本只在條件改變時查詢，不背景輪詢，這裡照舊 */
+  const logsQuery = useAuditLogsQuery(queryParams, { refetchInterval: false });
+  const logs = logsQuery.data?.data ?? EMPTY;
+  const count = logsQuery.data?.count ?? 0;
+  /* 同一串失敗只提示一次、首載失敗後切回視窗不閃回整頁載入中（沒資料時 v5 每次重抓（切回視窗）都把 status 改回 pending、清掉 error） */
+  const loadFailedMessage = useLoadFailureMessage(logsQuery, t("Error.generic", { ns: "common" }));
+  const logsView = useQueryView(logsQuery);
+  /* 伺服器分頁：頁碼由 page 決定查詢參數，表格只渲染當頁的列 */
+  const table = useTable({
+    features: baseFeatures,
+    columns: auditColumns,
+    data: logs,
+    getRowId: (log) => String(log.id),
+  });
   useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
 
-  useEffect(() => {
-    /* 日期連續改動（手動打年份會逐位觸發）時，較晚回來的舊區間摘要不能蓋掉新區間的 */
-    let cancelled = false;
-    AuditLogsService.stats({
-      startTime: toIso(filters.startDate) || undefined,
-      endTime: toIso(filters.endDate, true) || undefined,
-    })
-      .then((next) => { if (!cancelled) setStats(next); })
-      /* 摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
-      .catch(() => { if (!cancelled) setStats(null); });
-    return () => { cancelled = true; };
-  }, [filters.startDate, filters.endDate]);
+  /* 日期連續改動（手動打年份會逐位觸發）時，較晚回來的舊區間摘要不能蓋掉新區間的；
+     摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
+  const statsParams = useMemo(() => ({
+    startTime: toIso(filters.startDate) || undefined,
+    endTime: toIso(filters.endDate, true) || undefined,
+  }), [filters.startDate, filters.endDate]);
+  const statsQuery = useAuditStatsQuery(statsParams, { refetchInterval: false });
+  const stats = statsQuery.isError ? null : statsQuery.data ?? null;
 
-  useEffect(() => {
-    AuditLogsService.actions().then(setActionOptions).catch(() => {});
-    AuditLogsService.users().then(setUserOptions).catch(() => {});
-  }, []);
+  /* 篩選選單；抓不到就留空選單（靜默） */
+  const actionOptions = useAuditActionsQuery().data ?? EMPTY;
+  const userOptions = useAuditUsersQuery().data ?? EMPTY;
 
   const hasFilter = Boolean(
     filters.search.trim() || filters.action || filters.userId || filters.startDate || filters.endDate,
   );
   const totalPages = Math.max(Math.ceil(count / PAGE_SIZE), 1);
   /** 載入過之後的重新查詢：保留畫面、半透明，不整頁換成 loading 動畫 */
-  const isInitialLoading = loading && !hasLoaded;
+  const isInitialLoading = logsView.loading;
+  const loading = logsQuery.isFetching;
 
   function setField(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -306,36 +375,7 @@ export default function AuditPage() {
         ) : (
           <>
             <div className={styles.tableWrap} data-guide="audit-table">
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    {[t("AuditPage.colTime"), t("AuditPage.colUser"), t("AuditPage.colAction"), t("AuditPage.colContent"), "VMID", "IP"].map((col) => (
-                      <th key={col} className={styles.th}>{col}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log) => (
-                    <tr key={log.id} className={styles.tr}>
-                      <td className={`${styles.td} ${styles.tdNowrap}`}>{formatDateTime(log.created_at)}</td>
-                      <td className={styles.td}>
-                        <div className={styles.userCell}>
-                          <span>{log.user_full_name ?? (log.user_email ? "—" : t("AuditPage.systemUser"))}</span>
-                          <span className={styles.userEmail}>{log.user_email ?? ""}</span>
-                        </div>
-                      </td>
-                      <td className={styles.td}>
-                        <span className={styles.actionBadge}>{log.action}</span>
-                      </td>
-                      <td className={`${styles.td} ${styles.tdDetails}`} title={log.details}>
-                        {log.details}
-                      </td>
-                      <td className={styles.td}>{log.vmid ?? "—"}</td>
-                      <td className={`${styles.td} ${styles.tdNowrap}`}>{log.ip_address ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable table={table} className={styles.table} renderRow={renderAuditRow} />
             </div>
 
             <Pagination

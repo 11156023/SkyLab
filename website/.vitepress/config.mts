@@ -1,4 +1,6 @@
-import { defineConfig, type DefaultTheme } from 'vitepress'
+import { readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+import { defineConfig, type DefaultTheme, type HeadConfig } from 'vitepress'
 
 // All documentation of the repository lives in this directory:
 //   guides/, operations/, reference/, development/, manual/, project/  (English)
@@ -8,6 +10,60 @@ import { defineConfig, type DefaultTheme } from 'vitepress'
 // public/openapi.json exported by backend/scripts/export_openapi.py.
 
 const REPO = 'https://github.com/ntubclass/SkyLab'
+
+// Production address: canonical URLs, hreflang, sitemap.xml, robots.txt and share cards.
+// DOCS_URL overrides it (an environment variable of the Cloudflare Pages project).
+const SITE_URL = (process.env.DOCS_URL || 'https://docs.skylab-tw.com').replace(/\/+$/, '')
+
+// ── SEO helpers ──────────────────────────────────────────────────────────────
+
+const ZH = 'zh-TW/'
+
+/** Address of a source file: guides/x.md → /guides/x, manual/index.md → /manual/ */
+function pageUrl(relativePath: string): string {
+  return `${SITE_URL}/${relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')}`
+}
+
+/** The same page in the other language, when it exists (hreflang must point both ways). */
+function counterpart(relativePath: string, pages: string[]): string | undefined {
+  const other = relativePath.startsWith(ZH) ? relativePath.slice(ZH.length) : ZH + relativePath
+  return pages.includes(other) ? other : undefined
+}
+
+// Search results show about 160 Latin characters, or about 80–90 CJK characters.
+const DESCRIPTION_LENGTH = { en: 160, 'zh-TW': 90 }
+
+/** The first prose paragraph of a page as plain text, or undefined when it has none (e.g. the home page). */
+function firstParagraph(source: string): string | undefined {
+  const lines = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').split(/\r?\n/)
+  const paragraph: string[] = []
+  let inFence = false
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (/^(```|~~~)/.test(line)) inFence = !inFence
+    // Headings, tables, lists, quotes, containers, images, badges, includes and HTML end or skip a paragraph.
+    const prose = !inFence && line !== '' && !/^(```|~~~|#|\||<|>|:::|!\[|\[!\[|[-*+]\s|\d+\.\s|-{3,}|\[\[toc\]\])/.test(line)
+    if (prose) paragraph.push(line)
+    else if (paragraph.length) break
+  }
+  if (!paragraph.length) return undefined
+  return paragraph
+    .join(' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max - 1)
+  const space = cut.lastIndexOf(' ')
+  return `${space > max * 0.6 ? cut.slice(0, space) : cut}…`
+}
 
 type Labels = Record<string, string>
 
@@ -58,7 +114,7 @@ const manualTeachers = {
     templates: '範本',
     'class-setup': '建立班級',
     'class-management': '班級清單',
-    'class-workspace': '班級工作區',
+    'class-workspace': '班級工作頁',
     'ai-judge': 'AI 導師檢查',
     'course-templates': '多機教學環境',
     'course-cms': '課程內容',
@@ -116,12 +172,12 @@ const operations = {
     'operations/upgrade': 'Upgrading and migrations',
     'operations/backup': 'Backup and restore',
     'operations/environment': 'Environment variables',
+    'operations/site': 'Public site',
     'guides/monitoring': 'Monitoring',
     'guides/registration-and-google-login': 'Registration and Google login',
     'guides/ai-api-user-manual': 'AI API: LiteLLM and vLLM',
     'guides/wireguard-desktop-architecture': 'WireGuard and SkyLab Connect',
     'guides/vllm-service': 'vLLM service',
-    'guides/vllm-project-overview': 'vLLM service: project overview',
     'guides/vllm-sharegpt-quickstart': 'vLLM service: ShareGPT benchmark',
     'guides/litellm': 'LiteLLM gateway',
   },
@@ -130,14 +186,14 @@ const operations = {
     'operations/upgrade': '升級與 migration',
     'operations/backup': '備份與還原',
     'operations/environment': '環境變數對照表',
+    'operations/site': '官網',
     'guides/monitoring': '系統監控',
     'guides/registration-and-google-login': '註冊設定與 Google 登入',
     'guides/ai-api-user-manual': 'AI API：LiteLLM 與 vLLM',
     'guides/wireguard-desktop-architecture': 'WireGuard 與 SkyLab Connect',
     'guides/vllm-service': 'vLLM 服務',
-    'guides/vllm-project-overview': 'vLLM 服務：專案總覽',
     'guides/vllm-sharegpt-quickstart': 'vLLM 服務：ShareGPT 基準測試',
-    'guides/litellm': 'LiteLLM 閘道（English）',
+    'guides/litellm': 'LiteLLM 閘道',
   },
 }
 
@@ -169,13 +225,6 @@ const design = {
     'guides/ai-teacher-judge-contract': 'AI 導師檢查流程與不可破壞契約',
     'guides/user-guide-content-audit': '頁面導覽文案盤點',
   },
-}
-
-const archive = {
-  'guides/archive/2026-09-09-ui-consistency-audit': '2026-09-09 UI consistency audit',
-  'guides/archive/2026-10-03-ai-api-concurrency-analysis': '2026-10-03 AI API concurrency analysis',
-  'guides/archive/2026-10-06-ai-page-guide': '2026-10-06 AI page guide (繁體中文)',
-  'guides/archive/skylab-connect-ui-proposal': 'SkyLab Connect UI proposal (繁體中文)',
 }
 
 function sidebar(locale: 'en' | 'zh-TW'): DefaultTheme.Sidebar {
@@ -241,7 +290,6 @@ function sidebar(locale: 'en' | 'zh-TW'): DefaultTheme.Sidebar {
               { text: 'AI Teacher Judge contract (繁體中文)', link: '/zh-TW/guides/ai-teacher-judge-contract' },
               { text: 'Page guide content audit (繁體中文)', link: '/zh-TW/guides/user-guide-content-audit' },
             ]),
-        { text: zh ? '歷史報告' : 'Archive', collapsed: true, items: items('/', archive) },
       ],
     },
     { text: zh ? '疑難排解' : 'Troubleshooting', link: `${p}troubleshooting` },
@@ -272,7 +320,65 @@ export default defineConfig({
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['meta', { name: 'theme-color', content: '#5471bf' }],
   ],
+  // The sitemap pairs every English page with its 繁體中文 version as hreflang alternates.
+  sitemap: {
+    hostname: `${SITE_URL}/`,
+    transformItems: (items) =>
+      items.map((item) => {
+        const english = item.links?.find((link) => link.lang === 'en')
+        return english ? { ...item, links: [...item.links!, { lang: 'x-default', url: english.url }] } : item
+      }),
+  },
+  // Pages have no description front matter; use their first paragraph so search results
+  // and share cards describe the page instead of repeating the site tagline.
+  transformPageData(pageData, { siteConfig }) {
+    if (pageData.frontmatter.description || pageData.isNotFound) return
+    const source = readFileSync(path.join(siteConfig.srcDir, pageData.relativePath), 'utf8')
+    // The home pages describe themselves in the hero tagline.
+    const text = pageData.frontmatter.hero?.tagline ?? firstParagraph(source)
+    if (!text) return
+    const lang = pageData.relativePath.startsWith(ZH) ? 'zh-TW' : 'en'
+    return { description: truncate(text, DESCRIPTION_LENGTH[lang]) }
+  },
+  transformHead({ page, pageData, siteConfig, title, description }) {
+    if (page === '404.md') return [['meta', { name: 'robots', content: 'noindex' }]]
+    const zh = pageData.relativePath.startsWith(ZH)
+    const url = pageUrl(pageData.relativePath)
+    const head: HeadConfig[] = [['link', { rel: 'canonical', href: url }]]
+    const other = counterpart(pageData.relativePath, siteConfig.pages)
+    if (other) {
+      const english = pageUrl(zh ? other : pageData.relativePath)
+      head.push(
+        ['link', { rel: 'alternate', hreflang: 'en', href: english }],
+        ['link', { rel: 'alternate', hreflang: 'zh-TW', href: pageUrl(zh ? pageData.relativePath : other) }],
+        ['link', { rel: 'alternate', hreflang: 'x-default', href: english }],
+      )
+    }
+    const image = `${SITE_URL}/og-image${zh ? '-zh-TW' : ''}.jpg`
+    head.push(
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:site_name', content: 'SkyLab' }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+      ['meta', { property: 'og:url', content: url }],
+      ['meta', { property: 'og:image', content: image }],
+      ['meta', { property: 'og:image:width', content: '1200' }],
+      ['meta', { property: 'og:image:height', content: '630' }],
+      ['meta', { property: 'og:locale', content: zh ? 'zh_TW' : 'en_US' }],
+      ['meta', { property: 'og:locale:alternate', content: zh ? 'en_US' : 'zh_TW' }],
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+    )
+    return head
+  },
+  buildEnd(siteConfig) {
+    writeFileSync(
+      path.join(siteConfig.outDir, 'robots.txt'),
+      `User-agent: *\nAllow: /\n\nSitemap: ${SITE_URL}/sitemap.xml\n`,
+    )
+  },
   markdown: {
+    // The manual has a screenshot under every step; load them as they scroll in.
+    image: { lazyLoading: true },
     config(md) {
       // Inline code such as `{{.SecurityOptions}}` must not be read as a Vue
       // interpolation (fenced blocks are already protected by VitePress).
@@ -314,6 +420,7 @@ export default defineConfig({
       label: '繁體中文',
       lang: 'zh-TW',
       link: '/zh-TW/',
+      description: '以 Proxmox VE 打造、學校可自行架設的雲端平台。',
       themeConfig: {
         nav: [
           { text: '快速開始', link: '/zh-TW/getting-started' },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,7 +7,9 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
-import { AiApiService } from "../../../services/aiApi";
+import { useAiCredentialQuery } from "../../../queries/aiApi";
+import { useAiModelsQuery } from "../../../queries/aiApiChat";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { AiApiChatService, stripThinkingContent } from "../../../services/aiApiChat";
 import { formatShortDateTime } from "../../../utils/formatDate";
 import { backupChatHistory, createConversation, loadChatHistory, saveChatHistory } from "./chatHistory";
@@ -49,6 +51,8 @@ function Message({ message, t, streaming = false }) {
   </article>;
 }
 
+const EMPTY_MODELS = Object.freeze([]);
+
 function credentialOptionLabel(credential) {
   const prefix = credential.api_key_prefix ? ` (${credential.api_key_prefix}…)` : "";
   return `${credential.api_key_name ?? credential.id}${prefix}`;
@@ -59,40 +63,27 @@ function credentialOptionLabel(credential) {
    （VITE_* 會公開在靜態 JS 裡，任何人都能拿去繞過審核與用量歸屬）。 */
 function useChatApiKey(credentials) {
   const [selectedId, setSelectedId] = useState(null);
-  const [apiKey, setApiKey] = useState(null);
-  const [loadingKey, setLoadingKey] = useState(false);
-  const [keyError, setKeyError] = useState(null);
   const selected = credentials.find((item) => item.id === selectedId) ?? credentials[0] ?? null;
-  const selectedKey = selected ? `${selected.id}:${selected.api_key_prefix ?? ""}` : null;
   const selectedCredentialId = selected?.id ?? null;
-
-  useEffect(() => {
-    setApiKey(null);
-    setKeyError(null);
-    if (!selectedCredentialId) {
-      setLoadingKey(false);
-      return undefined;
+  /* 以憑證 id 為 key：重新產生金鑰會換成新的一筆（新 id），切過去就重新取得完整金鑰；
+     切換或卸載時請求跟著中止，查詢 gcTime 0，完整金鑰不留在快取 */
+  const keyQuery = useAiCredentialQuery(selectedCredentialId, { enabled: selectedCredentialId != null });
+  const detail = keyQuery.data;
+  const noDetail = detail === undefined;
+  const apiKey = noDetail ? "" : String(detail?.api_key ?? "").trim();
+  /* 取不到金鑰的錯誤在切回視窗重抓期間維持，不閃回「載入中」（見 useQueryView） */
+  const keyView = useQueryView(keyQuery);
+  const loadingKey = selectedCredentialId != null && keyView.loading;
+  let keyError = null;
+  if (selectedCredentialId != null) {
+    if (noDetail) {
+      if (keyView.error) keyError = errorKey(keyView.error);
+    } else if (!apiKey) {
+      keyError = "noUsableKey";
     }
-    const controller = new AbortController();
-    setLoadingKey(true);
-    AiApiService.getCredential(selectedCredentialId, { signal: controller.signal })
-      .then((detail) => {
-        if (controller.signal.aborted) return;
-        const key = String(detail?.api_key ?? "").trim();
-        if (key) setApiKey(key);
-        else setKeyError("noUsableKey");
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setKeyError(errorKey(error));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoadingKey(false);
-      });
-    return () => controller.abort();
-    /* selectedKey 同時涵蓋 id 與前綴：重新產生金鑰後要重新取得完整金鑰 */
-  }, [selectedKey]);
+  }
 
-  return { selected, selectCredential: setSelectedId, apiKey, loadingKey, keyError };
+  return { selected, selectCredential: setSelectedId, apiKey: apiKey || null, loadingKey, keyError };
 }
 
 function ChatWorkspace({ userId, credentials, credentialsLoading }) {
@@ -112,15 +103,11 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
   const [activeId, setActiveId] = useState(initial.activeId);
   // 讀取失敗（已備份舊紀錄）與儲存失敗是兩件事，說法不同
   const [storageWarning, setStorageWarning] = useState(initial.warning);
-  const [models, setModels] = useState([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [modelError, setModelError] = useState(null);
   const [replyError, setReplyError] = useState(null);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(null);
   const [streamedReply, setStreamedReply] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
-  const modelRequestRef = useRef(null);
   const chatRequestRef = useRef(null);
   const inputRef = useRef(null);
   const logRef = useRef(null);
@@ -128,6 +115,23 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
   const manualKeyMode = !credentialsLoading && credentials.length === 0;
   const apiKey = manualKeyMode ? manualApiKey : credentialKey;
   const configured = Boolean(apiKey);
+
+  /* 模型清單用目前的金鑰查（TanStack Query，以金鑰指紋為 key）：換金鑰就換一份、
+     沒有金鑰時不查；卸載或換金鑰時在途請求跟著中止。背景重抓失敗沿用已載入的清單 */
+  const modelsQuery = useAiModelsQuery(apiKey, { enabled: configured });
+  const modelsData = configured ? modelsQuery.data : undefined;
+  const models = modelsData ?? EMPTY_MODELS;
+  /* 首載失敗的錯誤在背景重抓期間維持、不閃回載入中，按重試才回到載入中（見 useQueryView） */
+  const modelsView = useQueryView(modelsQuery);
+  const loadingModels = configured && modelsView.loading;
+  /* 首載失敗，或清單本來就空著時重試又失敗，才顯示錯誤（有可用模型時背景失敗不打斷聊天）。
+     已有（空的）清單時 TanStack 重抓期間不會清掉錯誤狀態，錯誤照樣留到下一次結果，不閃成「沒有模型」 */
+  const modelsFailure = modelsQuery.data === undefined
+    ? modelsView.error
+    : modelsQuery.isError ? modelsQuery.error : null;
+  const modelError = configured && models.length === 0 && modelsFailure
+    ? errorKey(modelsFailure)
+    : null;
   const busy = loadingKey || loadingModels;
   const conversation = conversations.find((item) => item.id === activeId);
   const model = conversation?.model || selectedModel;
@@ -142,30 +146,11 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
     } catch { setStorageWarning("storageWarning"); }
   }, [conversations, activeId, userId]);
 
-  const loadModels = useCallback(async () => {
-    modelRequestRef.current?.abort();
-    if (!apiKey) return;
-    const controller = new AbortController();
-    modelRequestRef.current = controller;
-    setLoadingModels(true);
-    setModelError(null);
-    try {
-      const nextModels = await AiApiChatService.listModels({ signal: controller.signal, apiKey });
-      if (controller.signal.aborted) return;
-      setModels(nextModels);
-      setSelectedModel((current) => nextModels.includes(current) ? current : nextModels[0] ?? "");
-    } catch (error) {
-      if (!controller.signal.aborted) { setModels([]); setModelError(errorKey(error)); }
-    } finally {
-      if (!controller.signal.aborted) setLoadingModels(false);
-    }
-  }, [apiKey]);
-
+  /* 清單（重新）載入後，目前選的模型不在清單裡就改選第一個 */
   useEffect(() => {
-    if (apiKey) loadModels();
-    else { setModels([]); setModelError(null); setLoadingModels(false); }
-    return () => { modelRequestRef.current?.abort(); };
-  }, [apiKey, loadModels]);
+    if (!modelsData) return;
+    setSelectedModel((current) => (modelsData.includes(current) ? current : modelsData[0] ?? ""));
+  }, [modelsData]);
 
   useEffect(() => () => { chatRequestRef.current?.abort(); }, []);
 
@@ -332,7 +317,7 @@ function ChatWorkspace({ userId, credentials, credentialsLoading }) {
       {/* 讀不到模型或沒有模型時，重試放在說明旁邊，不另外常駐一顆重新載入鈕 */}
       {(modelError || (configured && !busy && models.length === 0)) && <div className={modelError ? styles.error : styles.warning} role={modelError ? "alert" : "status"}>
         <span>{t(modelError ? `AiApiChat.${modelError}` : "AiApiChat.noModels")}</span>
-        <button type="button" className={styles.retry} onClick={loadModels} disabled={Boolean(pending)}>
+        <button type="button" className={styles.retry} onClick={() => modelsView.retry()} disabled={Boolean(pending)}>
           <MIcon name="refresh" size={16} />{t("AiApiChat.retry")}
         </button>
       </div>}

@@ -4,13 +4,14 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import FirewallPage from "./FirewallPage";
+import { firewallKeys } from "../../../queries/firewall";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 
 const mocks = vi.hoisted(() => ({
   getTopology: vi.fn(),
   deleteConnection: vi.fn(),
   saveLayout: vi.fn(),
   confirm: vi.fn(),
-  autoRefresh: null,
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -48,7 +49,6 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../contexts/ThemeContext", () => ({ useTheme: () => ({ theme: "light" }) }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: (refresh) => { mocks.autoRefresh = refresh; } }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
@@ -63,9 +63,12 @@ vi.mock("./edges/ConnectionEdge", () => ({ default: () => null }));
 
 let root;
 let host;
+let client;
 
+/* TanStack Query 以 macrotask 批次通知，先等一個 timer tick */
 async function flush() {
   await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
 }
@@ -90,11 +93,20 @@ function buttonByText(text) {
   return [...host.querySelectorAll("button")].find((b) => b.textContent.includes(text));
 }
 
+/** 背景自動刷新（原 useAutoRefresh 的那一輪）：對同一把 key 重抓 */
+function backgroundRefresh() {
+  return client.refetchQueries({ queryKey: firewallKeys.topology });
+}
+
+async function renderPage() {
+  await act(async () => { root.render(withQueryClient(<FirewallPage />, client)); });
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.autoRefresh = null;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mocks.saveLayout.mockResolvedValue({});
+  client = createTestQueryClient();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -114,43 +126,39 @@ describe("FirewallPage topology loading", () => {
       .mockReturnValueOnce(older.promise)
       .mockReturnValueOnce(newer.promise);
 
-    await act(async () => { root.render(<FirewallPage />); });
+    await renderPage();
     await flush();
     expect(shownNodes()).toEqual(["101", "102"]);
 
-    let first;
+    /* 第二輪重抓會取消還在路上的第一輪（cancelRefetch），舊回應晚到也不會蓋回去 */
     let second;
-    act(() => { first = mocks.autoRefresh(); });
-    act(() => { second = mocks.autoRefresh(); });
+    act(() => { backgroundRefresh(); });
+    act(() => { second = backgroundRefresh(); });
     await act(async () => { newer.resolve(topology(101)); await second; });
-    await act(async () => { older.resolve(topology(101, 102)); await first; });
+    await act(async () => { older.resolve(topology(101, 102)); });
     await flush();
 
+    expect(mocks.getTopology).toHaveBeenCalledTimes(3);
     expect(shownNodes()).toEqual(["101"]);
   });
 
-  test("a first-load failure still shows the error when a background refresh overtook it", async () => {
+  test("a background refresh during the first load joins it, so a first-load failure still shows the error", async () => {
     const firstLoad = deferred();
-    const background = deferred();
     mocks.getTopology
       .mockReturnValueOnce(firstLoad.promise)
-      .mockReturnValueOnce(background.promise)
       .mockResolvedValueOnce(topology(101));
 
-    await act(async () => { root.render(<FirewallPage />); });
+    await renderPage();
     expect(host.querySelector('[data-testid="loading"]')).toBeTruthy();
 
+    /* 還沒有任何拓撲時背景重抓不另開請求，併入首次載入 */
     let refresh;
-    act(() => { refresh = mocks.autoRefresh(); });
-    await act(async () => { background.reject(new Error("gateway down")); await refresh; });
+    act(() => { refresh = backgroundRefresh(); });
+    await act(async () => { firstLoad.reject(new Error("gateway down")); await refresh; });
     await flush();
 
+    expect(mocks.getTopology).toHaveBeenCalledTimes(1);
     expect(host.querySelector('[data-testid="loading"]')).toBeNull();
-    expect(host.textContent).toContain("gateway down");
-
-    // 被超車的首次載入晚回來不能蓋掉；重試照常恢復
-    await act(async () => { firstLoad.resolve(topology(102)); });
-    await flush();
     expect(host.textContent).toContain("gateway down");
     expect(shownNodes()).toEqual([]);
 
@@ -163,10 +171,26 @@ describe("FirewallPage topology loading", () => {
   test("a first-load failure with no overlap still shows the error", async () => {
     mocks.getTopology.mockRejectedValueOnce(new Error("boom"));
 
-    await act(async () => { root.render(<FirewallPage />); });
+    await renderPage();
     await flush();
 
     expect(host.querySelector('[data-testid="loading"]')).toBeNull();
     expect(host.textContent).toContain("boom");
+  });
+
+  test("a background refresh failure keeps the graph that is already shown", async () => {
+    mocks.getTopology
+      .mockResolvedValueOnce(topology(101))
+      .mockRejectedValueOnce(new Error("gateway down"));
+
+    await renderPage();
+    await flush();
+    expect(shownNodes()).toEqual(["101"]);
+
+    await act(async () => { await backgroundRefresh(); });
+    await flush();
+
+    expect(shownNodes()).toEqual(["101"]);
+    expect(host.textContent).not.toContain("gateway down");
   });
 });

@@ -1,0 +1,54 @@
+name: Site
+
+# Tests and builds the public introduction site (site/) as a check. Deployment is
+# not done here: the Cloudflare Pages project skylab-site is connected to this
+# repository (Git integration) and builds and deploys by itself; see
+# website/operations/site.md. The site imports the frontend's design tokens, so
+# changes to the shared styles run the check too.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "frontend/src/assets/styles/**"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "frontend/src/assets/styles/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: test + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install site dependencies
+        working-directory: site
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        working-directory: site
+        run: bun run test
+
+      - name: Build site
+        working-directory: site
+        run: bun run build

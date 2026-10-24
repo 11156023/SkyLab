@@ -183,11 +183,12 @@
   font-size: $font-size-18;
 }
 
+/* 到期日欄只有 150px：英文的「Managed by course schedule」要能換行，不可溢到節點欄（與我的資源同一個問題） */
 .environmentTiming {
   color: var(--color-primary);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* ── Name cell ── */

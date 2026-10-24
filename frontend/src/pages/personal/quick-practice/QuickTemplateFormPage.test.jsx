@@ -18,6 +18,15 @@ vi.mock("../../../hooks/useToast", () => ({ useToast: () => ({ success: vi.fn(),
 
 import QuickTemplateFormPage from "./QuickTemplateFormPage";
 import { nodeMemoryGb } from "./templateFolder";
+import { withQueryClient } from "../../../queries/testing";
+
+/* TanStack Query 以 macrotask 批次通知，等一個 timer tick 再看畫面 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
 
 let host, root;
 beforeEach(() => {
@@ -39,12 +48,24 @@ it("shows sub-GB machines and their total as they will actually be allocated", a
     id: `n${n}`, name: `node${n}`, role: "web", type: "lxc", cpu: 1, memory_mb: 512, memory: 1, disk: 8,
   }));
   service.getTemplate.mockResolvedValue({ id: "7", name: "Tiny", nodes, duration_hours: 2, version: 1 });
-  await act(async () => root.render(
+  await act(async () => root.render(withQueryClient(
     <MemoryRouter initialEntries={["/quick/7"]}>
       <Routes><Route path="/quick/:id" element={<QuickTemplateFormPage />} /></Routes>
     </MemoryRouter>,
-  ));
-  await act(async () => {});
+  )));
+  await flush();
+  expect(service.getTemplate).toHaveBeenCalledWith("7");
   expect(host.textContent).toContain('QuickTemplateFormPage.machineSpec:{"cpu":1,"memory":0.5,"disk":8}');
   expect(host.textContent).toContain('QuickTemplateFormPage.environmentTotalSpec:{"cpu":3,"memory":1.5,"disk":24}');
+});
+
+it("shows the not-found panel when the template cannot be loaded", async () => {
+  service.getTemplate.mockRejectedValue(new Error("404"));
+  await act(async () => root.render(withQueryClient(
+    <MemoryRouter initialEntries={["/quick/8"]}>
+      <Routes><Route path="/quick/:id" element={<QuickTemplateFormPage />} /></Routes>
+    </MemoryRouter>,
+  )));
+  await flush();
+  expect(host.textContent).toContain("QuickTemplateFormPage.notFoundTitle");
 });

@@ -21,12 +21,16 @@ Course Management is where a teacher builds the online course of a class as a tr
 2. In **Content editor**, the left side is the **Course content** tree and the right side is the workspace for the selected item.
 3. In the tree, click a name to select it and click the arrow to expand or collapse it. Rooms and tasks are loaded when you expand their parent.
 
+![Find your way around (numbers match the steps above)](/manual-shots/en/course-cms/s01.webp)
+
 ### Add a learning path
 
 1. Click **+** next to **Course content** (or **Add learning path** when the tree is empty).
 2. In the **Add learning path** dialog, choose the **Linked class**. Only classes that do not have a path yet are listed; if none are left you see **Every class already has a learning path. A class can link to only one.**
 3. Enter the **Path name**.
 4. Click **Create**. The new path is selected.
+
+![Add a learning path (numbers match the steps above)](/manual-shots/en/course-cms/s02.webp)
 
 ### Edit a learning path
 
@@ -36,6 +40,8 @@ Course Management is where a teacher builds the online course of a class as a tr
 4. Use **Linked class** to link the path to another class or choose **Not linked**. Classes that already have a path are greyed out. This takes effect at once.
 5. **Delete path** deletes the path together with its rooms and tasks, after you confirm.
 
+![Edit a learning path (numbers match the steps above)](/manual-shots/en/course-cms/s03.webp)
+
 ### Add and edit rooms
 
 1. Expand a path. At the bottom of its rooms click **Add room**.
@@ -43,12 +49,16 @@ Course Management is where a teacher builds the online course of a class as a tr
 3. In the workspace, change the **Room name** and the **Difficulty** (**Easy**, **Medium**, **Hard**), then click **Save**.
 4. **Delete room** removes the room after you confirm.
 
+![Add and edit rooms (numbers match the steps above)](/manual-shots/en/course-cms/s04.webp)
+
 ### Add and edit tasks
 
 1. Expand a room. At the bottom of its tasks click **Add task**, type the title and press Enter. The new task is selected.
 2. In the workspace, edit the **Task title** and the **Teaching content (Markdown)**.
 3. Click **Save task**.
 4. **Delete task** removes the task after you confirm.
+
+![Add and edit tasks (numbers match the steps above)](/manual-shots/en/course-cms/s05.webp)
 
 ### Add questions to a task
 
@@ -63,6 +73,8 @@ Course Management is where a teacher builds the online course of a class as a tr
 7. To edit a question, click it in the list. The stored answer cannot be shown again: leave **Correct answer** blank to keep it, or type a new one. Click **Save**.
 8. To delete a question, click its trash icon and confirm. Students' completion records for it are deleted too.
 
+![Add questions to a task (numbers match the steps above)](/manual-shots/en/course-cms/s06.webp)
+
 ### Watch student progress
 
 1. Open the **Student progress** tab.
@@ -70,6 +82,8 @@ Course Management is where a teacher builds the online course of a class as a tr
 3. The badge next to it reads **Live updating** while the page receives updates; the report refreshes shortly after a student answers. **Connection lost** means the numbers may be out of date; the page reconnects by itself.
 4. The table lists each **Student** (name and email), the **Overall progress** percentage for the whole path, and one column per room with completed questions out of the total.
 5. Until anyone answers you see **No submissions yet**.
+
+![Watch student progress (numbers match the steps above)](/manual-shots/en/course-cms/s07.webp)
 
 ## Fields and options
 

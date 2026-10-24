@@ -26,7 +26,8 @@ export default function BatchBar({ countLabel, onClear, selectAll, progress, esc
   useEffect(() => {
     if (progress || !escapeToClear) return undefined;
     const onKey = (event) => {
-      if (event.key !== "Escape" || document.querySelector('[aria-modal="true"]')) return;
+      /* 選單等元件已經用這個 Esc 關掉自己（defaultPrevented）就不清除選取 */
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
       onClear();
     };
     window.addEventListener("keydown", onKey);

@@ -6,8 +6,8 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { GatewayService } from "../../../services/gateway";
+import { useGatewayCacheUpdater, useGatewayInstallStatusQuery } from "../../../queries/gateway";
 import { ReverseProxyService } from "../../../services/reverseProxy";
 import {
   firstIpv4,
@@ -16,9 +16,6 @@ import {
   toInstallPayload,
   validateInstallForm,
 } from "./installForm";
-
-/* 安裝進行中每 3 秒經 SSH 讀一次日誌；其他狀態不輪詢 */
-const POLL_MS = 3_000;
 
 const STATE_BADGES = {
   idle:        { tone: styles.badge_muted,   icon: "radio_button_unchecked" },
@@ -64,18 +61,25 @@ export default function GatewayInstallTab({ gatewayReady, onGoToConnection }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const confirm = useConfirm();
-  const [status, setStatus] = useState(null);
-  const [loadError, setLoadError] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(null);
   const [starting, setStarting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  /* 手動重新整理中（安裝中的背景輪詢不轉重新整理鈕） */
+  const [refreshing, setRefreshing] = useState(false);
   const prevStateRef = useRef(null);
-  const inFlightRef = useRef(false);
-  /* 狀態讀取的世代：開始安裝會遞增，之前送出、晚回來的重新整理結果（還是上次的 succeeded）
-     不能套用，否則會誤報安裝成功／失敗、在安裝中同步規則，並因狀態不是 running 而停止輪詢 */
-  const statusSeqRef = useRef(0);
   const logRef = useRef(null);
+  const gatewayCache = useGatewayCacheUpdater();
+
+  /* 安裝狀態走 TanStack Query：安裝中每 3 秒經 SSH 讀一次日誌、其他狀態不輪詢（分頁隱藏時暫停）；
+     輪詢時偶發的 SSH 失敗不蓋掉畫面（沿用上一次的狀態），只有還沒有狀態時才顯示錯誤。
+     開始安裝時會先取消還在路上的重新整理，之前送出、晚回來的結果（還是上次的 succeeded）不會套用 */
+  const statusQuery = useGatewayInstallStatusQuery({ enabled: gatewayReady });
+  const status = statusQuery.data ?? null;
+  const loading = refreshing || (status === null && (statusQuery.isPending || statusQuery.isFetching));
+  const loadError = status === null && statusQuery.isError
+    ? statusQuery.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
+  const statusUpdatedAt = statusQuery.dataUpdatedAt;
 
   const syncRules = useCallback(async () => {
     setSyncing(true);
@@ -89,49 +93,27 @@ export default function GatewayInstallTab({ gatewayReady, onGoToConnection }) {
     }
   }, [t, toast]);
 
-  /* 套用新狀態；只有親眼看到「安裝中 → 結束」才提示，重新整理頁面看到舊結果不會再跳 */
-  const applyStatus = useCallback((next) => {
+  /* 每拿到一份新狀態（輪詢、重新整理或開始安裝的回應）：表單第一次用偵測到的預設值填好；
+     只有親眼看到「安裝中 → 結束」才提示，重新整理頁面看到舊結果不會再跳 */
+  useEffect(() => {
+    if (!status) return;
+    setForm((current) => current ?? toInstallForm(status.defaults));
     const prev = prevStateRef.current;
-    prevStateRef.current = next.state;
-    setStatus(next);
-    setLoadError(null);
-    setForm((current) => current ?? toInstallForm(next.defaults));
+    prevStateRef.current = status.state;
     if (prev !== "running") return;
-    if (next.state === "succeeded") {
+    if (status.state === "succeeded") {
       toast.success(t("GatewayPage.toastInstallSucceeded"));
       // 重跑 install.sh 會清空自動產生的 http.conf／stream.conf，要把 DB 規則寫回去
       syncRules();
-    } else if (next.state === "failed" || next.state === "interrupted") {
+    } else if (status.state === "failed" || status.state === "interrupted") {
       toast.error(t("GatewayPage.toastInstallFailed"));
     }
-  }, [syncRules, t, toast]);
+  }, [statusUpdatedAt, status, syncRules, t, toast]);
 
-  const refresh = useCallback(async ({ silent = false } = {}) => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    const seq = ++statusSeqRef.current;
-    const isLatest = () => seq === statusSeqRef.current;
-    if (!silent) setLoading(true);
-    try {
-      const next = await GatewayService.getInstallStatus();
-      if (isLatest()) applyStatus(next);
-    } catch (err) {
-      // 輪詢時偶發的 SSH 失敗不蓋掉畫面，只有手動載入才顯示錯誤
-      if (!silent && isLatest()) setLoadError(err?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      inFlightRef.current = false;
-      if (!silent) setLoading(false);
-    }
-  }, [applyStatus, t]);
-
-  useEffect(() => {
-    if (gatewayReady) refresh();
-    else setLoading(false);
-  }, [gatewayReady, refresh]);
-
-  useAutoRefresh(() => {
-    if (status?.state === "running") refresh({ silent: true });
-  }, POLL_MS);
+  function refresh() {
+    setRefreshing(true);
+    statusQuery.refetch().finally(() => setRefreshing(false));
+  }
 
   // 安裝中日誌持續長出來，捲到最底
   useEffect(() => {
@@ -160,10 +142,10 @@ export default function GatewayInstallTab({ gatewayReady, onGoToConnection }) {
     setStarting(true);
     try {
       const next = await GatewayService.startInstall(toInstallPayload(form));
-      // 開始安裝前後送出、還沒回來的重新整理都作廢
-      statusSeqRef.current += 1;
+      // 開始安裝前後送出、還沒回來的重新整理都作廢（setInstallStatus 先取消再寫入）；
+      // 回來的狀態若已經不是 running（例如立刻失敗），一樣要提示
       prevStateRef.current = "running";
-      applyStatus(next);
+      await gatewayCache.setInstallStatus(next);
       toast.success(t("GatewayPage.toastInstallStarted"));
     } catch (err) {
       toast.error(err?.message ?? t("GatewayPage.toastInstallStartFailed"));

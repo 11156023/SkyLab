@@ -1,19 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./BatchReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { BatchProvisionService } from "../../../services/batchProvision";
+import {
+  useAllBatchProvisionQuery,
+  useBatchProvisionCacheUpdater,
+  useRecurrencePreviewQuery,
+} from "../../../queries/batchProvision";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useLoadError } from "../../../hooks/useQueryLoadState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { formatShortDateTime } from "../../../utils/formatDate";
 
-/* 這些 hook 的回傳值會進 useCallback / useMemo 的相依陣列，
-   必須 useMemo 固定身分，否則載入 effect 會無限重跑 */
+/* 這些 hook 的回傳值會進 useMemo 的相依陣列，
+   必須 useMemo 固定身分，否則篩選結果每次 render 都要重算 */
 function useTabs() {
   const { t } = useTranslation("resource");
   return useMemo(() => [
@@ -201,6 +206,13 @@ function describeRecurrence(rule, t) {
 
 /* 後端 /batch-provision/ 的 limit 上限 */
 const BATCH_LIST_LIMIT = 200;
+/* 列表只回最新 N 筆（不分狀態），待審核另外用狀態篩選抓一次再合併，
+   否則比最新 N 筆還舊的待審批次會整個看不到、也審不了 */
+const RECENT_PARAMS = Object.freeze({ limit: BATCH_LIST_LIMIT });
+const PENDING_PARAMS = Object.freeze({ status: "pending_review", limit: BATCH_LIST_LIMIT });
+/* 週期排程預覽取幾段時段（與 service 預設相同） */
+const PREVIEW_COUNT = 5;
+const NO_JOBS = Object.freeze([]);
 
 function filterByTab(rows, tab) {
   if (tab === "all") return rows;
@@ -215,66 +227,47 @@ export default function BatchReviewPage() {
   const confirm = useConfirm();
 
   const [activeTab, setActiveTab] = useState("pending");
-  const [batches, setBatches] = useState([]);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   /* 切換列時詳情欄捲回頂端，避免殘留上一筆的捲動位置 */
   const detailScrollRef = useRef(null);
   useEffect(() => { detailScrollRef.current?.scrollTo({ top: 0 }); }, [selectedId]);
   const [comment, setComment] = useState("");
   const [reviewing, setReviewing] = useState(false);
-  /** jobId → "loading" | [start, end][]，點「查看時段」才載入 */
-  const [previews, setPreviews] = useState({});
-  /* 開合與資料分開存：收合時保留已抓的時段，收合動畫才有內容可收、再展開也不用重抓 */
+  /* 開合與資料分開存：收合時保留已抓的時段（在 query 快取裡），收合動畫才有內容可收、再展開也不用重抓 */
   const [openPreviews, setOpenPreviews] = useState({});
+  const batchCache = useBatchProvisionCacheUpdater();
 
-  /* 只採用最後一次發出的請求：審核前送出的背景刷新若比審核後的重新載入晚回來，
-     舊快照（還是待審核）不能蓋掉新清單。前景載入被背景刷新超車時由最新那次接手收 loading／顯示錯誤 */
-  const loadSeqRef = useRef(0);
-  const foregroundPendingRef = useRef(false);
+  /* 清單走 TanStack Query：最新 N 筆＋全部待審兩份快取，背景 30 秒刷新、分頁隱藏時暫停。
+     同一份快取同時只會有一個請求在路上；審核後的重抓會取消審核前送出、還在路上的背景刷新，
+     舊快照（還是待審核）不會蓋掉新清單 */
+  const recentQuery = useAllBatchProvisionQuery(RECENT_PARAMS);
+  const pendingQuery = useAllBatchProvisionQuery(PENDING_PARAMS);
+  /* 結果物件是存取追蹤的：兩份查詢用到的欄位都先無條件讀出來，短路判斷才不會漏追蹤 */
+  const recentJobs = recentQuery.data;
+  const pendingJobs = pendingQuery.data;
+  /* 首載失敗看各自的 useLoadError：沒資料時 v5 每次重抓都把 status 改回 pending、清掉 error，
+     看 isError／isFetching 的錯誤畫面會在每次背景重試時閃回載入中 */
+  const recentLoadError = useLoadError(recentQuery).error;
+  const pendingLoadError = useLoadError(pendingQuery).error;
+  const listFailure = recentLoadError ?? pendingLoadError;
+  /* 只有「還沒有任何資料」時才顯示載入／錯誤；背景刷新失敗沿用上一筆資料 */
+  const noData = recentJobs === undefined || pendingJobs === undefined;
+  const failed = noData && Boolean(listFailure);
+  const loading = noData && !failed;
+  const error = failed ? (listFailure?.message ?? t("Error.generic", { ns: "common" })) : "";
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const load = useCallback(async (silent = false) => {
-    const seq = ++loadSeqRef.current;
-    const isLatest = () => seq === loadSeqRef.current;
-    if (!silent) {
-      foregroundPendingRef.current = true;
-      setLoading(true);
-      setError("");
+  const batches = useMemo(() => {
+    if (noData) return NO_JOBS;
+    const byId = new Map();
+    for (const job of [
+      ...(Array.isArray(pendingJobs) ? pendingJobs : []),
+      ...(Array.isArray(recentJobs) ? recentJobs : []),
+    ]) {
+      byId.set(job.id, job);
     }
-    try {
-      /* 列表只回最新 N 筆（不分狀態），待審核另外用狀態篩選抓一次再合併，
-         否則比最新 N 筆還舊的待審批次會整個看不到、也審不了 */
-      const [recent, pending] = await Promise.all([
-        BatchProvisionService.listAll({ limit: BATCH_LIST_LIMIT }),
-        BatchProvisionService.listAll({ status: "pending_review", limit: BATCH_LIST_LIMIT }),
-      ]);
-      if (!isLatest()) return;
-      const byId = new Map();
-      for (const job of [
-        ...(Array.isArray(pending) ? pending : []),
-        ...(Array.isArray(recent) ? recent : []),
-      ]) {
-        byId.set(job.id, job);
-      }
-      setBatches([...byId.values()]);
-    } catch (e) {
-      if (isLatest() && foregroundPendingRef.current) {
-        setBatches([]);
-        setError(e?.message ?? t("Error.generic", { ns: "common" }));
-      }
-    } finally {
-      if (isLatest() && foregroundPendingRef.current) {
-        foregroundPendingRef.current = false;
-        setLoading(false);
-      }
-    }
-  }, [t]);
-
-  useEffect(() => { load(); }, [load]);
-  useAutoRefresh(() => load(true));
+    return [...byId.values()];
+  }, [noData, pendingJobs, recentJobs]);
 
   useEffect(() => { setComment(""); }, [activeTab]);
 
@@ -315,23 +308,29 @@ export default function BatchReviewPage() {
     return { total: reviewRows.length, pending, approved, rejected };
   }, [reviewRows]);
 
+  /* 週期排程預覽：點「查看時段」才載入（query 只讀快取不自動抓），抓過的留在快取，
+     再展開或切回同一筆不用重抓。preview：undefined（還沒抓／抓失敗）| "loading" | [start, end][] */
+  const previewQuery = useRecurrencePreviewQuery(selected?.previewJobId, PREVIEW_COUNT, { enabled: false });
+  const previewData = previewQuery.data;
+  const previewFetching = previewQuery.isFetching;
+  const preview = previewData !== undefined
+    ? (previewData?.windows ?? [])
+    : (previewFetching ? "loading" : undefined);
+
   const togglePreview = async (jobId) => {
     if (openPreviews[jobId]) {
       setOpenPreviews((p) => ({ ...p, [jobId]: false }));
       return;
     }
-    if (Array.isArray(previews[jobId])) {
+    if (Array.isArray(preview)) {
       setOpenPreviews((p) => ({ ...p, [jobId]: true }));
       return;
     }
-    setPreviews((p) => ({ ...p, [jobId]: "loading" }));
     try {
-      const res = await BatchProvisionService.getRecurrencePreview(jobId);
-      setPreviews((p) => ({ ...p, [jobId]: res?.windows ?? [] }));
+      await batchCache.loadRecurrencePreview(jobId, PREVIEW_COUNT);
       /* 先讓清單以收合狀態渲染一幀，下一幀再展開，首次載入才有展開動畫 */
       window.requestAnimationFrame(() => setOpenPreviews((p) => ({ ...p, [jobId]: true })));
     } catch (e) {
-      setPreviews((p) => { const n = { ...p }; delete n[jobId]; return n; });
       toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     }
   };
@@ -368,7 +367,8 @@ export default function BatchReviewPage() {
       );
       setComment("");
       setSelectedId(null);
-      await load();
+      /* 背景重抓（畫面沿用現有資料不閃載入）；重抓完才解除 reviewing，剛審過的那筆更新前不能再按一次 */
+      await batchCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("BatchReviewPage.actionFailed"));
     } finally {
@@ -377,7 +377,6 @@ export default function BatchReviewPage() {
   };
 
   const isPending = selected?.reviewStatus === "pending";
-  const preview = selected ? previews[selected.previewJobId] : undefined;
   const previewOpen = selected ? Boolean(openPreviews[selected.previewJobId]) : false;
   const recurrenceText = selected?.recurrenceRule ? describeRecurrence(selected.recurrenceRule, t) : null;
 
@@ -432,7 +431,7 @@ export default function BatchReviewPage() {
             ) : error ? (
               <div className={styles.stateBox}>
                 <span>{error}</span>
-                <button type="button" className={styles.btnSecondary} onClick={() => load()}>
+                <button type="button" className={styles.btnSecondary} onClick={() => batchCache.invalidate()}>
                   {t("BatchReviewPage.retry")}
                 </button>
               </div>

@@ -5,20 +5,31 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, expect, test, vi } from "vitest";
+import { notifyManager } from "@tanstack/react-query";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import AiJudgePanel, { JUDGE_COLUMN_WIDTHS, readStoredColumnWidths } from "./AiJudgePanel";
 import { AiJudgeService } from "../../../services/aiJudge";
 import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UnsavedChangesProvider } from "../../../contexts/UnsavedChangesContext";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import i18n from "../../../i18n";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 let cleanup = null;
+let queryClient;
+
+beforeEach(() => {
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；改成同步通知，讀取結果在同一個 act 裡就上畫面 */
+  notifyManager.setScheduler((callback) => callback());
+  queryClient = createTestQueryClient();
+});
 
 afterEach(async () => {
   await cleanup?.();
   cleanup = null;
   Element.prototype.scrollIntoView = originalScrollIntoView;
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  queryClient.clear();
   vi.restoreAllMocks();
 });
 
@@ -43,7 +54,7 @@ async function mountPanel({ initialEntry = "/?week=week-2", weeks = WEEKS } = {}
   };
   async function renderWeeks(nextWeeks) {
     await act(async () => {
-      root.render(
+      root.render(withQueryClient(
         <MemoryRouter initialEntries={[initialEntry]}>
           <CurrentLocation />
           <ConfirmProvider>
@@ -52,7 +63,8 @@ async function mountPanel({ initialEntry = "/?week=week-2", weeks = WEEKS } = {}
             </UnsavedChangesProvider>
           </ConfirmProvider>
         </MemoryRouter>,
-      );
+        queryClient,
+      ));
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
   }

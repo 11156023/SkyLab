@@ -1,12 +1,7 @@
 /* AI 頁面（AI 用量監控、AI API 我的用量）共用的區間與顯示格式 helper */
 
-export function presetToRange(preset) {
-  const end = new Date();
-  const start = new Date();
-  const days = preset === "7d" ? 7 : preset === "30d" ? 30 : 90;
-  start.setDate(start.getDate() - days);
-  return { startDate: start.toISOString(), endDate: end.toISOString() };
-}
+/* 區間換算搬到 utils/aiTimeRange（查詢層也要用，不能反向 import 頁面），這裡轉出給既有的 import */
+export { presetToRange } from "../../utils/aiTimeRange";
 
 export function presetToBucket(preset) {
   return preset === "7d" ? "hour" : "day";

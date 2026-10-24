@@ -1,15 +1,27 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import MIcon from "../../../../components/MIcon";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
 import TerminalDialog from "../../resources/TerminalDialog";
 import VncDialog from "../../resources/VncDialog";
+import { useQueryView } from "../../../../hooks/useQueryLoadState";
 import { CoursesService } from "../../../../services/courses";
 import { ResourcesService } from "../../../../services/resources";
+import {
+  courseKeys,
+  useAiAssignmentsQuery,
+  useCoursePathQuery,
+  useCoursePathsQuery,
+  useCourseScheduleQuery,
+  usePracticeMachinesQuery,
+  useWeeklyTasksQuery,
+} from "../../../../queries/courses";
+import { resourceKeys, useMyResourcesQuery, useResourceCacheUpdater } from "../../../../queries/resources";
 import {
   assignmentsUntilToday,
   buildPracticeMachines,
@@ -29,6 +41,9 @@ const AI_DETECTABLE_META = {
   partial: { labelKey: "StudentCoursePage.detectablePartial", icon: "rule", tone: "partial" },
   manual: { labelKey: "StudentCoursePage.detectableManual", icon: "how_to_reg", tone: "manual" },
 };
+
+const EMPTY = [];
+const asArray = (value) => (Array.isArray(value) ? value : EMPTY);
 
 function createGuideDemoCourse(t) {
   const weekId = "demo-week-1";
@@ -101,106 +116,63 @@ export default function StudentCoursePage() {
   const { pathId } = useParams();
   const isGuideDemo = pathId === "demo";
 
-  const [view, setView] = useState({
-    loading: true,
-    hasError: false,
-    resources: [],
-    activePath: null,
-    pathDetail: null,
-    aiAssignments: [],
-    weeklyTasks: [],
-    practiceMachines: [],
-  });
+  const queryClient = useQueryClient();
   const [expandedAssignmentId, setExpandedAssignmentId] = useState(null);
   const [reportingAssignmentId, setReportingAssignmentId] = useState(null);
   const [activePracticeResource, setActivePracticeResource] = useState(null);
   const [openingMachineId, setOpeningMachineId] = useState(null);
 
-  useEffect(() => {
-    if (isGuideDemo) {
-      setView(createGuideDemoCourse(t));
-      return undefined;
-    }
-    let cancelled = false;
+  /* 課程清單、課表與我的機器跟首頁／課程列表／我的資源頁共用快取；選定課程後才抓該課程的
+     任務、週次與機器（與週任務頁共用同一份，點進週次不必再等）。導覽示範模式不讀課程 API。 */
+  const live = !isGuideDemo;
+  const pathsQuery = useCoursePathsQuery({ enabled: live });
+  const resourcesQuery = useMyResourcesQuery();
+  const scheduleQuery = useCourseScheduleQuery({ enabled: live });
 
-    async function loadCourse() {
-      const [pathsResult, resourcesResult, scheduleResult] = await Promise.allSettled([
-        CoursesService.listPaths(),
-        ResourcesService.list(),
-        CoursesService.listSchedule(),
-      ]);
-      if (cancelled) return;
+  // 網址指定的課程優先；找不到時退回目前進行中的課程。
+  // 退回時畫面顯示的是另一門課，後續導覽與寫入一律用 activePath.id，不要用網址的 pathId。
+  const catalogPaths = asArray(pathsQuery.data);
+  const catalogPath = live
+    ? (pathId && catalogPaths.find((path) => String(path.id) === String(pathId))) || pickInProgress(catalogPaths)
+    : null;
+  const activePathId = catalogPath?.id ?? null;
+  const detailEnabled = live && activePathId != null;
+  /* 課程詳情這頁沒有用到，照原本一起抓、放進快取給週任務頁（頁首的課程名稱） */
+  useCoursePathQuery(activePathId, { enabled: detailEnabled });
+  const aiAssignmentsQuery = useAiAssignmentsQuery(activePathId, { enabled: detailEnabled });
+  const weeklyTasksQuery = useWeeklyTasksQuery(activePathId, { enabled: detailEnabled });
+  const practiceMachinesQuery = usePracticeMachinesQuery(activePathId, { enabled: detailEnabled });
+  const resourceCache = useResourceCacheUpdater();
+  /* 首次載入還沒有資料才算載入中／載入失敗；背景刷新失敗沿用上一份。
+     首載失敗後背景輪詢重試期間維持失敗提示，不閃回整頁載入中（見 useQueryView） */
+  const pathsView = useQueryView(pathsQuery);
+  const resourcesView = useQueryView(resourcesQuery);
+  const scheduleView = useQueryView(scheduleQuery);
+  const aiAssignmentsView = useQueryView(aiAssignmentsQuery);
+  const weeklyTasksView = useQueryView(weeklyTasksQuery);
+  const practiceMachinesView = useQueryView(practiceMachinesQuery);
 
-      const catalogPaths = pathsResult.status === "fulfilled" && Array.isArray(pathsResult.value)
-        ? pathsResult.value
-        : [];
-      const resources = resourcesResult.status === "fulfilled" && Array.isArray(resourcesResult.value)
-        ? resourcesResult.value
-        : [];
-      const schedulePaths = scheduleResult.status === "fulfilled" && Array.isArray(scheduleResult.value)
-        ? scheduleResult.value.map(normalizeSchedule)
-        : [];
-
-      // 網址指定的課程優先；找不到時退回目前進行中的課程。
-      // 退回時畫面顯示的是另一門課，後續導覽與寫入一律用 activePath.id，不要用網址的 pathId。
-      let activePath = (pathId
-        && catalogPaths.find((path) => String(path.id) === String(pathId)))
-        || pickInProgress(catalogPaths);
-      const scheduledVersion = schedulePaths.find(
-        (path) => String(path.id) === String(activePath?.id),
-      );
-      if (activePath && scheduledVersion) {
-        activePath = { ...activePath, schedule: scheduledVersion.schedule };
-      }
-
-      let pathDetail = null;
-      let aiAssignments = [];
-      let weeklyTasks = [];
-      let practiceMachines = [];
-
-      if (activePath) {
-        const [pathDetailResult, aiAssignmentsResult, weeklyTasksResult, practiceMachinesResult] = await Promise.allSettled([
-          CoursesService.getPath(activePath.id),
-          CoursesService.getAiAssignments(activePath.id),
-          CoursesService.getWeeklyTasks(activePath.id),
-          CoursesService.getPracticeMachines(activePath.id),
-        ]);
-        if (pathDetailResult.status === "fulfilled") {
-          pathDetail = pathDetailResult.value;
-        }
-        aiAssignments = aiAssignmentsResult.status === "fulfilled"
-          && Array.isArray(aiAssignmentsResult.value)
-          ? aiAssignmentsResult.value
-          : [];
-        weeklyTasks = weeklyTasksResult.status === "fulfilled"
-          && Array.isArray(weeklyTasksResult.value)
-          ? weeklyTasksResult.value
-          : [];
-        practiceMachines = practiceMachinesResult.status === "fulfilled"
-          && Array.isArray(practiceMachinesResult.value)
-          ? practiceMachinesResult.value
-          : [];
-      }
-
-      if (cancelled) return;
-      setView({
-        loading: false,
-        // 任一來源失敗都要提示；只有課程清單失敗時若不提示，會被誤認成「目前沒有課程」
-        hasError: pathsResult.status === "rejected" || resourcesResult.status === "rejected",
-        resources,
-        activePath,
-        pathDetail,
-        aiAssignments,
-        weeklyTasks,
-        practiceMachines,
-      });
-    }
-
-    loadCourse();
-    return () => {
-      cancelled = true;
+  let view;
+  if (isGuideDemo) {
+    view = createGuideDemoCourse(t);
+  } else {
+    const scheduleRow = asArray(scheduleQuery.data).find((row) => String(row.id) === String(activePathId));
+    view = {
+      loading: pathsView.loading || resourcesView.loading || scheduleView.loading
+        || (detailEnabled && (
+          aiAssignmentsView.loading || weeklyTasksView.loading || practiceMachinesView.loading
+        )),
+      // 任一來源失敗都要提示；只有課程清單失敗時若不提示，會被誤認成「目前沒有課程」
+      hasError: Boolean(pathsView.error || resourcesView.error),
+      resources: asArray(resourcesQuery.data?.resources),
+      activePath: catalogPath && scheduleRow
+        ? { ...catalogPath, schedule: normalizeSchedule(scheduleRow).schedule }
+        : catalogPath,
+      aiAssignments: asArray(aiAssignmentsQuery.data),
+      weeklyTasks: asArray(weeklyTasksQuery.data),
+      practiceMachines: asArray(practiceMachinesQuery.data),
     };
-  }, [isGuideDemo, pathId, t]);
+  }
 
   const practiceMachines = buildPracticeMachines(
     view.practiceMachines,
@@ -275,6 +247,10 @@ export default function StudentCoursePage() {
         }
         toast.success(t("StudentCoursePage.machineStarted"), { id: toastId });
       }
+      /* 開好的狀態寫回共用的機器清單快取，以快取當下那一列為底合併（開機可能等了快一分半） */
+      const current = (queryClient.getQueryData(resourceKeys.mine)?.resources ?? [])
+        .find((item) => Number(item.vmid) === Number(resource.vmid));
+      if (current) resourceCache.update({ ...current, ...resource, vmid: current.vmid });
       setActivePracticeResource({ ...machine, ...resource });
     } catch (error) {
       toast.error(error?.message ?? t("StudentCoursePage.openMachineFailed"));
@@ -303,10 +279,11 @@ export default function StudentCoursePage() {
     ));
     setReportingAssignmentId(group.id);
     setExpandedAssignmentId(group.id);
+    const coursePathId = view.activePath.id;
     try {
       const results = await Promise.allSettled(group.assignments.map((assignment) => (
         CoursesService.updateAssignmentCompletion(
-          view.activePath.id,
+          coursePathId,
           assignment.id,
           completed,
         )
@@ -317,12 +294,14 @@ export default function StudentCoursePage() {
           completions.set(group.assignments[index].id, result.value);
         }
       });
-      setView((current) => ({
-        ...current,
-        aiAssignments: current.aiAssignments.map((item) => (
+      /* 就地改任務快取的完成狀態；先取消還在路上的重抓，免得送出前的舊快照蓋回來 */
+      const assignmentsKey = courseKeys.aiAssignments(coursePathId);
+      await queryClient.cancelQueries({ queryKey: assignmentsKey });
+      queryClient.setQueryData(assignmentsKey, (current) => (Array.isArray(current)
+        ? current.map((item) => (
           completions.has(item.id) ? { ...item, completion: completions.get(item.id) } : item
-        )),
-      }));
+        ))
+        : current));
       const failedResult = results.find((result) => result.status === "rejected");
       if (failedResult) {
         throw failedResult.reason;

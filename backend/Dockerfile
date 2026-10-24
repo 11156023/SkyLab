@@ -1,16 +1,18 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 ENV PYTHONUNBUFFERED=1
 
 # slim 沒有 curl，但 compose 的 backend healthcheck 要靠它打 health-check。
-# 其餘相依套件在 lock 裡都有 manylinux wheel，不需要編譯工具鏈。
+# 其餘相依套件在 lock 裡都有 manylinux wheel，不需要編譯工具鏈；唯一例外是 pyyaml 還沒有
+# Python 3.15 的 wheel，會從原始碼裝成純 Python 版（少了 libyaml 加速，後端只用它讀兩份
+# 小設定檔，影響可忽略）。
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#installing-uv
-COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /bin/
 
 # Compile bytecode
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#compiling-bytecode

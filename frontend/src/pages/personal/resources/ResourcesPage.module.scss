@@ -75,14 +75,14 @@
 
 /* 名稱欄也給定寬度，剩餘空間依比例分給所有欄，
    否則寬螢幕時名稱欄會吸掉全部留白、其他欄擠在右側 */
-.colName    { width: 260px; }
+.colName    { width: 240px; }
 .colKind    { width: 190px; }
 .colEnv     { width: 160px; }
-.colStatus  { width: 110px; }
-.colIp      { width: 190px; }
+.colStatus  { width: 150px; } /* 英文的建立中狀態（Pending Review、Overdue (25 min)）放得下；IP 欄讓出 40px */
+.colIp      { width: 150px; }
 .colExpiry  { width: 150px; }
 .colNode    { width:  85px; }
-.colActions { width: 160px; }
+.colActions { width: 180px; } /* 英文的 Console／Terminal 加 ⋮ 與右側留白要約 175px；名稱欄讓出 20px */
 
 .th {
   @include table-th;
@@ -211,10 +211,17 @@
   font-size: $font-size-18;
   text-align: center;
 }
-.environmentTiming { color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; }
+/* 到期日欄只有 150px：英文的「Managed by course schedule」要能換行，不可溢到節點欄 */
+.environmentTiming { color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-500; overflow-wrap: anywhere; }
 
 .creatingBadge {
   gap: 4px;
+}
+
+/* 欄寬還是不夠時（Provisioning Failed 加圖示）換行，不蓋到隔壁的 IP 欄；要壓過後面 .badge 的 nowrap */
+.badge.creatingBadge {
+  white-space: normal;
+  text-align: left;
 }
 
 .badgeIcon {

@@ -20,6 +20,8 @@ vi.mock("../../services/aiContextualHelp", () => ({
 }));
 vi.mock("../../services/resources", () => ({ ResourcesService: { list: vi.fn() } }));
 vi.mock("../../services/vmRequests", () => ({ VmRequestsService: { list: vi.fn(), create: vi.fn() } }));
+/* 機器清單經共用快取抓（queries/resources），會順帶抓快速練習 session，不讓它打真的 API */
+vi.mock("../../services/quickPractice", () => ({ QuickPracticeService: { listMySessions: vi.fn(async () => []) } }));
 
 function translate(key, vars = {}) {
   return Object.entries(vars).reduce((text, [name, value]) => text.replaceAll(`{{${name}}}`, value), translations[key] ?? key);

@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import AiApiChatTab from "./AiApiChatTab";
 import { loadChatHistory, saveChatHistory } from "./chatHistory";
 
@@ -18,9 +19,10 @@ vi.mock("../../../services/aiApiChat", async (importOriginal) => ({
 vi.mock("../../../services/aiApi", () => ({ AiApiService: { getCredential: mocks.getCredential } }));
 vi.mock("react-i18next", async (importOriginal) => ({ ...await importOriginal(), useTranslation: () => ({ t: (key) => key }) }));
 
-let host, root;
+let host, root, client;
 beforeEach(() => {
   vi.resetAllMocks();
+  client = createTestQueryClient();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
   mocks.userId = "user-a";
@@ -35,7 +37,19 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-async function render() { await act(async () => root.render(<AiApiChatTab credentials={mocks.credentials} />)); }
+/* 先取完整金鑰、再用它查模型，兩段查詢各要等一輪 TanStack Query 的通知（setTimeout 0） */
+async function settle() {
+  for (let round = 0; round < 3; round += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+  }
+}
+async function render() {
+  await act(async () => root.render(withQueryClient(<AiApiChatTab credentials={mocks.credentials} />, client)));
+  await settle();
+}
 async function draft(text) {
   const input = host.querySelector("textarea");
   await act(async () => {
@@ -83,6 +97,8 @@ test("服務未啟動時保留本機紀錄，按重試載入模型後可送出",
   // 沒有常駐的「重新載入模型」，錯誤訊息旁才有重試
   expect(host.textContent).not.toContain("AiApiChat.reloadModels");
   await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent.includes("AiApiChat.retry")).click());
+  await settle();
+  expect(mocks.listModels).toHaveBeenCalledTimes(2);
   expect(host.querySelector('[type="submit"]').disabled).toBe(false);
 });
 
@@ -187,6 +203,7 @@ test("沒有已核准金鑰時顯示聊天與空白金鑰欄位，套用後用�
   });
   expect(mocks.listModels).not.toHaveBeenCalled();
   await act(async () => keyInput.closest("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  await settle();
   expect(mocks.listModels).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "ccai_manual_key" }));
   await send("手動金鑰聊天");
   expect(mocks.chat.mock.calls[0][2]).toEqual(expect.objectContaining({ apiKey: "ccai_manual_key" }));
@@ -225,6 +242,7 @@ test("有多把金鑰時可切換，切換後改用新金鑰", async () => {
   const credentialSelect = host.querySelector("#api-chat-credential");
   expect(credentialSelect.value).toBe("cred-a");
   await act(async () => { credentialSelect.value = "cred-b"; credentialSelect.dispatchEvent(new Event("change", { bubbles: true })); });
+  await settle();
   expect(mocks.getCredential).toHaveBeenLastCalledWith("cred-b", { signal: expect.any(AbortSignal) });
   expect(mocks.listModels).toHaveBeenLastCalledWith(expect.objectContaining({ apiKey: "secret-cred-b" }));
   await send("用 B 金鑰");

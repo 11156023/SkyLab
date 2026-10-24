@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
@@ -9,9 +9,13 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import { useLoadFailureMessage, useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
+import { usePveConnectionsQuery, usePveNodesQuery, useProxmoxConfigCacheUpdater } from "../../../queries/proxmoxConfig";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+
+const EMPTY = Object.freeze([]);
 
 /**
  * PVE 管理（系統管理 → PVE 管理）：上半是 PVE 連線，每筆連線是一個獨立的 PVE 入口（單台或叢集），
@@ -347,7 +351,8 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
           <>
             {t("SettingsPage.nodeMetricsHintPrefix")}{" "}
             <Link to="/monitoring" className={styles.inlineLink}>{t("SettingsPage.nodeMetricsHintLink")}</Link>
-            {" "}{t("SettingsPage.nodeMetricsHintSuffix")}
+            {/* 後綴前要不要空格由各語系自己決定（英文是句點，前面不能有空格） */}
+            {t("SettingsPage.nodeMetricsHintSuffix")}
           </>
         )}
       >
@@ -633,36 +638,29 @@ function NodesSection({ nodes, loading, onNodeUpdated }) {
 export default function PveConnectionsPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
-  const [connections, setConnections] = useState([]);
-  const [loadingConnections, setLoadingConnections] = useState(true);
-  const [nodes, setNodes] = useState([]);
-  const [loadingNodes, setLoadingNodes] = useState(true);
+  /* 連線與節點清單走 TanStack Query；原本只在進頁與操作後重抓，不背景輪詢。
+     重抓期間保留舊清單，不再整段換回轉圈畫面 */
+  const connectionsQuery = usePveConnectionsQuery({ refetchInterval: false });
+  const nodesQuery = usePveNodesQuery({ refetchInterval: false });
+  const proxmoxCache = useProxmoxConfigCacheUpdater();
+  const connections = connectionsQuery.data ?? EMPTY;
+  const nodes = nodesQuery.data ?? EMPTY;
+  /* 首載失敗後切回視窗重抓時不閃回轉圈、同一串失敗只提示一次（沒資料時 v5 每次重抓（切回視窗）都把 status 改回 pending、清掉 error） */
+  const loadingConnections = useQueryView(connectionsQuery).loading;
+  const loadingNodes = useQueryView(nodesQuery).loading;
 
-  const fetchConnections = useCallback(() => {
-    setLoadingConnections(true);
-    ProxmoxConfigService.listConnections()
-      .then(setConnections)
-      .catch((err) => toast.error(err?.message ?? t("SettingsPage.toastLoadConnectionsFailed")))
-      .finally(() => setLoadingConnections(false));
-  }, [toast, t]);
-
-  const fetchNodes = useCallback(() => {
-    setLoadingNodes(true);
-    ProxmoxConfigService.getNodes()
-      .then(setNodes)
-      .catch((err) => toast.error(err?.message ?? t("SettingsPage.toastLoadNodesFailed")))
-      .finally(() => setLoadingNodes(false));
-  }, [toast, t]);
-
-  /* 新增／刪除／同步連線都會動到節點清單，一起重抓 */
-  const refreshAll = useCallback(() => {
-    fetchConnections();
-    fetchNodes();
-  }, [fetchConnections, fetchNodes]);
-
+  /* 載入失敗照舊只提示（畫面留在空清單） */
+  const connectionsFailedMessage = useLoadFailureMessage(connectionsQuery, t("SettingsPage.toastLoadConnectionsFailed"));
   useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
+    if (connectionsFailedMessage) toast.error(connectionsFailedMessage);
+  }, [connectionsFailedMessage, toast]);
+  const nodesFailedMessage = useLoadFailureMessage(nodesQuery, t("SettingsPage.toastLoadNodesFailed"));
+  useEffect(() => {
+    if (nodesFailedMessage) toast.error(nodesFailedMessage);
+  }, [nodesFailedMessage, toast]);
+
+  /* 新增／刪除／同步連線都會動到節點清單（與 Storage），一起重抓 */
+  const refreshAll = () => proxmoxCache.invalidateConnections();
 
   return (
     <div className={styles.page}>
@@ -670,7 +668,7 @@ export default function PveConnectionsPage() {
       <NodesSection
         nodes={nodes}
         loading={loadingNodes}
-        onNodeUpdated={(updated) => setNodes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))}
+        onNodeUpdated={(updated) => proxmoxCache.updateNode(updated)}
       />
     </div>
   );

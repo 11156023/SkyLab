@@ -1,15 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createColumnHelper, FlexRender, useTable } from "@tanstack/react-table";
 import styles from "./IpManagementPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import DataTable from "../../../components/DataTable/DataTable";
+import { baseFeatures } from "../../../components/DataTable/features";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SubnetConfigForm from "./SubnetConfigForm";
 import { useAuth } from "../../../contexts/AuthContext";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { IpManagementService } from "../../../services/ipManagement";
+import {
+  useIpAllocationsQuery,
+  useIpManagementCacheUpdater,
+  useIpStatusQuery,
+  useSubnetQuery,
+} from "../../../queries/ipManagement";
+import { LIST_REFRESH_INTERVAL } from "../../../queries/queryClient";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import Pagination from "../shared/Pagination";
@@ -65,7 +75,75 @@ function PurposeBadge({ purpose }) {
   );
 }
 
+/** 表頭文字（header 是元件，可以直接用 hook） */
+function ColTitle({ name }) {
+  const { t } = useTranslation("system");
+  return t(`IpManagementPage.${name}`);
+}
+
+const columnHelper = createColumnHelper();
+
+/* 欄位定義放模組層級：FlexRender 把函式型的 header／cell 當元件掛載，render 裡新建會整格重新掛載 */
+const allocationColumns = columnHelper.columns([
+  columnHelper.accessor("ip_address", {
+    header: () => <ColTitle name="colIpAddress" />,
+    cell: ({ row }) => (
+      <div className={styles.nameCell}>
+        <div className={styles.nameIcon}>
+          <MIcon name="device_hub" size={18} />
+        </div>
+        <div>
+          <div className={styles.namePrimary}>{row.original.ip_address}</div>
+        </div>
+      </div>
+    ),
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("purpose", {
+    header: () => <ColTitle name="colPurpose" />,
+    cell: ({ row }) => <PurposeBadge purpose={row.original.purpose} />,
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("vmid", {
+    header: "VMID",
+    cell: ({ row }) => row.original.vmid ?? "—",
+    meta: { thClassName: styles.th, tdClassName: styles.td },
+  }),
+  columnHelper.accessor("allocated_at", {
+    header: () => <ColTitle name="colAllocatedAt" />,
+    cell: ({ row }) => formatDateTime(row.original.allocated_at),
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdNowrap}` },
+  }),
+  columnHelper.accessor("description", {
+    header: () => <ColTitle name="colDescription" />,
+    cell: ({ row }) => row.original.description ?? "—",
+    /* 全文放在 td 的 title，滑過可看被截斷的備註 */
+    meta: { thClassName: styles.th, tdClassName: `${styles.td} ${styles.tdTruncate}`, tdTitle: (a) => a.description ?? undefined },
+  }),
+]);
+
+/**
+ * 備註欄的 td 要帶逐列不同的 title，共用的 DataTableCells 只吃固定的 tdProps，
+ * 所以這裡自己畫儲存格（DOM 與 DataTableCells 相同，只多了 title）。
+ */
+function renderAllocationRow(row) {
+  return (
+    <tr key={row.id} className={styles.tr}>
+      {row.getAllCells().map((cell) => {
+        const meta = cell.column.columnDef.meta;
+        return (
+          <td key={cell.id} className={meta.tdClassName} title={meta.tdTitle?.(row.original)}>
+            <FlexRender cell={cell} />
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
 const PAGE_SIZE = 50;
+
+const EMPTY = Object.freeze([]);
 
 /** 佔用網段、CIDR 不能再改的配發用途（與後端 ip_management_service 一致） */
 const CIDR_LOCKING_PURPOSES = new Set(["vm", "lxc", "class_reserved", "quick_practice_reserved"]);
@@ -77,39 +155,40 @@ export default function IpManagementPage() {
   const { user } = useAuth();
   const isAdmin = isAdminUser(user);
 
-  const [allocations, setAllocations] = useState([]);
-  const [subnet, setSubnet] = useState(null);
-  const [status, setStatus] = useState(null);
   const [filter, setFilter] = useState("");
-  const [loading, setLoading] = useState(true);
   /* 開窗時快照 config：Modal 內表單自持狀態，背景刷新不會洗掉輸入 */
   const [editing, setEditing] = useState(null); // null | { config }
   const editPresence = useDialogPresence(editing);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const [allocRes, subnetRes, statusRes] = await Promise.all([
-        IpManagementService.listAllocations(),
-        IpManagementService.getSubnet().catch(() => null),
-        IpManagementService.getStatus().catch(() => null),
-      ]);
-      setAllocations(allocRes?.allocations ?? []);
-      setSubnet(subnetRes ?? null);
-      setStatus(statusRes ?? null);
-    } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [toast, t]);
+  /* 三份資料走 TanStack Query，背景 30 秒刷新、分頁隱藏時暫停；
+     表單已改 Modal 且開窗時快照 config，背景刷新不會影響輸入。
+     子網設定與狀態取不到時靜默當成沒有（與原本相同），配發清單失敗才提示 */
+  const allocationsQuery = useIpAllocationsQuery();
+  const subnetQuery = useSubnetQuery({ refetchInterval: LIST_REFRESH_INTERVAL });
+  const statusQuery = useIpStatusQuery();
+  const ipCache = useIpManagementCacheUpdater();
+  const allocations = allocationsQuery.data?.allocations ?? EMPTY;
+  const subnet = subnetQuery.data ?? null;
+  const status = statusQuery.data ?? null;
+  /* 第一次載入等三份都回來（或失敗）才顯示，免得子網還沒到就先閃「尚未設定」；
+     之後的重抓保留舊畫面 */
+  /* 沒資料時 v5 每次重抓都把 status 改回 pending：直接看 isPending 的話，首載失敗（例如非管理員打 subnet
+     一律 403）後每次背景重試都會閃回整頁載入中，所以三份都看 useQueryView */
+  const allocationsView = useQueryView(allocationsQuery);
+  const subnetView = useQueryView(subnetQuery);
+  const statusView = useQueryView(statusQuery);
+  const loading = allocationsView.loading || subnetView.loading || statusView.loading;
 
-  useEffect(() => { load(); }, [load]);
-  /* 表單已改 Modal 且開窗時快照 config，背景刷新不會影響輸入 */
-  useAutoRefresh(() => load(true));
+  /* 背景刷新失敗維持靜默、沿用舊清單；只有手上沒資料時才提示。
+     依賴用布林＋訊息字串，沒資料時的背景重試回同樣的錯誤不會每 30 秒再跳一次 */
+  const allocationsLoadErrorMessage = allocationsView.error
+    ? allocationsView.error?.message ?? t("Error.generic", { ns: "common" })
+    : null;
+  useEffect(() => {
+    if (allocationsLoadErrorMessage) toast.error(allocationsLoadErrorMessage);
+  }, [allocationsLoadErrorMessage, toast]);
 
   /* getSubnet 需要管理員權限，非管理員只能靠 status 判斷是否已設定 */
   const configured = Boolean(subnet) || Boolean(status?.configured);
@@ -148,6 +227,13 @@ export default function IpManagementPage() {
     () => visible.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
     [visible, safePage],
   );
+  /* 分頁仍由頁面切片（換頁、搜尋時回第一頁的規則照舊），表格只渲染當頁的列 */
+  const table = useTable({
+    features: baseFeatures,
+    columns: allocationColumns,
+    data: pagedAllocations,
+    getRowId: (a) => a.ip_address,
+  });
 
   const emptyVariant = !configured
     ? "unconfigured"
@@ -178,7 +264,7 @@ export default function IpManagementPage() {
         toast.success(t("IpManagementPage.toastSubnetSaved"));
       }
       setEditing(null);
-      await load();
+      await ipCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("IpManagementPage.toastSaveSubnetFailed"));
     } finally {
@@ -199,7 +285,9 @@ export default function IpManagementPage() {
       await IpManagementService.deleteSubnet();
       toast.success(t("IpManagementPage.toastSubnetDeleted"));
       setEditing(null);
-      await load();
+      /* 後端已刪除：先把子網快取設成沒有，之後的重抓就算失敗也不會留著已刪的子網 */
+      await ipCache.clearSubnet();
+      await ipCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("IpManagementPage.toastDeleteSubnetFailed"));
     } finally {
@@ -302,45 +390,21 @@ export default function IpManagementPage() {
           />
         ) : (
           <div className={styles.tableWrap} data-guide="ip-table">
-            <table className={styles.table}>
-              {/* 分頁與搜尋都會換掉整頁的列，欄寬固定才不會每翻一頁就跳動（樣式規範表格規則二） */}
-              <colgroup>
-                <col className={styles.colIp} />
-                <col className={styles.colPurpose} />
-                <col className={styles.colVmid} />
-                <col className={styles.colAllocatedAt} />
-                <col />
-              </colgroup>
-              <thead>
-                <tr>
-                  {[t("IpManagementPage.colIpAddress"), t("IpManagementPage.colPurpose"), "VMID", t("IpManagementPage.colAllocatedAt"), t("IpManagementPage.colDescription")].map((col) => (
-                    <th key={col} className={styles.th}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pagedAllocations.map((a) => (
-                  <tr key={a.ip_address} className={styles.tr}>
-                    <td className={styles.td}>
-                      <div className={styles.nameCell}>
-                        <div className={styles.nameIcon}>
-                          <MIcon name="device_hub" size={18} />
-                        </div>
-                        <div>
-                          <div className={styles.namePrimary}>{a.ip_address}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className={styles.td}>
-                      <PurposeBadge purpose={a.purpose} />
-                    </td>
-                    <td className={styles.td}>{a.vmid ?? "—"}</td>
-                    <td className={`${styles.td} ${styles.tdNowrap}`}>{formatDateTime(a.allocated_at)}</td>
-                    <td className={`${styles.td} ${styles.tdTruncate}`} title={a.description ?? undefined}>{a.description ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              table={table}
+              className={styles.table}
+              /* 分頁與搜尋都會換掉整頁的列，欄寬固定才不會每翻一頁就跳動（樣式規範表格規則二） */
+              colgroup={(
+                <colgroup>
+                  <col className={styles.colIp} />
+                  <col className={styles.colPurpose} />
+                  <col className={styles.colVmid} />
+                  <col className={styles.colAllocatedAt} />
+                  <col />
+                </colgroup>
+              )}
+              renderRow={renderAllocationRow}
+            />
           </div>
         )}
         {!loading && totalPages > 1 && (

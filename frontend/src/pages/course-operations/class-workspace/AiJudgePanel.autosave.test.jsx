@@ -4,7 +4,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { notifyManager } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const toastApi = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => toastApi }));
@@ -12,14 +13,25 @@ vi.mock("../../../hooks/useToast", () => ({ useToast: () => toastApi }));
 import { RubricsTab } from "./AiJudgePanel";
 import { AiJudgeService } from "../../../services/aiJudge";
 import { ConfirmProvider } from "../../../components/ConfirmDialog/ConfirmProvider";
+import { aiJudgeKeys } from "../../../queries/aiJudge";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import i18n from "../../../i18n";
 
 const tt = (key) => i18n.t(`AiJudgePanel.${key}`, { ns: "teaching" });
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 const wait = (ms) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+let queryClient;
+
+beforeEach(() => {
+  /* TanStack Query 預設用 setTimeout(0) 通知元件；改成同步通知，讀取結果在同一個 act 裡就上畫面 */
+  notifyManager.setScheduler((callback) => callback());
+  queryClient = createTestQueryClient();
+});
 
 afterEach(() => {
   Element.prototype.scrollIntoView = originalScrollIntoView;
+  notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  queryClient.clear();
   vi.restoreAllMocks();
   Object.values(toastApi).forEach((fn) => fn.mockReset());
 });
@@ -52,11 +64,12 @@ async function setup() {
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(
+    root.render(withQueryClient(
       <ConfirmProvider>
         <RubricsTab classId="class-1" judgeSession={{ id: "session-1", selected_file_id: "file-1" }} />
       </ConfirmProvider>,
-    );
+      queryClient,
+    ));
   });
   await wait(20);
 
@@ -91,9 +104,7 @@ describe("RubricsTab 自動儲存失敗（409 以外）", () => {
     expect(toastApi.error).toHaveBeenCalledWith("伺服器暫時無法使用");
 
     /* 背景刷新拿到伺服器上的舊內容，不能把畫面上的修改蓋掉 */
-    const realNow = Date.now;
-    vi.spyOn(Date, "now").mockImplementation(() => realNow.call(Date) + 60_000);
-    act(() => { window.dispatchEvent(new Event("focus")); });
+    act(() => { void queryClient.refetchQueries({ queryKey: aiJudgeKeys.files("class-1") }); });
     await wait(10);
     expect(view.listFiles).toHaveBeenCalledTimes(2);
     expect(view.titleInput().value).toBe("新標題");
@@ -178,9 +189,10 @@ describe("RubricsTab 套用 AI 提案時儲存失敗", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
-    await act(async () => root.render(
+    await act(async () => root.render(withQueryClient(
       <ConfirmProvider><RubricsTab classId="class-1" judgeSession={{ id: "session-1", selected_file_id: "file-1" }} /></ConfirmProvider>,
-    ));
+      queryClient,
+    )));
     await wait(20);
     expect(container.querySelector('[aria-label="AI 提案"]')).toBeTruthy();
     await act(async () => buttonWith(container, tt("applyBtn")).click());

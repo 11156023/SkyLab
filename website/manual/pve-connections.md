@@ -27,12 +27,16 @@ Administrators only.
 
 The first connection you add becomes the default connection automatically. Saving does not contact PVE and does not sync; use **Test** and **Sync** afterwards.
 
+![Add a connection (numbers match the steps above)](/manual-shots/en/pve-connections/s01.webp)
+
 ### Test a connection
 
 1. Click **Test** on the connection's row.
 2. A notice reports whether the saved settings can reach PVE.
 
 Test only uses the settings that are already saved and changes nothing. To check new values, save them first and then test.
+
+![Test a connection (numbers match the steps above)](/manual-shots/en/pve-connections/s02.webp)
 
 ### Sync nodes and storages
 
@@ -41,11 +45,15 @@ Test only uses the settings that are already saved and changes nothing. To check
 
 Sync again after you add or remove nodes in the PVE cluster.
 
+![Sync nodes and storages (numbers match the steps above)](/manual-shots/en/pve-connections/s03.webp)
+
 ### Edit a connection
 
 1. Click the pencil icon (**Edit**) on the row.
 2. Change the fields you need. Leave **Password** blank to keep the current password, and leave **CA Certificate PEM** blank to keep the stored certificate.
 3. Click **Save Connection**.
+
+![Edit a connection (numbers match the steps above)](/manual-shots/en/pve-connections/s04.webp)
 
 ### Make a connection the default
 
@@ -54,12 +62,16 @@ Sync again after you add or remove nodes in the PVE cluster.
 
 Only one connection is the default; the previous default loses its **Default** tag.
 
+![Make a connection the default (numbers match the steps above)](/manual-shots/en/pve-connections/s05.webp)
+
 ### Delete a connection
 
 1. Click the trash icon (**Delete**) on the row.
 2. Confirm in the **Delete PVE Connection** dialog. The connection's node and storage records are removed as well.
 
-The deletion is refused when the platform finds machines still running on that connection; delete or move those machines first. It is also refused for the default connection while other connections exist; make another connection the default first.
+The deletion is refused when the platform finds machines still on that connection; delete or move those machines first. It is also refused for the default connection while other connections exist; make another connection the default first.
+
+![Delete a connection (numbers match the steps above)](/manual-shots/en/pve-connections/s06.webp)
 
 ### Force-delete a connection whose PVE is gone
 
@@ -69,6 +81,8 @@ The deletion is refused when the platform finds machines still running on that c
 
 Any SkyLab machines still on that PVE can no longer be managed from SkyLab afterwards. The forced deletion is recorded in the audit log.
 
+![Force-delete a connection whose PVE is gone (numbers match the steps above)](/manual-shots/en/pve-connections/s07.webp)
+
 ### Enable or disable a node
 
 1. In the **Nodes** list, use the switch on the node's row.
@@ -76,11 +90,15 @@ Any SkyLab machines still on that PVE can no longer be managed from SkyLab after
 
 A disabled node shows **Disabled** and "Not accepting new VMs (existing VMs unaffected)". Existing machines on it keep running.
 
+![Enable or disable a node (numbers match the steps above)](/manual-shots/en/pve-connections/s08.webp)
+
 ### Edit a node's address and priority
 
 1. Click the pencil icon (**Edit**) on the node's row.
 2. In **Edit node `<name>`**, change **Host**, **Port** or **Priority**.
 3. Click **Save**.
+
+![Edit a node's address and priority (numbers match the steps above)](/manual-shots/en/pve-connections/s09.webp)
 
 ## Fields and options
 
@@ -112,7 +130,7 @@ Each connection row shows the name (with a **Default** tag for the default conne
 ## Limits and behaviour to know
 
 - The pool, storage, gateway IP, subnet and default node apply only to machines created through that connection, so each cluster can use different values. Cross-cluster placement and scheduling parameters are on [Resource Scheduling](/manual/scheduler).
-- **Online** and **Offline** reflect the most recent sync, not a live check.
+- **Online** and **Offline** show the result of the platform's most recent connection to the node (a sync, or opening an API connection to that cluster), not a live check.
 - While a row is testing, syncing or deleting, its buttons are disabled.
 - For live node usage, trends and alerts, open [Resource Monitoring](/manual/monitoring); the link is also in the page header.
 - Storage speed tiers, priorities and enabling individual storages are managed on [Storage](/manual/storage).

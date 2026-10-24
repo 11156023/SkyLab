@@ -13,5 +13,5 @@
 - [ ] Model changes come with an Alembic migration
 - [ ] New UI strings are in all three locales (zh-TW, en, ja)
 - [ ] Docs under `website/` updated, English and `zh-TW/` together
-- [ ] New direct dependencies listed in `THIRD_PARTY_NOTICES.md`
+- [ ] Added or removed direct dependencies reflected in `THIRD_PARTY_NOTICES.md` (and `desktop-client/THIRD_PARTY_NOTICES.txt`)
 - [ ] No `.env`, credentials, real student data or internal addresses in the diff

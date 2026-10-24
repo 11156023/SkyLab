@@ -3,12 +3,13 @@
  * 子網尚未配置時的全站警告橫幅：VM/LXC 建立功能已停用，
  * 管理員附「前往設定」連結。已配置或尚未取得狀態時不顯示。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
 import { useAuth } from "../../contexts/AuthContext";
-import { IpManagementService } from "../../services/ipManagement";
+import { ipManagementKeys, useIpStatusQuery } from "../../queries/ipManagement";
 import { isAdminUser } from "../../utils/roles";
 import styles from "./SubnetBanner.module.scss";
 
@@ -23,41 +24,34 @@ export default function SubnetBanner() {
   const { t } = useTranslation("common");
   const { user } = useAuth();
   const { pathname } = useLocation();
-  const [status, setStatus] = useState(null);
   const isAdmin = isAdminUser(user);
-  const lastFetchedAtRef = useRef(0);
-  /* 序號與掛載狀態放元件層：換頁時進行中的查詢仍要收下（60 秒內換頁不會重查，
-     丟掉的話橫幅要等下一次換頁才出現，例如 / 立刻轉址到 /dashboard），只讓較新的查詢蓋過舊的 */
-  const seqRef = useRef(0);
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  const queryClient = useQueryClient();
+  /* 狀態走 TanStack Query（與 IP 管理頁共用快取）：不背景輪詢；60 秒內的結果視為新鮮，
+     切回分頁也只在超過 60 秒才重查。查詢失敗時沿用上一次的狀態，從沒取到就不顯示（避免誤報） */
+  const statusQuery = useIpStatusQuery({ refetchInterval: false, staleTime: ROUTE_REFRESH_MIN_GAP_MS });
+  const status = statusQuery.data;
+  const { refetch } = statusQuery;
 
   /* 橫幅掛在 DashboardLayout、跨頁不重掛；只在掛載時查一次的話，
      管理員設定或刪除子網後要整頁重新整理才會更新。
-     因此換頁時重查（距上次不足 60 秒則略過；其他人改了子網也跟得上），
-     另外收到 SUBNET_CHANGED_EVENT 時立即重查（管理員在設定頁存檔／刪除當下）。 */
+     因此換頁時重查（距上次不足 60 秒則略過；其他人改了子網也跟得上）。
+     查詢進行中就不重發：換頁時進行中的查詢照樣收下（例如 / 立刻轉址到 /dashboard）。 */
   useEffect(() => {
-    const refresh = () => {
-      lastFetchedAtRef.current = Date.now();
-      const current = ++seqRef.current;
-      IpManagementService.getStatus()
-        .then((res) => {
-          if (mountedRef.current && current === seqRef.current) setStatus(res);
-        })
-        .catch(() => {
-          // 取不到狀態就不顯示，避免誤報
-        });
+    const state = queryClient.getQueryState(ipManagementKeys.status);
+    if (!state || state.fetchStatus === "fetching") return;
+    const lastCheckedAt = Math.max(state.dataUpdatedAt, state.errorUpdatedAt);
+    if (Date.now() - lastCheckedAt >= ROUTE_REFRESH_MIN_GAP_MS) refetch();
+  }, [pathname, queryClient, refetch]);
+
+  /* 收到 SUBNET_CHANGED_EVENT 時立即重查（管理員在設定頁存檔／刪除當下）；
+     refetch 會取消還在路上的舊查詢，只讓較新的結果蓋過去 */
+  useEffect(() => {
+    const onSubnetChanged = () => {
+      refetch();
     };
-    if (Date.now() - lastFetchedAtRef.current >= ROUTE_REFRESH_MIN_GAP_MS) refresh();
-    window.addEventListener(SUBNET_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(SUBNET_CHANGED_EVENT, refresh);
-  }, [pathname]);
+    window.addEventListener(SUBNET_CHANGED_EVENT, onSubnetChanged);
+    return () => window.removeEventListener(SUBNET_CHANGED_EVENT, onSubnetChanged);
+  }, [refetch]);
 
   if (!status || status.configured) return null;
 

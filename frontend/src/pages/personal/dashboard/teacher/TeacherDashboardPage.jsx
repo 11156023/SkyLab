@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../../components/MIcon";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { TeachingClassesService } from "../../../../services/teachingClasses";
+import { useTeachingClassesQuery } from "../../../../queries/teachingClasses";
 import styles from "./TeacherDashboardPage.module.scss";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import { formatMonthDay } from "../../../../utils/formatDate";
 import { useToast } from "../../../../hooks/useToast";
+import { useQueryView } from "../../../../hooks/useQueryLoadState";
 import { taipeiDateKey } from "../taipeiDate";
 
 const CLASS_STATUS_KEYS = {
@@ -114,6 +115,13 @@ function normalizeClass(item) {
   };
 }
 
+/* 模組層級的 select：結果才會被快取，資料沒變時不重算 */
+function selectDashboardClasses(classRows) {
+  return (classRows?.data ?? classRows ?? []).map(normalizeClass);
+}
+
+const EMPTY = [];
+
 /** 問候語用的稱呼：姓名第一段；沒填姓名（或全空白）時回 null，由呼叫端改用不帶名字的問候。
  *  不拿 email 帳號湊名字；用 || 而非 ??：全空白的 full_name trim 後是空字串，不能拿來當名字。 */
 export function teacherDisplayName(user) {
@@ -125,38 +133,29 @@ export default function TeacherDashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const toast = useToast();
-  const [classes, setClasses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  // 載入失敗時統計卡一律「—」，不顯示看起來像真資料的 0
-  const [failed, setFailed] = useState(false);
   const demoMode = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("teacherDemo") === "1";
+  const demoClasses = useMemo(
+    () => (demoMode ? buildTeacherDashboardDemo().classes.map(normalizeClass) : null),
+    [demoMode],
+  );
 
+  /* 班級清單與班級管理、課程 CMS 共用同一份快取（背景 30 秒刷新）；示範模式不打 API */
+  const classesQuery = useTeachingClassesQuery({ enabled: !demoMode, select: selectDashboardClasses });
+  const classes = demoClasses ?? classesQuery.data ?? EMPTY;
+  /* 首載失敗後背景輪詢重試期間維持失敗畫面，不閃回整頁載入中（見 useQueryView） */
+  const classesView = useQueryView(classesQuery);
+  const loading = !demoMode && classesView.loading;
+  // 載入失敗時統計卡一律「—」，不顯示看起來像真資料的 0
+  const failed = !demoMode && Boolean(classesView.error);
+  /* 依訊息字串觸發：還沒有資料時輪詢重試又失敗，訊息相同就不重複提示；背景刷新失敗沿用上一份、不提示。
+     錯誤取自 useQueryView：輪詢重試期間不會先清空再變回來，才不會每輪重跳 */
+  const loadFailedMessage = failed
+    ? classesView.error.message ?? t("TeacherDashboardPage.loadError")
+    : null;
   useEffect(() => {
-    let active = true;
-    async function load() {
-      setLoading(true);
-      setFailed(false);
-      if (demoMode) {
-        const demo = buildTeacherDashboardDemo();
-        setClasses(demo.classes.map(normalizeClass));
-        setLoading(false);
-        return;
-      }
-      try {
-        const classRows = await TeachingClassesService.list();
-        if (active) setClasses((classRows?.data ?? classRows ?? []).map(normalizeClass));
-      } catch (reason) {
-        if (!active) return;
-        setFailed(true);
-        toast.error(reason?.message ?? t("TeacherDashboardPage.loadError"));
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    load();
-    return () => { active = false; };
-  }, [demoMode, t, toast]);
+    if (loadFailedMessage) toast.error(loadFailedMessage);
+  }, [loadFailedMessage, toast]);
 
   const upcoming = useMemo(() => classes
     .map((item) => ({ item, session: nextClassSession(item) }))

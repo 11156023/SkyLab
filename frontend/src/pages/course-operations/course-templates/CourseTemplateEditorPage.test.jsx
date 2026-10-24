@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { withQueryClient } from "../../../queries/testing";
 import CourseTemplateEditorPage from "./CourseTemplateEditorPage";
 
 const mocks = vi.hoisted(() => ({
@@ -54,22 +55,35 @@ afterEach(async () => {
   host.remove();
 });
 
+/* TanStack Query 的通知走 setTimeout(0)：先等一個 timer tick 再清 microtask */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
+
 async function renderNew(draft = initial, tab = "machines") {
   if (draft) sessionStorage.setItem("courseTemplateEditorDraft:test:new", JSON.stringify(draft));
   await act(async () => {
-    root.render(<MemoryRouter initialEntries={[`/course-template-management/new?tab=${tab}&returnTo=/done`]}>
+    root.render(withQueryClient(<MemoryRouter initialEntries={[`/course-template-management/new?tab=${tab}&returnTo=/done`]}>
       <Routes><Route path="/course-template-management/new" element={<CourseTemplateEditorPage />} /><Route path="/done" element={<p>Published</p>} /></Routes>
-    </MemoryRouter>);
+    </MemoryRouter>));
+  });
+}
+
+function renderExisting() {
+  return act(async () => {
+    root.render(withQueryClient(<MemoryRouter initialEntries={["/course-template-management/env-1?tab=basic"]}>
+      <Routes><Route path="/course-template-management/:templateId" element={<CourseTemplateEditorPage />} /></Routes>
+    </MemoryRouter>));
   });
 }
 
 async function renderPublished(overrides = {}) {
   mocks.get.mockResolvedValue({ ...initial, id: "env-1", status: "published", version: 2, updatedAt: "2026-09-16", ...overrides });
-  await act(async () => {
-    root.render(<MemoryRouter initialEntries={["/course-template-management/env-1?tab=basic"]}>
-      <Routes><Route path="/course-template-management/:templateId" element={<CourseTemplateEditorPage />} /></Routes>
-    </MemoryRouter>);
-  });
+  await renderExisting();
+  await flush();
 }
 
 function setSelect(select, value) {
@@ -231,11 +245,8 @@ it("downloads an attachment through the authenticated service when its name is c
 
 it("shows a retryable error instead of a blank editor when an existing environment fails to load", async () => {
   mocks.get.mockRejectedValueOnce(new Error("offline"));
-  await act(async () => {
-    root.render(<MemoryRouter initialEntries={["/course-template-management/env-1?tab=basic"]}>
-      <Routes><Route path="/course-template-management/:templateId" element={<CourseTemplateEditorPage />} /></Routes>
-    </MemoryRouter>);
-  });
+  await renderExisting();
+  await flush();
   expect(mocks.toast.error).toHaveBeenCalledWith("offline");
   /* 空白表單打的字會寫成這個環境的暫存草稿，下次進來還原時蓋掉伺服器上的草稿：不給編輯 */
   expect(host.querySelector("input, textarea, select")).toBeNull();
@@ -244,6 +255,34 @@ it("shows a retryable error instead of a blank editor when an existing environme
   mocks.get.mockResolvedValue({ ...initial, id: "env-1", version: 1 });
   const retry = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Error.retry"));
   await act(async () => retry.click());
+  await flush();
   expect(mocks.get).toHaveBeenCalledTimes(2);
   expect(host.querySelector("input").value).toBe("Linux");
+});
+
+/* 編輯中的內容不能被背景資料蓋掉：自動儲存把伺服器那份寫回快取後，編輯器不會用它重新初始化 */
+it("keeps local edits when an autosave writes the server copy back into the cache", async () => {
+  mocks.get.mockResolvedValue({ ...initial, id: "env-1", status: "draft", version: 1 });
+  mocks.saveDraft.mockImplementation(async (_, item) => ({ ...item, id: "env-1", version: 2, name: "Server copy" }));
+  await renderExisting();
+  await flush();
+  const name = host.querySelector("input");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(name, "Local edit");
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 750)); });
+  await flush();
+  expect(mocks.saveDraft).toHaveBeenCalledWith("env-1", expect.objectContaining({ name: "Local edit" }));
+  expect(mocks.get).toHaveBeenCalledTimes(1);
+  expect(host.querySelector("input").value).toBe("Local edit");
+});
+
+it("restores a leftover draft over a freshly loaded draft environment", async () => {
+  sessionStorage.setItem("courseTemplateEditorDraft:test:env-1", JSON.stringify({ ...initial, id: "env-1", name: "Unsaved draft" }));
+  mocks.get.mockResolvedValue({ ...initial, id: "env-1", status: "draft", version: 1 });
+  await renderExisting();
+  await flush();
+  expect(host.querySelector("input").value).toBe("Unsaved draft");
+  expect(mocks.toast.success).toHaveBeenCalledWith("CourseTemplateEditorPage.draftRestoredMsg");
 });

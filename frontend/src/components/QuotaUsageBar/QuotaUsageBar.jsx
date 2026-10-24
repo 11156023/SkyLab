@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./QuotaUsageBar.module.scss";
-import { QuotasService } from "../../services/quotas";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
+import { useMyQuotaUsageQuery } from "../../queries/quotas";
+import { useLoadError } from "../../queries/resourceDetail";
 
 function Meter({ label, used, max, unit }) {
   const { t } = useTranslation("components");
@@ -40,40 +39,14 @@ function nearLimit(data) {
 /** 我的配額用量條（掛在「我的資源」頁頂部） */
 export default function QuotaUsageBar() {
   const { t } = useTranslation("components");
-  const [data, setData] = useState(null);
-  const [failed, setFailed] = useState(false);
-  const controllerRef = useRef(null);
 
-  /* 開通、刪機、規格調整後用量會變：跟下方機器列表一樣靜默自動刷新。
-     上一次還沒回來就跳過這輪；已有數字時刷新失敗保留舊數字，不閃成錯誤 */
-  const load = useCallback(() => {
-    if (controllerRef.current) return;
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    QuotasService.getMyUsage({ signal: controller.signal })
-      .then((res) => {
-        setData(res);
-        setFailed(false);
-      })
-      .catch((err) => {
-        if (err?.name !== "AbortError") setFailed((prev) => prev || !data);
-      })
-      .finally(() => {
-        if (controllerRef.current === controller) controllerRef.current = null;
-      });
-  }, [data]);
-
-  useEffect(() => {
-    load();
-    return () => {
-      controllerRef.current?.abort();
-      controllerRef.current = null;
-    };
-    // 只在掛上時載入一次，之後交給 useAutoRefresh
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useAutoRefresh(load);
+  /* 開通、刪機、規格調整後用量會變：跟下方機器列表一樣每 30 秒靜默刷新。
+     已有數字時刷新失敗保留舊數字，不閃成錯誤；從沒拿到數字就失敗時顯示佔位，
+     背景重試期間也維持佔位（不會每 30 秒消失一下） */
+  const usageQuery = useMyQuotaUsageQuery();
+  const data = usageQuery.data ?? null;
+  const loadError = useLoadError(usageQuery).error;
+  const failed = !data && loadError !== null;
 
   if (!data && !failed) return null;
 

@@ -23,16 +23,27 @@ vi.mock("react-i18next", async (original) => ({ ...await original(),
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }));
 vi.mock("../../../../services/courses", () => ({ CoursesService: courses }));
 vi.mock("../../../../services/resources", () => ({ ResourcesService: resources }));
+vi.mock("../../../../services/quickPractice", () => ({ QuickPracticeService: { listMySessions: vi.fn().mockResolvedValue([]) } }));
 vi.mock("../../resources/TerminalDialog", () => ({ default: () => null }));
 vi.mock("../../resources/VncDialog", () => ({ default: () => null }));
 
 const { default: StudentCoursePage } = await import("./StudentCoursePage");
 const { default: StudentWeekPage } = await import("../../courses/StudentWeekPage");
+const { createTestQueryClient, withQueryClient } = await import("../../../../queries/testing");
+const { courseKeys } = await import("../../../../queries/courses");
 
-let host, root;
+let host, root, client;
 function Location() { return <output>{useLocation().pathname}</output>; }
+/* TanStack Query 以 macrotask 批次通知，等一個 timer tick 再看畫面 */
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
 async function render(path) {
-  await act(async () => root.render(
+  client = createTestQueryClient();
+  await act(async () => root.render(withQueryClient(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/courses/:pathId" element={<StudentCoursePage />} />
@@ -41,7 +52,11 @@ async function render(path) {
       </Routes>
       <Location />
     </MemoryRouter>,
-  ));
+    client,
+  )));
+  /* 兩段載入：課程清單回來才知道要抓哪門課的任務與機器 */
+  await flush();
+  await flush();
 }
 
 beforeEach(() => {
@@ -95,8 +110,40 @@ it("opens the current week's approved task content from the course overview", as
     .find((button) => button.textContent.includes("StudentCoursePage.openThisWeek"));
   await act(async () => openWeek.click());
   expect(host.querySelector("output").textContent).toBe("/courses/path-1/weeks/week-1");
+  /* 週任務頁與課程頁共用快取：點進來當下就有內容，不再整頁載入 */
+  expect(host.textContent).not.toContain("StudentWeekPage.loading");
   const feedback = host.querySelector('[data-guide="course-week-feedback"]');
   expect(feedback.textContent).toContain("Configure daily backups");
   expect(feedback.textContent).toContain("Run pg_dump at 02:00");
   expect(feedback.textContent).not.toContain("StudentWeekPage.noCheckpointsTitle");
+});
+
+it("checks a week off in place without reloading the course", async () => {
+  courses.listPaths.mockResolvedValue([{ id: "path-1", title: "Linux course" }]);
+  courses.getAiAssignments.mockResolvedValue([{
+    id: "assignment-1", teaching_class_week_id: "week-1", items: [],
+    completion: { completed: false },
+  }]);
+  courses.getWeeklyTasks.mockResolvedValue([{
+    id: "week-1", week_number: 1, title: "Backup week", session_date: "2026-09-09", checkpoints: [], files: [],
+  }]);
+  courses.updateAssignmentCompletion.mockResolvedValue({ completed: true });
+  await render("/courses/path-1");
+
+  const checkbox = host.querySelector('[data-guide="home-tasks"] input[type="checkbox"]');
+  expect(checkbox.checked).toBe(false);
+  await act(async () => checkbox.click());
+  await flush();
+
+  expect(courses.updateAssignmentCompletion).toHaveBeenCalledWith("path-1", "assignment-1", true);
+  expect(courses.getAiAssignments).toHaveBeenCalledTimes(1);
+  expect(client.getQueryData(courseKeys.aiAssignments("path-1"))[0].completion).toEqual({ completed: true });
+  expect(host.querySelector('[data-guide="home-tasks"] input[type="checkbox"]').checked).toBe(true);
+});
+
+it("shows the guide demo course without calling the course APIs", async () => {
+  await render("/courses/demo");
+  expect(courses.listPaths).not.toHaveBeenCalled();
+  expect(courses.getWeeklyTasks).not.toHaveBeenCalled();
+  expect(host.textContent).toContain("StudentCoursePage.guideDemoCourseTitle");
 });

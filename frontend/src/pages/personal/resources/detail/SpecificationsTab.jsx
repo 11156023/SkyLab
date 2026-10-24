@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import sl from "./SpecificationsTab.module.scss";
@@ -10,8 +10,16 @@ import MIcon from "../../../../components/MIcon";
 import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { ResourcesService } from "../../../../services/resources";
-import { QuotasService } from "../../../../services/quotas";
 import { growthRange, quotaRemaining, sliderTicks } from "../../../../utils/quotaLimits";
+import {
+  useLoadError,
+  useRefreshResourceDetail,
+  useResourceDetailCacheUpdater,
+  useResourceQuery,
+  useSpecsQuery,
+} from "../../../../queries/resourceDetail";
+import { useMyQuotaUsageQuery, useQuotaCacheUpdater } from "../../../../queries/quotas";
+import { useMySpecChangeRequestsQuery, useSpecChangeRequestCacheUpdater } from "../../../../queries/specChangeRequests";
 import NumberInput from "../../../../components/NumberInput/NumberInput";
 import {
   SpecChangeRequestsService,
@@ -24,9 +32,6 @@ import {
 import { useToast } from "../../../../hooks/useToast";
 import { focusInvalidField } from "../../../../utils/focusField";
 import { isAdminUser } from "../../../../utils/roles";
-
-/* 套用中（關機 → 改規格 → 開機）約 1～3 分鐘，期間每 5 秒跟一次進度 */
-const APPLY_POLL_MS = 5000;
 
 /* 拉桿範圍與後端 SpecChangeRequestCreate 的限制一致 */
 const CORE_MIN = 1;
@@ -217,72 +222,57 @@ export default function SpecificationsTab({ vmid }) {
   const confirm = useConfirm();
   const { user } = useAuth();
   const isAdmin = isAdminUser(user);
+  const detailCache = useResourceDetailCacheUpdater();
+  const refreshDetail = useRefreshResourceDetail();
+  const requestCache = useSpecChangeRequestCacheUpdater();
+  const quotaCache = useQuotaCacheUpdater();
 
-  const [config, setConfig] = useState(null);
+  /* /specs 回的是實際生效值（cpu_cores / memory_mb / disk_gb），不是 Proxmox 原始 config。
+     表單用：不輪詢、切回視窗也不重抓，只在套用完成或管理員改完後重抓 */
+  const specsQuery = useSpecsQuery(vmid);
+  const config = specsQuery.data ?? null;
+  /* 從沒載到就失敗才顯示錯誤；之後的重抓期間維持錯誤畫面、不閃轉圈圈（見 useLoadError） */
+  const { error } = useLoadError(specsQuery);
+
   // 課堂與快速練習的機器照課程環境版本建立，規格不接受個別調整；
-  // 資源的 can_request_spec_change 為 false 時鎖住整張調整表單。
-  const [specFixed, setSpecFixed] = useState(false);
-  // null＝沒有設定核心上限（LXC 不設 cores 時可用整台主機的 CPU），使用者動過拉桿才會變成數字
-  const [cores, setCores] = useState(null);
-  const [memory, setMemory] = useState(512);
-  const [disk, setDisk] = useState(0);
+  // 資源的 can_request_spec_change 為 false 時鎖住整張調整表單（查不到時當成可以調整）。
+  const resourceQuery = useResourceQuery(vmid, { refetchInterval: false });
+  const specFixed = resourceQuery.data?.can_request_spec_change === false;
+
+  /* 管理員直接套用，不走申請；只有一般使用者需要看自己的申請進度。
+     有申請套用中時查詢自己會加快到每 5 秒一次；載入失敗不影響表單本身 */
+  const requestsQuery = useMySpecChangeRequestsQuery({ enabled: !isAdmin });
+  const myRequests = isAdmin ? undefined : requestsQuery.data;
+  const openRequest = findOpenRequest(myRequests, vmid);
+  const appliedWarning = findAppliedWithWarning(myRequests, vmid);
+
+  // 表單值只記使用者動過的部分，null＝沿用目前規格。
+  // 核心數的「目前」可能是 null（LXC 不設 cores 時可用整台主機的 CPU），使用者動過拉桿才會變成數字
+  const [coresDraft, setCores] = useState(null);
+  const [memoryDraft, setMemory] = useState(null);
+  const [diskDraft, setDisk] = useState(null);
+  /* 目前規格重抓到新值（套用完成、管理員直接改完）時，表單回到新的目前值 */
+  useEffect(() => {
+    setCores(null);
+    setMemory(null);
+    setDisk(null);
+  }, [config]);
   const [reason, setReason] = useState("");
   const [reasonInvalid, setReasonInvalid] = useState(false);
   const reasonRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
-  const [openRequest, setOpenRequest] = useState(null);
-  const [appliedWarning, setAppliedWarning] = useState(null);
 
-  const loadConfig = useCallback(async () => {
-    try {
-      /* /specs 回的是實際生效值（cpu_cores / memory_mb / disk_gb），不是 Proxmox 原始 config */
-      const c = await ResourcesService.getSpecs(vmid);
-      setConfig(c);
-      setCores(c.cpu_cores || null);
-      setMemory(c.memory_mb || 512);
-      setDisk(c.disk_gb || 0);
-    } catch (e) {
-      setError(e ?? true);
-      return;
-    }
-    try {
-      const resource = await ResourcesService.get(vmid);
-      setSpecFixed(resource?.can_request_spec_change === false);
-    } catch {
-      setSpecFixed(false);
-    }
-  }, [vmid]);
-
-  /* 管理員直接套用，不走申請；只有一般使用者需要看自己的申請進度 */
-  const loadRequests = useCallback(async () => {
-    if (isAdmin) return;
-    try {
-      const res = await SpecChangeRequestsService.listMy();
-      setOpenRequest(findOpenRequest(res.data, vmid));
-      setAppliedWarning(findAppliedWithWarning(res.data, vmid));
-    } catch {
-      /* 申請進度載入失敗不影響表單本身 */
-    }
-  }, [isAdmin, vmid]);
-
-  useEffect(() => {
-    loadConfig();
-    loadRequests();
-  }, [loadConfig, loadRequests]);
-
+  /* 套用（關機 → 改規格 → 開機）約 1～3 分鐘；從「套用中」離開（完成、失敗或中斷）時重抓規格，
+     讓「目前」數字更新，詳情與機器清單上的規格也跟著換 */
   const applying = openRequest?.apply_status === "applying";
+  const wasApplyingRef = useRef(applying);
   useEffect(() => {
-    if (!applying) return undefined;
-    const timer = setInterval(async () => {
-      if (document.hidden) return;
-      const before = openRequest?.id;
-      await loadRequests();
-      /* 套用完成後 openRequest 會消失；重新載入規格讓「目前」數字更新 */
-      if (before) loadConfig();
-    }, APPLY_POLL_MS);
-    return () => clearInterval(timer);
-  }, [applying, openRequest?.id, loadRequests, loadConfig]);
+    if (wasApplyingRef.current && !applying) {
+      detailCache.invalidateSpecs(vmid);
+      refreshDetail(vmid);
+    }
+    wasApplyingRef.current = applying;
+  }, [applying, vmid, detailCache, refreshDetail]);
 
   const handleApply = async () => {
     if (!openRequest) return;
@@ -295,11 +285,13 @@ export default function SpecificationsTab({ vmid }) {
     setBusy(true);
     try {
       const res = await SpecChangeRequestsService.apply(openRequest.id);
-      setOpenRequest(res.request);
+      /* 就地把這張改成「套用中」：通知列馬上換狀態，清單查詢也隨之改成 5 秒追進度 */
+      if (res?.request) await requestCache.update(res.request);
+      else await requestCache.invalidate();
       toast.success(t("SpecificationsTab.applyStarted"));
     } catch (e) {
       toast.error(e?.message ?? t("SpecificationsTab.applyFailed"));
-      await loadRequests();
+      await requestCache.invalidate();
     } finally {
       setBusy(false);
     }
@@ -315,36 +307,38 @@ export default function SpecificationsTab({ vmid }) {
     if (!ok) return;
     setBusy(true);
     try {
-      await SpecChangeRequestsService.cancel(openRequest.id);
-      setOpenRequest(null);
+      /* 回來的是撤銷後的申請（已結案）：就地換掉，通知列隨即消失 */
+      const cancelled = await SpecChangeRequestsService.cancel(openRequest.id);
+      if (cancelled?.id != null) await requestCache.update(cancelled);
+      else await requestCache.invalidate();
       toast.success(t("SpecificationsTab.cancelSuccess"));
     } catch (e) {
       toast.error(e?.message ?? t("SpecificationsTab.cancelFailed"));
-      await loadRequests();
+      await requestCache.invalidate();
     } finally {
       setBusy(false);
     }
   };
 
-  const currentDisk = config?.disk_gb ?? 0;
-  const diskChanged = currentDisk > 0 && disk !== currentDisk;
-  /* 沒設核心上限時顯示「不限」；只有使用者真的動過 CPU 拉桿／數字框才送核心數 */
-  const coresUnlimited = !config?.cpu_cores;
-  const coresChanged = config != null && cores != null && cores !== config.cpu_cores;
-
   /* 配額：後端送單、核准、套用都會對「調大的部分」檢查剩餘配額，
      所以拉桿上限＝目前規格＋剩餘配額。管理員直接改規格不走申請、不扣自己的配額。
-     送出／撤銷／套用完成後剩餘量會變，跟著申請狀態重抓。 */
-  const [quotaUsage, setQuotaUsage] = useState(null);
+     不輪詢；送出／撤銷／套用完成後剩餘量會變，申請狀態或目前規格一變就重抓
+     （首次載入由查詢自己抓，兩邊都載好之後的變化才重抓） */
+  const quotaQuery = useMyQuotaUsageQuery({ enabled: !isAdmin, refetchInterval: false });
+  const quotaUsage = isAdmin ? null : quotaQuery.data ?? null;
+  const requestsSettled = isAdmin || requestsQuery.data !== undefined || requestsQuery.isError;
+  const quotaSignature = config && requestsSettled
+    ? [openRequest?.id, openRequest?.apply_status, config.cpu_cores, config.memory_mb, config.disk_gb].join("|")
+    : null;
+  const quotaSignatureRef = useRef(null);
   useEffect(() => {
-    if (isAdmin) return undefined;
-    const controller = new AbortController();
-    QuotasService.getMyUsage({ signal: controller.signal })
-      .then(setQuotaUsage)
-      .catch(() => {});
-    return () => controller.abort();
-  }, [isAdmin, openRequest?.id, openRequest?.apply_status, config]);
+    if (quotaSignature === null) return;
+    const previous = quotaSignatureRef.current;
+    quotaSignatureRef.current = quotaSignature;
+    if (!isAdmin && previous !== null && previous !== quotaSignature) quotaCache.invalidateMyUsage();
+  }, [quotaSignature, isAdmin, quotaCache]);
   const quotaLeft = quotaRemaining(quotaUsage);
+  const currentDisk = config?.disk_gb ?? 0;
   /* 不限 → 設上限時後端把目前值當 0 計算配額（spec_change_delta），拉桿上限跟著一致 */
   const coresRange = growthRange({
     min: CORE_MIN, max: CORE_MAX,
@@ -360,12 +354,14 @@ export default function SpecificationsTab({ vmid }) {
     min: diskMin, max: Math.max(DISK_MAX, diskMin),
     current: diskMin, remaining: quotaLeft.diskGb,
   });
-  /* 配額晚一步載入時，已經拉高的值要壓回上限 */
-  useEffect(() => {
-    setCores((v) => (v == null ? v : Math.min(v, coresRange.max)));
-    setMemory((v) => Math.min(v, memoryRange.max));
-    setDisk((v) => Math.min(v, diskRange.max));
-  }, [coresRange.max, memoryRange.max, diskRange.max]);
+  /* 表單值：沒動過＝目前規格；動過的值在配額晚一步載入時壓回上限（目前規格本身一定在範圍內） */
+  const cores = coresDraft == null ? (config?.cpu_cores || null) : Math.min(coresDraft, coresRange.max);
+  const memory = Math.min(memoryDraft ?? (config?.memory_mb || 512), memoryRange.max);
+  const disk = Math.min(diskDraft ?? (config?.disk_gb || 0), diskRange.max);
+  const diskChanged = currentDisk > 0 && disk !== currentDisk;
+  /* 沒設核心上限時顯示「不限」；只有使用者真的動過 CPU 拉桿／數字框才送核心數 */
+  const coresUnlimited = !config?.cpu_cores;
+  const coresChanged = config != null && cores != null && cores !== config.cpu_cores;
   const limitText = (range, capKey, value, exhaustedKey = "SpecificationsTab.quotaExhausted") => {
     if (isAdmin || specFixed || !range.quotaCapped) return null;
     return range.exhausted ? t(exhaustedKey) : t(capKey, { max: value });
@@ -393,7 +389,8 @@ export default function SpecificationsTab({ vmid }) {
           disk_size: diskChanged ? `+${disk - currentDisk}G` : undefined,
         });
         toast.success(t("SpecificationsTab.updateSuccess"));
-        await loadConfig();
+        /* 規格與詳情一起重抓（總覽的核心數、記憶體與機器清單跟著換）；表單隨新規格回到目前值 */
+        await Promise.all([detailCache.invalidateSpecs(vmid), refreshDetail(vmid)]);
       } catch (e) {
         toast.error(e?.message ?? t("SpecificationsTab.updateFailed"));
       } finally {
@@ -414,7 +411,7 @@ export default function SpecificationsTab({ vmid }) {
 
     setBusy(true);
     try {
-      const created = await SpecChangeRequestsService.create({
+      await SpecChangeRequestsService.create({
         vmid,
         change_type: "combined",
         reason,
@@ -422,9 +419,10 @@ export default function SpecificationsTab({ vmid }) {
         requested_memory: memory !== config.memory_mb ? memory : undefined,
         requested_disk: diskChanged ? disk : undefined,
       });
-      setOpenRequest(created);
       toast.success(t("SpecificationsTab.requestSubmitted"));
       setReason("");
+      /* 新申請要出現在通知列並鎖住表單：重抓「我的申請」（期間 busy 擋住重複送出） */
+      await requestCache.invalidate();
     } catch (e) {
       toast.error(e?.message ?? t("SpecificationsTab.submitFailed"));
     } finally {

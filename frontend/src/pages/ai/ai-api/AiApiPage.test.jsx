@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { aiApiKeys } from "../../../queries/aiApi";
+import { createTestQueryClient, withQueryClient } from "../../../queries/testing";
 import AiApiPage from "./AiApiPage";
 
 const mocks = vi.hoisted(() => ({
@@ -12,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   getMyUsage: vi.fn(),
   getMyUsageRecords: vi.fn(),
   confirm: vi.fn(),
-  autoRefresh: null,
   t: (key) => key,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -37,7 +38,6 @@ vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => nul
 vi.mock("../../../components/RrdChart/RrdChart", () => ({
   default: ({ data = [] }) => <div data-testid="daily-chart">{data.map((point) => point.time).join("|")}</div>,
 }));
-vi.mock("../../../hooks/useAutoRefresh", () => ({ default: (refresh) => { mocks.autoRefresh = refresh; } }));
 vi.mock("../../../components/SegmentedControl/SegmentedControl", () => ({
   default: ({ options = [], value, onChange, ariaLabel }) => (
     <div data-group={ariaLabel}>
@@ -69,16 +69,28 @@ function usage(total) {
 
 let root;
 let host;
+let client;
 
+/* TanStack Query 的通知排在 setTimeout(0)：先等一個 timer tick 再等 microtask */
 async function flush() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
   });
+}
+
+async function renderPage() {
+  await act(async () => { root.render(withQueryClient(<AiApiPage />, client)); });
+}
+
+/* 原本由 useAutoRefresh 觸發的背景刷新，改成直接要求那份查詢重抓 */
+function refetch(queryKey) {
+  return act(async () => { client.refetchQueries({ queryKey }); });
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.autoRefresh = null;
+  client = createTestQueryClient();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mocks.listMyCredentials.mockResolvedValue({ data: [] });
   mocks.listMyRequests.mockResolvedValue({ data: [] });
@@ -101,7 +113,7 @@ describe("AiApiPage my usage", () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
 
-    await act(async () => { root.render(<AiApiPage />); });
+    await renderPage();
     await flush();
     const usageTab = host.querySelector('[data-group="AiApiPage.tabsAriaLabel"] [data-value="usage"]');
     await act(async () => { usageTab.click(); });
@@ -143,7 +155,7 @@ describe("AiApiPage my usage", () => {
         count: 1,
       });
 
-      await act(async () => { root.render(<AiApiPage />); });
+      await renderPage();
       await flush();
       const usageTab = host.querySelector('[data-group="AiApiPage.tabsAriaLabel"] [data-value="usage"]');
       await act(async () => { usageTab.click(); });
@@ -169,7 +181,7 @@ describe("AiApiPage my usage", () => {
           { date: "2026-10-11", input_tokens: 2, output_tokens: 3 },
         ],
       });
-      await act(async () => { root.render(<AiApiPage />); });
+      await renderPage();
       await flush();
       const usageTab = host.querySelector('[data-group="AiApiPage.tabsAriaLabel"] [data-value="usage"]');
       await act(async () => { usageTab.click(); });
@@ -206,12 +218,14 @@ describe("AiApiPage keys and requests", () => {
       .mockReturnValueOnce(older.promise)
       .mockReturnValueOnce(newer.promise);
 
-    await act(async () => { root.render(<AiApiPage />); });
+    await renderPage();
     await flush();
     expect(host.textContent).toContain("金鑰乙");
 
-    act(() => { mocks.autoRefresh(); });
-    act(() => { mocks.autoRefresh(); });
+    /* 第二次重抓會取消還在路上的第一次，它晚回來的舊清單不會寫進快取 */
+    await refetch(aiApiKeys.myCredentials);
+    await refetch(aiApiKeys.myCredentials);
+    expect(mocks.listMyCredentials).toHaveBeenCalledTimes(3);
     await act(async () => { newer.resolve({ data: [credential("a", "金鑰甲")] }); });
     await flush();
     await act(async () => { older.resolve({ data: [credential("a", "金鑰甲"), credential("b", "金鑰乙")] }); });
@@ -231,19 +245,42 @@ describe("AiApiPage keys and requests", () => {
       .mockResolvedValueOnce({ data: [approved] })
       .mockResolvedValue({ data: [approved, { ...pendingRequest, id: "req-2" }] });
 
-    await act(async () => { root.render(<AiApiPage />); });
+    await renderPage();
     await flush();
 
-    act(() => { mocks.autoRefresh(); });
-    await act(async () => { mocks.autoRefresh(); });
+    await refetch(aiApiKeys.myRequests);
+    await refetch(aiApiKeys.myRequests);
     await flush();
     expect(mocks.toast.success).toHaveBeenCalledTimes(1);
 
     await act(async () => { older.resolve({ data: [pendingRequest] }); });
     await flush();
-    await act(async () => { mocks.autoRefresh(); });
+    await refetch(aiApiKeys.myRequests);
     await flush();
+    expect(mocks.listMyRequests).toHaveBeenCalledTimes(4);
 
     expect(mocks.toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  test("an approval refetches my keys so the new key shows without another poll", async () => {
+    const approved = { ...pendingRequest, status: "approved" };
+    mocks.listMyRequests
+      .mockResolvedValueOnce({ data: [pendingRequest] })
+      .mockResolvedValue({ data: [approved] });
+    mocks.listMyCredentials
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValue({ data: [credential("new", "核准後的金鑰")] });
+
+    await renderPage();
+    await flush();
+
+    /* 申請先回來已核准：待審數歸零後金鑰不再輪詢，要靠核准當下補抓 */
+    await refetch(aiApiKeys.myRequests);
+    await flush();
+    await flush(); // 補抓在核准提醒的 effect 裡才送出，再等它回來
+
+    expect(mocks.toast.success).toHaveBeenCalledTimes(1);
+    expect(mocks.listMyCredentials).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain("核准後的金鑰");
   });
 });

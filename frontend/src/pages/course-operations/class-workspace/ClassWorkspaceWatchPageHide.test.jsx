@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { StudentMachines } from "./ClassWorkspacePage";
+import { withQueryClient } from "../../../queries/testing";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { ClassroomService } from "../../../services/classroom";
 
@@ -18,8 +19,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+/* TanStack Query 的通知走 setTimeout(0)：資料回來後還要再等一個 timer tick 才會重畫 */
+async function flush() {
+  for (let tick = 0; tick < 2; tick += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  }
 }
 
 const classItem = {
@@ -39,7 +44,7 @@ describe("StudentMachines 關閉分頁時收掉觀看 session", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
-    act(() => { root.render(<StudentMachines item={classItem} />); });
+    act(() => { root.render(withQueryClient(<StudentMachines item={classItem} />)); });
     await act(async () => { await flush(); });
 
     const cell = container.querySelector("button[aria-label]:not([disabled])[title*='VM 101']");

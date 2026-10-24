@@ -1,0 +1,5 @@
+{
+  "userGroup.notFound": "グループが見つかりません",
+  "userGroup.nameExists": "「{name}」という名前のグループはすでに存在します",
+  "userGroup.nameRequired": "グループ名を入力してください"
+}

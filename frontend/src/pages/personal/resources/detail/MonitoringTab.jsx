@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
@@ -8,8 +8,8 @@ import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
 import RrdChart from "../../../../components/RrdChart/RrdChart";
 import SegmentedControl from "../../../../components/SegmentedControl/SegmentedControl";
-import { ResourcesService } from "../../../../services/resources";
 import { isNotFound } from "../../../../services/api";
+import { useCurrentStatsQuery, useLoadError, useResourceStatsQuery } from "../../../../queries/resourceDetail";
 import { formatTime } from "../../../../utils/formatDate";
 
 const TIMEFRAMES = [
@@ -65,58 +65,21 @@ export default function MonitoringTab({ vmid, toolbar }) {
   const { t } = useTranslation("personal");
   const [timeframe, setTimeframe] = useState("hour");
   const [chartTab, setChartTab] = useState("cpu");
-  const [current, setCurrent] = useState(null);
-  /* 還沒拿到任何即時資料就失敗：改顯示錯誤狀態；輪詢照常進行，之後成功會自動恢復 */
-  const [currentError, setCurrentError] = useState(null);
-  const [retryKey, setRetryKey] = useState(0);
-  const [rrd, setRrd] = useState(null);
 
-  /* 即時狀態：每 5 秒輪詢 */
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const stats = await ResourcesService.getCurrentStats(vmid);
-        if (cancelled) return;
-        setCurrent(stats);
-        setCurrentError(null);
-      } catch (err) {
-        /* 下一輪再試；已經有資料時保留畫面，只有第一次就失敗才會顯示錯誤 */
-        if (!cancelled) setCurrentError(err ?? true);
-      }
-    };
-    load();
-    // 分頁隱藏時不輪詢（切回來後下一個 tick 就會更新）
-    const timer = setInterval(() => { if (!document.hidden) load(); }, 5_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [vmid, retryKey]);
+  /* 即時狀態：每 5 秒輪詢（分頁隱藏時暫停）。已經有資料時背景失敗保留畫面；
+     還沒拿到任何即時資料就失敗才顯示錯誤，輪詢照常進行，之後成功會自動恢復 */
+  const currentQuery = useCurrentStatsQuery(vmid);
+  const current = currentQuery.data ?? null;
+  /* 背景輪詢重試期間維持錯誤畫面（不會每 5 秒閃一下轉圈圈），按重試才回到載入中 */
+  const { error: currentError, retry: retryCurrent } = useLoadError(currentQuery);
 
-  /* RRD 趨勢：每 30 秒輪詢 */
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await ResourcesService.getStats(vmid, timeframe);
-        if (!cancelled) setRrd(res?.data ?? []);
-      } catch {
-        if (!cancelled) setRrd((prev) => prev ?? []);
-      }
-    };
-    load();
-    const timer = setInterval(() => { if (!document.hidden) load(); }, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [vmid, timeframe]);
+  /* RRD 趨勢：每 30 秒輪詢；換時間範圍時先沿用上一段，失敗時沿用上一筆（從沒成功過就是空圖） */
+  const rrd = useResourceStatsQuery(vmid, timeframe).data;
 
   if (!current) {
     if (currentError) {
       if (isNotFound(currentError)) return <NotFoundState />;
-      return <ErrorState onRetry={() => { setCurrentError(null); setRetryKey((key) => key + 1); }} />;
+      return <ErrorState onRetry={retryCurrent} />;
     }
     return <LoadingState text={t("MonitoringTab.loadingData")} />;
   }

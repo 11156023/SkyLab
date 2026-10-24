@@ -10,33 +10,38 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import { useToast } from "../../../hooks/useToast";
-import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { GatewayService } from "../../../services/gateway";
+import {
+  useGatewayCacheUpdater,
+  useGatewayConfigQuery,
+  useGatewayServiceConfigQuery,
+  useGatewayServiceLogsQuery,
+  useGatewayServiceStatusQuery,
+  useWireGuardOverviewQuery,
+} from "../../../queries/gateway";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
 /* 日誌變化快，比站上預設的 30 秒更新得勤；每次重抓只是一次短暫的 SSH journalctl */
 const LOG_REFRESH_MS = 10_000;
+const LOG_LINES = 100;
 
 // Monaco 很大：只有打開設定檔分頁時才載入（WireGuard／安裝分頁用不到）
 const ConfigCodeEditor = lazy(() => import("./ConfigCodeEditor"));
 
-/* 服務日誌自動更新：分頁隱藏時暫停，前一次還沒回來就跳過這輪（Gateway 連不上時 SSH 不會越堆越多），
-   抓失敗就保留畫面上的內容。回傳的 refresh 供服務操作後立即重抓。 */
-function useLiveLogs(service, setLogs, enabled) {
-  const inFlightRef = useRef(false);
-  const refresh = useCallback(async () => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    try {
-      const next = await GatewayService.getServiceLogs(service, 100).catch(() => undefined);
-      if (next !== undefined) setLogs(next);
-    } finally {
-      inFlightRef.current = false;
-    }
-  }, [service, setLogs]);
-  useAutoRefresh(() => { if (enabled) refresh(); }, LOG_REFRESH_MS);
-  return refresh;
+/* 服務日誌走 TanStack Query 自動更新：分頁隱藏時暫停，前一次還沒回來不會再送
+   （Gateway 連不上時 SSH 不會越堆越多），抓失敗就保留畫面上的內容；
+   從來沒抓成功時回 null（卡片顯示讀取失敗）。服務操作後用 refetch 立即重抓。 */
+function useLiveLogs(service, enabled) {
+  const logsQuery = useGatewayServiceLogsQuery(service, LOG_LINES, { enabled, refetchInterval: LOG_REFRESH_MS });
+  /* 首載失敗後每 10 秒的重抓期間不算載入中，整個分頁才不會每輪閃一次轉圈（見 useQueryView） */
+  const logsView = useQueryView(logsQuery);
+  return {
+    logs: logsQuery.data !== undefined ? logsQuery.data : null,
+    pending: enabled && logsView.loading,
+    refetch: logsQuery.refetch,
+  };
 }
 
 /* nginx.conf 是主設定；SkyLab 自動重建的 /etc/nginx/skylab/http.conf、stream.conf 不開放編輯 */
@@ -325,46 +330,53 @@ function ServiceLogsCard({ logs, className }) {
 function ServiceTab({ service, gatewayReady, host, onDirtyChange, onGoToConnection }) {
   const { t } = useTranslation("system");
   const toast = useToast();
-  const [status, setStatus] = useState(null);
-  const [configText, setConfigText] = useState("");
-  const [savedText, setSavedText] = useState("");
-  const [configLoadFailed, setConfigLoadFailed] = useState(false);
-  const [logs, setLogs] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const gatewayCache = useGatewayCacheUpdater();
   const [saving, setSaving] = useState(false);
   const [acting, setActing] = useState(null);
 
+  /* 狀態、設定檔、日誌走 TanStack Query；狀態與設定檔只在進分頁、操作後與按重新載入時抓，
+     日誌每 10 秒自動更新。狀態抓不到就顯示未知（null） */
+  const statusQuery = useGatewayServiceStatusQuery(service, { enabled: gatewayReady, refetchInterval: false });
+  const status = statusQuery.isError ? null : statusQuery.data ?? null;
+  const configQuery = useGatewayServiceConfigQuery(service, { enabled: gatewayReady });
+  const { logs, pending: logsPending, refetch: refreshLogs } = useLiveLogs(service, gatewayReady);
+  /* 設定檔重抓中（進分頁時的重抓、重新載入）也算載入中：不能讓人在快取的舊內容上開始編輯，
+     寫回去時蓋掉 Gateway 上較新的設定 */
+  const loading = gatewayReady
+    && (statusQuery.isPending || configQuery.isPending || configQuery.isFetching || logsPending);
+
+  /* 讀取失敗不可與「檔案是空的」混為一談，否則空白編輯器會顯示「已同步」，寫入時直接覆蓋遠端設定檔：
+     失敗時編輯器清空並鎖住寫入，只留重新載入 */
+  const configLoadFailed = configQuery.isError;
+  const serverContent = configLoadFailed ? "" : configQuery.data?.content ?? "";
+  const serverVersion = configLoadFailed ? configQuery.errorUpdatedAt : configQuery.dataUpdatedAt;
+  /* 編輯中的文字與它所根據的那份內容；每抓回一份新內容就換進編輯器，但有未寫入的修改時不蓋掉
+     （讀取失敗一律清空，跟原本一樣） */
+  const [editor, setEditor] = useState({ text: serverContent, saved: serverContent });
+  const configText = editor.text;
+  const savedText = editor.saved;
+  useEffect(() => {
+    if (!serverVersion) return;
+    setEditor((prev) => (
+      !configLoadFailed && prev.text !== prev.saved ? prev : { text: serverContent, saved: serverContent }
+    ));
+  }, [serverVersion, serverContent, configLoadFailed]);
+  /* 每次讀取失敗提示一次；重抓中先不提示（換分頁回來時快取裡上一次的失敗不再跳一次） */
+  const configErrorAt = configLoadFailed && !configQuery.isFetching ? configQuery.errorUpdatedAt : 0;
+  useEffect(() => {
+    if (configErrorAt) toast.error(t("GatewayPage.toastConfigReadFailed", { service }));
+  }, [configErrorAt, service, toast, t]);
+
   const file = SERVICE_FILES[service];
   const dirty = configText !== savedText;
+  const setConfigText = (text) => setEditor((prev) => ({ ...prev, text }));
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [statusRes, configRes, logsRes] = await Promise.all([
-        GatewayService.getServiceStatus(service).catch(() => null),
-        GatewayService.readServiceConfig(service).catch(() => null),
-        GatewayService.getServiceLogs(service, 100).catch(() => null),
-      ]);
-      setStatus(statusRes);
-      setLogs(logsRes);
-      // 讀取失敗（configRes 為 null）不可與「檔案是空的」混為一談，
-      // 否則空白編輯器會顯示「已同步」，寫入時直接覆蓋遠端設定檔
-      const failed = configRes === null;
-      setConfigLoadFailed(failed);
-      setConfigText(configRes?.content ?? "");
-      setSavedText(configRes?.content ?? "");
-      if (failed) toast.error(t("GatewayPage.toastConfigReadFailed", { service }));
-    } finally {
-      setLoading(false);
-    }
-  }, [service, toast, t]);
-
-  useEffect(() => {
-    if (gatewayReady) fetchAll();
-    else setLoading(false);
-  }, [gatewayReady, fetchAll]);
-
-  const refreshLogs = useLiveLogs(service, setLogs, gatewayReady && !loading);
+  /* 編輯器的「重新載入」：三份一起重抓 */
+  function fetchAll() {
+    statusQuery.refetch();
+    configQuery.refetch();
+    refreshLogs();
+  }
 
   // 把 dirty 回報給 GatewayPage，讓分頁切換能攔截未寫入變更
   useEffect(() => {
@@ -389,8 +401,7 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange, onGoToConnecti
       const res = await GatewayService.controlService(service, action);
       if (res.success) toast.success(t("GatewayPage.toastServiceActionSuccess", { service, action }));
       else toast.error(res.output || t("GatewayPage.toastServiceActionFailed", { service, action }));
-      const statusRes = await GatewayService.getServiceStatus(service).catch(() => null);
-      setStatus(statusRes);
+      await statusQuery.refetch();
       refreshLogs();
     } catch (err) {
       toast.error(err?.message ?? t("GatewayPage.toastActionFailed", { action }));
@@ -404,7 +415,8 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange, onGoToConnecti
     setSaving(true);
     try {
       await GatewayService.writeServiceConfig(service, configText);
-      setSavedText(configText);
+      setEditor((prev) => ({ ...prev, saved: configText }));
+      gatewayCache.setServiceConfig(service, configText);
       toast.success(t("GatewayPage.toastConfigWritten"));
     } catch (err) {
       toast.error(err?.message ?? t("GatewayPage.toastWriteConfigFailed"));
@@ -469,32 +481,33 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange, onGoToConnecti
 function WireGuardTab({ gatewayReady, onGoToConnection }) {
   const { t } = useTranslation("system");
   const toast = useToast();
-  const [overview, setOverview] = useState(null);
-  const [status, setStatus] = useState(null);
-  const [logs, setLogs] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    const [overviewRes, statusRes, logsRes] = await Promise.all([
-      GatewayService.getWireGuardOverview().catch(() => null),
-      GatewayService.getServiceStatus("wireguard").catch(() => null),
-      GatewayService.getServiceLogs("wireguard", 100).catch(() => null),
-    ]);
-    setOverview(overviewRes);
-    setStatus(statusRes);
-    setLogs(logsRes);
-    if (!overviewRes) toast.error(t("Error.generic", { ns: "common" }));
-    setLoading(false);
-  }, [t, toast]);
-
+  /* 摘要、狀態、日誌走 TanStack Query；摘要與狀態只在進分頁、操作後與按重試時抓，日誌每 10 秒自動更新。
+     操作後重抓摘要失敗時沿用上一份；狀態抓不到就顯示未知（null） */
+  const overviewQuery = useWireGuardOverviewQuery({ enabled: gatewayReady, refetchInterval: false });
+  const overview = overviewQuery.data ?? null;
+  const statusQuery = useGatewayServiceStatusQuery("wireguard", { enabled: gatewayReady, refetchInterval: false });
+  const status = statusQuery.isError ? null : statusQuery.data ?? null;
+  const { logs, pending: logsPending, refetch: refreshLogs } = useLiveLogs("wireguard", gatewayReady);
+  /* 首載失敗後的重抓（切回視窗、操作後）期間維持錯誤畫面，不閃回轉圈（見 useQueryView） */
+  const overviewView = useQueryView(overviewQuery);
+  const statusView = useQueryView(statusQuery);
+  /* 摘要還沒有資料時按重試也顯示載入中（跟原本一樣整塊換成轉圈） */
+  const loading = gatewayReady
+    && (overviewView.loading || statusView.loading || logsPending);
+  /* 摘要從來沒抓到（首次載入或重試失敗）才提示，跟原本一樣：每失敗一次提示一次 */
+  const overviewErrorAt = overviewView.error ? overviewQuery.errorUpdatedAt : 0;
   useEffect(() => {
-    if (gatewayReady) fetchAll();
-    else setLoading(false);
-  }, [gatewayReady, fetchAll]);
+    if (overviewErrorAt) toast.error(t("Error.generic", { ns: "common" }));
+  }, [overviewErrorAt, toast, t]);
 
-  const refreshLogs = useLiveLogs("wireguard", setLogs, gatewayReady && !loading);
+  /* 重試：三份一起重抓（與原本相同），沒資料的回到載入中 */
+  function fetchAll() {
+    overviewView.retry();
+    statusView.retry();
+    refreshLogs();
+  }
 
   async function handleAction(action) {
     setActing(action);
@@ -505,12 +518,7 @@ function WireGuardTab({ gatewayReady, onGoToConnection }) {
       } else {
         toast.error(result.output || t("GatewayPage.toastServiceActionFailed", { service: "WireGuard", action }));
       }
-      const [nextOverview, nextStatus] = await Promise.all([
-        GatewayService.getWireGuardOverview().catch(() => overview),
-        GatewayService.getServiceStatus("wireguard").catch(() => null),
-      ]);
-      setOverview(nextOverview);
-      setStatus(nextStatus);
+      await Promise.all([overviewQuery.refetch(), statusQuery.refetch()]);
       refreshLogs();
     } catch (err) {
       toast.error(err?.message ?? t("GatewayPage.toastActionFailed", { action }));
@@ -633,9 +641,19 @@ export default function GatewayPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState("connection");
-  const [config, setConfig] = useState(null);
-  const [loading, setLoading] = useState(true);
   const dirtyRef = useRef(false);
+  const gatewayCache = useGatewayCacheUpdater();
+
+  /* Gateway 連線設定走 TanStack Query（不輪詢、不因切回分頁重抓）；
+     連線分頁的表單編輯中不跟著換（ConnectionTab 自己判斷） */
+  const configQuery = useGatewayConfigQuery();
+  const config = configQuery.data ?? null;
+  const loading = configQuery.data === undefined && (configQuery.isPending || configQuery.isFetching);
+  const loadError = configQuery.error;
+  useEffect(() => {
+    if (loadError) toast.error(loadError?.message ?? t("GatewayPage.toastLoadConfigFailed"));
+  }, [loadError, toast, t]);
+  const setConfig = (next) => gatewayCache.setConfig(next);
 
   const TABS = [
     { key: "connection", label: t("GatewayPage.tabConnection") },
@@ -663,13 +681,6 @@ export default function GatewayPage() {
     }
     setActiveTab(key);
   }
-
-  useEffect(() => {
-    GatewayService.getConfig()
-      .then(setConfig)
-      .catch((err) => toast.error(err?.message ?? t("GatewayPage.toastLoadConfigFailed")))
-      .finally(() => setLoading(false));
-  }, [toast, t]);
 
   return (
     <div className={styles.page}>

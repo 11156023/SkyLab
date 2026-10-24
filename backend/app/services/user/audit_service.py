@@ -59,6 +59,11 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.user_create: "user",
     AuditAction.user_update: "user",
     AuditAction.user_delete: "user",
+    AuditAction.user_group_create: "user",
+    AuditAction.user_group_update: "user",
+    AuditAction.user_group_delete: "user",
+    AuditAction.user_group_member_add: "user",
+    AuditAction.user_group_member_remove: "user",
     # 防火牆
     AuditAction.firewall_layout_update: "firewall",
     AuditAction.firewall_connection_create: "firewall",

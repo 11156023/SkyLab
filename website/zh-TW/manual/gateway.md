@@ -27,12 +27,16 @@
 
 重新產生 Keypair 後舊金鑰會立即失效；系統會先請你確認，之後必須把新公鑰再加到 Gateway 一次。
 
+![以 SSH 連上 Gateway（圖中編號對應上方步驟）](/manual-shots/zh-TW/gateway/s01.webp)
+
 ### Gateway 重灌後重設 Host Key
 
 1. 只在 Gateway 重灌或換機、因 host key 改變導致連線被拒時使用。
 2. 按「重設 Host Key」，再按「重設」確認。平台記錄的 host key 會被清除，下次連線時重新記錄。
 
 如果 host key 在你不知情的情況下改變，請先查明原因，這可能是中間人攻擊的跡象。
+
+![Gateway 重灌後重設 Host Key（圖中編號對應上方步驟）](/manual-shots/zh-TW/gateway/s02.webp)
 
 ### 安裝 Gateway 服務
 
@@ -45,6 +49,8 @@
 
 安裝會安裝 nginx、WireGuard 與監控 exporter，重寫 `nginx.conf` 並啟用 UFW（先放行 SSH）。原有設定會先備份到 `/root/skylab-backups`；nginx 重啟期間，既有的轉發連線會中斷。
 
+![安裝 Gateway 服務（圖中編號對應上方步驟）](/manual-shots/zh-TW/gateway/s03.webp)
+
 ### 設定 HTTPS 憑證
 
 1. 把憑證（fullchain）與私鑰放到 Gateway 主機上，建議放在 `/etc/ssl/skylab/`，且私鑰只給 root 讀。建議使用涵蓋整個網域的萬用憑證（例如 `example.com` 與 `*.example.com`）。
@@ -53,6 +59,8 @@
 4. 查看「Gateway 上的憑證」卡：「到期日」、「私鑰」（是否與憑證相符）、「憑證涵蓋」與「使用中的 HTTPS 網域」，下方會列出所有警告。
 
 換新憑證時，直接覆蓋同路徑的檔案，再按「重新套用」。不再使用憑證時，把兩個路徑都清空後儲存；確認後所有 HTTPS 網域會改用自簽憑證，瀏覽器會顯示警告。
+
+![設定 HTTPS 憑證（圖中編號對應上方步驟）](/manual-shots/zh-TW/gateway/s04.webp)
 
 ### 讓主系統經 Gateway 對外（平台入口）
 
@@ -69,6 +77,8 @@
 
 要停用平台入口，取消勾選第一個選項後儲存，再按「停用」確認。之後就無法從該網域連到 SkyLab，SkyLab 在 Cloudflare 建立的 DNS 紀錄也會一併刪除。停用前請先確認還能直接連到部署機。
 
+![讓主系統經 Gateway 對外（平台入口）（圖中編號對應上方步驟）](/manual-shots/zh-TW/gateway/s05.webp)
+
 ### 管理 nginx 與編輯主設定檔
 
 1. 開啟「nginx」分頁。
@@ -79,6 +89,8 @@
 
 SkyLab 自動產生的轉發規則放在另外的檔案，不在這裡編輯。讀不到遠端設定檔時，編輯與寫入會被停用；SSH 連線恢復後，在編輯器中按「重新載入」。
 
+![管理 nginx 與編輯主設定檔（圖中編號對應上方步驟）](/manual-shots/zh-TW/gateway/s06.webp)
+
 ### 查看 WireGuard VPN
 
 1. 開啟「WireGuard VPN」分頁。
@@ -88,6 +100,8 @@ SkyLab 自動產生的轉發規則放在另外的檔案，不在這裡編輯。�
 5. 最下方是「服務日誌（最近 100 行）」。
 
 這個分頁只顯示彙整數字，不會向瀏覽器回傳 Gateway 私鑰或任何 Peer 公鑰，也不會列出個別裝置。
+
+![查看 WireGuard VPN（圖中編號對應上方步驟）](/manual-shots/zh-TW/gateway/s07.webp)
 
 ## 欄位與選項
 
