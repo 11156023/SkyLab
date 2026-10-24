@@ -45,14 +45,37 @@ export const NAMESPACES = [
   "network",
 ];
 
-function loadStoredLanguage() {
+/** 瀏覽器的偏好語言，依使用者排的順序；讀不到時是空陣列 */
+function browserLanguages() {
+  if (typeof navigator === "undefined") return [];
+  if (navigator.languages?.length) return navigator.languages;
+  return navigator.language ? [navigator.language] : [];
+}
+
+/**
+ * 依瀏覽器偏好挑語言：照順序找第一個中文／日文／英文（中文不分繁簡都給繁體中文）。
+ * 偏好裡一個支援的都沒有時給英文，比預設的中文更可能看得懂；完全讀不到偏好才用預設語言。
+ */
+export function detectLanguage(languages = browserLanguages()) {
+  for (const code of languages) {
+    const lower = String(code).toLowerCase();
+    if (lower.startsWith("zh")) return "zh-TW";
+    if (lower.startsWith("ja")) return "ja";
+    if (lower.startsWith("en")) return "en";
+  }
+  return languages.length ? "en" : DEFAULT_LANGUAGE;
+}
+
+/** 使用者在語言選單選過就照選的；沒選過依瀏覽器偏好（偵測結果不存，瀏覽器設定改了會跟著變） */
+function initialLanguage() {
   if (typeof window === "undefined") return DEFAULT_LANGUAGE;
   try {
     const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return SUPPORTED_LANGUAGES.includes(stored) ? stored : DEFAULT_LANGUAGE;
+    if (SUPPORTED_LANGUAGES.includes(stored)) return stored;
   } catch {
-    return DEFAULT_LANGUAGE;
+    // localStorage 不可用時（無痕模式等）當作沒選過
   }
+  return detectLanguage();
 }
 
 // 非預設語言的語系檔：vite 會把每個 JSON 拆成獨立 chunk，用到才下載
@@ -75,7 +98,14 @@ const lazyLocaleBackend = {
   },
 };
 
-/** 初始化（含使用者上次選的語言的資源）完成；main.jsx 等它再渲染，避免先閃一下中文 */
+// <html lang> 跟著介面語言，螢幕閱讀器與瀏覽器的翻譯提示才不會把英文介面當中文
+if (typeof document !== "undefined") {
+  i18n.on("languageChanged", (lang) => {
+    document.documentElement.lang = currentLanguage(lang);
+  });
+}
+
+/** 初始化（含使用者選的或偵測到的語言的資源）完成；main.jsx 等它再渲染，避免先閃一下中文 */
 export const i18nReady = i18n.use(lazyLocaleBackend).use(initReactI18next).init({
   resources: {
     "zh-TW": {
@@ -92,7 +122,7 @@ export const i18nReady = i18n.use(lazyLocaleBackend).use(initReactI18next).init(
     },
   },
   partialBundledLanguages: true,
-  lng: loadStoredLanguage(),
+  lng: initialLanguage(),
   fallbackLng: DEFAULT_LANGUAGE,
   supportedLngs: SUPPORTED_LANGUAGES,
   ns: NAMESPACES,
