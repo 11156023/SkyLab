@@ -44,7 +44,7 @@ bun run preview    # serves dist/; restart it after every build
 
 ## Deploying to Cloudflare Pages
 
-The Cloudflare Pages project `skylab-site` is connected to the GitHub repository (Git integration), so Cloudflare runs the tests, builds and deploys by itself. Pushes to `main` become the production deployment; pull requests from this repository get a preview at `<branch>.skylab-site.pages.dev` (previews send `X-Robots-Tag: noindex`); pull requests from forks get no preview. `.github/workflows/site.yml` runs the tests and the build as a check, including for pull requests from forks; it does not deploy.
+The Cloudflare Pages project `skylab-site` is connected to the GitHub repository (Git integration), so Cloudflare runs the tests, builds and deploys by itself. Pushes to `main` become the production deployment; pull requests from this repository get a preview at `<branch>.skylab-site.pages.dev`; `public/_headers` sends `X-Robots-Tag: noindex` on `skylab-site.pages.dev` and every preview address, so only `skylab-tw.com` is indexed; pull requests from forks get no preview. `.github/workflows/site.yml` runs the tests and the build as a check, including for pull requests from forks; it does not deploy.
 
 One-time setup, in Workers & Pages → Create → Pages → Connect to Git:
 

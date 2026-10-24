@@ -111,6 +111,11 @@ server {
     # 一律以 nginx 產生的 id 覆寫，客戶端自帶的 X-Request-ID 不往後傳
     proxy_set_header X-Request-ID $request_id;
 
+    # 各校平台是內部工具，不讓搜尋引擎收錄（對外介紹在官網與文件站）。用標頭而不是
+    # robots.txt 擋爬取：擋了爬蟲就看不到 noindex，網址仍可能被別處的連結帶進索引。
+    # 下面的 location 都沒有自己的 add_header，所以這行對整個站（含 /docs、/api）都有效。
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
     # 容器 healthcheck 用；不進 access log
     location = /nginx-health {
         access_log off;

@@ -44,7 +44,7 @@ bun run preview    # 提供 dist/；每次重建後要重啟
 
 ## 部署到 Cloudflare Pages
 
-Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration），由 Cloudflare 自己跑測試、建置與部署。推送到 `main` 成為正式部署；本 repo 的 pull request 會得到 `<branch>.skylab-site.pages.dev` 的預覽（預覽會送出 `X-Robots-Tag: noindex`）；來自 fork 的 pull request 沒有預覽。`.github/workflows/site.yml` 跑測試與建置當檢查，來自 fork 的 pull request 也會跑，但不負責部署。
+Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration），由 Cloudflare 自己跑測試、建置與部署。推送到 `main` 成為正式部署；本 repo 的 pull request 會得到 `<branch>.skylab-site.pages.dev` 的預覽；`public/_headers` 讓 `skylab-site.pages.dev` 與所有預覽網址都送出 `X-Robots-Tag: noindex`，搜尋引擎只會收錄 `skylab-tw.com`；來自 fork 的 pull request 沒有預覽。`.github/workflows/site.yml` 跑測試與建置當檢查，來自 fork 的 pull request 也會跑，但不負責部署。
 
 一次性設定，在 Workers & Pages → Create → Pages → Connect to Git：
 
