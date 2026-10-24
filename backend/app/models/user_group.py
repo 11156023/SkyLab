@@ -20,14 +20,21 @@ class UserGroup(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(
-        sa_column=Column(
-            sa.String(USER_GROUP_NAME_MAX_LENGTH), nullable=False, unique=True
-        )
+        sa_column=Column(sa.String(USER_GROUP_NAME_MAX_LENGTH), nullable=False)
     )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
+
+
+# 名稱不分大小寫唯一（ClassA 與 classa 算同一個）。服務層會先查一次給友善訊息，
+# 兩個請求同時送出時兩邊都會通過預查，最後靠這個索引擋下其中一個。
+sa.Index(
+    "uq_user_groups_name_lower",
+    sa.func.lower(UserGroup.__table__.c.name),  # type: ignore[attr-defined]
+    unique=True,
+)
 
 
 class UserGroupMember(SQLModel, table=True):

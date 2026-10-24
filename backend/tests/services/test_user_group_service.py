@@ -115,6 +115,27 @@ def test_group_names_are_unique_ignoring_case(db: Session) -> None:
         )
 
 
+def test_concurrent_names_differing_only_in_case_are_stopped_by_the_database(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 兩個請求同時送出時都會通過預查；這裡拿掉預查，模擬後到的那個
+    _group(db, "CS-A")
+    other = _group(db, "CS-B")
+    monkeypatch.setattr(service, "_ensure_name_free", lambda *_args, **_kw: None)
+
+    with pytest.raises(ConflictError):
+        _group(db, "cs-a")
+    with pytest.raises(ConflictError):
+        service.rename_group(
+            session=db,
+            group_id=other.id,
+            body=UserGroupIn(name="Cs-A"),
+            actor_id=ADMIN.id,
+        )
+    names = sorted(g.name for g in db.exec(select(UserGroup)).all())
+    assert names == ["CS-A", "CS-B"]
+
+
 def test_renaming_to_the_same_name_is_a_no_op(db: Session) -> None:
     group = _group(db)
     service.rename_group(
