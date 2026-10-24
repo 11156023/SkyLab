@@ -34,13 +34,11 @@
    bun run test
    bun run build
 
-   # 桌面端（有改到 desktop-client/ 才需要）
-   cd ../desktop-client
-   npm run lint
-   npm run build
    ```
 
    Pre-commit hook 由 prek 管理：執行一次 `uv run prek install -f`，之後每次 commit 會自動跑。
+
+SkyLab Connect 原始碼、建置、相依授權聲明與桌面端 CI 均在獨立的 [SkyLab-Connect repo](https://github.com/SkyLab-tw/SkyLab-Connect) 維護。平台端的裝置登入、下載與 WireGuard API 仍在本 repo。
 
 ## Pull request
 
@@ -48,7 +46,7 @@
 - 說明改了什麼、為什麼改，並連結相關 issue。
 - 行為變更要補或更新測試。後端測試在 `backend/tests/`，前端 service 測試與 service 檔放在一起。
 - 變更設定、部署步驟或維運流程時，同步更新 `website/` 的文件。英文頁（`website/<區>/<name>.md`）是主要版本；同一次變更裡也要更新 `website/zh-TW/<區>/<name>.md` 的繁體中文頁（repo 根目錄的社群檔案則是用 `.zh-TW.md` 後綴）。
-- CI 必須通過（後端測試、前端測試、桌面端測試、AI service 測試、migration 檢查、CodeQL）。
+- CI 必須通過（後端測試、前端測試、AI service 測試、migration 檢查、CodeQL）。
 
 ## 貢獻的授權
 
@@ -57,7 +55,7 @@ SkyLab 以 AGPL-3.0 授權，維護者另外也提供商業授權。為了讓兩
 - 每個 commit 都要以 sign-off 表示你確認 [Developer Certificate of Origin](https://developercertificate.org/)（`git commit -s`，會加上 `Signed-off-by: 你的名字 <email>` 結尾）。含未簽署 commit 的 PR 會被要求補簽。
 - 送出貢獻即表示你以 AGPL-3.0 授權該貢獻給本專案，**並且**授予 SkyLab 維護者永久、全球、免權利金的權利，將它作為 SkyLab 的一部分以其他授權條款（包括商業授權）散布。你保留自己作品的著作權。
 - 只提交你有權貢獻的程式碼。從別處複製的程式碼必須有相容的授權，並在 `NOTICE` 註明出處。
-- 新增、移除或升級直接依賴時，請同步更新 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)（桌面端還有 `desktop-client/THIRD_PARTY_NOTICES.txt` 也要更新）。避免使用與 AGPL-3.0 不相容的授權。
+- 新增、移除或升級直接依賴時，請同步更新 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。避免使用與 AGPL-3.0 不相容的授權。
 
 ## Commit 訊息
 

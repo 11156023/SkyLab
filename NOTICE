@@ -7,7 +7,8 @@ which is distributed under the MIT License. Portions of the backend scaffolding,
 the Docker Compose layout and the email templates still derive from it. The
 original MIT notice is reproduced below as required by that license.
 
-The desktop client (desktop-client/, SkyLab Connect) started from an
+The desktop client, now maintained at
+https://github.com/SkyLab-tw/SkyLab-Connect, started from an
 MIT-licensed Electron + Vue 3 + Vite template by 刘嘉伟. Its MIT notice is
 reproduced at the end of this file.
 
@@ -40,7 +41,7 @@ SOFTWARE.
 
 ----------------------------------------------------------------------------
 
-Desktop client template (desktop-client/)
+Desktop client template (historical attribution; see SkyLab-Connect)
 
 MIT License
 

@@ -1,6 +1,6 @@
 # Third-party notices
 
-SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`uv.lock`, `bun.lock`, `desktop-client/package-lock.json`, `website/bun.lock`, `site/bun.lock`).
+SkyLab is licensed under the GNU Affero General Public License v3.0 (see [`LICENSE`](LICENSE)). It is built on the open-source components below. This file lists the **direct** dependencies of each part of the project with their licenses; transitive dependencies keep their own licenses and are recorded in the lock files (`uv.lock`, `bun.lock`, `website/bun.lock`, `site/bun.lock`).
 
 Licenses are taken from each package's own metadata (`License-Expression` / `License` of the installed Python distribution, `license` in the npm `package.json`). When you add, remove or upgrade a direct dependency, update the matching table.
 
@@ -71,23 +71,9 @@ Development tooling (uv, pytest, ruff, mypy, prek, coverage) is not distributed 
 
 Build tooling (Vite, Sass, Vitest, Babel with the React Compiler plugin) is not distributed with the application.
 
-## Desktop client (`desktop-client/`, SkyLab Connect)
+## Desktop client (SkyLab Connect, separate repository)
 
-| Package | License | Link |
-| --- | --- | --- |
-| Electron | MIT | https://github.com/electron/electron |
-| Vue 3, Vue Router, Pinia, vue-i18n | MIT | https://github.com/vuejs/core |
-| Element Plus | MIT | https://github.com/element-plus/element-plus |
-| @vueuse/core | MIT | https://github.com/vueuse/vueuse |
-| @seald-io/nedb | MIT | https://github.com/seald/nedb |
-| electron-log | MIT | https://github.com/megahertz/electron-log |
-| tree-kill | MIT | https://github.com/pkrumins/node-tree-kill |
-| animate.css | MIT | https://github.com/animate-css/animate.css |
-| @iconify/vue | MIT | https://github.com/iconify/iconify |
-| Material Symbols icons (@iconify-icons/material-symbols) | Apache-2.0 | https://github.com/google/material-design-icons |
-| WireGuard for Windows (bundled MSI) | MIT | https://git.zx2c4.com/wireguard-windows/ — see `desktop-client/vendor/wireguard/THIRD_PARTY_NOTICES.txt`, shipped in the app resources |
-
-The desktop client ships its own copy of these notices as `THIRD_PARTY_NOTICES.txt`, reachable from its About page.
+Desktop runtime dependencies, bundled WireGuard notices and the npm lockfile are maintained in [SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect). See its [third-party notices](https://github.com/SkyLab-tw/SkyLab-Connect/blob/main/THIRD_PARTY_NOTICES.txt) and [package-lock.json](https://github.com/SkyLab-tw/SkyLab-Connect/blob/main/package-lock.json). The platform keeps the device-auth and WireGuard control-plane APIs.
 
 ## Public site (`site/`, JavaScript)
 

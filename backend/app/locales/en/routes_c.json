@@ -1,7 +1,7 @@
 {
   "desktop.device_code_not_found": "Device code not found or expired",
   "desktop.device_code_expired": "Device code expired",
-  "desktop.installer_not_found": "Desktop client installer not found. Build desktop-client or set DESKTOP_CLIENT_DOWNLOAD_URL.",
+  "desktop.installer_not_found": "Desktop client installer not found. Set DESKTOP_CLIENT_DOWNLOAD_URL or provide an installer in backend/app/static/downloads/.",
   "course_admin.class_not_found": "Teaching class not found",
   "course_admin.owner_mismatch": "Course path and teaching class must have the same owner",
   "course_env.not_found": "Course environment not found",

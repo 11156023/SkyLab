@@ -40,9 +40,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/desktop-client", tags=["desktop-client"])
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static" / "downloads"
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_DESKTOP_RELEASE_DIR = _REPO_ROOT / "desktop-client" / "release"
 _DOWNLOAD_PATTERNS = (
+    "SkyLab-Connect-Setup.exe",
+    "SkyLab-Connect-Portable.exe",
     "campus-cloud-connect.zip",
     "Campus Cloud Connect Setup *.exe",
     "Campus Cloud Connect *.exe",
@@ -257,17 +257,6 @@ def _find_local_download_asset() -> Path | None:
         if asset:
             return asset
 
-    if not _DESKTOP_RELEASE_DIR.exists():
-        return None
-
-    release_dirs = [path for path in _DESKTOP_RELEASE_DIR.iterdir() if path.is_dir()]
-    release_dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
-    for release_dir in release_dirs:
-        for pattern in _DOWNLOAD_PATTERNS:
-            asset = _newest_matching_file(release_dir, pattern)
-            if asset:
-                return asset
-
     return None
 
 
@@ -279,8 +268,8 @@ def download_desktop_client():
     follow the redirect without exposing an API access token.
 
     If DESKTOP_CLIENT_DOWNLOAD_URL is set, redirects to that URL (e.g. a
-    GitHub Releases asset). Otherwise serves a local file from static/downloads/
-    or the latest desktop-client/release build.
+    GitHub Releases asset). Otherwise serves a local file from static/downloads/.
+    Client source and build outputs live in the separate SkyLab-Connect repository.
     """
     if settings.DESKTOP_CLIENT_DOWNLOAD_URL:
         return RedirectResponse(settings.DESKTOP_CLIENT_DOWNLOAD_URL, status_code=302)
@@ -288,9 +277,8 @@ def download_desktop_client():
     download_path = _find_local_download_asset()
     if not download_path:
         logger.warning(
-            "Desktop client download asset not found in %s or %s",
+            "Desktop client download asset not found in %s",
             _STATIC_DIR,
-            _DESKTOP_RELEASE_DIR,
         )
         raise HTTPException(
             status_code=404,

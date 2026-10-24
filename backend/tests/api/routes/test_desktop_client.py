@@ -78,57 +78,77 @@ def _write(path: Path) -> Path:
     return path
 
 
-def test_find_local_download_asset_prefers_static_download(
+def test_find_local_download_asset_prefers_official_setup(
     tmp_path, monkeypatch
 ) -> None:
     static_dir = tmp_path / "static" / "downloads"
-    release_dir = tmp_path / "desktop-client" / "release"
-    static_zip = _write(static_dir / "campus-cloud-connect.zip")
-    _write(release_dir / "0.1.0" / "Campus Cloud Connect Setup 0.1.0.exe")
-
+    installer = _write(static_dir / "SkyLab-Connect-Setup.exe")
+    _write(static_dir / "SkyLab-Connect-Portable.exe")
+    _write(static_dir / "campus-cloud-connect.zip")
     monkeypatch.setattr(desktop_client, "_STATIC_DIR", static_dir)
-    monkeypatch.setattr(desktop_client, "_DESKTOP_RELEASE_DIR", release_dir)
-
-    assert desktop_client._find_local_download_asset() == static_zip
-
-
-def test_find_local_download_asset_falls_back_to_latest_release_installer(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    static_dir = tmp_path / "static" / "downloads"
-    release_dir = tmp_path / "desktop-client" / "release"
-    portable = _write(release_dir / "0.1.0" / "Campus Cloud Connect 0.1.0.exe")
-    installer = _write(release_dir / "0.1.0" / "Campus Cloud Connect Setup 0.1.0.exe")
-    assert portable.exists()
-
-    monkeypatch.setattr(desktop_client, "_STATIC_DIR", static_dir)
-    monkeypatch.setattr(desktop_client, "_DESKTOP_RELEASE_DIR", release_dir)
 
     assert desktop_client._find_local_download_asset() == installer
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SkyLab-Connect-Portable.exe",
+        "Campus Cloud Connect Setup 0.1.0.exe",
+        "campus-cloud-connect.zip",
+    ],
+)
+def test_find_local_download_asset_supports_standalone_and_legacy_assets(
+    tmp_path, monkeypatch, name
+) -> None:
+    static_dir = tmp_path / "static" / "downloads"
+    asset = _write(static_dir / name)
+    monkeypatch.setattr(desktop_client, "_STATIC_DIR", static_dir)
+
+    assert desktop_client._find_local_download_asset() == asset
 
 
 def test_find_local_download_asset_ignores_blockmap_files(
     tmp_path, monkeypatch
 ) -> None:
     static_dir = tmp_path / "static" / "downloads"
-    release_dir = tmp_path / "desktop-client" / "release"
-    _write(release_dir / "0.1.0" / "Campus Cloud Connect Setup 0.1.0.exe.blockmap")
-
+    _write(static_dir / "SkyLab-Connect-Setup.exe.blockmap")
     monkeypatch.setattr(desktop_client, "_STATIC_DIR", static_dir)
-    monkeypatch.setattr(desktop_client, "_DESKTOP_RELEASE_DIR", release_dir)
 
     assert desktop_client._find_local_download_asset() is None
 
 
 def test_download_redirects_to_configured_public_release(monkeypatch) -> None:
-    release_url = (
-        "https://github.com/1Ray0/SkyLab-Connect-Releases/"
-        "releases/latest/download/SkyLab-Connect-Setup.exe"
-    )
+    release_url = "https://github.com/SkyLab-tw/SkyLab-Connect/releases/latest/download/SkyLab-Connect-Setup.exe"
     monkeypatch.setattr(settings, "DESKTOP_CLIENT_DOWNLOAD_URL", release_url)
 
-    response = desktop_client.download_desktop_client()
+    def unexpected_lookup():
+        raise AssertionError("A configured URL must not depend on local client sources")
 
+    monkeypatch.setattr(desktop_client, "_find_local_download_asset", unexpected_lookup)
+    response = desktop_client.download_desktop_client()
     assert response.status_code == 302
     assert response.headers["location"] == release_url
+
+
+def test_download_serves_static_installer_without_client_checkout(
+    tmp_path, monkeypatch
+) -> None:
+    static_dir = tmp_path / "static" / "downloads"
+    installer = _write(static_dir / "SkyLab-Connect-Setup.exe")
+    monkeypatch.setattr(settings, "DESKTOP_CLIENT_DOWNLOAD_URL", "")
+    monkeypatch.setattr(desktop_client, "_STATIC_DIR", static_dir)
+
+    response = desktop_client.download_desktop_client()
+    assert response.path == installer
+    assert response.filename == installer.name
+
+
+def test_download_without_url_or_installer_returns_not_found(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "DESKTOP_CLIENT_DOWNLOAD_URL", "")
+    monkeypatch.setattr(desktop_client, "_STATIC_DIR", tmp_path / "missing")
+    with pytest.raises(HTTPException) as error:
+        desktop_client.download_desktop_client()
+    assert error.value.status_code == 404

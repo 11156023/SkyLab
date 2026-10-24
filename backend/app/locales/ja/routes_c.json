@@ -1,7 +1,7 @@
 {
   "desktop.device_code_not_found": "デバイスコードが見つからないか、期限切れです",
   "desktop.device_code_expired": "デバイスコードの有効期限が切れました",
-  "desktop.installer_not_found": "デスクトップクライアントのインストーラーが見つかりません。desktop-client をビルドするか、DESKTOP_CLIENT_DOWNLOAD_URL を設定してください。",
+  "desktop.installer_not_found": "デスクトップクライアントのインストーラーが見つかりません。DESKTOP_CLIENT_DOWNLOAD_URL を設定するか、backend/app/static/downloads/ に配置してください。",
   "course_admin.class_not_found": "クラスが見つかりません",
   "course_admin.owner_mismatch": "コースパスとクラスの所有者が一致している必要があります",
   "course_env.not_found": "コース環境が見つかりません",
