@@ -109,7 +109,7 @@ describe("shared viewers", () => {
     service.getSshKey.mockResolvedValue({ login_password: "pw" });
     service.getCurrentStats.mockResolvedValue({});
     await render(<OverviewTab vmid={120} />);
-    expect(service.getSshKey).toHaveBeenCalledWith(120);
+    expect(service.getSshKey).toHaveBeenCalledWith(120, { signal: expect.any(AbortSignal) });
   });
 });
 
@@ -129,7 +129,7 @@ describe("login account and password on the overview tab", () => {
 
   it("shows the login account even when no password or key is on record", async () => {
     await renderOverview({ login_username: "student" });
-    expect(service.getSshKey).toHaveBeenCalledWith(121);
+    expect(service.getSshKey).toHaveBeenCalledWith(121, { signal: expect.any(AbortSignal) });
     expect(host.textContent).toContain("OverviewTab.usernameLabel");
     expect(host.textContent).toContain("student");
   });

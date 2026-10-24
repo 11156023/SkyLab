@@ -35,8 +35,9 @@ export default function useVirtualRows({
   const [scrollMargin, setScrollMargin] = useState(0);
   const enabled = count >= threshold;
 
-  /* tbody 距文件頂端的距離：上方的群組列展開／收合、視窗縮放都會讓它變，
-     用 ResizeObserver 盯整張表（任何列高度變化都會改表的高度）。 */
+  /* tbody 距文件頂端的距離：上方的群組列展開／收合、表格上方的內容變高變矮、視窗縮放都會讓它變。
+     ResizeObserver 盯整張表（任何列高度變化都會改表的高度），也盯 body：表格上方的工具列、提示
+     長出來或收起來時表格本身大小不變，但整頁高度會變。 */
   useLayoutEffect(() => {
     const el = bodyEl;
     if (!el || !enabled) return undefined;
@@ -47,6 +48,7 @@ export default function useVirtualRows({
     const table = el.closest("table") ?? el;
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
     observer?.observe(table);
+    observer?.observe(document.body);
     window.addEventListener("resize", update);
     return () => {
       observer?.disconnect();

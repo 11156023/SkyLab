@@ -120,9 +120,9 @@ export const ResourcesService = {
     return apiGet(`/api/v1/vm/${vmid}/console`);
   },
 
-  /** 取得 SSH 金鑰 */
-  getSshKey(vmid) {
-    return apiGet(`/api/v1/resources/${vmid}/ssh-key`);
+  /** 取得 SSH 金鑰（含私鑰與系統代發密碼的明文）；signal 讓離頁時能真的中止請求 */
+  getSshKey(vmid, { signal } = {}) {
+    return apiGet(`/api/v1/resources/${vmid}/ssh-key`, { signal });
   },
 
   /* ── 詳情頁端點（resource_details.py） ── */
