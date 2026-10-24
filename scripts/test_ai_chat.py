@@ -2,8 +2,10 @@
 """互動式測試 SkyLab 的 OpenAI-compatible Chat API。
 
 執行：
-    python scripts/test_ai_chat.py
+    python scripts/test_ai_chat.py school.skylab-tw.com
+    SKYLAB_URL=https://school.skylab-tw.com python scripts/test_ai_chat.py
 
+學校平台的網址用參數或環境變數 SKYLAB_URL 指定，都沒有就在執行時詢問。
 API key 只在終端機以隱藏輸入讀取，不會寫入檔案或列印到畫面。
 """
 
@@ -11,19 +13,26 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 import sys
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-PUBLIC_BASE_URL = "https://skylab-tw.com/api/v1"
-API_BASE_URL = f"{PUBLIC_BASE_URL.rstrip('/')}/ai-proxy"
 REQUEST_TIMEOUT_SECONDS = 120
 EXIT_WORDS = {"q", "quit", "exit", "離開", "結束"}
 
 
 class APIRequestError(RuntimeError):
     """API 請求失敗，且訊息已整理成可安全顯示的內容。"""
+
+
+def api_base_url(platform_url: str) -> str:
+    """學校平台的網址（可省略 https://）→ AI API 的根路徑。"""
+    url = platform_url.strip().rstrip("/")
+    if "://" not in url:
+        url = f"https://{url}"
+    return f"{url}/api/v1/ai-proxy"
 
 
 def _error_message(raw_body: bytes) -> str:
@@ -47,6 +56,7 @@ def _error_message(raw_body: bytes) -> str:
 
 
 def request_json(
+    base_url: str,
     method: str,
     path: str,
     api_key: str,
@@ -63,7 +73,7 @@ def request_json(
         headers["Content-Type"] = "application/json"
 
     request = Request(
-        f"{API_BASE_URL}/{path.lstrip('/')}",
+        f"{base_url}/{path.lstrip('/')}",
         data=body,
         headers=headers,
         method=method,
@@ -85,9 +95,9 @@ def request_json(
         raise APIRequestError("API 回應不是有效的 JSON") from exc
 
 
-def fetch_models(api_key: str) -> list[str]:
+def fetch_models(base_url: str, api_key: str) -> list[str]:
     """取得目前 key 可用的模型 ID。"""
-    payload = request_json("GET", "models", api_key)
+    payload = request_json(base_url, "GET", "models", api_key)
     items = payload.get("data") if isinstance(payload, dict) else payload
     if not isinstance(items, list):
         raise APIRequestError("/models 回應缺少 data 模型清單")
@@ -146,7 +156,7 @@ def _assistant_text(payload: Any) -> str:
     return ""
 
 
-def chat(model: str, api_key: str) -> None:
+def chat(base_url: str, model: str, api_key: str) -> None:
     """進入簡單多輪對話；輸入 q／離開可結束。"""
     messages: list[dict[str, str]] = []
     print(f"\n已選擇模型：{model}")
@@ -162,6 +172,7 @@ def chat(model: str, api_key: str) -> None:
         messages.append({"role": "user", "content": prompt})
         try:
             response = request_json(
+                base_url,
                 "POST",
                 "chat/completions",
                 api_key,
@@ -192,8 +203,19 @@ def chat(model: str, api_key: str) -> None:
 
 
 def main() -> int:
-    print(f"SkyLab AI Chat 測試工具\nAPI：{API_BASE_URL}")
+    platform_url = (
+        sys.argv[1] if len(sys.argv) > 1 else os.environ.get("SKYLAB_URL", "")
+    )
     try:
+        if not platform_url.strip():
+            platform_url = input(
+                "學校 SkyLab 平台的網址（例如 school.skylab-tw.com）："
+            )
+        if not platform_url.strip():
+            print("平台網址不可為空。", file=sys.stderr)
+            return 2
+        base_url = api_base_url(platform_url)
+        print(f"SkyLab AI Chat 測試工具\nAPI：{base_url}")
         api_key = getpass.getpass("請輸入 API key（輸入時不顯示）：").strip()
     except (EOFError, KeyboardInterrupt):
         print("\n已取消。")
@@ -204,7 +226,7 @@ def main() -> int:
 
     print("正在取得模型清單……")
     try:
-        models = fetch_models(api_key)
+        models = fetch_models(base_url, api_key)
     except APIRequestError as exc:
         print(f"取得模型清單失敗：{exc}", file=sys.stderr)
         return 1
@@ -219,7 +241,7 @@ def main() -> int:
         return 0
 
     try:
-        chat(model, api_key)
+        chat(base_url, model, api_key)
     except (EOFError, KeyboardInterrupt):
         print("\n已離開。")
         return 130
