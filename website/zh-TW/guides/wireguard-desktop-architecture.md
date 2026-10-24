@@ -2,7 +2,7 @@
 
 SkyLab Connect 使用 WireGuard 建立桌面端到 Gateway VM 的加密 L3 網路。桌面端取得授權後，直接連到 VM 的實際位址與服務埠。
 
-桌面端在獨立的 repo 開發，發佈在 [SkyLab-Connect-Releases](https://github.com/1Ray0/SkyLab-Connect-Releases)；本 repo 只有它呼叫的後端 API（`/api/v1/desktop-client/...`）與下面說明的閘道端。
+桌面端在獨立的 repo 開發，發佈在 [SkyLab-tw/SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect)；本 repo 只有它呼叫的後端 API（`/api/v1/desktop-client/...`）與下面說明的閘道端。
 
 ## 連線流程
 

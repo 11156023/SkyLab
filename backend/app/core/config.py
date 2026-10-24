@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # External URL for the desktop client zip (e.g. GitHub Releases asset).
     # When set, /desktop-client/download redirects here instead of serving a local file.
     DESKTOP_CLIENT_DOWNLOAD_URL: str = (
-        "https://github.com/1Ray0/SkyLab-Connect-Releases/"
+        "https://github.com/SkyLab-tw/SkyLab-Connect/"
         "releases/latest/download/SkyLab-Connect-Setup.exe"
     )
     # Desktop VPN control plane. The public endpoint host falls back to the

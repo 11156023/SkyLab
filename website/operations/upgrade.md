@@ -83,7 +83,7 @@ These changes required an operator action when they shipped. If you upgrade acro
 ## Upgrading the gateway and the desktop client
 
 - The gateway VM is updated from the "Install services" tab of the "Gateway VM" page: "Reinstall" runs the `gateway/install.sh` shipped in the backend image, so upgrade SkyLab first. Reinstalling empties the generated nginx files; "Sync rules to Gateway" writes the rules back (the tab does it by itself when it sees the installation finish). The installer refuses anything but Debian 13.
-- SkyLab Connect checks GitHub (`1Ray0/SkyLab-Connect-Releases`) for a newer release when it starts and offers the new installer. `DESKTOP_CLIENT_DOWNLOAD_URL` only decides where the platform's download link points; a client release needs no backend change.
+- SkyLab Connect checks GitHub (`SkyLab-tw/SkyLab-Connect`) for a newer release when it starts and offers the new installer. `DESKTOP_CLIENT_DOWNLOAD_URL` only decides where the platform's download link points; a client release needs no backend change.
 
 ## Upgrading the AI stack
 

@@ -101,7 +101,7 @@ def test_find_local_download_asset_ignores_blockmap_files(
 
 def test_download_redirects_to_configured_public_release(monkeypatch) -> None:
     release_url = (
-        "https://github.com/1Ray0/SkyLab-Connect-Releases/"
+        "https://github.com/SkyLab-tw/SkyLab-Connect/"
         "releases/latest/download/SkyLab-Connect-Setup.exe"
     )
     monkeypatch.setattr(settings, "DESKTOP_CLIENT_DOWNLOAD_URL", release_url)

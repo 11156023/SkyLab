@@ -59,7 +59,7 @@ const TYPE_MAP = {
 };
 
 const DESKTOP_CLIENT_DOWNLOAD_URL = import.meta.env.VITE_DESKTOP_CLIENT_DOWNLOAD_URL
-  || "https://github.com/1Ray0/SkyLab-Connect-Releases/releases/latest/download/SkyLab-Connect-Setup.exe";
+  || "https://github.com/SkyLab-tw/SkyLab-Connect/releases/latest/download/SkyLab-Connect-Setup.exe";
 
 /* ── Helpers ── */
 function formatDate(isoStr) {

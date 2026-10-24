@@ -83,7 +83,7 @@ migration 直接連 PostgreSQL、不經 PgBouncer，因為它要在長交易裡�
 ## 升級閘道與桌面端
 
 - 閘道 VM 從「閘道 VM」頁的「安裝服務」分頁更新：「重新安裝」執行的是 backend 映像裡附的 `gateway/install.sh`，所以要先升級 SkyLab。重新安裝會清空自動產生的 nginx 設定檔，「同步規則到 Gateway」會把規則寫回（分頁看到安裝結束時也會自動做一次）。安裝程式只接受 Debian 13。
-- SkyLab Connect 啟動時會到 GitHub（`1Ray0/SkyLab-Connect-Releases`）檢查有沒有新版，有的話提示下載新的安裝程式。`DESKTOP_CLIENT_DOWNLOAD_URL` 只決定平台上的下載連結指到哪裡；桌面端發版不需要改後端。
+- SkyLab Connect 啟動時會到 GitHub（`SkyLab-tw/SkyLab-Connect`）檢查有沒有新版，有的話提示下載新的安裝程式。`DESKTOP_CLIENT_DOWNLOAD_URL` 只決定平台上的下載連結指到哪裡；桌面端發版不需要改後端。
 
 ## 升級 AI stack
 
