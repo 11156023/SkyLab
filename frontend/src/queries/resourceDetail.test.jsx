@@ -8,6 +8,7 @@ import { createTestQueryClient, withQueryClient } from "./testing";
 import { resourceKeys } from "./resources";
 import {
   resourceDetailKeys,
+  useBootOptionsQuery,
   useCredentialsQuery,
   useCurrentStatsQuery,
   useIsoImagesQuery,
@@ -212,6 +213,12 @@ describe("useResourceDetailCacheUpdater", () => {
   test("setCredentials()/setBootOptions() patch those caches in place", async () => {
     client.setQueryData(resourceDetailKeys.credentials(101), { authorized_keys: ["a"], username: "u" });
     function Writer() {
+      /*
+       * 同正式畫面：寫入的卡片本身在看這兩份快取。沒有 observer 時測試 client 的 gcTime 0
+       * 會在 await act 收尾的 setImmediate 之前清掉快取（CI 上依事件迴圈時序偶發失敗）
+       */
+      useCredentialsQuery(101, { enabled: false });
+      useBootOptionsQuery(101, { enabled: false });
       const cache = useResourceDetailCacheUpdater();
       seen = { cache };
       return null;
