@@ -46,7 +46,11 @@ const openWeb = () =>
           t("workspace.connectionInfo")
         }}</span>
       </button>
-      <button class="desktop-nav" @click="openWeb">
+      <button
+        class="desktop-nav"
+        :disabled="!store.backendUrl"
+        @click="openWeb"
+      >
         <AppIcon name="external" /><span>{{ t("workspace.openWeb") }}</span>
       </button>
       <div class="desktop-sidebar-bottom">
@@ -100,7 +104,7 @@ const openWeb = () =>
         </div>
         <div>
           <dt>{{ t("config.backend.label") }}</dt>
-          <dd>{{ store.backendUrl }}</dd>
+          <dd>{{ store.backendUrl || "—" }}</dd>
         </div>
         <div>
           <dt>{{ t("workspace.protocol") }}</dt>

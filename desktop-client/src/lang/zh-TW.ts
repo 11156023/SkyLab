@@ -121,6 +121,14 @@
       secureHint: "WireGuard 加密 · 一鍵完成",
       authHint: "請在瀏覽器完成登入 · 完成後自動連線"
     },
+    backendSetup: {
+      title: "連到你學校的 SkyLab",
+      description:
+        "輸入學校 SkyLab 平台的網址（就是平常用瀏覽器登入的那個網址），之後可以在設定裡修改。",
+      button: "繼續",
+      invalid:
+        "網址不正確，請輸入學校 SkyLab 平台的 https 網址，例如 school.skylab-tw.com。"
+    },
     machines: {
       summary: "連線已建立 · {machines} 台機器 · {courses} 個課程環境",
       unavailable: "無可用連線",
@@ -220,8 +228,9 @@
       tips: "開機時自動啟動 SkyLab Connect 並隱藏視窗。"
     },
     backend: {
-      label: "後端網址",
-      tips: "SkyLab 伺服器根網址，不包含 /login。"
+      label: "學校平台網址",
+      tips: "學校 SkyLab 平台的網址，跟用瀏覽器登入的網址相同；貼上完整網址也可以，只會取網域部分。",
+      placeholder: "例如 school.skylab-tw.com"
     },
     account: {
       label: "帳號",

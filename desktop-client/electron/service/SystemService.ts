@@ -1,7 +1,6 @@
 ﻿import { spawn } from "child_process";
 import { app, shell } from "electron";
 import BeanFactory from "../core/BeanFactory";
-import GlobalConstant from "../core/GlobalConstant";
 import type SettingsService from "./SettingsService";
 
 class SystemService {
@@ -11,8 +10,8 @@ class SystemService {
     // http），不只預設網址；只放行同一個 origin。
     const settingsService: SettingsService =
       BeanFactory.getBean("settingsService");
-    const backendUrl = await settingsService.getBackendUrl();
-    if (target.origin === new URL(backendUrl).origin) {
+    const backendUrl = await settingsService.getConfiguredBackendUrl();
+    if (backendUrl && target.origin === new URL(backendUrl).origin) {
       await shell.openExternal(target.toString());
       return;
     }
@@ -20,8 +19,7 @@ class SystemService {
     const allowedHosts = new Set([
       "github.com",
       "objects.githubusercontent.com",
-      "github-releases.githubusercontent.com",
-      new URL(GlobalConstant.DEFAULT_BACKEND_URL).hostname
+      "github-releases.githubusercontent.com"
     ]);
     if (!allowedHosts.has(target.hostname))
       throw new Error("URL host is not allowed");

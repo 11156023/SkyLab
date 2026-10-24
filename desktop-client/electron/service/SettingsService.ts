@@ -1,5 +1,5 @@
 ﻿import { app } from "electron";
-import GlobalConstant from "../core/GlobalConstant";
+import { BusinessError, ResponseCode } from "../core/BusinessError";
 import Logger from "../core/Logger";
 import SettingsRepository, {
   type SettingsPatch
@@ -72,22 +72,35 @@ class SettingsService {
     await this.setTokens("", "");
   }
 
+  /** 學校平台的網址；還沒填（第一次開啟）時丟 BACKEND_NOT_CONFIGURED。 */
   async getBackendUrl(): Promise<string> {
-    const settings = await this.get();
-    try {
-      return this.normalizeBackendUrl(settings.backendUrl);
-    } catch {
-      const migrated = await this.save({
-        backendUrl: GlobalConstant.DEFAULT_BACKEND_URL
-      });
-      return migrated.backendUrl;
+    const backendUrl = await this.getConfiguredBackendUrl();
+    if (!backendUrl) {
+      throw new BusinessError(ResponseCode.BACKEND_NOT_CONFIGURED);
     }
+    return backendUrl;
   }
 
+  /** 同 getBackendUrl，但還沒填時回空字串（給「是不是學校平台的網址」這類判斷用）。 */
+  async getConfiguredBackendUrl(): Promise<string> {
+    const settings = await this.get();
+    if (!settings.backendUrl) return "";
+    return this.normalizeBackendUrl(settings.backendUrl);
+  }
+
+  /**
+   * 「ntub.skylab-tw.com」補成 https://；從瀏覽器網址列貼上的
+   * 「https://ntub.skylab-tw.com/login」只留來源（平台一律架在網域根目錄）。
+   */
   private normalizeBackendUrl(value: string): string {
+    const trimmed = value.trim();
     let url: URL;
     try {
-      url = new URL(value.trim());
+      url = new URL(
+        /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+          ? trimmed
+          : `https://${trimmed}`
+      );
     } catch {
       throw new Error("Backend URL is invalid");
     }
@@ -96,12 +109,10 @@ class SettingsService {
     if (url.protocol !== "https:" && !(isLocal && url.protocol === "http:")) {
       throw new Error("Backend URL must use HTTPS");
     }
-    if (url.username || url.password || url.search || url.hash) {
-      throw new Error(
-        "Backend URL must not contain credentials, query, or fragment"
-      );
+    if (url.username || url.password) {
+      throw new Error("Backend URL must not contain credentials");
     }
-    return url.toString().replace(/\/$/, "");
+    return url.origin;
   }
 }
 

@@ -126,6 +126,14 @@
       secureHint: "WireGuard encrypted · One click",
       authHint: "Complete sign-in in your browser · Connects automatically"
     },
+    backendSetup: {
+      title: "Connect to your school's SkyLab",
+      description:
+        "Enter the address of your school's SkyLab platform, the one you sign in to in the browser. You can change it later in Settings.",
+      button: "Continue",
+      invalid:
+        "This address is not valid. Enter the https address of your school's SkyLab platform, for example school.skylab-tw.com."
+    },
     machines: {
       summary:
         "Connected · {machines} machines · {courses} course environments",
@@ -227,8 +235,9 @@
       tips: "Start SkyLab Connect hidden when the OS boots."
     },
     backend: {
-      label: "Backend URL",
-      tips: "SkyLab server root URL, without /login."
+      label: "School platform URL",
+      tips: "The address of your school's SkyLab platform, the same one you sign in to in the browser. You can paste a full URL; only the domain is kept.",
+      placeholder: "e.g. school.skylab-tw.com"
     },
     account: {
       label: "Account",

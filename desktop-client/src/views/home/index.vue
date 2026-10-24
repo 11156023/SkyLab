@@ -119,6 +119,18 @@ const displayedError = computed(() => {
 const openWeb = () =>
   send(ipcRouters.SYSTEM.openUrl, { url: appStore.backendUrl });
 
+/* 每間學校的平台網址不同，程式不內建：第一次開啟先請使用者填，填好才能連線 */
+const backendInput = ref("");
+const savingBackend = ref(false);
+const backendError = ref("");
+const saveBackendUrl = () => {
+  const value = backendInput.value.trim();
+  if (!value || savingBackend.value) return;
+  savingBackend.value = true;
+  backendError.value = "";
+  send(ipcRouters.SETTINGS.saveSettings, { backendUrl: value });
+};
+
 const status = computed(() => {
   if (appStore.tunnelStatus.connectionError) return "error";
   if (!appStore.tunnelStatus.running) return "stopped";
@@ -207,7 +219,7 @@ const startTunnel = () => {
 };
 
 const handleConnect = () => {
-  if (loading.value) return;
+  if (loading.value || !appStore.backendUrl) return;
   if (appStore.loggedIn) {
     startTunnel();
     return;
@@ -286,6 +298,16 @@ onMounted(() => {
     }
   );
   listen(
+    ipcRouters.SETTINGS.saveSettings,
+    () => {
+      savingBackend.value = false;
+    },
+    () => {
+      savingBackend.value = false;
+      backendError.value = t("home.backendSetup.invalid");
+    }
+  );
+  listen(
     ipcRouters.SYSTEM.openSsh,
     () => undefined,
     (_code, message) => ElMessage.error(message)
@@ -334,6 +356,37 @@ onUnmounted(() => {
       </div>
     </header>
     <section
+      v-if="!appStore.backendUrl"
+      class="connection-banner"
+      :class="{ 'connection-banner--error': !!backendError }"
+      :aria-label="t('home.backendSetup.title')"
+    >
+      <AppIcon name="monitor" />
+      <div class="connection-copy">
+        <h2>{{ t("home.backendSetup.title") }}</h2>
+        <p>{{ backendError || t("home.backendSetup.description") }}</p>
+      </div>
+      <form class="backend-setup-form" @submit.prevent="saveBackendUrl">
+        <el-input
+          v-model="backendInput"
+          :placeholder="t('config.backend.placeholder')"
+          :aria-label="t('config.backend.label')"
+          :disabled="savingBackend"
+          autofocus
+        />
+        <button
+          class="sl-button sl-button--primary"
+          type="submit"
+          :disabled="savingBackend || !backendInput.trim()"
+        >
+          {{
+            savingBackend ? t("common.loading") : t("home.backendSetup.button")
+          }}
+        </button>
+      </form>
+    </section>
+    <section
+      v-else
       class="connection-banner"
       :class="{ 'connection-banner--error': !!displayedError }"
       :aria-label="t('workspace.connectionInfo')"

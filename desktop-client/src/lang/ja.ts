@@ -121,6 +121,14 @@ export default {
       secureHint: "WireGuard 暗号化 · ワンクリック",
       authHint: "ブラウザーでログインを完了すると自動接続します"
     },
+    backendSetup: {
+      title: "学校の SkyLab に接続",
+      description:
+        "学校の SkyLab プラットフォームのアドレス（ふだんブラウザーでログインしているアドレス）を入力してください。あとから設定で変更できます。",
+      button: "続行",
+      invalid:
+        "アドレスが正しくありません。学校の SkyLab プラットフォームの https アドレスを入力してください（例：school.skylab-tw.com）。"
+    },
     machines: {
       summary: "接続済み · {machines} 台 · {courses} コース環境",
       unavailable: "接続できません",
@@ -218,8 +226,9 @@ export default {
       tips: "OS の起動時に SkyLab Connect を非表示で開始します。"
     },
     backend: {
-      label: "バックエンド URL",
-      tips: "/login を含まない SkyLab サーバーのルート URL。"
+      label: "学校のプラットフォーム URL",
+      tips: "学校の SkyLab プラットフォームのアドレスで、ブラウザーでログインするアドレスと同じです。完全な URL を貼り付けても、ドメインだけが使われます。",
+      placeholder: "例：school.skylab-tw.com"
     },
     account: {
       label: "アカウント",

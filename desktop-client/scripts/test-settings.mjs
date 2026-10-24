@@ -140,6 +140,49 @@ test("changing the backend clears tokens; keeping it does not", async () => {
   assert.equal(settings.refreshToken, "");
 });
 
+test("a fresh install has no backend until the user enters one", async () => {
+  await repo.truncate();
+  const settings = await service.get();
+  assert.equal(settings.backendUrl, "");
+  assert.equal(await service.getConfiguredBackendUrl(), "");
+  await assert.rejects(service.getBackendUrl(), err => err.bizCode === "B1010");
+});
+
+test("a bare host gets https and a pasted page URL keeps only its origin", async () => {
+  await reset();
+  await service.save({ backendUrl: "ntub.skylab-tw.com" });
+  assert.equal((await service.get()).backendUrl, "https://ntub.skylab-tw.com");
+  await service.save({
+    backendUrl: " https://ntub.skylab-tw.com/login?next=/home#top "
+  });
+  assert.equal(await service.getBackendUrl(), "https://ntub.skylab-tw.com");
+  await assert.rejects(service.save({ backendUrl: "https://user:pw@x.org" }));
+});
+
+for (const legacy of [
+  "http://localhost:8000",
+  "https://skylab.ntubimdbirc.tw/",
+  "https://skylab-tw.com"
+]) {
+  test(`the retired built-in default ${legacy} moves to NTUB's address and signs out`, async () => {
+    await reset();
+    await repo.patchById("1", { backendUrl: legacy });
+    const settings = await service.get();
+    assert.equal(settings.backendUrl, "https://ntub.skylab-tw.com");
+    assert.equal(settings.token, "");
+    assert.equal(settings.refreshToken, "");
+  });
+}
+
+test("a server the user entered is never migrated", async () => {
+  await reset();
+  await service.save({ backendUrl: "https://skylab.school.edu.tw" });
+  await service.setTokens("access-5", "refresh-5");
+  const settings = await service.get();
+  assert.equal(settings.backendUrl, "https://skylab.school.edu.tw");
+  assert.equal(settings.token, "access-5");
+});
+
 test("a failed write does not block later writes", async () => {
   await reset();
   await assert.rejects(

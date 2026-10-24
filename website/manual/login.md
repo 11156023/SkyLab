@@ -103,7 +103,7 @@ When you change your email in [Account Settings](/manual/account), SkyLab sends 
 
 ### Authorize the SkyLab Connect desktop app
 
-When you click sign-in in the SkyLab Connect desktop app, it opens the SkyLab sign-in page in your browser.
+The first time you open the SkyLab Connect desktop app, it asks for your school's SkyLab address, the same one you use in the browser (for example `school.skylab-tw.com`); you can change it later in the app's settings. When you click sign-in in the app, it opens the SkyLab sign-in page in your browser.
 
 1. If you are not signed in yet, the page says **Log in to connect SkyLab Connect**. Sign in as usual.
 2. On **Authorize desktop app sign-in**, check the account shown under **Account**.

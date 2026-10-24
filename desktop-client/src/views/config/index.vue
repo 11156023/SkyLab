@@ -7,7 +7,6 @@ import { ElMessage } from "element-plus";
 import { defineComponent, onMounted, onUnmounted, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ipcRouters } from "../../../electron/core/IpcRouter";
-import GlobalConstant from "../../../electron/core/GlobalConstant";
 
 defineComponent({ name: "Config" });
 
@@ -122,7 +121,7 @@ onUnmounted(() => {
           <el-form-item :label="t('config.backend.label')">
             <el-input
               v-model="form.backendUrl"
-              :placeholder="GlobalConstant.DEFAULT_BACKEND_URL"
+              :placeholder="t('config.backend.placeholder')"
             />
             <div class="form-hint form-hint--block">
               {{ t("config.backend.tips") }}

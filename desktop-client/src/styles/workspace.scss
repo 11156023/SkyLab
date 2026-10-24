@@ -277,6 +277,16 @@ input:focus-visible {
   margin-left: auto;
   flex-shrink: 0;
 }
+/* 第一次開啟：學校平台網址輸入框＋繼續，靠右排在說明旁 */
+.backend-setup-form {
+  display: flex;
+  gap: 8px;
+  flex: 0 1 380px;
+  margin-left: auto;
+}
+.backend-setup-form .sl-button {
+  flex-shrink: 0;
+}
 .workspace-alert {
   margin-bottom: 18px;
 }

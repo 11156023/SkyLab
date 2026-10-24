@@ -1,7 +1,6 @@
 ﻿import { on, onListener, send } from "@/utils/ipcUtils";
 import { defineStore } from "pinia";
 import { ipcRouters, listeners } from "../../electron/core/IpcRouter";
-import GlobalConstant from "../../electron/core/GlobalConstant";
 import router from "../router";
 
 interface AppState {
@@ -75,7 +74,8 @@ export const useAppStore = defineStore("app", {
     connectionStarting: false,
     language: "zh-TW",
     autoStart: false,
-    backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
+    // 學校平台的網址；空字串代表還沒填（首頁會先請使用者填）
+    backendUrl: "",
     resourcesLoading: false,
     resourcesError: "",
     serverUnreachable: false,
@@ -184,14 +184,14 @@ export const useAppStore = defineStore("app", {
         if (data) {
           this.language = data.language || "zh-TW";
           this.autoStart = !!data.launchAtStartup;
-          this.backendUrl = data.backendUrl || this.backendUrl;
+          this.backendUrl = data.backendUrl || "";
         }
       });
       on(ipcRouters.SETTINGS.saveSettings, data => {
         if (data) {
           this.language = data.language || this.language;
           this.autoStart = !!data.launchAtStartup;
-          this.backendUrl = data.backendUrl || this.backendUrl;
+          this.backendUrl = data.backendUrl || "";
         }
       });
       on(

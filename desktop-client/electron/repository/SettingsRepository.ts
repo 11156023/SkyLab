@@ -114,18 +114,18 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
         existing.language = "zh-TW";
         languageMigrated = true;
       }
-      // Move only retired built-in defaults to the current production site;
-      // keep user-configured servers intact.
+      // Move only retired built-in defaults (see GlobalConstant); keep
+      // user-configured servers intact and leave an empty address for the
+      // user to fill in.
       if (
-        !existing.backendUrl ||
-        [
-          GlobalConstant.LEGACY_BACKEND_URL,
-          GlobalConstant.LEGACY_PUBLIC_BACKEND_URL
-        ].includes(existing.backendUrl.replace(/\/$/, ""))
+        existing.backendUrl &&
+        GlobalConstant.LEGACY_DEFAULT_BACKEND_URLS.includes(
+          existing.backendUrl.replace(/\/$/, "")
+        )
       ) {
         return this.updateById(this._id, {
           ...existing,
-          backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
+          backendUrl: GlobalConstant.LEGACY_DEFAULT_BACKEND_REPLACEMENT,
           token: "",
           refreshToken: ""
         });
@@ -146,9 +146,10 @@ class SettingsRepository extends BaseRepository<SkyLabSettings> {
       }
       return { ...existing, token, refreshToken };
     }
+    // 沒有預設的後端：每間學校的網址不同，第一次開啟時由使用者填
     const defaults: SkyLabSettings = {
       _id: this._id,
-      backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
+      backendUrl: "",
       token: "",
       refreshToken: "",
       language: GlobalConstant.DEFAULT_LANGUAGE,
