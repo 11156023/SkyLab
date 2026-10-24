@@ -42,7 +42,7 @@ flowchart LR
 | Frontend | `frontend/` | React 19 (JSX) + Vite + react-router-dom 7 + SCSS Modules; hand-written API services |
 | nginx | `nginx/` | Single entry point (`:8082` by default): `/api`, `/ws` → backend, everything else → frontend |
 | Gateway installer | `gateway/` | `install.sh` for the campus egress gateway VM: nginx (port forwarding, domain reverse proxy), WireGuard, nftables ACL |
-| Desktop client | `desktop-client/` | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway |
+| Desktop client | separate repository | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway; releases at [SkyLab-Connect-Releases](https://github.com/1Ray0/SkyLab-Connect-Releases). This repository has its backend API |
 | vLLM service | `vllm-service/` | Single-model service, multi-model vLLM cluster and the LiteLLM gateway that exposes them |
 | Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
 | Documentation | `website/` | All guides, the user manual and the API reference, as a VitePress site at [docs.skylab-tw.com](https://docs.skylab-tw.com) deployed to Cloudflare Pages; index in [`website/guides/index.md`](website/guides/index.md), site setup in [`website/README.md`](website/README.md) |
@@ -168,7 +168,7 @@ The `prestart` container runs `alembic upgrade head` automatically when the stac
 
 - **Backend:** `uv run bash ./scripts/test.sh` from `backend/` (pytest; coverage report in `backend/htmlcov/`). The tests are not part of the backend image, so they run on the host, not inside the container.
 - **Frontend:** `bun run test` from `frontend/` (Vitest)
-- **CI:** GitHub Actions runs backend tests, frontend tests, desktop client tests, AI service tests, a migration check and CodeQL
+- **CI:** GitHub Actions runs backend tests, frontend tests, AI service tests, a migration check and CodeQL
 
 ## Proxmox configuration
 
@@ -203,4 +203,4 @@ SkyLab is released under the **GNU Affero General Public License v3.0** (see [`L
 - If you modify SkyLab and let third parties use it over a network (for example as a hosted or managed service), the AGPL requires you to make your modified source available to those users.
 - **Commercial licensing** is available for organisations that want to offer SkyLab as a service without the AGPL's source-sharing terms, or need other terms. Open an issue or contact the maintainers to discuss.
 
-The project started from the MIT-licensed Full Stack FastAPI Template, and the desktop client from an MIT-licensed Electron + Vue template; their notices are kept in [`NOTICE`](NOTICE), and the open-source components SkyLab is built on are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The same information is shown in the application under Account Settings → About. "SkyLab" and the SkyLab logo are names of this project; the license covers the code, not the name.
+The project started from the MIT-licensed Full Stack FastAPI Template; its notice is kept in [`NOTICE`](NOTICE), and the open-source components SkyLab is built on are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The same information is shown in the application under Account Settings → About. "SkyLab" and the SkyLab logo are names of this project; the license covers the code, not the name.

@@ -36,7 +36,7 @@ flowchart LR
 | Frontend | `frontend/` | React 19（JSX）+ Vite + react-router-dom 7 + SCSS Modules，手寫 API services |
 | nginx | `nginx/` | 單一入口（預設 `:8082`）：`/api`、`/ws` → backend，其餘 → frontend |
 | Gateway 安裝腳本 | `gateway/` | 校園出口閘道 VM 的 `install.sh`：nginx（Port 轉發、網域反向代理）、WireGuard、nftables ACL |
-| 桌面端 | `desktop-client/` | SkyLab Connect（Electron）：裝置登入與到閘道的 WireGuard 隧道 |
+| 桌面端 | 獨立的 repo | SkyLab Connect（Electron）：裝置登入與到閘道的 WireGuard 隧道；發佈在 [SkyLab-Connect-Releases](https://github.com/1Ray0/SkyLab-Connect-Releases)，本 repo 只有它用的後端 API |
 | vLLM Service | `vllm-service/` | 單模型主服務、多模型 vLLM cluster，以及對外的 LiteLLM gateway |
 | 監控 stack | `monitoring/` | 選用的 Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
 | 文件 | `website/` | 所有指南、使用手冊與 API 參考，以 VitePress 網站形式部署到 Cloudflare Pages（[docs.skylab-tw.com](https://docs.skylab-tw.com)）；索引見[文件索引](/zh-TW/guides/)，網站建置見 [`website/README.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/website/README.zh-TW.md) |
@@ -146,7 +146,7 @@ stack 啟動時 `prestart` 容器會自動執行 `alembic upgrade head`。
 
 - **後端**：在 `backend/` 執行 `uv run bash ./scripts/test.sh`（pytest，覆蓋率報告於 `backend/htmlcov/`）。測試不在 backend 映像裡，所以要在主機上跑，不能在容器內跑。
 - **前端**：在 `frontend/` 執行 `bun run test`（Vitest）
-- **CI**：GitHub Actions 跑後端測試、前端測試、桌面端測試、AI service 測試、migration 檢查與 CodeQL
+- **CI**：GitHub Actions 跑後端測試、前端測試、AI service 測試、migration 檢查與 CodeQL
 
 ## Proxmox 設定
 
@@ -181,4 +181,4 @@ SkyLab 以 **GNU Affero General Public License v3.0** 釋出（見 [`LICENSE`](h
 - 若你修改了 SkyLab 並讓第三方透過網路使用（例如代管或託管服務），AGPL 要求你向那些使用者提供修改後的原始碼。
 - 想把 SkyLab 當作服務提供、但不希望受 AGPL 原始碼公開條款約束，或需要其他條件的組織，可洽談**商業授權**。請開 issue 或聯絡維護者。
 
-本專案源自 MIT 授權的 Full Stack FastAPI Template，桌面端則源自 MIT 授權的 Electron + Vue 範本，兩者的聲明保留在 [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE)；SkyLab 所用的開源元件列在 [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md)，應用程式內的「帳號設定 → 關於」也會顯示同樣的資訊。「SkyLab」名稱與標誌屬於本專案；授權涵蓋的是程式碼，不是名稱。
+本專案源自 MIT 授權的 Full Stack FastAPI Template，它的聲明保留在 [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE)；SkyLab 所用的開源元件列在 [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md)，應用程式內的「帳號設定 → 關於」也會顯示同樣的資訊。「SkyLab」名稱與標誌屬於本專案；授權涵蓋的是程式碼，不是名稱。

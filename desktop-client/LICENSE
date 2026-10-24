@@ -1,7 +1,0 @@
-SkyLab Connect (this directory) is part of SkyLab and is licensed under the
-GNU Affero General Public License v3.0. The full license text is in the
-LICENSE file at the root of this repository.
-
-Portions of this directory derive from an MIT-licensed Electron + Vue 3 + Vite
-template (Copyright (c) 2023 刘嘉伟); that notice is reproduced in the NOTICE
-file at the root of this repository.

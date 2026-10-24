@@ -13,8 +13,8 @@ SkyLab 以 **GNU Affero General Public License 第 3 版**（AGPL-3.0）釋出�
 
 ## 聲明
 
-- [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE) 保留專案起源範本的 MIT 聲明：Full Stack FastAPI Template（部分後端骨架、Docker Compose 配置與郵件範本）與一個 Electron + Vue 3 + Vite 範本（桌面端）。
-- [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) 列出直接相依的開源套件與其授權。桌面端另有自己的清單 `desktop-client/THIRD_PARTY_NOTICES.txt`，隨安裝程式打包。
+- [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE) 保留專案起源範本 Full Stack FastAPI Template 的 MIT 聲明（部分後端骨架、Docker Compose 配置與郵件範本）。
+- [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) 列出直接相依的開源套件與其授權。SkyLab Connect 桌面端在獨立的 repo，自己的授權聲明隨安裝程式打包。
 - 「SkyLab」與 SkyLab 標誌是本專案的名稱；授權涵蓋程式碼，不涵蓋名稱。
 
 ## 貢獻
