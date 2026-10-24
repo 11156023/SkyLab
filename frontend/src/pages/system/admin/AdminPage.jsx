@@ -351,6 +351,7 @@ export default function AdminPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [policySaving, setPolicySaving] = useState(false);
+  const [studentEmailDomainDraft, setStudentEmailDomainDraft] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
@@ -417,16 +418,31 @@ export default function AdminPage() {
   const [groupSaving, setGroupSaving] = useState(false);
 
   async function saveRegistrationPolicy(patch) {
-    if (!registrationPolicy || policySaving) return;
+    if (!registrationPolicy || policySaving) return false;
     setPolicySaving(true);
     try {
       const saved = await UsersService.saveRegistrationPolicy({ ...registrationPolicy, ...patch });
       await userCache.setRegistrationPolicy(saved);
       toast.success(t("AdminPage.registrationSettingsSaved"));
+      return true;
     } catch (err) {
       toast.error(err?.message ?? t("AdminPage.toastSaveFailed"));
+      return false;
     } finally {
       setPolicySaving(false);
+    }
+  }
+
+  /* 學號信箱網域是文字欄位：編輯中保留草稿（背景刷新不蓋掉），存檔成功才回到顯示已存的值 */
+  const savedStudentEmailDomain = registrationPolicy?.student_email_domain ?? "";
+  const studentEmailDomain = studentEmailDomainDraft ?? savedStudentEmailDomain;
+  const studentEmailDomainChanged = studentEmailDomain.trim() !== savedStudentEmailDomain;
+
+  async function saveStudentEmailDomain(event) {
+    event.preventDefault();
+    if (!studentEmailDomainChanged) return;
+    if (await saveRegistrationPolicy({ student_email_domain: studentEmailDomain.trim() || null })) {
+      setStudentEmailDomainDraft(null);
     }
   }
 
@@ -683,6 +699,22 @@ export default function AdminPage() {
             disabled={!registrationPolicy || policySaving}
             onChange={(event) => saveRegistrationPolicy({ google_signup_enabled: event.target.checked })} />
         </label>
+        <form className={styles.registrationOption} onSubmit={saveStudentEmailDomain}>
+          <label htmlFor="admin-student-email-domain">
+            <strong>{t("AdminPage.studentEmailDomain")}</strong>
+            <small>{t("AdminPage.studentEmailDomainHint")}</small>
+          </label>
+          <div className={styles.domainField}>
+            <input id="admin-student-email-domain" type="text" inputMode="url" autoComplete="off" spellCheck={false}
+              placeholder="school.edu.tw" value={studentEmailDomain}
+              disabled={!registrationPolicy || policySaving}
+              onChange={(event) => setStudentEmailDomainDraft(event.target.value)} />
+            <button type="submit" className={styles.btnSecondary}
+              disabled={!registrationPolicy || policySaving || !studentEmailDomainChanged}>
+              {t("AdminPage.save")}
+            </button>
+          </div>
+        </form>
       </section>
 
       <section className={styles.registrationPanel} aria-label={t("AdminPage.pendingRegistrationsTitle")} data-guide="admin-pending">

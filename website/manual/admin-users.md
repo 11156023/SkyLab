@@ -111,7 +111,7 @@ When at least one group exists, a group menu appears next to the search box; cho
 ### Add group members from a CSV file
 
 1. In **Groups**, click the upload icon on the group's row and choose a `.csv` file.
-2. The first column of each row is read as an email or a student ID, using the same rules as class rosters: a bare student ID gets `@ntub.edu.tw` appended, a header row of `email`, `學號` or `帳號` is skipped, and the file must be UTF-8 or Big5 and at most 1 MB.
+2. The first column of each row is read as an email or a student ID, using the same rules as class rosters: a bare student ID gets the **Student email domain** from Registration settings appended (when no domain is set, the whole file is rejected and every row must be a full email address), a header row of `email`, `學號` or `帳號` is skipped, and the file must be UTF-8 or Big5 and at most 1 MB.
 3. A notice reports how many were added and how many accounts were not found.
 
 ![Add group members from a CSV file (numbers match the steps above)](/manual-shots/en/admin-users/s10.webp)
@@ -177,6 +177,7 @@ The list shows 50 users per page; use **Previous** and **Next** below the list t
 | Allow self-registration | Lets anyone register from the login page | Saved immediately |
 | Require administrator approval | New registrations wait in Pending registrations | Saved immediately |
 | Allow account creation on first Google login | Lets a Google address without an account create a student account at its first sign-in | Saved immediately; independent of self-registration |
+| Student email domain | Domain added after a bare student ID in class roster and group CSV files, for example `school.edu.tw` | Saved with its **Save** button; a leading `@` and upper case are dropped; leave it empty to require full email addresses in every roster |
 | Group name | Name of a group in **Groups** | Required, up to 120 characters, unique regardless of case |
 
 Each row shows the name and email, an **LDAP** tag for directory-managed accounts, a **2FA** tag when two-factor authentication is set up, the role badge, the status (**Active**, **Inactive**, **Email not verified**, **Awaiting approval** or **Registration rejected**) and the creation date.

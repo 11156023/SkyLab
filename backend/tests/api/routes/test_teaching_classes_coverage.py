@@ -44,6 +44,7 @@ from app.schemas.teaching_class import (
     StudentAdd,
     WeekIn,
 )
+from app.services.user import roster_csv
 from tests.utils.class_machines import add_student_machine
 
 TEACHER = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
@@ -452,6 +453,7 @@ async def test_import_students_undecodable(monkeypatch) -> None:
         "_get_class",
         lambda *_a: SimpleNamespace(status=TeachingClassStatus.planning),
     )
+    monkeypatch.setattr(roster_csv, "student_email_domain", lambda _session: None)
     with pytest.raises(BadRequestError):
         await routes.import_students(uuid.uuid4(), None, TEACHER, _upload(b"\x80"))
 
@@ -468,6 +470,7 @@ async def test_import_students_skips_blank_rows(monkeypatch) -> None:
         "add_students",
         lambda _cid, body, _s, _u: captured.append(body.emails) or {},
     )
+    monkeypatch.setattr(roster_csv, "student_email_domain", lambda _session: None)
     await routes.import_students(
         uuid.uuid4(), None, TEACHER, _upload(b"email\n\na@x.edu\n ,\n")
     )

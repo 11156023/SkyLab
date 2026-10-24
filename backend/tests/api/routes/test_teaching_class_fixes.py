@@ -22,6 +22,7 @@ from app.models import (
     VMTemplateStatus,
 )
 from app.services.teaching import class_lifecycle_service
+from app.services.user import roster_csv
 
 TEACHER = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
 
@@ -264,6 +265,9 @@ def captured_import(monkeypatch):
         "add_students",
         lambda _cid, body, _session, _user: captured.append(body.emails) or {},
     )
+    monkeypatch.setattr(
+        roster_csv, "student_email_domain", lambda _session: "school.edu.tw"
+    )
     return captured
 
 
@@ -288,7 +292,21 @@ async def test_utf8_bom_csv_keeps_the_first_cell(captured_import, raw: bytes) ->
 async def test_big5_csv_still_decodes_and_skips_the_header(captured_import) -> None:
     raw = "學號\n10000001\n".encode("cp950")
     await routes.import_students(uuid.uuid4(), None, TEACHER, _upload(raw))
-    assert captured_import == [["10000001@ntub.edu.tw"]]
+    assert captured_import == [["10000001@school.edu.tw"]]
+
+
+@pytest.mark.asyncio
+async def test_student_ids_need_a_configured_domain(
+    captured_import, monkeypatch
+) -> None:
+    monkeypatch.setattr(roster_csv, "student_email_domain", lambda _session: None)
+    with pytest.raises(BadRequestError) as caught:
+        await routes.import_students(
+            uuid.uuid4(), None, TEACHER, _upload(b"a@x.edu\n10000001\n")
+        )
+    assert "10000001" in caught.value.message
+    assert "學號信箱網域" in caught.value.message
+    assert captured_import == []
 
 
 @pytest.mark.asyncio
@@ -307,12 +325,17 @@ async def test_csv_import_runs_db_work_off_the_event_loop(monkeypatch) -> None:
         threads.append(threading.current_thread())
         return {}
 
+    def fake_domain(_session):
+        threads.append(threading.current_thread())
+        return "school.edu.tw"
+
     monkeypatch.setattr(routes, "_get_class", fake_get_class)
     monkeypatch.setattr(routes, "add_students", fake_add_students)
+    monkeypatch.setattr(roster_csv, "student_email_domain", fake_domain)
 
     await routes.import_students(uuid.uuid4(), None, TEACHER, _upload(b"a@x.edu\n"))
 
-    assert len(threads) == 2
+    assert len(threads) == 3
     assert all(th is not threading.main_thread() for th in threads)
 
 

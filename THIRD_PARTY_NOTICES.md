@@ -9,7 +9,6 @@ Licenses are taken from each package's own metadata (`License-Expression` / `Lic
 | Component | License | Notes |
 | --- | --- | --- |
 | [Full Stack FastAPI Template](https://github.com/fastapi/full-stack-fastapi-template) | MIT | The project scaffold SkyLab started from; its notice is kept in [`NOTICE`](NOTICE). |
-| Electron + Vue 3 + Vite template | MIT | The scaffold the desktop client started from; its notice is kept in [`NOTICE`](NOTICE). |
 
 ## Backend (`backend/`, Python)
 

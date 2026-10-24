@@ -34,6 +34,7 @@ bun run preview    # serves dist/; restart it after every build
 ## SEO
 
 - Every language is a prerendered page with its full text in the HTML: `/` (繁體中文), `/en/` and `/ja/`. `bun run build` runs the client build, an SSR build of `src/entry-server.jsx`, then `scripts/prerender.mjs`, which writes the rendered page and its head tags into each `index.html`. The browser hydrates the prerendered HTML.
+- Only `/` follows the visitor's browser language: an inline script in its head (`src/languagePreference.js`) sends a browser that prefers Japanese or English to `/ja/` or `/en/` before the page shows, and a browser that prefers none of the three to `/en/`. A language picked in the language menu is remembered and wins from then on. `/en/` and `/ja/` never redirect, and crawlers are not redirected, so every language stays indexable.
 - Each page has its own title and description, a canonical URL, `hreflang` links to all three languages plus `x-default`, Open Graph and Twitter card tags with a share image in that language, and JSON-LD (`WebSite`, `SoftwareApplication`).
 - `sitemap.xml` lists the three pages with their alternates; `robots.txt` allows everything and points to the sitemap.
 - Every absolute URL comes from `SITE_URL`, default `https://skylab-tw.com`. To build for another address, set the `SITE_URL` environment variable (on Cloudflare Pages, an environment variable of the project).
@@ -43,11 +44,11 @@ bun run preview    # serves dist/; restart it after every build
 
 ## Deploying to Cloudflare Pages
 
-The Cloudflare Pages project `skylab-site` is connected to the GitHub repository (Git integration), so Cloudflare runs the tests, builds and deploys by itself. Pushes to `main` become the production deployment; pull requests from this repository get a preview at `<branch>.skylab-site.pages.dev` (previews send `X-Robots-Tag: noindex`); pull requests from forks get no preview. `.github/workflows/site.yml` runs the tests and the build as a check, including for pull requests from forks; it does not deploy.
+The Cloudflare Pages project `skylab-site` is connected to the GitHub repository (Git integration), so Cloudflare runs the tests, builds and deploys by itself. Pushes to `main` become the production deployment; pull requests from this repository get a preview at `<branch>.skylab-site.pages.dev`; `public/_headers` sends `X-Robots-Tag: noindex` on `skylab-site.pages.dev` and every preview address, so only `skylab-tw.com` is indexed; pull requests from forks get no preview. `.github/workflows/site.yml` runs the tests and the build as a check, including for pull requests from forks; it does not deploy.
 
 One-time setup, in Workers & Pages → Create → Pages → Connect to Git:
 
-1. Select `ntubclass/SkyLab`. The Cloudflare Workers & Pages GitHub App has to be installed on the repository; this is the same app the documentation site uses.
+1. Select `SkyLab-tw/SkyLab`. The Cloudflare Workers & Pages GitHub App has to be installed on the repository; this is the same app the documentation site uses.
 2. Project name `skylab-site`, production branch `main`, framework preset None.
 3. Build command `cd site && bun install --frozen-lockfile && bun run test && bun run build`, build output directory `site/dist`, root directory left empty (the build reads `frontend/src/assets/styles` outside `site/`).
 4. Environment variables `BUN_VERSION` = `1.4.4` and `SKIP_DEPENDENCY_INSTALL` = `1`. Optional: `SITE_URL` if the address is not `https://skylab-tw.com`, and `DOCS_URL` if the documentation site is not at `https://docs.skylab-tw.com`.
@@ -56,7 +57,7 @@ One-time setup, in Workers & Pages → Create → Pages → Connect to Git:
 7. After the first production deploy, add the site to Google Search Console and submit `https://skylab-tw.com/sitemap.xml`.
 8. Set up the contact address, `contact@skylab-tw.com`, with Cloudflare Email Routing: in the `skylab-tw.com` zone open Email → Email Routing and enable it (it adds the MX and TXT records), add the team's mailbox under Destination addresses and confirm it from the verification mail, then create a routing rule that sends `contact@skylab-tw.com` to it. Email Routing only receives mail: a reply sent from that mailbox shows the mailbox's own address unless it is set up to send as `contact@skylab-tw.com`.
 
-A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git.
+A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git. The same applies when the repository moves to another owner (as it did from `ntubclass` to `SkyLab-tw` in October 2026): the project keeps pointing at the old location and stops building, so install the GitHub App on the new organization and create the project again, then move the custom domain over.
 
 A school's platform, such as `ntub.skylab-tw.com`, is not deployed from here; it is a SkyLab installation exposed through its platform entry (see [Deployment](/guides/deployment)).
 

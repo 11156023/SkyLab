@@ -168,8 +168,8 @@ function changelogPage(locale, commits) {
   lines.push('')
   lines.push(
     zh
-      ? '本頁在建置時由 git 歷史產生：列出主分支上採用慣例前綴（`feat`、`fix`、`perf`、`docs` 等）的 commit 標題，依月份分組；合併 commit 與沒有前綴的 commit 不列入。完整歷史見 [GitHub](https://github.com/ntubclass/SkyLab/commits/main)。'
-      : 'This page is generated at build time from the git history: commit subjects on the main branch that use a conventional prefix (`feat`, `fix`, `perf`, `docs`, …), grouped by month. Merge commits and commits without a prefix are not listed. The full history is on [GitHub](https://github.com/ntubclass/SkyLab/commits/main).',
+      ? '本頁在建置時由 git 歷史產生：列出主分支上採用慣例前綴（`feat`、`fix`、`perf`、`docs` 等）的 commit 標題，依月份分組；合併 commit 與沒有前綴的 commit 不列入。完整歷史見 [GitHub](https://github.com/SkyLab-tw/SkyLab/commits/main)。'
+      : 'This page is generated at build time from the git history: commit subjects on the main branch that use a conventional prefix (`feat`, `fix`, `perf`, `docs`, …), grouped by month. Merge commits and commits without a prefix are not listed. The full history is on [GitHub](https://github.com/SkyLab-tw/SkyLab/commits/main).',
   )
   lines.push('')
   if (!commits) {

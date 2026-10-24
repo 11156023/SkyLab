@@ -75,7 +75,11 @@ describe("user group queries", () => {
     expect(mocks.members).not.toHaveBeenCalled();
     expect(seen.members).toBeUndefined();
 
-    act(() => { seen.setGroupId("a"); });
+    /*
+     * 要在 async act 裡選群組：同步 act 讓成員資料在 flush 排好計時器之後才回來，
+     * TanStack 的通知計時器若輸給 act 收尾的 setImmediate，斷言時還沒拿到資料（偶發失敗）
+     */
+    await act(async () => { seen.setGroupId("a"); });
     await flush();
     expect(mocks.members).toHaveBeenCalledWith("a");
     expect(seen.members).toEqual([{ id: "u1" }, { id: "u2" }]);

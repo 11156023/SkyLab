@@ -111,5 +111,4 @@ main.py           ← FastAPI app, lifespan (Redis init + scheduler / push / Wir
 
 - **Backend:** Ruff + Mypy strict + prek pre-commit (root `.pre-commit-config.yaml`).
 - **Frontend:** SCSS Modules per [`website/guides/frontend-style-guide.md`](../website/guides/frontend-style-guide.md) (`--color-*` tokens, `_mixins.scss`); no linter is configured.
-- **Desktop client:** ESLint + Prettier (`npm run lint:fix`).
 - **Comments:** only to explain intent, never to restate what the code literally does.

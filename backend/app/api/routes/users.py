@@ -78,6 +78,7 @@ def write_registration_policy(
         signup_enabled=body.signup_enabled,
         approval_required=body.approval_required,
         google_signup_enabled=body.google_signup_enabled,
+        student_email_domain=body.student_email_domain,
     )
 
 

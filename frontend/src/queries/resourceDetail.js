@@ -121,12 +121,17 @@ export function useBackupCapabilityQuery(vmid, { enabled } = {}) {
   });
 }
 
-/** 登入帳號／代管密碼／金鑰（端點只給擁有者，被分享者不要抓） */
+/**
+ * 登入帳號／代管密碼／金鑰（端點只給擁有者，被分享者不要抓）。
+ * 回應含私鑰與密碼明文：沒有畫面在看就立刻丟掉（gcTime 0），不沿用一般清單保留五分鐘的政策；
+ * 請求帶 signal，離頁時還在路上的回應不會再被寫回快取。
+ */
 export function useSshKeyQuery(vmid, { enabled } = {}) {
   return useQuery({
     queryKey: resourceDetailKeys.sshKey(vmid),
-    queryFn: () => ResourcesService.getSshKey(vmid),
+    queryFn: ({ signal }) => ResourcesService.getSshKey(vmid, { signal }),
     enabled: enabled ?? vmid != null,
+    gcTime: 0,
     /* 只在進分頁與操作後抓（同原本）：切回視窗重抓失敗會再跳一次錯誤，快照／備份清單失敗還會觸發可用性重查 */
     refetchOnWindowFocus: false,
   });
@@ -214,8 +219,11 @@ export function useResourceDetailCacheUpdater() {
         return undefined;
       }
     },
-    setCredentials(vmid, updater) {
-      queryClient.setQueryData(resourceDetailKeys.credentials(vmid), updater);
+    /** 寫入前先取消還在路上的重抓，操作前送出的舊清單不能晚到而蓋掉剛寫入的 */
+    async setCredentials(vmid, updater) {
+      const queryKey = resourceDetailKeys.credentials(vmid);
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData(queryKey, updater);
     },
     setBootOptions(vmid, data) {
       queryClient.setQueryData(resourceDetailKeys.bootOptions(vmid), data);
@@ -240,8 +248,14 @@ export function useResourceDetailCacheUpdater() {
         invalidateKey(resourceDetailKeys.backupCapability(vmid)),
       ]);
     },
-    invalidateSshKey(vmid) {
-      return invalidateKey(resourceDetailKeys.sshKey(vmid));
+    /**
+     * 換密碼或金鑰之後：舊的明文不能再顯示，所以不是標過期（畫面會先拿舊值再背景重抓），
+     * 而是取消在途讀取、清空快取；有畫面在看就重抓，重抓失敗也不會留著舊秘密。
+     */
+    async resetSshKey(vmid) {
+      const queryKey = resourceDetailKeys.sshKey(vmid);
+      await queryClient.cancelQueries({ queryKey });
+      return queryClient.resetQueries({ queryKey });
     },
     invalidateShares(vmid) {
       return invalidateKey(resourceDetailKeys.shares(vmid));

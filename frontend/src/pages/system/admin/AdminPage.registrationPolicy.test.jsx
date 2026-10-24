@@ -92,4 +92,76 @@ describe("AdminPage registration settings", () => {
     expect(policyCheckbox("AdminPage.googleSignupEnabled").checked).toBe(true);
     expect(policyCheckbox("AdminPage.signupEnabled").checked).toBe(false);
   });
+
+  test("the student email domain is saved from its own field and kept by the switches", async () => {
+    mocks.getRegistrationPolicy.mockResolvedValue({
+      signup_enabled: false, approval_required: false, google_signup_enabled: true,
+      student_email_domain: "old.edu.tw",
+    });
+
+    await act(async () => { root.render(withQueryClient(<AdminPage />)); });
+    await flush();
+
+    const input = domainInput();
+    expect(input.value).toBe("old.edu.tw");
+    expect(domainSaveButton().disabled).toBe(true);
+
+    await act(async () => { setInputValue(input, "  new.edu.tw "); });
+    expect(domainSaveButton().disabled).toBe(false);
+    await act(async () => { domainSaveButton().click(); });
+    await flush();
+
+    expect(mocks.saveRegistrationPolicy).toHaveBeenLastCalledWith({
+      signup_enabled: false, approval_required: false, google_signup_enabled: true,
+      student_email_domain: "new.edu.tw",
+    });
+    expect(domainInput().value).toBe("new.edu.tw");
+    expect(domainSaveButton().disabled).toBe(true);
+
+    await act(async () => { policyCheckbox("AdminPage.approvalRequired").click(); });
+    await flush();
+    expect(mocks.saveRegistrationPolicy).toHaveBeenLastCalledWith({
+      signup_enabled: false, approval_required: true, google_signup_enabled: true,
+      student_email_domain: "new.edu.tw",
+    });
+  });
+
+  test("clearing the student email domain saves null and a failed save keeps the draft", async () => {
+    mocks.getRegistrationPolicy.mockResolvedValue({
+      signup_enabled: false, approval_required: false, google_signup_enabled: true,
+      student_email_domain: "old.edu.tw",
+    });
+    mocks.saveRegistrationPolicy.mockRejectedValueOnce(new Error("invalid"));
+
+    await act(async () => { root.render(withQueryClient(<AdminPage />)); });
+    await flush();
+
+    await act(async () => { setInputValue(domainInput(), "bad domain"); });
+    await act(async () => { domainSaveButton().click(); });
+    await flush();
+    expect(mocks.toast.error).toHaveBeenCalledWith("invalid");
+    expect(domainInput().value).toBe("bad domain");
+
+    await act(async () => { setInputValue(domainInput(), " "); });
+    await act(async () => { domainSaveButton().click(); });
+    await flush();
+    expect(mocks.saveRegistrationPolicy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ student_email_domain: null }),
+    );
+    expect(domainInput().value).toBe("");
+  });
 });
+
+function domainInput() {
+  return host.querySelector("#admin-student-email-domain");
+}
+
+function domainSaveButton() {
+  return domainInput().closest("form").querySelector("button[type='submit']");
+}
+
+/* React 只認原生 setter 設的值，再送一個 input 事件 */
+function setInputValue(input, value) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}

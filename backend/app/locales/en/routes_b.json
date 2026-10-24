@@ -9,6 +9,7 @@
   "teachingClasses.studentsLocked": "The student list cannot be changed after provisioning has been submitted.",
   "teachingClasses.studentNotFound": "Class student not found.",
   "teachingClasses.csvDecodeFailed": "Unable to decode the CSV file encoding.",
+  "teachingClasses.csvStudentIdNeedsDomain": "{count} rows of the list contain only a student ID ({ids}), but no student email domain is set. Use full email addresses, or ask an administrator to set the student email domain under User Management → Registration settings.",
   "teachingClasses.machinesManagedByCourseEnvironment": "Please publish a version from the course environment, then select the course environment in class management.",
   "teachingClasses.courseLockedCannotChange": "The class is locked and the course cannot be changed.",
   "teachingClasses.onlyPublishedCourseVersion": "Only a published course version can be selected.",

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineConfig, type DefaultTheme, type HeadConfig } from 'vitepress'
+import { languageRedirectScript } from './theme/languagePreference'
 
 // All documentation of the repository lives in this directory:
 //   guides/, operations/, reference/, development/, manual/, project/  (English)
@@ -9,7 +10,7 @@ import { defineConfig, type DefaultTheme, type HeadConfig } from 'vitepress'
 // are produced by scripts/generate.mjs; the REST API page renders
 // public/openapi.json exported by backend/scripts/export_openapi.py.
 
-const REPO = 'https://github.com/ntubclass/SkyLab'
+const REPO = 'https://github.com/SkyLab-tw/SkyLab'
 
 // Production address: canonical URLs, hreflang, sitemap.xml, robots.txt and share cards.
 // DOCS_URL overrides it (an environment variable of the Cloudflare Pages project).
@@ -19,9 +20,13 @@ const SITE_URL = (process.env.DOCS_URL || 'https://docs.skylab-tw.com').replace(
 
 const ZH = 'zh-TW/'
 
-/** Address of a source file: guides/x.md → /guides/x, manual/index.md → /manual/ */
+/** Path of a source file: guides/x.md → /guides/x, manual/index.md → /manual/ */
+function pagePath(relativePath: string): string {
+  return `/${relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')}`
+}
+
 function pageUrl(relativePath: string): string {
-  return `${SITE_URL}/${relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')}`
+  return `${SITE_URL}${pagePath(relativePath)}`
 }
 
 /** The same page in the other language, when it exists (hreflang must point both ways). */
@@ -353,6 +358,8 @@ export default defineConfig({
         ['link', { rel: 'alternate', hreflang: 'zh-TW', href: pageUrl(zh ? pageData.relativePath : other) }],
         ['link', { rel: 'alternate', hreflang: 'x-default', href: english }],
       )
+      // Chinese-reading visitors go straight to the 繁體中文 version (theme/languagePreference.ts).
+      if (!zh) head.push(['script', {}, languageRedirectScript(pagePath(other))])
     }
     const image = `${SITE_URL}/og-image${zh ? '-zh-TW' : ''}.jpg`
     head.push(

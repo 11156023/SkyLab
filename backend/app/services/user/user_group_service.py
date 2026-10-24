@@ -93,10 +93,16 @@ def _ensure_name_free(
         raise ConflictError(t("userGroup.nameExists", name=name))
 
 
-def _commit_name(session: Session, name: str) -> None:
-    # 同名檢查與寫入之間仍可能被另一個請求搶先：唯一約束擋下時一樣回 409
+def _save_name(session: Session, name: str, *, commit: bool = False) -> None:
+    """同名檢查與寫入之間仍可能被另一個請求搶先（兩邊都通過預查）：唯一索引擋下時回 409。
+
+    新名稱要在寫稽核紀錄之前先 flush：寫紀錄會觸發 autoflush，在那裡撞到索引就成了 500。
+    """
     try:
-        session.commit()
+        if commit:
+            session.commit()
+        else:
+            session.flush()
     except IntegrityError as exc:
         session.rollback()
         raise ConflictError(t("userGroup.nameExists", name=name)) from exc
@@ -108,6 +114,7 @@ def create_group(
     _ensure_name_free(session, body.name)
     group = UserGroup(name=body.name)
     session.add(group)
+    _save_name(session, body.name)
     audit_service.log_action(
         session=session,
         user_id=actor_id,
@@ -115,7 +122,7 @@ def create_group(
         details=f"Created user group {body.name}",
         commit=False,
     )
-    _commit_name(session, body.name)
+    _save_name(session, body.name, commit=True)
     session.refresh(group)
     return _to_public(group)
 
@@ -129,6 +136,7 @@ def rename_group(
         old_name = group.name
         group.name = body.name
         session.add(group)
+        _save_name(session, body.name)
         audit_service.log_action(
             session=session,
             user_id=actor_id,
@@ -136,7 +144,7 @@ def rename_group(
             details=f"Renamed user group {old_name} to {body.name}",
             commit=False,
         )
-        _commit_name(session, body.name)
+        _save_name(session, body.name, commit=True)
         session.refresh(group)
     return _serialize(session, group)
 

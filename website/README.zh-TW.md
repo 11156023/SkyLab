@@ -94,7 +94,7 @@ Cloudflare Pages 專案 `skylab-docs` 直接連到 GitHub repo（Git integration
 
 一次性設定，在 Workers & Pages → Create → Pages → Connect to Git：
 
-1. 在 repo 安裝 Cloudflare Workers & Pages 的 GitHub App 並選 `ntubclass/SkyLab`。要由組織 owner 或具 GitHub Apps Manager 角色的成員來做。
+1. 在 repo 安裝 Cloudflare Workers & Pages 的 GitHub App 並選 `SkyLab-tw/SkyLab`。要由組織 owner 或具 GitHub Apps Manager 角色的成員來做。
 2. 專案名稱 `skylab-docs`，production branch `main`，framework preset 選 None。
 3. Build command `bash website/scripts/cloudflare-pages-build.sh`，build output directory `website/.vitepress/dist`，root directory 留空。
 4. 環境變數 `BUN_VERSION` = `1.4.4`，與鎖檔和 CI 用的 Bun 版本一致（建置環境的預設版本較舊）；`SKIP_DEPENDENCY_INSTALL` = `1`，因為腳本自己安裝套件。
@@ -102,7 +102,7 @@ Cloudflare Pages 專案 `skylab-docs` 直接連到 GitHub repo（Git integration
 6. 到 Custom domains 加上 `docs.skylab-tw.com`；zone 在 Cloudflare 上時 DNS 紀錄會自動建立。
 7. 第一次正式部署後，把網站加進 Google Search Console 並提交 `https://docs.skylab-tw.com/sitemap.xml`。
 
-用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。
+用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。repo 轉移到別的擁有者時也一樣（2026 年 10 月從 `ntubclass` 轉到 `SkyLab-tw`）：專案仍指著舊位置、不會再建置，要在新組織安裝 GitHub App、重新建立專案，再把自訂網域移過去。
 
 ### SEO
 
@@ -110,6 +110,8 @@ VitePress 會預先產生每一頁的 HTML。其餘由 `.vitepress/config.mts` �
 
 - `sitemap.xml`，每頁都列出英文與繁體中文版本互為 hreflang 對應；`robots.txt` 指向它。
 - 每頁都有 canonical 網址；中英兩版都存在的頁面有指向另一語言的 hreflang；Open Graph／Twitter card 標籤帶分享縮圖 `public/og-image.jpg` 或 `og-image-zh-TW.jpg`（1200×630 的首頁截圖，首頁改了要重拍）。404 頁設為 `noindex`。
+- `public/_headers` 讓 `skylab-docs.pages.dev` 與預覽網址都送出 `X-Robots-Tag: noindex`，搜尋引擎只會收錄 `docs.skylab-tw.com`。
+- 有繁體中文版的英文頁，`<head>` 裡有一小段腳本：瀏覽器偏好中文的讀者在頁面顯示前就會被換到中文版（`theme/languagePreference.ts`）。在語言選單選過的語言會記住，之後以它為準。繁體中文頁不會轉走，爬蟲也不會被轉，兩個版本都能被收錄。
 - 每頁的描述：有 front matter `description` 就用它，首頁用 hero 的 tagline，其餘取該頁第一段文字轉成純文字，再截到搜尋結果顯示得下的長度。
 
 ## 慣例

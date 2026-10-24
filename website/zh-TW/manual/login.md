@@ -103,7 +103,7 @@
 
 ### 授權 SkyLab Connect 桌面 App
 
-在 SkyLab Connect 桌面 App 按下登入後，它會在瀏覽器開啟 SkyLab 的登入頁。
+第一次開啟 SkyLab Connect 桌面 App 時，它會請你輸入學校 SkyLab 的網址，也就是平常用瀏覽器登入的那個網址（例如 `school.skylab-tw.com`），之後可以在 App 的設定裡修改。在 App 按下登入後，它會在瀏覽器開啟 SkyLab 的登入頁。
 
 1. 尚未登入時，頁面會顯示 **登入後連接 SkyLab Connect**，照平常方式登入即可。
 2. 在 **授權桌面 App 登入** 畫面，確認 **授權帳號** 顯示的是你的帳號。

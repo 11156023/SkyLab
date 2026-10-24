@@ -108,11 +108,11 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
 
-  /* 重設密碼、換金鑰後：這張卡、總覽的帳密區與詳情（是否保管密碼）一起重抓，
-     切到總覽時不會看到快取裡的舊密碼 */
+  /* 重設密碼、換金鑰後：這張卡與詳情（是否保管密碼）重抓；總覽帳密區的快取直接清空，
+     切到總覽時不會看到舊密碼或舊私鑰 */
   const reloadAfterChange = () => Promise.all([
     detailCache.invalidateCredentials(vmid),
-    detailCache.invalidateSshKey(vmid),
+    detailCache.resetSshKey(vmid),
     detailCache.invalidateDetail(vmid),
   ]);
   /* 公鑰清單由回應就地更新，不必重抓 */
@@ -177,7 +177,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
     setBusy(true);
     try {
       const res = await ResourcesService.addAuthorizedKey(vmid, key);
-      setAuthorizedKeys(res.authorized_keys);
+      await setAuthorizedKeys(res.authorized_keys);
       setNewKey("");
       toast.success(res.message);
     } catch (err) {
@@ -197,7 +197,7 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
     setBusy(true);
     try {
       const res = await ResourcesService.removeAuthorizedKey(vmid, key);
-      setAuthorizedKeys(res.authorized_keys);
+      await setAuthorizedKeys(res.authorized_keys);
       toast.success(res.message);
     } catch (err) {
       toast.error(err?.message ?? t("CredentialsCard.removeKeyFailed"));

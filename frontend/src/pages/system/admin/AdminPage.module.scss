@@ -51,7 +51,8 @@
   justify-content: space-between;
   gap: $spacing-16;
 
-  > span {
+  > span,
+  > label {
     @include flex-column;
     gap: 4px;
     min-width: 0;
@@ -68,10 +69,36 @@
   }
 }
 
-.registrationOption input {
+.registrationOption input[type="checkbox"] {
   flex: none;
   width: 18px;
   height: 18px;
+}
+
+/* 學號信箱網域：文字欄＋儲存，窄螢幕換到說明下方 */
+.registrationOption:has(.domainField) {
+  flex-wrap: wrap;
+
+  /* 說明再長也先在自己欄內換行，欄位寬度不夠時才把輸入框換到下一行 */
+  > label {
+    flex: 1 1 280px;
+  }
+}
+
+.domainField {
+  display: flex;
+  flex: 0 1 320px;
+  gap: $spacing-8;
+  min-width: 0;
+
+  input {
+    @include form-control;
+    min-width: 0;
+  }
+
+  button {
+    flex: none;
+  }
 }
 
 .pendingRow {

@@ -5,3 +5,10 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+
+# Pages 預設網址與預覽網址跟 skylab-tw.com 內容相同，不讓搜尋引擎收錄
+https://:project.pages.dev/*
+  X-Robots-Tag: noindex
+
+https://:version.:project.pages.dev/*
+  X-Robots-Tag: noindex

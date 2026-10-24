@@ -6,6 +6,7 @@ How SkyLab is deployed on a server with Docker Compose. Development setup is in 
 
 - One `docker-compose.yml` at the repository root is the whole deployment. It `include`s the LiteLLM compose file from `vllm-service/litellm/`; the two keep separate `.env` files.
 - The built-in `nginx` container is the only public entry point (host port `NGINX_HOST_PORT`, default 8082): `/api` and `/ws` go to the backend, `/grafana/` to Grafana, everything else to the frontend.
+- The platform is an internal tool, so it asks search engines not to index it: nginx sends `X-Robots-Tag: noindex, nofollow` on every response and the frontend page carries the same robots meta tag. The public face of the project is the public site and this documentation.
 - To expose the platform on a domain with HTTPS, route it through the gateway VM's nginx ("platform entry", below). SkyLab does not issue certificates; the administrator supplies one.
 - The database is PostgreSQL 18 in the stack (behind PgBouncer), Redis holds queues and caches, and an `arq` worker runs background jobs. Migrations run automatically on start.
 - Deployment to the test environment is a manually triggered GitHub Actions workflow on a self-hosted runner (below). Pushing to `main` does not deploy.
@@ -187,7 +188,7 @@ The gateway is a separate Linux VM installed with `gateway/install.sh` (nginx st
 
 ## 8. Continuous deployment (test environment)
 
-`.github/workflows/deploy-pve-test.yml` ("Deploy to PVE Test") is started manually from the Actions tab (`workflow_dispatch`) and only runs in the `ntubclass/SkyLab` repository. It runs on the self-hosted runner labelled `skylab-main` and waits for approval of the `pve-test` environment before doing anything.
+`.github/workflows/deploy-pve-test.yml` ("Deploy to PVE Test") is started manually from the Actions tab (`workflow_dispatch`) and only runs in the `SkyLab-tw/SkyLab` repository. It runs on the self-hosted runner labelled `skylab-main` and waits for approval of the `pve-test` environment before doing anything.
 
 On the runner:
 

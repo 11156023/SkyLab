@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { LANGUAGES, render } from "./entry-server";
 import { CONTACT_EMAIL } from "./config";
+import { LANGUAGE_STORAGE_KEY } from "./languagePreference";
 import { DEMOS } from "./landing/LandingPage";
 import zhTW from "./locales/zh-TW.json";
 import en from "./locales/en.json";
@@ -20,6 +21,13 @@ describe.each([
     expect(html).toContain(contact);
     expect(html).toContain(CONTACT_EMAIL);
   });
+});
+
+test("只有根網址(預設語言)帶依瀏覽器語言轉頁的腳本", () => {
+  expect(render("zh-TW").head).toContain(`<script>(function(){`);
+  expect(render("zh-TW").head).toContain(LANGUAGE_STORAGE_KEY);
+  expect(render("en").head).not.toContain(LANGUAGE_STORAGE_KEY);
+  expect(render("ja").head).not.toContain(LANGUAGE_STORAGE_KEY);
 });
 
 test("三個語言都有預渲染,分享縮圖也都在 public/", () => {

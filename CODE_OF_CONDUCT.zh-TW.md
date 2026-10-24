@@ -13,6 +13,6 @@ SkyLab 採用 [Contributor Covenant 2.1 版](https://www.contributor-covenant.or
 
 ## 回報
 
-如果你遭遇或目睹不當行為，請透過 GitHub 上的 [ntubclass 組織](https://github.com/ntubclass)私下聯絡維護者；若同時涉及安全問題，也可以從本 repo 的 **Security** 分頁提出私密回報。回報內容會保密處理，維護者會依 Contributor Covenant 的執行準則回應。
+如果你遭遇或目睹不當行為，請透過 GitHub 上的 [SkyLab-tw 組織](https://github.com/SkyLab-tw)私下聯絡維護者；若同時涉及安全問題，也可以從本 repo 的 **Security** 分頁提出私密回報。回報內容會保密處理，維護者會依 Contributor Covenant 的執行準則回應。
 
 安全漏洞不屬於行為準則問題，請依 [`SECURITY.zh-TW.md`](SECURITY.zh-TW.md) 回報。

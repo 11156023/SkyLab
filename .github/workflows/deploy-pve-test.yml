@@ -19,7 +19,7 @@ jobs:
     name: Deploy to PVE test environment
     # 防止其他 fork 收錄此檔後誤觸發（它們沒有掛 skylab-main runner，
     # job 會無限排隊）
-    if: github.repository == 'ntubclass/SkyLab'
+    if: github.repository == 'SkyLab-tw/SkyLab'
     # 只派給掛有 skylab-main 自訂 label 的 self-hosted runner。
     # 注意：GitHub 不會把 runner 名稱當 label，新 runner 註冊時要用
     # --labels skylab-main（或到 Settings → Actions → Runners 補加）。

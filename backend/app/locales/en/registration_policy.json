@@ -2,5 +2,6 @@
   "user.registrationApprovalRequired": "This account is awaiting registration verification or approval",
   "user.registrationNotPending": "This account is not awaiting approval",
   "user.registrationPendingReview": "Your account is verified. Wait for administrator approval before logging in",
-  "user.registrationRequirementsUnavailable": "Configure production SMTP and Turnstile before enabling self-registration"
+  "user.registrationRequirementsUnavailable": "Configure production SMTP and Turnstile before enabling self-registration",
+  "user.studentEmailDomainInvalid": "The student email domain is not valid. Enter a domain such as school.edu.tw, without @"
 }

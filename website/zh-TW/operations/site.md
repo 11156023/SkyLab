@@ -34,6 +34,7 @@ bun run preview    # 提供 dist/；每次重建後要重啟
 ## SEO
 
 - 每種語言都是預渲染好的頁面，完整文字直接在 HTML 裡：`/`（繁體中文）、`/en/`、`/ja/`。`bun run build` 依序跑前端建置、`src/entry-server.jsx` 的 SSR 建置，再由 `scripts/prerender.mjs` 把渲染好的頁面與 head 標籤寫進各自的 `index.html`。瀏覽器接手（hydrate）預渲染的 HTML。
+- 只有 `/` 會依訪客的瀏覽器語言轉頁：它的 head 裡有一小段腳本（`src/languagePreference.js`），瀏覽器偏好日文或英文時，在頁面顯示前就換到 `/ja/` 或 `/en/`；三種語言都不是偏好時去 `/en/`。在語言選單點過的語言會記住，之後以它為準。`/en/` 與 `/ja/` 不會轉走，爬蟲也不會被轉，每種語言都能被收錄。
 - 每頁有自己的標題與描述、canonical 網址、指向三種語言與 `x-default` 的 `hreflang`、帶該語言分享縮圖的 Open Graph 與 Twitter card 標籤，以及 JSON-LD（`WebSite`、`SoftwareApplication`）。
 - `sitemap.xml` 列出三個頁面與彼此的對應網址；`robots.txt` 全站開放並指向 sitemap。
 - 所有絕對網址都來自 `SITE_URL`，預設 `https://skylab-tw.com`。要用別的網址建置，設定環境變數 `SITE_URL`（在 Cloudflare Pages 上是專案的環境變數）。
@@ -43,11 +44,11 @@ bun run preview    # 提供 dist/；每次重建後要重啟
 
 ## 部署到 Cloudflare Pages
 
-Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration），由 Cloudflare 自己跑測試、建置與部署。推送到 `main` 成為正式部署；本 repo 的 pull request 會得到 `<branch>.skylab-site.pages.dev` 的預覽（預覽會送出 `X-Robots-Tag: noindex`）；來自 fork 的 pull request 沒有預覽。`.github/workflows/site.yml` 跑測試與建置當檢查，來自 fork 的 pull request 也會跑，但不負責部署。
+Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration），由 Cloudflare 自己跑測試、建置與部署。推送到 `main` 成為正式部署；本 repo 的 pull request 會得到 `<branch>.skylab-site.pages.dev` 的預覽；`public/_headers` 讓 `skylab-site.pages.dev` 與所有預覽網址都送出 `X-Robots-Tag: noindex`，搜尋引擎只會收錄 `skylab-tw.com`；來自 fork 的 pull request 沒有預覽。`.github/workflows/site.yml` 跑測試與建置當檢查，來自 fork 的 pull request 也會跑，但不負責部署。
 
 一次性設定，在 Workers & Pages → Create → Pages → Connect to Git：
 
-1. 選 `ntubclass/SkyLab`。repo 要裝好 Cloudflare Workers & Pages 的 GitHub App，跟文件站用的是同一個。
+1. 選 `SkyLab-tw/SkyLab`。repo 要裝好 Cloudflare Workers & Pages 的 GitHub App，跟文件站用的是同一個。
 2. 專案名稱 `skylab-site`，production branch `main`，framework preset 選 None。
 3. Build command `cd site && bun install --frozen-lockfile && bun run test && bun run build`，build output directory `site/dist`，root directory 留空（建置會讀 `site/` 外面的 `frontend/src/assets/styles`）。
 4. 環境變數 `BUN_VERSION` = `1.4.4` 與 `SKIP_DEPENDENCY_INSTALL` = `1`。選用：網址不是 `https://skylab-tw.com` 時設 `SITE_URL`；文件站不在 `https://docs.skylab-tw.com` 時設 `DOCS_URL`。
@@ -56,7 +57,7 @@ Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration
 7. 第一次正式部署後，把網站加進 Google Search Console 並提交 `https://skylab-tw.com/sitemap.xml`。
 8. 用 Cloudflare Email Routing 設定聯絡信箱 `contact@skylab-tw.com`：在 `skylab-tw.com` 這個 zone 打開 Email → Email Routing 並啟用（會加上 MX 與 TXT 紀錄），在 Destination addresses 加入團隊的收件信箱並點驗證信確認，再建立一條把 `contact@skylab-tw.com` 轉寄過去的 routing rule。Email Routing 只負責收信：從收件信箱回信時，對方看到的是收件信箱本身的地址，除非另外設定以 `contact@skylab-tw.com` 寄出。
 
-用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。
+用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。repo 轉移到別的擁有者時也一樣（2026 年 10 月從 `ntubclass` 轉到 `SkyLab-tw`）：專案仍指著舊位置、不會再建置，要在新組織安裝 GitHub App、重新建立專案，再把自訂網域移過去。
 
 學校的平台（例如 `ntub.skylab-tw.com`）不從這裡部署；那是一套經由平台入口對外的 SkyLab（見[部署指南](/zh-TW/guides/deployment)）。
 

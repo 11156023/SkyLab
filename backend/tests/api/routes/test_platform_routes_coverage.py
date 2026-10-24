@@ -506,6 +506,7 @@ def test_user_registration_routes_delegate(monkeypatch: pytest.MonkeyPatch) -> N
                 signup_enabled=True,
                 approval_required=False,
                 google_signup_enabled=True,
+                student_email_domain="school.edu.tw",
             ),
         )
         is policy_service.update_policy.return_value
@@ -515,6 +516,7 @@ def test_user_registration_routes_delegate(monkeypatch: pytest.MonkeyPatch) -> N
         signup_enabled=True,
         approval_required=False,
         google_signup_enabled=True,
+        student_email_domain="school.edu.tw",
     )
     assert (
         users_route.read_pending_registrations(session=session)

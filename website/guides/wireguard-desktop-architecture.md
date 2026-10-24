@@ -2,6 +2,8 @@
 
 SkyLab Connect uses WireGuard to build an encrypted L3 network from the desktop client to the Gateway VM. Once the desktop client has been authorized, it connects directly to the VM's real address and service port.
 
+The desktop client is developed in its own repository and released at [SkyLab-tw/SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect); this repository holds the backend API it calls (`/api/v1/desktop-client/...`) and the gateway side described below.
+
 ## Connection flow
 
 1. The Desktop Client generates an X25519 key pair locally; the private key is stored only in encrypted form via Electron `safeStorage`.

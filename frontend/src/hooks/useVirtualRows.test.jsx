@@ -78,4 +78,39 @@ describe("useVirtualRows", () => {
     expect(parseInt(bottom.style.height, 10)).toBe(count * ROW - renderedHeight);
     expect(host.querySelector("tr[data-pad='top']")).toBeNull();
   });
+
+  test("content above the table growing without resizing the table still moves the rendered rows", async () => {
+    const observers = [];
+    class ResizeObserverSpy {
+      constructor(callback) { this.callback = callback; this.targets = []; observers.push(this); }
+      observe(target) { this.targets.push(target); }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverSpy);
+    Object.defineProperty(window, "ResizeObserver", { configurable: true, value: ResizeObserverSpy });
+    /* tbody 在文件中的位置；happy-dom 沒有版面，自己算 getBoundingClientRect */
+    let tbodyTop = 0;
+    const original = HTMLTableSectionElement.prototype.getBoundingClientRect;
+    HTMLTableSectionElement.prototype.getBoundingClientRect = function () {
+      const top = tbodyTop - window.scrollY;
+      return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top };
+    };
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 2000 });
+    const firstRow = () => Number(host.querySelector("tr[data-index]").dataset.index);
+    try {
+      await act(async () => { root.render(<Table count={500} />); });
+      const before = firstRow();
+
+      /* 表格上方的內容長高 1000px：整頁變高，表格本身大小不變 */
+      tbodyTop = 1000;
+      await act(async () => {
+        observers.filter((o) => o.targets.includes(document.body)).forEach((o) => o.callback([]));
+      });
+
+      expect(firstRow()).toBe(before - 1000 / ROW);
+    } finally {
+      HTMLTableSectionElement.prototype.getBoundingClientRect = original;
+    }
+  });
 });

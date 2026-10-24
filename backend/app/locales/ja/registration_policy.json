@@ -2,5 +2,6 @@
   "user.registrationApprovalRequired": "このアカウントは登録確認または承認待ちです",
   "user.registrationNotPending": "このアカウントは承認待ちではありません",
   "user.registrationPendingReview": "アカウントを確認しました。管理者の承認後にログインできます",
-  "user.registrationRequirementsUnavailable": "登録を有効にする前に、本番 SMTP と Turnstile を設定してください"
+  "user.registrationRequirementsUnavailable": "登録を有効にする前に、本番 SMTP と Turnstile を設定してください",
+  "user.studentEmailDomainInvalid": "学籍番号のメールドメインの形式が正しくありません。school.edu.tw のようなドメインを @ なしで入力してください"
 }

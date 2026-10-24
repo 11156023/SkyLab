@@ -7,6 +7,8 @@ import { I18nextProvider } from "react-i18next";
 import LandingPage from "./landing/LandingPage";
 import { createI18n } from "./i18n";
 import { CONTACT_EMAIL, GITHUB_URL, SITE_URL } from "./config";
+import { DEFAULT_LANGUAGE } from "./languages";
+import { languageRedirectScript } from "./languagePreference";
 import { buildHead } from "./seo";
 
 export { LANGUAGES } from "./languages";
@@ -29,5 +31,7 @@ export function render(lang) {
     contactEmail: CONTACT_EMAIL,
     githubUrl: GITHUB_URL,
   });
+  // 根網址依瀏覽器語言轉到 /en/ 或 /ja/（languagePreference.js）
+  if (lang === DEFAULT_LANGUAGE) return { html, head: `${head}\n    <script>${languageRedirectScript()}</script>` };
   return { html, head };
 }

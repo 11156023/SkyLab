@@ -3,10 +3,13 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { createQueryClient } from "./queryClient";
 import { createTestQueryClient, withQueryClient } from "./testing";
 import { resourceKeys } from "./resources";
 import {
   resourceDetailKeys,
+  useBootOptionsQuery,
+  useCredentialsQuery,
   useCurrentStatsQuery,
   useIsoImagesQuery,
   useLoadError,
@@ -18,10 +21,13 @@ import {
   useSharesQuery,
   useSnapshotCapabilityQuery,
   useSpecsQuery,
+  useSshKeyQuery,
 } from "./resourceDetail";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
+  getCredentials: vi.fn(),
+  getSshKey: vi.fn(),
   getCurrentStats: vi.fn(),
   getStats: vi.fn(),
   listIsoImages: vi.fn(),
@@ -204,21 +210,51 @@ describe("useResourceDetailCacheUpdater", () => {
     expect(seen.detail).toEqual({ vmid: 101, status: "running" });
   });
 
-  test("setCredentials()/setBootOptions() patch those caches in place", () => {
+  test("setCredentials()/setBootOptions() patch those caches in place", async () => {
     client.setQueryData(resourceDetailKeys.credentials(101), { authorized_keys: ["a"], username: "u" });
     function Writer() {
+      /*
+       * 同正式畫面：寫入的卡片本身在看這兩份快取。沒有 observer 時測試 client 的 gcTime 0
+       * 會在 await act 收尾的 setImmediate 之前清掉快取（CI 上依事件迴圈時序偶發失敗）
+       */
+      useCredentialsQuery(101, { enabled: false });
+      useBootOptionsQuery(101, { enabled: false });
       const cache = useResourceDetailCacheUpdater();
       seen = { cache };
       return null;
     }
     act(() => root.render(withQueryClient(<Writer />, client)));
-    act(() => {
-      seen.cache.setCredentials(101, (prev) => ({ ...prev, authorized_keys: ["a", "b"] }));
+    await act(async () => {
+      await seen.cache.setCredentials(101, (prev) => ({ ...prev, authorized_keys: ["a", "b"] }));
       seen.cache.setBootOptions(101, { boot_order: ["scsi0"] });
     });
 
     expect(client.getQueryData(resourceDetailKeys.credentials(101))).toEqual({ authorized_keys: ["a", "b"], username: "u" });
     expect(client.getQueryData(resourceDetailKeys.bootOptions(101))).toEqual({ boot_order: ["scsi0"] });
+  });
+
+  test("setCredentials() cancels an in-flight refetch so a removed key cannot come back", async () => {
+    let resolveStale;
+    mocks.getCredentials
+      .mockResolvedValueOnce({ username: "u", authorized_keys: ["a", "b"] })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }));
+    function CredentialsProbe() {
+      const q = useCredentialsQuery(101);
+      const cache = useResourceDetailCacheUpdater();
+      seen = { data: q.data, cache };
+      return null;
+    }
+    await render(<CredentialsProbe />);
+
+    /* 刪除前就送出的重抓（例如回到分頁時資料已過期） */
+    act(() => { client.refetchQueries({ queryKey: resourceDetailKeys.credentials(101) }); });
+    await act(async () => {
+      await seen.cache.setCredentials(101, (prev) => ({ ...prev, authorized_keys: ["a"] }));
+    });
+    await act(async () => resolveStale({ username: "u", authorized_keys: ["a", "b"] }));
+    await flush();
+
+    expect(seen.data).toEqual({ username: "u", authorized_keys: ["a"] });
   });
 
   test("invalidate(vmid) refetches every active read of that machine only", async () => {
@@ -307,6 +343,62 @@ describe("useResourceDetailCacheUpdater", () => {
     ]);
     /* 管理員清單沒載過：不動、不建立 */
     expect(client.getQueryData(resourceKeys.everyone)).toBeUndefined();
+  });
+});
+
+describe("SSH key secrets", () => {
+  function SshProbe({ vmid = 101 }) {
+    const q = useSshKeyQuery(vmid);
+    const cache = useResourceDetailCacheUpdater();
+    seen = { data: q.data, isPending: q.isPending, isError: q.isError, cache };
+    return null;
+  }
+
+  test("are dropped as soon as no screen shows them, even when other reads are kept for minutes", async () => {
+    client = createQueryClient({ queries: { retry: false, gcTime: 5 * 60_000 } });
+    mocks.getSshKey.mockResolvedValue({ login_password: "secret", ssh_private_key: "KEY" });
+    await render(<SshProbe />);
+    expect(mocks.getSshKey).toHaveBeenCalledWith(101, { signal: expect.any(AbortSignal) });
+    expect(client.getQueryData(resourceDetailKeys.sshKey(101))).toMatchObject({ login_password: "secret" });
+
+    act(() => root.render(withQueryClient(null, client)));
+    await flush();
+
+    expect(client.getQueryData(resourceDetailKeys.sshKey(101))).toBeUndefined();
+  });
+
+  test("a request still in flight when the screen goes away is aborted", async () => {
+    let signal;
+    mocks.getSshKey.mockImplementation((_vmid, options) => {
+      signal = options.signal;
+      return new Promise(() => {});
+    });
+    await render(<SshProbe />);
+    expect(signal.aborted).toBe(false);
+
+    act(() => root.render(withQueryClient(null, client)));
+    await flush();
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  test("resetSshKey() never shows the old secret again, even when the refetch fails", async () => {
+    let rejectNext;
+    mocks.getSshKey
+      .mockResolvedValueOnce({ login_password: "old" })
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectNext = reject; }));
+    await render(<SshProbe />);
+    expect(seen.data).toEqual({ login_password: "old" });
+
+    await act(async () => { seen.cache.resetSshKey(101); });
+    await flush();
+    expect(seen.data).toBeUndefined();
+    expect(seen.isPending).toBe(true);
+
+    await act(async () => rejectNext(new Error("pve down")));
+    await flush();
+    expect(seen.data).toBeUndefined();
+    expect(seen.isError).toBe(true);
   });
 });
 

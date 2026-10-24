@@ -6,7 +6,7 @@ Every document of the SkyLab repository lives on this site, under `website/` in 
 
 | Page | What it covers |
 | --- | --- |
-| [README](https://github.com/ntubclass/SkyLab#readme) (繁體中文: [Project overview](/zh-TW/overview)) | Project overview, components, quick start |
+| [README](https://github.com/SkyLab-tw/SkyLab#readme) (繁體中文: [Project overview](/zh-TW/overview)) | Project overview, components, quick start |
 | [Getting started](/getting-started) | From `docker compose up` to the setup wizard and the first login |
 | [Concepts and architecture](/concepts) | Components, roles, vocabulary, background work, where data lives |
 | [User manual](/manual/) | One page per feature, grouped by role |
@@ -45,8 +45,8 @@ Every document of the SkyLab repository lives on this site, under `website/` in 
 | [Database design](/guides/database-design) | Normalisation (1NF–3NF), redundancy kept on purpose, checklist for schema changes |
 | [Frontend style guide](/guides/frontend-style-guide) | SCSS architecture, tokens, components, forms, tables, dark mode |
 | [Internationalisation](/development/i18n) | Frontend, backend and desktop catalogs; translation rules |
-| [Contributing](https://github.com/ntubclass/SkyLab/blob/main/CONTRIBUTING.md), [Security policy](https://github.com/ntubclass/SkyLab/blob/main/SECURITY.md), [Code of conduct](https://github.com/ntubclass/SkyLab/blob/main/CODE_OF_CONDUCT.md) | Kept at the repository root so GitHub shows them |
-| [License](/project/license), [`LICENSE`](https://github.com/ntubclass/SkyLab/blob/main/LICENSE), [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE), [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) | AGPL-3.0, the upstream template's MIT notice, the list of open-source components |
+| [Contributing](https://github.com/SkyLab-tw/SkyLab/blob/main/CONTRIBUTING.md), [Security policy](https://github.com/SkyLab-tw/SkyLab/blob/main/SECURITY.md), [Code of conduct](https://github.com/SkyLab-tw/SkyLab/blob/main/CODE_OF_CONDUCT.md) | Kept at the repository root so GitHub shows them |
+| [License](/project/license), [`LICENSE`](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE), [`NOTICE`](https://github.com/SkyLab-tw/SkyLab/blob/main/NOTICE), [`THIRD_PARTY_NOTICES.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) | AGPL-3.0, the upstream template's MIT notice, the list of open-source components |
 
 ## Product and design
 

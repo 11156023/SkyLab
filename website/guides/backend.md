@@ -139,7 +139,7 @@ Ruff, mypy and the prek pre-commit hooks are run as described in the [Developmen
 
 ## See also
 
-- [Project overview (README)](https://github.com/ntubclass/SkyLab/blob/main/README.md)
+- [Project overview (README)](https://github.com/SkyLab-tw/SkyLab/blob/main/README.md)
 - [Development Guide](/guides/development)
 - [Deployment Guide](/guides/deployment)
 - [Monitoring](/guides/monitoring)

@@ -19,7 +19,7 @@ hero:
       link: /zh-TW/concepts
     - theme: alt
       text: GitHub
-      link: https://github.com/ntubclass/SkyLab
+      link: https://github.com/SkyLab-tw/SkyLab
 
 features:
   - icon: 🖥️
@@ -55,8 +55,8 @@ features:
 - **要呼叫 API：**[REST API](/zh-TW/reference/api)、[WebSocket 端點](/zh-TW/reference/websocket)與 [AI API 使用與部署手冊](/zh-TW/guides/ai-api-user-manual)。
 - **找特定頁面：**[使用手冊](/zh-TW/manual/)依角色涵蓋每個功能，[文件索引](/zh-TW/guides/)依檔案列出所有頁面。
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/ntubclass/SkyLab/blob/main/LICENSE)
-[![Backend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml)
-[![Frontend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE)
+[![Backend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml)
+[![Frontend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml)
 
-SkyLab 是以 GNU AGPL-3.0 釋出的自由軟體，見[授權](/zh-TW/project/license)。本站就是 repo 的文件，放在 [`website/`](https://github.com/ntubclass/SkyLab/tree/main/website) 目錄；每頁底部的「在 GitHub 上編輯此頁」會開啟對應的原始檔。
+SkyLab 是以 GNU AGPL-3.0 釋出的自由軟體，見[授權](/zh-TW/project/license)。本站就是 repo 的文件，放在 [`website/`](https://github.com/SkyLab-tw/SkyLab/tree/main/website) 目錄；每頁底部的「在 GitHub 上編輯此頁」會開啟對應的原始檔。

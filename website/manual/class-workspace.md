@@ -64,7 +64,7 @@ To paste email addresses:
 To import a CSV file:
 
 1. Click **Import CSV** and choose a `.csv` file.
-2. The first column of each row is read as an email or a student ID. A bare student ID gets the school's email domain appended; a header row named `email`, `學號` or `帳號` is skipped.
+2. The first column of each row is read as an email or a student ID. A bare student ID gets the student email domain that the administrator set (without one, use full email addresses); a header row named `email`, `學號` or `帳號` is skipped.
 3. A notice reports how many were added and how many accounts don't exist or aren't student accounts.
 
 ![Add students (numbers match the steps above)](/manual-shots/en/class-workspace/s03.webp)

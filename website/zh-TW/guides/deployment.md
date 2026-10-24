@@ -6,6 +6,7 @@
 
 - repo 根目錄的 `docker-compose.yml` 就是整套部署。它以 `include` 引用 `vllm-service/litellm/` 的 LiteLLM compose 檔；兩邊各自保留 `.env`。
 - 內建的 `nginx` 容器是唯一對外入口（主機 port 由 `NGINX_HOST_PORT` 決定，預設 8082）：`/api`、`/ws` → backend，`/grafana/` → Grafana，其餘 → frontend。
+- 平台是內部工具，會請搜尋引擎不要收錄：nginx 的每個回應都帶 `X-Robots-Tag: noindex, nofollow`，前端頁面也有相同的 robots meta 標籤。專案對外的門面是官網與這份文件。
 - 要用網域＋HTTPS 對外時，讓平台也經 Gateway VM 的 nginx（下方「平台入口」）。SkyLab 不簽發憑證，由管理員自備。
 - 資料庫是 stack 內的 PostgreSQL 18（經 PgBouncer），Redis 放佇列與快取，`arq` worker 跑背景任務。migration 在啟動時自動執行。
 - 部署到測試環境是手動觸發的 GitHub Actions workflow，在 self-hosted runner 上執行（見下方）。push 到 `main` 不會自動部署。
@@ -187,7 +188,7 @@ Gateway 是另一台 Linux VM，用 `gateway/install.sh` 安裝（nginx stream +
 
 ## 8. 持續部署（測試環境）
 
-`.github/workflows/deploy-pve-test.yml`（「Deploy to PVE Test」）從 Actions 分頁手動觸發（`workflow_dispatch`），只在 `ntubclass/SkyLab` repo 執行。它在標籤 `skylab-main` 的 self-hosted runner 上跑，動作前先等 `pve-test` environment 審核通過。
+`.github/workflows/deploy-pve-test.yml`（「Deploy to PVE Test」）從 Actions 分頁手動觸發（`workflow_dispatch`），只在 `SkyLab-tw/SkyLab` repo 執行。它在標籤 `skylab-main` 的 self-hosted runner 上跑，動作前先等 `pve-test` environment 審核通過。
 
 在 runner 上：
 

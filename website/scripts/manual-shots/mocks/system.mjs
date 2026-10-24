@@ -37,7 +37,7 @@ export function accountList(m) {
 }
 
 // GET /users/, /users/registration-policy, /users/pending-registrations and the write endpoints.
-export function useAccounts(m, { policy = { signup_enabled: true, approval_required: true, google_signup_enabled: false }, list = null } = {}) {
+export function useAccounts(m, { policy = { signup_enabled: true, approval_required: true, google_signup_enabled: false, student_email_domain: "school.edu.tw" }, list = null } = {}) {
   const st = m.state;
   st.accounts = list ?? accountList(m);
   st.policy = { ...policy };

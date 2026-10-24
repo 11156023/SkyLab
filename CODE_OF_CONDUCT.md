@@ -13,6 +13,6 @@ SkyLab adopts the [Contributor Covenant, version 2.1](https://www.contributor-co
 
 ## Reporting
 
-If you experience or witness unacceptable behaviour, contact the maintainers privately through the [ntubclass organisation](https://github.com/ntubclass) on GitHub, or open a private report from the **Security** tab of this repository if the issue also has a security side. Reports are handled confidentially, and the maintainers will respond as described in the enforcement guidelines of the Contributor Covenant.
+If you experience or witness unacceptable behaviour, contact the maintainers privately through the [SkyLab-tw organisation](https://github.com/SkyLab-tw) on GitHub, or open a private report from the **Security** tab of this repository if the issue also has a security side. Reports are handled confidentially, and the maintainers will respond as described in the enforcement guidelines of the Contributor Covenant.
 
 Security vulnerabilities are not code-of-conduct issues; please report them as described in [`SECURITY.md`](SECURITY.md).

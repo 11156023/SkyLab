@@ -115,7 +115,7 @@ While you are on this page, the **AI Assistant** knows which step you are on, wh
 
 ## Limits and behaviour to know
 
-- CSV import reads the first column of each row. A header row of `email`, `學號` or `帳號` is skipped. A value without `@` is treated as a student ID and `@ntub.edu.tw` is added. The file must be UTF-8 or Big5 and at most 1 MB.
+- CSV import reads the first column of each row. A header row of `email`, `學號` or `帳號` is skipped. A value without `@` is treated as a student ID and gets the student email domain that the administrator set under User Management → Registration settings; when no domain is set, a file with bare student IDs is rejected and the IDs are listed in the error. The file must be UTF-8 or Big5 and at most 1 MB.
 - Importing from a group copies its students at that moment. Adding people to the group or deleting it later does not change the class roster. Only administrators can create groups and change their members (see [User Management](/manual/admin-users)).
 - Students can be added only while the class is still being set up.
 - A new class starts on the coming Monday and runs for four months by default; change the dates as needed.

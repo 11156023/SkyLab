@@ -22,6 +22,7 @@ vi.mock("gsap/ScrollTrigger", () => ({ ScrollTrigger: { create: () => {} } }));
 import LandingPage from "./LandingPage";
 import { createI18n } from "../i18n";
 import { CONTACT_EMAIL, DOCS_URL, GITHUB_URL } from "../config";
+import { LANGUAGE_STORAGE_KEY } from "../languagePreference";
 import STATS from "../stats.json";
 
 let host;
@@ -140,4 +141,19 @@ test("語言切換是連到各語言的網址,目前語言標成 aria-current", 
   const links = [...host.querySelectorAll("a[hreflang]")];
   expect(links.map((a) => a.getAttribute("href"))).toEqual(["/", "/en/", "/ja/"]);
   expect(links.filter((a) => a.getAttribute("aria-current") === "page").map((a) => a.hreflang)).toEqual(["ja"]);
+});
+
+test("點語言選單會記下選擇,根網址之後就不再依瀏覽器語言轉走", async () => {
+  root = createRoot(host);
+  await act(async () => { root.render(page("ja")); });
+  // 只看點擊時記了什麼,不讓 happy-dom 真的換頁
+  const stopNavigation = (event) => event.preventDefault();
+  document.addEventListener("click", stopNavigation, true);
+  try {
+    await act(async () => { host.querySelector('a[hreflang="zh-TW"]').click(); });
+    expect(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("zh-TW");
+  } finally {
+    document.removeEventListener("click", stopNavigation, true);
+    window.localStorage.clear();
+  }
 });

@@ -1,0 +1,8 @@
+# Cloudflare Pages response headers (https://developers.cloudflare.com/pages/configuration/headers/)
+# The pages.dev address and preview addresses serve the same pages as docs.skylab-tw.com;
+# keep them out of search results.
+https://:project.pages.dev/*
+  X-Robots-Tag: noindex
+
+https://:version.:project.pages.dev/*
+  X-Robots-Tag: noindex
