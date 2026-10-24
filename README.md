@@ -4,9 +4,9 @@
 
 **A self-hosted cloud for schools: students request VMs, teachers spin up whole classrooms, admins keep Proxmox VE under control.**
 
-[![Backend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml)
-[![Frontend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml)
-[![CodeQL](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml)
+[![Backend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml)
+[![Frontend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml)
+[![CodeQL](https://github.com/SkyLab-tw/SkyLab/actions/workflows/codeql.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/codeql.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 SkyLab is a full-stack management platform for Proxmox VE (PVE) built for campus use. It covers VM/LXC lifecycle management, request and approval workflows, class-based batch provisioning, firewall and gateway control, AI-assisted operations, and an OpenAI-compatible AI API backed by self-hosted vLLM models.
@@ -97,7 +97,7 @@ These clips are recorded from the real interface with mock data by `website/scri
 ## Quick start (Docker Compose)
 
 ```bash
-git clone https://github.com/ntubclass/SkyLab.git
+git clone https://github.com/SkyLab-tw/SkyLab.git
 cd SkyLab
 cp -n .env.example .env
 cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env   # Compose reads this file even without the AI stack
@@ -190,7 +190,7 @@ Everything lives under [`website/`](website/) and is published as the documentat
 
 ## Community
 
-- **Questions and bug reports:** [GitHub Issues](https://github.com/ntubclass/SkyLab/issues) (please use the templates)
+- **Questions and bug reports:** [GitHub Issues](https://github.com/SkyLab-tw/SkyLab/issues) (please use the templates)
 - **Contributing:** read [`CONTRIBUTING.md`](CONTRIBUTING.md); all commits need a DCO sign-off (`git commit -s`)
 - **Security issues:** do not open a public issue; follow [`SECURITY.md`](SECURITY.md)
 - **Code of conduct:** [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)

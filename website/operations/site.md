@@ -48,7 +48,7 @@ The Cloudflare Pages project `skylab-site` is connected to the GitHub repository
 
 One-time setup, in Workers & Pages → Create → Pages → Connect to Git:
 
-1. Select `ntubclass/SkyLab`. The Cloudflare Workers & Pages GitHub App has to be installed on the repository; this is the same app the documentation site uses.
+1. Select `SkyLab-tw/SkyLab`. The Cloudflare Workers & Pages GitHub App has to be installed on the repository; this is the same app the documentation site uses.
 2. Project name `skylab-site`, production branch `main`, framework preset None.
 3. Build command `cd site && bun install --frozen-lockfile && bun run test && bun run build`, build output directory `site/dist`, root directory left empty (the build reads `frontend/src/assets/styles` outside `site/`).
 4. Environment variables `BUN_VERSION` = `1.4.4` and `SKIP_DEPENDENCY_INSTALL` = `1`. Optional: `SITE_URL` if the address is not `https://skylab-tw.com`, and `DOCS_URL` if the documentation site is not at `https://docs.skylab-tw.com`.
@@ -57,7 +57,7 @@ One-time setup, in Workers & Pages → Create → Pages → Connect to Git:
 7. After the first production deploy, add the site to Google Search Console and submit `https://skylab-tw.com/sitemap.xml`.
 8. Set up the contact address, `contact@skylab-tw.com`, with Cloudflare Email Routing: in the `skylab-tw.com` zone open Email → Email Routing and enable it (it adds the MX and TXT records), add the team's mailbox under Destination addresses and confirm it from the verification mail, then create a routing rule that sends `contact@skylab-tw.com` to it. Email Routing only receives mail: a reply sent from that mailbox shows the mailbox's own address unless it is set up to send as `contact@skylab-tw.com`.
 
-A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git.
+A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git. The same applies when the repository moves to another owner (as it did from `ntubclass` to `SkyLab-tw` in October 2026): the project keeps pointing at the old location and stops building, so install the GitHub App on the new organization and create the project again, then move the custom domain over.
 
 A school's platform, such as `ntub.skylab-tw.com`, is not deployed from here; it is a SkyLab installation exposed through its platform entry (see [Deployment](/guides/deployment)).
 

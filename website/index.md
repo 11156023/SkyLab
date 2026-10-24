@@ -19,7 +19,7 @@ hero:
       link: /concepts
     - theme: alt
       text: GitHub
-      link: https://github.com/ntubclass/SkyLab
+      link: https://github.com/SkyLab-tw/SkyLab
 
 features:
   - icon: 🖥️
@@ -55,8 +55,8 @@ features:
 - **Calling the API:** [REST API](/reference/api), [WebSocket endpoints](/reference/websocket) and the [AI API user manual](/guides/ai-api-user-manual).
 - **Looking for a specific page:** the [User manual](/manual/) covers every feature by role, and the [documentation index](/guides/) lists every page by file.
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/ntubclass/SkyLab/blob/main/LICENSE)
-[![Backend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml)
-[![Frontend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE)
+[![Backend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml)
+[![Frontend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml)
 
-SkyLab is free software released under the GNU AGPL-3.0; see [License](/project/license). This site is the documentation of the repository, kept under [`website/`](https://github.com/ntubclass/SkyLab/tree/main/website); the "Edit this page on GitHub" link at the bottom of each page opens the source file.
+SkyLab is free software released under the GNU AGPL-3.0; see [License](/project/license). This site is the documentation of the repository, kept under [`website/`](https://github.com/SkyLab-tw/SkyLab/tree/main/website); the "Edit this page on GitHub" link at the bottom of each page opens the source file.

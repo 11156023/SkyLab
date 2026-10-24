@@ -16,7 +16,7 @@
 ## 1. 取得程式碼並設定
 
 ```bash
-git clone https://github.com/ntubclass/SkyLab.git
+git clone https://github.com/SkyLab-tw/SkyLab.git
 cd SkyLab
 cp -n .env.example .env
 cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env   # 沒有用 AI stack 時 Compose 也會讀它

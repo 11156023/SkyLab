@@ -48,7 +48,7 @@ Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration
 
 一次性設定，在 Workers & Pages → Create → Pages → Connect to Git：
 
-1. 選 `ntubclass/SkyLab`。repo 要裝好 Cloudflare Workers & Pages 的 GitHub App，跟文件站用的是同一個。
+1. 選 `SkyLab-tw/SkyLab`。repo 要裝好 Cloudflare Workers & Pages 的 GitHub App，跟文件站用的是同一個。
 2. 專案名稱 `skylab-site`，production branch `main`，framework preset 選 None。
 3. Build command `cd site && bun install --frozen-lockfile && bun run test && bun run build`，build output directory `site/dist`，root directory 留空（建置會讀 `site/` 外面的 `frontend/src/assets/styles`）。
 4. 環境變數 `BUN_VERSION` = `1.4.4` 與 `SKIP_DEPENDENCY_INSTALL` = `1`。選用：網址不是 `https://skylab-tw.com` 時設 `SITE_URL`；文件站不在 `https://docs.skylab-tw.com` 時設 `DOCS_URL`。
@@ -57,7 +57,7 @@ Cloudflare Pages 專案 `skylab-site` 直接連到 GitHub repo（Git integration
 7. 第一次正式部署後，把網站加進 Google Search Console 並提交 `https://skylab-tw.com/sitemap.xml`。
 8. 用 Cloudflare Email Routing 設定聯絡信箱 `contact@skylab-tw.com`：在 `skylab-tw.com` 這個 zone 打開 Email → Email Routing 並啟用（會加上 MX 與 TXT 紀錄），在 Destination addresses 加入團隊的收件信箱並點驗證信確認，再建立一條把 `contact@skylab-tw.com` 轉寄過去的 routing rule。Email Routing 只負責收信：從收件信箱回信時，對方看到的是收件信箱本身的地址，除非另外設定以 `contact@skylab-tw.com` 寄出。
 
-用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。
+用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。repo 轉移到別的擁有者時也一樣（2026 年 10 月從 `ntubclass` 轉到 `SkyLab-tw`）：專案仍指著舊位置、不會再建置，要在新組織安裝 GitHub App、重新建立專案，再把自訂網域移過去。
 
 學校的平台（例如 `ntub.skylab-tw.com`）不從這裡部署；那是一套經由平台入口對外的 SkyLab（見[部署指南](/zh-TW/guides/deployment)）。
 

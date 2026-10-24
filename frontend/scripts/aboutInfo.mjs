@@ -77,7 +77,7 @@ export function buildAboutInfo(root) {
     commit: resolveCommit(root),
     builtAt: new Date().toISOString(),
     license: "AGPL-3.0",
-    repository: process.env.SKYLAB_REPO_URL || "https://github.com/ntubclass/SkyLab",
+    repository: process.env.SKYLAB_REPO_URL || "https://github.com/SkyLab-tw/SkyLab",
     dependencies,
   };
 }

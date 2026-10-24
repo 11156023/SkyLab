@@ -16,7 +16,7 @@ Nothing has to be installed on the host besides Docker. `uv` and `Bun` are only 
 ## 1. Get the code and configure it
 
 ```bash
-git clone https://github.com/ntubclass/SkyLab.git
+git clone https://github.com/SkyLab-tw/SkyLab.git
 cd SkyLab
 cp -n .env.example .env
 cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env   # Compose reads it even without the AI stack

@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability / 安全漏洞
-    url: https://github.com/ntubclass/SkyLab/security/advisories/new
+    url: https://github.com/SkyLab-tw/SkyLab/security/advisories/new
     about: Report security problems privately, not as a public issue.
   - name: Documentation / 文件
-    url: https://github.com/ntubclass/SkyLab/blob/main/website/guides/index.md
+    url: https://github.com/SkyLab-tw/SkyLab/blob/main/website/guides/index.md
     about: Deployment, development, monitoring and AI API guides.

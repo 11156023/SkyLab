@@ -188,7 +188,7 @@ The gateway is a separate Linux VM installed with `gateway/install.sh` (nginx st
 
 ## 8. Continuous deployment (test environment)
 
-`.github/workflows/deploy-pve-test.yml` ("Deploy to PVE Test") is started manually from the Actions tab (`workflow_dispatch`) and only runs in the `ntubclass/SkyLab` repository. It runs on the self-hosted runner labelled `skylab-main` and waits for approval of the `pve-test` environment before doing anything.
+`.github/workflows/deploy-pve-test.yml` ("Deploy to PVE Test") is started manually from the Actions tab (`workflow_dispatch`) and only runs in the `SkyLab-tw/SkyLab` repository. It runs on the self-hosted runner labelled `skylab-main` and waits for approval of the `pve-test` environment before doing anything.
 
 On the runner:
 

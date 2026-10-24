@@ -2,10 +2,10 @@
 
 **給學校用的自架雲端：學生自己申請 VM、老師一鍵開好整班的機器、管理員把 Proxmox VE 管得井井有條。**
 
-[![Backend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/backend-tests.yml)
-[![Frontend Tests](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/frontend-tests.yml)
-[![CodeQL](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml/badge.svg)](https://github.com/ntubclass/SkyLab/actions/workflows/codeql.yml)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/ntubclass/SkyLab/blob/main/LICENSE)
+[![Backend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/backend-tests.yml)
+[![Frontend Tests](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/frontend-tests.yml)
+[![CodeQL](https://github.com/SkyLab-tw/SkyLab/actions/workflows/codeql.yml/badge.svg)](https://github.com/SkyLab-tw/SkyLab/actions/workflows/codeql.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE)
 
 SkyLab 是一個面向校園的 Proxmox VE（PVE）全端管理平台，整合 VM/LXC 生命週期管理、申請審核流程、班級批次建置、防火牆與閘道控制、AI 輔助維運，以及以自架 vLLM 模型為後盾的 OpenAI 相容 AI API。
 
@@ -39,7 +39,7 @@ flowchart LR
 | 桌面端 | 獨立的 repo | SkyLab Connect（Electron）：裝置登入與到閘道的 WireGuard 隧道；發佈在 [SkyLab-Connect-Releases](https://github.com/1Ray0/SkyLab-Connect-Releases)，本 repo 只有它用的後端 API |
 | vLLM Service | `vllm-service/` | 單模型主服務、多模型 vLLM cluster，以及對外的 LiteLLM gateway |
 | 監控 stack | `monitoring/` | 選用的 Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
-| 文件 | `website/` | 所有指南、使用手冊與 API 參考，以 VitePress 網站形式部署到 Cloudflare Pages（[docs.skylab-tw.com](https://docs.skylab-tw.com)）；索引見[文件索引](/zh-TW/guides/)，網站建置見 [`website/README.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/website/README.zh-TW.md) |
+| 文件 | `website/` | 所有指南、使用手冊與 API 參考，以 VitePress 網站形式部署到 Cloudflare Pages（[docs.skylab-tw.com](https://docs.skylab-tw.com)）；索引見[文件索引](/zh-TW/guides/)，網站建置見 [`website/README.zh-TW.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/website/README.zh-TW.md) |
 | 官網 | `site/` | [skylab-tw.com](https://skylab-tw.com) 介紹網站與聯繫方式，三種語言預渲染並部署到 Cloudflare Pages；見[官網](/zh-TW/operations/site) |
 
 ## 技術棧
@@ -75,7 +75,7 @@ flowchart LR
 ## 快速開始（Docker Compose）
 
 ```bash
-git clone https://github.com/ntubclass/SkyLab.git
+git clone https://github.com/SkyLab-tw/SkyLab.git
 cd SkyLab
 cp -n .env.example .env
 cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env   # 沒有用 AI stack 時 Compose 也會讀這個檔
@@ -154,7 +154,7 @@ PVE 連線**不在** `.env` 設定。首次安裝時在初始化精靈填入，�
 
 ## 文件
 
-所有文件都在 repo 的 `website/` 目錄，發布成本文件網站（建置與 Cloudflare Pages 部署見 [`website/README.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/website/README.zh-TW.md)）。索引是[文件索引](/zh-TW/guides/)，英文頁在 `website/` 下、繁體中文頁在 `website/zh-TW/` 下。常用項目：
+所有文件都在 repo 的 `website/` 目錄，發布成本文件網站（建置與 Cloudflare Pages 部署見 [`website/README.zh-TW.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/website/README.zh-TW.md)）。索引是[文件索引](/zh-TW/guides/)，英文頁在 `website/` 下、繁體中文頁在 `website/zh-TW/` 下。常用項目：
 
 - [快速開始](/zh-TW/getting-started) — 從 `docker compose up` 到初始化精靈與第一次登入
 - [使用手冊](/zh-TW/manual/) — 每個功能一頁，依角色（學生、老師、管理員）分組
@@ -168,17 +168,17 @@ PVE 連線**不在** `.env` 設定。首次安裝時在初始化精靈填入，�
 
 ## 社群
 
-- **問題與 bug 回報**：[GitHub Issues](https://github.com/ntubclass/SkyLab/issues)（請使用範本）
-- **貢獻**：請先讀 [`CONTRIBUTING.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/CONTRIBUTING.zh-TW.md)；所有 commit 都要 DCO sign-off（`git commit -s`）
-- **安全問題**：請勿開公開 issue，依 [`SECURITY.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/SECURITY.zh-TW.md) 回報
-- **行為準則**：[`CODE_OF_CONDUCT.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/CODE_OF_CONDUCT.zh-TW.md)
+- **問題與 bug 回報**：[GitHub Issues](https://github.com/SkyLab-tw/SkyLab/issues)（請使用範本）
+- **貢獻**：請先讀 [`CONTRIBUTING.zh-TW.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/CONTRIBUTING.zh-TW.md)；所有 commit 都要 DCO sign-off（`git commit -s`）
+- **安全問題**：請勿開公開 issue，依 [`SECURITY.zh-TW.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/SECURITY.zh-TW.md) 回報
+- **行為準則**：[`CODE_OF_CONDUCT.zh-TW.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/CODE_OF_CONDUCT.zh-TW.md)
 
 ## 授權
 
-SkyLab 以 **GNU Affero General Public License v3.0** 釋出（見 [`LICENSE`](https://github.com/ntubclass/SkyLab/blob/main/LICENSE)）。
+SkyLab 以 **GNU Affero General Public License v3.0** 釋出（見 [`LICENSE`](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE)）。
 
 - 在校內或組織內自行部署使用，不論有沒有改程式，除授權本身的條款外沒有其他義務。
 - 若你修改了 SkyLab 並讓第三方透過網路使用（例如代管或託管服務），AGPL 要求你向那些使用者提供修改後的原始碼。
 - 想把 SkyLab 當作服務提供、但不希望受 AGPL 原始碼公開條款約束，或需要其他條件的組織，可洽談**商業授權**。請開 issue 或聯絡維護者。
 
-本專案源自 MIT 授權的 Full Stack FastAPI Template，它的聲明保留在 [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE)；SkyLab 所用的開源元件列在 [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md)，應用程式內的「帳號設定 → 關於」也會顯示同樣的資訊。「SkyLab」名稱與標誌屬於本專案；授權涵蓋的是程式碼，不是名稱。
+本專案源自 MIT 授權的 Full Stack FastAPI Template，它的聲明保留在 [`NOTICE`](https://github.com/SkyLab-tw/SkyLab/blob/main/NOTICE)；SkyLab 所用的開源元件列在 [`THIRD_PARTY_NOTICES.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/THIRD_PARTY_NOTICES.md)，應用程式內的「帳號設定 → 關於」也會顯示同樣的資訊。「SkyLab」名稱與標誌屬於本專案；授權涵蓋的是程式碼，不是名稱。

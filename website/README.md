@@ -94,7 +94,7 @@ The Cloudflare Pages project `skylab-docs` is connected to the GitHub repository
 
 Setting it up once, in Workers & Pages → Create → Pages → Connect to Git:
 
-1. Install the Cloudflare Workers & Pages GitHub App on the repository and select `ntubclass/SkyLab`. An owner of the organization, or a member with the GitHub Apps Manager role, has to do this.
+1. Install the Cloudflare Workers & Pages GitHub App on the repository and select `SkyLab-tw/SkyLab`. An owner of the organization, or a member with the GitHub Apps Manager role, has to do this.
 2. Project name `skylab-docs`, production branch `main`, framework preset None.
 3. Build command `bash website/scripts/cloudflare-pages-build.sh`, build output directory `website/.vitepress/dist`, root directory left empty.
 4. Environment variables `BUN_VERSION` = `1.4.4`, the Bun version of the lock file and of CI (the build image's default is older), and `SKIP_DEPENDENCY_INSTALL` = `1`, because the script installs the dependencies itself.
@@ -102,7 +102,7 @@ Setting it up once, in Workers & Pages → Create → Pages → Connect to Git:
 6. Open Custom domains and add `docs.skylab-tw.com`; the DNS record is created automatically when the zone is on Cloudflare.
 7. After the first production deploy, add the site to Google Search Console and submit `https://docs.skylab-tw.com/sitemap.xml`.
 
-A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git.
+A Pages project created with Direct Upload cannot be switched to Git integration later; delete it and create the project again with Connect to Git. The same applies when the repository moves to another owner (as it did from `ntubclass` to `SkyLab-tw` in October 2026): the project keeps pointing at the old location and stops building, so install the GitHub App on the new organization and create the project again, then move the custom domain over.
 
 ### SEO
 

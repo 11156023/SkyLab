@@ -10,7 +10,7 @@ import { languageRedirectScript } from './theme/languagePreference'
 // are produced by scripts/generate.mjs; the REST API page renders
 // public/openapi.json exported by backend/scripts/export_openapi.py.
 
-const REPO = 'https://github.com/ntubclass/SkyLab'
+const REPO = 'https://github.com/SkyLab-tw/SkyLab'
 
 // Production address: canonical URLs, hreflang, sitemap.xml, robots.txt and share cards.
 // DOCS_URL overrides it (an environment variable of the Cloudflare Pages project).

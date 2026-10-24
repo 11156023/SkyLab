@@ -188,7 +188,7 @@ Gateway 是另一台 Linux VM，用 `gateway/install.sh` 安裝（nginx stream +
 
 ## 8. 持續部署（測試環境）
 
-`.github/workflows/deploy-pve-test.yml`（「Deploy to PVE Test」）從 Actions 分頁手動觸發（`workflow_dispatch`），只在 `ntubclass/SkyLab` repo 執行。它在標籤 `skylab-main` 的 self-hosted runner 上跑，動作前先等 `pve-test` environment 審核通過。
+`.github/workflows/deploy-pve-test.yml`（「Deploy to PVE Test」）從 Actions 分頁手動觸發（`workflow_dispatch`），只在 `SkyLab-tw/SkyLab` repo 執行。它在標籤 `skylab-main` 的 self-hosted runner 上跑，動作前先等 `pve-test` environment 審核通過。
 
 在 runner 上：
 

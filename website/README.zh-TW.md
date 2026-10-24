@@ -94,7 +94,7 @@ Cloudflare Pages 專案 `skylab-docs` 直接連到 GitHub repo（Git integration
 
 一次性設定，在 Workers & Pages → Create → Pages → Connect to Git：
 
-1. 在 repo 安裝 Cloudflare Workers & Pages 的 GitHub App 並選 `ntubclass/SkyLab`。要由組織 owner 或具 GitHub Apps Manager 角色的成員來做。
+1. 在 repo 安裝 Cloudflare Workers & Pages 的 GitHub App 並選 `SkyLab-tw/SkyLab`。要由組織 owner 或具 GitHub Apps Manager 角色的成員來做。
 2. 專案名稱 `skylab-docs`，production branch `main`，framework preset 選 None。
 3. Build command `bash website/scripts/cloudflare-pages-build.sh`，build output directory `website/.vitepress/dist`，root directory 留空。
 4. 環境變數 `BUN_VERSION` = `1.4.4`，與鎖檔和 CI 用的 Bun 版本一致（建置環境的預設版本較舊）；`SKIP_DEPENDENCY_INSTALL` = `1`，因為腳本自己安裝套件。
@@ -102,7 +102,7 @@ Cloudflare Pages 專案 `skylab-docs` 直接連到 GitHub repo（Git integration
 6. 到 Custom domains 加上 `docs.skylab-tw.com`；zone 在 Cloudflare 上時 DNS 紀錄會自動建立。
 7. 第一次正式部署後，把網站加進 Google Search Console 並提交 `https://docs.skylab-tw.com/sitemap.xml`。
 
-用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。
+用 Direct Upload 建立的 Pages 專案之後不能改成 Git integration；要刪掉，再用 Connect to Git 重新建立。repo 轉移到別的擁有者時也一樣（2026 年 10 月從 `ntubclass` 轉到 `SkyLab-tw`）：專案仍指著舊位置、不會再建置，要在新組織安裝 GitHub App、重新建立專案，再把自訂網域移過去。
 
 ### SEO
 

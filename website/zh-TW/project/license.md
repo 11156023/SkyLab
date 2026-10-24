@@ -1,6 +1,6 @@
 # 授權
 
-SkyLab 以 **GNU Affero General Public License 第 3 版**（AGPL-3.0）釋出。全文是 repo 裡的 [`LICENSE`](https://github.com/ntubclass/SkyLab/blob/main/LICENSE) 檔。
+SkyLab 以 **GNU Affero General Public License 第 3 版**（AGPL-3.0）釋出。全文是 repo 裡的 [`LICENSE`](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE) 檔。
 
 ## 實際上的意思
 
@@ -13,15 +13,15 @@ SkyLab 以 **GNU Affero General Public License 第 3 版**（AGPL-3.0）釋出�
 
 ## 聲明
 
-- [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE) 保留專案起源範本 Full Stack FastAPI Template 的 MIT 聲明（部分後端骨架、Docker Compose 配置與郵件範本）。
-- [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) 列出直接相依的開源套件與其授權。SkyLab Connect 桌面端在獨立的 repo，自己的授權聲明隨安裝程式打包。
+- [`NOTICE`](https://github.com/SkyLab-tw/SkyLab/blob/main/NOTICE) 保留專案起源範本 Full Stack FastAPI Template 的 MIT 聲明（部分後端骨架、Docker Compose 配置與郵件範本）。
+- [`THIRD_PARTY_NOTICES.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) 列出直接相依的開源套件與其授權。SkyLab Connect 桌面端在獨立的 repo，自己的授權聲明隨安裝程式打包。
 - 「SkyLab」與 SkyLab 標誌是本專案的名稱；授權涵蓋程式碼，不涵蓋名稱。
 
 ## 貢獻
 
-貢獻以相同授權接受。每個 commit 都要有 Developer Certificate of Origin 簽署（`git commit -s`），細節見 [`CONTRIBUTING.zh-TW.md`](https://github.com/ntubclass/SkyLab/blob/main/CONTRIBUTING.zh-TW.md)。更改專案授權需要所有既有貢獻者同意。
+貢獻以相同授權接受。每個 commit 都要有 Developer Certificate of Origin 簽署（`git commit -s`），細節見 [`CONTRIBUTING.zh-TW.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/CONTRIBUTING.zh-TW.md)。更改專案授權需要所有既有貢獻者同意。
 
 ## 相關
 
-- [安全政策](https://github.com/ntubclass/SkyLab/blob/main/SECURITY.zh-TW.md)：如何回報漏洞
-- [行為準則](https://github.com/ntubclass/SkyLab/blob/main/CODE_OF_CONDUCT.zh-TW.md)
+- [安全政策](https://github.com/SkyLab-tw/SkyLab/blob/main/SECURITY.zh-TW.md)：如何回報漏洞
+- [行為準則](https://github.com/SkyLab-tw/SkyLab/blob/main/CODE_OF_CONDUCT.zh-TW.md)

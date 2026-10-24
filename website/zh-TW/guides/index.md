@@ -6,7 +6,7 @@ SkyLab repo 的所有文件都在本站，位於 repo 的 `website/` 目錄。�
 
 | 頁面 | 內容 |
 | --- | --- |
-| [專案總覽](/zh-TW/overview)（英文：[README](https://github.com/ntubclass/SkyLab#readme)） | 專案總覽、系統組成、快速開始 |
+| [專案總覽](/zh-TW/overview)（英文：[README](https://github.com/SkyLab-tw/SkyLab#readme)） | 專案總覽、系統組成、快速開始 |
 | [快速開始](/zh-TW/getting-started) | 從 `docker compose up` 到初始化精靈與第一次登入 |
 | [概念與架構](/zh-TW/concepts) | 元件、角色、詞彙、背景工作、資料放在哪裡 |
 | [使用手冊](/zh-TW/manual/) | 每個功能一頁，依角色分組 |
@@ -45,8 +45,8 @@ SkyLab repo 的所有文件都在本站，位於 repo 的 `website/` 目錄。�
 | [資料庫設計](/zh-TW/guides/database-design) | 正規化（1NF–3NF）、刻意保留的冗餘、改 schema 的檢查清單 |
 | [前端樣式規範](/zh-TW/guides/frontend-style-guide) | SCSS 架構、token、元件、表單、表格、深色模式 |
 | [多語系](/zh-TW/development/i18n) | 前端、後端與桌面端語系檔；翻譯規則 |
-| [貢獻指南](https://github.com/ntubclass/SkyLab/blob/main/CONTRIBUTING.zh-TW.md)、[安全政策](https://github.com/ntubclass/SkyLab/blob/main/SECURITY.zh-TW.md)、[行為準則](https://github.com/ntubclass/SkyLab/blob/main/CODE_OF_CONDUCT.zh-TW.md) | 留在 repo 根目錄讓 GitHub 顯示 |
-| [授權](/zh-TW/project/license)、[`LICENSE`](https://github.com/ntubclass/SkyLab/blob/main/LICENSE)、[`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE)、[`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) | AGPL-3.0、上游範本的 MIT 聲明、開源元件清單 |
+| [貢獻指南](https://github.com/SkyLab-tw/SkyLab/blob/main/CONTRIBUTING.zh-TW.md)、[安全政策](https://github.com/SkyLab-tw/SkyLab/blob/main/SECURITY.zh-TW.md)、[行為準則](https://github.com/SkyLab-tw/SkyLab/blob/main/CODE_OF_CONDUCT.zh-TW.md) | 留在 repo 根目錄讓 GitHub 顯示 |
+| [授權](/zh-TW/project/license)、[`LICENSE`](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE)、[`NOTICE`](https://github.com/SkyLab-tw/SkyLab/blob/main/NOTICE)、[`THIRD_PARTY_NOTICES.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) | AGPL-3.0、上游範本的 MIT 聲明、開源元件清單 |
 
 ## 產品與設計
 

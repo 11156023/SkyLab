@@ -369,16 +369,16 @@ SSH 維持每 run 最多 50 台、單一 backend process 共用最多 200 worker
 
 | 邊界 | 主要入口與責任 |
 | --- | --- |
-| 前端提案／接受／製作 | [AiJudgePanel.jsx](https://github.com/ntubclass/SkyLab/blob/main/frontend/src/pages/course-operations/class-workspace/AiJudgePanel.jsx)：`ChatPanel`、`applyPendingProposal`、`handleSaveAndCreate` |
-| 前端 API 與潤飾指令 | [aiJudge.js](https://github.com/ntubclass/SkyLab/blob/main/frontend/src/services/aiJudge.js)：`sendSessionMessage`、`updateFileAnalysis`、`createSessionScriptSet` |
-| 對話 HTTP 與交易 | [teacher_judge_sessions.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/api/routes/teacher_judge_sessions.py)：版本、session、refine readiness、script set 入口 |
-| AI 意圖與工具回合 | [prompt.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/prompt.py)、[service.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/service.py)：read-before-edit、staged proposals、缺口與工具修正 |
-| 欄位契約 | [schemas.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/schemas.py)、[check_plan_contract.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/check_plan_contract.py)：typed schema、新寫入、位置矛盾、舊資料邊界 |
-| 全表製作就緒 | [session_chat_service.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/session_chat_service.py)、[automation_support.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/automation_support.py)：candidate 合併後的 blockers 與 script_ready |
-| 保存與版本 | [file_service.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/file_service.py)：`TeacherJudgeFile.analysis_json`、`analysis_revision`、資料庫條件更新 |
-| 腳本集 | [script_artifact_service.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/script_artifact_service.py)：依節點編譯、來源 revision、snapshot、全部成功後保存 |
-| 編譯與政策 | [deterministic_compiler.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/deterministic_compiler.py)、[script_policy.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/script_policy.py)、[script_quality_validator.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/script_quality_validator.py) |
-| 執行與收證 | [script_executor_service.py](https://github.com/ntubclass/SkyLab/blob/main/backend/app/ai/teacher_judge/script_executor_service.py)：Linux SSH、受管暫存目錄、結果下載與驗證 |
+| 前端提案／接受／製作 | [AiJudgePanel.jsx](https://github.com/SkyLab-tw/SkyLab/blob/main/frontend/src/pages/course-operations/class-workspace/AiJudgePanel.jsx)：`ChatPanel`、`applyPendingProposal`、`handleSaveAndCreate` |
+| 前端 API 與潤飾指令 | [aiJudge.js](https://github.com/SkyLab-tw/SkyLab/blob/main/frontend/src/services/aiJudge.js)：`sendSessionMessage`、`updateFileAnalysis`、`createSessionScriptSet` |
+| 對話 HTTP 與交易 | [teacher_judge_sessions.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/api/routes/teacher_judge_sessions.py)：版本、session、refine readiness、script set 入口 |
+| AI 意圖與工具回合 | [prompt.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/prompt.py)、[service.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/service.py)：read-before-edit、staged proposals、缺口與工具修正 |
+| 欄位契約 | [schemas.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/schemas.py)、[check_plan_contract.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/check_plan_contract.py)：typed schema、新寫入、位置矛盾、舊資料邊界 |
+| 全表製作就緒 | [session_chat_service.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/session_chat_service.py)、[automation_support.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/automation_support.py)：candidate 合併後的 blockers 與 script_ready |
+| 保存與版本 | [file_service.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/file_service.py)：`TeacherJudgeFile.analysis_json`、`analysis_revision`、資料庫條件更新 |
+| 腳本集 | [script_artifact_service.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/script_artifact_service.py)：依節點編譯、來源 revision、snapshot、全部成功後保存 |
+| 編譯與政策 | [deterministic_compiler.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/deterministic_compiler.py)、[script_policy.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/script_policy.py)、[script_quality_validator.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/script_quality_validator.py) |
+| 執行與收證 | [script_executor_service.py](https://github.com/SkyLab-tw/SkyLab/blob/main/backend/app/ai/teacher_judge/script_executor_service.py)：Linux SSH、受管暫存目錄、結果下載與驗證 |
 
 Teacher Judge 屬於內建 System AI，模型 transport 經共用 `VLLMClient` 與 `VLLM_*` 設定。它不是公開 `ccai_*` data plane，不應為修正提案流程而改動公開 AI relay 或 LiteLLM credential 邊界。
 

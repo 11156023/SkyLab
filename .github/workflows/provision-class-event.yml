@@ -76,7 +76,7 @@ jobs:
   provision:
     name: Provision class event
     # 防止其他 fork 收錄此檔後誤觸發
-    if: github.repository == 'ntubclass/SkyLab'
+    if: github.repository == 'SkyLab-tw/SkyLab'
     runs-on: skylab-main
     # 綁定 pve-test environment：required reviewers 按下 Approve 才會執行
     environment: pve-test

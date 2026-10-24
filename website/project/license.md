@@ -1,6 +1,6 @@
 # License
 
-SkyLab is released under the **GNU Affero General Public License, version 3.0** (AGPL-3.0). The full text is the [`LICENSE`](https://github.com/ntubclass/SkyLab/blob/main/LICENSE) file in the repository.
+SkyLab is released under the **GNU Affero General Public License, version 3.0** (AGPL-3.0). The full text is the [`LICENSE`](https://github.com/SkyLab-tw/SkyLab/blob/main/LICENSE) file in the repository.
 
 ## What it means in practice
 
@@ -13,15 +13,15 @@ The application shows its version, commit and the list of bundled open-source co
 
 ## Notices
 
-- [`NOTICE`](https://github.com/ntubclass/SkyLab/blob/main/NOTICE) keeps the MIT notice of the Full Stack FastAPI Template the project started from (parts of the backend scaffolding, the Docker Compose layout and the e-mail templates).
-- [`THIRD_PARTY_NOTICES.md`](https://github.com/ntubclass/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) lists the direct open-source dependencies with their licenses. The SkyLab Connect desktop client lives in its own repository and ships its own notices with the installer.
+- [`NOTICE`](https://github.com/SkyLab-tw/SkyLab/blob/main/NOTICE) keeps the MIT notice of the Full Stack FastAPI Template the project started from (parts of the backend scaffolding, the Docker Compose layout and the e-mail templates).
+- [`THIRD_PARTY_NOTICES.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/THIRD_PARTY_NOTICES.md) lists the direct open-source dependencies with their licenses. The SkyLab Connect desktop client lives in its own repository and ships its own notices with the installer.
 - "SkyLab" and the SkyLab logo are names of this project; the license covers the code, not the name.
 
 ## Contributions
 
-Contributions are accepted under the same license. Every commit needs a Developer Certificate of Origin sign-off (`git commit -s`); the details are in [`CONTRIBUTING.md`](https://github.com/ntubclass/SkyLab/blob/main/CONTRIBUTING.md). Changing the license of the project would need the agreement of every existing contributor.
+Contributions are accepted under the same license. Every commit needs a Developer Certificate of Origin sign-off (`git commit -s`); the details are in [`CONTRIBUTING.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/CONTRIBUTING.md). Changing the license of the project would need the agreement of every existing contributor.
 
 ## Related
 
-- [Security policy](https://github.com/ntubclass/SkyLab/blob/main/SECURITY.md) — how to report a vulnerability
-- [Code of conduct](https://github.com/ntubclass/SkyLab/blob/main/CODE_OF_CONDUCT.md)
+- [Security policy](https://github.com/SkyLab-tw/SkyLab/blob/main/SECURITY.md) — how to report a vulnerability
+- [Code of conduct](https://github.com/SkyLab-tw/SkyLab/blob/main/CODE_OF_CONDUCT.md)

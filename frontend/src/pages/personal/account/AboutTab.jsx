@@ -13,7 +13,7 @@ const FALLBACK = {
   commit: "",
   builtAt: "",
   license: "AGPL-3.0",
-  repository: "https://github.com/ntubclass/SkyLab",
+  repository: "https://github.com/SkyLab-tw/SkyLab",
   dependencies: [],
 };
 
