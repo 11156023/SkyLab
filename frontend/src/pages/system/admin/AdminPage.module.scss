@@ -78,6 +78,11 @@
 /* 學號信箱網域：文字欄＋儲存，窄螢幕換到說明下方 */
 .registrationOption:has(.domainField) {
   flex-wrap: wrap;
+
+  /* 說明再長也先在自己欄內換行，欄位寬度不夠時才把輸入框換到下一行 */
+  > label {
+    flex: 1 1 280px;
+  }
 }
 
 .domainField {

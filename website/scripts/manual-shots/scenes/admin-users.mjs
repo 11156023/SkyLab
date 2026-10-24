@@ -57,7 +57,7 @@ export default {
     async (s) => toggleRegistration(s, 0),
     // s02 Require approval for new accounts
     {
-      mocks(m) { useAccounts(m, { policy: { signup_enabled: true, approval_required: false } }); },
+      mocks(m) { useAccounts(m, { policy: { signup_enabled: true, approval_required: false, google_signup_enabled: false, student_email_domain: "school.edu.tw" } }); },
       run: async (s) => toggleRegistration(s, 1),
     },
     // s03 Allow or block account creation on first Google login
