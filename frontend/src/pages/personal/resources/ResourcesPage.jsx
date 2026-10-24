@@ -33,6 +33,7 @@ import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
 import * as fmt from "../../../utils/formatDate";
 import { canTeachUser } from "../../../utils/roles";
+import { DESKTOP_CLIENT_DOWNLOAD_URL } from "../../../services/desktopClient";
 
 /* ── Constants ── */
 const STATUS_MAP = {
@@ -57,9 +58,6 @@ const TYPE_MAP = {
   lxc:   { labelKey: "ResourcesPage.typeLxc", icon: "terminal" },
   qemu:  { labelKey: "ResourcesPage.typeQemu", icon: "computer" },
 };
-
-const DESKTOP_CLIENT_DOWNLOAD_URL = import.meta.env.VITE_DESKTOP_CLIENT_DOWNLOAD_URL
-  || "https://github.com/SkyLab-tw/SkyLab-Connect/releases/latest/download/SkyLab-Connect-Setup.exe";
 
 /* ── Helpers ── */
 function formatDate(isoStr) {

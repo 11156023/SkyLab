@@ -8,7 +8,7 @@ SkyLab is a Proxmox VE management platform for campuses: VM/LXC lifecycle, VNC/t
 
 - **Backend:** FastAPI + SQLModel + PostgreSQL (via PgBouncer) + Redis + arq worker + Proxmox API + SSH (paramiko), managed with `uv`
 - **Frontend:** React 19 (JSX, React Compiler) + Vite + react-router-dom 7 + TanStack Query / Table + SCSS Modules + react-i18next, managed with `bun`
-- **Desktop client:** SkyLab Connect is developed and released in its own repository; this repository only has its backend API (`/api/v1/desktop-client`)
+- **Desktop client:** [SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect), maintained in a separate repository (Electron + Vue 3 + Element Plus), managed with `npm`
 - **Infra:** Docker Compose, nginx entry point on `:8082`, optional monitoring profile
 
 ## Essential commands
@@ -32,6 +32,15 @@ bun install
 bun run dev                             # http://localhost:5173 (/api and /ws proxied to :8000)
 bun run build                           # vite build
 bun run test                            # Vitest
+```
+
+### Desktop client
+```bash
+git clone https://github.com/SkyLab-tw/SkyLab-Connect.git
+cd SkyLab-Connect
+npm ci
+npm run lint:fix                        # ESLint + Prettier, run after every change
+npm run build                           # vue-tsc --noEmit + vite build
 ```
 
 ### Full stack

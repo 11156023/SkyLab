@@ -41,6 +41,8 @@ router = APIRouter(prefix="/desktop-client", tags=["desktop-client"])
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static" / "downloads"
 _DOWNLOAD_PATTERNS = (
+    "SkyLab-Connect-Setup.exe",
+    "SkyLab-Connect-Portable.exe",
     "campus-cloud-connect.zip",
     "Campus Cloud Connect Setup *.exe",
     "Campus Cloud Connect *.exe",
@@ -254,6 +256,7 @@ def _find_local_download_asset() -> Path | None:
         asset = _newest_matching_file(_STATIC_DIR, pattern)
         if asset:
             return asset
+
     return None
 
 
@@ -266,14 +269,17 @@ def download_desktop_client():
 
     If DESKTOP_CLIENT_DOWNLOAD_URL is set, redirects to that URL (e.g. a
     GitHub Releases asset). Otherwise serves a local file from static/downloads/.
-    SkyLab Connect is built and released from its own repository.
+    Client source and build outputs live in the separate SkyLab-Connect repository.
     """
     if settings.DESKTOP_CLIENT_DOWNLOAD_URL:
         return RedirectResponse(settings.DESKTOP_CLIENT_DOWNLOAD_URL, status_code=302)
 
     download_path = _find_local_download_asset()
     if not download_path:
-        logger.warning("Desktop client download asset not found in %s", _STATIC_DIR)
+        logger.warning(
+            "Desktop client download asset not found in %s",
+            _STATIC_DIR,
+        )
         raise HTTPException(
             status_code=404,
             detail=t("desktop.installer_not_found"),

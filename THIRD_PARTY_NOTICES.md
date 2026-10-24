@@ -70,6 +70,10 @@ Development tooling (uv, pytest, ruff, mypy, prek, coverage) is not distributed 
 
 Build tooling (Vite, Sass, Vitest, Babel with the React Compiler plugin) is not distributed with the application.
 
+## Desktop client (SkyLab Connect, separate repository)
+
+Desktop runtime dependencies, bundled WireGuard notices and the npm lockfile are maintained in [SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect). See its [third-party notices](https://github.com/SkyLab-tw/SkyLab-Connect/blob/main/THIRD_PARTY_NOTICES.txt) and [package-lock.json](https://github.com/SkyLab-tw/SkyLab-Connect/blob/main/package-lock.json). The platform keeps the device-auth and WireGuard control-plane APIs.
+
 ## Public site (`site/`, JavaScript)
 
 | Package | License | Link |

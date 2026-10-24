@@ -88,3 +88,11 @@ migration 直接連 PostgreSQL、不經 PgBouncer，因為它要在長交易裡�
 ## 升級 AI stack
 
 LiteLLM 跑在 Compose stack 裡，有自己的 `vllm-service/litellm/.env`；vLLM 推論引擎則在 Compose 之外執行。拉完程式碼後改跑 `bash scripts/prepare-ai-stack.sh --start`（取代 `docker compose up -d --build`）：它會重新讀 `vllm-service/models.json`、重寫 LiteLLM 設定與 Prometheus 目標、重建 LiteLLM 容器、同步 service key 的模型白名單，最後執行 `docker compose up -d --build`。LiteLLM 映像預設是 `litellm/litellm:latest`，`up` 不會自己拉新版的 `latest`：要更新就跑 `docker compose pull litellm`，或在 `vllm-service/litellm/.env` 用 `LITELLM_IMAGE` 固定一個測過的版本。見 [AI API 使用與部署手冊](/zh-TW/guides/ai-api-user-manual#_5-修改連線、重啟與回滾)。
+
+## 獨立桌面客戶端
+
+SkyLab Connect 原始碼、Windows 建置與桌面端 CI 位於 [SkyLab-tw/SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect)。平台下載統一走 `GET /api/v1/desktop-client/download`，由後端重新導向 `DESKTOP_CLIENT_DOWNLOAD_URL`，預設值指向新 repo。前端可用 `VITE_DESKTOP_CLIENT_DOWNLOAD_URL` 額外指定直接下載位置；留空時會採用後端設定，也支援 `VITE_API_URL` 指定的獨立 API 網域。
+
+既有部署請在下次部署時將舊的發行網址改為 `https://github.com/SkyLab-tw/SkyLab-Connect/releases/latest/download/SkyLab-Connect-Setup.exe`。GitHub 重新導向會保留舊的下載與更新網址。平台 repo 不再建置客戶端，也不再搜尋主專案中的桌面端建置目錄。
+
+`/api/v1/desktop-client/auth/*` 與 `/api/v1/desktop-client/wireguard/*` 仍是平台 API；repo 改名不會改動裝置登入或通道協定。

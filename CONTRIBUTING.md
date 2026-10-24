@@ -33,9 +33,12 @@ Thanks for taking the time to contribute. This page covers the house rules; the 
    cd ../frontend
    bun run test
    bun run build
+
    ```
 
    Pre-commit hooks are managed with prek: `uv run prek install -f` once, then they run on every commit.
+
+SkyLab Connect source, builds, dependency notices and desktop CI are maintained in the separate [SkyLab-Connect repository](https://github.com/SkyLab-tw/SkyLab-Connect). Platform-side device login, download and WireGuard APIs remain here.
 
 ## Pull requests
 

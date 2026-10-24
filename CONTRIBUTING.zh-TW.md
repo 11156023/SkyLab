@@ -33,9 +33,12 @@
    cd ../frontend
    bun run test
    bun run build
+
    ```
 
    Pre-commit hook 由 prek 管理：執行一次 `uv run prek install -f`，之後每次 commit 會自動跑。
+
+SkyLab Connect 原始碼、建置、相依授權聲明與桌面端 CI 均在獨立的 [SkyLab-Connect repo](https://github.com/SkyLab-tw/SkyLab-Connect) 維護。平台端的裝置登入、下載與 WireGuard API 仍在本 repo。
 
 ## Pull request
 

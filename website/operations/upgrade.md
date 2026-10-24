@@ -88,3 +88,11 @@ These changes required an operator action when they shipped. If you upgrade acro
 ## Upgrading the AI stack
 
 LiteLLM runs in the Compose stack with its own `vllm-service/litellm/.env`; the vLLM engines run outside Compose. After pulling, run `bash scripts/prepare-ai-stack.sh --start` instead of `docker compose up -d --build`: it re-reads `vllm-service/models.json`, rewrites the LiteLLM configuration and the Prometheus targets, recreates the LiteLLM container, syncs the service key's model allowlist and then runs `docker compose up -d --build`. The LiteLLM image defaults to `litellm/litellm:latest`, and `up` does not pull a newer `latest` by itself: run `docker compose pull litellm` to update it, or pin a tested tag with `LITELLM_IMAGE` in `vllm-service/litellm/.env`. See the [AI API user manual](/guides/ai-api-user-manual#_5-changing-connections-restarting-and-rolling-back).
+
+## Standalone desktop client
+
+SkyLab Connect source, Windows builds and desktop CI live in [SkyLab-tw/SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect). Platform downloads use `GET /api/v1/desktop-client/download`; the backend redirects to `DESKTOP_CLIENT_DOWNLOAD_URL`, whose default points to the new repository. An explicit `VITE_DESKTOP_CLIENT_DOWNLOAD_URL` overrides that endpoint; leave it empty to follow the backend setting, including when `VITE_API_URL` points to a separate API origin.
+
+For existing deployments, update the previous release URL to `https://github.com/SkyLab-tw/SkyLab-Connect/releases/latest/download/SkyLab-Connect-Setup.exe` when redeploying. GitHub redirects preserve the previous download and update URLs. Client source is no longer built or searched for inside this platform repository.
+
+The `/api/v1/desktop-client/auth/*` and `/api/v1/desktop-client/wireguard/*` endpoints remain platform APIs. A repository rename does not change the device-login or tunnel protocol.

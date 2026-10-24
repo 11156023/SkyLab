@@ -42,7 +42,7 @@ flowchart LR
 | Frontend | `frontend/` | React 19 (JSX) + Vite + react-router-dom 7 + SCSS Modules; hand-written API services |
 | nginx | `nginx/` | Single entry point (`:8082` by default): `/api`, `/ws` → backend, everything else → frontend |
 | Gateway installer | `gateway/` | `install.sh` for the campus egress gateway VM: nginx (port forwarding, domain reverse proxy), WireGuard, nftables ACL |
-| Desktop client | separate repository | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway; releases at [SkyLab-tw/SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect). This repository has its backend API |
+| Desktop client | [SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect) (separate repository) | SkyLab Connect (Electron): device login and WireGuard tunnel to the gateway |
 | vLLM service | `vllm-service/` | Single-model service, multi-model vLLM cluster and the LiteLLM gateway that exposes them |
 | Monitoring stack | `monitoring/` | Optional Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
 | Documentation | `website/` | All guides, the user manual and the API reference, as a VitePress site at [docs.skylab-tw.com](https://docs.skylab-tw.com) deployed to Cloudflare Pages; index in [`website/guides/index.md`](website/guides/index.md), site setup in [`website/README.md`](website/README.md) |

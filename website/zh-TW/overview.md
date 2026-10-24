@@ -36,7 +36,7 @@ flowchart LR
 | Frontend | `frontend/` | React 19（JSX）+ Vite + react-router-dom 7 + SCSS Modules，手寫 API services |
 | nginx | `nginx/` | 單一入口（預設 `:8082`）：`/api`、`/ws` → backend，其餘 → frontend |
 | Gateway 安裝腳本 | `gateway/` | 校園出口閘道 VM 的 `install.sh`：nginx（Port 轉發、網域反向代理）、WireGuard、nftables ACL |
-| 桌面端 | 獨立的 repo | SkyLab Connect（Electron）：裝置登入與到閘道的 WireGuard 隧道；發佈在 [SkyLab-tw/SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect)，本 repo 只有它用的後端 API |
+| 桌面端 | [SkyLab-Connect](https://github.com/SkyLab-tw/SkyLab-Connect)（獨立 repo） | SkyLab Connect（Electron）：裝置登入與到閘道的 WireGuard 隧道 |
 | vLLM Service | `vllm-service/` | 單模型主服務、多模型 vLLM cluster，以及對外的 LiteLLM gateway |
 | 監控 stack | `monitoring/` | 選用的 Prometheus / Grafana / Loki / Alloy / InfluxDB profile |
 | 文件 | `website/` | 所有指南、使用手冊與 API 參考，以 VitePress 網站形式部署到 Cloudflare Pages（[docs.skylab-tw.com](https://docs.skylab-tw.com)）；索引見[文件索引](/zh-TW/guides/)，網站建置見 [`website/README.zh-TW.md`](https://github.com/SkyLab-tw/SkyLab/blob/main/website/README.zh-TW.md) |
