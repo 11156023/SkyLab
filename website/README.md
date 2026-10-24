@@ -110,6 +110,7 @@ VitePress prerenders every page. `.vitepress/config.mts` adds the rest, with abs
 
 - `sitemap.xml`, where every page lists its English and 繁體中文 versions as hreflang alternates, and `robots.txt` pointing to it.
 - On every page a canonical URL, hreflang links to the other language when the page exists in both, and Open Graph / Twitter card tags with the share image `public/og-image.jpg` or `og-image-zh-TW.jpg` (1200×630 screenshots of the home page; retake them when it changes). The 404 page is `noindex`.
+- On every English page that has a 繁體中文 version, an inline script sends readers whose browser prefers Chinese to that version before the page shows (`theme/languagePreference.ts`). A language picked in the language menu is remembered and wins from then on. 繁體中文 pages never redirect and crawlers are not redirected, so both versions stay indexable.
 - A description per page: front matter `description` when present, the hero tagline on the home pages, otherwise the first paragraph of the page as plain text, shortened to what search results show.
 
 ## Conventions

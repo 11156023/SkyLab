@@ -110,6 +110,7 @@ VitePress 會預先產生每一頁的 HTML。其餘由 `.vitepress/config.mts` �
 
 - `sitemap.xml`，每頁都列出英文與繁體中文版本互為 hreflang 對應；`robots.txt` 指向它。
 - 每頁都有 canonical 網址；中英兩版都存在的頁面有指向另一語言的 hreflang；Open Graph／Twitter card 標籤帶分享縮圖 `public/og-image.jpg` 或 `og-image-zh-TW.jpg`（1200×630 的首頁截圖，首頁改了要重拍）。404 頁設為 `noindex`。
+- 有繁體中文版的英文頁，`<head>` 裡有一小段腳本：瀏覽器偏好中文的讀者在頁面顯示前就會被換到中文版（`theme/languagePreference.ts`）。在語言選單選過的語言會記住，之後以它為準。繁體中文頁不會轉走，爬蟲也不會被轉，兩個版本都能被收錄。
 - 每頁的描述：有 front matter `description` 就用它，首頁用 hero 的 tagline，其餘取該頁第一段文字轉成純文字，再截到搜尋結果顯示得下的長度。
 
 ## 慣例
