@@ -34,6 +34,7 @@ bun run preview    # serves dist/; restart it after every build
 ## SEO
 
 - Every language is a prerendered page with its full text in the HTML: `/` (繁體中文), `/en/` and `/ja/`. `bun run build` runs the client build, an SSR build of `src/entry-server.jsx`, then `scripts/prerender.mjs`, which writes the rendered page and its head tags into each `index.html`. The browser hydrates the prerendered HTML.
+- Only `/` follows the visitor's browser language: an inline script in its head (`src/languagePreference.js`) sends a browser that prefers Japanese or English to `/ja/` or `/en/` before the page shows, and a browser that prefers none of the three to `/en/`. A language picked in the language menu is remembered and wins from then on. `/en/` and `/ja/` never redirect, and crawlers are not redirected, so every language stays indexable.
 - Each page has its own title and description, a canonical URL, `hreflang` links to all three languages plus `x-default`, Open Graph and Twitter card tags with a share image in that language, and JSON-LD (`WebSite`, `SoftwareApplication`).
 - `sitemap.xml` lists the three pages with their alternates; `robots.txt` allows everything and points to the sitemap.
 - Every absolute URL comes from `SITE_URL`, default `https://skylab-tw.com`. To build for another address, set the `SITE_URL` environment variable (on Cloudflare Pages, an environment variable of the project).

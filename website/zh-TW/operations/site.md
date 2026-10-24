@@ -34,6 +34,7 @@ bun run preview    # 提供 dist/；每次重建後要重啟
 ## SEO
 
 - 每種語言都是預渲染好的頁面，完整文字直接在 HTML 裡：`/`（繁體中文）、`/en/`、`/ja/`。`bun run build` 依序跑前端建置、`src/entry-server.jsx` 的 SSR 建置，再由 `scripts/prerender.mjs` 把渲染好的頁面與 head 標籤寫進各自的 `index.html`。瀏覽器接手（hydrate）預渲染的 HTML。
+- 只有 `/` 會依訪客的瀏覽器語言轉頁：它的 head 裡有一小段腳本（`src/languagePreference.js`），瀏覽器偏好日文或英文時，在頁面顯示前就換到 `/ja/` 或 `/en/`；三種語言都不是偏好時去 `/en/`。在語言選單點過的語言會記住，之後以它為準。`/en/` 與 `/ja/` 不會轉走，爬蟲也不會被轉，每種語言都能被收錄。
 - 每頁有自己的標題與描述、canonical 網址、指向三種語言與 `x-default` 的 `hreflang`、帶該語言分享縮圖的 Open Graph 與 Twitter card 標籤，以及 JSON-LD（`WebSite`、`SoftwareApplication`）。
 - `sitemap.xml` 列出三個頁面與彼此的對應網址；`robots.txt` 全站開放並指向 sitemap。
 - 所有絕對網址都來自 `SITE_URL`，預設 `https://skylab-tw.com`。要用別的網址建置，設定環境變數 `SITE_URL`（在 Cloudflare Pages 上是專案的環境變數）。

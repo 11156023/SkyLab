@@ -5,6 +5,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import CampusScene from "./CampusScene";
 import { CAMERA_DURATION, CAMERA_LEAD, SECTIONS, TOTAL_LENGTH, cameraState } from "./cameraScript";
 import { LANGUAGES, languageInfo } from "../languages";
+import { rememberLanguageChoice } from "../languagePreference";
 import { CONTACT_EMAIL, DOCS_URL, GITHUB_URL } from "../config";
 import STATS from "../stats.json";
 import styles from "./LandingPage.module.scss";
@@ -623,12 +624,13 @@ export default function LandingPage() {
       <header className={styles.topBar}>
         <span className={styles.brand}>{t("brand")}</span>
         <div className={styles.topActions}>
-          {/* 每個語言是獨立的預渲染網址,切換語言就是換頁 */}
+          {/* 每個語言是獨立的預渲染網址,切換語言就是換頁;點過的語言記下來,根網址就不再依瀏覽器語言轉走 */}
           {LANGUAGES.map((lang) => (
             <a
               key={lang.code}
               href={lang.path}
               hrefLang={lang.code}
+              onClick={() => rememberLanguageChoice(lang.code)}
               aria-current={i18n.language === lang.code ? "page" : undefined}
               className={`${styles.langBtn} ${i18n.language === lang.code ? styles.langBtnActive : ""}`}
             >
