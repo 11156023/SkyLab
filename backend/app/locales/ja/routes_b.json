@@ -9,6 +9,7 @@
   "teachingClasses.studentsLocked": "マシン作成を送信した後は、学生名簿を変更できません。",
   "teachingClasses.studentNotFound": "クラスの学生が見つかりません。",
   "teachingClasses.csvDecodeFailed": "CSV ファイルの文字コードを解析できません。",
+  "teachingClasses.csvStudentIdNeedsDomain": "名簿の {count} 行が学籍番号のみです（{ids}）が、学籍番号のメールドメインが設定されていません。完全なメールアドレスを入力するか、管理者に「ユーザー管理 → 登録設定」で学籍番号のメールドメインを設定してもらってください。",
   "teachingClasses.machinesManagedByCourseEnvironment": "コース環境からバージョンを発行し、クラス管理でコース環境を選択してください。",
   "teachingClasses.courseLockedCannotChange": "クラスはロックされているため、コースを変更できません。",
   "teachingClasses.onlyPublishedCourseVersion": "発行済みのコースバージョンのみ選択できます。",

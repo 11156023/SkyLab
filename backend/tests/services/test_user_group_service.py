@@ -27,6 +27,7 @@ from app.models import (
     UserRole,
     get_datetime_utc,
 )
+from app.models.registration_policy import RegistrationPolicy
 from app.schemas.teaching_class import StudentGroupImport
 from app.schemas.user_group import UserGroupIn
 from app.services.user import user_group_service as service
@@ -51,6 +52,7 @@ def db():
             AuditLog.__table__,  # type: ignore[attr-defined]
             TeachingClass.__table__,  # type: ignore[attr-defined]
             TeachingClassStudent.__table__,  # type: ignore[attr-defined]
+            RegistrationPolicy.__table__,  # type: ignore[attr-defined]
         ],
     )
     with Session(engine) as session:
@@ -265,8 +267,10 @@ def test_deleting_a_group_drops_its_memberships(db: Session) -> None:
 
 @pytest.mark.asyncio
 async def test_csv_import_uses_the_shared_roster_rules(db: Session) -> None:
+    db.add(RegistrationPolicy(id=1, student_email_domain="school.edu.tw"))
+    db.commit()
     group = _group(db)
-    _user(db, "10000001@ntub.edu.tw")
+    _user(db, "10000001@school.edu.tw")
     _user(db, "a@x.edu")
     raw = "學號\n10000001\na@x.edu\n99999999\n".encode("cp950")
 
@@ -275,7 +279,21 @@ async def test_csv_import_uses_the_shared_roster_rules(db: Session) -> None:
     )
 
     assert result.added == 2
-    assert result.not_found == ["99999999@ntub.edu.tw"]
+    assert result.not_found == ["99999999@school.edu.tw"]
+
+
+@pytest.mark.asyncio
+async def test_csv_import_rejects_student_ids_without_a_domain(db: Session) -> None:
+    group = _group(db)
+    raw = b"10000001\na@x.edu\n10000002\n"
+
+    with pytest.raises(BadRequestError) as caught:
+        await group_routes.import_user_group_members(
+            group.id, db, ADMIN, UploadFile(file=io.BytesIO(raw), filename="g.csv")
+        )
+
+    assert "10000001, 10000002" in caught.value.message
+    assert db.exec(select(UserGroupMember)).all() == []
 
 
 # --- 老師從群組匯入班級 ------------------------------------------------------

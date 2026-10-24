@@ -9,6 +9,7 @@
   "teachingClasses.studentsLocked": "已送出建機後不可變更學生名單",
   "teachingClasses.studentNotFound": "找不到班級學生",
   "teachingClasses.csvDecodeFailed": "無法解析 CSV 檔案編碼",
+  "teachingClasses.csvStudentIdNeedsDomain": "名單有 {count} 列只填了學號（{ids}），但系統尚未設定學號信箱網域。請改填完整 Email，或請管理員到「使用者管理 → 註冊設定」設定學號信箱網域",
   "teachingClasses.machinesManagedByCourseEnvironment": "請從課程環境發布版本，並在班級管理選擇課程環境",
   "teachingClasses.courseLockedCannotChange": "班級已鎖定，不能更換課程",
   "teachingClasses.onlyPublishedCourseVersion": "只能選擇已發布的課程版本",

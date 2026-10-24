@@ -2,5 +2,6 @@
   "user.registrationApprovalRequired": "此帳號仍在註冊驗證或審核中，請先完成驗證與審核",
   "user.registrationNotPending": "此帳號目前不在待審核狀態",
   "user.registrationPendingReview": "帳號已驗證，請等待管理員審核後再登入",
-  "user.registrationRequirementsUnavailable": "請先設定正式 SMTP 與 Turnstile，才能開放自行註冊"
+  "user.registrationRequirementsUnavailable": "請先設定正式 SMTP 與 Turnstile，才能開放自行註冊",
+  "user.studentEmailDomainInvalid": "學號信箱網域格式不正確，請填像 school.edu.tw 這樣的網域，不含 @"
 }

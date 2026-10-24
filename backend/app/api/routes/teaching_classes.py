@@ -645,7 +645,7 @@ async def import_students(
     item = await run_in_threadpool(_get_class, session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.studentsLocked"))
-    emails = await roster_csv.read_roster_upload(file)
+    emails = await roster_csv.read_roster_upload(file, session)
     return await run_in_threadpool(
         add_students, class_id, StudentAdd(emails=emails), session, current_user
     )

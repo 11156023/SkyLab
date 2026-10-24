@@ -111,7 +111,7 @@ async def import_user_group_members(
     file: UploadFile = File(...),
 ) -> UserGroupMembersResult:
     # 檔案串流留在 event loop；查帳號、寫入的同步 DB 工作丟到 worker thread
-    emails = await roster_csv.read_roster_upload(file)
+    emails = await roster_csv.read_roster_upload(file, session)
     return await run_in_threadpool(
         add_user_group_members,
         group_id,

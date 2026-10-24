@@ -127,6 +127,46 @@ def test_google_signup_can_be_enabled_without_mail(school_db, monkeypatch):
     assert policy.google_signup_enabled is True
 
 
+def test_student_email_domain_is_unset_until_configured(school_db):
+    assert get_policy(school_db).student_email_domain is None
+
+
+@pytest.mark.parametrize(
+    ("value", "stored"),
+    [
+        (" @School.EDU.tw ", "school.edu.tw"),
+        ("mail.school.edu.tw", "mail.school.edu.tw"),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_student_email_domain_is_normalized(school_db, value, stored):
+    policy = update_policy(
+        school_db,
+        signup_enabled=False,
+        approval_required=False,
+        google_signup_enabled=True,
+        student_email_domain=value,
+    )
+    assert policy.student_email_domain == stored
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["school", "a@school.edu.tw", "school..edu.tw", "-school.edu.tw", "school edu.tw"],
+)
+def test_invalid_student_email_domain_is_rejected(school_db, value):
+    with pytest.raises(BadRequestError):
+        update_policy(
+            school_db,
+            signup_enabled=False,
+            approval_required=False,
+            google_signup_enabled=True,
+            student_email_domain=value,
+        )
+    assert get_policy(school_db).student_email_domain is None
+
+
 def test_google_signup_default_follows_signup_default(school_db, monkeypatch):
     assert get_policy(school_db).google_signup_enabled is True
     monkeypatch.setattr(settings, "ENABLE_SIGNUP", False)
