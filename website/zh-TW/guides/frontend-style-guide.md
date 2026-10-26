@@ -6,6 +6,8 @@ description: "SkyLab 前端的樣式規範：SCSS Modules、色彩系統與主�
 
 > 本文件說明前端樣式架構與撰寫規範，適用於前端所有頁面與元件：新頁面、元件都應遵循此指南，確保視覺與程式碼風格一致。若想自行變更 `_variables.scss`、`_themes.scss` 兩個檔案，請事先與前端討論。
 
+> **真元件對照頁 `/dev/style`**：`cd frontend && bun run dev` 後開 `http://localhost:5173/dev/style`。本文每一條規範都用真元件渲染，旁邊標元件路徑與 mixin 名稱，頂欄可切亮／暗、介面風格與語言；只在開發模式註冊（`import.meta.env.DEV`），正式 build 不含這頁，不需登入、不打後端。claude.ai 的「樣式對照」「流程對照」Artifact 仍並存：真元件頁永不過時，Artifact 不用登入可給組員看。
+
 ---
 
 ## 目錄結構

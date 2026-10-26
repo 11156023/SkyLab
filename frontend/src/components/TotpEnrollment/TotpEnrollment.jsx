@@ -19,8 +19,10 @@ import styles from "./TotpEnrollment.module.scss";
  * @param {({ content, actions, busy }) => node} [children]
  *   選填的版面 render prop：拿到內容與按鈕後自行擺放（例如按鈕交給 Modal 的固定按鈕列、
  *   busy 交給 Modal 擋 Esc／×）；不傳時按鈕接在內容下方
+ * @param {{ setupTotp, confirmTotp }} [service] 取金鑰／確認驗證碼的服務，預設打真後端（AccountService）；
+ *   開發用的樣式對照頁換成假服務，示範三種狀態時不會替帳號建立待確認的金鑰
  */
-export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel, children }) {
+export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel, children, service = AccountService }) {
   const { t } = useTranslation("components");
   const formId = useId();
   const [setup, setSetup] = useState(null); // { secret, otpauth_uri, account, issuer }
@@ -39,7 +41,7 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel, ch
     setSetup(null);
     setQrDataUrl("");
     setLoadError(false);
-    AccountService.setupTotp()
+    service.setupTotp()
       .then(async (data) => {
         if (cancelled) return;
         /* QR 在瀏覽器端產生：otpauth URI 含金鑰，不經第三方服務 */
@@ -60,7 +62,7 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel, ch
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, service]);
 
   useEffect(() => {
     if (setup) inputRef.current?.focus();
@@ -91,7 +93,7 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel, ch
     setBusy(true);
     setError("");
     try {
-      await AccountService.confirmTotp(digits);
+      await service.confirmTotp(digits);
       onConfirmed?.();
     } catch (err) {
       setError(err?.message ?? t("TotpEnrollment.codeInvalid"));

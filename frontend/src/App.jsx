@@ -23,6 +23,9 @@ const VerifySignupPage = lazy(() => import("./pages/login/VerifySignupPage"));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 // 404：登入後開到不存在的路徑
 const NotFoundPage = lazy(() => import("./pages/not-found/NotFoundPage"));
+// 開發用的樣式對照頁（真元件渲染 style guide）：只在 dev 模式註冊，
+// 條件是建置期常數，正式 build 會把整段連同 chunk 一起去掉
+const DevStylePage = import.meta.env.DEV ? lazy(() => import("./pages/dev/DevStylePage")) : null;
 
 // 個人
 const AdminDashboardPage = lazy(() => import("./pages/personal/dashboard/admin/AdminDashboardPage"));
@@ -143,6 +146,11 @@ function App() {
   const isResetLink =
     (window.location.pathname === "/login" || window.location.pathname === "/reset-password") &&
     hasResetToken(window.location.search);
+
+  /* 開發用樣式對照頁：不需登入、不打後端，放在所有登入閘門之前 */
+  if (DevStylePage && window.location.pathname === "/dev/style") {
+    return <Suspense fallback={<AuthBootstrapState />}><DevStylePage /></Suspense>;
+  }
 
   if (window.location.pathname === "/verify-email-change") {
     return <Suspense fallback={<AuthBootstrapState />}><VerifyEmailChangePage /></Suspense>;

@@ -1,0 +1,895 @@
+/* 開發用樣式對照頁（/dev/style）：只在 import.meta.env.DEV 註冊，正式 build 不含這頁。
+   頁面本身也照 style guide：全部走 token 與共用 mixin，不寫死色碼。 */
+
+.page {
+  position: relative;
+  z-index: 1;
+  min-height: 100dvh;
+  @include flex-column;
+}
+
+/* ── 頂欄：標題＋亮暗／風格／語言切換，黏在最上面 ── */
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-width: 0 0 1px;
+}
+
+.topBarInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8 $spacing-24;
+  padding: $spacing-8 $spacing-16;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.brandTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.brandSub {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.controlGroup {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+/* ── 主體：左側目錄＋右側內容 ── */
+.layout {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-24;
+  padding: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: 200px minmax(0, 1fr);
+    padding: $spacing-24 $spacing-32;
+  }
+}
+
+/* sticky 的 top 與最大高度由頁面量頂欄高度後以 inline style 給 */
+.nav {
+  display: none;
+
+  @include respond-to(lg) {
+    display: block;
+    position: sticky;
+    align-self: start;
+    overflow-y: auto;
+  }
+}
+
+.navTitle {
+  padding: 0 $spacing-8 $spacing-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  letter-spacing: 0.04em;
+  color: var(--color-primary);
+}
+
+.navList {
+  @include flex-column;
+  gap: 2px;
+}
+
+.navLink {
+  display: block;
+  padding: 5px $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+  }
+}
+
+.navKey {
+  margin-left: $spacing-4;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.content {
+  @include flex-column;
+  gap: $spacing-48;
+  min-width: 0;
+}
+
+.pageIntro {
+  max-width: 72ch;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+}
+
+/* ── 區塊 ── */
+.section {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.sectionHead {
+  @include flex-column;
+  gap: $spacing-8;
+  padding-bottom: $spacing-8;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.sectionTitle {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.sectionIntro {
+  max-width: 80ch;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+}
+
+.refList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-4 $spacing-8;
+}
+
+/* 程式碼晶片：元件路徑、mixin 名稱。徽章規則：淡底無框 */
+.refList code,
+.refChip {
+  display: inline-block;
+  padding: 2px $spacing-8;
+  border-radius: $radius-pill;
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  color: var(--color-primary-on-surface);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.sectionBody {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+/* 示範格：自動排欄 */
+.demoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: $spacing-16;
+  align-items: start;
+}
+
+/* 玻璃卡裡的內容區塊一律白底（style guide 卡片規則），示範格本身就是一張玻璃卡 */
+.demo {
+  @include glass-surface($shadow: var(--shadow-sm));
+  @include flex-column;
+  gap: $spacing-8;
+  min-width: 0;
+  padding: $spacing-16;
+  border-radius: $radius-16;
+}
+
+.demoWide {
+  grid-column: 1 / -1;
+}
+
+/* 不包玻璃卡：表格、步驟列這類本身就直接放在頁面背景上的元件 */
+.demoPlain {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 0;
+}
+
+.demoHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-4 $spacing-8;
+}
+
+.demoLabel {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.demoBody {
+  @include flex-column;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.demoNote {
+  font-size: $font-size-12;
+  line-height: $line-height-base;
+  color: var(--color-text-muted);
+}
+
+.ruleList {
+  @include flex-column;
+  gap: $spacing-4;
+  padding-left: 1.2em;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+  list-style: disc;
+}
+
+/* ── 一列排開的示範（按鈕、徽章、開關…） ── */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.rowStart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: $spacing-16;
+}
+
+.stack {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.caption {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* 亮暗模式下示範「白底／深底不隨主題」等需要底色的區域 */
+.canvas {
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}
+
+/* ── colors：色票 ── */
+.swatchGroup {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.swatchGroupHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: $spacing-8;
+}
+
+.swatchGroupTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.swatchGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: $spacing-8;
+}
+
+.swatch {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: $spacing-8;
+  align-items: center;
+  padding: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}
+
+.swatchColor {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+}
+
+/* 陰影 token 的示範：白方塊套上該陰影 */
+.swatchShadow {
+  width: 44px;
+  height: 44px;
+  margin: $spacing-4;
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.swatchText {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.swatchName {
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.swatchValue {
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-10;
+  color: var(--color-text-muted);
+  @include text-clamp(2);
+  overflow-wrap: anywhere;
+}
+
+/* ── type ── */
+.typeRow {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: $spacing-16;
+  align-items: baseline;
+  padding: $spacing-8 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.typeMeta {
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.typeSample {
+  min-width: 0;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.textTone {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: $spacing-8;
+  align-items: center;
+  font-size: $font-size-14;
+
+  > span:last-child {
+    @include text-truncate;
+  }
+}
+
+/* ── dims ── */
+.dimRow {
+  display: grid;
+  grid-template-columns: 150px 80px minmax(0, 1fr);
+  gap: $spacing-8;
+  align-items: center;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.dimName {
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+}
+
+.dimValue {
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.dimBar {
+  height: 12px;
+  border-radius: 2px;
+  background: var(--color-primary);
+}
+
+.dimRadius {
+  width: 48px;
+  height: 36px;
+  border: 1px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.dimBreakpoint {
+  color: var(--color-text-muted);
+}
+
+.dimBreakpointHit {
+  color: var(--color-success);
+  font-weight: $font-weight-500;
+}
+
+/* ── buttons：六款 mixin 原樣 @include ── */
+.btnPrimary       { @include btn-primary; }
+.btnSecondary     { @include btn-secondary; }
+.btnDanger        { @include btn-danger; }
+.btnDangerOutline { @include btn-danger-outline; }
+.btnGhost         { @include btn-ghost; }
+.btnGhostDanger   { @include btn-ghost($danger: true); }
+.iconBtn          { @include btn-icon; }
+.iconBtnDanger    { @include btn-icon($danger: true); }
+.menuBtn          { @include btn-icon-secondary; }
+.dialogClose      { @include btn-dialog-close; }
+
+/* 釘選鈕（比照側邊欄導覽／AI 檢查清單）：未釘選滑過該列才浮出、已釘選常駐傾斜釘子無底色 */
+.pinRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-8 $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+}
+
+.pinBtn {
+  @include btn-icon;
+  transition: opacity $transition-base, background $transition-base, color $transition-base;
+
+  &:not(.pinBtnPinned) {
+    opacity: 0;
+  }
+}
+
+.pinRow:hover .pinBtn:not(:disabled),
+.pinBtn:focus-visible {
+  opacity: 1;
+}
+
+.pinBtnPinned {
+  color: var(--color-primary);
+  background: transparent;
+
+  > span {
+    rotate: 45deg;
+  }
+}
+
+/* ── forms：表單 mixin 原樣 @include ── */
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: $spacing-16;
+}
+
+.field {
+  @include form-field;
+
+  input,
+  select,
+  textarea {
+    @include form-control;
+  }
+}
+
+.fieldInvalid.fieldInvalid {
+  @include form-control-invalid;
+}
+
+.fieldFull {
+  grid-column: 1 / -1;
+}
+
+/* 單獨一顆控制項（放在對齊示範列裡） */
+.control {
+  @include form-control;
+  width: 180px;
+}
+
+.hint {
+  font-size: $font-size-12;
+  font-weight: $font-weight-400;
+  color: var(--color-text-muted);
+}
+
+.error {
+  font-size: $font-size-12;
+  font-weight: $font-weight-400;
+  font-style: normal;
+  color: var(--color-danger);
+}
+
+/* 36px 對齊示範：欄位、分段切換、搜尋框、按鈕、開關同一列 */
+.alignRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 35%, transparent);
+  border-radius: $radius-12;
+}
+
+/* 按儲存才生效的欄位用勾選框（Switch 是立刻生效） */
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--color-primary);
+  }
+}
+
+/* ── tables：表格 mixin 原樣 @include ── */
+.tableWrap {
+  @include table-wrap;
+}
+
+.table {
+  @include table-base;
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.th {
+  @include table-th;
+}
+
+.tr {
+  @include table-tr;
+}
+
+.trClickable {
+  @include table-tr-clickable;
+}
+
+.trSelected {
+  @include row-selected;
+}
+
+.td {
+  @include table-td;
+}
+
+.tdName {
+  font-weight: $font-weight-500;
+  @include text-truncate;
+}
+
+.tdActions {
+  text-align: right;
+}
+
+.colCheck   { width: 48px; }
+.colKind    { width: 150px; }
+.colStatus  { width: 100px; }
+.colNum     { width: 80px; }
+.colActions { width: 64px; }
+
+/* ── badges：狀態 badge 的標準寫法（style guide 原樣） ── */
+.badge {
+  @include badge-base;
+  padding: 4px 10px;
+}
+
+.badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_pending { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
+.badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
+
+/* ── segment：超過 4 段的橫向捲動 ── */
+.segmentScroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* ── dropzone ── */
+.dropRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: $spacing-16;
+}
+
+/* FileDropOverlay 的容器：平常是一個對話面板，拖入時浮出虛線框 */
+.overlayHost {
+  position: relative;
+  min-height: 140px;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+/* ── cardrules ── */
+.glassCard {
+  @include glass-surface;
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border-radius: $radius-16;
+}
+
+.cardTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+/* 玻璃卡裡的內容區塊：白底＋細框，不鋪主色系淺藍 */
+.infoRow {
+  display: flex;
+  justify-content: space-between;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-size: $font-size-14;
+}
+
+.infoKey {
+  color: var(--color-text-muted);
+}
+
+.infoVal {
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+}
+
+.preBlock {
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 可點卡片：hover 只給淡底＋上浮，不改 border-color；一定留 transition */
+.hoverCard {
+  @include glass-surface;
+  @include flex-column;
+  gap: $spacing-4;
+  padding: $spacing-16;
+  border-radius: $radius-16;
+  text-align: left;
+  font: inherit;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background $transition-base, box-shadow $transition-base, transform $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+}
+
+.hoverCardMeta {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* 拓撲畫布 token：白底規則的例外 */
+.flowCanvas {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+  min-height: 120px;
+  padding: $spacing-16;
+  border: 1px solid var(--color-flow-border);
+  border-radius: $radius-12;
+  background: var(--color-flow-bg);
+  box-shadow: 0 4px 24px var(--color-flow-shadow);
+}
+
+.flowNode {
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.flowEdge {
+  flex: 1;
+  height: 0;
+  border-top: 2px dashed var(--color-flow-inbound);
+}
+
+.flowEdgeInternal {
+  flex: 1;
+  height: 0;
+  border-top: 2px dashed var(--color-status-neutral);
+}
+
+/* ── emptystate：三格並排 ── */
+.emptyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: $spacing-16;
+}
+
+.emptyCell {
+  @include glass-surface($shadow: var(--shadow-sm));
+  @include flex-column;
+  min-height: 260px;
+  border-radius: $radius-16;
+}
+
+/* ── modal：寬度四級的比例條 ── */
+.widthScale {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.widthBar {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 $spacing-8;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary-on-surface);
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  white-space: nowrap;
+}
+
+.bareBody {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+}
+
+/* ── loading ── */
+.spinnerRow {
+  display: flex;
+  align-items: flex-end;
+  gap: $spacing-32;
+}
+
+.spinnerCell {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-4;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* ── zindex：層級表與疊層示意 ── */
+.zTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: $font-size-14;
+
+  th,
+  td {
+    padding: $spacing-8 $spacing-16;
+    text-align: left;
+    border-bottom: 1px solid var(--color-divider);
+    vertical-align: top;
+  }
+
+  th {
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
+    color: var(--color-text-muted);
+  }
+
+  td {
+    color: var(--color-text-primary);
+  }
+}
+
+.zValue {
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  color: var(--color-primary-on-surface);
+}
+
+.zStack {
+  position: relative;
+  height: 260px;
+  overflow: hidden;
+  border-radius: $radius-12;
+}
+
+/* 一層一張卡，依層級往右下疊 */
+.zLayer {
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  width: 220px;
+  height: 200px;
+  padding: $spacing-8;
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  box-shadow: var(--shadow-md);
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+}
+
+/* ── flows：整頁型狀態放進有邊的框裡看 ── */
+.flowFrame {
+  @include flex-column;
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px dashed color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  border-radius: $radius-16;
+
+  > * {
+    flex: 1;
+  }
+}
+
+.totpGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: $spacing-16;
+  align-items: start;
+}
+
+.totpCell {
+  @include glass-surface($shadow: var(--shadow-sm));
+  padding: $spacing-16;
+  border-radius: $radius-16;
+}
+
+/* ── misc：章魚頭像的圓框、歡迎語 ── */
+.avatarFrame {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+}
+
+.welcome {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}

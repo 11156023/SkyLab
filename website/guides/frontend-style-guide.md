@@ -6,6 +6,8 @@ description: "Frontend styling rules: SCSS Modules, the colour system and theme 
 
 > This document describes the frontend styling architecture and the rules for writing styles. It applies to every page and component in the frontend: new pages and components must follow it so that the visual result and the code style stay consistent. If you want to change `_variables.scss` or `_themes.scss` yourself, discuss it with the frontend team first.
 
+> **Live component reference at `/dev/style`**: run `cd frontend && bun run dev` and open `http://localhost:5173/dev/style`. Every rule in this document is rendered with the real components, labelled with the component path and mixin names; the top bar switches light/dark, interface style and language. The route is registered only in development mode (`import.meta.env.DEV`), so production builds do not include it; it needs no login and never calls the backend. The claude.ai "style reference" and "flow reference" Artifacts still exist alongside it: the live page never goes stale, while the Artifacts can be shared with teammates without logging in.
+
 ---
 
 ## Directory structure
