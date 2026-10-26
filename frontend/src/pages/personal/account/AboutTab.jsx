@@ -4,6 +4,7 @@ import styles from "./AccountSettingsPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import DataTable from "../../../components/DataTable/DataTable";
 import { baseFeatures } from "../../../components/DataTable/features";
+import FeedbackCard from "./FeedbackCard";
 
 /* __SKYLAB_ABOUT__ 由 vite.config.js 在建置時注入（scripts/aboutInfo.mjs）；
    測試或其他工具沒注入時退回最小資料，分頁仍能顯示授權與連結 */
@@ -121,6 +122,8 @@ export default function AboutTab() {
           </LinkRow>
         </div>
       </div>
+      {/* 使用者回饋接在「關於」卡下面：同一欄、同款卡片 */}
+      <FeedbackCard appVersion={info.version} />
       </div>
 
       <div className={`${styles.card} ${styles.aboutMain}`}>

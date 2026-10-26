@@ -1,0 +1,167 @@
+@use "../../../assets/styles/variables" as *;
+@use "../../../assets/styles/mixins" as *;
+
+.page {
+  @include flex-column;
+  gap: $spacing-24;
+  padding: $spacing-8 $spacing-16;
+  flex: 1;
+
+  @media (min-width: $breakpoint-sidebar) {
+    padding: 0;
+  }
+}
+
+.btnSecondary {
+  @include btn-secondary;
+}
+
+.btnGhostDanger {
+  @include btn-ghost($danger: true);
+}
+
+/* ── 篩選工具列：狀態分段切換＋類型下拉（同稽核日誌頁） ── */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  align-items: center;
+}
+
+.filterSelect {
+  min-height: 36px;
+  padding: 0 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  outline: none;
+  max-width: 220px;
+
+  &:focus {
+    border-color: var(--color-primary);
+  }
+}
+
+.content {
+  flex: 1;
+  @include flex-column;
+  gap: $spacing-24;
+  transition: opacity 0.15s ease;
+}
+
+/* 背景重抓中：保留舊資料、半透明並暫停互動 */
+.refreshing {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* ── 回饋清單：每則一張玻璃卡，列本身不可點 ── */
+.list {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.item {
+  @include glass-surface;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16 $spacing-24;
+  border-radius: $radius-16;
+}
+
+/* 已處理的只淡化內容，動作欄維持清楚才看得出能再打開 */
+.itemResolved {
+  .itemContent,
+  .itemHead {
+    opacity: 0.7;
+  }
+}
+
+.itemHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8 $spacing-16;
+}
+
+.itemUser {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.itemName {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.itemEmail {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.itemTime {
+  margin-left: auto;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* 內容原樣換行；玻璃卡裡的內容區塊一律白底細框 */
+.itemContent {
+  margin: 0;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.itemFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8 $spacing-16;
+}
+
+.itemMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  > * + *::before {
+    content: "·";
+    margin-right: $spacing-8;
+  }
+}
+
+.itemActions {
+  display: flex;
+  gap: $spacing-8;
+  margin-left: auto;
+}
+
+/* 徽章：12% 淡底＋狀態色字，不加外框 */
+.badge {
+  @include badge-base;
+  gap: 4px;
+  padding: 4px 10px;
+}
+
+.badge_danger  { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
+.badge_info    { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
+.badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }

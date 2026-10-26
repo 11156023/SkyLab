@@ -117,6 +117,13 @@ from .teaching_class import (
     TeachingClassWeek,
 )
 from .user import User, UserBase, UserRole
+from .user_feedback import (
+    USER_FEEDBACK_CONTENT_MAX_LENGTH,
+    USER_FEEDBACK_CONTENT_MIN_LENGTH,
+    UserFeedback,
+    UserFeedbackCategory,
+    UserFeedbackStatus,
+)
 from .user_group import USER_GROUP_NAME_MAX_LENGTH, UserGroup, UserGroupMember
 from .vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from .vm_template import (
@@ -138,6 +145,12 @@ __all__ = [
     "USER_GROUP_NAME_MAX_LENGTH",
     "UserGroup",
     "UserGroupMember",
+    # User Feedback
+    "USER_FEEDBACK_CONTENT_MAX_LENGTH",
+    "USER_FEEDBACK_CONTENT_MIN_LENGTH",
+    "UserFeedback",
+    "UserFeedbackCategory",
+    "UserFeedbackStatus",
     # AI API
     "API_KEY_PREFIX_LENGTH",
     "LEGACY_API_KEY_PREFIX_LENGTH",

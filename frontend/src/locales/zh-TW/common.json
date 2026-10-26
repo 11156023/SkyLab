@@ -263,6 +263,7 @@
   "Sidebar.itemMonitoring": "資源監控",
   "Sidebar.itemJobs": "背景任務",
   "Sidebar.itemAudit": "稽核日誌",
+  "Sidebar.itemFeedback": "使用者回饋",
   "Sidebar.pin": "釘選",
   "Sidebar.unpin": "取消釘選",
   "Sidebar.userSettings": "使用者設定",
@@ -847,5 +848,8 @@
   "EnvironmentGroups.byCourseSchedule": "依課程時段管理",
   "EnvironmentGroups.multiNode": "多節點",
   "EnvironmentGroups.provisioning": "配置中",
-  "EnvironmentGroups.machine": "機器"
+  "EnvironmentGroups.machine": "機器",
+  "Feedback.categoryBug": "問題回報",
+  "Feedback.categorySuggestion": "功能建議",
+  "Feedback.categoryOther": "其他"
 }

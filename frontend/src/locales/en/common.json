@@ -263,6 +263,7 @@
   "Sidebar.itemMonitoring": "Resource Monitoring",
   "Sidebar.itemJobs": "Background Jobs",
   "Sidebar.itemAudit": "Audit Log",
+  "Sidebar.itemFeedback": "User Feedback",
   "Sidebar.pin": "Pin",
   "Sidebar.unpin": "Unpin",
   "Sidebar.userSettings": "User Settings",
@@ -847,5 +848,8 @@
   "EnvironmentGroups.byCourseSchedule": "Managed by course schedule",
   "EnvironmentGroups.multiNode": "Multiple nodes",
   "EnvironmentGroups.provisioning": "Provisioning",
-  "EnvironmentGroups.machine": "Machine"
+  "EnvironmentGroups.machine": "Machine",
+  "Feedback.categoryBug": "Bug report",
+  "Feedback.categorySuggestion": "Suggestion",
+  "Feedback.categoryOther": "Other"
 }

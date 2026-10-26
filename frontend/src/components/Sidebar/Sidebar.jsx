@@ -84,6 +84,8 @@ const navGroups = [
       { key: "ai-monitoring", labelKey: "Sidebar.itemAiMonitoring", icon: "query_stats", adminOnly: true },
       { key: "jobs",          labelKey: "Sidebar.itemJobs",       icon: "task_alt" },
       { key: "audit",         labelKey: "Sidebar.itemAudit",     icon: "receipt_long", adminOnly: true },
+      /* 帳號設定「關於」分頁送進來的問題回報與建議 */
+      { key: "feedback",      labelKey: "Sidebar.itemFeedback",  icon: "rate_review", adminOnly: true },
     ],
   },
 ];

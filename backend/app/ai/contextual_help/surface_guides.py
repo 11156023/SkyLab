@@ -806,6 +806,18 @@ _add("audit", SurfaceGuide(
     ),
 ))
 
+_add("feedback", SurfaceGuide(
+    when_to_use="想看使用者從「帳號設定 › 關於」送來的問題回報與建議，或處理完要標記、清掉舊回饋。",
+    features=(
+        "預設只列待處理，用狀態與類型篩選，可切到「已處理」或「全部」。",
+        "每則顯示送出者、時間、版本與完整內容；「標記已處理」記下處理人與時間，可改回待處理。",
+        "「刪除」無法復原，送出的人不會收到通知。",
+    ),
+    related=(
+        RelatedPage("/account", "自己也要送回饋：帳號設定「關於」分頁"),
+    ),
+))
+
 _add("pve-connections", SurfaceGuide(
     when_to_use="第一次接上 Proxmox VE、新增或修改叢集連線，或調整節點是否接收新機器與放置優先度。",
     features=(

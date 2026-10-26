@@ -263,6 +263,7 @@
   "Sidebar.itemMonitoring": "リソース監視",
   "Sidebar.itemJobs": "バックグラウンドタスク",
   "Sidebar.itemAudit": "監査ログ",
+  "Sidebar.itemFeedback": "ユーザーフィードバック",
   "Sidebar.pin": "ピン留め",
   "Sidebar.unpin": "ピン留めを解除",
   "Sidebar.userSettings": "ユーザー設定",
@@ -847,5 +848,8 @@
   "EnvironmentGroups.byCourseSchedule": "授業時間に合わせて管理",
   "EnvironmentGroups.multiNode": "複数ノード",
   "EnvironmentGroups.provisioning": "準備中",
-  "EnvironmentGroups.machine": "マシン"
+  "EnvironmentGroups.machine": "マシン",
+  "Feedback.categoryBug": "不具合報告",
+  "Feedback.categorySuggestion": "機能提案",
+  "Feedback.categoryOther": "その他"
 }
