@@ -196,7 +196,24 @@ On the runner:
 - It deploys with `prepare-ai-stack.sh --start`, which ends with `docker compose up -d --build` (the monitoring stack comes up too when that `.env` sets `COMPOSE_PROFILES=monitoring`), waits for the backend health check and LiteLLM readiness, and then smoke-tests every public AI model. A failing model only produces a warning; the deployment stays.
 - For the smoke test it deletes any old `pve-deploy-smoke` credential, issues a new one valid for one day, and cleans it up afterwards whether the test passed or not (unused keys are deleted; keys with usage are revoked and kept for accounting). A failed cleanup fails the workflow; an abandoned key still expires on its own.
 
-To set up a new runner, install the GitHub Actions runner as a dedicated user on the deployment host, give it the `skylab-main` label, create the `pve-test` environment with required reviewers in the repository settings, and place the files above under `/opt/skylab`.
+To set up a new runner, install the GitHub Actions runner as a dedicated user on the deployment host, give it the `skylab-main` label, create the `pve-test` environment with required reviewers in the repository settings, place the files above under `/opt/skylab`, and install the job-started hook described below.
+
+### Restricting the runner
+
+The runner serves a public repository. Anyone's pull request can add a workflow with `runs-on: skylab-main`, and the `pve-test` approval only stops jobs that name that environment. Three settings keep such a job off the deployment host:
+
+- **Fork pull request approval.** Settings → Actions → General is set to *Require approval for all external contributors*, so no workflow from an outside pull request runs until a maintainer approves it. Before approving, check whether the pull request touches `.github/workflows/`, and do not approve one that does without reading the change.
+- **Job-started hook.** `scripts/runner/job-started-guard.sh` runs before every job on the runner. It lets through only `workflow_dispatch` runs of `deploy-pve-test.yml` and `provision-class-event.yml` from `main` of `SkyLab-tw/SkyLab`; any other job fails in "Set up runner" before a single step runs, and so does a job whose variables are missing. Install it outside the runner directory, owned by root so the runner user cannot change it, then restart the runner:
+
+  ```bash
+  sudo install -D -o root -g root -m 755 scripts/runner/job-started-guard.sh /usr/local/lib/skylab/job-started-guard.sh
+  # in the runner directory
+  echo 'ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/lib/skylab/job-started-guard.sh' >> .env
+  sudo ./svc.sh stop && sudo ./svc.sh start
+  ```
+
+  The next deployment's "Set up runner" log shows `job-started-guard: allowed …`. If it shows `refusing this job` for a legitimate run, the message names the value that did not match. When the script changes on `main`, install it again.
+- **Code owners.** `.github/CODEOWNERS` assigns `.github/` and `scripts/` to the maintainers, and the `main` ruleset requires a code owner's review, so the two allowed workflows and the scripts they run cannot change on `main` without one.
 
 ## 9. Operations checklist
 

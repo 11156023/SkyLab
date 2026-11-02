@@ -196,7 +196,24 @@ Gateway 是另一台 Linux VM，用 `gateway/install.sh` 安裝（nginx stream +
 - 接著用 `prepare-ai-stack.sh --start` 部署，最後一步是 `docker compose up -d --build`（那份 `.env` 設了 `COMPOSE_PROFILES=monitoring` 時會一起帶監控 stack），等 backend 健康檢查與 LiteLLM readiness 通過，再對每個公開 AI 模型跑 smoke test。模型測試失敗只會發出警告，部署照樣保留。
 - smoke test 前先刪掉舊的 `pve-deploy-smoke` 金鑰、核發一日有效的新金鑰；測試後無論成功失敗都清理（未使用的直接刪除，已有用量的撤銷並保留帳務紀錄）。清理失敗會讓 workflow 報錯；遺留的金鑰也會自動過期。
 
-要建新 runner：在部署機以專用使用者安裝 GitHub Actions runner、加上 `skylab-main` 標籤、在 repo 設定建立需要審核者的 `pve-test` environment，並把上述檔案放到 `/opt/skylab`。
+要建新 runner：在部署機以專用使用者安裝 GitHub Actions runner、加上 `skylab-main` 標籤、在 repo 設定建立需要審核者的 `pve-test` environment、把上述檔案放到 `/opt/skylab`，並裝好下面說明的 job-started hook。
+
+### 限制 runner
+
+這台 runner 服務的是公開 repo。任何人送的 PR 都能新增一支 `runs-on: skylab-main` 的 workflow，而 `pve-test` 的審核只擋有宣告這個 environment 的 job。以下三項設定讓這種 job 碰不到部署機：
+
+- **外部 PR 審核。** Settings → Actions → General 設為 *Require approval for all external contributors*，外部 PR 的 workflow 在維護者核准前都不會執行。核准前先看 PR 有沒有改到 `.github/workflows/`，有的話沒讀過改動就不要核准。
+- **Job-started hook。** `scripts/runner/job-started-guard.sh` 在 runner 上每個 job 之前執行，只放行 `SkyLab-tw/SkyLab` 的 `main` 上以 `workflow_dispatch` 觸發的 `deploy-pve-test.yml` 與 `provision-class-event.yml`；其他 job 在「Set up runner」就失敗，一個 step 都不會跑，變數缺少的 job 也一樣。把它裝在 runner 目錄外、由 root 擁有，runner 使用者改不了，再重啟 runner：
+
+  ```bash
+  sudo install -D -o root -g root -m 755 scripts/runner/job-started-guard.sh /usr/local/lib/skylab/job-started-guard.sh
+  # 在 runner 目錄裡
+  echo 'ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/lib/skylab/job-started-guard.sh' >> .env
+  sudo ./svc.sh stop && sudo ./svc.sh start
+  ```
+
+  下一次部署的「Set up runner」日誌會出現 `job-started-guard: allowed …`。正常的執行卻出現 `refusing this job` 時，訊息會寫出哪個值不符。`main` 上的腳本改了之後要重新安裝。
+- **Code owners。** `.github/CODEOWNERS` 把 `.github/` 與 `scripts/` 指給維護者，`main` 的 ruleset 要求 code owner 審核，所以放行的兩支 workflow 和它們執行的腳本，沒有維護者審過就改不進 `main`。
 
 ## 9. 維運檢查清單
 
