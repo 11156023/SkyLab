@@ -14,7 +14,7 @@
 
 - STUDENT_COUNT             學生人數（預設 50）
 - STUDENT_EMAIL_PATTERN     例如 ``student{n:03d}@gmail.com``
-- STUDENT_PASSWORD_PATTERN  例如 ``ntubstudent{n:03d}@!``（放 GitHub Secret）
+- STUDENT_PASSWORD_PATTERN  格式 ``<前綴>{n:03d}<後綴>``，前後綴自訂、不要寫進 repo（放 GitHub Secret）
 - TEACHER_EMAIL             例如 ``teacher001@gmail.com``
 - TEACHER_PASSWORD          導師密碼（放 GitHub Secret）
 - DRY_RUN                   ``true`` 時只列出會建立哪些帳號
