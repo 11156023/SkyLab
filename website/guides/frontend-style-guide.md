@@ -419,6 +419,18 @@ Buttons always use the button mixin family (six variants) from `_mixins.scss`; *
   but a danger modifier **must show red text before hover**, and its hover must also include `:not(:disabled)`
 - Danger items inside dropdown menus (PowerMenu, the ⋯ menu in page headers) are menu styles and are not among these six variants
 
+#### Chat panels (AI assistant, checklist assistant)
+
+Both chat panels share one mixin family for the header icon buttons, the rounded composer and its send / attach buttons; do not copy them per page:
+
+```scss
+.headerBtn { @include chat-header-btn; }                      // 34px round, no background at rest, tinted on hover
+.composer  { @include chat-composer; }                        // rounded composer: the textarea grows with content, stops at about 7 lines and scrolls inside; focus only changes the border colour
+.composer  { @include chat-composer($padding: 6px); }         // 6px padding when round buttons sit on both sides
+.send      { @include chat-composer-btn; }                    // 36px solid primary send button
+.attach    { @include chat-composer-btn($primary: false); }   // 36px attach button with no background
+```
+
 ### Forms
 
 Form fields always use the form mixin family from `_mixins.scss`; **do not invent another set of font sizes and paddings inside a page**:

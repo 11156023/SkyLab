@@ -83,6 +83,18 @@ export function ButtonsSection() {
             <MIcon name="hourglass_empty" size={20} spin={spinning} />
           </div>
         </Demo>
+        <Demo label="聊天面板：標頭鈕與輸入框" refs={["chat-header-btn", "chat-composer", "chat-composer($padding: 6px)", "chat-composer-btn", "chat-composer-btn($primary: false)"]} wide note="AI 助手（AiFloatingChat）與檢查表助理（AiJudgePanel）共用；標頭鈕 34px 圓形無底色，輸入框 textarea 隨內容長高、約 7 行停住在框內捲動，聚焦只換邊框色。">
+          <div className={styles.row}>
+            <button type="button" className={styles.chatHeaderBtn} aria-label="資料來源" title="chat-header-btn" onClick={click}><MIcon name="source" size={20} /></button>
+            <button type="button" className={styles.chatHeaderBtn} aria-label="清除對話" title="chat-header-btn" onClick={click}><MIcon name="delete_sweep" size={20} /></button>
+            <button type="button" className={styles.chatHeaderBtn} aria-label="停用" disabled><MIcon name="close" size={20} /></button>
+          </div>
+          <div className={styles.chatComposer}>
+            <button type="button" className={styles.chatAttach} aria-label="附件" title="chat-composer-btn($primary: false)" onClick={click}><MIcon name="attach_file" size={20} /></button>
+            <textarea rows={1} placeholder="輸入訊息，Shift＋Enter 換行" aria-label="訊息" />
+            <button type="button" className={styles.chatSend} aria-label="送出" title="chat-composer-btn" onClick={click}><MIcon name="arrow_upward" size={20} /></button>
+          </div>
+        </Demo>
       </div>
     </Section>
   );

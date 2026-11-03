@@ -440,6 +440,12 @@
 .menuBtn          { @include btn-icon-secondary; }
 .dialogClose      { @include btn-dialog-close; }
 
+/* 聊天面板共用組：AI 助手與檢查表助理同一套 */
+.chatHeaderBtn    { @include chat-header-btn; }
+.chatComposer     { @include chat-composer($padding: 6px); gap: 6px; max-width: 520px; textarea { padding: 8px 6px; field-sizing: content; } }
+.chatAttach       { @include chat-composer-btn($primary: false); }
+.chatSend         { @include chat-composer-btn; }
+
 /* 釘選鈕（比照側邊欄導覽／AI 檢查清單）：未釘選滑過該列才浮出、已釘選常駐傾斜釘子無底色 */
 .pinRow {
   display: flex;

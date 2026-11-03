@@ -553,20 +553,6 @@
 }
 
 .weekOpenBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
-  border-radius: $radius-8;
+  @include btn-secondary;
   color: var(--color-primary-on-surface);
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
-  font: inherit;
-  font-size: $font-size-14;
-  font-weight: $font-weight-700;
-  cursor: pointer;
-
-  &:hover { background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface)); }
 }

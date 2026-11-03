@@ -24,8 +24,8 @@
 .feedback_completed .feedbackStatus, .feedback_passed .feedbackStatus { color: var(--color-success); }
 .feedback_partial .feedbackStatus, .feedback_needs_review .feedbackStatus { color: var(--color-info); }
 .feedback_failed .feedbackStatus, .feedback_cancelled .feedbackStatus { color: var(--color-danger); }
-/* 機器連不上、腳本沒跑完：不是學生做錯，用提醒色跟「未通過」分開 */
-.feedback_env_error .feedbackStatus { color: var(--color-pending); }
+/* 機器連不上、腳本沒跑完：一樣是錯誤狀態走紅色（橙色只給待審核語意），文案會說明不是學生做錯 */
+.feedback_env_error .feedbackStatus { color: var(--color-danger); }
 .checkpointMachine { display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; color: var(--color-text-muted); font-size: $font-size-12; }
 .feedbackBody { display: grid; gap: 5px; padding: 11px 13px 13px 53px; border-top: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-primary) 3%, var(--color-surface)); }
 .feedbackBody strong { color: var(--color-primary); font-size: $font-size-14; }

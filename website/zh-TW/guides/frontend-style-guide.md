@@ -419,6 +419,18 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
   但危險修飾類**未 hover 前文字就要是紅色**，且 hover 同樣必加 `:not(:disabled)`
 - 下拉選單裡的危險項（PowerMenu、頁首 ⋯ 選單）屬選單樣式，不在此六款之列
 
+#### 聊天面板（AI 助手、檢查表助理）
+
+兩個聊天面板的標頭圖示鈕、圓角輸入框與送出／附件鈕共用同一組 mixin，不要各自手抄：
+
+```scss
+.headerBtn { @include chat-header-btn; }                      // 34px 圓形、平常無底色，hover 淡底
+.composer  { @include chat-composer; }                        // 圓角輸入框：textarea 隨內容長高、約 7 行停住在框內捲動，聚焦只換邊框色
+.composer  { @include chat-composer($padding: 6px); }         // 兩側都放圓鈕時內距收成 6px
+.send      { @include chat-composer-btn; }                    // 36px 主色實心送出鈕
+.attach    { @include chat-composer-btn($primary: false); }   // 36px 無底色附件鈕
+```
+
 ### 表單（Form）
 
 表單欄位一律使用 `_mixins.scss` 的表單 mixin 組，**不要在頁面內另立一套字級與內距**：

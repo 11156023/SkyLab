@@ -375,6 +375,112 @@
   background: transparent;
 }
 
+/* ── 聊天面板（AI 助手 AiFloatingChat、AI 導師檢查的檢查表助理）──
+   標頭的圓形圖示鈕、圓角輸入框與送出／附件鈕，兩邊同一組，不各自手抄 */
+
+/* 聊天標頭的圓形圖示鈕：34px、平常無底色，hover 淡底 */
+@mixin chat-header-btn {
+  @include flex-center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+/* 圓角輸入框：textarea 隨內容長高、約 7 行停住在框內捲動，聚焦只換邊框色
+   （貼在面板底部，外擴的光暈會被裁掉一半）。$padding 看左右放不放圓鈕 */
+@mixin chat-composer($padding: 10px 10px 10px 14px) {
+  display: flex;
+  align-items: flex-end;
+  gap: $spacing-8;
+  padding: $padding;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color $transition-base;
+
+  &:focus-within { border-color: var(--color-primary); }
+
+  textarea {
+    box-sizing: border-box;
+    flex: 1;
+    min-width: 0;
+    max-height: 168px;
+    overflow-y: auto;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: $font-size-14;
+    line-height: 1.45;
+
+    &::placeholder { color: var(--color-text-muted); }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+}
+
+/* 輸入框兩側的 36px 圓鈕：送出＝主色實心，附件＝無底色 hover 淡底 */
+@mixin chat-composer-btn($primary: true) {
+  @include flex-center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base, opacity $transition-base;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+  }
+
+  @if $primary {
+    color: var(--color-text-on-primary);
+    background: var(--color-primary);
+
+    &:hover:not(:disabled) { background: var(--color-primary-dark); }
+    &:disabled { opacity: 0.35; cursor: default; }
+  } @else {
+    color: var(--color-text-secondary);
+    background: transparent;
+
+    &:hover:not(:disabled) {
+      background: var(--color-hover);
+      color: var(--color-text-primary);
+    }
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
+  }
+}
+
 /* 對話框遮罩避開 AI 助手面板：面板開著時 AiFloatingChat 會把面板佔的寬度寫進
    --ai-panel-inset，透明右框吃掉這段寬度，對話框改在左側剩餘空間置中；
    遮罩底色與 backdrop 濾鏡畫到 border-box，暗色照樣鋪滿整個畫面。
