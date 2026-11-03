@@ -12,6 +12,8 @@ import styles from "./SegmentedControl.module.scss";
  * @param {Function} onChange  (value) => void
  * @param {string}   ariaLabel 群組的無障礙名稱
  * @param {string}   className 額外樣式
+ * @param {boolean}  compact   各段內距縮成 0 8px：給 240px 以下的窄容器（側邊欄分頁），英日文才放得下
+ * @param {boolean}  fullWidth 撐滿容器寬度、各段平分：不要在頁面 SCSS 覆寫元件內部的按鈕
  */
 export default function SegmentedControl({
   options,
@@ -19,10 +21,18 @@ export default function SegmentedControl({
   onChange,
   ariaLabel,
   className,
+  compact = false,
+  fullWidth = false,
 }) {
+  const classes = [
+    styles.segment,
+    compact && styles.segmentCompact,
+    fullWidth && styles.segmentFullWidth,
+    className,
+  ].filter(Boolean).join(" ");
   return (
     <div
-      className={`${styles.segment}${className ? ` ${className}` : ""}`}
+      className={classes}
       role="group"
       aria-label={ariaLabel}
     >

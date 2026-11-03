@@ -58,7 +58,7 @@ export function ButtonsSection() {
             <button type="button" className={styles.iconBtn} aria-label="編輯（停用）" disabled><MIcon name="edit" size={18} /></button>
           </div>
         </Demo>
-        <Demo label="釘選鈕" refs={["btn-icon", "Sidebar／AiJudgePanel .pinBtn"]} note="已釘選常駐傾斜釘子、無底色；未釘選滑過該列才浮出（佔位、可聚焦）。">
+        <Demo label="釘選鈕" refs={["btn-icon", "Sidebar .pinBtn"]} note="已釘選常駐傾斜釘子、無底色；未釘選滑過該列才浮出（佔位、可聚焦）。">
           <div className={styles.pinRow}>
             <span>{pinned ? "已釘選的項目" : "未釘選的項目（滑過看看）"}</span>
             <button
@@ -162,9 +162,14 @@ export function FormsSection() {
               <NumberInput value={cores} min={1} max={64} step={1} onCommit={setCores} aria-label="CPU 核心數" />
               <span className={styles.hint}>目前定稿值：{cores}</span>
             </label>
-            <label className={`${styles.field} ${styles.fieldFull}`}>
+            <label className={styles.field}>
               <span>多行文字（固定高：rows 決定，_reset.scss 已全域 resize: none）</span>
               <textarea rows={3} placeholder="備註" />
+            </label>
+            <label className={styles.field}>
+              <span>隨內容長高（field-sizing: content＋max-height，多打幾行看看）</span>
+              <textarea className={styles.autoGrow} rows={1} placeholder="回覆學生：一行起跳，最多長到約 5 行，之後在框內捲動" />
+              <span className={styles.hint}>聊天輸入框、回覆欄這類「一行起跳」的欄位才用；仍然不寫 resize。</span>
             </label>
           </div>
         </Demo>
@@ -232,6 +237,21 @@ export function SegmentSection() {
               { value: "published", label: "發布", buttonProps: { disabled: true, title: "條件未滿足" } },
             ]}
           />
+        </Demo>
+        <Demo label="窄容器：compact＋fullWidth" refs={["compact", "fullWidth"]} note="AI 導師檢查頁 220px 側邊欄的分頁：compact 把各段內距收成 8px，fullWidth 撐滿容器、各段平分。兩個都是元件的 prop，頁面 SCSS 不要再覆寫 .segmentBtn。">
+          <div className={styles.narrowBox}>
+            <SegmentedControl
+              ariaLabel="側欄分頁"
+              compact
+              fullWidth
+              value={status === "approved" ? "approved" : "pending"}
+              onChange={setStatus}
+              options={[
+                { value: "pending", label: "本週檢查", icon: "fact_check" },
+                { value: "approved", label: "檢查表助理", icon: "support_agent" },
+              ]}
+            />
+          </div>
         </Demo>
         <Demo label="5 段以上橫向捲動" refs={["className → overflow-x: auto"]} wide>
           <SegmentedControl

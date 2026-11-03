@@ -7,6 +7,7 @@ import MIcon from "../../../../components/MIcon";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
+import TeacherReplyNote from "../../../../components/TeacherReplyNote/TeacherReplyNote";
 import TerminalDialog from "../../resources/TerminalDialog";
 import VncDialog from "../../resources/VncDialog";
 import { useQueryView } from "../../../../hooks/useQueryLoadState";
@@ -524,10 +525,9 @@ export default function StudentCoursePage() {
                 </div>
 
                 {currentReply && (
-                  <p className={styles.weekReply}>
-                    <MIcon name="forum" size={16} />
-                    <span><strong>{t("StudentCoursePage.teacherReplied")}</strong>{currentReply}</span>
-                  </p>
+                  <TeacherReplyNote title={t("StudentCoursePage.teacherReplied")} clamp={2}>
+                    {currentReply}
+                  </TeacherReplyNote>
                 )}
 
                 <button

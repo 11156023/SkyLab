@@ -4912,6 +4912,8 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
         <SegmentedControl
           ariaLabel={t("AiJudgePanel.tabsAria")}
           className={styles.sidebarTabs}
+          compact
+          fullWidth
           options={TEACHER_JUDGE_TABS.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon, buttonProps: tab.buttonProps }))}
           value={activeTab}
           onChange={selectTab}

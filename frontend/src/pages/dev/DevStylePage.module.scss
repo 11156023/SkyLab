@@ -446,7 +446,7 @@
 .chatAttach       { @include chat-composer-btn($primary: false); }
 .chatSend         { @include chat-composer-btn; }
 
-/* 釘選鈕（比照側邊欄導覽／AI 檢查清單）：未釘選滑過該列才浮出、已釘選常駐傾斜釘子無底色 */
+/* 釘選鈕（比照側邊欄導覽）：未釘選滑過該列才浮出、已釘選常駐傾斜釘子無底色 */
 .pinRow {
   display: flex;
   align-items: center;
@@ -883,6 +883,314 @@
   @include glass-surface($shadow: var(--shadow-sm));
   padding: $spacing-16;
   border-radius: $radius-16;
+}
+
+/* ── forms：隨內容長高的 textarea（聊天輸入框、回覆欄；仍不寫 resize） ── */
+.autoGrow {
+  max-height: 160px;
+  field-sizing: content;
+  line-height: 1.5;
+}
+
+/* ── segment：窄容器示範（AI 導師檢查頁側邊欄 220px） ── */
+.narrowBox {
+  width: 220px;
+  max-width: 100%;
+  padding: $spacing-8;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 35%, transparent);
+  border-radius: $radius-12;
+}
+
+/* ── indicators：頁面專屬的小型狀態指示，逐值對照各頁 module.scss ── */
+
+/* AiJudgePanel .reportTick：學生條最前面的回報狀態 */
+.reportTick {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid color-mix(in srgb, var(--color-status-neutral) 40%, transparent);
+  border-radius: 50%;
+  color: var(--color-text-muted);
+
+  small { font-size: $font-size-10; font-weight: $font-weight-700; }
+}
+
+.reportTickReady { border-color: var(--color-success); color: var(--color-text-on-primary); background: var(--color-success); }
+.reportTickPartial { border-color: var(--color-pending); color: var(--color-pending); }
+
+/* AiJudgePanel .reviewStatLine／.reviewStackBar：總覽兩條橫列 */
+.statLine {
+  display: grid;
+  min-height: 28px;
+  align-items: center;
+  grid-template-columns: 96px minmax(80px, 1fr) minmax(0, auto);
+  gap: $spacing-16;
+}
+
+.statLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  white-space: nowrap;
+}
+
+.stackBar {
+  display: flex;
+  overflow: hidden;
+  height: 8px;
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, var(--color-status-neutral) 16%, transparent);
+
+  > span { height: 100%; transition: width $transition-base; }
+}
+
+.stackPass { background: var(--color-success); }
+.stackFail { background: var(--color-danger); }
+.stackPending { background: var(--color-pending); }
+
+.statValue {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: $spacing-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  white-space: nowrap;
+
+  em { font-size: $font-size-12; font-style: normal; font-weight: $font-weight-700; }
+  small { color: var(--color-text-muted); font-size: $font-size-12; font-weight: $font-weight-500; }
+}
+
+.statPass { color: var(--color-success); }
+.statFail { color: var(--color-danger); }
+.statPending { color: var(--color-pending); }
+
+/* AiJudgePanel .machineChip＋.powerDot：機器晶片與開機燈號 */
+.machineChip {
+  @include badge-base;
+  gap: 4px;
+  padding: 2px 8px;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
+}
+
+.powerDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.powerDotOn { background: var(--color-success); }
+.powerDotOff { background: var(--color-text-muted); }
+.powerDotUnknown { border: 1px solid var(--color-text-muted); }
+
+/* AiJudgePanel .weekDot：側欄週次列的日期前小點 */
+.weekLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
+
+.weekDot,
+.weekDotReady {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+}
+
+.weekDot { border: 1.5px solid var(--color-border); }
+.weekDotReady { background: var(--color-success); }
+
+/* StudentCoursePage .weekCompletion input：學生首頁「這週全部做完」的打勾框 */
+.completion {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  cursor: pointer;
+
+  input {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    margin: 0;
+    appearance: none;
+    place-content: center;
+    border: 2px solid color-mix(in srgb, var(--color-status-neutral) 35%, var(--color-border));
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    cursor: pointer;
+    transition: border-color $transition-base, background $transition-base, opacity $transition-base;
+
+    &::before {
+      width: 10px;
+      height: 5px;
+      border-bottom: 2.5px solid color-mix(in srgb, var(--color-status-neutral) 45%, transparent);
+      border-left: 2.5px solid color-mix(in srgb, var(--color-status-neutral) 45%, transparent);
+      content: "";
+      transform: translateY(-1px) rotate(-45deg);
+      transition: border-color $transition-base;
+    }
+
+    &:hover:not(:disabled) { border-color: var(--color-success); }
+    &:hover:not(:disabled)::before { border-color: color-mix(in srgb, var(--color-success) 70%, transparent); }
+
+    &:checked {
+      border-color: var(--color-success);
+      background: var(--color-success);
+    }
+
+    &:checked::before { border-color: var(--color-text-on-primary); }
+
+    &:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--color-success) 28%, transparent);
+      outline-offset: 2px;
+    }
+
+    &:disabled { cursor: not-allowed; opacity: .6; }
+  }
+}
+
+/* AiJudgePanel .columnResizer：欄與欄之間的拖拉把手（示範固定在中間，不會真的拖） */
+.resizerDemo {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 96px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}
+
+.resizerPane {
+  display: grid;
+  place-content: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+
+  & + & { border-left: 1px solid var(--color-divider); }
+}
+
+.columnResizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 5px);
+  z-index: 3;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 3px;
+    border-radius: $radius-pill;
+    background: transparent;
+    transition: background $transition-base;
+  }
+
+  &:hover::after,
+  &:focus-visible::after,
+  &:active::after {
+    background: var(--color-primary);
+  }
+
+  &:focus-visible { outline: none; }
+}
+
+/* AiFloatingChat .pageHelpHint：提示泡泡（實際 position: fixed、z-index 150；這裡靜態放在舞台上） */
+.hintStage {
+  display: flex;
+  justify-content: flex-end;
+  padding: $spacing-8 $spacing-8 $spacing-16;
+}
+
+.helpHint {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: max-content;
+  max-width: min(280px, 100%);
+  padding: 12px 10px 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-md);
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: 26px;
+    bottom: -6px;
+    width: 10px;
+    height: 10px;
+    border-right: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+    transform: rotate(45deg);
+  }
+}
+
+.hintMessage {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: $radius-8;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: $font-size-14;
+  line-height: 1.6;
+  text-align: start;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; text-underline-offset: 3px; }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+}
+
+.hintDismiss {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: $radius-8;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover:not(:disabled) { background: var(--color-hover); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+}
+
+/* ── misc：老師回覆兩種版本並排 ── */
+.replyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: $spacing-16;
+  align-items: start;
 }
 
 /* ── misc：章魚頭像的圓框、歡迎語 ── */

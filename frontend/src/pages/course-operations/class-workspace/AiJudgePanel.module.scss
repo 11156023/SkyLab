@@ -1897,18 +1897,9 @@ strong.reviewStatValue { font-size: $font-size-14; }
     padding: 12px;
   }
 
-  // 分頁撐滿側邊欄寬度，兩段平分；側邊欄只有 220px，內距收小英日文才放得下
+  // 分頁撐滿側邊欄、內距收小都走 SegmentedControl 的 fullWidth／compact prop，這裡只管它在標頭列不被壓縮
   .sidebarTabs {
-    display: flex;
     flex: 0 0 auto;
-    width: 100%;
-
-    > button {
-      flex: 1 1 0;
-      justify-content: center;
-      min-width: 0;
-      padding: 0 $spacing-8;
-    }
   }
 
   .sessionList {

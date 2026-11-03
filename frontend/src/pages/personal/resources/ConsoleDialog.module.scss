@@ -188,7 +188,8 @@
   :global(canvas) { display: block; }
 }
 
-/* 鍵盤接管範圍（useConsoleKeyboard）：只包遠端畫面，撐滿 .vncWrap */
+/* 鍵盤接管範圍（useConsoleKeyboard）：只包遠端畫面，撐滿 .vncWrap。
+   與 components/Classroom/Classroom.module.scss 的 .vncSurface 刻意相同（四行純版面，不抽 mixin），改一邊記得改另一邊 */
 .vncSurface {
   flex: 1;
   min-width: 0;

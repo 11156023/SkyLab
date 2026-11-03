@@ -553,7 +553,8 @@
   position: fixed;
   right: $spacing-16;
   bottom: $spacing-16;
-  z-index: 70;
+  z-index: 150; // Portal 浮層層級（z-index 表）：高於側邊欄與 sticky 列，低於對話框
+
   @include flex-center;
   padding: 6px;
   border: 0;
@@ -571,7 +572,7 @@
   position: fixed;
   right: max(16px, env(safe-area-inset-right));
   bottom: calc(90px + env(safe-area-inset-bottom));
-  z-index: 70;
+  z-index: 150; // 跟章魚 FAB 同一層（Portal 浮層）
   display: flex;
   align-items: flex-start;
   gap: 8px;

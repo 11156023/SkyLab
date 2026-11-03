@@ -7,6 +7,7 @@ import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import TeacherReplyNote from "../../../components/TeacherReplyNote/TeacherReplyNote";
 import { useQueryView } from "../../../hooks/useQueryLoadState";
 import { CoursesService } from "../../../services/courses";
 import { useCoursePathQuery, usePracticeMachinesQuery, useWeeklyTasksQuery } from "../../../queries/courses";
@@ -156,13 +157,11 @@ export default function StudentWeekPage() {
       <section className={styles.panel} data-guide="course-week-feedback">
         <div className={styles.panelHeading}><span><MIcon name="rate_review" size={20} /></span><div><h2>{t("StudentWeekPage.feedbackTitle")}</h2><p>{t("StudentWeekPage.feedbackHint")}</p></div></div>
         {/* 老師這週的回覆：一週一則，老師再回覆就換成新的 */}
-        {teacherReply && <article className={styles.teacherReply} data-guide="course-week-teacher-reply">
-          <span><MIcon name="forum" size={18} /></span>
-          <div>
-            <strong>{t("StudentWeekPage.teacherReplyTitle")}</strong>
-            <p>{teacherReply}</p>
-          </div>
-        </article>}
+        {teacherReply && (
+          <TeacherReplyNote title={t("StudentWeekPage.teacherReplyTitle")} data-guide="course-week-teacher-reply">
+            {teacherReply}
+          </TeacherReplyNote>
+        )}
         {view.week.checkpoints.length ? <div className={styles.feedbackList}>
           {view.week.checkpoints.map((checkpoint, index) => {
             const feedback = feedbackFor(checkpoint);

@@ -14,6 +14,7 @@ import { ColorsSection, DimsSection, TypeSection, ZIndexSection } from "./sectio
 import { BadgesSection, ButtonsSection, FormsSection, SegmentSection, StepperSection } from "./sections/ControlSections";
 import { CardRulesSection, DropzoneSection, TablesSection } from "./sections/DataSections";
 import { EmptyStateSection, LoadingSection, MiscSection, ModalSection, ToastSection } from "./sections/StateSections";
+import { IndicatorsSection } from "./sections/IndicatorSections";
 import { ConnectionLostSection, CrashSection, NotFoundSection, TotpSection } from "./sections/FlowSections";
 import styles from "./DevStylePage.module.scss";
 
@@ -33,6 +34,7 @@ const TABS = {
       { id: "dropzone", label: "檔案上傳", Component: DropzoneSection },
       { id: "cardrules", label: "卡片規則", Component: CardRulesSection },
       { id: "badges", label: "徽章", Component: BadgesSection },
+      { id: "indicators", label: "狀態指示", Component: IndicatorsSection },
       { id: "segment", label: "分段切換", Component: SegmentSection },
       { id: "stepper", label: "步驟列", Component: StepperSection },
       { id: "emptystate", label: "空狀態", Component: EmptyStateSection },

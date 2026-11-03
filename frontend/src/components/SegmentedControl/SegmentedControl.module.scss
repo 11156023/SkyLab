@@ -44,6 +44,23 @@
   }
 }
 
+/* compact：窄容器（側邊欄分頁）各段內距收成 8px；fullWidth：撐滿容器、各段平分
+   兩者都是元件自己的變體，頁面不要再覆寫 .segmentBtn 的內距或 flex */
+.segmentCompact .segmentBtn {
+  padding: 0 $spacing-8;
+}
+
+.segmentFullWidth {
+  display: flex;
+  width: 100%;
+
+  .segmentBtn {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
 .segmentActive {
   background: var(--color-primary);
   color: var(--color-text-on-primary);

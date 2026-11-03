@@ -313,7 +313,7 @@
     appearance: none;
     place-content: center;
     border: 2px solid color-mix(in srgb, var(--color-status-neutral) 35%, var(--color-border));
-    border-radius: 7px;
+    border-radius: $radius-8;
     background: var(--color-surface);
     cursor: pointer;
     transition: border-color $transition-base, background $transition-base, opacity $transition-base;
@@ -534,24 +534,7 @@
   }
 }
 
-/* 本週進度卡：老師回覆摘要與「查看本週」 */
-.weekReply {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: $radius-8;
-  color: var(--color-text-secondary);
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
-  font-size: $font-size-12;
-  line-height: 1.5;
-
-  > span:first-child { flex: 0 0 auto; margin-top: 1px; color: var(--color-primary); }
-  > span:last-child { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-  strong { margin-right: 6px; color: var(--color-primary-on-surface); }
-}
-
+/* 本週進度卡：老師回覆摘要走共用 TeacherReplyNote（clamp 2 行），這裡只剩「查看本週」 */
 .weekOpenBtn {
   @include btn-secondary;
   color: var(--color-primary-on-surface);

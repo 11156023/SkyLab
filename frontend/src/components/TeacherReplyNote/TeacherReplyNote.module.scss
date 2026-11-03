@@ -1,0 +1,51 @@
+@use "../../assets/styles/variables" as *;
+@use "../../assets/styles/mixins" as *;
+
+/* 老師回覆提示框：主色 6% 淡底＋30% 主色框、圓角 12，左側 34px 主色圓頭像。
+   提示框是白底規則的例外（樣式規範「卡片」段），兩頁共用這一組數值，不要在頁面另抄一套 */
+.note {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+.avatar {
+  @include flex-center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+}
+
+.body {
+  min-width: 0;
+}
+
+.title {
+  color: var(--color-primary-on-surface);
+  font-size: $font-size-12;
+}
+
+.text,
+.textClamped {
+  margin: 3px 0 0;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  line-height: 1.6;
+}
+
+/* 完整版保留換行；摘要版只留前幾行（行數由 JSX 的 clamp 決定） */
+.text {
+  white-space: pre-wrap;
+}
+
+.textClamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}

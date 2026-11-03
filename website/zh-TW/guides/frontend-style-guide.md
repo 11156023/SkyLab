@@ -343,6 +343,7 @@ import MIcon from "../components/MIcon";
 - 可點卡片的 hover 只給淡底（`background: var(--color-hover)`）或陰影／上浮，並保留 `transition` 淡入淡出；**不改邊框色**，藍框只留給「選中／目前」狀態（如分頁 active、流程目前步驟）
 - 淡底不要用 `linear-gradient` 疊層：漸層無法 transition，hover 會瞬間跳色
 - 玻璃卡裡的內容區塊（資訊欄位、備註框、程式碼／日誌／金鑰等 `pre`、清單列、統計格）一律 `background: var(--color-surface)`（白）＋ `1px solid var(--color-border)`；不要鋪 `--color-hover`、`--color-bg-base` 等主色系淺藍。它們跟著主色走，使用者換了背景色，疊在透出背景的玻璃上就會糊。淺藍只留給 hover／選中狀態、按鈕、徽章、提示框
+- 提示框的例子是老師回覆 `components/TeacherReplyNote`（主色 6% 淡底＋30% 主色框、圓角 12、34px 主色圓頭像）：學生週次頁完整顯示、學生首頁本週卡傳 `clamp={2}` 只留兩行摘要，兩頁共用同一組數值，不要在頁面另抄一套
 - 拓撲畫布（React Flow）不在白底規則內：底色、框線、陰影一律用畫布專用 token `background: var(--color-flow-bg)`、`1px solid var(--color-flow-border)`、`box-shadow: 0 4px 24px var(--color-flow-shadow)`，防火牆頁、課程環境編輯器、資源詳情、班級上課環境的唯讀拓撲都同一組
 
 ### Dialog / Modal
@@ -454,6 +455,8 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 > 高度的算法跟按鈕相同：全站行高 1.6（14px 字 → 22.4）＋上下內距 6×2＋框 1×2 ≈ 36px。
 > 內距寫成 8px 就會變 40px；外框在容器上的搜尋框用 `min-height: 36px`，不要寫 38px。
 > 共用的 SegmentedControl 也固定 36px，跟欄位、按鈕放同一列不用另外鎖高度。
+> 放進 240px 以下的窄容器（側邊欄分頁）時用它的 `compact`（各段內距 8px）與 `fullWidth`（撐滿、各段平分）prop，
+> 不要在頁面 SCSS 覆寫元件內部的按鈕。
 
 > **規則二**：欄位怎麼排（幾欄、哪個跨欄）寫在頁面自己的 grid 上（`.formGrid`、
 > `.createFormGrid`、`.fieldFull`），mixin 只負責欄位本身長什麼樣。
@@ -465,6 +468,8 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 > 高度由 JSX 的 `rows` 或頁面 CSS 的 `height` / `min-height` 決定，元件內**不要再寫
 > `resize`**。特殊情況（真的需要讓使用者拖高的長文編輯區）才在該頁明確寫回
 > `resize: vertical`，讓例外看得見。
+> 聊天輸入框、回覆欄這類「一行起跳、隨內容長高」的欄位用 `field-sizing: content` 加 `max-height`，
+> 超過就在框內捲動；一樣不寫 `resize`。
 
 ### 開關（Switch）與勾選框
 
@@ -690,7 +695,7 @@ function closeMenu() {
 | 基礎卡片 | 1 | 一般卡片 |
 | 卡片 hover / 選單 | 50 | 容器內的 Dropdown 選單 |
 | 側邊欄／Sticky Header | 100 | 側邊欄與頁面頂部的列 |
-| Portal 浮層選單 | 150 | portal 到 body 的 Dropdown（如 `components/PowerMenu`） |
+| Portal 浮層 | 150 | portal 到 body 的 Dropdown（如 `components/PowerMenu`）；AI 助手的章魚 FAB 與提示泡泡也在這層 |
 | Dialog / Modal | 300 | 全頁覆蓋 Dialog |
 | AI 助手 | 2000（`$z-ai-assistant`） | 高於一般對話框，對話框開著時仍可使用 |
 | 畫面型對話框 | 2100（`$z-screen-dialog`） | `Modal layer="screen"`（VNC、終端機、課堂觀看）：AI 讀不到的內容直接蓋過助手 |

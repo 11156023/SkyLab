@@ -343,6 +343,7 @@ The standard form:
 - A clickable card's hover only gets a light tint (`background: var(--color-hover)`) or a shadow / lift, with a `transition` for fade-in and fade-out; **do not change the border colour** — a blue border is reserved for the "selected / current" state (such as an active tab or the current step of a flow)
 - Do not build the tint with a `linear-gradient` layer: gradients cannot transition, so the hover colour would jump instantly
 - Content blocks inside a glass card (info fields, note boxes, `pre` blocks for code / logs / keys, list rows, stat cells) always use `background: var(--color-surface)` (white) plus `1px solid var(--color-border)`; do not fill them with primary-tinted light blues such as `--color-hover` or `--color-bg-base`. Those follow the primary colour, so when the user changes the background colour they blur into the glass that lets the background through. Light blue is reserved for hover / selected states, buttons, badges and callout boxes
+- The callout example is the teacher reply `components/TeacherReplyNote` (primary 6% tint, 30% primary border, radius 12, 34px primary round avatar): the student week page shows it in full, the student home week card passes `clamp={2}` for a two-line summary, and both pages share the one set of values instead of copying them
 - The topology canvas (React Flow) is not covered by the white-background rule: its background, border and shadow always use the canvas-specific tokens `background: var(--color-flow-bg)`, `1px solid var(--color-flow-border)`, `box-shadow: 0 4px 24px var(--color-flow-shadow)`; the firewall page, the course environment editor, resource details and the read-only topology of the class session environment all share this one set
 
 ### Dialog / Modal
@@ -454,6 +455,8 @@ Form fields always use the form mixin family from `_mixins.scss`; **do not inven
 > The height is computed the same way as for buttons: site-wide line-height 1.6 (14px text → 22.4) + vertical padding 6×2 + border 1×2 ≈ 36px.
 > Writing 8px padding makes it 40px; a search box whose border sits on the container uses `min-height: 36px`, not 38px.
 > The shared SegmentedControl is also fixed at 36px, so it sits on the same row as fields and buttons without extra height locking.
+> Inside a container narrower than 240px (sidebar tabs) use its `compact` (8px segment padding) and `fullWidth` (fills the container, segments share the width) props
+> instead of overriding the component's internal buttons from page SCSS.
 
 > **Rule 2**: how fields are arranged (how many columns, which one spans) lives in the page's own grid (`.formGrid`,
 > `.createFormGrid`, `.fieldFull`); the mixins are only responsible for what a single field looks like.
@@ -465,6 +468,8 @@ Form fields always use the form mixin family from `_mixins.scss`; **do not inven
 > and the height comes from `rows` in the JSX or `height` / `min-height` in the page CSS; **do not write
 > `resize` again** inside a component. Only in special cases (a long-text editor that genuinely needs to be user-resizable) should a page explicitly set
 > `resize: vertical` back, so that the exception is visible.
+> Fields that start at one line and grow with their content (chat composers, reply boxes) use `field-sizing: content` plus a `max-height`,
+> scrolling inside the box once they hit it; they still never write `resize`.
 
 ### Switch and checkbox
 
@@ -690,7 +695,7 @@ If a component has special dark-mode needs, scope the override under `body.dark`
 | Base card | 1 | Regular cards |
 | Card hover / menus | 50 | Dropdown menus inside a container |
 | Sidebar / sticky header | 100 | Sidebar and page-top bars |
-| Portalled floating menus | 150 | Dropdowns portalled to body (such as `components/PowerMenu`) |
+| Portalled floating layers | 150 | Dropdowns portalled to body (such as `components/PowerMenu`); the AI assistant's octopus FAB and its page hint sit here too |
 | Dialog / Modal | 300 | Full-page overlay dialogs |
 | AI assistant | 2000 (`$z-ai-assistant`) | Stays above regular dialogs so it remains usable while one is open |
 | Screen dialogs | 2100 (`$z-screen-dialog`) | `Modal layer="screen"` (VNC, terminal, classroom watch): content the AI cannot read covers the assistant |

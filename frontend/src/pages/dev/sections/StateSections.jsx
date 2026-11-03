@@ -9,6 +9,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import OctoMark from "../../../components/OctoPet/OctoMark";
 import OctoAvatar from "../../../components/OctoPet/OctoAvatar";
 import RotatingWelcome from "../../../components/RotatingWelcome/RotatingWelcome";
+import TeacherReplyNote from "../../../components/TeacherReplyNote/TeacherReplyNote";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useToast } from "../../../hooks/useToast";
@@ -248,8 +249,8 @@ export function MiscSection() {
     <Section
       id="misc"
       title="其他共用元件 Misc"
-      refs={["components/PageHeader/PageHeader.jsx", "components/OctoPet/OctoMark.jsx", "components/OctoPet/OctoAvatar.jsx", "components/RotatingWelcome/RotatingWelcome.jsx"]}
-      intro="PageHeader 是每頁的標題列（eyebrow／h1／副標＋右側動作）；章魚學士是品牌吉祥物（側欄標誌、AI 助手頭像），帽子色走 CSS 變數跟深色模式。"
+      refs={["components/PageHeader/PageHeader.jsx", "components/OctoPet/OctoMark.jsx", "components/OctoPet/OctoAvatar.jsx", "components/RotatingWelcome/RotatingWelcome.jsx", "components/TeacherReplyNote/TeacherReplyNote.jsx"]}
+      intro="PageHeader 是每頁的標題列（eyebrow／h1／副標＋右側動作）；章魚學士是品牌吉祥物（側欄標誌、AI 助手頭像），帽子色走 CSS 變數跟深色模式；老師回覆提示框是學生週次頁與首頁共用的一組外觀。"
     >
       <div className={styles.demoGrid}>
         <Demo label="PageHeader" refs={["eyebrow", "title", "subtitle", "leading", "children → 動作區"]} wide plain>
@@ -268,6 +269,12 @@ export function MiscSection() {
         </Demo>
         <Demo label="歡迎語輪播 RotatingWelcome" refs={["i18nKey", "ns=login"]} note="依序用每種支援語言顯示同一句；減少動態效果時停在目前語言。">
           <RotatingWelcome className={styles.welcome} i18nKey="OnboardingPage.welcomeTitle" />
+        </Demo>
+        <Demo label="老師回覆 TeacherReplyNote" refs={["title", "children", "clamp"]} wide note="主色 6% 淡底＋30% 主色框、圓角 12、34px 主色圓頭像：提示框是「玻璃卡內容區塊一律白底」規則明列的例外。週次頁完整顯示並保留換行；首頁本週卡傳 clamp={2} 只留兩行摘要。">
+          <div className={styles.replyGrid}>
+            <TeacherReplyNote title="老師回覆">{"第 3 週的 nginx 設定做得很好。\n記得把 server_name 改成自己的網域，下週會檢查 HTTPS。"}</TeacherReplyNote>
+            <TeacherReplyNote title="老師已回覆" clamp={2}>第 3 週的 nginx 設定做得很好。記得把 server_name 改成自己的網域，下週會檢查 HTTPS，也請先把防火牆規則整理成表格放進作業附件，方便助教核對。</TeacherReplyNote>
+          </div>
         </Demo>
       </div>
     </Section>
