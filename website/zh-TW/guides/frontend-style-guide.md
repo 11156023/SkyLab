@@ -198,6 +198,7 @@ $breakpoint-sidebar: 1024px   // 側邊欄在抽屜與固定欄之間切換的�
 
 ```scss
 $font-family-base   $line-height-base: 1.6   $form-control-padding-x: 12px
+$font-family-mono   // 指令、程式碼、原始輸出；不要只寫 monospace（Windows 繁中會落到細明體）
 $header-height: 60px   $sidebar-width: 260px   $sidebar-width-collapsed: 72px
 $content-padding: 40px   $container-max-width: 1200px
 $z-ai-assistant: 2000   $z-screen-dialog: 2100   // 見 z-index 層級

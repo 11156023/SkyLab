@@ -5,6 +5,8 @@
 
 /* ----- Typography ----- */
 $font-family-base: "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
+/* 等寬字（指令、程式碼、原始輸出）：只寫 monospace 在 Windows 繁中會落到細明體 */
+$font-family-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 $font-size-10: 10px; /* 僅限資料密集區（表格式網格、卡片 meta 列）的次要標籤 */
 $font-size-12: 12px;
 $font-size-14: 14px;
