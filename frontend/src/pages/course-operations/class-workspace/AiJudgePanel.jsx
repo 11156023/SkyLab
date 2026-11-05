@@ -3019,8 +3019,9 @@ function reviewBadgeClass(kind) {
    原始輸出收在「查看原始證據」裡；待判定且還沒判的整列淡橘底，一眼找得到 */
 function ReviewCheckRow({ check, decision, onDecide, canDecide = true }) {
   const { t } = useTranslation("teaching");
-  const meta = checkStatusMeta(check?.status);
   const reviewable = canDecide && TEACHER_REVIEW_STATUSES.has(check?.status);
+  // 老師判定過的檢查項，圖示跟著判定走（通過綠勾、未通過紅叉），不停在「待老師判定」
+  const meta = checkStatusMeta(reviewable && decision ? decision : check?.status);
   const title = check?.title ?? check?.id ?? t("AiJudgePanel.collectedItem");
   const summary = getCheckResultSummary(check);
   const hasLog = Boolean(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0));
@@ -3076,6 +3077,8 @@ function ReviewCheckpointGroup({ item, decisions, onDecide, executionFailed = fa
   const checks = Array.isArray(item?.checks) ? item.checks : [];
   const missingCount = Array.isArray(item?.missing_check_ids) ? item.missing_check_ids.length : 0;
   const badge = checkpointBadge(item, decisions);
+  // 圖示跟右邊的標籤走：老師判完、整組都通過或有未通過時換成綠勾／紅叉，不停在待判定的橘色眼睛
+  const iconMeta = badge.kind === "pass" || badge.kind === "fail" ? checkStatusMeta(badge.kind) : itemMeta;
   const peerText = item?.peer_node_key
     ? t("AiJudgePanel.peerObserve", { name: item?.peer_display_label ?? item.peer_node_key })
     : null;
@@ -3083,8 +3086,8 @@ function ReviewCheckpointGroup({ item, decisions, onDecide, executionFailed = fa
     <details className={styles.reviewCheckGroup} open={badge.kind !== "pass" || missingCount > 0}>
       <summary className={styles.reviewCheckGroupHead}>
         {/* 還有待判定的檢查項時，圖示跟右邊的「待核查」同色，不要一邊紅一邊橘 */}
-        <span className={`${styles.reviewCheckIcon} ${badge.kind === "pending" ? styles.checkIconWarn : itemMeta.className}`} role="img" aria-label={itemMeta.label}>
-          <MIcon name={itemMeta.icon} size={18} />
+        <span className={`${styles.reviewCheckIcon} ${badge.kind === "pending" ? styles.checkIconWarn : iconMeta.className}`} role="img" aria-label={iconMeta.label}>
+          <MIcon name={iconMeta.icon} size={18} />
         </span>
         <span className={styles.reviewCheckGroupTitle}>
           <strong>{item?.title ?? item?.rubric_item_id ?? t("AiJudgePanel.thCheckpoint")}</strong>
