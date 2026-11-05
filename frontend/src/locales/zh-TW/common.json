@@ -99,7 +99,7 @@
   "UserGuide.openGuideAriaLabel": "開啟{{title}}導覽",
   "UserGuide.guideTitleAttr": "{{title}}導覽",
   "UserGuide.nextStepAriaLabel": "下一個導覽步驟",
-  "UserGuide.tourSubtitle": "{{title}} · 元件導覽",
+  "UserGuide.tourSubtitle": "{{title}} · 操作導覽",
   "UserGuide.closeGuideAriaLabel": "關閉導覽",
   "UserGuide.progressAriaLabel": "導覽進度 {{current}} / {{total}}",
   "UserGuide.skipButton": "跳過導覽",

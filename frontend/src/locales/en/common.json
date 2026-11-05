@@ -99,7 +99,7 @@
   "UserGuide.openGuideAriaLabel": "Open the {{title}} guide",
   "UserGuide.guideTitleAttr": "{{title}} guide",
   "UserGuide.nextStepAriaLabel": "Next guide step",
-  "UserGuide.tourSubtitle": "{{title}} · Component tour",
+  "UserGuide.tourSubtitle": "{{title}} · Guided tour",
   "UserGuide.closeGuideAriaLabel": "Close guide",
   "UserGuide.progressAriaLabel": "Guide progress {{current}} / {{total}}",
   "UserGuide.skipButton": "Skip guide",

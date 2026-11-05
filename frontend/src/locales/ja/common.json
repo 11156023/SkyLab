@@ -99,7 +99,7 @@
   "UserGuide.openGuideAriaLabel": "{{title}}ガイドを開く",
   "UserGuide.guideTitleAttr": "{{title}}ガイド",
   "UserGuide.nextStepAriaLabel": "次のガイドステップ",
-  "UserGuide.tourSubtitle": "{{title}} · コンポーネントツアー",
+  "UserGuide.tourSubtitle": "{{title}} · 操作ガイド",
   "UserGuide.closeGuideAriaLabel": "ガイドを閉じる",
   "UserGuide.progressAriaLabel": "ガイドの進行状況 {{current}} / {{total}}",
   "UserGuide.skipButton": "ガイドをスキップ",
