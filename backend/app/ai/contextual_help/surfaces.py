@@ -1528,7 +1528,7 @@ _AI_JUDGE_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="aijudge.tab_rubrics", role="list", label="任務設定", section="任務設定",
-        help="請 AI導師檢查整理這週要檢查的項目，再按「儲存並製作」產生檢查腳本。",
+        help="請 AI導師檢查整理這週要檢查的項目，再按「製作腳本」產生檢查腳本。",
     ),
     ElementSpec(
         id="aijudge.tab_review", role="list", label="導師核查", section="導師核查",

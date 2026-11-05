@@ -136,7 +136,7 @@ export const CLASS_WORKSPACE_GUIDES = {
         conditionSelector: JUDGE_TAB,
         deferred: true,
       }),
-      /* 檢查表還沒有任何項目時不會出現「儲存並製作」 */
+      /* 檢查表還沒有任何項目時不會出現「製作腳本」 */
       judgeStep('[data-guide="ai-judge-save-build"]', "saveBuild", {
         activateSelector: JUDGE_TAB,
         conditionSelector: '[data-guide="ai-judge-save-build"]',
