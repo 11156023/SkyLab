@@ -1663,7 +1663,7 @@ describe("teacher review run-once（整組檢查點）", () => {
     expect(getBatch).toHaveBeenCalledWith("class-1", "session-1", "batch-1");
     expect(container.textContent).toContain("一次執行");
     expect(container.textContent).toContain("學生打勾完成");
-    expect(container.textContent).toContain("待確認 1 項");
+    expect(container.textContent).toContain("待核查 1 項");
 
     const toggle = [...container.querySelectorAll("button")]
       .find((button) => button.textContent.includes("王小明"));
