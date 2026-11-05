@@ -310,11 +310,16 @@
     }
   }
 
+  /* 引用：白底細框的內容區塊，不用左側色條 */
   blockquote {
     margin: 0 0 $spacing-8;
-    padding-left: 10px;
-    border-left: 3px solid var(--color-border);
+    padding: $spacing-8 12px;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
     color: var(--color-text-secondary);
+
+    > :last-child { margin-bottom: 0; }
   }
 }
 
@@ -504,9 +509,9 @@
   }
 }
 
+/* 目前這一步：只換主色框（跟選中的選項同一套），不加左側色條 */
 .step_current button {
   border-color: var(--color-primary);
-  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 .step_done button {
