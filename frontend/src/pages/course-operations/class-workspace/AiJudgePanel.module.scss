@@ -731,7 +731,7 @@ strong.reviewStatValue { font-size: $font-size-14; }
 
 .rubricTable th:nth-child(2) { width: 30%; }
 .rubricTable th:nth-child(4) { width: 136px; } /* 英文的 Supported／Not supported 徽章要約 100px，112 會被拆成 Supporte／d */
-.rubricTable th:last-child { width: 44px; }
+.rubricTable th:last-child { width: 64px; } /* 32px 刪除鈕＋左右各 16px 內距；再窄按鈕會凸出表格右緣被裁掉 */
 
 /* 序號與展開鈕同一列、垂直置中 */
 .rubricIndex {
