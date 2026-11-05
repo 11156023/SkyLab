@@ -4202,7 +4202,7 @@ export function TeacherReviewTab({
           </>
         }
       >
-        <p>{t("AiJudgePanel.activeScriptSet", { version: activeSet?.source_analysis_revision ?? "—", count: children.length })}</p>
+        <p className={styles.dialogNote}>{t("AiJudgePanel.activeScriptSet", { version: activeSet?.source_analysis_revision ?? "—", count: children.length })}</p>
 
         <div className={styles.vmidBox}>
           <span className={styles.fieldLabel}>{t("AiJudgePanel.runScope", { count: children.length })}</span>

@@ -147,6 +147,14 @@
   }
 }
 
+/* 彈窗內文的補充說明：跟彈窗說明文字同一級（14px、次要色） */
+.dialogNote {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: 1.6;
+}
+
 .reviewSort {
   display: inline-flex;
   align-items: center;
