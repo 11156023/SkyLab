@@ -1122,24 +1122,26 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
             </button>
           </header>
 
-          <div className={styles.contextBar}>
-            {intake ? (
-              <>
-                <MIcon name="auto_fix_high" size={16} />
-                <span>{t("AiFloatingChat.contextIntakeStatus", { answered: intake.answered, total: intake.total })}</span>
-              </>
-            ) : (
-              <>
-                <MIcon name="web_asset" size={16} />
-                <span>{t("AiFloatingChat.contextViewingPage", { page: currentPageName })}</span>
-                {/* 隨時可以叫出這一頁的完整導覽：用途、時機、功能、會跳出的視窗與相關頁面 */}
-                {activeSurfaceId && (
-                  <button type="button" className={styles.pageGuideBtn} onClick={sendPageGuide} disabled={loading}>
-                    <MIcon name="tour" size={15} />
-                    {t("AiFloatingChat.pageGuideButton")}
-                  </button>
-                )}
-              </>
+          <div className={styles.contextRow}>
+            <div className={styles.contextBar}>
+              {intake ? (
+                <>
+                  <MIcon name="auto_fix_high" size={16} />
+                  <span>{t("AiFloatingChat.contextIntakeStatus", { answered: intake.answered, total: intake.total })}</span>
+                </>
+              ) : (
+                <>
+                  <MIcon name="web_asset" size={16} />
+                  <span>{t("AiFloatingChat.contextViewingPage", { page: currentPageName })}</span>
+                </>
+              )}
+            </div>
+            {/* 隨時可以叫出這一頁的完整導覽：用途、時機、功能、會跳出的視窗與相關頁面 */}
+            {!intake && activeSurfaceId && (
+              <button type="button" className={styles.pageGuideBtn} onClick={sendPageGuide} disabled={loading}>
+                <MIcon name="tour" size={16} />
+                {t("AiFloatingChat.pageGuideButton")}
+              </button>
             )}
           </div>
 

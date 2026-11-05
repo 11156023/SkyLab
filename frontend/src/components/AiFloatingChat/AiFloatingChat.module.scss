@@ -83,8 +83,17 @@
   }
 }
 
-.contextBar {
+/* 「正在查看」膠囊靠左、「頁面導覽」鈕靠右，同一列 */
+.contextRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
   margin: 12px $spacing-16 0;
+}
+
+.contextBar {
+  min-width: 0;
   padding: 8px 11px;
   display: flex;
   align-items: center;
@@ -93,28 +102,14 @@
   background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
   color: var(--color-text-secondary);
   font-size: $font-size-12;
-  align-self: flex-start;
+
+  > span { @include text-truncate; }
 }
 
-/* 「頁面導覽」：跟頁名同一行的小按鈕，任何時候都能叫出這頁的完整說明 */
+/* 「頁面導覽」：任何時候都能叫出這頁的完整說明 */
 .pageGuideBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 2px;
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
-  border-radius: $radius-pill;
-  background: var(--color-surface);
-  color: var(--color-primary);
-  font: inherit;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-
-  &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
-  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-  &:disabled { opacity: .6; cursor: wait; }
+  @include btn-ghost;
+  flex: none;
 }
 
 .messages {
@@ -163,21 +158,13 @@
   align-items: flex-start;
   gap: $spacing-8;
 
+  /* 建議問題：淡底文字鈕；句子長的時候可以換行 */
   button {
+    @include btn-ghost;
     max-width: 100%;
-    padding: 9px 14px;
-    border-radius: $radius-pill;
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-    font-size: $font-size-14;
+    justify-content: flex-start;
     text-align: left;
-    cursor: pointer;
-    transition: background 140ms ease, color 140ms ease;
-
-    &:hover {
-      background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
-      color: var(--color-primary);
-    }
+    white-space: normal;
   }
 }
 
@@ -407,25 +394,16 @@
   align-items: center;
   gap: 8px;
 
+  /* 答案：次要鈕；「先用目前的資訊」這類跳過選項：淡底文字鈕
+     （兩層 class 的權重才壓得過 .choiceRow button，含 hover） */
   button {
-    padding: 8px 14px;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-pill;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    font-size: $font-size-12;
-    cursor: pointer;
-
-    &:hover {
-      border-color: var(--color-primary);
-      color: var(--color-primary);
-    }
+    @include btn-secondary;
+    padding-inline: 12px;
   }
-}
 
-.choiceSkip {
-  color: var(--color-text-muted) !important;
-  border-style: dashed !important;
+  .choiceSkip {
+    @include btn-ghost;
+  }
 }
 
 .choiceProgress {
@@ -441,21 +419,17 @@
   border-radius: $radius-12;
   background: var(--color-surface);
 
+  /* 主要鈕，內容是兩行（標題＋說明），所以靠左、可換行 */
   button {
+    @include btn-primary;
     width: 100%;
-    display: flex;
     align-items: flex-start;
+    justify-content: flex-start;
     gap: 10px;
     margin-top: 12px;
-    padding: 12px 14px;
-    border: none;
-    border-radius: $radius-8;
-    background: var(--color-primary);
-    color: var(--color-text-on-primary);
+    padding: 10px 14px;
     text-align: left;
-    cursor: pointer;
-
-    &:hover { filter: brightness(1.05); }
+    white-space: normal;
 
     span { display: flex; flex-direction: column; gap: 2px; }
     strong { font-size: $font-size-14; }
@@ -701,21 +675,23 @@
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* 進行中的流程：次要鈕；目前選中的那個換主色框與淡底（hover 也維持，權重要壓過基底的 hover） */
 .workflowBar {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16 0;
+
   button {
-    font: inherit;
-    font-size: 12px;
-    padding: 5px 9px;
-    border: 1px solid currentColor;
-    border-radius: 8px;
-    color: inherit;
-    background: transparent;
-    cursor: pointer;
-    &[aria-pressed="true"] { font-weight: 700; background: rgba(100, 130, 180, .15); }
-    &:disabled { opacity: .6; cursor: wait; }
+    @include btn-secondary;
+    padding-inline: 12px;
+
+    &[aria-pressed="true"],
+    &[aria-pressed="true"]:hover:not(:disabled) {
+      border-color: var(--color-primary);
+      background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+      color: var(--color-primary-on-surface);
+    }
   }
 }
