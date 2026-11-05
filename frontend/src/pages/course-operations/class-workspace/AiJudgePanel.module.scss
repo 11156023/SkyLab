@@ -436,9 +436,11 @@ strong.reviewStatValue { font-size: $font-size-14; }
   border-radius: $radius-8;
 }
 
-/* 待老師判定、還沒判的：淡橘底 */
+/* 待老師判定、還沒判的：白底＋橘色細框（內容區塊不鋪狀態色淡底）。
+   用 inset 陰影畫框，不佔版面，判定前後列高不會跳 */
 .reviewCheckPending {
-  background: color-mix(in srgb, var(--color-pending) 8%, transparent);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-pending) 45%, transparent);
 }
 
 .reviewCheckIcon {
