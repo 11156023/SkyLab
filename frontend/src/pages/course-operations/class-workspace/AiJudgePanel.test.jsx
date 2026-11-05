@@ -1719,7 +1719,7 @@ describe("teacher review run-once（整組檢查點）", () => {
       expect(container.textContent).not.toContain(i18n.t("AiJudgePanel.executionEnvironmentHint", { ns: "teaching" }));
       expect(container.textContent).not.toContain("此檢查點沒有回傳可顯示的結果。");
       expect(container.textContent).not.toContain("腳本沒有回傳可顯示的檢查項目。");
-      expect([...container.querySelectorAll("summary")].filter((element) => element.textContent === i18n.t("AiJudgePanel.timingTitle", { ns: "teaching" }))).toHaveLength(1);
+      expect([...container.querySelectorAll("summary > span:first-child")].filter((element) => element.textContent === i18n.t("AiJudgePanel.timingTitle", { ns: "teaching" }))).toHaveLength(1);
     } finally {
       await act(async () => root.unmount());
       container.remove();

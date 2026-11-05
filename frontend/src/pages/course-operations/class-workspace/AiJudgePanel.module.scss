@@ -117,8 +117,34 @@
   > strong { color: var(--color-danger); }
   p { margin: 0; }
   details { min-width: 0; }
-  summary { cursor: pointer; }
-  summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+}
+
+/* 行內收合（Disclosure）：文字＋向下箭頭，展開時箭頭轉半圈；不顯示瀏覽器原生的三角形 */
+.disclosure {
+  min-width: 0;
+
+  > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    width: fit-content;
+    color: var(--color-text-muted);
+    list-style: none;
+    cursor: pointer;
+    transition: color $transition-base;
+
+    &::-webkit-details-marker { display: none; }
+    &:hover { color: var(--color-primary); }
+    &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 4px; }
+
+    > :last-child { transition: transform $transition-base; }
+  }
+
+  &[open] > summary {
+    color: var(--color-primary);
+
+    > :last-child { transform: rotate(180deg); }
+  }
 }
 
 .reviewSort {
@@ -467,8 +493,6 @@ strong.reviewStatValue { font-size: $font-size-14; }
     -webkit-line-clamp: 3;
   }
   details { font-size: $font-size-12; }
-  summary { width: fit-content; color: var(--color-text-muted); cursor: pointer; transition: color $transition-base; }
-  summary:hover, details[open] > summary { color: var(--color-primary); }
 }
 
 /* 通過／未通過兩顆：標準次要款，選中的那顆換成狀態色淡底（含 hover，權重要壓過基底的 hover） */
@@ -1383,11 +1407,6 @@ strong.reviewStatValue { font-size: $font-size-14; }
 .judgeDetails {
   margin-top: $spacing-8;
   font-size: $font-size-12;
-
-  summary {
-    cursor: pointer;
-    color: var(--color-text-muted);
-  }
 
   p {
     margin: $spacing-8 0 0;
@@ -2462,7 +2481,6 @@ strong.reviewStatValue { font-size: $font-size-14; }
   color: var(--color-text-muted);
   font-size: $font-size-12;
 
-  summary { cursor: pointer; }
   dl { display: flex; flex-wrap: wrap; gap: $spacing-8 $spacing-16; margin: $spacing-8 0; }
   dl > div { display: flex; flex-wrap: wrap; gap: $spacing-8; }
   dd { margin: 0; font-variant-numeric: tabular-nums; }

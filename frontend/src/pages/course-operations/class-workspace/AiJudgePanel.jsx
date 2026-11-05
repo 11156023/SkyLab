@@ -2744,6 +2744,19 @@ function checkStatusMeta(status) {
   };
 }
 
+/* 行內收合：文字＋向下箭頭（展開時轉半圈），不用瀏覽器原生的 ▶ 三角形 */
+function Disclosure({ label, className = "", children }) {
+  return (
+    <details className={`${styles.disclosure} ${className}`}>
+      <summary>
+        <span>{label}</span>
+        <MIcon name="expand_more" size={16} />
+      </summary>
+      {children}
+    </details>
+  );
+}
+
 function parseCheckRaw(raw) {
   if (typeof raw !== "string" || !raw) return null;
   try {
@@ -2935,8 +2948,7 @@ export function ExecutionFailure({ target }) {
       <strong>{t(`AiJudgePanel.execution${kind}`)}</strong>
       <p>{t(`AiJudgePanel.execution${kind}Hint`)}</p>
       <p>{t("AiJudgePanel.executionNotGraded")}</p>
-      <details>
-        <summary>{t("AiJudgePanel.executionEvidence")}</summary>
+      <Disclosure label={t("AiJudgePanel.executionEvidence")}>
         <div className={styles.cmdLog}>
           <p>{t("AiJudgePanel.executionReason", { reason: target.reason_code || "unknown", stage: target.failure_stage || "unknown" })}</p>
           {target.exit_code != null && <p>{t("AiJudgePanel.exitCode", { code: target.exit_code })}</p>}
@@ -2948,7 +2960,7 @@ export function ExecutionFailure({ target }) {
           ))}
           {!target.stdout_excerpt && !target.stderr_excerpt && !target.validation?.error && <p>{t("AiJudgePanel.executionNoEvidence")}</p>}
         </div>
-      </details>
+      </Disclosure>
     </div>
   );
 }
@@ -3035,7 +3047,7 @@ function ReviewCheckRow({ check, decision, onDecide, canDecide = true }) {
         <p>{summary === "—" ? t("AiJudgePanel.noSummary") : summary}</p>
         {check?.status === "unknown" && parseCheckRaw(check?.raw)?.error_code && <p>{t("AiJudgePanel.collectionErrorHint")}</p>}
         {hasLog && (
-          <details><summary>{t("AiJudgePanel.viewEvidence")}</summary><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></details>
+          <Disclosure label={t("AiJudgePanel.viewEvidence")}><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></Disclosure>
         )}
       </div>
       {reviewable && (
@@ -3544,8 +3556,7 @@ export function ExecutionTiming({ timing }) {
   ].filter(([, value]) => hasSeconds(value));
   if (metrics.length === 0) return null;
   return (
-    <details className={styles.executionTiming}>
-      <summary>{t("AiJudgePanel.timingTitle")}</summary>
+    <Disclosure className={styles.executionTiming} label={t("AiJudgePanel.timingTitle")}>
       <dl>
         {metrics.map(([key, value]) => (
           <div key={key}>
@@ -3555,7 +3566,7 @@ export function ExecutionTiming({ timing }) {
         ))}
       </dl>
       <p>{t("AiJudgePanel.timingHint")}</p>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -3604,10 +3615,9 @@ function MachineReviewDetail({
             />
           ))}
           {(row.unmappedChecks ?? []).length > 0 && (
-            <details className={styles.judgeDetails}>
-              <summary>{t("AiJudgePanel.unmappedChecks")}</summary>
+            <Disclosure className={styles.judgeDetails} label={t("AiJudgePanel.unmappedChecks")}>
               <CheckResultsTable checks={row.unmappedChecks} />
-            </details>
+            </Disclosure>
           )}
         </div>
       ) : (
