@@ -141,6 +141,16 @@ export function ModalSection() {
             <button type="button" className={styles.btnDangerOutline} onClick={() => openReview("reject", 3)}>拒絕 3 筆</button>
           </div>
         </Demo>
+        <Demo
+          label="警示提示塊"
+          refs={["@include warn-notice", "<MIcon name=\"warning\" size={16} /> + <span>"]}
+          note="對話框或卡片裡講「按下去會發生什麼」：白底＋一般細框，紅色只在圖示。橘色只給待審核語意，不用在警示；不鋪紅色淡底、不加紅框。用在重設登入密碼（執行中的 VM 會自動重新開機）。"
+        >
+          <p className={styles.warnNotice}>
+            <MIcon name="warning" size={16} />
+            <span>這台機器正在執行中，重設密碼後會自動重新開機以套用新密碼，請先儲存機器內未存檔的工作。</span>
+          </p>
+        </Demo>
         <Demo label="寬度五級" refs={["Modal.module.scss .sizeSm … .sizeXl"]} wide>
           <div className={styles.widthScale}>
             {WIDTHS.map(([key, px, note]) => (

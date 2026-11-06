@@ -206,6 +206,32 @@
   vertical-align: middle;
 }
 
+/* 警示提示塊：對話框或卡片裡講「按下去會發生什麼」（例如會自動重新開機、未存檔的工作會遺失）。
+   白底＋一般細框（內容區塊一律白底），紅色只在圖示：警示一律紅色，橘色只給待審核語意；
+   不鋪紅色淡底、不加紅框，提醒的語氣不要壓過旁邊的主要動作鈕。
+   結構：<p class="…"><MIcon name="warning" size={16} /><span>說明</span></p>，第一個子元素是圖示 */
+@mixin warn-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-size: $font-size-14;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+
+  /* 圖示對齊第一行文字 */
+  > :first-child {
+    flex-shrink: 0;
+    margin-top: 3px;
+    color: var(--color-danger);
+  }
+}
+
 /* 勾選中的列（批量操作，見 components/DataToolbar）：淡淡的主色底，掃一眼看得出選了哪些。
    表格的 td 疊在表格卡片上用預設的透明底；自己就是一張卡片的清單列傳 var(--color-surface)，
    免得蓋掉原本的底色變透明 */

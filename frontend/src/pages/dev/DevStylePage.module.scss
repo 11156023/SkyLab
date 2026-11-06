@@ -1207,3 +1207,8 @@
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 }
+
+/* 警示提示塊示範（對話框區） */
+.warnNotice {
+  @include warn-notice;
+}

@@ -344,6 +344,7 @@ import MIcon from "../components/MIcon";
 - 可點卡片的 hover 只給淡底（`background: var(--color-hover)`）或陰影／上浮，並保留 `transition` 淡入淡出；**不改邊框色**，藍框只留給「選中／目前」狀態（如分頁 active、流程目前步驟）
 - 淡底不要用 `linear-gradient` 疊層：漸層無法 transition，hover 會瞬間跳色
 - 玻璃卡裡的內容區塊（資訊欄位、備註框、程式碼／日誌／金鑰等 `pre`、清單列、統計格）一律 `background: var(--color-surface)`（白）＋ `1px solid var(--color-border)`；不要鋪 `--color-hover`、`--color-bg-base` 等主色系淺藍。它們跟著主色走，使用者換了背景色，疊在透出背景的玻璃上就會糊。淺藍只留給 hover／選中狀態、按鈕、徽章、提示框
+- 警示提示塊（對話框或卡片裡講「按下去會發生什麼」，例如會自動重新開機、未存檔的工作會遺失）用 `@include warn-notice;`：白底＋`1px solid var(--color-border)`，**紅色只在 `warning` 圖示**，文字維持一般顏色。橘色只給待審核語意，不用在警示；也不要鋪紅色淡底或加紅框，提醒的語氣不要壓過旁邊的主要動作鈕。結構是 `<p><MIcon name="warning" size={16} /><span>說明</span></p>`
 - 提示框的例子是老師回覆 `components/TeacherReplyNote`（主色 6% 淡底＋30% 主色框、圓角 12、34px 主色圓頭像）：學生週次頁完整顯示、學生首頁本週卡傳 `clamp={2}` 只留兩行摘要，兩頁共用同一組數值，不要在頁面另抄一套
 - 拓撲畫布（React Flow）不在白底規則內：底色、框線、陰影一律用畫布專用 token `background: var(--color-flow-bg)`、`1px solid var(--color-flow-border)`、`box-shadow: 0 4px 24px var(--color-flow-shadow)`，防火牆頁、課程環境編輯器、資源詳情、班級上課環境的唯讀拓撲都同一組
 
