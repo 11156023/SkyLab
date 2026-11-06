@@ -8,12 +8,23 @@
   right: $spacing-16;
   max-height: calc(100% - #{$spacing-16 * 2});
   width: 300px;
+  /* 放在窄的畫布（資源詳情的迷你拓撲、手機）時不超出畫布 */
+  max-width: calc(100% - #{$spacing-16 * 2});
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-16;
   @include flex-column;
+  /* 面板本身不捲：標題列與底部固定，中間的 .body 才捲 */
   overflow: hidden;
-  overflow-y: auto;
   animation: panelIn 0.22s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+
+  /* 最後一段下面接的是底部（或面板底），不重複畫分隔線 */
+  > :last-child { border-bottom: none; }
 }
 
 @keyframes panelIn {
@@ -205,8 +216,25 @@
 
 /* ── Footer ── */
 .footer {
-  padding: $spacing-16;
+  padding: 12px $spacing-16;
+  border-top: 1px solid var(--color-border);
   flex-shrink: 0;
+}
+
+/* 不能刪的原因：放在原本刪除鈕的位置，鎖頭對齊第一行 */
+.lockedHint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+
+  > :first-child {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
 }
 
 .deleteBtn {

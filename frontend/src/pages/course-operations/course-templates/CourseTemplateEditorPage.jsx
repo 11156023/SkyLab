@@ -542,6 +542,8 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
             closing={detailPanel.closing}
             onClose={() => selectNode("")}
             onDelete={locked || !detailPanel.item.remove ? undefined : () => detailPanel.item.remove()}
+            /* 已發布的環境機器配置凍結：在刪除鈕的位置講原因（儲存中只是暫時鎖住，不講） */
+            lockedHint={frozen ? t("ConnectionPanel.lockedPublished", { ns: "network" }) : ""}
           />}
           </div>
           <aside className={styles.topologyInspector}>

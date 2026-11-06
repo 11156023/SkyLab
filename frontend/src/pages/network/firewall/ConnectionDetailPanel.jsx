@@ -5,6 +5,10 @@
  * 與 RulesPanel 互斥顯示（同一個右側位置）。
  * 課程環境編輯器也用它看模板上的線：那裡的網址是樣板（allowOpen=false），
  * 已發布的版本不能改（不給 onDelete 就沒有刪除鈕）。
+ * 資源詳情的迷你拓撲也用它（疊在那張小圖上）。
+ *
+ * 不能刪的時候傳 lockedHint：在原本放刪除鈕的位置用鎖頭講清楚為什麼
+ * （沒有管理權、環境已發布…），不讓人以為是按鈕不見了。
  */
 
 import { useTranslation } from "react-i18next";
@@ -18,7 +22,7 @@ const MODE_META = {
   [PORT_MODE.FIREWALL]: { icon: "shield",     labelKey: "ConnectionPanel.modeFirewallOnly" },
 };
 
-export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDelete, closing = false, allowOpen = true }) {
+export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDelete, lockedHint = "", closing = false, allowOpen = true }) {
   const { t } = useTranslation("network");
   if (!edge) return null;
 
@@ -50,6 +54,8 @@ export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDe
         </button>
       </div>
 
+      {/* 標題列與底部的刪除鈕固定，只有中間這段捲動：畫布很矮（資源詳情的迷你拓撲）時刪除鈕不會被捲到看不見 */}
+      <div className={styles.body}>
       {/* 兩端與方向：一眼看出資料往哪走 */}
       <div className={styles.section}>
         <div className={styles.endpoints}>
@@ -107,13 +113,23 @@ export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDe
           </ul>
         )}
       </div>
+      </div>
 
-      {onDelete && !edge.topology_managed && <div className={styles.footer}>
-        <button type="button" className={styles.deleteBtn} onClick={() => onDelete(edge)}>
-          <MIcon name="delete" size={15} />
-          {t("ConnectionPanel.delete")}
-        </button>
-      </div>}
+      {onDelete && !edge.topology_managed ? (
+        <div className={styles.footer}>
+          <button type="button" className={styles.deleteBtn} onClick={() => onDelete(edge)}>
+            <MIcon name="delete" size={15} />
+            {t("ConnectionPanel.delete")}
+          </button>
+        </div>
+      ) : lockedHint ? (
+        <div className={styles.footer}>
+          <p className={styles.lockedHint}>
+            <MIcon name="lock" size={14} />
+            <span>{lockedHint}</span>
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

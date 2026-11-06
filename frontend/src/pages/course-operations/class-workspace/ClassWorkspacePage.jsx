@@ -773,11 +773,12 @@ function TopologyPreview({ item }) {
         </div>
       </Panel>
     </ReactFlow>
-    {/* 只看不改：同一個細節面板，但沒有刪除鈕 */}
+    {/* 只看不改：同一個細節面板，但沒有刪除鈕；原因寫在刪除鈕原本的位置 */}
     {detailPanel.item && <ConnectionDetailPanel
       edge={detailPanel.item}
       resolveName={nameOf}
       allowOpen={false}
+      lockedHint={t("ConnectionPanel.lockedPublished", { ns: "network" })}
       closing={detailPanel.closing}
       onClose={() => setSelectedKey("")}
     />}

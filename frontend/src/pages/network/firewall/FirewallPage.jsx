@@ -455,6 +455,17 @@ export default function FirewallPage() {
     }
   };
 
+  /* 刪線要同時改兩端的規則：任一端是不能管的機器（學生自己的課堂機）就不給刪除鈕，
+     在面板上講原因，不必等按下去才吃 403 */
+  const edgeLockedHint = (edge) => {
+    if (!edge || edge.topology_managed) return "";
+    const locked = [edge.source_vmid, edge.target_vmid]
+      .filter((vmid) => vmid !== null && vmid !== undefined)
+      .map((vmid) => (topology?.nodes ?? []).find((n) => n.vmid === vmid))
+      .find((node) => node && !canManageNode(node));
+    return locked ? t("FirewallPage.readOnlyEdge", { name: locked.name }) : "";
+  };
+
   /* 已有拓撲時重新載入不卸載整張圖（規則面板、連線面板一併保留） */
   const contentView = topologyView({ loading, error, topology });
 
@@ -712,7 +723,9 @@ export default function FirewallPage() {
                 resolveName={resolveName}
                 closing={detailPanel.closing}
                 onClose={() => setSelectedEdge(null)}
-                onDelete={requestDeleteEdge}
+                onDelete={edgeLockedHint(detailPanel.item.edge) ? undefined : requestDeleteEdge}
+                lockedHint={edgeLockedHint(detailPanel.item.edge)
+                  || (detailPanel.item.edge.topology_managed ? t("ConnectionPanel.lockedManaged") : "")}
               />
             )}
           </div>
