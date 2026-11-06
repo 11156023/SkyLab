@@ -166,7 +166,11 @@ function CreatingRow({ request, onCancelled }) {
         </div>
       </td>
       <td className={styles.td}><span className={styles.muted}>—</span></td>
-      <td className={styles.td}><div className={styles.envPrimary}>{t("CreatingRow.resourceRequestLabel")}</div><div className={styles.envSub}>{t("CreatingRow.creating")}</div></td>
+      <td className={styles.td}>
+        <div className={styles.envPrimary}>{t("CreatingRow.resourceRequestLabel")}</div>
+        {/* 還在審核的申請還沒開始開通：旁邊的狀態是「審核中」，這裡不寫「開通中」 */}
+        {request.status !== "pending" && <div className={styles.envSub}>{t("CreatingRow.creating")}</div>}
+      </td>
       <td className={styles.td}>
         <span className={`${styles.badge} ${styles[`badge_${display.color}`]} ${styles.creatingBadge}`}>
           <span className={styles.badgeIcon}><MIcon name={display.spin ? "autorenew" : "error_outline"} size={12} spin={display.spin} /></span>{display.label}
