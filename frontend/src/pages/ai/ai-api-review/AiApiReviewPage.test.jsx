@@ -28,13 +28,13 @@ vi.mock("../../../hooks/useDialogPresence", () => ({
   default: (open) => ({ open, closing: false }),
 }));
 vi.mock("../../../components/Modal/Modal", () => ({
-  default: ({ title, description, children, actions }) => (
-    <div role="dialog">
+  default: ({ as: Tag = "div", onSubmit, title, description, children, actions }) => (
+    <Tag role="dialog" onSubmit={onSubmit}>
       <h2>{title}</h2>
       {description && <p>{description}</p>}
       {children}
       <div>{actions}</div>
-    </div>
+    </Tag>
   ),
 }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
@@ -182,19 +182,103 @@ describe("AiApiReviewPage", () => {
     expect(host.textContent).toContain("key-ok1");
   });
 
-  test("does not render bulk rejection controls", async () => {
-    const pendingRows = [request("p1", "pending", "2026-09-01T00:00:00Z")];
+  /* 批量列的按鈕（每列自己也有同名的通過／拒絕鈕，所以限定在批量列裡找） */
+  const batchButton = (key) => [...host.querySelectorAll('[role="region"] button')]
+    .find((button) => button.textContent.includes(key));
+  const rowCheckboxes = () => [...host.querySelectorAll('tbody input[type="checkbox"]')];
+  const submitDialog = async (comment) => {
+    const dialog = host.querySelector('form[role="dialog"]');
+    if (comment !== undefined) {
+      const textarea = dialog.querySelector("textarea");
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      await act(async () => {
+        setValue.call(textarea, comment);
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+    await act(async () => {
+      dialog.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await act(settle);
+  };
+
+  test("pending rows can be checked and approved in bulk through the single-review endpoint", async () => {
+    const pendingRows = [
+      request("p1", "pending", "2026-09-02T00:00:00Z"),
+      request("p2", "pending", "2026-09-01T00:00:00Z"),
+    ];
     mocks.listAllRequests.mockImplementation(async ({ status } = {}) => {
       if (status === "pending") return { data: pendingRows, count: pendingRows.length };
+      return { data: [], count: 0 };
+    });
+    mocks.reviewRequest.mockResolvedValue({});
+
+    await act(async () => { renderPage(); });
+    await act(settle);
+
+    /* 兩列各一個勾選框＋表頭全選；還沒勾選時沒有批量列 */
+    expect(rowCheckboxes()).toHaveLength(2);
+    expect(host.querySelector('[role="region"]')).toBeNull();
+
+    await act(async () => { host.querySelector('thead input[type="checkbox"]').click(); });
+    expect(host.textContent).toContain("AiApiReviewPage.selectedCount");
+
+    await act(async () => { batchButton("AiApiReviewPage.actionApprove").click(); });
+    expect(host.textContent).toContain("AiApiReviewPage.batchApproveTitle");
+    await submitDialog("同一門課");
+
+    expect(mocks.reviewRequest).toHaveBeenCalledTimes(2);
+    expect(mocks.reviewRequest).toHaveBeenCalledWith("p1", { status: "approved", review_comment: "同一門課" });
+    expect(mocks.reviewRequest).toHaveBeenCalledWith("p2", { status: "approved", review_comment: "同一門課" });
+    expect(mocks.toast.success).toHaveBeenCalledWith("AiApiReviewPage.batchApprovedToast");
+    /* 做完取消勾選，批量列收起來 */
+    expect(host.querySelector('[role="region"]')).toBeNull();
+  });
+
+  test("bulk reject keeps the failed request checked so it can be retried", async () => {
+    const pendingRows = [
+      request("p1", "pending", "2026-09-02T00:00:00Z"),
+      request("p2", "pending", "2026-09-01T00:00:00Z"),
+    ];
+    mocks.listAllRequests.mockImplementation(async ({ status } = {}) => {
+      if (status === "pending") return { data: pendingRows, count: pendingRows.length };
+      return { data: [], count: 0 };
+    });
+    mocks.reviewRequest.mockImplementation(async (id) => {
+      if (id === "p2") throw new Error("boom");
+      return {};
+    });
+
+    await act(async () => { renderPage(); });
+    await act(settle);
+    await act(async () => { rowCheckboxes()[0].click(); });
+    await act(async () => { rowCheckboxes()[1].click(); });
+    await act(async () => { batchButton("AiApiReviewPage.actionReject").click(); });
+    expect(host.textContent).toContain("AiApiReviewPage.batchRejectTitle");
+    await submitDialog();
+
+    expect(mocks.reviewRequest).toHaveBeenCalledWith("p1", { status: "rejected", review_comment: null });
+    expect(mocks.toast.error).toHaveBeenCalledWith("AiApiReviewPage.batchRejectFailedKeptToast");
+    expect(rowCheckboxes().map((box) => box.checked)).toEqual([false, true]);
+    /* 失敗原因標在那一筆的列上 */
+    const rows = [...host.querySelectorAll("tbody tr")];
+    expect(rows[0].textContent).not.toContain("AiApiReviewPage.batchFailedReason");
+    expect(rows[1].textContent).toContain("AiApiReviewPage.batchFailedReason");
+  });
+
+  test("tabs without pending requests have no checkbox column", async () => {
+    mocks.listAllRequests.mockImplementation(async ({ status } = {}) => {
+      if (status === "approved") return { data: [request("a1", "approved", "2026-09-01T00:00:00Z")], count: 1 };
       return { data: [], count: 0 };
     });
 
     await act(async () => { renderPage(); });
     await act(settle);
+    await act(async () => { host.querySelector('[data-tab="approved"]').click(); });
+    await act(settle);
 
-    expect(host.textContent).toContain("key-p1");
+    expect(host.textContent).toContain("key-a1");
     expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
-    expect(host.textContent).not.toContain("AiApiReviewPage.bulkReject");
   });
 
   test("a failed first load shows a retry instead of an empty list and toasts once", async () => {

@@ -485,7 +485,7 @@
   "UserGuide.aiApiReview.tabs.title": "審査状態で切り替え",
   "UserGuide.aiApiReview.tabs.text": "既定では「審査中」が表示され、数字は状態ごとの件数です。「承認済み」「却下済み」で履歴をさかのぼり、「すべて」で全状態を一覧できます。各タブは最新 100 件まで表示し、ページは自動で再読み込みされます。",
   "UserGuide.aiApiReview.table.title": "申請一覧",
-  "UserGuide.aiApiReview.table.text": "1 行が 1 件の申請で、申請者、キー名、用途、状態、申請日時と審査日時が表示されます。まだ審査していない申請は、審査日時が「未審査」になります。",
+  "UserGuide.aiApiReview.table.text": "1 行が 1 件の申請で、申請者、キー名、用途、状態、申請日時と審査日時が表示されます。まだ審査していない申請は、審査日時が「未審査」になります。審査待ちの申請にはチェックボックスがあり、チェックすると上のツールバーが一括操作バーに切り替わって、まとめて承認・却下できます（審査メモは全件共通）。",
   "UserGuide.aiApiReview.purpose.title": "まず申請の用途を確認",
   "UserGuide.aiApiReview.purpose.text": "60 文字を超える用途は省略表示されるので、マウスを重ねると全文が読めます。「承認」や「却下」で開く確認ダイアログにも用途の全文が表示されます。",
   "UserGuide.aiApiReview.actions.title": "申請を承認または却下",

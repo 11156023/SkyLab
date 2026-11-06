@@ -24,13 +24,6 @@
 }
 
 /* ── Tabs ── */
-.tabsRow {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  flex-wrap: wrap;
-}
-
 /* 窄螢幕選項放不下時讓切換器自己橫向捲動 */
 .tabsControl {
   max-width: 100%;
@@ -65,6 +58,24 @@
 
 .td {
   @include table-td;
+}
+
+/* ── 勾選欄（勾選框是共用 SelectCheckbox）；勾選狀態下待審的列整列可點 ── */
+.checkCell {
+  width: 36px;
+}
+
+/* 多一欄勾選就多留 36px，其他欄不會被擠窄 */
+.tableSelectable {
+  min-width: 1116px;
+}
+
+.trSelected > td {
+  @include row-selected;
+}
+
+.trClickable {
+  @include table-tr-clickable;
 }
 
 .userCell {
@@ -110,6 +121,16 @@
 .badge_approved { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_rejected { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 
+/* 批量通過／拒絕沒成功的那筆：原因標在狀態底下（可換行，後端的訊息長短不一） */
+.rowError {
+  margin-top: $spacing-4;
+  max-width: 220px;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+}
+
 /* ── Actions ── */
 .actions {
   display: flex;
@@ -124,6 +145,8 @@
   border-radius: $radius-8;
   font-size: $font-size-12;
   font-weight: $font-weight-500;
+  /* 欄位被擠窄時中文會一字一行，按鈕文字不換行 */
+  white-space: nowrap;
   cursor: pointer;
   transition: background $transition-base, color $transition-base;
 }

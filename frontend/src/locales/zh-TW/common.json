@@ -485,7 +485,7 @@
   "UserGuide.aiApiReview.tabs.title": "依審核狀態切換",
   "UserGuide.aiApiReview.tabs.text": "預設顯示「待審核」，數字是各狀態的筆數。「已通過」「已拒絕」可回頭查歷史，「全部」列出所有狀態。每個分頁最多顯示最新 100 筆，頁面也會自動重新整理。",
   "UserGuide.aiApiReview.table.title": "申請清單",
-  "UserGuide.aiApiReview.table.text": "每列是一筆申請：申請者、金鑰名稱、用途、狀態，以及申請與審核時間。還沒審核的申請，審核時間會顯示「尚未審核」。",
+  "UserGuide.aiApiReview.table.text": "每列是一筆申請：申請者、金鑰名稱、用途、狀態，以及申請與審核時間。還沒審核的申請，審核時間會顯示「尚未審核」。待審核的申請前面有勾選框，勾選後上方會換成批量列，可以一次通過或拒絕多筆，並共用一段審核備註。",
   "UserGuide.aiApiReview.purpose.title": "先看清楚申請用途",
   "UserGuide.aiApiReview.purpose.text": "用途超過 60 個字會被截斷，滑鼠停在上面就能看完整內容；按「通過」或「拒絕」開啟的確認視窗也會列出完整用途。",
   "UserGuide.aiApiReview.actions.title": "通過或拒絕申請",

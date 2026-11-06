@@ -485,7 +485,7 @@
   "UserGuide.aiApiReview.tabs.title": "Switch by review status",
   "UserGuide.aiApiReview.tabs.text": "\"Pending\" is shown by default, and the numbers are the count for each status. Use \"Approved\" and \"Rejected\" to look back at history, or \"All\" to list every status. Each tab shows at most the latest 100 requests, and the page refreshes automatically.",
   "UserGuide.aiApiReview.table.title": "Request list",
-  "UserGuide.aiApiReview.table.text": "Each row is one request: applicant, key name, purpose, status, and when it was submitted and reviewed. For requests not reviewed yet, the review time shows \"Not yet reviewed\".",
+  "UserGuide.aiApiReview.table.text": "Each row is one request: applicant, key name, purpose, status, and when it was submitted and reviewed. For requests not reviewed yet, the review time shows \"Not yet reviewed\". Pending requests have a checkbox; check some and the toolbar above becomes a batch bar that approves or rejects them together with one shared review note.",
   "UserGuide.aiApiReview.purpose.title": "Read the purpose carefully first",
   "UserGuide.aiApiReview.purpose.text": "Purposes longer than 60 characters are cut off; hover over one to read it in full. The confirmation dialog opened by \"Approve\" or \"Reject\" also shows the complete purpose.",
   "UserGuide.aiApiReview.actions.title": "Approve or reject a request",

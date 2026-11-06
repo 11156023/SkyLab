@@ -1059,6 +1059,7 @@ _add("ai-api-review", SurfaceGuide(
     features=(
         "用狀態篩選待審核、已通過、已拒絕；「用途」欄是審核的主要依據。",
         "每筆申請按「通過」或「拒絕」，通過後系統會直接核發 base_url 與 api_key。",
+        "勾選多筆待審核的申請後，可以一次「通過」或「拒絕」並共用一段審核備註。",
     ),
     dialogs=(
         DialogSpec(
