@@ -109,6 +109,10 @@
   @include flex-column;
   gap: $spacing-16;
   padding: 0 $spacing-16 $spacing-16;
+
+  /* 內容區沒有任何東西（卡片只剩標題與說明）時整個收起：不然標頭下面多一段 16px 底部內距，
+     標題看起來偏上、沒有置中 */
+  &:empty { display: none; }
 }
 
 .headerActions {
