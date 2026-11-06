@@ -485,8 +485,12 @@ function DangerZoneSection() {
       toast.success(t("DangerZoneTab.accountDeleted"));
       logout();
     } catch (err) {
+      /* 後端拒絕（例如仍持有已開通的機器）：提示後把確認框收起來，
+         不然使用者看到錯誤卻還停在「確定刪除」的畫面上（2026-11-06 ntub 實測） */
       toast.error(err?.message ?? t("DangerZoneTab.deleteFailed"));
       setDeleting(false);
+      setShowConfirm(false);
+      setConfirmText("");
     }
   }
 

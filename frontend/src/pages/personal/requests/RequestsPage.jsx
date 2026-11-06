@@ -664,9 +664,14 @@ export default function RequestsPage() {
           setReturning(true);
           setView(VIEW_LIST);
           setPendingPrefill(null);
-          /* 剛送出的申請要出現在列表：回來時先顯示快取，同時標記過期重抓 */
+          /* 剛送出的申請要出現在列表：回來時先顯示快取，同時標記過期重抓。
+             表單開著時這兩支查詢是停用的，invalidate 對停用中的查詢只會標記過期；
+             2026-11-06 ntub 實測第一次送出後回列表仍是「尚無申請紀錄」，所以再明確 refetch 一次，
+             不靠「重新啟用就會自己抓」（正在抓的查詢重新啟用不會抓第二次）。 */
           requestCache.invalidate();
           specCache.invalidate();
+          requestsQuery.refetch();
+          specQuery.refetch();
         }}
       />
     );

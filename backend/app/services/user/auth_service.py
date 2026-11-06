@@ -1,3 +1,4 @@
+import logging
 import secrets
 import uuid
 from collections.abc import Mapping
@@ -32,6 +33,8 @@ from app.utils import (
     generate_reset_password_email,
     send_email,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _google_profile_text(
@@ -313,11 +316,16 @@ def recover_password(*, session: Session, email: str) -> None:
         email_data = generate_reset_password_email(
             email_to=user.email, email=email, token=token
         )
-        send_email(
-            email_to=user.email,
-            subject=email_data.subject,
-            html_content=email_data.html_content,
-        )
+        # 回應本來就是「若信箱存在就已寄出」的通用訊息；SMTP 壞掉只記 ERROR，
+        # 不能回 500——500 會把「這個信箱有帳號」洩漏出去，也讓使用者以為系統壞了。
+        try:
+            send_email(
+                email_to=user.email,
+                subject=email_data.subject,
+                html_content=email_data.html_content,
+            )
+        except Exception:
+            logger.exception("Password recovery email to %s failed", user.email)
 
 
 def reset_password(*, session: Session, token: str, new_password: str) -> None:

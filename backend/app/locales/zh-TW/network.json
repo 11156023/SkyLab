@@ -163,6 +163,7 @@
   "reverseProxy.domainConflictCheckFailed": "無法向 Cloudflare 確認 {domain} 是否已被使用，為避免覆蓋既有紀錄暫不建立，請稍後再試",
   "cloudflare.identifierInvalidFormat": "{field} 格式不正確，應為 32 位十六進位字串",
   "cloudflare.tokenVerified": "Cloudflare API Token 驗證成功（狀態：{status}）",
+  "cloudflare.tokenVerifyFailed": "Cloudflare API Token 驗證失敗。以使用者 token 驗證：{user_error}；以帳戶 token 驗證：{account_error}",
   "cloudflare.apiTimeout": "Cloudflare API 回應逾時，請稍後再試",
   "cloudflare.apiConnectionFailed": "無法連線到 Cloudflare API：{error}",
   "cloudflare.apiRequestFailed": "Cloudflare API 請求失敗",

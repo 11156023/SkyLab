@@ -130,6 +130,8 @@
   "RequestReviewPage.nodeNotEvaluated": "尚未評估",
   "RequestReviewPage.specChangeTitle": "VMID {{vmid}} 規格調整",
   "RequestReviewPage.specChangeTitleNamed": "{{name}}（VMID {{vmid}}）規格調整",
+  "RequestReviewPage.expiryChangeTitle": "VMID {{vmid}} 延長到期日",
+  "RequestReviewPage.expiryChangeTitleNamed": "{{name}}（VMID {{vmid}}）延長到期日",
   "RequestReviewPage.specResourceGoneHint": "這台機器已經刪除，無法核准；請拒絕此申請。",
   "RequestReviewPage.applyResultLabel": "套用結果",
   "RequestReviewPage.applyResultAppliedAt": "（{{time}} 套用）",

@@ -231,6 +231,27 @@ def test_get_usage_counts_unprovisioned_requests(
     )
 
 
+def test_get_usage_ignores_quick_practice_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """快速練習的環境機器不計入個人配額（建好後 allocation_scope 不是 personal），
+    還在建立中的那幾張 quick_template 申請單同樣不能先被算成預約。"""
+    monkeypatch.setattr(quota_service, "_owned_vmids", lambda session, user_id: [])
+    session = _FakeSession(
+        requests=[
+            _pending_request(request_kind="research"),
+            _pending_request(request_kind="quick_template", cores=1, memory=512),
+            _pending_request(request_kind="quick_template", cores=1, memory=512),
+        ]
+    )
+
+    usage = quota_service.get_usage(
+        session, USER_ID, cluster_resources=[]  # type: ignore[arg-type]
+    )
+
+    assert usage == QuotaUsage(cpu_cores=2, memory_mb=4096, disk_gb=40, instances=1)
+
+
 def test_check_quota_raises_conflict(
     monkeypatch: pytest.MonkeyPatch, stub_quota
 ) -> None:

@@ -6,10 +6,18 @@
  * 那段要跟後端一樣以 UTC 日期比較，和這裡「依本地時區顯示」的規則不同。
  */
 
+/** 時間戳依瀏覽器時區拆成 YYYY-MM-DD，與總覽「使用至」的本地時間顯示同一套 */
+export function localDateIso(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /**
- * 目前實際生效的到期（YYYY-MM-DD，UTC 日期）：到期日（expiry_date，TTL）與核准使用時段迄
+ * 目前實際生效的到期（YYYY-MM-DD）：到期日（expiry_date，TTL）與核准使用時段迄
  * （window_end_at）取較早者，跟後端 spec_change_service._effective_expiry 同一套規則。
  * 自己申請的機器通常沒有 expiry_date，讓它過期的是 window_end_at，延期按鈕也要讓這種機器看到。
+ * 時段迄是時間戳，日期依本地時區拆：台灣的「11/08 03:00」在 UTC 還是 11/07，若用 UTC 日期，
+ * 生命週期卡會寫 11/07、總覽卻寫 11/08 03:00（2026-11-06 ntub 實測）。
  * 兩者都沒有＝不限期，回 null。
  */
 export function effectiveExpiryIso(resource) {
@@ -17,7 +25,7 @@ export function effectiveExpiryIso(resource) {
   if (resource?.expiry_date) candidates.push(String(resource.expiry_date).slice(0, 10));
   if (resource?.window_end_at) {
     const end = new Date(resource.window_end_at);
-    if (!Number.isNaN(end.getTime())) candidates.push(end.toISOString().slice(0, 10));
+    if (!Number.isNaN(end.getTime())) candidates.push(localDateIso(end));
   }
   return candidates.length ? candidates.sort()[0] : null;
 }

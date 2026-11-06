@@ -16,6 +16,8 @@ import {
   useTemplatesQuery,
 } from "../../../queries/templates";
 import { downloadBlob } from "../../../services/api";
+import { useAuth } from "../../../contexts/AuthContext";
+import { isAdminUser } from "../../../utils/roles";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useLoadError, useLoadFailureMessage } from "../../../hooks/useQueryLoadState";
@@ -113,7 +115,7 @@ function ManualDialog({ template, closing = false, onClose }) {
    overflow-x: auto 會連 y 軸一起變裁切上下文，選單被切掉還撑出捲軸（同 PowerMenu 的做法） */
 const ROW_MENU_WIDTH = 200;
 
-function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete, onClose, anchorRef, closing = false }) {
+function RowMenu({ template, canManage, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete, onClose, anchorRef, closing = false }) {
   const { t } = useTranslation("resource");
   const { ref, pos } = useAnchoredMenu({ anchorRef, onClose, width: ROW_MENU_WIDTH });
 
@@ -132,14 +134,18 @@ function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCy
         <MIcon name="content_copy" size={15} />
         {t("TemplatesPage.menuClone")}
       </button>
-      <button
-        type="button"
-        className={styles.rowMenuItem}
-        onClick={() => { onClose(); onEdit(template); }}
-      >
-        <MIcon name="edit" size={15} />
-        {t("TemplatesPage.menuEdit")}
-      </button>
+      {/* 編輯／更新循環／重新轉換／刪除只有擁有者與管理員做得到（後端 require_template_owner）：
+          別人的範本只留克隆與使用手冊，不然老師會看到按了就 403 的選項 */}
+      {canManage && (
+        <button
+          type="button"
+          className={styles.rowMenuItem}
+          onClick={() => { onClose(); onEdit(template); }}
+        >
+          <MIcon name="edit" size={15} />
+          {t("TemplatesPage.menuEdit")}
+        </button>
+      )}
       {template.attachment_count > 0 && (
         <button
           type="button"
@@ -150,59 +156,63 @@ function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCy
           {t("TemplatesPage.menuManual", { count: template.attachment_count })}
         </button>
       )}
-      <div className={styles.rowMenuDivider} />
-      {template.status === "failed" && (
-        <button
-          type="button"
-          className={styles.rowMenuItem}
-          disabled={cycleBusy}
-          onClick={() => { onClose(); onRetry(template.id); }}
-        >
-          <MIcon name="restart_alt" size={15} />
-          {t("TemplatesPage.menuRetry")}
-        </button>
-      )}
-      {template.status === "ready" && (
-        <button
-          type="button"
-          className={styles.rowMenuItem}
-          disabled={cycleBusy}
-          onClick={() => { onClose(); onCycle(template.id, "start"); }}
-        >
-          <MIcon name="sync" size={15} />
-          {t("TemplatesPage.menuStartCycle")}
-        </button>
-      )}
-      {template.status === "updating" && (
+      {canManage && (
         <>
+          <div className={styles.rowMenuDivider} />
+          {template.status === "failed" && (
+            <button
+              type="button"
+              className={styles.rowMenuItem}
+              disabled={cycleBusy}
+              onClick={() => { onClose(); onRetry(template.id); }}
+            >
+              <MIcon name="restart_alt" size={15} />
+              {t("TemplatesPage.menuRetry")}
+            </button>
+          )}
+          {template.status === "ready" && (
+            <button
+              type="button"
+              className={styles.rowMenuItem}
+              disabled={cycleBusy}
+              onClick={() => { onClose(); onCycle(template.id, "start"); }}
+            >
+              <MIcon name="sync" size={15} />
+              {t("TemplatesPage.menuStartCycle")}
+            </button>
+          )}
+          {template.status === "updating" && (
+            <>
+              <button
+                type="button"
+                className={styles.rowMenuItem}
+                disabled={cycleBusy}
+                onClick={() => { onClose(); onCycle(template.id, "finish"); }}
+              >
+                <MIcon name="sync" size={15} />
+                {t("TemplatesPage.menuFinishCycle")}
+              </button>
+              <button
+                type="button"
+                className={styles.rowMenuItem}
+                disabled={cycleBusy}
+                onClick={() => { onClose(); onCycle(template.id, "cancel"); }}
+              >
+                {t("TemplatesPage.menuCancelCycle")}
+              </button>
+            </>
+          )}
+          <div className={styles.rowMenuDivider} />
           <button
             type="button"
-            className={styles.rowMenuItem}
-            disabled={cycleBusy}
-            onClick={() => { onClose(); onCycle(template.id, "finish"); }}
+            className={`${styles.rowMenuItem} ${styles.rowMenuItemDanger}`}
+            onClick={() => { onClose(); onDelete(template); }}
           >
-            <MIcon name="sync" size={15} />
-            {t("TemplatesPage.menuFinishCycle")}
-          </button>
-          <button
-            type="button"
-            className={styles.rowMenuItem}
-            disabled={cycleBusy}
-            onClick={() => { onClose(); onCycle(template.id, "cancel"); }}
-          >
-            {t("TemplatesPage.menuCancelCycle")}
+            <MIcon name="delete_outline" size={15} />
+            {t("TemplatesPage.menuDelete")}
           </button>
         </>
       )}
-      <div className={styles.rowMenuDivider} />
-      <button
-        type="button"
-        className={`${styles.rowMenuItem} ${styles.rowMenuItemDanger}`}
-        onClick={() => { onClose(); onDelete(template); }}
-      >
-        <MIcon name="delete_outline" size={15} />
-        {t("TemplatesPage.menuDelete")}
-      </button>
     </div>,
     document.body,
   );
@@ -281,6 +291,7 @@ function TemplateMenuCell({
   menuBtnRef,
   onToggleMenu,
   onCloseMenu,
+  canManage,
   onClone,
   onEdit,
   onManual,
@@ -294,6 +305,7 @@ function TemplateMenuCell({
       {menuOpen && (
         <RowMenu
           template={template}
+          canManage={canManage}
           cycleBusy={cycleBusy}
           onClone={onClone}
           onEdit={onEdit}
@@ -361,7 +373,7 @@ const templateColumns = columnHelper.columns([
 ]);
 
 /* row 是 TanStack 的列，template 是它的原始資料（一併傳進來，編譯後的元件才會跟著資料重繪） */
-function ManagementRow({ row, template, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete }) {
+function ManagementRow({ row, template, canManage, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useDialogPresence(menuOpen, 130);
   const menuBtnRef = useRef(null);
@@ -377,6 +389,7 @@ function ManagementRow({ row, template, cycleBusy, onClone, onEdit, onManual, on
           menuBtnRef,
           onToggleMenu: () => setMenuOpen((v) => !v),
           onCloseMenu: () => setMenuOpen(false),
+          canManage,
           onClone,
           onEdit,
           onManual,
@@ -393,6 +406,10 @@ export default function TemplatesPage() {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const confirm = useConfirm();
+  /* 管理動作（編輯／更新循環／重新轉換／刪除）只給擁有者與管理員看：後端 require_template_owner 本來就會擋，
+     但老師看到別人的全域範本選單裡有「刪除」按了才 403（2026-11-06 ntub 實測） */
+  const { user } = useAuth();
+  const isAdmin = isAdminUser(user);
   /* 範本清單走 TanStack Query：有建立中／更新中的範本時 4 秒輪詢，否則 30 秒；分頁隱藏時暫停。
      載入失敗提示一次（同一串失敗不重複提示，成功過再失敗才再提示），已有資料時沿用原清單；首載失敗當成沒有範本 */
   const templatesQuery = useTemplatesQuery();
@@ -535,6 +552,7 @@ export default function TemplatesPage() {
                 key={row.id}
                 row={row}
                 template={row.original}
+                canManage={isAdmin || (Boolean(user?.id) && row.original.owner_id === user.id)}
                 cycleBusy={cycleBusy}
                 onClone={setCloneTarget}
                 onEdit={setEditTarget}

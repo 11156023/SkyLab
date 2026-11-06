@@ -30,7 +30,6 @@ from app.models import (
 )
 from app.repositories import resource as resource_repo
 from app.schemas import VMRequestCreate
-from app.services.resource import quota_service
 from app.services.scheduling.recurrence import get_schedule_policy
 from app.services.template import password_policy
 from app.services.vm import vm_request_service
@@ -912,14 +911,9 @@ def launch(
                 )
             )
 
-    quota_service.check_quota(
-        session,
-        user.id,
-        delta_cores=sum(node.cpu for node in nodes),
-        delta_memory_mb=sum(node.memory_mb for node in nodes),
-        delta_disk_gb=sum(_node_disk_gb(session, node) for node in nodes),
-        delta_instances=len(nodes),
-    )
+    # 快速練習是固定配置的環境機器，建好後 allocation_scope 不是 personal、不計入個人
+    # 配額（我的資源頁的配額卡片也是這樣寫）；這裡若再拿個人配額擋，學生會看到
+    # 「配額不足」卻怎麼算都對不上。上限由同時一組、24 小時 3 次與叢集容量預檢管。
     _assert_cluster_capacity(session, nodes=nodes, user_id=user.id)
 
     duration_hours = get_schedule_policy(session=session).practice_session_hours

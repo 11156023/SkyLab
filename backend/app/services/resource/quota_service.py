@@ -215,6 +215,8 @@ def get_effective_quota(session: Session, user_id: uuid.UUID) -> EffectiveQuota:
 # provisioning 預設值（與 provisioning_service 的 `or 8` / `or 20` 一致）
 _DEFAULT_LXC_DISK_GB = 8
 _DEFAULT_VM_DISK_GB = 20
+# 快速練習申請單的 request_kind（vm_request_service.create_quick_practice_request）
+_QUICK_PRACTICE_REQUEST_KIND = "quick_template"
 
 
 def request_specs(request: Any) -> tuple[int, int, int]:
@@ -264,6 +266,10 @@ def _reserved_by_requests(
         statement = statement.where(VMRequest.id != exclude_request_id)
     cores = memory_mb = disk_gb = count = 0
     for request in session.exec(statement).all():
+        # 快速練習是整組固定配置的環境機器，建好後 allocation_scope 不是 personal、
+        # 不計入個人配額；建立中的這幾張申請單同樣不能先被算成個人預約。
+        if getattr(request, "request_kind", None) == _QUICK_PRACTICE_REQUEST_KIND:
+            continue
         req_cores, req_memory, req_disk = request_specs(request)
         cores += req_cores
         memory_mb += req_memory
