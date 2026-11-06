@@ -180,7 +180,7 @@
   "RequestReviewPage.loadRequestsFailed": "讀取申請失敗",
   "RequestReviewPage.loadContextFailed": "讀取審核資訊失敗",
   "ResourceMgmtPage.statusScheduled": "已排程",
-  "ResourceMgmtPage.statusProvisioning": "建立中",
+  "ResourceMgmtPage.statusProvisioning": "開通中",
   "ResourceMgmtPage.statusStarting": "開機中",
   "ResourceMgmtPage.statusRunning": "執行中",
   "ResourceMgmtPage.statusStopped": "已關機",

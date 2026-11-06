@@ -412,7 +412,7 @@
   "UserGuide.resourceMgmt.create.title": "從申請表單建立機器",
   "UserGuide.resourceMgmt.create.text": "「建立資源」會帶你到「我的申請」的申請表單，用跟一般使用者相同的流程填寫規格與使用時段；這頁本身不會直接建機。",
   "UserGuide.resourceMgmt.filters.title": "依狀態篩選與搜尋",
-  "UserGuide.resourceMgmt.filters.text": "「全部」「執行中」「已關機」可以只看特定狀態的機器，徽章數字是全部機器的台數、不受搜尋影響。旁邊的搜尋框比對名稱、VMID、IP 或擁有者，空白分開的多個詞要全部符合。",
+  "UserGuide.resourceMgmt.filters.text": "「全部」「開通中」「執行中」「已關機」可以只看特定狀態的機器，徽章數字是全部機器的台數、不受搜尋影響。「開通中」是已核准、機器還在建立的申請，建好後會自動變成一般的機器列。旁邊的搜尋框比對名稱、VMID、IP 或擁有者，空白分開的多個詞要全部符合。",
   "UserGuide.resourceMgmt.table.title": "每台機器的關鍵資訊",
   "UserGuide.resourceMgmt.table.text": "「來源」標出個人、共享、課堂或快速練習的機器並附上擁有者。「到期日」下方的小字是換算成你本地時間的實際截止時刻，「∞ 無期限」代表沒有設定到期日；IP 下方若有連結，是透過反向代理對外發布的網址。",
   "UserGuide.resourceMgmt.envGroup.title": "教學環境整組顯示",

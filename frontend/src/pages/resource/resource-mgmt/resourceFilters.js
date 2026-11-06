@@ -5,6 +5,8 @@
 
 /* 狀態切換的分組；「全部」不在這裡，代表不過濾 */
 export const STATUS_FILTERS = {
+  /* 開通中：已核准、機器還在建立（含課程環境裡還沒建好的機器） */
+  provisioning: ["provisioning"],
   running: ["running"],
   stopped: ["stopped"],
 };

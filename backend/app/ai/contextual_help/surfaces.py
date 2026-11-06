@@ -606,7 +606,7 @@ _RESOURCE_MGMT_ELEMENTS: tuple[ElementSpec, ...] = (
         section="資源清單",
     ),
     ElementSpec(
-        id="resmgmt.status_provisioning", role="readonly", label="建立中",
+        id="resmgmt.status_provisioning", role="readonly", label="開通中",
         section="資源清單",
     ),
     ElementSpec(

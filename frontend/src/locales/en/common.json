@@ -412,7 +412,7 @@
   "UserGuide.resourceMgmt.create.title": "Create machines via the request form",
   "UserGuide.resourceMgmt.create.text": "\"Create Resource\" takes you to the request form on \"My Requests\", where you fill in specs and a usage window the same way regular users do. This page does not create machines by itself.",
   "UserGuide.resourceMgmt.filters.title": "Filter by status and search",
-  "UserGuide.resourceMgmt.filters.text": "Use \"All\", \"Running\" and \"Stopped\" to show only machines in that state; the badge numbers count all machines and ignore the search. The search box next to them matches name, VMID, IP or owner, and every space-separated word must match.",
+  "UserGuide.resourceMgmt.filters.text": "Use \"All\", \"Provisioning\", \"Running\" and \"Stopped\" to show only machines in that state; the badge numbers count all machines and ignore the search. \"Provisioning\" lists approved requests whose machine is still being created; once it is ready the row turns into a normal machine row. The search box next to them matches name, VMID, IP or owner, and every space-separated word must match.",
   "UserGuide.resourceMgmt.table.title": "Key details for each machine",
   "UserGuide.resourceMgmt.table.text": "\"Source\" shows whether a machine is personal, shared, class or quick practice, along with its owner. The small text under \"Expiry Date\" is the actual cutoff in your local time, and \"∞ No expiry\" means no expiry date is set. Links under the IP are public URLs published through the reverse proxy.",
   "UserGuide.resourceMgmt.envGroup.title": "Teaching environments shown as groups",

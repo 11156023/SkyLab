@@ -412,7 +412,7 @@
   "UserGuide.resourceMgmt.create.title": "申請フォームからマシンを作成",
   "UserGuide.resourceMgmt.create.text": "「リソースを作成」をクリックすると「マイ申請」の申請フォームに移動し、一般ユーザーと同じ手順でスペックと利用期間を入力します。このページ自体ではマシンを直接作成しません。",
   "UserGuide.resourceMgmt.filters.title": "状態での絞り込みと検索",
-  "UserGuide.resourceMgmt.filters.text": "「すべて」「実行中」「停止中」で特定の状態のマシンだけを表示できます。バッジの数字は全マシンの台数で、検索の影響を受けません。隣の検索欄は名前・VMID・IP・所有者を対象とし、スペースで区切った語はすべて一致する必要があります。",
+  "UserGuide.resourceMgmt.filters.text": "「すべて」「作成中」「実行中」「停止中」で特定の状態のマシンだけを表示できます。バッジの数字は全マシンの台数で、検索の影響を受けません。「作成中」は承認済みでマシンをまだ作成している申請で、完成すると通常のマシン行に変わります。隣の検索欄は名前・VMID・IP・所有者を対象とし、スペースで区切った語はすべて一致する必要があります。",
   "UserGuide.resourceMgmt.table.title": "各マシンの主要情報",
   "UserGuide.resourceMgmt.table.text": "「提供元」には個人・共有・クラス・クイック演習の区別と所有者が表示されます。「有効期限」の下の小さな文字はローカル時刻に換算した実際の期限で、「∞ 無期限」は有効期限が設定されていないことを示します。IP の下にリンクがある場合は、リバースプロキシで公開された URL です。",
   "UserGuide.resourceMgmt.envGroup.title": "受講環境はグループで表示",

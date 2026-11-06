@@ -794,6 +794,7 @@ export default function ResourceMgmtPage() {
             <SegmentedControl
               options={[
                 { value: "all", label: t("ResourceMgmtPage.filterAll"), badge: counts.all },
+                { value: "provisioning", label: t("ResourceMgmtPage.statusProvisioning"), badge: counts.provisioning },
                 { value: "running", label: t("ResourceMgmtPage.statusRunning"), badge: counts.running },
                 { value: "stopped", label: t("ResourceMgmtPage.statusStopped"), badge: counts.stopped },
               ]}

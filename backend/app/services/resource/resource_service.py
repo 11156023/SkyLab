@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Literal
 
 from sqlmodel import Session, col, select
@@ -341,6 +342,87 @@ def _placeholder_resource_status(req) -> ResourceStatus:
     if start_at is not None and start_at > _utc_now():
         return "scheduled"
     return "provisioning"
+
+
+def _placeholder_public(req: VMRequest) -> ResourcePublic:
+    """已核准、機器還沒出現在 PVE 的申請：清單上的佔位列（已排程／開通中／建立失敗）。"""
+    return ResourcePublic(
+        vmid=req.vmid,
+        request_id=req.id,
+        name=from_punycode_hostname(req.hostname),
+        status=_placeholder_resource_status(req),
+        node=req.actual_node or req.assigned_node or req.desired_node or "",
+        type=_resource_type_for_request(req.resource_type),
+        is_placeholder=True,
+        can_control=False,
+        environment_type=req.environment_type,
+        os_info=req.os_info,
+        expiry_date=req.expiry_date,
+        maxcpu=req.cores,
+        maxmem=req.memory * 1024 * 1024 if req.memory else None,
+    )
+
+
+def _pending_placeholders_for_admin(
+    *,
+    session: Session,
+    shown_vmids: set[int],
+    node: str | None,
+    viewer_id: uuid.UUID | None,
+) -> list[ResourcePublic]:
+    """管理員清單：全站已核准、機器還沒建出來的申請（新到舊）。
+
+    只列「真的還沒有機器」的：vmid 已出現在 PVE 的略過；已有 Resource 列的也略過
+    （機器建過了，PVE 沒列出來是節點離線之類，不能標成開通中）。
+    """
+    statement = select(VMRequest).where(
+        VMRequest.status == VMRequestStatus.approved,
+        col(VMRequest.resource_warning).is_(None)
+        | col(VMRequest.resource_warning).not_in(sorted(RESOURCE_DELETED_MARKERS)),
+    )
+    if shown_vmids:
+        statement = statement.where(
+            col(VMRequest.vmid).is_(None)
+            | col(VMRequest.vmid).not_in(sorted(shown_vmids))
+        )
+    requests = [
+        req
+        for req in session.exec(
+            statement.order_by(col(VMRequest.created_at).desc())
+        ).all()
+        if not (req.vmid and req.vmid in shown_vmids)
+        and req.resource_warning not in RESOURCE_DELETED_MARKERS
+    ]
+    request_vmids = sorted({req.vmid for req in requests if req.vmid})
+    if request_vmids:
+        built_vmids = {
+            row.vmid
+            for row in session.exec(
+                select(Resource).where(col(Resource.vmid).in_(request_vmids))
+            ).all()
+        }
+        requests = [req for req in requests if req.vmid not in built_vmids]
+    if not requests:
+        return []
+
+    names = resource_kind.user_display_names(
+        session, {req.user_id for req in requests}
+    )
+    placeholders: list[ResourcePublic] = []
+    for req in requests:
+        public = _placeholder_public(req)
+        if node and public.node != node:
+            continue
+        # 來源徽章：申請單種類就夠判斷（快速練習／課程實驗／個人申請）
+        public.machine_kind = resource_kind.classify(
+            SimpleNamespace(teaching_class_id=None, allocation_scope="personal"),
+            request_kind=req.request_kind,
+        )
+        # 同 list_all：自己的不標擁有者（owner_name「機器不是自己的時才有值」）
+        if req.user_id != viewer_id:
+            public.owner_name = names.get(req.user_id)
+        placeholders.append(public)
+    return placeholders
 
 
 def _is_practice_resource(
@@ -901,7 +983,16 @@ def list_all(
             if public.vmid in owner_ids and owner_ids[public.vmid] != viewer_id:
                 public.owner_name = names.get(owner_ids[public.vmid])
         _mark_booting(result)
-        return result
+        # 已核准、機器還沒建出來的申請放最前面：管理員核准後在這裡就看得到開通進度，
+        # 不必等機器出現在 PVE（與「我的資源」的佔位列同一套狀態）
+        placeholders = _pending_placeholders_for_admin(
+            session=session,
+            # 用整份 PVE 清單比對（不受 node 篩選影響）：別的節點上已經建好的機器不算開通中
+            shown_vmids={r.get("vmid") for r in resources if r.get("vmid")},
+            node=node,
+            viewer_id=viewer_id,
+        )
+        return [*placeholders, *result]
     except Exception as e:
         logger.error(f"Failed to get resources: {e}")
         raise ProxmoxError(f"Failed to get resources: {e}")
@@ -1165,23 +1256,7 @@ def list_by_user(
             # placeholders in the resources list.
             if req.resource_warning in RESOURCE_DELETED_MARKERS:
                 continue
-            result.append(
-                ResourcePublic(
-                    vmid=req.vmid,
-                    request_id=req.id,
-                    name=from_punycode_hostname(req.hostname),
-                    status=_placeholder_resource_status(req),
-                    node=req.actual_node or req.assigned_node or req.desired_node or "",
-                    type=_resource_type_for_request(req.resource_type),
-                    is_placeholder=True,
-                    can_control=False,
-                    environment_type=req.environment_type,
-                    os_info=req.os_info,
-                    expiry_date=req.expiry_date,
-                    maxcpu=req.cores,
-                    maxmem=req.memory * 1024 * 1024 if req.memory else None,
-                )
-            )
+            result.append(_placeholder_public(req))
             if req.vmid:
                 shown_vmids.add(req.vmid)
 

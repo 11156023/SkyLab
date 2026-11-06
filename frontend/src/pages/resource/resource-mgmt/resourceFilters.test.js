@@ -61,5 +61,15 @@ describe("filterGroups", () => {
 });
 
 test("statusCounts 依狀態切換數台數", () => {
-  expect(statusCounts(list)).toEqual({ all: 3, running: 1, stopped: 1 });
+  expect(statusCounts(list)).toEqual({ all: 3, provisioning: 0, running: 1, stopped: 1 });
+});
+
+test("開通中：已核准、機器還沒建好的佔位列（沒有 vmid）也篩得到、算得進徽章", () => {
+  const withPlaceholder = [
+    { vmid: null, request_id: "req-1", name: "new-vm", status: "provisioning", is_placeholder: true, owner_name: "王小明" },
+    ...list,
+  ];
+  expect(filterResources(withPlaceholder, { status: "provisioning" }).map((r) => r.name)).toEqual(["new-vm"]);
+  expect(filterResources(withPlaceholder, { query: "new-vm 王小明" })).toHaveLength(1);
+  expect(statusCounts(withPlaceholder)).toEqual({ all: 4, provisioning: 1, running: 1, stopped: 1 });
 });
