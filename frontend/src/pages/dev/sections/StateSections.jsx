@@ -5,6 +5,7 @@ import ErrorState from "../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../components/ErrorState/NotFoundState";
 import LoadingState, { LoadingSpinner } from "../../../components/LoadingState/LoadingState";
 import Modal from "../../../components/Modal/Modal";
+import BatchReviewDialog from "../../../components/BatchReviewDialog/BatchReviewDialog";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import OctoMark from "../../../components/OctoPet/OctoMark";
 import OctoAvatar from "../../../components/OctoPet/OctoAvatar";
@@ -53,6 +54,17 @@ export function EmptyStateSection() {
 
 const WIDTHS = [["sm", 400, "確認框／命名框"], ["log", 560, "錯誤 log 等寬內容"], ["md", 640, "小型單欄表單"], ["lg", 1100, "一般"], ["xl", 1280, "寬版（VNC）"]];
 
+/* 批量審核示範用的假申請：七筆，超過五筆時最後一列收成「等 2 筆」 */
+const REVIEW_ITEMS = [
+  { id: 1, icon: "computer", name: "期中檢測-備援機", sub: "王育誠" },
+  { id: 2, icon: "tune", name: "期末專題-IoT（VMID 5188）規格調整", sub: "謝柏宇" },
+  { id: 3, icon: "terminal", name: "社團-Discord機器人", sub: "洪宥廷" },
+  { id: 4, icon: "tune", name: "專題-後端API（VMID 5210）規格調整", sub: "林子晴" },
+  { id: 5, icon: "computer", name: "專題-推薦模型", sub: "陳宸希" },
+  { id: 6, icon: "terminal", name: "Nginx-課後練習", sub: "呂家豪" },
+  { id: 7, icon: "key", name: "論文-資料標註", sub: "林冠宇" },
+];
+
 export function ModalSection() {
   const confirm = useConfirm();
   const toast = useToast();
@@ -63,6 +75,17 @@ export function ModalSection() {
   const compactPresence = useDialogPresence(compact);
   const formPresence = useDialogPresence(form);
   const barePresence = useDialogPresence(bare);
+  /* 批量審核：關閉動畫期間還要知道是哪一款與幾筆，所以款式、筆數與開關分開記 */
+  const [review, setReview] = useState({ tone: "approve", count: 2 });
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const reviewPresence = useDialogPresence(reviewOpen);
+  const reviewItems = REVIEW_ITEMS.slice(0, review.count);
+  const reviewVerb = review.tone === "approve" ? "核准" : "拒絕";
+
+  function openReview(tone, count) {
+    setReview({ tone, count });
+    setReviewOpen(true);
+  }
 
   async function askConfirm(danger) {
     const ok = await confirm({
@@ -105,6 +128,17 @@ export function ModalSection() {
             <button type="button" className={styles.btnSecondary} onClick={() => setCompact(true)}>精簡卡 sm</button>
             <button type="button" className={styles.btnSecondary} onClick={() => setForm(true)}>表單 closeButton md</button>
             <button type="button" className={styles.btnSecondary} onClick={() => setBare(true)}>bare log</button>
+          </div>
+        </Demo>
+        <Demo
+          label="批量審核 BatchReviewDialog"
+          refs={["components/BatchReviewDialog", "tone=\"approve\" | \"reject\"", "items: { id, icon, name, sub }", "moreLabel(count)", "onSubmit(comment | null)"]}
+          note="批量核准／拒絕共用：列出這次會處理的項目（最多 5 筆，其餘「等 N 筆」）＋一段共用的審核備註（選填，寫進每一筆）。核准是主色圖示＋主要鈕，拒絕是紅色警告圖示＋危險鈕（alertdialog）。文案由各頁傳入；用在申請審核與 AI API 審核的批量列。"
+        >
+          <div className={styles.row}>
+            <button type="button" className={styles.btnSecondary} onClick={() => openReview("approve", 2)}>核准 2 筆</button>
+            <button type="button" className={styles.btnSecondary} onClick={() => openReview("approve", REVIEW_ITEMS.length)}>核准 7 筆（等 2 筆）</button>
+            <button type="button" className={styles.btnDangerOutline} onClick={() => openReview("reject", 3)}>拒絕 3 筆</button>
           </div>
         </Demo>
         <Demo label="寬度五級" refs={["Modal.module.scss .sizeSm … .sizeXl"]} wide>
@@ -174,6 +208,26 @@ export function ModalSection() {
             <label className={`${styles.field} ${styles.fieldFull}`}><span>備註</span><textarea rows={3} /></label>
           </div>
         </Modal>
+      )}
+
+      {reviewPresence.open && (
+        <BatchReviewDialog
+          tone={review.tone}
+          title={`${reviewVerb} ${reviewItems.length} 筆申請？`}
+          description={`下列申請會被${reviewVerb}：`}
+          items={reviewItems}
+          moreLabel={(count) => `等 ${count} 筆`}
+          commentLabel="審核備註"
+          commentPlaceholder="選填，會寫進每一筆申請的審核備註"
+          confirmLabel={`${reviewVerb} ${reviewItems.length} 筆`}
+          cancelLabel="取消"
+          closing={reviewPresence.closing}
+          onClose={() => setReviewOpen(false)}
+          onSubmit={(comment) => {
+            setReviewOpen(false);
+            toast.success(`示範：已${reviewVerb} ${reviewItems.length} 筆${comment ? `，備註「${comment}」` : "（沒填備註）"}`);
+          }}
+        />
       )}
 
       {barePresence.open && (
