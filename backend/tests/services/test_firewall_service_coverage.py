@@ -1526,6 +1526,66 @@ def test_topology_node_for_vm_with_details_degrades_on_options_error(
     assert node.vm_type == "lxc"
 
 
+def test_get_vm_topology_marks_who_can_manage_each_machine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """連線要寫兩端的規則：別人的機器、快速練習機、平台外建的機器都標成不能管。"""
+    owner = SimpleNamespace(id=uuid.uuid4(), role="student", is_superuser=False)
+    monkeypatch.setattr(
+        fw,
+        "proxmox_service",
+        SimpleNamespace(
+            find_resource=lambda vmid: {
+                "node": "pve1", "type": "qemu", "name": f"vm{vmid}", "status": "running",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        fw,
+        "get_connections_from_rules",
+        lambda vmids: [
+            TopologyEdge(source_vmid=100, target_vmid=vmid, ports=[])
+            for vmid in (200, 300, 400)
+        ],
+    )
+    monkeypatch.setattr(fw, "_enrich_edges_from_db", lambda edges, session: None)
+    monkeypatch.setattr(fw, "_get_vm_ip", lambda vmid, session=None: None)
+    monkeypatch.setattr(fw, "get_firewall_options", lambda node, vmid, rtype: {})
+    rows = {
+        100: SimpleNamespace(vmid=100, user_id=owner.id, teaching_class_id=None, allocation_scope="personal"),
+        200: SimpleNamespace(vmid=200, user_id=uuid.uuid4(), teaching_class_id=None, allocation_scope="personal"),
+        300: SimpleNamespace(vmid=300, user_id=owner.id, teaching_class_id=None, allocation_scope="personal"),
+        # 400 沒有 Resource 列（平台外建的機器）
+    }
+    monkeypatch.setattr(
+        fw.resource_repo,
+        "get_resources_by_vmids",
+        lambda *, session, vmids: {v: rows[v] for v in vmids if v in rows},
+    )
+    monkeypatch.setattr(
+        fw.resource_access, "list_owned_teaching_class_ids", lambda *, session, user: set()
+    )
+    monkeypatch.setattr(
+        fw.resource_kind,
+        "classify_many",
+        lambda session, resources: {100: "personal", 200: "personal", 300: "quick_practice"},
+    )
+    monkeypatch.setattr(fw, "can_bypass_resource_ownership", lambda user: False)
+
+    resp = fw.get_vm_topology(100, object(), user=owner)  # type: ignore[arg-type]
+
+    assert {n.vmid: n.can_manage for n in resp.nodes if n.vmid is not None} == {
+        100: True,   # 自己的個人機
+        200: False,  # 別人的機器
+        300: False,  # 自己的快速練習機
+        400: False,  # 沒有 Resource 列，只有管理員能動
+    }
+
+    monkeypatch.setattr(fw, "can_bypass_resource_ownership", lambda user: True)
+    admin_view = fw.get_vm_topology(100, object(), user=owner)  # type: ignore[arg-type]
+    assert {n.vmid: n.can_manage for n in admin_view.nodes if n.vmid is not None}[400] is True
+
+
 def test_get_vm_topology_places_peers_and_filters_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

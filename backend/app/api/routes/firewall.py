@@ -327,11 +327,15 @@ def delete_rule(
 def get_vm_topology(
     vmid: int,
     session: SessionDep,
+    current_user: CurrentUser,
     _resource_info: ResourceInfoDep,
 ):
-    """以這台 VM 為中心的迷你拓撲（Internet、這台 VM、與它有連線的其他 VM）"""
+    """以這台 VM 為中心的迷你拓撲（Internet、這台 VM、與它有連線的其他 VM）
+
+    每台機器帶 can_manage（目前使用者能不能改它的防火牆），前端據此決定能不能拉線、刪線。
+    """
     try:
-        return firewall_service.get_vm_topology(vmid, session)
+        return firewall_service.get_vm_topology(vmid, session, user=current_user)
     except ProxmoxError as e:
         raise HTTPException(status_code=500, detail=str(e))
 

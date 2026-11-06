@@ -278,17 +278,23 @@ def test_delete_rule_proxmox_error(
 
 
 def test_get_vm_topology(monkeypatch: pytest.MonkeyPatch) -> None:
+    USER = _user()
     monkeypatch.setattr(
-        fw.firewall_service, "get_vm_topology", lambda vmid, session: {"vmid": vmid}
+        fw.firewall_service,
+        "get_vm_topology",
+        lambda vmid, session, user=None: {"vmid": vmid, "user": user},
     )
-    assert fw.get_vm_topology(vmid=7, session=SESSION, _resource_info=RESOURCE) == {
-        "vmid": 7
-    }
+    # 目前使用者要傳進去：每台機器的 can_manage 是依這個人算的
+    assert fw.get_vm_topology(
+        vmid=7, session=SESSION, current_user=USER, _resource_info=RESOURCE
+    ) == {"vmid": 7, "user": USER}
     monkeypatch.setattr(
         fw.firewall_service, "get_vm_topology", _raiser(ProxmoxError("x"))
     )
     with pytest.raises(HTTPException) as info:
-        fw.get_vm_topology(vmid=7, session=SESSION, _resource_info=RESOURCE)
+        fw.get_vm_topology(
+            vmid=7, session=SESSION, current_user=USER, _resource_info=RESOURCE
+        )
     assert info.value.status_code == 500
 
 

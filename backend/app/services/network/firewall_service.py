@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlmodel import Session, col, select
 
+from app.core.authorizers import can_bypass_resource_ownership
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import get_proxmox_api_for_node
@@ -1888,11 +1889,46 @@ _MINI_GATEWAY_X = 680.0
 _MINI_ROW_H = 110.0
 
 
-def get_vm_topology(vmid: int, session: Session) -> TopologyResponse:
+def _mark_manageable_nodes(
+    nodes: list[TopologyNode], session: Session, user: User
+) -> None:
+    """迷你拓撲的每台機器標上「這個人能不能管它的防火牆」。
+
+    規則與完整拓撲（get_topology）一致：快速練習機不能管，其餘看
+    resource_access.can_manage_resource。連線要寫兩端的規則，另一端是別人的機器時
+    前端據此不給拉線、不給刪線，不必等送出才吃 403。
+    """
+    vm_nodes = [node for node in nodes if node.vmid is not None]
+    if not vm_nodes:
+        return
+    rows = resource_repo.get_resources_by_vmids(
+        session=session, vmids=[node.vmid for node in vm_nodes]
+    )
+    owned_class_ids = resource_access.list_owned_teaching_class_ids(
+        session=session, user=user
+    )
+    kinds = resource_kind.classify_many(session, list(rows.values()))
+    for node in vm_nodes:
+        row = rows.get(node.vmid)
+        # 沒有 Resource 列的機器（平台外建的）只有管理員能動
+        node.can_manage = (
+            can_bypass_resource_ownership(user)
+            if row is None
+            else kinds.get(node.vmid) != "quick_practice"
+            and resource_access.can_manage_resource(
+                resource=row, user=user, owned_class_ids=owned_class_ids
+            )
+        )
+
+
+def get_vm_topology(
+    vmid: int, session: Session, user: User | None = None
+) -> TopologyResponse:
     """以單台 VM 為中心的迷你拓撲：這台 VM、Internet 節點、有連線關係的其他 VM。
 
     只讀這台 VM 自己的防火牆規則：VM 對 VM 的連線在雙方都會留下同一組
     ``SkyLab:{src}->{tgt}`` 註解，所以從單邊就能還原所有跟它有關的連線。
+    給了 user 就把每台機器標上 can_manage（這個人能不能改它的防火牆）。
     """
     resource = proxmox_service.find_resource(vmid)
     edges = get_connections_from_rules([vmid])
@@ -1940,6 +1976,8 @@ def get_vm_topology(vmid: int, session: Session) -> TopologyResponse:
         )
     )
     nodes.append(_internet_node(_MINI_GATEWAY_X, center_y))
+    if user is not None:
+        _mark_manageable_nodes(nodes, session, user)
 
     visible_edges = [
         edge
