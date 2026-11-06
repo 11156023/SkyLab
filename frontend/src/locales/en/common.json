@@ -63,6 +63,7 @@
   "PasswordRules.windowsType.digit": "number",
   "PasswordRules.windowsType.symbol": "symbol",
   "PasswordRules.windowsUsername": "Must not contain the account name {{username}}",
+  "PasswordRules.noWhitespace": "No spaces",
   "PasswordRules.met": "{{rule}}: met",
   "PasswordRules.unmet": "{{rule}}: not met yet",
   "UsernamePolicy.LNX_FORMAT": "Must start with a lowercase letter and contain only lowercase letters, digits, underscores (_) and hyphens (-), 1–{{max_length}} characters long",

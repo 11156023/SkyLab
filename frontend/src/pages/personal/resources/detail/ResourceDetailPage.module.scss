@@ -306,7 +306,8 @@
 /* ── SSH 金鑰 ── */
 .keyActions {
   display: flex;
-  gap: $spacing-4;
+  flex-wrap: wrap;
+  gap: $spacing-8;
 }
 
 .ghostBtn {
@@ -314,11 +315,12 @@
 }
 
 .keyPre {
+  margin: 0;
   padding: $spacing-8 $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   background: var(--color-surface);
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: $font-family-mono;
   font-size: $font-size-12;
   white-space: pre-wrap;
   word-break: break-all;
@@ -544,10 +546,23 @@
 .badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* 對話框（共用 Modal）裡的警示句：跟說明同字級，改用待處理色 */
-.dialogWarn {
+/* ── 重設登入密碼對話框 ── */
+.passwordForm {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+/* 選「系統產生」時，佔住自己指定的密碼欄原本的位置，切換時對話框高度跳得少一點 */
+.modeHint {
+  margin: 0;
   font-size: $font-size-14;
-  color: var(--color-pending);
-  overflow-wrap: anywhere;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+/* 對話框裡的警告（會自動重新開機）：共用的警示提示塊 */
+.warnBlock {
+  @include warn-notice;
 }
 
 /* ── 進階設定卡片共用的列表小元件（rp 前綴是歷史遺留，對外服務卡片已移除） ── */
@@ -633,8 +648,17 @@
   > span[aria-hidden="true"] { margin-top: 2px; }
 }
 
+/* 卡片標題下的限制說明（例如容器要開機才能改憑證）：字維持說明文字的顏色，紅色只在圖示 */
 .hintWarn {
-  color: var(--color-pending);
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-4;
+
+  > :first-child {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-danger);
+  }
 }
 
 .chipList {
@@ -850,13 +874,82 @@
 .legendOut { color: var(--color-success); }
 .legendPeer { color: var(--color-status-neutral); }
 
+/* 剛產生的密碼／私鑰：一般內容區塊（白底＋細框）；不是待審核也不是警示，不用狀態色框 */
 .secretBox {
   @include flex-column;
-  gap: $spacing-8;
+  gap: 12px;
   padding: $spacing-16;
-  border: 1px solid color-mix(in srgb, var(--color-pending) 40%, transparent);
+  border: 1px solid var(--color-border);
   border-radius: $radius-12;
-  background: color-mix(in srgb, var(--color-pending) 8%, transparent);
+  background: var(--color-surface);
+}
+
+.secretHead {
+  @include flex-column;
+  gap: 2px;
+}
+
+.secretTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  > :first-child { color: var(--color-primary); }
+}
+
+.secretNote {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* 密碼與複製鈕一組：框只跟密碼一樣寬，不拉滿整張卡 */
+.secretValueRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.secretValue {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-family: $font-family-mono;
+  font-size: $font-size-16;
+  letter-spacing: 0.04em;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* 還沒生效（要重新開機）的說明 */
+.secretPending {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: $font-size-12;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+
+  > :first-child {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+}
+
+/* 「我已記下」：收起這個框，放左下（低強調） */
+.secretDone {
+  align-self: flex-start;
+  margin-left: -13px;
+  background: transparent;
 }
 
 .rowStack {

@@ -10,7 +10,12 @@ import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
 import Modal from "../../../../../components/Modal/Modal";
 import PasswordRules from "../../../../../components/PasswordRules/PasswordRules";
-import { WINDOWS_PASSWORD_RULES, windowsPasswordIssues } from "../../../../../utils/windowsPassword";
+import SegmentedControl from "../../../../../components/SegmentedControl/SegmentedControl";
+import {
+  MACHINE_PASSWORD_MAX_LENGTH,
+  machinePasswordIssues,
+  machinePasswordRules,
+} from "../../../../../utils/machinePassword";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../../components/ErrorState/NotFoundState";
@@ -31,20 +36,37 @@ function keyIdentity(key) {
   return parts.slice(0, 2).join(" ");
 }
 
+/**
+ * 重設登入密碼：先選「系統產生／自己指定」（互斥，用分段切換），再看要不要填密碼。
+ * - 自己指定：規則清單逐條打勾；按送出才把沒達成的標紅（打字途中不整欄變紅）
+ * - 執行中的 VM 會自動重新開機：警告做成提示塊放在按鈕正上方，按之前一定看得到
+ * - 密碼欄刻意用明碼：剛設的密碼要讓人看清楚，送出後卡片上也會再顯示一次
+ */
 function PasswordModal({ closing, loading, willReboot, isWindows, onClose, onSubmit }) {
   const { t } = useTranslation("personal");
-  const [custom, setCustom] = useState(false);
+  const [mode, setMode] = useState("generate"); // "generate" | "custom"
   const [password, setPassword] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const inputRef = useRef(null);
+  const custom = mode === "custom";
   /* Windows 會拒絕不合複雜度的密碼，重開機後就登不進去 */
-  const invalid =
-    custom &&
-    (password.length < 8 ||
-      /\s/.test(password) ||
-      (isWindows && windowsPasswordIssues(password).length > 0));
+  const invalid = custom && machinePasswordIssues(password, { windows: isWindows }).length > 0;
+  const flagged = submitted && invalid;
+
+  function changeMode(next) {
+    setMode(next);
+    setSubmitted(false);
+    /* 切到自己指定就把游標放進密碼欄（等欄位掛上來） */
+    if (next === "custom") requestAnimationFrame(() => inputRef.current?.focus());
+  }
 
   function submit(e) {
     e.preventDefault();
-    if (invalid) return;
+    if (invalid) {
+      setSubmitted(true);
+      inputRef.current?.focus();
+      return;
+    }
     onSubmit(custom ? password : null);
   }
 
@@ -56,31 +78,56 @@ function PasswordModal({ closing, loading, willReboot, isWindows, onClose, onSub
       onClose={onClose}
       busy={loading}
       title={t("CredentialsCard.resetPasswordTitle")}
-      description={t("CredentialsCard.resetPasswordDesc")}
       actions={
         <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
             {t("CredentialsCard.cancel")}
           </button>
-          <button type="submit" className={styles.btnPrimary} disabled={loading || invalid}>
-            {loading ? t("CredentialsCard.processing") : t("CredentialsCard.resetPassword")}
+          <button type="submit" className={styles.btnPrimary} disabled={loading}>
+            {loading
+              ? t("CredentialsCard.processing")
+              : t(custom ? "CredentialsCard.submitCustom" : "CredentialsCard.submitGenerate")}
           </button>
         </>
       }
     >
-      {willReboot && <p className={styles.dialogWarn}>{t("CredentialsCard.rebootWarning")}</p>}
-      <label className={styles.checkRow}>
-        <input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)} />
-        <span>{t("CredentialsCard.useCustomPassword")}</span>
-      </label>
-      {custom && (
-        <div className={`${styles.field} ${invalid && password ? styles.fieldInvalid : ""}`}>
-          <label htmlFor="cred-pw">{t("CredentialsCard.newPasswordLabel")}</label>
-          <input id="cred-pw" type="text" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
-          <span className={styles.fieldHint}>{t("CredentialsCard.newPasswordHint")}</span>
-          {isWindows && <PasswordRules password={password} rules={WINDOWS_PASSWORD_RULES} />}
-        </div>
-      )}
+      <div className={styles.passwordForm}>
+        <SegmentedControl
+          fullWidth
+          options={[
+            { value: "generate", label: t("CredentialsCard.modeGenerate"), icon: "auto_awesome" },
+            { value: "custom", label: t("CredentialsCard.modeCustom"), icon: "edit" },
+          ]}
+          value={mode}
+          onChange={changeMode}
+          ariaLabel={t("CredentialsCard.modeAria")}
+        />
+        {custom ? (
+          <div className={`${styles.field} ${flagged ? styles.fieldInvalid : ""}`}>
+            <label htmlFor="cred-pw">{t("CredentialsCard.newPasswordLabel")}</label>
+            <input
+              ref={inputRef}
+              id="cred-pw"
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              maxLength={MACHINE_PASSWORD_MAX_LENGTH}
+              autoComplete="off"
+              spellCheck={false}
+              aria-invalid={flagged || undefined}
+            />
+            <PasswordRules password={password} rules={machinePasswordRules({ windows: isWindows })} invalid={flagged} />
+          </div>
+        ) : (
+          <p className={styles.modeHint}>{t("CredentialsCard.generateHint")}</p>
+        )}
+        {willReboot && (
+          <p className={styles.warnBlock}>
+            <MIcon name="warning" size={16} />
+            <span>{t("CredentialsCard.rebootWarning")}</span>
+          </p>
+        )}
+      </div>
     </Modal>
   );
 }
@@ -103,7 +150,10 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const passwordPresence = useDialogPresence(showPassword);
-  const [secret, setSecret] = useState(null); // { kind: "password"|"key", value, message }
+  /* 剛產生／設定的密碼或私鑰：{ kind: "password"|"key", value, stored, pendingMessage }
+     stored＝平台有保管（系統產生的密碼、平台金鑰），之後到總覽還看得到；自己指定的密碼平台只存雜湊。
+     pendingMessage＝還沒生效（要重新開機）時的說明；馬上生效就是 null，toast 已經講過了 */
+  const [secret, setSecret] = useState(null);
   const [newKey, setNewKey] = useState("");
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
@@ -140,7 +190,12 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
     try {
       const res = await ResourcesService.resetPassword(vmid, password);
       setShowPassword(false);
-      setSecret({ kind: "password", value: res.password, message: res.message });
+      setSecret({
+        kind: "password",
+        value: res.password,
+        stored: password == null,
+        pendingMessage: res.applied_immediately ? null : res.message,
+      });
       toast.success(res.message);
       await reloadAfterChange();
     } catch (err) {
@@ -160,7 +215,12 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
     setBusy(true);
     try {
       const res = await ResourcesService.regenerateSshKey(vmid);
-      setSecret({ kind: "key", value: res.ssh_private_key, message: res.message });
+      setSecret({
+        kind: "key",
+        value: res.ssh_private_key,
+        stored: true,
+        pendingMessage: res.applied_immediately ? null : res.message,
+      });
       toast.success(res.message);
       await reloadAfterChange();
     } catch (err) {
@@ -224,7 +284,10 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
           </h2>
           {/* 卡片層級的說明一律放在大標下方（cardDesc），不在內文自成一行 */}
           {requiresRunning && (
-            <p className={`${styles.cardDesc} ${styles.hintWarn}`}>{t("CredentialsCard.requiresRunning")}</p>
+            <p className={`${styles.cardDesc} ${styles.hintWarn}`}>
+              <MIcon name="warning" size={14} />
+              <span>{t("CredentialsCard.requiresRunning")}</span>
+            </p>
           )}
           {info?.resource_type === "qemu" && (
             <p className={styles.cardDesc}>{t("CredentialsCard.cloudInitNote")}</p>
@@ -275,34 +338,55 @@ export default function CredentialsCard({ vmid, onShowOverview }) {
               </div>
             </div>
 
+            {/* 剛產生的密碼／私鑰：一般內容區塊，值本身用正常字級，複製鈕緊貼在旁邊 */}
             {secret && (
-              <div className={styles.secretBox}>
-                <span className={styles.noteBoxTitle}>
-                  <MIcon name="visibility" size={14} />
-                  {secret.kind === "password" ? t("CredentialsCard.newPasswordOnce") : t("CredentialsCard.newKeyOnce")}
-                </span>
-                <pre className={styles.keyPre}>{secret.value}</pre>
-                <span className={styles.mutedText}>{secret.message}</span>
-                <div className={styles.keyActions}>
-                  <button type="button" className={styles.ghostBtn} onClick={() => copy(secret.value)}>
-                    <MIcon name={copied ? "check" : "content_copy"} size={14} />
-                    {copied ? t("CredentialsCard.copied") : t("CredentialsCard.copy")}
-                  </button>
-                  {secret.kind === "key" && (
-                    <button
-                      type="button"
-                      className={styles.ghostBtn}
-                      onClick={() => downloadBlob(new Blob([secret.value], { type: "text/plain" }), `id_ed25519_vm${vmid}`)}
-                    >
-                      <MIcon name="download" size={14} />
-                      {t("CredentialsCard.download")}
-                    </button>
-                  )}
-                  <button type="button" className={styles.ghostBtn} onClick={() => setSecret(null)}>
-                    <MIcon name="close" size={14} />
-                    {t("CredentialsCard.dismiss")}
-                  </button>
+              <div className={styles.secretBox} role="status">
+                <div className={styles.secretHead}>
+                  <span className={styles.secretTitle}>
+                    <MIcon name={secret.kind === "password" ? "password" : "key"} size={16} />
+                    {t(secret.kind === "password" ? "CredentialsCard.newPasswordTitle" : "CredentialsCard.newKeyTitle")}
+                  </span>
+                  <span className={styles.secretNote}>
+                    {t(secret.stored ? "CredentialsCard.secretStoredNote" : "CredentialsCard.secretOnceNote")}
+                  </span>
                 </div>
+                {secret.kind === "password" ? (
+                  <div className={styles.secretValueRow}>
+                    <code className={styles.secretValue}>{secret.value}</code>
+                    <button type="button" className={styles.btnSecondary} onClick={() => copy(secret.value)}>
+                      <MIcon name={copied ? "check" : "content_copy"} size={16} />
+                      {copied ? t("CredentialsCard.copied") : t("CredentialsCard.copy")}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <pre className={styles.keyPre}>{secret.value}</pre>
+                    <div className={styles.keyActions}>
+                      <button type="button" className={styles.btnSecondary} onClick={() => copy(secret.value)}>
+                        <MIcon name={copied ? "check" : "content_copy"} size={16} />
+                        {copied ? t("CredentialsCard.copied") : t("CredentialsCard.copy")}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.btnSecondary}
+                        onClick={() => downloadBlob(new Blob([secret.value], { type: "text/plain" }), `id_ed25519_vm${vmid}`)}
+                      >
+                        <MIcon name="download" size={16} />
+                        {t("CredentialsCard.download")}
+                      </button>
+                    </div>
+                  </>
+                )}
+                {secret.pendingMessage && (
+                  <span className={styles.secretPending}>
+                    <MIcon name="schedule" size={14} />
+                    {secret.pendingMessage}
+                  </span>
+                )}
+                <button type="button" className={`${styles.ghostBtn} ${styles.secretDone}`} onClick={() => setSecret(null)}>
+                  <MIcon name="check" size={16} />
+                  {t("CredentialsCard.secretDone")}
+                </button>
               </div>
             )}
 
