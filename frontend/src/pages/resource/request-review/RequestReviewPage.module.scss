@@ -56,75 +56,6 @@
   @include btn-secondary;
 }
 
-.btnDanger {
-  @include btn-danger;
-}
-
-/* ── 批量拒絕對話框：比照共用確認框的危險款 ── */
-.dialogIconDanger {
-  @include flex-center;
-  color: var(--color-danger);
-}
-
-/* 要拒絕的申請：白底細框清單（玻璃卡內的資訊區塊一律白底），最多列 5 筆 */
-.rejectList {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-}
-
-.rejectItem,
-.rejectMore {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-height: 40px;
-  padding: $spacing-8 12px;
-  font-size: $font-size-14;
-
-  & + & {
-    border-top: 1px solid var(--color-divider);
-  }
-}
-
-.rejectItem {
-  color: var(--color-text-muted);
-}
-
-.rejectItemName {
-  flex: 1;
-  min-width: 0;
-  color: var(--color-text-primary);
-  font-weight: $font-weight-500;
-  @include text-truncate;
-}
-
-.rejectItemUser {
-  flex-shrink: 0;
-  max-width: 40%;
-  font-size: $font-size-12;
-  @include text-truncate;
-}
-
-.rejectMore {
-  border-top: 1px solid var(--color-divider);
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-}
-
-/* 對話框裡的欄位走表單 mixin（標籤 14/500、控制項同全站），備註固定高 */
-.dialogField {
-  @include form-field;
-
-  textarea {
-    @include form-control;
-    height: 88px;
-  }
-}
-
 /* ── Tabs ── */
 /* 分段切換器與搜尋擺在共用工具列（DataToolbar）同一排；窄螢幕選項放不下時讓切換器自己橫向捲動 */
 .tabsControl {
@@ -306,6 +237,24 @@
   font-size: $font-size-12;
   color: var(--color-text-muted);
   @include text-truncate;
+}
+
+/* 批量核准／拒絕沒成功的那筆：原因標在列上（可換行，後端的訊息長短不一） */
+.rowError {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-4;
+  margin-top: 2px;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+
+  /* 圖示對齊第一行文字 */
+  > :first-child {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
 }
 
 .rowSide {

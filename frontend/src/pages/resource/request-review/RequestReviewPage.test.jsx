@@ -303,4 +303,59 @@ describe("RequestReviewPage", () => {
     expect(host.textContent).not.toContain("boom");
     expect(rowButtons()).toHaveLength(1);
   });
+
+  test("checked pending requests are approved one at a time; the failed one stays checked and its reason is shown", async () => {
+    const pending = [
+      vmRequest("p1", "pending", "2026-09-03T00:00:00Z"),
+      vmRequest("p2", "pending", "2026-09-02T00:00:00Z"),
+    ];
+    mocks.vmListAll.mockImplementation(async (status) => (
+      status === "pending" ? { data: pending, count: pending.length } : { data: [], count: 0 }
+    ));
+    /* 核准由後端挑節點並預留資源：同時只能有一筆在路上 */
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mocks.vmReview.mockImplementation(async (id) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      if (id === "p2") throw new Error("沒有可用節點");
+      return {};
+    });
+    const rowBoxes = () => [...host.querySelectorAll('[data-guide="request-review-row-select"] input')];
+
+    await renderPage();
+    await flush();
+    await act(async () => { rowBoxes()[0].click(); });
+    await act(async () => { rowBoxes()[1].click(); });
+    /* 批量列上的核准（按鈕文字前面有圖示，所以用 includes 找） */
+    const batchApprove = [...host.querySelectorAll('[role="region"] button')]
+      .find((button) => button.textContent.includes("RequestReviewPage.approve"));
+    await act(async () => { batchApprove.click(); });
+
+    /* 共用的批量審核對話框（portal 到 body）：列出兩筆，送出後逐筆核准 */
+    const dialog = document.body.querySelector('form[role="dialog"]');
+    expect(dialog.textContent).toContain("RequestReviewPage.batchApproveTitle");
+    expect(dialog.textContent).toContain("host-p1");
+    expect(dialog.textContent).toContain("host-p2");
+    await act(async () => {
+      dialog.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    await flush();
+
+    /* 清單是新到舊（p1 比 p2 晚送），核准照申請時間先後送：先申請的 p2 先拿資源 */
+    expect(mocks.vmReview.mock.calls).toEqual([
+      ["p2", { status: "approved", review_comment: null }],
+      ["p1", { status: "approved", review_comment: null }],
+    ]);
+    expect(maxInFlight).toBe(1);
+    expect(mocks.toast.error).toHaveBeenCalledWith("RequestReviewPage.batchApproveFailedKeptToast");
+    expect(rowBoxes().map((box) => box.checked)).toEqual([false, true]);
+    /* 失敗原因標在那一筆的列上，成功的那筆沒有 */
+    const rowText = (id) => rowButtons().find((b) => b.textContent.includes(`host-${id}`)).textContent;
+    expect(rowText("p2")).toContain("RequestReviewPage.batchFailedReason");
+    expect(rowText("p1")).not.toContain("RequestReviewPage.batchFailedReason");
+  });
 });

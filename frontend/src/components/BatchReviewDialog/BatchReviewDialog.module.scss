@@ -1,0 +1,83 @@
+@use "../../assets/styles/variables" as *;
+@use "../../assets/styles/mixins" as *;
+
+.iconDanger {
+  @include flex-center;
+  color: var(--color-danger);
+}
+
+.iconApprove {
+  @include flex-center;
+  color: var(--color-primary);
+}
+
+.btnPrimary {
+  @include btn-primary;
+}
+
+.btnSecondary {
+  @include btn-secondary;
+}
+
+.btnDanger {
+  @include btn-danger;
+}
+
+/* 這次會處理的項目：白底細框清單（玻璃卡內的資訊區塊一律白底），最多列 5 筆 */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.item,
+.more {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 40px;
+  padding: $spacing-8 12px;
+  font-size: $font-size-14;
+
+  & + & {
+    border-top: 1px solid var(--color-divider);
+  }
+}
+
+.item {
+  color: var(--color-text-muted);
+}
+
+.itemName {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+  @include text-truncate;
+}
+
+.itemSub {
+  flex-shrink: 0;
+  max-width: 40%;
+  font-size: $font-size-12;
+  @include text-truncate;
+}
+
+.more {
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
+
+/* 欄位走表單 mixin（標籤 14/500、控制項同全站），備註固定高 */
+.field {
+  @include form-field;
+
+  textarea {
+    @include form-control;
+    height: 88px;
+  }
+}

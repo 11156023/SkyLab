@@ -17,9 +17,9 @@ import {
 import { useAllSpecChangeRequestsQuery, useSpecChangeRequestCacheUpdater } from "../../../queries/specChangeRequests";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
-import Modal from "../../../components/Modal/Modal";
 import DataToolbar from "../../../components/DataToolbar/DataToolbar";
-import BatchBar, { BatchAction } from "../../../components/DataToolbar/BatchBar";
+import BatchBar, { BatchAction, BatchDivider } from "../../../components/DataToolbar/BatchBar";
+import BatchReviewDialog from "../../../components/BatchReviewDialog/BatchReviewDialog";
 import SelectCheckbox from "../../../components/DataToolbar/SelectCheckbox";
 import ToolbarSearch from "../../../components/DataToolbar/ToolbarSearch";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -246,55 +246,6 @@ function EmptyState({ onClearSearch }) {
     action={onClearSearch && <button type="button" className={styles.btnSecondary} onClick={onClearSearch}><MIcon name="search_off" size={16} />{t("EmptyState.clearSearch", { ns: "common" })}</button>} />;
 }
 
-/* 批量拒絕：列出要拒絕的申請（最多 5 筆），共用一段審核備註（選填，同單筆） */
-const BATCH_NAME_PREVIEW = 5;
-
-/* 外觀比照共用確認框（useConfirm 的危險款）：紅色警告圖示＋標題＋說明，多一份白底名單與備註欄 */
-function BatchRejectDialog({ items, closing, onClose, onSubmit }) {
-  const { t } = useTranslation("resource");
-  const [comment, setComment] = useState("");
-  const preview = items.slice(0, BATCH_NAME_PREVIEW);
-  const rest = items.length - preview.length;
-
-  return (
-    <Modal
-      as="form"
-      onSubmit={(event) => { event.preventDefault(); onSubmit(comment.trim() || null); }}
-      closing={closing}
-      onClose={onClose}
-      role="alertdialog"
-      icon={<span className={styles.dialogIconDanger}><MIcon name="warning" size={20} /></span>}
-      title={t("RequestReviewPage.batchRejectTitle", { count: items.length })}
-      description={t("RequestReviewPage.batchRejectDesc")}
-      actions={(
-        <>
-          <button type="button" className={styles.btnSecondary} onClick={onClose}>{t("RequestReviewPage.cancel")}</button>
-          <button type="submit" className={styles.btnDanger}>{t("RequestReviewPage.batchRejectConfirm", { count: items.length })}</button>
-        </>
-      )}
-    >
-      <ul className={styles.rejectList}>
-        {preview.map((item) => (
-          <li key={item.id} className={styles.rejectItem}>
-            <MIcon name={sourceIcon(item)} size={16} />
-            <span className={styles.rejectItemName}>{item.title}</span>
-            <span className={styles.rejectItemUser}>{item.user}</span>
-          </li>
-        ))}
-        {rest > 0 && <li className={styles.rejectMore}>{t("RequestReviewPage.batchNamesMore", { count: rest })}</li>}
-      </ul>
-      <label className={styles.dialogField}>
-        <span>{t("RequestReviewPage.commentLabel")}</span>
-        <textarea
-          value={comment}
-          onChange={(event) => setComment(event.target.value)}
-          placeholder={t("RequestReviewPage.batchCommentPlaceholder")}
-        />
-      </label>
-    </Modal>
-  );
-}
-
 function InfoRow({ label, value }) {
   return (
     <div className={styles.infoRow}>
@@ -438,6 +389,7 @@ export default function RequestReviewPage() {
   function changeTab(tab) {
     setActiveTab(tab);
     setComment("");
+    setBatchErrors({});
   }
 
   async function submitReview(status) {
@@ -496,45 +448,82 @@ export default function RequestReviewPage() {
     });
   }, [query, requests]);
 
-  /* 批量拒絕：只勾得到看得見的待審申請；換分頁、搜尋或刷新後看不到的自動取消勾選 */
+  /* 批量核准／拒絕：只勾得到看得見的待審申請；換分頁、搜尋或刷新後看不到的自動取消勾選 */
   const selectableIds = visibleRequests
     .filter((request) => request.reviewStatus === "pending")
     .map((request) => request.id);
   const selection = useRowSelection(selectableIds);
   const selectedRequests = visibleRequests.filter((request) => selection.isSelected(request.id));
-  const [rejectOpen, setRejectOpen] = useState(false);
-  const rejectDialog = useDialogPresence(rejectOpen);
-  const [batchProgress, setBatchProgress] = useState(null); // { done, total }
+  /* 規格調整的機器已刪除就不能核准（同單筆）：批量核准略過這幾筆，拒絕不受影響 */
+  const approvableRequests = selectedRequests.filter((request) => (
+    !(request.source === "spec" && request.raw?.resource_exists === false)
+  ));
+  /* 對話框關閉動畫期間還要知道是哪一種，所以動作與開關分開記 */
+  const [batchAction, setBatchAction] = useState("rejected");
+  const [batchOpen, setBatchOpen] = useState(false);
+  const batchDialog = useDialogPresence(batchOpen);
+  const [batchProgress, setBatchProgress] = useState(null); // { action, done, total }
+  /* 上一次批量沒成功的那幾筆：原因標在各自的列上（id → { action, reason }），下一次批量或換分頁時清掉 */
+  const [batchErrors, setBatchErrors] = useState({});
+  /* 核准照申請時間先後送（清單是新到舊）：資源不夠時被擠掉的是後申請的，不是先申請的 */
+  const batchTargets = batchAction === "approved"
+    ? [...approvableRequests].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+    : selectedRequests;
 
-  async function batchReject(reviewComment) {
-    const targets = selectedRequests;
-    setRejectOpen(false);
+  function openBatchDialog(action) {
+    setBatchAction(action);
+    setBatchOpen(true);
+  }
+
+  async function batchReview(reviewComment) {
+    const action = batchAction;
+    const targets = batchTargets;
+    setBatchOpen(false);
     if (!targets.length || batchProgress) return;
-    setBatchProgress({ done: 0, total: targets.length });
-    const body = { status: "rejected", review_comment: reviewComment };
+    const approving = action === "approved";
+    setBatchErrors({});
+    setBatchProgress({ action, done: 0, total: targets.length });
+    const body = { status: action, review_comment: reviewComment };
     const res = await runBatch(
       targets,
       (item) => (item.source === "vm"
         ? VmRequestsService.review(item.rawId, body)
         : SpecChangeRequestsService.review(item.rawId, body)),
-      { concurrency: 3, onProgress: ({ done, total }) => setBatchProgress({ done, total }) },
+      {
+        /* 核准會由後端挑節點並預留資源：一筆一筆送，後面的才看得到前面剛預留的量 */
+        concurrency: approving ? 1 : 3,
+        onProgress: ({ done, total }) => setBatchProgress({ action, done, total }),
+      },
     );
-    if (res.failed === 0) {
-      toast.success(t("RequestReviewPage.batchRejectedToast", { count: res.succeeded }));
+    const failed = res.results.filter((r) => !r.ok);
+    if (failed.length === 0) {
+      toast.success(t(approving ? "RequestReviewPage.batchApprovedToast" : "RequestReviewPage.batchRejectedToast", { count: res.succeeded }));
     } else {
-      toast.error(t("RequestReviewPage.batchRejectFailedKeptToast", { succeeded: res.succeeded, failed: res.failed }));
+      toast.error(t(approving ? "RequestReviewPage.batchApproveFailedKeptToast" : "RequestReviewPage.batchRejectFailedKeptToast", { succeeded: res.succeeded, failed: res.failed }));
     }
+    /* 失敗的原因（資源不足、時段已過…）標在各自的列上，不用一筆筆點開猜 */
+    setBatchErrors(Object.fromEntries(failed.map((r) => [
+      r.item.id,
+      { action, reason: r.error?.message ?? t("RequestReviewPage.reviewFailed") },
+    ])));
     /* 成功的取消勾選，失敗的留著可以直接再試；靜默刷新，清單不閃載入畫面 */
-    selection.replace(res.results.filter((r) => !r.ok).map((r) => r.item.id));
+    selection.replace(failed.map((r) => r.item.id));
     setBatchProgress(null);
     await refreshAll();
   }
+
+  const approveSkipped = selectedRequests.length - approvableRequests.length;
+  const approveHint = approvableRequests.length === 0
+    ? t("RequestReviewPage.batchApproveNotApplicable")
+    : approveSkipped > 0
+      ? t("RequestReviewPage.batchApproveApplicableHint", { count: approvableRequests.length, skipped: approveSkipped })
+      : undefined;
 
   return (
     <div className={styles.page}>
       <PageHeader title={t("RequestReviewPage.pageTitle")} />
 
-      {/* 平常是分頁切換＋搜尋；勾選待審申請後原地換成批量拒絕（同一個高度，清單不會跳） */}
+      {/* 平常是分頁切換＋搜尋；勾選待審申請後原地換成批量核准／拒絕（同一個高度，清單不會跳） */}
       <DataToolbar
         selecting={selectedRequests.length > 0}
         batch={(
@@ -547,16 +536,24 @@ export default function RequestReviewPage() {
               onToggle: selection.toggleAll,
             }}
             progress={batchProgress && {
-              text: t("RequestReviewPage.batchRejecting", batchProgress),
+              text: t(batchProgress.action === "approved" ? "RequestReviewPage.batchApproving" : "RequestReviewPage.batchRejecting", batchProgress),
               done: batchProgress.done,
               total: batchProgress.total,
             }}
           >
             <BatchAction
+              icon="check"
+              label={t("RequestReviewPage.approve")}
+              disabled={approvableRequests.length === 0}
+              title={approveHint}
+              onClick={() => openBatchDialog("approved")}
+            />
+            <BatchDivider />
+            <BatchAction
               icon="block"
               label={t("RequestReviewPage.reject")}
               danger
-              onClick={() => setRejectOpen(true)}
+              onClick={() => openBatchDialog("rejected")}
             />
           </BatchBar>
         )}
@@ -632,6 +629,17 @@ export default function RequestReviewPage() {
                         <span className={styles.rowMeta}>
                           {sourceLabel(request.source, t)}・{request.user}
                         </span>
+                        {batchErrors[request.id] && (
+                          <span className={styles.rowError}>
+                            <MIcon name="error_outline" size={14} />
+                            <span>
+                              {t("RequestReviewPage.batchFailedReason", {
+                                action: t(batchErrors[request.id].action === "approved" ? "RequestReviewPage.approve" : "RequestReviewPage.reject"),
+                                reason: batchErrors[request.id].reason,
+                              })}
+                            </span>
+                          </span>
+                        )}
                       </div>
                       <div className={styles.rowSide}>
                         <StatusBadge status={request.status} />
@@ -751,12 +759,20 @@ export default function RequestReviewPage() {
         </div>
       </div>
 
-      {rejectDialog.open && (
-        <BatchRejectDialog
-          items={selectedRequests}
-          closing={rejectDialog.closing}
-          onClose={() => setRejectOpen(false)}
-          onSubmit={batchReject}
+      {batchDialog.open && (
+        <BatchReviewDialog
+          tone={batchAction === "approved" ? "approve" : "reject"}
+          title={t(batchAction === "approved" ? "RequestReviewPage.batchApproveTitle" : "RequestReviewPage.batchRejectTitle", { count: batchTargets.length })}
+          description={t(batchAction === "approved" ? "RequestReviewPage.batchApproveDesc" : "RequestReviewPage.batchRejectDesc")}
+          items={batchTargets.map((item) => ({ id: item.id, icon: sourceIcon(item), name: item.title, sub: item.user }))}
+          moreLabel={(count) => t("RequestReviewPage.batchNamesMore", { count })}
+          commentLabel={t("RequestReviewPage.commentLabel")}
+          commentPlaceholder={t("RequestReviewPage.batchCommentPlaceholder")}
+          confirmLabel={t(batchAction === "approved" ? "RequestReviewPage.batchApproveConfirm" : "RequestReviewPage.batchRejectConfirm", { count: batchTargets.length })}
+          cancelLabel={t("RequestReviewPage.cancel")}
+          closing={batchDialog.closing}
+          onClose={() => setBatchOpen(false)}
+          onSubmit={batchReview}
         />
       )}
     </div>
