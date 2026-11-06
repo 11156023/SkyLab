@@ -18,7 +18,7 @@
   "HomeOverview.unavailable": "接続できません",
   "HomeOverview.machineStatus.running": "稼働中",
   "HomeOverview.machineStatus.stopped": "停止中",
-  "HomeOverview.machineStatus.provisioning": "準備中",
+  "HomeOverview.machineStatus.provisioning": "作成中",
   "HomeOverview.machineStatus.starting": "起動中",
   "HomeOverview.machineStatus.failed": "作成失敗",
   "HomeOverview.machineStatus.expired": "期限切れ",

@@ -618,7 +618,7 @@ _RESOURCE_MGMT_ELEMENTS: tuple[ElementSpec, ...] = (
         section="資源清單",
     ),
     ElementSpec(
-        id="resmgmt.status_failed", role="readonly", label="建立失敗",
+        id="resmgmt.status_failed", role="readonly", label="開通失敗",
         section="資源清單",
     ),
     ElementSpec(
@@ -735,7 +735,7 @@ _AUDIT_ELEMENTS: tuple[ElementSpec, ...] = (
 # ── 我的資源 ────────────────────────────────────────────────────────
 _MY_RESOURCES_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(id="myres.status_scheduled", role="readonly", label="已排程", section="機器清單"),
-    ElementSpec(id="myres.status_provisioning", role="readonly", label="建立中", section="機器清單"),
+    ElementSpec(id="myres.status_provisioning", role="readonly", label="開通中", section="機器清單"),
     ElementSpec(id="myres.status_running", role="readonly", label="執行中", section="機器清單"),
     ElementSpec(id="myres.status_stopped", role="readonly", label="已關機", section="機器清單"),
     ElementSpec(id="myres.status_paused", role="readonly", label="已暫停", section="機器清單"),
@@ -749,7 +749,7 @@ _MY_RESOURCES_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(id="myres.status_reclaiming", role="readonly", label="回收中", section="機器清單"),
     ElementSpec(id="myres.status_deleting", role="readonly", label="刪除中", section="刪除申請"),
-    ElementSpec(id="myres.status_failed", role="readonly", label="建立失敗", section="機器清單"),
+    ElementSpec(id="myres.status_failed", role="readonly", label="開通失敗", section="機器清單"),
     ElementSpec(id="myres.status_deleted", role="readonly", label="已刪除", section="刪除申請"),
     ElementSpec(
         id="myres.status_unknown", role="readonly", label="狀態未知",

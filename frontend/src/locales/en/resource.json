@@ -196,7 +196,7 @@
   "ResourceMgmtPage.statusRunning": "Running",
   "ResourceMgmtPage.statusStopped": "Stopped",
   "ResourceMgmtPage.statusPaused": "Paused",
-  "ResourceMgmtPage.statusFailed": "Creation Failed",
+  "ResourceMgmtPage.statusFailed": "Provisioning Failed",
   "ResourceMgmtPage.statusDeleted": "Deleted",
   "ResourceMgmtPage.statusUnknown": "Unknown Status",
   "ResourceMgmtPage.typeLxc": "Container (LXC)",
