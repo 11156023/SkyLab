@@ -44,6 +44,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
+vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "me", role: "teacher" } }) }));
 vi.mock("../../../components/PageHeader/PageHeader", () => ({ default: () => null }));
 vi.mock("../../../components/LoadingState/LoadingState", () => ({ default: () => <div data-testid="loading" /> }));
 vi.mock("./TemplateFormDialog", () => ({ default: () => null }));

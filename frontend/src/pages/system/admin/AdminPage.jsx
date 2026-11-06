@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AdminPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -357,6 +357,13 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(null);
   const modalPresence  = useDialogPresence(modal);
+  /* 每次開啟給一個遞增序號當 UserModal 的 key：關閉的離場動畫（150ms）還沒播完就再開，
+     presence 會沿用同一個元件實例，上一次填的表單就殘留（2026-11-06 ntub 實測） */
+  const modalSeq = useRef(0);
+  const openModal = (next) => {
+    modalSeq.current += 1;
+    setModal({ ...next, seq: modalSeq.current });
+  };
 
   /* 使用者清單、註冊政策與待審核註冊走 TanStack Query：背景 30 秒刷新、分頁隱藏時暫停。
      service 逐頁取回全部使用者（原本寫死 limit 100，第 101 位之後在這頁根本管不到）；
@@ -664,7 +671,7 @@ export default function AdminPage() {
           <MIcon name="groups" size={16} />
           {t("UserGroups.manage")}
         </button>
-        <button type="button" className={styles.btnPrimary} onClick={() => setModal({ mode: "create" })}>
+        <button type="button" className={styles.btnPrimary} onClick={() => openModal({ mode: "create" })}>
           <MIcon name="person_add" size={16} />
           {t("AdminPage.addUser")}
         </button>
@@ -837,7 +844,7 @@ export default function AdminPage() {
         {loading ? (
           <LoadingState fullPage text={t("AdminPage.loading")} />
         ) : visibleUsers.length === 0 ? (
-          <EmptyState hasQuery={Boolean(query.trim() || activeGroupId)} onClearSearch={() => { setQuery(""); setGroupFilter(""); }} onCreate={() => setModal({ mode: "create" })} />
+          <EmptyState hasQuery={Boolean(query.trim() || activeGroupId)} onClearSearch={() => { setQuery(""); setGroupFilter(""); }} onCreate={() => openModal({ mode: "create" })} />
         ) : (
           <>
             <div className={styles.list}>
@@ -850,7 +857,7 @@ export default function AdminPage() {
                   selecting={selection.selecting}
                   onToggleSelect={selection.toggle}
                   onRowClick={selection.rowClick}
-                  onEdit={(target) => setModal({ mode: "edit", user: target })}
+                  onEdit={(target) => openModal({ mode: "edit", user: target })}
                   onDelete={handleDelete}
                 />
               ))}
@@ -871,6 +878,9 @@ export default function AdminPage() {
 
       {modalPresence.open && (
         <UserModal
+          /* 每次開啟換一個 key：離場動畫（150ms）還沒播完就再按「新增使用者」時，
+             同一個元件會被沿用，上次填的 Email／姓名／角色就殘留在表單裡 */
+          key={modalPresence.item.seq}
           mode={modalPresence.item.mode}
           user={modalPresence.item.user}
           isSelf={Boolean(currentUser?.id) && modalPresence.item.user?.id === currentUser.id}

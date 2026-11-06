@@ -163,6 +163,7 @@
   "reverseProxy.domainConflictCheckFailed": "{domain} が使用中かどうかを Cloudflare で確認できませんでした。既存レコードを上書きしないよう作成を中止しました。しばらくしてからもう一度お試しください",
   "cloudflare.identifierInvalidFormat": "{field} の形式が正しくありません。32 桁の十六進文字列を指定してください",
   "cloudflare.tokenVerified": "Cloudflare API トークンの検証に成功しました（状態：{status}）",
+  "cloudflare.tokenVerifyFailed": "Cloudflare API トークンの検証に失敗しました。ユーザートークンとして：{user_error}；アカウントトークンとして：{account_error}",
   "cloudflare.apiTimeout": "Cloudflare API がタイムアウトしました。しばらくしてから再度お試しください。",
   "cloudflare.apiConnectionFailed": "Cloudflare API に接続できませんでした：{error}",
   "cloudflare.apiRequestFailed": "Cloudflare API へのリクエストに失敗しました。",

@@ -637,14 +637,9 @@ def test_launch_creates_requests_and_submits_provisioning(
     practice = quick_practice.launch(qdb, user=student, environment_id=environment.id)
 
     assert practice.status == "creating"
-    assert quotas == [
-        {
-            "delta_cores": 2,
-            "delta_memory_mb": 1024,
-            "delta_disk_gb": 16,
-            "delta_instances": 2,
-        }
-    ]
+    # 快速練習是固定配置的環境機器，不計入個人配額（配額卡片也是這樣告訴使用者的）；
+    # 上限由「同時一組」「24 小時 3 次」與叢集容量預檢管
+    assert quotas == []
     assert len(reserved[0]) == 2
     assert all(group == practice.id for _req_in, group in created)
     assert created[0][0].resource_type == "lxc"

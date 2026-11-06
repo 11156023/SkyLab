@@ -163,6 +163,7 @@
   "reverseProxy.domainConflictCheckFailed": "Could not confirm with Cloudflare whether {domain} is already in use; the rule was not created so an existing record is not overwritten. Please try again later",
   "cloudflare.identifierInvalidFormat": "{field} has an invalid format; it must be a 32-character hexadecimal string",
   "cloudflare.tokenVerified": "Cloudflare API Token verified (status: {status})",
+  "cloudflare.tokenVerifyFailed": "Cloudflare API Token verification failed. As a user token: {user_error}; as an account token: {account_error}",
   "cloudflare.apiTimeout": "The Cloudflare API timed out. Please try again later.",
   "cloudflare.apiConnectionFailed": "Could not connect to the Cloudflare API: {error}",
   "cloudflare.apiRequestFailed": "The Cloudflare API request failed.",

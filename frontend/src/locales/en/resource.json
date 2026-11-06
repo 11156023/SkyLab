@@ -132,6 +132,8 @@
   "RequestReviewPage.nodeNotEvaluated": "Not yet evaluated",
   "RequestReviewPage.specChangeTitle": "VMID {{vmid}} Spec Change",
   "RequestReviewPage.specChangeTitleNamed": "{{name}} (VMID {{vmid}}) Spec Change",
+  "RequestReviewPage.expiryChangeTitle": "VMID {{vmid}} Expiry Extension",
+  "RequestReviewPage.expiryChangeTitleNamed": "{{name}} (VMID {{vmid}}) Expiry Extension",
   "RequestReviewPage.specResourceGoneHint": "This machine has been deleted and the request cannot be approved; please reject it.",
   "RequestReviewPage.applyResultLabel": "Apply Result",
   "RequestReviewPage.applyResultAppliedAt": " (applied {{time}})",
