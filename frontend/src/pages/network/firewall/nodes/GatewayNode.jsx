@@ -3,11 +3,11 @@ import styles from "../FirewallPage.module.scss";
 import MIcon from "../../../../components/MIcon";
 import NodeHandles from "./NodeHandles";
 
-export default function GatewayNode({ selected }) {
+export default function GatewayNode({ data, selected }) {
   const { t } = useTranslation("network");
   return (
     <div className={`${styles.gwNode} ${selected ? styles.nodeSelected : ""}`}>
-      <NodeHandles dragEndSide="left" />
+      <NodeHandles dragEndSide="left" connectable={data?.connectable !== false} />
       <MIcon name="public" size={30} />
       <span className={styles.gwLabel}>{t("GatewayNode.internet")}</span>
     </div>

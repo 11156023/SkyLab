@@ -778,7 +778,8 @@
 /* 底色與防火牆頁畫布同一組 flow token（藍色淡染＋玻璃濾鏡） */
 .flowMini {
   position: relative;
-  height: 280px;
+  /* 可以拉線、點線開連線內容面板（疊在圖上），比純看的時候多留一點高度 */
+  height: 320px;
   border: 1px solid var(--color-flow-border);
   border-radius: $radius-12;
   overflow: hidden;
@@ -798,6 +799,26 @@
 .topologyBlock {
   @include flex-column;
   gap: $spacing-8;
+}
+
+/* 圖例靠左、操作提示接在後面；放不下時提示換到下一行 */
+.flowFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8 12px;
+}
+
+/* 這張圖能做什麼（拉線、點線）或為什麼只能看：次要說明文字，不搶圖例 */
+.flowHint {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  margin: 0;
+  min-width: 0;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-text-muted);
 }
 
 /* 與防火牆頁的畫布圖例同款：淡抹 surface 底、邊框、blur(4px)（Dialog 遮罩標準濾鏡值） */

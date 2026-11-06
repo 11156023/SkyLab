@@ -29,7 +29,8 @@ export default function VMNode({ data, selected }) {
 
   return (
     <div className={`${styles.vmNode} ${selected ? styles.nodeSelected : ""} ${readOnly ? styles.nodeReadOnly : ""}`}>
-      <NodeHandles dragStartSide="right" />
+      {/* data.connectable=false：整張圖只能看（資源詳情裡沒有管理權的機器），連接點不出現 */}
+      <NodeHandles dragStartSide="right" connectable={data.connectable !== false} />
       {/* 機器來源徽章與我的資源同一套：學生機器帶學生名，唯讀的課堂機掛鎖 */}
       {showBadge && <MachineKindBadge
         kind={data.machine_kind}

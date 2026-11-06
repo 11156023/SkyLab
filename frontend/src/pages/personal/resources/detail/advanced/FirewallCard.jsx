@@ -3,9 +3,14 @@
  * 上半是以這台 VM 為中心的迷你拓撲，下半是 Proxmox 原始規則表。
  * SkyLab: 開頭的受管規則上鎖（由連線對話框／拓撲頁管理），其餘可自行新增、停用、刪除。
  * 「新增規則」開的是共用的 ConnectionDialog（預設停在「自訂規則」分頁，也能切到「連線」做對外發布）。
+ *
+ * 迷你拓撲跟防火牆拓撲頁同一套操作：拖機器、從機器邊緣拉線（帶入兩端開同一個表單）、
+ * 點連線開連線內容面板（疊在圖上）看開放內容或刪除。
+ * 權限：沒有這台的管理權（學生的課堂機）整張圖只能看；另一端是別人的機器時那條線不能刪、
+ * 也不能再往它拉線（連線要同時寫兩端的規則）。
  */
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createColumnHelper, useTable } from "@tanstack/react-table";
 import styles from "../ResourceDetailPage.module.scss";
@@ -18,7 +23,10 @@ import ConnectionDialog from "../../../../../components/ConnectionDialog/Connect
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
-import { deleteVmRule, updateVmRule } from "../../../../../services/firewall";
+import { deleteConnection, deleteVmRule, updateVmRule } from "../../../../../services/firewall";
+import ConnectionDetailPanel from "../../../../network/firewall/ConnectionDetailPanel";
+import { GATEWAY_KEY, portLabel } from "../../../../network/firewall/utils/buildFlow";
+import { canManageNode, toDialogNodes } from "../../../../../components/ConnectionDialog/topologyNodes";
 import {
   useFirewallCacheUpdater,
   useVmFirewallOptionsQuery,
@@ -200,6 +208,9 @@ const RULE_COLUMNS_WITH_ACTIONS = columnHelper.columns([
 
 const getRuleId = (rule) => String(rule.pos);
 
+/* 與 buildFlow 給邊的 id 同一個規則（只由兩端決定）：拓撲重抓後用它找回選取中的那條線 */
+const edgeIdOf = (edge) => `edge-${edge.source_vmid ?? GATEWAY_KEY}-${edge.target_vmid ?? GATEWAY_KEY}`;
+
 /* busy 與操作欄顯示與否是卡片層級的、規則資料沒變也會變：經列元件的 props 進 rowState，
    儲存格才會跟著重繪（showActions 本身 cell 用不到，是讓操作欄出現／消失時整列重畫） */
 function RuleRow({ row, rule, busy, showActions, onToggle, onDelete }) {
@@ -220,12 +231,18 @@ function RuleRow({ row, rule, busy, showActions, onToggle, onDelete }) {
  */
 export default function FirewallCard({ vmid, canManage, publicUrls = [], onChanged }) {
   const { t } = useTranslation("personal");
+  const { t: tn } = useTranslation("network");
   const toast = useToast();
   const confirm = useConfirm();
   const firewallCache = useFirewallCacheUpdater();
   const [busy, setBusy] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const addPresence = useDialogPresence(showAdd);
+  /* 連線表單：{ mode: "rule" }＝「新增規則」鈕（鎖定這台），{ mode: "connect", source, target }＝圖上拉線帶入兩端 */
+  const [dialog, setDialog] = useState(null);
+  const dialogPresence = useDialogPresence(dialog);
+  /* 圖上選取中的連線（存 id：拓撲重抓後用它找回同一條，線不見了面板就關） */
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  /* 刪除連線進行中：確認後又被按第二次不會送出兩筆 */
+  const deletingEdgeRef = useRef(false);
 
   /* 迷你拓撲與防火牆選項查不到就不顯示；規則表查不到時提示，已有清單沿用、從沒載到就是空的 */
   const topologyQuery = useVmFirewallTopologyQuery(vmid);
@@ -248,12 +265,84 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
 
   const thisVmName = topology?.nodes?.find((n) => n.vmid === vmid)?.name;
 
+  /* ── 迷你拓撲上的連線 ── */
+  const topologyNodes = topology?.nodes ?? EMPTY;
+  const selectedEdge = selectedEdgeId
+    ? (topology?.edges ?? EMPTY).find((edge) => edgeIdOf(edge) === selectedEdgeId) ?? null
+    : null;
+  /* useDialogPresence 依值是否換了物件來判斷開關，這裡要給穩定的物件，不然每次 render 都被當成新開 */
+  const selectedEdgeView = useMemo(
+    () => (selectedEdge ? { id: selectedEdgeId, edge: selectedEdge } : null),
+    [selectedEdge, selectedEdgeId],
+  );
+  /* 關閉時先播 0.22s 滑出動畫再卸載，時長與連線內容面板的 panelOut 一致 */
+  const edgePanel = useDialogPresence(selectedEdgeView, 220);
+
+  const nameOf = (edgeVmid) => {
+    if (edgeVmid === null || edgeVmid === undefined) return tn("GatewayNode.internet");
+    return topologyNodes.find((n) => n.vmid === edgeVmid)?.name ?? `vmid:${edgeVmid}`;
+  };
+  /* 連線另一端（不是這台）裡第一台不能管的機器：有的話這條線不能刪，也不能再往它拉線 */
+  const unmanageablePeerOf = (edge) => [edge.source_vmid, edge.target_vmid]
+    .filter((id) => id !== null && id !== undefined && id !== vmid)
+    .map((id) => topologyNodes.find((n) => n.vmid === id))
+    .find((node) => node && !canManageNode(node));
+
+  /* 這條線為什麼不能刪（能刪回空字串）：講清楚原因，不讓人以為是按鈕不見了 */
+  function edgeLockedHint(edge) {
+    if (!edge) return "";
+    if (!canManage) return t("FirewallCard.topologyReadOnlyHint");
+    if (edge.topology_managed) return t("FirewallCard.edgeLockedManaged");
+    const peer = unmanageablePeerOf(edge);
+    return peer ? t("FirewallCard.edgeLockedPeer", { name: peer.name }) : "";
+  }
+
+  /* 拉線被擋：這台不能改，或另一端是不能管的機器 */
+  function handleConnectBlocked(node) {
+    toast.error(!canManage || node?.vmid === vmid
+      ? t("FirewallCard.topologyReadOnlyHint")
+      : t("FirewallCard.blockedPeer", { name: node?.name ?? "" }));
+  }
+
+  /* 連線增刪後：這台的規則／選項／迷你拓撲、另一端機器的規則、整張拓撲都可能變（受管規則插在前面，
+     後面的位置跟著位移），全部標成過期重抓；對外網址也可能變，通知上層重載資源 */
+  function refreshAfterConnectionChange() {
+    firewallCache.invalidate();
+    onChanged?.();
+  }
+
+  async function handleDeleteEdge(edge) {
+    if (!edge || deletingEdgeRef.current) return;
+    const ports = edge.ports?.length > 0 ? portLabel(edge.ports) : "";
+    const ok = await confirm({
+      title: tn("FirewallPage.deleteConnectionTitle"),
+      message: ports
+        ? `${tn("FirewallPage.deleteConnectionConfirm")}\n${nameOf(edge.source_vmid)} → ${nameOf(edge.target_vmid)}：${ports}`
+        : `${tn("FirewallPage.deleteConnectionConfirm")}\n${nameOf(edge.source_vmid)} → ${nameOf(edge.target_vmid)}`,
+      confirmText: tn("FirewallPage.delete"),
+      cancelText: tn("FirewallPage.cancel"),
+      danger: true,
+    });
+    if (!ok) return;
+    deletingEdgeRef.current = true;
+    try {
+      await deleteConnection({ source_vmid: edge.source_vmid, target_vmid: edge.target_vmid, ports: null });
+      toast.success(t("FirewallCard.connectionDeleted"));
+      setSelectedEdgeId(null);
+      refreshAfterConnectionChange();
+    } catch (err) {
+      toast.error(err?.message ?? tn("FirewallPage.deleteFailed"));
+    } finally {
+      deletingEdgeRef.current = false;
+    }
+  }
+
   /* 對話框可能建了自訂規則，也可能建了連線（含對外發布），兩種都重載規則表與迷你拓撲 */
   function handleDialogDone(result) {
     toast.success(result?.kind === "rule" ? t("FirewallCard.ruleAdded") : t("FirewallCard.connectionAdded"));
-    setShowAdd(false);
-    load();
-    if (result?.kind !== "rule") onChanged?.();
+    setDialog(null);
+    if (result?.kind === "rule") load();
+    else refreshAfterConnectionChange();
   }
 
   async function handleToggle(rule) {
@@ -328,7 +417,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
             </>
           )}
           {canManage && (
-            <button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(true)}>
+            <button type="button" className={styles.btnSecondary} onClick={() => setDialog({ mode: "rule" })}>
               <MIcon name="add" size={16} />
               {t("FirewallCard.addRule")}
             </button>
@@ -359,11 +448,38 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
             {/* 拓撲圖與圖例包成一組、組內間距較小：圖例緊貼著圖，不會被讀成下方規則表的說明 */}
             {topology && (
               <div className={styles.topologyBlock}>
-                <MiniTopology topology={topology} />
-                <div className={styles.flowLegend}>
-                  <span><i className={`${styles.legendDot} ${styles.legendIn}`} />{t("FirewallCard.legendInbound")}</span>
-                  <span><i className={`${styles.legendDot} ${styles.legendOut}`} />{t("FirewallCard.legendOutbound")}</span>
-                  <span><i className={`${styles.legendDot} ${styles.legendPeer}`} />{t("FirewallCard.legendPeer")}</span>
+                <MiniTopology
+                  topology={topology}
+                  vmid={vmid}
+                  canManage={canManage}
+                  selectedEdgeId={selectedEdgeId}
+                  onSelectEdge={(_edge, id) => setSelectedEdgeId((prev) => (prev === id ? null : id))}
+                  onConnectRequest={(preset) => setDialog({ mode: "connect", ...preset })}
+                  onBlocked={handleConnectBlocked}
+                >
+                  {/* 連線內容面板疊在圖上（跟拓撲頁同一個元件）；不能刪的時候在刪除鈕的位置講原因 */}
+                  {edgePanel.item && (
+                    <ConnectionDetailPanel
+                      edge={edgePanel.item.edge}
+                      resolveName={nameOf}
+                      closing={edgePanel.closing}
+                      onClose={() => setSelectedEdgeId(null)}
+                      onDelete={edgeLockedHint(edgePanel.item.edge) ? undefined : handleDeleteEdge}
+                      lockedHint={edgeLockedHint(edgePanel.item.edge)}
+                    />
+                  )}
+                </MiniTopology>
+                <div className={styles.flowFooter}>
+                  <div className={styles.flowLegend}>
+                    <span><i className={`${styles.legendDot} ${styles.legendIn}`} />{t("FirewallCard.legendInbound")}</span>
+                    <span><i className={`${styles.legendDot} ${styles.legendOut}`} />{t("FirewallCard.legendOutbound")}</span>
+                    <span><i className={`${styles.legendDot} ${styles.legendPeer}`} />{t("FirewallCard.legendPeer")}</span>
+                  </div>
+                  {/* 這張圖能做什麼：有管理權講怎麼拉線、刪線；沒有就講只能看 */}
+                  <p className={styles.flowHint}>
+                    {!canManage && <MIcon name="lock" size={13} />}
+                    {canManage ? t("FirewallCard.topologyHint") : t("FirewallCard.topologyReadOnlyHint")}
+                  </p>
                 </div>
               </div>
             )}
@@ -394,15 +510,29 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
       </div>
 
       {/* 共用對話框自己 portal 到 body，不會被卡片的 overflow:hidden 困住 */}
-      {addPresence.open && (
+      {dialogPresence.item?.mode === "rule" && (
         <ConnectionDialog
           fixedVmid={vmid}
           fixedName={thisVmName}
           initialTab="rule"
-          closing={addPresence.closing}
-          onClose={() => setShowAdd(false)}
+          closing={dialogPresence.closing}
+          onClose={() => setDialog(null)}
           onDone={handleDialogDone}
           onChanged={load}
+        />
+      )}
+      {/* 圖上拉線：兩端照拉的方向帶入（不鎖定這台，否則「別台 → 這台」會被翻成「這台 → 別台」）；
+          可選的機器只有圖上能管的那幾台 */}
+      {dialogPresence.item?.mode === "connect" && (
+        <ConnectionDialog
+          key={`${dialogPresence.item.source}->${dialogPresence.item.target}`}
+          nodes={toDialogNodes(topologyNodes)}
+          initialSource={dialogPresence.item.source}
+          initialTarget={dialogPresence.item.target}
+          closing={dialogPresence.closing}
+          onClose={() => setDialog(null)}
+          onDone={handleDialogDone}
+          onChanged={refreshAfterConnectionChange}
         />
       )}
     </div>
